@@ -5,14 +5,7 @@ are covered by integration tests that simulate UI interaction and confirm that t
 Now
 ===
 
-* List view - implement (multi-)selection. Single click to select, double click to open in gallery.
-* Sync the selected row with the gallery view, i.e. navigating left/right in the gallery will also move selection up/down in the list (and scroll the newly selected image into view as necessary)
-* List view context menu when right clicking on a row:
-    * View (opens in gallery, equivalent to double-click)
-    * Show in File Explorer
-
-
-Later
+* Later
 =====
 
 * Metadata should be gathered via:
