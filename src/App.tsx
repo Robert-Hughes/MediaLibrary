@@ -51,7 +51,7 @@ export default function App() {
             onOpenFolder={actions.openFolder}
             onCloseFolder={actions.closeFolder}
           />
-          <PhotoList photos={state.photos} />
+          <PhotoList photos={state.photos} onVisibilityChange={actions.prioritizeThumbnails} />
         </>
       )}
     </div>

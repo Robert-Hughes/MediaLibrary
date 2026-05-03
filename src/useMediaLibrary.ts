@@ -24,12 +24,12 @@ export interface TauriApi {
     handler: (payload: unknown) => void
   ) => Promise<() => void>;
 }
-
 // ── Hook ──────────────────────────────────────────────────────────────────────
 
 export interface MediaLibraryActions {
   openFolder: () => Promise<void>;
   closeFolder: () => void;
+  prioritizeThumbnails: (visiblePaths: string[]) => void;
 }
 
 export function useMediaLibrary(api: TauriApi): [AppState, MediaLibraryActions] {
@@ -123,5 +123,16 @@ export function useMediaLibrary(api: TauriApi): [AppState, MediaLibraryActions] 
     setAppState({ kind: "idle" });
   }, []);
 
-  return [appState, { openFolder, closeFolder }];
+  // Debounced — coalesce rapid scroll events before hitting the backend.
+  const prioritizeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const prioritizeThumbnails = useCallback((visiblePaths: string[]) => {
+    if (prioritizeTimerRef.current) clearTimeout(prioritizeTimerRef.current);
+    prioritizeTimerRef.current = setTimeout(() => {
+      api.invoke("prioritize_thumbnails", { visiblePaths }).catch(() => {
+        // Best-effort — ignore errors (e.g. scan already finished).
+      });
+    }, 100);
+  }, [api]);
+
+  return [appState, { openFolder, closeFolder, prioritizeThumbnails }];
 }

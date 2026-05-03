@@ -95,8 +95,10 @@ describe("Toolbar", () => {
 // ── PhotoList ─────────────────────────────────────────────────────────────────
 
 describe("PhotoList", () => {
+  const noop = () => {};
+
   it("shows empty message when there are no photos", () => {
-    render(<PhotoList photos={[]} />);
+    render(<PhotoList photos={[]} onVisibilityChange={noop} />);
     expect(screen.getByTestId("photo-list-empty")).toBeInTheDocument();
   });
 
@@ -106,16 +108,15 @@ describe("PhotoList", () => {
       { relative_path: "b/c.png", thumbnail: null },
       { relative_path: "d.gif", thumbnail: null },
     ];
-    render(<PhotoList photos={photos} />);
-    const rows = screen.getAllByTestId("photo-row");
-    expect(rows).toHaveLength(3);
+    render(<PhotoList photos={photos} onVisibilityChange={noop} />);
+    expect(screen.getAllByTestId("photo-row")).toHaveLength(3);
   });
 
   it("displays the relative path for each photo", () => {
     const photos: PhotoInfo[] = [
       { relative_path: "vacation/beach.jpg", thumbnail: null },
     ];
-    render(<PhotoList photos={photos} />);
+    render(<PhotoList photos={photos} onVisibilityChange={noop} />);
     expect(screen.getByTestId("photo-path")).toHaveTextContent("vacation/beach.jpg");
   });
 
@@ -123,7 +124,7 @@ describe("PhotoList", () => {
     const photos: PhotoInfo[] = [
       { relative_path: "a.jpg", thumbnail: "abc123" },
     ];
-    render(<PhotoList photos={photos} />);
+    render(<PhotoList photos={photos} onVisibilityChange={noop} />);
     const img = document.querySelector(".photo-thumb-img") as HTMLImageElement;
     expect(img).toBeInTheDocument();
     expect(img).toHaveAttribute("src", "data:image/jpeg;base64,abc123");
@@ -133,8 +134,51 @@ describe("PhotoList", () => {
     const photos: PhotoInfo[] = [
       { relative_path: "a.jpg", thumbnail: null },
     ];
-    render(<PhotoList photos={photos} />);
-    expect(screen.queryByRole("img")).toBeNull();
+    render(<PhotoList photos={photos} onVisibilityChange={noop} />);
     expect(document.querySelector(".photo-thumb-placeholder")).toBeInTheDocument();
+  });
+
+  it("sets data-path attribute on each row for IntersectionObserver", () => {
+    const photos: PhotoInfo[] = [
+      { relative_path: "vacation/beach.jpg", thumbnail: null },
+      { relative_path: "portrait.png", thumbnail: null },
+    ];
+    render(<PhotoList photos={photos} onVisibilityChange={noop} />);
+    const rows = screen.getAllByTestId("photo-row");
+    expect(rows[0]).toHaveAttribute("data-path", "vacation/beach.jpg");
+    expect(rows[1]).toHaveAttribute("data-path", "portrait.png");
+  });
+
+  it("calls onVisibilityChange when IntersectionObserver fires", () => {
+    // jsdom doesn't implement IntersectionObserver, so we stub it.
+    const observed: Element[] = [];
+    const callbacks: IntersectionObserverCallback[] = [];
+
+    vi.stubGlobal("IntersectionObserver", class {
+      constructor(cb: IntersectionObserverCallback) { callbacks.push(cb); }
+      observe(el: Element) { observed.push(el); }
+      disconnect() {}
+    });
+
+    const handler = vi.fn();
+    const photos: PhotoInfo[] = [
+      { relative_path: "a.jpg", thumbnail: null },
+      { relative_path: "b.jpg", thumbnail: null },
+    ];
+    render(<PhotoList photos={photos} onVisibilityChange={handler} />);
+
+    // Simulate both rows becoming visible.
+    const entries = observed.map((el) => ({
+      target: el,
+      isIntersecting: true,
+    })) as IntersectionObserverEntry[];
+
+    callbacks[0](entries, {} as IntersectionObserver);
+
+    expect(handler).toHaveBeenCalledWith(
+      expect.arrayContaining(["a.jpg", "b.jpg"])
+    );
+
+    vi.unstubAllGlobals();
   });
 });

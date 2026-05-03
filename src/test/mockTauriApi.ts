@@ -31,16 +31,35 @@ export interface MockTauriApi {
   emitThumbnailReady: (relativePath: string, thumbnail: string) => void;
   /** Simulate a scan_error event from Rust. */
   emitScanError: (message: string) => void;
+  /** The paths most recently passed to prioritize_thumbnails. */
+  lastPrioritizedPaths: string[];
 }
 
 export function createMockTauriApi(): MockTauriApi {
   let nextFolder: string | null = null;
   const handlers: Record<string, EventHandler[]> = {};
+  const mock: MockTauriApi = {
+    api: null as unknown as TauriApi, // set below
+    pickFolderResolves: (path) => { nextFolder = path; },
+    emitScanProgress: (foundSoFar) =>
+      emit("scan_progress", { found_so_far: foundSoFar } satisfies ScanProgressPayload),
+    emitScanComplete: (photos) =>
+      emit("scan_complete", { photos } satisfies ScanCompletePayload),
+    emitThumbnailReady: (relative_path, thumbnail) =>
+      emit("thumbnail_ready", { relative_path, thumbnail } satisfies ThumbnailReadyPayload),
+    emitScanError: (message) =>
+      emit("scan_error", { message } satisfies ScanErrorPayload),
+    lastPrioritizedPaths: [],
+  };
 
   const api: TauriApi = {
-    invoke: async (cmd) => {
+    invoke: async (cmd, args) => {
       if (cmd === "pick_folder") return nextFolder;
-      if (cmd === "start_scan") return; // tests drive events manually
+      if (cmd === "start_scan") return;
+      if (cmd === "prioritize_thumbnails") {
+        mock.lastPrioritizedPaths = (args?.visiblePaths as string[]) ?? [];
+        return;
+      }
       throw new Error(`Unexpected invoke: ${cmd}`);
     },
 
@@ -57,16 +76,6 @@ export function createMockTauriApi(): MockTauriApi {
     (handlers[event] ?? []).forEach((h) => h(payload));
   };
 
-  return {
-    api,
-    pickFolderResolves: (path) => { nextFolder = path; },
-    emitScanProgress: (foundSoFar) =>
-      emit("scan_progress", { found_so_far: foundSoFar } satisfies ScanProgressPayload),
-    emitScanComplete: (photos) =>
-      emit("scan_complete", { photos } satisfies ScanCompletePayload),
-    emitThumbnailReady: (relative_path, thumbnail) =>
-      emit("thumbnail_ready", { relative_path, thumbnail } satisfies ThumbnailReadyPayload),
-    emitScanError: (message) =>
-      emit("scan_error", { message } satisfies ScanErrorPayload),
-  };
+  mock.api = api;
+  return mock;
 }
