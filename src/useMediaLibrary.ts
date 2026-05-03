@@ -15,6 +15,7 @@ export interface TauriApi {
 
 export interface MediaLibraryActions {
   openFolder: () => Promise<void>;
+  openRecent: (folder: string) => Promise<void>;
   closeFolder: () => void;
   prioritizeQueues: (visiblePaths: string[]) => void;
   openGallery: (index: number) => void;
@@ -22,8 +23,23 @@ export interface MediaLibraryActions {
   navigateGallery: (delta: -1 | 1) => void;
 }
 
-export function useMediaLibrary(api: TauriApi): [AppState, MediaLibraryActions] {
+const RECENT_FOLDERS_KEY = "media_library_recent_folders";
+const MAX_RECENT_FOLDERS = 5;
+
+export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: string[] }, MediaLibraryActions] {
   const [appState, setAppState] = useState<AppState>({ kind: "idle" });
+  const [recentFolders, setRecentFolders] = useState<string[]>([]);
+
+  useEffect(() => {
+    const saved = localStorage.getItem(RECENT_FOLDERS_KEY);
+    if (saved) {
+      try {
+        setRecentFolders(JSON.parse(saved));
+      } catch (e) {
+        console.error("Failed to load recent folders:", e);
+      }
+    }
+  }, []);
 
   const thumbnailStoreRef   = useRef<ThumbnailStore>(new ThumbnailStore());
   const metadataStoreRef    = useRef<MetadataStore>(new MetadataStore());
@@ -32,6 +48,33 @@ export function useMediaLibrary(api: TauriApi): [AppState, MediaLibraryActions] 
   // The scan_id of the most recently started scan. Events with a different
   // scan_id are stale (from a previous scan) and are discarded.
   const activeScanIdRef = useRef<number>(-1);
+
+  const startScan = useCallback(async (folder: string) => {
+    // Stop any existing scan before starting a new one.
+    await api.invoke("stop_scan").catch(() => {});
+
+    // Invalidate events from any previous scan before starting the new one.
+    activeScanIdRef.current = -1;
+
+    thumbnailStoreRef.current = new ThumbnailStore();
+    metadataStoreRef.current  = new MetadataStore();
+    metadataReceivedRef.current = 0;
+
+    setAppState({ kind: "loading", folder });
+    api.invoke("set_window_title", { title: `Media Library — ${folder}` }).catch(() => {});
+
+    // start_scan returns the scan_id assigned by the backend.
+    const scanId = (await api.invoke("start_scan", { folderPath: folder })) as number;
+    activeScanIdRef.current = scanId;
+
+    // Update recent folders
+    setRecentFolders((prev) => {
+      const filtered = prev.filter((f) => f !== folder);
+      const updated = [folder, ...filtered].slice(0, MAX_RECENT_FOLDERS);
+      localStorage.setItem(RECENT_FOLDERS_KEY, JSON.stringify(updated));
+      return updated;
+    });
+  }, [api]);
 
   useEffect(() => {
     const unlisteners: Array<() => void> = [];
@@ -137,24 +180,12 @@ export function useMediaLibrary(api: TauriApi): [AppState, MediaLibraryActions] 
   const openFolder = useCallback(async () => {
     const folder = (await api.invoke("pick_folder")) as string | null;
     if (!folder) return;
+    await startScan(folder);
+  }, [api, startScan]);
 
-    // Stop any existing scan before starting a new one.
-    await api.invoke("stop_scan").catch(() => {});
-
-    // Invalidate events from any previous scan before starting the new one.
-    activeScanIdRef.current = -1;
-
-    thumbnailStoreRef.current = new ThumbnailStore();
-    metadataStoreRef.current  = new MetadataStore();
-    metadataReceivedRef.current = 0;
-
-    setAppState({ kind: "loading", folder });
-    api.invoke("set_window_title", { title: `Media Library — ${folder}` }).catch(() => {});
-
-    // start_scan returns the scan_id assigned by the backend.
-    const scanId = (await api.invoke("start_scan", { folderPath: folder })) as number;
-    activeScanIdRef.current = scanId;
-  }, [api]);
+  const openRecent = useCallback(async (folder: string) => {
+    await startScan(folder);
+  }, [startScan]);
 
   const closeFolder = useCallback(() => {
     activeScanIdRef.current = -1;
@@ -191,5 +222,5 @@ export function useMediaLibrary(api: TauriApi): [AppState, MediaLibraryActions] 
     });
   }, []);
 
-  return [appState, { openFolder, closeFolder, prioritizeQueues, openGallery, closeGallery, navigateGallery }];
+  return [{ ...appState, recentFolders }, { openFolder, openRecent, closeFolder, prioritizeQueues, openGallery, closeGallery, navigateGallery }];
 }
