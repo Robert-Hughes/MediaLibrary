@@ -31,10 +31,11 @@ export function useMediaLibrary(api: TauriApi): [AppState, MediaLibraryActions] 
 
   useEffect(() => {
     const unlisteners: Array<() => void> = [];
+    let cancelled = false;
 
     const setup = async () => {
-      // ── photo_found: add one photo to the list immediately ────────────────
       const unlistenFound = await api.listen("photo_found", (raw) => {
+        if (cancelled) return;
         const { photo } = raw as PhotoFoundPayload;
 
         // Register in stores before updating React state.
@@ -62,27 +63,27 @@ export function useMediaLibrary(api: TauriApi): [AppState, MediaLibraryActions] 
         });
       });
 
-      // ── scan_complete: walk finished, clear scanning flag ─────────────────
       const unlistenComplete = await api.listen("scan_complete", () => {
+        if (cancelled) return;
         setAppState((prev) =>
           prev.kind === "loaded" ? { ...prev, scanning: false } : prev
         );
       });
 
-      // ── metadata_ready: EXIF arrived for one photo ────────────────────────
       const unlistenMetadata = await api.listen("metadata_ready", (raw) => {
+        if (cancelled) return;
         const { relative_path, date_taken, camera_model } = raw as MetadataReadyPayload;
         metadataStoreRef.current.set(relative_path, { date_taken, camera_model });
       });
 
-      // ── thumbnail_ready: thumbnail arrived for one photo ──────────────────
       const unlistenThumbnail = await api.listen("thumbnail_ready", (raw) => {
+        if (cancelled) return;
         const { relative_path, thumbnail } = raw as ThumbnailReadyPayload;
         thumbnailStoreRef.current.set(relative_path, thumbnail);
       });
 
-      // ── scan_error ────────────────────────────────────────────────────────
       const unlistenError = await api.listen("scan_error", (raw) => {
+        if (cancelled) return;
         const payload = raw as ScanErrorPayload;
         console.error("Scan error:", payload.message);
         setAppState({ kind: "idle" });
@@ -95,7 +96,10 @@ export function useMediaLibrary(api: TauriApi): [AppState, MediaLibraryActions] 
     };
 
     setup();
-    return () => { unlisteners.forEach((fn) => fn()); };
+    return () => {
+      cancelled = true;
+      unlisteners.forEach((fn) => fn());
+    };
   }, [api]);
 
   const openFolder = useCallback(async () => {
