@@ -19,6 +19,8 @@ export interface MediaLibraryActions {
   openRecent: (folder: string) => Promise<void>;
   closeFolder: () => void;
   prioritizeQueues: (visiblePaths: string[]) => void;
+  selectPhoto: (index: number | null) => void;
+  showInExplorer: (index: number) => Promise<void>;
   openGallery: (index: number) => void;
   closeGallery: () => void;
   navigateGallery: (delta: -1 | 1) => void;
@@ -109,6 +111,7 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
             scanning: true,
             imageMetadataRemaining: Math.max(0, batch.length - imageMetadataReceivedRef.current),
             galleryIndex: null,
+            selectedIndex: null,
           };
         }
         if (prev.kind === "loaded") {
@@ -178,6 +181,7 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
               scanning: false,
               imageMetadataRemaining: 0,
               galleryIndex: null,
+              selectedIndex: null,
             };
           }
           return prev;
@@ -249,9 +253,27 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
     }, 100);
   }, [api]);
 
+  const selectPhoto = useCallback((index: number | null) => {
+    setAppState((prev) =>
+      prev.kind === "loaded" ? { ...prev, selectedIndex: index } : prev
+    );
+  }, []);
+
+  const showInExplorer = useCallback(async (index: number) => {
+    setAppState((prev) => {
+      if (prev.kind !== "loaded") return prev;
+      const photo = prev.photos[index];
+      if (!photo) return prev;
+      
+      const absPath = prev.folder + "/" + photo.relative_path.replace(/\//g, "\\");
+      api.invoke("show_in_explorer", { path: absPath }).catch(() => {});
+      return prev;
+    });
+  }, [api]);
+
   const openGallery = useCallback((index: number) => {
     setAppState((prev) =>
-      prev.kind === "loaded" ? { ...prev, galleryIndex: index } : prev
+      prev.kind === "loaded" ? { ...prev, galleryIndex: index, selectedIndex: index } : prev
     );
   }, []);
 
@@ -265,9 +287,9 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
     setAppState((prev) => {
       if (prev.kind !== "loaded" || prev.galleryIndex === null) return prev;
       const nextIndex = Math.max(0, Math.min(prev.photos.length - 1, prev.galleryIndex + delta));
-      return { ...prev, galleryIndex: nextIndex };
+      return { ...prev, galleryIndex: nextIndex, selectedIndex: nextIndex };
     });
   }, []);
 
-  return [{ ...appState, recentFolders }, { openFolder, openRecent, closeFolder, prioritizeQueues, openGallery, closeGallery, navigateGallery }];
+  return [{ ...appState, recentFolders }, { openFolder, openRecent, closeFolder, prioritizeQueues, selectPhoto, showInExplorer, openGallery, closeGallery, navigateGallery }];
 }

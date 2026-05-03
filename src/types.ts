@@ -113,6 +113,7 @@ export type AppState =
       scanning: boolean;                // true while the directory walk is still running
       imageMetadataRemaining: number;   // count of photos still awaiting metadata_ready
       galleryIndex: number | null;
+      selectedIndex: number | null;
     };
 
 // ── Event payloads from Rust ──────────────────────────────────────────────────
