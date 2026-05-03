@@ -68,10 +68,7 @@ export function useMediaLibrary(api: TauriApi): [AppState, MediaLibraryActions] 
         (raw) => {
           const payload = raw as ScanCompletePayload;
           const folder = currentFolderRef.current ?? "";
-          const photos = payload.photos.map((p) => ({
-            relative_path: p.relative_path,
-          }));
-
+          const photos = payload.photos;
           // Reset the store with all paths as "loading".
           const store = new ThumbnailStore();
           store.reset(photos.map((p) => p.relative_path));

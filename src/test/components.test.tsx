@@ -10,6 +10,7 @@ import { MenuBar } from "../components/MenuBar";
 import { PhotoList } from "../components/PhotoList";
 import { ThumbnailStore } from "../types";
 import type { PhotoInfo } from "../types";
+import { makePhoto, makePhotos } from "./factories";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -109,30 +110,69 @@ describe("PhotoList", () => {
   });
 
   it("renders a row for each photo", () => {
-    const photos: PhotoInfo[] = [
-      { relative_path: "a.jpg" },
-      { relative_path: "b/c.png" },
-      { relative_path: "d.gif" },
-    ];
+    const photos = makePhotos(["a.jpg", "b/c.png", "d.gif"]);
     render(<PhotoList photos={photos} thumbnails={makeStore(photos)} onVisibilityChange={noop} onPhotoOpen={noop} />);
     expect(screen.getAllByTestId("photo-row")).toHaveLength(3);
   });
 
   it("displays the relative path for each photo", () => {
-    const photos: PhotoInfo[] = [{ relative_path: "vacation/beach.jpg" }];
+    const photos = [makePhoto({ relative_path: "vacation/beach.jpg" })];
     render(<PhotoList photos={photos} thumbnails={makeStore(photos)} onVisibilityChange={noop} onPhotoOpen={noop} />);
     expect(screen.getByTestId("photo-path")).toHaveTextContent("vacation/beach.jpg");
   });
 
+  it("displays the filename column", () => {
+    const photos = [makePhoto({ relative_path: "vacation/beach.jpg", filename: "beach.jpg" })];
+    render(<PhotoList photos={photos} thumbnails={makeStore(photos)} onVisibilityChange={noop} onPhotoOpen={noop} />);
+    expect(screen.getByTestId("photo-filename")).toHaveTextContent("beach.jpg");
+  });
+
+  it("displays date modified when present", () => {
+    // 2024-01-15 00:00:00 UTC
+    const photos = [makePhoto({ relative_path: "a.jpg", date_modified: 1705276800 })];
+    render(<PhotoList photos={photos} thumbnails={makeStore(photos)} onVisibilityChange={noop} onPhotoOpen={noop} />);
+    expect(screen.getByTestId("photo-date-modified")).not.toHaveTextContent("—");
+  });
+
+  it("displays — for missing date modified", () => {
+    const photos = [makePhoto({ relative_path: "a.jpg", date_modified: null })];
+    render(<PhotoList photos={photos} thumbnails={makeStore(photos)} onVisibilityChange={noop} onPhotoOpen={noop} />);
+    expect(screen.getByTestId("photo-date-modified")).toHaveTextContent("—");
+  });
+
+  it("displays date taken when present", () => {
+    const photos = [makePhoto({ relative_path: "a.jpg", date_taken: "2023:06:15 14:30:00" })];
+    render(<PhotoList photos={photos} thumbnails={makeStore(photos)} onVisibilityChange={noop} onPhotoOpen={noop} />);
+    expect(screen.getByTestId("photo-date-taken")).toHaveTextContent("2023:06:15 14:30:00");
+  });
+
+  it("displays — for missing date taken", () => {
+    const photos = [makePhoto({ relative_path: "a.jpg", date_taken: null })];
+    render(<PhotoList photos={photos} thumbnails={makeStore(photos)} onVisibilityChange={noop} onPhotoOpen={noop} />);
+    expect(screen.getByTestId("photo-date-taken")).toHaveTextContent("—");
+  });
+
+  it("displays camera model when present", () => {
+    const photos = [makePhoto({ relative_path: "a.jpg", camera_model: "Canon EOS R5" })];
+    render(<PhotoList photos={photos} thumbnails={makeStore(photos)} onVisibilityChange={noop} onPhotoOpen={noop} />);
+    expect(screen.getByTestId("photo-camera")).toHaveTextContent("Canon EOS R5");
+  });
+
+  it("displays — for missing camera model", () => {
+    const photos = [makePhoto({ relative_path: "a.jpg", camera_model: null })];
+    render(<PhotoList photos={photos} thumbnails={makeStore(photos)} onVisibilityChange={noop} onPhotoOpen={noop} />);
+    expect(screen.getByTestId("photo-camera")).toHaveTextContent("—");
+  });
+
   it("renders a spinner when thumbnail is loading", () => {
-    const photos: PhotoInfo[] = [{ relative_path: "a.jpg" }];
+    const photos = [makePhoto({ relative_path: "a.jpg" })];
     render(<PhotoList photos={photos} thumbnails={makeStore(photos)} onVisibilityChange={noop} onPhotoOpen={noop} />);
     expect(document.querySelector(".photo-thumb-spinner")).toBeInTheDocument();
     expect(document.querySelector(".photo-thumb-placeholder")).not.toBeInTheDocument();
   });
 
   it("renders a thumbnail img when thumbnail data is present", () => {
-    const photos: PhotoInfo[] = [{ relative_path: "a.jpg" }];
+    const photos = [makePhoto({ relative_path: "a.jpg" })];
     const store = makeStore(photos, { "a.jpg": "abc123" });
     render(<PhotoList photos={photos} thumbnails={store} onVisibilityChange={noop} onPhotoOpen={noop} />);
     const img = document.querySelector(".photo-thumb-img") as HTMLImageElement;
@@ -141,7 +181,7 @@ describe("PhotoList", () => {
   });
 
   it("renders a placeholder when thumbnail has failed", () => {
-    const photos: PhotoInfo[] = [{ relative_path: "a.jpg" }];
+    const photos = [makePhoto({ relative_path: "a.jpg" })];
     const store = makeStore(photos, { "a.jpg": "failed" });
     render(<PhotoList photos={photos} thumbnails={store} onVisibilityChange={noop} onPhotoOpen={noop} />);
     expect(document.querySelector(".photo-thumb-placeholder")).toBeInTheDocument();
@@ -149,10 +189,7 @@ describe("PhotoList", () => {
   });
 
   it("sets data-path attribute on each row for IntersectionObserver", () => {
-    const photos: PhotoInfo[] = [
-      { relative_path: "vacation/beach.jpg" },
-      { relative_path: "portrait.png" },
-    ];
+    const photos = makePhotos(["vacation/beach.jpg", "portrait.png"]);
     render(<PhotoList photos={photos} thumbnails={makeStore(photos)} onVisibilityChange={noop} onPhotoOpen={noop} />);
     const rows = screen.getAllByTestId("photo-row");
     expect(rows[0]).toHaveAttribute("data-path", "vacation/beach.jpg");
@@ -170,10 +207,7 @@ describe("PhotoList", () => {
     });
 
     const handler = vi.fn();
-    const photos: PhotoInfo[] = [
-      { relative_path: "a.jpg" },
-      { relative_path: "b.jpg" },
-    ];
+    const photos = makePhotos(["a.jpg", "b.jpg"]);
     render(<PhotoList photos={photos} thumbnails={makeStore(photos)} onVisibilityChange={handler} onPhotoOpen={noop} />);
 
     const entries = observed.map((el) => ({
@@ -189,7 +223,7 @@ describe("PhotoList", () => {
   });
 
   it("row updates when store is mutated externally", async () => {
-    const photos: PhotoInfo[] = [{ relative_path: "a.jpg" }];
+    const photos = [makePhoto({ relative_path: "a.jpg" })];
     const store = makeStore(photos);
 
     const { rerender } = render(
@@ -198,7 +232,6 @@ describe("PhotoList", () => {
 
     expect(document.querySelector(".photo-thumb-spinner")).toBeInTheDocument();
 
-    // Simulate a thumbnail_ready event updating the store.
     act(() => { store.set("a.jpg", "newthumbdata"); });
 
     rerender(<PhotoList photos={photos} thumbnails={store} onVisibilityChange={noop} onPhotoOpen={noop} />);

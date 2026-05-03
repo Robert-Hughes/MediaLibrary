@@ -3,8 +3,8 @@
 /// Scanning (file discovery) and thumbnail generation are intentionally
 /// separate concerns:
 ///
-///  - `scan_folder`  — fast directory walk, returns paths only, no I/O on
-///                     image content.
+///  - `scan_folder`  — fast directory walk, returns paths + file metadata.
+///                     No image decoding.
 ///  - `thumbnail_for` — generates a single thumbnail; tries the EXIF
 ///                      embedded thumbnail first (cheap), falls back to
 ///                      full decode + resize only when necessary.
@@ -22,11 +22,25 @@ const PHOTO_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "gif", "bmp", "webp", 
 pub struct PhotoInfo {
     /// Path relative to the scanned root folder (forward-slash separated).
     pub relative_path: String,
+    /// Filename only (last component of relative_path).
+    pub filename: String,
+
+    // ── OS / filesystem metadata ──────────────────────────────────────────
+    /// Last-modified time as a Unix timestamp (seconds), or None if unavailable.
+    pub date_modified: Option<i64>,
+    /// Creation time as a Unix timestamp (seconds), or None if unavailable.
+    pub date_created: Option<i64>,
+
+    // ── EXIF / inner metadata ─────────────────────────────────────────────
+    /// DateTimeOriginal from EXIF (ISO 8601 string), or None if unavailable.
+    pub date_taken: Option<String>,
+    /// Camera make + model from EXIF, or None if unavailable.
+    pub camera_model: Option<String>,
 }
 
 /// Scan `folder` recursively and return all photo files found, sorted by path.
 /// Emits progress via the provided callback after each file is found.
-/// No image decoding is performed here — this should be very fast.
+/// Reads OS metadata for each file; no image decoding is performed.
 pub fn scan_folder<F>(folder: &Path, mut on_progress: F) -> Vec<PhotoInfo>
 where
     F: FnMut(usize),
@@ -58,7 +72,22 @@ where
             Err(_) => continue,
         };
 
-        photos.push(PhotoInfo { relative_path: rel });
+        let filename = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+
+        let (date_modified, date_created) = read_os_metadata(path);
+        let (date_taken, camera_model) = read_exif_metadata(path);
+
+        photos.push(PhotoInfo {
+            relative_path: rel,
+            filename,
+            date_modified,
+            date_created,
+            date_taken,
+            camera_model,
+        });
         on_progress(photos.len());
     }
 
@@ -66,17 +95,92 @@ where
     photos
 }
 
+/// Read OS-level file metadata: modified and created timestamps.
+fn read_os_metadata(path: &Path) -> (Option<i64>, Option<i64>) {
+    let meta = match std::fs::metadata(path) {
+        Ok(m) => m,
+        Err(_) => return (None, None),
+    };
+
+    let modified = meta
+        .modified()
+        .ok()
+        .and_then(|t| {
+            t.duration_since(std::time::UNIX_EPOCH)
+                .ok()
+                .map(|d| d.as_secs() as i64)
+        });
+
+    let created = meta
+        .created()
+        .ok()
+        .and_then(|t| {
+            t.duration_since(std::time::UNIX_EPOCH)
+                .ok()
+                .map(|d| d.as_secs() as i64)
+        });
+
+    (modified, created)
+}
+
+/// Read EXIF metadata: date taken and camera model.
+/// Only attempted for JPEG files; returns (None, None) for other formats.
+fn read_exif_metadata(path: &Path) -> (Option<String>, Option<String>) {
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase());
+
+    if !matches!(ext.as_deref(), Some("jpg") | Some("jpeg")) {
+        return (None, None);
+    }
+
+    let file = match std::fs::File::open(path) {
+        Ok(f) => f,
+        Err(_) => return (None, None),
+    };
+    let mut bufreader = std::io::BufReader::new(file);
+    let exif = match exif::Reader::new().read_from_container(&mut bufreader) {
+        Ok(e) => e,
+        Err(_) => return (None, None),
+    };
+
+    // DateTimeOriginal (tag 0x9003) — when the shutter was pressed.
+    let date_taken = exif
+        .get_field(exif::Tag::DateTimeOriginal, exif::In::PRIMARY)
+        .map(|f| f.display_value().to_string());
+
+    // Build "Make Model" string, deduplicating if make is already in model.
+    let make = exif
+        .get_field(exif::Tag::Make, exif::In::PRIMARY)
+        .map(|f| f.display_value().to_string().trim_matches('"').to_owned());
+
+    let model = exif
+        .get_field(exif::Tag::Model, exif::In::PRIMARY)
+        .map(|f| f.display_value().to_string().trim_matches('"').to_owned());
+
+    let camera_model = match (make, model) {
+        (Some(mk), Some(mo)) => {
+            if mo.to_lowercase().starts_with(&mk.to_lowercase()) {
+                Some(mo)
+            } else {
+                Some(format!("{mk} {mo}"))
+            }
+        }
+        (None, Some(mo)) => Some(mo),
+        (Some(mk), None) => Some(mk),
+        (None, None) => None,
+    };
+
+    (date_taken, camera_model)
+}
+
 /// Generate a base64-encoded JPEG thumbnail for the image at `path`.
 ///
 /// Strategy:
 ///  1. For JPEG files, attempt to extract the embedded EXIF thumbnail.
-///     This reads only a few KB from the start of the file and is very fast.
-///  2. If that fails (non-JPEG, no EXIF, or corrupt EXIF), fall back to
-///     fully decoding the image and resizing it.
-///
-/// Returns `None` if both strategies fail, so callers can show a placeholder.
+///  2. Fall back to full decode + resize for other formats or missing EXIF.
 pub fn thumbnail_for(path: &Path) -> Option<String> {
-    // Try EXIF fast-path for JPEG files first.
     let ext = path
         .extension()
         .and_then(|e| e.to_str())
@@ -88,28 +192,20 @@ pub fn thumbnail_for(path: &Path) -> Option<String> {
         }
     }
 
-    // Full decode fallback for all other formats (or JPEG without EXIF thumb).
     full_decode_thumbnail(path)
 }
 
-/// Extract the embedded EXIF thumbnail from a JPEG and return it as base64.
-/// In kamadak-exif 0.5, the raw TIFF buffer is exposed via `exif.buf()`.
-/// The thumbnail IFD (IFD1) stores JPEGInterchangeFormat (offset) and
-/// JPEGInterchangeFormatLength (byte count) tags that point into that buffer.
 fn exif_thumbnail(path: &Path) -> Option<String> {
     let file = std::fs::File::open(path).ok()?;
     let mut bufreader = std::io::BufReader::new(file);
-    let exif_reader = exif::Reader::new();
-    let exif = exif_reader.read_from_container(&mut bufreader).ok()?;
+    let exif = exif::Reader::new().read_from_container(&mut bufreader).ok()?;
 
-    // JPEGInterchangeFormat = offset of thumbnail JPEG data within the TIFF buffer.
     let offset_field = exif.get_field(exif::Tag::JPEGInterchangeFormat, exif::In::THUMBNAIL)?;
     let offset = match offset_field.value {
         exif::Value::Long(ref v) if !v.is_empty() => v[0] as usize,
         _ => return None,
     };
 
-    // JPEGInterchangeFormatLength = byte length of the thumbnail JPEG.
     let len_field = exif.get_field(exif::Tag::JPEGInterchangeFormatLength, exif::In::THUMBNAIL)?;
     let len = match len_field.value {
         exif::Value::Long(ref v) if !v.is_empty() => v[0] as usize,
@@ -133,19 +229,13 @@ fn exif_thumbnail(path: &Path) -> Option<String> {
     ))
 }
 
-/// Fully decode the image, resize to thumbnail dimensions, and return as base64 JPEG.
 fn full_decode_thumbnail(path: &Path) -> Option<String> {
     let img = image::open(path).ok()?;
     let thumb = img.thumbnail(80, 80);
-
     let mut buf = Vec::new();
     thumb
-        .write_to(
-            &mut std::io::Cursor::new(&mut buf),
-            image::ImageFormat::Jpeg,
-        )
+        .write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Jpeg)
         .ok()?;
-
     Some(base64::Engine::encode(
         &base64::engine::general_purpose::STANDARD,
         &buf,
@@ -165,8 +255,7 @@ mod tests {
     #[test]
     fn empty_folder_returns_no_photos() {
         let dir = tempdir().unwrap();
-        let photos = scan_folder(dir.path(), no_progress);
-        assert!(photos.is_empty());
+        assert!(scan_folder(dir.path(), no_progress).is_empty());
     }
 
     #[test]
@@ -174,8 +263,7 @@ mod tests {
         let dir = tempdir().unwrap();
         fs::write(dir.path().join("readme.txt"), b"hello").unwrap();
         fs::write(dir.path().join("data.csv"), b"a,b,c").unwrap();
-        let photos = scan_folder(dir.path(), no_progress);
-        assert!(photos.is_empty());
+        assert!(scan_folder(dir.path(), no_progress).is_empty());
     }
 
     #[test]
@@ -185,8 +273,7 @@ mod tests {
         for name in &names {
             fs::write(dir.path().join(name), b"x").unwrap();
         }
-        let photos = scan_folder(dir.path(), no_progress);
-        assert_eq!(photos.len(), names.len());
+        assert_eq!(scan_folder(dir.path(), no_progress).len(), names.len());
     }
 
     #[test]
@@ -194,8 +281,7 @@ mod tests {
         let dir = tempdir().unwrap();
         fs::write(dir.path().join("A.JPG"), b"x").unwrap();
         fs::write(dir.path().join("B.PNG"), b"x").unwrap();
-        let photos = scan_folder(dir.path(), no_progress);
-        assert_eq!(photos.len(), 2);
+        assert_eq!(scan_folder(dir.path(), no_progress).len(), 2);
     }
 
     #[test]
@@ -235,14 +321,41 @@ mod tests {
     }
 
     #[test]
-    fn scan_returns_no_thumbnails() {
-        // scan_folder must not do any image decoding — PhotoInfo has no thumbnail field.
+    fn filename_field_is_populated() {
         let dir = tempdir().unwrap();
-        fs::write(dir.path().join("a.jpg"), b"fake").unwrap();
+        fs::write(dir.path().join("photo.jpg"), b"x").unwrap();
         let photos = scan_folder(dir.path(), no_progress);
-        assert_eq!(photos.len(), 1);
-        // Compile-time check: PhotoInfo only has relative_path.
-        let _ = &photos[0].relative_path;
+        assert_eq!(photos[0].filename, "photo.jpg");
+    }
+
+    #[test]
+    fn os_metadata_is_populated_for_real_file() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("a.jpg"), b"x").unwrap();
+        let photos = scan_folder(dir.path(), no_progress);
+        // date_modified should be Some — we just wrote the file.
+        assert!(photos[0].date_modified.is_some());
+    }
+
+    #[test]
+    fn exif_metadata_is_none_for_non_jpeg() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("a.png"), b"x").unwrap();
+        let photos = scan_folder(dir.path(), no_progress);
+        assert!(photos[0].date_taken.is_none());
+        assert!(photos[0].camera_model.is_none());
+    }
+
+    #[test]
+    fn exif_metadata_is_none_for_jpeg_without_exif() {
+        let dir = tempdir().unwrap();
+        // Write a minimal valid JPEG with no EXIF.
+        let path = dir.path().join("noexif.jpg");
+        let img = image::RgbImage::new(1, 1);
+        img.save(&path).unwrap();
+        let photos = scan_folder(dir.path(), no_progress);
+        assert!(photos[0].date_taken.is_none());
+        assert!(photos[0].camera_model.is_none());
     }
 
     // ── thumbnail_for ─────────────────────────────────────────────────────────
@@ -250,30 +363,24 @@ mod tests {
     #[test]
     fn thumbnail_returns_none_for_corrupt_file() {
         let dir = tempdir().unwrap();
-        // Write garbage bytes — not a valid image.
         fs::write(dir.path().join("bad.jpg"), b"not an image").unwrap();
-        let result = thumbnail_for(&dir.path().join("bad.jpg"));
-        assert!(result.is_none());
+        assert!(thumbnail_for(&dir.path().join("bad.jpg")).is_none());
     }
 
     #[test]
     fn thumbnail_returns_none_for_corrupt_png() {
         let dir = tempdir().unwrap();
         fs::write(dir.path().join("bad.png"), b"not a png").unwrap();
-        let result = thumbnail_for(&dir.path().join("bad.png"));
-        assert!(result.is_none());
+        assert!(thumbnail_for(&dir.path().join("bad.png")).is_none());
     }
 
     #[test]
     fn thumbnail_returns_some_for_valid_png() {
-        // Create a minimal valid 1x1 PNG using the image crate.
         let dir = tempdir().unwrap();
         let path = dir.path().join("pixel.png");
-        let img = image::RgbImage::new(1, 1);
-        img.save(&path).unwrap();
+        image::RgbImage::new(1, 1).save(&path).unwrap();
         let result = thumbnail_for(&path);
-        assert!(result.is_some(), "expected a thumbnail for a valid PNG");
-        // Result should be non-empty base64.
+        assert!(result.is_some());
         assert!(!result.unwrap().is_empty());
     }
 }
