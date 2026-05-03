@@ -131,9 +131,9 @@ export function PhotoList({ photos, thumbnails, imageMetadata, selectedIndex, on
               selected={selectedIndex === i}
               thumbnails={thumbnails}
               imageMetadata={imageMetadata}
-              onClick={() => onSelect(i)}
-              onDoubleClick={() => onPhotoOpen(i)}
-              onContextMenu={(e) => handleContextMenu(e, i)}
+              onSelect={onSelect}
+              onPhotoOpen={onPhotoOpen}
+              onContextMenu={handleContextMenu}
             />
           ))}
         </tbody>
@@ -160,12 +160,12 @@ interface RowProps {
   selected: boolean;
   thumbnails: ThumbnailStore;
   imageMetadata: ImageMetadataStore;
-  onClick: () => void;
-  onDoubleClick: () => void;
-  onContextMenu: (e: React.MouseEvent) => void;
+  onSelect: (index: number | null) => void;
+  onPhotoOpen: (index: number) => void;
+  onContextMenu: (e: React.MouseEvent, index: number) => void;
 }
 
-const PhotoRow = memo(function PhotoRow({ photo, index, selected, thumbnails, imageMetadata, onClick, onDoubleClick, onContextMenu }: RowProps) {
+const PhotoRow = memo(function PhotoRow({ photo, index, selected, thumbnails, imageMetadata, onSelect, onPhotoOpen, onContextMenu }: RowProps) {
   const thumbnail = useSyncExternalStore(
     (cb) => thumbnails.subscribe(photo.relative_path, cb),
     thumbnails.getSnapshot(photo.relative_path),
@@ -190,9 +190,9 @@ const PhotoRow = memo(function PhotoRow({ photo, index, selected, thumbnails, im
       data-testid="photo-row"
       data-path={photo.relative_path}
       data-index={index}
-      onClick={onClick}
-      onDoubleClick={onDoubleClick}
-      onContextMenu={onContextMenu}
+      onClick={() => onSelect(index)}
+      onDoubleClick={() => onPhotoOpen(index)}
+      onContextMenu={(e) => onContextMenu(e, index)}
       style={{ cursor: "pointer" }}
     >
       <td className="col-thumb" aria-hidden="true">

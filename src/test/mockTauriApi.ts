@@ -19,6 +19,8 @@ export interface MockTauriApi {
   emitScanError: (message: string) => void;
   lastPrioritizedPaths: string[];
   lastWindowTitle: string | null;
+  /** All invoke calls recorded in order. */
+  invocations: Array<{ cmd: string; args?: Record<string, unknown> }>;
   /** The scan_id returned by the most recent start_scan call. */
   currentScanId: number;
 }
@@ -42,11 +44,13 @@ export function createMockTauriApi(): MockTauriApi {
       emit("scan_error", { message } satisfies ScanErrorPayload),
     lastPrioritizedPaths: [],
     lastWindowTitle: null,
+    invocations: [],
     currentScanId: 1,
   };
 
   const api: TauriApi = {
     invoke: async (cmd, args) => {
+      mock.invocations.push({ cmd, args });
       if (cmd === "pick_folder") return nextFolder;
       if (cmd === "start_scan") {
         // Increment scan ID and return it, matching the Rust backend behaviour.

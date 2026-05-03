@@ -278,11 +278,11 @@ fn show_in_explorer(folder: String, relative_path: String) -> Result<(), String>
 
     #[cfg(target_os = "windows")]
     {
-        // On Windows, explorer /select,"path" is the most robust way.
-        // We use cmd /c to ensure quoting is handled exactly as explorer expects.
-        std::process::Command::new("cmd")
-            .arg("/c")
-            .arg(format!("explorer /select,\"{}\"", path.display()))
+        // On Windows, explorer /select,"path" is the syntax.
+        // We pass it as a single argument to ensure the comma and path are joined.
+        let path_str = path.to_string_lossy().replace('/', "\\");
+        std::process::Command::new("explorer")
+            .arg(format!("/select,{}", path_str))
             .spawn()
             .map_err(|e| e.to_string())?;
     }

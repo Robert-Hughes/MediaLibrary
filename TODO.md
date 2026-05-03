@@ -5,7 +5,8 @@ are covered by integration tests that simulate UI interaction and confirm that t
 Now
 ===
 
-* Later
+
+Later
 =====
 
 * Metadata should be gathered via:
@@ -30,5 +31,3 @@ Rationale: By being specific, you ensure that every layer of the metadata "sandw
 * Using OpenAI API to analyze image contents
 * Combine image description with other metadata (and 'storyline') to propose changes to metadata. This could be a mix of programmatic and Open AI Responses API?
 * Compare with functionalty of the Update Metadata prompts approach - add anything missing to here?
-
-* Gallery view - improve general responsiveness
