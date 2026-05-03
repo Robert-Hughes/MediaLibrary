@@ -29,7 +29,11 @@ export default function App() {
   return (
     <div className="app">
       {state.kind === "idle" && (
-        <WelcomeScreen onOpenFolder={actions.openFolder} />
+        <WelcomeScreen
+          onOpenFolder={actions.openFolder}
+          recentFolders={state.recentFolders}
+          onOpenRecent={actions.openRecent}
+        />
       )}
 
       {state.kind === "loading" && (

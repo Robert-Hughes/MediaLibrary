@@ -1,8 +1,10 @@
 interface Props {
   onOpenFolder: () => void;
+  recentFolders: string[];
+  onOpenRecent: (folder: string) => void;
 }
 
-export function WelcomeScreen({ onOpenFolder }: Props) {
+export function WelcomeScreen({ onOpenFolder, recentFolders, onOpenRecent }: Props) {
   return (
     <div className="welcome-screen" data-testid="welcome-screen">
       <h1 className="welcome-title">Media Library</h1>
@@ -14,6 +16,29 @@ export function WelcomeScreen({ onOpenFolder }: Props) {
       >
         Open Folder
       </button>
+
+      {recentFolders.length > 0 && (
+        <div className="recent-folders" data-testid="recent-folders">
+          <h2 className="recent-title">Recent Folders</h2>
+          <ul className="recent-list">
+            {recentFolders.map((folder) => (
+              <li key={folder} className="recent-item">
+                <button
+                  className="recent-btn"
+                  onClick={() => onOpenRecent(folder)}
+                  title={folder}
+                  data-testid="recent-folder-item"
+                >
+                  <span className="recent-icon">📁</span>
+                  <span className="recent-path">{folder}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <p className="welcome-hint">Or drag and drop a folder here (coming soon)</p>
     </div>
   );
 }
