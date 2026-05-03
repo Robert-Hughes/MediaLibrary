@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useMediaLibrary, type TauriApi } from "./useMediaLibrary";
@@ -6,6 +7,7 @@ import { MenuBar } from "./components/MenuBar";
 import { PhotoList } from "./components/PhotoList";
 import { GalleryView } from "./components/GalleryView";
 import { StatusFooter } from "./components/StatusFooter";
+import { ColumnSelectionDialog } from "./components/ColumnSelectionDialog";
 import "./App.css";
 
 const tauriApi: TauriApi = {
@@ -20,6 +22,7 @@ async function loadImage(path: string): Promise<string | null> {
 
 export default function App() {
   const [state, actions] = useMediaLibrary(tauriApi);
+  const [showColumnDialog, setShowColumnDialog] = useState(false);
 
   // Show the footer whenever the directory walk is still running.
   const isDiscovering =
@@ -50,6 +53,7 @@ export default function App() {
             imageMetadataLoading={state.imageMetadataRemaining > 0}
             onOpenFolder={actions.openFolder}
             onCloseFolder={actions.closeFolder}
+            onSelectColumns={() => setShowColumnDialog(true)}
           />
           <PhotoList
             photos={state.photos}
@@ -70,6 +74,18 @@ export default function App() {
               onClose={actions.closeGallery}
               onNavigate={actions.navigateGallery}
               loadImage={loadImage}
+            />
+          )}
+
+          {showColumnDialog && (
+            <ColumnSelectionDialog
+              allKeys={Array.from(state.imageMetadata.getKeyFrequency().entries()).map(([key, count]) => ({ key, count }))}
+              visibleColumns={state.visibleColumns}
+              onSave={(cols) => {
+                actions.setVisibleColumns(cols);
+                setShowColumnDialog(false);
+              }}
+              onClose={() => setShowColumnDialog(false)}
             />
           )}
         </>

@@ -71,6 +71,9 @@ export type ImageMetadataState = "loading" | Record<string, Variant>;
 export class ImageMetadataStore {
   private data = new Map<string, ImageMetadataState>();
   private subscribers = new Map<string, Set<() => void>>();
+  
+  // Tracks how many images have a value for each metadata key.
+  private keyFrequency = new Map<string, number>();
 
   add(path: string) {
     if (!this.data.has(path)) {
@@ -79,12 +82,31 @@ export class ImageMetadataStore {
   }
 
   set(path: string, value: ImageMetadataState) {
+    const old = this.data.get(path);
+    if (old && old !== "loading") {
+      for (const key of Object.keys(old)) {
+        const count = this.keyFrequency.get(key) ?? 0;
+        this.keyFrequency.set(key, Math.max(0, count - 1));
+      }
+    }
+
+    if (value && value !== "loading") {
+      for (const key of Object.keys(value)) {
+        const count = this.keyFrequency.get(key) ?? 0;
+        this.keyFrequency.set(key, count + 1);
+      }
+    }
+
     this.data.set(path, value);
     this.subscribers.get(path)?.forEach((cb) => cb());
   }
 
   get(path: string): ImageMetadataState {
     return this.data.get(path) ?? "loading";
+  }
+
+  getKeyFrequency(): Map<string, number> {
+    return this.keyFrequency;
   }
 
   subscribe(path: string, callback: () => void): () => void {

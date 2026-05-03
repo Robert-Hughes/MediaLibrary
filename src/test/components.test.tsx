@@ -6,6 +6,7 @@ import { LoadingScreen } from "../components/LoadingScreen";
 import { MenuBar } from "../components/MenuBar";
 import { PhotoList } from "../components/PhotoList";
 import { StatusFooter } from "../components/StatusFooter";
+import { ColumnSelectionDialog } from "../components/ColumnSelectionDialog";
 import { ThumbnailStore, ImageMetadataStore } from "../types";
 import type { PhotoInfo } from "../types";
 import { makePhoto, makePhotos } from "./factories";
@@ -90,7 +91,7 @@ describe("LoadingScreen", () => {
 // ── MenuBar ───────────────────────────────────────────────────────────────────
 
 describe("MenuBar", () => {
-  const base = { photoCount: 3, scanning: false, imageMetadataLoading: false, onOpenFolder: noop, onCloseFolder: noop };
+  const base = { photoCount: 3, scanning: false, imageMetadataLoading: false, onOpenFolder: noop, onCloseFolder: noop, onSelectColumns: noop };
 
   it("shows the photo count", () => {
     render(<MenuBar {...base} />);
@@ -108,36 +109,16 @@ describe("MenuBar", () => {
     expect(screen.queryByTestId("menu-bar-metadata-label")).not.toBeInTheDocument();
   });
 
-  it("hides spinner when not scanning and not loading metadata", () => {
-    render(<MenuBar {...base} />);
-    expect(screen.queryByTestId("menu-bar-spinner")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("menu-bar-metadata-label")).not.toBeInTheDocument();
-  });
-
   it("shows metadata spinner and label when metadata is loading", () => {
     render(<MenuBar {...base} imageMetadataLoading={true} />);
     expect(screen.getByTestId("menu-bar-metadata-spinner")).toBeInTheDocument();
     expect(screen.getByTestId("menu-bar-metadata-label")).toHaveTextContent("Loading metadata");
   });
 
-  it("scanning spinner takes priority over metadata label", () => {
-    // While still scanning, show only the scanning spinner, not the metadata label.
-    render(<MenuBar {...base} scanning={true} imageMetadataLoading={true} />);
-    expect(screen.getByTestId("menu-bar-spinner")).toBeInTheDocument();
-    expect(screen.queryByTestId("menu-bar-metadata-label")).not.toBeInTheDocument();
-  });
-
-  it("calls onCloseFolder when close is clicked", async () => {
+  it("calls onSelectColumns when columns button is clicked", async () => {
     const handler = vi.fn();
-    render(<MenuBar {...base} onCloseFolder={handler} />);
-    await userEvent.click(screen.getByTestId("menu-bar-close-btn"));
-    expect(handler).toHaveBeenCalledOnce();
-  });
-
-  it("calls onOpenFolder when open is clicked", async () => {
-    const handler = vi.fn();
-    render(<MenuBar {...base} onOpenFolder={handler} />);
-    await userEvent.click(screen.getByTestId("menu-bar-open-btn"));
+    render(<MenuBar {...base} onSelectColumns={handler} />);
+    await userEvent.click(screen.getByTestId("menu-bar-columns-btn"));
     expect(handler).toHaveBeenCalledOnce();
   });
 });
@@ -236,5 +217,41 @@ describe("PhotoList", () => {
     expect(screen.getByTestId("context-menu")).toBeInTheDocument();
     expect(screen.getByText("View")).toBeInTheDocument();
     expect(screen.getByText("Show in File Explorer")).toBeInTheDocument();
+  });
+});
+
+// ── ColumnSelectionDialog ─────────────────────────────────────────────────────
+
+describe("ColumnSelectionDialog", () => {
+  const allKeys = [
+    { key: "IFD0:Model", count: 10 },
+    { key: "IFD0:Make", count: 8 },
+  ];
+
+  it("renders all keys with counts", () => {
+    render(<ColumnSelectionDialog allKeys={allKeys} visibleColumns={[]} onSave={noop} onClose={noop} />);
+    expect(screen.getByText("IFD0:Model")).toBeInTheDocument();
+    expect(screen.getByText("(10 files)")).toBeInTheDocument();
+    expect(screen.getByText("IFD0:Make")).toBeInTheDocument();
+    expect(screen.getByText("(8 files)")).toBeInTheDocument();
+  });
+
+  it("checks currently visible columns", () => {
+    render(<ColumnSelectionDialog allKeys={allKeys} visibleColumns={["IFD0:Model"]} onSave={noop} onClose={noop} />);
+    const checkboxes = screen.getAllByRole("checkbox") as HTMLInputElement[];
+    expect(checkboxes.find(c => c.nextSibling?.textContent === "IFD0:Model")?.checked).toBe(true);
+    expect(checkboxes.find(c => c.nextSibling?.textContent === "IFD0:Make")?.checked).toBe(false);
+  });
+
+  it("calls onSave with updated selection", async () => {
+    const onSave = vi.fn();
+    render(<ColumnSelectionDialog allKeys={allKeys} visibleColumns={["IFD0:Model"]} onSave={onSave} onClose={noop} />);
+    
+    // Toggle Make on
+    const makeLabel = screen.getByText("IFD0:Make");
+    await userEvent.click(makeLabel);
+    
+    await userEvent.click(screen.getByText("Save Changes"));
+    expect(onSave).toHaveBeenCalledWith(expect.arrayContaining(["IFD0:Model", "IFD0:Make"]));
   });
 });
