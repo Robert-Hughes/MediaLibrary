@@ -5,6 +5,7 @@ are covered by integration tests that simulate UI interaction and confirm that t
 Now
 ===
 
+
 Later
 =====
 
@@ -20,7 +21,6 @@ Later
 * List view - implement (multi-)selection. Single click to select, double click to open in gallery.
 * Sync the selected row with the gallery view, i.e. navigating left/right in the gallery will also move selection up/down in the list (and scroll the newly selected image into view as necessary)
 * Gallery view - improve general responsiveness
-* Recent folders saved and shown on the home screen when no folder is open
 * List view context menu when right clicking on a row:
     * View (opens in gallery, equivalent to double-click)
     * Show in File Explorer
