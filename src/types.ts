@@ -8,6 +8,10 @@ export interface PhotoInfo {
   date_created: number | null;
 }
 
+// ── Variant type ──────────────────────────────────────────────────────────────
+
+export type Variant = string | number | Variant[];
+
 // ── Thumbnail store ───────────────────────────────────────────────────────────
 
 export type ThumbnailState = "loading" | "failed" | string;
@@ -55,15 +59,10 @@ export class ThumbnailStore {
 
 /**
  * Image metadata state for a single photo (EXIF, etc):
- *  - "loading"      — metadata read is in progress (show spinner in cells)
- *  - ImageMetadata  — metadata has arrived (show values or "—")
+ *  - "loading"                 — metadata read is in progress (show spinner in cells)
+ *  - Record<string, Variant>   — metadata has arrived
  */
-export type ImageMetadataState = "loading" | ImageMetadata;
-
-export interface ImageMetadata {
-  date_taken: string | null;
-  camera_model: string | null;
-}
+export type ImageMetadataState = "loading" | Record<string, Variant>;
 
 /**
  * Observable store for image-level metadata, keyed by relative_path.
@@ -114,6 +113,9 @@ export type AppState =
       imageMetadataRemaining: number;   // count of photos still awaiting metadata_ready
       galleryIndex: number | null;
       selectedIndex: number | null;
+      
+      // Dynamic columns configuration
+      visibleColumns: string[];         // Keys of image metadata to show in columns
     };
 
 // ── Event payloads from Rust ──────────────────────────────────────────────────
@@ -126,8 +128,7 @@ export interface PhotoFoundPayload {
 export interface ImageMetadataReadyPayload {
   scan_id: number;
   relative_path: string;
-  date_taken: string | null;
-  camera_model: string | null;
+  metadata: Record<string, Variant>;
 }
 
 export interface ThumbnailReadyPayload {

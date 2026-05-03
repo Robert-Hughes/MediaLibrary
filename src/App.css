@@ -319,11 +319,16 @@ body {
   table-layout: fixed;
 }
 
-.photo-table thead {
+.photo-table thead th {
   position: sticky;
   top: 0;
   z-index: 1;
   background: var(--surface);
+}
+
+/* The second row of headers needs a top offset to stay below the first row */
+.photo-table thead tr:nth-child(2) th {
+  top: 24px; /* Approximate height of the first row */
 }
 
 .col-group-header {

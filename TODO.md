@@ -5,19 +5,27 @@ are covered by integration tests that simulate UI interaction and confirm that t
 Now
 ===
 
+* Bug: There's a small gap between the two "rows" in the list view column headings, leading to table rows being visible through the gap when scrolling down
+* Store Image metadata as arbitrary key-value pairs, key as string, value as a 'Variant' type, rather than the two hardcoded metadata fields we currently handle (OS metadata fields can remain hardcoded as it is now)
+* Variant value type should be able to handle strings, numbers and lists of variants
+* We don't want to show all the available Image metadata in the list view columns - let's have a default set of a couple of well-known Image metadata keys that we show, and the others will be hidden by default.
+* There will be a "Select Columns..." button to show a dialog where the user can choose to show/hide columns, with a full list of all the available Image metadata keys
+    * This will be taken from the union of the Image metadata keys across all images (cache this, don't compute it each time!)
+    * This dialog should show, for each unique Image metadata key, how many of the loaded images have a value for that key (so the user can identify which Image metadata keys will be useful to show)
+* Metadata should be gathered via a method that retrieves the data physically stored in the file, excluding OS-level info (System) and ExifTool calculations (Composite).
+    Use this command:
+
+        exiftool -a -G1 -s --system:all --composite:all -j <path to jpg>
+
+    Include code comments to explain what these parameters do and why we're using them.
+    We can remove the Rust crate dependency that we're currently using to load EXIF metadata
+    This will output a JSON file that the Rust code should parse and store in the Image metadata, converting from JSON strings/numbers/lists to our Variant type.
+
 
 Later
 =====
 
-* Metadata should be gathered via:
-        You wanted to see only the data physically stored in the file, excluding OS-level info (System) and ExifTool calculations (Composite).
 
-        Command:
-
-        powershell
-        exiftool -a -G1 -s --system:all --composite:all "D:\OneDrive\Pictures\2007\IMG_1998.jpg"
-
-        Use -j for JSON
 
 * Writing metadata and Normalization
 We discussed why your workflow uses explicit tag names instead of generic shortcuts.
@@ -31,3 +39,5 @@ Rationale: By being specific, you ensure that every layer of the metadata "sandw
 * Using OpenAI API to analyze image contents
 * Combine image description with other metadata (and 'storyline') to propose changes to metadata. This could be a mix of programmatic and Open AI Responses API?
 * Compare with functionalty of the Update Metadata prompts approach - add anything missing to here?
+* Allow showing/hiding of OS Metadata columns too
+* Figure out how exiftool should be bundled/installed/etc.

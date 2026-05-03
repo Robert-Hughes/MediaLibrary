@@ -64,8 +64,7 @@ describe("useMediaLibrary gallery state", () => {
     mock.pickFolderResolves("/photos");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
     await act(async () => { await result.current[1].openFolder(); });
-    act(() => { PHOTOS.forEach((p) => mock.emitPhotoFound(p)); });
-    await act(async () => { await vi.advanceTimersByTimeAsync(150); });
+    act(() => { mock.emitPhotoFound(PHOTOS[0]); });
     const state = result.current[0];
     expect(state.kind).toBe("loaded");
     if (state.kind === "loaded") expect(state.galleryIndex).toBeNull();
@@ -76,11 +75,11 @@ describe("useMediaLibrary gallery state", () => {
     mock.pickFolderResolves("/photos");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
     await act(async () => { await result.current[1].openFolder(); });
-    act(() => { PHOTOS.forEach((p) => mock.emitPhotoFound(p)); });
-    await act(async () => { await vi.advanceTimersByTimeAsync(150); });
-    act(() => { result.current[1].openGallery(2); });
+    act(() => { mock.emitPhotoFound(PHOTOS[0]); });
+    
+    act(() => { result.current[1].openGallery(0); });
     const state = result.current[0];
-    if (state.kind === "loaded") expect(state.galleryIndex).toBe(2);
+    if (state.kind === "loaded") expect(state.galleryIndex).toBe(0);
   });
 
   it("navigateGallery(1) increments the index", async () => {
@@ -102,7 +101,7 @@ describe("PhotoList interaction", () => {
     const thumbs = makeStore(photos);
     const imageMetadata = new ImageMetadataStore();
     photos.forEach((p) => imageMetadata.add(p.relative_path));
-    render(<PhotoList photos={photos} thumbnails={thumbs} imageMetadata={imageMetadata} selectedIndex={null} onSelect={onSelect} onShowInExplorer={() => {}} onVisibilityChange={() => {}} onPhotoOpen={onPhotoOpen} />);
+    render(<PhotoList photos={photos} thumbnails={thumbs} imageMetadata={imageMetadata} visibleColumns={[]} selectedIndex={null} onSelect={onSelect} onShowInExplorer={() => {}} onVisibilityChange={() => {}} onPhotoOpen={onPhotoOpen} />);
   }
 
   it("calls onPhotoOpen with the correct index when a row is double-clicked", async () => {

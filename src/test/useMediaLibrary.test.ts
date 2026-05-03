@@ -67,7 +67,7 @@ describe("useMediaLibrary", () => {
     act(() => { mock.emitPhotoFound(makePhoto({ relative_path: "b.jpg" })); });
     await act(async () => { await vi.advanceTimersByTimeAsync(150); });
     
-    act(() => { mock.emitImageMetadataReady("a.jpg", null, null); });
+    act(() => { mock.emitImageMetadataReady("a.jpg", {}); });
     await act(async () => { await vi.advanceTimersByTimeAsync(150); });
 
     const state = result.current[0];
@@ -113,7 +113,6 @@ describe("useMediaLibrary", () => {
     const { result } = renderHook(() => useMediaLibrary(mock.api));
     await act(async () => { await result.current[1].openFolder(); });
     act(() => { mock.emitPhotoFound(makePhoto({ relative_path: "a.jpg" })); });
-    // Note: state transitions to "loaded" on first photo immediately.
     
     act(() => { result.current[1].selectPhoto(0); });
     expect(result.current[0].kind).toBe("loaded");
@@ -162,7 +161,6 @@ describe("useMediaLibrary", () => {
     
     await act(async () => { await result.current[1].openFolder(); });
     act(() => { mock.emitPhotoFound(makePhoto({ relative_path: "nature/sunset.jpg" })); });
-    // No need to wait 150ms because first photo is flushed immediately.
 
     await act(async () => { await result.current[1].showInExplorer(0); });
 
