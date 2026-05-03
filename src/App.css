@@ -69,6 +69,64 @@ body {
   color: var(--text-dim);
 }
 
+/* ── Recent Folders ───────────────────────────────────────────────────────── */
+
+.recent-folders {
+  margin-top: 48px;
+  width: 100%;
+  max-width: 400px;
+}
+
+.recent-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  text-align: center;
+}
+
+.recent-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.recent-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.1s;
+  text-align: left;
+}
+
+.recent-btn:hover {
+  background: var(--surface-alt);
+  border-color: var(--text-dim);
+}
+
+.recent-icon {
+  font-size: 16px;
+  opacity: 0.7;
+}
+
+.recent-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
 /* ── Primary button ───────────────────────────────────────────────────────── */
 
 .btn-primary {
