@@ -2,10 +2,10 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useMediaLibrary, type TauriApi } from "./useMediaLibrary";
 import { WelcomeScreen } from "./components/WelcomeScreen";
-import { LoadingScreen } from "./components/LoadingScreen";
 import { MenuBar } from "./components/MenuBar";
 import { PhotoList } from "./components/PhotoList";
 import { GalleryView } from "./components/GalleryView";
+import { StatusFooter } from "./components/StatusFooter";
 import "./App.css";
 
 const tauriApi: TauriApi = {
@@ -21,15 +21,21 @@ async function loadImage(path: string): Promise<string | null> {
 export default function App() {
   const [state, actions] = useMediaLibrary(tauriApi);
 
+  // Show the footer whenever the directory walk is still running.
+  const isDiscovering =
+    state.kind === "loading" ||
+    (state.kind === "loaded" && state.scanning);
+
   return (
     <div className="app">
       {state.kind === "idle" && (
         <WelcomeScreen onOpenFolder={actions.openFolder} />
       )}
 
-      {/* Loading: show a simple spinner while waiting for the first photo */}
       {state.kind === "loading" && (
-        <LoadingScreen folder={state.folder} foundSoFar={0} />
+        // Show an empty list shell while waiting for the first photo.
+        // The footer below will show "Discovering files…".
+        <div style={{ flex: 1 }} />
       )}
 
       {state.kind === "loaded" && (
@@ -44,7 +50,6 @@ export default function App() {
             photos={state.photos}
             thumbnails={state.thumbnails}
             metadata={state.metadata}
-            scanning={state.scanning}
             onVisibilityChange={actions.prioritizeThumbnails}
             onPhotoOpen={actions.openGallery}
           />
@@ -59,6 +64,10 @@ export default function App() {
             />
           )}
         </>
+      )}
+
+      {isDiscovering && (
+        <StatusFooter message="Discovering files…" />
       )}
     </div>
   );

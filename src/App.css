@@ -19,7 +19,6 @@
   --text-dim:      #4a4f63;
   --thumb-bg:      #252830;
 
-  
   font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
   font-size: 14px;
   color: var(--text-primary);
@@ -396,8 +395,36 @@ body {
   vertical-align: middle;
 }
 
-/* ── Gallery overlay ──────────────────────────────────────────────────────── */
+/* ── Status footer ────────────────────────────────────────────────────────── */
 
+.status-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding: 0 12px;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.status-footer-spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
+.status-footer-message {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+/* ── Gallery overlay ──────────────────────────────────────────────────────── */
 .gallery-overlay {
   position: fixed;
   inset: 0;

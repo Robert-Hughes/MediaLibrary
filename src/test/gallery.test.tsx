@@ -349,7 +349,6 @@ describe("PhotoList double-click opens gallery", () => {
         photos={photos}
         thumbnails={thumbs}
         metadata={meta}
-        scanning={false}
         onVisibilityChange={() => {}}
         onPhotoOpen={onPhotoOpen}
       />

@@ -6,7 +6,6 @@ interface Props {
   photos: PhotoInfo[];
   thumbnails: ThumbnailStore;
   metadata: MetadataStore;
-  scanning: boolean;
   onVisibilityChange: (visiblePaths: string[]) => void;
   onPhotoOpen: (index: number) => void;
 }
@@ -18,7 +17,7 @@ function formatDate(ts: number | null): string {
   });
 }
 
-export function PhotoList({ photos, thumbnails, metadata, scanning, onVisibilityChange, onPhotoOpen }: Props) {
+export function PhotoList({ photos, thumbnails, metadata, onVisibilityChange, onPhotoOpen }: Props) {
   const listRef = useRef<HTMLDivElement>(null);
   const visibleRef = useRef<Map<string, boolean>>(new Map());
   const onVisibilityChangeRef = useRef(onVisibilityChange);
@@ -49,7 +48,7 @@ export function PhotoList({ photos, thumbnails, metadata, scanning, onVisibility
     return () => observer.disconnect();
   }, [photos]);
 
-  if (photos.length === 0 && !scanning) {
+  if (photos.length === 0) {
     return (
       <div className="photo-list-empty" data-testid="photo-list-empty">
         No photos found in this folder.
@@ -86,14 +85,6 @@ export function PhotoList({ photos, thumbnails, metadata, scanning, onVisibility
               onDoubleClick={() => onPhotoOpen(i)}
             />
           ))}
-          {scanning && (
-            <tr data-testid="scanning-row">
-              <td colSpan={7} className="scanning-footer">
-                <span className="scanning-spinner" aria-hidden="true" />
-                <span className="scanning-label">Scanning…</span>
-              </td>
-            </tr>
-          )}
         </tbody>
       </table>
     </div>
