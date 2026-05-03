@@ -2,7 +2,7 @@ import type { TauriApi } from "../useMediaLibrary";
 import type {
   PhotoInfo,
   PhotoFoundPayload,
-  MetadataReadyPayload,
+  ImageMetadataReadyPayload,
   ThumbnailReadyPayload,
   ScanErrorPayload,
 } from "../types";
@@ -14,7 +14,7 @@ export interface MockTauriApi {
   pickFolderResolves: (path: string | null) => void;
   emitPhotoFound: (photo: PhotoInfo, scanId?: number) => void;
   emitScanComplete: (scanId?: number) => void;
-  emitMetadataReady: (relativePath: string, dateTaken: string | null, cameraModel: string | null, scanId?: number) => void;
+  emitImageMetadataReady: (relativePath: string, dateTaken: string | null, cameraModel: string | null, scanId?: number) => void;
   emitThumbnailReady: (relativePath: string, thumbnail: string, scanId?: number) => void;
   emitScanError: (message: string) => void;
   lastPrioritizedPaths: string[];
@@ -34,8 +34,8 @@ export function createMockTauriApi(): MockTauriApi {
       emit("photo_found", { scan_id: scanId ?? mock.currentScanId, photo } satisfies PhotoFoundPayload),
     emitScanComplete: (scanId) =>
       emit("scan_complete", { scan_id: scanId ?? mock.currentScanId }),
-    emitMetadataReady: (relative_path, date_taken, camera_model, scanId) =>
-      emit("metadata_ready", { scan_id: scanId ?? mock.currentScanId, relative_path, date_taken, camera_model } satisfies MetadataReadyPayload),
+    emitImageMetadataReady: (relative_path, date_taken, camera_model, scanId) =>
+      emit("image_metadata_ready", { scan_id: scanId ?? mock.currentScanId, relative_path, date_taken, camera_model } satisfies ImageMetadataReadyPayload),
     emitThumbnailReady: (relative_path, thumbnail, scanId) =>
       emit("thumbnail_ready", { scan_id: scanId ?? mock.currentScanId, relative_path, thumbnail } satisfies ThumbnailReadyPayload),
     emitScanError: (message) =>

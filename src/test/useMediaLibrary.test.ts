@@ -58,7 +58,7 @@ describe("useMediaLibrary", () => {
     if (state.kind === "loaded") expect(state.photos).toHaveLength(3);
   });
 
-  it("metadataRemaining decrements when metadata_ready fires", async () => {
+  it("imageMetadataRemaining decrements when image_metadata_ready fires", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/photos");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
@@ -66,9 +66,9 @@ describe("useMediaLibrary", () => {
     act(() => { mock.emitPhotoFound(makePhoto({ relative_path: "a.jpg" })); });
     act(() => { mock.emitPhotoFound(makePhoto({ relative_path: "b.jpg" })); });
     await act(async () => { await vi.advanceTimersByTimeAsync(150); });
-    act(() => { mock.emitMetadataReady("a.jpg", null, null); });
+    act(() => { mock.emitImageMetadataReady("a.jpg", null, null); });
     const state = result.current[0];
-    if (state.kind === "loaded") expect(state.metadataRemaining).toBe(1);
+    if (state.kind === "loaded") expect(state.imageMetadataRemaining).toBe(1);
   });
 
   it("navigateGallery increments and decrements", async () => {
