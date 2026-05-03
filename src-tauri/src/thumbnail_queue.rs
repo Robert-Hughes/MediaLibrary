@@ -202,6 +202,111 @@ mod tests {
         assert_eq!(q.snapshot(), vec!["c", "d", "e", "a", "b"]);
     }
 
+    // ── blocking pop / push / finish interaction ──────────────────────────────
+
+    #[test]
+    fn pop_blocks_until_push_arrives() {
+        let q = Arc::new(ThumbnailQueue::new(vec![]));
+        let q2 = q.clone();
+
+        // Spawn a worker that will block on pop().
+        let handle = std::thread::spawn(move || q2.pop());
+
+        // Give the worker time to start blocking.
+        std::thread::sleep(std::time::Duration::from_millis(20));
+
+        // Push an item — this should unblock the worker.
+        q.push("woken.jpg".into());
+        q.finish();
+
+        let result = handle.join().unwrap();
+        assert_eq!(result, Some("woken.jpg".into()));
+    }
+
+    #[test]
+    fn finish_unblocks_all_waiting_workers() {
+        let q = Arc::new(ThumbnailQueue::new(vec![]));
+        let num_workers = 4;
+
+        // Spawn workers that all block immediately on an empty queue.
+        let handles: Vec<_> = (0..num_workers)
+            .map(|_| {
+                let q = q.clone();
+                std::thread::spawn(move || q.pop())
+            })
+            .collect();
+
+        std::thread::sleep(std::time::Duration::from_millis(20));
+
+        // finish() with no items — all workers should get None and exit.
+        q.finish();
+
+        for h in handles {
+            assert_eq!(h.join().unwrap(), None);
+        }
+    }
+
+    #[test]
+    fn workers_receive_items_pushed_after_they_start_blocking() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let q = Arc::new(ThumbnailQueue::new(vec![]));
+        let received = Arc::new(AtomicUsize::new(0));
+
+        // Start workers before any items exist.
+        let handles: Vec<_> = (0..4)
+            .map(|_| {
+                let q = q.clone();
+                let received = received.clone();
+                std::thread::spawn(move || {
+                    while q.pop().is_some() {
+                        received.fetch_add(1, Ordering::Relaxed);
+                    }
+                })
+            })
+            .collect();
+
+        // Feed items in after workers are (likely) blocking.
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        for i in 0..50 {
+            q.push(format!("photo_{i}.jpg"));
+        }
+        q.finish();
+
+        for h in handles {
+            h.join().unwrap();
+        }
+        assert_eq!(received.load(Ordering::Relaxed), 50);
+    }
+
+    #[test]
+    fn prioritize_while_workers_are_draining() {
+        // Verify prioritize() works correctly when called before draining starts.
+        let q = Arc::new(ThumbnailQueue::new(vec![]));
+
+        // Pre-populate with items a–z.
+        for c in b'a'..=b'z' {
+            q.push(format!("{}.jpg", c as char));
+        }
+
+        // Mark that we want "z.jpg" first.
+        q.prioritize(&["z.jpg".into()]);
+
+        // The first item popped must be z.jpg.
+        let first = q.pop().unwrap();
+        assert_eq!(first, "z.jpg");
+
+        // Drain the rest.
+        q.finish();
+        let mut rest = Vec::new();
+        while let Some(item) = q.pop() {
+            rest.push(item);
+        }
+        // z.jpg should not appear again.
+        assert!(!rest.contains(&"z.jpg".to_string()));
+        assert_eq!(rest.len(), 25); // a–y
+    }
+
     // ── concurrent access ─────────────────────────────────────────────────────
 
     #[test]
