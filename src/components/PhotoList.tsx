@@ -89,7 +89,7 @@ export function PhotoList({ photos, thumbnails, metadata, onVisibilityChange, on
           <tr>
             <th className="col-thumb" rowSpan={2} />
             <th className="col-group-header" colSpan={3}>File</th>
-            <th className="col-group-header" colSpan={2}>Camera</th>
+            <th className="col-group-header" colSpan={2}>Photo</th>
           </tr>
           <tr>
             <th className="col-header">Path</th>
