@@ -8,11 +8,12 @@
      with that from the new folder)
 * Theming - aim for a technical and functional look.
 
-Completed:
-- Basic app structure with state management (Default, Loading, Loaded)
-- Folder selection using rfd
-- Asynchronous scanning and thumbnail loading in background thread
-- Progress indication during loading
-- List view with thumbnails and filenames
-- Buttons to close or open new folder
-- Dark theme with black background and white text
+I'd like to add some tests based on the UI state.
+
+If I'm correct, the rendered UI is dependent entirely on some state data, and so we can test if this state data gets mutated in expected ways based on user input and background work that the app does.
+
+I'm thinking of tests along the lines of:
+
+Check default app state is as expected
+Open a folder and wait for loading to finish, check app state shows the expected list of files
+This might require some refactoring of the code to separate out a clean view-model state object, which would be a good thing
