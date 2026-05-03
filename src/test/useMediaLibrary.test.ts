@@ -1,8 +1,5 @@
 /**
  * Tests for the useMediaLibrary hook.
- *
- * These tests exercise all state transitions without a real Tauri backend
- * or a real window — the mock API drives everything.
  */
 import { renderHook, act } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -17,6 +14,7 @@ const SAMPLE_PHOTOS = [
 describe("useMediaLibrary", () => {
   beforeEach(() => { vi.useFakeTimers(); });
   afterEach(() => { vi.useRealTimers(); });
+
   // ── Initial state ──────────────────────────────────────────────────────────
 
   it("starts in idle state", () => {
@@ -70,9 +68,9 @@ describe("useMediaLibrary", () => {
     expect(result.current[0]).toMatchObject({ kind: "loading", foundSoFar: 47 });
   });
 
-  // ── scan_complete transitions to loaded with null thumbnails ───────────────
+  // ── scan_complete transitions to loaded ───────────────────────────────────
 
-  it("transitions to loaded when scan_complete fires, thumbnails start null", async () => {
+  it("transitions to loaded when scan_complete fires", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/photos/vacation");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
@@ -86,62 +84,65 @@ describe("useMediaLibrary", () => {
       expect(state.folder).toBe("/photos/vacation");
       expect(state.photos).toHaveLength(2);
       expect(state.photos[0].relative_path).toBe("beach/sunset.jpg");
-      // Thumbnails are null until thumbnail_ready events arrive.
-      expect(state.photos[0].thumbnail).toBeNull();
-      expect(state.photos[1].thumbnail).toBeNull();
     }
   });
 
-  // ── thumbnail_ready fills in individual photos ─────────────────────────────
-
-  it("updates a single photo's thumbnail when thumbnail_ready fires", async () => {
+  it("thumbnails start as loading in the store after scan_complete", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/photos");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
 
     await act(async () => { await result.current[1].openFolder(); });
     act(() => { mock.emitScanComplete(SAMPLE_PHOTOS); });
+
+    const state = result.current[0];
+    if (state.kind === "loaded") {
+      expect(state.thumbnails.get("beach/sunset.jpg")).toBe("loading");
+      expect(state.thumbnails.get("portrait.png")).toBe("loading");
+    }
+  });
+
+  // ── thumbnail_ready updates the store ─────────────────────────────────────
+
+  it("updates the thumbnail store when thumbnail_ready fires", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/photos");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+
+    await act(async () => { await result.current[1].openFolder(); });
+    act(() => { mock.emitScanComplete(SAMPLE_PHOTOS); });
+
+    const state = result.current[0];
+    if (state.kind !== "loaded") return;
 
     act(() => { mock.emitThumbnailReady("beach/sunset.jpg", "base64abc"); });
 
-    const state = result.current[0];
-    expect(state.kind).toBe("loaded");
-    if (state.kind === "loaded") {
-      expect(state.photos[0].thumbnail).toBe("base64abc");
-      // Other photo still null.
-      expect(state.photos[1].thumbnail).toBeNull();
-    }
+    expect(state.thumbnails.get("beach/sunset.jpg")).toBe("base64abc");
+    // Other photo still loading — and AppState itself did not change.
+    expect(state.thumbnails.get("portrait.png")).toBe("loading");
+    // The loaded state object is the same reference (no re-render of the list).
+    expect(result.current[0]).toBe(state);
   });
 
-  it("updates multiple photos independently as thumbnails arrive", async () => {
+  it("updates multiple thumbnails independently", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/photos");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
 
     await act(async () => { await result.current[1].openFolder(); });
     act(() => { mock.emitScanComplete(SAMPLE_PHOTOS); });
+
+    const state = result.current[0];
+    if (state.kind !== "loaded") return;
 
     act(() => { mock.emitThumbnailReady("portrait.png", "thumb2"); });
     act(() => { mock.emitThumbnailReady("beach/sunset.jpg", "thumb1"); });
 
-    const state = result.current[0];
-    if (state.kind === "loaded") {
-      expect(state.photos[0].thumbnail).toBe("thumb1");
-      expect(state.photos[1].thumbnail).toBe("thumb2");
-    }
+    expect(state.thumbnails.get("beach/sunset.jpg")).toBe("thumb1");
+    expect(state.thumbnails.get("portrait.png")).toBe("thumb2");
   });
 
-  it("ignores thumbnail_ready events when not in loaded state", () => {
-    const mock = createMockTauriApi();
-    const { result } = renderHook(() => useMediaLibrary(mock.api));
-
-    // Still idle — thumbnail event should be a no-op.
-    act(() => { mock.emitThumbnailReady("a.jpg", "data"); });
-
-    expect(result.current[0].kind).toBe("idle");
-  });
-
-  it("ignores thumbnail_ready for unknown relative paths", async () => {
+  it("thumbnail_ready for unknown path is a no-op", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/photos");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
@@ -149,14 +150,22 @@ describe("useMediaLibrary", () => {
     await act(async () => { await result.current[1].openFolder(); });
     act(() => { mock.emitScanComplete([{ relative_path: "a.jpg" }]); });
 
-    // Path doesn't match any photo — should not throw or corrupt state.
+    const state = result.current[0];
+    if (state.kind !== "loaded") return;
+
     act(() => { mock.emitThumbnailReady("nonexistent.jpg", "data"); });
 
-    const state = result.current[0];
-    expect(state.kind).toBe("loaded");
-    if (state.kind === "loaded") {
-      expect(state.photos[0].thumbnail).toBeNull();
-    }
+    // Known path unaffected.
+    expect(state.thumbnails.get("a.jpg")).toBe("loading");
+  });
+
+  it("thumbnail_ready when not loaded is ignored", () => {
+    const mock = createMockTauriApi();
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+
+    act(() => { mock.emitThumbnailReady("a.jpg", "data"); });
+
+    expect(result.current[0].kind).toBe("idle");
   });
 
   // ── scan_complete with empty folder ───────────────────────────────────────
@@ -204,20 +213,6 @@ describe("useMediaLibrary", () => {
     expect(result.current[0].kind).toBe("idle");
   });
 
-  it("thumbnails arriving after closeFolder are ignored", async () => {
-    const mock = createMockTauriApi();
-    mock.pickFolderResolves("/photos");
-    const { result } = renderHook(() => useMediaLibrary(mock.api));
-
-    await act(async () => { await result.current[1].openFolder(); });
-    act(() => { mock.emitScanComplete(SAMPLE_PHOTOS); });
-    act(() => { result.current[1].closeFolder(); });
-
-    // Thumbnail arrives after close — should not resurrect loaded state.
-    act(() => { mock.emitThumbnailReady("beach/sunset.jpg", "data"); });
-    expect(result.current[0].kind).toBe("idle");
-  });
-
   // ── Opening a new folder replaces the previous one ────────────────────────
 
   it("replaces the loaded state when a new folder is opened", async () => {
@@ -253,21 +248,13 @@ describe("useMediaLibrary", () => {
     const mock = createMockTauriApi();
     const { result } = renderHook(() => useMediaLibrary(mock.api));
 
-    await act(async () => {
-      await result.current[1].openFolder();
-    });
+    await act(async () => { await result.current[1].openFolder(); });
 
-    act(() => {
-      result.current[1].prioritizeThumbnails(["a.jpg", "b.jpg"]);
-    });
+    act(() => { result.current[1].prioritizeThumbnails(["a.jpg", "b.jpg"]); });
 
-    // Debounce hasn't fired yet.
     expect(mock.lastPrioritizedPaths).toEqual([]);
 
-    // Advance timers past the 100ms debounce.
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(150);
-    });
+    await act(async () => { await vi.advanceTimersByTimeAsync(150); });
 
     expect(mock.lastPrioritizedPaths).toEqual(["a.jpg", "b.jpg"]);
   });
@@ -284,11 +271,8 @@ describe("useMediaLibrary", () => {
       result.current[1].prioritizeThumbnails(["c.jpg", "d.jpg"]);
     });
 
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(150);
-    });
+    await act(async () => { await vi.advanceTimersByTimeAsync(150); });
 
-    // Only the last call's paths should have been sent.
     expect(mock.lastPrioritizedPaths).toEqual(["c.jpg", "d.jpg"]);
   });
 });

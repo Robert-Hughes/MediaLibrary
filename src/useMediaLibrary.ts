@@ -5,8 +5,12 @@
  *  - Components stay purely presentational
  *  - Tests can exercise all behaviour without a real Tauri backend
  *    by injecting mock implementations of `invoke` and `listen`
+ *
+ * Thumbnail updates are routed through a ThumbnailStore rather than React
+ * state, so each thumbnail_ready event re-renders only the one affected row.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
+import { ThumbnailStore } from "./types";
 import type {
   AppState,
   ScanCompletePayload,
@@ -24,6 +28,7 @@ export interface TauriApi {
     handler: (payload: unknown) => void
   ) => Promise<() => void>;
 }
+
 // ── Hook ──────────────────────────────────────────────────────────────────────
 
 export interface MediaLibraryActions {
@@ -35,10 +40,10 @@ export interface MediaLibraryActions {
 export function useMediaLibrary(api: TauriApi): [AppState, MediaLibraryActions] {
   const [appState, setAppState] = useState<AppState>({ kind: "idle" });
 
-  // Keep a ref to the current folder so event handlers always see the latest value.
   const currentFolderRef = useRef<string | null>(null);
+  // Stable store reference — replaced on each new scan, never mutated in place.
+  const thumbnailStoreRef = useRef<ThumbnailStore>(new ThumbnailStore());
 
-  // Register Tauri event listeners once on mount.
   useEffect(() => {
     const unlisteners: Array<() => void> = [];
 
@@ -60,12 +65,16 @@ export function useMediaLibrary(api: TauriApi): [AppState, MediaLibraryActions] 
         (raw) => {
           const payload = raw as ScanCompletePayload;
           const folder = currentFolderRef.current ?? "";
-          // Photos arrive with no thumbnails; they fill in via thumbnail_ready.
           const photos = payload.photos.map((p) => ({
             relative_path: p.relative_path,
-            thumbnail: null,
           }));
-          setAppState({ kind: "loaded", folder, photos });
+
+          // Reset the store with all paths as "loading".
+          const store = new ThumbnailStore();
+          store.reset(photos.map((p) => p.relative_path));
+          thumbnailStoreRef.current = store;
+
+          setAppState({ kind: "loaded", folder, photos, thumbnails: store });
         }
       );
 
@@ -73,14 +82,9 @@ export function useMediaLibrary(api: TauriApi): [AppState, MediaLibraryActions] 
         "thumbnail_ready",
         (raw) => {
           const { relative_path, thumbnail } = raw as ThumbnailReadyPayload;
-          setAppState((prev) => {
-            if (prev.kind !== "loaded") return prev;
-            // Immutably update just the matching photo entry.
-            const photos = prev.photos.map((p) =>
-              p.relative_path === relative_path ? { ...p, thumbnail } : p
-            );
-            return { ...prev, photos };
-          });
+          // Update the store directly — no React state change on the list.
+          // Only the subscribing PhotoRow for this path will re-render.
+          thumbnailStoreRef.current.set(relative_path, thumbnail);
         }
       );
 
@@ -123,14 +127,11 @@ export function useMediaLibrary(api: TauriApi): [AppState, MediaLibraryActions] 
     setAppState({ kind: "idle" });
   }, []);
 
-  // Debounced — coalesce rapid scroll events before hitting the backend.
   const prioritizeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prioritizeThumbnails = useCallback((visiblePaths: string[]) => {
     if (prioritizeTimerRef.current) clearTimeout(prioritizeTimerRef.current);
     prioritizeTimerRef.current = setTimeout(() => {
-      api.invoke("prioritize_thumbnails", { visiblePaths }).catch(() => {
-        // Best-effort — ignore errors (e.g. scan already finished).
-      });
+      api.invoke("prioritize_thumbnails", { visiblePaths }).catch(() => {});
     }, 100);
   }, [api]);
 

@@ -1,15 +1,26 @@
 /**
  * Component rendering tests.
- * Verifies that each screen renders the right content for its props.
  */
-import { render, screen } from "@testing-library/react";
+import { render, screen, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi } from "vitest";
 import { WelcomeScreen } from "../components/WelcomeScreen";
 import { LoadingScreen } from "../components/LoadingScreen";
 import { Toolbar } from "../components/Toolbar";
 import { PhotoList } from "../components/PhotoList";
+import { ThumbnailStore } from "../types";
 import type { PhotoInfo } from "../types";
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function makeStore(photos: PhotoInfo[], overrides: Record<string, string> = {}): ThumbnailStore {
+  const store = new ThumbnailStore();
+  store.reset(photos.map((p) => p.relative_path));
+  for (const [path, value] of Object.entries(overrides)) {
+    store.set(path, value);
+  }
+  return store;
+}
 
 // ── WelcomeScreen ─────────────────────────────────────────────────────────────
 
@@ -98,59 +109,64 @@ describe("PhotoList", () => {
   const noop = () => {};
 
   it("shows empty message when there are no photos", () => {
-    render(<PhotoList photos={[]} onVisibilityChange={noop} />);
+    const store = new ThumbnailStore();
+    render(<PhotoList photos={[]} thumbnails={store} onVisibilityChange={noop} />);
     expect(screen.getByTestId("photo-list-empty")).toBeInTheDocument();
   });
 
   it("renders a row for each photo", () => {
     const photos: PhotoInfo[] = [
-      { relative_path: "a.jpg", thumbnail: null },
-      { relative_path: "b/c.png", thumbnail: null },
-      { relative_path: "d.gif", thumbnail: null },
+      { relative_path: "a.jpg" },
+      { relative_path: "b/c.png" },
+      { relative_path: "d.gif" },
     ];
-    render(<PhotoList photos={photos} onVisibilityChange={noop} />);
+    render(<PhotoList photos={photos} thumbnails={makeStore(photos)} onVisibilityChange={noop} />);
     expect(screen.getAllByTestId("photo-row")).toHaveLength(3);
   });
 
   it("displays the relative path for each photo", () => {
-    const photos: PhotoInfo[] = [
-      { relative_path: "vacation/beach.jpg", thumbnail: null },
-    ];
-    render(<PhotoList photos={photos} onVisibilityChange={noop} />);
+    const photos: PhotoInfo[] = [{ relative_path: "vacation/beach.jpg" }];
+    render(<PhotoList photos={photos} thumbnails={makeStore(photos)} onVisibilityChange={noop} />);
     expect(screen.getByTestId("photo-path")).toHaveTextContent("vacation/beach.jpg");
   });
 
+  it("renders a spinner when thumbnail is loading", () => {
+    const photos: PhotoInfo[] = [{ relative_path: "a.jpg" }];
+    // Default store state is "loading".
+    render(<PhotoList photos={photos} thumbnails={makeStore(photos)} onVisibilityChange={noop} />);
+    expect(document.querySelector(".photo-thumb-spinner")).toBeInTheDocument();
+    expect(document.querySelector(".photo-thumb-placeholder")).not.toBeInTheDocument();
+  });
+
   it("renders a thumbnail img when thumbnail data is present", () => {
-    const photos: PhotoInfo[] = [
-      { relative_path: "a.jpg", thumbnail: "abc123" },
-    ];
-    render(<PhotoList photos={photos} onVisibilityChange={noop} />);
+    const photos: PhotoInfo[] = [{ relative_path: "a.jpg" }];
+    const store = makeStore(photos, { "a.jpg": "abc123" });
+    render(<PhotoList photos={photos} thumbnails={store} onVisibilityChange={noop} />);
     const img = document.querySelector(".photo-thumb-img") as HTMLImageElement;
     expect(img).toBeInTheDocument();
     expect(img).toHaveAttribute("src", "data:image/jpeg;base64,abc123");
   });
 
-  it("renders a placeholder when thumbnail is null", () => {
-    const photos: PhotoInfo[] = [
-      { relative_path: "a.jpg", thumbnail: null },
-    ];
-    render(<PhotoList photos={photos} onVisibilityChange={noop} />);
+  it("renders a placeholder when thumbnail has failed", () => {
+    const photos: PhotoInfo[] = [{ relative_path: "a.jpg" }];
+    const store = makeStore(photos, { "a.jpg": "failed" });
+    render(<PhotoList photos={photos} thumbnails={store} onVisibilityChange={noop} />);
     expect(document.querySelector(".photo-thumb-placeholder")).toBeInTheDocument();
+    expect(document.querySelector(".photo-thumb-spinner")).not.toBeInTheDocument();
   });
 
   it("sets data-path attribute on each row for IntersectionObserver", () => {
     const photos: PhotoInfo[] = [
-      { relative_path: "vacation/beach.jpg", thumbnail: null },
-      { relative_path: "portrait.png", thumbnail: null },
+      { relative_path: "vacation/beach.jpg" },
+      { relative_path: "portrait.png" },
     ];
-    render(<PhotoList photos={photos} onVisibilityChange={noop} />);
+    render(<PhotoList photos={photos} thumbnails={makeStore(photos)} onVisibilityChange={noop} />);
     const rows = screen.getAllByTestId("photo-row");
     expect(rows[0]).toHaveAttribute("data-path", "vacation/beach.jpg");
     expect(rows[1]).toHaveAttribute("data-path", "portrait.png");
   });
 
   it("calls onVisibilityChange when IntersectionObserver fires", () => {
-    // jsdom doesn't implement IntersectionObserver, so we stub it.
     const observed: Element[] = [];
     const callbacks: IntersectionObserverCallback[] = [];
 
@@ -162,12 +178,11 @@ describe("PhotoList", () => {
 
     const handler = vi.fn();
     const photos: PhotoInfo[] = [
-      { relative_path: "a.jpg", thumbnail: null },
-      { relative_path: "b.jpg", thumbnail: null },
+      { relative_path: "a.jpg" },
+      { relative_path: "b.jpg" },
     ];
-    render(<PhotoList photos={photos} onVisibilityChange={handler} />);
+    render(<PhotoList photos={photos} thumbnails={makeStore(photos)} onVisibilityChange={handler} />);
 
-    // Simulate both rows becoming visible.
     const entries = observed.map((el) => ({
       target: el,
       isIntersecting: true,
@@ -175,10 +190,28 @@ describe("PhotoList", () => {
 
     callbacks[0](entries, {} as IntersectionObserver);
 
-    expect(handler).toHaveBeenCalledWith(
-      expect.arrayContaining(["a.jpg", "b.jpg"])
-    );
+    expect(handler).toHaveBeenCalledWith(expect.arrayContaining(["a.jpg", "b.jpg"]));
 
     vi.unstubAllGlobals();
+  });
+
+  it("row updates when store is mutated externally", async () => {
+    const photos: PhotoInfo[] = [{ relative_path: "a.jpg" }];
+    const store = makeStore(photos);
+
+    const { rerender } = render(
+      <PhotoList photos={photos} thumbnails={store} onVisibilityChange={noop} />
+    );
+
+    expect(document.querySelector(".photo-thumb-spinner")).toBeInTheDocument();
+
+    // Simulate a thumbnail_ready event updating the store.
+    act(() => { store.set("a.jpg", "newthumbdata"); });
+
+    rerender(<PhotoList photos={photos} thumbnails={store} onVisibilityChange={noop} />);
+
+    const img = document.querySelector(".photo-thumb-img") as HTMLImageElement;
+    expect(img).toBeInTheDocument();
+    expect(img).toHaveAttribute("src", "data:image/jpeg;base64,newthumbdata");
   });
 });
