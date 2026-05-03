@@ -5,7 +5,7 @@
  * or a real window — the mock API drives everything.
  */
 import { renderHook, act } from "@testing-library/react";
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { useMediaLibrary } from "../useMediaLibrary";
 import { createMockTauriApi } from "./mockTauriApi";
 
@@ -15,6 +15,8 @@ const SAMPLE_PHOTOS = [
 ];
 
 describe("useMediaLibrary", () => {
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
   // ── Initial state ──────────────────────────────────────────────────────────
 
   it("starts in idle state", () => {
@@ -243,5 +245,50 @@ describe("useMediaLibrary", () => {
 
     act(() => { mock.emitScanProgress(99); });
     expect(result.current[0].kind).toBe("idle");
+  });
+
+  // ── prioritizeThumbnails ──────────────────────────────────────────────────
+
+  it("calls prioritize_thumbnails with the provided paths after debounce", async () => {
+    const mock = createMockTauriApi();
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+
+    await act(async () => {
+      await result.current[1].openFolder();
+    });
+
+    act(() => {
+      result.current[1].prioritizeThumbnails(["a.jpg", "b.jpg"]);
+    });
+
+    // Debounce hasn't fired yet.
+    expect(mock.lastPrioritizedPaths).toEqual([]);
+
+    // Advance timers past the 100ms debounce.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(150);
+    });
+
+    expect(mock.lastPrioritizedPaths).toEqual(["a.jpg", "b.jpg"]);
+  });
+
+  it("debounces rapid calls — only the last set of paths is sent", async () => {
+    const mock = createMockTauriApi();
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+
+    await act(async () => { await result.current[1].openFolder(); });
+
+    act(() => {
+      result.current[1].prioritizeThumbnails(["a.jpg"]);
+      result.current[1].prioritizeThumbnails(["b.jpg"]);
+      result.current[1].prioritizeThumbnails(["c.jpg", "d.jpg"]);
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(150);
+    });
+
+    // Only the last call's paths should have been sent.
+    expect(mock.lastPrioritizedPaths).toEqual(["c.jpg", "d.jpg"]);
   });
 });
