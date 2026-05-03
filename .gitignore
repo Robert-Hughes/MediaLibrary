@@ -1,20 +1,19 @@
-# Rust build artifacts
-target/
-
-# Cargo.lock is typically committed for applications
-# Uncomment the next line if you prefer not to commit it
-# Cargo.lock
-
-# Backup files
+# ── Rust ─────────────────────────────────────────────────────────────────────
+src-tauri/target/
 *.rs.bk
 
-# IDE files
+# ── Node / frontend ───────────────────────────────────────────────────────────
+node_modules/
+dist/
+
+# ── Tauri generated files ─────────────────────────────────────────────────────
+src-tauri/gen/schemas/
+
+# ── OS / IDE ──────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
 .vscode/
 .idea/
 
-# OS files
-.DS_Store
-Thumbs.db
-
-# Historical/reference scripts
+# ── Historical scripts (reference only, not part of the app) ─────────────────
 Update Metadata Scripts/
