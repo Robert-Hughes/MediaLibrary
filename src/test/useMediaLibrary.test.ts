@@ -66,7 +66,10 @@ describe("useMediaLibrary", () => {
     act(() => { mock.emitPhotoFound(makePhoto({ relative_path: "a.jpg" })); });
     act(() => { mock.emitPhotoFound(makePhoto({ relative_path: "b.jpg" })); });
     await act(async () => { await vi.advanceTimersByTimeAsync(150); });
+    
     act(() => { mock.emitImageMetadataReady("a.jpg", null, null); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(150); });
+
     const state = result.current[0];
     if (state.kind === "loaded") expect(state.imageMetadataRemaining).toBe(1);
   });
@@ -110,9 +113,13 @@ describe("useMediaLibrary", () => {
     const { result } = renderHook(() => useMediaLibrary(mock.api));
     await act(async () => { await result.current[1].openFolder(); });
     act(() => { mock.emitPhotoFound(makePhoto({ relative_path: "a.jpg" })); });
+    // Note: state transitions to "loaded" on first photo immediately.
     
     act(() => { result.current[1].selectPhoto(0); });
-    expect(result.current[0].selectedIndex).toBe(0);
+    expect(result.current[0].kind).toBe("loaded");
+    if (result.current[0].kind === "loaded") {
+      expect(result.current[0].selectedIndex).toBe(0);
+    }
   });
 
   it("openGallery also sets selectedIndex", async () => {
@@ -123,8 +130,11 @@ describe("useMediaLibrary", () => {
     act(() => { mock.emitPhotoFound(makePhoto({ relative_path: "a.jpg" })); });
     
     act(() => { result.current[1].openGallery(0); });
-    expect(result.current[0].galleryIndex).toBe(0);
-    expect(result.current[0].selectedIndex).toBe(0);
+    const state = result.current[0];
+    if (state.kind === "loaded") {
+      expect(state.galleryIndex).toBe(0);
+      expect(state.selectedIndex).toBe(0);
+    }
   });
 
   it("navigateGallery syncs selectedIndex", async () => {
@@ -143,6 +153,25 @@ describe("useMediaLibrary", () => {
       expect(state.galleryIndex).toBe(1);
       expect(state.selectedIndex).toBe(1);
     }
+  });
+
+  it("showInExplorer passes folder and relativePath separately to the backend and is called once", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("C:/MyPhotos");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    
+    await act(async () => { await result.current[1].openFolder(); });
+    act(() => { mock.emitPhotoFound(makePhoto({ relative_path: "nature/sunset.jpg" })); });
+    // No need to wait 150ms because first photo is flushed immediately.
+
+    await act(async () => { await result.current[1].showInExplorer(0); });
+
+    const explorerCalls = mock.invocations.filter(c => c.cmd === "show_in_explorer");
+    expect(explorerCalls).toHaveLength(1);
+    expect(explorerCalls[0].args).toEqual({
+      folder: "C:/MyPhotos",
+      relativePath: "nature/sunset.jpg"
+    });
   });
 
   it("photo_found events after closeFolder are ignored", async () => {

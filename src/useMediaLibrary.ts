@@ -94,14 +94,18 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
     const unlisteners: Array<() => void> = [];
     let cancelled = false;
 
-    const flushPhotos = () => {
-      if (photoBufferRef.current.length === 0) return;
+    const flushBatch = () => {
       const batch = [...photoBufferRef.current];
       photoBufferRef.current = [];
 
       setAppState((prev) => {
         if (prev.kind === "idle") return prev;
+        
         if (prev.kind === "loading") {
+          // If discovery is just starting, batch might be empty if only metadata arrived.
+          // We only transition to "loaded" if we have at least one photo.
+          if (batch.length === 0) return prev;
+          
           return {
             kind: "loaded",
             folder: prev.folder,
@@ -114,12 +118,20 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
             selectedIndex: null,
           };
         }
+        
         if (prev.kind === "loaded") {
-          const newPhotos = [...prev.photos, ...batch];
+          const newPhotos = batch.length > 0 ? [...prev.photos, ...batch] : prev.photos;
+          const newRemaining = Math.max(0, newPhotos.length - imageMetadataReceivedRef.current);
+          
+          // Only update state if something actually changed.
+          if (batch.length === 0 && prev.imageMetadataRemaining === newRemaining) {
+            return prev;
+          }
+          
           return {
             ...prev,
             photos: newPhotos,
-            imageMetadataRemaining: Math.max(0, newPhotos.length - imageMetadataReceivedRef.current),
+            imageMetadataRemaining: newRemaining,
           };
         }
         return prev;
@@ -139,7 +151,6 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
 
         // Flush immediately for the very first photo.
         // Also flush if the buffer is large enough (e.g., 50 photos).
-        // Otherwise, wait for the timer.
         const shouldFlushNow = isFirstFlushRef.current || 
                              photoBufferRef.current.length >= 50;
 
@@ -149,11 +160,11 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
             clearTimeout(batchTimerRef.current);
             batchTimerRef.current = null;
           }
-          flushPhotos();
+          flushBatch();
         } else if (!batchTimerRef.current) {
           batchTimerRef.current = setTimeout(() => {
             batchTimerRef.current = null;
-            flushPhotos();
+            flushBatch();
           }, 100);
         }
       });
@@ -167,7 +178,7 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
           clearTimeout(batchTimerRef.current);
           batchTimerRef.current = null;
         }
-        flushPhotos();
+        flushBatch();
 
         setAppState((prev) => {
           if (prev.kind === "loaded") return { ...prev, scanning: false };
@@ -194,11 +205,14 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
         if (scan_id !== activeScanIdRef.current) return;
         imageMetadataStoreRef.current.set(relative_path, { date_taken, camera_model });
         imageMetadataReceivedRef.current += 1;
-        setAppState((prev) =>
-          prev.kind === "loaded"
-            ? { ...prev, imageMetadataRemaining: Math.max(0, prev.photos.length - imageMetadataReceivedRef.current) }
-            : prev
-        );
+        
+        // Throttle state updates for the metadata counter.
+        if (!batchTimerRef.current) {
+          batchTimerRef.current = setTimeout(() => {
+            batchTimerRef.current = null;
+            flushBatch(); 
+          }, 100);
+        }
       });
 
       const unlistenThumbnail = await api.listen("thumbnail_ready", (raw) => {
@@ -259,18 +273,19 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
     );
   }, []);
 
+  const stateRef = useRef(appState);
+  stateRef.current = appState;
+
   const showInExplorer = useCallback(async (index: number) => {
-    setAppState((prev) => {
-      if (prev.kind !== "loaded") return prev;
-      const photo = prev.photos[index];
-      if (!photo) return prev;
-      
-      api.invoke("show_in_explorer", { 
-        folder: prev.folder, 
-        relativePath: photo.relative_path 
-      }).catch(() => {});
-      return prev;
-    });
+    const current = stateRef.current;
+    if (current.kind !== "loaded") return;
+    const photo = current.photos[index];
+    if (!photo) return;
+    
+    api.invoke("show_in_explorer", { 
+      folder: current.folder, 
+      relativePath: photo.relative_path 
+    }).catch(() => {});
   }, [api]);
 
   const openGallery = useCallback((index: number) => {

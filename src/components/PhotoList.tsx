@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, memo } from "react";
 import { useSyncExternalStore } from "react";
 import { ThumbnailStore, ImageMetadataStore } from "../types";
 import type { PhotoInfo } from "../types";
@@ -165,7 +165,7 @@ interface RowProps {
   onContextMenu: (e: React.MouseEvent) => void;
 }
 
-function PhotoRow({ photo, index, selected, thumbnails, imageMetadata, onClick, onDoubleClick, onContextMenu }: RowProps) {
+const PhotoRow = memo(function PhotoRow({ photo, index, selected, thumbnails, imageMetadata, onClick, onDoubleClick, onContextMenu }: RowProps) {
   const thumbnail = useSyncExternalStore(
     (cb) => thumbnails.subscribe(photo.relative_path, cb),
     thumbnails.getSnapshot(photo.relative_path),
@@ -223,4 +223,4 @@ function PhotoRow({ photo, index, selected, thumbnails, imageMetadata, onClick, 
       </td>
     </tr>
   );
-}
+});
