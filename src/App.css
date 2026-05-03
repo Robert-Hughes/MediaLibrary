@@ -302,3 +302,116 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* ── Gallery overlay ──────────────────────────────────────────────────────── */
+
+.gallery-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.92);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.gallery-content {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  padding: 48px 72px;
+}
+
+.gallery-image-area {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  min-width: 0;
+}
+
+.gallery-image {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 2px;
+  display: block;
+}
+
+.gallery-spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.gallery-error {
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.gallery-close {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 20px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  line-height: 1;
+  transition: color 0.1s;
+}
+
+.gallery-close:hover { color: var(--text-primary); }
+
+.gallery-nav {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 48px;
+  cursor: pointer;
+  padding: 0 16px;
+  line-height: 1;
+  flex-shrink: 0;
+  transition: color 0.1s;
+  user-select: none;
+}
+
+.gallery-nav:hover:not(:disabled) { color: var(--text-primary); }
+.gallery-nav:disabled { opacity: 0.2; cursor: default; }
+
+.gallery-caption {
+  position: absolute;
+  bottom: 12px;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 16px;
+  padding: 0 16px;
+}
+
+.gallery-path {
+  font-size: 13px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 60%;
+}
+
+.gallery-counter {
+  font-size: 12px;
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
