@@ -37,8 +37,6 @@ export function WelcomeScreen({ onOpenFolder, recentFolders, onOpenRecent }: Pro
           </ul>
         </div>
       )}
-
-      <p className="welcome-hint">Or drag and drop a folder here (coming soon)</p>
     </div>
   );
 }
