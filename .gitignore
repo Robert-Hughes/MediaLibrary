@@ -1,0 +1,20 @@
+# Rust build artifacts
+target/
+
+# Cargo.lock is typically committed for applications
+# Uncomment the next line if you prefer not to commit it
+# Cargo.lock
+
+# Backup files
+*.rs.bk
+
+# IDE files
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Historical/reference scripts
+Update Metadata Scripts/
