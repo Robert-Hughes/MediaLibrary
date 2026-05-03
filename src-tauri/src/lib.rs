@@ -47,8 +47,7 @@ struct ScanErrorPayload {
 struct ImageMetadataReadyPayload {
     scan_id: u64,
     relative_path: String,
-    date_taken: Option<String>,
-    camera_model: Option<String>,
+    metadata: std::collections::HashMap<String, scanner::Variant>,
 }
 
 #[derive(Clone, Serialize)]
@@ -171,12 +170,11 @@ fn start_scan(
                 while let Some(rel_path) = queue.pop() {
                     if cancelled.load(Ordering::Relaxed) { break; }
                     let abs = root.join(rel_path.replace('/', std::path::MAIN_SEPARATOR_STR));
-                    let info = scanner::read_exif(&rel_path, &abs);
+                    let info = scanner::read_image_metadata(&rel_path, &abs);
                     let _ = app.emit("image_metadata_ready", ImageMetadataReadyPayload {
                         scan_id,
                         relative_path: info.relative_path,
-                        date_taken:    info.date_taken,
-                        camera_model:  info.camera_model,
+                        metadata:      info.metadata,
                     });
                 }
             })

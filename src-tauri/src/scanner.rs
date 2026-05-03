@@ -1,12 +1,14 @@
 /// Background folder scanning logic.
 ///
 /// Three concerns are kept separate:
-///  - `scan_folder`     — fast directory walk, path + OS metadata only.
-///                        Calls a callback per file so callers can stream results.
-///  - `read_exif`       — reads EXIF metadata for a single file (JPEG only).
-///  - `thumbnail_for`   — generates a thumbnail (EXIF embedded or full decode).
-use serde::Serialize;
+///  - `scan_folder`          — fast directory walk, path + OS metadata only.
+///                             Calls a callback per file so callers can stream results.
+///  - `read_image_metadata`  — reads metadata for a single file using ExifTool.
+///  - `thumbnail_for`        — generates a thumbnail.
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::Path;
+use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use walkdir::WalkDir;
@@ -15,7 +17,7 @@ use walkdir::WalkDir;
 const PHOTO_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "gif", "bmp", "webp", "tiff", "tif"];
 
 /// A single photo entry from the directory walk.
-/// Contains only path and OS metadata — EXIF arrives separately via `read_exif`.
+/// Contains only path and OS metadata — Image metadata arrives separately via `read_image_metadata`.
 #[derive(Debug, Clone, Serialize)]
 pub struct PhotoInfo {
     pub relative_path: String,
@@ -24,12 +26,22 @@ pub struct PhotoInfo {
     pub date_created: Option<i64>,
 }
 
-/// EXIF metadata for a single photo, delivered asynchronously after discovery.
+/// A value in the image metadata.
+/// Can be a string, a number, or a list of variants.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum Variant {
+    String(String),
+    Number(f64),
+    List(Vec<Variant>),
+}
+
+/// Image-level metadata for a single photo, delivered asynchronously after discovery.
+/// Contains arbitrary key-value pairs from ExifTool.
 #[derive(Debug, Clone, Serialize)]
-pub struct ExifInfo {
+pub struct ImageMetadata {
     pub relative_path: String,
-    pub date_taken: Option<String>,
-    pub camera_model: Option<String>,
+    pub metadata: HashMap<String, Variant>,
 }
 
 /// Walk `folder` and call `on_photo` for each image file found.
@@ -100,61 +112,51 @@ fn read_os_metadata(path: &Path) -> (Option<i64>, Option<i64>) {
     (modified, created)
 }
 
-/// Read EXIF metadata for a single file.
-/// Only meaningful for JPEG files; returns empty ExifInfo for other formats.
-pub fn read_exif(relative_path: &str, abs_path: &Path) -> ExifInfo {
-    // TEMPORARY: simulate slow EXIF reading for load testing.
+/// Read image metadata for a single file using ExifTool.
+///
+/// We use the following flags:
+///  -a: Allow duplicate tag names (to see all occurrences)
+///  -G1: Group tags by location (e.g. [IFD0], [XMP-dc])
+///  -s: Short tag names
+///  --system:all: Exclude OS-level system tags
+///  --composite:all: Exclude tags calculated by ExifTool (to see only original data)
+///  -j: Output in JSON format
+pub fn read_image_metadata(relative_path: &str, abs_path: &Path) -> ImageMetadata {
+    // TEMPORARY: simulate slow metadata reading for load testing.
     #[cfg(not(test))]
     if std::env::var("MEDIA_LIBRARY_SLOW_MODE").is_ok() {
         std::thread::sleep(std::time::Duration::from_millis(500));
     }
 
-    let (date_taken, camera_model) = read_exif_inner(abs_path);
-    ExifInfo { relative_path: relative_path.to_owned(), date_taken, camera_model }
+    let output = Command::new("exiftool")
+        .arg("-a")
+        .arg("-G1")
+        .arg("-s")
+        .arg("--system:all")
+        .arg("--composite:all")
+        .arg("-j")
+        .arg(abs_path)
+        .output();
+
+    let metadata = match output {
+        Ok(out) if out.status.success() => {
+            let json = String::from_utf8_lossy(&out.stdout);
+            parse_exiftool_json(&json)
+        }
+        _ => HashMap::new(),
+    };
+
+    ImageMetadata {
+        relative_path: relative_path.to_owned(),
+        metadata,
+    }
 }
 
-fn read_exif_inner(path: &Path) -> (Option<String>, Option<String>) {
-    let ext = path
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(|e| e.to_ascii_lowercase());
-
-    if !matches!(ext.as_deref(), Some("jpg") | Some("jpeg")) {
-        return (None, None);
-    }
-
-    let file = match std::fs::File::open(path) {
-        Ok(f) => f,
-        Err(_) => return (None, None),
-    };
-    let mut bufreader = std::io::BufReader::new(file);
-    let exif = match exif::Reader::new().read_from_container(&mut bufreader) {
-        Ok(e) => e,
-        Err(_) => return (None, None),
-    };
-
-    let date_taken = exif
-        .get_field(exif::Tag::DateTimeOriginal, exif::In::PRIMARY)
-        .map(|f| f.display_value().to_string());
-
-    let make = exif
-        .get_field(exif::Tag::Make, exif::In::PRIMARY)
-        .map(|f| f.display_value().to_string().trim_matches('"').to_owned());
-    let model = exif
-        .get_field(exif::Tag::Model, exif::In::PRIMARY)
-        .map(|f| f.display_value().to_string().trim_matches('"').to_owned());
-
-    let camera_model = match (make, model) {
-        (Some(mk), Some(mo)) => {
-            if mo.to_lowercase().starts_with(&mk.to_lowercase()) { Some(mo) }
-            else { Some(format!("{mk} {mo}")) }
-        }
-        (None, Some(mo)) => Some(mo),
-        (Some(mk), None) => Some(mk),
-        (None, None) => None,
-    };
-
-    (date_taken, camera_model)
+fn parse_exiftool_json(json: &str) -> HashMap<String, Variant> {
+    let list: Vec<HashMap<String, Variant>> = serde_json::from_str(json).unwrap_or_default();
+    let mut map = list.into_iter().next().unwrap_or_default();
+    map.remove("SourceFile");
+    map
 }
 
 /// Generate a base64-encoded JPEG thumbnail for the image at `path`.
@@ -164,42 +166,7 @@ pub fn thumbnail_for(path: &Path) -> Option<String> {
     if std::env::var("MEDIA_LIBRARY_SLOW_MODE").is_ok() {
         std::thread::sleep(std::time::Duration::from_millis(1000));
     }
-    let ext = path
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(|e| e.to_ascii_lowercase());
-
-    if matches!(ext.as_deref(), Some("jpg") | Some("jpeg")) {
-        if let Some(b64) = exif_thumbnail(path) {
-            return Some(b64);
-        }
-    }
     full_decode_thumbnail(path)
-}
-
-fn exif_thumbnail(path: &Path) -> Option<String> {
-    let file = std::fs::File::open(path).ok()?;
-    let mut bufreader = std::io::BufReader::new(file);
-    let exif = exif::Reader::new().read_from_container(&mut bufreader).ok()?;
-
-    let offset_field = exif.get_field(exif::Tag::JPEGInterchangeFormat, exif::In::THUMBNAIL)?;
-    let offset = match offset_field.value {
-        exif::Value::Long(ref v) if !v.is_empty() => v[0] as usize,
-        _ => return None,
-    };
-    let len_field = exif.get_field(exif::Tag::JPEGInterchangeFormatLength, exif::In::THUMBNAIL)?;
-    let len = match len_field.value {
-        exif::Value::Long(ref v) if !v.is_empty() => v[0] as usize,
-        _ => return None,
-    };
-
-    let buf = exif.buf();
-    let end = offset.checked_add(len)?;
-    if end > buf.len() { return None; }
-    let thumb_bytes = &buf[offset..end];
-    if thumb_bytes.is_empty() { return None; }
-
-    Some(base64::Engine::encode(&base64::engine::general_purpose::STANDARD, thumb_bytes))
 }
 
 fn full_decode_thumbnail(path: &Path) -> Option<String> {
@@ -291,22 +258,11 @@ mod tests {
     }
 
     #[test]
-    fn exif_returns_none_for_non_jpeg() {
+    fn metadata_returns_empty_on_error() {
         let dir = tempdir().unwrap();
-        fs::write(dir.path().join("a.png"), b"x").unwrap();
-        let info = read_exif("a.png", &dir.path().join("a.png"));
-        assert!(info.date_taken.is_none());
-        assert!(info.camera_model.is_none());
-    }
-
-    #[test]
-    fn exif_returns_none_for_jpeg_without_exif() {
-        let dir = tempdir().unwrap();
-        let path = dir.path().join("noexif.jpg");
-        image::RgbImage::new(1, 1).save(&path).unwrap();
-        let info = read_exif("noexif.jpg", &path);
-        assert!(info.date_taken.is_none());
-        assert!(info.camera_model.is_none());
+        let path = dir.path().join("missing.jpg");
+        let info = read_image_metadata("missing.jpg", &path);
+        assert!(info.metadata.is_empty());
     }
 
     #[test]

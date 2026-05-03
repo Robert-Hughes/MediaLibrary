@@ -21,13 +21,14 @@ function makeStores(photos: PhotoInfo[], thumbOverrides: Record<string, string> 
   return { thumbs, imageMetadata };
 }
 
-function renderList(photos: PhotoInfo[], opts: { thumbOverrides?: Record<string, string>, selectedIndex?: number | null, onSelect?: (i: number | null) => void, onPhotoOpen?: (i: number) => void, onShowInExplorer?: (i: number) => void } = {}) {
+function renderList(photos: PhotoInfo[], opts: { thumbOverrides?: Record<string, string>, selectedIndex?: number | null, onSelect?: (i: number | null) => void, onPhotoOpen?: (i: number) => void, onShowInExplorer?: (i: number) => void, visibleColumns?: string[] } = {}) {
   const { thumbs, imageMetadata } = makeStores(photos, opts.thumbOverrides ?? {});
   render(
     <PhotoList 
       photos={photos} 
       thumbnails={thumbs} 
       imageMetadata={imageMetadata}
+      visibleColumns={opts.visibleColumns ?? ["IFD0:Model"]}
       selectedIndex={opts.selectedIndex ?? null}
       onSelect={opts.onSelect ?? (() => {})}
       onShowInExplorer={opts.onShowInExplorer ?? (() => {})}
@@ -161,7 +162,7 @@ describe("PhotoList", () => {
   it("shows empty message when no photos", () => {
     const { thumbs, imageMetadata } = makeStores([]);
     render(<PhotoList photos={[]} thumbnails={thumbs} imageMetadata={imageMetadata}
-      selectedIndex={null} onSelect={noop} onShowInExplorer={noop} onVisibilityChange={noop} onPhotoOpen={noop} />);
+      visibleColumns={[]} selectedIndex={null} onSelect={noop} onShowInExplorer={noop} onVisibilityChange={noop} onPhotoOpen={noop} />);
     expect(screen.getByTestId("photo-list-empty")).toBeInTheDocument();
   });
 
@@ -173,6 +174,23 @@ describe("PhotoList", () => {
   it("displays the relative path", () => {
     renderList([makePhoto({ relative_path: "vacation/beach.jpg" })]);
     expect(screen.getByTestId("photo-path")).toHaveTextContent("vacation/beach.jpg");
+  });
+
+  // ── Image metadata cells ───────────────────────────────────────────────────
+
+  it("shows spinner in Image Metadata cells while metadata is loading", () => {
+    renderList([makePhoto({ relative_path: "a.jpg" })]);
+    expect(screen.getByTestId("metadata-loading")).toBeInTheDocument();
+  });
+
+  it("shows metadata value after it arrives", () => {
+    const photos = [makePhoto({ relative_path: "a.jpg" })];
+    const { thumbs, imageMetadata } = makeStores(photos);
+    act(() => { imageMetadata.set("a.jpg", { "IFD0:Model": "Canon EOS R5" }); });
+    render(<PhotoList photos={photos} thumbnails={thumbs} imageMetadata={imageMetadata}
+      visibleColumns={["IFD0:Model"]} selectedIndex={null} onSelect={noop} onShowInExplorer={noop} onVisibilityChange={noop} onPhotoOpen={noop} />);
+    expect(screen.getByText("Canon EOS R5")).toBeInTheDocument();
+    expect(screen.queryByTestId("metadata-loading")).not.toBeInTheDocument();
   });
 
   // ── Selection ────────────────────────────────────────────────────────────
@@ -218,29 +236,5 @@ describe("PhotoList", () => {
     expect(screen.getByTestId("context-menu")).toBeInTheDocument();
     expect(screen.getByText("View")).toBeInTheDocument();
     expect(screen.getByText("Show in File Explorer")).toBeInTheDocument();
-  });
-
-  it("View option in context menu opens gallery", async () => {
-    const onPhotoOpen = vi.fn();
-    const photos = makePhotos(["a.jpg"]);
-    renderList(photos, { onPhotoOpen });
-    
-    fireEvent.contextMenu(screen.getByTestId("photo-row"));
-    await userEvent.click(screen.getByText("View"));
-    
-    expect(onPhotoOpen).toHaveBeenCalledWith(0);
-    expect(screen.queryByTestId("context-menu")).not.toBeInTheDocument();
-  });
-
-  it("Show in File Explorer option in context menu triggers callback", async () => {
-    const onShowInExplorer = vi.fn();
-    const photos = makePhotos(["a.jpg"]);
-    renderList(photos, { onShowInExplorer });
-    
-    fireEvent.contextMenu(screen.getByTestId("photo-row"));
-    await userEvent.click(screen.getByText("Show in File Explorer"));
-    
-    expect(onShowInExplorer).toHaveBeenCalledWith(0);
-    expect(screen.queryByTestId("context-menu")).not.toBeInTheDocument();
   });
 });

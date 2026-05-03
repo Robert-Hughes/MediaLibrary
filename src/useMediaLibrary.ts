@@ -29,6 +29,8 @@ export interface MediaLibraryActions {
 const RECENT_FOLDERS_KEY = "media_library_recent_folders";
 const MAX_RECENT_FOLDERS = 5;
 
+const DEFAULT_COLUMNS = ["IFD0:DateTimeOriginal", "IFD0:Model"];
+
 export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: string[] }, MediaLibraryActions] {
   const [appState, setAppState] = useState<AppState>({ kind: "idle" });
   const [recentFolders, setRecentFolders] = useState<string[]>([]);
@@ -102,8 +104,6 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
         if (prev.kind === "idle") return prev;
         
         if (prev.kind === "loading") {
-          // If discovery is just starting, batch might be empty if only metadata arrived.
-          // We only transition to "loaded" if we have at least one photo.
           if (batch.length === 0) return prev;
           
           return {
@@ -116,6 +116,7 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
             imageMetadataRemaining: Math.max(0, batch.length - imageMetadataReceivedRef.current),
             galleryIndex: null,
             selectedIndex: null,
+            visibleColumns: DEFAULT_COLUMNS,
           };
         }
         
@@ -123,7 +124,6 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
           const newPhotos = batch.length > 0 ? [...prev.photos, ...batch] : prev.photos;
           const newRemaining = Math.max(0, newPhotos.length - imageMetadataReceivedRef.current);
           
-          // Only update state if something actually changed.
           if (batch.length === 0 && prev.imageMetadataRemaining === newRemaining) {
             return prev;
           }
@@ -149,8 +149,6 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
 
         photoBufferRef.current.push(photo);
 
-        // Flush immediately for the very first photo.
-        // Also flush if the buffer is large enough (e.g., 50 photos).
         const shouldFlushNow = isFirstFlushRef.current || 
                              photoBufferRef.current.length >= 50;
 
@@ -193,6 +191,7 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
               imageMetadataRemaining: 0,
               galleryIndex: null,
               selectedIndex: null,
+              visibleColumns: DEFAULT_COLUMNS,
             };
           }
           return prev;
@@ -201,12 +200,12 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
 
       const unlistenMetadata = await api.listen("image_metadata_ready", (raw) => {
         if (cancelled) return;
-        const { scan_id, relative_path, date_taken, camera_model } = raw as ImageMetadataReadyPayload;
+        const { scan_id, relative_path, metadata } = raw as ImageMetadataReadyPayload;
         if (scan_id !== activeScanIdRef.current) return;
-        imageMetadataStoreRef.current.set(relative_path, { date_taken, camera_model });
+        
+        imageMetadataStoreRef.current.set(relative_path, metadata);
         imageMetadataReceivedRef.current += 1;
         
-        // Throttle state updates for the metadata counter.
         if (!batchTimerRef.current) {
           batchTimerRef.current = setTimeout(() => {
             batchTimerRef.current = null;

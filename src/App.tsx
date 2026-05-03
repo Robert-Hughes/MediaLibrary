@@ -55,6 +55,7 @@ export default function App() {
             photos={state.photos}
             thumbnails={state.thumbnails}
             imageMetadata={state.imageMetadata}
+            visibleColumns={state.visibleColumns}
             selectedIndex={state.selectedIndex}
             onSelect={actions.selectPhoto}
             onShowInExplorer={actions.showInExplorer}
