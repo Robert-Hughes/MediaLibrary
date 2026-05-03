@@ -14,7 +14,6 @@ export function WelcomeScreen({ onOpenFolder }: Props) {
       >
         Open Folder
       </button>
-      <p className="welcome-hint">or press Space</p>
     </div>
   );
 }
