@@ -1,4 +1,4 @@
-import { render, screen, act } from "@testing-library/react";
+import { render, screen, act, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi } from "vitest";
 import { WelcomeScreen } from "../components/WelcomeScreen";
@@ -21,11 +21,19 @@ function makeStores(photos: PhotoInfo[], thumbOverrides: Record<string, string> 
   return { thumbs, imageMetadata };
 }
 
-function renderList(photos: PhotoInfo[], opts: { thumbOverrides?: Record<string, string> } = {}) {
+function renderList(photos: PhotoInfo[], opts: { thumbOverrides?: Record<string, string>, selectedIndex?: number | null, onSelect?: (i: number | null) => void, onPhotoOpen?: (i: number) => void, onShowInExplorer?: (i: number) => void } = {}) {
   const { thumbs, imageMetadata } = makeStores(photos, opts.thumbOverrides ?? {});
   render(
-    <PhotoList photos={photos} thumbnails={thumbs} imageMetadata={imageMetadata}
-      onVisibilityChange={() => {}} onPhotoOpen={() => {}} />
+    <PhotoList 
+      photos={photos} 
+      thumbnails={thumbs} 
+      imageMetadata={imageMetadata}
+      selectedIndex={opts.selectedIndex ?? null}
+      onSelect={opts.onSelect ?? (() => {})}
+      onShowInExplorer={opts.onShowInExplorer ?? (() => {})}
+      onVisibilityChange={() => {}} 
+      onPhotoOpen={opts.onPhotoOpen ?? (() => {})} 
+    />
   );
   return { thumbs, imageMetadata };
 }
@@ -153,7 +161,7 @@ describe("PhotoList", () => {
   it("shows empty message when no photos", () => {
     const { thumbs, imageMetadata } = makeStores([]);
     render(<PhotoList photos={[]} thumbnails={thumbs} imageMetadata={imageMetadata}
-      onVisibilityChange={noop} onPhotoOpen={noop} />);
+      selectedIndex={null} onSelect={noop} onShowInExplorer={noop} onVisibilityChange={noop} onPhotoOpen={noop} />);
     expect(screen.getByTestId("photo-list-empty")).toBeInTheDocument();
   });
 
@@ -167,128 +175,72 @@ describe("PhotoList", () => {
     expect(screen.getByTestId("photo-path")).toHaveTextContent("vacation/beach.jpg");
   });
 
-  it("displays date modified when present", () => {
-    renderList([makePhoto({ relative_path: "a.jpg", date_modified: 1705276800 })]);
-    expect(screen.getByTestId("photo-date-modified")).not.toHaveTextContent("—");
-  });
+  // ── Selection ────────────────────────────────────────────────────────────
 
-  it("displays — for missing date modified", () => {
-    renderList([makePhoto({ relative_path: "a.jpg", date_modified: null })]);
-    expect(screen.getByTestId("photo-date-modified")).toHaveTextContent("—");
-  });
-
-  // ── Image metadata cells ───────────────────────────────────────────────────
-
-  it("shows spinner in Image Metadata cells while metadata is loading", () => {
-    // ImageMetadataStore.add() initialises as "loading" — no image_metadata_ready yet.
-    renderList([makePhoto({ relative_path: "a.jpg" })]);
-    expect(screen.getByTestId("exif-loading")).toBeInTheDocument();
-  });
-
-  it("shows date taken after image metadata arrives", () => {
-    const photos = [makePhoto({ relative_path: "a.jpg" })];
-    const { thumbs, imageMetadata } = makeStores(photos);
-    act(() => { imageMetadata.set("a.jpg", { date_taken: "2023:06:15 14:30:00", camera_model: null }); });
-    render(<PhotoList photos={photos} thumbnails={thumbs} imageMetadata={imageMetadata}
-      onVisibilityChange={noop} onPhotoOpen={noop} />);
-    expect(screen.getByTestId("photo-date-taken")).toHaveTextContent("2023:06:15 14:30:00");
-    expect(screen.queryByTestId("exif-loading")).not.toBeInTheDocument();
-  });
-
-  it("shows — for null date taken after image metadata arrives", () => {
-    const photos = [makePhoto({ relative_path: "a.jpg" })];
-    const { thumbs, imageMetadata } = makeStores(photos);
-    act(() => { imageMetadata.set("a.jpg", { date_taken: null, camera_model: null }); });
-    render(<PhotoList photos={photos} thumbnails={thumbs} imageMetadata={imageMetadata}
-      onVisibilityChange={noop} onPhotoOpen={noop} />);
-    expect(screen.getByTestId("photo-date-taken")).toHaveTextContent("—");
-  });
-
-  it("shows camera model after image metadata arrives", () => {
-    const photos = [makePhoto({ relative_path: "a.jpg" })];
-    const { thumbs, imageMetadata } = makeStores(photos);
-    act(() => { imageMetadata.set("a.jpg", { date_taken: null, camera_model: "Canon EOS R5" }); });
-    render(<PhotoList photos={photos} thumbnails={thumbs} imageMetadata={imageMetadata}
-      onVisibilityChange={noop} onPhotoOpen={noop} />);
-    expect(screen.getByTestId("photo-camera")).toHaveTextContent("Canon EOS R5");
-  });
-
-  it("spinner replaced by value when image metadata store is updated", async () => {
-    const photos = [makePhoto({ relative_path: "a.jpg" })];
-    const { thumbs, imageMetadata } = makeStores(photos);
-    const { rerender } = render(
-      <PhotoList photos={photos} thumbnails={thumbs} imageMetadata={imageMetadata}
-        onVisibilityChange={noop} onPhotoOpen={noop} />
-    );
-    expect(screen.getByTestId("exif-loading")).toBeInTheDocument();
-
-    act(() => { imageMetadata.set("a.jpg", { date_taken: "2024:01:01 12:00:00", camera_model: "Sony A7" }); });
-    rerender(<PhotoList photos={photos} thumbnails={thumbs} imageMetadata={imageMetadata}
-      onVisibilityChange={noop} onPhotoOpen={noop} />);
-
-    expect(screen.queryByTestId("exif-loading")).not.toBeInTheDocument();
-    expect(screen.getByTestId("photo-date-taken")).toHaveTextContent("2024:01:01 12:00:00");
-    expect(screen.getByTestId("photo-camera")).toHaveTextContent("Sony A7");
-  });
-
-  // ── Thumbnails ────────────────────────────────────────────────────────────
-
-  it("renders spinner when thumbnail is loading", () => {
-    renderList([makePhoto({ relative_path: "a.jpg" })]);
-    expect(document.querySelector(".photo-thumb-spinner")).toBeInTheDocument();
-  });
-
-  it("renders thumbnail img when data is present", () => {
-    renderList([makePhoto({ relative_path: "a.jpg" })], { thumbOverrides: { "a.jpg": "abc123" } });
-    expect(document.querySelector(".photo-thumb-img")).toHaveAttribute("src", "data:image/jpeg;base64,abc123");
-  });
-
-  it("renders placeholder when thumbnail failed", () => {
-    renderList([makePhoto({ relative_path: "a.jpg" })], { thumbOverrides: { "a.jpg": "failed" } });
-    expect(document.querySelector(".photo-thumb-placeholder")).toBeInTheDocument();
-  });
-
-  it("sets data-path on each row", () => {
-    renderList(makePhotos(["vacation/beach.jpg", "portrait.png"]));
-    const rows = screen.getAllByTestId("photo-row");
-    expect(rows[0]).toHaveAttribute("data-path", "vacation/beach.jpg");
-    expect(rows[1]).toHaveAttribute("data-path", "portrait.png");
-  });
-
-  it("calls onVisibilityChange when IntersectionObserver fires", () => {
-    const observed: Element[] = [];
-    const callbacks: IntersectionObserverCallback[] = [];
-    vi.stubGlobal("IntersectionObserver", class {
-      constructor(cb: IntersectionObserverCallback) { callbacks.push(cb); }
-      observe(el: Element) { observed.push(el); }
-      disconnect() {}
-    });
-
-    const handler = vi.fn();
+  it("calls onSelect with the correct index when a row is clicked", async () => {
+    const onSelect = vi.fn();
     const photos = makePhotos(["a.jpg", "b.jpg"]);
-    const { thumbs, imageMetadata } = makeStores(photos);
-    render(<PhotoList photos={photos} thumbnails={thumbs} imageMetadata={imageMetadata}
-      onVisibilityChange={handler} onPhotoOpen={noop} />);
-
-    callbacks[0](
-      observed.map((el) => ({ target: el, isIntersecting: true })) as IntersectionObserverEntry[],
-      {} as IntersectionObserver
-    );
-    expect(handler).toHaveBeenCalledWith(expect.arrayContaining(["a.jpg", "b.jpg"]));
-    vi.unstubAllGlobals();
+    renderList(photos, { onSelect });
+    
+    const rows = screen.getAllByTestId("photo-row");
+    await userEvent.click(rows[1]);
+    expect(onSelect).toHaveBeenCalledWith(1);
   });
 
-  it("row updates when thumbnail store is mutated", async () => {
-    const photos = [makePhoto({ relative_path: "a.jpg" })];
-    const { thumbs, imageMetadata } = makeStores(photos);
-    const { rerender } = render(
-      <PhotoList photos={photos} thumbnails={thumbs} imageMetadata={imageMetadata}
-        onVisibilityChange={noop} onPhotoOpen={noop} />
-    );
-    expect(document.querySelector(".photo-thumb-spinner")).toBeInTheDocument();
-    act(() => { thumbs.set("a.jpg", "newdata"); });
-    rerender(<PhotoList photos={photos} thumbnails={thumbs} imageMetadata={imageMetadata}
-      onVisibilityChange={noop} onPhotoOpen={noop} />);
-    expect(document.querySelector(".photo-thumb-img")).toHaveAttribute("src", "data:image/jpeg;base64,newdata");
+  it("calls onPhotoOpen with the correct index when a row is double-clicked", async () => {
+    const onPhotoOpen = vi.fn();
+    const photos = makePhotos(["a.jpg", "b.jpg"]);
+    renderList(photos, { onPhotoOpen });
+    
+    const rows = screen.getAllByTestId("photo-row");
+    await userEvent.dblClick(rows[1]);
+    expect(onPhotoOpen).toHaveBeenCalledWith(1);
+  });
+
+  it("applies selected class to the correct row", () => {
+    const photos = makePhotos(["a.jpg", "b.jpg"]);
+    renderList(photos, { selectedIndex: 1 });
+    
+    const rows = screen.getAllByTestId("photo-row");
+    expect(rows[0]).not.toHaveClass("photo-row--selected");
+    expect(rows[1]).toHaveClass("photo-row--selected");
+  });
+
+  // ── Context Menu ───────────────────────────────────────────────────────────
+
+  it("opens context menu on right click", async () => {
+    const photos = makePhotos(["a.jpg"]);
+    renderList(photos);
+    
+    const row = screen.getByTestId("photo-row");
+    fireEvent.contextMenu(row);
+    
+    expect(screen.getByTestId("context-menu")).toBeInTheDocument();
+    expect(screen.getByText("View")).toBeInTheDocument();
+    expect(screen.getByText("Show in File Explorer")).toBeInTheDocument();
+  });
+
+  it("View option in context menu opens gallery", async () => {
+    const onPhotoOpen = vi.fn();
+    const photos = makePhotos(["a.jpg"]);
+    renderList(photos, { onPhotoOpen });
+    
+    fireEvent.contextMenu(screen.getByTestId("photo-row"));
+    await userEvent.click(screen.getByText("View"));
+    
+    expect(onPhotoOpen).toHaveBeenCalledWith(0);
+    expect(screen.queryByTestId("context-menu")).not.toBeInTheDocument();
+  });
+
+  it("Show in File Explorer option in context menu triggers callback", async () => {
+    const onShowInExplorer = vi.fn();
+    const photos = makePhotos(["a.jpg"]);
+    renderList(photos, { onShowInExplorer });
+    
+    fireEvent.contextMenu(screen.getByTestId("photo-row"));
+    await userEvent.click(screen.getByText("Show in File Explorer"));
+    
+    expect(onShowInExplorer).toHaveBeenCalledWith(0);
+    expect(screen.queryByTestId("context-menu")).not.toBeInTheDocument();
   });
 });

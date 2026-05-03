@@ -97,20 +97,29 @@ describe("useMediaLibrary gallery state", () => {
   });
 });
 
-describe("PhotoList double-click opens gallery", () => {
-  function renderList(photos: PhotoInfo[], onPhotoOpen: (i: number) => void) {
+describe("PhotoList interaction", () => {
+  function renderList(photos: PhotoInfo[], onPhotoOpen: (i: number) => void, onSelect: (i: number | null) => void) {
     const thumbs = makeStore(photos);
     const imageMetadata = new ImageMetadataStore();
     photos.forEach((p) => imageMetadata.add(p.relative_path));
-    render(<PhotoList photos={photos} thumbnails={thumbs} imageMetadata={imageMetadata} onVisibilityChange={() => {}} onPhotoOpen={onPhotoOpen} />);
+    render(<PhotoList photos={photos} thumbnails={thumbs} imageMetadata={imageMetadata} selectedIndex={null} onSelect={onSelect} onVisibilityChange={() => {}} onPhotoOpen={onPhotoOpen} />);
   }
 
   it("calls onPhotoOpen with the correct index when a row is double-clicked", async () => {
     const onPhotoOpen = vi.fn();
     const photos = makePhotos(["a.jpg", "b.jpg", "c.jpg"]);
-    renderList(photos, onPhotoOpen);
+    renderList(photos, onPhotoOpen, () => {});
     const rows = screen.getAllByTestId("photo-row");
     await userEvent.dblClick(rows[1]);
     expect(onPhotoOpen).toHaveBeenCalledWith(1);
+  });
+
+  it("calls onSelect with the correct index when a row is clicked", async () => {
+    const onSelect = vi.fn();
+    const photos = makePhotos(["a.jpg", "b.jpg", "c.jpg"]);
+    renderList(photos, () => {}, onSelect);
+    const rows = screen.getAllByTestId("photo-row");
+    await userEvent.click(rows[2]);
+    expect(onSelect).toHaveBeenCalledWith(2);
   });
 });

@@ -56,6 +56,9 @@ export function createMockTauriApi(): MockTauriApi {
       if (cmd === "stop_scan") {
         return;
       }
+      if (cmd === "show_in_explorer") {
+        return;
+      }
       if (cmd === "prioritize_queues") {
         mock.lastPrioritizedPaths = (args?.visiblePaths as string[]) ?? [];
         return;

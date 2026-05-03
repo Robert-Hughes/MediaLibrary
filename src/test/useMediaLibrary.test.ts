@@ -104,6 +104,47 @@ describe("useMediaLibrary", () => {
     if (state.kind === "loaded") expect(state.galleryIndex).toBe(1);
   });
 
+  it("selectPhoto updates selectedIndex", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/photos");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => { await result.current[1].openFolder(); });
+    act(() => { mock.emitPhotoFound(makePhoto({ relative_path: "a.jpg" })); });
+    
+    act(() => { result.current[1].selectPhoto(0); });
+    expect(result.current[0].selectedIndex).toBe(0);
+  });
+
+  it("openGallery also sets selectedIndex", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/photos");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => { await result.current[1].openFolder(); });
+    act(() => { mock.emitPhotoFound(makePhoto({ relative_path: "a.jpg" })); });
+    
+    act(() => { result.current[1].openGallery(0); });
+    expect(result.current[0].galleryIndex).toBe(0);
+    expect(result.current[0].selectedIndex).toBe(0);
+  });
+
+  it("navigateGallery syncs selectedIndex", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/photos");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => { await result.current[1].openFolder(); });
+    makePhotos(["a.jpg", "b.jpg"]).forEach((p) => act(() => { mock.emitPhotoFound(p); }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(150); });
+
+    act(() => { result.current[1].openGallery(0); });
+    act(() => { result.current[1].navigateGallery(1); });
+    
+    const state = result.current[0];
+    if (state.kind === "loaded") {
+      expect(state.galleryIndex).toBe(1);
+      expect(state.selectedIndex).toBe(1);
+    }
+  });
+
   it("photo_found events after closeFolder are ignored", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/photos");
