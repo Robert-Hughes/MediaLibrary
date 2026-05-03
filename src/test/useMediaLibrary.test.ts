@@ -150,6 +150,47 @@ describe("useMediaLibrary", () => {
     if (state.kind === "loaded") expect(state.metadataRemaining).toBe(0);
   });
 
+  it("metadataRemaining reaches 0 even if metadata_ready arrives before photo_found (race condition)", async () => {
+    // In the real app, the EXIF worker can process a file and emit metadata_ready
+    // before the frontend receives the photo_found event for that file.
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/photos");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => { await result.current[1].openFolder(); });
+
+    // metadata_ready fires BEFORE photo_found for "a.jpg"
+    act(() => { mock.emitMetadataReady("a.jpg", null, null); });
+    // Now photo_found arrives
+    act(() => { mock.emitPhotoFound(makePhoto({ relative_path: "a.jpg" })); });
+
+    const state = result.current[0];
+    if (state.kind === "loaded") expect(state.metadataRemaining).toBe(0);
+  });
+
+  it("metadataLoading is false after all metadata arrives", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/photos");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => { await result.current[1].openFolder(); });
+
+    act(() => { mock.emitPhotoFound(makePhoto({ relative_path: "a.jpg" })); });
+    act(() => { mock.emitPhotoFound(makePhoto({ relative_path: "b.jpg" })); });
+    act(() => { mock.emitScanComplete(); });
+
+    // Still loading metadata
+    let state = result.current[0];
+    if (state.kind === "loaded") expect(state.metadataRemaining).toBeGreaterThan(0);
+
+    act(() => { mock.emitMetadataReady("a.jpg", null, null); });
+    act(() => { mock.emitMetadataReady("b.jpg", null, null); });
+
+    state = result.current[0];
+    if (state.kind === "loaded") {
+      expect(state.metadataRemaining).toBe(0);
+      expect(state.scanning).toBe(false);
+    }
+  });
+
   // ── metadata_ready updates the MetadataStore ──────────────────────────────
 
   it("updates metadata store when metadata_ready fires", async () => {    const mock = createMockTauriApi();

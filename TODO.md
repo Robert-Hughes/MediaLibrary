@@ -6,8 +6,9 @@ Now
 ===
 
 * Show in bottom panel/top when metadata still loading
-* spinners all synced
+* spinner animations should all synced together
 * Metadata loading queue should be prioritised based on list position, like we do for thumbnails. Though the thumbnail priority seems to be broken atm! FIx this too
+* Bug - Pressing Close when still loading doesn't stop loading - the list is cleared but more photos appear!  (Presumably a similar bug is present when switching to a different folder?)
 * Add more columns to the list view. The columns should be grouped:
     * Outer metadata (i.e. properties *of* the file stored by the OS, not the internal EXIF metadata stuff)
         * Filename
