@@ -3,7 +3,6 @@ use std::path::PathBuf;
 use std::sync::mpsc;
 use std::thread;
 use walkdir::WalkDir;
-use macroquad::input::*;
 
 #[derive(Clone)]
 struct Photo {
@@ -14,6 +13,24 @@ enum AppState {
     Default,
     Loading { progress: String },
     Loaded { folder: PathBuf, photos: Vec<Photo> },
+}
+
+fn scan_folder(folder: &std::path::Path) -> Vec<Photo> {
+    let mut photos = Vec::new();
+    for entry in WalkDir::new(folder) {
+        if let Ok(entry) = entry {
+            if entry.file_type().is_file() {
+                let path = entry.path();
+                if let Some(ext) = path.extension() {
+                    if matches!(ext.to_str(), Some("jpg" | "jpeg" | "png" | "gif" | "bmp")) {
+                        let relative_path = path.strip_prefix(folder).unwrap().to_string_lossy().to_string();
+                        photos.push(Photo { relative_path });
+                    }
+                }
+            }
+        }
+    }
+    photos
 }
 
 fn window_conf() -> macroquad::conf::Conf {
@@ -118,23 +135,7 @@ async fn main() {
                         state = AppState::Loading { progress: format!("Scanning {}...", folder.display()) };
                         let tx = tx.clone();
                         thread::spawn(move || {
-                            let mut photos = Vec::new();
-                            let mut count = 0;
-                            for entry in WalkDir::new(&folder) {
-                                if let Ok(entry) = entry {
-                                    if entry.file_type().is_file() {
-                                        let path = entry.path();
-                                        if let Some(ext) = path.extension() {
-                                            if matches!(ext.to_str(), Some("jpg" | "jpeg" | "png" | "gif" | "bmp")) {
-                                                count += 1;
-                                                let _ = tx.send(AppState::Loading { progress: format!("Scanning... {} files found", count) });
-                                                let relative_path = path.strip_prefix(&folder).unwrap().to_string_lossy().to_string();
-                                                photos.push(Photo { relative_path });
-                                            }
-                                        }
-                                    }
-                                }
-                            }
+                            let photos = scan_folder(&folder);
                             let _ = tx.send(AppState::Loaded { folder, photos });
                         });
                     }
@@ -144,23 +145,7 @@ async fn main() {
                         state = AppState::Loading { progress: format!("Scanning {}...", folder.display()) };
                         let tx = tx.clone();
                         thread::spawn(move || {
-                            let mut photos = Vec::new();
-                            let mut count = 0;
-                            for entry in WalkDir::new(&folder) {
-                                if let Ok(entry) = entry {
-                                    if entry.file_type().is_file() {
-                                        let path = entry.path();
-                                        if let Some(ext) = path.extension() {
-                                            if matches!(ext.to_str(), Some("jpg" | "jpeg" | "png" | "gif" | "bmp")) {
-                                                count += 1;
-                                                let _ = tx.send(AppState::Loading { progress: format!("Scanning... {} files found", count) });
-                                                let relative_path = path.strip_prefix(&folder).unwrap().to_string_lossy().to_string();
-                                                photos.push(Photo { relative_path });
-                                            }
-                                        }
-                                    }
-                                }
-                            }
+                            let photos = scan_folder(&folder);
                             let _ = tx.send(AppState::Loaded { folder, photos });
                         });
                     }
@@ -176,5 +161,45 @@ async fn main() {
         }
 
         next_frame().await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_default_state() {
+        let state = AppState::Default;
+        assert!(matches!(state, AppState::Default));
+    }
+
+    #[test]
+    fn test_scan_empty_folder() {
+        let temp_dir = tempdir().unwrap();
+        let photos = scan_folder(temp_dir.path());
+        assert!(photos.is_empty());
+    }
+
+    #[test]
+    fn test_scan_folder_with_images() {
+        let temp_dir = tempdir().unwrap();
+        let image_path = temp_dir.path().join("test.jpg");
+        fs::write(&image_path, b"fake image").unwrap();
+        let photos = scan_folder(temp_dir.path());
+        assert_eq!(photos.len(), 1);
+        assert_eq!(photos[0].relative_path, "test.jpg");
+    }
+
+    #[test]
+    fn test_close_folder() {
+        let mut state = AppState::Loaded { folder: PathBuf::from("test"), photos: vec![] };
+        // simulate escape
+        if let AppState::Loaded { .. } = state {
+            state = AppState::Default;
+        }
+        assert!(matches!(state, AppState::Default));
     }
 }

@@ -9,6 +9,7 @@ dependencies = [
  "image",
  "ply-engine",
  "rfd",
+ "tempfile",
  "walkdir",
 ]
 
