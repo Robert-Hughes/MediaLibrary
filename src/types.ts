@@ -118,16 +118,19 @@ export type AppState =
 // ── Event payloads from Rust ──────────────────────────────────────────────────
 
 export interface PhotoFoundPayload {
+  scan_id: number;
   photo: PhotoInfo;
 }
 
 export interface MetadataReadyPayload {
+  scan_id: number;
   relative_path: string;
   date_taken: string | null;
   camera_model: string | null;
 }
 
 export interface ThumbnailReadyPayload {
+  scan_id: number;
   relative_path: string;
   thumbnail: string;
 }

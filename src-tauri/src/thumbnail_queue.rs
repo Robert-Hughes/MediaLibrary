@@ -43,6 +43,15 @@ impl ThumbnailQueue {
         cvar.notify_all();
     }
 
+    /// Clear all pending items and signal workers to exit immediately.
+    pub fn abort(&self) {
+        let (lock, cvar) = &*self.inner;
+        let mut state = lock.lock().unwrap();
+        state.queue.clear();
+        state.done = true;
+        cvar.notify_all();
+    }
+
     /// Block until an item is available, then return it.
     /// Returns `None` when the queue is empty and `finish()` has been called.
     pub fn pop(&self) -> Option<String> {
@@ -337,5 +346,13 @@ mod tests {
         }
         assert_eq!(counter.load(Ordering::Relaxed), 100);
         assert!(q.is_empty());
+    }
+
+    #[test]
+    fn abort_clears_queue_and_stops_workers() {
+        let q = ThumbnailQueue::new(vec!["a".into(), "b".into(), "c".into()]);
+        q.abort();
+        assert!(q.is_empty());
+        assert_eq!(q.pop(), None);
     }
 }

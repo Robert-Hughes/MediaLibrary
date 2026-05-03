@@ -19,34 +19,60 @@ function formatDate(ts: number | null): string {
 
 export function PhotoList({ photos, thumbnails, metadata, onVisibilityChange, onPhotoOpen }: Props) {
   const listRef = useRef<HTMLDivElement>(null);
-  const visibleRef = useRef<Map<string, boolean>>(new Map());
+  const visibleRef = useRef<Set<string>>(new Set());
   const onVisibilityChangeRef = useRef(onVisibilityChange);
   onVisibilityChangeRef.current = onVisibilityChange;
 
   useEffect(() => {
-    if (!listRef.current || photos.length === 0) return;
+    if (!listRef.current) return;
 
     const notify = () => {
-      const visible = Array.from(visibleRef.current.entries())
-        .filter(([, v]) => v).map(([k]) => k);
-      onVisibilityChangeRef.current(visible);
+      // Return visible paths in the order they appear in the photos array
+      // to ensure consistent prioritization.
+      const visibleOrdered = photos
+        .filter(p => visibleRef.current.has(p.relative_path))
+        .map(p => p.relative_path);
+      
+      if (visibleOrdered.length > 0) {
+        onVisibilityChangeRef.current(visibleOrdered);
+      }
     };
 
     const observer = new IntersectionObserver(
       (entries) => {
+        let changed = false;
         for (const entry of entries) {
           const path = (entry.target as HTMLElement).dataset.path;
-          if (path) visibleRef.current.set(path, entry.isIntersecting);
+          if (!path) continue;
+
+          if (entry.isIntersecting) {
+            if (!visibleRef.current.has(path)) {
+              visibleRef.current.add(path);
+              changed = true;
+            }
+          } else {
+            if (visibleRef.current.has(path)) {
+              visibleRef.current.delete(path);
+              changed = true;
+            }
+          }
         }
-        notify();
+        if (changed) {
+          notify();
+        }
       },
-      { root: listRef.current.parentElement, threshold: 0 }
+      { 
+        root: listRef.current, // Use the scrolling container as root
+        threshold: 0 
+      }
     );
 
+    // Observe newly added rows
     const rows = listRef.current.querySelectorAll<HTMLElement>("[data-path]");
     rows.forEach((row) => observer.observe(row));
+
     return () => observer.disconnect();
-  }, [photos]);
+  }, [photos]); // We still need to re-scan for new rows when photos change
 
   if (photos.length === 0) {
     return (

@@ -7,6 +7,8 @@
 ///  - `thumbnail_for`   — generates a thumbnail (EXIF embedded or full decode).
 use serde::Serialize;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use walkdir::WalkDir;
 
 /// File extensions recognised as photos.
@@ -32,11 +34,16 @@ pub struct ExifInfo {
 
 /// Walk `folder` and call `on_photo` for each image file found.
 /// Only reads OS metadata (a cheap `stat` call) — no image I/O.
-pub fn scan_folder<F>(folder: &Path, mut on_photo: F)
+/// Checks `cancellation_flag` and stops early if set to true.
+pub fn scan_folder<F>(folder: &Path, cancellation_flag: Arc<AtomicBool>, mut on_photo: F)
 where
     F: FnMut(PhotoInfo),
 {
     for entry in WalkDir::new(folder).follow_links(false) {
+        if cancellation_flag.load(Ordering::Relaxed) {
+            break;
+        }
+
         let entry = match entry {
             Ok(e) => e,
             Err(_) => continue,
@@ -211,7 +218,7 @@ mod tests {
 
     fn collect(folder: &Path) -> Vec<PhotoInfo> {
         let mut photos = Vec::new();
-        scan_folder(folder, |p| photos.push(p));
+        scan_folder(folder, Arc::new(AtomicBool::new(false)), |p| photos.push(p));
         photos.sort_by(|a, b| a.relative_path.cmp(&b.relative_path));
         photos
     }
@@ -265,7 +272,7 @@ mod tests {
         fs::write(dir.path().join("b.jpg"), b"x").unwrap();
         fs::write(dir.path().join("c.jpg"), b"x").unwrap();
         let mut count = 0;
-        scan_folder(dir.path(), |_| count += 1);
+        scan_folder(dir.path(), Arc::new(AtomicBool::new(false)), |_| count += 1);
         assert_eq!(count, 3);
     }
 
