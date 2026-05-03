@@ -65,9 +65,22 @@ export function useMediaLibrary(api: TauriApi): [AppState, MediaLibraryActions] 
 
       const unlistenComplete = await api.listen("scan_complete", () => {
         if (cancelled) return;
-        setAppState((prev) =>
-          prev.kind === "loaded" ? { ...prev, scanning: false } : prev
-        );
+        setAppState((prev) => {
+          if (prev.kind === "loaded") return { ...prev, scanning: false };
+          // Empty folder: walk finished before any photo_found — go to loaded with empty list.
+          if (prev.kind === "loading") {
+            return {
+              kind: "loaded",
+              folder: prev.folder,
+              photos: [],
+              thumbnails: thumbnailStoreRef.current,
+              metadata: metadataStoreRef.current,
+              scanning: false,
+              galleryIndex: null,
+            };
+          }
+          return prev;
+        });
       });
 
       const unlistenMetadata = await api.listen("metadata_ready", (raw) => {

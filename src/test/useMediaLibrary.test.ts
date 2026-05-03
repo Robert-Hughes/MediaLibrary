@@ -93,16 +93,14 @@ describe("useMediaLibrary", () => {
     const { result } = renderHook(() => useMediaLibrary(mock.api));
     await act(async () => { await result.current[1].openFolder(); });
 
-    // No photo_found events — scan_complete fires immediately.
-    // State stays loading until first photo or scan_complete.
     act(() => { mock.emitScanComplete(); });
 
-    // Still loading (no photos found, scan_complete on loading state is ignored
-    // since we never transitioned to loaded). The UI shows LoadingScreen briefly
-    // then the user sees the empty state. This is acceptable — in practice the
-    // backend emits scan_complete which we handle by checking loaded state.
-    // For an empty folder the state stays loading; closeFolder resets it.
-    expect(result.current[0].kind).toBe("loading");
+    const state = result.current[0];
+    expect(state.kind).toBe("loaded");
+    if (state.kind === "loaded") {
+      expect(state.photos).toHaveLength(0);
+      expect(state.scanning).toBe(false);
+    }
   });
 
   // ── metadata_ready updates the MetadataStore ──────────────────────────────
@@ -285,5 +283,104 @@ describe("useMediaLibrary", () => {
     });
     await act(async () => { await vi.advanceTimersByTimeAsync(150); });
     expect(mock.lastPrioritizedPaths).toEqual(["c.jpg", "d.jpg"]);
+  });
+
+  // ── double-registration guard (StrictMode / cleanup race) ─────────────────
+
+  it("events fired after cleanup are ignored — no double-counting", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/photos");
+    const { result, unmount } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => { await result.current[1].openFolder(); });
+
+    // Simulate what StrictMode does: unmount (cleanup) then remount.
+    // After unmount the cancelled flag is set, so any events that arrive
+    // before the new listeners are registered should be dropped.
+    unmount();
+
+    // These events arrive after cleanup — they must not affect state.
+    act(() => {
+      mock.emitPhotoFound(makePhoto({ relative_path: "ghost.jpg" }));
+      mock.emitPhotoFound(makePhoto({ relative_path: "ghost2.jpg" }));
+    });
+
+    // Remount with a fresh hook instance.
+    const { result: result2 } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => { await result2.current[1].openFolder(); });
+
+    // Now emit the real photos on the new instance.
+    act(() => { mock.emitPhotoFound(makePhoto({ relative_path: "real.jpg" })); });
+    act(() => { mock.emitScanComplete(); });
+
+    const state = result2.current[0];
+    expect(state.kind).toBe("loaded");
+    if (state.kind === "loaded") {
+      // Only the real photo — no ghosts from the torn-down instance.
+      expect(state.photos).toHaveLength(1);
+      expect(state.photos[0].relative_path).toBe("real.jpg");
+    }
+  });
+
+  // ── opening a new folder resets the photo list ────────────────────────────
+
+  it("opening a second folder replaces the photo list", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/photos/first");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+
+    // First scan.
+    await act(async () => { await result.current[1].openFolder(); });
+    act(() => { mock.emitPhotoFound(makePhoto({ relative_path: "a.jpg" })); });
+    act(() => { mock.emitPhotoFound(makePhoto({ relative_path: "b.jpg" })); });
+    act(() => { mock.emitScanComplete(); });
+    expect(result.current[0]).toMatchObject({ kind: "loaded", folder: "/photos/first" });
+    if (result.current[0].kind === "loaded") {
+      expect(result.current[0].photos).toHaveLength(2);
+    }
+
+    // Open a second folder — list must reset.
+    mock.pickFolderResolves("/photos/second");
+    await act(async () => { await result.current[1].openFolder(); });
+    expect(result.current[0].kind).toBe("loading");
+
+    act(() => { mock.emitPhotoFound(makePhoto({ relative_path: "c.jpg" })); });
+    act(() => { mock.emitScanComplete(); });
+
+    const state = result.current[0];
+    expect(state.kind).toBe("loaded");
+    if (state.kind === "loaded") {
+      expect(state.folder).toBe("/photos/second");
+      // Only the new photo — no leftovers from the first scan.
+      expect(state.photos).toHaveLength(1);
+      expect(state.photos[0].relative_path).toBe("c.jpg");
+    }
+  });
+
+  // ── late events after closeFolder are ignored ─────────────────────────────
+
+  it("thumbnail_ready after closeFolder does not resurrect loaded state", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/photos");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => { await result.current[1].openFolder(); });
+    act(() => { mock.emitPhotoFound(makePhoto({ relative_path: "a.jpg" })); });
+    act(() => { result.current[1].closeFolder(); });
+    expect(result.current[0].kind).toBe("idle");
+
+    // Late thumbnail — must not change state.
+    act(() => { mock.emitThumbnailReady("a.jpg", "data"); });
+    expect(result.current[0].kind).toBe("idle");
+  });
+
+  it("metadata_ready after closeFolder does not resurrect loaded state", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/photos");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => { await result.current[1].openFolder(); });
+    act(() => { mock.emitPhotoFound(makePhoto({ relative_path: "a.jpg" })); });
+    act(() => { result.current[1].closeFolder(); });
+
+    act(() => { mock.emitMetadataReady("a.jpg", "2023:01:01", "Canon"); });
+    expect(result.current[0].kind).toBe("idle");
   });
 });
