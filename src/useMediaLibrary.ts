@@ -44,7 +44,6 @@ export function useMediaLibrary(api: TauriApi): [AppState, MediaLibraryActions] 
 
         setAppState((prev) => {
           if (prev.kind === "idle" || prev.kind === "loading") {
-            // First photo — transition to loaded (scanning still in progress).
             const folder = currentFolderRef.current ?? "";
             return {
               kind: "loaded",
@@ -53,11 +52,12 @@ export function useMediaLibrary(api: TauriApi): [AppState, MediaLibraryActions] 
               thumbnails: thumbnailStoreRef.current,
               metadata: metadataStoreRef.current,
               scanning: true,
+              metadataRemaining: 1,
               galleryIndex: null,
             };
           }
           if (prev.kind === "loaded") {
-            return { ...prev, photos: [...prev.photos, photo] };
+            return { ...prev, photos: [...prev.photos, photo], metadataRemaining: prev.metadataRemaining + 1 };
           }
           return prev;
         });
@@ -76,6 +76,7 @@ export function useMediaLibrary(api: TauriApi): [AppState, MediaLibraryActions] 
               thumbnails: thumbnailStoreRef.current,
               metadata: metadataStoreRef.current,
               scanning: false,
+              metadataRemaining: 0,
               galleryIndex: null,
             };
           }
@@ -87,6 +88,12 @@ export function useMediaLibrary(api: TauriApi): [AppState, MediaLibraryActions] 
         if (cancelled) return;
         const { relative_path, date_taken, camera_model } = raw as MetadataReadyPayload;
         metadataStoreRef.current.set(relative_path, { date_taken, camera_model });
+        // Decrement the remaining count — when it hits 0 all EXIF is done.
+        setAppState((prev) =>
+          prev.kind === "loaded"
+            ? { ...prev, metadataRemaining: Math.max(0, prev.metadataRemaining - 1) }
+            : prev
+        );
       });
       const unlistenThumbnail = await api.listen("thumbnail_ready", (raw) => {
         if (cancelled) return;

@@ -5,6 +5,9 @@ are covered by integration tests that simulate UI interaction and confirm that t
 Now
 ===
 
+* Show in bottom panel/top when metadata still loading
+* spinners all synced
+* Metadata loading queue should be prioritised based on list position, like we do for thumbnails. Though the thumbnail priority seems to be broken atm! FIx this too
 * Add more columns to the list view. The columns should be grouped:
     * Outer metadata (i.e. properties *of* the file stored by the OS, not the internal EXIF metadata stuff)
         * Filename
@@ -14,9 +17,6 @@ Now
         * DateTaken (DateOriginal or whatever it's called)
         * Camera model
         * etc.
-* metadata loading indicated by spinners
-* spinners all synced
-* Metadata loading queue should be prioritised based on list position, like we do for thumbnails. Though the thumbnail priority seems to be broken atm! FIx this too
 
 
 Later
