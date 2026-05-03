@@ -264,12 +264,25 @@ fn prioritize_queues(
 }
 
 #[tauri::command]
-fn show_in_explorer(path: String) -> Result<(), String> {
+fn show_in_explorer(folder: String, relative_path: String) -> Result<(), String> {
+    let mut path = std::path::PathBuf::from(folder);
+    for component in relative_path.split(['/', '\\']) {
+        if !component.is_empty() {
+            path.push(component);
+        }
+    }
+
+    if !path.exists() {
+        return Err(format!("Path does not exist: {}", path.display()));
+    }
+
     #[cfg(target_os = "windows")]
     {
-        std::process::Command::new("explorer")
-            .arg("/select,")
-            .arg(path)
+        // On Windows, explorer /select,"path" is the most robust way.
+        // We use cmd /c to ensure quoting is handled exactly as explorer expects.
+        std::process::Command::new("cmd")
+            .arg("/c")
+            .arg(format!("explorer /select,\"{}\"", path.display()))
             .spawn()
             .map_err(|e| e.to_string())?;
     }
@@ -283,8 +296,7 @@ fn show_in_explorer(path: String) -> Result<(), String> {
     }
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {
-        // Fallback for Linux: just open the parent directory
-        if let Some(parent) = std::path::Path::new(&path).parent() {
+        if let Some(parent) = path.parent() {
              std::process::Command::new("xdg-open")
                 .arg(parent)
                 .spawn()

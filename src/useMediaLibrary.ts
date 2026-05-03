@@ -265,8 +265,10 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
       const photo = prev.photos[index];
       if (!photo) return prev;
       
-      const absPath = prev.folder + "/" + photo.relative_path.replace(/\//g, "\\");
-      api.invoke("show_in_explorer", { path: absPath }).catch(() => {});
+      api.invoke("show_in_explorer", { 
+        folder: prev.folder, 
+        relativePath: photo.relative_path 
+      }).catch(() => {});
       return prev;
     });
   }, [api]);
