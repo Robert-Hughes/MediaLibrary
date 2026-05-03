@@ -28,6 +28,9 @@ export function useMediaLibrary(api: TauriApi): [AppState, MediaLibraryActions] 
   const currentFolderRef = useRef<string | null>(null);
   const thumbnailStoreRef = useRef<ThumbnailStore>(new ThumbnailStore());
   const metadataStoreRef  = useRef<MetadataStore>(new MetadataStore());
+  // Count of metadata_ready events received for the current scan.
+  // Compared against photos.length to determine when all metadata is done.
+  const metadataReceivedRef = useRef<number>(0);
 
   useEffect(() => {
     const unlisteners: Array<() => void> = [];
@@ -52,12 +55,17 @@ export function useMediaLibrary(api: TauriApi): [AppState, MediaLibraryActions] 
               thumbnails: thumbnailStoreRef.current,
               metadata: metadataStoreRef.current,
               scanning: true,
-              metadataRemaining: 1,
+              metadataRemaining: Math.max(0, 1 - metadataReceivedRef.current),
               galleryIndex: null,
             };
           }
           if (prev.kind === "loaded") {
-            return { ...prev, photos: [...prev.photos, photo], metadataRemaining: prev.metadataRemaining + 1 };
+            const newCount = prev.photos.length + 1;
+            return {
+              ...prev,
+              photos: [...prev.photos, photo],
+              metadataRemaining: Math.max(0, newCount - metadataReceivedRef.current),
+            };
           }
           return prev;
         });
@@ -88,10 +96,11 @@ export function useMediaLibrary(api: TauriApi): [AppState, MediaLibraryActions] 
         if (cancelled) return;
         const { relative_path, date_taken, camera_model } = raw as MetadataReadyPayload;
         metadataStoreRef.current.set(relative_path, { date_taken, camera_model });
-        // Decrement the remaining count — when it hits 0 all EXIF is done.
+        metadataReceivedRef.current += 1;
+        // Recalculate remaining based on how many photos we know about vs received.
         setAppState((prev) =>
           prev.kind === "loaded"
-            ? { ...prev, metadataRemaining: Math.max(0, prev.metadataRemaining - 1) }
+            ? { ...prev, metadataRemaining: Math.max(0, prev.photos.length - metadataReceivedRef.current) }
             : prev
         );
       });
@@ -130,6 +139,7 @@ export function useMediaLibrary(api: TauriApi): [AppState, MediaLibraryActions] 
     // Reset stores for the new scan.
     thumbnailStoreRef.current = new ThumbnailStore();
     metadataStoreRef.current  = new MetadataStore();
+    metadataReceivedRef.current = 0;
 
     setAppState({ kind: "loading", folder });
     api.invoke("set_window_title", { title: `Media Library — ${folder}` }).catch(() => {});
