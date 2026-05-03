@@ -130,6 +130,48 @@ body {
   to { transform: rotate(360deg); }
 }
 
+/* ── Menu bar (shown when folder is open) ─────────────────────────────────── */
+
+.menu-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 36px;
+  padding: 0 8px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.menu-bar-btn {
+  background: transparent;
+  color: var(--text-secondary);
+  border: none;
+  border-radius: 4px;
+  padding: 4px 10px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+}
+
+.menu-bar-btn:hover {
+  background: var(--surface-alt);
+  color: var(--text-primary);
+}
+
+.menu-bar-divider {
+  width: 1px;
+  height: 16px;
+  background: var(--border);
+  margin: 0 4px;
+}
+
+.menu-bar-count {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-left: 4px;
+}
+
 /* ── Toolbar ──────────────────────────────────────────────────────────────── */
 
 .toolbar {

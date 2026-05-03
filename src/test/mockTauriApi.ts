@@ -33,6 +33,8 @@ export interface MockTauriApi {
   emitScanError: (message: string) => void;
   /** The paths most recently passed to prioritize_thumbnails. */
   lastPrioritizedPaths: string[];
+  /** The most recent title passed to set_window_title. */
+  lastWindowTitle: string | null;
 }
 
 export function createMockTauriApi(): MockTauriApi {
@@ -50,6 +52,7 @@ export function createMockTauriApi(): MockTauriApi {
     emitScanError: (message) =>
       emit("scan_error", { message } satisfies ScanErrorPayload),
     lastPrioritizedPaths: [],
+    lastWindowTitle: null,
   };
 
   const api: TauriApi = {
@@ -58,6 +61,10 @@ export function createMockTauriApi(): MockTauriApi {
       if (cmd === "start_scan") return;
       if (cmd === "prioritize_thumbnails") {
         mock.lastPrioritizedPaths = (args?.visiblePaths as string[]) ?? [];
+        return;
+      }
+      if (cmd === "set_window_title") {
+        mock.lastWindowTitle = (args?.title as string) ?? null;
         return;
       }
       throw new Error(`Unexpected invoke: ${cmd}`);
