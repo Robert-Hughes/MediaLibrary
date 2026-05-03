@@ -88,7 +88,6 @@ export function useMediaLibrary(api: TauriApi): [AppState, MediaLibraryActions] 
         const { relative_path, date_taken, camera_model } = raw as MetadataReadyPayload;
         metadataStoreRef.current.set(relative_path, { date_taken, camera_model });
       });
-
       const unlistenThumbnail = await api.listen("thumbnail_ready", (raw) => {
         if (cancelled) return;
         const { relative_path, thumbnail } = raw as ThumbnailReadyPayload;

@@ -53,6 +53,13 @@ export class ThumbnailStore {
 
 // ── Metadata store ────────────────────────────────────────────────────────────
 
+/**
+ * EXIF state for a single photo:
+ *  - "loading"  — metadata read is in progress (show spinner in cells)
+ *  - ExifData   — metadata has arrived (show values or "—")
+ */
+export type ExifState = "loading" | ExifData;
+
 export interface ExifData {
   date_taken: string | null;
   camera_model: string | null;
@@ -63,22 +70,22 @@ export interface ExifData {
  * Same pattern as ThumbnailStore — updates only re-render the affected row.
  */
 export class MetadataStore {
-  private data = new Map<string, ExifData>();
+  private data = new Map<string, ExifState>();
   private subscribers = new Map<string, Set<() => void>>();
 
   add(path: string) {
     if (!this.data.has(path)) {
-      this.data.set(path, { date_taken: null, camera_model: null });
+      this.data.set(path, "loading");
     }
   }
 
-  set(path: string, value: ExifData) {
+  set(path: string, value: ExifState) {
     this.data.set(path, value);
     this.subscribers.get(path)?.forEach((cb) => cb());
   }
 
-  get(path: string): ExifData {
-    return this.data.get(path) ?? { date_taken: null, camera_model: null };
+  get(path: string): ExifState {
+    return this.data.get(path) ?? "loading";
   }
 
   subscribe(path: string, callback: () => void): () => void {
@@ -87,7 +94,7 @@ export class MetadataStore {
     return () => this.subscribers.get(path)?.delete(callback);
   }
 
-  getSnapshot(path: string): () => ExifData {
+  getSnapshot(path: string): () => ExifState {
     return () => this.get(path);
   }
 }
