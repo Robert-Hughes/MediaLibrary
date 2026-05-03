@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useSyncExternalStore } from "react";
 import type { PhotoInfo, ThumbnailStore, MetadataStore } from "../types";
+import { Spinner } from "./Spinner";
 interface Props {
   photos: PhotoInfo[];
   thumbnails: ThumbnailStore;
@@ -130,7 +131,9 @@ function PhotoRow({ photo, index, thumbnails, metadata, onDoubleClick }: RowProp
           {src ? (
             <img src={src} alt="" className="photo-thumb-img" />
           ) : isLoading ? (
-            <div className="photo-thumb-spinner" />
+            <div className="photo-thumb-spinner">
+              <Spinner className="photo-thumb-spin-inner" />
+            </div>
           ) : (
             <div className="photo-thumb-placeholder" />
           )}
@@ -141,12 +144,12 @@ function PhotoRow({ photo, index, thumbnails, metadata, onDoubleClick }: RowProp
       <td className="col-date" data-testid="photo-date-created">{formatDate(photo.date_created)}</td>
       <td className="col-date" data-testid="photo-date-taken">
         {exifLoading
-          ? <span className="cell-spinner" aria-label="Loading" data-testid="exif-loading" />
+          ? <Spinner className="cell-spinner" aria-label="Loading" data-testid="exif-loading" />
           : (dateTaken ?? "—")}
       </td>
       <td className="col-camera" data-testid="photo-camera">
         {exifLoading
-          ? <span className="cell-spinner" aria-label="Loading" />
+          ? <Spinner className="cell-spinner" aria-label="Loading" />
           : (cameraModel ?? "—")}
       </td>
       <td className="col-path" data-testid="photo-path">{photo.relative_path}</td>
