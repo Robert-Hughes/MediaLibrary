@@ -118,6 +118,7 @@ export function useMediaLibrary(api: TauriApi): [AppState, MediaLibraryActions] 
 
     currentFolderRef.current = folder;
     setAppState({ kind: "loading", folder, foundSoFar: 0 });
+    api.invoke("set_window_title", { title: `Media Library — ${folder}` }).catch(() => {});
 
     await api.invoke("start_scan", { folderPath: folder });
   }, [api]);
@@ -125,7 +126,8 @@ export function useMediaLibrary(api: TauriApi): [AppState, MediaLibraryActions] 
   const closeFolder = useCallback(() => {
     currentFolderRef.current = null;
     setAppState({ kind: "idle" });
-  }, []);
+    api.invoke("set_window_title", { title: "Media Library" }).catch(() => {});
+  }, [api]);
 
   const prioritizeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prioritizeThumbnails = useCallback((visiblePaths: string[]) => {

@@ -165,8 +165,6 @@ async fn start_scan(
 }
 
 /// Reorder the thumbnail queue so that `visible_paths` are processed next.
-/// Called by the frontend whenever the set of visible photo rows changes.
-/// Silently ignores paths that have already been processed.
 #[tauri::command]
 async fn prioritize_thumbnails(
     visible_paths: Vec<String>,
@@ -176,6 +174,15 @@ async fn prioritize_thumbnails(
         queue.prioritize(&visible_paths);
     }
     Ok(())
+}
+
+/// Set the native window title.
+#[tauri::command]
+async fn set_window_title(title: String, app: AppHandle) -> Result<(), String> {
+    app.get_webview_window("main")
+        .ok_or_else(|| "main window not found".to_string())?
+        .set_title(&title)
+        .map_err(|e| e.to_string())
 }
 
 fn clear_running(app: &AppHandle) {
@@ -196,7 +203,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             pick_folder,
             start_scan,
-            prioritize_thumbnails
+            prioritize_thumbnails,
+            set_window_title
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

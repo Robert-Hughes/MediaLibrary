@@ -6,7 +6,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi } from "vitest";
 import { WelcomeScreen } from "../components/WelcomeScreen";
 import { LoadingScreen } from "../components/LoadingScreen";
-import { Toolbar } from "../components/Toolbar";
+import { MenuBar } from "../components/MenuBar";
 import { PhotoList } from "../components/PhotoList";
 import { ThumbnailStore } from "../types";
 import type { PhotoInfo } from "../types";
@@ -63,42 +63,36 @@ describe("LoadingScreen", () => {
   });
 });
 
-// ── Toolbar ───────────────────────────────────────────────────────────────────
+// ── MenuBar ───────────────────────────────────────────────────────────────────
 
-describe("Toolbar", () => {
+describe("MenuBar", () => {
   const defaultProps = {
-    folder: "/photos/vacation",
     photoCount: 3,
     onOpenFolder: () => {},
     onCloseFolder: () => {},
   };
 
-  it("shows the folder path", () => {
-    render(<Toolbar {...defaultProps} />);
-    expect(screen.getByTestId("toolbar-folder")).toHaveTextContent("/photos/vacation");
-  });
-
   it("shows the photo count", () => {
-    render(<Toolbar {...defaultProps} />);
-    expect(screen.getByTestId("toolbar-count")).toHaveTextContent("3 photos");
+    render(<MenuBar {...defaultProps} />);
+    expect(screen.getByTestId("menu-bar-count")).toHaveTextContent("3 photos");
   });
 
   it("uses singular 'photo' when count is 1", () => {
-    render(<Toolbar {...defaultProps} photoCount={1} />);
-    expect(screen.getByTestId("toolbar-count")).toHaveTextContent("1 photo");
+    render(<MenuBar {...defaultProps} photoCount={1} />);
+    expect(screen.getByTestId("menu-bar-count")).toHaveTextContent("1 photo");
   });
 
   it("calls onCloseFolder when close button is clicked", async () => {
     const handler = vi.fn();
-    render(<Toolbar {...defaultProps} onCloseFolder={handler} />);
-    await userEvent.click(screen.getByTestId("toolbar-close-btn"));
+    render(<MenuBar {...defaultProps} onCloseFolder={handler} />);
+    await userEvent.click(screen.getByTestId("menu-bar-close-btn"));
     expect(handler).toHaveBeenCalledOnce();
   });
 
   it("calls onOpenFolder when open button is clicked", async () => {
     const handler = vi.fn();
-    render(<Toolbar {...defaultProps} onOpenFolder={handler} />);
-    await userEvent.click(screen.getByTestId("toolbar-open-btn"));
+    render(<MenuBar {...defaultProps} onOpenFolder={handler} />);
+    await userEvent.click(screen.getByTestId("menu-bar-open-btn"));
     expect(handler).toHaveBeenCalledOnce();
   });
 });

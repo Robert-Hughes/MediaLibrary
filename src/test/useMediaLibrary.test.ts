@@ -242,6 +242,30 @@ describe("useMediaLibrary", () => {
     expect(result.current[0].kind).toBe("idle");
   });
 
+  // ── window title ──────────────────────────────────────────────────────────
+
+  it("sets window title to folder path when folder is opened", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/photos/vacation");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+
+    await act(async () => { await result.current[1].openFolder(); });
+
+    expect(mock.lastWindowTitle).toContain("/photos/vacation");
+  });
+
+  it("resets window title when folder is closed", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/photos/vacation");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+
+    await act(async () => { await result.current[1].openFolder(); });
+    act(() => { mock.emitScanComplete([]); });
+    act(() => { result.current[1].closeFolder(); });
+
+    expect(mock.lastWindowTitle).toBe("Media Library");
+  });
+
   // ── prioritizeThumbnails ──────────────────────────────────────────────────
 
   it("calls prioritize_thumbnails with the provided paths after debounce", async () => {
