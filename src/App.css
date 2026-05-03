@@ -359,6 +359,18 @@ body {
   font-size: 12px;
 }
 
+/* Inline spinner for cells awaiting metadata */
+.cell-spinner {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid var(--border);
+  border-top-color: var(--text-dim);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  vertical-align: middle;
+}
+
 .photo-list-empty {
   display: flex;
   align-items: center;

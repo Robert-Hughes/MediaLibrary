@@ -126,7 +126,7 @@ describe("useMediaLibrary", () => {
     expect(result.current[0]).toBe(state);
   });
 
-  it("metadata starts as null before metadata_ready", async () => {
+  it("metadata starts as loading before metadata_ready", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/photos");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
@@ -135,7 +135,7 @@ describe("useMediaLibrary", () => {
 
     const state = result.current[0];
     if (state.kind === "loaded") {
-      expect(state.metadata.get("a.jpg")).toEqual({ date_taken: null, camera_model: null });
+      expect(state.metadata.get("a.jpg")).toBe("loading");
     }
   });
 

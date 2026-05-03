@@ -1,7 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useSyncExternalStore } from "react";
 import type { PhotoInfo, ThumbnailStore, MetadataStore } from "../types";
-
 interface Props {
   photos: PhotoInfo[];
   thumbnails: ThumbnailStore;
@@ -114,6 +113,10 @@ function PhotoRow({ photo, index, thumbnails, metadata, onDoubleClick }: RowProp
   const hasSrc = thumbnail !== "loading" && thumbnail !== "failed";
   const src = hasSrc ? `data:image/jpeg;base64,${thumbnail}` : null;
 
+  const exifLoading = exif === "loading";
+  const dateTaken   = exifLoading ? null : exif.date_taken;
+  const cameraModel = exifLoading ? null : exif.camera_model;
+
   return (
     <tr
       className={`photo-row ${index % 2 === 0 ? "photo-row--even" : "photo-row--odd"}`}
@@ -136,8 +139,16 @@ function PhotoRow({ photo, index, thumbnails, metadata, onDoubleClick }: RowProp
       <td className="col-filename" data-testid="photo-filename">{photo.filename}</td>
       <td className="col-date" data-testid="photo-date-modified">{formatDate(photo.date_modified)}</td>
       <td className="col-date" data-testid="photo-date-created">{formatDate(photo.date_created)}</td>
-      <td className="col-date" data-testid="photo-date-taken">{exif.date_taken ?? "—"}</td>
-      <td className="col-camera" data-testid="photo-camera">{exif.camera_model ?? "—"}</td>
+      <td className="col-date" data-testid="photo-date-taken">
+        {exifLoading
+          ? <span className="cell-spinner" aria-label="Loading" data-testid="exif-loading" />
+          : (dateTaken ?? "—")}
+      </td>
+      <td className="col-camera" data-testid="photo-camera">
+        {exifLoading
+          ? <span className="cell-spinner" aria-label="Loading" />
+          : (cameraModel ?? "—")}
+      </td>
       <td className="col-path" data-testid="photo-path">{photo.relative_path}</td>
     </tr>
   );

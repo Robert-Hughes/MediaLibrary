@@ -21,16 +21,11 @@ function makeStores(photos: PhotoInfo[], thumbOverrides: Record<string, string> 
   return { thumbs, meta };
 }
 
-function renderList(photos: PhotoInfo[], opts: { thumbOverrides?: Record<string, string>; onPhotoOpen?: () => void } = {}) {
+function renderList(photos: PhotoInfo[], opts: { thumbOverrides?: Record<string, string> } = {}) {
   const { thumbs, meta } = makeStores(photos, opts.thumbOverrides ?? {});
   render(
-    <PhotoList
-      photos={photos}
-      thumbnails={thumbs}
-      metadata={meta}
-      onVisibilityChange={() => {}}
-      onPhotoOpen={opts.onPhotoOpen ?? (() => {})}
-    />
+    <PhotoList photos={photos} thumbnails={thumbs} metadata={meta}
+      onVisibilityChange={() => {}} onPhotoOpen={() => {}} />
   );
   return { thumbs, meta };
 }
@@ -127,7 +122,8 @@ describe("StatusFooter", () => {
 describe("PhotoList", () => {
   it("shows empty message when no photos", () => {
     const { thumbs, meta } = makeStores([]);
-    render(<PhotoList photos={[]} thumbnails={thumbs} metadata={meta} onVisibilityChange={noop} onPhotoOpen={noop} />);
+    render(<PhotoList photos={[]} thumbnails={thumbs} metadata={meta}
+      onVisibilityChange={noop} onPhotoOpen={noop} />);
     expect(screen.getByTestId("photo-list-empty")).toBeInTheDocument();
   });
 
@@ -156,26 +152,61 @@ describe("PhotoList", () => {
     expect(screen.getByTestId("photo-date-modified")).toHaveTextContent("—");
   });
 
-  it("displays EXIF date taken from metadata store", () => {
+  // ── EXIF metadata cells ───────────────────────────────────────────────────
+
+  it("shows spinner in EXIF cells while metadata is loading", () => {
+    // MetadataStore.add() initialises as "loading" — no metadata_ready yet.
+    renderList([makePhoto({ relative_path: "a.jpg" })]);
+    expect(screen.getByTestId("exif-loading")).toBeInTheDocument();
+  });
+
+  it("shows date taken after metadata arrives", () => {
     const photos = [makePhoto({ relative_path: "a.jpg" })];
     const { thumbs, meta } = makeStores(photos);
     act(() => { meta.set("a.jpg", { date_taken: "2023:06:15 14:30:00", camera_model: null }); });
-    render(<PhotoList photos={photos} thumbnails={thumbs} metadata={meta} onVisibilityChange={noop} onPhotoOpen={noop} />);
+    render(<PhotoList photos={photos} thumbnails={thumbs} metadata={meta}
+      onVisibilityChange={noop} onPhotoOpen={noop} />);
     expect(screen.getByTestId("photo-date-taken")).toHaveTextContent("2023:06:15 14:30:00");
+    expect(screen.queryByTestId("exif-loading")).not.toBeInTheDocument();
   });
 
-  it("displays — for missing date taken", () => {
-    renderList([makePhoto({ relative_path: "a.jpg" })]);
+  it("shows — for null date taken after metadata arrives", () => {
+    const photos = [makePhoto({ relative_path: "a.jpg" })];
+    const { thumbs, meta } = makeStores(photos);
+    act(() => { meta.set("a.jpg", { date_taken: null, camera_model: null }); });
+    render(<PhotoList photos={photos} thumbnails={thumbs} metadata={meta}
+      onVisibilityChange={noop} onPhotoOpen={noop} />);
     expect(screen.getByTestId("photo-date-taken")).toHaveTextContent("—");
   });
 
-  it("displays camera model from metadata store", () => {
+  it("shows camera model after metadata arrives", () => {
     const photos = [makePhoto({ relative_path: "a.jpg" })];
     const { thumbs, meta } = makeStores(photos);
     act(() => { meta.set("a.jpg", { date_taken: null, camera_model: "Canon EOS R5" }); });
-    render(<PhotoList photos={photos} thumbnails={thumbs} metadata={meta} onVisibilityChange={noop} onPhotoOpen={noop} />);
+    render(<PhotoList photos={photos} thumbnails={thumbs} metadata={meta}
+      onVisibilityChange={noop} onPhotoOpen={noop} />);
     expect(screen.getByTestId("photo-camera")).toHaveTextContent("Canon EOS R5");
   });
+
+  it("spinner replaced by value when metadata store is updated", async () => {
+    const photos = [makePhoto({ relative_path: "a.jpg" })];
+    const { thumbs, meta } = makeStores(photos);
+    const { rerender } = render(
+      <PhotoList photos={photos} thumbnails={thumbs} metadata={meta}
+        onVisibilityChange={noop} onPhotoOpen={noop} />
+    );
+    expect(screen.getByTestId("exif-loading")).toBeInTheDocument();
+
+    act(() => { meta.set("a.jpg", { date_taken: "2024:01:01 12:00:00", camera_model: "Sony A7" }); });
+    rerender(<PhotoList photos={photos} thumbnails={thumbs} metadata={meta}
+      onVisibilityChange={noop} onPhotoOpen={noop} />);
+
+    expect(screen.queryByTestId("exif-loading")).not.toBeInTheDocument();
+    expect(screen.getByTestId("photo-date-taken")).toHaveTextContent("2024:01:01 12:00:00");
+    expect(screen.getByTestId("photo-camera")).toHaveTextContent("Sony A7");
+  });
+
+  // ── Thumbnails ────────────────────────────────────────────────────────────
 
   it("renders spinner when thumbnail is loading", () => {
     renderList([makePhoto({ relative_path: "a.jpg" })]);
@@ -211,7 +242,8 @@ describe("PhotoList", () => {
     const handler = vi.fn();
     const photos = makePhotos(["a.jpg", "b.jpg"]);
     const { thumbs, meta } = makeStores(photos);
-    render(<PhotoList photos={photos} thumbnails={thumbs} metadata={meta} onVisibilityChange={handler} onPhotoOpen={noop} />);
+    render(<PhotoList photos={photos} thumbnails={thumbs} metadata={meta}
+      onVisibilityChange={handler} onPhotoOpen={noop} />);
 
     callbacks[0](
       observed.map((el) => ({ target: el, isIntersecting: true })) as IntersectionObserverEntry[],
@@ -225,23 +257,13 @@ describe("PhotoList", () => {
     const photos = [makePhoto({ relative_path: "a.jpg" })];
     const { thumbs, meta } = makeStores(photos);
     const { rerender } = render(
-      <PhotoList photos={photos} thumbnails={thumbs} metadata={meta} onVisibilityChange={noop} onPhotoOpen={noop} />
+      <PhotoList photos={photos} thumbnails={thumbs} metadata={meta}
+        onVisibilityChange={noop} onPhotoOpen={noop} />
     );
     expect(document.querySelector(".photo-thumb-spinner")).toBeInTheDocument();
     act(() => { thumbs.set("a.jpg", "newdata"); });
-    rerender(<PhotoList photos={photos} thumbnails={thumbs} metadata={meta} onVisibilityChange={noop} onPhotoOpen={noop} />);
+    rerender(<PhotoList photos={photos} thumbnails={thumbs} metadata={meta}
+      onVisibilityChange={noop} onPhotoOpen={noop} />);
     expect(document.querySelector(".photo-thumb-img")).toHaveAttribute("src", "data:image/jpeg;base64,newdata");
-  });
-
-  it("row updates when metadata store is mutated", async () => {
-    const photos = [makePhoto({ relative_path: "a.jpg" })];
-    const { thumbs, meta } = makeStores(photos);
-    const { rerender } = render(
-      <PhotoList photos={photos} thumbnails={thumbs} metadata={meta} onVisibilityChange={noop} onPhotoOpen={noop} />
-    );
-    expect(screen.getByTestId("photo-camera")).toHaveTextContent("—");
-    act(() => { meta.set("a.jpg", { date_taken: null, camera_model: "Sony A7" }); });
-    rerender(<PhotoList photos={photos} thumbnails={thumbs} metadata={meta} onVisibilityChange={noop} onPhotoOpen={noop} />);
-    expect(screen.getByTestId("photo-camera")).toHaveTextContent("Sony A7");
   });
 });
