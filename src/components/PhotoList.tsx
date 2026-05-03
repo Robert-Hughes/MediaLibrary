@@ -89,15 +89,14 @@ export function PhotoList({ photos, thumbnails, metadata, onVisibilityChange, on
           <tr>
             <th className="col-thumb" rowSpan={2} />
             <th className="col-group-header" colSpan={3}>File</th>
-            <th className="col-group-header" colSpan={3}>Camera</th>
+            <th className="col-group-header" colSpan={2}>Camera</th>
           </tr>
           <tr>
-            <th className="col-header">Filename</th>
+            <th className="col-header">Path</th>
             <th className="col-header">Modified</th>
             <th className="col-header">Created</th>
             <th className="col-header">Date Taken</th>
             <th className="col-header">Camera</th>
-            <th className="col-header">Path</th>
           </tr>
         </thead>
         <tbody>
@@ -165,7 +164,7 @@ function PhotoRow({ photo, index, thumbnails, metadata, onDoubleClick }: RowProp
           )}
         </div>
       </td>
-      <td className="col-filename" data-testid="photo-filename">{photo.filename}</td>
+      <td className="col-path" data-testid="photo-path">{photo.relative_path}</td>
       <td className="col-date" data-testid="photo-date-modified">{formatDate(photo.date_modified)}</td>
       <td className="col-date" data-testid="photo-date-created">{formatDate(photo.date_created)}</td>
       <td className="col-date" data-testid="photo-date-taken">
@@ -178,7 +177,6 @@ function PhotoRow({ photo, index, thumbnails, metadata, onDoubleClick }: RowProp
           ? <Spinner className="cell-spinner" aria-label="Loading" />
           : (cameraModel ?? "—")}
       </td>
-      <td className="col-path" data-testid="photo-path">{photo.relative_path}</td>
     </tr>
   );
 }

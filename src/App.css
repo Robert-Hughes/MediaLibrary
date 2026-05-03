@@ -353,10 +353,9 @@ body {
   border-bottom: 1px solid var(--border);
 }
 
-.col-filename { width: 180px; }
+.col-path     { width: 240px; }
 .col-date     { width: 120px; }
 .col-camera   { width: 160px; }
-.col-path     { min-width: 120px; }
 
 .photo-row td {
   padding: 0 8px;

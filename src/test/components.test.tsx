@@ -167,11 +167,6 @@ describe("PhotoList", () => {
     expect(screen.getByTestId("photo-path")).toHaveTextContent("vacation/beach.jpg");
   });
 
-  it("displays the filename", () => {
-    renderList([makePhoto({ relative_path: "vacation/beach.jpg", filename: "beach.jpg" })]);
-    expect(screen.getByTestId("photo-filename")).toHaveTextContent("beach.jpg");
-  });
-
   it("displays date modified when present", () => {
     renderList([makePhoto({ relative_path: "a.jpg", date_modified: 1705276800 })]);
     expect(screen.getByTestId("photo-date-modified")).not.toHaveTextContent("—");
