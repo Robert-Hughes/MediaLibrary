@@ -1,15 +1,16 @@
 import { useEffect, useRef } from "react";
-import type { PhotoInfo } from "../types";
+import { useSyncExternalStore } from "react";
+import type { PhotoInfo, ThumbnailStore } from "../types";
 
 interface Props {
   photos: PhotoInfo[];
+  thumbnails: ThumbnailStore;
   /** Called when the set of visible photo paths changes. */
   onVisibilityChange: (visiblePaths: string[]) => void;
 }
 
-export function PhotoList({ photos, onVisibilityChange }: Props) {
+export function PhotoList({ photos, thumbnails, onVisibilityChange }: Props) {
   const listRef = useRef<HTMLDivElement>(null);
-  // Map from relative_path -> whether it's currently intersecting.
   const visibleRef = useRef<Map<string, boolean>>(new Map());
   const onVisibilityChangeRef = useRef(onVisibilityChange);
   onVisibilityChangeRef.current = onVisibilityChange;
@@ -35,7 +36,6 @@ export function PhotoList({ photos, onVisibilityChange }: Props) {
       { root: listRef.current.parentElement, threshold: 0 }
     );
 
-    // Observe every row inside the list.
     const rows = listRef.current.querySelectorAll<HTMLElement>("[data-path]");
     rows.forEach((row) => observer.observe(row));
 
@@ -53,7 +53,12 @@ export function PhotoList({ photos, onVisibilityChange }: Props) {
   return (
     <div className="photo-list" data-testid="photo-list" role="list" ref={listRef}>
       {photos.map((photo, i) => (
-        <PhotoRow key={photo.relative_path} photo={photo} index={i} />
+        <PhotoRow
+          key={photo.relative_path}
+          photo={photo}
+          index={i}
+          thumbnails={thumbnails}
+        />
       ))}
     </div>
   );
@@ -62,12 +67,20 @@ export function PhotoList({ photos, onVisibilityChange }: Props) {
 interface RowProps {
   photo: PhotoInfo;
   index: number;
+  thumbnails: ThumbnailStore;
 }
 
-function PhotoRow({ photo, index }: RowProps) {
-  const src = photo.thumbnail
-    ? `data:image/jpeg;base64,${photo.thumbnail}`
-    : null;
+function PhotoRow({ photo, index, thumbnails }: RowProps) {
+  // useSyncExternalStore subscribes this row to its own path only.
+  // When thumbnail_ready fires for a different path, this row does not re-render.
+  const thumbnail = useSyncExternalStore(
+    (cb) => thumbnails.subscribe(photo.relative_path, cb),
+    thumbnails.getSnapshot(photo.relative_path),
+  );
+
+  const isLoading = thumbnail === "loading";
+  const hasSrc = thumbnail !== "loading" && thumbnail !== "failed";
+  const src = hasSrc ? `data:image/jpeg;base64,${thumbnail}` : null;
 
   return (
     <div
@@ -79,6 +92,8 @@ function PhotoRow({ photo, index }: RowProps) {
       <div className="photo-thumb" aria-hidden="true">
         {src ? (
           <img src={src} alt="" className="photo-thumb-img" />
+        ) : isLoading ? (
+          <div className="photo-thumb-spinner" />
         ) : (
           <div className="photo-thumb-placeholder" />
         )}
