@@ -1,15 +1,16 @@
 import { useEffect, useRef } from "react";
 import { useSyncExternalStore } from "react";
-import type { PhotoInfo, ThumbnailStore } from "../types";
+import type { PhotoInfo, ThumbnailStore, MetadataStore } from "../types";
 
 interface Props {
   photos: PhotoInfo[];
   thumbnails: ThumbnailStore;
+  metadata: MetadataStore;
+  scanning: boolean;
   onVisibilityChange: (visiblePaths: string[]) => void;
   onPhotoOpen: (index: number) => void;
 }
 
-/** Format a Unix timestamp (seconds) as a locale date string, or "—" if null. */
 function formatDate(ts: number | null): string {
   if (ts === null) return "—";
   return new Date(ts * 1000).toLocaleDateString(undefined, {
@@ -17,7 +18,7 @@ function formatDate(ts: number | null): string {
   });
 }
 
-export function PhotoList({ photos, thumbnails, onVisibilityChange, onPhotoOpen }: Props) {
+export function PhotoList({ photos, thumbnails, metadata, scanning, onVisibilityChange, onPhotoOpen }: Props) {
   const listRef = useRef<HTMLDivElement>(null);
   const visibleRef = useRef<Map<string, boolean>>(new Map());
   const onVisibilityChangeRef = useRef(onVisibilityChange);
@@ -28,8 +29,7 @@ export function PhotoList({ photos, thumbnails, onVisibilityChange, onPhotoOpen 
 
     const notify = () => {
       const visible = Array.from(visibleRef.current.entries())
-        .filter(([, v]) => v)
-        .map(([k]) => k);
+        .filter(([, v]) => v).map(([k]) => k);
       onVisibilityChangeRef.current(visible);
     };
 
@@ -46,11 +46,10 @@ export function PhotoList({ photos, thumbnails, onVisibilityChange, onPhotoOpen 
 
     const rows = listRef.current.querySelectorAll<HTMLElement>("[data-path]");
     rows.forEach((row) => observer.observe(row));
-
     return () => observer.disconnect();
   }, [photos]);
 
-  if (photos.length === 0) {
+  if (photos.length === 0 && !scanning) {
     return (
       <div className="photo-list-empty" data-testid="photo-list-empty">
         No photos found in this folder.
@@ -63,11 +62,8 @@ export function PhotoList({ photos, thumbnails, onVisibilityChange, onPhotoOpen 
       <table className="photo-table" data-testid="photo-list" role="grid">
         <thead>
           <tr>
-            {/* Thumbnail — no group header */}
             <th className="col-thumb" rowSpan={2} />
-            {/* Outer metadata group */}
             <th className="col-group-header" colSpan={3}>File</th>
-            {/* Inner metadata group */}
             <th className="col-group-header" colSpan={3}>Camera</th>
           </tr>
           <tr>
@@ -86,9 +82,18 @@ export function PhotoList({ photos, thumbnails, onVisibilityChange, onPhotoOpen 
               photo={photo}
               index={i}
               thumbnails={thumbnails}
+              metadata={metadata}
               onDoubleClick={() => onPhotoOpen(i)}
             />
           ))}
+          {scanning && (
+            <tr data-testid="scanning-row">
+              <td colSpan={7} className="scanning-footer">
+                <span className="scanning-spinner" aria-hidden="true" />
+                <span className="scanning-label">Scanning…</span>
+              </td>
+            </tr>
+          )}
         </tbody>
       </table>
     </div>
@@ -99,13 +104,19 @@ interface RowProps {
   photo: PhotoInfo;
   index: number;
   thumbnails: ThumbnailStore;
+  metadata: MetadataStore;
   onDoubleClick: () => void;
 }
 
-function PhotoRow({ photo, index, thumbnails, onDoubleClick }: RowProps) {
+function PhotoRow({ photo, index, thumbnails, metadata, onDoubleClick }: RowProps) {
   const thumbnail = useSyncExternalStore(
     (cb) => thumbnails.subscribe(photo.relative_path, cb),
     thumbnails.getSnapshot(photo.relative_path),
+  );
+
+  const exif = useSyncExternalStore(
+    (cb) => metadata.subscribe(photo.relative_path, cb),
+    metadata.getSnapshot(photo.relative_path),
   );
 
   const isLoading = thumbnail === "loading";
@@ -120,7 +131,6 @@ function PhotoRow({ photo, index, thumbnails, onDoubleClick }: RowProps) {
       onDoubleClick={onDoubleClick}
       style={{ cursor: "pointer" }}
     >
-      {/* Thumbnail */}
       <td className="col-thumb" aria-hidden="true">
         <div className="photo-thumb">
           {src ? (
@@ -132,17 +142,11 @@ function PhotoRow({ photo, index, thumbnails, onDoubleClick }: RowProps) {
           )}
         </div>
       </td>
-
-      {/* File metadata */}
       <td className="col-filename" data-testid="photo-filename">{photo.filename}</td>
       <td className="col-date" data-testid="photo-date-modified">{formatDate(photo.date_modified)}</td>
       <td className="col-date" data-testid="photo-date-created">{formatDate(photo.date_created)}</td>
-
-      {/* EXIF metadata */}
-      <td className="col-date" data-testid="photo-date-taken">{photo.date_taken ?? "—"}</td>
-      <td className="col-camera" data-testid="photo-camera">{photo.camera_model ?? "—"}</td>
-
-      {/* Relative path */}
+      <td className="col-date" data-testid="photo-date-taken">{exif.date_taken ?? "—"}</td>
+      <td className="col-camera" data-testid="photo-camera">{exif.camera_model ?? "—"}</td>
       <td className="col-path" data-testid="photo-path">{photo.relative_path}</td>
     </tr>
   );

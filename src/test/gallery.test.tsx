@@ -15,13 +15,11 @@ import { renderHook, act } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import { GalleryView } from "../components/GalleryView";
 import { PhotoList } from "../components/PhotoList";
-import { ThumbnailStore } from "../types";
+import { ThumbnailStore, MetadataStore } from "../types";
 import { useMediaLibrary } from "../useMediaLibrary";
 import { createMockTauriApi } from "./mockTauriApi";
 import { makePhotos } from "./factories";
 import type { PhotoInfo } from "../types";
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
 
 const PHOTOS: PhotoInfo[] = makePhotos(["a.jpg", "b.jpg", "c.jpg"]);
 
@@ -242,19 +240,13 @@ describe("GalleryView", () => {
   });
 });
 
-// ── Gallery state in useMediaLibrary hook ─────────────────────────────────────
-
 describe("useMediaLibrary gallery state", () => {
-  const SCAN_PHOTOS = makePhotos(["a.jpg", "b.jpg", "c.jpg"]);
-
-  it("galleryIndex starts as null after scan_complete", async () => {
+  it("galleryIndex starts as null after first photo_found", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/photos");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
-
     await act(async () => { await result.current[1].openFolder(); });
-    act(() => { mock.emitScanComplete(SCAN_PHOTOS); });
-
+    act(() => { PHOTOS.forEach((p) => mock.emitPhotoFound(p)); });
     const state = result.current[0];
     expect(state.kind).toBe("loaded");
     if (state.kind === "loaded") expect(state.galleryIndex).toBeNull();
@@ -264,11 +256,9 @@ describe("useMediaLibrary gallery state", () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/photos");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
-
     await act(async () => { await result.current[1].openFolder(); });
-    act(() => { mock.emitScanComplete(SCAN_PHOTOS); });
+    act(() => { PHOTOS.forEach((p) => mock.emitPhotoFound(p)); });
     act(() => { result.current[1].openGallery(2); });
-
     const state = result.current[0];
     if (state.kind === "loaded") expect(state.galleryIndex).toBe(2);
   });
@@ -277,12 +267,10 @@ describe("useMediaLibrary gallery state", () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/photos");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
-
     await act(async () => { await result.current[1].openFolder(); });
-    act(() => { mock.emitScanComplete(SCAN_PHOTOS); });
+    act(() => { PHOTOS.forEach((p) => mock.emitPhotoFound(p)); });
     act(() => { result.current[1].openGallery(1); });
     act(() => { result.current[1].closeGallery(); });
-
     const state = result.current[0];
     if (state.kind === "loaded") expect(state.galleryIndex).toBeNull();
   });
@@ -291,12 +279,10 @@ describe("useMediaLibrary gallery state", () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/photos");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
-
     await act(async () => { await result.current[1].openFolder(); });
-    act(() => { mock.emitScanComplete(SCAN_PHOTOS); });
+    act(() => { PHOTOS.forEach((p) => mock.emitPhotoFound(p)); });
     act(() => { result.current[1].openGallery(0); });
     act(() => { result.current[1].navigateGallery(1); });
-
     const state = result.current[0];
     if (state.kind === "loaded") expect(state.galleryIndex).toBe(1);
   });
@@ -305,12 +291,10 @@ describe("useMediaLibrary gallery state", () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/photos");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
-
     await act(async () => { await result.current[1].openFolder(); });
-    act(() => { mock.emitScanComplete(SCAN_PHOTOS); });
+    act(() => { PHOTOS.forEach((p) => mock.emitPhotoFound(p)); });
     act(() => { result.current[1].openGallery(2); });
     act(() => { result.current[1].navigateGallery(-1); });
-
     const state = result.current[0];
     if (state.kind === "loaded") expect(state.galleryIndex).toBe(1);
   });
@@ -319,12 +303,10 @@ describe("useMediaLibrary gallery state", () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/photos");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
-
     await act(async () => { await result.current[1].openFolder(); });
-    act(() => { mock.emitScanComplete(SCAN_PHOTOS); });
+    act(() => { PHOTOS.forEach((p) => mock.emitPhotoFound(p)); });
     act(() => { result.current[1].openGallery(0); });
     act(() => { result.current[1].navigateGallery(-1); });
-
     const state = result.current[0];
     if (state.kind === "loaded") expect(state.galleryIndex).toBe(0);
   });
@@ -333,25 +315,21 @@ describe("useMediaLibrary gallery state", () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/photos");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
-
     await act(async () => { await result.current[1].openFolder(); });
-    act(() => { mock.emitScanComplete(SCAN_PHOTOS); });
+    act(() => { PHOTOS.forEach((p) => mock.emitPhotoFound(p)); });
     act(() => { result.current[1].openGallery(2); });
     act(() => { result.current[1].navigateGallery(1); });
-
     const state = result.current[0];
     if (state.kind === "loaded") expect(state.galleryIndex).toBe(2);
   });
 
-  it("gallery index matches photo list order — opening photo at index 1 shows b.jpg", async () => {
+  it("gallery index matches photo list order — index 1 shows b.jpg", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/photos");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
-
     await act(async () => { await result.current[1].openFolder(); });
-    act(() => { mock.emitScanComplete(SCAN_PHOTOS); });
+    act(() => { PHOTOS.forEach((p) => mock.emitPhotoFound(p)); });
     act(() => { result.current[1].openGallery(1); });
-
     const state = result.current[0];
     if (state.kind === "loaded" && state.galleryIndex !== null) {
       expect(state.photos[state.galleryIndex].relative_path).toBe("b.jpg");
@@ -362,20 +340,25 @@ describe("useMediaLibrary gallery state", () => {
 // ── PhotoList double-click integration ────────────────────────────────────────
 
 describe("PhotoList double-click opens gallery", () => {
-  it("calls onPhotoOpen with the correct index when a row is double-clicked", async () => {
-    const onPhotoOpen = vi.fn();
-    const photos = makePhotos(["a.jpg", "b.jpg", "c.jpg"]);
-    const store = makeStore(photos);
-
+  function renderList(photos: PhotoInfo[], onPhotoOpen: (i: number) => void) {
+    const thumbs = makeStore(photos);
+    const meta = new MetadataStore();
+    photos.forEach((p) => meta.add(p.relative_path));
     render(
       <PhotoList
         photos={photos}
-        thumbnails={store}
+        thumbnails={thumbs}
+        metadata={meta}
+        scanning={false}
         onVisibilityChange={() => {}}
         onPhotoOpen={onPhotoOpen}
       />
     );
-
+  }
+  it("calls onPhotoOpen with the correct index when a row is double-clicked", async () => {
+    const onPhotoOpen = vi.fn();
+    const photos = makePhotos(["a.jpg", "b.jpg", "c.jpg"]);
+    renderList(photos, onPhotoOpen);
     const rows = screen.getAllByTestId("photo-row");
     await userEvent.dblClick(rows[1]);
     expect(onPhotoOpen).toHaveBeenCalledWith(1);
@@ -383,36 +366,14 @@ describe("PhotoList double-click opens gallery", () => {
 
   it("double-clicking the first row opens index 0", async () => {
     const onPhotoOpen = vi.fn();
-    const photos = makePhotos(["a.jpg", "b.jpg"]);
-    const store = makeStore(photos);
-
-    render(
-      <PhotoList
-        photos={photos}
-        thumbnails={store}
-        onVisibilityChange={() => {}}
-        onPhotoOpen={onPhotoOpen}
-      />
-    );
-
+    renderList(makePhotos(["a.jpg", "b.jpg"]), onPhotoOpen);
     await userEvent.dblClick(screen.getAllByTestId("photo-row")[0]);
     expect(onPhotoOpen).toHaveBeenCalledWith(0);
   });
 
   it("double-clicking the last row opens the last index", async () => {
     const onPhotoOpen = vi.fn();
-    const photos = makePhotos(["a.jpg", "b.jpg", "c.jpg"]);
-    const store = makeStore(photos);
-
-    render(
-      <PhotoList
-        photos={photos}
-        thumbnails={store}
-        onVisibilityChange={() => {}}
-        onPhotoOpen={onPhotoOpen}
-      />
-    );
-
+    renderList(makePhotos(["a.jpg", "b.jpg", "c.jpg"]), onPhotoOpen);
     const rows = screen.getAllByTestId("photo-row");
     await userEvent.dblClick(rows[rows.length - 1]);
     expect(onPhotoOpen).toHaveBeenCalledWith(2);

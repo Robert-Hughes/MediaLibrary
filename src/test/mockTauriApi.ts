@@ -1,53 +1,39 @@
-/**
- * A controllable mock of the Tauri IPC layer for use in tests.
- *
- * Usage:
- *   const mock = createMockTauriApi();
- *   mock.pickFolderResolves("/photos/vacation");
- *   // trigger openFolder(), then drive events manually:
- *   mock.emitScanProgress(5);
- *   mock.emitScanComplete([{ relative_path: "a.jpg" }]);
- *   mock.emitThumbnailReady("a.jpg", "base64data");
- */
 import type { TauriApi } from "../useMediaLibrary";
 import type {
   PhotoInfo,
-  ScanCompletePayload,
-  ScanProgressPayload,
-  ScanErrorPayload,
+  PhotoFoundPayload,
+  MetadataReadyPayload,
   ThumbnailReadyPayload,
+  ScanErrorPayload,
 } from "../types";
 
 type EventHandler = (payload: unknown) => void;
 
 export interface MockTauriApi {
   api: TauriApi;
-  /** Set the folder path that the next pick_folder call will resolve with (null = cancelled). */
   pickFolderResolves: (path: string | null) => void;
-  /** Simulate a scan_progress event from Rust. */
-  emitScanProgress: (foundSoFar: number) => void;
-  /** Simulate a scan_complete event from Rust (photos have no thumbnails). */
-  emitScanComplete: (photos: PhotoInfo[]) => void;
-  /** Simulate a thumbnail_ready event from Rust for a single photo. */
+  emitPhotoFound: (photo: PhotoInfo) => void;
+  emitScanComplete: () => void;
+  emitMetadataReady: (relativePath: string, dateTaken: string | null, cameraModel: string | null) => void;
   emitThumbnailReady: (relativePath: string, thumbnail: string) => void;
-  /** Simulate a scan_error event from Rust. */
   emitScanError: (message: string) => void;
-  /** The paths most recently passed to prioritize_thumbnails. */
   lastPrioritizedPaths: string[];
-  /** The most recent title passed to set_window_title. */
   lastWindowTitle: string | null;
 }
 
 export function createMockTauriApi(): MockTauriApi {
   let nextFolder: string | null = null;
   const handlers: Record<string, EventHandler[]> = {};
+
   const mock: MockTauriApi = {
-    api: null as unknown as TauriApi, // set below
+    api: null as unknown as TauriApi,
     pickFolderResolves: (path) => { nextFolder = path; },
-    emitScanProgress: (foundSoFar) =>
-      emit("scan_progress", { found_so_far: foundSoFar } satisfies ScanProgressPayload),
-    emitScanComplete: (photos) =>
-      emit("scan_complete", { photos } satisfies ScanCompletePayload),
+    emitPhotoFound: (photo) =>
+      emit("photo_found", { photo } satisfies PhotoFoundPayload),
+    emitScanComplete: () =>
+      emit("scan_complete", {}),
+    emitMetadataReady: (relative_path, date_taken, camera_model) =>
+      emit("metadata_ready", { relative_path, date_taken, camera_model } satisfies MetadataReadyPayload),
     emitThumbnailReady: (relative_path, thumbnail) =>
       emit("thumbnail_ready", { relative_path, thumbnail } satisfies ThumbnailReadyPayload),
     emitScanError: (message) =>
@@ -70,13 +56,10 @@ export function createMockTauriApi(): MockTauriApi {
       }
       throw new Error(`Unexpected invoke: ${cmd}`);
     },
-
     listen: async (event, handler) => {
       if (!handlers[event]) handlers[event] = [];
       handlers[event].push(handler);
-      return () => {
-        handlers[event] = handlers[event].filter((h) => h !== handler);
-      };
+      return () => { handlers[event] = handlers[event].filter((h) => h !== handler); };
     },
   };
 

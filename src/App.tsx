@@ -10,16 +10,12 @@ import "./App.css";
 
 const tauriApi: TauriApi = {
   invoke: (cmd, args) => invoke(cmd, args),
-  listen: (event, handler) =>
-    listen(event, (e) => handler(e.payload)),
+  listen: (event, handler) => listen(event, (e) => handler(e.payload)),
 };
 
 async function loadImage(path: string): Promise<string | null> {
-  try {
-    return await invoke<string>("load_image", { path });
-  } catch {
-    return null;
-  }
+  try { return await invoke<string>("load_image", { path }); }
+  catch { return null; }
 }
 
 export default function App() {
@@ -31,20 +27,24 @@ export default function App() {
         <WelcomeScreen onOpenFolder={actions.openFolder} />
       )}
 
+      {/* Loading: show a simple spinner while waiting for the first photo */}
       {state.kind === "loading" && (
-        <LoadingScreen folder={state.folder} foundSoFar={state.foundSoFar} />
+        <LoadingScreen folder={state.folder} foundSoFar={0} />
       )}
 
       {state.kind === "loaded" && (
         <>
           <MenuBar
             photoCount={state.photos.length}
+            scanning={state.scanning}
             onOpenFolder={actions.openFolder}
             onCloseFolder={actions.closeFolder}
           />
           <PhotoList
             photos={state.photos}
             thumbnails={state.thumbnails}
+            metadata={state.metadata}
+            scanning={state.scanning}
             onVisibilityChange={actions.prioritizeThumbnails}
             onPhotoOpen={actions.openGallery}
           />
