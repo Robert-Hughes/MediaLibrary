@@ -1,9 +1,12 @@
+import { useSpinnerSync } from "../hooks/useSpinnerSync";
+
 interface Props {
   folder: string;
   foundSoFar: number;
 }
 
 export function LoadingScreen({ folder, foundSoFar }: Props) {
+  const spinRef = useSpinnerSync<HTMLDivElement>();
   const label =
     foundSoFar === 0
       ? "Searching for photos…"
@@ -14,7 +17,7 @@ export function LoadingScreen({ folder, foundSoFar }: Props) {
       <h2 className="loading-title">Scanning…</h2>
       <p className="loading-folder" data-testid="loading-folder">{folder}</p>
       <p className="loading-progress" data-testid="loading-progress">{label}</p>
-      <div className="spinner" aria-label="Loading" />
+      <div ref={spinRef} className="spinner" aria-label="Loading" />
     </div>
   );
 }

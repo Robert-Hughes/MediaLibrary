@@ -5,10 +5,13 @@ are covered by integration tests that simulate UI interaction and confirm that t
 Now
 ===
 
-* Show in bottom panel/top when metadata still loading
 * spinner animations should all synced together
-* Metadata loading queue should be prioritised based on list position, like we do for thumbnails. Though the thumbnail priority seems to be broken atm! FIx this too
+* Metadata loading queue should be prioritised based on list position, like we do for thumbnails. Though the thumbnail priority seems to be broken atm! Take a look and fix this too
 * Bug - Pressing Close when still loading doesn't stop loading - the list is cleared but more photos appear!  (Presumably a similar bug is present when switching to a different folder?)
+
+Later
+=====
+
 * Add more columns to the list view. The columns should be grouped:
     * Outer metadata (i.e. properties *of* the file stored by the OS, not the internal EXIF metadata stuff)
         * Filename
@@ -18,12 +21,10 @@ Now
         * DateTaken (DateOriginal or whatever it's called)
         * Camera model
         * etc.
-
-
-Later
-=====
-
 * List view - implement (multi-)selection. Single click to select, double click to open in gallery.
 * Sync the selected row with the gallery view, i.e. navigating left/right in the gallery will also move selection up/down in the list (and scroll the newly selected image into view as necessary)
 * Gallery view - improve general responsiveness
 * Recent folders saved and shown on the home screen when no folder is open
+* List view context menu when right clicking on a row:
+    * View (opens in gallery, equivalent to double-click)
+    * Show in File Explorer

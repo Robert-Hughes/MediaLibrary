@@ -122,12 +122,22 @@ body {
   border: 2px solid var(--border);
   border-top-color: var(--accent);
   border-radius: 50%;
-  animation: spin 0.8s linear infinite;
   margin-top: 8px;
 }
 
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+/* All spinners share the same phase via useSpinnerSync (Web Animations API). */
+.spinner,
+.menu-bar-spinner,
+.photo-thumb-spin-inner,
+.cell-spinner,
+.status-footer-spinner,
+.scanning-spinner,
+.gallery-spinner {
+  animation: spin 0.8s linear infinite;
 }
 
 /* ── Menu bar (shown when folder is open) ─────────────────────────────────── */
@@ -179,7 +189,6 @@ body {
   border: 1.5px solid var(--border);
   border-top-color: var(--accent);
   border-radius: 50%;
-  animation: spin 0.8s linear infinite;
   margin-left: 6px;
   vertical-align: middle;
 }
@@ -346,14 +355,13 @@ body {
   background: var(--thumb-bg);
 }
 
-.photo-thumb-spinner::after {
-  content: "";
+.photo-thumb-spin-inner {
+  display: inline-block;
   width: 16px;
   height: 16px;
   border: 1.5px solid var(--border);
   border-top-color: var(--text-dim);
   border-radius: 50%;
-  animation: spin 0.8s linear infinite;
 }
 
 .col-date, .col-camera {
@@ -373,7 +381,6 @@ body {
   border: 1.5px solid var(--border);
   border-top-color: var(--text-dim);
   border-radius: 50%;
-  animation: spin 0.8s linear infinite;
   vertical-align: middle;
 }
 
@@ -402,7 +409,6 @@ body {
   border: 1.5px solid var(--border);
   border-top-color: var(--accent);
   border-radius: 50%;
-  animation: spin 0.8s linear infinite;
   vertical-align: middle;
   margin-right: 8px;
 }
@@ -433,7 +439,6 @@ body {
   border: 1.5px solid var(--border);
   border-top-color: var(--accent);
   border-radius: 50%;
-  animation: spin 0.8s linear infinite;
   flex-shrink: 0;
 }
 
@@ -486,7 +491,6 @@ body {
   border: 3px solid var(--border);
   border-top-color: var(--accent);
   border-radius: 50%;
-  animation: spin 0.8s linear infinite;
 }
 
 .gallery-error {
