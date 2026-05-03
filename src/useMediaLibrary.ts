@@ -49,12 +49,23 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
   // scan_id are stale (from a previous scan) and are discarded.
   const activeScanIdRef = useRef<number>(-1);
 
+  // Buffer for photo_found events to avoid flooding React with state updates.
+  const photoBufferRef = useRef<PhotoInfo[]>([]);
+  const batchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isFirstFlushRef = useRef<boolean>(true);
+
   const startScan = useCallback(async (folder: string) => {
     // Stop any existing scan before starting a new one.
     await api.invoke("stop_scan").catch(() => {});
 
-    // Invalidate events from any previous scan before starting the new one.
+    // Invalidate events and clear buffer from any previous scan.
     activeScanIdRef.current = -1;
+    photoBufferRef.current = [];
+    isFirstFlushRef.current = true;
+    if (batchTimerRef.current) {
+      clearTimeout(batchTimerRef.current);
+      batchTimerRef.current = null;
+    }
 
     thumbnailStoreRef.current = new ThumbnailStore();
     metadataStoreRef.current  = new MetadataStore();
@@ -80,6 +91,37 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
     const unlisteners: Array<() => void> = [];
     let cancelled = false;
 
+    const flushPhotos = () => {
+      if (photoBufferRef.current.length === 0) return;
+      const batch = [...photoBufferRef.current];
+      photoBufferRef.current = [];
+
+      setAppState((prev) => {
+        if (prev.kind === "idle") return prev;
+        if (prev.kind === "loading") {
+          return {
+            kind: "loaded",
+            folder: prev.folder,
+            photos: batch,
+            thumbnails: thumbnailStoreRef.current,
+            metadata: metadataStoreRef.current,
+            scanning: true,
+            metadataRemaining: Math.max(0, batch.length - metadataReceivedRef.current),
+            galleryIndex: null,
+          };
+        }
+        if (prev.kind === "loaded") {
+          const newPhotos = [...prev.photos, ...batch];
+          return {
+            ...prev,
+            photos: newPhotos,
+            metadataRemaining: Math.max(0, newPhotos.length - metadataReceivedRef.current),
+          };
+        }
+        return prev;
+      });
+    };
+
     const setup = async () => {
       const unlistenFound = await api.listen("photo_found", (raw) => {
         if (cancelled) return;
@@ -89,36 +131,40 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
         thumbnailStoreRef.current.add(photo.relative_path);
         metadataStoreRef.current.add(photo.relative_path);
 
-        setAppState((prev) => {
-          if (prev.kind === "idle") return prev;
-          if (prev.kind === "loading") {
-            return {
-              kind: "loaded",
-              folder: prev.folder,
-              photos: [photo],
-              thumbnails: thumbnailStoreRef.current,
-              metadata: metadataStoreRef.current,
-              scanning: true,
-              metadataRemaining: Math.max(0, 1 - metadataReceivedRef.current),
-              galleryIndex: null,
-            };
+        photoBufferRef.current.push(photo);
+
+        // Flush immediately for the very first photo.
+        // Also flush if the buffer is large enough (e.g., 50 photos).
+        // Otherwise, wait for the timer.
+        const shouldFlushNow = isFirstFlushRef.current || 
+                             photoBufferRef.current.length >= 50;
+
+        if (shouldFlushNow) {
+          isFirstFlushRef.current = false;
+          if (batchTimerRef.current) {
+            clearTimeout(batchTimerRef.current);
+            batchTimerRef.current = null;
           }
-          if (prev.kind === "loaded") {
-            const newCount = prev.photos.length + 1;
-            return {
-              ...prev,
-              photos: [...prev.photos, photo],
-              metadataRemaining: Math.max(0, newCount - metadataReceivedRef.current),
-            };
-          }
-          return prev;
-        });
+          flushPhotos();
+        } else if (!batchTimerRef.current) {
+          batchTimerRef.current = setTimeout(() => {
+            batchTimerRef.current = null;
+            flushPhotos();
+          }, 100);
+        }
       });
 
       const unlistenComplete = await api.listen("scan_complete", (raw) => {
         if (cancelled) return;
         const { scan_id } = raw as { scan_id: number };
         if (scan_id !== activeScanIdRef.current) return;
+
+        if (batchTimerRef.current) {
+          clearTimeout(batchTimerRef.current);
+          batchTimerRef.current = null;
+        }
+        flushPhotos();
+
         setAppState((prev) => {
           if (prev.kind === "loaded") return { ...prev, scanning: false };
           if (prev.kind === "loading") {
