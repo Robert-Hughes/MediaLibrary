@@ -110,7 +110,8 @@ export type AppState =
       photos: PhotoInfo[];
       thumbnails: ThumbnailStore;
       metadata: MetadataStore;
-      scanning: boolean;       // true while the directory walk is still running
+      scanning: boolean;           // true while the directory walk is still running
+      metadataRemaining: number;   // count of photos still awaiting metadata_ready
       galleryIndex: number | null;
     };
 

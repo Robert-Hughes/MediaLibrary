@@ -184,6 +184,12 @@ body {
   vertical-align: middle;
 }
 
+.menu-bar-status {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-left: 4px;
+}
+
 /* ── Toolbar ──────────────────────────────────────────────────────────────── */
 
 .toolbar {

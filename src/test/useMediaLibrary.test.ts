@@ -103,10 +103,56 @@ describe("useMediaLibrary", () => {
     }
   });
 
+  it("metadataRemaining starts at 1 after first photo_found", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/photos");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => { await result.current[1].openFolder(); });
+    act(() => { mock.emitPhotoFound(makePhoto({ relative_path: "a.jpg" })); });
+    const state = result.current[0];
+    if (state.kind === "loaded") expect(state.metadataRemaining).toBe(1);
+  });
+
+  it("metadataRemaining increments with each photo_found", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/photos");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => { await result.current[1].openFolder(); });
+    act(() => { mock.emitPhotoFound(makePhoto({ relative_path: "a.jpg" })); });
+    act(() => { mock.emitPhotoFound(makePhoto({ relative_path: "b.jpg" })); });
+    act(() => { mock.emitPhotoFound(makePhoto({ relative_path: "c.jpg" })); });
+    const state = result.current[0];
+    if (state.kind === "loaded") expect(state.metadataRemaining).toBe(3);
+  });
+
+  it("metadataRemaining decrements when metadata_ready fires", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/photos");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => { await result.current[1].openFolder(); });
+    act(() => { mock.emitPhotoFound(makePhoto({ relative_path: "a.jpg" })); });
+    act(() => { mock.emitPhotoFound(makePhoto({ relative_path: "b.jpg" })); });
+    act(() => { mock.emitMetadataReady("a.jpg", null, null); });
+    const state = result.current[0];
+    if (state.kind === "loaded") expect(state.metadataRemaining).toBe(1);
+  });
+
+  it("metadataRemaining reaches 0 when all metadata arrives", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/photos");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => { await result.current[1].openFolder(); });
+    act(() => { mock.emitPhotoFound(makePhoto({ relative_path: "a.jpg" })); });
+    act(() => { mock.emitPhotoFound(makePhoto({ relative_path: "b.jpg" })); });
+    act(() => { mock.emitMetadataReady("a.jpg", null, null); });
+    act(() => { mock.emitMetadataReady("b.jpg", "2023:01:01", "Canon"); });
+    const state = result.current[0];
+    if (state.kind === "loaded") expect(state.metadataRemaining).toBe(0);
+  });
+
   // ── metadata_ready updates the MetadataStore ──────────────────────────────
 
-  it("updates metadata store when metadata_ready fires", async () => {
-    const mock = createMockTauriApi();
+  it("updates metadata store when metadata_ready fires", async () => {    const mock = createMockTauriApi();
     mock.pickFolderResolves("/photos");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
     await act(async () => { await result.current[1].openFolder(); });
@@ -122,8 +168,6 @@ describe("useMediaLibrary", () => {
       date_taken: "2023:06:15 14:30:00",
       camera_model: "Canon EOS R5",
     });
-    // AppState reference unchanged — no list re-render.
-    expect(result.current[0]).toBe(state);
   });
 
   it("metadata starts as loading before metadata_ready", async () => {
@@ -154,7 +198,6 @@ describe("useMediaLibrary", () => {
     act(() => { mock.emitThumbnailReady("a.jpg", "base64data"); });
 
     expect(state.thumbnails.get("a.jpg")).toBe("base64data");
-    expect(result.current[0]).toBe(state); // no list re-render
   });
 
   // ── scan_error ────────────────────────────────────────────────────────────

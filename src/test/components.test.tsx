@@ -66,7 +66,7 @@ describe("LoadingScreen", () => {
 // ── MenuBar ───────────────────────────────────────────────────────────────────
 
 describe("MenuBar", () => {
-  const base = { photoCount: 3, scanning: false, onOpenFolder: noop, onCloseFolder: noop };
+  const base = { photoCount: 3, scanning: false, metadataLoading: false, onOpenFolder: noop, onCloseFolder: noop };
 
   it("shows the photo count", () => {
     render(<MenuBar {...base} />);
@@ -78,14 +78,29 @@ describe("MenuBar", () => {
     expect(screen.getByTestId("menu-bar-count")).toHaveTextContent("1 photo");
   });
 
-  it("shows spinner while scanning", () => {
+  it("shows scanning spinner while scanning", () => {
     render(<MenuBar {...base} scanning={true} />);
     expect(screen.getByTestId("menu-bar-spinner")).toBeInTheDocument();
+    expect(screen.queryByTestId("menu-bar-metadata-label")).not.toBeInTheDocument();
   });
 
-  it("hides spinner when not scanning", () => {
-    render(<MenuBar {...base} scanning={false} />);
+  it("hides spinner when not scanning and not loading metadata", () => {
+    render(<MenuBar {...base} />);
     expect(screen.queryByTestId("menu-bar-spinner")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("menu-bar-metadata-label")).not.toBeInTheDocument();
+  });
+
+  it("shows metadata spinner and label when metadata is loading", () => {
+    render(<MenuBar {...base} metadataLoading={true} />);
+    expect(screen.getByTestId("menu-bar-metadata-spinner")).toBeInTheDocument();
+    expect(screen.getByTestId("menu-bar-metadata-label")).toHaveTextContent("Loading metadata");
+  });
+
+  it("scanning spinner takes priority over metadata label", () => {
+    // While still scanning, show only the scanning spinner, not the metadata label.
+    render(<MenuBar {...base} scanning={true} metadataLoading={true} />);
+    expect(screen.getByTestId("menu-bar-spinner")).toBeInTheDocument();
+    expect(screen.queryByTestId("menu-bar-metadata-label")).not.toBeInTheDocument();
   });
 
   it("calls onCloseFolder when close is clicked", async () => {
