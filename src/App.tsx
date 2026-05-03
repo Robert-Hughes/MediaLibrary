@@ -51,7 +51,7 @@ export default function App() {
             photos={state.photos}
             thumbnails={state.thumbnails}
             metadata={state.metadata}
-            onVisibilityChange={actions.prioritizeThumbnails}
+            onVisibilityChange={actions.prioritizeQueues}
             onPhotoOpen={actions.openGallery}
           />
           {state.galleryIndex !== null && (

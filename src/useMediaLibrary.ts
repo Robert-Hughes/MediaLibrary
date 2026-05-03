@@ -16,7 +16,7 @@ export interface TauriApi {
 export interface MediaLibraryActions {
   openFolder: () => Promise<void>;
   closeFolder: () => void;
-  prioritizeThumbnails: (visiblePaths: string[]) => void;
+  prioritizeQueues: (visiblePaths: string[]) => void;
   openGallery: (index: number) => void;
   closeGallery: () => void;
   navigateGallery: (delta: -1 | 1) => void;
@@ -25,12 +25,13 @@ export interface MediaLibraryActions {
 export function useMediaLibrary(api: TauriApi): [AppState, MediaLibraryActions] {
   const [appState, setAppState] = useState<AppState>({ kind: "idle" });
 
-  const currentFolderRef = useRef<string | null>(null);
-  const thumbnailStoreRef = useRef<ThumbnailStore>(new ThumbnailStore());
-  const metadataStoreRef  = useRef<MetadataStore>(new MetadataStore());
-  // Count of metadata_ready events received for the current scan.
-  // Compared against photos.length to determine when all metadata is done.
+  const thumbnailStoreRef   = useRef<ThumbnailStore>(new ThumbnailStore());
+  const metadataStoreRef    = useRef<MetadataStore>(new MetadataStore());
   const metadataReceivedRef = useRef<number>(0);
+
+  // The scan_id of the most recently started scan. Events with a different
+  // scan_id are stale (from a previous scan) and are discarded.
+  const activeScanIdRef = useRef<number>(-1);
 
   useEffect(() => {
     const unlisteners: Array<() => void> = [];
@@ -39,18 +40,18 @@ export function useMediaLibrary(api: TauriApi): [AppState, MediaLibraryActions] 
     const setup = async () => {
       const unlistenFound = await api.listen("photo_found", (raw) => {
         if (cancelled) return;
-        const { photo } = raw as PhotoFoundPayload;
+        const { scan_id, photo } = raw as PhotoFoundPayload;
+        if (scan_id !== activeScanIdRef.current) return;
 
-        // Register in stores before updating React state.
         thumbnailStoreRef.current.add(photo.relative_path);
         metadataStoreRef.current.add(photo.relative_path);
 
         setAppState((prev) => {
-          if (prev.kind === "idle" || prev.kind === "loading") {
-            const folder = currentFolderRef.current ?? "";
+          if (prev.kind === "idle") return prev;
+          if (prev.kind === "loading") {
             return {
               kind: "loaded",
-              folder,
+              folder: prev.folder,
               photos: [photo],
               thumbnails: thumbnailStoreRef.current,
               metadata: metadataStoreRef.current,
@@ -71,11 +72,12 @@ export function useMediaLibrary(api: TauriApi): [AppState, MediaLibraryActions] 
         });
       });
 
-      const unlistenComplete = await api.listen("scan_complete", () => {
+      const unlistenComplete = await api.listen("scan_complete", (raw) => {
         if (cancelled) return;
+        const { scan_id } = raw as { scan_id: number };
+        if (scan_id !== activeScanIdRef.current) return;
         setAppState((prev) => {
           if (prev.kind === "loaded") return { ...prev, scanning: false };
-          // Empty folder: walk finished before any photo_found — go to loaded with empty list.
           if (prev.kind === "loading") {
             return {
               kind: "loaded",
@@ -94,19 +96,21 @@ export function useMediaLibrary(api: TauriApi): [AppState, MediaLibraryActions] 
 
       const unlistenMetadata = await api.listen("metadata_ready", (raw) => {
         if (cancelled) return;
-        const { relative_path, date_taken, camera_model } = raw as MetadataReadyPayload;
+        const { scan_id, relative_path, date_taken, camera_model } = raw as MetadataReadyPayload;
+        if (scan_id !== activeScanIdRef.current) return;
         metadataStoreRef.current.set(relative_path, { date_taken, camera_model });
         metadataReceivedRef.current += 1;
-        // Recalculate remaining based on how many photos we know about vs received.
         setAppState((prev) =>
           prev.kind === "loaded"
             ? { ...prev, metadataRemaining: Math.max(0, prev.photos.length - metadataReceivedRef.current) }
             : prev
         );
       });
+
       const unlistenThumbnail = await api.listen("thumbnail_ready", (raw) => {
         if (cancelled) return;
-        const { relative_path, thumbnail } = raw as ThumbnailReadyPayload;
+        const { scan_id, relative_path, thumbnail } = raw as ThumbnailReadyPayload;
+        if (scan_id !== activeScanIdRef.current) return;
         thumbnailStoreRef.current.set(relative_path, thumbnail);
       });
 
@@ -134,9 +138,12 @@ export function useMediaLibrary(api: TauriApi): [AppState, MediaLibraryActions] 
     const folder = (await api.invoke("pick_folder")) as string | null;
     if (!folder) return;
 
-    currentFolderRef.current = folder;
+    // Stop any existing scan before starting a new one.
+    await api.invoke("stop_scan").catch(() => {});
 
-    // Reset stores for the new scan.
+    // Invalidate events from any previous scan before starting the new one.
+    activeScanIdRef.current = -1;
+
     thumbnailStoreRef.current = new ThumbnailStore();
     metadataStoreRef.current  = new MetadataStore();
     metadataReceivedRef.current = 0;
@@ -144,20 +151,23 @@ export function useMediaLibrary(api: TauriApi): [AppState, MediaLibraryActions] 
     setAppState({ kind: "loading", folder });
     api.invoke("set_window_title", { title: `Media Library — ${folder}` }).catch(() => {});
 
-    await api.invoke("start_scan", { folderPath: folder });
+    // start_scan returns the scan_id assigned by the backend.
+    const scanId = (await api.invoke("start_scan", { folderPath: folder })) as number;
+    activeScanIdRef.current = scanId;
   }, [api]);
 
   const closeFolder = useCallback(() => {
-    currentFolderRef.current = null;
+    activeScanIdRef.current = -1;
     setAppState({ kind: "idle" });
+    api.invoke("stop_scan").catch(() => {});
     api.invoke("set_window_title", { title: "Media Library" }).catch(() => {});
   }, [api]);
 
   const prioritizeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const prioritizeThumbnails = useCallback((visiblePaths: string[]) => {
+  const prioritizeQueues = useCallback((visiblePaths: string[]) => {
     if (prioritizeTimerRef.current) clearTimeout(prioritizeTimerRef.current);
     prioritizeTimerRef.current = setTimeout(() => {
-      api.invoke("prioritize_thumbnails", { visiblePaths }).catch(() => {});
+      api.invoke("prioritize_queues", { visiblePaths }).catch(() => {});
     }, 100);
   }, [api]);
 
@@ -173,14 +183,13 @@ export function useMediaLibrary(api: TauriApi): [AppState, MediaLibraryActions] 
     );
   }, []);
 
-  const navigateGallery = useCallback((delta: -1 | 1) => {
+  const navigateGallery = useCallback((delta: number) => {
     setAppState((prev) => {
       if (prev.kind !== "loaded" || prev.galleryIndex === null) return prev;
-      const next = prev.galleryIndex + delta;
-      if (next < 0 || next >= prev.photos.length) return prev;
-      return { ...prev, galleryIndex: next };
+      const nextIndex = Math.max(0, Math.min(prev.photos.length - 1, prev.galleryIndex + delta));
+      return { ...prev, galleryIndex: nextIndex };
     });
   }, []);
 
-  return [appState, { openFolder, closeFolder, prioritizeThumbnails, openGallery, closeGallery, navigateGallery }];
+  return [appState, { openFolder, closeFolder, prioritizeQueues, openGallery, closeGallery, navigateGallery }];
 }

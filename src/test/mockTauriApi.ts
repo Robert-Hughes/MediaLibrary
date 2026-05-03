@@ -12,13 +12,15 @@ type EventHandler = (payload: unknown) => void;
 export interface MockTauriApi {
   api: TauriApi;
   pickFolderResolves: (path: string | null) => void;
-  emitPhotoFound: (photo: PhotoInfo) => void;
-  emitScanComplete: () => void;
-  emitMetadataReady: (relativePath: string, dateTaken: string | null, cameraModel: string | null) => void;
-  emitThumbnailReady: (relativePath: string, thumbnail: string) => void;
+  emitPhotoFound: (photo: PhotoInfo, scanId?: number) => void;
+  emitScanComplete: (scanId?: number) => void;
+  emitMetadataReady: (relativePath: string, dateTaken: string | null, cameraModel: string | null, scanId?: number) => void;
+  emitThumbnailReady: (relativePath: string, thumbnail: string, scanId?: number) => void;
   emitScanError: (message: string) => void;
   lastPrioritizedPaths: string[];
   lastWindowTitle: string | null;
+  /** The scan_id returned by the most recent start_scan call. */
+  currentScanId: number;
 }
 
 export function createMockTauriApi(): MockTauriApi {
@@ -28,25 +30,33 @@ export function createMockTauriApi(): MockTauriApi {
   const mock: MockTauriApi = {
     api: null as unknown as TauriApi,
     pickFolderResolves: (path) => { nextFolder = path; },
-    emitPhotoFound: (photo) =>
-      emit("photo_found", { photo } satisfies PhotoFoundPayload),
-    emitScanComplete: () =>
-      emit("scan_complete", {}),
-    emitMetadataReady: (relative_path, date_taken, camera_model) =>
-      emit("metadata_ready", { relative_path, date_taken, camera_model } satisfies MetadataReadyPayload),
-    emitThumbnailReady: (relative_path, thumbnail) =>
-      emit("thumbnail_ready", { relative_path, thumbnail } satisfies ThumbnailReadyPayload),
+    emitPhotoFound: (photo, scanId) =>
+      emit("photo_found", { scan_id: scanId ?? mock.currentScanId, photo } satisfies PhotoFoundPayload),
+    emitScanComplete: (scanId) =>
+      emit("scan_complete", { scan_id: scanId ?? mock.currentScanId }),
+    emitMetadataReady: (relative_path, date_taken, camera_model, scanId) =>
+      emit("metadata_ready", { scan_id: scanId ?? mock.currentScanId, relative_path, date_taken, camera_model } satisfies MetadataReadyPayload),
+    emitThumbnailReady: (relative_path, thumbnail, scanId) =>
+      emit("thumbnail_ready", { scan_id: scanId ?? mock.currentScanId, relative_path, thumbnail } satisfies ThumbnailReadyPayload),
     emitScanError: (message) =>
       emit("scan_error", { message } satisfies ScanErrorPayload),
     lastPrioritizedPaths: [],
     lastWindowTitle: null,
+    currentScanId: 1,
   };
 
   const api: TauriApi = {
     invoke: async (cmd, args) => {
       if (cmd === "pick_folder") return nextFolder;
-      if (cmd === "start_scan") return;
-      if (cmd === "prioritize_thumbnails") {
+      if (cmd === "start_scan") {
+        // Increment scan ID and return it, matching the Rust backend behaviour.
+        mock.currentScanId += 1;
+        return mock.currentScanId;
+      }
+      if (cmd === "stop_scan") {
+        return;
+      }
+      if (cmd === "prioritize_queues") {
         mock.lastPrioritizedPaths = (args?.visiblePaths as string[]) ?? [];
         return;
       }

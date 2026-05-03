@@ -2,26 +2,40 @@ mod scanner;
 mod thumbnail_queue;
 
 use serde::Serialize;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager, State};
 use thumbnail_queue::ThumbnailQueue;
 
 // ── Shared state ──────────────────────────────────────────────────────────────
 
-struct ScanState(Mutex<bool>);
-struct ActiveQueue(Arc<Mutex<Option<Arc<ThumbnailQueue>>>>);
+struct ScanState {
+    running:   Mutex<bool>,
+    cancelled: Mutex<Option<Arc<AtomicBool>>>,
+}
+
+/// Holds both the thumbnail and EXIF queues so both can be prioritised.
+struct ActiveQueues {
+    thumbnails: Arc<Mutex<Option<Arc<ThumbnailQueue>>>>,
+    metadata:   Arc<Mutex<Option<Arc<ThumbnailQueue>>>>,
+}
+/// Monotonically increasing scan ID — incremented each time start_scan is called.
+struct ScanCounter(Mutex<u64>);
 
 // ── Event payloads ────────────────────────────────────────────────────────────
 
 /// Emitted once per file as the directory walk finds it.
 #[derive(Clone, Serialize)]
 struct PhotoFoundPayload {
+    scan_id: u64,
     photo: scanner::PhotoInfo,
 }
 
 /// Emitted when the directory walk is complete (no payload needed).
 #[derive(Clone, Serialize)]
-struct ScanCompletePayload {}
+struct ScanCompletePayload {
+    scan_id: u64,
+}
 
 #[derive(Clone, Serialize)]
 struct ScanErrorPayload {
@@ -31,6 +45,7 @@ struct ScanErrorPayload {
 /// Emitted per file when EXIF metadata has been read.
 #[derive(Clone, Serialize)]
 struct MetadataReadyPayload {
+    scan_id: u64,
     relative_path: String,
     date_taken: Option<String>,
     camera_model: Option<String>,
@@ -38,6 +53,7 @@ struct MetadataReadyPayload {
 
 #[derive(Clone, Serialize)]
 struct ThumbnailReadyPayload {
+    scan_id: u64,
     relative_path: String,
     thumbnail: String,
 }
@@ -68,26 +84,49 @@ async fn pick_folder(app: AppHandle) -> Option<String> {
 ///
 ///  Phase 3 — thumbnail generation (thread pool, starts alongside phase 1):
 ///    Generates thumbnails and emits `thumbnail_ready`.
-///    Supports priority reordering via `prioritize_thumbnails`.
+///    Supports priority reordering via `prioritize_queues`.
 #[tauri::command]
-async fn start_scan(
+fn start_scan(
     folder_path: String,
     app: AppHandle,
     scan_state: State<'_, ScanState>,
-    active_queue: State<'_, ActiveQueue>,
-) -> Result<(), String> {
+    active_queues: State<'_, ActiveQueues>,
+    scan_counter: State<'_, ScanCounter>,
+) -> Result<u64, String> {
     {
-        let mut running = scan_state.0.lock().unwrap();
+        let mut running = scan_state.running.lock().unwrap();
+        let mut attempts = 0;
+        while *running && attempts < 20 {
+            drop(running);
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            running = scan_state.running.lock().unwrap();
+            attempts += 1;
+        }
         if *running {
-            return Err("A scan is already in progress".into());
+            return Err("A scan is already in progress and could not be stopped".into());
         }
         *running = true;
     }
 
-    *active_queue.0.lock().unwrap() = None;
+    let scan_id = {
+        let mut counter = scan_counter.0.lock().unwrap();
+        *counter += 1;
+        *counter
+    };
 
-    let active_queue_arc = active_queue.0.clone();
-    let app_clone = app.clone();
+    let cancellation_flag = Arc::new(AtomicBool::new(false));
+    *scan_state.cancelled.lock().unwrap() = Some(cancellation_flag.clone());
+
+    // Reset queues for the new scan.
+    {
+        *active_queues.thumbnails.lock().unwrap() = None;
+        *active_queues.metadata.lock().unwrap() = None;
+    }
+
+    let thumbnails_arc = active_queues.thumbnails.clone();
+    let metadata_arc   = active_queues.metadata.clone();
+    let app_clone      = app.clone();
+    let cancel_clone   = cancellation_flag.clone();
 
     std::thread::spawn(move || {
         let root = std::path::PathBuf::from(&folder_path);
@@ -114,8 +153,11 @@ async fn start_scan(
         let thumb_queue = Arc::new(ThumbnailQueue::new(vec![]));
         let exif_queue  = Arc::new(ThumbnailQueue::new(vec![]));
 
-        // Install the thumbnail queue so prioritize_thumbnails can reach it.
-        *active_queue_arc.lock().unwrap() = Some(thumb_queue.clone());
+        // Install the queues so prioritize_queues can reach them.
+        {
+            *thumbnails_arc.lock().unwrap() = Some(thumb_queue.clone());
+            *metadata_arc.lock().unwrap() = Some(exif_queue.clone());
+        }
 
         let root_arc = Arc::new(root.clone());
 
@@ -124,11 +166,14 @@ async fn start_scan(
             let queue = exif_queue.clone();
             let app   = app_clone.clone();
             let root  = root_arc.clone();
+            let cancelled = cancel_clone.clone();
             std::thread::spawn(move || {
                 while let Some(rel_path) = queue.pop() {
+                    if cancelled.load(Ordering::Relaxed) { break; }
                     let abs = root.join(rel_path.replace('/', std::path::MAIN_SEPARATOR_STR));
                     let info = scanner::read_exif(&rel_path, &abs);
                     let _ = app.emit("metadata_ready", MetadataReadyPayload {
+                        scan_id,
                         relative_path: info.relative_path,
                         date_taken:    info.date_taken,
                         camera_model:  info.camera_model,
@@ -142,11 +187,14 @@ async fn start_scan(
             let queue = thumb_queue.clone();
             let app   = app_clone.clone();
             let root  = root_arc.clone();
+            let cancelled = cancel_clone.clone();
             std::thread::spawn(move || {
                 while let Some(rel_path) = queue.pop() {
+                    if cancelled.load(Ordering::Relaxed) { break; }
                     let abs = root.join(rel_path.replace('/', std::path::MAIN_SEPARATOR_STR));
                     if let Some(thumbnail) = scanner::thumbnail_for(&abs) {
                         let _ = app.emit("thumbnail_ready", ThumbnailReadyPayload {
+                            scan_id,
                             relative_path: rel_path,
                             thumbnail,
                         });
@@ -157,14 +205,13 @@ async fn start_scan(
 
         // ── Phase 1: streaming directory walk ─────────────────────────────
         let app_walk = app_clone.clone();
-        scanner::scan_folder(&root, |photo| {
-            // Feed queues before emitting so workers can start immediately.
+        scanner::scan_folder(&root, cancel_clone, |photo| {
             exif_queue.push(photo.relative_path.clone());
             thumb_queue.push(photo.relative_path.clone());
-            let _ = app_walk.emit("photo_found", PhotoFoundPayload { photo });
+            let _ = app_walk.emit("photo_found", PhotoFoundPayload { scan_id, photo });
         });
 
-        let _ = app_clone.emit("scan_complete", ScanCompletePayload {});
+        let _ = app_clone.emit("scan_complete", ScanCompletePayload { scan_id });
 
         // Signal workers that no more items are coming.
         exif_queue.finish();
@@ -174,26 +221,50 @@ async fn start_scan(
         for h in exif_handles  { let _ = h.join(); }
         for h in thumb_handles { let _ = h.join(); }
 
-        *active_queue_arc.lock().unwrap() = None;
+        // Clear queues after they're finished.
+        {
+            *thumbnails_arc.lock().unwrap() = None;
+            *metadata_arc.lock().unwrap() = None;
+        }
         clear_running(&app_clone);
     });
 
+    Ok(scan_id)
+}
+
+#[tauri::command]
+fn stop_scan(
+    scan_state: State<'_, ScanState>,
+    active_queues: State<'_, ActiveQueues>,
+) -> Result<(), String> {
+    if let Some(flag) = scan_state.cancelled.lock().unwrap().as_ref() {
+        flag.store(true, Ordering::Relaxed);
+    }
+    if let Some(q) = active_queues.thumbnails.lock().unwrap().as_ref() {
+        q.abort();
+    }
+    if let Some(q) = active_queues.metadata.lock().unwrap().as_ref() {
+        q.abort();
+    }
     Ok(())
 }
 
 #[tauri::command]
-async fn prioritize_thumbnails(
+fn prioritize_queues(
     visible_paths: Vec<String>,
-    active_queue: State<'_, ActiveQueue>,
+    active_queues: State<'_, ActiveQueues>,
 ) -> Result<(), String> {
-    if let Some(queue) = active_queue.0.lock().unwrap().as_ref() {
+    if let Some(queue) = active_queues.thumbnails.lock().unwrap().as_ref() {
+        queue.prioritize(&visible_paths);
+    }
+    if let Some(queue) = active_queues.metadata.lock().unwrap().as_ref() {
         queue.prioritize(&visible_paths);
     }
     Ok(())
 }
 
 #[tauri::command]
-async fn set_window_title(title: String, app: AppHandle) -> Result<(), String> {
+fn set_window_title(title: String, app: AppHandle) -> Result<(), String> {
     app.get_webview_window("main")
         .ok_or_else(|| "main window not found".to_string())?
         .set_title(&title)
@@ -201,7 +272,7 @@ async fn set_window_title(title: String, app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn load_image(path: String) -> Result<String, String> {
+fn load_image(path: String) -> Result<String, String> {
     let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
     use base64::Engine as _;
     let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
@@ -222,7 +293,8 @@ async fn load_image(path: String) -> Result<String, String> {
 
 fn clear_running(app: &AppHandle) {
     if let Some(state) = app.try_state::<ScanState>() {
-        *state.0.lock().unwrap() = false;
+        *state.running.lock().unwrap() = false;
+        *state.cancelled.lock().unwrap() = None;
     }
 }
 
@@ -233,12 +305,20 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .manage(ScanState(Mutex::new(false)))
-        .manage(ActiveQueue(Arc::new(Mutex::new(None))))
+        .manage(ScanState {
+            running:   Mutex::new(false),
+            cancelled: Mutex::new(None),
+        })
+        .manage(ActiveQueues {
+            thumbnails: Arc::new(Mutex::new(None)),
+            metadata:   Arc::new(Mutex::new(None)),
+        })
+        .manage(ScanCounter(Mutex::new(0)))
         .invoke_handler(tauri::generate_handler![
             pick_folder,
             start_scan,
-            prioritize_thumbnails,
+            stop_scan,
+            prioritize_queues,
             set_window_title,
             load_image
         ])
