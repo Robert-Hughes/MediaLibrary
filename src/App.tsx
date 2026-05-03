@@ -55,6 +55,9 @@ export default function App() {
             photos={state.photos}
             thumbnails={state.thumbnails}
             imageMetadata={state.imageMetadata}
+            selectedIndex={state.selectedIndex}
+            onSelect={actions.selectPhoto}
+            onShowInExplorer={actions.showInExplorer}
             onVisibilityChange={actions.prioritizeQueues}
             onPhotoOpen={actions.openGallery}
           />

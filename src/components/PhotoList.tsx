@@ -1,12 +1,17 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { useSyncExternalStore } from "react";
 import { ThumbnailStore, ImageMetadataStore } from "../types";
 import type { PhotoInfo } from "../types";
 import { Spinner } from "./Spinner";
+import { ContextMenu } from "./ContextMenu";
+
 interface Props {
   photos: PhotoInfo[];
   thumbnails: ThumbnailStore;
   imageMetadata: ImageMetadataStore;
+  selectedIndex: number | null;
+  onSelect: (index: number | null) => void;
+  onShowInExplorer: (index: number) => void;
   onVisibilityChange: (visiblePaths: string[]) => void;
   onPhotoOpen: (index: number) => void;
 }
@@ -18,11 +23,13 @@ function formatDate(ts: number | null): string {
   });
 }
 
-export function PhotoList({ photos, thumbnails, imageMetadata, onVisibilityChange, onPhotoOpen }: Props) {
+export function PhotoList({ photos, thumbnails, imageMetadata, selectedIndex, onSelect, onShowInExplorer, onVisibilityChange, onPhotoOpen }: Props) {
   const listRef = useRef<HTMLDivElement>(null);
   const visibleRef = useRef<Set<string>>(new Set());
   const onVisibilityChangeRef = useRef(onVisibilityChange);
   onVisibilityChangeRef.current = onVisibilityChange;
+
+  const [contextMenu, setContextMenu] = useState<{ x: number, y: number, index: number } | null>(null);
 
   useEffect(() => {
     if (!listRef.current) return;
@@ -75,6 +82,21 @@ export function PhotoList({ photos, thumbnails, imageMetadata, onVisibilityChang
     return () => observer.disconnect();
   }, [photos]); // We still need to re-scan for new rows when photos change
 
+  useEffect(() => {
+    if (selectedIndex !== null && listRef.current) {
+      const selectedEl = listRef.current.querySelector(`[data-index="${selectedIndex}"]`);
+      if (selectedEl && selectedEl.scrollIntoView) {
+        selectedEl.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      }
+    }
+  }, [selectedIndex]);
+
+  const handleContextMenu = useCallback((e: React.MouseEvent, index: number) => {
+    e.preventDefault();
+    onSelect(index);
+    setContextMenu({ x: e.clientX, y: e.clientY, index });
+  }, [onSelect]);
+
   if (photos.length === 0) {
     return (
       <div className="photo-list-empty" data-testid="photo-list-empty">
@@ -84,7 +106,7 @@ export function PhotoList({ photos, thumbnails, imageMetadata, onVisibilityChang
   }
 
   return (
-    <div className="photo-table-wrapper" ref={listRef}>
+    <div className="photo-table-wrapper" ref={listRef} onClick={() => setContextMenu(null)}>
       <table className="photo-table" data-testid="photo-list" role="grid">
         <thead>
           <tr>
@@ -106,13 +128,28 @@ export function PhotoList({ photos, thumbnails, imageMetadata, onVisibilityChang
               key={photo.relative_path}
               photo={photo}
               index={i}
+              selected={selectedIndex === i}
               thumbnails={thumbnails}
               imageMetadata={imageMetadata}
+              onClick={() => onSelect(i)}
               onDoubleClick={() => onPhotoOpen(i)}
+              onContextMenu={(e) => handleContextMenu(e, i)}
             />
           ))}
         </tbody>
       </table>
+
+      {contextMenu && (
+        <ContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          options={[
+            { label: "View", onClick: () => onPhotoOpen(contextMenu.index) },
+            { label: "Show in File Explorer", onClick: () => onShowInExplorer(contextMenu.index) },
+          ]}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
     </div>
   );
 }
@@ -120,12 +157,15 @@ export function PhotoList({ photos, thumbnails, imageMetadata, onVisibilityChang
 interface RowProps {
   photo: PhotoInfo;
   index: number;
+  selected: boolean;
   thumbnails: ThumbnailStore;
   imageMetadata: ImageMetadataStore;
+  onClick: () => void;
   onDoubleClick: () => void;
+  onContextMenu: (e: React.MouseEvent) => void;
 }
 
-function PhotoRow({ photo, index, thumbnails, imageMetadata, onDoubleClick }: RowProps) {
+function PhotoRow({ photo, index, selected, thumbnails, imageMetadata, onClick, onDoubleClick, onContextMenu }: RowProps) {
   const thumbnail = useSyncExternalStore(
     (cb) => thumbnails.subscribe(photo.relative_path, cb),
     thumbnails.getSnapshot(photo.relative_path),
@@ -146,10 +186,13 @@ function PhotoRow({ photo, index, thumbnails, imageMetadata, onDoubleClick }: Ro
 
   return (
     <tr
-      className={`photo-row ${index % 2 === 0 ? "photo-row--even" : "photo-row--odd"}`}
+      className={`photo-row ${index % 2 === 0 ? "photo-row--even" : "photo-row--odd"} ${selected ? "photo-row--selected" : ""}`}
       data-testid="photo-row"
       data-path={photo.relative_path}
+      data-index={index}
+      onClick={onClick}
       onDoubleClick={onDoubleClick}
+      onContextMenu={onContextMenu}
       style={{ cursor: "pointer" }}
     >
       <td className="col-thumb" aria-hidden="true">
