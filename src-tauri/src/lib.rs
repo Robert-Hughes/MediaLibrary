@@ -264,6 +264,37 @@ fn prioritize_queues(
 }
 
 #[tauri::command]
+fn show_in_explorer(path: String) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .arg("/select,")
+            .arg(path)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg("-R")
+            .arg(path)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    {
+        // Fallback for Linux: just open the parent directory
+        if let Some(parent) = std::path::Path::new(&path).parent() {
+             std::process::Command::new("xdg-open")
+                .arg(parent)
+                .spawn()
+                .map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
 fn set_window_title(title: String, app: AppHandle) -> Result<(), String> {
     app.get_webview_window("main")
         .ok_or_else(|| "main window not found".to_string())?
@@ -319,6 +350,7 @@ pub fn run() {
             start_scan,
             stop_scan,
             prioritize_queues,
+            show_in_explorer,
             set_window_title,
             load_image
         ])
