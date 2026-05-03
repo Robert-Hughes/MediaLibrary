@@ -7,9 +7,11 @@ interface Props {
   thumbnails: ThumbnailStore;
   /** Called when the set of visible photo paths changes. */
   onVisibilityChange: (visiblePaths: string[]) => void;
+  /** Called when a photo row is double-clicked. */
+  onPhotoOpen: (index: number) => void;
 }
 
-export function PhotoList({ photos, thumbnails, onVisibilityChange }: Props) {
+export function PhotoList({ photos, thumbnails, onVisibilityChange, onPhotoOpen }: Props) {
   const listRef = useRef<HTMLDivElement>(null);
   const visibleRef = useRef<Map<string, boolean>>(new Map());
   const onVisibilityChangeRef = useRef(onVisibilityChange);
@@ -58,6 +60,7 @@ export function PhotoList({ photos, thumbnails, onVisibilityChange }: Props) {
           photo={photo}
           index={i}
           thumbnails={thumbnails}
+          onDoubleClick={() => onPhotoOpen(i)}
         />
       ))}
     </div>
@@ -68,9 +71,10 @@ interface RowProps {
   photo: PhotoInfo;
   index: number;
   thumbnails: ThumbnailStore;
+  onDoubleClick: () => void;
 }
 
-function PhotoRow({ photo, index, thumbnails }: RowProps) {
+function PhotoRow({ photo, index, thumbnails, onDoubleClick }: RowProps) {
   // useSyncExternalStore subscribes this row to its own path only.
   // When thumbnail_ready fires for a different path, this row does not re-render.
   const thumbnail = useSyncExternalStore(
@@ -88,6 +92,8 @@ function PhotoRow({ photo, index, thumbnails }: RowProps) {
       data-testid="photo-row"
       data-path={photo.relative_path}
       role="listitem"
+      onDoubleClick={onDoubleClick}
+      style={{ cursor: "pointer" }}
     >
       <div className="photo-thumb" aria-hidden="true">
         {src ? (

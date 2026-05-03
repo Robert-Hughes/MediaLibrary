@@ -35,6 +35,9 @@ export interface MediaLibraryActions {
   openFolder: () => Promise<void>;
   closeFolder: () => void;
   prioritizeThumbnails: (visiblePaths: string[]) => void;
+  openGallery: (index: number) => void;
+  closeGallery: () => void;
+  navigateGallery: (delta: -1 | 1) => void;
 }
 
 export function useMediaLibrary(api: TauriApi): [AppState, MediaLibraryActions] {
@@ -74,7 +77,7 @@ export function useMediaLibrary(api: TauriApi): [AppState, MediaLibraryActions] 
           store.reset(photos.map((p) => p.relative_path));
           thumbnailStoreRef.current = store;
 
-          setAppState({ kind: "loaded", folder, photos, thumbnails: store });
+          setAppState({ kind: "loaded", folder, photos, thumbnails: store, galleryIndex: null });
         }
       );
 
@@ -137,5 +140,26 @@ export function useMediaLibrary(api: TauriApi): [AppState, MediaLibraryActions] 
     }, 100);
   }, [api]);
 
-  return [appState, { openFolder, closeFolder, prioritizeThumbnails }];
+  const openGallery = useCallback((index: number) => {
+    setAppState((prev) =>
+      prev.kind === "loaded" ? { ...prev, galleryIndex: index } : prev
+    );
+  }, []);
+
+  const closeGallery = useCallback(() => {
+    setAppState((prev) =>
+      prev.kind === "loaded" ? { ...prev, galleryIndex: null } : prev
+    );
+  }, []);
+
+  const navigateGallery = useCallback((delta: -1 | 1) => {
+    setAppState((prev) => {
+      if (prev.kind !== "loaded" || prev.galleryIndex === null) return prev;
+      const next = prev.galleryIndex + delta;
+      if (next < 0 || next >= prev.photos.length) return prev;
+      return { ...prev, galleryIndex: next };
+    });
+  }, []);
+
+  return [appState, { openFolder, closeFolder, prioritizeThumbnails, openGallery, closeGallery, navigateGallery }];
 }

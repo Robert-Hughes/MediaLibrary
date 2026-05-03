@@ -104,7 +104,7 @@ describe("PhotoList", () => {
 
   it("shows empty message when there are no photos", () => {
     const store = new ThumbnailStore();
-    render(<PhotoList photos={[]} thumbnails={store} onVisibilityChange={noop} />);
+    render(<PhotoList photos={[]} thumbnails={store} onVisibilityChange={noop} onPhotoOpen={noop} />);
     expect(screen.getByTestId("photo-list-empty")).toBeInTheDocument();
   });
 
@@ -114,20 +114,19 @@ describe("PhotoList", () => {
       { relative_path: "b/c.png" },
       { relative_path: "d.gif" },
     ];
-    render(<PhotoList photos={photos} thumbnails={makeStore(photos)} onVisibilityChange={noop} />);
+    render(<PhotoList photos={photos} thumbnails={makeStore(photos)} onVisibilityChange={noop} onPhotoOpen={noop} />);
     expect(screen.getAllByTestId("photo-row")).toHaveLength(3);
   });
 
   it("displays the relative path for each photo", () => {
     const photos: PhotoInfo[] = [{ relative_path: "vacation/beach.jpg" }];
-    render(<PhotoList photos={photos} thumbnails={makeStore(photos)} onVisibilityChange={noop} />);
+    render(<PhotoList photos={photos} thumbnails={makeStore(photos)} onVisibilityChange={noop} onPhotoOpen={noop} />);
     expect(screen.getByTestId("photo-path")).toHaveTextContent("vacation/beach.jpg");
   });
 
   it("renders a spinner when thumbnail is loading", () => {
     const photos: PhotoInfo[] = [{ relative_path: "a.jpg" }];
-    // Default store state is "loading".
-    render(<PhotoList photos={photos} thumbnails={makeStore(photos)} onVisibilityChange={noop} />);
+    render(<PhotoList photos={photos} thumbnails={makeStore(photos)} onVisibilityChange={noop} onPhotoOpen={noop} />);
     expect(document.querySelector(".photo-thumb-spinner")).toBeInTheDocument();
     expect(document.querySelector(".photo-thumb-placeholder")).not.toBeInTheDocument();
   });
@@ -135,7 +134,7 @@ describe("PhotoList", () => {
   it("renders a thumbnail img when thumbnail data is present", () => {
     const photos: PhotoInfo[] = [{ relative_path: "a.jpg" }];
     const store = makeStore(photos, { "a.jpg": "abc123" });
-    render(<PhotoList photos={photos} thumbnails={store} onVisibilityChange={noop} />);
+    render(<PhotoList photos={photos} thumbnails={store} onVisibilityChange={noop} onPhotoOpen={noop} />);
     const img = document.querySelector(".photo-thumb-img") as HTMLImageElement;
     expect(img).toBeInTheDocument();
     expect(img).toHaveAttribute("src", "data:image/jpeg;base64,abc123");
@@ -144,7 +143,7 @@ describe("PhotoList", () => {
   it("renders a placeholder when thumbnail has failed", () => {
     const photos: PhotoInfo[] = [{ relative_path: "a.jpg" }];
     const store = makeStore(photos, { "a.jpg": "failed" });
-    render(<PhotoList photos={photos} thumbnails={store} onVisibilityChange={noop} />);
+    render(<PhotoList photos={photos} thumbnails={store} onVisibilityChange={noop} onPhotoOpen={noop} />);
     expect(document.querySelector(".photo-thumb-placeholder")).toBeInTheDocument();
     expect(document.querySelector(".photo-thumb-spinner")).not.toBeInTheDocument();
   });
@@ -154,7 +153,7 @@ describe("PhotoList", () => {
       { relative_path: "vacation/beach.jpg" },
       { relative_path: "portrait.png" },
     ];
-    render(<PhotoList photos={photos} thumbnails={makeStore(photos)} onVisibilityChange={noop} />);
+    render(<PhotoList photos={photos} thumbnails={makeStore(photos)} onVisibilityChange={noop} onPhotoOpen={noop} />);
     const rows = screen.getAllByTestId("photo-row");
     expect(rows[0]).toHaveAttribute("data-path", "vacation/beach.jpg");
     expect(rows[1]).toHaveAttribute("data-path", "portrait.png");
@@ -175,7 +174,7 @@ describe("PhotoList", () => {
       { relative_path: "a.jpg" },
       { relative_path: "b.jpg" },
     ];
-    render(<PhotoList photos={photos} thumbnails={makeStore(photos)} onVisibilityChange={handler} />);
+    render(<PhotoList photos={photos} thumbnails={makeStore(photos)} onVisibilityChange={handler} onPhotoOpen={noop} />);
 
     const entries = observed.map((el) => ({
       target: el,
@@ -194,7 +193,7 @@ describe("PhotoList", () => {
     const store = makeStore(photos);
 
     const { rerender } = render(
-      <PhotoList photos={photos} thumbnails={store} onVisibilityChange={noop} />
+      <PhotoList photos={photos} thumbnails={store} onVisibilityChange={noop} onPhotoOpen={noop} />
     );
 
     expect(document.querySelector(".photo-thumb-spinner")).toBeInTheDocument();
@@ -202,7 +201,7 @@ describe("PhotoList", () => {
     // Simulate a thumbnail_ready event updating the store.
     act(() => { store.set("a.jpg", "newthumbdata"); });
 
-    rerender(<PhotoList photos={photos} thumbnails={store} onVisibilityChange={noop} />);
+    rerender(<PhotoList photos={photos} thumbnails={store} onVisibilityChange={noop} onPhotoOpen={noop} />);
 
     const img = document.querySelector(".photo-thumb-img") as HTMLImageElement;
     expect(img).toBeInTheDocument();

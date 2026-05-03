@@ -60,7 +60,7 @@ export class ThumbnailStore {
 export type AppState =
   | { kind: "idle" }
   | { kind: "loading"; folder: string; foundSoFar: number }
-  | { kind: "loaded"; folder: string; photos: PhotoInfo[]; thumbnails: ThumbnailStore };
+  | { kind: "loaded"; folder: string; photos: PhotoInfo[]; thumbnails: ThumbnailStore; galleryIndex: number | null };
 
 // ── Event payloads from Rust ──────────────────────────────────────────────────
 

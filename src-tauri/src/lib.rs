@@ -185,6 +185,31 @@ async fn set_window_title(title: String, app: AppHandle) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+/// Read an image file and return it as a base64-encoded data URI.
+/// Used by the gallery view to display full-resolution images.
+#[tauri::command]
+async fn load_image(path: String) -> Result<String, String> {
+    let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+    use base64::Engine as _;
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    // Detect MIME type from extension for the data URI.
+    let ext = std::path::Path::new(&path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .unwrap_or_default();
+    let mime = match ext.as_str() {
+        "jpg" | "jpeg" => "image/jpeg",
+        "png"          => "image/png",
+        "gif"          => "image/gif",
+        "bmp"          => "image/bmp",
+        "webp"         => "image/webp",
+        "tiff" | "tif" => "image/tiff",
+        _              => "image/jpeg",
+    };
+    Ok(format!("data:{mime};base64,{b64}"))
+}
+
 fn clear_running(app: &AppHandle) {
     if let Some(state) = app.try_state::<ScanState>() {
         *state.0.lock().unwrap() = false;
@@ -204,7 +229,8 @@ pub fn run() {
             pick_folder,
             start_scan,
             prioritize_thumbnails,
-            set_window_title
+            set_window_title,
+            load_image
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
