@@ -6,30 +6,34 @@ use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager, State};
 use thumbnail_queue::ThumbnailQueue;
 
-// ── Shared state ─────────────────────────────────────────────────────────────
+// ── Shared state ──────────────────────────────────────────────────────────────
 
-/// Tracks whether a scan is currently running so we can reject concurrent requests.
 struct ScanState(Mutex<bool>);
-
-/// The active thumbnail queue, shared between the worker threads and the
-/// `prioritize_thumbnails` command. Replaced each time a new scan starts.
 struct ActiveQueue(Arc<Mutex<Option<Arc<ThumbnailQueue>>>>);
 
 // ── Event payloads ────────────────────────────────────────────────────────────
 
+/// Emitted once per file as the directory walk finds it.
 #[derive(Clone, Serialize)]
-struct ScanProgressPayload {
-    found_so_far: usize,
+struct PhotoFoundPayload {
+    photo: scanner::PhotoInfo,
 }
 
+/// Emitted when the directory walk is complete (no payload needed).
 #[derive(Clone, Serialize)]
-struct ScanCompletePayload {
-    photos: Vec<scanner::PhotoInfo>,
-}
+struct ScanCompletePayload {}
 
 #[derive(Clone, Serialize)]
 struct ScanErrorPayload {
     message: String,
+}
+
+/// Emitted per file when EXIF metadata has been read.
+#[derive(Clone, Serialize)]
+struct MetadataReadyPayload {
+    relative_path: String,
+    date_taken: Option<String>,
+    camera_model: Option<String>,
 }
 
 #[derive(Clone, Serialize)]
@@ -51,15 +55,20 @@ async fn pick_folder(app: AppHandle) -> Option<String> {
 
 /// Start a background scan of `folder_path`.
 ///
-/// Phase 1 — fast file discovery:
-///   Emits `scan_progress` as files are found, then `scan_complete` with the
-///   full list (no thumbnails).
+/// Three concurrent phases, all starting as soon as files are discovered:
 ///
-/// Phase 2 — priority-queue thumbnail generation:
-///   Builds a `ThumbnailQueue` from the photo list and stores it in
-///   `ActiveQueue` so `prioritize_thumbnails` can reorder it at any time.
-///   A fixed-size thread pool drains the queue, emitting `thumbnail_ready`
-///   per photo.
+///  Phase 1 — streaming file discovery (single thread):
+///    Walks the directory tree. For each image file found, emits `photo_found`
+///    immediately so the frontend can add it to the list. Also feeds the file
+///    into the EXIF queue and thumbnail queue right away.
+///    Emits `scan_complete` (no payload) when the walk finishes.
+///
+///  Phase 2 — EXIF metadata (thread pool, starts alongside phase 1):
+///    Reads EXIF data per file and emits `metadata_ready`.
+///
+///  Phase 3 — thumbnail generation (thread pool, starts alongside phase 1):
+///    Generates thumbnails and emits `thumbnail_ready`.
+///    Supports priority reordering via `prioritize_thumbnails`.
 #[tauri::command]
 async fn start_scan(
     folder_path: String,
@@ -75,88 +84,89 @@ async fn start_scan(
         *running = true;
     }
 
-    // Clear any queue left over from a previous scan.
     *active_queue.0.lock().unwrap() = None;
 
-    let app_clone = app.clone();
-    // Clone the Arc so the thread can install the new queue.
     let active_queue_arc = active_queue.0.clone();
+    let app_clone = app.clone();
 
     std::thread::spawn(move || {
         let root = std::path::PathBuf::from(&folder_path);
 
         if !root.is_dir() {
-            let _ = app_clone.emit(
-                "scan_error",
-                ScanErrorPayload {
-                    message: format!("{} is not a directory", folder_path),
-                },
-            );
+            let _ = app_clone.emit("scan_error", ScanErrorPayload {
+                message: format!("{} is not a directory", folder_path),
+            });
             clear_running(&app_clone);
             return;
         }
 
-        // ── Phase 1: fast file discovery ──────────────────────────────────
+        let num_workers = std::thread::available_parallelism()
+            .map(|n| n.get()).unwrap_or(4).min(8);
 
-        let app_progress = app_clone.clone();
-        let photos = scanner::scan_folder(&root, move |found_so_far| {
-            let _ = app_progress.emit("scan_progress", ScanProgressPayload { found_so_far });
+        // Shared queues fed by the walk, drained by worker pools.
+        let thumb_queue = Arc::new(ThumbnailQueue::new(vec![]));
+        let exif_queue  = Arc::new(ThumbnailQueue::new(vec![]));
+
+        // Install the thumbnail queue so prioritize_thumbnails can reach it.
+        *active_queue_arc.lock().unwrap() = Some(thumb_queue.clone());
+
+        let root_arc = Arc::new(root.clone());
+
+        // ── Phase 2: EXIF workers ─────────────────────────────────────────
+        let exif_handles: Vec<_> = (0..num_workers).map(|_| {
+            let queue = exif_queue.clone();
+            let app   = app_clone.clone();
+            let root  = root_arc.clone();
+            std::thread::spawn(move || {
+                while let Some(rel_path) = queue.pop() {
+                    let abs = root.join(rel_path.replace('/', std::path::MAIN_SEPARATOR_STR));
+                    let info = scanner::read_exif(&rel_path, &abs);
+                    let _ = app.emit("metadata_ready", MetadataReadyPayload {
+                        relative_path: info.relative_path,
+                        date_taken:    info.date_taken,
+                        camera_model:  info.camera_model,
+                    });
+                }
+            })
+        }).collect();
+
+        // ── Phase 3: thumbnail workers ────────────────────────────────────
+        let thumb_handles: Vec<_> = (0..num_workers).map(|_| {
+            let queue = thumb_queue.clone();
+            let app   = app_clone.clone();
+            let root  = root_arc.clone();
+            std::thread::spawn(move || {
+                while let Some(rel_path) = queue.pop() {
+                    let abs = root.join(rel_path.replace('/', std::path::MAIN_SEPARATOR_STR));
+                    if let Some(thumbnail) = scanner::thumbnail_for(&abs) {
+                        let _ = app.emit("thumbnail_ready", ThumbnailReadyPayload {
+                            relative_path: rel_path,
+                            thumbnail,
+                        });
+                    }
+                }
+            })
+        }).collect();
+
+        // ── Phase 1: streaming directory walk ─────────────────────────────
+        let app_walk = app_clone.clone();
+        scanner::scan_folder(&root, |photo| {
+            // Feed queues before emitting so workers can start immediately.
+            exif_queue.push(photo.relative_path.clone());
+            thumb_queue.push(photo.relative_path.clone());
+            let _ = app_walk.emit("photo_found", PhotoFoundPayload { photo });
         });
 
-        let _ = app_clone.emit("scan_complete", ScanCompletePayload { photos: photos.clone() });
+        let _ = app_clone.emit("scan_complete", ScanCompletePayload {});
 
-        // ── Phase 2: priority-queue thumbnail generation ──────────────────
+        // Signal workers that no more items are coming.
+        exif_queue.finish();
+        thumb_queue.finish();
 
-        let paths: Vec<String> = photos
-            .iter()
-            .map(|p| p.relative_path.clone())
-            .collect();
+        // Wait for all workers to finish.
+        for h in exif_handles  { let _ = h.join(); }
+        for h in thumb_handles { let _ = h.join(); }
 
-        let queue = Arc::new(ThumbnailQueue::new(paths));
-
-        // Install the queue so prioritize_thumbnails can reach it.
-        *active_queue_arc.lock().unwrap() = Some(queue.clone());
-
-        // Spawn one worker thread per logical CPU, capped at 8 to avoid
-        // thrashing on I/O-bound thumbnail work.
-        let num_workers = std::thread::available_parallelism()
-            .map(|n| n.get())
-            .unwrap_or(4)
-            .min(8);
-
-        let app_thumbs = app_clone.clone();
-        let root_arc = Arc::new(root);
-
-        let handles: Vec<_> = (0..num_workers)
-            .map(|_| {
-                let queue = queue.clone();
-                let app = app_thumbs.clone();
-                let root = root_arc.clone();
-
-                std::thread::spawn(move || {
-                    while let Some(rel_path) = queue.pop() {
-                        let abs_path = root.join(
-                            rel_path.replace('/', std::path::MAIN_SEPARATOR_STR),
-                        );
-                        if let Some(thumbnail) = scanner::thumbnail_for(&abs_path) {
-                            let _ = app.emit(
-                                "thumbnail_ready",
-                                ThumbnailReadyPayload {
-                                    relative_path: rel_path,
-                                    thumbnail,
-                                },
-                            );
-                        }
-                    }
-                })
-            })
-            .collect();
-
-        for h in handles {
-            let _ = h.join();
-        }
-
-        // All thumbnails done — clear the queue reference and release the lock.
         *active_queue_arc.lock().unwrap() = None;
         clear_running(&app_clone);
     });
@@ -164,7 +174,6 @@ async fn start_scan(
     Ok(())
 }
 
-/// Reorder the thumbnail queue so that `visible_paths` are processed next.
 #[tauri::command]
 async fn prioritize_thumbnails(
     visible_paths: Vec<String>,
@@ -176,7 +185,6 @@ async fn prioritize_thumbnails(
     Ok(())
 }
 
-/// Set the native window title.
 #[tauri::command]
 async fn set_window_title(title: String, app: AppHandle) -> Result<(), String> {
     app.get_webview_window("main")
@@ -185,19 +193,14 @@ async fn set_window_title(title: String, app: AppHandle) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
-/// Read an image file and return it as a base64-encoded data URI.
-/// Used by the gallery view to display full-resolution images.
 #[tauri::command]
 async fn load_image(path: String) -> Result<String, String> {
     let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
     use base64::Engine as _;
     let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
-    // Detect MIME type from extension for the data URI.
     let ext = std::path::Path::new(&path)
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(|e| e.to_ascii_lowercase())
-        .unwrap_or_default();
+        .extension().and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase()).unwrap_or_default();
     let mime = match ext.as_str() {
         "jpg" | "jpeg" => "image/jpeg",
         "png"          => "image/png",

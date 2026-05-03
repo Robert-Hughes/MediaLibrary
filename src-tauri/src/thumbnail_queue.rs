@@ -1,46 +1,72 @@
-/// A thread-safe priority queue for thumbnail generation paths.
+/// A thread-safe priority queue for thumbnail/EXIF work items.
 ///
-/// Workers call `pop()` to get the next path to process.
-/// The frontend calls `prioritize()` to move visible paths to the front,
-/// so that thumbnails for on-screen photos are generated first.
-///
-/// Internally this is a `VecDeque` protected by a `Mutex`. The lock is held
-/// only for the duration of each individual operation, keeping contention low.
+/// Workers call `pop()` — it blocks until an item is available or `finish()`
+/// has been called. The frontend calls `prioritize()` to move visible paths
+/// to the front so on-screen photos are processed first.
 use std::collections::VecDeque;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 
 #[derive(Clone)]
 pub struct ThumbnailQueue {
-    inner: Arc<Mutex<VecDeque<String>>>,
+    inner: Arc<(Mutex<State>, Condvar)>,
+}
+
+struct State {
+    queue: VecDeque<String>,
+    /// Set to true when no more items will be pushed; workers exit when empty.
+    done: bool,
 }
 
 impl ThumbnailQueue {
-    /// Create a new queue pre-populated with `paths` in order.
+    /// Create a new queue, optionally pre-populated.
     pub fn new(paths: Vec<String>) -> Self {
         Self {
-            inner: Arc::new(Mutex::new(VecDeque::from(paths))),
+            inner: Arc::new((
+                Mutex::new(State { queue: VecDeque::from(paths), done: false }),
+                Condvar::new(),
+            )),
         }
     }
 
-    /// Pop the next path from the front of the queue.
-    /// Returns `None` when the queue is empty.
-    pub fn pop(&self) -> Option<String> {
-        self.inner.lock().unwrap().pop_front()
+    /// Push a path onto the back and wake one waiting worker.
+    pub fn push(&self, path: String) {
+        let (lock, cvar) = &*self.inner;
+        lock.lock().unwrap().queue.push_back(path);
+        cvar.notify_one();
     }
 
-    /// Move `priority_paths` to the front of the queue, preserving their
-    /// relative order, without duplicating entries that are already done
-    /// (i.e. no longer in the queue).
-    ///
-    /// Paths in `priority_paths` that are not currently in the queue
-    /// (already processed or never existed) are silently ignored.
-    pub fn prioritize(&self, priority_paths: &[String]) {
-        let mut queue = self.inner.lock().unwrap();
+    /// Signal that no more items will be pushed.
+    /// Workers drain remaining items then return `None`.
+    pub fn finish(&self) {
+        let (lock, cvar) = &*self.inner;
+        lock.lock().unwrap().done = true;
+        cvar.notify_all();
+    }
 
-        // Collect the priority paths that are still pending, in order.
-        // Use a set for O(1) membership checks against the queue.
+    /// Block until an item is available, then return it.
+    /// Returns `None` when the queue is empty and `finish()` has been called.
+    pub fn pop(&self) -> Option<String> {
+        let (lock, cvar) = &*self.inner;
+        let mut state = lock.lock().unwrap();
+        loop {
+            if let Some(item) = state.queue.pop_front() {
+                return Some(item);
+            }
+            if state.done {
+                return None;
+            }
+            state = cvar.wait(state).unwrap();
+        }
+    }
+
+    /// Move `priority_paths` to the front, preserving their relative order.
+    /// Paths not currently in the queue (already processed) are ignored.
+    pub fn prioritize(&self, priority_paths: &[String]) {
+        let (lock, _) = &*self.inner;
+        let mut state = lock.lock().unwrap();
+
         let pending: std::collections::HashSet<&str> =
-            queue.iter().map(|s| s.as_str()).collect();
+            state.queue.iter().map(|s| s.as_str()).collect();
 
         let to_front: Vec<String> = priority_paths
             .iter()
@@ -52,33 +78,28 @@ impl ThumbnailQueue {
             return;
         }
 
-        // Remove the priority paths from wherever they currently sit.
         let promote_set: std::collections::HashSet<&str> =
             to_front.iter().map(|s| s.as_str()).collect();
-        queue.retain(|p| !promote_set.contains(p.as_str()));
+        state.queue.retain(|p| !promote_set.contains(p.as_str()));
 
-        // Prepend them in the requested order.
         for path in to_front.into_iter().rev() {
-            queue.push_front(path);
+            state.queue.push_front(path);
         }
     }
 
-    /// Return the current number of pending items (primarily for testing).
     #[allow(dead_code)]
     pub fn len(&self) -> usize {
-        self.inner.lock().unwrap().len()
+        self.inner.0.lock().unwrap().queue.len()
     }
 
-    /// Return true if the queue is empty.
     #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
-    /// Return a snapshot of the current queue order (primarily for testing).
     #[allow(dead_code)]
     pub fn snapshot(&self) -> Vec<String> {
-        self.inner.lock().unwrap().iter().cloned().collect()
+        self.inner.0.lock().unwrap().queue.iter().cloned().collect()
     }
 }
 
@@ -86,8 +107,11 @@ impl ThumbnailQueue {
 mod tests {
     use super::*;
 
+    /// Helper: pre-populated queue that is immediately finished.
     fn queue(items: &[&str]) -> ThumbnailQueue {
-        ThumbnailQueue::new(items.iter().map(|s| s.to_string()).collect())
+        let q = ThumbnailQueue::new(items.iter().map(|s| s.to_string()).collect());
+        q.finish();
+        q
     }
 
     // ── pop ───────────────────────────────────────────────────────────────────
@@ -102,8 +126,19 @@ mod tests {
     }
 
     #[test]
-    fn pop_on_empty_queue_returns_none() {
+    fn pop_on_empty_finished_queue_returns_none() {
         let q = queue(&[]);
+        assert_eq!(q.pop(), None);
+    }
+
+    #[test]
+    fn push_then_finish_drains_correctly() {
+        let q = ThumbnailQueue::new(vec![]);
+        q.push("a".into());
+        q.push("b".into());
+        q.finish();
+        assert_eq!(q.pop(), Some("a".into()));
+        assert_eq!(q.pop(), Some("b".into()));
         assert_eq!(q.pop(), None);
     }
 
@@ -119,7 +154,6 @@ mod tests {
     #[test]
     fn prioritize_preserves_relative_order_of_priority_items() {
         let q = queue(&["a", "b", "c", "d"]);
-        // Request c before b — they should appear in that order at the front.
         q.prioritize(&["c".into(), "b".into()]);
         assert_eq!(q.snapshot(), vec!["c", "b", "a", "d"]);
     }
@@ -127,7 +161,6 @@ mod tests {
     #[test]
     fn prioritize_ignores_paths_not_in_queue() {
         let q = queue(&["a", "b", "c"]);
-        // "z" was never in the queue (or already processed).
         q.prioritize(&["z".into(), "b".into()]);
         assert_eq!(q.snapshot(), vec!["b", "a", "c"]);
     }
@@ -174,12 +207,14 @@ mod tests {
     #[test]
     fn concurrent_pops_drain_queue_exactly_once() {
         use std::sync::atomic::{AtomicUsize, Ordering};
-        use std::sync::Arc;
 
-        let paths: Vec<String> = (0..100).map(|i| format!("photo_{i}.jpg")).collect();
-        let q = Arc::new(ThumbnailQueue::new(paths));
+        let q = Arc::new(ThumbnailQueue::new(vec![]));
+        for i in 0..100 {
+            q.push(format!("photo_{i}.jpg"));
+        }
+        q.finish();
+
         let counter = Arc::new(AtomicUsize::new(0));
-
         let handles: Vec<_> = (0..4)
             .map(|_| {
                 let q = q.clone();
@@ -195,7 +230,6 @@ mod tests {
         for h in handles {
             h.join().unwrap();
         }
-
         assert_eq!(counter.load(Ordering::Relaxed), 100);
         assert!(q.is_empty());
     }

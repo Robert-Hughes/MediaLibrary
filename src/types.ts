@@ -1,28 +1,15 @@
-// ── Domain types shared across the frontend ───────────────────────────────────
+// ── Domain types ──────────────────────────────────────────────────────────────
 
+/** A photo as discovered by the directory walk (path + OS metadata only). */
 export interface PhotoInfo {
-  /** Path relative to the scanned root folder, forward-slash separated. */
   relative_path: string;
-  /** Filename only (last path component). */
   filename: string;
-  /** Last-modified Unix timestamp (seconds), or null. */
   date_modified: number | null;
-  /** Created Unix timestamp (seconds), or null. */
   date_created: number | null;
-  /** DateTimeOriginal from EXIF (string), or null. */
-  date_taken: string | null;
-  /** Camera make + model from EXIF, or null. */
-  camera_model: string | null;
 }
 
 // ── Thumbnail store ───────────────────────────────────────────────────────────
 
-/**
- * Thumbnail state for a single photo:
- *  - "loading"  — generation in progress (show spinner)
- *  - "failed"   — could not be generated (show placeholder)
- *  - string     — base64-encoded JPEG data (show image)
- */
 export type ThumbnailState = "loading" | "failed" | string;
 
 /**
@@ -34,52 +21,102 @@ export class ThumbnailStore {
   private data = new Map<string, ThumbnailState>();
   private subscribers = new Map<string, Set<() => void>>();
 
-  /** Initialise all paths as "loading". */
   reset(paths: string[]) {
     this.data.clear();
     this.subscribers.clear();
     for (const p of paths) this.data.set(p, "loading");
   }
 
-  /** Update a single thumbnail and notify its subscribers. */
+  add(path: string) {
+    if (!this.data.has(path)) this.data.set(path, "loading");
+  }
+
   set(path: string, value: ThumbnailState) {
     this.data.set(path, value);
     this.subscribers.get(path)?.forEach((cb) => cb());
   }
 
-  /** Get the current thumbnail state for a path. */
   get(path: string): ThumbnailState {
     return this.data.get(path) ?? "loading";
   }
 
-  /** Subscribe to changes for a specific path. Returns an unsubscribe fn. */
   subscribe(path: string, callback: () => void): () => void {
     if (!this.subscribers.has(path)) this.subscribers.set(path, new Set());
     this.subscribers.get(path)!.add(callback);
     return () => this.subscribers.get(path)?.delete(callback);
   }
 
-  /** Return a snapshot function for useSyncExternalStore. */
   getSnapshot(path: string): () => ThumbnailState {
     return () => this.get(path);
   }
 }
 
-// ── App state (discriminated union) ──────────────────────────────────────────
+// ── Metadata store ────────────────────────────────────────────────────────────
+
+export interface ExifData {
+  date_taken: string | null;
+  camera_model: string | null;
+}
+
+/**
+ * Observable store for EXIF metadata, keyed by relative_path.
+ * Same pattern as ThumbnailStore — updates only re-render the affected row.
+ */
+export class MetadataStore {
+  private data = new Map<string, ExifData>();
+  private subscribers = new Map<string, Set<() => void>>();
+
+  add(path: string) {
+    if (!this.data.has(path)) {
+      this.data.set(path, { date_taken: null, camera_model: null });
+    }
+  }
+
+  set(path: string, value: ExifData) {
+    this.data.set(path, value);
+    this.subscribers.get(path)?.forEach((cb) => cb());
+  }
+
+  get(path: string): ExifData {
+    return this.data.get(path) ?? { date_taken: null, camera_model: null };
+  }
+
+  subscribe(path: string, callback: () => void): () => void {
+    if (!this.subscribers.has(path)) this.subscribers.set(path, new Set());
+    this.subscribers.get(path)!.add(callback);
+    return () => this.subscribers.get(path)?.delete(callback);
+  }
+
+  getSnapshot(path: string): () => ExifData {
+    return () => this.get(path);
+  }
+}
+
+// ── App state ─────────────────────────────────────────────────────────────────
 
 export type AppState =
   | { kind: "idle" }
-  | { kind: "loading"; folder: string; foundSoFar: number }
-  | { kind: "loaded"; folder: string; photos: PhotoInfo[]; thumbnails: ThumbnailStore; galleryIndex: number | null };
+  | { kind: "loading"; folder: string }
+  | {
+      kind: "loaded";
+      folder: string;
+      photos: PhotoInfo[];
+      thumbnails: ThumbnailStore;
+      metadata: MetadataStore;
+      scanning: boolean;       // true while the directory walk is still running
+      galleryIndex: number | null;
+    };
 
 // ── Event payloads from Rust ──────────────────────────────────────────────────
 
-export interface ScanProgressPayload {
-  found_so_far: number;
+export interface PhotoFoundPayload {
+  photo: PhotoInfo;
 }
 
-export interface ScanCompletePayload {
-  photos: PhotoInfo[];
+export interface MetadataReadyPayload {
+  relative_path: string;
+  date_taken: string | null;
+  camera_model: string | null;
 }
 
 export interface ThumbnailReadyPayload {

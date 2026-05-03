@@ -5,10 +5,6 @@ are covered by integration tests that simulate UI interaction and confirm that t
 Now
 ===
 
-* When a folder is already open, move the Open Folder and Close buttons to a menu bar at the top 
-* When a folder is open, move the display of the folder name to the window title
-* Get rid of the Space and Escape keyboard shortcuts
-* Double clicking image to open the full version in a 'gallery' view, left and right arrows on this full view to switch photos. Important that the order of photos in the gallery view matches that of the main list and that the positions are synced - make sure to test this explicitly.
 * Add more columns to the list view. The columns should be grouped:
     * Outer metadata (i.e. properties *of* the file stored by the OS, not the internal EXIF metadata stuff)
         * Filename
@@ -23,4 +19,7 @@ Now
 Later
 =====
 
-
+* List view - implement (multi-)selection. Single click to select, double click to open in gallery.
+* Sync the selected row with the gallery view, i.e. navigating left/right in the gallery will also move selection up/down in the list (and scroll the newly selected image into view as necessary)
+* Gallery view - improve general responsiveness
+* Recent folders saved and shown on the home screen when no folder is open

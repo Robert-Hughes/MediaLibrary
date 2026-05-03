@@ -1,35 +1,17 @@
-/**
- * Core application logic hook.
- *
- * Encapsulates all state transitions and Tauri IPC calls so that:
- *  - Components stay purely presentational
- *  - Tests can exercise all behaviour without a real Tauri backend
- *    by injecting mock implementations of `invoke` and `listen`
- *
- * Thumbnail updates are routed through a ThumbnailStore rather than React
- * state, so each thumbnail_ready event re-renders only the one affected row.
- */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ThumbnailStore } from "./types";
+import { ThumbnailStore, MetadataStore } from "./types";
 import type {
   AppState,
-  ScanCompletePayload,
-  ScanErrorPayload,
-  ScanProgressPayload,
+  PhotoFoundPayload,
+  MetadataReadyPayload,
   ThumbnailReadyPayload,
+  ScanErrorPayload,
 } from "./types";
-
-// ── Tauri IPC interface (injectable for testing) ──────────────────────────────
 
 export interface TauriApi {
   invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
-  listen: (
-    event: string,
-    handler: (payload: unknown) => void
-  ) => Promise<() => void>;
+  listen: (event: string, handler: (payload: unknown) => void) => Promise<() => void>;
 }
-
-// ── Hook ──────────────────────────────────────────────────────────────────────
 
 export interface MediaLibraryActions {
   openFolder: () => Promise<void>;
@@ -44,72 +26,76 @@ export function useMediaLibrary(api: TauriApi): [AppState, MediaLibraryActions] 
   const [appState, setAppState] = useState<AppState>({ kind: "idle" });
 
   const currentFolderRef = useRef<string | null>(null);
-  // Stable store reference — replaced on each new scan, never mutated in place.
   const thumbnailStoreRef = useRef<ThumbnailStore>(new ThumbnailStore());
+  const metadataStoreRef  = useRef<MetadataStore>(new MetadataStore());
 
   useEffect(() => {
     const unlisteners: Array<() => void> = [];
 
     const setup = async () => {
-      const unlistenProgress = await api.listen(
-        "scan_progress",
-        (raw) => {
-          const payload = raw as ScanProgressPayload;
-          setAppState((prev) =>
-            prev.kind === "loading"
-              ? { ...prev, foundSoFar: payload.found_so_far }
-              : prev
-          );
-        }
-      );
+      // ── photo_found: add one photo to the list immediately ────────────────
+      const unlistenFound = await api.listen("photo_found", (raw) => {
+        const { photo } = raw as PhotoFoundPayload;
 
-      const unlistenComplete = await api.listen(
-        "scan_complete",
-        (raw) => {
-          const payload = raw as ScanCompletePayload;
-          const folder = currentFolderRef.current ?? "";
-          const photos = payload.photos;
-          // Reset the store with all paths as "loading".
-          const store = new ThumbnailStore();
-          store.reset(photos.map((p) => p.relative_path));
-          thumbnailStoreRef.current = store;
+        // Register in stores before updating React state.
+        thumbnailStoreRef.current.add(photo.relative_path);
+        metadataStoreRef.current.add(photo.relative_path);
 
-          setAppState({ kind: "loaded", folder, photos, thumbnails: store, galleryIndex: null });
-        }
-      );
+        setAppState((prev) => {
+          if (prev.kind === "idle" || prev.kind === "loading") {
+            // First photo — transition to loaded (scanning still in progress).
+            const folder = currentFolderRef.current ?? "";
+            return {
+              kind: "loaded",
+              folder,
+              photos: [photo],
+              thumbnails: thumbnailStoreRef.current,
+              metadata: metadataStoreRef.current,
+              scanning: true,
+              galleryIndex: null,
+            };
+          }
+          if (prev.kind === "loaded") {
+            return { ...prev, photos: [...prev.photos, photo] };
+          }
+          return prev;
+        });
+      });
 
-      const unlistenThumbnail = await api.listen(
-        "thumbnail_ready",
-        (raw) => {
-          const { relative_path, thumbnail } = raw as ThumbnailReadyPayload;
-          // Update the store directly — no React state change on the list.
-          // Only the subscribing PhotoRow for this path will re-render.
-          thumbnailStoreRef.current.set(relative_path, thumbnail);
-        }
-      );
+      // ── scan_complete: walk finished, clear scanning flag ─────────────────
+      const unlistenComplete = await api.listen("scan_complete", () => {
+        setAppState((prev) =>
+          prev.kind === "loaded" ? { ...prev, scanning: false } : prev
+        );
+      });
 
-      const unlistenError = await api.listen(
-        "scan_error",
-        (raw) => {
-          const payload = raw as ScanErrorPayload;
-          console.error("Scan error:", payload.message);
-          setAppState({ kind: "idle" });
-        }
-      );
+      // ── metadata_ready: EXIF arrived for one photo ────────────────────────
+      const unlistenMetadata = await api.listen("metadata_ready", (raw) => {
+        const { relative_path, date_taken, camera_model } = raw as MetadataReadyPayload;
+        metadataStoreRef.current.set(relative_path, { date_taken, camera_model });
+      });
+
+      // ── thumbnail_ready: thumbnail arrived for one photo ──────────────────
+      const unlistenThumbnail = await api.listen("thumbnail_ready", (raw) => {
+        const { relative_path, thumbnail } = raw as ThumbnailReadyPayload;
+        thumbnailStoreRef.current.set(relative_path, thumbnail);
+      });
+
+      // ── scan_error ────────────────────────────────────────────────────────
+      const unlistenError = await api.listen("scan_error", (raw) => {
+        const payload = raw as ScanErrorPayload;
+        console.error("Scan error:", payload.message);
+        setAppState({ kind: "idle" });
+      });
 
       unlisteners.push(
-        unlistenProgress,
-        unlistenComplete,
-        unlistenThumbnail,
-        unlistenError
+        unlistenFound, unlistenComplete, unlistenMetadata,
+        unlistenThumbnail, unlistenError,
       );
     };
 
     setup();
-
-    return () => {
-      unlisteners.forEach((fn) => fn());
-    };
+    return () => { unlisteners.forEach((fn) => fn()); };
   }, [api]);
 
   const openFolder = useCallback(async () => {
@@ -117,7 +103,12 @@ export function useMediaLibrary(api: TauriApi): [AppState, MediaLibraryActions] 
     if (!folder) return;
 
     currentFolderRef.current = folder;
-    setAppState({ kind: "loading", folder, foundSoFar: 0 });
+
+    // Reset stores for the new scan.
+    thumbnailStoreRef.current = new ThumbnailStore();
+    metadataStoreRef.current  = new MetadataStore();
+
+    setAppState({ kind: "loading", folder });
     api.invoke("set_window_title", { title: `Media Library — ${folder}` }).catch(() => {});
 
     await api.invoke("start_scan", { folderPath: folder });
