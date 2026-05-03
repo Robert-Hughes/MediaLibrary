@@ -1,3 +1,6 @@
+Now
+===
+
 * Scaffold the initial app structure
     * The user opens/selects a folder from a folder browser and the app then shows information about all the photos in that folder (and subfolders, recursively)
     * For now let's just show the filename (relative to the opened root folder) and a thumbnail.
@@ -8,12 +11,16 @@
      with that from the new folder)
 * Theming - aim for a technical and functional look.
 
-I'd like to add some tests based on the UI state.
+Later
+=====
 
-If I'm correct, the rendered UI is dependent entirely on some state data, and so we can test if this state data gets mutated in expected ways based on user input and background work that the app does.
-
-I'm thinking of tests along the lines of:
-
-Check default app state is as expected
-Open a folder and wait for loading to finish, check app state shows the expected list of files
-This might require some refactoring of the code to separate out a clean view-model state object, which would be a good thing
+* Double clicking image to open the full version in a 'gallery' view, left and right arrows on this full view to switch photos. Important that the order of photos in the gallery view matches that of the main list and that the positions are synced - make sure to test this explicitly.
+* Add more columns to the list view. The columns should be grouped:
+    * Outer metadata (i.e. properties *of* the file stored by the OS, not the internal EXIF metadata stuff)
+        * Filename
+        * Date modified
+        * Date created
+    * Inner metadata (i.e. properties *inside* the file, like EXIF metadata)
+        * DateTaken (DateOriginal or whatever it's called)
+        * Camera model
+        * etc.

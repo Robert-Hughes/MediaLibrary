@@ -3,13 +3,19 @@
  *
  * Usage:
  *   const mock = createMockTauriApi();
- *   // render component with mock.api
  *   mock.pickFolderResolves("/photos/vacation");
+ *   // trigger openFolder(), then drive events manually:
  *   mock.emitScanProgress(5);
- *   mock.emitScanComplete([...]);
+ *   mock.emitScanComplete([{ relative_path: "a.jpg" }]);
+ *   mock.emitThumbnailReady("a.jpg", "base64data");
  */
 import type { TauriApi } from "../useMediaLibrary";
-import type { PhotoInfo, ScanCompletePayload, ScanProgressPayload, ScanErrorPayload } from "../types";
+import type {
+  ScanCompletePayload,
+  ScanProgressPayload,
+  ScanErrorPayload,
+  ThumbnailReadyPayload,
+} from "../types";
 
 type EventHandler = (payload: unknown) => void;
 
@@ -19,8 +25,10 @@ export interface MockTauriApi {
   pickFolderResolves: (path: string | null) => void;
   /** Simulate a scan_progress event from Rust. */
   emitScanProgress: (foundSoFar: number) => void;
-  /** Simulate a scan_complete event from Rust. */
-  emitScanComplete: (photos: PhotoInfo[]) => void;
+  /** Simulate a scan_complete event from Rust (photos have no thumbnails). */
+  emitScanComplete: (photos: Array<{ relative_path: string }>) => void;
+  /** Simulate a thumbnail_ready event from Rust for a single photo. */
+  emitThumbnailReady: (relativePath: string, thumbnail: string) => void;
   /** Simulate a scan_error event from Rust. */
   emitScanError: (message: string) => void;
 }
@@ -31,20 +39,14 @@ export function createMockTauriApi(): MockTauriApi {
 
   const api: TauriApi = {
     invoke: async (cmd) => {
-      if (cmd === "pick_folder") {
-        return nextFolder;
-      }
-      if (cmd === "start_scan") {
-        // Intentionally does nothing — tests drive scan events manually.
-        return;
-      }
+      if (cmd === "pick_folder") return nextFolder;
+      if (cmd === "start_scan") return; // tests drive events manually
       throw new Error(`Unexpected invoke: ${cmd}`);
     },
 
     listen: async (event, handler) => {
       if (!handlers[event]) handlers[event] = [];
       handlers[event].push(handler);
-      // Return an unlisten function.
       return () => {
         handlers[event] = handlers[event].filter((h) => h !== handler);
       };
@@ -62,6 +64,8 @@ export function createMockTauriApi(): MockTauriApi {
       emit("scan_progress", { found_so_far: foundSoFar } satisfies ScanProgressPayload),
     emitScanComplete: (photos) =>
       emit("scan_complete", { photos } satisfies ScanCompletePayload),
+    emitThumbnailReady: (relative_path, thumbnail) =>
+      emit("thumbnail_ready", { relative_path, thumbnail } satisfies ThumbnailReadyPayload),
     emitScanError: (message) =>
       emit("scan_error", { message } satisfies ScanErrorPayload),
   };

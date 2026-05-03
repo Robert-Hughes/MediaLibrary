@@ -3,7 +3,7 @@
 export interface PhotoInfo {
   /** Path relative to the scanned root folder, forward-slash separated. */
   relative_path: string;
-  /** Base64-encoded JPEG thumbnail data URI, or null if unavailable. */
+  /** Base64-encoded JPEG thumbnail, populated lazily via thumbnail_ready events. */
   thumbnail: string | null;
 }
 
@@ -21,7 +21,13 @@ export interface ScanProgressPayload {
 }
 
 export interface ScanCompletePayload {
-  photos: PhotoInfo[];
+  /** Photos with thumbnail: null — thumbnails arrive separately. */
+  photos: Array<{ relative_path: string }>;
+}
+
+export interface ThumbnailReadyPayload {
+  relative_path: string;
+  thumbnail: string;
 }
 
 export interface ScanErrorPayload {
