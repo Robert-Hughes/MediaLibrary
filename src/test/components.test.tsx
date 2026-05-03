@@ -36,16 +36,31 @@ const noop = () => {};
 
 describe("WelcomeScreen", () => {
   it("renders the title and open button", () => {
-    render(<WelcomeScreen onOpenFolder={noop} />);
+    render(<WelcomeScreen onOpenFolder={noop} recentFolders={[]} onOpenRecent={noop} />);
     expect(screen.getByText("Media Library")).toBeInTheDocument();
     expect(screen.getByTestId("open-folder-btn")).toBeInTheDocument();
   });
 
   it("calls onOpenFolder when the button is clicked", async () => {
     const handler = vi.fn();
-    render(<WelcomeScreen onOpenFolder={handler} />);
+    render(<WelcomeScreen onOpenFolder={handler} recentFolders={[]} onOpenRecent={noop} />);
     await userEvent.click(screen.getByTestId("open-folder-btn"));
     expect(handler).toHaveBeenCalledOnce();
+  });
+
+  it("shows recent folders when provided", () => {
+    const recent = ["/photos/2023", "/photos/2024"];
+    render(<WelcomeScreen onOpenFolder={noop} recentFolders={recent} onOpenRecent={noop} />);
+    expect(screen.getByTestId("recent-folders")).toBeInTheDocument();
+    expect(screen.getAllByTestId("recent-folder-item")).toHaveLength(2);
+    expect(screen.getByText("/photos/2023")).toBeInTheDocument();
+  });
+
+  it("calls onOpenRecent when a recent item is clicked", async () => {
+    const handler = vi.fn();
+    render(<WelcomeScreen onOpenFolder={noop} recentFolders={["/photos/old"]} onOpenRecent={handler} />);
+    await userEvent.click(screen.getByTestId("recent-folder-item"));
+    expect(handler).toHaveBeenCalledWith("/photos/old");
   });
 });
 
