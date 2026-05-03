@@ -24,12 +24,13 @@ export interface MediaLibraryActions {
   openGallery: (index: number) => void;
   closeGallery: () => void;
   navigateGallery: (delta: -1 | 1) => void;
+  setVisibleColumns: (columns: string[]) => void;
 }
 
 const RECENT_FOLDERS_KEY = "media_library_recent_folders";
 const MAX_RECENT_FOLDERS = 5;
 
-const DEFAULT_COLUMNS = ["IFD0:DateTimeOriginal", "IFD0:Model"];
+const DEFAULT_COLUMNS = ["IFD1:DateTimeOriginal", "IFD0:Model"]; // Using IFD1 for Date Taken as it's common
 
 export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: string[] }, MediaLibraryActions] {
   const [appState, setAppState] = useState<AppState>({ kind: "idle" });
@@ -258,12 +259,8 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
     api.invoke("set_window_title", { title: "Media Library" }).catch(() => {});
   }, [api]);
 
-  const prioritizeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prioritizeQueues = useCallback((visiblePaths: string[]) => {
-    if (prioritizeTimerRef.current) clearTimeout(prioritizeTimerRef.current);
-    prioritizeTimerRef.current = setTimeout(() => {
-      api.invoke("prioritize_queues", { visiblePaths }).catch(() => {});
-    }, 100);
+    api.invoke("prioritize_queues", { visiblePaths }).catch(() => {});
   }, [api]);
 
   const selectPhoto = useCallback((index: number | null) => {
@@ -307,5 +304,11 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
     });
   }, []);
 
-  return [{ ...appState, recentFolders }, { openFolder, openRecent, closeFolder, prioritizeQueues, selectPhoto, showInExplorer, openGallery, closeGallery, navigateGallery }];
+  const setVisibleColumns = useCallback((columns: string[]) => {
+    setAppState((prev) =>
+      prev.kind === "loaded" ? { ...prev, visibleColumns: columns } : prev
+    );
+  }, []);
+
+  return [{ ...appState, recentFolders }, { openFolder, openRecent, closeFolder, prioritizeQueues, selectPhoto, showInExplorer, openGallery, closeGallery, navigateGallery, setVisibleColumns }];
 }
