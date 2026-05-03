@@ -5,15 +5,76 @@ import { createMockTauriApi } from "./mockTauriApi";
 import { makePhoto, makePhotos } from "./factories";
 
 describe("useMediaLibrary", () => {
-  beforeEach(() => { vi.useFakeTimers(); });
-  afterEach(() => { vi.useRealTimers(); });
+  beforeEach(() => {
+    localStorage.clear();
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
 
   // ── Initial state ──────────────────────────────────────────────────────────
 
-  it("starts in idle state", () => {
+  it("starts in idle state with empty recent folders", () => {
     const { api } = createMockTauriApi();
     const { result } = renderHook(() => useMediaLibrary(api));
     expect(result.current[0].kind).toBe("idle");
+    expect(result.current[0].recentFolders).toEqual([]);
+  });
+
+  // ── Recent Folders ──────────────────────────────────────────────────────────
+
+  it("loads recent folders from localStorage on mount", async () => {
+    localStorage.setItem("media_library_recent_folders", JSON.stringify(["/a", "/b"]));
+    const mock = createMockTauriApi();
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    expect(result.current[0].recentFolders).toEqual(["/a", "/b"]);
+  });
+
+  it("adds folder to recent list when opened", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/photos/new");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+
+    await act(async () => { await result.current[1].openFolder(); });
+
+    expect(result.current[0].recentFolders).toEqual(["/photos/new"]);
+    expect(localStorage.getItem("media_library_recent_folders")).toContain("/photos/new");
+  });
+
+  it("moves existing recent folder to front when opened again", async () => {
+    localStorage.setItem("media_library_recent_folders", JSON.stringify(["/old", "/current"]));
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/current");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+
+    await act(async () => { await result.current[1].openFolder(); });
+
+    expect(result.current[0].recentFolders).toEqual(["/current", "/old"]);
+  });
+
+  it("limits recent folders to MAX_RECENT_FOLDERS", async () => {
+    localStorage.setItem("media_library_recent_folders", JSON.stringify(["/1", "/2", "/3", "/4", "/5"]));
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/new");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+
+    await act(async () => { await result.current[1].openFolder(); });
+
+    expect(result.current[0].recentFolders).toHaveLength(5);
+    expect(result.current[0].recentFolders[0]).toBe("/new");
+    expect(result.current[0].recentFolders).not.toContain("/5");
+  });
+
+  it("openRecent starts a scan immediately", async () => {
+    const mock = createMockTauriApi();
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+
+    await act(async () => { await result.current[1].openRecent("/photos/recent"); });
+
+    expect(result.current[0].kind).toBe("loading");
+    expect(result.current[0].folder).toBe("/photos/recent");
+    expect(result.current[0].recentFolders).toContain("/photos/recent");
   });
 
   // ── openFolder — user cancels ──────────────────────────────────────────────
