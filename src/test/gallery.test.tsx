@@ -18,15 +18,12 @@ import { PhotoList } from "../components/PhotoList";
 import { ThumbnailStore } from "../types";
 import { useMediaLibrary } from "../useMediaLibrary";
 import { createMockTauriApi } from "./mockTauriApi";
+import { makePhotos } from "./factories";
 import type { PhotoInfo } from "../types";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-const PHOTOS: PhotoInfo[] = [
-  { relative_path: "a.jpg" },
-  { relative_path: "b.jpg" },
-  { relative_path: "c.jpg" },
-];
+const PHOTOS: PhotoInfo[] = makePhotos(["a.jpg", "b.jpg", "c.jpg"]);
 
 function makeStore(photos: PhotoInfo[]) {
   const s = new ThumbnailStore();
@@ -248,7 +245,7 @@ describe("GalleryView", () => {
 // ── Gallery state in useMediaLibrary hook ─────────────────────────────────────
 
 describe("useMediaLibrary gallery state", () => {
-  const SCAN_PHOTOS = PHOTOS.map((p) => ({ relative_path: p.relative_path }));
+  const SCAN_PHOTOS = makePhotos(["a.jpg", "b.jpg", "c.jpg"]);
 
   it("galleryIndex starts as null after scan_complete", async () => {
     const mock = createMockTauriApi();
@@ -367,11 +364,7 @@ describe("useMediaLibrary gallery state", () => {
 describe("PhotoList double-click opens gallery", () => {
   it("calls onPhotoOpen with the correct index when a row is double-clicked", async () => {
     const onPhotoOpen = vi.fn();
-    const photos: PhotoInfo[] = [
-      { relative_path: "a.jpg" },
-      { relative_path: "b.jpg" },
-      { relative_path: "c.jpg" },
-    ];
+    const photos = makePhotos(["a.jpg", "b.jpg", "c.jpg"]);
     const store = makeStore(photos);
 
     render(
@@ -390,7 +383,7 @@ describe("PhotoList double-click opens gallery", () => {
 
   it("double-clicking the first row opens index 0", async () => {
     const onPhotoOpen = vi.fn();
-    const photos: PhotoInfo[] = [{ relative_path: "a.jpg" }, { relative_path: "b.jpg" }];
+    const photos = makePhotos(["a.jpg", "b.jpg"]);
     const store = makeStore(photos);
 
     render(
@@ -408,11 +401,7 @@ describe("PhotoList double-click opens gallery", () => {
 
   it("double-clicking the last row opens the last index", async () => {
     const onPhotoOpen = vi.fn();
-    const photos: PhotoInfo[] = [
-      { relative_path: "a.jpg" },
-      { relative_path: "b.jpg" },
-      { relative_path: "c.jpg" },
-    ];
+    const photos = makePhotos(["a.jpg", "b.jpg", "c.jpg"]);
     const store = makeStore(photos);
 
     render(

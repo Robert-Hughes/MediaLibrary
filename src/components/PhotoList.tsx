@@ -5,10 +5,16 @@ import type { PhotoInfo, ThumbnailStore } from "../types";
 interface Props {
   photos: PhotoInfo[];
   thumbnails: ThumbnailStore;
-  /** Called when the set of visible photo paths changes. */
   onVisibilityChange: (visiblePaths: string[]) => void;
-  /** Called when a photo row is double-clicked. */
   onPhotoOpen: (index: number) => void;
+}
+
+/** Format a Unix timestamp (seconds) as a locale date string, or "—" if null. */
+function formatDate(ts: number | null): string {
+  if (ts === null) return "—";
+  return new Date(ts * 1000).toLocaleDateString(undefined, {
+    year: "numeric", month: "short", day: "numeric",
+  });
 }
 
 export function PhotoList({ photos, thumbnails, onVisibilityChange, onPhotoOpen }: Props) {
@@ -53,16 +59,38 @@ export function PhotoList({ photos, thumbnails, onVisibilityChange, onPhotoOpen 
   }
 
   return (
-    <div className="photo-list" data-testid="photo-list" role="list" ref={listRef}>
-      {photos.map((photo, i) => (
-        <PhotoRow
-          key={photo.relative_path}
-          photo={photo}
-          index={i}
-          thumbnails={thumbnails}
-          onDoubleClick={() => onPhotoOpen(i)}
-        />
-      ))}
+    <div className="photo-table-wrapper" ref={listRef}>
+      <table className="photo-table" data-testid="photo-list" role="grid">
+        <thead>
+          <tr>
+            {/* Thumbnail — no group header */}
+            <th className="col-thumb" rowSpan={2} />
+            {/* Outer metadata group */}
+            <th className="col-group-header" colSpan={3}>File</th>
+            {/* Inner metadata group */}
+            <th className="col-group-header" colSpan={3}>Camera</th>
+          </tr>
+          <tr>
+            <th className="col-header">Filename</th>
+            <th className="col-header">Modified</th>
+            <th className="col-header">Created</th>
+            <th className="col-header">Date Taken</th>
+            <th className="col-header">Camera</th>
+            <th className="col-header">Path</th>
+          </tr>
+        </thead>
+        <tbody>
+          {photos.map((photo, i) => (
+            <PhotoRow
+              key={photo.relative_path}
+              photo={photo}
+              index={i}
+              thumbnails={thumbnails}
+              onDoubleClick={() => onPhotoOpen(i)}
+            />
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -75,8 +103,6 @@ interface RowProps {
 }
 
 function PhotoRow({ photo, index, thumbnails, onDoubleClick }: RowProps) {
-  // useSyncExternalStore subscribes this row to its own path only.
-  // When thumbnail_ready fires for a different path, this row does not re-render.
   const thumbnail = useSyncExternalStore(
     (cb) => thumbnails.subscribe(photo.relative_path, cb),
     thumbnails.getSnapshot(photo.relative_path),
@@ -87,26 +113,37 @@ function PhotoRow({ photo, index, thumbnails, onDoubleClick }: RowProps) {
   const src = hasSrc ? `data:image/jpeg;base64,${thumbnail}` : null;
 
   return (
-    <div
+    <tr
       className={`photo-row ${index % 2 === 0 ? "photo-row--even" : "photo-row--odd"}`}
       data-testid="photo-row"
       data-path={photo.relative_path}
-      role="listitem"
       onDoubleClick={onDoubleClick}
       style={{ cursor: "pointer" }}
     >
-      <div className="photo-thumb" aria-hidden="true">
-        {src ? (
-          <img src={src} alt="" className="photo-thumb-img" />
-        ) : isLoading ? (
-          <div className="photo-thumb-spinner" />
-        ) : (
-          <div className="photo-thumb-placeholder" />
-        )}
-      </div>
-      <span className="photo-path" data-testid="photo-path">
-        {photo.relative_path}
-      </span>
-    </div>
+      {/* Thumbnail */}
+      <td className="col-thumb" aria-hidden="true">
+        <div className="photo-thumb">
+          {src ? (
+            <img src={src} alt="" className="photo-thumb-img" />
+          ) : isLoading ? (
+            <div className="photo-thumb-spinner" />
+          ) : (
+            <div className="photo-thumb-placeholder" />
+          )}
+        </div>
+      </td>
+
+      {/* File metadata */}
+      <td className="col-filename" data-testid="photo-filename">{photo.filename}</td>
+      <td className="col-date" data-testid="photo-date-modified">{formatDate(photo.date_modified)}</td>
+      <td className="col-date" data-testid="photo-date-created">{formatDate(photo.date_created)}</td>
+
+      {/* EXIF metadata */}
+      <td className="col-date" data-testid="photo-date-taken">{photo.date_taken ?? "—"}</td>
+      <td className="col-camera" data-testid="photo-camera">{photo.camera_model ?? "—"}</td>
+
+      {/* Relative path */}
+      <td className="col-path" data-testid="photo-path">{photo.relative_path}</td>
+    </tr>
   );
 }

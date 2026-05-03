@@ -11,6 +11,7 @@
  */
 import type { TauriApi } from "../useMediaLibrary";
 import type {
+  PhotoInfo,
   ScanCompletePayload,
   ScanProgressPayload,
   ScanErrorPayload,
@@ -26,7 +27,7 @@ export interface MockTauriApi {
   /** Simulate a scan_progress event from Rust. */
   emitScanProgress: (foundSoFar: number) => void;
   /** Simulate a scan_complete event from Rust (photos have no thumbnails). */
-  emitScanComplete: (photos: Array<{ relative_path: string }>) => void;
+  emitScanComplete: (photos: PhotoInfo[]) => void;
   /** Simulate a thumbnail_ready event from Rust for a single photo. */
   emitThumbnailReady: (relativePath: string, thumbnail: string) => void;
   /** Simulate a scan_error event from Rust. */

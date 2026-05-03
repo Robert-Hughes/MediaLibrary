@@ -3,6 +3,16 @@
 export interface PhotoInfo {
   /** Path relative to the scanned root folder, forward-slash separated. */
   relative_path: string;
+  /** Filename only (last path component). */
+  filename: string;
+  /** Last-modified Unix timestamp (seconds), or null. */
+  date_modified: number | null;
+  /** Created Unix timestamp (seconds), or null. */
+  date_created: number | null;
+  /** DateTimeOriginal from EXIF (string), or null. */
+  date_taken: string | null;
+  /** Camera make + model from EXIF, or null. */
+  camera_model: string | null;
 }
 
 // ── Thumbnail store ───────────────────────────────────────────────────────────
@@ -69,8 +79,7 @@ export interface ScanProgressPayload {
 }
 
 export interface ScanCompletePayload {
-  /** Photos with thumbnail: null — thumbnails arrive separately. */
-  photos: Array<{ relative_path: string }>;
+  photos: PhotoInfo[];
 }
 
 export interface ThumbnailReadyPayload {

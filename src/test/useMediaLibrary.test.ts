@@ -5,11 +5,9 @@ import { renderHook, act } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { useMediaLibrary } from "../useMediaLibrary";
 import { createMockTauriApi } from "./mockTauriApi";
+import { makePhotos } from "./factories";
 
-const SAMPLE_PHOTOS = [
-  { relative_path: "beach/sunset.jpg" },
-  { relative_path: "portrait.png" },
-];
+const SAMPLE_PHOTOS = makePhotos(["beach/sunset.jpg", "portrait.png"]);
 
 describe("useMediaLibrary", () => {
   beforeEach(() => { vi.useFakeTimers(); });
@@ -148,7 +146,7 @@ describe("useMediaLibrary", () => {
     const { result } = renderHook(() => useMediaLibrary(mock.api));
 
     await act(async () => { await result.current[1].openFolder(); });
-    act(() => { mock.emitScanComplete([{ relative_path: "a.jpg" }]); });
+    act(() => { mock.emitScanComplete(makePhotos(["a.jpg"])); });
 
     const state = result.current[0];
     if (state.kind !== "loaded") return;

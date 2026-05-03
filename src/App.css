@@ -225,39 +225,82 @@ body {
   border-color: var(--text-secondary);
 }
 
-/* ── Photo list ───────────────────────────────────────────────────────────── */
+/* ── Photo list / table ───────────────────────────────────────────────────── */
 
-.photo-list {
+.photo-table-wrapper {
   flex: 1;
   overflow-y: auto;
+  overflow-x: auto;
 }
 
-.photo-list-empty {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex: 1;
-  font-size: 16px;
+.photo-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.photo-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface);
+}
+
+.col-group-header {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  padding: 4px 8px 2px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+
+.col-header {
+  font-size: 11px;
+  font-weight: 500;
   color: var(--text-secondary);
-  height: 100%;
+  padding: 3px 8px 5px;
+  border-bottom: 2px solid var(--border);
+  text-align: left;
+  white-space: nowrap;
 }
 
-.photo-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  height: 52px;
-  padding: 0 16px;
+.col-thumb {
+  width: 52px;
+  padding: 0;
   border-bottom: 1px solid var(--border);
 }
 
-.photo-row--even { background: var(--surface); }
-.photo-row--odd  { background: var(--surface-alt); }
+.col-filename { width: 180px; }
+.col-date     { width: 120px; }
+.col-camera   { width: 160px; }
+.col-path     { min-width: 120px; }
+
+.photo-row td {
+  padding: 0 8px;
+  height: 52px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.photo-row--even td { background: var(--surface); }
+.photo-row--odd  td { background: var(--surface-alt); }
+
+.photo-row:hover td { background: #1e2128; }
+
+.col-thumb { padding: 0; }
 
 .photo-thumb {
   width: 36px;
   height: 36px;
-  flex-shrink: 0;
+  margin: 8px auto;
   border-radius: 4px;
   overflow: hidden;
   background: var(--thumb-bg);
@@ -295,12 +338,23 @@ body {
   animation: spin 0.8s linear infinite;
 }
 
-.photo-path {
-  font-size: 13px;
-  color: var(--text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.col-date, .col-camera {
+  color: var(--text-secondary);
+}
+
+.col-path {
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+.photo-list-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  font-size: 16px;
+  color: var(--text-secondary);
+  height: 100%;
 }
 
 /* ── Gallery overlay ──────────────────────────────────────────────────────── */
