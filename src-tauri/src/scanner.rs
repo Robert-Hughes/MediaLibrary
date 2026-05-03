@@ -68,6 +68,12 @@ where
 
         let (date_modified, date_created) = read_os_metadata(path);
 
+        // TEMPORARY: simulate slow directory enumeration for load testing.
+        #[cfg(not(test))]
+        if std::env::var("MEDIA_LIBRARY_SLOW_MODE").is_ok() {
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
+
         on_photo(PhotoInfo { relative_path: rel, filename, date_modified, date_created });
     }
 }
@@ -90,6 +96,12 @@ fn read_os_metadata(path: &Path) -> (Option<i64>, Option<i64>) {
 /// Read EXIF metadata for a single file.
 /// Only meaningful for JPEG files; returns empty ExifInfo for other formats.
 pub fn read_exif(relative_path: &str, abs_path: &Path) -> ExifInfo {
+    // TEMPORARY: simulate slow EXIF reading for load testing.
+    #[cfg(not(test))]
+    if std::env::var("MEDIA_LIBRARY_SLOW_MODE").is_ok() {
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
+
     let (date_taken, camera_model) = read_exif_inner(abs_path);
     ExifInfo { relative_path: relative_path.to_owned(), date_taken, camera_model }
 }
@@ -140,6 +152,11 @@ fn read_exif_inner(path: &Path) -> (Option<String>, Option<String>) {
 
 /// Generate a base64-encoded JPEG thumbnail for the image at `path`.
 pub fn thumbnail_for(path: &Path) -> Option<String> {
+    // TEMPORARY: simulate slow thumbnail generation for load testing.
+    #[cfg(not(test))]
+    if std::env::var("MEDIA_LIBRARY_SLOW_MODE").is_ok() {
+        std::thread::sleep(std::time::Duration::from_millis(1000));
+    }
     let ext = path
         .extension()
         .and_then(|e| e.to_str())

@@ -100,8 +100,15 @@ async fn start_scan(
             return;
         }
 
-        let num_workers = std::thread::available_parallelism()
-            .map(|n| n.get()).unwrap_or(4).min(8);
+        // In slow-mode (MEDIA_LIBRARY_SLOW_MODE=1) use a single worker per pool
+        // so the artificial per-file delays in scanner.rs are clearly visible.
+        let slow_mode = std::env::var("MEDIA_LIBRARY_SLOW_MODE").is_ok();
+        let num_workers = if slow_mode {
+            1
+        } else {
+            std::thread::available_parallelism()
+                .map(|n| n.get()).unwrap_or(4).min(8)
+        };
 
         // Shared queues fed by the walk, drained by worker pools.
         let thumb_queue = Arc::new(ThumbnailQueue::new(vec![]));
