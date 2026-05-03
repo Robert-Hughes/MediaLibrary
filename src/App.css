@@ -372,6 +372,16 @@ body {
 .photo-row--even td { background: var(--surface); }
 .photo-row--odd  td { background: var(--surface-alt); }
 
+.photo-row--selected td {
+  background: var(--accent) !important;
+  color: #fff;
+}
+
+.photo-row--selected td .cell-spinner {
+  border-color: rgba(255, 255, 255, 0.3);
+  border-top-color: #fff;
+}
+
 .photo-row:hover td { background: #1e2128; }
 
 .col-thumb { padding: 0; }
@@ -608,4 +618,37 @@ body {
   font-size: 12px;
   color: var(--text-dim);
   flex-shrink: 0;
+}
+
+/* ── Context Menu ─────────────────────────────────────────────────────────── */
+
+.context-menu {
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  min-width: 160px;
+  overflow: hidden;
+  padding: 4px 0;
+}
+
+.context-menu-list {
+  list-style: none;
+}
+
+.context-menu-btn {
+  width: 100%;
+  padding: 8px 16px;
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.context-menu-btn:hover {
+  background: var(--accent);
+  color: #fff;
 }
