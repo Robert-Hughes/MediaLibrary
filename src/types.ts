@@ -51,26 +51,26 @@ export class ThumbnailStore {
   }
 }
 
-// ── Metadata store ────────────────────────────────────────────────────────────
+// ── Image Metadata store ──────────────────────────────────────────────────────
 
 /**
- * EXIF state for a single photo:
- *  - "loading"  — metadata read is in progress (show spinner in cells)
- *  - ExifData   — metadata has arrived (show values or "—")
+ * Image metadata state for a single photo (EXIF, etc):
+ *  - "loading"      — metadata read is in progress (show spinner in cells)
+ *  - ImageMetadata  — metadata has arrived (show values or "—")
  */
-export type ExifState = "loading" | ExifData;
+export type ImageMetadataState = "loading" | ImageMetadata;
 
-export interface ExifData {
+export interface ImageMetadata {
   date_taken: string | null;
   camera_model: string | null;
 }
 
 /**
- * Observable store for EXIF metadata, keyed by relative_path.
- * Same pattern as ThumbnailStore — updates only re-render the affected row.
+ * Observable store for image-level metadata, keyed by relative_path.
+ * Updates only re-render the affected row.
  */
-export class MetadataStore {
-  private data = new Map<string, ExifState>();
+export class ImageMetadataStore {
+  private data = new Map<string, ImageMetadataState>();
   private subscribers = new Map<string, Set<() => void>>();
 
   add(path: string) {
@@ -79,12 +79,12 @@ export class MetadataStore {
     }
   }
 
-  set(path: string, value: ExifState) {
+  set(path: string, value: ImageMetadataState) {
     this.data.set(path, value);
     this.subscribers.get(path)?.forEach((cb) => cb());
   }
 
-  get(path: string): ExifState {
+  get(path: string): ImageMetadataState {
     return this.data.get(path) ?? "loading";
   }
 
@@ -94,7 +94,7 @@ export class MetadataStore {
     return () => this.subscribers.get(path)?.delete(callback);
   }
 
-  getSnapshot(path: string): () => ExifState {
+  getSnapshot(path: string): () => ImageMetadataState {
     return () => this.get(path);
   }
 }
@@ -109,9 +109,9 @@ export type AppState =
       folder: string;
       photos: PhotoInfo[];
       thumbnails: ThumbnailStore;
-      metadata: MetadataStore;
-      scanning: boolean;           // true while the directory walk is still running
-      metadataRemaining: number;   // count of photos still awaiting metadata_ready
+      imageMetadata: ImageMetadataStore;
+      scanning: boolean;                // true while the directory walk is still running
+      imageMetadataRemaining: number;   // count of photos still awaiting metadata_ready
       galleryIndex: number | null;
     };
 
@@ -122,7 +122,7 @@ export interface PhotoFoundPayload {
   photo: PhotoInfo;
 }
 
-export interface MetadataReadyPayload {
+export interface ImageMetadataReadyPayload {
   scan_id: number;
   relative_path: string;
   date_taken: string | null;

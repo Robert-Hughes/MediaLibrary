@@ -7,7 +7,7 @@ import { renderHook, act } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { GalleryView } from "../components/GalleryView";
 import { PhotoList } from "../components/PhotoList";
-import { ThumbnailStore, MetadataStore } from "../types";
+import { ThumbnailStore, ImageMetadataStore } from "../types";
 import { useMediaLibrary } from "../useMediaLibrary";
 import { createMockTauriApi } from "./mockTauriApi";
 import { makePhotos } from "./factories";
@@ -94,5 +94,23 @@ describe("useMediaLibrary gallery state", () => {
     act(() => { result.current[1].navigateGallery(1); });
     const state = result.current[0];
     if (state.kind === "loaded") expect(state.galleryIndex).toBe(1);
+  });
+});
+
+describe("PhotoList double-click opens gallery", () => {
+  function renderList(photos: PhotoInfo[], onPhotoOpen: (i: number) => void) {
+    const thumbs = makeStore(photos);
+    const imageMetadata = new ImageMetadataStore();
+    photos.forEach((p) => imageMetadata.add(p.relative_path));
+    render(<PhotoList photos={photos} thumbnails={thumbs} imageMetadata={imageMetadata} onVisibilityChange={() => {}} onPhotoOpen={onPhotoOpen} />);
+  }
+
+  it("calls onPhotoOpen with the correct index when a row is double-clicked", async () => {
+    const onPhotoOpen = vi.fn();
+    const photos = makePhotos(["a.jpg", "b.jpg", "c.jpg"]);
+    renderList(photos, onPhotoOpen);
+    const rows = screen.getAllByTestId("photo-row");
+    await userEvent.dblClick(rows[1]);
+    expect(onPhotoOpen).toHaveBeenCalledWith(1);
   });
 });

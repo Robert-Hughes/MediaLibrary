@@ -3,12 +3,12 @@ import { useSpinnerSync } from "../hooks/useSpinnerSync";
 interface Props {
   photoCount: number;
   scanning: boolean;
-  metadataLoading: boolean;
+  imageMetadataLoading: boolean;
   onOpenFolder: () => void;
   onCloseFolder: () => void;
 }
 
-export function MenuBar({ photoCount, scanning, metadataLoading, onOpenFolder, onCloseFolder }: Props) {
+export function MenuBar({ photoCount, scanning, imageMetadataLoading, onOpenFolder, onCloseFolder }: Props) {
   const spinRef = useSpinnerSync<HTMLSpanElement>();
   return (
     <div className="menu-bar" data-testid="menu-bar">
@@ -25,7 +25,7 @@ export function MenuBar({ photoCount, scanning, metadataLoading, onOpenFolder, o
       {scanning && (
         <span ref={spinRef} className="menu-bar-spinner" data-testid="menu-bar-spinner" aria-label="Scanning…" />
       )}
-      {!scanning && metadataLoading && (
+      {!scanning && imageMetadataLoading && (
         <>
           <span ref={spinRef} className="menu-bar-spinner" data-testid="menu-bar-metadata-spinner" aria-label="Loading metadata…" />
           <span className="menu-bar-status" data-testid="menu-bar-metadata-label">Loading metadata…</span>

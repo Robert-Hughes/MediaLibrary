@@ -14,10 +14,10 @@ struct ScanState {
     cancelled: Mutex<Option<Arc<AtomicBool>>>,
 }
 
-/// Holds both the thumbnail and EXIF queues so both can be prioritised.
+/// Holds both the thumbnail and image metadata queues so both can be prioritised.
 struct ActiveQueues {
-    thumbnails: Arc<Mutex<Option<Arc<ThumbnailQueue>>>>,
-    metadata:   Arc<Mutex<Option<Arc<ThumbnailQueue>>>>,
+    thumbnails:     Arc<Mutex<Option<Arc<ThumbnailQueue>>>>,
+    image_metadata: Arc<Mutex<Option<Arc<ThumbnailQueue>>>>,
 }
 /// Monotonically increasing scan ID — incremented each time start_scan is called.
 struct ScanCounter(Mutex<u64>);
@@ -42,9 +42,9 @@ struct ScanErrorPayload {
     message: String,
 }
 
-/// Emitted per file when EXIF metadata has been read.
+/// Emitted per file when Image metadata (EXIF etc) has been read.
 #[derive(Clone, Serialize)]
-struct MetadataReadyPayload {
+struct ImageMetadataReadyPayload {
     scan_id: u64,
     relative_path: String,
     date_taken: Option<String>,
@@ -76,11 +76,11 @@ async fn pick_folder(app: AppHandle) -> Option<String> {
 ///  Phase 1 — streaming file discovery (single thread):
 ///    Walks the directory tree. For each image file found, emits `photo_found`
 ///    immediately so the frontend can add it to the list. Also feeds the file
-///    into the EXIF queue and thumbnail queue right away.
+///    into the image metadata queue and thumbnail queue right away.
 ///    Emits `scan_complete` (no payload) when the walk finishes.
 ///
-///  Phase 2 — EXIF metadata (thread pool, starts alongside phase 1):
-///    Reads EXIF data per file and emits `metadata_ready`.
+///  Phase 2 — Image Metadata (thread pool, starts alongside phase 1):
+///    Reads EXIF data per file and emits `image_metadata_ready`.
 ///
 ///  Phase 3 — thumbnail generation (thread pool, starts alongside phase 1):
 ///    Generates thumbnails and emits `thumbnail_ready`.
@@ -120,13 +120,13 @@ fn start_scan(
     // Reset queues for the new scan.
     {
         *active_queues.thumbnails.lock().unwrap() = None;
-        *active_queues.metadata.lock().unwrap() = None;
+        *active_queues.image_metadata.lock().unwrap() = None;
     }
 
-    let thumbnails_arc = active_queues.thumbnails.clone();
-    let metadata_arc   = active_queues.metadata.clone();
-    let app_clone      = app.clone();
-    let cancel_clone   = cancellation_flag.clone();
+    let thumbnails_arc     = active_queues.thumbnails.clone();
+    let image_metadata_arc = active_queues.image_metadata.clone();
+    let app_clone          = app.clone();
+    let cancel_clone       = cancellation_flag.clone();
 
     std::thread::spawn(move || {
         let root = std::path::PathBuf::from(&folder_path);
@@ -150,20 +150,20 @@ fn start_scan(
         };
 
         // Shared queues fed by the walk, drained by worker pools.
-        let thumb_queue = Arc::new(ThumbnailQueue::new(vec![]));
-        let exif_queue  = Arc::new(ThumbnailQueue::new(vec![]));
+        let thumb_queue          = Arc::new(ThumbnailQueue::new(vec![]));
+        let image_metadata_queue = Arc::new(ThumbnailQueue::new(vec![]));
 
         // Install the queues so prioritize_queues can reach them.
         {
             *thumbnails_arc.lock().unwrap() = Some(thumb_queue.clone());
-            *metadata_arc.lock().unwrap() = Some(exif_queue.clone());
+            *image_metadata_arc.lock().unwrap() = Some(image_metadata_queue.clone());
         }
 
         let root_arc = Arc::new(root.clone());
 
-        // ── Phase 2: EXIF workers ─────────────────────────────────────────
-        let exif_handles: Vec<_> = (0..num_workers).map(|_| {
-            let queue = exif_queue.clone();
+        // ── Phase 2: Image Metadata workers ───────────────────────────────
+        let metadata_handles: Vec<_> = (0..num_workers).map(|_| {
+            let queue = image_metadata_queue.clone();
             let app   = app_clone.clone();
             let root  = root_arc.clone();
             let cancelled = cancel_clone.clone();
@@ -172,7 +172,7 @@ fn start_scan(
                     if cancelled.load(Ordering::Relaxed) { break; }
                     let abs = root.join(rel_path.replace('/', std::path::MAIN_SEPARATOR_STR));
                     let info = scanner::read_exif(&rel_path, &abs);
-                    let _ = app.emit("metadata_ready", MetadataReadyPayload {
+                    let _ = app.emit("image_metadata_ready", ImageMetadataReadyPayload {
                         scan_id,
                         relative_path: info.relative_path,
                         date_taken:    info.date_taken,
@@ -206,7 +206,7 @@ fn start_scan(
         // ── Phase 1: streaming directory walk ─────────────────────────────
         let app_walk = app_clone.clone();
         scanner::scan_folder(&root, cancel_clone, |photo| {
-            exif_queue.push(photo.relative_path.clone());
+            image_metadata_queue.push(photo.relative_path.clone());
             thumb_queue.push(photo.relative_path.clone());
             let _ = app_walk.emit("photo_found", PhotoFoundPayload { scan_id, photo });
         });
@@ -214,17 +214,17 @@ fn start_scan(
         let _ = app_clone.emit("scan_complete", ScanCompletePayload { scan_id });
 
         // Signal workers that no more items are coming.
-        exif_queue.finish();
+        image_metadata_queue.finish();
         thumb_queue.finish();
 
         // Wait for all workers to finish.
-        for h in exif_handles  { let _ = h.join(); }
-        for h in thumb_handles { let _ = h.join(); }
+        for h in metadata_handles { let _ = h.join(); }
+        for h in thumb_handles    { let _ = h.join(); }
 
         // Clear queues after they're finished.
         {
             *thumbnails_arc.lock().unwrap() = None;
-            *metadata_arc.lock().unwrap() = None;
+            *image_metadata_arc.lock().unwrap() = None;
         }
         clear_running(&app_clone);
     });
@@ -243,7 +243,7 @@ fn stop_scan(
     if let Some(q) = active_queues.thumbnails.lock().unwrap().as_ref() {
         q.abort();
     }
-    if let Some(q) = active_queues.metadata.lock().unwrap().as_ref() {
+    if let Some(q) = active_queues.image_metadata.lock().unwrap().as_ref() {
         q.abort();
     }
     Ok(())
@@ -257,7 +257,7 @@ fn prioritize_queues(
     if let Some(queue) = active_queues.thumbnails.lock().unwrap().as_ref() {
         queue.prioritize(&visible_paths);
     }
-    if let Some(queue) = active_queues.metadata.lock().unwrap().as_ref() {
+    if let Some(queue) = active_queues.image_metadata.lock().unwrap().as_ref() {
         queue.prioritize(&visible_paths);
     }
     Ok(())
@@ -310,8 +310,8 @@ pub fn run() {
             cancelled: Mutex::new(None),
         })
         .manage(ActiveQueues {
-            thumbnails: Arc::new(Mutex::new(None)),
-            metadata:   Arc::new(Mutex::new(None)),
+            thumbnails:     Arc::new(Mutex::new(None)),
+            image_metadata: Arc::new(Mutex::new(None)),
         })
         .manage(ScanCounter(Mutex::new(0)))
         .invoke_handler(tauri::generate_handler![

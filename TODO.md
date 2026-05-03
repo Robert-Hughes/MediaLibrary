@@ -5,25 +5,15 @@ are covered by integration tests that simulate UI interaction and confirm that t
 Now
 ===
 
-
-Later
-=====
-
-* Add more columns to the list view. The columns should be grouped:
-    * Outer metadata (i.e. properties *of* the file stored by the OS, not the internal EXIF metadata stuff)
-        * Filename
-        * Date modified
-        * Date created
-    * Inner metadata (i.e. properties *inside* the file, like EXIF metadata)
-        * DateTaken (DateOriginal or whatever it's called)
-        * Camera model
-        * etc.
 * List view - implement (multi-)selection. Single click to select, double click to open in gallery.
 * Sync the selected row with the gallery view, i.e. navigating left/right in the gallery will also move selection up/down in the list (and scroll the newly selected image into view as necessary)
-* Gallery view - improve general responsiveness
 * List view context menu when right clicking on a row:
     * View (opens in gallery, equivalent to double-click)
     * Show in File Explorer
+
+
+Later
+=====
 
 * Metadata should be gathered via:
         You wanted to see only the data physically stored in the file, excluding OS-level info (System) and ExifTool calculations (Composite).
@@ -43,6 +33,9 @@ powershell
 exiftool -XMP-dc:Description="New" -IPTC:Caption-Abstract="New" image.jpg
 Rationale: By being specific, you ensure that every layer of the metadata "sandwich" (EXIF, IPTC, XMP) is perfectly synchronized and follows the standards defined in your project instructions.
 
+* Editing metadata - store draft/proposed changes locally (not in the files). THen a button with confirmation to apply the changes and confirm application was successful.
 * Using OpenAI API to analyze image contents
 * Combine image description with other metadata (and 'storyline') to propose changes to metadata. This could be a mix of programmatic and Open AI Responses API?
 * Compare with functionalty of the Update Metadata prompts approach - add anything missing to here?
+
+* Gallery view - improve general responsiveness

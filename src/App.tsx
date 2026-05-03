@@ -47,14 +47,14 @@ export default function App() {
           <MenuBar
             photoCount={state.photos.length}
             scanning={state.scanning}
-            metadataLoading={state.metadataRemaining > 0}
+            imageMetadataLoading={state.imageMetadataRemaining > 0}
             onOpenFolder={actions.openFolder}
             onCloseFolder={actions.closeFolder}
           />
           <PhotoList
             photos={state.photos}
             thumbnails={state.thumbnails}
-            metadata={state.metadata}
+            imageMetadata={state.imageMetadata}
             onVisibilityChange={actions.prioritizeQueues}
             onPhotoOpen={actions.openGallery}
           />

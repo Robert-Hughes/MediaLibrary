@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ThumbnailStore, MetadataStore } from "./types";
+import { ThumbnailStore, ImageMetadataStore } from "./types";
 import type {
   AppState,
   PhotoFoundPayload,
-  MetadataReadyPayload,
+  ImageMetadataReadyPayload,
   ThumbnailReadyPayload,
   ScanErrorPayload,
+  PhotoInfo,
 } from "./types";
 
 export interface TauriApi {
@@ -41,9 +42,9 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
     }
   }, []);
 
-  const thumbnailStoreRef   = useRef<ThumbnailStore>(new ThumbnailStore());
-  const metadataStoreRef    = useRef<MetadataStore>(new MetadataStore());
-  const metadataReceivedRef = useRef<number>(0);
+  const thumbnailStoreRef           = useRef<ThumbnailStore>(new ThumbnailStore());
+  const imageMetadataStoreRef       = useRef<ImageMetadataStore>(new ImageMetadataStore());
+  const imageMetadataReceivedRef    = useRef<number>(0);
 
   // The scan_id of the most recently started scan. Events with a different
   // scan_id are stale (from a previous scan) and are discarded.
@@ -67,9 +68,9 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
       batchTimerRef.current = null;
     }
 
-    thumbnailStoreRef.current = new ThumbnailStore();
-    metadataStoreRef.current  = new MetadataStore();
-    metadataReceivedRef.current = 0;
+    thumbnailStoreRef.current          = new ThumbnailStore();
+    imageMetadataStoreRef.current      = new ImageMetadataStore();
+    imageMetadataReceivedRef.current   = 0;
 
     setAppState({ kind: "loading", folder });
     api.invoke("set_window_title", { title: `Media Library — ${folder}` }).catch(() => {});
@@ -104,9 +105,9 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
             folder: prev.folder,
             photos: batch,
             thumbnails: thumbnailStoreRef.current,
-            metadata: metadataStoreRef.current,
+            imageMetadata: imageMetadataStoreRef.current,
             scanning: true,
-            metadataRemaining: Math.max(0, batch.length - metadataReceivedRef.current),
+            imageMetadataRemaining: Math.max(0, batch.length - imageMetadataReceivedRef.current),
             galleryIndex: null,
           };
         }
@@ -115,7 +116,7 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
           return {
             ...prev,
             photos: newPhotos,
-            metadataRemaining: Math.max(0, newPhotos.length - metadataReceivedRef.current),
+            imageMetadataRemaining: Math.max(0, newPhotos.length - imageMetadataReceivedRef.current),
           };
         }
         return prev;
@@ -129,7 +130,7 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
         if (scan_id !== activeScanIdRef.current) return;
 
         thumbnailStoreRef.current.add(photo.relative_path);
-        metadataStoreRef.current.add(photo.relative_path);
+        imageMetadataStoreRef.current.add(photo.relative_path);
 
         photoBufferRef.current.push(photo);
 
@@ -173,9 +174,9 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
               folder: prev.folder,
               photos: [],
               thumbnails: thumbnailStoreRef.current,
-              metadata: metadataStoreRef.current,
+              imageMetadata: imageMetadataStoreRef.current,
               scanning: false,
-              metadataRemaining: 0,
+              imageMetadataRemaining: 0,
               galleryIndex: null,
             };
           }
@@ -183,15 +184,15 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
         });
       });
 
-      const unlistenMetadata = await api.listen("metadata_ready", (raw) => {
+      const unlistenMetadata = await api.listen("image_metadata_ready", (raw) => {
         if (cancelled) return;
-        const { scan_id, relative_path, date_taken, camera_model } = raw as MetadataReadyPayload;
+        const { scan_id, relative_path, date_taken, camera_model } = raw as ImageMetadataReadyPayload;
         if (scan_id !== activeScanIdRef.current) return;
-        metadataStoreRef.current.set(relative_path, { date_taken, camera_model });
-        metadataReceivedRef.current += 1;
+        imageMetadataStoreRef.current.set(relative_path, { date_taken, camera_model });
+        imageMetadataReceivedRef.current += 1;
         setAppState((prev) =>
           prev.kind === "loaded"
-            ? { ...prev, metadataRemaining: Math.max(0, prev.photos.length - metadataReceivedRef.current) }
+            ? { ...prev, imageMetadataRemaining: Math.max(0, prev.photos.length - imageMetadataReceivedRef.current) }
             : prev
         );
       });

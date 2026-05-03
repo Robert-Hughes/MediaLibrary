@@ -1,11 +1,12 @@
 import { useEffect, useRef } from "react";
 import { useSyncExternalStore } from "react";
-import type { PhotoInfo, ThumbnailStore, MetadataStore } from "../types";
+import { ThumbnailStore, ImageMetadataStore } from "../types";
+import type { PhotoInfo } from "../types";
 import { Spinner } from "./Spinner";
 interface Props {
   photos: PhotoInfo[];
   thumbnails: ThumbnailStore;
-  metadata: MetadataStore;
+  imageMetadata: ImageMetadataStore;
   onVisibilityChange: (visiblePaths: string[]) => void;
   onPhotoOpen: (index: number) => void;
 }
@@ -17,7 +18,7 @@ function formatDate(ts: number | null): string {
   });
 }
 
-export function PhotoList({ photos, thumbnails, metadata, onVisibilityChange, onPhotoOpen }: Props) {
+export function PhotoList({ photos, thumbnails, imageMetadata, onVisibilityChange, onPhotoOpen }: Props) {
   const listRef = useRef<HTMLDivElement>(null);
   const visibleRef = useRef<Set<string>>(new Set());
   const onVisibilityChangeRef = useRef(onVisibilityChange);
@@ -88,8 +89,8 @@ export function PhotoList({ photos, thumbnails, metadata, onVisibilityChange, on
         <thead>
           <tr>
             <th className="col-thumb" rowSpan={2} />
-            <th className="col-group-header" colSpan={3}>File</th>
-            <th className="col-group-header" colSpan={2}>Photo</th>
+            <th className="col-group-header" colSpan={3}>OS Metadata</th>
+            <th className="col-group-header" colSpan={2}>Image Metadata</th>
           </tr>
           <tr>
             <th className="col-header">Path</th>
@@ -106,7 +107,7 @@ export function PhotoList({ photos, thumbnails, metadata, onVisibilityChange, on
               photo={photo}
               index={i}
               thumbnails={thumbnails}
-              metadata={metadata}
+              imageMetadata={imageMetadata}
               onDoubleClick={() => onPhotoOpen(i)}
             />
           ))}
@@ -120,19 +121,19 @@ interface RowProps {
   photo: PhotoInfo;
   index: number;
   thumbnails: ThumbnailStore;
-  metadata: MetadataStore;
+  imageMetadata: ImageMetadataStore;
   onDoubleClick: () => void;
 }
 
-function PhotoRow({ photo, index, thumbnails, metadata, onDoubleClick }: RowProps) {
+function PhotoRow({ photo, index, thumbnails, imageMetadata, onDoubleClick }: RowProps) {
   const thumbnail = useSyncExternalStore(
     (cb) => thumbnails.subscribe(photo.relative_path, cb),
     thumbnails.getSnapshot(photo.relative_path),
   );
 
   const exif = useSyncExternalStore(
-    (cb) => metadata.subscribe(photo.relative_path, cb),
-    metadata.getSnapshot(photo.relative_path),
+    (cb) => imageMetadata.subscribe(photo.relative_path, cb),
+    imageMetadata.getSnapshot(photo.relative_path),
   );
 
   const isLoading = thumbnail === "loading";
