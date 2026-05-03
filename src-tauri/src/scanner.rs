@@ -1,4 +1,13 @@
 /// Background folder scanning logic.
+///
+/// Scanning (file discovery) and thumbnail generation are intentionally
+/// separate concerns:
+///
+///  - `scan_folder`  — fast directory walk, returns paths only, no I/O on
+///                     image content.
+///  - `thumbnail_for` — generates a single thumbnail; tries the EXIF
+///                      embedded thumbnail first (cheap), falls back to
+///                      full decode + resize only when necessary.
 use serde::Serialize;
 use std::path::Path;
 use walkdir::WalkDir;
@@ -7,16 +16,17 @@ use walkdir::WalkDir;
 const PHOTO_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "gif", "bmp", "webp", "tiff", "tif"];
 
 /// A single photo entry discovered during a folder scan.
+/// Thumbnails are NOT included here — they are generated separately and
+/// delivered via `thumbnail_ready` events.
 #[derive(Debug, Clone, Serialize)]
 pub struct PhotoInfo {
     /// Path relative to the scanned root folder (forward-slash separated).
     pub relative_path: String,
-    /// Base64-encoded JPEG thumbnail, or None if generation failed.
-    pub thumbnail: Option<String>,
 }
 
 /// Scan `folder` recursively and return all photo files found, sorted by path.
-/// Emits progress via the provided callback after each file is processed.
+/// Emits progress via the provided callback after each file is found.
+/// No image decoding is performed here — this should be very fast.
 pub fn scan_folder<F>(folder: &Path, mut on_progress: F) -> Vec<PhotoInfo>
 where
     F: FnMut(usize),
@@ -48,13 +58,7 @@ where
             Err(_) => continue,
         };
 
-        let thumbnail = generate_thumbnail(path);
-
-        photos.push(PhotoInfo {
-            relative_path: rel,
-            thumbnail,
-        });
-
+        photos.push(PhotoInfo { relative_path: rel });
         on_progress(photos.len());
     }
 
@@ -62,9 +66,75 @@ where
     photos
 }
 
-/// Generate a small base64-encoded JPEG thumbnail for the given image file.
-/// Returns None on any error so callers can show a placeholder instead.
-fn generate_thumbnail(path: &Path) -> Option<String> {
+/// Generate a base64-encoded JPEG thumbnail for the image at `path`.
+///
+/// Strategy:
+///  1. For JPEG files, attempt to extract the embedded EXIF thumbnail.
+///     This reads only a few KB from the start of the file and is very fast.
+///  2. If that fails (non-JPEG, no EXIF, or corrupt EXIF), fall back to
+///     fully decoding the image and resizing it.
+///
+/// Returns `None` if both strategies fail, so callers can show a placeholder.
+pub fn thumbnail_for(path: &Path) -> Option<String> {
+    // Try EXIF fast-path for JPEG files first.
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase());
+
+    if matches!(ext.as_deref(), Some("jpg") | Some("jpeg")) {
+        if let Some(b64) = exif_thumbnail(path) {
+            return Some(b64);
+        }
+    }
+
+    // Full decode fallback for all other formats (or JPEG without EXIF thumb).
+    full_decode_thumbnail(path)
+}
+
+/// Extract the embedded EXIF thumbnail from a JPEG and return it as base64.
+/// In kamadak-exif 0.5, the raw TIFF buffer is exposed via `exif.buf()`.
+/// The thumbnail IFD (IFD1) stores JPEGInterchangeFormat (offset) and
+/// JPEGInterchangeFormatLength (byte count) tags that point into that buffer.
+fn exif_thumbnail(path: &Path) -> Option<String> {
+    let file = std::fs::File::open(path).ok()?;
+    let mut bufreader = std::io::BufReader::new(file);
+    let exif_reader = exif::Reader::new();
+    let exif = exif_reader.read_from_container(&mut bufreader).ok()?;
+
+    // JPEGInterchangeFormat = offset of thumbnail JPEG data within the TIFF buffer.
+    let offset_field = exif.get_field(exif::Tag::JPEGInterchangeFormat, exif::In::THUMBNAIL)?;
+    let offset = match offset_field.value {
+        exif::Value::Long(ref v) if !v.is_empty() => v[0] as usize,
+        _ => return None,
+    };
+
+    // JPEGInterchangeFormatLength = byte length of the thumbnail JPEG.
+    let len_field = exif.get_field(exif::Tag::JPEGInterchangeFormatLength, exif::In::THUMBNAIL)?;
+    let len = match len_field.value {
+        exif::Value::Long(ref v) if !v.is_empty() => v[0] as usize,
+        _ => return None,
+    };
+
+    let buf = exif.buf();
+    let end = offset.checked_add(len)?;
+    if end > buf.len() {
+        return None;
+    }
+
+    let thumb_bytes = &buf[offset..end];
+    if thumb_bytes.is_empty() {
+        return None;
+    }
+
+    Some(base64::Engine::encode(
+        &base64::engine::general_purpose::STANDARD,
+        thumb_bytes,
+    ))
+}
+
+/// Fully decode the image, resize to thumbnail dimensions, and return as base64 JPEG.
+fn full_decode_thumbnail(path: &Path) -> Option<String> {
     let img = image::open(path).ok()?;
     let thumb = img.thumbnail(80, 80);
 
@@ -89,6 +159,8 @@ mod tests {
     use tempfile::tempdir;
 
     fn no_progress(_: usize) {}
+
+    // ── scan_folder ───────────────────────────────────────────────────────────
 
     #[test]
     fn empty_folder_returns_no_photos() {
@@ -157,9 +229,51 @@ mod tests {
         fs::write(dir.path().join("a.jpg"), b"x").unwrap();
         fs::write(dir.path().join("b.jpg"), b"x").unwrap();
         fs::write(dir.path().join("c.jpg"), b"x").unwrap();
-
         let mut counts = Vec::new();
         scan_folder(dir.path(), |n| counts.push(n));
         assert_eq!(counts.len(), 3);
+    }
+
+    #[test]
+    fn scan_returns_no_thumbnails() {
+        // scan_folder must not do any image decoding — PhotoInfo has no thumbnail field.
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("a.jpg"), b"fake").unwrap();
+        let photos = scan_folder(dir.path(), no_progress);
+        assert_eq!(photos.len(), 1);
+        // Compile-time check: PhotoInfo only has relative_path.
+        let _ = &photos[0].relative_path;
+    }
+
+    // ── thumbnail_for ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn thumbnail_returns_none_for_corrupt_file() {
+        let dir = tempdir().unwrap();
+        // Write garbage bytes — not a valid image.
+        fs::write(dir.path().join("bad.jpg"), b"not an image").unwrap();
+        let result = thumbnail_for(&dir.path().join("bad.jpg"));
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn thumbnail_returns_none_for_corrupt_png() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("bad.png"), b"not a png").unwrap();
+        let result = thumbnail_for(&dir.path().join("bad.png"));
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn thumbnail_returns_some_for_valid_png() {
+        // Create a minimal valid 1x1 PNG using the image crate.
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("pixel.png");
+        let img = image::RgbImage::new(1, 1);
+        img.save(&path).unwrap();
+        let result = thumbnail_for(&path);
+        assert!(result.is_some(), "expected a thumbnail for a valid PNG");
+        // Result should be non-empty base64.
+        assert!(!result.unwrap().is_empty());
     }
 }

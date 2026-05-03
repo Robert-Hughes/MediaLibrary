@@ -12,6 +12,7 @@ import type {
   ScanCompletePayload,
   ScanErrorPayload,
   ScanProgressPayload,
+  ThumbnailReadyPayload,
 } from "./types";
 
 // ── Tauri IPC interface (injectable for testing) ──────────────────────────────
@@ -59,7 +60,27 @@ export function useMediaLibrary(api: TauriApi): [AppState, MediaLibraryActions] 
         (raw) => {
           const payload = raw as ScanCompletePayload;
           const folder = currentFolderRef.current ?? "";
-          setAppState({ kind: "loaded", folder, photos: payload.photos });
+          // Photos arrive with no thumbnails; they fill in via thumbnail_ready.
+          const photos = payload.photos.map((p) => ({
+            relative_path: p.relative_path,
+            thumbnail: null,
+          }));
+          setAppState({ kind: "loaded", folder, photos });
+        }
+      );
+
+      const unlistenThumbnail = await api.listen(
+        "thumbnail_ready",
+        (raw) => {
+          const { relative_path, thumbnail } = raw as ThumbnailReadyPayload;
+          setAppState((prev) => {
+            if (prev.kind !== "loaded") return prev;
+            // Immutably update just the matching photo entry.
+            const photos = prev.photos.map((p) =>
+              p.relative_path === relative_path ? { ...p, thumbnail } : p
+            );
+            return { ...prev, photos };
+          });
         }
       );
 
@@ -72,7 +93,12 @@ export function useMediaLibrary(api: TauriApi): [AppState, MediaLibraryActions] 
         }
       );
 
-      unlisteners.push(unlistenProgress, unlistenComplete, unlistenError);
+      unlisteners.push(
+        unlistenProgress,
+        unlistenComplete,
+        unlistenThumbnail,
+        unlistenError
+      );
     };
 
     setup();
@@ -84,7 +110,7 @@ export function useMediaLibrary(api: TauriApi): [AppState, MediaLibraryActions] 
 
   const openFolder = useCallback(async () => {
     const folder = (await api.invoke("pick_folder")) as string | null;
-    if (!folder) return; // user cancelled
+    if (!folder) return;
 
     currentFolderRef.current = folder;
     setAppState({ kind: "loading", folder, foundSoFar: 0 });
