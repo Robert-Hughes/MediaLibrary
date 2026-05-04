@@ -137,7 +137,7 @@ export function PhotoList({
           }}
         >
           {/* Group header row */}
-          <div className="grid-header-group grid-cell-thumb" style={{ gridRow: 1 }} />
+          <div className="grid-header-group grid-cell-thumb" style={{ gridRow: "1 / 3" }}>Preview</div>
           <div className="grid-header-group" style={{ gridColumn: "span 3", gridRow: 1 }}>OS Metadata</div>
           <div className="grid-header-group" style={{ gridColumn: `span ${visibleColumns.length}`, gridRow: 1 }}>Image Metadata</div>
           
@@ -190,7 +190,7 @@ export function PhotoList({
         }}
       >
         {/* Group header row */}
-        <div className="grid-header-group grid-cell-thumb" style={{ gridRow: 1 }} />
+        <div className="grid-header-group grid-cell-thumb" style={{ gridRow: "1 / 3" }}>Preview</div>
         <div className="grid-header-group" style={{ gridColumn: "span 3", gridRow: 1 }}>OS Metadata</div>
         <div className="grid-header-group" style={{ gridColumn: `span ${visibleColumns.length}`, gridRow: 1 }}>Image Metadata</div>
         
