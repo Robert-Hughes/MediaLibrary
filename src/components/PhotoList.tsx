@@ -124,9 +124,17 @@ export function PhotoList({
 
   useEffect(() => {
     if (selectedIndex !== null && listRef.current) {
-      const selectedEl = listRef.current.querySelector(`[data-index="${selectedIndex}"]`);
-      if (selectedEl && (selectedEl as any).scrollIntoView) {
-        (selectedEl as any).scrollIntoView({ block: "nearest", behavior: "smooth" });
+      const selectedEl = listRef.current.querySelector(`[data-index="${selectedIndex}"]`) as HTMLElement;
+      if (selectedEl && selectedEl.scrollIntoView) {
+        const listRect = listRef.current.getBoundingClientRect();
+        const elRect = selectedEl.getBoundingClientRect();
+        const isFullyVisible = (
+          elRect.top >= listRect.top &&
+          elRect.bottom <= listRect.bottom
+        );
+        if (!isFullyVisible) {
+          selectedEl.scrollIntoView({ block: "nearest" });
+        }
       }
     }
   }, [selectedIndex]);
@@ -214,15 +222,13 @@ const PhotoRow = memo(function PhotoRow({
   photo, index, selected, thumbnails, imageMetadata, visibleColumns, 
   onSelect, onPhotoOpen, onContextMenu 
 }: RowProps) {
-  const thumbnail = useSyncExternalStore(
-    (cb) => thumbnails.subscribe(photo.relative_path, cb),
-    thumbnails.getSnapshot(photo.relative_path),
-  );
+  const subscribeThumb = useCallback((cb: () => void) => thumbnails.subscribe(photo.relative_path, cb), [thumbnails, photo.relative_path]);
+  const getThumbSnapshot = useCallback(() => thumbnails.get(photo.relative_path), [thumbnails, photo.relative_path]);
+  const thumbnail = useSyncExternalStore(subscribeThumb, getThumbSnapshot);
 
-  const metadata = useSyncExternalStore(
-    (cb) => imageMetadata.subscribe(photo.relative_path, cb),
-    imageMetadata.getSnapshot(photo.relative_path),
-  );
+  const subscribeMeta = useCallback((cb: () => void) => imageMetadata.subscribe(photo.relative_path, cb), [imageMetadata, photo.relative_path]);
+  const getMetaSnapshot = useCallback(() => imageMetadata.get(photo.relative_path), [imageMetadata, photo.relative_path]);
+  const metadata = useSyncExternalStore(subscribeMeta, getMetaSnapshot);
 
   const isLoading = thumbnail === "loading";
   const hasSrc = thumbnail !== "loading" && thumbnail !== "failed";
@@ -230,15 +236,19 @@ const PhotoRow = memo(function PhotoRow({
 
   const metadataLoading = metadata === "loading";
 
+  const handleSelect = useCallback(() => onSelect(index), [onSelect, index]);
+  const handleDoubleClick = useCallback(() => onPhotoOpen(index), [onPhotoOpen, index]);
+  const handleContextMenuEvent = useCallback((e: React.MouseEvent) => onContextMenu(e, index), [onContextMenu, index]);
+
   return (
     <tr
       className={`photo-row ${index % 2 === 0 ? "photo-row--even" : "photo-row--odd"} ${selected ? "photo-row--selected" : ""}`}
       data-testid="photo-row"
       data-path={photo.relative_path}
       data-index={index}
-      onClick={() => onSelect(index)}
-      onDoubleClick={() => onPhotoOpen(index)}
-      onContextMenu={(e) => onContextMenu(e, index)}
+      onClick={handleSelect}
+      onDoubleClick={handleDoubleClick}
+      onContextMenu={handleContextMenuEvent}
       style={{ cursor: "pointer" }}
     >
       <td className="col-thumb" aria-hidden="true">
