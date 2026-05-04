@@ -414,6 +414,10 @@ fn start_scan(
 
         let _ = app_clone.emit("scan_complete", ScanCompletePayload { scan_id });
 
+        // Clear running flag immediately so a new scan can start.
+        // Workers can continue processing in the background.
+        clear_running(&app_clone);
+
         // Signal workers that no more items are coming.
         image_metadata_queue.finish();
         thumb_queue.finish();
@@ -427,7 +431,6 @@ fn start_scan(
             *thumbnails_arc.lock().unwrap() = None;
             *image_metadata_arc.lock().unwrap() = None;
         }
-        clear_running(&app_clone);
     });
 
     Ok(())
