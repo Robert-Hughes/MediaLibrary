@@ -7,7 +7,6 @@ are covered by integration tests that simulate UI interaction and confirm that t
 Now
 ===
 
-* Loading new folder whilst sitll loading the first results in blacnk screen
 * When loading a new folder, screen is black for a few seconds
 
 

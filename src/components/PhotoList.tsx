@@ -39,8 +39,6 @@ export function PhotoList({
   photos, thumbnails, imageMetadata, visibleColumns, 
   selectedIndex, onSelect, onShowInExplorer, onVisibilityChange, onPhotoOpen 
 }: Props) {
-  console.log(`[PhotoList] Rendering with ${photos.length} photos`);
-  
   const listRef = useRef<HTMLDivElement>(null);
   const visibleRef = useRef<Set<string>>(new Set());
   

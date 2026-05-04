@@ -125,13 +125,10 @@ fn start_scan(
     scan_state: State<'_, ScanState>,
     active_queues: State<'_, ActiveQueues>,
 ) -> Result<(), String> {
-    eprintln!("[start_scan] Called with scan_id {}, folder: {}", scan_id, folder_path);
-    
     {
         let mut running = scan_state.running.lock().unwrap();
         let mut attempts = 0;
         while *running && attempts < 20 {
-            eprintln!("[start_scan] Waiting for previous scan to finish (attempt {})", attempts + 1);
             drop(running);
             std::thread::sleep(std::time::Duration::from_millis(50));
             running = scan_state.running.lock().unwrap();
@@ -142,7 +139,6 @@ fn start_scan(
             return Err("A scan is already in progress and could not be stopped".into());
         }
         *running = true;
-        eprintln!("[start_scan] Set running=true for scan_id {}", scan_id);
     }
 
     let cancellation_flag = Arc::new(AtomicBool::new(false));
@@ -370,18 +366,14 @@ fn start_scan(
         let flush_handle = std::thread::spawn(move || {
             let emit_interval = std::time::Duration::from_millis(500);
             
-            eprintln!("[flush_thread] Started for scan_id {}", scan_id);
-            
             loop {
                 std::thread::sleep(emit_interval);
                 
                 let mut queue = photo_queue_flush.lock().unwrap();
                 if !queue.is_empty() {
                     let batch = std::mem::take(&mut *queue);
-                    let batch_len = batch.len();
                     drop(queue); // Release lock before emitting
                     
-                    eprintln!("[flush_thread] Emitting {} photos for scan_id {}", batch_len, scan_id);
                     let _ = app_flush.emit("photo_found", PhotoFoundPayload { 
                         scan_id, 
                         photos: batch
@@ -394,15 +386,12 @@ fn start_scan(
                     let mut queue = photo_queue_flush.lock().unwrap();
                     if !queue.is_empty() {
                         let batch = std::mem::take(&mut *queue);
-                        let batch_len = batch.len();
                         drop(queue);
-                        eprintln!("[flush_thread] Final flush: emitting {} photos for scan_id {}", batch_len, scan_id);
                         let _ = app_flush.emit("photo_found", PhotoFoundPayload { 
                             scan_id, 
                             photos: batch
                         });
                     }
-                    eprintln!("[flush_thread] Exiting for scan_id {}", scan_id);
                     break;
                 }
             }

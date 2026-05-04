@@ -78,9 +78,7 @@ export default function App() {
         </>
       )}
 
-      {!checkingCli && state.kind === "loaded" && (() => {
-        console.log(`[App] Rendering loaded state with ${state.photos.length} photos`);
-        return (
+      {!checkingCli && state.kind === "loaded" && (
         <>
           <ErrorBanner errors={state.workerErrors} onDismiss={actions.dismissError} />
           <MenuBar
@@ -129,8 +127,7 @@ export default function App() {
             <StatusFooter message="Discovering files…" />
           )}
         </>
-        );
-      })()}
+      )}
     </div>
   );
 }
