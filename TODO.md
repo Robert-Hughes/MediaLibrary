@@ -26,6 +26,13 @@ Later
 =====
 
 
+* The gallery view that shows a single image should have a details pane on the right hand side which shows a big table of all the properties of the image, including
+all the Image metadata.
+* The details table in the gallery view should have a search feature (to search both keys and values)
+* The list view should have a search feature (to search the path, OS metadata and Image metadata for all the images, including the Image metadata not currently being shown)
+* When the list view is filtered via a search, the navigation in the gallery mode should sync with this (i.e. next/prev moves to the next/prev in the filtered search results)
+*
+
 
 * Writing metadata and Normalization
 We discussed why your workflow uses explicit tag names instead of generic shortcuts.

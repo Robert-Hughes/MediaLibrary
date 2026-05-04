@@ -112,7 +112,7 @@ fn read_os_metadata(path: &Path) -> (Option<i64>, Option<i64>) {
     (modified, created)
 }
 
-/// Read image metadata for a single file using ExifTool.
+/// Read image metadata for a batch of files using ExifTool.
 ///
 /// We use the following flags:
 ///  -a: Allow duplicate tag names (to see all occurrences)
@@ -121,42 +121,69 @@ fn read_os_metadata(path: &Path) -> (Option<i64>, Option<i64>) {
 ///  --system:all: Exclude OS-level system tags
 ///  --composite:all: Exclude tags calculated by ExifTool (to see only original data)
 ///  -j: Output in JSON format
-pub fn read_image_metadata(relative_path: &str, abs_path: &Path) -> ImageMetadata {
+pub fn read_image_metadata_batch(
+    rel_paths: &[String],
+    abs_paths: &[std::path::PathBuf],
+) -> Vec<ImageMetadata> {
+    if abs_paths.is_empty() {
+        return Vec::new();
+    }
+
     // TEMPORARY: simulate slow metadata reading for load testing.
     #[cfg(not(test))]
     if std::env::var("MEDIA_LIBRARY_SLOW_MODE").is_ok() {
         std::thread::sleep(std::time::Duration::from_millis(500));
     }
 
-    let output = Command::new("exiftool")
-        .arg("-a")
+    let mut cmd = Command::new("exiftool");
+    cmd.arg("-a")
         .arg("-G1")
         .arg("-s")
         .arg("--system:all")
         .arg("--composite:all")
-        .arg("-j")
-        .arg(abs_path)
-        .output();
+        .arg("-j");
 
-    let metadata = match output {
+    for path in abs_paths {
+        cmd.arg(path);
+    }
+
+    let output = cmd.output();
+
+    match output {
         Ok(out) if out.status.success() => {
             let json = String::from_utf8_lossy(&out.stdout);
-            parse_exiftool_json(&json)
+            parse_exiftool_batch_json(&json, rel_paths)
         }
-        _ => HashMap::new(),
-    };
-
-    ImageMetadata {
-        relative_path: relative_path.to_owned(),
-        metadata,
+        _ => rel_paths
+            .iter()
+            .map(|r| ImageMetadata {
+                relative_path: r.clone(),
+                metadata: HashMap::new(),
+            })
+            .collect(),
     }
 }
 
-fn parse_exiftool_json(json: &str) -> HashMap<String, Variant> {
+fn parse_exiftool_batch_json(json: &str, rel_paths: &[String]) -> Vec<ImageMetadata> {
     let list: Vec<HashMap<String, Variant>> = serde_json::from_str(json).unwrap_or_default();
-    let mut map = list.into_iter().next().unwrap_or_default();
-    map.remove("SourceFile");
-    map
+    
+    // ExifTool doesn't guarantee order in -j output necessarily, 
+    // and we need to map back to our relative_paths.
+    // However, SourceFile in the JSON will contain the absolute path.
+    
+    let mut results = Vec::with_capacity(rel_paths.len());
+    
+    for (i, mut map) in list.into_iter().enumerate() {
+        map.remove("SourceFile");
+        // We assume ExifTool output order matches input order for simple batching.
+        let rel_path = rel_paths.get(i).cloned().unwrap_or_default();
+        results.push(ImageMetadata {
+            relative_path: rel_path,
+            metadata: map,
+        });
+    }
+    
+    results
 }
 
 /// Generate a base64-encoded JPEG thumbnail for the image at `path`.
