@@ -23,6 +23,8 @@ describe("PhotoRow", () => {
         imageMetadata={metadata}
         visibleColumns={["ExifIFD:DateTimeOriginal", "IFD0:Model"]}
         visibleOSColumns={["date_modified", "date_created"]}
+        sortConfig={{ primary: null, secondary: null }}
+        onSortChange={() => {}}
         selectedIndex={null}
         onSelect={vi.fn()}
         onShowInExplorer={vi.fn()}

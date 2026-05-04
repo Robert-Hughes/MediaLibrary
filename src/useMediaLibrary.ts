@@ -9,6 +9,7 @@ import type {
   WorkerErrorPayload,
   PhotoInfo,
   Variant,
+  SortConfig,
 } from "./types";
 
 export interface TauriApi {
@@ -28,6 +29,7 @@ export interface MediaLibraryActions {
   navigateGallery: (delta: -1 | 1) => void;
   setVisibleColumns: (columns: string[]) => void;
   setVisibleOSColumns: (columns: string[]) => void;
+  setSortConfig: (config: SortConfig) => void;
   dismissError: (index: number) => void;
 }
 
@@ -193,6 +195,8 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
             selectedIndex: null,
             visibleColumns: DEFAULT_COLUMNS,
             visibleOSColumns: DEFAULT_OS_COLUMNS,
+            sortConfig: { primary: null, secondary: null },
+            metadataVersion: 0,
             workerErrors: [],
           };
         }
@@ -232,6 +236,14 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
 
       // Update progress store - this triggers updates only in components that subscribe to it
       metadataProgressStoreRef.current.incrementReceived(batch.length);
+
+      // Increment metadataVersion so that any active sort on image metadata fields
+      // causes the sortedPhotos useMemo to recompute.
+      setAppState((prev) => {
+        if (prev.kind !== "loaded") return prev;
+        if (!prev.sortConfig.primary || prev.sortConfig.primary.columnType !== "image") return prev;
+        return { ...prev, metadataVersion: prev.metadataVersion + 1 };
+      });
     };
 
     // Flush thumbnail batch - updates ThumbnailStore without triggering
@@ -319,6 +331,8 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
               selectedIndex: null,
               visibleColumns: DEFAULT_COLUMNS,
               visibleOSColumns: DEFAULT_OS_COLUMNS,
+              sortConfig: { primary: null, secondary: null },
+              metadataVersion: 0,
               workerErrors: [],
             };
           }
@@ -506,6 +520,12 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
     );
   }, []);
 
+  const setSortConfig = useCallback((config: SortConfig) => {
+    setAppState((prev) =>
+      prev.kind === "loaded" ? { ...prev, sortConfig: config } : prev
+    );
+  }, []);
+
   const dismissError = useCallback((index: number) => {
     setAppState((prev) => {
       if (prev.kind !== "loaded") return prev;
@@ -515,5 +535,5 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
     });
   }, []);
 
-  return [{ ...appState, recentFolders }, { openFolder, openRecent, closeFolder, prioritizeQueues, selectPhoto, showInExplorer, openGallery, closeGallery, navigateGallery, setVisibleColumns, setVisibleOSColumns, dismissError }];
+  return [{ ...appState, recentFolders }, { openFolder, openRecent, closeFolder, prioritizeQueues, selectPhoto, showInExplorer, openGallery, closeGallery, navigateGallery, setVisibleColumns, setVisibleOSColumns, setSortConfig, dismissError }];
 }

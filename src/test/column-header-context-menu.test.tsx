@@ -5,6 +5,11 @@ import { PhotoList } from "../components/PhotoList";
 import { ThumbnailStore, ImageMetadataStore } from "../types";
 import type { PhotoInfo } from "../types";
 
+const defaultSortProps = {
+  sortConfig: { primary: null, secondary: null } as const,
+  onSortChange: () => {},
+};
+
 describe("PhotoList column header context menu", () => {
   const mockPhotos: PhotoInfo[] = [
     {
@@ -17,7 +22,7 @@ describe("PhotoList column header context menu", () => {
 
   let thumbnailStore: ThumbnailStore;
   let metadataStore: ImageMetadataStore;
-  let onSelectColumnsMock: ReturnType<typeof vi.fn>;
+  let onSelectColumnsMock: () => void;
 
   beforeEach(() => {
     thumbnailStore = new ThumbnailStore();
@@ -38,6 +43,7 @@ describe("PhotoList column header context menu", () => {
         imageMetadata={metadataStore}
         visibleColumns={["ExifIFD:DateTimeOriginal"]}
         visibleOSColumns={["date_modified", "date_created"]}
+        {...defaultSortProps}
         selectedIndex={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
@@ -63,6 +69,7 @@ describe("PhotoList column header context menu", () => {
         imageMetadata={metadataStore}
         visibleColumns={["ExifIFD:DateTimeOriginal"]}
         visibleOSColumns={["date_modified", "date_created"]}
+        {...defaultSortProps}
         selectedIndex={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
@@ -91,6 +98,7 @@ describe("PhotoList column header context menu", () => {
         imageMetadata={metadataStore}
         visibleColumns={["ExifIFD:DateTimeOriginal", "IFD0:Model"]}
         visibleOSColumns={["date_modified", "date_created"]}
+        {...defaultSortProps}
         selectedIndex={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
@@ -122,6 +130,7 @@ describe("PhotoList column header context menu", () => {
         imageMetadata={metadataStore}
         visibleColumns={["ExifIFD:DateTimeOriginal"]}
         visibleOSColumns={["date_modified", "date_created"]}
+        {...defaultSortProps}
         selectedIndex={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}

@@ -100,7 +100,7 @@ describe("PhotoList interaction", () => {
     const thumbs = makeStore(photos);
     const imageMetadata = new ImageMetadataStore();
     photos.forEach((p) => imageMetadata.add(p.relative_path));
-    render(<PhotoList photos={photos} thumbnails={thumbs} imageMetadata={imageMetadata} visibleColumns={[]} visibleOSColumns={["date_modified", "date_created"]} selectedIndex={null} onSelect={onSelect} onShowInExplorer={() => {}} onVisibilityChange={() => {}} onPhotoOpen={onPhotoOpen} onSelectColumns={() => {}} />);
+    render(<PhotoList photos={photos} thumbnails={thumbs} imageMetadata={imageMetadata} visibleColumns={[]} visibleOSColumns={["date_modified", "date_created"]} sortConfig={{ primary: null, secondary: null }} onSortChange={() => {}} selectedIndex={null} onSelect={onSelect} onShowInExplorer={() => {}} onVisibilityChange={() => {}} onPhotoOpen={onPhotoOpen} onSelectColumns={() => {}} />);
   }
 
   it("calls onPhotoOpen with the correct index when a row is double-clicked", async () => {

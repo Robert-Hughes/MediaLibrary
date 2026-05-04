@@ -2,9 +2,10 @@ import { useEffect, useRef, useState, useCallback, memo } from "react";
 import { useSyncExternalStore } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ThumbnailStore, ImageMetadataStore } from "../types";
-import type { PhotoInfo, Variant } from "../types";
+import type { PhotoInfo, Variant, SortConfig } from "../types";
 import { Spinner } from "./Spinner";
 import { ContextMenu } from "./ContextMenu";
+import { nextSortConfig } from "../utils/sorting";
 
 interface Props {
   photos: PhotoInfo[];
@@ -12,6 +13,8 @@ interface Props {
   imageMetadata: ImageMetadataStore;
   visibleColumns: string[];
   visibleOSColumns: string[];
+  sortConfig: SortConfig;
+  onSortChange: (config: SortConfig) => void;
   selectedIndex: number | null;
   onSelect: (index: number | null) => void;
   onShowInExplorer: (index: number) => void;
@@ -37,8 +40,20 @@ function formatVariant(v: Variant | undefined): string {
 
 
 
-export function PhotoList({ 
+function SortIndicator({ column, sortConfig }: { column: string; sortConfig: SortConfig }) {
+  const { primary, secondary } = sortConfig;
+  if (primary?.column === column) {
+    return <span className="sort-indicator sort-indicator--primary">{primary.direction === "asc" ? " ▲" : " ▼"}</span>;
+  }
+  if (secondary?.column === column) {
+    return <span className="sort-indicator sort-indicator--secondary">{secondary.direction === "asc" ? " ▲" : " ▼"}</span>;
+  }
+  return null;
+}
+
+export function PhotoList({
   photos, thumbnails, imageMetadata, visibleColumns, visibleOSColumns,
+  sortConfig, onSortChange,
   selectedIndex, onSelect, onShowInExplorer, onVisibilityChange, onPhotoOpen, onSelectColumns
 }: Props) {
   const listRef = useRef<HTMLDivElement>(null);
@@ -152,6 +167,10 @@ export function PhotoList({
     }
   }, [onSelectColumns]);
 
+  const handleColumnClick = useCallback((column: string, columnType: "path" | "os" | "image") => {
+    onSortChange(nextSortConfig(sortConfig, column, columnType));
+  }, [onSortChange, sortConfig]);
+
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, index: number } | null>(null);
   const [columnContextMenu, setColumnContextMenu] = useState<{ x: number, y: number } | null>(null);
 
@@ -181,15 +200,15 @@ export function PhotoList({
           {/* Column header row */}
           {/* Thumbnail header is hidden by CSS since the group header spans both rows */}
           <div className="grid-header grid-cell-thumb" style={{ gridRow: 2, gridColumn: 1 }} />
-          <div className="grid-header" style={{ gridRow: 2, gridColumn: 2 }} onContextMenu={handleColumnContextMenu}>Path</div>
+          <div className="grid-header grid-header--sortable" style={{ gridRow: 2, gridColumn: 2 }} onContextMenu={handleColumnContextMenu} onClick={() => handleColumnClick("relative_path", "path")}>Path<SortIndicator column="relative_path" sortConfig={sortConfig} /></div>
           {visibleOSColumns.includes("date_modified") && (
-            <div className="grid-header" style={{ gridRow: 2, gridColumn: 3 }} onContextMenu={handleColumnContextMenu}>Modified</div>
+            <div className="grid-header grid-header--sortable" style={{ gridRow: 2, gridColumn: 3 }} onContextMenu={handleColumnContextMenu} onClick={() => handleColumnClick("date_modified", "os")}>Modified<SortIndicator column="date_modified" sortConfig={sortConfig} /></div>
           )}
           {visibleOSColumns.includes("date_created") && (
-            <div className="grid-header" style={{ gridRow: 2, gridColumn: visibleOSColumns.includes("date_modified") ? 4 : 3 }} onContextMenu={handleColumnContextMenu}>Created</div>
+            <div className="grid-header grid-header--sortable" style={{ gridRow: 2, gridColumn: visibleOSColumns.includes("date_modified") ? 4 : 3 }} onContextMenu={handleColumnContextMenu} onClick={() => handleColumnClick("date_created", "os")}>Created<SortIndicator column="date_created" sortConfig={sortConfig} /></div>
           )}
           {visibleColumns.map((col, index) => (
-            <div key={col} className="grid-header" style={{ gridRow: 2, gridColumn: 3 + osColumnCount + index }} onContextMenu={handleColumnContextMenu}>{col}</div>
+            <div key={col} className="grid-header grid-header--sortable" style={{ gridRow: 2, gridColumn: 3 + osColumnCount + index }} onContextMenu={handleColumnContextMenu} onClick={() => handleColumnClick(col, "image")}>{col}<SortIndicator column={col} sortConfig={sortConfig} /></div>
           ))}
           
           {/* Empty body area */}
@@ -241,15 +260,15 @@ export function PhotoList({
         {/* Column header row */}
         {/* Thumbnail header is hidden by CSS since the group header spans both rows */}
         <div className="grid-header grid-cell-thumb" style={{ gridRow: 2, gridColumn: 1 }} />
-        <div className="grid-header" style={{ gridRow: 2, gridColumn: 2 }} onContextMenu={handleColumnContextMenu}>Path</div>
+        <div className="grid-header grid-header--sortable" style={{ gridRow: 2, gridColumn: 2 }} onContextMenu={handleColumnContextMenu} onClick={() => handleColumnClick("relative_path", "path")}>Path<SortIndicator column="relative_path" sortConfig={sortConfig} /></div>
         {visibleOSColumns.includes("date_modified") && (
-          <div className="grid-header" style={{ gridRow: 2, gridColumn: 3 }} onContextMenu={handleColumnContextMenu}>Modified</div>
+          <div className="grid-header grid-header--sortable" style={{ gridRow: 2, gridColumn: 3 }} onContextMenu={handleColumnContextMenu} onClick={() => handleColumnClick("date_modified", "os")}>Modified<SortIndicator column="date_modified" sortConfig={sortConfig} /></div>
         )}
         {visibleOSColumns.includes("date_created") && (
-          <div className="grid-header" style={{ gridRow: 2, gridColumn: visibleOSColumns.includes("date_modified") ? 4 : 3 }} onContextMenu={handleColumnContextMenu}>Created</div>
+          <div className="grid-header grid-header--sortable" style={{ gridRow: 2, gridColumn: visibleOSColumns.includes("date_modified") ? 4 : 3 }} onContextMenu={handleColumnContextMenu} onClick={() => handleColumnClick("date_created", "os")}>Created<SortIndicator column="date_created" sortConfig={sortConfig} /></div>
         )}
         {visibleColumns.map((col, index) => (
-          <div key={col} className="grid-header" style={{ gridRow: 2, gridColumn: 3 + osColumnCount + index }} onContextMenu={handleColumnContextMenu}>{col}</div>
+          <div key={col} className="grid-header grid-header--sortable" style={{ gridRow: 2, gridColumn: 3 + osColumnCount + index }} onContextMenu={handleColumnContextMenu} onClick={() => handleColumnClick(col, "image")}>{col}<SortIndicator column={col} sortConfig={sortConfig} /></div>
         ))}
         
         {/* Virtual rows container */}

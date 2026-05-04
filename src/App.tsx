@@ -1,8 +1,9 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { useMediaLibrary, type TauriApi } from "./useMediaLibrary";
+import { useMediaLibrary, type TauriApi, type MediaLibraryActions } from "./useMediaLibrary";
 import { ThumbnailStore, ImageMetadataStore } from "./types";
+import type { AppState } from "./types";
 import { WelcomeScreen } from "./components/WelcomeScreen";
 import { MenuBar } from "./components/MenuBar";
 import { PhotoList } from "./components/PhotoList";
@@ -10,6 +11,7 @@ import { GalleryView } from "./components/GalleryView";
 import { StatusFooter } from "./components/StatusFooter";
 import { ColumnSelectionDialog } from "./components/ColumnSelectionDialog";
 import { ErrorBanner } from "./components/ErrorBanner";
+import { sortPhotos } from "./utils/sorting";
 import "./App.css";
 
 const tauriApi: TauriApi = {
@@ -22,6 +24,81 @@ async function loadImage(path: string): Promise<string | null> {
   catch { return null; }
 }
 
+// Separated component so useMemo can depend on loaded state without conditional hooks.
+type LoadedState = Extract<AppState, { kind: "loaded" }> & { recentFolders: string[] };
+
+function LoadedView({
+  state,
+  actions,
+  showColumnDialog,
+  setShowColumnDialog,
+}: {
+  state: LoadedState;
+  actions: MediaLibraryActions;
+  showColumnDialog: boolean;
+  setShowColumnDialog: (v: boolean) => void;
+}) {
+  const sortedPhotos = useMemo(
+    () => sortPhotos(state.photos, state.sortConfig, state.imageMetadata),
+    // metadataVersion is the invalidation signal for image-metadata sorts
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [state.photos, state.sortConfig, state.metadataVersion, state.imageMetadata],
+  );
+
+  return (
+    <>
+      <ErrorBanner errors={state.workerErrors} onDismiss={actions.dismissError} />
+      <MenuBar
+        photoCount={state.photos.length}
+        scanning={state.scanning}
+        metadataProgress={state.metadataProgress}
+        onOpenFolder={actions.openFolder}
+        onCloseFolder={actions.closeFolder}
+        onSelectColumns={() => setShowColumnDialog(true)}
+      />
+      <PhotoList
+        photos={sortedPhotos}
+        thumbnails={state.thumbnails}
+        imageMetadata={state.imageMetadata}
+        visibleColumns={state.visibleColumns}
+        visibleOSColumns={state.visibleOSColumns}
+        sortConfig={state.sortConfig}
+        onSortChange={actions.setSortConfig}
+        selectedIndex={state.selectedIndex}
+        onSelect={actions.selectPhoto}
+        onShowInExplorer={actions.showInExplorer}
+        onVisibilityChange={actions.prioritizeQueues}
+        onPhotoOpen={actions.openGallery}
+        onSelectColumns={() => setShowColumnDialog(true)}
+      />
+      {state.galleryIndex !== null && (
+        <GalleryView
+          photos={sortedPhotos}
+          currentIndex={state.galleryIndex}
+          folderPath={state.folder}
+          onClose={actions.closeGallery}
+          onNavigate={actions.navigateGallery}
+          loadImage={loadImage}
+        />
+      )}
+      {showColumnDialog && (
+        <ColumnSelectionDialog
+          allKeys={Array.from(state.imageMetadata.getKeyFrequency().entries()).map(([key, count]) => ({ key, count }))}
+          visibleColumns={state.visibleColumns}
+          visibleOSColumns={state.visibleOSColumns}
+          onSave={(cols, osCols) => {
+            actions.setVisibleColumns(cols);
+            actions.setVisibleOSColumns(osCols);
+            setShowColumnDialog(false);
+          }}
+          onClose={() => setShowColumnDialog(false)}
+        />
+      )}
+      {state.scanning && <StatusFooter message="Discovering files…" />}
+    </>
+  );
+}
+
 export default function App() {
   const [state, actions] = useMediaLibrary(tauriApi);
   const [showColumnDialog, setShowColumnDialog] = useState(false);
@@ -30,9 +107,9 @@ export default function App() {
 
   // Check for CLI folder argument on mount (before first render)
   useEffect(() => {
-    if (cliCheckedRef.current) return; // Already checked
+    if (cliCheckedRef.current) return;
     cliCheckedRef.current = true;
-    
+
     invoke<string | null>("get_cli_folder")
       .then((folder) => {
         setCliFolder(folder);
@@ -45,23 +122,20 @@ export default function App() {
         console.error("[App] Failed to get CLI folder:", err);
         setCliFolder(null);
       });
-  }, []); // Empty deps - only run once
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Don't render welcome screen until we've checked for CLI folder
-  // This prevents a flicker when opening via CLI argument
   const showWelcome = state.kind === "idle" && cliFolder !== undefined;
   const checkingCli = cliFolder === undefined;
 
   return (
     <div className="app">
       {checkingCli && (
-        // Show loading while checking for CLI folder argument
         <>
           <div style={{ flex: 1 }} />
           <StatusFooter message="Starting…" />
         </>
       )}
-      
+
       {!checkingCli && showWelcome && (
         <WelcomeScreen
           onOpenFolder={actions.openFolder}
@@ -71,8 +145,6 @@ export default function App() {
       )}
 
       {!checkingCli && state.kind === "loading" && (
-        // Show table headers immediately while waiting for the first photo.
-        // The footer below will show "Discovering files…".
         <>
           <MenuBar
             photoCount={0}
@@ -88,7 +160,7 @@ export default function App() {
             imageMetadata={new ImageMetadataStore()}
             visibleColumns={[
               "ExifIFD:DateTimeOriginal",
-              "XMP-dc:Description", 
+              "XMP-dc:Description",
               "XMP-dc:Subject",
               "GPS:GPSLatitude",
               "GPS:GPSLongitude",
@@ -98,6 +170,8 @@ export default function App() {
               "XMP-photoshop:Country",
             ]}
             visibleOSColumns={["date_modified", "date_created"]}
+            sortConfig={{ primary: null, secondary: null }}
+            onSortChange={() => {}}
             selectedIndex={null}
             onSelect={() => {}}
             onShowInExplorer={() => Promise.resolve()}
@@ -110,58 +184,12 @@ export default function App() {
       )}
 
       {!checkingCli && state.kind === "loaded" && (
-        <>
-          <ErrorBanner errors={state.workerErrors} onDismiss={actions.dismissError} />
-          <MenuBar
-            photoCount={state.photos.length}
-            scanning={state.scanning}
-            metadataProgress={state.metadataProgress}
-            onOpenFolder={actions.openFolder}
-            onCloseFolder={actions.closeFolder}
-            onSelectColumns={() => setShowColumnDialog(true)}
-          />
-          <PhotoList
-            photos={state.photos}
-            thumbnails={state.thumbnails}
-            imageMetadata={state.imageMetadata}
-            visibleColumns={state.visibleColumns}
-            visibleOSColumns={state.visibleOSColumns}
-            selectedIndex={state.selectedIndex}
-            onSelect={actions.selectPhoto}
-            onShowInExplorer={actions.showInExplorer}
-            onVisibilityChange={actions.prioritizeQueues}
-            onPhotoOpen={actions.openGallery}
-            onSelectColumns={() => setShowColumnDialog(true)}
-          />
-          {state.galleryIndex !== null && (
-            <GalleryView
-              photos={state.photos}
-              currentIndex={state.galleryIndex}
-              folderPath={state.folder}
-              onClose={actions.closeGallery}
-              onNavigate={actions.navigateGallery}
-              loadImage={loadImage}
-            />
-          )}
-
-          {showColumnDialog && (
-            <ColumnSelectionDialog
-              allKeys={Array.from(state.imageMetadata.getKeyFrequency().entries()).map(([key, count]) => ({ key, count }))}
-              visibleColumns={state.visibleColumns}
-              visibleOSColumns={state.visibleOSColumns}
-              onSave={(cols, osCols) => {
-                actions.setVisibleColumns(cols);
-                actions.setVisibleOSColumns(osCols);
-                setShowColumnDialog(false);
-              }}
-              onClose={() => setShowColumnDialog(false)}
-            />
-          )}
-          
-          {state.scanning && (
-            <StatusFooter message="Discovering files…" />
-          )}
-        </>
+        <LoadedView
+          state={state as LoadedState}
+          actions={actions}
+          showColumnDialog={showColumnDialog}
+          setShowColumnDialog={setShowColumnDialog}
+        />
       )}
     </div>
   );

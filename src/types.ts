@@ -163,6 +163,22 @@ export class MetadataProgressStore {
   }
 }
 
+// ── Sorting ───────────────────────────────────────────────────────────────────
+
+export type SortColumnType = "path" | "os" | "image";
+export type SortDirection = "asc" | "desc";
+
+export interface SortKey {
+  column: string;       // Column identifier (e.g. "relative_path", "date_modified", "ExifIFD:DateTimeOriginal")
+  columnType: SortColumnType;
+  direction: SortDirection;
+}
+
+export interface SortConfig {
+  primary: SortKey | null;
+  secondary: SortKey | null;
+}
+
 // ── App state ─────────────────────────────────────────────────────────────────
 
 export type AppState =
@@ -178,11 +194,15 @@ export type AppState =
       scanning: boolean;                // true while the directory walk is still running
       galleryIndex: number | null;
       selectedIndex: number | null;
-      
+
       // Dynamic columns configuration
       visibleColumns: string[];         // Keys of image metadata to show in columns
       visibleOSColumns: string[];       // OS metadata columns to show (date_modified, date_created)
-      
+
+      // Sorting
+      sortConfig: SortConfig;
+      metadataVersion: number;          // Incremented when a metadata batch lands; invalidates sort useMemo
+
       // Worker errors
       workerErrors: WorkerErrorPayload[];
     };
