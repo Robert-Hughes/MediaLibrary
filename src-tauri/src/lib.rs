@@ -177,6 +177,10 @@ fn start_scan(
             let root  = root_arc.clone();
             let cancelled = cancel_clone.clone();
             std::thread::spawn(move || {
+                let mut batch_results = Vec::new();
+                let mut last_emit = std::time::Instant::now();
+                let emit_interval = std::time::Duration::from_millis(500);
+                
                 while !cancelled.load(Ordering::Relaxed) {
                     let rel_paths = queue.pop_batch(20);
                     if rel_paths.is_empty() { break; }
@@ -187,11 +191,26 @@ fn start_scan(
 
                     let results = scanner::read_image_metadata_batch(&rel_paths, &abs_paths);
                     
-                    let batch_results = results.into_iter().map(|info| ImageMetadataResult {
-                        relative_path: info.relative_path,
-                        metadata: info.metadata,
-                    }).collect();
-
+                    for info in results {
+                        batch_results.push(ImageMetadataResult {
+                            relative_path: info.relative_path,
+                            metadata: info.metadata,
+                        });
+                    }
+                    
+                    // Emit batch if enough time has elapsed
+                    if last_emit.elapsed() >= emit_interval && !batch_results.is_empty() {
+                        let _ = app.emit("image_metadata_ready", ImageMetadataReadyPayload {
+                            scan_id,
+                            results: std::mem::take(&mut batch_results),
+                        });
+                        batch_results = Vec::new();
+                        last_emit = std::time::Instant::now();
+                    }
+                }
+                
+                // Emit any remaining results
+                if !batch_results.is_empty() {
                     let _ = app.emit("image_metadata_ready", ImageMetadataReadyPayload {
                         scan_id,
                         results: batch_results,
@@ -201,7 +220,7 @@ fn start_scan(
         }).collect();
 
         // ── Phase 3: thumbnail workers ────────────────────────────────────
-        // Batch thumbnails before emitting to reduce event overhead
+        // Batch thumbnails by time (emit every 500ms) to keep UI responsive
         let thumb_handles: Vec<_> = (0..num_workers).map(|_| {
             let queue = thumb_queue.clone();
             let app   = app_clone.clone();
@@ -209,7 +228,8 @@ fn start_scan(
             let cancelled = cancel_clone.clone();
             std::thread::spawn(move || {
                 let mut batch = Vec::with_capacity(50);
-                let batch_size = 50;
+                let mut last_emit = std::time::Instant::now();
+                let emit_interval = std::time::Duration::from_millis(500);
                 
                 loop {
                     if let Some(rel_path) = queue.pop() {
@@ -223,13 +243,14 @@ fn start_scan(
                             });
                         }
                         
-                        // Emit batch when full
-                        if batch.len() >= batch_size {
+                        // Emit batch if enough time has elapsed
+                        if last_emit.elapsed() >= emit_interval && !batch.is_empty() {
                             let _ = app.emit("thumbnail_ready", ThumbnailReadyPayload {
                                 scan_id,
                                 results: std::mem::take(&mut batch),
                             });
-                            batch = Vec::with_capacity(batch_size);
+                            batch = Vec::with_capacity(50);
+                            last_emit = std::time::Instant::now();
                         }
                     } else {
                         // Queue is finished - emit remaining items
