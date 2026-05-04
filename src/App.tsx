@@ -23,18 +23,22 @@ async function loadImage(path: string): Promise<string | null> {
 export default function App() {
   const [state, actions] = useMediaLibrary(tauriApi);
   const [showColumnDialog, setShowColumnDialog] = useState(false);
+  const [cliHandled, setCliHandled] = useState(false);
 
   // Check for CLI folder argument on mount
   useEffect(() => {
+    if (cliHandled) return;
+    
     invoke<string | null>("get_cli_folder").then((folder) => {
-      if (folder && state.kind === "idle") {
+      if (folder) {
         console.log("[App] Opening folder from CLI argument:", folder);
         actions.openRecent(folder);
+        setCliHandled(true);
       }
     }).catch((err) => {
       console.error("[App] Failed to get CLI folder:", err);
     });
-  }, []); // Only run once on mount
+  }, [cliHandled, actions]);
 
   // Show the footer whenever the directory walk is still running.
   const isDiscovering =
@@ -54,7 +58,10 @@ export default function App() {
       {state.kind === "loading" && (
         // Show an empty list shell while waiting for the first photo.
         // The footer below will show "Discovering files…".
-        <div style={{ flex: 1 }} />
+        <>
+          <div style={{ flex: 1 }} />
+          <StatusFooter message="Discovering files…" />
+        </>
       )}
 
       {state.kind === "loaded" && (
@@ -100,11 +107,11 @@ export default function App() {
               onClose={() => setShowColumnDialog(false)}
             />
           )}
+          
+          {state.scanning && (
+            <StatusFooter message="Discovering files…" />
+          )}
         </>
-      )}
-
-      {isDiscovering && (
-        <StatusFooter message="Discovering files…" />
       )}
     </div>
   );

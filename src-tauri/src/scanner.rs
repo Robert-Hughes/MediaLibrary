@@ -208,6 +208,10 @@ fn parse_exiftool_batch_json(
 }
 
 /// Generate a base64-encoded JPEG thumbnail for the image at `path`.
+/// 
+/// Strategy:
+/// 1. Try to extract embedded EXIF thumbnail (fast, ~1-5ms)
+/// 2. Fall back to full decode and resize (slow, ~100-500ms)
 pub fn thumbnail_for(path: &Path) -> Option<String> {
     // TEMPORARY: simulate slow thumbnail generation for load testing.
     #[cfg(not(test))]
@@ -215,12 +219,62 @@ pub fn thumbnail_for(path: &Path) -> Option<String> {
         std::thread::sleep(std::time::Duration::from_millis(1000));
     }
     
-    full_decode_thumbnail(path)
+    let start = std::time::Instant::now();
+    
+    // Try fast path: extract embedded thumbnail from EXIF
+    if let Some(thumb) = extract_exif_thumbnail(path) {
+        eprintln!("[thumbnail] EXIF fast path: {} ({:?})", path.file_name()?.to_string_lossy(), start.elapsed());
+        return Some(thumb);
+    }
+    
+    // Fall back to full decode
+    let result = full_decode_thumbnail(path);
+    eprintln!("[thumbnail] Full decode: {} ({:?})", path.file_name()?.to_string_lossy(), start.elapsed());
+    result
+}
+
+/// Try to extract an embedded EXIF thumbnail (very fast).
+fn extract_exif_thumbnail(path: &Path) -> Option<String> {
+    use std::process::Command;
+    
+    // Use exiftool to extract the embedded thumbnail
+    // -b: binary output
+    // -ThumbnailImage: extract the thumbnail
+    let output = Command::new("exiftool")
+        .arg("-b")
+        .arg("-ThumbnailImage")
+        .arg(path)
+        .output()
+        .ok()?;
+    
+    if output.status.success() && !output.stdout.is_empty() {
+        // Check if it's actually image data (starts with JPEG magic bytes)
+        if output.stdout.len() > 2 && output.stdout[0] == 0xFF && output.stdout[1] == 0xD8 {
+            // Resize the embedded thumbnail to our target size if needed
+            if let Ok(img) = image::load_from_memory(&output.stdout) {
+                // Only resize if it's significantly larger than our target
+                if img.width() > 160 || img.height() > 160 {
+                    let thumb = img.thumbnail(80, 80);
+                    let mut buf = Vec::new();
+                    thumb.write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Jpeg).ok()?;
+                    return Some(base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &buf));
+                } else {
+                    // Use the embedded thumbnail as-is
+                    return Some(base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &output.stdout));
+                }
+            }
+        }
+    }
+    
+    None
 }
 
 fn full_decode_thumbnail(path: &Path) -> Option<String> {
     let img = image::open(path).ok()?;
+    
+    // Use faster resize algorithm (Nearest is fastest, but Triangle is a good balance)
     let thumb = img.thumbnail(80, 80);
+    
     let mut buf = Vec::new();
     thumb.write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Jpeg).ok()?;
     Some(base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &buf))
