@@ -432,4 +432,112 @@ mod tests {
         assert!(q.is_empty());
         assert_eq!(q.pop(), None);
     }
+
+    // ── timeout-based flushing ────────────────────────────────────────────────
+
+    #[test]
+    fn pop_timeout_returns_timeout_when_queue_is_empty() {
+        let q = WorkQueue::new(vec![]);
+        let start = std::time::Instant::now();
+        let result = q.pop_timeout(std::time::Duration::from_millis(100));
+        let elapsed = start.elapsed();
+        
+        assert!(matches!(result, PopResult::Timeout));
+        assert!(elapsed >= std::time::Duration::from_millis(90)); // Allow some slack
+        assert!(elapsed < std::time::Duration::from_millis(200)); // But not too much
+    }
+
+    #[test]
+    fn pop_timeout_returns_item_immediately_when_available() {
+        let q = WorkQueue::new(vec!["a".into()]);
+        let start = std::time::Instant::now();
+        let result = q.pop_timeout(std::time::Duration::from_millis(100));
+        let elapsed = start.elapsed();
+        
+        assert!(matches!(result, PopResult::Items(_)));
+        assert!(elapsed < std::time::Duration::from_millis(50)); // Should be very fast
+    }
+
+    #[test]
+    fn pop_batch_timeout_flushes_partial_batch_on_timeout() {
+        let q = Arc::new(WorkQueue::new(vec![]));
+        
+        // Add a few items (less than a typical batch size)
+        q.push("a".into());
+        q.push("b".into());
+        q.push("c".into());
+        
+        // Request a large batch with timeout
+        let result = q.pop_batch_timeout(100, std::time::Duration::from_millis(50));
+        
+        // Should get the 3 items immediately (not wait for timeout since items are available)
+        match result {
+            PopResult::Items(items) => {
+                assert_eq!(items.len(), 3);
+                assert_eq!(items, vec!["a", "b", "c"]);
+            }
+            _ => panic!("Expected Items, got {:?}", result),
+        }
+    }
+
+    #[test]
+    fn pop_batch_timeout_returns_timeout_when_empty() {
+        let q = WorkQueue::new(vec![]);
+        let start = std::time::Instant::now();
+        let result = q.pop_batch_timeout(10, std::time::Duration::from_millis(100));
+        let elapsed = start.elapsed();
+        
+        assert!(matches!(result, PopResult::Timeout));
+        assert!(elapsed >= std::time::Duration::from_millis(90));
+    }
+
+    #[test]
+    fn timeout_allows_periodic_flushing_in_worker_pattern() {
+        // Simulate a worker that processes items and flushes periodically
+        let q = Arc::new(WorkQueue::new(vec![]));
+        let q_clone = q.clone();
+        
+        // Spawn a thread that adds items slowly
+        let producer = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            q_clone.push("item1".into());
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            q_clone.push("item2".into());
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            q_clone.finish();
+        });
+        
+        // Worker pattern: collect items and flush on timeout
+        let mut all_items = Vec::new();
+        let mut batch = Vec::new();
+        let flush_interval = std::time::Duration::from_millis(80);
+        
+        loop {
+            match q.pop_timeout(flush_interval) {
+                PopResult::Items(item) => {
+                    batch.push(item);
+                }
+                PopResult::Timeout => {
+                    // Flush on timeout
+                    if !batch.is_empty() {
+                        all_items.append(&mut batch);
+                    }
+                }
+                PopResult::Done => {
+                    // Final flush
+                    if !batch.is_empty() {
+                        all_items.append(&mut batch);
+                    }
+                    break;
+                }
+            }
+        }
+        
+        producer.join().unwrap();
+        
+        // Should have received both items
+        assert_eq!(all_items.len(), 2);
+        assert!(all_items.contains(&"item1".to_string()));
+        assert!(all_items.contains(&"item2".to_string()));
+    }
 }

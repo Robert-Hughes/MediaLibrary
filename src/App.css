@@ -478,6 +478,12 @@ body {
   vertical-align: middle;
 }
 
+.metadata-error {
+  color: #ff6b6b;
+  font-size: 14px;
+  cursor: help;
+}
+
 .photo-list-empty {
   display: flex;
   align-items: center;
