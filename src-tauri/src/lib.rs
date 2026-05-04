@@ -380,6 +380,8 @@ fn start_scan(
                         scan_id, 
                         photos: batch
                     });
+                } else {
+                    drop(queue); // Release lock even if queue is empty
                 }
                 
                 // Check if walk is complete
