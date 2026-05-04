@@ -23,31 +23,38 @@ async function loadImage(path: string): Promise<string | null> {
 export default function App() {
   const [state, actions] = useMediaLibrary(tauriApi);
   const [showColumnDialog, setShowColumnDialog] = useState(false);
-  const [cliHandled, setCliHandled] = useState(false);
+  const [cliFolder, setCliFolder] = useState<string | null | undefined>(undefined);
 
-  // Check for CLI folder argument on mount
+  // Check for CLI folder argument on mount (before first render)
   useEffect(() => {
-    if (cliHandled) return;
+    if (cliFolder !== undefined) return; // Already checked
     
-    invoke<string | null>("get_cli_folder").then((folder) => {
-      if (folder) {
-        console.log("[App] Opening folder from CLI argument:", folder);
-        actions.openRecent(folder);
-        setCliHandled(true);
-      }
-    }).catch((err) => {
-      console.error("[App] Failed to get CLI folder:", err);
-    });
-  }, [cliHandled, actions]);
+    invoke<string | null>("get_cli_folder")
+      .then((folder) => {
+        setCliFolder(folder);
+        if (folder) {
+          console.log("[App] Opening folder from CLI argument:", folder);
+          actions.openRecent(folder);
+        }
+      })
+      .catch((err) => {
+        console.error("[App] Failed to get CLI folder:", err);
+        setCliFolder(null);
+      });
+  }, [cliFolder, actions]);
 
   // Show the footer whenever the directory walk is still running.
   const isDiscovering =
     state.kind === "loading" ||
     (state.kind === "loaded" && state.scanning);
 
+  // Don't render welcome screen until we've checked for CLI folder
+  // This prevents a flicker when opening via CLI argument
+  const showWelcome = state.kind === "idle" && cliFolder !== undefined;
+
   return (
     <div className="app">
-      {state.kind === "idle" && (
+      {showWelcome && (
         <WelcomeScreen
           onOpenFolder={actions.openFolder}
           recentFolders={state.recentFolders}

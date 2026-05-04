@@ -18,6 +18,11 @@ Performance bug: The last few commits of this repo have been attempting to fix a
 
 Please start by giving me a review of how the code currently works and what batching/update mechanisms are in place, and what you would suggest to change.
 
+* Check - EXIF thumbnail extraction works, with good fallback to load and resize
+* Batch sizing is all done by wall clock time, and automatically flushes at the end of the loawding, and/or after a short timer expires
+* CLI folder load works (not blank screen)
+* Metadata not being shown in the list view any more, and the table layout looks broken with black background
+
 
 I'm concerned that the current code is very messy
 

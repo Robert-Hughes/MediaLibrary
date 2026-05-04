@@ -208,6 +208,10 @@ fn parse_exiftool_batch_json(
 }
 
 /// Generate a base64-encoded JPEG thumbnail for the image at `path`.
+/// 
+/// Strategy:
+/// 1. Try to extract embedded EXIF thumbnail (fast, ~10-50ms)
+/// 2. Fall back to full decode and resize (slow, ~100-500ms in release, 2-4s in debug)
 pub fn thumbnail_for(path: &Path) -> Option<String> {
     // TEMPORARY: simulate slow thumbnail generation for load testing.
     #[cfg(not(test))]
@@ -215,7 +219,97 @@ pub fn thumbnail_for(path: &Path) -> Option<String> {
         std::thread::sleep(std::time::Duration::from_millis(1000));
     }
     
+    // Try fast path: extract embedded thumbnail from EXIF
+    if let Some(thumb) = extract_exif_thumbnail(path) {
+        return Some(thumb);
+    }
+    
+    // Fall back to full decode
     full_decode_thumbnail(path)
+}
+
+/// Try to extract an embedded EXIF thumbnail (very fast).
+fn extract_exif_thumbnail(path: &Path) -> Option<String> {
+    use std::fs::File;
+    use std::io::{BufReader, Read};
+    
+    let file = File::open(path).ok()?;
+    let mut reader = BufReader::new(file);
+    
+    // Parse EXIF data
+    let exif_reader = exif::Reader::new();
+    let exif = match exif_reader.read_from_container(&mut reader) {
+        Ok(e) => e,
+        Err(_) => return None,
+    };
+    
+    // Look for thumbnail in EXIF data
+    let offset_field = exif.get_field(exif::Tag::JPEGInterchangeFormat, exif::In::THUMBNAIL)?;
+    let length_field = exif.get_field(exif::Tag::JPEGInterchangeFormatLength, exif::In::THUMBNAIL)?;
+    
+    if let (exif::Value::Long(offsets), exif::Value::Long(lengths)) = 
+        (&offset_field.value, &length_field.value) {
+        if let (Some(&offset), Some(&length)) = (offsets.first(), lengths.first()) {
+            // Re-open file to read the entire file and find TIFF header
+            let mut file = File::open(path).ok()?;
+            let mut file_data = Vec::new();
+            file.read_to_end(&mut file_data).ok()?;
+            
+            // Find the TIFF header in the JPEG file
+            // JPEG structure: FF D8 (SOI) ... FF E1 XX XX "Exif\0\0" [TIFF header starts here]
+            let tiff_offset = find_tiff_offset(&file_data)?;
+            
+            // The thumbnail offset is relative to the TIFF header
+            let absolute_offset = tiff_offset + offset as usize;
+            
+            if absolute_offset + length as usize > file_data.len() {
+                return None;
+            }
+            
+            let thumbnail_bytes = &file_data[absolute_offset..absolute_offset + length as usize];
+            
+            // Check if it's a valid JPEG (starts with 0xFF 0xD8)
+            if thumbnail_bytes.len() > 2 && thumbnail_bytes[0] == 0xFF && thumbnail_bytes[1] == 0xD8 {
+                // Try to load and resize if needed
+                if let Ok(img) = image::load_from_memory(thumbnail_bytes) {
+                    // Only resize if significantly larger than target
+                    if img.width() > 160 || img.height() > 160 {
+                        let resized = img.thumbnail(80, 80);
+                        let mut buf = Vec::new();
+                        resized.write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Jpeg).ok()?;
+                        return Some(base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &buf));
+                    } else {
+                        // Use embedded thumbnail as-is
+                        return Some(base64::Engine::encode(&base64::engine::general_purpose::STANDARD, thumbnail_bytes));
+                    }
+                }
+            }
+        }
+    }
+    
+    None
+}
+
+/// Find the offset of the TIFF header within a JPEG file.
+/// JPEG structure: FF D8 (SOI) ... FF E1 XX XX "Exif\0\0" [TIFF header]
+fn find_tiff_offset(data: &[u8]) -> Option<usize> {
+    // Look for EXIF marker: FF E1
+    for i in 0..data.len().saturating_sub(10) {
+        if data[i] == 0xFF && data[i + 1] == 0xE1 {
+            // Check for "Exif\0\0" identifier
+            if i + 10 < data.len() 
+                && data[i + 4] == b'E'
+                && data[i + 5] == b'x'
+                && data[i + 6] == b'i'
+                && data[i + 7] == b'f'
+                && data[i + 8] == 0
+                && data[i + 9] == 0 {
+                // TIFF header starts right after "Exif\0\0"
+                return Some(i + 10);
+            }
+        }
+    }
+    None
 }
 
 fn full_decode_thumbnail(path: &Path) -> Option<String> {
@@ -337,5 +431,50 @@ mod tests {
         let result = thumbnail_for(&path);
         assert!(result.is_some());
         assert!(!result.unwrap().is_empty());
+    }
+    
+    #[test]
+    #[ignore] // Run manually with: cargo test check_real_image_for_exif_thumbnail -- --ignored --nocapture
+    fn check_real_image_for_exif_thumbnail() {
+        // Test with a real image to see if it has an embedded thumbnail
+        let path = std::path::Path::new("D:\\OneDrive\\Pictures\\2012\\IMAG0261.jpg");
+        if !path.exists() {
+            println!("Test image not found, skipping");
+            return;
+        }
+        
+        use std::fs::File;
+        use std::io::BufReader;
+        
+        let file = File::open(path).unwrap();
+        let mut reader = BufReader::new(file);
+        
+        let exif_reader = exif::Reader::new();
+        match exif_reader.read_from_container(&mut reader) {
+            Ok(exif) => {
+                println!("✓ EXIF data found");
+                
+                let offset = exif.get_field(exif::Tag::JPEGInterchangeFormat, exif::In::THUMBNAIL);
+                let length = exif.get_field(exif::Tag::JPEGInterchangeFormatLength, exif::In::THUMBNAIL);
+                
+                match (offset, length) {
+                    (Some(off), Some(len)) => {
+                        println!("✓ Thumbnail found!");
+                        println!("  Offset: {:?}", off.value);
+                        println!("  Length: {:?}", len.value);
+                    }
+                    _ => {
+                        println!("✗ No thumbnail in EXIF");
+                        println!("\nAll EXIF fields:");
+                        for field in exif.fields() {
+                            println!("  {:?} in {:?} = {:?}", field.tag, field.ifd_num, field.value);
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                println!("✗ Failed to read EXIF: {}", e);
+            }
+        }
     }
 }

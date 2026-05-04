@@ -27,6 +27,7 @@ walkdir = "2.5"
 image = { version = "0.24", default-features = false, features = ["jpeg", "png", "gif", "bmp", "webp", "tiff"] }
 base64 = "0.22"
 rayon = "1.10"
+kamadak-exif = "0.5"
 
 
 [dev-dependencies]
