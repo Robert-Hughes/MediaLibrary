@@ -224,6 +224,7 @@ const PhotoRow = memo(function PhotoRow({
   const src = hasSrc ? `data:image/jpeg;base64,${thumbnail}` : null;
 
   const metadataLoading = metadata === "loading";
+  const metadataFailed = metadata !== "loading" && typeof metadata === "object" && "_error" in metadata;
 
   const handleSelect = useCallback(() => onSelect(index), [onSelect, index]);
   const handleDoubleClick = useCallback(() => onPhotoOpen(index), [onPhotoOpen, index]);
@@ -266,6 +267,8 @@ const PhotoRow = memo(function PhotoRow({
         <td key={col} className="col-metadata">
           {metadataLoading ? (
             <Spinner className="cell-spinner" aria-label="Loading" data-testid="metadata-loading" />
+          ) : metadataFailed ? (
+            <span className="metadata-error" title="Failed to load metadata">✗</span>
           ) : (
             formatVariant(metadata[col])
           )}

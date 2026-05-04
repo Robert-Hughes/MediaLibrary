@@ -237,6 +237,7 @@ fn start_scan(
                         }
                         Err(error_msg) => {
                             eprintln!("[metadata] Error reading metadata: {}", error_msg);
+                            
                             // Emit error to UI
                             let _ = app.emit("worker_error", WorkerErrorPayload {
                                 scan_id,
@@ -245,8 +246,16 @@ fn start_scan(
                                 affected_files: rel_paths.clone(),
                             });
                             
-                            // Continue processing other files - don't let one error stop everything
-                            continue;
+                            // Send empty metadata for failed files so UI shows "failed" instead of spinner
+                            for rel_path in rel_paths {
+                                let mut error_metadata = std::collections::HashMap::new();
+                                error_metadata.insert("_error".to_string(), scanner::Variant::String("Failed to load metadata".to_string()));
+                                
+                                batch_results.push(ImageMetadataResult {
+                                    relative_path: rel_path,
+                                    metadata: error_metadata,
+                                });
+                            }
                         }
                     }
                     

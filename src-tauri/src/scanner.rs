@@ -461,8 +461,8 @@ mod tests {
         let dir = tempdir().unwrap();
         let path = dir.path().join("missing.jpg");
         let results = read_image_metadata_batch(&["missing.jpg".to_string()], &[path]);
-        assert_eq!(results.len(), 1);
-        assert!(results[0].metadata.is_empty());
+        // Should return an error for missing file
+        assert!(results.is_err() || results.unwrap().is_empty());
     }
 
     #[test]
@@ -499,13 +499,15 @@ mod tests {
     #[test]
     fn exif_thumbnail_is_extracted() {
         // Test with a checked-in sample image that has an embedded EXIF thumbnail
-        let path = std::path::Path::new("../test_images/real_with_exif.jpg");
+        // Path is relative to the workspace root (where Cargo.toml is located)
+        let workspace_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let path = workspace_root.join("test_images/real_with_exif.jpg");
+        
         if !path.exists() {
-            println!("Test image not found, skipping");
-            return;
+            panic!("Test image not found at {:?}. Please ensure test_images/real_with_exif.jpg exists in the repository.", path);
         }
         
-        let result = extract_exif_thumbnail(path);
+        let result = extract_exif_thumbnail(&path);
         assert!(result.is_some(), "Expected to extract an EXIF thumbnail from the sample image");
         assert!(!result.unwrap().is_empty());
     }
