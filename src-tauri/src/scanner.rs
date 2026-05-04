@@ -185,7 +185,7 @@ fn parse_exiftool_batch_json(
     let mut map_by_source = HashMap::new();
     for mut map in list {
         if let Some(Variant::String(source)) = map.remove("SourceFile") {
-            let normalized_source = source.replace('\\', "/");
+            let normalized_source = source.replace('\\', "/").to_lowercase();
             map_by_source.insert(normalized_source, map);
         }
     }
@@ -194,7 +194,7 @@ fn parse_exiftool_batch_json(
     
     for (i, rel_path) in rel_paths.iter().enumerate() {
         let abs_path = &abs_paths[i];
-        let normalized_abs = abs_path.to_string_lossy().replace('\\', "/");
+        let normalized_abs = abs_path.to_string_lossy().replace('\\', "/").to_lowercase();
         
         let metadata = map_by_source.remove(&normalized_abs).unwrap_or_default();
         
@@ -433,6 +433,13 @@ mod tests {
         assert!(!result.unwrap().is_empty());
     }
     
+    #[test]
+    fn parse_exiftool_json_test() {
+        let json = r#"[{"SourceFile": "D:/test.jpg", "Number": 13.5, "String": "Yes", "List": ["A"]}]"#;
+        let parsed: Result<Vec<std::collections::HashMap<String, Variant>>, _> = serde_json::from_str(json);
+        assert!(parsed.is_ok(), "Failed to parse json: {:?}", parsed.err());
+    }
+
     #[test]
     #[ignore] // Run manually with: cargo test check_real_image_for_exif_thumbnail -- --ignored --nocapture
     fn check_real_image_for_exif_thumbnail() {

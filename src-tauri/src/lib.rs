@@ -202,6 +202,10 @@ fn start_scan(
 
                     let results = scanner::read_image_metadata_batch(&rel_paths, &abs_paths);
                     
+                    eprintln!("[metadata] Read {} results, first has {} fields", 
+                        results.len(), 
+                        results.first().map(|r| r.metadata.len()).unwrap_or(0));
+                    
                     for info in results {
                         batch_results.push(ImageMetadataResult {
                             relative_path: info.relative_path,
@@ -211,6 +215,7 @@ fn start_scan(
                     
                     // Emit batch if enough time has elapsed
                     if last_emit.elapsed() >= emit_interval && !batch_results.is_empty() {
+                        eprintln!("[metadata] Emitting batch of {} results", batch_results.len());
                         let _ = app.emit("image_metadata_ready", ImageMetadataReadyPayload {
                             scan_id,
                             results: std::mem::take(&mut batch_results),
@@ -222,6 +227,7 @@ fn start_scan(
                 
                 // Emit any remaining results
                 if !batch_results.is_empty() {
+                    eprintln!("[metadata] Emitting final batch of {} results", batch_results.len());
                     let _ = app.emit("image_metadata_ready", ImageMetadataReadyPayload {
                         scan_id,
                         results: batch_results,
