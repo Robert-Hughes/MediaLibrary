@@ -173,9 +173,11 @@ export function PhotoList({
         >
           {/* Group header row */}
           <div className="grid-header-group grid-cell-thumb" style={{ gridRow: "1 / 3" }}>Preview</div>
-          <div className="grid-header-group" style={{ gridColumn: `span ${1 + osColumnCount}`, gridRow: 1 }}>OS Metadata</div>
-          <div className="grid-header-group" style={{ gridColumn: `span ${visibleColumns.length}`, gridRow: 1 }}>Image Metadata</div>
-          
+          <div className="grid-header-group" style={{ gridColumn: `span ${1 + osColumnCount}`, gridRow: 1 }} onContextMenu={handleColumnContextMenu}>OS Metadata</div>
+          {visibleColumns.length > 0 && (
+            <div className="grid-header-group" style={{ gridColumn: `span ${visibleColumns.length}`, gridRow: 1 }} onContextMenu={handleColumnContextMenu}>Image Metadata</div>
+          )}
+
           {/* Column header row */}
           {/* Thumbnail header is hidden by CSS since the group header spans both rows */}
           <div className="grid-header grid-cell-thumb" style={{ gridRow: 2, gridColumn: 1 }} />
@@ -231,9 +233,11 @@ export function PhotoList({
       >
         {/* Group header row */}
         <div className="grid-header-group grid-cell-thumb" style={{ gridRow: "1 / 3" }}>Preview</div>
-        <div className="grid-header-group" style={{ gridColumn: `span ${1 + osColumnCount}`, gridRow: 1 }}>OS Metadata</div>
-        <div className="grid-header-group" style={{ gridColumn: `span ${visibleColumns.length}`, gridRow: 1 }}>Image Metadata</div>
-        
+        <div className="grid-header-group" style={{ gridColumn: `span ${1 + osColumnCount}`, gridRow: 1 }} onContextMenu={handleColumnContextMenu}>OS Metadata</div>
+        {visibleColumns.length > 0 && (
+          <div className="grid-header-group" style={{ gridColumn: `span ${visibleColumns.length}`, gridRow: 1 }} onContextMenu={handleColumnContextMenu}>Image Metadata</div>
+        )}
+
         {/* Column header row */}
         {/* Thumbnail header is hidden by CSS since the group header spans both rows */}
         <div className="grid-header grid-cell-thumb" style={{ gridRow: 2, gridColumn: 1 }} />
