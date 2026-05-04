@@ -103,6 +103,7 @@ export default function App() {
             onShowInExplorer={() => Promise.resolve()}
             onVisibilityChange={() => {}}
             onPhotoOpen={() => {}}
+            onSelectColumns={() => setShowColumnDialog(true)}
           />
           <StatusFooter message="Discovering files…" />
         </>
@@ -130,6 +131,7 @@ export default function App() {
             onShowInExplorer={actions.showInExplorer}
             onVisibilityChange={actions.prioritizeQueues}
             onPhotoOpen={actions.openGallery}
+            onSelectColumns={() => setShowColumnDialog(true)}
           />
           {state.galleryIndex !== null && (
             <GalleryView

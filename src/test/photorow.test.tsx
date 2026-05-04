@@ -28,6 +28,7 @@ describe("PhotoRow", () => {
         onShowInExplorer={vi.fn()}
         onVisibilityChange={vi.fn()}
         onPhotoOpen={vi.fn()}
+        onSelectColumns={vi.fn()}
       />
     );
   });

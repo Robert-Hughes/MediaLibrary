@@ -55,6 +55,7 @@ describe("PhotoList prioritization optimization", () => {
         onShowInExplorer={() => {}}
         onVisibilityChange={onVisibilityChangeMock}
         onPhotoOpen={() => {}}
+        onSelectColumns={() => {}}
       />
     );
 
@@ -81,6 +82,7 @@ describe("PhotoList prioritization optimization", () => {
         onShowInExplorer={() => {}}
         onVisibilityChange={onVisibilityChangeMock}
         onPhotoOpen={() => {}}
+        onSelectColumns={() => {}}
       />
     );
 
@@ -110,6 +112,7 @@ describe("PhotoList prioritization optimization", () => {
         onShowInExplorer={() => {}}
         onVisibilityChange={onVisibilityChangeMock}
         onPhotoOpen={() => {}}
+        onSelectColumns={() => {}}
       />
     );
 
@@ -136,6 +139,7 @@ describe("PhotoList prioritization optimization", () => {
         onShowInExplorer={() => {}}
         onVisibilityChange={onVisibilityChangeMock}
         onPhotoOpen={() => {}}
+        onSelectColumns={() => {}}
       />
     );
 
@@ -162,6 +166,7 @@ describe("PhotoList prioritization optimization", () => {
         onShowInExplorer={() => {}}
         onVisibilityChange={onVisibilityChangeMock}
         onPhotoOpen={() => {}}
+        onSelectColumns={() => {}}
       />
     );
 

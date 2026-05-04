@@ -17,6 +17,7 @@ interface Props {
   onShowInExplorer: (index: number) => void;
   onVisibilityChange: (visiblePaths: string[]) => void;
   onPhotoOpen: (index: number) => void;
+  onSelectColumns?: () => void;
 }
 
 function formatDate(ts: number | null): string {
@@ -38,7 +39,7 @@ function formatVariant(v: Variant | undefined): string {
 
 export function PhotoList({ 
   photos, thumbnails, imageMetadata, visibleColumns, visibleOSColumns,
-  selectedIndex, onSelect, onShowInExplorer, onVisibilityChange, onPhotoOpen 
+  selectedIndex, onSelect, onShowInExplorer, onVisibilityChange, onPhotoOpen, onSelectColumns
 }: Props) {
   const listRef = useRef<HTMLDivElement>(null);
   const visibleRef = useRef<Set<string>>(new Set());
@@ -144,7 +145,15 @@ export function PhotoList({
     setContextMenu({ x: e.clientX, y: e.clientY, index });
   }, [onSelect]);
 
+  const handleColumnContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    if (onSelectColumns) {
+      setColumnContextMenu({ x: e.clientX, y: e.clientY });
+    }
+  }, [onSelectColumns]);
+
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, index: number } | null>(null);
+  const [columnContextMenu, setColumnContextMenu] = useState<{ x: number, y: number } | null>(null);
 
   if (photos.length === 0) {
     // Show headers even when no photos are loaded yet
@@ -152,7 +161,7 @@ export function PhotoList({
     const gridColumns = `52px minmax(200px, 2fr) ${visibleOSColumns.map(() => 'minmax(120px, 1fr)').join(' ')} ${visibleColumns.map(() => 'minmax(150px, 1fr)').join(' ')}`;
     
     return (
-      <div className="photo-table-wrapper" ref={listRef} onClick={() => setContextMenu(null)}>
+      <div className="photo-table-wrapper" ref={listRef} onClick={() => { setContextMenu(null); setColumnContextMenu(null); }}>
         <div 
           className="photo-grid" 
           data-testid="photo-list-empty" 
@@ -170,15 +179,15 @@ export function PhotoList({
           {/* Column header row */}
           {/* Thumbnail header is hidden by CSS since the group header spans both rows */}
           <div className="grid-header grid-cell-thumb" style={{ gridRow: 2, gridColumn: 1 }} />
-          <div className="grid-header" style={{ gridRow: 2, gridColumn: 2 }}>Path</div>
+          <div className="grid-header" style={{ gridRow: 2, gridColumn: 2 }} onContextMenu={handleColumnContextMenu}>Path</div>
           {visibleOSColumns.includes("date_modified") && (
-            <div className="grid-header" style={{ gridRow: 2, gridColumn: 3 }}>Modified</div>
+            <div className="grid-header" style={{ gridRow: 2, gridColumn: 3 }} onContextMenu={handleColumnContextMenu}>Modified</div>
           )}
           {visibleOSColumns.includes("date_created") && (
-            <div className="grid-header" style={{ gridRow: 2, gridColumn: visibleOSColumns.includes("date_modified") ? 4 : 3 }}>Created</div>
+            <div className="grid-header" style={{ gridRow: 2, gridColumn: visibleOSColumns.includes("date_modified") ? 4 : 3 }} onContextMenu={handleColumnContextMenu}>Created</div>
           )}
           {visibleColumns.map((col, index) => (
-            <div key={col} className="grid-header" style={{ gridRow: 2, gridColumn: 3 + osColumnCount + index }}>{col}</div>
+            <div key={col} className="grid-header" style={{ gridRow: 2, gridColumn: 3 + osColumnCount + index }} onContextMenu={handleColumnContextMenu}>{col}</div>
           ))}
           
           {/* Empty body area */}
@@ -210,7 +219,7 @@ export function PhotoList({
   const gridColumns = `52px minmax(200px, 2fr) ${visibleOSColumns.map(() => 'minmax(120px, 1fr)').join(' ')} ${visibleColumns.map(() => 'minmax(150px, 1fr)').join(' ')}`;
 
   return (
-    <div className="photo-table-wrapper" ref={listRef} onClick={() => setContextMenu(null)}>
+    <div className="photo-table-wrapper" ref={listRef} onClick={() => { setContextMenu(null); setColumnContextMenu(null); }}>
       <div 
         className="photo-grid" 
         data-testid="photo-list" 
@@ -228,15 +237,15 @@ export function PhotoList({
         {/* Column header row */}
         {/* Thumbnail header is hidden by CSS since the group header spans both rows */}
         <div className="grid-header grid-cell-thumb" style={{ gridRow: 2, gridColumn: 1 }} />
-        <div className="grid-header" style={{ gridRow: 2, gridColumn: 2 }}>Path</div>
+        <div className="grid-header" style={{ gridRow: 2, gridColumn: 2 }} onContextMenu={handleColumnContextMenu}>Path</div>
         {visibleOSColumns.includes("date_modified") && (
-          <div className="grid-header" style={{ gridRow: 2, gridColumn: 3 }}>Modified</div>
+          <div className="grid-header" style={{ gridRow: 2, gridColumn: 3 }} onContextMenu={handleColumnContextMenu}>Modified</div>
         )}
         {visibleOSColumns.includes("date_created") && (
-          <div className="grid-header" style={{ gridRow: 2, gridColumn: visibleOSColumns.includes("date_modified") ? 4 : 3 }}>Created</div>
+          <div className="grid-header" style={{ gridRow: 2, gridColumn: visibleOSColumns.includes("date_modified") ? 4 : 3 }} onContextMenu={handleColumnContextMenu}>Created</div>
         )}
         {visibleColumns.map((col, index) => (
-          <div key={col} className="grid-header" style={{ gridRow: 2, gridColumn: 3 + osColumnCount + index }}>{col}</div>
+          <div key={col} className="grid-header" style={{ gridRow: 2, gridColumn: 3 + osColumnCount + index }} onContextMenu={handleColumnContextMenu}>{col}</div>
         ))}
         
         {/* Virtual rows container */}
@@ -281,6 +290,17 @@ export function PhotoList({
             { label: "Show in File Explorer", onClick: () => onShowInExplorer(contextMenu.index) },
           ]}
           onClose={() => setContextMenu(null)}
+        />
+      )}
+
+      {columnContextMenu && onSelectColumns && (
+        <ContextMenu
+          x={columnContextMenu.x}
+          y={columnContextMenu.y}
+          options={[
+            { label: "Select Columns...", onClick: () => { onSelectColumns(); setColumnContextMenu(null); } },
+          ]}
+          onClose={() => setColumnContextMenu(null)}
         />
       )}
     </div>
