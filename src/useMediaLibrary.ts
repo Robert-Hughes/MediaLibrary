@@ -48,6 +48,7 @@ const DEFAULT_COLUMNS = [
 export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: string[] }, MediaLibraryActions] {
   const [appState, setAppState] = useState<AppState>({ kind: "idle" });
   const [recentFolders, setRecentFolders] = useState<string[]>([]);
+  const listenersReadyRef = useRef(false);
 
   useEffect(() => {
     const saved = localStorage.getItem(RECENT_FOLDERS_KEY);
@@ -84,6 +85,21 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
   const isFirstThumbnailFlushRef = useRef<boolean>(true);
 
   const startScan = useCallback(async (folder: string) => {
+    // Wait for event listeners to be ready before starting scan
+    if (!listenersReadyRef.current) {
+      console.log('[startScan] Waiting for event listeners to be ready...');
+      // Wait up to 5 seconds for listeners to be ready
+      const startTime = Date.now();
+      while (!listenersReadyRef.current && Date.now() - startTime < 5000) {
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      if (!listenersReadyRef.current) {
+        console.error('[startScan] Timeout waiting for event listeners!');
+        return;
+      }
+      console.log('[startScan] Event listeners ready, proceeding with scan');
+    }
+    
     console.log(`[startScan] Starting scan for folder: ${folder}`);
     
     // Generate scan_id FIRST, before any cleanup, so we can accept events immediately
@@ -229,7 +245,11 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
       const unlistenFound = await api.listen("photo_found", (raw) => {
         if (cancelled) return;
         const { scan_id, photos } = raw as PhotoFoundPayload;
-        if (scan_id !== activeScanIdRef.current) return;
+        console.log(`[photo_found] Received ${photos.length} photos for scan_id ${scan_id}, current is ${activeScanIdRef.current}`);
+        if (scan_id !== activeScanIdRef.current) {
+          console.log(`[photo_found] Ignoring stale event from scan_id ${scan_id}, current is ${activeScanIdRef.current}`);
+          return;
+        }
 
         for (const photo of photos) {
           thumbnailStoreRef.current.add(photo.relative_path);
@@ -393,11 +413,13 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
       );
       
       console.log('[setup] All event listeners registered');
+      listenersReadyRef.current = true;
     };
 
     setup();
     return () => {
       cancelled = true;
+      listenersReadyRef.current = false;
       unlisteners.forEach((fn) => fn());
     };
   }, [api]);
