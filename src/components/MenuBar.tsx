@@ -1,16 +1,27 @@
+import { useSyncExternalStore } from "react";
 import { useSpinnerSync } from "../hooks/useSpinnerSync";
+import type { MetadataProgressStore } from "../types";
 
 interface Props {
   photoCount: number;
   scanning: boolean;
-  imageMetadataLoading: boolean;
+  metadataProgress: MetadataProgressStore | null;
   onOpenFolder: () => void;
   onCloseFolder: () => void;
   onSelectColumns: () => void;
 }
 
-export function MenuBar({ photoCount, scanning, imageMetadataLoading, onOpenFolder, onCloseFolder, onSelectColumns }: Props) {
+export function MenuBar({ photoCount, scanning, metadataProgress, onOpenFolder, onCloseFolder, onSelectColumns }: Props) {
   const spinRef = useSpinnerSync<HTMLSpanElement>();
+  
+  // Subscribe to metadata progress store
+  const metadataRemaining = useSyncExternalStore(
+    metadataProgress?.subscribe.bind(metadataProgress) ?? (() => () => {}),
+    metadataProgress?.getSnapshot().bind(metadataProgress) ?? (() => 0)
+  );
+  
+  const imageMetadataLoading = metadataRemaining > 0;
+  
   return (
     <div className="menu-bar" data-testid="menu-bar">
       <button className="menu-bar-btn" onClick={onOpenFolder} data-testid="menu-bar-open-btn">

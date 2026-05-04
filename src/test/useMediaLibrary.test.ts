@@ -68,10 +68,12 @@ describe("useMediaLibrary", () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(150); });
     
     act(() => { mock.emitImageMetadataReady("a.jpg", {}); });
-    await act(async () => { await vi.advanceTimersByTimeAsync(150); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(250); });
 
     const state = result.current[0];
-    if (state.kind === "loaded") expect(state.imageMetadataRemaining).toBe(1);
+    if (state.kind === "loaded") {
+      expect(state.metadataProgress.getRemaining()).toBe(1);
+    }
   });
 
   it("navigateGallery increments and decrements", async () => {

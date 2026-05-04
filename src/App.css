@@ -311,6 +311,7 @@ body {
   flex: 1;
   overflow-y: auto;
   overflow-x: auto;
+  position: relative;
 }
 
 .photo-table {
@@ -322,13 +323,17 @@ body {
 .photo-table thead th {
   position: sticky;
   top: 0;
-  z-index: 1;
+  z-index: 2;
   background: var(--surface);
 }
 
 /* The second row of headers needs a top offset to stay below the first row */
 .photo-table thead tr:nth-child(2) th {
   top: 24px; /* Approximate height of the first row */
+}
+
+.photo-table tbody {
+  position: relative;
 }
 
 .col-group-header {

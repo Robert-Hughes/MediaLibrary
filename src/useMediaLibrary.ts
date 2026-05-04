@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ThumbnailStore, ImageMetadataStore } from "./types";
+import { ThumbnailStore, ImageMetadataStore, MetadataProgressStore } from "./types";
 import type {
   AppState,
   PhotoFoundPayload,
@@ -7,6 +7,7 @@ import type {
   ThumbnailReadyPayload,
   ScanErrorPayload,
   PhotoInfo,
+  Variant,
 } from "./types";
 
 export interface TauriApi {
@@ -49,7 +50,7 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
 
   const thumbnailStoreRef           = useRef<ThumbnailStore>(new ThumbnailStore());
   const imageMetadataStoreRef       = useRef<ImageMetadataStore>(new ImageMetadataStore());
-  const imageMetadataReceivedRef    = useRef<number>(0);
+  const metadataProgressStoreRef    = useRef<MetadataProgressStore>(new MetadataProgressStore());
 
   // The scan_id of the most recently started scan. Events with a different
   // scan_id are stale (from a previous scan) and are discarded.
@@ -59,6 +60,16 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
   const photoBufferRef = useRef<PhotoInfo[]>([]);
   const batchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isFirstFlushRef = useRef<boolean>(true);
+
+  // Buffer for image_metadata_ready events to avoid excessive state updates.
+  const metadataBufferRef = useRef<{ relative_path: string; metadata: Record<string, Variant> }[]>([]);
+  const metadataBatchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isFirstMetadataFlushRef = useRef<boolean>(true);
+
+  // Buffer for thumbnail_ready events to avoid excessive state updates.
+  const thumbnailBufferRef = useRef<{ relative_path: string; thumbnail: string }[]>([]);
+  const thumbnailBatchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isFirstThumbnailFlushRef = useRef<boolean>(true);
 
   const startScan = useCallback(async (folder: string) => {
     // Stop any existing scan before starting a new one.
@@ -73,9 +84,25 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
       batchTimerRef.current = null;
     }
 
+    // Clear metadata buffers
+    metadataBufferRef.current = [];
+    isFirstMetadataFlushRef.current = true;
+    if (metadataBatchTimerRef.current) {
+      clearTimeout(metadataBatchTimerRef.current);
+      metadataBatchTimerRef.current = null;
+    }
+
+    // Clear thumbnail buffers
+    thumbnailBufferRef.current = [];
+    isFirstThumbnailFlushRef.current = true;
+    if (thumbnailBatchTimerRef.current) {
+      clearTimeout(thumbnailBatchTimerRef.current);
+      thumbnailBatchTimerRef.current = null;
+    }
+
     thumbnailStoreRef.current          = new ThumbnailStore();
     imageMetadataStoreRef.current      = new ImageMetadataStore();
-    imageMetadataReceivedRef.current   = 0;
+    metadataProgressStoreRef.current   = new MetadataProgressStore();
 
     // Generate scan_id synchronously so we don't miss early events from the backend.
     const scanId = Date.now();
@@ -109,14 +136,17 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
         if (prev.kind === "loading") {
           if (batch.length === 0) return prev;
           
+          // Update metadata progress store with new total
+          metadataProgressStoreRef.current.setTotal(batch.length);
+          
           return {
             kind: "loaded",
             folder: prev.folder,
             photos: batch,
             thumbnails: thumbnailStoreRef.current,
             imageMetadata: imageMetadataStoreRef.current,
+            metadataProgress: metadataProgressStoreRef.current,
             scanning: true,
-            imageMetadataRemaining: Math.max(0, batch.length - imageMetadataReceivedRef.current),
             galleryIndex: null,
             selectedIndex: null,
             visibleColumns: DEFAULT_COLUMNS,
@@ -125,20 +155,51 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
         
         if (prev.kind === "loaded") {
           const newPhotos = batch.length > 0 ? [...prev.photos, ...batch] : prev.photos;
-          const newRemaining = Math.max(0, newPhotos.length - imageMetadataReceivedRef.current);
           
-          if (batch.length === 0 && prev.imageMetadataRemaining === newRemaining) {
+          // Update metadata progress store with new total
+          if (batch.length > 0) {
+            metadataProgressStoreRef.current.setTotal(newPhotos.length);
+          }
+          
+          if (batch.length === 0) {
             return prev;
           }
           
           return {
             ...prev,
             photos: newPhotos,
-            imageMetadataRemaining: newRemaining,
           };
         }
         return prev;
       });
+    };
+
+    // Flush metadata batch - updates ImageMetadataStore and MetadataProgressStore
+    // without rebuilding the entire photos array
+    const flushMetadataBatch = () => {
+      const batch = [...metadataBufferRef.current];
+      metadataBufferRef.current = [];
+
+      if (batch.length === 0) return;
+
+      for (const res of batch) {
+        imageMetadataStoreRef.current.set(res.relative_path, res.metadata);
+      }
+
+      // Update progress store - this triggers updates only in components that subscribe to it
+      metadataProgressStoreRef.current.incrementReceived(batch.length);
+    };
+
+    // Flush thumbnail batch - updates ThumbnailStore without triggering
+    // unnecessary React state updates (the store handles per-row reactivity)
+    const flushThumbnailBatch = () => {
+      const batch = [...thumbnailBufferRef.current];
+      thumbnailBufferRef.current = [];
+
+      for (const res of batch) {
+        thumbnailStoreRef.current.set(res.relative_path, res.thumbnail);
+      }
+      // No React state update needed - useSyncExternalStore handles per-row updates
     };
 
     const setup = async () => {
@@ -176,11 +237,23 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
         const { scan_id } = raw as { scan_id: number };
         if (scan_id !== activeScanIdRef.current) return;
 
+        // Clear all batch timers and flush remaining batches
         if (batchTimerRef.current) {
           clearTimeout(batchTimerRef.current);
           batchTimerRef.current = null;
         }
+        if (metadataBatchTimerRef.current) {
+          clearTimeout(metadataBatchTimerRef.current);
+          metadataBatchTimerRef.current = null;
+        }
+        if (thumbnailBatchTimerRef.current) {
+          clearTimeout(thumbnailBatchTimerRef.current);
+          thumbnailBatchTimerRef.current = null;
+        }
+
         flushBatch();
+        flushMetadataBatch();
+        flushThumbnailBatch();
 
         setAppState((prev) => {
           if (prev.kind === "loaded") return { ...prev, scanning: false };
@@ -191,8 +264,8 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
               photos: [],
               thumbnails: thumbnailStoreRef.current,
               imageMetadata: imageMetadataStoreRef.current,
+              metadataProgress: metadataProgressStoreRef.current,
               scanning: false,
-              imageMetadataRemaining: 0,
               galleryIndex: null,
               selectedIndex: null,
               visibleColumns: DEFAULT_COLUMNS,
@@ -206,17 +279,26 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
         if (cancelled) return;
         const { scan_id, results } = raw as ImageMetadataReadyPayload;
         if (scan_id !== activeScanIdRef.current) return;
-        
-        for (const res of results) {
-          imageMetadataStoreRef.current.set(res.relative_path, res.metadata);
-          imageMetadataReceivedRef.current += 1;
-        }
-        
-        if (!batchTimerRef.current) {
-          batchTimerRef.current = setTimeout(() => {
-            batchTimerRef.current = null;
-            flushBatch(); 
-          }, 100);
+
+        // Buffer metadata events instead of processing individually
+        metadataBufferRef.current.push(...results);
+
+        const shouldFlushNow = isFirstMetadataFlushRef.current ||
+                             metadataBufferRef.current.length >= 50;
+
+        if (shouldFlushNow) {
+          isFirstMetadataFlushRef.current = false;
+          if (metadataBatchTimerRef.current) {
+            clearTimeout(metadataBatchTimerRef.current);
+            metadataBatchTimerRef.current = null;
+          }
+          flushMetadataBatch();
+        } else if (!metadataBatchTimerRef.current) {
+          // Use longer interval (200ms) to reduce update frequency
+          metadataBatchTimerRef.current = setTimeout(() => {
+            metadataBatchTimerRef.current = null;
+            flushMetadataBatch();
+          }, 200);
         }
       });
 
@@ -224,9 +306,26 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
         if (cancelled) return;
         const { scan_id, results } = raw as ThumbnailReadyPayload;
         if (scan_id !== activeScanIdRef.current) return;
-        
-        for (const res of results) {
-          thumbnailStoreRef.current.set(res.relative_path, res.thumbnail);
+
+        // Buffer thumbnail events instead of processing individually
+        thumbnailBufferRef.current.push(...results);
+
+        const shouldFlushNow = isFirstThumbnailFlushRef.current ||
+                             thumbnailBufferRef.current.length >= 50;
+
+        if (shouldFlushNow) {
+          isFirstThumbnailFlushRef.current = false;
+          if (thumbnailBatchTimerRef.current) {
+            clearTimeout(thumbnailBatchTimerRef.current);
+            thumbnailBatchTimerRef.current = null;
+          }
+          flushThumbnailBatch();
+        } else if (!thumbnailBatchTimerRef.current) {
+          // Use longer interval (200ms) to reduce update frequency
+          thumbnailBatchTimerRef.current = setTimeout(() => {
+            thumbnailBatchTimerRef.current = null;
+            flushThumbnailBatch();
+          }, 200);
         }
       });
 
