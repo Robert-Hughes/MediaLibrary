@@ -339,33 +339,66 @@ fn start_scan(
         }).collect();
 
         // ── Phase 1: streaming directory walk ─────────────────────────────
-        let app_walk = app_clone.clone();
-        let mut photo_batch = Vec::with_capacity(50);
-        let mut photo_count = 0;
-        let mut last_emit = std::time::Instant::now();
-        let emit_interval = std::time::Duration::from_millis(500);
+        // Run the directory walk in a separate thread so we can implement
+        // timeout-based flushing even when the walk is slow.
+        let photo_queue = Arc::new(Mutex::new(Vec::new()));
+        let photo_queue_clone = photo_queue.clone();
+        let walk_complete = Arc::new(AtomicBool::new(false));
+        let walk_complete_clone = walk_complete.clone();
+        let cancel_walk = cancel_clone.clone();
+        let image_metadata_queue_walk = image_metadata_queue.clone();
+        let thumb_queue_walk = thumb_queue.clone();
         
-        scanner::scan_folder(&root, cancel_clone, |photo| {
-            photo_count += 1;
-            image_metadata_queue.push(photo.relative_path.clone());
-            thumb_queue.push(photo.relative_path.clone());
+        let walk_handle = std::thread::spawn(move || {
+            scanner::scan_folder(&root, cancel_walk, |photo| {
+                image_metadata_queue_walk.push(photo.relative_path.clone());
+                thumb_queue_walk.push(photo.relative_path.clone());
+                photo_queue_clone.lock().unwrap().push(photo);
+            });
+            walk_complete_clone.store(true, Ordering::Relaxed);
+        });
+        
+        // Flush thread: periodically emit batches even if no new photos arrive
+        let photo_queue_flush = photo_queue.clone();
+        let app_flush = app_clone.clone();
+        let walk_complete_flush = walk_complete.clone();
+        let flush_handle = std::thread::spawn(move || {
+            let emit_interval = std::time::Duration::from_millis(500);
             
-            photo_batch.push(photo);
-            if last_emit.elapsed() >= emit_interval && !photo_batch.is_empty() {
-                let _ = app_walk.emit("photo_found", PhotoFoundPayload { 
-                    scan_id, 
-                    photos: std::mem::take(&mut photo_batch)
-                });
-                last_emit = std::time::Instant::now();
+            loop {
+                std::thread::sleep(emit_interval);
+                
+                let mut queue = photo_queue_flush.lock().unwrap();
+                if !queue.is_empty() {
+                    let batch = std::mem::take(&mut *queue);
+                    drop(queue); // Release lock before emitting
+                    
+                    let _ = app_flush.emit("photo_found", PhotoFoundPayload { 
+                        scan_id, 
+                        photos: batch
+                    });
+                }
+                
+                // Check if walk is complete
+                if walk_complete_flush.load(Ordering::Relaxed) {
+                    // One final flush
+                    let mut queue = photo_queue_flush.lock().unwrap();
+                    if !queue.is_empty() {
+                        let batch = std::mem::take(&mut *queue);
+                        drop(queue);
+                        let _ = app_flush.emit("photo_found", PhotoFoundPayload { 
+                            scan_id, 
+                            photos: batch
+                        });
+                    }
+                    break;
+                }
             }
         });
         
-        if !photo_batch.is_empty() {
-            let _ = app_walk.emit("photo_found", PhotoFoundPayload { 
-                scan_id, 
-                photos: photo_batch
-            });
-        }
+        // Wait for walk to complete
+        walk_handle.join().unwrap();
+        flush_handle.join().unwrap();
 
         let _ = app_clone.emit("scan_complete", ScanCompletePayload { scan_id });
 

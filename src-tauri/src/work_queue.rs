@@ -11,6 +11,7 @@ pub struct WorkQueue {
     inner: Arc<(Mutex<State>, Condvar)>,
 }
 
+#[derive(Debug)]
 pub enum PopResult<T> {
     Items(T),
     Timeout,
