@@ -1,7 +1,7 @@
 /**
  * Gallery view tests.
  */
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderHook, act } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -22,7 +22,6 @@ function makeStore(photos: PhotoInfo[]) {
 }
 
 const fakeLoad = async (_path: string) => "data:image/jpeg;base64,FAKE";
-const failLoad = async (_path: string): Promise<null> => null;
 
 describe("GalleryView", () => {
   it("renders the current photo path in the caption", () => {

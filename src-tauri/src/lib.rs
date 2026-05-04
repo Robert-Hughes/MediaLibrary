@@ -19,16 +19,14 @@ struct ActiveQueues {
     thumbnails:     Arc<Mutex<Option<Arc<ThumbnailQueue>>>>,
     image_metadata: Arc<Mutex<Option<Arc<ThumbnailQueue>>>>,
 }
-/// Monotonically increasing scan ID — incremented each time start_scan is called.
-struct ScanCounter(Mutex<u64>);
 
 // ── Event payloads ────────────────────────────────────────────────────────────
 
-/// Emitted once per file as the directory walk finds it.
+/// Emitted in batches as the directory walk finds files.
 #[derive(Clone, Serialize)]
 struct PhotoFoundPayload {
     scan_id: u64,
-    photo: scanner::PhotoInfo,
+    photos: Vec<scanner::PhotoInfo>,
 }
 
 /// Emitted when the directory walk is complete (no payload needed).
@@ -42,10 +40,15 @@ struct ScanErrorPayload {
     message: String,
 }
 
-/// Emitted per file when Image metadata (EXIF etc) has been read.
+/// Emitted when a batch of Image metadata (EXIF etc) has been read.
 #[derive(Clone, Serialize)]
 struct ImageMetadataReadyPayload {
     scan_id: u64,
+    results: Vec<ImageMetadataResult>,
+}
+
+#[derive(Clone, Serialize)]
+struct ImageMetadataResult {
     relative_path: String,
     metadata: std::collections::HashMap<String, scanner::Variant>,
 }
@@ -53,6 +56,11 @@ struct ImageMetadataReadyPayload {
 #[derive(Clone, Serialize)]
 struct ThumbnailReadyPayload {
     scan_id: u64,
+    results: Vec<ThumbnailResult>,
+}
+
+#[derive(Clone, Serialize)]
+struct ThumbnailResult {
     relative_path: String,
     thumbnail: String,
 }
@@ -86,12 +94,12 @@ async fn pick_folder(app: AppHandle) -> Option<String> {
 ///    Supports priority reordering via `prioritize_queues`.
 #[tauri::command]
 fn start_scan(
+    scan_id: u64,
     folder_path: String,
     app: AppHandle,
     scan_state: State<'_, ScanState>,
     active_queues: State<'_, ActiveQueues>,
-    scan_counter: State<'_, ScanCounter>,
-) -> Result<u64, String> {
+) -> Result<(), String> {
     {
         let mut running = scan_state.running.lock().unwrap();
         let mut attempts = 0;
@@ -106,12 +114,6 @@ fn start_scan(
         }
         *running = true;
     }
-
-    let scan_id = {
-        let mut counter = scan_counter.0.lock().unwrap();
-        *counter += 1;
-        *counter
-    };
 
     let cancellation_flag = Arc::new(AtomicBool::new(false));
     *scan_state.cancelled.lock().unwrap() = Some(cancellation_flag.clone());
@@ -180,13 +182,15 @@ fn start_scan(
 
                     let results = scanner::read_image_metadata_batch(&rel_paths, &abs_paths);
                     
-                    for info in results {
-                        let _ = app.emit("image_metadata_ready", ImageMetadataReadyPayload {
-                            scan_id,
-                            relative_path: info.relative_path,
-                            metadata:      info.metadata,
-                        });
-                    }
+                    let batch_results = results.into_iter().map(|info| ImageMetadataResult {
+                        relative_path: info.relative_path,
+                        metadata: info.metadata,
+                    }).collect();
+
+                    let _ = app.emit("image_metadata_ready", ImageMetadataReadyPayload {
+                        scan_id,
+                        results: batch_results,
+                    });
                 }
             })
         }).collect();
@@ -204,8 +208,10 @@ fn start_scan(
                     if let Some(thumbnail) = scanner::thumbnail_for(&abs) {
                         let _ = app.emit("thumbnail_ready", ThumbnailReadyPayload {
                             scan_id,
-                            relative_path: rel_path,
-                            thumbnail,
+                            results: vec![ThumbnailResult {
+                                relative_path: rel_path,
+                                thumbnail,
+                            }],
                         });
                     }
                 }
@@ -214,11 +220,27 @@ fn start_scan(
 
         // ── Phase 1: streaming directory walk ─────────────────────────────
         let app_walk = app_clone.clone();
+        let mut photo_batch = Vec::with_capacity(50);
+        
         scanner::scan_folder(&root, cancel_clone, |photo| {
             image_metadata_queue.push(photo.relative_path.clone());
             thumb_queue.push(photo.relative_path.clone());
-            let _ = app_walk.emit("photo_found", PhotoFoundPayload { scan_id, photo });
+            
+            photo_batch.push(photo);
+            if photo_batch.len() >= 50 {
+                let _ = app_walk.emit("photo_found", PhotoFoundPayload { 
+                    scan_id, 
+                    photos: std::mem::take(&mut photo_batch)
+                });
+            }
         });
+        
+        if !photo_batch.is_empty() {
+            let _ = app_walk.emit("photo_found", PhotoFoundPayload { 
+                scan_id, 
+                photos: photo_batch
+            });
+        }
 
         let _ = app_clone.emit("scan_complete", ScanCompletePayload { scan_id });
 
@@ -238,7 +260,7 @@ fn start_scan(
         clear_running(&app_clone);
     });
 
-    Ok(scan_id)
+    Ok(())
 }
 
 #[tauri::command]
@@ -365,7 +387,6 @@ pub fn run() {
             thumbnails:     Arc::new(Mutex::new(None)),
             image_metadata: Arc::new(Mutex::new(None)),
         })
-        .manage(ScanCounter(Mutex::new(0)))
         .invoke_handler(tauri::generate_handler![
             pick_folder,
             start_scan,

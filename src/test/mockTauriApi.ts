@@ -34,13 +34,13 @@ export function createMockTauriApi(): MockTauriApi {
     api: null as unknown as TauriApi,
     pickFolderResolves: (path) => { nextFolder = path; },
     emitPhotoFound: (photo, scanId) =>
-      emit("photo_found", { scan_id: scanId ?? mock.currentScanId, photo } satisfies PhotoFoundPayload),
+      emit("photo_found", { scan_id: scanId ?? mock.currentScanId, photos: [photo] } satisfies PhotoFoundPayload),
     emitScanComplete: (scanId) =>
       emit("scan_complete", { scan_id: scanId ?? mock.currentScanId }),
     emitImageMetadataReady: (relative_path, metadata, scanId) =>
-      emit("image_metadata_ready", { scan_id: scanId ?? mock.currentScanId, relative_path, metadata } satisfies ImageMetadataReadyPayload),
+      emit("image_metadata_ready", { scan_id: scanId ?? mock.currentScanId, results: [{ relative_path, metadata }] } satisfies ImageMetadataReadyPayload),
     emitThumbnailReady: (relative_path, thumbnail, scanId) =>
-      emit("thumbnail_ready", { scan_id: scanId ?? mock.currentScanId, relative_path, thumbnail } satisfies ThumbnailReadyPayload),
+      emit("thumbnail_ready", { scan_id: scanId ?? mock.currentScanId, results: [{ relative_path, thumbnail }] } satisfies ThumbnailReadyPayload),
     emitScanError: (message) =>
       emit("scan_error", { message } satisfies ScanErrorPayload),
     lastPrioritizedPaths: [],
@@ -54,9 +54,9 @@ export function createMockTauriApi(): MockTauriApi {
       mock.invocations.push({ cmd, args });
       if (cmd === "pick_folder") return nextFolder;
       if (cmd === "start_scan") {
-        // Increment scan ID and return it, matching the Rust backend behaviour.
-        mock.currentScanId += 1;
-        return mock.currentScanId;
+        // The frontend now generates the scanId and passes it in args
+        mock.currentScanId = (args?.scanId as number) ?? (mock.currentScanId + 1);
+        return;
       }
       if (cmd === "stop_scan") {
         return;
