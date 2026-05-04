@@ -9,7 +9,7 @@ PS D:\Programming\Media\MediaLibrary> npm run tauri dev -- "D:\OneDrive\Pictures
 > vite
 
 
-  VITE v7.3.2  ready in 366 ms
+  VITE v7.3.2  ready in 318 ms
 
   ➜  Local:   http://localhost:1420/
      Running DevCommand (`cargo  run D:\OneDrive\Pictures\2012 --no-default-features --color always --`)
@@ -17,7 +17,7 @@ PS D:\Programming\Media\MediaLibrary> npm run tauri dev -- "D:\OneDrive\Pictures
 warning: methods `pop` and `pop_batch` are never used
    --> src\work_queue.rs:65:12
     |
- 27 | impl WorkQueue {        
+ 27 | impl WorkQueue {
     | -------------- methods in this implementation
 ...
  65 |     pub fn pop(&self) -> Option<String> {
@@ -29,7 +29,7 @@ warning: methods `pop` and `pop_batch` are never used
     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
 
 warning: `medialibrary-tauri` (lib) generated 1 warning
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.69s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.66s
      Running `target\debug\medialibrary-tauri.exe D:\OneDrive\Pictures\2012 --no-default-features --color always --`
 [JS LOG] [setup] Setting up event listeners
 [JS LOG] [setup] Setting up event listeners
@@ -39,16 +39,16 @@ warning: `medialibrary-tauri` (lib) generated 1 warning
 [JS LOG] [setup] All event listeners registered
 [JS LOG] [startScan] Event listeners ready, proceeding with scan
 [JS LOG] [startScan] Starting scan for folder: D:\OneDrive\Pictures\2012
-[JS LOG] [startScan] Switched from scan_id -1 to 1777907939717
+[JS LOG] [startScan] Switched from scan_id -1 to 1777908052831
 [JS LOG] [startScan] Created new stores
 [exiftool] Reading metadata for 1 files
 [exiftool] First file: Some("D:\\OneDrive\\Pictures\\2012\\IMAG0261.jpg")
 [exiftool] Reading metadata for 1 files
 [exiftool] First file: Some("D:\\OneDrive\\Pictures\\2012\\IMAG0262.jpg")
+[JS LOG] [startScan] Backend scan started
 [exiftool] Reading metadata for 1 files
 [exiftool] First file: Some("D:\\OneDrive\\Pictures\\2012\\IMAG0266.jpg")
-[JS LOG] [startScan] Backend scan started
-[exiftool] Reading metadata for 5 files
+[exiftool] Reading metadata for 1 files
 [exiftool] First file: Some("D:\\OneDrive\\Pictures\\2012\\IMAG0267.jpg")
 [exiftool] Found at: C:\Users\xman2\AppData\Local\Programs\ExifTool\ExifTool.exe
 [exiftool] Using command: C:\Users\xman2\AppData\Local\Programs\ExifTool\ExifTool.exe
@@ -58,61 +58,24 @@ warning: `medialibrary-tauri` (lib) generated 1 warning
 [exiftool] Using command: C:\Users\xman2\AppData\Local\Programs\ExifTool\ExifTool.exe
 [exiftool] Found at: C:\Users\xman2\AppData\Local\Programs\ExifTool\ExifTool.exe
 [exiftool] Using command: C:\Users\xman2\AppData\Local\Programs\ExifTool\ExifTool.exe
-[JS LOG] [thumbnail] Received 4 thumbnail results for scan_id 1777907939717
-[JS LOG] [photo_found] Received 297 photos for scan_id 1777907939717, current is 1777907939717
+[JS LOG] [photo_found] Received 297 photos for scan_id 1777908052831, current is 1777908052831
 [JS LOG] [flushBatch] Flushing 297 photos
 [JS LOG] [flushBatch] Current state kind: loading, batch length: 297
 [JS LOG] [flushBatch] Transitioning from loading to loaded with 297 photos
 [JS LOG] [flushBatch] Current state kind: loading, batch length: 297
 [JS LOG] [flushBatch] Transitioning from loading to loaded with 297 photos
+[JS LOG] [App] Rendering loaded state with 297 photos
+[JS LOG] [App] Rendering loaded state with 297 photos
+[JS LOG] [PhotoList] Rendering with 297 photos
+[JS LOG] [PhotoList] Rendering with 297 photos
 [JS LOG] [PhotoList] Virtual items: 0, visible photos: 0
 [JS LOG] [PhotoList] Initial load: notifying about first 30 photos
 [JS LOG] [prioritizeQueues] Prioritizing 30 visible paths: IMAG0261.jpg,IMAG0262.jpg,IMAG0266.jpg,IMAG0267.jpg,IMAG0268.jpg
 [JS LOG] [PhotoList] Virtual items: 0, visible photos: 0
 [JS LOG] [PhotoList] Initial load: notifying about first 30 photos
 [JS LOG] [prioritizeQueues] Prioritizing 30 visible paths: IMAG0261.jpg,IMAG0262.jpg,IMAG0266.jpg,IMAG0267.jpg,IMAG0268.jpg
-[exiftool] Output length: 2709 bytes
-[exiftool] First 500 chars of output: [{
-  "SourceFile": "D:/OneDrive/Pictures/2012/IMAG0261.jpg",
-  "ExifTool:ExifToolVersion": 13.57,
-  "File:FileType": "JPEG",
-  "File:FileTypeExtension": "jpg",
-  "File:MIMEType": "image/jpeg",
-  "File:ExifByteOrder": "Big-endian (Motorola, MM)",
-  "File:CurrentIPTCDigest": "3b96934e3f2ce58758d80c3f6964315d",
-  "File:ImageWidth": 2321,
-  "File:ImageHeight": 1840,
-  "File:EncodingProcess": "Baseline DCT, Huffman coding",
-  "File:BitsPerSample": 8,
-  "File:ColorComponents": 3,
-  "File:
-[metadata] Read 1 results, first has 68 fields
-[metadata] Emitting batch of 1 results
-[exiftool] Reading metadata for 20 files
-[exiftool] First file: Some("D:\\OneDrive\\Pictures\\2012\\IMAG0273.jpg")
-[exiftool] Output length: 2709 bytes
-[exiftool] First 500 chars of output: [{
-  "SourceFile": "D:/OneDrive/Pictures/2012/IMAG0262.jpg",
-  "ExifTool:ExifToolVersion": 13.57,
-  "File:FileType": "JPEG",
-  "File:FileTypeExtension": "jpg",
-  "File:MIMEType": "image/jpeg",
-  "File:ExifByteOrder": "Big-endian (Motorola, MM)",
-  "File:CurrentIPTCDigest": "3b96934e3f2ce58758d80c3f6964315d",
-  "File:ImageWidth": 3264,
-  "File:ImageHeight": 1334,
-  "File:EncodingProcess": "Baseline DCT, Huffman coding",
-  "File:BitsPerSample": 8,
-  "File:ColorComponents": 3,
-  "File:
-[metadata] Read 1 results, first has 68 fields
-[metadata] Emitting batch of 1 results
-[exiftool] Reading metadata for 20 files
-[exiftool] First file: Some("D:\\OneDrive\\Pictures\\2012\\IMAG0319.jpg")
-[exiftool] Found at: C:\Users\xman2\AppData\Local\Programs\ExifTool\ExifTool.exe
-[exiftool] Using command: C:\Users\xman2\AppData\Local\Programs\ExifTool\ExifTool.exe
-[exiftool] Found at: C:\Users\xman2\AppData\Local\Programs\ExifTool\ExifTool.exe
-[exiftool] Using command: C:\Users\xman2\AppData\Local\Programs\ExifTool\ExifTool.exe
+[JS LOG] [PhotoList] Rendering with 297 photos
+[JS LOG] [PhotoList] Rendering with 297 photos
 [exiftool] Output length: 2456 bytes
 [exiftool] First 500 chars of output: [{
   "SourceFile": "D:/OneDrive/Pictures/2012/IMAG0266.jpg",
@@ -131,14 +94,32 @@ warning: `medialibrary-tauri` (lib) generated 1 warning
 [metadata] Read 1 results, first has 60 fields
 [metadata] Emitting batch of 1 results
 [exiftool] Reading metadata for 20 files
-[exiftool] First file: Some("D:\\OneDrive\\Pictures\\2012\\IMAG0359.jpg")
+[exiftool] First file: Some("D:\\OneDrive\\Pictures\\2012\\IMAG0268.jpg")
+[exiftool] Output length: 2709 bytes
+[exiftool] First 500 chars of output: [{
+  "SourceFile": "D:/OneDrive/Pictures/2012/IMAG0262.jpg",
+  "ExifTool:ExifToolVersion": 13.57,
+  "File:FileType": "JPEG",
+  "File:FileTypeExtension": "jpg",
+  "File:MIMEType": "image/jpeg",
+  "File:ExifByteOrder": "Big-endian (Motorola, MM)",
+  "File:CurrentIPTCDigest": "3b96934e3f2ce58758d80c3f6964315d",
+  "File:ImageWidth": 3264,
+  "File:ImageHeight": 1334,
+  "File:EncodingProcess": "Baseline DCT, Huffman coding",
+  "File:BitsPerSample": 8,
+  "File:ColorComponents": 3,
+  "File:
+[metadata] Read 1 results, first has 68 fields
+[metadata] Emitting batch of 1 results
+[exiftool] Reading metadata for 20 files
+[exiftool] First file: Some("D:\\OneDrive\\Pictures\\2012\\IMAG0313.jpg")
 [exiftool] Found at: C:\Users\xman2\AppData\Local\Programs\ExifTool\ExifTool.exe
 [exiftool] Using command: C:\Users\xman2\AppData\Local\Programs\ExifTool\ExifTool.exe
-[JS LOG] [PhotoList] Virtual items: 26, visible photos: 26
-[JS LOG] [PhotoList] Notifying visibility change: 26 visible photos
-[JS LOG] [prioritizeQueues] Prioritizing 26 visible paths: IMAG0261.jpg,IMAG0262.jpg,IMAG0266.jpg,IMAG0267.jpg,IMAG0268.jpg
-[JS LOG] [thumbnail] Received 4 thumbnail results for scan_id 1777907939717
-[exiftool] Output length: 12078 bytes
+[exiftool] Found at: C:\Users\xman2\AppData\Local\Programs\ExifTool\ExifTool.exe
+[exiftool] Using command: C:\Users\xman2\AppData\Local\Programs\ExifTool\ExifTool.exe
+[exiftool] Output length: 2425 bytes
+[exiftool] Output length: 2709 bytes
 [exiftool] First 500 chars of output: [{
   "SourceFile": "D:/OneDrive/Pictures/2012/IMAG0267.jpg",
   "ExifTool:ExifToolVersion": 13.57,
@@ -153,86 +134,157 @@ warning: `medialibrary-tauri` (lib) generated 1 warning
   "File:BitsPerSample": 8,
   "File:ColorComponents": 3,
   "File:
-[metadata] Read 5 results, first has 59 fields
-[metadata] Emitting batch of 5 results
-[exiftool] Reading metadata for 20 files
-[exiftool] First file: Some("D:\\OneDrive\\Pictures\\2012\\IMAG0394.jpg")
-[exiftool] Found at: C:\Users\xman2\AppData\Local\Programs\ExifTool\ExifTool.exe
-[exiftool] Using command: C:\Users\xman2\AppData\Local\Programs\ExifTool\ExifTool.exe
-[JS LOG] [thumbnail] Received 5 thumbnail results for scan_id 1777907939717
-[JS LOG] [thumbnail] Received 5 thumbnail results for scan_id 1777907939717
-[JS LOG] [thumbnail] Received 5 thumbnail results for scan_id 1777907939717
-[JS LOG] [flushBatch] Flushing 0 photos
-[JS LOG] [flushBatch] Current state kind: loaded, batch length: 0
-[JS LOG] [flushBatch] Current state kind: loaded, batch length: 0
-[JS LOG] [thumbnail] Received 7 thumbnail results for scan_id 1777907939717
-[JS LOG] [thumbnail] Received 4 thumbnail results for scan_id 1777907939717
-[JS LOG] [thumbnail] Received 4 thumbnail results for scan_id 1777907939717
-[JS LOG] [metadata] Received 1 metadata results for scan_id 1777907939717
-[JS LOG] [metadata] Received 1 metadata results for scan_id 1777907939717
-[JS LOG] [metadata] Received 1 metadata results for scan_id 1777907939717
-[JS LOG] [PhotoList] Virtual items: 27, visible photos: 27
-[JS LOG] [PhotoList] Notifying visibility change: 27 visible photos
-[JS LOG] [prioritizeQueues] Prioritizing 27 visible paths: IMAG0261.jpg,IMAG0262.jpg,IMAG0266.jpg,IMAG0267.jpg,IMAG0268.jpg
-[JS LOG] [thumbnail] Received 5 thumbnail results for scan_id 1777907939717
-[JS LOG] [thumbnail] Received 3 thumbnail results for scan_id 1777907939717
-[JS LOG] [thumbnail] Received 4 thumbnail results for scan_id 1777907939717
-[JS LOG] [thumbnail] Received 4 thumbnail results for scan_id 1777907939717
-[JS LOG] [thumbnail] Received 4 thumbnail results for scan_id 1777907939717
-[JS LOG] [thumbnail] Received 4 thumbnail results for scan_id 1777907939717
-[JS LOG] [thumbnail] Received 4 thumbnail results for scan_id 1777907939717
-[JS LOG] [metadata] Received 5 metadata results for scan_id 1777907939717
-[JS LOG] [thumbnail] Received 5 thumbnail results for scan_id 1777907939717
-[JS LOG] [thumbnail] Received 10 thumbnail results for scan_id 1777907939717
-[JS LOG] [thumbnail] Received 9 thumbnail results for scan_id 1777907939717
-[JS LOG] [thumbnail] Received 10 thumbnail results for scan_id 1777907939717
-[JS LOG] [thumbnail] Received 9 thumbnail results for scan_id 1777907939717
-[JS LOG] [thumbnail] Received 10 thumbnail results for scan_id 1777907939717
-[JS LOG] [thumbnail] Received 9 thumbnail results for scan_id 1777907939717
-[JS LOG] [thumbnail] Received 9 thumbnail results for scan_id 1777907939717
-[JS LOG] [thumbnail] Received 9 thumbnail results for scan_id 1777907939717
-[JS LOG] [thumbnail] Received 15 thumbnail results for scan_id 1777907939717
-[JS LOG] [thumbnail] Received 16 thumbnail results for scan_id 1777907939717
-[JS LOG] [thumbnail] Received 19 thumbnail results for scan_id 1777907939717
-[JS LOG] [thumbnail] Received 15 thumbnail results for scan_id 1777907939717
-[JS LOG] [thumbnail] Received 17 thumbnail results for scan_id 1777907939717
-[JS LOG] [thumbnail] Received 14 thumbnail results for scan_id 1777907939717
-[JS LOG] [thumbnail] Received 18 thumbnail results for scan_id 1777907939717
-[JS LOG] [thumbnail] Received 2 thumbnail results for scan_id 1777907939717
-[JS LOG] [thumbnail] Received 2 thumbnail results for scan_id 1777907939717
-[JS LOG] [thumbnail] Received 3 thumbnail results for scan_id 1777907939717
-[JS LOG] [thumbnail] Received 7 thumbnail results for scan_id 1777907939717
-[JS LOG] [thumbnail] Received 5 thumbnail results for scan_id 1777907939717
-[exiftool] Output length: 49640 bytes
 [exiftool] First 500 chars of output: [{
-  "SourceFile": "D:/OneDrive/Pictures/2012/IMAG0273.jpg",
+  "SourceFile": "D:/OneDrive/Pictures/2012/IMAG0261.jpg",
   "ExifTool:ExifToolVersion": 13.57,
   "File:FileType": "JPEG",
   "File:FileTypeExtension": "jpg",
   "File:MIMEType": "image/jpeg",
   "File:ExifByteOrder": "Big-endian (Motorola, MM)",
-  "File:CurrentIPTCDigest": "50430a091bf345b5db2068ccdf7ef016",
+  "File:CurrentIPTCDigest": "3b96934e3f2ce58758d80c3f6964315d",
+  "File:ImageWidth": 2321,
+  "File:ImageHeight": 1840,
+  "File:EncodingProcess": "Baseline DCT, Huffman coding",
+  "File:BitsPerSample": 8,
+  "File:ColorComponents": 3,
+  "File:
+[JS LOG] [PhotoList] Virtual items: 26, visible photos: 26
+[metadata] Read 1 results, first has 68 fields
+[metadata] Emitting batch of 1 results
+[JS LOG] [PhotoList] Notifying visibility change: 26 visible photos
+[metadata] Read 1 results, first has 59 fields
+[metadata] Emitting batch of 1 results
+[exiftool] Reading metadata for 20 files
+[exiftool] First file: Some("D:\\OneDrive\\Pictures\\2012\\IMAG0355.jpg")
+[JS LOG] [prioritizeQueues] Prioritizing 26 visible paths: IMAG0261.jpg,IMAG0262.jpg,IMAG0266.jpg,IMAG0267.jpg,IMAG0268.jpg
+[exiftool] Found at: C:\Users\xman2\AppData\Local\Programs\ExifTool\ExifTool.exe
+[exiftool] Using command: C:\Users\xman2\AppData\Local\Programs\ExifTool\ExifTool.exe
+[exiftool] Reading metadata for 20 files
+[exiftool] First file: Some("D:\\OneDrive\\Pictures\\2012\\IMAG0385.jpg")
+[exiftool] Found at: C:\Users\xman2\AppData\Local\Programs\ExifTool\ExifTool.exe
+[exiftool] Using command: C:\Users\xman2\AppData\Local\Programs\ExifTool\ExifTool.exe
+[JS LOG] [flushBatch] Flushing 0 photos
+[JS LOG] [flushBatch] Current state kind: loaded, batch length: 0
+[JS LOG] [thumbnail] Received 4 thumbnail results for scan_id 1777908052831
+[JS LOG] [flushBatch] Current state kind: loaded, batch length: 0
+[JS LOG] [App] Rendering loaded state with 297 photos
+[JS LOG] [App] Rendering loaded state with 297 photos
+[JS LOG] [PhotoList] Rendering with 297 photos
+[JS LOG] [PhotoList] Rendering with 297 photos
+[JS LOG] [thumbnail] Received 5 thumbnail results for scan_id 1777908052831
+[JS LOG] [thumbnail] Received 4 thumbnail results for scan_id 1777908052831
+[JS LOG] [thumbnail] Received 5 thumbnail results for scan_id 1777908052831
+[JS LOG] [thumbnail] Received 4 thumbnail results for scan_id 1777908052831
+[JS LOG] [thumbnail] Received 4 thumbnail results for scan_id 1777908052831
+[JS LOG] [thumbnail] Received 7 thumbnail results for scan_id 1777908052831
+[JS LOG] [thumbnail] Received 5 thumbnail results for scan_id 1777908052831
+[JS LOG] [metadata] Received 1 metadata results for scan_id 1777908052831
+[JS LOG] [metadata] Received 1 metadata results for scan_id 1777908052831
+[JS LOG] [metadata] Received 1 metadata results for scan_id 1777908052831
+[JS LOG] [metadata] Received 1 metadata results for scan_id 1777908052831
+[JS LOG] [PhotoList] Rendering with 297 photos
+[JS LOG] [PhotoList] Rendering with 297 photos
+[JS LOG] [PhotoList] Virtual items: 27, visible photos: 27
+[JS LOG] [PhotoList] Notifying visibility change: 27 visible photos
+[JS LOG] [prioritizeQueues] Prioritizing 27 visible paths: IMAG0261.jpg,IMAG0262.jpg,IMAG0266.jpg,IMAG0267.jpg,IMAG0268.jpg
+[JS LOG] [thumbnail] Received 4 thumbnail results for scan_id 1777908052831
+[JS LOG] [thumbnail] Received 4 thumbnail results for scan_id 1777908052831
+[JS LOG] [thumbnail] Received 4 thumbnail results for scan_id 1777908052831
+[JS LOG] [thumbnail] Received 4 thumbnail results for scan_id 1777908052831
+[JS LOG] [thumbnail] Received 5 thumbnail results for scan_id 1777908052831
+[JS LOG] [thumbnail] Received 4 thumbnail results for scan_id 1777908052831
+[JS LOG] [thumbnail] Received 3 thumbnail results for scan_id 1777908052831
+[JS LOG] [thumbnail] Received 3 thumbnail results for scan_id 1777908052831
+[JS LOG] [thumbnail] Received 13 thumbnail results for scan_id 1777908052831
+[JS LOG] [thumbnail] Received 12 thumbnail results for scan_id 1777908052831
+[JS LOG] [thumbnail] Received 14 thumbnail results for scan_id 1777908052831
+[JS LOG] [thumbnail] Received 14 thumbnail results for scan_id 1777908052831
+[JS LOG] [thumbnail] Received 12 thumbnail results for scan_id 1777908052831
+[JS LOG] [thumbnail] Received 17 thumbnail results for scan_id 1777908052831
+[JS LOG] [thumbnail] Received 12 thumbnail results for scan_id 1777908052831
+[JS LOG] [thumbnail] Received 16 thumbnail results for scan_id 1777908052831
+[exiftool] Output length: 49222 bytes
+[exiftool] First 500 chars of output: [{
+  "SourceFile": "D:/OneDrive/Pictures/2012/IMAG0268.jpg",
+  "ExifTool:ExifToolVersion": 13.57,
+  "File:FileType": "JPEG",
+  "File:FileTypeExtension": "jpg",
+  "File:MIMEType": "image/jpeg",
+  "File:ExifByteOrder": "Big-endian (Motorola, MM)",
+  "File:CurrentIPTCDigest": "115df09f0cc5d29875aaf253590c90a9",
   "File:ImageWidth": 3264,
   "File:ImageHeight": 1840,
   "File:EncodingProcess": "Baseline DCT, Huffman coding",
   "File:BitsPerSample": 8,
   "File:ColorComponents": 3,
   "File:
-[metadata] Read 20 results, first has 60 fields
+[metadata] Read 20 results, first has 59 fields
 [metadata] Emitting batch of 20 results
+[JS LOG] [thumbnail] Received 17 thumbnail results for scan_id 1777908052831
 [exiftool] Reading metadata for 20 files
-[exiftool] First file: Some("D:\\OneDrive\\Pictures\\2012\\IMG_0002.jpg")
+[exiftool] First file: Some("D:\\OneDrive\\Pictures\\2012\\IMAG0425.jpg")
 [exiftool] Found at: C:\Users\xman2\AppData\Local\Programs\ExifTool\ExifTool.exe
 [exiftool] Using command: C:\Users\xman2\AppData\Local\Programs\ExifTool\ExifTool.exe
-[exiftool] Output length: 47524 bytes
+[JS LOG] [metadata] Received 20 metadata results for scan_id 1777908052831
+[JS LOG] [thumbnail] Received 15 thumbnail results for scan_id 1777908052831
+[JS LOG] [thumbnail] Received 15 thumbnail results for scan_id 1777908052831
+[JS LOG] [thumbnail] Received 15 thumbnail results for scan_id 1777908052831
+[JS LOG] [thumbnail] Received 13 thumbnail results for scan_id 1777908052831
+[JS LOG] [thumbnail] Received 2 thumbnail results for scan_id 1777908052831
+[JS LOG] [thumbnail] Received 1 thumbnail results for scan_id 1777908052831
+[JS LOG] [thumbnail] Received 14 thumbnail results for scan_id 1777908052831
+[JS LOG] [thumbnail] Received 1 thumbnail results for scan_id 1777908052831
+[exiftool] Output length: 52420 bytes
 [exiftool] First 500 chars of output: [{
-  "SourceFile": "D:/OneDrive/Pictures/2012/IMAG0359.jpg",
+  "SourceFile": "D:/OneDrive/Pictures/2012/IMAG0313.jpg",
+  "ExifTool:ExifToolVersion": 13.57,
+  "ExifTool:Warning": "[minor] Fixed incorrect URI for xmlns:MicrosoftPhoto",
+  "File:FileType": "JPEG",
+  "File:FileTypeExtension": "jpg",
+  "File:MIMEType": "image/jpeg",
+  "File:ExifByteOrder": "Big-endian (Motorola, MM)",
+  "File:CurrentIPTCDigest": "79d88f567dcbce0c64ed4888cfefbdb6",
+  "File:ImageWidth": 3264,
+  "File:ImageHeight": 1840,
+  "File:EncodingProcess": "Baseline DCT, Huffm
+[metadata] Read 20 results, first has 58 fields
+[metadata] Emitting batch of 20 results
+[exiftool] Reading metadata for 20 files
+[exiftool] First file: Some("D:\\OneDrive\\Pictures\\2012\\IMG_0023.jpg")
+[exiftool] Found at: C:\Users\xman2\AppData\Local\Programs\ExifTool\ExifTool.exe
+[exiftool] Using command: C:\Users\xman2\AppData\Local\Programs\ExifTool\ExifTool.exe
+[exiftool] Output length: 48065 bytes
+[exiftool] First 500 chars of output: [{
+  "SourceFile": "D:/OneDrive/Pictures/2012/IMAG0355.jpg",
   "ExifTool:ExifToolVersion": 13.57,
   "File:FileType": "JPEG",
   "File:FileTypeExtension": "jpg",
   "File:MIMEType": "image/jpeg",
   "File:ExifByteOrder": "Big-endian (Motorola, MM)",
-  "File:CurrentIPTCDigest": "d0e2d96b9806b338de947ff80fc2d63f",
+  "File:CurrentIPTCDigest": "4fab4aeeefdbd5c47341ec9dbc5e0233",
+  "File:ImageWidth": 3248,
+  "File:ImageHeight": 1824,
+  "File:EncodingProcess": "Baseline DCT, Huffman coding",
+  "File:BitsPerSample": 8,
+  "File:ColorComponents": 3,
+  "File:
+[metadata] Read 20 results, first has 60 fields
+[metadata] Emitting batch of 20 results
+[JS LOG] [metadata] Received 20 metadata results for scan_id 1777908052831
+[exiftool] Reading metadata for 20 files
+[exiftool] First file: Some("D:\\OneDrive\\Pictures\\2012\\IMG_0044.jpg")
+[exiftool] Found at: C:\Users\xman2\AppData\Local\Programs\ExifTool\ExifTool.exe
+[exiftool] Using command: C:\Users\xman2\AppData\Local\Programs\ExifTool\ExifTool.exe
+[JS LOG] [metadata] Received 20 metadata results for scan_id 1777908052831
+[exiftool] Output length: 49439 bytes
+[exiftool] First 500 chars of output: [{
+  "SourceFile": "D:/OneDrive/Pictures/2012/IMAG0385.jpg",
+  "ExifTool:ExifToolVersion": 13.57,
+  "File:FileType": "JPEG",
+  "File:FileTypeExtension": "jpg",
+  "File:MIMEType": "image/jpeg",
+  "File:ExifByteOrder": "Big-endian (Motorola, MM)",
+  "File:CurrentIPTCDigest": "8bc41cb5f696b8c8deb02da907c3d6d7",
   "File:ImageWidth": 3264,
   "File:ImageHeight": 1840,
   "File:EncodingProcess": "Baseline DCT, Huffman coding",
@@ -242,160 +294,63 @@ warning: `medialibrary-tauri` (lib) generated 1 warning
 [metadata] Read 20 results, first has 56 fields
 [metadata] Emitting batch of 20 results
 [exiftool] Reading metadata for 20 files
-[exiftool] First file: Some("D:\\OneDrive\\Pictures\\2012\\IMG_0026.jpg")
+[exiftool] First file: Some("D:\\OneDrive\\Pictures\\2012\\IMG_0065.jpg")
 [exiftool] Found at: C:\Users\xman2\AppData\Local\Programs\ExifTool\ExifTool.exe
 [exiftool] Using command: C:\Users\xman2\AppData\Local\Programs\ExifTool\ExifTool.exe
-[JS LOG] [metadata] Received 20 metadata results for scan_id 1777907939717
-[JS LOG] [metadata] Received 20 metadata results for scan_id 1777907939717
-[exiftool] Output length: 52161 bytes
+[JS LOG] [metadata] Received 20 metadata results for scan_id 1777908052831
+[exiftool] Output length: 119740 bytes
 [exiftool] First 500 chars of output: [{
-  "SourceFile": "D:/OneDrive/Pictures/2012/IMAG0319.jpg",
+  "SourceFile": "D:/OneDrive/Pictures/2012/IMAG0425.jpg",
   "ExifTool:ExifToolVersion": 13.57,
-  "ExifTool:Warning": "[minor] Fixed incorrect URI for xmlns:MicrosoftPhoto",
   "File:FileType": "JPEG",
   "File:FileTypeExtension": "jpg",
   "File:MIMEType": "image/jpeg",
   "File:ExifByteOrder": "Big-endian (Motorola, MM)",
-  "File:CurrentIPTCDigest": "68c24f1a634330deb1961e945e2fce62",
+  "File:CurrentIPTCDigest": "aeaacc9850ed811280c528e8f4136baa",
   "File:ImageWidth": 1840,
   "File:ImageHeight": 3264,
-  "File:EncodingProcess": "Baseline DCT, Huffm
-[metadata] Read 20 results, first has 68 fields
-[metadata] Emitting batch of 20 results
-[exiftool] Reading metadata for 20 files
-[exiftool] First file: Some("D:\\OneDrive\\Pictures\\2012\\IMG_0048.jpg")
-[exiftool] Found at: C:\Users\xman2\AppData\Local\Programs\ExifTool\ExifTool.exe
-[exiftool] Using command: C:\Users\xman2\AppData\Local\Programs\ExifTool\ExifTool.exe
-[JS LOG] [metadata] Received 20 metadata results for scan_id 1777907939717
-[exiftool] Output length: 54923 bytes
-[exiftool] First 500 chars of output: [{
-  "SourceFile": "D:/OneDrive/Pictures/2012/IMAG0394.jpg",
-  "ExifTool:ExifToolVersion": 13.57,
-  "File:FileType": "JPEG",
-  "File:FileTypeExtension": "jpg",
-  "File:MIMEType": "image/jpeg",
-  "File:ExifByteOrder": "Big-endian (Motorola, MM)",
-  "File:CurrentIPTCDigest": "b025cf63b77d43b03b297148ad038e86",
-  "File:ImageWidth": 3264,
-  "File:ImageHeight": 1840,
   "File:EncodingProcess": "Baseline DCT, Huffman coding",
   "File:BitsPerSample": 8,
   "File:ColorComponents": 3,
   "File:
-[metadata] Read 20 results, first has 65 fields
+[metadata] Read 20 results, first has 64 fields
 [metadata] Emitting batch of 20 results
 [exiftool] Reading metadata for 20 files
-[exiftool] First file: Some("D:\\OneDrive\\Pictures\\2012\\IMG_0073.jpg")
+[exiftool] First file: Some("D:\\OneDrive\\Pictures\\2012\\IMG_0101.jpg")
 [exiftool] Found at: C:\Users\xman2\AppData\Local\Programs\ExifTool\ExifTool.exe
 [exiftool] Using command: C:\Users\xman2\AppData\Local\Programs\ExifTool\ExifTool.exe
-[JS LOG] [metadata] Received 20 metadata results for scan_id 1777907939717
-[exiftool] Output length: 124495 bytes
+[JS LOG] [metadata] Received 20 metadata results for scan_id 1777908052831
+[exiftool] Output length: 121503 bytes
 [exiftool] First 500 chars of output: [{
-  "SourceFile": "D:/OneDrive/Pictures/2012/IMG_0048.jpg",
+  "SourceFile": "D:/OneDrive/Pictures/2012/IMG_0044.jpg",
   "ExifTool:ExifToolVersion": 13.57,
   "File:FileType": "JPEG",
   "File:FileTypeExtension": "jpg",
   "File:MIMEType": "image/jpeg",
   "File:ExifByteOrder": "Big-endian (Motorola, MM)",
-  "File:CurrentIPTCDigest": "1f27769f21643db953dda8522593f137",
+  "File:CurrentIPTCDigest": "3080cc778e7304df6ad25edf5781c9df",
   "File:ImageWidth": 3000,
   "File:ImageHeight": 4000,
   "File:EncodingProcess": "Baseline DCT, Huffman coding",
   "File:BitsPerSample": 8,
   "File:ColorComponents": 3,
   "File:
-[metadata] Read 20 results, first has 91 fields
+[metadata] Read 20 results, first has 99 fields
 [metadata] Emitting batch of 20 results
 [exiftool] Reading metadata for 20 files
-[exiftool] First file: Some("D:\\OneDrive\\Pictures\\2012\\IMG_0126.jpg")
+[exiftool] First file: Some("D:\\OneDrive\\Pictures\\2012\\IMG_0173.jpg")
 [exiftool] Found at: C:\Users\xman2\AppData\Local\Programs\ExifTool\ExifTool.exe
 [exiftool] Using command: C:\Users\xman2\AppData\Local\Programs\ExifTool\ExifTool.exe
-[JS LOG] [metadata] Received 20 metadata results for scan_id 1777907939717
-[exiftool] Output length: 127018 bytes
+[JS LOG] [metadata] Received 20 metadata results for scan_id 1777908052831
+[exiftool] Output length: 126615 bytes
 [exiftool] First 500 chars of output: [{
-  "SourceFile": "D:/OneDrive/Pictures/2012/IMG_0026.jpg",
+  "SourceFile": "D:/OneDrive/Pictures/2012/IMG_0023.jpg",
   "ExifTool:ExifToolVersion": 13.57,
   "File:FileType": "JPEG",
   "File:FileTypeExtension": "jpg",
   "File:MIMEType": "image/jpeg",
   "File:ExifByteOrder": "Little-endian (Intel, II)",
-  "File:CurrentIPTCDigest": "446a55406774e1cae17a1f994f39d8d3",
-  "File:ImageWidth": 4000,
-  "File:ImageHeight": 3000,
-  "File:EncodingProcess": "Baseline DCT, Huffman coding",
-  "File:BitsPerSample": 8,
-  "File:ColorComponents": 3,
-  "File:
-[metadata] Read 20 results, first has 182 fields
-[metadata] Emitting batch of 20 results
-[exiftool] Reading metadata for 20 files
-[exiftool] First file: Some("D:\\OneDrive\\Pictures\\2012\\IMG_0182.jpg")
-[exiftool] Found at: C:\Users\xman2\AppData\Local\Programs\ExifTool\ExifTool.exe
-[exiftool] Using command: C:\Users\xman2\AppData\Local\Programs\ExifTool\ExifTool.exe
-[JS LOG] [metadata] Received 20 metadata results for scan_id 1777907939717
-[JS LOG] [startScan] Starting scan for folder: D:\OneDrive\Pictures\2010
-[JS LOG] [startScan] Switched from scan_id 1777907939717 to 1777907944814
-[JS LOG] [startScan] Created new stores
-[exiftool] Output length: 129027 bytes
-[exiftool] First 500 chars of output: [{
-  "SourceFile": "D:/OneDrive/Pictures/2012/IMG_0002.jpg",
-  "ExifTool:ExifToolVersion": 13.57,
-  "File:FileType": "JPEG",
-  "File:FileTypeExtension": "jpg",
-  "File:MIMEType": "image/jpeg",
-  "File:ExifByteOrder": "Little-endian (Intel, II)",
-  "File:CurrentIPTCDigest": "120d1a290fee7f398e296556efe84562",
-  "File:ImageWidth": 2778,
-  "File:ImageHeight": 2140,
-  "File:EncodingProcess": "Baseline DCT, Huffman coding",
-  "File:BitsPerSample": 8,
-  "File:ColorComponents": 3,
-  "File:
-[metadata] Read 20 results, first has 180 fields
-[metadata] Emitting batch of 20 results
-[exiftool] Output length: 123990 bytes
-[exiftool] First 500 chars of output: [{
-  "SourceFile": "D:/OneDrive/Pictures/2012/IMG_0073.jpg",
-  "ExifTool:ExifToolVersion": 13.57,
-  "File:FileType": "JPEG",
-  "File:FileTypeExtension": "jpg",
-  "File:MIMEType": "image/jpeg",
-  "File:ExifByteOrder": "Little-endian (Intel, II)",
-  "File:CurrentIPTCDigest": "03549fcbb18132b1635ef2ff6b4bd976",
-  "File:ImageWidth": 4000,
-  "File:ImageHeight": 3000,
-  "File:EncodingProcess": "Baseline DCT, Huffman coding",
-  "File:BitsPerSample": 8,
-  "File:ColorComponents": 3,
-  "File:
-[metadata] Read 20 results, first has 183 fields
-[metadata] Emitting batch of 20 results
-[exiftool] Output length: 136781 bytes
-[exiftool] First 500 chars of output: [{
-  "SourceFile": "D:/OneDrive/Pictures/2012/IMG_0126.jpg",
-  "ExifTool:ExifToolVersion": 13.57,
-  "File:FileType": "JPEG",
-  "File:FileTypeExtension": "jpg",
-  "File:MIMEType": "image/jpeg",
-  "File:ExifByteOrder": "Little-endian (Intel, II)",
-  "File:CurrentIPTCDigest": "ffaa6c94f7da95ee4bec10f214053678",
-  "File:ImageWidth": 4000,
-  "File:ImageHeight": 3000,
-  "File:EncodingProcess": "Baseline DCT, Huffman coding",
-  "File:BitsPerSample": 8,
-  "File:ColorComponents": 3,
-  "File:
-[metadata] Read 20 results, first has 175 fields
-[metadata] Emitting batch of 20 results
-[exiftool] Output length: 117912 bytes
-[exiftool] First 500 chars of output: [{
-  "SourceFile": "D:/OneDrive/Pictures/2012/IMG_0182.jpg",
-  "ExifTool:ExifToolVersion": 13.57,
-  "File:FileType": "JPEG",
-  "File:FileTypeExtension": "jpg",
-  "File:MIMEType": "image/jpeg",
-  "File:ExifByteOrder": "Little-endian (Intel, II)",
-  "File:CurrentIPTCDigest": "c0c0b27887aee052ed31545aa33c63f6",
+  "File:CurrentIPTCDigest": "f42cec376bf5fe671b29123534edfb09",
   "File:ImageWidth": 4000,
   "File:ImageHeight": 3000,
   "File:EncodingProcess": "Baseline DCT, Huffman coding",
@@ -404,11 +359,108 @@ warning: `medialibrary-tauri` (lib) generated 1 warning
   "File:
 [metadata] Read 20 results, first has 174 fields
 [metadata] Emitting batch of 20 results
-[JS LOG] [metadata] Ignoring stale event from scan_id 1777907939717, current is 1777907944814
-[JS LOG] [metadata] Ignoring stale event from scan_id 1777907939717, current is 1777907944814
-[JS LOG] [metadata] Ignoring stale event from scan_id 1777907939717, current is 1777907944814
-[JS LOG] [metadata] Ignoring stale event from scan_id 1777907939717, current is 1777907944814
-[JS LOG] [thumbnail] Ignoring stale event from scan_id 1777907939717, current is 1777907944814
-[JS LOG] [thumbnail] Ignoring stale event from scan_id 1777907939717, current is 1777907944814
-[JS LOG] [thumbnail] Ignoring stale event from scan_id 1777907939717, current is 1777907944814
-PS D:\Programming\Media\MediaLibrary> 
+[exiftool] Reading metadata for 20 files
+[exiftool] First file: Some("D:\\OneDrive\\Pictures\\2012\\IMG_0239.jpg")
+[exiftool] Found at: C:\Users\xman2\AppData\Local\Programs\ExifTool\ExifTool.exe
+[exiftool] Using command: C:\Users\xman2\AppData\Local\Programs\ExifTool\ExifTool.exe
+[JS LOG] [metadata] Received 20 metadata results for scan_id 1777908052831
+[exiftool] Output length: 127413 bytes
+[exiftool] First 500 chars of output: [{
+  "SourceFile": "D:/OneDrive/Pictures/2012/IMG_0065.jpg",
+  "ExifTool:ExifToolVersion": 13.57,
+  "File:FileType": "JPEG",
+  "File:FileTypeExtension": "jpg",
+  "File:MIMEType": "image/jpeg",
+  "File:ExifByteOrder": "Little-endian (Intel, II)",
+  "File:CurrentIPTCDigest": "331eac7cac9fd38c133f43a6220de363",
+  "File:ImageWidth": 4000,
+  "File:ImageHeight": 3000,
+  "File:EncodingProcess": "Baseline DCT, Huffman coding",
+  "File:BitsPerSample": 8,
+  "File:ColorComponents": 3,
+  "File:
+[metadata] Read 20 results, first has 183 fields
+[metadata] Emitting batch of 20 results
+[exiftool] Reading metadata for 20 files
+[exiftool] First file: Some("D:\\OneDrive\\Pictures\\2012\\IMG_0283.jpg")
+[exiftool] Found at: C:\Users\xman2\AppData\Local\Programs\ExifTool\ExifTool.exe
+[exiftool] Using command: C:\Users\xman2\AppData\Local\Programs\ExifTool\ExifTool.exe
+[JS LOG] [metadata] Received 20 metadata results for scan_id 1777908052831
+[JS LOG] [startScan] Starting scan for folder: D:\OneDrive\Pictures\2010
+[JS LOG] [startScan] Switched from scan_id 1777908052831 to 1777908058349
+[JS LOG] [startScan] Created new stores
+[exiftool] Output length: 133886 bytes
+[exiftool] First 500 chars of output: [{
+  "SourceFile": "D:/OneDrive/Pictures/2012/IMG_0101.jpg",
+  "ExifTool:ExifToolVersion": 13.57,
+  "File:FileType": "JPEG",
+  "File:FileTypeExtension": "jpg",
+  "File:MIMEType": "image/jpeg",
+  "File:ExifByteOrder": "Big-endian (Motorola, MM)",
+  "File:CurrentIPTCDigest": "35660b3fe5d6b0faa2fc3385f5e86396",
+  "File:ImageWidth": 3000,
+  "File:ImageHeight": 3435,
+  "File:EncodingProcess": "Baseline DCT, Huffman coding",
+  "File:BitsPerSample": 8,
+  "File:ColorComponents": 3,
+  "File:
+[exiftool] Output length: 117861 bytes
+[exiftool] First 500 chars of output: [{
+  "SourceFile": "D:/OneDrive/Pictures/2012/IMG_0173.jpg",
+  "ExifTool:ExifToolVersion": 13.57,
+  "File:FileType": "JPEG",
+  "File:FileTypeExtension": "jpg",
+  "File:MIMEType": "image/jpeg",
+  "File:ExifByteOrder": "Little-endian (Intel, II)",
+  "File:CurrentIPTCDigest": "58b9a8f0bef3c5029ace3855abde77b9",
+  "File:ImageWidth": 4000,
+  "File:ImageHeight": 3000,
+  "File:EncodingProcess": "Baseline DCT, Huffman coding",
+  "File:BitsPerSample": 8,
+  "File:ColorComponents": 3,
+  "File:
+[metadata] Read 20 results, first has 93 fields
+[metadata] Emitting batch of 20 results
+[metadata] Read 20 results, first has 175 fields
+[metadata] Emitting batch of 20 results
+[exiftool] Output length: 133345 bytes
+[exiftool] First 500 chars of output: [{
+  "SourceFile": "D:/OneDrive/Pictures/2012/IMG_0239.jpg",
+  "ExifTool:ExifToolVersion": 13.57,
+  "File:FileType": "JPEG",
+  "File:FileTypeExtension": "jpg",
+  "File:MIMEType": "image/jpeg",
+  "File:ExifByteOrder": "Little-endian (Intel, II)",
+  "File:CurrentIPTCDigest": "451752d46261b56b50b20bc1d76bda7b",
+  "File:ImageWidth": 4000,
+  "File:ImageHeight": 3000,
+  "File:EncodingProcess": "Baseline DCT, Huffman coding",
+  "File:BitsPerSample": 8,
+  "File:ColorComponents": 3,
+  "File:
+[metadata] Read 20 results, first has 173 fields
+[metadata] Emitting batch of 20 results
+[exiftool] Output length: 121238 bytes
+[exiftool] First 500 chars of output: [{
+  "SourceFile": "D:/OneDrive/Pictures/2012/IMG_0283.jpg",
+  "ExifTool:ExifToolVersion": 13.57,
+  "File:FileType": "JPEG",
+  "File:FileTypeExtension": "jpg",
+  "File:MIMEType": "image/jpeg",
+  "File:ExifByteOrder": "Little-endian (Intel, II)",
+  "File:CurrentIPTCDigest": "b1ecbdfed1a0ffe785fc76ebbdcd383a",
+  "File:ImageWidth": 4000,
+  "File:ImageHeight": 3000,
+  "File:EncodingProcess": "Baseline DCT, Huffman coding",
+  "File:BitsPerSample": 8,
+  "File:ColorComponents": 3,
+  "File:
+[metadata] Read 20 results, first has 175 fields
+[metadata] Emitting batch of 20 results
+[JS LOG] [metadata] Ignoring stale event from scan_id 1777908052831, current is 1777908058349
+[JS LOG] [metadata] Ignoring stale event from scan_id 1777908052831, current is 1777908058349
+[JS LOG] [metadata] Ignoring stale event from scan_id 1777908052831, current is 1777908058349
+[JS LOG] [metadata] Ignoring stale event from scan_id 1777908052831, current is 1777908058349
+[JS LOG] [thumbnail] Ignoring stale event from scan_id 1777908052831, current is 1777908058349
+[JS LOG] [thumbnail] Ignoring stale event from scan_id 1777908052831, current is 1777908058349
+[JS LOG] [thumbnail] Ignoring stale event from scan_id 1777908052831, current is 1777908058349
