@@ -140,20 +140,23 @@ export function PhotoList({
         className="photo-grid" 
         data-testid="photo-list" 
         role="grid"
-        style={{ gridTemplateColumns: gridColumns }}
+        style={{ 
+          gridTemplateColumns: gridColumns,
+          gridTemplateRows: 'auto auto 1fr' // Group headers, column headers, then body
+        }}
       >
         {/* Group header row */}
-        <div className="grid-header-group grid-cell-thumb" />
-        <div className="grid-header-group" style={{ gridColumn: "span 3" }}>OS Metadata</div>
-        <div className="grid-header-group" style={{ gridColumn: `span ${visibleColumns.length}` }}>Image Metadata</div>
+        <div className="grid-header-group grid-cell-thumb" style={{ gridRow: 1 }} />
+        <div className="grid-header-group" style={{ gridColumn: "span 3", gridRow: 1 }}>OS Metadata</div>
+        <div className="grid-header-group" style={{ gridColumn: `span ${visibleColumns.length}`, gridRow: 1 }}>Image Metadata</div>
         
         {/* Column header row */}
-        <div className="grid-header grid-cell-thumb" />
-        <div className="grid-header">Path</div>
-        <div className="grid-header">Modified</div>
-        <div className="grid-header">Created</div>
+        <div className="grid-header grid-cell-thumb" style={{ gridRow: 2 }} />
+        <div className="grid-header" style={{ gridRow: 2 }}>Path</div>
+        <div className="grid-header" style={{ gridRow: 2 }}>Modified</div>
+        <div className="grid-header" style={{ gridRow: 2 }}>Created</div>
         {visibleColumns.map((col) => (
-          <div key={col} className="grid-header">{col}</div>
+          <div key={col} className="grid-header" style={{ gridRow: 2 }}>{col}</div>
         ))}
         
         {/* Virtual rows container */}
@@ -161,6 +164,7 @@ export function PhotoList({
           className="grid-body" 
           style={{ 
             gridColumn: `1 / -1`,
+            gridRow: 3,
             position: "relative",
             height: `${totalSize}px`
           }}
