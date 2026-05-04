@@ -6,56 +6,6 @@ are covered by integration tests that simulate UI interaction and confirm that t
 
 Now
 ===
- Me:
-                                                                                                                                                                                                                 
-   1. Check - is EXIF thumbnail extraction working, with a good fallback to loading the full image and resizing? Are both these paths tested?                                                                    
-   2. All of the batching in the Rust backend done by wall clock time and NOT number of entries, do these caches  automatically flush at the end of the loading phase, and also flush after a short timer        
-   expires even if no new messages arrive.                                                                                                                                                                       
-
-
-✦ I've checked the state of the codebase. Here are the answers to your questions:
-
-  1. EXIF Thumbnail Extraction and Tests
-  Is it working with a fallback? Yes. thumbnail_for correctly attempts a fast path (extract_exif_thumbnail) by reading EXIF data to locate an embedded JPEG thumbnail. If it's missing or the file isn't a JPEG,
-  it correctly falls back to full_decode_thumbnail using the image crate.
-  Are both paths tested? No, they are not fully tested. 
-   - The fallback path (full_decode_thumbnail) is automatically tested via the thumbnail_returns_some_for_valid_png test.
-   - The fast path (extract_exif_thumbnail) only has an #[ignore] manual test (check_real_image_for_exif_thumbnail). That test is hardcoded to a specific absolute path on a specific developer's machine
-     (D:\OneDrive\Pictures\2012\IMAG0261.jpg), so it doesn't run in CI or when running cargo test automatically. There is no automated unit test providing a mock or dummy JPEG with a valid TIFF header/EXIF
-     thumbnail.
-
-  2. Backend Batching & Flushes
-  Is it done by wall clock time? 
-   - Metadata & Thumbnails: Yes, batching uses a 500ms emit_interval based on wall-clock time (last_emit.elapsed() >= emit_interval).
-   - File Discovery (Photos): No. The directory walker chunks by an explicit number of entries (50 items) regardless of time.
-
-  Do they flush at the end of the loading phase? Yes. For all three systems (photos, metadata, thumbnails), the threads check if !batch.is_empty() after their loop terminates and successfully emit a final
-  batch.
-
-  Do they flush after a short timer expires even if no new messages arrive? No.
-  The timer checks are executed inside the processing loop, immediately after retrieving new items from the work queue. The queues (queue.pop_batch and queue.pop) use condition variables that block the thread
-  entirely if the queue is empty but the scan isn't finished.
-  This means if the worker processes 5 metadata results, buffers them, and then blocks waiting for the disk scanner to find more files, those 5 results will sit stuck in the local batch_results buffer. The
-  500ms timer check will not be evaluated again until the thread is unblocked by a new message arriving or the scanner finally marking the queue as finished.
-
-
-Me:
-
-
- >    - The fast path (extract_exif_thumbnail) only has an #[ignore] manual test (check_real_image_for_exif_thumbnail). That test is hardcoded to a specific absolute path on a specific developer's machine   
-        (D:\OneDrive\Pictures\2012\IMAG0261.jpg), so it doesn't run in CI or when running cargo test automatically. There is no automated unit test providing a mock or dummy JPEG with a valid TIFF header/EXIF 
-        thumbnail                                                                                                                                                                                                         
-   Replace this test with one that uses a sample JPEG checked in to the repo (we might already have one). Make the test always ruin (no ignore!)                                                                 
-                                                                                                                                                                                                                 
-   > File Discovery (Photos):                                                                                                                                                                                    
-                                                                                                                                                                                                                 
-   Can you change this one so that it batches on time, like the other workers                                                                                                                                    
-                                                                                                                                                                                                                 
-   >  Do they flush after a short timer expires even if no new messages arrive? No                                                                                                                               
-                                                                                                                                                                                                                 
-   Can you make this work too, and add tests to ensure that the data is flushed even if no new messages arrive   
-
-
 
 
 Later- *** DO NOT WORK ON ANY OF THE BELOW FEATURES ***
@@ -63,7 +13,7 @@ Later- *** DO NOT WORK ON ANY OF THE BELOW FEATURES ***
 
 * The column name currently comes from "displayTagName()" which strips the Image metadata group prefix. Don't do this - keep the column names identical to the metadata key name reported by exiftool
 * Change the default Image metadata columns to be - ExifIFD:DateTimeOriginal, XMP-dc:Description, XMP-dc:Subject, GPS:GPSLatitude, GPS:GPSLongitude, XMP-iptcCore:Location, XMP-photoshop:City, XMP-photoshop:State, XMP-photoshop:Country
-* Bug: There's a small gap between the two "rows" in the list view column headings, leading to table rows being visible through the gap when scrolling down
+* Previously we had the table header staying fixed to the top of the window when you scrolled down, which was nice. We seem to have lost this (possibly in the swap from table to div. Can we get this feature back? Would using the new HTML/CSS Grid feature be a good approach?)
 * Resizable window with UI that fills the space
 
 * Allow showing/hiding of OS Metadata columns too, in the columns dialog. Put these two fields (date modified and date created) in a separate section to the (dynamic) list of image metadata to make it clear. Note that the thumbnail and Path columns will always be shown as the first two columns, and can't be disabled.
