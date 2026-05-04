@@ -56,9 +56,19 @@ export function ColumnSelectionDialog({ allKeys, visibleColumns, visibleOSColumn
   // Sort keys alphabetically instead of by frequency
   const sortedKeys = [...allKeys].sort((a, b) => a.key.localeCompare(b.key));
 
+  const lowerSearch = searchTerm.toLowerCase();
+
   // Filter keys based on search term
-  const filteredKeys = sortedKeys.filter(({ key }) => 
-    key.toLowerCase().includes(searchTerm.toLowerCase())
+  const filteredKeys = sortedKeys.filter(({ key }) =>
+    key.toLowerCase().includes(lowerSearch)
+  );
+
+  const osColumns = [
+    { key: "date_modified", label: "Date Modified" },
+    { key: "date_created", label: "Date Created" },
+  ];
+  const filteredOSColumns = osColumns.filter(({ key, label }) =>
+    key.toLowerCase().includes(lowerSearch) || label.toLowerCase().includes(lowerSearch)
   );
 
   return (
@@ -68,10 +78,10 @@ export function ColumnSelectionDialog({ allKeys, visibleColumns, visibleOSColumn
           <h2 className="dialog-title">Select Columns</h2>
           <button className="dialog-close-btn" onClick={onClose}>&times;</button>
         </div>
-        
+
         <div className="dialog-body column-list-area">
           <p className="dialog-hint">Choose which columns to display in the photo list.</p>
-          
+
           <div className="column-actions">
             <button className="btn-secondary btn-small" onClick={selectAll}>Select All</button>
             <button className="btn-secondary btn-small" onClick={deselectAll}>Deselect All</button>
@@ -86,31 +96,26 @@ export function ColumnSelectionDialog({ allKeys, visibleColumns, visibleOSColumn
               className="column-search-input"
             />
           </div>
-          
-          {/* OS Metadata Section */}
-          <div className="column-section">
-            <h3 className="column-section-title">OS Metadata</h3>
-            <div className="column-list">
-              <label className="column-item">
-                <input
-                  type="checkbox"
-                  checked={selectedOS.has("date_modified")}
-                  onChange={() => toggleOS("date_modified")}
-                  className="column-checkbox"
-                />
-                <span className="column-label">Date Modified</span>
-              </label>
-              <label className="column-item">
-                <input
-                  type="checkbox"
-                  checked={selectedOS.has("date_created")}
-                  onChange={() => toggleOS("date_created")}
-                  className="column-checkbox"
-                />
-                <span className="column-label">Date Created</span>
-              </label>
+
+          {/* OS Metadata Section — hidden entirely when search filters out all OS columns */}
+          {filteredOSColumns.length > 0 && (
+            <div className="column-section">
+              <h3 className="column-section-title">OS Metadata</h3>
+              <div className="column-list">
+                {filteredOSColumns.map(({ key, label }) => (
+                  <label key={key} className="column-item">
+                    <input
+                      type="checkbox"
+                      checked={selectedOS.has(key)}
+                      onChange={() => toggleOS(key)}
+                      className="column-checkbox"
+                    />
+                    <span className="column-label">{label}</span>
+                  </label>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Image Metadata Section */}
           <div className="column-section">
@@ -128,7 +133,7 @@ export function ColumnSelectionDialog({ allKeys, visibleColumns, visibleOSColumn
                   <span className="column-count">({count} files)</span>
                 </label>
               ))}
-              {filteredKeys.length === 0 && searchTerm && (
+              {filteredKeys.length === 0 && filteredOSColumns.length === 0 && searchTerm && (
                 <div className="no-results">No columns match your search.</div>
               )}
             </div>
