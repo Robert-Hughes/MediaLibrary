@@ -115,6 +115,51 @@ export class ImageMetadataStore {
   }
 }
 
+// ── Metadata Progress store ───────────────────────────────────────────────────
+
+/**
+ * Observable store for tracking metadata loading progress.
+ * Separate from React state to avoid triggering re-renders of the entire component tree.
+ */
+export class MetadataProgressStore {
+  private totalPhotos = 0;
+  private receivedCount = 0;
+  private subscribers = new Set<() => void>();
+
+  reset() {
+    this.totalPhotos = 0;
+    this.receivedCount = 0;
+    this.notifySubscribers();
+  }
+
+  setTotal(total: number) {
+    this.totalPhotos = total;
+    this.notifySubscribers();
+  }
+
+  incrementReceived(count: number = 1) {
+    this.receivedCount += count;
+    this.notifySubscribers();
+  }
+
+  getRemaining(): number {
+    return Math.max(0, this.totalPhotos - this.receivedCount);
+  }
+
+  subscribe(callback: () => void): () => void {
+    this.subscribers.add(callback);
+    return () => this.subscribers.delete(callback);
+  }
+
+  getSnapshot(): () => number {
+    return () => this.getRemaining();
+  }
+
+  private notifySubscribers() {
+    this.subscribers.forEach((cb) => cb());
+  }
+}
+
 // ── App state ─────────────────────────────────────────────────────────────────
 
 export type AppState =
@@ -126,8 +171,8 @@ export type AppState =
       photos: PhotoInfo[];
       thumbnails: ThumbnailStore;
       imageMetadata: ImageMetadataStore;
+      metadataProgress: MetadataProgressStore;
       scanning: boolean;                // true while the directory walk is still running
-      imageMetadataRemaining: number;   // count of photos still awaiting metadata_ready
       galleryIndex: number | null;
       selectedIndex: number | null;
       

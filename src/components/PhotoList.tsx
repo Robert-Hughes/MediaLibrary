@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback, memo } from "react";
 import { useSyncExternalStore } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { ThumbnailStore, ImageMetadataStore } from "../types";
 import type { PhotoInfo, Variant } from "../types";
 import { Spinner } from "./Spinner";
@@ -46,6 +47,7 @@ export function PhotoList({
   selectedIndex, onSelect, onShowInExplorer, onVisibilityChange, onPhotoOpen 
 }: Props) {
   const listRef = useRef<HTMLDivElement>(null);
+  const tableBodyRef = useRef<HTMLTableSectionElement>(null);
   const visibleRef = useRef<Set<string>>(new Set());
   
   // Use refs for callbacks to avoid re-creating observers when they change
@@ -55,9 +57,18 @@ export function PhotoList({
   const photosRef = useRef(photos);
   photosRef.current = photos;
 
-  useEffect(() => {
-    if (!listRef.current) return;
+  // Set up virtualizer
+  const rowVirtualizer = useVirtualizer({
+    count: photos.length,
+    getScrollElement: () => listRef.current,
+    estimateSize: () => 80, // Estimated row height in pixels
+    overscan: 10, // Render 10 extra rows above/below viewport for smooth scrolling
+  });
 
+  const virtualItems = rowVirtualizer.getVirtualItems();
+
+  // Track visibility for prioritization
+  useEffect(() => {
     const notify = () => {
       const visibleOrdered = photosRef.current
         .filter(p => visibleRef.current.has(p.relative_path))
@@ -68,76 +79,33 @@ export function PhotoList({
       }
     };
 
-    const intersectionObserver = new IntersectionObserver(
-      (entries) => {
-        let changed = false;
-        for (const entry of entries) {
-          const path = (entry.target as HTMLElement).dataset.path;
-          if (!path) continue;
-
-          if (entry.isIntersecting) {
-            if (!visibleRef.current.has(path)) {
-              visibleRef.current.add(path);
-              changed = true;
-            }
-          } else {
-            if (visibleRef.current.has(path)) {
-              visibleRef.current.delete(path);
-              changed = true;
-            }
-          }
-        }
-        if (changed) {
-          notify();
-        }
-      },
-      { 
-        root: listRef.current,
-        threshold: 0 
-      }
-    );
-
-    // Watch for new rows being added to the table body
-    const mutationObserver = new MutationObserver((mutations) => {
-      for (const mutation of mutations) {
-        for (const node of mutation.addedNodes) {
-          if (node instanceof HTMLElement && node.dataset.path) {
-            intersectionObserver.observe(node);
-          } else if (node instanceof HTMLElement) {
-            // Check children if the node itself isn't a row (though usually it will be)
-            node.querySelectorAll("[data-path]").forEach(el => intersectionObserver.observe(el as HTMLElement));
-          }
+    // Update visible set based on virtual items
+    const updateVisible = () => {
+      const newVisible = new Set<string>();
+      for (const virtualItem of virtualItems) {
+        const photo = photosRef.current[virtualItem.index];
+        if (photo) {
+          newVisible.add(photo.relative_path);
         }
       }
-    });
-
-    mutationObserver.observe(listRef.current, { childList: true, subtree: true });
-
-    // Initial observation
-    listRef.current.querySelectorAll<HTMLElement>("[data-path]").forEach(el => intersectionObserver.observe(el));
-
-    return () => {
-      intersectionObserver.disconnect();
-      mutationObserver.disconnect();
+      
+      // Check if visibility changed
+      if (newVisible.size !== visibleRef.current.size || 
+          ![...newVisible].every(p => visibleRef.current.has(p))) {
+        visibleRef.current = newVisible;
+        notify();
+      }
     };
-  }, []); // Only run once on mount
+
+    updateVisible();
+  }, [virtualItems]);
 
   useEffect(() => {
     if (selectedIndex !== null && listRef.current) {
-      const selectedEl = listRef.current.querySelector(`[data-index="${selectedIndex}"]`) as HTMLElement;
-      if (selectedEl && selectedEl.scrollIntoView) {
-        const listRect = listRef.current.getBoundingClientRect();
-        const elRect = selectedEl.getBoundingClientRect();
-        const isFullyVisible = (
-          elRect.top >= listRect.top &&
-          elRect.bottom <= listRect.bottom
-        );
-        if (!isFullyVisible) {
-          selectedEl.scrollIntoView({ block: "nearest" });
-        }
-      }
+      // Scroll to selected index using virtualizer
+      rowVirtualizer.scrollToIndex(selectedIndex, { align: "auto" });
     }
-  }, [selectedIndex]);
+  }, [selectedIndex, rowVirtualizer]);
 
   const handleContextMenu = useCallback((e: React.MouseEvent, index: number) => {
     e.preventDefault();
@@ -154,6 +122,8 @@ export function PhotoList({
       </div>
     );
   }
+
+  const totalSize = rowVirtualizer.getTotalSize();
 
   return (
     <div className="photo-table-wrapper" ref={listRef} onClick={() => setContextMenu(null)}>
@@ -173,21 +143,35 @@ export function PhotoList({
             ))}
           </tr>
         </thead>
-        <tbody>
-          {photos.map((photo, i) => (
-            <PhotoRow
-              key={photo.relative_path}
-              photo={photo}
-              index={i}
-              selected={selectedIndex === i}
-              thumbnails={thumbnails}
-              imageMetadata={imageMetadata}
-              visibleColumns={visibleColumns}
-              onSelect={onSelect}
-              onPhotoOpen={onPhotoOpen}
-              onContextMenu={handleContextMenu}
-            />
-          ))}
+        <tbody ref={tableBodyRef}>
+          {/* Spacer for virtual scrolling */}
+          <tr style={{ height: `${totalSize}px` }} aria-hidden="true">
+            <td colSpan={4 + visibleColumns.length} style={{ padding: 0, border: 0 }} />
+          </tr>
+          {virtualItems.map((virtualRow) => {
+            const photo = photos[virtualRow.index];
+            return (
+              <PhotoRow
+                key={photo.relative_path}
+                photo={photo}
+                index={virtualRow.index}
+                selected={selectedIndex === virtualRow.index}
+                thumbnails={thumbnails}
+                imageMetadata={imageMetadata}
+                visibleColumns={visibleColumns}
+                onSelect={onSelect}
+                onPhotoOpen={onPhotoOpen}
+                onContextMenu={handleContextMenu}
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  width: "100%",
+                  transform: `translateY(${virtualRow.start}px)`,
+                }}
+              />
+            );
+          })}
         </tbody>
       </table>
 
@@ -216,11 +200,12 @@ interface RowProps {
   onSelect: (index: number | null) => void;
   onPhotoOpen: (index: number) => void;
   onContextMenu: (e: React.MouseEvent, index: number) => void;
+  style?: React.CSSProperties;
 }
 
 const PhotoRow = memo(function PhotoRow({ 
   photo, index, selected, thumbnails, imageMetadata, visibleColumns, 
-  onSelect, onPhotoOpen, onContextMenu 
+  onSelect, onPhotoOpen, onContextMenu, style 
 }: RowProps) {
   const subscribeThumb = useCallback((cb: () => void) => thumbnails.subscribe(photo.relative_path, cb), [thumbnails, photo.relative_path]);
   const getThumbSnapshot = useCallback(() => thumbnails.get(photo.relative_path), [thumbnails, photo.relative_path]);
@@ -249,7 +234,7 @@ const PhotoRow = memo(function PhotoRow({
       onClick={handleSelect}
       onDoubleClick={handleDoubleClick}
       onContextMenu={handleContextMenuEvent}
-      style={{ cursor: "pointer" }}
+      style={{ ...style, cursor: "pointer" }}
     >
       <td className="col-thumb" aria-hidden="true">
         <div className="photo-thumb">

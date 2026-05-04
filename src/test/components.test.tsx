@@ -91,7 +91,7 @@ describe("LoadingScreen", () => {
 // ── MenuBar ───────────────────────────────────────────────────────────────────
 
 describe("MenuBar", () => {
-  const base = { photoCount: 3, scanning: false, imageMetadataLoading: false, onOpenFolder: noop, onCloseFolder: noop, onSelectColumns: noop };
+  const base = { photoCount: 3, scanning: false, metadataProgress: null, onOpenFolder: noop, onCloseFolder: noop, onSelectColumns: noop };
 
   it("shows the photo count", () => {
     render(<MenuBar {...base} />);
@@ -109,8 +109,13 @@ describe("MenuBar", () => {
     expect(screen.queryByTestId("menu-bar-metadata-label")).not.toBeInTheDocument();
   });
 
-  it("shows metadata spinner and label when metadata is loading", () => {
-    render(<MenuBar {...base} imageMetadataLoading={true} />);
+  it("shows metadata spinner and label when metadata is loading", async () => {
+    const { MetadataProgressStore } = await import("../types");
+    const progress = new MetadataProgressStore();
+    progress.setTotal(10);
+    progress.incrementReceived(5);
+    
+    render(<MenuBar {...base} metadataProgress={progress} />);
     expect(screen.getByTestId("menu-bar-metadata-spinner")).toBeInTheDocument();
     expect(screen.getByTestId("menu-bar-metadata-label")).toHaveTextContent("Loading metadata");
   });

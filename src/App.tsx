@@ -50,7 +50,7 @@ export default function App() {
           <MenuBar
             photoCount={state.photos.length}
             scanning={state.scanning}
-            imageMetadataLoading={state.imageMetadataRemaining > 0}
+            metadataProgress={state.metadataProgress}
             onOpenFolder={actions.openFolder}
             onCloseFolder={actions.closeFolder}
             onSelectColumns={() => setShowColumnDialog(true)}

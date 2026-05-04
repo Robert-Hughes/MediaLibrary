@@ -196,23 +196,45 @@ fn start_scan(
         }).collect();
 
         // ── Phase 3: thumbnail workers ────────────────────────────────────
+        // Batch thumbnails before emitting to reduce event overhead
         let thumb_handles: Vec<_> = (0..num_workers).map(|_| {
             let queue = thumb_queue.clone();
             let app   = app_clone.clone();
             let root  = root_arc.clone();
             let cancelled = cancel_clone.clone();
             std::thread::spawn(move || {
-                while let Some(rel_path) = queue.pop() {
-                    if cancelled.load(Ordering::Relaxed) { break; }
-                    let abs = root.join(rel_path.replace('/', std::path::MAIN_SEPARATOR_STR));
-                    if let Some(thumbnail) = scanner::thumbnail_for(&abs) {
-                        let _ = app.emit("thumbnail_ready", ThumbnailReadyPayload {
-                            scan_id,
-                            results: vec![ThumbnailResult {
+                let mut batch = Vec::with_capacity(50);
+                let batch_size = 50;
+                
+                loop {
+                    // Try to get items from the queue
+                    if let Some(rel_path) = queue.pop() {
+                        if cancelled.load(Ordering::Relaxed) { break; }
+                        let abs = root.join(rel_path.replace('/', std::path::MAIN_SEPARATOR_STR));
+                        if let Some(thumbnail) = scanner::thumbnail_for(&abs) {
+                            batch.push(ThumbnailResult {
                                 relative_path: rel_path,
                                 thumbnail,
-                            }],
-                        });
+                            });
+                        }
+                        
+                        // Emit batch when full
+                        if batch.len() >= batch_size {
+                            let _ = app.emit("thumbnail_ready", ThumbnailReadyPayload {
+                                scan_id,
+                                results: std::mem::take(&mut batch),
+                            });
+                            batch = Vec::with_capacity(batch_size);
+                        }
+                    } else {
+                        // Queue is finished - emit remaining items
+                        if !batch.is_empty() {
+                            let _ = app.emit("thumbnail_ready", ThumbnailReadyPayload {
+                                scan_id,
+                                results: std::mem::take(&mut batch),
+                            });
+                        }
+                        break;
                     }
                 }
             })
