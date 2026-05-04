@@ -6,6 +6,7 @@ import type {
   ImageMetadataReadyPayload,
   ThumbnailReadyPayload,
   ScanErrorPayload,
+  WorkerErrorPayload,
   PhotoInfo,
   Variant,
 } from "./types";
@@ -26,6 +27,7 @@ export interface MediaLibraryActions {
   closeGallery: () => void;
   navigateGallery: (delta: -1 | 1) => void;
   setVisibleColumns: (columns: string[]) => void;
+  dismissError: (index: number) => void;
 }
 
 const RECENT_FOLDERS_KEY = "media_library_recent_folders";
@@ -159,6 +161,7 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
             galleryIndex: null,
             selectedIndex: null,
             visibleColumns: DEFAULT_COLUMNS,
+            workerErrors: [],
           };
         }
         
@@ -280,6 +283,7 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
               galleryIndex: null,
               selectedIndex: null,
               visibleColumns: DEFAULT_COLUMNS,
+              workerErrors: [],
             };
           }
           return prev;
@@ -357,9 +361,26 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
         setAppState({ kind: "idle" });
       });
 
+      const unlistenWorkerError = await api.listen("worker_error", (raw) => {
+        if (cancelled) return;
+        const payload = raw as WorkerErrorPayload;
+        console.error(`Worker error (${payload.worker_type}):`, payload.error_message);
+        
+        // Add error to the state so UI can display it
+        setAppState((prev) => {
+          if (prev.kind === "loaded") {
+            return {
+              ...prev,
+              workerErrors: [...prev.workerErrors, payload],
+            };
+          }
+          return prev;
+        });
+      });
+
       unlisteners.push(
         unlistenFound, unlistenComplete, unlistenMetadata,
-        unlistenThumbnail, unlistenError,
+        unlistenThumbnail, unlistenError, unlistenWorkerError,
       );
       
       console.log('[setup] All event listeners registered');
@@ -441,5 +462,14 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
     );
   }, []);
 
-  return [{ ...appState, recentFolders }, { openFolder, openRecent, closeFolder, prioritizeQueues, selectPhoto, showInExplorer, openGallery, closeGallery, navigateGallery, setVisibleColumns }];
+  const dismissError = useCallback((index: number) => {
+    setAppState((prev) => {
+      if (prev.kind !== "loaded") return prev;
+      const newErrors = [...prev.workerErrors];
+      newErrors.splice(index, 1);
+      return { ...prev, workerErrors: newErrors };
+    });
+  }, []);
+
+  return [{ ...appState, recentFolders }, { openFolder, openRecent, closeFolder, prioritizeQueues, selectPhoto, showInExplorer, openGallery, closeGallery, navigateGallery, setVisibleColumns, dismissError }];
 }

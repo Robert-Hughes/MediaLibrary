@@ -121,12 +121,14 @@ fn read_os_metadata(path: &Path) -> (Option<i64>, Option<i64>) {
 ///  --system:all: Exclude OS-level system tags
 ///  --composite:all: Exclude tags calculated by ExifTool (to see only original data)
 ///  -j: Output in JSON format
+///
+/// Returns Ok(results) on success, or Err(error_message) if ExifTool fails to execute.
 pub fn read_image_metadata_batch(
     rel_paths: &[String],
     abs_paths: &[std::path::PathBuf],
-) -> Vec<ImageMetadata> {
+) -> Result<Vec<ImageMetadata>, String> {
     if abs_paths.is_empty() {
-        return Vec::new();
+        return Ok(Vec::new());
     }
 
     eprintln!("[exiftool] Reading metadata for {} files", abs_paths.len());
@@ -192,8 +194,10 @@ pub fn read_image_metadata_batch(
     match output {
         Ok(out) => {
             if !out.status.success() {
+                let stderr = String::from_utf8_lossy(&out.stderr);
                 eprintln!("[exiftool] Command failed with status: {:?}", out.status);
-                eprintln!("[exiftool] stderr: {}", String::from_utf8_lossy(&out.stderr));
+                eprintln!("[exiftool] stderr: {}", stderr);
+                return Err(format!("ExifTool failed: {}", stderr));
             }
             
             let json = String::from_utf8_lossy(&out.stdout);
@@ -201,27 +205,22 @@ pub fn read_image_metadata_batch(
             
             if !json.trim().is_empty() {
                 eprintln!("[exiftool] First 500 chars of output: {}", &json.chars().take(500).collect::<String>());
-                parse_exiftool_batch_json(&json, rel_paths, abs_paths)
+                Ok(parse_exiftool_batch_json(&json, rel_paths, abs_paths))
             } else {
                 eprintln!("[exiftool] Empty output from exiftool for {} files", abs_paths.len());
-                rel_paths
+                Ok(rel_paths
                     .iter()
                     .map(|r| ImageMetadata {
                         relative_path: r.clone(),
                         metadata: HashMap::new(),
                     })
-                    .collect()
+                    .collect())
             }
         }
         Err(e) => {
-            eprintln!("[exiftool] Failed to execute exiftool: {:?}", e);
-            rel_paths
-                .iter()
-                .map(|r| ImageMetadata {
-                    relative_path: r.clone(),
-                    metadata: HashMap::new(),
-                })
-                .collect()
+            let error_msg = format!("Failed to execute ExifTool: {}. Please ensure ExifTool is installed and accessible.", e);
+            eprintln!("[exiftool] {}", error_msg);
+            Err(error_msg)
         }
     }
 }

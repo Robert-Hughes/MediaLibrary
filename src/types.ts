@@ -181,6 +181,9 @@ export type AppState =
       
       // Dynamic columns configuration
       visibleColumns: string[];         // Keys of image metadata to show in columns
+      
+      // Worker errors
+      workerErrors: WorkerErrorPayload[];
     };
 
 // ── Event payloads from Rust ──────────────────────────────────────────────────
@@ -202,4 +205,11 @@ export interface ThumbnailReadyPayload {
 
 export interface ScanErrorPayload {
   message: string;
+}
+
+export interface WorkerErrorPayload {
+  scan_id: number;
+  worker_type: string;
+  error_message: string;
+  affected_files: string[];
 }

@@ -8,6 +8,7 @@ import { PhotoList } from "./components/PhotoList";
 import { GalleryView } from "./components/GalleryView";
 import { StatusFooter } from "./components/StatusFooter";
 import { ColumnSelectionDialog } from "./components/ColumnSelectionDialog";
+import { ErrorBanner } from "./components/ErrorBanner";
 import "./App.css";
 
 const tauriApi: TauriApi = {
@@ -79,6 +80,7 @@ export default function App() {
 
       {!checkingCli && state.kind === "loaded" && (
         <>
+          <ErrorBanner errors={state.workerErrors} onDismiss={actions.dismissError} />
           <MenuBar
             photoCount={state.photos.length}
             scanning={state.scanning}

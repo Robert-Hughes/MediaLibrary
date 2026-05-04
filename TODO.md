@@ -20,8 +20,6 @@ Now
                                                                                                                                                                                                                  
    Can you make this work too, and add tests to ensure that the data is flushed even if no new messages arrive   
 
-* metadata missing, possibly due to filename normalisation
-
 
 I'm concerned that the current code is very messy
 
