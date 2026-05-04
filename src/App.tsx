@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useMediaLibrary, type TauriApi } from "./useMediaLibrary";
@@ -24,10 +24,12 @@ export default function App() {
   const [state, actions] = useMediaLibrary(tauriApi);
   const [showColumnDialog, setShowColumnDialog] = useState(false);
   const [cliFolder, setCliFolder] = useState<string | null | undefined>(undefined);
+  const cliCheckedRef = useRef(false);
 
   // Check for CLI folder argument on mount (before first render)
   useEffect(() => {
-    if (cliFolder !== undefined) return; // Already checked
+    if (cliCheckedRef.current) return; // Already checked
+    cliCheckedRef.current = true;
     
     invoke<string | null>("get_cli_folder")
       .then((folder) => {
@@ -41,7 +43,7 @@ export default function App() {
         console.error("[App] Failed to get CLI folder:", err);
         setCliFolder(null);
       });
-  }, [cliFolder, actions]);
+  }, []); // Empty deps - only run once
 
   // Show the footer whenever the directory walk is still running.
   const isDiscovering =
@@ -51,10 +53,19 @@ export default function App() {
   // Don't render welcome screen until we've checked for CLI folder
   // This prevents a flicker when opening via CLI argument
   const showWelcome = state.kind === "idle" && cliFolder !== undefined;
+  const checkingCli = cliFolder === undefined;
 
   return (
     <div className="app">
-      {showWelcome && (
+      {checkingCli && (
+        // Show loading while checking for CLI folder argument
+        <>
+          <div style={{ flex: 1 }} />
+          <StatusFooter message="Starting…" />
+        </>
+      )}
+      
+      {!checkingCli && showWelcome && (
         <WelcomeScreen
           onOpenFolder={actions.openFolder}
           recentFolders={state.recentFolders}
@@ -62,7 +73,7 @@ export default function App() {
         />
       )}
 
-      {state.kind === "loading" && (
+      {!checkingCli && state.kind === "loading" && (
         // Show an empty list shell while waiting for the first photo.
         // The footer below will show "Discovering files…".
         <>
@@ -71,7 +82,7 @@ export default function App() {
         </>
       )}
 
-      {state.kind === "loaded" && (
+      {!checkingCli && state.kind === "loaded" && (
         <>
           <MenuBar
             photoCount={state.photos.length}

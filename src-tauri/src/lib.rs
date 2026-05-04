@@ -68,6 +68,17 @@ struct ThumbnailResult {
 // ── Commands ──────────────────────────────────────────────────────────────────
 
 #[tauri::command]
+fn log_to_console(level: String, message: String) {
+    match level.as_str() {
+        "log" => eprintln!("[JS LOG] {}", message),
+        "info" => eprintln!("[JS INFO] {}", message),
+        "warn" => eprintln!("[JS WARN] {}", message),
+        "error" => eprintln!("[JS ERROR] {}", message),
+        _ => eprintln!("[JS] {}", message),
+    }
+}
+
+#[tauri::command]
 fn get_cli_folder() -> Option<String> {
     std::env::args().nth(1)
 }
@@ -438,6 +449,7 @@ pub fn run() {
             image_metadata: Arc::new(Mutex::new(None)),
         })
         .invoke_handler(tauri::generate_handler![
+            log_to_console,
             get_cli_folder,
             pick_folder,
             start_scan,
