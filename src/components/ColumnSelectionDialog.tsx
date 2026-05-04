@@ -11,6 +11,7 @@ interface Props {
 export function ColumnSelectionDialog({ allKeys, visibleColumns, visibleOSColumns, onSave, onClose }: Props) {
   const [selected, setSelected] = useState<Set<string>>(new Set(visibleColumns));
   const [selectedOS, setSelectedOS] = useState<Set<string>>(new Set(visibleOSColumns));
+  const [searchTerm, setSearchTerm] = useState<string>("");
 
   // Handle keyboard shortcuts
   useEffect(() => {
@@ -55,6 +56,11 @@ export function ColumnSelectionDialog({ allKeys, visibleColumns, visibleOSColumn
   // Sort keys alphabetically instead of by frequency
   const sortedKeys = [...allKeys].sort((a, b) => a.key.localeCompare(b.key));
 
+  // Filter keys based on search term
+  const filteredKeys = sortedKeys.filter(({ key }) => 
+    key.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
   return (
     <div className="dialog-overlay" onClick={onClose} data-testid="column-dialog-overlay">
       <div className="dialog-content column-dialog" onClick={(e) => e.stopPropagation()} data-testid="column-dialog">
@@ -69,6 +75,16 @@ export function ColumnSelectionDialog({ allKeys, visibleColumns, visibleOSColumn
           <div className="column-actions">
             <button className="btn-secondary btn-small" onClick={selectAll}>Select All</button>
             <button className="btn-secondary btn-small" onClick={deselectAll}>Deselect All</button>
+          </div>
+
+          <div className="column-search">
+            <input
+              type="text"
+              placeholder="Search columns..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="column-search-input"
+            />
           </div>
           
           {/* OS Metadata Section */}
@@ -100,7 +116,7 @@ export function ColumnSelectionDialog({ allKeys, visibleColumns, visibleOSColumn
           <div className="column-section">
             <h3 className="column-section-title">Image Metadata</h3>
             <div className="column-list">
-              {sortedKeys.map(({ key, count }) => (
+              {filteredKeys.map(({ key, count }) => (
                 <label key={key} className="column-item">
                   <input
                     type="checkbox"
@@ -112,6 +128,9 @@ export function ColumnSelectionDialog({ allKeys, visibleColumns, visibleOSColumn
                   <span className="column-count">({count} files)</span>
                 </label>
               ))}
+              {filteredKeys.length === 0 && searchTerm && (
+                <div className="no-results">No columns match your search.</div>
+              )}
             </div>
           </div>
         </div>
