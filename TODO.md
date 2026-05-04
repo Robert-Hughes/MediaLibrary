@@ -7,23 +7,28 @@ are covered by integration tests that simulate UI interaction and confirm that t
 Now
 ===
 
-* The column name currently comes from "displayTagName()" which strips the Image metadata group prefix. Don't do this - keep the column names identical to the metadata key name reported by exiftool
-* Change the default Image metadata columns to be - ExifIFD:DateTimeOriginal, XMP-dc:Description, XMP-dc:Subject, GPS:GPSLatitude, GPS:GPSLongitude, XMP-iptcCore:Location, XMP-photoshop:City, XMP-photoshop:State, XMP-photoshop:Country
 * Previously we had the table header staying fixed to the top of the window when you scrolled down, which was nice. We seem to have lost this (possibly in the swap from table to div. Can we get this feature back? Would using the new HTML/CSS Grid feature be a good approach?)
-* There's some unused black space between rows in the list view, compact this
 
 Later- *** DO NOT WORK ON ANY OF THE BELOW FEATURES ***
 =====
 
-* Allow showing/hiding of OS Metadata columns too, in the columns dialog. Put these two fields (date modified and date created) in a separate section to the (dynamic) list of image metadata to make it clear. Note that the thumbnail and Path columns will always be shown as the first two columns, and can't be disabled.
+* When scrolling in the list, the React frontend sends a command to the Rust backend to prioritise loading of thiumbnails & metadata
+ for hte images in view. This is great, but unnecessary once the images in question are already fully loaded (thiumbnail + metadata).
+ In this case, we can avoid sending the command
+
+* Allow showing/hiding of OS Metadata columns too, in the columns dialog. Put these two fields (date modified and date created) in a separate section to the (dynamic) list of image metadata to make it clear. Note that the thumbnail and Path columns will always be shown as the first two columns, and can't be disabled, so don't need to appear in the Select Columns dialog.
 * Right clicking on the column headings should show a context menu with an option to "Select Columns..."
 * The Select Columns dialog should support Enter and Escape keyboard shortcuts (to Accept and Cancel respectively)
+* The Select Columns dialog should have a button to Select All and Deselect All 
+* The Select Columns dialog should show the available Image metadata field names in alphabetical order
 * Select Columns dialog should have a search feature
 * Add standard column interactions:
     * Column headings should be drag and droppable to reorder
     * Columns should be resizable
-    * Double clicking on a column resize handle should auto-size the column to the
-* Persist the users choice of columns, column order and column widths across app sessions
+    * Double clicking on a column resize handle should auto-size the column to the contents
+    * Clicking on a column heading should sort the table by that field, clicking again should toggle the sort order
+    * Clicking on a another column heading will sort by that field, with the previously sorted field being used as a secondary sort order to break ties
+* Persist the user's choice of columns, column order, column widths and sorting across app sessions
 
 
 * The gallery view that shows a single image should have a details pane on the right hand side which shows a big table of all the properties of the image, including
