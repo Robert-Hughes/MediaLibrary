@@ -7,14 +7,13 @@ are covered by integration tests that simulate UI interaction and confirm that t
 Now
 ===
 
-
-Later- *** DO NOT WORK ON ANY OF THE BELOW FEATURES ***
-=====
-
 * The column name currently comes from "displayTagName()" which strips the Image metadata group prefix. Don't do this - keep the column names identical to the metadata key name reported by exiftool
 * Change the default Image metadata columns to be - ExifIFD:DateTimeOriginal, XMP-dc:Description, XMP-dc:Subject, GPS:GPSLatitude, GPS:GPSLongitude, XMP-iptcCore:Location, XMP-photoshop:City, XMP-photoshop:State, XMP-photoshop:Country
 * Previously we had the table header staying fixed to the top of the window when you scrolled down, which was nice. We seem to have lost this (possibly in the swap from table to div. Can we get this feature back? Would using the new HTML/CSS Grid feature be a good approach?)
-* Resizable window with UI that fills the space
+* There's some unused black space between rows in the list view, compact this
+
+Later- *** DO NOT WORK ON ANY OF THE BELOW FEATURES ***
+=====
 
 * Allow showing/hiding of OS Metadata columns too, in the columns dialog. Put these two fields (date modified and date created) in a separate section to the (dynamic) list of image metadata to make it clear. Note that the thumbnail and Path columns will always be shown as the first two columns, and can't be disabled.
 * Right clicking on the column headings should show a context menu with an option to "Select Columns..."

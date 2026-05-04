@@ -320,38 +320,10 @@ body {
 }
 
 .photo-table thead {
-  display: table;
-  width: 100%;
-  table-layout: fixed;
-}
-
-.photo-table tbody {
-  display: block;
-  width: 100%;
-  position: relative;
-}
-
-.photo-table thead tr {
-  display: table-row;
-  width: 100%;
-}
-
-.photo-table tbody tr {
-  display: table;
-  width: 100%;
-  table-layout: fixed;
-}
-
-.photo-table thead th {
   position: sticky;
   top: 0;
-  z-index: 2;
+  z-index: 10;
   background: var(--surface);
-}
-
-/* The second row of headers needs a top offset to stay below the first row */
-.photo-table thead tr:nth-child(2) th {
-  top: 24px; /* Approximate height of the first row */
 }
 
 .photo-table tbody {
@@ -390,8 +362,8 @@ body {
 .col-metadata { width: 20%; }
 
 .photo-row td {
-  padding: 0 8px;
-  height: 52px;
+  padding: 4px 8px;
+  height: 44px;
   border-bottom: 1px solid var(--border);
   font-size: 13px;
   color: var(--text-primary);
@@ -421,7 +393,7 @@ body {
 .photo-thumb {
   width: 36px;
   height: 36px;
-  margin: 8px auto;
+  margin: 4px auto;
   border-radius: 4px;
   overflow: hidden;
   background: var(--thumb-bg);

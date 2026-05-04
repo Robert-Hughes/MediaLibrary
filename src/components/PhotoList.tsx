@@ -33,14 +33,7 @@ function formatVariant(v: Variant | undefined): string {
   return "—";
 }
 
-/** 
- * Strips the group prefix from an ExifTool tag name (e.g. IFD0:Model -> Model)
- * for display in the column header.
- */
-function displayTagName(tag: string): string {
-  const parts = tag.split(":");
-  return parts[parts.length - 1];
-}
+
 
 export function PhotoList({ 
   photos, thumbnails, imageMetadata, visibleColumns, 
@@ -61,7 +54,7 @@ export function PhotoList({
   const rowVirtualizer = useVirtualizer({
     count: photos.length,
     getScrollElement: () => listRef.current,
-    estimateSize: () => 80, // Estimated row height in pixels
+    estimateSize: () => 44, // Estimated row height in pixels (matches .photo-row td height)
     overscan: 10, // Render 10 extra rows above/below viewport for smooth scrolling
   });
 
@@ -153,7 +146,7 @@ export function PhotoList({
             <th className="col-header col-date">Modified</th>
             <th className="col-header col-date">Created</th>
             {visibleColumns.map((col) => (
-              <th key={col} className="col-header col-metadata">{displayTagName(col)}</th>
+              <th key={col} className="col-header col-metadata">{col}</th>
             ))}
           </tr>
         </thead>

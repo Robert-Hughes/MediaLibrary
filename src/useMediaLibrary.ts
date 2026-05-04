@@ -33,7 +33,17 @@ export interface MediaLibraryActions {
 const RECENT_FOLDERS_KEY = "media_library_recent_folders";
 const MAX_RECENT_FOLDERS = 5;
 
-const DEFAULT_COLUMNS = ["ExifIFD:DateTimeOriginal", "IFD0:Model"]; // Using ExifIFD for Date Taken
+const DEFAULT_COLUMNS = [
+  "ExifIFD:DateTimeOriginal",
+  "XMP-dc:Description",
+  "XMP-dc:Subject",
+  "GPS:GPSLatitude",
+  "GPS:GPSLongitude",
+  "XMP-iptcCore:Location",
+  "XMP-photoshop:City",
+  "XMP-photoshop:State",
+  "XMP-photoshop:Country",
+];
 
 export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: string[] }, MediaLibraryActions] {
   const [appState, setAppState] = useState<AppState>({ kind: "idle" });
