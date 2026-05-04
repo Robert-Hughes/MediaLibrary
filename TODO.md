@@ -8,6 +8,7 @@ Now
 ===
 
 * When loading a new folder, screen is black for a few seconds
+* Empty folder -> never finishes loading
 
 
 Later- *** DO NOT WORK ON ANY OF THE BELOW FEATURES ***
