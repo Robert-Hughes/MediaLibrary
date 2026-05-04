@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useMediaLibrary, type TauriApi } from "./useMediaLibrary";
+import { ThumbnailStore, ImageMetadataStore } from "./types";
 import { WelcomeScreen } from "./components/WelcomeScreen";
 import { MenuBar } from "./components/MenuBar";
 import { PhotoList } from "./components/PhotoList";
@@ -70,10 +71,38 @@ export default function App() {
       )}
 
       {!checkingCli && state.kind === "loading" && (
-        // Show an empty list shell while waiting for the first photo.
+        // Show table headers immediately while waiting for the first photo.
         // The footer below will show "Discovering files…".
         <>
-          <div style={{ flex: 1 }} />
+          <MenuBar
+            photoCount={0}
+            scanning={true}
+            metadataProgress={null}
+            onOpenFolder={actions.openFolder}
+            onCloseFolder={actions.closeFolder}
+            onSelectColumns={() => setShowColumnDialog(true)}
+          />
+          <PhotoList
+            photos={[]}
+            thumbnails={new ThumbnailStore()}
+            imageMetadata={new ImageMetadataStore()}
+            visibleColumns={[
+              "ExifIFD:DateTimeOriginal",
+              "XMP-dc:Description", 
+              "XMP-dc:Subject",
+              "GPS:GPSLatitude",
+              "GPS:GPSLongitude",
+              "XMP-iptcCore:Location",
+              "XMP-photoshop:City",
+              "XMP-photoshop:State",
+              "XMP-photoshop:Country",
+            ]}
+            selectedIndex={null}
+            onSelect={() => {}}
+            onShowInExplorer={() => Promise.resolve()}
+            onVisibilityChange={() => {}}
+            onPhotoOpen={() => {}}
+          />
           <StatusFooter message="Discovering files…" />
         </>
       )}
