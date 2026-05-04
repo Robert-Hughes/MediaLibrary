@@ -277,13 +277,7 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
       const unlistenComplete = await api.listen("scan_complete", (raw) => {
         if (cancelled) return;
         const { scan_id } = raw as { scan_id: number };
-        console.log(`[scan_complete] Received for scan_id ${scan_id}, current is ${activeScanIdRef.current}`);
-        if (scan_id !== activeScanIdRef.current) {
-          console.log(`[scan_complete] Ignoring stale event from scan_id ${scan_id}`);
-          return;
-        }
-
-        console.log(`[scan_complete] Processing scan completion`);
+        if (scan_id !== activeScanIdRef.current) return;
 
         // Clear all batch timers and flush remaining batches
         if (batchTimerRef.current) {
@@ -304,10 +298,8 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
         flushThumbnailBatch();
 
         setAppState((prev) => {
-          console.log(`[scan_complete] Current state: ${prev.kind}`);
           if (prev.kind === "loaded") return { ...prev, scanning: false };
           if (prev.kind === "loading") {
-            console.log(`[scan_complete] Transitioning from loading to loaded with 0 photos`);
             return {
               kind: "loaded",
               folder: prev.folder,
