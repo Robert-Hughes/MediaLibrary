@@ -122,9 +122,53 @@ export function PhotoList({
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, index: number } | null>(null);
 
   if (photos.length === 0) {
+    // Show headers even when no photos are loaded yet
+    const gridColumns = `52px minmax(200px, 2fr) minmax(120px, 1fr) minmax(120px, 1fr) ${visibleColumns.map(() => 'minmax(150px, 1fr)').join(' ')}`;
+    
     return (
-      <div className="photo-list-empty" data-testid="photo-list-empty">
-        No photos found in this folder.
+      <div className="photo-table-wrapper" ref={listRef} onClick={() => setContextMenu(null)}>
+        <div 
+          className="photo-grid" 
+          data-testid="photo-list-empty" 
+          role="grid"
+          style={{ 
+            gridTemplateColumns: gridColumns,
+            gridTemplateRows: 'auto auto 1fr' // Group headers, column headers, then body
+          }}
+        >
+          {/* Group header row */}
+          <div className="grid-header-group grid-cell-thumb" style={{ gridRow: 1 }} />
+          <div className="grid-header-group" style={{ gridColumn: "span 3", gridRow: 1 }}>OS Metadata</div>
+          <div className="grid-header-group" style={{ gridColumn: `span ${visibleColumns.length}`, gridRow: 1 }}>Image Metadata</div>
+          
+          {/* Column header row */}
+          {/* Thumbnail header is hidden by CSS since the group header spans both rows */}
+          <div className="grid-header grid-cell-thumb" style={{ gridRow: 2, gridColumn: 1 }} />
+          <div className="grid-header" style={{ gridRow: 2, gridColumn: 2 }}>Path</div>
+          <div className="grid-header" style={{ gridRow: 2, gridColumn: 3 }}>Modified</div>
+          <div className="grid-header" style={{ gridRow: 2, gridColumn: 4 }}>Created</div>
+          {visibleColumns.map((col, index) => (
+            <div key={col} className="grid-header" style={{ gridRow: 2, gridColumn: 5 + index }}>{col}</div>
+          ))}
+          
+          {/* Empty body area */}
+          <div 
+            className="grid-body" 
+            style={{ 
+              gridColumn: `1 / -1`,
+              gridRow: 3,
+              position: "relative",
+              minHeight: "200px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              color: "#666",
+              fontStyle: "italic"
+            }}
+          >
+            {/* This will be empty during loading, or show "No photos found" if scan is complete */}
+          </div>
+        </div>
       </div>
     );
   }
@@ -151,12 +195,13 @@ export function PhotoList({
         <div className="grid-header-group" style={{ gridColumn: `span ${visibleColumns.length}`, gridRow: 1 }}>Image Metadata</div>
         
         {/* Column header row */}
-        <div className="grid-header grid-cell-thumb" style={{ gridRow: 2 }} />
-        <div className="grid-header" style={{ gridRow: 2 }}>Path</div>
-        <div className="grid-header" style={{ gridRow: 2 }}>Modified</div>
-        <div className="grid-header" style={{ gridRow: 2 }}>Created</div>
-        {visibleColumns.map((col) => (
-          <div key={col} className="grid-header" style={{ gridRow: 2 }}>{col}</div>
+        {/* Thumbnail header is hidden by CSS since the group header spans both rows */}
+        <div className="grid-header grid-cell-thumb" style={{ gridRow: 2, gridColumn: 1 }} />
+        <div className="grid-header" style={{ gridRow: 2, gridColumn: 2 }}>Path</div>
+        <div className="grid-header" style={{ gridRow: 2, gridColumn: 3 }}>Modified</div>
+        <div className="grid-header" style={{ gridRow: 2, gridColumn: 4 }}>Created</div>
+        {visibleColumns.map((col, index) => (
+          <div key={col} className="grid-header" style={{ gridRow: 2, gridColumn: 5 + index }}>{col}</div>
         ))}
         
         {/* Virtual rows container */}
