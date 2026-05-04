@@ -74,6 +74,8 @@ export function PhotoList({
         .filter(p => visibleRef.current.has(p.relative_path))
         .map(p => p.relative_path);
       
+      console.log(`[PhotoList] Notifying visibility change: ${visibleOrdered.length} visible photos`);
+      
       if (visibleOrdered.length > 0) {
         onVisibilityChangeRef.current(visibleOrdered);
       }
@@ -89,6 +91,8 @@ export function PhotoList({
         }
       }
       
+      console.log(`[PhotoList] Virtual items: ${virtualItems.length}, visible photos: ${newVisible.size}`);
+      
       // Check if visibility changed
       if (newVisible.size !== visibleRef.current.size || 
           ![...newVisible].every(p => visibleRef.current.has(p))) {
@@ -99,6 +103,16 @@ export function PhotoList({
 
     updateVisible();
   }, [virtualItems]);
+
+  // Initial notification when photos first load - notify about first batch immediately
+  useEffect(() => {
+    if (photos.length > 0) {
+      // Notify about the first 30 photos immediately to kickstart loading
+      const initialPaths = photos.slice(0, 30).map(p => p.relative_path);
+      console.log(`[PhotoList] Initial load: notifying about first ${initialPaths.length} photos`);
+      onVisibilityChange(initialPaths);
+    }
+  }, [photos.length]); // Only run when photos first load or count changes
 
   useEffect(() => {
     if (selectedIndex !== null && listRef.current) {

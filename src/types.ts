@@ -156,7 +156,10 @@ export class MetadataProgressStore {
   }
 
   private notifySubscribers() {
-    this.subscribers.forEach((cb) => cb());
+    // Use queueMicrotask to defer notifications until after the current render
+    queueMicrotask(() => {
+      this.subscribers.forEach((cb) => cb());
+    });
   }
 }
 
