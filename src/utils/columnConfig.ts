@@ -22,6 +22,7 @@ export interface ColumnConfig {
   visibleColumns: string[];
   visibleOSColumns: string[];
   sortConfig: SortConfig;
+  columnWidths: Record<string, number>;
 }
 
 function isStringArray(v: unknown): v is string[] {
@@ -47,19 +48,25 @@ function isValidSortConfig(v: unknown): v is SortConfig {
   );
 }
 
+function isValidColumnWidths(v: unknown): v is Record<string, number> {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return false;
+  return Object.values(v as Record<string, unknown>).every((n) => typeof n === "number" && n >= 0);
+}
+
 export function loadColumnConfig(): ColumnConfig {
   try {
     const raw = localStorage.getItem(COLUMN_CONFIG_KEY);
-    if (!raw) return { visibleColumns: DEFAULT_COLUMNS, visibleOSColumns: DEFAULT_OS_COLUMNS, sortConfig: DEFAULT_SORT_CONFIG };
+    if (!raw) return { visibleColumns: DEFAULT_COLUMNS, visibleOSColumns: DEFAULT_OS_COLUMNS, sortConfig: DEFAULT_SORT_CONFIG, columnWidths: {} };
 
     const parsed = JSON.parse(raw) as Record<string, unknown>;
     return {
       visibleColumns: isStringArray(parsed.visibleColumns) ? parsed.visibleColumns : DEFAULT_COLUMNS,
       visibleOSColumns: isStringArray(parsed.visibleOSColumns) ? parsed.visibleOSColumns : DEFAULT_OS_COLUMNS,
       sortConfig: isValidSortConfig(parsed.sortConfig) ? parsed.sortConfig : DEFAULT_SORT_CONFIG,
+      columnWidths: isValidColumnWidths(parsed.columnWidths) ? parsed.columnWidths : {},
     };
   } catch {
-    return { visibleColumns: DEFAULT_COLUMNS, visibleOSColumns: DEFAULT_OS_COLUMNS, sortConfig: DEFAULT_SORT_CONFIG };
+    return { visibleColumns: DEFAULT_COLUMNS, visibleOSColumns: DEFAULT_OS_COLUMNS, sortConfig: DEFAULT_SORT_CONFIG, columnWidths: {} };
   }
 }
 

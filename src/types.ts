@@ -199,6 +199,9 @@ export type AppState =
       visibleColumns: string[];         // Keys of image metadata to show in columns
       visibleOSColumns: string[];       // OS metadata columns to show (date_modified, date_created)
 
+      // Column widths (pixels); absent key means use CSS default
+      columnWidths: Record<string, number>;
+
       // Sorting
       sortConfig: SortConfig;
       metadataVersion: number;          // Incremented when a metadata batch lands; invalidates sort useMemo
