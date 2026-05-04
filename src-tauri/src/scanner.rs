@@ -150,11 +150,21 @@ pub fn read_image_metadata_batch(
     let output = cmd.output();
 
     match output {
-        Ok(out) if out.status.success() => {
+        Ok(out) => {
             let json = String::from_utf8_lossy(&out.stdout);
-            parse_exiftool_batch_json(&json, rel_paths)
+            if !json.trim().is_empty() {
+                parse_exiftool_batch_json(&json, rel_paths, abs_paths)
+            } else {
+                rel_paths
+                    .iter()
+                    .map(|r| ImageMetadata {
+                        relative_path: r.clone(),
+                        metadata: HashMap::new(),
+                    })
+                    .collect()
+            }
         }
-        _ => rel_paths
+        Err(_) => rel_paths
             .iter()
             .map(|r| ImageMetadata {
                 relative_path: r.clone(),
@@ -164,22 +174,33 @@ pub fn read_image_metadata_batch(
     }
 }
 
-fn parse_exiftool_batch_json(json: &str, rel_paths: &[String]) -> Vec<ImageMetadata> {
+fn parse_exiftool_batch_json(
+    json: &str, 
+    rel_paths: &[String],
+    abs_paths: &[std::path::PathBuf],
+) -> Vec<ImageMetadata> {
     let list: Vec<HashMap<String, Variant>> = serde_json::from_str(json).unwrap_or_default();
     
-    // ExifTool doesn't guarantee order in -j output necessarily, 
-    // and we need to map back to our relative_paths.
-    // However, SourceFile in the JSON will contain the absolute path.
+    // Map ExifTool output by SourceFile
+    let mut map_by_source = HashMap::new();
+    for mut map in list {
+        if let Some(Variant::String(source)) = map.remove("SourceFile") {
+            let normalized_source = source.replace('\\', "/");
+            map_by_source.insert(normalized_source, map);
+        }
+    }
     
     let mut results = Vec::with_capacity(rel_paths.len());
     
-    for (i, mut map) in list.into_iter().enumerate() {
-        map.remove("SourceFile");
-        // We assume ExifTool output order matches input order for simple batching.
-        let rel_path = rel_paths.get(i).cloned().unwrap_or_default();
+    for (i, rel_path) in rel_paths.iter().enumerate() {
+        let abs_path = &abs_paths[i];
+        let normalized_abs = abs_path.to_string_lossy().replace('\\', "/");
+        
+        let metadata = map_by_source.remove(&normalized_abs).unwrap_or_default();
+        
         results.push(ImageMetadata {
-            relative_path: rel_path,
-            metadata: map,
+            relative_path: rel_path.clone(),
+            metadata,
         });
     }
     

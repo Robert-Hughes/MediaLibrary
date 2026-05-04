@@ -30,7 +30,7 @@ export interface MediaLibraryActions {
 const RECENT_FOLDERS_KEY = "media_library_recent_folders";
 const MAX_RECENT_FOLDERS = 5;
 
-const DEFAULT_COLUMNS = ["IFD1:DateTimeOriginal", "IFD0:Model"]; // Using IFD1 for Date Taken as it's common
+const DEFAULT_COLUMNS = ["ExifIFD:DateTimeOriginal", "IFD0:Model"]; // Using ExifIFD for Date Taken
 
 export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: string[] }, MediaLibraryActions] {
   const [appState, setAppState] = useState<AppState>({ kind: "idle" });
@@ -77,12 +77,14 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
     imageMetadataStoreRef.current      = new ImageMetadataStore();
     imageMetadataReceivedRef.current   = 0;
 
+    // Generate scan_id synchronously so we don't miss early events from the backend.
+    const scanId = Date.now();
+    activeScanIdRef.current = scanId;
+
     setAppState({ kind: "loading", folder });
     api.invoke("set_window_title", { title: `Media Library — ${folder}` }).catch(() => {});
 
-    // start_scan returns the scan_id assigned by the backend.
-    const scanId = (await api.invoke("start_scan", { folderPath: folder })) as number;
-    activeScanIdRef.current = scanId;
+    await api.invoke("start_scan", { scanId, folderPath: folder });
 
     // Update recent folders
     setRecentFolders((prev) => {
@@ -142,13 +144,14 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
     const setup = async () => {
       const unlistenFound = await api.listen("photo_found", (raw) => {
         if (cancelled) return;
-        const { scan_id, photo } = raw as PhotoFoundPayload;
+        const { scan_id, photos } = raw as PhotoFoundPayload;
         if (scan_id !== activeScanIdRef.current) return;
 
-        thumbnailStoreRef.current.add(photo.relative_path);
-        imageMetadataStoreRef.current.add(photo.relative_path);
-
-        photoBufferRef.current.push(photo);
+        for (const photo of photos) {
+          thumbnailStoreRef.current.add(photo.relative_path);
+          imageMetadataStoreRef.current.add(photo.relative_path);
+          photoBufferRef.current.push(photo);
+        }
 
         const shouldFlushNow = isFirstFlushRef.current || 
                              photoBufferRef.current.length >= 50;
@@ -201,11 +204,13 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
 
       const unlistenMetadata = await api.listen("image_metadata_ready", (raw) => {
         if (cancelled) return;
-        const { scan_id, relative_path, metadata } = raw as ImageMetadataReadyPayload;
+        const { scan_id, results } = raw as ImageMetadataReadyPayload;
         if (scan_id !== activeScanIdRef.current) return;
         
-        imageMetadataStoreRef.current.set(relative_path, metadata);
-        imageMetadataReceivedRef.current += 1;
+        for (const res of results) {
+          imageMetadataStoreRef.current.set(res.relative_path, res.metadata);
+          imageMetadataReceivedRef.current += 1;
+        }
         
         if (!batchTimerRef.current) {
           batchTimerRef.current = setTimeout(() => {
@@ -217,9 +222,12 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
 
       const unlistenThumbnail = await api.listen("thumbnail_ready", (raw) => {
         if (cancelled) return;
-        const { scan_id, relative_path, thumbnail } = raw as ThumbnailReadyPayload;
+        const { scan_id, results } = raw as ThumbnailReadyPayload;
         if (scan_id !== activeScanIdRef.current) return;
-        thumbnailStoreRef.current.set(relative_path, thumbnail);
+        
+        for (const res of results) {
+          thumbnailStoreRef.current.set(res.relative_path, res.thumbnail);
+        }
       });
 
       const unlistenError = await api.listen("scan_error", (raw) => {

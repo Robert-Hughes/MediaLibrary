@@ -139,19 +139,17 @@ export type AppState =
 
 export interface PhotoFoundPayload {
   scan_id: number;
-  photo: PhotoInfo;
+  photos: PhotoInfo[];
 }
 
 export interface ImageMetadataReadyPayload {
   scan_id: number;
-  relative_path: string;
-  metadata: Record<string, Variant>;
+  results: { relative_path: string; metadata: Record<string, Variant> }[];
 }
 
 export interface ThumbnailReadyPayload {
   scan_id: number;
-  relative_path: string;
-  thumbnail: string;
+  results: { relative_path: string; thumbnail: string }[];
 }
 
 export interface ScanErrorPayload {
