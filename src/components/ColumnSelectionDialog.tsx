@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 interface Props {
   allKeys: Array<{ key: string; count: number }>;
@@ -11,6 +11,22 @@ interface Props {
 export function ColumnSelectionDialog({ allKeys, visibleColumns, visibleOSColumns, onSave, onClose }: Props) {
   const [selected, setSelected] = useState<Set<string>>(new Set(visibleColumns));
   const [selectedOS, setSelectedOS] = useState<Set<string>>(new Set(visibleOSColumns));
+
+  // Handle keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onClose();
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        onSave(Array.from(selected), Array.from(selectedOS));
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [selected, selectedOS, onSave, onClose]);
 
   const toggle = (key: string) => {
     const next = new Set(selected);
@@ -26,11 +42,18 @@ export function ColumnSelectionDialog({ allKeys, visibleColumns, visibleOSColumn
     setSelectedOS(next);
   };
 
-  // Sort keys by frequency (descending), then alphabetically
-  const sortedKeys = [...allKeys].sort((a, b) => {
-    if (b.count !== a.count) return b.count - a.count;
-    return a.key.localeCompare(b.key);
-  });
+  const selectAll = () => {
+    setSelected(new Set(allKeys.map(k => k.key)));
+    setSelectedOS(new Set(["date_modified", "date_created"]));
+  };
+
+  const deselectAll = () => {
+    setSelected(new Set());
+    setSelectedOS(new Set());
+  };
+
+  // Sort keys alphabetically instead of by frequency
+  const sortedKeys = [...allKeys].sort((a, b) => a.key.localeCompare(b.key));
 
   return (
     <div className="dialog-overlay" onClick={onClose} data-testid="column-dialog-overlay">
@@ -42,6 +65,11 @@ export function ColumnSelectionDialog({ allKeys, visibleColumns, visibleOSColumn
         
         <div className="dialog-body column-list-area">
           <p className="dialog-hint">Choose which columns to display in the photo list.</p>
+          
+          <div className="column-actions">
+            <button className="btn-secondary btn-small" onClick={selectAll}>Select All</button>
+            <button className="btn-secondary btn-small" onClick={deselectAll}>Deselect All</button>
+          </div>
           
           {/* OS Metadata Section */}
           <div className="column-section">

@@ -858,6 +858,17 @@ body {
   color: var(--text-primary);
 }
 
+.column-actions {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.btn-small {
+  padding: 6px 12px;
+  font-size: 13px;
+}
+
 .dialog-footer {
   padding: 16px 20px;
   border-top: 1px solid var(--border);
