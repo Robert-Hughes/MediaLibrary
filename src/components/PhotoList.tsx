@@ -40,7 +40,6 @@ export function PhotoList({
   selectedIndex, onSelect, onShowInExplorer, onVisibilityChange, onPhotoOpen 
 }: Props) {
   const listRef = useRef<HTMLDivElement>(null);
-  const tableBodyRef = useRef<HTMLTableSectionElement>(null);
   const visibleRef = useRef<Set<string>>(new Set());
   
   // Use refs for callbacks to avoid re-creating observers when they change
@@ -134,23 +133,30 @@ export function PhotoList({
 
   return (
     <div className="photo-table-wrapper" ref={listRef} onClick={() => setContextMenu(null)}>
-      <table className="photo-table" data-testid="photo-list" role="grid">
-        <thead>
-          <tr>
-            <th className="col-thumb" rowSpan={2} />
-            <th className="col-group-header" colSpan={3}>OS Metadata</th>
-            <th className="col-group-header" colSpan={visibleColumns.length}>Image Metadata</th>
-          </tr>
-          <tr>
-            <th className="col-header col-path">Path</th>
-            <th className="col-header col-date">Modified</th>
-            <th className="col-header col-date">Created</th>
-            {visibleColumns.map((col) => (
-              <th key={col} className="col-header col-metadata">{col}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody ref={tableBodyRef} style={{ position: "relative", height: `${totalSize}px` }}>
+      <div className="photo-grid" data-testid="photo-list" role="grid">
+        {/* Group header row */}
+        <div className="grid-header-group grid-cell-thumb" />
+        <div className="grid-header-group" style={{ gridColumn: "span 3" }}>OS Metadata</div>
+        <div className="grid-header-group" style={{ gridColumn: `span ${visibleColumns.length}` }}>Image Metadata</div>
+        
+        {/* Column header row */}
+        <div className="grid-header grid-cell-thumb" />
+        <div className="grid-header">Path</div>
+        <div className="grid-header">Modified</div>
+        <div className="grid-header">Created</div>
+        {visibleColumns.map((col) => (
+          <div key={col} className="grid-header">{col}</div>
+        ))}
+        
+        {/* Virtual rows container */}
+        <div 
+          className="grid-body" 
+          style={{ 
+            gridColumn: `1 / span ${4 + visibleColumns.length}`,
+            position: "relative",
+            height: `${totalSize}px`
+          }}
+        >
           {virtualItems.map((virtualRow) => {
             const photo = photos[virtualRow.index];
             return (
@@ -169,8 +175,8 @@ export function PhotoList({
               />
             );
           })}
-        </tbody>
-      </table>
+        </div>
+      </div>
 
       {contextMenu && (
         <ContextMenu
@@ -223,9 +229,11 @@ const PhotoRow = memo(function PhotoRow({
   const handleDoubleClick = useCallback(() => onPhotoOpen(index), [onPhotoOpen, index]);
   const handleContextMenuEvent = useCallback((e: React.MouseEvent) => onContextMenu(e, index), [onContextMenu, index]);
 
+  const rowClass = `photo-row ${index % 2 === 0 ? "photo-row--even" : "photo-row--odd"} ${selected ? "photo-row--selected" : ""}`;
+
   return (
-    <tr
-      className={`photo-row ${index % 2 === 0 ? "photo-row--even" : "photo-row--odd"} ${selected ? "photo-row--selected" : ""}`}
+    <div
+      className={rowClass}
       data-testid="photo-row"
       data-path={photo.relative_path}
       data-index={index}
@@ -236,11 +244,12 @@ const PhotoRow = memo(function PhotoRow({
         position: "absolute",
         top: 0,
         left: 0,
+        width: "100%",
         transform: `translateY(${virtualStart}px)`,
         cursor: "pointer",
       }}
     >
-      <td className="col-thumb" aria-hidden="true">
+      <div className="grid-cell grid-cell-thumb">
         <div className="photo-thumb">
           {src ? (
             <img src={src} alt="" className="photo-thumb-img" />
@@ -252,12 +261,12 @@ const PhotoRow = memo(function PhotoRow({
             <div className="photo-thumb-placeholder" />
           )}
         </div>
-      </td>
-      <td className="col-path" data-testid="photo-path">{photo.relative_path}</td>
-      <td className="col-date" data-testid="photo-date-modified">{formatDate(photo.date_modified)}</td>
-      <td className="col-date" data-testid="photo-date-created">{formatDate(photo.date_created)}</td>
+      </div>
+      <div className="grid-cell grid-cell-path" data-testid="photo-path">{photo.relative_path}</div>
+      <div className="grid-cell grid-cell-date" data-testid="photo-date-modified">{formatDate(photo.date_modified)}</div>
+      <div className="grid-cell grid-cell-date" data-testid="photo-date-created">{formatDate(photo.date_created)}</div>
       {visibleColumns.map((col) => (
-        <td key={col} className="col-metadata">
+        <div key={col} className="grid-cell grid-cell-metadata">
           {metadataLoading ? (
             <Spinner className="cell-spinner" aria-label="Loading" data-testid="metadata-loading" />
           ) : metadataFailed ? (
@@ -265,8 +274,8 @@ const PhotoRow = memo(function PhotoRow({
           ) : (
             formatVariant(metadata[col])
           )}
-        </td>
+        </div>
       ))}
-    </tr>
+    </div>
   );
 });
