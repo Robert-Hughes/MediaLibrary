@@ -7,16 +7,9 @@ are covered by integration tests that simulate UI interaction and confirm that t
 Now
 ===
 
-* When scrolling in the list, the React frontend sends a command to the Rust backend to prioritise loading of thiumbnails & metadata
- for hte images in view. This is great, but unnecessary once the images in question are already fully loaded (thiumbnail + metadata).
- In this case, we can avoid sending the command
-
-* Allow showing/hiding of OS Metadata columns too, in the columns dialog. Put these two fields (date modified and date created) in a separate section to the (dynamic) list of image metadata to make it clear. Note that the thumbnail and Path columns will always be shown as the first two columns, and can't be disabled, so don't need to appear in the Select Columns dialog.
-* Right clicking on the column headings should show a context menu with an option to "Select Columns..."
-* The Select Columns dialog should support Enter and Escape keyboard shortcuts (to Accept and Cancel respectively)
-* The Select Columns dialog should have a button to Select All and Deselect All 
-* The Select Columns dialog should show the available Image metadata field names in alphabetical order
-* Select Columns dialog should have a search feature
+* When all columns are disabled, the "image metadata" group header still shows - this should be hidden when there are no image metadata columns enabled.
+* The right click context menu on column headings should open when the user right clicks *anywhere* on the header, including on the 'group' headings like "image metadata".
+* The Select Columns search feature should also filter the "OS metadata" fields (even though there's only two of them)
 * Add standard column interactions:
     * Column headings should be drag and droppable to reorder
     * Columns should be resizable
@@ -24,6 +17,7 @@ Now
     * Clicking on a column heading should sort the table by that field, clicking again should toggle the sort order
     * Clicking on a another column heading will sort by that field, with the previously sorted field being used as a secondary sort order to break ties
 * Persist the user's choice of columns, column order, column widths and sorting across app sessions
+* In the Select Columns dialog, the user should be able to drag and drop fields in the Image Metadata list in order to reorder the columns. The order of this list should be synced to match that of the columns in the main view (for the ticked entries)
 
 
 Later- *** DO NOT WORK ON ANY OF THE BELOW FEATURES ***
