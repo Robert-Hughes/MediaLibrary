@@ -148,6 +148,9 @@ fn start_scan(
                 .map(|n| n.get()).unwrap_or(4).min(8)
         };
 
+        // We cap metadata workers even more strictly because they spawn processes.
+        let metadata_workers = num_workers.min(4);
+
         // Shared queues fed by the walk, drained by worker pools.
         let thumb_queue          = Arc::new(ThumbnailQueue::new(vec![]));
         let image_metadata_queue = Arc::new(ThumbnailQueue::new(vec![]));
@@ -161,21 +164,29 @@ fn start_scan(
         let root_arc = Arc::new(root.clone());
 
         // ── Phase 2: Image Metadata workers ───────────────────────────────
-        let metadata_handles: Vec<_> = (0..num_workers).map(|_| {
+        let metadata_handles: Vec<_> = (0..metadata_workers).map(|_| {
             let queue = image_metadata_queue.clone();
             let app   = app_clone.clone();
             let root  = root_arc.clone();
             let cancelled = cancel_clone.clone();
             std::thread::spawn(move || {
-                while let Some(rel_path) = queue.pop() {
-                    if cancelled.load(Ordering::Relaxed) { break; }
-                    let abs = root.join(rel_path.replace('/', std::path::MAIN_SEPARATOR_STR));
-                    let info = scanner::read_image_metadata(&rel_path, &abs);
-                    let _ = app.emit("image_metadata_ready", ImageMetadataReadyPayload {
-                        scan_id,
-                        relative_path: info.relative_path,
-                        metadata:      info.metadata,
-                    });
+                while !cancelled.load(Ordering::Relaxed) {
+                    let rel_paths = queue.pop_batch(20);
+                    if rel_paths.is_empty() { break; }
+
+                    let abs_paths: Vec<_> = rel_paths.iter().map(|p| {
+                        root.join(p.replace('/', std::path::MAIN_SEPARATOR_STR))
+                    }).collect();
+
+                    let results = scanner::read_image_metadata_batch(&rel_paths, &abs_paths);
+                    
+                    for info in results {
+                        let _ = app.emit("image_metadata_ready", ImageMetadataReadyPayload {
+                            scan_id,
+                            relative_path: info.relative_path,
+                            metadata:      info.metadata,
+                        });
+                    }
                 }
             })
         }).collect();

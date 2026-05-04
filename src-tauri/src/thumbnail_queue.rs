@@ -68,6 +68,30 @@ impl ThumbnailQueue {
         }
     }
 
+    /// Block until at least one item is available, then return up to `max` items.
+    /// Returns an empty vector when the queue is empty and `finish()` has been called.
+    pub fn pop_batch(&self, max: usize) -> Vec<String> {
+        let (lock, cvar) = &*self.inner;
+        let mut state = lock.lock().unwrap();
+        loop {
+            if !state.queue.is_empty() {
+                let mut batch = Vec::with_capacity(max);
+                while batch.len() < max {
+                    if let Some(item) = state.queue.pop_front() {
+                        batch.push(item);
+                    } else {
+                        break;
+                    }
+                }
+                return batch;
+            }
+            if state.done {
+                return Vec::new();
+            }
+            state = cvar.wait(state).unwrap();
+        }
+    }
+
     /// Move `priority_paths` to the front, preserving their relative order.
     /// Paths not currently in the queue (already processed) are ignored.
     pub fn prioritize(&self, priority_paths: &[String]) {
