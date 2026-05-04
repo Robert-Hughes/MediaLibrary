@@ -129,13 +129,53 @@ pub fn read_image_metadata_batch(
         return Vec::new();
     }
 
+    eprintln!("[exiftool] Reading metadata for {} files", abs_paths.len());
+    eprintln!("[exiftool] First file: {:?}", abs_paths.first());
+
     // TEMPORARY: simulate slow metadata reading for load testing.
     #[cfg(not(test))]
     if std::env::var("MEDIA_LIBRARY_SLOW_MODE").is_ok() {
         std::thread::sleep(std::time::Duration::from_millis(500));
     }
 
-    let mut cmd = Command::new("exiftool");
+    // Try to find exiftool executable
+    // On Windows, check common installation locations
+    #[cfg(target_os = "windows")]
+    let exiftool_cmd = {
+        let common_paths = [
+            "exiftool.exe", // Try PATH first
+            r"C:\Users\xman2\AppData\Local\Programs\ExifTool\ExifTool.exe",
+            r"C:\Program Files\ExifTool\exiftool.exe",
+            r"C:\Program Files\ExifTool\ExifTool.exe",
+        ];
+        
+        let mut found_cmd = "exiftool.exe";
+        for path in &common_paths {
+            if path.contains('\\') {
+                // Full path - check if file exists
+                if std::path::Path::new(path).exists() {
+                    found_cmd = path;
+                    eprintln!("[exiftool] Found at: {}", path);
+                    break;
+                }
+            } else {
+                // Just a command name - try to execute it
+                if Command::new(path).arg("-ver").output().is_ok() {
+                    found_cmd = path;
+                    eprintln!("[exiftool] Found in PATH: {}", path);
+                    break;
+                }
+            }
+        }
+        found_cmd
+    };
+    
+    #[cfg(not(target_os = "windows"))]
+    let exiftool_cmd = "exiftool";
+    
+    eprintln!("[exiftool] Using command: {}", exiftool_cmd);
+    
+    let mut cmd = Command::new(exiftool_cmd);
     cmd.arg("-a")
         .arg("-G1")
         .arg("-s")
@@ -151,10 +191,19 @@ pub fn read_image_metadata_batch(
 
     match output {
         Ok(out) => {
+            if !out.status.success() {
+                eprintln!("[exiftool] Command failed with status: {:?}", out.status);
+                eprintln!("[exiftool] stderr: {}", String::from_utf8_lossy(&out.stderr));
+            }
+            
             let json = String::from_utf8_lossy(&out.stdout);
+            eprintln!("[exiftool] Output length: {} bytes", json.len());
+            
             if !json.trim().is_empty() {
+                eprintln!("[exiftool] First 500 chars of output: {}", &json.chars().take(500).collect::<String>());
                 parse_exiftool_batch_json(&json, rel_paths, abs_paths)
             } else {
+                eprintln!("[exiftool] Empty output from exiftool for {} files", abs_paths.len());
                 rel_paths
                     .iter()
                     .map(|r| ImageMetadata {
@@ -164,13 +213,16 @@ pub fn read_image_metadata_batch(
                     .collect()
             }
         }
-        Err(_) => rel_paths
-            .iter()
-            .map(|r| ImageMetadata {
-                relative_path: r.clone(),
-                metadata: HashMap::new(),
-            })
-            .collect(),
+        Err(e) => {
+            eprintln!("[exiftool] Failed to execute exiftool: {:?}", e);
+            rel_paths
+                .iter()
+                .map(|r| ImageMetadata {
+                    relative_path: r.clone(),
+                    metadata: HashMap::new(),
+                })
+                .collect()
+        }
     }
 }
 
@@ -185,7 +237,7 @@ fn parse_exiftool_batch_json(
     let mut map_by_source = HashMap::new();
     for mut map in list {
         if let Some(Variant::String(source)) = map.remove("SourceFile") {
-            let normalized_source = source.replace('\\', "/").to_lowercase();
+            let normalized_source = source.replace('\\', "/");
             map_by_source.insert(normalized_source, map);
         }
     }
@@ -194,9 +246,14 @@ fn parse_exiftool_batch_json(
     
     for (i, rel_path) in rel_paths.iter().enumerate() {
         let abs_path = &abs_paths[i];
-        let normalized_abs = abs_path.to_string_lossy().replace('\\', "/").to_lowercase();
+        let normalized_abs = abs_path.to_string_lossy().replace('\\', "/");
         
-        let metadata = map_by_source.remove(&normalized_abs).unwrap_or_default();
+        // Look up metadata using normalized path
+        let metadata = map_by_source.remove(&normalized_abs).unwrap_or_else(|| {
+            eprintln!("[parse_exiftool] Warning: No metadata found for path: {}", normalized_abs);
+            eprintln!("[parse_exiftool] Available keys: {:?}", map_by_source.keys().take(3).collect::<Vec<_>>());
+            HashMap::new()
+        });
         
         results.push(ImageMetadata {
             relative_path: rel_path.clone(),
@@ -441,47 +498,16 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // Run manually with: cargo test check_real_image_for_exif_thumbnail -- --ignored --nocapture
-    fn check_real_image_for_exif_thumbnail() {
-        // Test with a real image to see if it has an embedded thumbnail
-        let path = std::path::Path::new("D:\\OneDrive\\Pictures\\2012\\IMAG0261.jpg");
+    fn exif_thumbnail_is_extracted() {
+        // Test with a checked-in sample image that has an embedded EXIF thumbnail
+        let path = std::path::Path::new("../test_images/real_with_exif.jpg");
         if !path.exists() {
             println!("Test image not found, skipping");
             return;
         }
         
-        use std::fs::File;
-        use std::io::BufReader;
-        
-        let file = File::open(path).unwrap();
-        let mut reader = BufReader::new(file);
-        
-        let exif_reader = exif::Reader::new();
-        match exif_reader.read_from_container(&mut reader) {
-            Ok(exif) => {
-                println!("✓ EXIF data found");
-                
-                let offset = exif.get_field(exif::Tag::JPEGInterchangeFormat, exif::In::THUMBNAIL);
-                let length = exif.get_field(exif::Tag::JPEGInterchangeFormatLength, exif::In::THUMBNAIL);
-                
-                match (offset, length) {
-                    (Some(off), Some(len)) => {
-                        println!("✓ Thumbnail found!");
-                        println!("  Offset: {:?}", off.value);
-                        println!("  Length: {:?}", len.value);
-                    }
-                    _ => {
-                        println!("✗ No thumbnail in EXIF");
-                        println!("\nAll EXIF fields:");
-                        for field in exif.fields() {
-                            println!("  {:?} in {:?} = {:?}", field.tag, field.ifd_num, field.value);
-                        }
-                    }
-                }
-            }
-            Err(e) => {
-                println!("✗ Failed to read EXIF: {}", e);
-            }
-        }
+        let result = extract_exif_thumbnail(path);
+        assert!(result.is_some(), "Expected to extract an EXIF thumbnail from the sample image");
+        assert!(!result.unwrap().is_empty());
     }
 }

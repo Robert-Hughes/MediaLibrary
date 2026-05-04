@@ -45,11 +45,6 @@ export default function App() {
       });
   }, []); // Empty deps - only run once
 
-  // Show the footer whenever the directory walk is still running.
-  const isDiscovering =
-    state.kind === "loading" ||
-    (state.kind === "loaded" && state.scanning);
-
   // Don't render welcome screen until we've checked for CLI folder
   // This prevents a flicker when opening via CLI argument
   const showWelcome = state.kind === "idle" && cliFolder !== undefined;

@@ -7,9 +7,20 @@ are covered by integration tests that simulate UI interaction and confirm that t
 Now
 ===
 
-* Check - EXIF thumbnail extraction works, with good fallback to load and resize
-* Batch sizing is all done by wall clock time, and automatically flushes at the end of the loawding, and/or after a short timer expires
-* table layout looks broken with black background
+ >    - The fast path (extract_exif_thumbnail) only has an #[ignore] manual test (check_real_image_for_exif_thumbnail). That test is hardcoded to a specific absolute path on a specific developer's machine   
+        (D:\OneDrive\Pictures\2012\IMAG0261.jpg), so it doesn't run in CI or when running cargo test automatically. There is no automated unit test providing a mock or dummy JPEG with a valid TIFF header/EXIF 
+        thumbnail                                                                                                                                                                                                         
+   Replace this test with one that uses a sample JPEG checked in to the repo (we might already have one). Make the test always ruin (no ignore!)                                                                 
+                                                                                                                                                                                                                 
+   > File Discovery (Photos):                                                                                                                                                                                    
+                                                                                                                                                                                                                 
+   Can you change this one so that it batches on time, like the other workers                                                                                                                                    
+                                                                                                                                                                                                                 
+   >  Do they flush after a short timer expires even if no new messages arrive? No                                                                                                                               
+                                                                                                                                                                                                                 
+   Can you make this work too, and add tests to ensure that the data is flushed even if no new messages arrive   
+
+* metadata missing, possibly due to filename normalisation
 
 
 I'm concerned that the current code is very messy
@@ -70,4 +81,4 @@ all the Image metadata.
 * Combine image description with other metadata (and 'storyline') to propose changes to metadata. This could be a mix of programmatic and Open AI Responses API?
 * Compare with functionalty of the Update Metadata prompts approach - add anything missing to here? Check the instruction files and also the scripts and sample reports/json files to see if we're missing anything that we figured out before.
 
-* Figure out how exiftool should be bundled/installed/etc.
+* Figure out how exiftool should be bundled/installed/etc. - Currently in "C:\Users\xman2\AppData\Local\Programs\ExifTool\ExifTool.exe"
