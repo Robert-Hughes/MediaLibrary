@@ -11,6 +11,12 @@ pub struct WorkQueue {
     inner: Arc<(Mutex<State>, Condvar)>,
 }
 
+pub enum PopResult<T> {
+    Items(T),
+    Timeout,
+    Done,
+}
+
 struct State {
     queue: VecDeque<String>,
     /// Set to true when no more items will be pushed; workers exit when empty.

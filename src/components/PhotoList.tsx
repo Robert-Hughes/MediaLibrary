@@ -149,19 +149,15 @@ export function PhotoList({
             <th className="col-group-header" colSpan={visibleColumns.length}>Image Metadata</th>
           </tr>
           <tr>
-            <th className="col-header">Path</th>
-            <th className="col-header">Modified</th>
-            <th className="col-header">Created</th>
+            <th className="col-header col-path">Path</th>
+            <th className="col-header col-date">Modified</th>
+            <th className="col-header col-date">Created</th>
             {visibleColumns.map((col) => (
-              <th key={col} className="col-header">{displayTagName(col)}</th>
+              <th key={col} className="col-header col-metadata">{displayTagName(col)}</th>
             ))}
           </tr>
         </thead>
-        <tbody ref={tableBodyRef}>
-          {/* Spacer for virtual scrolling */}
-          <tr style={{ height: `${totalSize}px` }} aria-hidden="true">
-            <td colSpan={4 + visibleColumns.length} style={{ padding: 0, border: 0 }} />
-          </tr>
+        <tbody ref={tableBodyRef} style={{ position: "relative", height: `${totalSize}px` }}>
           {virtualItems.map((virtualRow) => {
             const photo = photos[virtualRow.index];
             return (
@@ -176,13 +172,7 @@ export function PhotoList({
                 onSelect={onSelect}
                 onPhotoOpen={onPhotoOpen}
                 onContextMenu={handleContextMenu}
-                style={{
-                  position: "absolute",
-                  top: 0,
-                  left: 0,
-                  width: "100%",
-                  transform: `translateY(${virtualRow.start}px)`,
-                }}
+                virtualStart={virtualRow.start}
               />
             );
           })}
@@ -214,12 +204,12 @@ interface RowProps {
   onSelect: (index: number | null) => void;
   onPhotoOpen: (index: number) => void;
   onContextMenu: (e: React.MouseEvent, index: number) => void;
-  style?: React.CSSProperties;
+  virtualStart: number;
 }
 
 const PhotoRow = memo(function PhotoRow({ 
   photo, index, selected, thumbnails, imageMetadata, visibleColumns, 
-  onSelect, onPhotoOpen, onContextMenu, style 
+  onSelect, onPhotoOpen, onContextMenu, virtualStart 
 }: RowProps) {
   const subscribeThumb = useCallback((cb: () => void) => thumbnails.subscribe(photo.relative_path, cb), [thumbnails, photo.relative_path]);
   const getThumbSnapshot = useCallback(() => thumbnails.get(photo.relative_path), [thumbnails, photo.relative_path]);
@@ -248,7 +238,13 @@ const PhotoRow = memo(function PhotoRow({
       onClick={handleSelect}
       onDoubleClick={handleDoubleClick}
       onContextMenu={handleContextMenuEvent}
-      style={{ ...style, cursor: "pointer" }}
+      style={{
+        position: "absolute",
+        top: 0,
+        left: 0,
+        transform: `translateY(${virtualStart}px)`,
+        cursor: "pointer",
+      }}
     >
       <td className="col-thumb" aria-hidden="true">
         <div className="photo-thumb">

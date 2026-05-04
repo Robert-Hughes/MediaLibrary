@@ -317,6 +317,28 @@ body {
 .photo-table {
   width: 100%;
   border-collapse: collapse;
+}
+
+.photo-table thead {
+  display: table;
+  width: 100%;
+  table-layout: fixed;
+}
+
+.photo-table tbody {
+  display: block;
+  width: 100%;
+  position: relative;
+}
+
+.photo-table thead tr {
+  display: table-row;
+  width: 100%;
+}
+
+.photo-table tbody tr {
+  display: table;
+  width: 100%;
   table-layout: fixed;
 }
 
@@ -363,9 +385,9 @@ body {
   border-bottom: 1px solid var(--border);
 }
 
-.col-path     { width: 240px; }
-.col-date     { width: 120px; }
-.col-camera   { width: 160px; }
+.col-path     { width: 30%; }
+.col-date     { width: 15%; }
+.col-metadata { width: 20%; }
 
 .photo-row td {
   padding: 0 8px;
