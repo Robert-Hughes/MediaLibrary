@@ -13,6 +13,8 @@ interface Props {
   imageMetadata: ImageMetadataStore;
   visibleColumns: string[];
   visibleOSColumns: string[];
+  columnWidths?: Record<string, number>;
+  onColumnWidthChange?: (col: string, width: number) => void;
   sortConfig: SortConfig;
   onSortChange: (config: SortConfig) => void;
   selectedIndex: number | null;
@@ -40,6 +42,45 @@ function formatVariant(v: Variant | undefined): string {
 
 
 
+const MIN_COL_WIDTH = 40;
+
+function buildGridTemplate(
+  visibleOSColumns: string[],
+  visibleColumns: string[],
+  widths: Record<string, number>,
+): string {
+  const w = (key: string, def: string) => widths[key] ? `${widths[key]}px` : def;
+  return [
+    "52px",
+    w("relative_path", "minmax(200px, 2fr)"),
+    ...visibleOSColumns.map((c) => w(c, "minmax(120px, 1fr)")),
+    ...visibleColumns.map((c) => w(c, "minmax(150px, 1fr)")),
+  ].join(" ");
+}
+
+interface ResizeHandleProps {
+  col: string;
+  onResizeStart: (e: React.PointerEvent, col: string) => void;
+  onResizeMove: (e: React.PointerEvent) => void;
+  onResizeEnd: (e: React.PointerEvent) => void;
+  onReset: (col: string) => void;
+}
+
+function ResizeHandle({ col, onResizeStart, onResizeMove, onResizeEnd, onReset }: ResizeHandleProps) {
+  return (
+    <div
+      className="resize-handle"
+      data-testid={`resize-handle-${col}`}
+      onPointerDown={(e) => onResizeStart(e, col)}
+      onPointerMove={onResizeMove}
+      onPointerUp={onResizeEnd}
+      onPointerCancel={onResizeEnd}
+      onClick={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => { e.stopPropagation(); onReset(col); }}
+    />
+  );
+}
+
 function SortIndicator({ column, sortConfig }: { column: string; sortConfig: SortConfig }) {
   const { primary, secondary } = sortConfig;
   if (primary?.column === column) {
@@ -53,11 +94,20 @@ function SortIndicator({ column, sortConfig }: { column: string; sortConfig: Sor
 
 export function PhotoList({
   photos, thumbnails, imageMetadata, visibleColumns, visibleOSColumns,
+  columnWidths = {}, onColumnWidthChange,
   sortConfig, onSortChange,
   selectedIndex, onSelect, onShowInExplorer, onVisibilityChange, onPhotoOpen, onSelectColumns
 }: Props) {
   const listRef = useRef<HTMLDivElement>(null);
   const visibleRef = useRef<Set<string>>(new Set());
+
+  // Live column widths during a resize drag (overrides saved widths until pointer up)
+  const [liveWidths, setLiveWidths] = useState<Record<string, number>>({});
+  const dragRef = useRef<{ col: string; startX: number; startWidth: number; pointerId: number } | null>(null);
+
+  const effectiveWidths = Object.keys(liveWidths).length > 0
+    ? { ...columnWidths, ...liveWidths }
+    : columnWidths;
   
   // Use refs for callbacks to avoid re-creating observers when they change
   const onVisibilityChangeRef = useRef(onVisibilityChange);
@@ -171,104 +221,105 @@ export function PhotoList({
     onSortChange(nextSortConfig(sortConfig, column, columnType));
   }, [onSortChange, sortConfig]);
 
+  const handleResizeStart = useCallback((e: React.PointerEvent, col: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const header = (e.currentTarget as HTMLElement).parentElement;
+    if (!header) return;
+    const startWidth = header.getBoundingClientRect().width;
+    dragRef.current = { col, startX: e.clientX, startWidth, pointerId: e.pointerId };
+    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+  }, []);
+
+  const handleResizeMove = useCallback((e: React.PointerEvent) => {
+    if (!dragRef.current || dragRef.current.pointerId !== e.pointerId) return;
+    const { col, startX, startWidth } = dragRef.current;
+    const newWidth = Math.max(MIN_COL_WIDTH, startWidth + (e.clientX - startX));
+    setLiveWidths((prev) => ({ ...prev, [col]: newWidth }));
+  }, []);
+
+  const handleResizeEnd = useCallback((e: React.PointerEvent) => {
+    if (!dragRef.current || dragRef.current.pointerId !== e.pointerId) return;
+    const { col } = dragRef.current;
+    dragRef.current = null;
+    setLiveWidths((prev) => {
+      const width = prev[col];
+      if (width !== undefined && onColumnWidthChange) onColumnWidthChange(col, Math.round(width));
+      return {};
+    });
+  }, [onColumnWidthChange]);
+
+  const handleResetWidth = useCallback((col: string) => {
+    if (onColumnWidthChange) onColumnWidthChange(col, 0);
+  }, [onColumnWidthChange]);
+
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, index: number } | null>(null);
   const [columnContextMenu, setColumnContextMenu] = useState<{ x: number, y: number } | null>(null);
 
   if (photos.length === 0) {
-    // Show headers even when no photos are loaded yet
     const osColumnCount = visibleOSColumns.length;
-    const gridColumns = `52px minmax(200px, 2fr) ${visibleOSColumns.map(() => 'minmax(120px, 1fr)').join(' ')} ${visibleColumns.map(() => 'minmax(150px, 1fr)').join(' ')}`;
-    
+    const gridColumns = buildGridTemplate(visibleOSColumns, visibleColumns, effectiveWidths);
+
     return (
       <div className="photo-table-wrapper" ref={listRef} onClick={() => { setContextMenu(null); setColumnContextMenu(null); }}>
-        <div 
-          className="photo-grid" 
-          data-testid="photo-list-empty" 
+        <div
+          className="photo-grid"
+          data-testid="photo-list-empty"
           role="grid"
-          style={{ 
-            gridTemplateColumns: gridColumns,
-            gridTemplateRows: 'auto auto 1fr' // Group headers, column headers, then body
-          }}
+          style={{ gridTemplateColumns: gridColumns, gridTemplateRows: "auto auto 1fr" }}
         >
-          {/* Group header row */}
           <div className="grid-header-group grid-cell-thumb" style={{ gridRow: "1 / 3" }}>Preview</div>
           <div className="grid-header-group" style={{ gridColumn: `span ${1 + osColumnCount}`, gridRow: 1 }} onContextMenu={handleColumnContextMenu}>OS Metadata</div>
           {visibleColumns.length > 0 && (
             <div className="grid-header-group" style={{ gridColumn: `span ${visibleColumns.length}`, gridRow: 1 }} onContextMenu={handleColumnContextMenu}>Image Metadata</div>
           )}
 
-          {/* Column header row */}
-          {/* Thumbnail header is hidden by CSS since the group header spans both rows */}
           <div className="grid-header grid-cell-thumb" style={{ gridRow: 2, gridColumn: 1 }} />
-          <div className="grid-header grid-header--sortable" style={{ gridRow: 2, gridColumn: 2 }} onContextMenu={handleColumnContextMenu} onClick={() => handleColumnClick("relative_path", "path")}>Path<SortIndicator column="relative_path" sortConfig={sortConfig} /></div>
+          <div className="grid-header grid-header--sortable" style={{ gridRow: 2, gridColumn: 2 }} onContextMenu={handleColumnContextMenu} onClick={() => handleColumnClick("relative_path", "path")}>Path<SortIndicator column="relative_path" sortConfig={sortConfig} /><ResizeHandle col="relative_path" onResizeStart={handleResizeStart} onResizeMove={handleResizeMove} onResizeEnd={handleResizeEnd} onReset={handleResetWidth} /></div>
           {visibleOSColumns.includes("date_modified") && (
-            <div className="grid-header grid-header--sortable" style={{ gridRow: 2, gridColumn: 3 }} onContextMenu={handleColumnContextMenu} onClick={() => handleColumnClick("date_modified", "os")}>Modified<SortIndicator column="date_modified" sortConfig={sortConfig} /></div>
+            <div className="grid-header grid-header--sortable" style={{ gridRow: 2, gridColumn: 3 }} onContextMenu={handleColumnContextMenu} onClick={() => handleColumnClick("date_modified", "os")}>Modified<SortIndicator column="date_modified" sortConfig={sortConfig} /><ResizeHandle col="date_modified" onResizeStart={handleResizeStart} onResizeMove={handleResizeMove} onResizeEnd={handleResizeEnd} onReset={handleResetWidth} /></div>
           )}
           {visibleOSColumns.includes("date_created") && (
-            <div className="grid-header grid-header--sortable" style={{ gridRow: 2, gridColumn: visibleOSColumns.includes("date_modified") ? 4 : 3 }} onContextMenu={handleColumnContextMenu} onClick={() => handleColumnClick("date_created", "os")}>Created<SortIndicator column="date_created" sortConfig={sortConfig} /></div>
+            <div className="grid-header grid-header--sortable" style={{ gridRow: 2, gridColumn: visibleOSColumns.includes("date_modified") ? 4 : 3 }} onContextMenu={handleColumnContextMenu} onClick={() => handleColumnClick("date_created", "os")}>Created<SortIndicator column="date_created" sortConfig={sortConfig} /><ResizeHandle col="date_created" onResizeStart={handleResizeStart} onResizeMove={handleResizeMove} onResizeEnd={handleResizeEnd} onReset={handleResetWidth} /></div>
           )}
           {visibleColumns.map((col, index) => (
-            <div key={col} className="grid-header grid-header--sortable" style={{ gridRow: 2, gridColumn: 3 + osColumnCount + index }} onContextMenu={handleColumnContextMenu} onClick={() => handleColumnClick(col, "image")}>{col}<SortIndicator column={col} sortConfig={sortConfig} /></div>
+            <div key={col} className="grid-header grid-header--sortable" style={{ gridRow: 2, gridColumn: 3 + osColumnCount + index }} onContextMenu={handleColumnContextMenu} onClick={() => handleColumnClick(col, "image")}>{col}<SortIndicator column={col} sortConfig={sortConfig} /><ResizeHandle col={col} onResizeStart={handleResizeStart} onResizeMove={handleResizeMove} onResizeEnd={handleResizeEnd} onReset={handleResetWidth} /></div>
           ))}
-          
-          {/* Empty body area */}
-          <div 
-            className="grid-body" 
-            style={{ 
-              gridColumn: `1 / -1`,
-              gridRow: 3,
-              position: "relative",
-              minHeight: "200px",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              color: "#666",
-              fontStyle: "italic"
-            }}
-          >
-            {/* This will be empty during loading, or show "No photos found" if scan is complete */}
-          </div>
+
+          <div className="grid-body" style={{ gridColumn: "1 / -1", gridRow: 3, position: "relative", minHeight: "200px", display: "flex", alignItems: "center", justifyContent: "center", color: "#666", fontStyle: "italic" }} />
         </div>
       </div>
     );
   }
 
   const totalSize = rowVirtualizer.getTotalSize();
-
-  // Build grid-template-columns dynamically based on number of visible columns
   const osColumnCount = visibleOSColumns.length;
-  const gridColumns = `52px minmax(200px, 2fr) ${visibleOSColumns.map(() => 'minmax(120px, 1fr)').join(' ')} ${visibleColumns.map(() => 'minmax(150px, 1fr)').join(' ')}`;
+  const gridColumns = buildGridTemplate(visibleOSColumns, visibleColumns, effectiveWidths);
 
   return (
     <div className="photo-table-wrapper" ref={listRef} onClick={() => { setContextMenu(null); setColumnContextMenu(null); }}>
-      <div 
-        className="photo-grid" 
-        data-testid="photo-list" 
+      <div
+        className="photo-grid"
+        data-testid="photo-list"
         role="grid"
-        style={{ 
-          gridTemplateColumns: gridColumns,
-          gridTemplateRows: 'auto auto 1fr' // Group headers, column headers, then body
-        }}
+        style={{ gridTemplateColumns: gridColumns, gridTemplateRows: "auto auto 1fr" }}
       >
-        {/* Group header row */}
         <div className="grid-header-group grid-cell-thumb" style={{ gridRow: "1 / 3" }}>Preview</div>
         <div className="grid-header-group" style={{ gridColumn: `span ${1 + osColumnCount}`, gridRow: 1 }} onContextMenu={handleColumnContextMenu}>OS Metadata</div>
         {visibleColumns.length > 0 && (
           <div className="grid-header-group" style={{ gridColumn: `span ${visibleColumns.length}`, gridRow: 1 }} onContextMenu={handleColumnContextMenu}>Image Metadata</div>
         )}
 
-        {/* Column header row */}
-        {/* Thumbnail header is hidden by CSS since the group header spans both rows */}
         <div className="grid-header grid-cell-thumb" style={{ gridRow: 2, gridColumn: 1 }} />
-        <div className="grid-header grid-header--sortable" style={{ gridRow: 2, gridColumn: 2 }} onContextMenu={handleColumnContextMenu} onClick={() => handleColumnClick("relative_path", "path")}>Path<SortIndicator column="relative_path" sortConfig={sortConfig} /></div>
+        <div className="grid-header grid-header--sortable" style={{ gridRow: 2, gridColumn: 2 }} onContextMenu={handleColumnContextMenu} onClick={() => handleColumnClick("relative_path", "path")}>Path<SortIndicator column="relative_path" sortConfig={sortConfig} /><ResizeHandle col="relative_path" onResizeStart={handleResizeStart} onResizeMove={handleResizeMove} onResizeEnd={handleResizeEnd} onReset={handleResetWidth} /></div>
         {visibleOSColumns.includes("date_modified") && (
-          <div className="grid-header grid-header--sortable" style={{ gridRow: 2, gridColumn: 3 }} onContextMenu={handleColumnContextMenu} onClick={() => handleColumnClick("date_modified", "os")}>Modified<SortIndicator column="date_modified" sortConfig={sortConfig} /></div>
+          <div className="grid-header grid-header--sortable" style={{ gridRow: 2, gridColumn: 3 }} onContextMenu={handleColumnContextMenu} onClick={() => handleColumnClick("date_modified", "os")}>Modified<SortIndicator column="date_modified" sortConfig={sortConfig} /><ResizeHandle col="date_modified" onResizeStart={handleResizeStart} onResizeMove={handleResizeMove} onResizeEnd={handleResizeEnd} onReset={handleResetWidth} /></div>
         )}
         {visibleOSColumns.includes("date_created") && (
-          <div className="grid-header grid-header--sortable" style={{ gridRow: 2, gridColumn: visibleOSColumns.includes("date_modified") ? 4 : 3 }} onContextMenu={handleColumnContextMenu} onClick={() => handleColumnClick("date_created", "os")}>Created<SortIndicator column="date_created" sortConfig={sortConfig} /></div>
+          <div className="grid-header grid-header--sortable" style={{ gridRow: 2, gridColumn: visibleOSColumns.includes("date_modified") ? 4 : 3 }} onContextMenu={handleColumnContextMenu} onClick={() => handleColumnClick("date_created", "os")}>Created<SortIndicator column="date_created" sortConfig={sortConfig} /><ResizeHandle col="date_created" onResizeStart={handleResizeStart} onResizeMove={handleResizeMove} onResizeEnd={handleResizeEnd} onReset={handleResetWidth} /></div>
         )}
         {visibleColumns.map((col, index) => (
-          <div key={col} className="grid-header grid-header--sortable" style={{ gridRow: 2, gridColumn: 3 + osColumnCount + index }} onContextMenu={handleColumnContextMenu} onClick={() => handleColumnClick(col, "image")}>{col}<SortIndicator column={col} sortConfig={sortConfig} /></div>
+          <div key={col} className="grid-header grid-header--sortable" style={{ gridRow: 2, gridColumn: 3 + osColumnCount + index }} onContextMenu={handleColumnContextMenu} onClick={() => handleColumnClick(col, "image")}>{col}<SortIndicator column={col} sortConfig={sortConfig} /><ResizeHandle col={col} onResizeStart={handleResizeStart} onResizeMove={handleResizeMove} onResizeEnd={handleResizeEnd} onReset={handleResetWidth} /></div>
         ))}
         
         {/* Virtual rows container */}
