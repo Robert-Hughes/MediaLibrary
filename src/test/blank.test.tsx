@@ -18,6 +18,7 @@ describe("PhotoList", () => {
         thumbnails={thumbnails}
         imageMetadata={metadata}
         visibleColumns={["ExifIFD:DateTimeOriginal", "IFD0:Model"]}
+        visibleOSColumns={["date_modified", "date_created"]}
         selectedIndex={null}
         onSelect={vi.fn()}
         onShowInExplorer={vi.fn()}

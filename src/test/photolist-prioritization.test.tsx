@@ -49,6 +49,7 @@ describe("PhotoList prioritization optimization", () => {
         thumbnails={thumbnailStore}
         imageMetadata={metadataStore}
         visibleColumns={["ExifIFD:DateTimeOriginal"]}
+        visibleOSColumns={["date_modified", "date_created"]}
         selectedIndex={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
@@ -74,6 +75,7 @@ describe("PhotoList prioritization optimization", () => {
         thumbnails={thumbnailStore}
         imageMetadata={metadataStore}
         visibleColumns={["ExifIFD:DateTimeOriginal"]}
+        visibleOSColumns={["date_modified", "date_created"]}
         selectedIndex={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
@@ -102,6 +104,7 @@ describe("PhotoList prioritization optimization", () => {
         thumbnails={thumbnailStore}
         imageMetadata={metadataStore}
         visibleColumns={["ExifIFD:DateTimeOriginal"]}
+        visibleOSColumns={["date_modified", "date_created"]}
         selectedIndex={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
@@ -127,6 +130,7 @@ describe("PhotoList prioritization optimization", () => {
         thumbnails={thumbnailStore}
         imageMetadata={metadataStore}
         visibleColumns={["ExifIFD:DateTimeOriginal"]}
+        visibleOSColumns={["date_modified", "date_created"]}
         selectedIndex={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
@@ -152,6 +156,7 @@ describe("PhotoList prioritization optimization", () => {
         thumbnails={thumbnailStore}
         imageMetadata={metadataStore}
         visibleColumns={["ExifIFD:DateTimeOriginal"]}
+        visibleOSColumns={["date_modified", "date_created"]}
         selectedIndex={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
