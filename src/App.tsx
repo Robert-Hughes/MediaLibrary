@@ -97,6 +97,7 @@ export default function App() {
               "XMP-photoshop:State",
               "XMP-photoshop:Country",
             ]}
+            visibleOSColumns={["date_modified", "date_created"]}
             selectedIndex={null}
             onSelect={() => {}}
             onShowInExplorer={() => Promise.resolve()}
@@ -123,6 +124,7 @@ export default function App() {
             thumbnails={state.thumbnails}
             imageMetadata={state.imageMetadata}
             visibleColumns={state.visibleColumns}
+            visibleOSColumns={state.visibleOSColumns}
             selectedIndex={state.selectedIndex}
             onSelect={actions.selectPhoto}
             onShowInExplorer={actions.showInExplorer}
@@ -144,8 +146,10 @@ export default function App() {
             <ColumnSelectionDialog
               allKeys={Array.from(state.imageMetadata.getKeyFrequency().entries()).map(([key, count]) => ({ key, count }))}
               visibleColumns={state.visibleColumns}
-              onSave={(cols) => {
+              visibleOSColumns={state.visibleOSColumns}
+              onSave={(cols, osCols) => {
                 actions.setVisibleColumns(cols);
+                actions.setVisibleOSColumns(osCols);
                 setShowColumnDialog(false);
               }}
               onClose={() => setShowColumnDialog(false)}

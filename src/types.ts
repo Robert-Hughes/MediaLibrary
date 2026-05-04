@@ -181,6 +181,7 @@ export type AppState =
       
       // Dynamic columns configuration
       visibleColumns: string[];         // Keys of image metadata to show in columns
+      visibleOSColumns: string[];       // OS metadata columns to show (date_modified, date_created)
       
       // Worker errors
       workerErrors: WorkerErrorPayload[];

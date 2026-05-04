@@ -843,6 +843,21 @@ body {
   margin-bottom: 16px;
 }
 
+.column-section {
+  margin-bottom: 24px;
+}
+
+.column-section:last-child {
+  margin-bottom: 0;
+}
+
+.column-section-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 12px;
+  color: var(--text-primary);
+}
+
 .dialog-footer {
   padding: 16px 20px;
   border-top: 1px solid var(--border);

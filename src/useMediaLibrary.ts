@@ -27,6 +27,7 @@ export interface MediaLibraryActions {
   closeGallery: () => void;
   navigateGallery: (delta: -1 | 1) => void;
   setVisibleColumns: (columns: string[]) => void;
+  setVisibleOSColumns: (columns: string[]) => void;
   dismissError: (index: number) => void;
 }
 
@@ -43,6 +44,11 @@ const DEFAULT_COLUMNS = [
   "XMP-photoshop:City",
   "XMP-photoshop:State",
   "XMP-photoshop:Country",
+];
+
+const DEFAULT_OS_COLUMNS = [
+  "date_modified",
+  "date_created",
 ];
 
 export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: string[] }, MediaLibraryActions] {
@@ -186,6 +192,7 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
             galleryIndex: null,
             selectedIndex: null,
             visibleColumns: DEFAULT_COLUMNS,
+            visibleOSColumns: DEFAULT_OS_COLUMNS,
             workerErrors: [],
           };
         }
@@ -311,6 +318,7 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
               galleryIndex: null,
               selectedIndex: null,
               visibleColumns: DEFAULT_COLUMNS,
+              visibleOSColumns: DEFAULT_OS_COLUMNS,
               workerErrors: [],
             };
           }
@@ -492,6 +500,12 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
     );
   }, []);
 
+  const setVisibleOSColumns = useCallback((columns: string[]) => {
+    setAppState((prev) =>
+      prev.kind === "loaded" ? { ...prev, visibleOSColumns: columns } : prev
+    );
+  }, []);
+
   const dismissError = useCallback((index: number) => {
     setAppState((prev) => {
       if (prev.kind !== "loaded") return prev;
@@ -501,5 +515,5 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
     });
   }, []);
 
-  return [{ ...appState, recentFolders }, { openFolder, openRecent, closeFolder, prioritizeQueues, selectPhoto, showInExplorer, openGallery, closeGallery, navigateGallery, setVisibleColumns, dismissError }];
+  return [{ ...appState, recentFolders }, { openFolder, openRecent, closeFolder, prioritizeQueues, selectPhoto, showInExplorer, openGallery, closeGallery, navigateGallery, setVisibleColumns, setVisibleOSColumns, dismissError }];
 }

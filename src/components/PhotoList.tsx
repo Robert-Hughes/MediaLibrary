@@ -11,6 +11,7 @@ interface Props {
   thumbnails: ThumbnailStore;
   imageMetadata: ImageMetadataStore;
   visibleColumns: string[];
+  visibleOSColumns: string[];
   selectedIndex: number | null;
   onSelect: (index: number | null) => void;
   onShowInExplorer: (index: number) => void;
@@ -36,7 +37,7 @@ function formatVariant(v: Variant | undefined): string {
 
 
 export function PhotoList({ 
-  photos, thumbnails, imageMetadata, visibleColumns, 
+  photos, thumbnails, imageMetadata, visibleColumns, visibleOSColumns,
   selectedIndex, onSelect, onShowInExplorer, onVisibilityChange, onPhotoOpen 
 }: Props) {
   const listRef = useRef<HTMLDivElement>(null);
@@ -147,7 +148,8 @@ export function PhotoList({
 
   if (photos.length === 0) {
     // Show headers even when no photos are loaded yet
-    const gridColumns = `52px minmax(200px, 2fr) minmax(120px, 1fr) minmax(120px, 1fr) ${visibleColumns.map(() => 'minmax(150px, 1fr)').join(' ')}`;
+    const osColumnCount = visibleOSColumns.length;
+    const gridColumns = `52px minmax(200px, 2fr) ${visibleOSColumns.map(() => 'minmax(120px, 1fr)').join(' ')} ${visibleColumns.map(() => 'minmax(150px, 1fr)').join(' ')}`;
     
     return (
       <div className="photo-table-wrapper" ref={listRef} onClick={() => setContextMenu(null)}>
@@ -162,17 +164,21 @@ export function PhotoList({
         >
           {/* Group header row */}
           <div className="grid-header-group grid-cell-thumb" style={{ gridRow: "1 / 3" }}>Preview</div>
-          <div className="grid-header-group" style={{ gridColumn: "span 3", gridRow: 1 }}>OS Metadata</div>
+          <div className="grid-header-group" style={{ gridColumn: `span ${1 + osColumnCount}`, gridRow: 1 }}>OS Metadata</div>
           <div className="grid-header-group" style={{ gridColumn: `span ${visibleColumns.length}`, gridRow: 1 }}>Image Metadata</div>
           
           {/* Column header row */}
           {/* Thumbnail header is hidden by CSS since the group header spans both rows */}
           <div className="grid-header grid-cell-thumb" style={{ gridRow: 2, gridColumn: 1 }} />
           <div className="grid-header" style={{ gridRow: 2, gridColumn: 2 }}>Path</div>
-          <div className="grid-header" style={{ gridRow: 2, gridColumn: 3 }}>Modified</div>
-          <div className="grid-header" style={{ gridRow: 2, gridColumn: 4 }}>Created</div>
+          {visibleOSColumns.includes("date_modified") && (
+            <div className="grid-header" style={{ gridRow: 2, gridColumn: 3 }}>Modified</div>
+          )}
+          {visibleOSColumns.includes("date_created") && (
+            <div className="grid-header" style={{ gridRow: 2, gridColumn: visibleOSColumns.includes("date_modified") ? 4 : 3 }}>Created</div>
+          )}
           {visibleColumns.map((col, index) => (
-            <div key={col} className="grid-header" style={{ gridRow: 2, gridColumn: 5 + index }}>{col}</div>
+            <div key={col} className="grid-header" style={{ gridRow: 2, gridColumn: 3 + osColumnCount + index }}>{col}</div>
           ))}
           
           {/* Empty body area */}
@@ -200,7 +206,8 @@ export function PhotoList({
   const totalSize = rowVirtualizer.getTotalSize();
 
   // Build grid-template-columns dynamically based on number of visible columns
-  const gridColumns = `52px minmax(200px, 2fr) minmax(120px, 1fr) minmax(120px, 1fr) ${visibleColumns.map(() => 'minmax(150px, 1fr)').join(' ')}`;
+  const osColumnCount = visibleOSColumns.length;
+  const gridColumns = `52px minmax(200px, 2fr) ${visibleOSColumns.map(() => 'minmax(120px, 1fr)').join(' ')} ${visibleColumns.map(() => 'minmax(150px, 1fr)').join(' ')}`;
 
   return (
     <div className="photo-table-wrapper" ref={listRef} onClick={() => setContextMenu(null)}>
@@ -215,17 +222,21 @@ export function PhotoList({
       >
         {/* Group header row */}
         <div className="grid-header-group grid-cell-thumb" style={{ gridRow: "1 / 3" }}>Preview</div>
-        <div className="grid-header-group" style={{ gridColumn: "span 3", gridRow: 1 }}>OS Metadata</div>
+        <div className="grid-header-group" style={{ gridColumn: `span ${1 + osColumnCount}`, gridRow: 1 }}>OS Metadata</div>
         <div className="grid-header-group" style={{ gridColumn: `span ${visibleColumns.length}`, gridRow: 1 }}>Image Metadata</div>
         
         {/* Column header row */}
         {/* Thumbnail header is hidden by CSS since the group header spans both rows */}
         <div className="grid-header grid-cell-thumb" style={{ gridRow: 2, gridColumn: 1 }} />
         <div className="grid-header" style={{ gridRow: 2, gridColumn: 2 }}>Path</div>
-        <div className="grid-header" style={{ gridRow: 2, gridColumn: 3 }}>Modified</div>
-        <div className="grid-header" style={{ gridRow: 2, gridColumn: 4 }}>Created</div>
+        {visibleOSColumns.includes("date_modified") && (
+          <div className="grid-header" style={{ gridRow: 2, gridColumn: 3 }}>Modified</div>
+        )}
+        {visibleOSColumns.includes("date_created") && (
+          <div className="grid-header" style={{ gridRow: 2, gridColumn: visibleOSColumns.includes("date_modified") ? 4 : 3 }}>Created</div>
+        )}
         {visibleColumns.map((col, index) => (
-          <div key={col} className="grid-header" style={{ gridRow: 2, gridColumn: 5 + index }}>{col}</div>
+          <div key={col} className="grid-header" style={{ gridRow: 2, gridColumn: 3 + osColumnCount + index }}>{col}</div>
         ))}
         
         {/* Virtual rows container */}
@@ -249,6 +260,7 @@ export function PhotoList({
                 thumbnails={thumbnails}
                 imageMetadata={imageMetadata}
                 visibleColumns={visibleColumns}
+                visibleOSColumns={visibleOSColumns}
                 onSelect={onSelect}
                 onPhotoOpen={onPhotoOpen}
                 onContextMenu={handleContextMenu}
@@ -282,6 +294,7 @@ interface RowProps {
   thumbnails: ThumbnailStore;
   imageMetadata: ImageMetadataStore;
   visibleColumns: string[];
+  visibleOSColumns: string[];
   onSelect: (index: number | null) => void;
   onPhotoOpen: (index: number) => void;
   onContextMenu: (e: React.MouseEvent, index: number) => void;
@@ -290,7 +303,7 @@ interface RowProps {
 }
 
 const PhotoRow = memo(function PhotoRow({ 
-  photo, index, selected, thumbnails, imageMetadata, visibleColumns, 
+  photo, index, selected, thumbnails, imageMetadata, visibleColumns, visibleOSColumns,
   onSelect, onPhotoOpen, onContextMenu, virtualStart, gridColumns
 }: RowProps) {
   const subscribeThumb = useCallback((cb: () => void) => thumbnails.subscribe(photo.relative_path, cb), [thumbnails, photo.relative_path]);
@@ -347,8 +360,12 @@ const PhotoRow = memo(function PhotoRow({
         </div>
       </div>
       <div className="grid-cell grid-cell-path" data-testid="photo-path">{photo.relative_path}</div>
-      <div className="grid-cell grid-cell-date" data-testid="photo-date-modified">{formatDate(photo.date_modified)}</div>
-      <div className="grid-cell grid-cell-date" data-testid="photo-date-created">{formatDate(photo.date_created)}</div>
+      {visibleOSColumns.includes("date_modified") && (
+        <div className="grid-cell grid-cell-date" data-testid="photo-date-modified">{formatDate(photo.date_modified)}</div>
+      )}
+      {visibleOSColumns.includes("date_created") && (
+        <div className="grid-cell grid-cell-date" data-testid="photo-date-created">{formatDate(photo.date_created)}</div>
+      )}
       {visibleColumns.map((col) => (
         <div key={col} className="grid-cell grid-cell-metadata">
           {metadataLoading ? (
