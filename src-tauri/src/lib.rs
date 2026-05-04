@@ -351,11 +351,13 @@ fn start_scan(
         let thumb_queue_walk = thumb_queue.clone();
         
         let walk_handle = std::thread::spawn(move || {
+            eprintln!("[walk_thread] Starting directory walk for scan_id {}", scan_id);
             scanner::scan_folder(&root, cancel_walk, |photo| {
                 image_metadata_queue_walk.push(photo.relative_path.clone());
                 thumb_queue_walk.push(photo.relative_path.clone());
                 photo_queue_clone.lock().unwrap().push(photo);
             });
+            eprintln!("[walk_thread] Directory walk complete for scan_id {}", scan_id);
             walk_complete_clone.store(true, Ordering::Relaxed);
         });
         
@@ -398,10 +400,14 @@ fn start_scan(
         });
         
         // Wait for walk to complete
+        eprintln!("[scan_thread] Waiting for walk to complete for scan_id {}", scan_id);
         walk_handle.join().unwrap();
+        eprintln!("[scan_thread] Walk complete, waiting for flush thread for scan_id {}", scan_id);
         flush_handle.join().unwrap();
+        eprintln!("[scan_thread] Flush thread complete, emitting scan_complete for scan_id {}", scan_id);
 
         let _ = app_clone.emit("scan_complete", ScanCompletePayload { scan_id });
+        eprintln!("[scan_thread] scan_complete emitted for scan_id {}", scan_id);
 
         // Clear running flag immediately so a new scan can start.
         // Workers can continue processing in the background.
