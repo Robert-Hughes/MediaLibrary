@@ -131,9 +131,17 @@ export function PhotoList({
 
   const totalSize = rowVirtualizer.getTotalSize();
 
+  // Build grid-template-columns dynamically based on number of visible columns
+  const gridColumns = `52px minmax(200px, 2fr) minmax(120px, 1fr) minmax(120px, 1fr) ${visibleColumns.map(() => 'minmax(150px, 1fr)').join(' ')}`;
+
   return (
     <div className="photo-table-wrapper" ref={listRef} onClick={() => setContextMenu(null)}>
-      <div className="photo-grid" data-testid="photo-list" role="grid">
+      <div 
+        className="photo-grid" 
+        data-testid="photo-list" 
+        role="grid"
+        style={{ gridTemplateColumns: gridColumns }}
+      >
         {/* Group header row */}
         <div className="grid-header-group grid-cell-thumb" />
         <div className="grid-header-group" style={{ gridColumn: "span 3" }}>OS Metadata</div>
@@ -152,7 +160,7 @@ export function PhotoList({
         <div 
           className="grid-body" 
           style={{ 
-            gridColumn: `1 / span ${4 + visibleColumns.length}`,
+            gridColumn: `1 / -1`,
             position: "relative",
             height: `${totalSize}px`
           }}
@@ -172,6 +180,7 @@ export function PhotoList({
                 onPhotoOpen={onPhotoOpen}
                 onContextMenu={handleContextMenu}
                 virtualStart={virtualRow.start}
+                gridColumns={gridColumns}
               />
             );
           })}
@@ -204,11 +213,12 @@ interface RowProps {
   onPhotoOpen: (index: number) => void;
   onContextMenu: (e: React.MouseEvent, index: number) => void;
   virtualStart: number;
+  gridColumns: string;
 }
 
 const PhotoRow = memo(function PhotoRow({ 
   photo, index, selected, thumbnails, imageMetadata, visibleColumns, 
-  onSelect, onPhotoOpen, onContextMenu, virtualStart 
+  onSelect, onPhotoOpen, onContextMenu, virtualStart, gridColumns
 }: RowProps) {
   const subscribeThumb = useCallback((cb: () => void) => thumbnails.subscribe(photo.relative_path, cb), [thumbnails, photo.relative_path]);
   const getThumbSnapshot = useCallback(() => thumbnails.get(photo.relative_path), [thumbnails, photo.relative_path]);
@@ -247,6 +257,7 @@ const PhotoRow = memo(function PhotoRow({
         width: "100%",
         transform: `translateY(${virtualStart}px)`,
         cursor: "pointer",
+        gridTemplateColumns: gridColumns,
       }}
     >
       <div className="grid-cell grid-cell-thumb">

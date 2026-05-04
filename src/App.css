@@ -316,7 +316,7 @@ body {
 
 .photo-grid {
   display: grid;
-  grid-template-columns: 52px minmax(200px, 2fr) minmax(120px, 1fr) minmax(120px, 1fr) repeat(auto-fit, minmax(150px, 1fr));
+  /* grid-template-columns set dynamically via inline style */
   width: 100%;
 }
 
@@ -395,31 +395,31 @@ body {
 }
 
 /* Grid rows */
-.grid-row {
+.photo-row {
   display: grid;
-  grid-template-columns: subgrid;
+  /* grid-template-columns set dynamically via inline style to match parent */
   grid-column: 1 / -1;
 }
 
-.grid-row--even .grid-cell { background: var(--surface); }
-.grid-row--odd .grid-cell { background: var(--surface-alt); }
+.photo-row--even .grid-cell { background: var(--surface); }
+.photo-row--odd .grid-cell { background: var(--surface-alt); }
 
-.grid-row--selected .grid-cell {
+.photo-row--selected .grid-cell {
   background: var(--accent) !important;
   color: #fff;
 }
 
-.grid-row--selected .grid-cell-path,
-.grid-row--selected .grid-cell-date {
+.photo-row--selected .grid-cell-path,
+.photo-row--selected .grid-cell-date {
   color: #fff;
 }
 
-.grid-row--selected .cell-spinner {
+.photo-row--selected .cell-spinner {
   border-color: rgba(255, 255, 255, 0.3);
   border-top-color: #fff;
 }
 
-.grid-row:hover .grid-cell { background: #1e2128; }
+.photo-row:hover .grid-cell { background: #1e2128; }
 
 .photo-thumb {
   width: 36px;
