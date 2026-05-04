@@ -7,6 +7,23 @@ use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager, State};
 use work_queue::WorkQueue;
 
+// ── Timestamp helper ──────────────────────────────────────────────────────────
+
+fn get_timestamp() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap();
+    let millis = now.as_millis();
+    format!("{}.{:03}", millis / 1000, millis % 1000)
+}
+
+macro_rules! log_ts {
+    ($($arg:tt)*) => {
+        eprintln!("[{}] {}", get_timestamp(), format!($($arg)*))
+    };
+}
+
 // ── Shared state ──────────────────────────────────────────────────────────────
 
 struct ScanState {
@@ -78,12 +95,14 @@ struct ThumbnailResult {
 
 #[tauri::command]
 fn log_to_console(level: String, message: String) {
+    let timestamp = get_timestamp();
+    
     match level.as_str() {
-        "log" => eprintln!("[JS LOG] {}", message),
-        "info" => eprintln!("[JS INFO] {}", message),
-        "warn" => eprintln!("[JS WARN] {}", message),
-        "error" => eprintln!("[JS ERROR] {}", message),
-        _ => eprintln!("[JS] {}", message),
+        "log" => eprintln!("[{}] [JS LOG] {}", timestamp, message),
+        "info" => eprintln!("[{}] [JS INFO] {}", timestamp, message),
+        "warn" => eprintln!("[{}] [JS WARN] {}", timestamp, message),
+        "error" => eprintln!("[{}] [JS ERROR] {}", timestamp, message),
+        _ => eprintln!("[{}] [JS] {}", timestamp, message),
     }
 }
 
@@ -135,7 +154,7 @@ fn start_scan(
             attempts += 1;
         }
         if *running {
-            eprintln!("[start_scan] ERROR: Previous scan did not finish in time");
+            log_ts!("[start_scan] ERROR: Previous scan did not finish in time");
             return Err("A scan is already in progress and could not be stopped".into());
         }
         *running = true;
@@ -207,7 +226,7 @@ fn start_scan(
                         crate::work_queue::PopResult::Items(items) => items,
                         crate::work_queue::PopResult::Timeout => {
                             if !batch_results.is_empty() {
-                                eprintln!("[metadata] Emitting batch of {} results (timeout)", batch_results.len());
+                                log_ts!("[metadata] Emitting batch of {} results (timeout)", batch_results.len());
                                 let _ = app.emit("image_metadata_ready", ImageMetadataReadyPayload {
                                     scan_id,
                                     results: std::mem::take(&mut batch_results),
@@ -225,7 +244,7 @@ fn start_scan(
 
                     match scanner::read_image_metadata_batch(&rel_paths, &abs_paths) {
                         Ok(results) => {
-                            eprintln!("[metadata] Read {} results, first has {} fields", 
+                            log_ts!("[metadata] Read {} results, first has {} fields", 
                                 results.len(), 
                                 results.first().map(|r| r.metadata.len()).unwrap_or(0));
                             
@@ -237,7 +256,7 @@ fn start_scan(
                             }
                         }
                         Err(error_msg) => {
-                            eprintln!("[metadata] Error reading metadata: {}", error_msg);
+                            log_ts!("[metadata] Error reading metadata: {}", error_msg);
                             
                             // Emit error to UI
                             let _ = app.emit("worker_error", WorkerErrorPayload {
@@ -262,7 +281,7 @@ fn start_scan(
                     
                     // Emit batch if enough time has elapsed
                     if last_emit.elapsed() >= emit_interval && !batch_results.is_empty() {
-                        eprintln!("[metadata] Emitting batch of {} results", batch_results.len());
+                        log_ts!("[metadata] Emitting batch of {} results", batch_results.len());
                         let _ = app.emit("image_metadata_ready", ImageMetadataReadyPayload {
                             scan_id,
                             results: std::mem::take(&mut batch_results),
@@ -273,7 +292,7 @@ fn start_scan(
                 
                 // Emit any remaining results
                 if !batch_results.is_empty() {
-                    eprintln!("[metadata] Emitting final batch of {} results", batch_results.len());
+                    log_ts!("[metadata] Emitting final batch of {} results", batch_results.len());
                     let _ = app.emit("image_metadata_ready", ImageMetadataReadyPayload {
                         scan_id,
                         results: batch_results,
