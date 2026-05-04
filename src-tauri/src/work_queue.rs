@@ -1,4 +1,4 @@
-/// A thread-safe priority queue for thumbnail/EXIF work items.
+/// A thread-safe priority queue for work items (thumbnails, metadata, etc.).
 ///
 /// Workers call `pop()` — it blocks until an item is available or `finish()`
 /// has been called. The frontend calls `prioritize()` to move visible paths
@@ -7,7 +7,7 @@ use std::collections::VecDeque;
 use std::sync::{Arc, Condvar, Mutex};
 
 #[derive(Clone)]
-pub struct ThumbnailQueue {
+pub struct WorkQueue {
     inner: Arc<(Mutex<State>, Condvar)>,
 }
 
@@ -17,7 +17,7 @@ struct State {
     done: bool,
 }
 
-impl ThumbnailQueue {
+impl WorkQueue {
     /// Create a new queue, optionally pre-populated.
     pub fn new(paths: Vec<String>) -> Self {
         Self {
@@ -31,7 +31,8 @@ impl ThumbnailQueue {
     /// Push a path onto the back and wake one waiting worker.
     pub fn push(&self, path: String) {
         let (lock, cvar) = &*self.inner;
-        lock.lock().unwrap().queue.push_back(path);
+        let mut state = lock.lock().unwrap();
+        state.queue.push_back(path);
         cvar.notify_one();
     }
 
@@ -141,8 +142,8 @@ mod tests {
     use super::*;
 
     /// Helper: pre-populated queue that is immediately finished.
-    fn queue(items: &[&str]) -> ThumbnailQueue {
-        let q = ThumbnailQueue::new(items.iter().map(|s| s.to_string()).collect());
+    fn queue(items: &[&str]) -> WorkQueue {
+        let q = WorkQueue::new(items.iter().map(|s| s.to_string()).collect());
         q.finish();
         q
     }
@@ -166,7 +167,7 @@ mod tests {
 
     #[test]
     fn push_then_finish_drains_correctly() {
-        let q = ThumbnailQueue::new(vec![]);
+        let q = WorkQueue::new(vec![]);
         q.push("a".into());
         q.push("b".into());
         q.finish();
@@ -239,7 +240,7 @@ mod tests {
 
     #[test]
     fn pop_blocks_until_push_arrives() {
-        let q = Arc::new(ThumbnailQueue::new(vec![]));
+        let q = Arc::new(WorkQueue::new(vec![]));
         let q2 = q.clone();
 
         // Spawn a worker that will block on pop().
@@ -258,7 +259,7 @@ mod tests {
 
     #[test]
     fn finish_unblocks_all_waiting_workers() {
-        let q = Arc::new(ThumbnailQueue::new(vec![]));
+        let q = Arc::new(WorkQueue::new(vec![]));
         let num_workers = 4;
 
         // Spawn workers that all block immediately on an empty queue.
@@ -283,7 +284,7 @@ mod tests {
     fn workers_receive_items_pushed_after_they_start_blocking() {
         use std::sync::atomic::{AtomicUsize, Ordering};
 
-        let q = Arc::new(ThumbnailQueue::new(vec![]));
+        let q = Arc::new(WorkQueue::new(vec![]));
         let received = Arc::new(AtomicUsize::new(0));
 
         // Start workers before any items exist.
@@ -315,7 +316,7 @@ mod tests {
     #[test]
     fn prioritize_while_workers_are_draining() {
         // Verify prioritize() works correctly when called before draining starts.
-        let q = Arc::new(ThumbnailQueue::new(vec![]));
+        let q = Arc::new(WorkQueue::new(vec![]));
 
         // Pre-populate with items a–z.
         for c in b'a'..=b'z' {
@@ -346,7 +347,7 @@ mod tests {
     fn concurrent_pops_drain_queue_exactly_once() {
         use std::sync::atomic::{AtomicUsize, Ordering};
 
-        let q = Arc::new(ThumbnailQueue::new(vec![]));
+        let q = Arc::new(WorkQueue::new(vec![]));
         for i in 0..100 {
             q.push(format!("photo_{i}.jpg"));
         }
@@ -374,7 +375,7 @@ mod tests {
 
     #[test]
     fn abort_clears_queue_and_stops_workers() {
-        let q = ThumbnailQueue::new(vec!["a".into(), "b".into(), "c".into()]);
+        let q = WorkQueue::new(vec!["a".into(), "b".into(), "c".into()]);
         q.abort();
         assert!(q.is_empty());
         assert_eq!(q.pop(), None);

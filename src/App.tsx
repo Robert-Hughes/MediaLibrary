@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useMediaLibrary, type TauriApi } from "./useMediaLibrary";
@@ -23,6 +23,18 @@ async function loadImage(path: string): Promise<string | null> {
 export default function App() {
   const [state, actions] = useMediaLibrary(tauriApi);
   const [showColumnDialog, setShowColumnDialog] = useState(false);
+
+  // Check for CLI folder argument on mount
+  useEffect(() => {
+    invoke<string | null>("get_cli_folder").then((folder) => {
+      if (folder && state.kind === "idle") {
+        console.log("[App] Opening folder from CLI argument:", folder);
+        actions.openRecent(folder);
+      }
+    }).catch((err) => {
+      console.error("[App] Failed to get CLI folder:", err);
+    });
+  }, []); // Only run once on mount
 
   // Show the footer whenever the directory walk is still running.
   const isDiscovering =

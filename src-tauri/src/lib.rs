@@ -1,11 +1,11 @@
 mod scanner;
-mod thumbnail_queue;
+mod work_queue;
 
 use serde::Serialize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager, State};
-use thumbnail_queue::ThumbnailQueue;
+use work_queue::WorkQueue;
 
 // ── Shared state ──────────────────────────────────────────────────────────────
 
@@ -16,8 +16,8 @@ struct ScanState {
 
 /// Holds both the thumbnail and image metadata queues so both can be prioritised.
 struct ActiveQueues {
-    thumbnails:     Arc<Mutex<Option<Arc<ThumbnailQueue>>>>,
-    image_metadata: Arc<Mutex<Option<Arc<ThumbnailQueue>>>>,
+    thumbnails:     Arc<Mutex<Option<Arc<WorkQueue>>>>,
+    image_metadata: Arc<Mutex<Option<Arc<WorkQueue>>>>,
 }
 
 // ── Event payloads ────────────────────────────────────────────────────────────
@@ -66,6 +66,11 @@ struct ThumbnailResult {
 }
 
 // ── Commands ──────────────────────────────────────────────────────────────────
+
+#[tauri::command]
+fn get_cli_folder() -> Option<String> {
+    std::env::args().nth(1)
+}
 
 #[tauri::command]
 async fn pick_folder(app: AppHandle) -> Option<String> {
@@ -154,8 +159,8 @@ fn start_scan(
         let metadata_workers = num_workers.min(4);
 
         // Shared queues fed by the walk, drained by worker pools.
-        let thumb_queue          = Arc::new(ThumbnailQueue::new(vec![]));
-        let image_metadata_queue = Arc::new(ThumbnailQueue::new(vec![]));
+        let thumb_queue          = Arc::new(WorkQueue::new(vec![]));
+        let image_metadata_queue = Arc::new(WorkQueue::new(vec![]));
 
         // Install the queues so prioritize_queues can reach them.
         {
@@ -207,9 +212,9 @@ fn start_scan(
                 let batch_size = 50;
                 
                 loop {
-                    // Try to get items from the queue
                     if let Some(rel_path) = queue.pop() {
                         if cancelled.load(Ordering::Relaxed) { break; }
+                        
                         let abs = root.join(rel_path.replace('/', std::path::MAIN_SEPARATOR_STR));
                         if let Some(thumbnail) = scanner::thumbnail_for(&abs) {
                             batch.push(ThumbnailResult {
@@ -243,8 +248,10 @@ fn start_scan(
         // ── Phase 1: streaming directory walk ─────────────────────────────
         let app_walk = app_clone.clone();
         let mut photo_batch = Vec::with_capacity(50);
+        let mut photo_count = 0;
         
         scanner::scan_folder(&root, cancel_clone, |photo| {
+            photo_count += 1;
             image_metadata_queue.push(photo.relative_path.clone());
             thumb_queue.push(photo.relative_path.clone());
             
@@ -410,6 +417,7 @@ pub fn run() {
             image_metadata: Arc::new(Mutex::new(None)),
         })
         .invoke_handler(tauri::generate_handler![
+            get_cli_folder,
             pick_folder,
             start_scan,
             stop_scan,
