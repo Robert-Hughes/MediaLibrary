@@ -12,6 +12,7 @@ import { StatusFooter } from "./components/StatusFooter";
 import { ColumnSelectionDialog } from "./components/ColumnSelectionDialog";
 import { ErrorBanner } from "./components/ErrorBanner";
 import { sortPhotos } from "./utils/sorting";
+import { DEFAULT_COLUMNS, DEFAULT_OS_COLUMNS } from "./utils/columnConfig";
 import "./App.css";
 
 const tauriApi: TauriApi = {
@@ -158,18 +159,8 @@ export default function App() {
             photos={[]}
             thumbnails={new ThumbnailStore()}
             imageMetadata={new ImageMetadataStore()}
-            visibleColumns={[
-              "ExifIFD:DateTimeOriginal",
-              "XMP-dc:Description",
-              "XMP-dc:Subject",
-              "GPS:GPSLatitude",
-              "GPS:GPSLongitude",
-              "XMP-iptcCore:Location",
-              "XMP-photoshop:City",
-              "XMP-photoshop:State",
-              "XMP-photoshop:Country",
-            ]}
-            visibleOSColumns={["date_modified", "date_created"]}
+            visibleColumns={DEFAULT_COLUMNS}
+            visibleOSColumns={DEFAULT_OS_COLUMNS}
             sortConfig={{ primary: null, secondary: null }}
             onSortChange={() => {}}
             selectedIndex={null}

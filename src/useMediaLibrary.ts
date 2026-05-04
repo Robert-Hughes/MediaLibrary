@@ -11,6 +11,7 @@ import type {
   Variant,
   SortConfig,
 } from "./types";
+import { loadColumnConfig, saveColumnConfig } from "./utils/columnConfig";
 
 export interface TauriApi {
   invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
@@ -35,23 +36,6 @@ export interface MediaLibraryActions {
 
 const RECENT_FOLDERS_KEY = "media_library_recent_folders";
 const MAX_RECENT_FOLDERS = 5;
-
-const DEFAULT_COLUMNS = [
-  "ExifIFD:DateTimeOriginal",
-  "XMP-dc:Description",
-  "XMP-dc:Subject",
-  "GPS:GPSLatitude",
-  "GPS:GPSLongitude",
-  "XMP-iptcCore:Location",
-  "XMP-photoshop:City",
-  "XMP-photoshop:State",
-  "XMP-photoshop:Country",
-];
-
-const DEFAULT_OS_COLUMNS = [
-  "date_modified",
-  "date_created",
-];
 
 export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: string[] }, MediaLibraryActions] {
   const [appState, setAppState] = useState<AppState>({ kind: "idle" });
@@ -179,10 +163,11 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
         
         if (prev.kind === "loading") {
           if (batch.length === 0) return prev;
-          
+
           // Update metadata progress store with new total
           metadataProgressStoreRef.current.setTotal(batch.length);
-          
+
+          const { visibleColumns, visibleOSColumns, sortConfig } = loadColumnConfig();
           return {
             kind: "loaded",
             folder: prev.folder,
@@ -193,9 +178,9 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
             scanning: true,
             galleryIndex: null,
             selectedIndex: null,
-            visibleColumns: DEFAULT_COLUMNS,
-            visibleOSColumns: DEFAULT_OS_COLUMNS,
-            sortConfig: { primary: null, secondary: null },
+            visibleColumns,
+            visibleOSColumns,
+            sortConfig,
             metadataVersion: 0,
             workerErrors: [],
           };
@@ -319,6 +304,7 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
         setAppState((prev) => {
           if (prev.kind === "loaded") return { ...prev, scanning: false };
           if (prev.kind === "loading") {
+            const { visibleColumns, visibleOSColumns, sortConfig } = loadColumnConfig();
             return {
               kind: "loaded",
               folder: prev.folder,
@@ -329,9 +315,9 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
               scanning: false,
               galleryIndex: null,
               selectedIndex: null,
-              visibleColumns: DEFAULT_COLUMNS,
-              visibleOSColumns: DEFAULT_OS_COLUMNS,
-              sortConfig: { primary: null, secondary: null },
+              visibleColumns,
+              visibleOSColumns,
+              sortConfig,
               metadataVersion: 0,
               workerErrors: [],
             };
@@ -509,21 +495,27 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
   }, []);
 
   const setVisibleColumns = useCallback((columns: string[]) => {
-    setAppState((prev) =>
-      prev.kind === "loaded" ? { ...prev, visibleColumns: columns } : prev
-    );
+    setAppState((prev) => {
+      if (prev.kind !== "loaded") return prev;
+      saveColumnConfig({ visibleColumns: columns, visibleOSColumns: prev.visibleOSColumns, sortConfig: prev.sortConfig });
+      return { ...prev, visibleColumns: columns };
+    });
   }, []);
 
   const setVisibleOSColumns = useCallback((columns: string[]) => {
-    setAppState((prev) =>
-      prev.kind === "loaded" ? { ...prev, visibleOSColumns: columns } : prev
-    );
+    setAppState((prev) => {
+      if (prev.kind !== "loaded") return prev;
+      saveColumnConfig({ visibleColumns: prev.visibleColumns, visibleOSColumns: columns, sortConfig: prev.sortConfig });
+      return { ...prev, visibleOSColumns: columns };
+    });
   }, []);
 
   const setSortConfig = useCallback((config: SortConfig) => {
-    setAppState((prev) =>
-      prev.kind === "loaded" ? { ...prev, sortConfig: config } : prev
-    );
+    setAppState((prev) => {
+      if (prev.kind !== "loaded") return prev;
+      saveColumnConfig({ visibleColumns: prev.visibleColumns, visibleOSColumns: prev.visibleOSColumns, sortConfig: config });
+      return { ...prev, sortConfig: config };
+    });
   }, []);
 
   const dismissError = useCallback((index: number) => {
