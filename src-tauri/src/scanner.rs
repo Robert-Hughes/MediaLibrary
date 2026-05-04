@@ -288,8 +288,9 @@ mod tests {
     fn metadata_returns_empty_on_error() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("missing.jpg");
-        let info = read_image_metadata("missing.jpg", &path);
-        assert!(info.metadata.is_empty());
+        let results = read_image_metadata_batch(&["missing.jpg".to_string()], &[path]);
+        assert_eq!(results.len(), 1);
+        assert!(results[0].metadata.is_empty());
     }
 
     #[test]
