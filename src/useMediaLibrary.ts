@@ -146,9 +146,6 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
     setAppState({ kind: "loading", folder });
     api.invoke("set_window_title", { title: `Media Library — ${folder}` }).catch(() => {});
 
-    // Small delay to ensure state update is processed before backend starts emitting events
-    await new Promise(resolve => setTimeout(resolve, 100));
-
     await api.invoke("start_scan", { scanId, folderPath: folder });
     console.log(`[startScan] Backend scan started`);
 
@@ -168,11 +165,8 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
     const flushBatch = () => {
       const batch = [...photoBufferRef.current];
       photoBufferRef.current = [];
-      
-      console.log(`[flushBatch] Flushing ${batch.length} photos`);
 
       setAppState((prev) => {
-        console.log(`[flushBatch] Current state kind: ${prev.kind}, batch length: ${batch.length}`);
         if (prev.kind === "idle") return prev;
         
         if (prev.kind === "loading") {
@@ -181,7 +175,6 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
           // Update metadata progress store with new total
           metadataProgressStoreRef.current.setTotal(batch.length);
           
-          console.log(`[flushBatch] Transitioning from loading to loaded with ${batch.length} photos`);
           return {
             kind: "loaded",
             folder: prev.folder,
@@ -209,7 +202,6 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
             return prev;
           }
           
-          console.log(`[flushBatch] Adding ${batch.length} photos to existing ${prev.photos.length}, total: ${newPhotos.length}`);
           return {
             ...prev,
             photos: newPhotos,
@@ -253,7 +245,6 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
       const unlistenFound = await api.listen("photo_found", (raw) => {
         if (cancelled) return;
         const { scan_id, photos } = raw as PhotoFoundPayload;
-        console.log(`[photo_found] Received ${photos.length} photos for scan_id ${scan_id}, current is ${activeScanIdRef.current}`);
         if (scan_id !== activeScanIdRef.current) {
           console.log(`[photo_found] Ignoring stale event from scan_id ${scan_id}, current is ${activeScanIdRef.current}`);
           return;
