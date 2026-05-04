@@ -64,9 +64,19 @@ export function PhotoList({
     const notify = () => {
       const visibleOrdered = photosRef.current
         .filter(p => visibleRef.current.has(p.relative_path))
+        .filter(p => {
+          // Only prioritize images that don't already have both thumbnail and metadata loaded
+          const thumbnailState = thumbnails.get(p.relative_path);
+          const metadataState = imageMetadata.get(p.relative_path);
+          
+          const thumbnailNeedsLoading = thumbnailState === "loading";
+          const metadataNeedsLoading = metadataState === "loading";
+          
+          return thumbnailNeedsLoading || metadataNeedsLoading;
+        })
         .map(p => p.relative_path);
       
-      console.log(`[PhotoList] Notifying visibility change: ${visibleOrdered.length} visible photos`);
+      console.log(`[PhotoList] Notifying visibility change: ${visibleOrdered.length} visible photos need loading`);
       
       if (visibleOrdered.length > 0) {
         onVisibilityChangeRef.current(visibleOrdered);
@@ -94,17 +104,31 @@ export function PhotoList({
     };
 
     updateVisible();
-  }, [virtualItems]);
+  }, [virtualItems, thumbnails, imageMetadata]);
 
   // Initial notification when photos first load - notify about first batch immediately
   useEffect(() => {
     if (photos.length > 0) {
-      // Notify about the first 30 photos immediately to kickstart loading
-      const initialPaths = photos.slice(0, 30).map(p => p.relative_path);
-      console.log(`[PhotoList] Initial load: notifying about first ${initialPaths.length} photos`);
-      onVisibilityChange(initialPaths);
+      // Notify about the first 30 photos that need loading to kickstart loading
+      const initialPaths = photos.slice(0, 30)
+        .filter(p => {
+          // Only prioritize images that don't already have both thumbnail and metadata loaded
+          const thumbnailState = thumbnails.get(p.relative_path);
+          const metadataState = imageMetadata.get(p.relative_path);
+          
+          const thumbnailNeedsLoading = thumbnailState === "loading";
+          const metadataNeedsLoading = metadataState === "loading";
+          
+          return thumbnailNeedsLoading || metadataNeedsLoading;
+        })
+        .map(p => p.relative_path);
+      
+      if (initialPaths.length > 0) {
+        console.log(`[PhotoList] Initial load: notifying about first ${initialPaths.length} photos that need loading`);
+        onVisibilityChange(initialPaths);
+      }
     }
-  }, [photos.length]); // Only run when photos first load or count changes
+  }, [photos.length, thumbnails, imageMetadata, onVisibilityChange]); // Only run when photos first load or count changes
 
   useEffect(() => {
     if (selectedIndex !== null && listRef.current) {

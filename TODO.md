@@ -7,12 +7,6 @@ are covered by integration tests that simulate UI interaction and confirm that t
 Now
 ===
 
-* When loading a new folder, screen is black for a few seconds
-
-
-Later- *** DO NOT WORK ON ANY OF THE BELOW FEATURES ***
-=====
-
 * When scrolling in the list, the React frontend sends a command to the Rust backend to prioritise loading of thiumbnails & metadata
  for hte images in view. This is great, but unnecessary once the images in question are already fully loaded (thiumbnail + metadata).
  In this case, we can avoid sending the command
@@ -30,6 +24,14 @@ Later- *** DO NOT WORK ON ANY OF THE BELOW FEATURES ***
     * Clicking on a column heading should sort the table by that field, clicking again should toggle the sort order
     * Clicking on a another column heading will sort by that field, with the previously sorted field being used as a secondary sort order to break ties
 * Persist the user's choice of columns, column order, column widths and sorting across app sessions
+
+
+Later- *** DO NOT WORK ON ANY OF THE BELOW FEATURES ***
+=====
+
+* (GOOD MODEL) - Do a full review of the app, particularly around the loading/scanning/worker threads with potential sync/race conditions and the potential of getting into broken state.
+  * Overall architecture, design of batching, use of React and virtualised DOM and best practices for handling large tables and updates.
+
 
 
 * The gallery view that shows a single image should have a details pane on the right hand side which shows a big table of all the properties of the image, including
@@ -65,6 +67,7 @@ all the Image metadata.
 * After a successful edit and verification, we can delete the locally stored edits from our local database (only the ones that were successfully applied!)
 
 * Using OpenAI API to analyze image contents
+  * How do "cached" input tokens work - can we cache the prompt telling it to describe the image as that's common across all images?
 * Combine image description with other metadata (and 'storyline') to propose changes to metadata. This could be a mix of programmatic and Open AI Responses API?
 * Compare with functionalty of the Update Metadata prompts approach - add anything missing to here? Check the instruction files and also the scripts and sample reports/json files to see if we're missing anything that we figured out before.
 
