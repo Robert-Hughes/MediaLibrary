@@ -40,6 +40,15 @@ struct ScanErrorPayload {
     message: String,
 }
 
+/// Emitted when a worker encounters an error (e.g., ExifTool not found, thumbnail generation failed)
+#[derive(Clone, Serialize)]
+struct WorkerErrorPayload {
+    scan_id: u64,
+    worker_type: String, // "metadata", "thumbnail", "scanner"
+    error_message: String,
+    affected_files: Vec<String>, // relative paths of files that failed
+}
+
 /// Emitted when a batch of Image metadata (EXIF etc) has been read.
 #[derive(Clone, Serialize)]
 struct ImageMetadataReadyPayload {
@@ -193,24 +202,52 @@ fn start_scan(
                 let emit_interval = std::time::Duration::from_millis(500);
                 
                 while !cancelled.load(Ordering::Relaxed) {
-                    let rel_paths = queue.pop_batch(20);
-                    if rel_paths.is_empty() { break; }
+                    let rel_paths = match queue.pop_batch_timeout(20, emit_interval) {
+                        crate::work_queue::PopResult::Items(items) => items,
+                        crate::work_queue::PopResult::Timeout => {
+                            if !batch_results.is_empty() {
+                                eprintln!("[metadata] Emitting batch of {} results (timeout)", batch_results.len());
+                                let _ = app.emit("image_metadata_ready", ImageMetadataReadyPayload {
+                                    scan_id,
+                                    results: std::mem::take(&mut batch_results),
+                                });
+                                last_emit = std::time::Instant::now();
+                            }
+                            continue;
+                        }
+                        crate::work_queue::PopResult::Done => break,
+                    };
 
                     let abs_paths: Vec<_> = rel_paths.iter().map(|p| {
                         root.join(p.replace('/', std::path::MAIN_SEPARATOR_STR))
                     }).collect();
 
-                    let results = scanner::read_image_metadata_batch(&rel_paths, &abs_paths);
-                    
-                    eprintln!("[metadata] Read {} results, first has {} fields", 
-                        results.len(), 
-                        results.first().map(|r| r.metadata.len()).unwrap_or(0));
-                    
-                    for info in results {
-                        batch_results.push(ImageMetadataResult {
-                            relative_path: info.relative_path,
-                            metadata: info.metadata,
-                        });
+                    match scanner::read_image_metadata_batch(&rel_paths, &abs_paths) {
+                        Ok(results) => {
+                            eprintln!("[metadata] Read {} results, first has {} fields", 
+                                results.len(), 
+                                results.first().map(|r| r.metadata.len()).unwrap_or(0));
+                            
+                            for info in results {
+                                batch_results.push(ImageMetadataResult {
+                                    relative_path: info.relative_path,
+                                    metadata: info.metadata,
+                                });
+                            }
+                        }
+                        Err(error_msg) => {
+                            eprintln!("[metadata] Error reading metadata: {}", error_msg);
+                            // Emit error to UI
+                            let _ = app.emit("worker_error", WorkerErrorPayload {
+                                scan_id,
+                                worker_type: "metadata".to_string(),
+                                error_message: error_msg,
+                                affected_files: rel_paths.clone(),
+                            });
+                            
+                            // Continue processing other files - don't let one error stop everything
+                            continue;
+                        }
                     }
                     
                     // Emit batch if enough time has elapsed
@@ -220,7 +257,6 @@ fn start_scan(
                             scan_id,
                             results: std::mem::take(&mut batch_results),
                         });
-                        batch_results = Vec::new();
                         last_emit = std::time::Instant::now();
                     }
                 }
@@ -249,35 +285,45 @@ fn start_scan(
                 let emit_interval = std::time::Duration::from_millis(500);
                 
                 loop {
-                    if let Some(rel_path) = queue.pop() {
-                        if cancelled.load(Ordering::Relaxed) { break; }
-                        
-                        let abs = root.join(rel_path.replace('/', std::path::MAIN_SEPARATOR_STR));
-                        if let Some(thumbnail) = scanner::thumbnail_for(&abs) {
-                            batch.push(ThumbnailResult {
-                                relative_path: rel_path,
-                                thumbnail,
-                            });
+                    match queue.pop_timeout(emit_interval) {
+                        crate::work_queue::PopResult::Items(rel_path) => {
+                            if cancelled.load(Ordering::Relaxed) { break; }
+                            
+                            let abs = root.join(rel_path.replace('/', std::path::MAIN_SEPARATOR_STR));
+                            if let Some(thumbnail) = scanner::thumbnail_for(&abs) {
+                                batch.push(ThumbnailResult {
+                                    relative_path: rel_path,
+                                    thumbnail,
+                                });
+                            }
+                            
+                            // Emit batch if enough time has elapsed
+                            if last_emit.elapsed() >= emit_interval && !batch.is_empty() {
+                                let _ = app.emit("thumbnail_ready", ThumbnailReadyPayload {
+                                    scan_id,
+                                    results: std::mem::take(&mut batch),
+                                });
+                                last_emit = std::time::Instant::now();
+                            }
                         }
-                        
-                        // Emit batch if enough time has elapsed
-                        if last_emit.elapsed() >= emit_interval && !batch.is_empty() {
-                            let _ = app.emit("thumbnail_ready", ThumbnailReadyPayload {
-                                scan_id,
-                                results: std::mem::take(&mut batch),
-                            });
-                            batch = Vec::with_capacity(50);
-                            last_emit = std::time::Instant::now();
+                        crate::work_queue::PopResult::Timeout => {
+                            if !batch.is_empty() {
+                                let _ = app.emit("thumbnail_ready", ThumbnailReadyPayload {
+                                    scan_id,
+                                    results: std::mem::take(&mut batch),
+                                });
+                                last_emit = std::time::Instant::now();
+                            }
                         }
-                    } else {
-                        // Queue is finished - emit remaining items
-                        if !batch.is_empty() {
-                            let _ = app.emit("thumbnail_ready", ThumbnailReadyPayload {
-                                scan_id,
-                                results: std::mem::take(&mut batch),
-                            });
+                        crate::work_queue::PopResult::Done => {
+                            if !batch.is_empty() {
+                                let _ = app.emit("thumbnail_ready", ThumbnailReadyPayload {
+                                    scan_id,
+                                    results: std::mem::take(&mut batch),
+                                });
+                            }
+                            break;
                         }
-                        break;
                     }
                 }
             })
@@ -287,6 +333,8 @@ fn start_scan(
         let app_walk = app_clone.clone();
         let mut photo_batch = Vec::with_capacity(50);
         let mut photo_count = 0;
+        let mut last_emit = std::time::Instant::now();
+        let emit_interval = std::time::Duration::from_millis(500);
         
         scanner::scan_folder(&root, cancel_clone, |photo| {
             photo_count += 1;
@@ -294,11 +342,12 @@ fn start_scan(
             thumb_queue.push(photo.relative_path.clone());
             
             photo_batch.push(photo);
-            if photo_batch.len() >= 50 {
+            if last_emit.elapsed() >= emit_interval && !photo_batch.is_empty() {
                 let _ = app_walk.emit("photo_found", PhotoFoundPayload { 
                     scan_id, 
                     photos: std::mem::take(&mut photo_batch)
                 });
+                last_emit = std::time::Instant::now();
             }
         });
         

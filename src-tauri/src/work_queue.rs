@@ -75,6 +75,25 @@ impl WorkQueue {
         }
     }
 
+    /// Block until an item is available or timeout is reached.
+    pub fn pop_timeout(&self, timeout: std::time::Duration) -> PopResult<String> {
+        let (lock, cvar) = &*self.inner;
+        let mut state = lock.lock().unwrap();
+        loop {
+            if let Some(item) = state.queue.pop_front() {
+                return PopResult::Items(item);
+            }
+            if state.done {
+                return PopResult::Done;
+            }
+            let (new_state, wait_res) = cvar.wait_timeout(state, timeout).unwrap();
+            state = new_state;
+            if wait_res.timed_out() {
+                return PopResult::Timeout;
+            }
+        }
+    }
+
     /// Block until at least one item is available, then return up to `max` items.
     /// Returns an empty vector when the queue is empty and `finish()` has been called.
     pub fn pop_batch(&self, max: usize) -> Vec<String> {
@@ -96,6 +115,33 @@ impl WorkQueue {
                 return Vec::new();
             }
             state = cvar.wait(state).unwrap();
+        }
+    }
+
+    /// Block until at least one item is available or timeout is reached, then return up to `max` items.
+    pub fn pop_batch_timeout(&self, max: usize, timeout: std::time::Duration) -> PopResult<Vec<String>> {
+        let (lock, cvar) = &*self.inner;
+        let mut state = lock.lock().unwrap();
+        loop {
+            if !state.queue.is_empty() {
+                let mut batch = Vec::with_capacity(max);
+                while batch.len() < max {
+                    if let Some(item) = state.queue.pop_front() {
+                        batch.push(item);
+                    } else {
+                        break;
+                    }
+                }
+                return PopResult::Items(batch);
+            }
+            if state.done {
+                return PopResult::Done;
+            }
+            let (new_state, wait_res) = cvar.wait_timeout(state, timeout).unwrap();
+            state = new_state;
+            if wait_res.timed_out() {
+                return PopResult::Timeout;
+            }
         }
     }
 
