@@ -214,6 +214,7 @@ pub fn thumbnail_for(path: &Path) -> Option<String> {
     if std::env::var("MEDIA_LIBRARY_SLOW_MODE").is_ok() {
         std::thread::sleep(std::time::Duration::from_millis(1000));
     }
+    
     full_decode_thumbnail(path)
 }
 
