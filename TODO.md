@@ -7,7 +7,6 @@ are covered by integration tests that simulate UI interaction and confirm that t
 Now
 ===
 
-* Previously we had the table header staying fixed to the top of the window when you scrolled down, which was nice. We seem to have lost this (possibly in the swap from table to div. Can we get this feature back? Would using the new HTML/CSS Grid feature be a good approach?)
 
 Later- *** DO NOT WORK ON ANY OF THE BELOW FEATURES ***
 =====
