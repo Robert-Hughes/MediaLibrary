@@ -7,21 +7,9 @@ are covered by integration tests that simulate UI interaction and confirm that t
 Now
 ===
 
-Performance bug: The last few commits of this repo have been attempting to fix a performance problem where the metadata takes an unreasonable amount of time to be shown and there's spinners everywhere for a long time. I see from task manager that exiftool correctly
-
-   launches a bunch and then stops, so I think the Rust backend is good it's just that the frontend is getting overloaded and not showing the updates for a long time. Improve the testing to simulate a large folder
-
-   and see if you can observe the same behaviour, then look at fixing it.
-
-
- Look online and at React and Tauri documentation for advice and best practice on managing large lists with lots of updates.
-
-Please start by giving me a review of how the code currently works and what batching/update mechanisms are in place, and what you would suggest to change.
-
 * Check - EXIF thumbnail extraction works, with good fallback to load and resize
 * Batch sizing is all done by wall clock time, and automatically flushes at the end of the loawding, and/or after a short timer expires
-* CLI folder load works (not blank screen)
-* Metadata not being shown in the list view any more, and the table layout looks broken with black background
+* table layout looks broken with black background
 
 
 I'm concerned that the current code is very messy
