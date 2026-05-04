@@ -86,14 +86,18 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
   const startScan = useCallback(async (folder: string) => {
     console.log(`[startScan] Starting scan for folder: ${folder}`);
     
+    // Generate scan_id FIRST, before any cleanup, so we can accept events immediately
+    const scanId = Date.now();
+    
     // Stop any existing scan before starting a new one.
     await api.invoke("stop_scan").catch(() => {});
 
-    // Invalidate events and clear buffer from any previous scan.
+    // Switch to new scan_id immediately - no gap where it's -1
     const oldScanId = activeScanIdRef.current;
-    activeScanIdRef.current = -1;
-    console.log(`[startScan] Invalidated old scan_id ${oldScanId}, set to -1`);
+    activeScanIdRef.current = scanId;
+    console.log(`[startScan] Switched from scan_id ${oldScanId} to ${scanId}`);
     
+    // Clear buffers from any previous scan
     photoBufferRef.current = [];
     isFirstFlushRef.current = true;
     if (batchTimerRef.current) {
@@ -122,11 +126,6 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
     metadataProgressStoreRef.current   = new MetadataProgressStore();
     
     console.log(`[startScan] Created new stores`);
-
-    // Generate scan_id synchronously so we don't miss early events from the backend.
-    const scanId = Date.now();
-    activeScanIdRef.current = scanId;
-    console.log(`[startScan] Set new scan_id to ${scanId}`);
 
     setAppState({ kind: "loading", folder });
     api.invoke("set_window_title", { title: `Media Library — ${folder}` }).catch(() => {});
