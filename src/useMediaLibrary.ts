@@ -146,6 +146,9 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
     setAppState({ kind: "loading", folder });
     api.invoke("set_window_title", { title: `Media Library — ${folder}` }).catch(() => {});
 
+    // Small delay to ensure state update is processed before backend starts emitting events
+    await new Promise(resolve => setTimeout(resolve, 100));
+
     await api.invoke("start_scan", { scanId, folderPath: folder });
     console.log(`[startScan] Backend scan started`);
 
@@ -165,8 +168,11 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
     const flushBatch = () => {
       const batch = [...photoBufferRef.current];
       photoBufferRef.current = [];
+      
+      console.log(`[flushBatch] Flushing ${batch.length} photos`);
 
       setAppState((prev) => {
+        console.log(`[flushBatch] Current state kind: ${prev.kind}, batch length: ${batch.length}`);
         if (prev.kind === "idle") return prev;
         
         if (prev.kind === "loading") {
@@ -175,6 +181,7 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
           // Update metadata progress store with new total
           metadataProgressStoreRef.current.setTotal(batch.length);
           
+          console.log(`[flushBatch] Transitioning from loading to loaded with ${batch.length} photos`);
           return {
             kind: "loaded",
             folder: prev.folder,
@@ -202,6 +209,7 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
             return prev;
           }
           
+          console.log(`[flushBatch] Adding ${batch.length} photos to existing ${prev.photos.length}, total: ${newPhotos.length}`);
           return {
             ...prev,
             photos: newPhotos,
