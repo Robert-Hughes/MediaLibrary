@@ -47,16 +47,19 @@ export function PhotoList({
 }: Props) {
   const listRef = useRef<HTMLDivElement>(null);
   const visibleRef = useRef<Set<string>>(new Set());
+  
+  // Use refs for callbacks to avoid re-creating observers when they change
   const onVisibilityChangeRef = useRef(onVisibilityChange);
   onVisibilityChangeRef.current = onVisibilityChange;
-
-  const [contextMenu, setContextMenu] = useState<{ x: number, y: number, index: number } | null>(null);
+  
+  const photosRef = useRef(photos);
+  photosRef.current = photos;
 
   useEffect(() => {
     if (!listRef.current) return;
 
     const notify = () => {
-      const visibleOrdered = photos
+      const visibleOrdered = photosRef.current
         .filter(p => visibleRef.current.has(p.relative_path))
         .map(p => p.relative_path);
       
@@ -65,7 +68,7 @@ export function PhotoList({
       }
     };
 
-    const observer = new IntersectionObserver(
+    const intersectionObserver = new IntersectionObserver(
       (entries) => {
         let changed = false;
         for (const entry of entries) {
@@ -94,11 +97,30 @@ export function PhotoList({
       }
     );
 
-    const rows = listRef.current.querySelectorAll<HTMLElement>("[data-path]");
-    rows.forEach((row) => observer.observe(row));
+    // Watch for new rows being added to the table body
+    const mutationObserver = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        for (const node of mutation.addedNodes) {
+          if (node instanceof HTMLElement && node.dataset.path) {
+            intersectionObserver.observe(node);
+          } else if (node instanceof HTMLElement) {
+            // Check children if the node itself isn't a row (though usually it will be)
+            node.querySelectorAll("[data-path]").forEach(el => intersectionObserver.observe(el as HTMLElement));
+          }
+        }
+      }
+    });
 
-    return () => observer.disconnect();
-  }, [photos]);
+    mutationObserver.observe(listRef.current, { childList: true, subtree: true });
+
+    // Initial observation
+    listRef.current.querySelectorAll<HTMLElement>("[data-path]").forEach(el => intersectionObserver.observe(el));
+
+    return () => {
+      intersectionObserver.disconnect();
+      mutationObserver.disconnect();
+    };
+  }, []); // Only run once on mount
 
   useEffect(() => {
     if (selectedIndex !== null && listRef.current) {
@@ -114,6 +136,8 @@ export function PhotoList({
     onSelect(index);
     setContextMenu({ x: e.clientX, y: e.clientY, index });
   }, [onSelect]);
+
+  const [contextMenu, setContextMenu] = useState<{ x: number, y: number, index: number } | null>(null);
 
   if (photos.length === 0) {
     return (

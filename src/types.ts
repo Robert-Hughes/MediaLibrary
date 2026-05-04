@@ -83,17 +83,12 @@ export class ImageMetadataStore {
 
   set(path: string, value: ImageMetadataState) {
     const old = this.data.get(path);
-    if (old && old !== "loading") {
-      for (const key of Object.keys(old)) {
-        const count = this.keyFrequency.get(key) ?? 0;
-        this.keyFrequency.set(key, Math.max(0, count - 1));
-      }
-    }
 
-    if (value && value !== "loading") {
+    // Only update frequency if we're transitioning from 'loading' to actual metadata.
+    // (In our current app, metadata for a file is only set once per scan).
+    if (value && value !== "loading" && (!old || old === "loading")) {
       for (const key of Object.keys(value)) {
-        const count = this.keyFrequency.get(key) ?? 0;
-        this.keyFrequency.set(key, count + 1);
+        this.keyFrequency.set(key, (this.keyFrequency.get(key) ?? 0) + 1);
       }
     }
 

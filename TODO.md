@@ -25,13 +25,31 @@ Now
 Later
 =====
 
+* Allow showing/hiding of OS Metadata columns too, in the columns dialog
+* Persist the users choice of columns across app sessions
+
 
 * The gallery view that shows a single image should have a details pane on the right hand side which shows a big table of all the properties of the image, including
 all the Image metadata.
+
 * The details table in the gallery view should have a search feature (to search both keys and values)
 * The list view should have a search feature (to search the path, OS metadata and Image metadata for all the images, including the Image metadata not currently being shown)
 * When the list view is filtered via a search, the navigation in the gallery mode should sync with this (i.e. next/prev moves to the next/prev in the filtered search results)
-*
+
+* The app should allow editing of metadata. For now, edits will be kept just as 'draft' changes and not actually applied to the files on disk.
+    * We should store in the app's local storage a database of draft edits. For each folder that the user has opened and made draft edits, we'll store a separate
+    file that contains all the draft edits the user has made for files in that folder. The format would be something like a JSONL file with line for each file where there are draft edits
+    and each line contains a dict of properties to the proposed new values
+    * This file should be kept in sync as the user makes edits in the UI, in case the program crashes
+    * When loading a folder, check if our local database already has draft edits from a previous session, and load it
+    * The draft edits should be clearly noted in the list view's column values, showing the original value with a strikethrough and the proposed new value
+      written afterwards highlighted in bold.
+    * The draft edits should also be clearly noted in the gallery view's details table, showing the original value with a strikethrough and the proposed new value
+      written afterwards highlighted in bold.
+    * New edits can be made in the gallery view's details table by right clicking on a value cell in the table and selected "Edit", which will show a popup dialog prompting for the new value.
+    * At the top of the list view where it currently shows "X photos", it should also show the number of pending draft edits, something like: "X photos, Y draft edits across P files". (Clearly
+    this would just count edits for files in the current folder).
+
 
 
 * Writing metadata and Normalization
@@ -46,5 +64,4 @@ Rationale: By being specific, you ensure that every layer of the metadata "sandw
 * Using OpenAI API to analyze image contents
 * Combine image description with other metadata (and 'storyline') to propose changes to metadata. This could be a mix of programmatic and Open AI Responses API?
 * Compare with functionalty of the Update Metadata prompts approach - add anything missing to here?
-* Allow showing/hiding of OS Metadata columns too
 * Figure out how exiftool should be bundled/installed/etc.
