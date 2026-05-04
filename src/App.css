@@ -362,6 +362,28 @@ body {
   display: none; /* Hidden because thumb header spans both rows */
 }
 
+.grid-header--sortable {
+  cursor: pointer;
+  user-select: none;
+}
+
+.grid-header--sortable:hover {
+  background: var(--surface-hover, #2a2a2a);
+}
+
+.sort-indicator {
+  font-size: 10px;
+}
+
+.sort-indicator--primary {
+  color: var(--text-primary, #fff);
+}
+
+.sort-indicator--secondary {
+  color: var(--text-secondary, #888);
+  opacity: 0.6;
+}
+
 /* Body container */
 .grid-body {
   position: relative;

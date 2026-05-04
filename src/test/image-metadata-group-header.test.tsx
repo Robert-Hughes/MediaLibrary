@@ -5,6 +5,11 @@ import { PhotoList } from "../components/PhotoList";
 import { ThumbnailStore, ImageMetadataStore } from "../types";
 import type { PhotoInfo } from "../types";
 
+const defaultSortProps = {
+  sortConfig: { primary: null, secondary: null } as const,
+  onSortChange: () => {},
+};
+
 describe("PhotoList Image Metadata group header visibility", () => {
   const mockPhotos: PhotoInfo[] = [
     {
@@ -38,6 +43,7 @@ describe("PhotoList Image Metadata group header visibility", () => {
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
+        {...defaultSortProps}
         onPhotoOpen={() => {}}
       />
     );
@@ -57,6 +63,7 @@ describe("PhotoList Image Metadata group header visibility", () => {
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
+        {...defaultSortProps}
         onPhotoOpen={() => {}}
       />
     );
@@ -77,6 +84,7 @@ describe("PhotoList Image Metadata group header visibility", () => {
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
+        {...defaultSortProps}
         onPhotoOpen={() => {}}
       />
     );
@@ -97,6 +105,7 @@ describe("PhotoList Image Metadata group header visibility", () => {
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
+        {...defaultSortProps}
         onPhotoOpen={() => {}}
       />
     );
@@ -138,6 +147,7 @@ describe("PhotoList group header context menu", () => {
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
+        {...defaultSortProps}
         onPhotoOpen={() => {}}
         onSelectColumns={onSelectColumns}
       />
@@ -162,6 +172,7 @@ describe("PhotoList group header context menu", () => {
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
+        {...defaultSortProps}
         onPhotoOpen={() => {}}
         onSelectColumns={onSelectColumns}
       />
@@ -186,6 +197,7 @@ describe("PhotoList group header context menu", () => {
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
+        {...defaultSortProps}
         onPhotoOpen={() => {}}
         onSelectColumns={onSelectColumns}
       />

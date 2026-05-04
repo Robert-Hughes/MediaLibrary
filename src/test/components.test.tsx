@@ -34,8 +34,10 @@ function renderList(photos: PhotoInfo[], opts: { thumbOverrides?: Record<string,
       selectedIndex={opts.selectedIndex ?? null}
       onSelect={opts.onSelect ?? (() => {})}
       onShowInExplorer={opts.onShowInExplorer ?? (() => {})}
-      onVisibilityChange={() => {}} 
-      onPhotoOpen={opts.onPhotoOpen ?? (() => {})} 
+      sortConfig={{ primary: null, secondary: null }}
+      onSortChange={() => {}}
+      onVisibilityChange={() => {}}
+      onPhotoOpen={opts.onPhotoOpen ?? (() => {})}
       onSelectColumns={opts.onSelectColumns ?? (() => {})}
     />
   );
@@ -150,7 +152,7 @@ describe("PhotoList", () => {
   it("shows empty message when no photos", () => {
     const { thumbs, imageMetadata } = makeStores([]);
     render(<PhotoList photos={[]} thumbnails={thumbs} imageMetadata={imageMetadata}
-      visibleColumns={[]} visibleOSColumns={["date_modified", "date_created"]} selectedIndex={null} onSelect={noop} onShowInExplorer={noop} onVisibilityChange={noop} onPhotoOpen={noop} onSelectColumns={noop} />);
+      visibleColumns={[]} visibleOSColumns={["date_modified", "date_created"]} sortConfig={{ primary: null, secondary: null }} onSortChange={noop} selectedIndex={null} onSelect={noop} onShowInExplorer={noop} onVisibilityChange={noop} onPhotoOpen={noop} onSelectColumns={noop} />);
     expect(screen.getByTestId("photo-list-empty")).toBeInTheDocument();
   });
 
@@ -176,7 +178,7 @@ describe("PhotoList", () => {
     const { thumbs, imageMetadata } = makeStores(photos);
     act(() => { imageMetadata.set("a.jpg", { "IFD0:Model": "Canon EOS R5" }); });
     render(<PhotoList photos={photos} thumbnails={thumbs} imageMetadata={imageMetadata}
-      visibleColumns={["IFD0:Model"]} visibleOSColumns={["date_modified", "date_created"]} selectedIndex={null} onSelect={noop} onShowInExplorer={noop} onVisibilityChange={noop} onPhotoOpen={noop} onSelectColumns={noop} />);
+      visibleColumns={["IFD0:Model"]} visibleOSColumns={["date_modified", "date_created"]} sortConfig={{ primary: null, secondary: null }} onSortChange={noop} selectedIndex={null} onSelect={noop} onShowInExplorer={noop} onVisibilityChange={noop} onPhotoOpen={noop} onSelectColumns={noop} />);
     expect(screen.getByText("Canon EOS R5")).toBeInTheDocument();
     expect(screen.queryByTestId("metadata-loading")).not.toBeInTheDocument();
   });

@@ -1,8 +1,13 @@
-import { render, screen } from "@testing-library/react";
+import { render } from "@testing-library/react";
 import { vi } from "vitest";
 import { PhotoList } from "../components/PhotoList";
 import { ThumbnailStore, ImageMetadataStore } from "../types";
 import type { PhotoInfo } from "../types";
+
+const defaultSortProps = {
+  sortConfig: { primary: null, secondary: null } as const,
+  onSortChange: () => {},
+};
 
 describe("PhotoList prioritization optimization", () => {
   const mockPhotos: PhotoInfo[] = [
@@ -13,14 +18,14 @@ describe("PhotoList prioritization optimization", () => {
       date_created: 1640995200,
     },
     {
-      relative_path: "photo2.jpg", 
+      relative_path: "photo2.jpg",
       filename: "photo2.jpg",
       date_modified: 1640995200,
       date_created: 1640995200,
     },
     {
       relative_path: "photo3.jpg",
-      filename: "photo3.jpg", 
+      filename: "photo3.jpg",
       date_modified: 1640995200,
       date_created: 1640995200,
     },
@@ -28,12 +33,12 @@ describe("PhotoList prioritization optimization", () => {
 
   let thumbnailStore: ThumbnailStore;
   let metadataStore: ImageMetadataStore;
-  let onVisibilityChangeMock: ReturnType<typeof vi.fn>;
+  let onVisibilityChangeMock: (paths: string[]) => void;
 
   beforeEach(() => {
     thumbnailStore = new ThumbnailStore();
     metadataStore = new ImageMetadataStore();
-    onVisibilityChangeMock = vi.fn();
+    onVisibilityChangeMock = vi.fn() as (paths: string[]) => void;
 
     // Add all photos to stores (they start in "loading" state)
     mockPhotos.forEach(photo => {
@@ -50,6 +55,7 @@ describe("PhotoList prioritization optimization", () => {
         imageMetadata={metadataStore}
         visibleColumns={["ExifIFD:DateTimeOriginal"]}
         visibleOSColumns={["date_modified", "date_created"]}
+        {...defaultSortProps}
         selectedIndex={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
@@ -77,6 +83,7 @@ describe("PhotoList prioritization optimization", () => {
         imageMetadata={metadataStore}
         visibleColumns={["ExifIFD:DateTimeOriginal"]}
         visibleOSColumns={["date_modified", "date_created"]}
+        {...defaultSortProps}
         selectedIndex={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
@@ -107,6 +114,7 @@ describe("PhotoList prioritization optimization", () => {
         imageMetadata={metadataStore}
         visibleColumns={["ExifIFD:DateTimeOriginal"]}
         visibleOSColumns={["date_modified", "date_created"]}
+        {...defaultSortProps}
         selectedIndex={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
@@ -134,6 +142,7 @@ describe("PhotoList prioritization optimization", () => {
         imageMetadata={metadataStore}
         visibleColumns={["ExifIFD:DateTimeOriginal"]}
         visibleOSColumns={["date_modified", "date_created"]}
+        {...defaultSortProps}
         selectedIndex={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
@@ -161,6 +170,7 @@ describe("PhotoList prioritization optimization", () => {
         imageMetadata={metadataStore}
         visibleColumns={["ExifIFD:DateTimeOriginal"]}
         visibleOSColumns={["date_modified", "date_created"]}
+        {...defaultSortProps}
         selectedIndex={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
@@ -176,7 +186,7 @@ describe("PhotoList prioritization optimization", () => {
       expect.arrayContaining(["photo2.jpg", "photo3.jpg"])
     );
     // The call should not include photo1.jpg since it's not in loading state
-    const calls = onVisibilityChangeMock.mock.calls;
+    const calls = (onVisibilityChangeMock as ReturnType<typeof vi.fn>).mock.calls;
     const allCalledPaths = calls.flat();
     expect(allCalledPaths).not.toContain("photo1.jpg");
   });
