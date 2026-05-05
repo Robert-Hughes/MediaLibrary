@@ -62,6 +62,7 @@ impl WorkQueue {
 
     /// Block until an item is available, then return it.
     /// Returns `None` when the queue is empty and `finish()` has been called.
+    #[allow(dead_code)]
     pub fn pop(&self) -> Option<String> {
         let (lock, cvar) = &*self.inner;
         let mut state = lock.lock().unwrap();
@@ -92,30 +93,6 @@ impl WorkQueue {
             if wait_res.timed_out() {
                 return PopResult::Timeout;
             }
-        }
-    }
-
-    /// Block until at least one item is available, then return up to `max` items.
-    /// Returns an empty vector when the queue is empty and `finish()` has been called.
-    pub fn pop_batch(&self, max: usize) -> Vec<String> {
-        let (lock, cvar) = &*self.inner;
-        let mut state = lock.lock().unwrap();
-        loop {
-            if !state.queue.is_empty() {
-                let mut batch = Vec::with_capacity(max);
-                while batch.len() < max {
-                    if let Some(item) = state.queue.pop_front() {
-                        batch.push(item);
-                    } else {
-                        break;
-                    }
-                }
-                return batch;
-            }
-            if state.done {
-                return Vec::new();
-            }
-            state = cvar.wait(state).unwrap();
         }
     }
 
