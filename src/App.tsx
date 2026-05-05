@@ -65,6 +65,8 @@ function LoadedView({
         visibleOSColumns={state.visibleOSColumns}
         columnWidths={state.columnWidths}
         onColumnWidthChange={actions.updateColumnWidth}
+        onColumnsReorder={actions.setVisibleColumns}
+        onOSColumnsReorder={actions.setVisibleOSColumns}
         sortConfig={state.sortConfig}
         onSortChange={actions.setSortConfig}
         selectedIndex={state.selectedIndex}
