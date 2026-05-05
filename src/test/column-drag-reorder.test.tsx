@@ -42,7 +42,9 @@ describe("column header drag-and-drop reorder — image metadata", () => {
     expect(headers.length).toBeGreaterThan(0);
   });
 
-  it("calls onColumnsReorder with reordered array when image column is dropped onto another", () => {
+  it("drag right: inserts column before the drop target", () => {
+    // [IFD0:Model, ExifIFD:DateTimeOriginal, GPS:GPSLatitude]
+    // drag IFD0:Model (0) onto GPS:GPSLatitude (2) → IFD0:Model placed before GPS
     const onColumnsReorder = vi.fn();
     const { thumbnails, imageMetadata } = makeStores();
     render(
@@ -62,18 +64,52 @@ describe("column header drag-and-drop reorder — image metadata", () => {
       />
     );
 
-    // Find headers by text content
     const headers = Array.from(document.querySelectorAll(".grid-header--sortable[draggable]")) as HTMLElement[];
     const modelHeader = headers.find((h) => h.textContent?.includes("IFD0:Model"))!;
     const gpsHeader = headers.find((h) => h.textContent?.includes("GPS:GPSLatitude"))!;
 
-    // Drag IFD0:Model onto GPS:GPSLatitude
     fireEvent.dragStart(modelHeader);
     fireEvent.dragOver(gpsHeader);
     fireEvent.drop(gpsHeader);
 
+    // IFD0:Model should land immediately before GPS:GPSLatitude
     expect(onColumnsReorder).toHaveBeenCalledWith(
-      ["ExifIFD:DateTimeOriginal", "GPS:GPSLatitude", "IFD0:Model"]
+      ["ExifIFD:DateTimeOriginal", "IFD0:Model", "GPS:GPSLatitude"]
+    );
+  });
+
+  it("drag left: inserts column before the drop target", () => {
+    // [IFD0:Model, ExifIFD:DateTimeOriginal, GPS:GPSLatitude]
+    // drag GPS:GPSLatitude (2) onto IFD0:Model (0) → GPS placed before IFD0:Model
+    const onColumnsReorder = vi.fn();
+    const { thumbnails, imageMetadata } = makeStores();
+    render(
+      <PhotoList
+        photos={mockPhotos}
+        thumbnails={thumbnails}
+        imageMetadata={imageMetadata}
+        visibleColumns={["IFD0:Model", "ExifIFD:DateTimeOriginal", "GPS:GPSLatitude"]}
+        visibleOSColumns={[]}
+        onColumnsReorder={onColumnsReorder}
+        {...defaultSortProps}
+        selectedIndex={null}
+        onSelect={() => {}}
+        onShowInExplorer={() => {}}
+        onVisibilityChange={() => {}}
+        onPhotoOpen={() => {}}
+      />
+    );
+
+    const headers = Array.from(document.querySelectorAll(".grid-header--sortable[draggable]")) as HTMLElement[];
+    const modelHeader = headers.find((h) => h.textContent?.includes("IFD0:Model"))!;
+    const gpsHeader = headers.find((h) => h.textContent?.includes("GPS:GPSLatitude"))!;
+
+    fireEvent.dragStart(gpsHeader);
+    fireEvent.dragOver(modelHeader);
+    fireEvent.drop(modelHeader);
+
+    expect(onColumnsReorder).toHaveBeenCalledWith(
+      ["GPS:GPSLatitude", "IFD0:Model", "ExifIFD:DateTimeOriginal"]
     );
   });
 
@@ -130,7 +166,8 @@ describe("column header drag-and-drop reorder — OS metadata", () => {
     expect(modifiedHeader).not.toBeNull();
   });
 
-  it("calls onOSColumnsReorder when OS column is dropped onto another OS column", () => {
+  it("calls onOSColumnsReorder when OS column is dragged left onto the other", () => {
+    // drag Created (1) onto Modified (0) → Created placed before Modified
     const onOSColumnsReorder = vi.fn();
     const { thumbnails, imageMetadata } = makeStores();
     render(
@@ -154,10 +191,10 @@ describe("column header drag-and-drop reorder — OS metadata", () => {
     const modifiedHeader = headers.find((h) => h.textContent?.includes("Modified"))!;
     const createdHeader = headers.find((h) => h.textContent?.includes("Created"))!;
 
-    // Drag Modified onto Created → should swap order
-    fireEvent.dragStart(modifiedHeader);
-    fireEvent.dragOver(createdHeader);
-    fireEvent.drop(createdHeader);
+    // Drag Created (right) onto Modified (left) → Created moves before Modified
+    fireEvent.dragStart(createdHeader);
+    fireEvent.dragOver(modifiedHeader);
+    fireEvent.drop(modifiedHeader);
 
     expect(onOSColumnsReorder).toHaveBeenCalledWith(["date_created", "date_modified"]);
   });

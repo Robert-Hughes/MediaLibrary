@@ -292,13 +292,18 @@ export function PhotoList({
     setDragOverCol(null);
     if (!drag || drag.group !== group || drag.col === dropCol) return;
 
+    // When dragging right (from < to) we remove the source first, which shifts
+    // every subsequent element left by one. The drop-target's index decreases by
+    // one, so we subtract 1 to keep "insert before drop target" semantics.
+    const insertIndex = (from: number, to: number) => (from < to ? to - 1 : to);
+
     if (group === "os") {
       const arr = [...visibleOSColumns];
       const from = arr.indexOf(drag.col);
       const to = arr.indexOf(dropCol);
       if (from === -1 || to === -1) return;
       arr.splice(from, 1);
-      arr.splice(to, 0, drag.col);
+      arr.splice(insertIndex(from, to), 0, drag.col);
       onOSColumnsReorder?.(arr);
     } else {
       const arr = [...visibleColumns];
@@ -306,7 +311,7 @@ export function PhotoList({
       const to = arr.indexOf(dropCol);
       if (from === -1 || to === -1) return;
       arr.splice(from, 1);
-      arr.splice(to, 0, drag.col);
+      arr.splice(insertIndex(from, to), 0, drag.col);
       onColumnsReorder?.(arr);
     }
   }, [visibleColumns, visibleOSColumns, onColumnsReorder, onOSColumnsReorder]);
