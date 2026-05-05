@@ -7,32 +7,29 @@ are covered by integration tests that simulate UI interaction and confirm that t
 Now
 ===
 
-* When all columns are disabled, the "image metadata" group header still shows - this should be hidden when there are no image metadata columns enabled.
-* The right click context menu on column headings should open when the user right clicks *anywhere* on the header, including on the 'group' headings like "image metadata".
-* The Select Columns search feature should also filter the "OS metadata" fields (even though there's only two of them)
-* Add standard column interactions:
-    * Column headings should be drag and droppable to reorder
-    * Columns should be resizable
-    * Double clicking on a column resize handle should auto-size the column to the contents
-    * Clicking on a column heading should sort the table by that field, clicking again should toggle the sort order
-    * Clicking on a another column heading will sort by that field, with the previously sorted field being used as a secondary sort order to break ties
-* Persist the user's choice of columns, column order, column widths and sorting across app sessions
-* In the Select Columns dialog, the user should be able to drag and drop fields in the Image Metadata list in order to reorder the columns. The order of this list should be synced to match that of the columns in the main view (for the ticked entries)
+* Column headings should be drag and droppable to reorder - make it drop at the closest edge of the column (Claude halfway through this, seems to be working, just needs tests fixing)
+* 21 pre-failing tests?
+
+* The 'sticky' headings at the top have become a bit broken - only the group level headings (OS Metadata and Image metadata) are sticky, but the second row of the header (individual field names) should also be sticky
+* Double clicking on a column resize handle to auto-size the column should take into account the desired content width of all
+ the cells in that column. It seems like it currently only uses the column header text width.
 
 
 Later- *** DO NOT WORK ON ANY OF THE BELOW FEATURES ***
 =====
 
-* (GOOD MODEL) - Do a full review of the app, particularly around the loading/scanning/worker threads with potential sync/race conditions and the potential of getting into broken state.
+* (GOOD MODEL) - Do a full review of the app, particularly around the loading/scanning/worker threads with potential sync/race conditions and the potential of getting into broken state
   * Overall architecture, design of batching, use of React and virtualised DOM and best practices for handling large tables and updates.
+  * Graceful handling of errors and not getting into weird states with errors, or when scans are cancelled due to switching folder or closing the app
 
 
+* On the Select Columns dialog, next to the Select All and Deselect All buttons, add a Default button that resets the selected columns (and their order) to the default
 
 * The gallery view that shows a single image should have a details pane on the right hand side which shows a big table of all the properties of the image, including
 all the Image metadata.
 
 * The details table in the gallery view should have a search feature (to search both keys and values)
-* The list view should have a search feature (to search the path, OS metadata and Image metadata for all the images, including the Image metadata not currently being shown)
+* The list view should have a search feature (to search the path, OS metadata and Image metadata for all the images, including the Image metadata not currently being shown if those columns are hidden)
 * When the list view is filtered via a search, the navigation in the gallery mode should sync with this (i.e. next/prev moves to the next/prev in the filtered search results)
 
 * The app should allow editing of metadata. For now, edits will be kept just as 'draft' changes and not actually applied to the files on disk.
