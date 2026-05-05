@@ -268,7 +268,7 @@ export function PhotoList({
 
   const handleColDragOver = useCallback((e: React.DragEvent, col: string) => {
     if (!colDragRef.current) return;
-    e.preventDefault(); // must always preventDefault to allow drop (even on the same col)
+    e.preventDefault();
     if (e.dataTransfer) e.dataTransfer.dropEffect = colDragRef.current.col === col ? "none" : "move";
     if (colDragRef.current.col !== col) setDragOverCol(col);
   }, []);
