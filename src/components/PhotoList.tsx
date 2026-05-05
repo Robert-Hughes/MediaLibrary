@@ -151,8 +151,6 @@ export function PhotoList({
         })
         .map(p => p.relative_path);
       
-      console.log(`[PhotoList] Notifying visibility change: ${visibleOrdered.length} visible photos need loading`);
-      
       if (visibleOrdered.length > 0) {
         onVisibilityChangeRef.current(visibleOrdered);
       }
@@ -167,8 +165,6 @@ export function PhotoList({
           newVisible.add(photo.relative_path);
         }
       }
-      
-      console.log(`[PhotoList] Virtual items: ${virtualItems.length}, visible photos: ${newVisible.size}`);
       
       // Check if visibility changed
       if (newVisible.size !== visibleRef.current.size || 
@@ -199,7 +195,6 @@ export function PhotoList({
         .map(p => p.relative_path);
       
       if (initialPaths.length > 0) {
-        console.log(`[PhotoList] Initial load: notifying about first ${initialPaths.length} photos that need loading`);
         onVisibilityChange(initialPaths);
       }
     }

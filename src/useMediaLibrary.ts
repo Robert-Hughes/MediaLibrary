@@ -41,8 +41,6 @@ const MAX_RECENT_FOLDERS = 5;
 export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: string[] }, MediaLibraryActions] {
   const [appState, setAppState] = useState<AppState>({ kind: "idle" });
   const [recentFolders, setRecentFolders] = useState<string[]>([]);
-  const listenersReadyRef = useRef(false);
-
   useEffect(() => {
     const saved = localStorage.getItem(RECENT_FOLDERS_KEY);
     if (saved) {
@@ -62,6 +60,11 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
   // scan_id are stale (from a previous scan) and are discarded.
   const activeScanIdRef = useRef<number>(-1);
 
+  // Promise-based latch: resolves once the current useEffect cycle has finished
+  // registering all event listeners.  startScan awaits this so it never races
+  // with the async listener setup.  Re-created at the start of each setup().
+  const listenersReadyRef = useRef<Promise<void>>(Promise.resolve());
+
   // Buffer for photo_found events to avoid flooding React with state updates.
   const photoBufferRef = useRef<PhotoInfo[]>([]);
   const batchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -78,22 +81,10 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
   const isFirstThumbnailFlushRef = useRef<boolean>(true);
 
   const startScan = useCallback(async (folder: string) => {
-    // Wait for event listeners to be ready before starting scan
-    if (!listenersReadyRef.current) {
-      console.log('[startScan] Waiting for event listeners to be ready...');
-      // Wait up to 5 seconds for listeners to be ready
-      const startTime = Date.now();
-      while (!listenersReadyRef.current && Date.now() - startTime < 5000) {
-        await new Promise(resolve => setTimeout(resolve, 50));
-      }
-      if (!listenersReadyRef.current) {
-        console.error('[startScan] Timeout waiting for event listeners!');
-        return;
-      }
-      console.log('[startScan] Event listeners ready, proceeding with scan');
-    }
-    
-    console.log(`[startScan] Starting scan for folder: ${folder}`);
+    // Wait for event listeners to be registered before starting the scan so
+    // photo_found / scan_complete events are never missed.  The latch is a
+    // plain Promise (no setTimeout) so it works correctly with vi.useFakeTimers().
+    await listenersReadyRef.current;
     
     // Generate scan_id FIRST, before any cleanup, so we can accept events immediately
     const scanId = Date.now();
@@ -101,10 +92,8 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
     // Stop any existing scan before starting a new one.
     await api.invoke("stop_scan").catch(() => {});
 
-    // Switch to new scan_id immediately - no gap where it's -1
-    const oldScanId = activeScanIdRef.current;
+    // Switch to new scan_id immediately — no gap where it's -1
     activeScanIdRef.current = scanId;
-    console.log(`[startScan] Switched from scan_id ${oldScanId} to ${scanId}`);
     
     // Clear buffers from any previous scan
     photoBufferRef.current = [];
@@ -134,13 +123,10 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
     imageMetadataStoreRef.current      = new ImageMetadataStore();
     metadataProgressStoreRef.current   = new MetadataProgressStore();
     
-    console.log(`[startScan] Created new stores`);
-
     setAppState({ kind: "loading", folder });
     api.invoke("set_window_title", { title: `Media Library — ${folder}` }).catch(() => {});
 
     await api.invoke("start_scan", { scanId, folderPath: folder });
-    console.log(`[startScan] Backend scan started`);
 
     // Update recent folders
     setRecentFolders((prev) => {
@@ -246,15 +232,14 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
     };
 
     const setup = async () => {
-      console.log('[setup] Setting up event listeners');
-      
+      // Create a new pending latch for this setup cycle; startScan awaits it.
+      let resolve!: () => void;
+      listenersReadyRef.current = new Promise<void>(r => { resolve = r; });
+
       const unlistenFound = await api.listen("photo_found", (raw) => {
         if (cancelled) return;
         const { scan_id, photos } = raw as PhotoFoundPayload;
-        if (scan_id !== activeScanIdRef.current) {
-          console.log(`[photo_found] Ignoring stale event from scan_id ${scan_id}, current is ${activeScanIdRef.current}`);
-          return;
-        }
+        if (scan_id !== activeScanIdRef.current) return;
 
         for (const photo of photos) {
           thumbnailStoreRef.current.add(photo.relative_path);
@@ -332,12 +317,7 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
       const unlistenMetadata = await api.listen("image_metadata_ready", (raw) => {
         if (cancelled) return;
         const { scan_id, results } = raw as ImageMetadataReadyPayload;
-        if (scan_id !== activeScanIdRef.current) {
-          console.log(`[metadata] Ignoring stale event from scan_id ${scan_id}, current is ${activeScanIdRef.current}`);
-          return;
-        }
-
-        console.log(`[metadata] Received ${results.length} metadata results for scan_id ${scan_id}`);
+        if (scan_id !== activeScanIdRef.current) return;
 
         // Buffer metadata events instead of processing individually
         metadataBufferRef.current.push(...results);
@@ -364,12 +344,7 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
       const unlistenThumbnail = await api.listen("thumbnail_ready", (raw) => {
         if (cancelled) return;
         const { scan_id, results } = raw as ThumbnailReadyPayload;
-        if (scan_id !== activeScanIdRef.current) {
-          console.log(`[thumbnail] Ignoring stale event from scan_id ${scan_id}, current is ${activeScanIdRef.current}`);
-          return;
-        }
-
-        console.log(`[thumbnail] Received ${results.length} thumbnail results for scan_id ${scan_id}`);
+        if (scan_id !== activeScanIdRef.current) return;
 
         // Buffer thumbnail events instead of processing individually
         thumbnailBufferRef.current.push(...results);
@@ -421,15 +396,14 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
         unlistenFound, unlistenComplete, unlistenMetadata,
         unlistenThumbnail, unlistenError, unlistenWorkerError,
       );
-      
-      console.log('[setup] All event listeners registered');
-      listenersReadyRef.current = true;
+
+      // All listeners registered — unblock any startScan that was awaiting.
+      resolve();
     };
 
     setup();
     return () => {
       cancelled = true;
-      listenersReadyRef.current = false;
       unlisteners.forEach((fn) => fn());
     };
   }, [api]);
@@ -452,7 +426,6 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
   }, [api]);
 
   const prioritizeQueues = useCallback((visiblePaths: string[]) => {
-    console.log(`[prioritizeQueues] Prioritizing ${visiblePaths.length} visible paths:`, visiblePaths.slice(0, 5));
     api.invoke("prioritize_queues", { visiblePaths }).catch(() => {});
   }, [api]);
 
