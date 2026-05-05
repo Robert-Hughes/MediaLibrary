@@ -372,6 +372,11 @@ body {
   background: var(--surface-hover, #2a2a2a);
 }
 
+.grid-header--drag-over {
+  border-left: 2px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
 .resize-handle {
   position: absolute;
   right: 0;
