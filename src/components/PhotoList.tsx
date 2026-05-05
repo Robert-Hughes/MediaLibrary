@@ -111,7 +111,7 @@ export function PhotoList({
 
   // Column drag-and-drop reorder state
   const colDragRef = useRef<{ col: string; group: "os" | "image" } | null>(null);
-  const [dragOverCol, setDragOverCol] = useState<string | null>(null);
+  const [dragOver, setDragOver] = useState<{ col: string; side: "before" | "after" } | null>(null);
 
   const effectiveWidths = Object.keys(liveWidths).length > 0
     ? { ...columnWidths, ...liveWidths }
@@ -266,11 +266,22 @@ export function PhotoList({
     if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
   }, []);
 
+  /** Returns "before" | "after" based on whether the cursor is in the left or right half of the element. */
+  const dropSide = (e: React.DragEvent): "before" | "after" => {
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    return e.clientX < rect.left + rect.width / 2 ? "before" : "after";
+  };
+
   const handleColDragOver = useCallback((e: React.DragEvent, col: string) => {
     if (!colDragRef.current) return;
     e.preventDefault();
-    if (e.dataTransfer) e.dataTransfer.dropEffect = colDragRef.current.col === col ? "none" : "move";
-    if (colDragRef.current.col !== col) setDragOverCol(col);
+    if (colDragRef.current.col === col) {
+      if (e.dataTransfer) e.dataTransfer.dropEffect = "none";
+      setDragOver(null);
+      return;
+    }
+    if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+    setDragOver({ col, side: dropSide(e) });
   }, []);
 
   // Allow drop anywhere on the wrapper while a column drag is in progress so the
@@ -281,7 +292,7 @@ export function PhotoList({
 
   const handleColDragLeave = useCallback((e: React.DragEvent) => {
     if (!(e.currentTarget as HTMLElement).contains(e.relatedTarget as Node)) {
-      setDragOverCol(null);
+      setDragOver(null);
     }
   }, []);
 
@@ -289,13 +300,21 @@ export function PhotoList({
     e.preventDefault();
     const drag = colDragRef.current;
     colDragRef.current = null;
-    setDragOverCol(null);
+    setDragOver(null);
     if (!drag || drag.group !== group || drag.col === dropCol) return;
 
-    // When dragging right (from < to) we remove the source first, which shifts
-    // every subsequent element left by one. The drop-target's index decreases by
-    // one, so we subtract 1 to keep "insert before drop target" semantics.
-    const insertIndex = (from: number, to: number) => (from < to ? to - 1 : to);
+    const side = dropSide(e);
+
+    /**
+     * Compute insertion index after splice(from, 1).
+     * - "before": insert at dropCol's post-removal position
+     * - "after":  insert one past dropCol's post-removal position
+     * When from < to, removing the source shifts dropCol left by 1.
+     */
+    const insertAt = (from: number, to: number) =>
+      side === "before"
+        ? (from < to ? to - 1 : to)
+        : (from < to ? to : to + 1);
 
     if (group === "os") {
       const arr = [...visibleOSColumns];
@@ -303,7 +322,7 @@ export function PhotoList({
       const to = arr.indexOf(dropCol);
       if (from === -1 || to === -1) return;
       arr.splice(from, 1);
-      arr.splice(insertIndex(from, to), 0, drag.col);
+      arr.splice(insertAt(from, to), 0, drag.col);
       onOSColumnsReorder?.(arr);
     } else {
       const arr = [...visibleColumns];
@@ -311,14 +330,14 @@ export function PhotoList({
       const to = arr.indexOf(dropCol);
       if (from === -1 || to === -1) return;
       arr.splice(from, 1);
-      arr.splice(insertIndex(from, to), 0, drag.col);
+      arr.splice(insertAt(from, to), 0, drag.col);
       onColumnsReorder?.(arr);
     }
   }, [visibleColumns, visibleOSColumns, onColumnsReorder, onOSColumnsReorder]);
 
   const handleColDragEnd = useCallback(() => {
     colDragRef.current = null;
-    setDragOverCol(null);
+    setDragOver(null);
   }, []);
 
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, index: number } | null>(null);
@@ -345,13 +364,13 @@ export function PhotoList({
           <div className="grid-header grid-cell-thumb" style={{ gridRow: 2, gridColumn: 1 }} />
           <div className="grid-header grid-header--sortable" style={{ gridRow: 2, gridColumn: 2 }} onContextMenu={handleColumnContextMenu} onClick={() => handleColumnClick("relative_path", "path")}>Path<SortIndicator column="relative_path" sortConfig={sortConfig} /><ResizeHandle col="relative_path" onResizeStart={handleResizeStart} onResizeMove={handleResizeMove} onResizeEnd={handleResizeEnd} onReset={handleResetWidth} /></div>
           {visibleOSColumns.includes("date_modified") && (
-            <div className={`grid-header grid-header--sortable${dragOverCol === "date_modified" ? " grid-header--drag-over" : ""}`} style={{ gridRow: 2, gridColumn: 3 }} draggable onDragStart={(e) => handleColDragStart(e, "date_modified", "os")} onDragOver={(e) => handleColDragOver(e, "date_modified")} onDragLeave={handleColDragLeave} onDrop={(e) => handleColDrop(e, "date_modified", "os")} onDragEnd={handleColDragEnd} onContextMenu={handleColumnContextMenu} onClick={() => handleColumnClick("date_modified", "os")}>Modified<SortIndicator column="date_modified" sortConfig={sortConfig} /><ResizeHandle col="date_modified" onResizeStart={handleResizeStart} onResizeMove={handleResizeMove} onResizeEnd={handleResizeEnd} onReset={handleResetWidth} /></div>
+            <div className={`grid-header grid-header--sortable${dragOver?.col === "date_modified" ? ` grid-header--drop-${dragOver.side}` : ""}`} style={{ gridRow: 2, gridColumn: 3 }} draggable onDragStart={(e) => handleColDragStart(e, "date_modified", "os")} onDragOver={(e) => handleColDragOver(e, "date_modified")} onDragLeave={handleColDragLeave} onDrop={(e) => handleColDrop(e, "date_modified", "os")} onDragEnd={handleColDragEnd} onContextMenu={handleColumnContextMenu} onClick={() => handleColumnClick("date_modified", "os")}>Modified<SortIndicator column="date_modified" sortConfig={sortConfig} /><ResizeHandle col="date_modified" onResizeStart={handleResizeStart} onResizeMove={handleResizeMove} onResizeEnd={handleResizeEnd} onReset={handleResetWidth} /></div>
           )}
           {visibleOSColumns.includes("date_created") && (
-            <div className={`grid-header grid-header--sortable${dragOverCol === "date_created" ? " grid-header--drag-over" : ""}`} style={{ gridRow: 2, gridColumn: visibleOSColumns.includes("date_modified") ? 4 : 3 }} draggable onDragStart={(e) => handleColDragStart(e, "date_created", "os")} onDragOver={(e) => handleColDragOver(e, "date_created")} onDragLeave={handleColDragLeave} onDrop={(e) => handleColDrop(e, "date_created", "os")} onDragEnd={handleColDragEnd} onContextMenu={handleColumnContextMenu} onClick={() => handleColumnClick("date_created", "os")}>Created<SortIndicator column="date_created" sortConfig={sortConfig} /><ResizeHandle col="date_created" onResizeStart={handleResizeStart} onResizeMove={handleResizeMove} onResizeEnd={handleResizeEnd} onReset={handleResetWidth} /></div>
+            <div className={`grid-header grid-header--sortable${dragOver?.col === "date_created" ? ` grid-header--drop-${dragOver.side}` : ""}`} style={{ gridRow: 2, gridColumn: visibleOSColumns.includes("date_modified") ? 4 : 3 }} draggable onDragStart={(e) => handleColDragStart(e, "date_created", "os")} onDragOver={(e) => handleColDragOver(e, "date_created")} onDragLeave={handleColDragLeave} onDrop={(e) => handleColDrop(e, "date_created", "os")} onDragEnd={handleColDragEnd} onContextMenu={handleColumnContextMenu} onClick={() => handleColumnClick("date_created", "os")}>Created<SortIndicator column="date_created" sortConfig={sortConfig} /><ResizeHandle col="date_created" onResizeStart={handleResizeStart} onResizeMove={handleResizeMove} onResizeEnd={handleResizeEnd} onReset={handleResetWidth} /></div>
           )}
           {visibleColumns.map((col, index) => (
-            <div key={col} className={`grid-header grid-header--sortable${dragOverCol === col ? " grid-header--drag-over" : ""}`} style={{ gridRow: 2, gridColumn: 3 + osColumnCount + index }} draggable onDragStart={(e) => handleColDragStart(e, col, "image")} onDragOver={(e) => handleColDragOver(e, col)} onDragLeave={handleColDragLeave} onDrop={(e) => handleColDrop(e, col, "image")} onDragEnd={handleColDragEnd} onContextMenu={handleColumnContextMenu} onClick={() => handleColumnClick(col, "image")}>{col}<SortIndicator column={col} sortConfig={sortConfig} /><ResizeHandle col={col} onResizeStart={handleResizeStart} onResizeMove={handleResizeMove} onResizeEnd={handleResizeEnd} onReset={handleResetWidth} /></div>
+            <div key={col} className={`grid-header grid-header--sortable${dragOver?.col === col ? ` grid-header--drop-${dragOver.side}` : ""}`} style={{ gridRow: 2, gridColumn: 3 + osColumnCount + index }} draggable onDragStart={(e) => handleColDragStart(e, col, "image")} onDragOver={(e) => handleColDragOver(e, col)} onDragLeave={handleColDragLeave} onDrop={(e) => handleColDrop(e, col, "image")} onDragEnd={handleColDragEnd} onContextMenu={handleColumnContextMenu} onClick={() => handleColumnClick(col, "image")}>{col}<SortIndicator column={col} sortConfig={sortConfig} /><ResizeHandle col={col} onResizeStart={handleResizeStart} onResizeMove={handleResizeMove} onResizeEnd={handleResizeEnd} onReset={handleResetWidth} /></div>
           ))}
 
           <div className="grid-body" style={{ gridColumn: "1 / -1", gridRow: 3, position: "relative", minHeight: "200px", display: "flex", alignItems: "center", justifyContent: "center", color: "#666", fontStyle: "italic" }} />
@@ -381,13 +400,13 @@ export function PhotoList({
         <div className="grid-header grid-cell-thumb" style={{ gridRow: 2, gridColumn: 1 }} />
         <div className="grid-header grid-header--sortable" style={{ gridRow: 2, gridColumn: 2 }} onContextMenu={handleColumnContextMenu} onClick={() => handleColumnClick("relative_path", "path")}>Path<SortIndicator column="relative_path" sortConfig={sortConfig} /><ResizeHandle col="relative_path" onResizeStart={handleResizeStart} onResizeMove={handleResizeMove} onResizeEnd={handleResizeEnd} onReset={handleResetWidth} /></div>
         {visibleOSColumns.includes("date_modified") && (
-          <div className={`grid-header grid-header--sortable${dragOverCol === "date_modified" ? " grid-header--drag-over" : ""}`} style={{ gridRow: 2, gridColumn: 3 }} draggable onDragStart={(e) => handleColDragStart(e, "date_modified", "os")} onDragOver={(e) => handleColDragOver(e, "date_modified")} onDragLeave={handleColDragLeave} onDrop={(e) => handleColDrop(e, "date_modified", "os")} onDragEnd={handleColDragEnd} onContextMenu={handleColumnContextMenu} onClick={() => handleColumnClick("date_modified", "os")}>Modified<SortIndicator column="date_modified" sortConfig={sortConfig} /><ResizeHandle col="date_modified" onResizeStart={handleResizeStart} onResizeMove={handleResizeMove} onResizeEnd={handleResizeEnd} onReset={handleResetWidth} /></div>
+          <div className={`grid-header grid-header--sortable${dragOver?.col === "date_modified" ? ` grid-header--drop-${dragOver.side}` : ""}`} style={{ gridRow: 2, gridColumn: 3 }} draggable onDragStart={(e) => handleColDragStart(e, "date_modified", "os")} onDragOver={(e) => handleColDragOver(e, "date_modified")} onDragLeave={handleColDragLeave} onDrop={(e) => handleColDrop(e, "date_modified", "os")} onDragEnd={handleColDragEnd} onContextMenu={handleColumnContextMenu} onClick={() => handleColumnClick("date_modified", "os")}>Modified<SortIndicator column="date_modified" sortConfig={sortConfig} /><ResizeHandle col="date_modified" onResizeStart={handleResizeStart} onResizeMove={handleResizeMove} onResizeEnd={handleResizeEnd} onReset={handleResetWidth} /></div>
         )}
         {visibleOSColumns.includes("date_created") && (
-          <div className={`grid-header grid-header--sortable${dragOverCol === "date_created" ? " grid-header--drag-over" : ""}`} style={{ gridRow: 2, gridColumn: visibleOSColumns.includes("date_modified") ? 4 : 3 }} draggable onDragStart={(e) => handleColDragStart(e, "date_created", "os")} onDragOver={(e) => handleColDragOver(e, "date_created")} onDragLeave={handleColDragLeave} onDrop={(e) => handleColDrop(e, "date_created", "os")} onDragEnd={handleColDragEnd} onContextMenu={handleColumnContextMenu} onClick={() => handleColumnClick("date_created", "os")}>Created<SortIndicator column="date_created" sortConfig={sortConfig} /><ResizeHandle col="date_created" onResizeStart={handleResizeStart} onResizeMove={handleResizeMove} onResizeEnd={handleResizeEnd} onReset={handleResetWidth} /></div>
+          <div className={`grid-header grid-header--sortable${dragOver?.col === "date_created" ? ` grid-header--drop-${dragOver.side}` : ""}`} style={{ gridRow: 2, gridColumn: visibleOSColumns.includes("date_modified") ? 4 : 3 }} draggable onDragStart={(e) => handleColDragStart(e, "date_created", "os")} onDragOver={(e) => handleColDragOver(e, "date_created")} onDragLeave={handleColDragLeave} onDrop={(e) => handleColDrop(e, "date_created", "os")} onDragEnd={handleColDragEnd} onContextMenu={handleColumnContextMenu} onClick={() => handleColumnClick("date_created", "os")}>Created<SortIndicator column="date_created" sortConfig={sortConfig} /><ResizeHandle col="date_created" onResizeStart={handleResizeStart} onResizeMove={handleResizeMove} onResizeEnd={handleResizeEnd} onReset={handleResetWidth} /></div>
         )}
         {visibleColumns.map((col, index) => (
-          <div key={col} className={`grid-header grid-header--sortable${dragOverCol === col ? " grid-header--drag-over" : ""}`} style={{ gridRow: 2, gridColumn: 3 + osColumnCount + index }} draggable onDragStart={(e) => handleColDragStart(e, col, "image")} onDragOver={(e) => handleColDragOver(e, col)} onDragLeave={handleColDragLeave} onDrop={(e) => handleColDrop(e, col, "image")} onDragEnd={handleColDragEnd} onContextMenu={handleColumnContextMenu} onClick={() => handleColumnClick(col, "image")}>{col}<SortIndicator column={col} sortConfig={sortConfig} /><ResizeHandle col={col} onResizeStart={handleResizeStart} onResizeMove={handleResizeMove} onResizeEnd={handleResizeEnd} onReset={handleResetWidth} /></div>
+          <div key={col} className={`grid-header grid-header--sortable${dragOver?.col === col ? ` grid-header--drop-${dragOver.side}` : ""}`} style={{ gridRow: 2, gridColumn: 3 + osColumnCount + index }} draggable onDragStart={(e) => handleColDragStart(e, col, "image")} onDragOver={(e) => handleColDragOver(e, col)} onDragLeave={handleColDragLeave} onDrop={(e) => handleColDrop(e, col, "image")} onDragEnd={handleColDragEnd} onContextMenu={handleColumnContextMenu} onClick={() => handleColumnClick(col, "image")}>{col}<SortIndicator column={col} sortConfig={sortConfig} /><ResizeHandle col={col} onResizeStart={handleResizeStart} onResizeMove={handleResizeMove} onResizeEnd={handleResizeEnd} onReset={handleResetWidth} /></div>
         ))}
         
         {/* Virtual rows container */}
