@@ -7,13 +7,11 @@ are covered by integration tests that simulate UI interaction and confirm that t
 Now
 ===
 
-* Column headings should be drag and droppable to reorder - make it drop at the closest edge of the column (Claude halfway through this, seems to be working, just needs tests fixing)
-* 21 pre-failing tests?
-
 * The 'sticky' headings at the top have become a bit broken - only the group level headings (OS Metadata and Image metadata) are sticky, but the second row of the header (individual field names) should also be sticky
 * Double clicking on a column resize handle to auto-size the column should take into account the desired content width of all
  the cells in that column. It seems like it currently only uses the column header text width.
 
+* Loading 2010 folder seems to hang, never shows any photos! UI has spinners going but can't interact - main thread of browser too busy?
 
 Later- *** DO NOT WORK ON ANY OF THE BELOW FEATURES ***
 =====

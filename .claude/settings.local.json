@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Get-ChildItem -Path \"D:\\\\Programming\\\\Media\\\\MediaLibrary\\\\src\" -Recurse | Where-Object {!$_.PSIsContainer} | Select-Object Name, FullName | Format-Table -AutoSize)",
+      "Bash(npx vitest *)"
+    ]
+  }
+}
