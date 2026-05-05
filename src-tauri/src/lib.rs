@@ -3,7 +3,7 @@ mod work_queue;
 
 use serde::Serialize;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use tauri::{AppHandle, Emitter, Manager, State};
 use work_queue::WorkQueue;
 
@@ -21,6 +21,25 @@ fn get_timestamp() -> String {
 macro_rules! log_ts {
     ($($arg:tt)*) => {
         eprintln!("[{}] {}", get_timestamp(), format!($($arg)*))
+    };
+}
+
+// ── Verbosity helpers ──────────────────────────────────────────────────────────
+
+static VERBOSE: OnceLock<bool> = OnceLock::new();
+
+/// Returns true when MEDIA_LIBRARY_VERBOSE=1 (or any non-empty value) is set.
+/// Checked once on first call and cached for the lifetime of the process.
+pub(crate) fn is_verbose() -> bool {
+    *VERBOSE.get_or_init(|| std::env::var("MEDIA_LIBRARY_VERBOSE").is_ok())
+}
+
+/// Like log_ts! but only emits when MEDIA_LIBRARY_VERBOSE is set.
+macro_rules! log_verbose {
+    ($($arg:tt)*) => {
+        if $crate::is_verbose() {
+            eprintln!("[{}] [verbose] {}", get_timestamp(), format!($($arg)*))
+        }
     };
 }
 
@@ -226,7 +245,7 @@ fn start_scan(
                         crate::work_queue::PopResult::Items(items) => items,
                         crate::work_queue::PopResult::Timeout => {
                             if !batch_results.is_empty() {
-                                log_ts!("[metadata] Emitting batch of {} results (timeout)", batch_results.len());
+                                log_ts!("[metadata] Emitting batch of {} results (timeout flush)", batch_results.len());
                                 let _ = app.emit("image_metadata_ready", ImageMetadataReadyPayload {
                                     scan_id,
                                     results: std::mem::take(&mut batch_results),
@@ -244,8 +263,8 @@ fn start_scan(
 
                     match scanner::read_image_metadata_batch(&rel_paths, &abs_paths) {
                         Ok(results) => {
-                            log_ts!("[metadata] Read {} results, first has {} fields", 
-                                results.len(), 
+                            log_ts!("[metadata] Read {} results, first has {} fields",
+                                results.len(),
                                 results.first().map(|r| r.metadata.len()).unwrap_or(0));
                             
                             for info in results {
