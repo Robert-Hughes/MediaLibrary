@@ -363,7 +363,9 @@ body {
 }
 
 .grid-header--sortable {
-  position: relative;
+  /* position: sticky comes from .grid-header and must not be overridden here;
+     sticky is already a positioned element so the resize-handle (position:absolute)
+     is correctly contained within it. */
   cursor: pointer;
   user-select: none;
 }
