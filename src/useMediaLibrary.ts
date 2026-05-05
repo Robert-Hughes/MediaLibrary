@@ -85,10 +85,11 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
     // photo_found / scan_complete events are never missed.  The latch is a
     // plain Promise (no setTimeout) so it works correctly with vi.useFakeTimers().
     await listenersReadyRef.current;
-    
+
     // Generate scan_id FIRST, before any cleanup, so we can accept events immediately
     const scanId = Date.now();
-    
+    console.log(`[startScan] folder=${folder} scanId=${scanId}`);
+
     // Stop any existing scan before starting a new one.
     await api.invoke("stop_scan").catch(() => {});
 
@@ -144,6 +145,7 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
     const flushBatch = () => {
       const batch = [...photoBufferRef.current];
       photoBufferRef.current = [];
+      console.log(`[photo_found] flushing ${batch.length} photos (total buffer was ${batch.length})`);
 
       setAppState((prev) => {
         if (prev.kind === "idle") return prev;
@@ -202,6 +204,7 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
       metadataBufferRef.current = [];
 
       if (batch.length === 0) return;
+      console.log(`[metadata] flushing ${batch.length} results`);
 
       for (const res of batch) {
         imageMetadataStoreRef.current.set(res.relative_path, res.metadata);
@@ -224,6 +227,7 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
     const flushThumbnailBatch = () => {
       const batch = [...thumbnailBufferRef.current];
       thumbnailBufferRef.current = [];
+      if (batch.length > 0) console.log(`[thumbnail] flushing ${batch.length} results`);
 
       for (const res of batch) {
         thumbnailStoreRef.current.set(res.relative_path, res.thumbnail);
@@ -240,6 +244,7 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
         if (cancelled) return;
         const { scan_id, photos } = raw as PhotoFoundPayload;
         if (scan_id !== activeScanIdRef.current) return;
+        console.log(`[photo_found] received ${photos.length} photos`);
 
         for (const photo of photos) {
           thumbnailStoreRef.current.add(photo.relative_path);
@@ -269,6 +274,7 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
         if (cancelled) return;
         const { scan_id } = raw as { scan_id: number };
         if (scan_id !== activeScanIdRef.current) return;
+        console.log(`[scan_complete] scan_id=${scan_id}`);
 
         // Clear all batch timers and flush remaining batches
         if (batchTimerRef.current) {
@@ -318,6 +324,7 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
         if (cancelled) return;
         const { scan_id, results } = raw as ImageMetadataReadyPayload;
         if (scan_id !== activeScanIdRef.current) return;
+        console.log(`[metadata] received ${results.length} results`);
 
         // Buffer metadata events instead of processing individually
         metadataBufferRef.current.push(...results);
@@ -345,6 +352,7 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
         if (cancelled) return;
         const { scan_id, results } = raw as ThumbnailReadyPayload;
         if (scan_id !== activeScanIdRef.current) return;
+        console.log(`[thumbnail] received ${results.length} results`);
 
         // Buffer thumbnail events instead of processing individually
         thumbnailBufferRef.current.push(...results);
@@ -398,6 +406,7 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
       );
 
       // All listeners registered — unblock any startScan that was awaiting.
+      console.log("[setup] all listeners registered");
       resolve();
     };
 
@@ -426,6 +435,7 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
   }, [api]);
 
   const prioritizeQueues = useCallback((visiblePaths: string[]) => {
+    console.log(`[prioritizeQueues] ${visiblePaths.length} paths`);
     api.invoke("prioritize_queues", { visiblePaths }).catch(() => {});
   }, [api]);
 
