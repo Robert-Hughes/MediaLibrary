@@ -267,10 +267,16 @@ export function PhotoList({
   }, []);
 
   const handleColDragOver = useCallback((e: React.DragEvent, col: string) => {
-    if (!colDragRef.current || colDragRef.current.col === col) return;
-    e.preventDefault();
-    if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
-    setDragOverCol(col);
+    if (!colDragRef.current) return;
+    e.preventDefault(); // must always preventDefault to allow drop (even on the same col)
+    if (e.dataTransfer) e.dataTransfer.dropEffect = colDragRef.current.col === col ? "none" : "move";
+    if (colDragRef.current.col !== col) setDragOverCol(col);
+  }, []);
+
+  // Allow drop anywhere on the wrapper while a column drag is in progress so the
+  // browser shows the "move" cursor over gaps/body instead of the no-entry symbol.
+  const handleWrapperDragOver = useCallback((e: React.DragEvent) => {
+    if (colDragRef.current) e.preventDefault();
   }, []);
 
   const handleColDragLeave = useCallback((e: React.DragEvent) => {
@@ -318,7 +324,7 @@ export function PhotoList({
     const gridColumns = buildGridTemplate(visibleOSColumns, visibleColumns, effectiveWidths);
 
     return (
-      <div className="photo-table-wrapper" ref={listRef} onClick={() => { setContextMenu(null); setColumnContextMenu(null); }}>
+      <div className="photo-table-wrapper" ref={listRef} onClick={() => { setContextMenu(null); setColumnContextMenu(null); }} onDragOver={handleWrapperDragOver}>
         <div
           className="photo-grid"
           data-testid="photo-list-empty"
@@ -354,7 +360,7 @@ export function PhotoList({
   const gridColumns = buildGridTemplate(visibleOSColumns, visibleColumns, effectiveWidths);
 
   return (
-    <div className="photo-table-wrapper" ref={listRef} onClick={() => { setContextMenu(null); setColumnContextMenu(null); }}>
+    <div className="photo-table-wrapper" ref={listRef} onClick={() => { setContextMenu(null); setColumnContextMenu(null); }} onDragOver={handleWrapperDragOver}>
       <div
         className="photo-grid"
         data-testid="photo-list"
