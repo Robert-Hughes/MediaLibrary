@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "Vite frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 1420
+    },
+    {
+      "name": "Tauri dev (full app)",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "tauri", "--", "dev"],
+      "port": 1420
+    }
+  ]
+}
