@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use walkdir::WalkDir;
 
 // ── Timestamp helper ──────────────────────────────────────────────────────────
@@ -28,6 +28,53 @@ macro_rules! log_ts {
     ($($arg:tt)*) => {
         eprintln!("[{}] {}", get_timestamp(), format!($($arg)*))
     };
+}
+
+/// Like log_ts! but only emits when MEDIA_LIBRARY_VERBOSE is set.
+macro_rules! log_verbose {
+    ($($arg:tt)*) => {
+        if crate::is_verbose() {
+            eprintln!("[{}] [verbose] {}", get_timestamp(), format!($($arg)*))
+        }
+    };
+}
+
+// ── ExifTool path cache ───────────────────────────────────────────────────────
+
+static EXIFTOOL_CMD: OnceLock<String> = OnceLock::new();
+
+/// Locate the exiftool executable once and cache the result for the process
+/// lifetime.  Logs the chosen path at normal verbosity on first call only.
+fn find_exiftool() -> &'static str {
+    EXIFTOOL_CMD.get_or_init(|| {
+        #[cfg(target_os = "windows")]
+        {
+            let candidates = [
+                "exiftool.exe", // PATH first
+                r"C:\Users\xman2\AppData\Local\Programs\ExifTool\ExifTool.exe",
+                r"C:\Program Files\ExifTool\exiftool.exe",
+                r"C:\Program Files\ExifTool\ExifTool.exe",
+            ];
+            for path in &candidates {
+                let found = if path.contains('\\') {
+                    std::path::Path::new(path).exists()
+                } else {
+                    Command::new(path).arg("-ver").output().is_ok()
+                };
+                if found {
+                    log_ts!("[exiftool] Using: {}", path);
+                    return path.to_string();
+                }
+            }
+            log_ts!("[exiftool] Warning: not found in expected locations; will try 'exiftool.exe'");
+            "exiftool.exe".to_string()
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            log_ts!("[exiftool] Using: exiftool");
+            "exiftool".to_string()
+        }
+    })
 }
 
 /// File extensions recognised as photos.
@@ -148,8 +195,7 @@ pub fn read_image_metadata_batch(
         return Ok(Vec::new());
     }
 
-    log_ts!("[exiftool] Reading metadata for {} files", abs_paths.len());
-    log_ts!("[exiftool] First file: {:?}", abs_paths.first());
+    log_ts!("[exiftool] Reading {} files, first: {:?}", abs_paths.len(), abs_paths.first());
 
     // TEMPORARY: simulate slow metadata reading for load testing.
     #[cfg(not(test))]
@@ -157,43 +203,9 @@ pub fn read_image_metadata_batch(
         std::thread::sleep(std::time::Duration::from_millis(500));
     }
 
-    // Try to find exiftool executable
-    // On Windows, check common installation locations
-    #[cfg(target_os = "windows")]
-    let exiftool_cmd = {
-        let common_paths = [
-            "exiftool.exe", // Try PATH first
-            r"C:\Users\xman2\AppData\Local\Programs\ExifTool\ExifTool.exe",
-            r"C:\Program Files\ExifTool\exiftool.exe",
-            r"C:\Program Files\ExifTool\ExifTool.exe",
-        ];
-        
-        let mut found_cmd = "exiftool.exe";
-        for path in &common_paths {
-            if path.contains('\\') {
-                // Full path - check if file exists
-                if std::path::Path::new(path).exists() {
-                    found_cmd = path;
-                    log_ts!("[exiftool] Found at: {}", path);
-                    break;
-                }
-            } else {
-                // Just a command name - try to execute it
-                if Command::new(path).arg("-ver").output().is_ok() {
-                    found_cmd = path;
-                    log_ts!("[exiftool] Found in PATH: {}", path);
-                    break;
-                }
-            }
-        }
-        found_cmd
-    };
-    
-    #[cfg(not(target_os = "windows"))]
-    let exiftool_cmd = "exiftool";
-    
-    log_ts!("[exiftool] Using command: {}", exiftool_cmd);
-    
+    // find_exiftool() is called once and cached; subsequent calls are free.
+    let exiftool_cmd = find_exiftool();
+
     let mut cmd = Command::new(exiftool_cmd);
     cmd.arg("-a")
         .arg("-G1")
@@ -212,19 +224,18 @@ pub fn read_image_metadata_batch(
         Ok(out) => {
             if !out.status.success() {
                 let stderr = String::from_utf8_lossy(&out.stderr);
-                log_ts!("[exiftool] Command failed with status: {:?}", out.status);
-                log_ts!("[exiftool] stderr: {}", stderr);
+                log_ts!("[exiftool] Command failed (status {:?}): {}", out.status, stderr);
                 return Err(format!("ExifTool failed: {}", stderr));
             }
-            
+
             let json = String::from_utf8_lossy(&out.stdout);
-            log_ts!("[exiftool] Output length: {} bytes", json.len());
-            
+            log_ts!("[exiftool] Output: {} bytes", json.len());
+
             if !json.trim().is_empty() {
-                log_ts!("[exiftool] First 500 chars of output: {}", &json.chars().take(500).collect::<String>());
+                log_verbose!("[exiftool] First 500 chars: {}", &json.chars().take(500).collect::<String>());
                 Ok(parse_exiftool_batch_json(&json, rel_paths, abs_paths))
             } else {
-                log_ts!("[exiftool] Empty output from exiftool for {} files", abs_paths.len());
+                log_ts!("[exiftool] Warning: empty output for {} files", abs_paths.len());
                 Ok(rel_paths
                     .iter()
                     .map(|r| ImageMetadata {
@@ -235,7 +246,9 @@ pub fn read_image_metadata_batch(
             }
         }
         Err(e) => {
-            let error_msg = format!("Failed to execute ExifTool: {}. Please ensure ExifTool is installed and accessible.", e);
+            let error_msg = format!(
+                "Failed to execute ExifTool: {}. Please ensure ExifTool is installed and accessible.", e
+            );
             log_ts!("[exiftool] {}", error_msg);
             Err(error_msg)
         }
