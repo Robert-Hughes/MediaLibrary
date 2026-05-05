@@ -253,7 +253,27 @@ export function PhotoList({
   }, [onColumnWidthChange]);
 
   const handleResetWidth = useCallback((col: string) => {
-    if (onColumnWidthChange) onColumnWidthChange(col, 0);
+    if (!onColumnWidthChange) return;
+    const container = listRef.current;
+    if (!container) { onColumnWidthChange(col, 0); return; }
+
+    // scrollWidth returns the full content width even when overflow:hidden clips the
+    // visible area, so it correctly measures the intrinsic width of each rendered cell.
+    let maxWidth = 0;
+    container.querySelectorAll<HTMLElement>(`[data-col="${col}"]`).forEach((cell) => {
+      if (cell.scrollWidth > maxWidth) maxWidth = cell.scrollWidth;
+    });
+
+    // Also include the header cell's natural width (reached via its resize-handle).
+    const handle = container.querySelector<HTMLElement>(`[data-testid="resize-handle-${col}"]`);
+    if (handle?.parentElement) {
+      const hw = handle.parentElement.scrollWidth;
+      if (hw > maxWidth) maxWidth = hw;
+    }
+
+    // Small breathing-room buffer so content is never right at the edge.
+    const measured = maxWidth > 0 ? maxWidth + 4 : 0;
+    onColumnWidthChange(col, measured);
   }, [onColumnWidthChange]);
 
   const handleColDragStart = useCallback((e: React.DragEvent, col: string, group: "os" | "image") => {
@@ -535,15 +555,15 @@ const PhotoRow = memo(function PhotoRow({
           )}
         </div>
       </div>
-      <div className="grid-cell grid-cell-path" data-testid="photo-path">{photo.relative_path}</div>
+      <div className="grid-cell grid-cell-path" data-col="relative_path" data-testid="photo-path">{photo.relative_path}</div>
       {visibleOSColumns.includes("date_modified") && (
-        <div className="grid-cell grid-cell-date" data-testid="photo-date-modified">{formatDate(photo.date_modified)}</div>
+        <div className="grid-cell grid-cell-date" data-col="date_modified" data-testid="photo-date-modified">{formatDate(photo.date_modified)}</div>
       )}
       {visibleOSColumns.includes("date_created") && (
-        <div className="grid-cell grid-cell-date" data-testid="photo-date-created">{formatDate(photo.date_created)}</div>
+        <div className="grid-cell grid-cell-date" data-col="date_created" data-testid="photo-date-created">{formatDate(photo.date_created)}</div>
       )}
       {visibleColumns.map((col) => (
-        <div key={col} className="grid-cell grid-cell-metadata">
+        <div key={col} className="grid-cell grid-cell-metadata" data-col={col}>
           {metadataLoading ? (
             <Spinner className="cell-spinner" aria-label="Loading" data-testid="metadata-loading" />
           ) : metadataFailed ? (
