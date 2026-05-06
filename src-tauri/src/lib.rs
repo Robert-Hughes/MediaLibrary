@@ -109,9 +109,54 @@ impl Default for ScanState {
 }
 
 /// Holds both the thumbnail and image metadata queues so both can be prioritised.
-struct ActiveQueues {
+/// Cheap to clone: the inner state is shared via `Arc<Mutex<...>>`.
+#[derive(Clone)]
+pub struct ActiveQueues {
     thumbnails:     Arc<Mutex<Option<Arc<WorkQueue>>>>,
     image_metadata: Arc<Mutex<Option<Arc<WorkQueue>>>>,
+}
+
+impl ActiveQueues {
+    pub fn new() -> Self {
+        Self {
+            thumbnails:     Arc::new(Mutex::new(None)),
+            image_metadata: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    /// Replace the currently-installed queues with new ones (used by start_scan).
+    pub fn install(&self, thumbs: Arc<WorkQueue>, metadata: Arc<WorkQueue>) {
+        *self.thumbnails.lock().unwrap() = Some(thumbs);
+        *self.image_metadata.lock().unwrap() = Some(metadata);
+    }
+
+    /// Clear the queue slots, but only if the currently-installed queues are
+    /// the same Arc instances as `mine_thumbs`/`mine_metadata`.  A newer scan
+    /// may have already swapped in its own queues, in which case we must not
+    /// nil them out.
+    pub fn clear_if_mine(&self, mine_thumbs: &Arc<WorkQueue>, mine_metadata: &Arc<WorkQueue>) {
+        let mut t = self.thumbnails.lock().unwrap();
+        if t.as_ref().map_or(false, |q| Arc::ptr_eq(q, mine_thumbs)) {
+            *t = None;
+        }
+        drop(t);
+        let mut m = self.image_metadata.lock().unwrap();
+        if m.as_ref().map_or(false, |q| Arc::ptr_eq(q, mine_metadata)) {
+            *m = None;
+        }
+    }
+
+    pub fn thumbnails(&self) -> Option<Arc<WorkQueue>> {
+        self.thumbnails.lock().unwrap().clone()
+    }
+
+    pub fn image_metadata(&self) -> Option<Arc<WorkQueue>> {
+        self.image_metadata.lock().unwrap().clone()
+    }
+}
+
+impl Default for ActiveQueues {
+    fn default() -> Self { Self::new() }
 }
 
 // ── Event payloads ────────────────────────────────────────────────────────────
@@ -230,14 +275,10 @@ fn start_scan(
 
     let cancellation_flag = scan_state.install_cancellation();
 
-    // Reset queues for the new scan.
-    {
-        *active_queues.thumbnails.lock().unwrap() = None;
-        *active_queues.image_metadata.lock().unwrap() = None;
-    }
-
-    let thumbnails_arc     = active_queues.thumbnails.clone();
-    let image_metadata_arc = active_queues.image_metadata.clone();
+    // Hand a cloned ActiveQueues to the worker thread.  The clone shares the
+    // same inner Arc<Mutex<...>> slots, so install/clear_if_mine see the live
+    // state observed by stop_scan and prioritize_queues.
+    let queues_for_thread  = (*active_queues).clone();
     let app_clone          = app.clone();
     let cancel_clone       = cancellation_flag.clone();
 
@@ -271,10 +312,7 @@ fn start_scan(
         let image_metadata_queue = Arc::new(WorkQueue::new(vec![]));
 
         // Install the queues so prioritize_queues can reach them.
-        {
-            *thumbnails_arc.lock().unwrap() = Some(thumb_queue.clone());
-            *image_metadata_arc.lock().unwrap() = Some(image_metadata_queue.clone());
-        }
+        queues_for_thread.install(thumb_queue.clone(), image_metadata_queue.clone());
 
         let root_arc = Arc::new(root.clone());
 
@@ -504,11 +542,11 @@ fn start_scan(
         for h in metadata_handles { let _ = h.join(); }
         for h in thumb_handles    { let _ = h.join(); }
 
-        // Clear queues after they're finished.
-        {
-            *thumbnails_arc.lock().unwrap() = None;
-            *image_metadata_arc.lock().unwrap() = None;
-        }
+        // Clear the queue slots — but only if a newer scan hasn't already
+        // installed its own queues here.  Without this guard, a fast
+        // folder-switch can null out the new scan's queues and break
+        // prioritize_queues / stop_scan for it.
+        queues_for_thread.clear_if_mine(&thumb_queue, &image_metadata_queue);
     });
 
     Ok(())
@@ -520,12 +558,8 @@ fn stop_scan(
     active_queues: State<'_, ActiveQueues>,
 ) -> Result<(), String> {
     scan_state.signal_cancellation();
-    if let Some(q) = active_queues.thumbnails.lock().unwrap().as_ref() {
-        q.abort();
-    }
-    if let Some(q) = active_queues.image_metadata.lock().unwrap().as_ref() {
-        q.abort();
-    }
+    if let Some(q) = active_queues.thumbnails() { q.abort(); }
+    if let Some(q) = active_queues.image_metadata() { q.abort(); }
     Ok(())
 }
 
@@ -534,12 +568,8 @@ fn prioritize_queues(
     visible_paths: Vec<String>,
     active_queues: State<'_, ActiveQueues>,
 ) -> Result<(), String> {
-    if let Some(queue) = active_queues.thumbnails.lock().unwrap().as_ref() {
-        queue.prioritize(&visible_paths);
-    }
-    if let Some(queue) = active_queues.image_metadata.lock().unwrap().as_ref() {
-        queue.prioritize(&visible_paths);
-    }
+    if let Some(q) = active_queues.thumbnails() { q.prioritize(&visible_paths); }
+    if let Some(q) = active_queues.image_metadata() { q.prioritize(&visible_paths); }
     Ok(())
 }
 
@@ -680,6 +710,62 @@ mod tests {
         assert!(elapsed >= Duration::from_millis(15));
     }
 
+    // ── ActiveQueues race-condition tests ─────────────────────────────────────
+
+    #[test]
+    fn clear_if_mine_clears_when_my_queues_are_still_installed() {
+        let aq = ActiveQueues::new();
+        let thumbs = Arc::new(WorkQueue::new(vec![]));
+        let metadata = Arc::new(WorkQueue::new(vec![]));
+        aq.install(thumbs.clone(), metadata.clone());
+
+        aq.clear_if_mine(&thumbs, &metadata);
+
+        assert!(aq.thumbnails().is_none());
+        assert!(aq.image_metadata().is_none());
+    }
+
+    #[test]
+    fn clear_if_mine_leaves_a_newer_scans_queues_alone() {
+        // Reproduce the race: scan A finishes its workers and goes to clean up,
+        // but scan B has already installed its own queues into ActiveQueues.
+        // The cleanup must not nil out scan B's queues.
+        let aq = ActiveQueues::new();
+        let scan_a_thumbs = Arc::new(WorkQueue::new(vec![]));
+        let scan_a_metadata = Arc::new(WorkQueue::new(vec![]));
+        aq.install(scan_a_thumbs.clone(), scan_a_metadata.clone());
+
+        // Scan B starts and replaces the slots.
+        let scan_b_thumbs = Arc::new(WorkQueue::new(vec![]));
+        let scan_b_metadata = Arc::new(WorkQueue::new(vec![]));
+        aq.install(scan_b_thumbs.clone(), scan_b_metadata.clone());
+
+        // Scan A's late cleanup must not clobber scan B.
+        aq.clear_if_mine(&scan_a_thumbs, &scan_a_metadata);
+
+        let installed_thumbs = aq.thumbnails().expect("scan B's thumb queue must still be installed");
+        let installed_metadata = aq.image_metadata().expect("scan B's metadata queue must still be installed");
+        assert!(Arc::ptr_eq(&installed_thumbs, &scan_b_thumbs));
+        assert!(Arc::ptr_eq(&installed_metadata, &scan_b_metadata));
+    }
+
+    #[test]
+    fn clear_if_mine_handles_partial_overlap() {
+        // Defensive: only one of the two slots matches mine.  Clear that one,
+        // leave the other.
+        let aq = ActiveQueues::new();
+        let mine_thumbs = Arc::new(WorkQueue::new(vec![]));
+        let mine_metadata = Arc::new(WorkQueue::new(vec![]));
+        let other_metadata = Arc::new(WorkQueue::new(vec![]));
+        aq.install(mine_thumbs.clone(), other_metadata.clone());
+
+        aq.clear_if_mine(&mine_thumbs, &mine_metadata);
+
+        assert!(aq.thumbnails().is_none(), "mine_thumbs should have been cleared");
+        let installed = aq.image_metadata().expect("other_metadata must remain");
+        assert!(Arc::ptr_eq(&installed, &other_metadata));
+    }
+
     #[test]
     fn wait_until_finished_times_out_when_scan_never_finishes() {
         let state = ScanState::new();
@@ -698,10 +784,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(ScanState::new())
-        .manage(ActiveQueues {
-            thumbnails:     Arc::new(Mutex::new(None)),
-            image_metadata: Arc::new(Mutex::new(None)),
-        })
+        .manage(ActiveQueues::new())
         .invoke_handler(tauri::generate_handler![
             log_to_console,
             get_cli_folder,
