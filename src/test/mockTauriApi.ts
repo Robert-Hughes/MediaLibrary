@@ -5,6 +5,7 @@ import type {
   ImageMetadataReadyPayload,
   ThumbnailReadyPayload,
   ScanErrorPayload,
+  WorkerErrorPayload,
   Variant,
 } from "../types";
 
@@ -18,6 +19,7 @@ export interface MockTauriApi {
   emitImageMetadataReady: (relativePath: string, metadata: Record<string, Variant>, scanId?: number) => void;
   emitThumbnailReady: (relativePath: string, thumbnail: string, scanId?: number) => void;
   emitScanError: (message: string) => void;
+  emitWorkerError: (workerType: string, errorMessage: string, affectedFiles?: string[], scanId?: number) => void;
   lastPrioritizedPaths: string[];
   lastWindowTitle: string | null;
   /** All invoke calls recorded in order. */
@@ -43,6 +45,13 @@ export function createMockTauriApi(): MockTauriApi {
       emit("thumbnail_ready", { scan_id: scanId ?? mock.currentScanId, results: [{ relative_path, thumbnail }] } satisfies ThumbnailReadyPayload),
     emitScanError: (message) =>
       emit("scan_error", { message } satisfies ScanErrorPayload),
+    emitWorkerError: (worker_type, error_message, affected_files = [], scanId) =>
+      emit("worker_error", {
+        scan_id: scanId ?? mock.currentScanId,
+        worker_type,
+        error_message,
+        affected_files,
+      } satisfies WorkerErrorPayload),
     lastPrioritizedPaths: [],
     lastWindowTitle: null,
     invocations: [],

@@ -198,6 +198,56 @@ describe("useMediaLibrary", () => {
     expect(result.current[0].kind).toBe("idle");
   });
 
+  it("worker_error events append to workerErrors when in loaded state", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/photos");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => { await result.current[1].openFolder(); });
+    act(() => { mock.emitPhotoFound(makePhoto({ relative_path: "a.jpg" })); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(150); });
+
+    act(() => { mock.emitWorkerError("metadata", "ExifTool failed", ["a.jpg"]); });
+    act(() => { mock.emitWorkerError("thumbnail", "decode failed", ["b.jpg"]); });
+
+    const state = result.current[0];
+    if (state.kind === "loaded") {
+      expect(state.workerErrors).toHaveLength(2);
+      expect(state.workerErrors[0].worker_type).toBe("metadata");
+      expect(state.workerErrors[0].error_message).toBe("ExifTool failed");
+      expect(state.workerErrors[0].affected_files).toEqual(["a.jpg"]);
+      expect(state.workerErrors[1].worker_type).toBe("thumbnail");
+    }
+  });
+
+  it("dismissError removes the error at the given index", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/photos");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => { await result.current[1].openFolder(); });
+    act(() => { mock.emitPhotoFound(makePhoto({ relative_path: "a.jpg" })); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(150); });
+
+    act(() => { mock.emitWorkerError("metadata", "first error"); });
+    act(() => { mock.emitWorkerError("metadata", "second error"); });
+
+    act(() => { result.current[1].dismissError(0); });
+
+    const state = result.current[0];
+    if (state.kind === "loaded") {
+      expect(state.workerErrors).toHaveLength(1);
+      expect(state.workerErrors[0].error_message).toBe("second error");
+    }
+  });
+
+  it("worker_error events while idle are ignored", async () => {
+    const mock = createMockTauriApi();
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    expect(result.current[0].kind).toBe("idle");
+
+    act(() => { mock.emitWorkerError("metadata", "stale error"); });
+    expect(result.current[0].kind).toBe("idle");
+  });
+
   it("photo_found events after closeFolder are ignored", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/photos");
