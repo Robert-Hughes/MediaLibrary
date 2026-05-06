@@ -180,6 +180,41 @@ describe("OS metadata column reorder insertion", () => {
   });
 });
 
+describe("OS column header gridColumn positions follow visibleOSColumns order", () => {
+  function renderWithOrder(visibleOSColumns: string[]) {
+    const { thumbnails, imageMetadata } = makeStores();
+    render(
+      <PhotoList photos={mockPhotos} thumbnails={thumbnails} imageMetadata={imageMetadata}
+        visibleColumns={[]} visibleOSColumns={visibleOSColumns}
+        {...defaultSortProps} selectedIndex={null} onSelect={() => {}}
+        onShowInExplorer={() => {}} onVisibilityChange={() => {}} onPhotoOpen={() => {}} />
+    );
+    const headers = Array.from(document.querySelectorAll(".grid-header--sortable[draggable]")) as HTMLElement[];
+    const get = (label: string) => headers.find((h) => h.textContent?.includes(label))!;
+    return { get };
+  }
+
+  it("renders [date_modified, date_created] at columns 3 and 4", () => {
+    const { get } = renderWithOrder(["date_modified", "date_created"]);
+    expect(get("Modified").style.gridColumn).toBe("3");
+    expect(get("Created").style.gridColumn).toBe("4");
+  });
+
+  it("renders [date_created, date_modified] at columns 3 and 4 in the reordered order", () => {
+    // Regression: previously date_modified was hardcoded to gridColumn 3,
+    // and date_created to (modified-present ? 4 : 3) — so after a drag-reorder
+    // they would render swapped relative to the underlying grid template.
+    const { get } = renderWithOrder(["date_created", "date_modified"]);
+    expect(get("Created").style.gridColumn).toBe("3");
+    expect(get("Modified").style.gridColumn).toBe("4");
+  });
+
+  it("renders only date_created at column 3 when date_modified is hidden", () => {
+    const { get } = renderWithOrder(["date_created"]);
+    expect(get("Created").style.gridColumn).toBe("3");
+  });
+});
+
 describe("cross-group drop is ignored", () => {
   it("dropping an OS column onto an image column does nothing", () => {
     const onColumnsReorder = vi.fn();
