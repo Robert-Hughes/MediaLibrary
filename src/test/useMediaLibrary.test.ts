@@ -253,6 +253,31 @@ describe("useMediaLibrary", () => {
     }
   });
 
+  it("workerErrors is capped — keeps the most recent N and drops older ones", async () => {
+    // Without a cap, a folder with thousands of metadata failures grows the
+    // array (and React state) without bound.  Cap at 20 and keep the most
+    // recent ones since they're the ones the user can act on.
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/photos");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => { await result.current[1].openFolder(); });
+    act(() => { mock.emitPhotoFound(makePhoto({ relative_path: "a.jpg" })); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(150); });
+
+    for (let i = 0; i < 30; i++) {
+      act(() => { mock.emitWorkerError("metadata", `error ${i}`); });
+    }
+
+    const state = result.current[0];
+    if (state.kind === "loaded") {
+      expect(state.workerErrors.length).toBeLessThanOrEqual(20);
+      // The most recent error must be retained.
+      expect(state.workerErrors[state.workerErrors.length - 1].error_message).toBe("error 29");
+      // The oldest one must have been dropped.
+      expect(state.workerErrors.find(e => e.error_message === "error 0")).toBeUndefined();
+    }
+  });
+
   it("worker_error events while idle are ignored", async () => {
     const mock = createMockTauriApi();
     const { result } = renderHook(() => useMediaLibrary(mock.api));

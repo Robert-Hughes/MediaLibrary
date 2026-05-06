@@ -37,6 +37,10 @@ export interface MediaLibraryActions {
 
 const RECENT_FOLDERS_KEY = "media_library_recent_folders";
 const MAX_RECENT_FOLDERS = 5;
+/** Cap on retained worker errors. A misconfigured ExifTool or a bad folder
+ *  can produce thousands of failures; without a cap the array grows unbounded
+ *  and bloats React state.  Most-recent-N is what the user can act on. */
+const MAX_WORKER_ERRORS = 20;
 
 export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: string[] }, MediaLibraryActions] {
   const [appState, setAppState] = useState<AppState>({ kind: "idle" });
@@ -389,13 +393,14 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
         const payload = raw as WorkerErrorPayload;
         console.error(`Worker error (${payload.worker_type}):`, payload.error_message);
         
-        // Add error to the state so UI can display it
+        // Add error to the state so UI can display it (capped — see MAX_WORKER_ERRORS)
         setAppState((prev) => {
           if (prev.kind === "loaded") {
-            return {
-              ...prev,
-              workerErrors: [...prev.workerErrors, payload],
-            };
+            const next = [...prev.workerErrors, payload];
+            if (next.length > MAX_WORKER_ERRORS) {
+              next.splice(0, next.length - MAX_WORKER_ERRORS);
+            }
+            return { ...prev, workerErrors: next };
           }
           return prev;
         });
