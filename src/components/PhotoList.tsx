@@ -479,16 +479,24 @@ export function PhotoList({
     onColDragEnd: handleColDragEnd,
   };
 
-  if (photos.length === 0) {
-    const gridColumns = buildGridTemplate(visibleOSColumns, visibleColumns, effectiveWidths);
+  // The grid template is exposed to descendants via the --grid-columns CSS
+  // variable.  PhotoRow reads it via var(--grid-columns) so column-width
+  // changes don't invalidate every memoised row's props.
+  const gridColumns = buildGridTemplate(visibleOSColumns, visibleColumns, effectiveWidths);
+  const gridStyle = {
+    gridTemplateColumns: gridColumns,
+    gridTemplateRows: "auto auto 1fr",
+    "--grid-columns": gridColumns,
+  } as React.CSSProperties;
 
+  if (photos.length === 0) {
     return (
       <div className="photo-table-wrapper" ref={listRef} onClick={() => { setContextMenu(null); setColumnContextMenu(null); }} onDragOver={handleWrapperDragOver}>
         <div
           className="photo-grid"
           data-testid="photo-list-empty"
           role="grid"
-          style={{ gridTemplateColumns: gridColumns, gridTemplateRows: "auto auto 1fr" }}
+          style={gridStyle}
         >
           <PhotoListHeader {...headerProps} />
           <div className="grid-body" style={{ gridColumn: "1 / -1", gridRow: 3, position: "relative", minHeight: "200px", display: "flex", alignItems: "center", justifyContent: "center", color: "#666", fontStyle: "italic" }} />
@@ -498,7 +506,6 @@ export function PhotoList({
   }
 
   const totalSize = rowVirtualizer.getTotalSize();
-  const gridColumns = buildGridTemplate(visibleOSColumns, visibleColumns, effectiveWidths);
 
   return (
     <div className="photo-table-wrapper" ref={listRef} onClick={() => { setContextMenu(null); setColumnContextMenu(null); }} onDragOver={handleWrapperDragOver}>
@@ -506,14 +513,14 @@ export function PhotoList({
         className="photo-grid"
         data-testid="photo-list"
         role="grid"
-        style={{ gridTemplateColumns: gridColumns, gridTemplateRows: "auto auto 1fr" }}
+        style={gridStyle}
       >
         <PhotoListHeader {...headerProps} />
 
         {/* Virtual rows container */}
-        <div 
-          className="grid-body" 
-          style={{ 
+        <div
+          className="grid-body"
+          style={{
             gridColumn: `1 / -1`,
             gridRow: 3,
             position: "relative",
@@ -536,7 +543,6 @@ export function PhotoList({
                 onPhotoOpen={onPhotoOpen}
                 onContextMenu={handleContextMenu}
                 virtualStart={virtualRow.start}
-                gridColumns={gridColumns}
               />
             );
           })}
@@ -581,12 +587,11 @@ interface RowProps {
   onPhotoOpen: (index: number) => void;
   onContextMenu: (e: React.MouseEvent, index: number) => void;
   virtualStart: number;
-  gridColumns: string;
 }
 
-const PhotoRow = memo(function PhotoRow({ 
+const PhotoRow = memo(function PhotoRow({
   photo, index, selected, thumbnails, imageMetadata, visibleColumns, visibleOSColumns,
-  onSelect, onPhotoOpen, onContextMenu, virtualStart, gridColumns
+  onSelect, onPhotoOpen, onContextMenu, virtualStart
 }: RowProps) {
   const subscribeThumb = useCallback((cb: () => void) => thumbnails.subscribe(photo.relative_path, cb), [thumbnails, photo.relative_path]);
   const getThumbSnapshot = useCallback(() => thumbnails.get(photo.relative_path), [thumbnails, photo.relative_path]);
@@ -625,7 +630,7 @@ const PhotoRow = memo(function PhotoRow({
         width: "100%",
         transform: `translateY(${virtualStart}px)`,
         cursor: "pointer",
-        gridTemplateColumns: gridColumns,
+        gridTemplateColumns: "var(--grid-columns)",
       }}
     >
       <div className="grid-cell grid-cell-thumb">
