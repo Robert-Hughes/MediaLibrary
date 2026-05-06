@@ -323,4 +323,55 @@ describe("useMediaLibrary", () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(150); });
     expect(result.current[0].kind).toBe("idle");
   });
+
+  it("closeFolder invokes stop_scan on the backend", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/photos");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => { await result.current[1].openFolder(); });
+    mock.invocations.length = 0;
+
+    act(() => { result.current[1].closeFolder(); });
+
+    const stopCalls = mock.invocations.filter(c => c.cmd === "stop_scan");
+    expect(stopCalls).toHaveLength(1);
+  });
+
+  it("starting a new scan stops the old one and discards old events", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/photos/first");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => { await result.current[1].openFolder(); });
+    act(() => { mock.emitPhotoFound(makePhoto({ relative_path: "old1.jpg" })); });
+    act(() => { mock.emitPhotoFound(makePhoto({ relative_path: "old2.jpg" })); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(150); });
+
+    const oldScanId = mock.currentScanId;
+
+    // Start a new scan via openRecent — clears photo list and gets a new scan_id
+    mock.invocations.length = 0;
+    await act(async () => { await result.current[1].openRecent("/photos/second"); });
+    expect(mock.currentScanId).not.toBe(oldScanId);
+
+    // stop_scan must have been invoked before start_scan
+    const cmds = mock.invocations.map(c => c.cmd);
+    const stopIdx = cmds.indexOf("stop_scan");
+    const startIdx = cmds.indexOf("start_scan");
+    expect(stopIdx).toBeGreaterThanOrEqual(0);
+    expect(startIdx).toBeGreaterThan(stopIdx);
+
+    // Late events from the previous scan must be ignored
+    act(() => { mock.emitPhotoFound(makePhoto({ relative_path: "leftover.jpg" }), oldScanId); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(150); });
+
+    // New scan: emit a photo to confirm it lands
+    act(() => { mock.emitPhotoFound(makePhoto({ relative_path: "new1.jpg" })); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(150); });
+
+    const state = result.current[0];
+    if (state.kind === "loaded") {
+      expect(state.folder).toBe("/photos/second");
+      expect(state.photos.map(p => p.relative_path)).toEqual(["new1.jpg"]);
+    }
+  });
 });
