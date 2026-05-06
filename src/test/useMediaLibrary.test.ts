@@ -198,6 +198,20 @@ describe("useMediaLibrary", () => {
     expect(result.current[0].kind).toBe("idle");
   });
 
+  it("scan_error with a stale scan_id does not reset an in-progress scan", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/photos");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => { await result.current[1].openFolder(); });
+    act(() => { mock.emitPhotoFound(makePhoto({ relative_path: "a.jpg" })); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(150); });
+    expect(result.current[0].kind).toBe("loaded");
+
+    // A late scan_error from a previous scan must not nuke the active scan.
+    act(() => { mock.emitScanError("late error from old scan", mock.currentScanId - 1); });
+    expect(result.current[0].kind).toBe("loaded");
+  });
+
   it("worker_error events append to workerErrors when in loaded state", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/photos");
