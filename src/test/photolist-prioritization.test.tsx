@@ -230,3 +230,86 @@ describe("PhotoList prioritization optimization", () => {
     expect(allCalledPaths).not.toContain("photo1.jpg");
   });
 });
+
+describe("initial-kickstart prioritization fires once per scan", () => {
+  function makeProps(photos: PhotoInfo[], onVisibilityChange: (paths: string[]) => void, stores?: { thumbnails: ThumbnailStore; metadata: ImageMetadataStore }) {
+    const thumbs = stores?.thumbnails ?? new ThumbnailStore();
+    const metadata = stores?.metadata ?? new ImageMetadataStore();
+    photos.forEach((p) => { thumbs.add(p.relative_path); metadata.add(p.relative_path); });
+    return {
+      thumbs,
+      metadata,
+      element: (
+        <PhotoList
+          photos={photos}
+          thumbnails={thumbs}
+          imageMetadata={metadata}
+          visibleColumns={[]}
+          visibleOSColumns={[]}
+          {...defaultSortProps}
+          selectedIndex={null}
+          onSelect={() => {}}
+          onShowInExplorer={() => {}}
+          onVisibilityChange={onVisibilityChange}
+          onPhotoOpen={() => {}}
+          onSelectColumns={() => {}}
+        />
+      ),
+    };
+  }
+
+  it("does not re-fire the first-30 kickstart on subsequent photo batches", () => {
+    // Regression: the initial-kickstart effect was keyed by photos.length and
+    // re-ran on every batch — for a 10k scan at 50/batch, it fired 200 times
+    // and each time re-prioritised the first 30 paths even after they had
+    // already been kickstarted (and were likely no longer at the top of view).
+    //
+    // Approach: render once with the first batch, snapshot the calls so far,
+    // then re-render with a much larger photos array using the same store
+    // instances.  The first 30 paths from the kickstart are identical in both
+    // renders — if the latch fails, we'd see the kickstart call signature
+    // appear again in the post-rerender calls.
+    const onVis = vi.fn();
+    const photos50 = makePhotos(Array.from({ length: 50 }, (_, i) => `p${i}.jpg`));
+    const { thumbs, metadata, element } = makeProps(photos50, onVis);
+    const { rerender } = render(element);
+
+    const firstThirty = photos50.slice(0, 30).map((p) => p.relative_path);
+
+    // The kickstart call shape: exactly the first 30 paths in order.
+    const kickstartCalls = onVis.mock.calls.filter(([arg]) => {
+      const a = arg as string[];
+      return a.length === firstThirty.length && a.every((v, i) => v === firstThirty[i]);
+    });
+    expect(kickstartCalls).toHaveLength(1);
+
+    // Re-render with more photos using the SAME stores (= same scan).
+    const photos200 = makePhotos(Array.from({ length: 200 }, (_, i) => `p${i}.jpg`));
+    photos200.forEach((p) => { thumbs.add(p.relative_path); metadata.add(p.relative_path); });
+    const { element: nextEl } = makeProps(photos200, onVis, { thumbnails: thumbs, metadata });
+    rerender(nextEl);
+
+    const kickstartCallsAfter = onVis.mock.calls.filter(([arg]) => {
+      const a = arg as string[];
+      return a.length === firstThirty.length && a.every((v, i) => v === firstThirty[i]);
+    });
+    expect(kickstartCallsAfter).toHaveLength(1);
+  });
+
+  it("fires the kickstart again when stores are replaced (= new scan)", () => {
+    const onVis = vi.fn();
+    const photos = makePhotos(Array.from({ length: 50 }, (_, i) => `p${i}.jpg`));
+    const first = makeProps(photos, onVis);
+    const { rerender } = render(first.element);
+
+    const initialKickstartCount = onVis.mock.calls.length;
+    expect(initialKickstartCount).toBeGreaterThan(0);
+
+    // Simulate a new scan: brand-new store instances.
+    const newScan = makeProps(photos, onVis);
+    rerender(newScan.element);
+
+    // The kickstart should fire again under the new store identity.
+    expect(onVis.mock.calls.length).toBeGreaterThan(initialKickstartCount);
+  });
+});
