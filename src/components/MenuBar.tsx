@@ -12,7 +12,7 @@ interface Props {
 }
 
 export function MenuBar({ photoCount, scanning, metadataProgress, onOpenFolder, onCloseFolder, onSelectColumns }: Props) {
-  const spinRef = useSpinnerSync<HTMLSpanElement>();
+  const spinStyle = useSpinnerSync();
   
   // Subscribe to metadata progress store
   const metadataRemaining = useSyncExternalStore(
@@ -39,11 +39,11 @@ export function MenuBar({ photoCount, scanning, metadataProgress, onOpenFolder, 
         {photoCount} photo{photoCount === 1 ? "" : "s"}
       </span>
       {scanning && (
-        <span ref={spinRef} className="menu-bar-spinner" data-testid="menu-bar-spinner" aria-label="Scanning…" />
+        <span style={spinStyle} className="menu-bar-spinner" data-testid="menu-bar-spinner" aria-label="Scanning…" />
       )}
       {!scanning && imageMetadataLoading && (
         <>
-          <span ref={spinRef} className="menu-bar-spinner" data-testid="menu-bar-metadata-spinner" aria-label="Loading metadata…" />
+          <span style={spinStyle} className="menu-bar-spinner" data-testid="menu-bar-metadata-spinner" aria-label="Loading metadata…" />
           <span className="menu-bar-status" data-testid="menu-bar-metadata-label">Loading metadata…</span>
         </>
       )}

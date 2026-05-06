@@ -6,8 +6,8 @@ interface Props {
   "data-testid"?: string;
 }
 
-/** A single spinner element that syncs its animation phase on mount. */
+/** A single spinner element whose animation phase is locked to the document timeline. */
 export function Spinner(props: Props) {
-  const ref = useSpinnerSync<HTMLSpanElement>();
-  return <span ref={ref} {...props} />;
+  const style = useSpinnerSync();
+  return <span style={style} {...props} />;
 }
