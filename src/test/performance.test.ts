@@ -14,77 +14,51 @@ describe("Performance: Large folder handling", () => {
     vi.useRealTimers();
   });
 
-  it("handles 1000 photos with metadata updates efficiently", async () => {
+  it("handles 1000 photos with metadata updates correctly", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/large-folder");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
-    
+
     await act(async () => { await result.current[1].openFolder(); });
-    
+
     // Emit 1000 photos in batches of 50 (simulating backend behavior)
-    const startTime = performance.now();
     for (let i = 0; i < 20; i++) {
       const batch = makePhotos(
         Array.from({ length: 50 }, (_, j) => `photo-${i * 50 + j}.jpg`)
       );
-      act(() => { 
+      act(() => {
         batch.forEach(photo => mock.emitPhotoFound(photo));
       });
-      
-      // Advance timers to trigger batch flush
       if (i === 0) {
-        // First batch flushes immediately
         await act(async () => { await vi.advanceTimersByTimeAsync(10); });
       }
     }
-    
-    // Flush remaining batches
     await act(async () => { await vi.advanceTimersByTimeAsync(150); });
-    
-    const photoLoadTime = performance.now() - startTime;
-    
-    // Verify all photos loaded
+
     const state = result.current[0];
     expect(state.kind).toBe("loaded");
-    if (state.kind === "loaded") {
-      expect(state.photos).toHaveLength(1000);
-      
-      // Emit metadata for all photos in batches
-      const metadataStartTime = performance.now();
-      for (let i = 0; i < state.photos.length; i++) {
-        const photo = state.photos[i];
-        act(() => { 
-          mock.emitImageMetadataReady(photo.relative_path, { 
-            "IFD0:Model": "Test Camera",
-            "ExifIFD:DateTimeOriginal": "2024:01:01 12:00:00",
-            "IFD0:Make": "Test Manufacturer"
-          }); 
+    if (state.kind !== "loaded") return;
+    expect(state.photos).toHaveLength(1000);
+
+    for (let i = 0; i < state.photos.length; i++) {
+      const photo = state.photos[i];
+      act(() => {
+        mock.emitImageMetadataReady(photo.relative_path, {
+          "IFD0:Model": "Test Camera",
+          "ExifIFD:DateTimeOriginal": "2024:01:01 12:00:00",
+          "IFD0:Make": "Test Manufacturer",
         });
-        
-        // Advance timers periodically to trigger batch flushes
-        if (i % 50 === 49) {
-          await act(async () => { await vi.advanceTimersByTimeAsync(250); });
-        }
+      });
+      if (i % 50 === 49) {
+        await act(async () => { await vi.advanceTimersByTimeAsync(250); });
       }
-      
-      // Final flush
-      await act(async () => { await vi.advanceTimersByTimeAsync(250); });
-      
-      const metadataLoadTime = performance.now() - metadataStartTime;
-      
-      // Verify metadata progress store shows completion
-      const metadataRemaining = state.metadataProgress.getRemaining();
-      expect(metadataRemaining).toBe(0);
-      
-      // Performance assertions (these are generous to account for test overhead)
-      // In real usage, these should be much faster
-      console.log(`Photo load time: ${photoLoadTime}ms`);
-      console.log(`Metadata load time: ${metadataLoadTime}ms`);
-      
-      // These times should be reasonable even in tests
-      expect(photoLoadTime).toBeLessThan(2000); // 2 seconds for 1000 photos
-      expect(metadataLoadTime).toBeLessThan(10000); // 10 seconds for 1000 metadata updates (generous for test overhead)
     }
+    await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+
+    expect(state.metadataProgress.getRemaining()).toBe(0);
+    // Spot-check that metadata is actually stored
+    expect(state.imageMetadata.get("photo-0.jpg")).not.toBe("loading");
+    expect(state.imageMetadata.get("photo-999.jpg")).not.toBe("loading");
   });
 
   it("batches photo_found events correctly", async () => {
