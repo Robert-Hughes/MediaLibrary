@@ -1,5 +1,5 @@
 import { render } from "@testing-library/react";
-import { vi } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { PhotoList } from "../components/PhotoList";
 import { ThumbnailStore, ImageMetadataStore } from "../types";
 import type { PhotoInfo } from "../types";
@@ -111,6 +111,62 @@ describe("PhotoList prioritization optimization", () => {
     expect(onVisibilityChangeMock).toHaveBeenCalledWith(
       expect.arrayContaining(["photo1.jpg", "photo2.jpg", "photo3.jpg"])
     );
+  });
+
+  it("notifies visible paths in display order (top-to-bottom)", () => {
+    // Regression: notify() used to iterate photosRef.current (the full list,
+    // up to 10k items) and filter by visibleRef.  The fix iterates the visible
+    // Set directly, which preserves insertion order set by updateVisible.
+    // This test asserts the order is still display order, not Set-mutation order.
+    render(
+      <PhotoList
+        photos={mockPhotos}
+        thumbnails={thumbnailStore}
+        imageMetadata={metadataStore}
+        visibleColumns={["ExifIFD:DateTimeOriginal"]}
+        visibleOSColumns={["date_modified", "date_created"]}
+        {...defaultSortProps}
+        selectedIndex={null}
+        onSelect={() => {}}
+        onShowInExplorer={() => {}}
+        onVisibilityChange={onVisibilityChangeMock}
+        onPhotoOpen={() => {}}
+        onSelectColumns={() => {}}
+      />
+    );
+
+    // The most recent call should contain photo1, photo2, photo3 in that order.
+    const calls = onVisibilityChangeMock.mock.calls;
+    expect(calls.length).toBeGreaterThan(0);
+    const lastCall = calls[calls.length - 1][0] as string[];
+    expect(lastCall).toEqual(["photo1.jpg", "photo2.jpg", "photo3.jpg"]);
+  });
+
+  it("preserves display order when some photos have already loaded", () => {
+    // Loaded photos drop out, but the remaining ones stay in display order.
+    thumbnailStore.set("photo2.jpg", "data");
+    metadataStore.set("photo2.jpg", { "ExifIFD:DateTimeOriginal": "2022:01:01 12:00:00" });
+
+    render(
+      <PhotoList
+        photos={mockPhotos}
+        thumbnails={thumbnailStore}
+        imageMetadata={metadataStore}
+        visibleColumns={["ExifIFD:DateTimeOriginal"]}
+        visibleOSColumns={["date_modified", "date_created"]}
+        {...defaultSortProps}
+        selectedIndex={null}
+        onSelect={() => {}}
+        onShowInExplorer={() => {}}
+        onVisibilityChange={onVisibilityChangeMock}
+        onPhotoOpen={() => {}}
+        onSelectColumns={() => {}}
+      />
+    );
+
+    const calls = onVisibilityChangeMock.mock.calls;
+    const lastCall = calls[calls.length - 1][0] as string[];
+    expect(lastCall).toEqual(["photo1.jpg", "photo3.jpg"]);
   });
 
   it("should prioritize photos with only metadata loaded but missing thumbnail", () => {
