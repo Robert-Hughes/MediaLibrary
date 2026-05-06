@@ -47,7 +47,12 @@ export class ThumbnailStore {
   subscribe(path: string, callback: () => void): () => void {
     if (!this.subscribers.has(path)) this.subscribers.set(path, new Set());
     this.subscribers.get(path)!.add(callback);
-    return () => this.subscribers.get(path)?.delete(callback);
+    return () => {
+      const set = this.subscribers.get(path);
+      if (!set) return;
+      set.delete(callback);
+      if (set.size === 0) this.subscribers.delete(path);
+    };
   }
 
   getSnapshot(path: string): () => ThumbnailState {
@@ -107,7 +112,12 @@ export class ImageMetadataStore {
   subscribe(path: string, callback: () => void): () => void {
     if (!this.subscribers.has(path)) this.subscribers.set(path, new Set());
     this.subscribers.get(path)!.add(callback);
-    return () => this.subscribers.get(path)?.delete(callback);
+    return () => {
+      const set = this.subscribers.get(path);
+      if (!set) return;
+      set.delete(callback);
+      if (set.size === 0) this.subscribers.delete(path);
+    };
   }
 
   getSnapshot(path: string): () => ImageMetadataState {
