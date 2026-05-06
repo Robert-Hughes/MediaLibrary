@@ -3,7 +3,8 @@ pub mod work_queue;
 
 use serde::Serialize;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Condvar, Mutex, OnceLock};
+use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, State};
 use work_queue::WorkQueue;
 
@@ -46,15 +47,17 @@ macro_rules! log_verbose {
 // ── Shared state ──────────────────────────────────────────────────────────────
 
 pub struct ScanState {
-    running:   Mutex<bool>,
-    cancelled: Mutex<Option<Arc<AtomicBool>>>,
+    running:      Mutex<bool>,
+    running_cvar: Condvar,
+    cancelled:    Mutex<Option<Arc<AtomicBool>>>,
 }
 
 impl ScanState {
     pub fn new() -> Self {
         Self {
-            running: Mutex::new(false),
-            cancelled: Mutex::new(None),
+            running:      Mutex::new(false),
+            running_cvar: Condvar::new(),
+            cancelled:    Mutex::new(None),
         }
     }
 
@@ -64,6 +67,29 @@ impl ScanState {
     /// them.  The next `start_scan` overwrites the flag with its own.
     pub fn mark_finished(&self) {
         *self.running.lock().unwrap() = false;
+        self.running_cvar.notify_all();
+    }
+
+    /// Mark a scan as running.  Caller must verify it is not already running first.
+    pub fn mark_running(&self) {
+        *self.running.lock().unwrap() = true;
+    }
+
+    /// Wait up to `timeout` for `running` to become false.
+    /// Returns true if it became false (or was already), false on timeout.
+    pub fn wait_until_finished(&self, timeout: Duration) -> bool {
+        let running = self.running.lock().unwrap();
+        let (_running, wait_res) = self.running_cvar
+            .wait_timeout_while(running, timeout, |r| *r)
+            .unwrap();
+        !wait_res.timed_out()
+    }
+
+    /// Install a cancellation flag for the new scan and return a clone.
+    pub fn install_cancellation(&self) -> Arc<AtomicBool> {
+        let flag = Arc::new(AtomicBool::new(false));
+        *self.cancelled.lock().unwrap() = Some(flag.clone());
+        flag
     }
 
     /// Signal cancellation if a flag is currently installed.
@@ -196,24 +222,13 @@ fn start_scan(
     scan_state: State<'_, ScanState>,
     active_queues: State<'_, ActiveQueues>,
 ) -> Result<(), String> {
-    {
-        let mut running = scan_state.running.lock().unwrap();
-        let mut attempts = 0;
-        while *running && attempts < 20 {
-            drop(running);
-            std::thread::sleep(std::time::Duration::from_millis(50));
-            running = scan_state.running.lock().unwrap();
-            attempts += 1;
-        }
-        if *running {
-            log_ts!("[start_scan] ERROR: Previous scan did not finish in time");
-            return Err("A scan is already in progress and could not be stopped".into());
-        }
-        *running = true;
+    if !scan_state.wait_until_finished(Duration::from_secs(1)) {
+        log_ts!("[start_scan] ERROR: Previous scan did not finish in time");
+        return Err("A scan is already in progress and could not be stopped".into());
     }
+    scan_state.mark_running();
 
-    let cancellation_flag = Arc::new(AtomicBool::new(false));
-    *scan_state.cancelled.lock().unwrap() = Some(cancellation_flag.clone());
+    let cancellation_flag = scan_state.install_cancellation();
 
     // Reset queues for the new scan.
     {
@@ -633,6 +648,46 @@ mod tests {
         let state = ScanState::new();
         assert!(!state.signal_cancellation());
     }
+
+    #[test]
+    fn wait_until_finished_returns_immediately_when_not_running() {
+        let state = ScanState::new();
+        let start = std::time::Instant::now();
+        assert!(state.wait_until_finished(Duration::from_secs(5)));
+        assert!(start.elapsed() < Duration::from_millis(20));
+    }
+
+    #[test]
+    fn wait_until_finished_wakes_promptly_when_mark_finished_called() {
+        // The old implementation polled every 50ms.  This test proves the new
+        // condvar-based wait wakes immediately, not on a polling tick.
+        let state = Arc::new(ScanState::new());
+        state.mark_running();
+
+        let waker = state.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(20));
+            waker.mark_finished();
+        });
+
+        let start = std::time::Instant::now();
+        assert!(state.wait_until_finished(Duration::from_secs(5)));
+        let elapsed = start.elapsed();
+
+        // Wake-up should be tight — well under the old 50ms polling interval.
+        assert!(elapsed < Duration::from_millis(45),
+            "wait_until_finished took {elapsed:?}, expected immediate wake");
+        assert!(elapsed >= Duration::from_millis(15));
+    }
+
+    #[test]
+    fn wait_until_finished_times_out_when_scan_never_finishes() {
+        let state = ScanState::new();
+        state.mark_running();
+        let start = std::time::Instant::now();
+        assert!(!state.wait_until_finished(Duration::from_millis(50)));
+        assert!(start.elapsed() >= Duration::from_millis(50));
+    }
 }
 
 // ── App entry point ───────────────────────────────────────────────────────────
@@ -642,10 +697,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .manage(ScanState {
-            running:   Mutex::new(false),
-            cancelled: Mutex::new(None),
-        })
+        .manage(ScanState::new())
         .manage(ActiveQueues {
             thumbnails:     Arc::new(Mutex::new(None)),
             image_metadata: Arc::new(Mutex::new(None)),
