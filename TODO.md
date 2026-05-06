@@ -20,6 +20,7 @@ Later- *** DO NOT WORK ON ANY OF THE BELOW FEATURES ***
 =====
 
 * Allow mixing and matching of different column types. Show the OS/Image header on each colum instead.
+  * Swapping createdf/mnodified currently doesn't work (headers change, data doesn't)
 
 * On the Select Columns dialog, next to the Select All and Deselect All buttons, add a Default button that resets the selected columns (and their order) to the default
 

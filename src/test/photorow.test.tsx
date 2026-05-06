@@ -1,5 +1,5 @@
-import { render } from "@testing-library/react";
-import { describe, it, vi } from "vitest";
+import { render, screen } from "@testing-library/react";
+import { describe, it, expect, vi } from "vitest";
 import { PhotoList } from "../components/PhotoList";
 import { ThumbnailStore, ImageMetadataStore } from "../types";
 
@@ -17,7 +17,7 @@ describe("PhotoRow", () => {
     ];
 
     render(
-      <PhotoList 
+      <PhotoList
         photos={photos}
         thumbnails={thumbnails}
         imageMetadata={metadata}
@@ -33,5 +33,45 @@ describe("PhotoRow", () => {
         onSelectColumns={vi.fn()}
       />
     );
+  });
+
+  it("rows read gridTemplateColumns from a CSS custom property, not from props", () => {
+    // Regression: gridColumns used to be a per-render string passed to every
+    // memoised PhotoRow.  A column-resize drag (which fires setLiveWidths on
+    // every pointermove) would change that string and re-render every visible
+    // row.  The fix is to set --grid-columns on a parent and have rows read it
+    // via var(--grid-columns) — a constant string that never changes per render.
+    const thumbnails = new ThumbnailStore();
+    const metadata = new ImageMetadataStore();
+    const photos = [
+      { relative_path: "1.jpg", filename: "1.jpg", date_modified: null, date_created: null },
+    ];
+    thumbnails.add("1.jpg");
+    metadata.add("1.jpg");
+
+    render(
+      <PhotoList
+        photos={photos}
+        thumbnails={thumbnails}
+        imageMetadata={metadata}
+        visibleColumns={["IFD0:Model"]}
+        visibleOSColumns={["date_modified", "date_created"]}
+        sortConfig={{ primary: null, secondary: null }}
+        onSortChange={() => {}}
+        selectedIndex={null}
+        onSelect={vi.fn()}
+        onShowInExplorer={vi.fn()}
+        onVisibilityChange={vi.fn()}
+        onPhotoOpen={vi.fn()}
+        onSelectColumns={vi.fn()}
+      />
+    );
+
+    const row = screen.getByTestId("photo-row") as HTMLElement;
+    expect(row.style.gridTemplateColumns).toBe("var(--grid-columns)");
+
+    // The grid container exposes the variable so descendants can resolve it.
+    const grid = screen.getByTestId("photo-list");
+    expect(grid.style.getPropertyValue("--grid-columns")).not.toBe("");
   });
 });
