@@ -2,7 +2,6 @@ import { render, screen, act, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi } from "vitest";
 import { WelcomeScreen } from "../components/WelcomeScreen";
-import { LoadingScreen } from "../components/LoadingScreen";
 import { MenuBar } from "../components/MenuBar";
 import { PhotoList } from "../components/PhotoList";
 import { StatusFooter } from "../components/StatusFooter";
@@ -75,20 +74,6 @@ describe("WelcomeScreen", () => {
     render(<WelcomeScreen onOpenFolder={noop} recentFolders={["/photos/old"]} onOpenRecent={handler} />);
     await userEvent.click(screen.getByTestId("recent-folder-item"));
     expect(handler).toHaveBeenCalledWith("/photos/old");
-  });
-});
-
-// ── LoadingScreen ─────────────────────────────────────────────────────────────
-
-describe("LoadingScreen", () => {
-  it("shows the folder path", () => {
-    render(<LoadingScreen folder="/photos/vacation" foundSoFar={0} />);
-    expect(screen.getByTestId("loading-folder")).toHaveTextContent("/photos/vacation");
-  });
-
-  it("shows searching message when foundSoFar is 0", () => {
-    render(<LoadingScreen folder="/photos" foundSoFar={0} />);
-    expect(screen.getByTestId("loading-progress")).toHaveTextContent("Searching for photos");
   });
 });
 

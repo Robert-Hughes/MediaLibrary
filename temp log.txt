@@ -1,435 +1,355 @@
-[1777915188.035] [JS LOG] [setup] Setting up event listeners
-[1777915188.043] [JS LOG] [App] Opening folder from CLI argument: D:\OneDrive\Pictures\2012
-[1777915188.044] [JS LOG] [startScan] Waiting for event listeners to be ready...
-[1777915188.073] [JS LOG] [setup] All event listeners registered
-[1777915188.095] [JS LOG] [startScan] Event listeners ready, proceeding with scan
-[1777915188.096] [JS LOG] [startScan] Starting scan for folder: D:\OneDrive\Pictures\2012
-[1777915188.100] [JS LOG] [startScan] Switched from scan_id -1 to 1777915188095
-[1777915188.101] [JS LOG] [startScan] Created new stores
-[1777915188.107] [exiftool] Reading metadata for 1 files
-[1777915188.107] [JS LOG] [startScan] Backend scan started
-[1777915188.107] [exiftool] Reading metadata for 1 files
-[1777915188.110] [exiftool] First file: Some("D:\\OneDrive\\Pictures\\2012\\IMAG0262.jpg")
-[1777915188.113] [exiftool] Reading metadata for 20 files
-[1777915188.109] [exiftool] First file: Some("D:\\OneDrive\\Pictures\\2012\\IMAG0261.jpg")
-[1777915188.108] [exiftool] Reading metadata for 1 files
-[1777915188.119] [exiftool] First file: Some("D:\\OneDrive\\Pictures\\2012\\IMAG0267.jpg")
-[1777915188.122] [exiftool] First file: Some("D:\\OneDrive\\Pictures\\2012\\IMAG0266.jpg")
-[1777915188.620] [JS LOG] [thumbnail] Received 25 thumbnail results for scan_id 1777915188095
-[1777915188.624] [JS LOG] [thumbnail] Received 22 thumbnail results for scan_id 1777915188095
-[1777915188.658] [JS LOG] [thumbnail] Received 26 thumbnail results for scan_id 1777915188095
-[1777915188.663] [JS LOG] [thumbnail] Received 25 thumbnail results for scan_id 1777915188095
-[1777915188.684] [JS LOG] [PhotoList] Virtual items: 0, visible photos: 0
-[1777915188.688] [JS LOG] [PhotoList] Initial load: notifying about first 30 photos
-[1777915188.689] [JS LOG] [prioritizeQueues] Prioritizing 30 visible paths: IMAG0261.jpg,IMAG0262.jpg,IMAG0266.jpg,IMAG0267.jpg,IMAG0268.jpg
-[1777915188.917] [JS LOG] [PhotoList] Virtual items: 26, visible photos: 26
-[1777915188.918] [JS LOG] [PhotoList] Notifying visibility change: 26 visible photos
-[1777915188.919] [JS LOG] [prioritizeQueues] Prioritizing 26 visible paths: IMAG0261.jpg,IMAG0262.jpg,IMAG0266.jpg,IMAG0267.jpg,IMAG0268.jpg
-[1777915188.963] [JS LOG] [thumbnail] Received 28 thumbnail results for scan_id 1777915188095
-[1777915188.965] [JS LOG] [thumbnail] Received 23 thumbnail results for scan_id 1777915188095
-[1777915188.973] [JS LOG] [thumbnail] Received 25 thumbnail results for scan_id 1777915188095
-[1777915189.002] [JS LOG] [thumbnail] Received 26 thumbnail results for scan_id 1777915188095
-[1777915189.017] [JS LOG] [PhotoList] Virtual items: 27, visible photos: 27
-[1777915189.019] [JS LOG] [PhotoList] Notifying visibility change: 27 visible photos
-[1777915189.020] [JS LOG] [prioritizeQueues] Prioritizing 27 visible paths: IMAG0261.jpg,IMAG0262.jpg,IMAG0266.jpg,IMAG0267.jpg,IMAG0268.jpg
-[1777915189.142] [JS LOG] [thumbnail] Received 9 thumbnail results for scan_id 1777915188095
-[1777915189.144] [JS LOG] [thumbnail] Received 9 thumbnail results for scan_id 1777915188095
-[1777915189.172] [JS LOG] [thumbnail] Received 6 thumbnail results for scan_id 1777915188095
-[1777915189.193] [JS LOG] [thumbnail] Received 8 thumbnail results for scan_id 1777915188095
-[1777915189.196] [JS LOG] [thumbnail] Received 7 thumbnail results for scan_id 1777915188095
-[1777915189.211] [JS LOG] [thumbnail] Received 6 thumbnail results for scan_id 1777915188095
-[1777915189.212] [JS LOG] [thumbnail] Received 6 thumbnail results for scan_id 1777915188095
-[1777915189.368] [JS LOG] [thumbnail] Received 5 thumbnail results for scan_id 1777915188095
-[1777915189.376] [JS LOG] [thumbnail] Received 5 thumbnail results for scan_id 1777915188095
-[1777915189.377] [JS LOG] [thumbnail] Received 5 thumbnail results for scan_id 1777915188095
-[1777915189.387] [JS LOG] [thumbnail] Received 9 thumbnail results for scan_id 1777915188095
-[1777915189.388] [JS LOG] [thumbnail] Received 5 thumbnail results for scan_id 1777915188095
-[1777915189.395] [JS LOG] [thumbnail] Received 6 thumbnail results for scan_id 1777915188095
-[1777915189.606] [exiftool] Found in PATH: exiftool.exe
-[1777915189.606] [exiftool] Using command: exiftool.exe
-[1777915189.626] [JS LOG] [thumbnail] Received 6 thumbnail results for scan_id 1777915188095
-[1777915189.632] [exiftool] Found in PATH: exiftool.exe
-[1777915189.633] [exiftool] Using command: exiftool.exe
-[1777915189.664] [exiftool] Found in PATH: exiftool.exe
-[1777915189.665] [exiftool] Using command: exiftool.exe
-[1777915189.744] [exiftool] Found in PATH: exiftool.exe
-[1777915189.746] [exiftool] Using command: exiftool.exe
-[1777915189.816] [JS LOG] [thumbnail] Received 5 thumbnail results for scan_id 1777915188095
-[1777915190.552] [exiftool] Output length: 2709 bytes
-[1777915190.554] [exiftool] First 500 chars of output: [{
-  "SourceFile": "D:/OneDrive/Pictures/2012/IMAG0261.jpg",
-  "ExifTool:ExifToolVersion": 13.57,
-  "File:FileType": "JPEG",
-  "File:FileTypeExtension": "jpg",
-  "File:MIMEType": "image/jpeg",
-  "File:ExifByteOrder": "Big-endian (Motorola, MM)",
-  "File:CurrentIPTCDigest": "3b96934e3f2ce58758d80c3f6964315d",
-  "File:ImageWidth": 2321,
-  "File:ImageHeight": 1840,
-  "File:EncodingProcess": "Baseline DCT, Huffman coding",
-  "File:BitsPerSample": 8,
-  "File:ColorComponents": 3,
-  "File:
-[1777915190.555] [metadata] Read 1 results, first has 68 fields
-[1777915190.556] [metadata] Emitting batch of 1 results
-[1777915190.557] [exiftool] Reading metadata for 20 files
-[1777915190.558] [exiftool] First file: Some("D:\\OneDrive\\Pictures\\2012\\IMAG0312.jpg")
-[1777915190.561] [JS LOG] [metadata] Received 1 metadata results for scan_id 1777915188095
-[1777915190.589] [exiftool] Output length: 2456 bytes
-[1777915190.590] [exiftool] First 500 chars of output: [{
-  "SourceFile": "D:/OneDrive/Pictures/2012/IMAG0266.jpg",
-  "ExifTool:ExifToolVersion": 13.57,
-  "File:FileType": "JPEG",
-  "File:FileTypeExtension": "jpg",
-  "File:MIMEType": "image/jpeg",
-  "File:ExifByteOrder": "Big-endian (Motorola, MM)",
-  "File:CurrentIPTCDigest": "50430a091bf345b5db2068ccdf7ef016",
-  "File:ImageWidth": 3264,
-  "File:ImageHeight": 1840,
-  "File:EncodingProcess": "Baseline DCT, Huffman coding",
-  "File:BitsPerSample": 8,
-  "File:ColorComponents": 3,
-  "File:
-[1777915190.591] [metadata] Read 1 results, first has 60 fields
-[1777915190.592] [metadata] Emitting batch of 1 results
-[1777915190.593] [exiftool] Reading metadata for 20 files
-[1777915190.594] [exiftool] First file: Some("D:\\OneDrive\\Pictures\\2012\\IMAG0352.jpg")
-[1777915190.597] [JS LOG] [metadata] Received 1 metadata results for scan_id 1777915188095
-[1777915190.632] [exiftool] Output length: 2709 bytes
-[1777915190.632] [exiftool] First 500 chars of output: [{
-  "SourceFile": "D:/OneDrive/Pictures/2012/IMAG0262.jpg",
-  "ExifTool:ExifToolVersion": 13.57,
-  "File:FileType": "JPEG",
-  "File:FileTypeExtension": "jpg",
-  "File:MIMEType": "image/jpeg",
-  "File:ExifByteOrder": "Big-endian (Motorola, MM)",
-  "File:CurrentIPTCDigest": "3b96934e3f2ce58758d80c3f6964315d",
-  "File:ImageWidth": 3264,
-  "File:ImageHeight": 1334,
-  "File:EncodingProcess": "Baseline DCT, Huffman coding",
-  "File:BitsPerSample": 8,
-  "File:ColorComponents": 3,
-  "File:
-[1777915190.633] [metadata] Read 1 results, first has 68 fields
-[1777915190.634] [metadata] Emitting batch of 1 results
-[1777915190.643] [exiftool] Reading metadata for 20 files
-[1777915190.644] [exiftool] First file: Some("D:\\OneDrive\\Pictures\\2012\\IMAG0383.jpg")
-[1777915190.675] [JS LOG] [metadata] Received 1 metadata results for scan_id 1777915188095
-[1777915190.939] [exiftool] Output length: 49146 bytes
-[1777915190.942] [exiftool] First 500 chars of output: [{
-  "SourceFile": "D:/OneDrive/Pictures/2012/IMAG0267.jpg",
-  "ExifTool:ExifToolVersion": 13.57,
-  "File:FileType": "JPEG",
-  "File:FileTypeExtension": "jpg",
-  "File:MIMEType": "image/jpeg",
-  "File:ExifByteOrder": "Big-endian (Motorola, MM)",
-  "File:CurrentIPTCDigest": "50430a091bf345b5db2068ccdf7ef016",
-  "File:ImageWidth": 3264,
-  "File:ImageHeight": 1840,
-  "File:EncodingProcess": "Baseline DCT, Huffman coding",
-  "File:BitsPerSample": 8,
-  "File:ColorComponents": 3,
-  "File:
-[1777915190.944] [metadata] Read 20 results, first has 59 fields
-[1777915190.944] [metadata] Emitting batch of 20 results
-[1777915190.947] [exiftool] Reading metadata for 20 files
-[1777915190.948] [exiftool] First file: Some("D:\\OneDrive\\Pictures\\2012\\IMAG0417.jpg")
-[1777915190.952] [JS LOG] [metadata] Received 20 metadata results for scan_id 1777915188095
-[1777915191.307] [exiftool] Found in PATH: exiftool.exe
-[1777915191.309] [exiftool] Using command: exiftool.exe
-[1777915191.328] [exiftool] Found in PATH: exiftool.exe
-[1777915191.329] [exiftool] Using command: exiftool.exe
-[1777915191.347] [exiftool] Found in PATH: exiftool.exe
-[1777915191.348] [exiftool] Using command: exiftool.exe
-[1777915191.447] [exiftool] Found in PATH: exiftool.exe
-[1777915191.447] [exiftool] Using command: exiftool.exe
-[1777915192.459] [exiftool] Output length: 52342 bytes
-[1777915192.460] [exiftool] First 500 chars of output: [{
-  "SourceFile": "D:/OneDrive/Pictures/2012/IMAG0312.jpg",
-  "ExifTool:ExifToolVersion": 13.57,
-  "ExifTool:Warning": "[minor] Fixed incorrect URI for xmlns:MicrosoftPhoto",
-  "File:FileType": "JPEG",
-  "File:FileTypeExtension": "jpg",
-  "File:MIMEType": "image/jpeg",
-  "File:ExifByteOrder": "Big-endian (Motorola, MM)",
-  "File:CurrentIPTCDigest": "8c86c69ac41a28dde7b9aa455db26dfd",
-  "File:ImageWidth": 3264,
-  "File:ImageHeight": 1840,
-  "File:EncodingProcess": "Baseline DCT, Huffm
-[1777915192.461] [metadata] Read 20 results, first has 58 fields
-[1777915192.462] [metadata] Emitting batch of 20 results
-[1777915192.463] [exiftool] Reading metadata for 20 files
-[1777915192.464] [exiftool] First file: Some("D:\\OneDrive\\Pictures\\2012\\IMG_0022.jpg")
-[1777915192.467] [JS LOG] [metadata] Received 20 metadata results for scan_id 1777915188095
-[1777915192.482] [exiftool] Output length: 49479 bytes
-[1777915192.483] [exiftool] First 500 chars of output: [{
-  "SourceFile": "D:/OneDrive/Pictures/2012/IMAG0383.jpg",
-  "ExifTool:ExifToolVersion": 13.57,
-  "File:FileType": "JPEG",
-  "File:FileTypeExtension": "jpg",
-  "File:MIMEType": "image/jpeg",
-  "File:ExifByteOrder": "Big-endian (Motorola, MM)",
-  "File:CurrentIPTCDigest": "09324055265d6c8cbda919536e237306",
-  "File:ImageWidth": 3264,
-  "File:ImageHeight": 1840,
-  "File:EncodingProcess": "Baseline DCT, Huffman coding",
-  "File:BitsPerSample": 8,
-  "File:ColorComponents": 3,
-  "File:
-[1777915192.484] [metadata] Read 20 results, first has 56 fields
-[1777915192.485] [metadata] Emitting batch of 20 results
-[1777915192.486] [exiftool] Reading metadata for 20 files
-[1777915192.487] [exiftool] First file: Some("D:\\OneDrive\\Pictures\\2012\\IMG_0043.jpg")
-[1777915192.488] [exiftool] Output length: 48317 bytes
-[1777915192.489] [exiftool] First 500 chars of output: [{
-  "SourceFile": "D:/OneDrive/Pictures/2012/IMAG0352.jpg",
-  "ExifTool:ExifToolVersion": 13.57,
-  "File:FileType": "JPEG",
-  "File:FileTypeExtension": "jpg",
-  "File:MIMEType": "image/jpeg",
-  "File:ExifByteOrder": "Big-endian (Motorola, MM)",
-  "File:CurrentIPTCDigest": "2315835bf56acc1ff8a946d318e586a6",
-  "File:ImageWidth": 1808,
-  "File:ImageHeight": 3216,
-  "File:EncodingProcess": "Baseline DCT, Huffman coding",
-  "File:BitsPerSample": 8,
-  "File:ColorComponents": 3,
-  "File:
-[1777915192.491] [JS LOG] [metadata] Received 20 metadata results for scan_id 1777915188095
-[1777915192.491] [metadata] Read 20 results, first has 65 fields
-[1777915192.492] [metadata] Emitting batch of 20 results
-[1777915192.493] [exiftool] Reading metadata for 20 files
-[1777915192.494] [exiftool] First file: Some("D:\\OneDrive\\Pictures\\2012\\IMG_0064.jpg")
-[1777915192.497] [JS LOG] [metadata] Received 20 metadata results for scan_id 1777915188095
-[1777915192.915] [exiftool] Output length: 115248 bytes
-[1777915192.915] [exiftool] First 500 chars of output: [{
-  "SourceFile": "D:/OneDrive/Pictures/2012/IMAG0417.jpg",
-  "ExifTool:ExifToolVersion": 13.57,
-  "File:FileType": "JPEG",
-  "File:FileTypeExtension": "jpg",
-  "File:MIMEType": "image/jpeg",
-  "File:ExifByteOrder": "Big-endian (Motorola, MM)",
-  "File:CurrentIPTCDigest": "fcbd3299720752e4477c33fb04ac611c",
-  "File:ImageWidth": 3264,
-  "File:ImageHeight": 1840,
-  "File:EncodingProcess": "Baseline DCT, Huffman coding",
-  "File:BitsPerSample": 8,
-  "File:ColorComponents": 3,
-  "File:
-[1777915192.918] [metadata] Read 20 results, first has 56 fields
-[1777915192.919] [metadata] Emitting batch of 20 results
-[1777915192.921] [exiftool] Reading metadata for 20 files
-[1777915192.922] [exiftool] First file: Some("D:\\OneDrive\\Pictures\\2012\\IMG_0099.jpg")
-[1777915192.928] [JS LOG] [metadata] Received 20 metadata results for scan_id 1777915188095
-[1777915193.215] [exiftool] Found in PATH: exiftool.exe
-[1777915193.218] [exiftool] Using command: exiftool.exe
-[1777915193.260] [exiftool] Found in PATH: exiftool.exe
-[1777915193.261] [exiftool] Using command: exiftool.exe
-[1777915193.277] [exiftool] Found in PATH: exiftool.exe
-[1777915193.277] [exiftool] Using command: exiftool.exe
-[1777915193.672] [exiftool] Found in PATH: exiftool.exe
-[1777915193.676] [exiftool] Using command: exiftool.exe
-[1777915194.744] [exiftool] Output length: 118499 bytes
-[1777915194.747] [exiftool] First 500 chars of output: [{
-  "SourceFile": "D:/OneDrive/Pictures/2012/IMG_0043.jpg",
-  "ExifTool:ExifToolVersion": 13.57,
-  "File:FileType": "JPEG",
-  "File:FileTypeExtension": "jpg",
-  "File:MIMEType": "image/jpeg",
-  "File:ExifByteOrder": "Big-endian (Motorola, MM)",
-  "File:CurrentIPTCDigest": "237953512ff820203da00fe2344eddd0",
-  "File:ImageWidth": 3000,
-  "File:ImageHeight": 4000,
-  "File:EncodingProcess": "Baseline DCT, Huffman coding",
-  "File:BitsPerSample": 8,
-  "File:ColorComponents": 3,
-  "File:
-[1777915194.749] [metadata] Read 20 results, first has 91 fields
-[1777915194.749] [metadata] Emitting batch of 20 results
-[1777915194.751] [exiftool] Reading metadata for 20 files
-[1777915194.752] [exiftool] First file: Some("D:\\OneDrive\\Pictures\\2012\\IMG_0173 (2).jpg")
-[1777915194.757] [JS LOG] [metadata] Received 20 metadata results for scan_id 1777915188095
-[1777915194.804] [exiftool] Output length: 129515 bytes
-[1777915194.805] [exiftool] First 500 chars of output: [{
-  "SourceFile": "D:/OneDrive/Pictures/2012/IMG_0022.jpg",
-  "ExifTool:ExifToolVersion": 13.57,
-  "File:FileType": "JPEG",
-  "File:FileTypeExtension": "jpg",
-  "File:MIMEType": "image/jpeg",
-  "File:ExifByteOrder": "Little-endian (Intel, II)",
-  "File:CurrentIPTCDigest": "dd6e38e5b20e5679569ac30ce56752db",
-  "File:ImageWidth": 4000,
-  "File:ImageHeight": 3000,
-  "File:EncodingProcess": "Baseline DCT, Huffman coding",
-  "File:BitsPerSample": 8,
-  "File:ColorComponents": 3,
-  "File:
-[1777915194.807] [metadata] Read 20 results, first has 174 fields
-[1777915194.807] [metadata] Emitting batch of 20 results
-[1777915194.813] [exiftool] Reading metadata for 20 files
-[1777915194.814] [exiftool] First file: Some("D:\\OneDrive\\Pictures\\2012\\IMG_0237.jpg")
-[1777915194.830] [JS LOG] [metadata] Received 20 metadata results for scan_id 1777915188095
-[1777915194.834] [exiftool] Output length: 127404 bytes
-[1777915194.835] [exiftool] First 500 chars of output: [{
-  "SourceFile": "D:/OneDrive/Pictures/2012/IMG_0064.jpg",
-  "ExifTool:ExifToolVersion": 13.57,
-  "File:FileType": "JPEG",
-  "File:FileTypeExtension": "jpg",
-  "File:MIMEType": "image/jpeg",
-  "File:ExifByteOrder": "Little-endian (Intel, II)",
-  "File:CurrentIPTCDigest": "6feff2f12ba0957e136f7f28b90c656c",
-  "File:ImageWidth": 4000,
-  "File:ImageHeight": 3000,
-  "File:EncodingProcess": "Baseline DCT, Huffman coding",
-  "File:BitsPerSample": 8,
-  "File:ColorComponents": 3,
-  "File:
-[1777915194.839] [metadata] Read 20 results, first has 180 fields
-[1777915194.840] [metadata] Emitting batch of 20 results
-[1777915194.841] [exiftool] Reading metadata for 20 files
-[1777915194.843] [exiftool] First file: Some("D:\\OneDrive\\Pictures\\2012\\IMG_0282.jpg")
-[1777915194.849] [JS LOG] [metadata] Received 20 metadata results for scan_id 1777915188095
-[1777915195.016] [exiftool] Output length: 134010 bytes
-[1777915195.017] [exiftool] First 500 chars of output: [{
-  "SourceFile": "D:/OneDrive/Pictures/2012/IMG_0099.jpg",
-  "ExifTool:ExifToolVersion": 13.57,
-  "File:FileType": "JPEG",
-  "File:FileTypeExtension": "jpg",
-  "File:MIMEType": "image/jpeg",
-  "File:ExifByteOrder": "Little-endian (Intel, II)",
-  "File:CurrentIPTCDigest": "fc88b1941bc4fcdfa866126c16b41929",
-  "File:ImageWidth": 4000,
-  "File:ImageHeight": 2099,
-  "File:EncodingProcess": "Baseline DCT, Huffman coding",
-  "File:BitsPerSample": 8,
-  "File:ColorComponents": 3,
-  "File:
-[1777915195.020] [metadata] Read 20 results, first has 181 fields
-[1777915195.021] [metadata] Emitting batch of 20 results
-[1777915195.023] [exiftool] Reading metadata for 20 files
-[1777915195.025] [exiftool] First file: Some("D:\\OneDrive\\Pictures\\2012\\IMG_0334.jpg")
-[1777915195.035] [JS LOG] [metadata] Received 20 metadata results for scan_id 1777915188095
-[1777915195.380] [exiftool] Found in PATH: exiftool.exe
-[1777915195.382] [exiftool] Using command: exiftool.exe
-[1777915195.488] [exiftool] Found in PATH: exiftool.exe
-[1777915195.489] [exiftool] Using command: exiftool.exe
-[1777915195.542] [exiftool] Found in PATH: exiftool.exe
-[1777915195.543] [exiftool] Using command: exiftool.exe
-[1777915195.587] [exiftool] Found in PATH: exiftool.exe
-[1777915195.588] [exiftool] Using command: exiftool.exe
-[1777915196.645] [exiftool] Output length: 117954 bytes
-[1777915196.646] [exiftool] First 500 chars of output: [{
-  "SourceFile": "D:/OneDrive/Pictures/2012/IMG_0173 (2).jpg",
-  "ExifTool:ExifToolVersion": 13.57,
-  "File:FileType": "JPEG",
-  "File:FileTypeExtension": "jpg",
-  "File:MIMEType": "image/jpeg",
-  "File:ExifByteOrder": "Little-endian (Intel, II)",
-  "File:CurrentIPTCDigest": "ff6e13ff74149fec70df1adcba5c13f4",
-  "File:ImageWidth": 4000,
-  "File:ImageHeight": 3000,
-  "File:EncodingProcess": "Baseline DCT, Huffman coding",
-  "File:BitsPerSample": 8,
-  "File:ColorComponents": 3,
-  "F
-[1777915196.648] [metadata] Read 20 results, first has 176 fields
-[1777915196.649] [metadata] Emitting batch of 20 results
-[1777915196.651] [exiftool] Reading metadata for 20 files
-[1777915196.651] [exiftool] First file: Some("D:\\OneDrive\\Pictures\\2012\\IMG_0417.jpg")
-[1777915196.657] [JS LOG] [metadata] Received 20 metadata results for scan_id 1777915188095
-[1777915196.964] [exiftool] Output length: 121262 bytes
-[1777915196.967] [exiftool] First 500 chars of output: [{
-  "SourceFile": "D:/OneDrive/Pictures/2012/IMG_0282.jpg",
-  "ExifTool:ExifToolVersion": 13.57,
-  "File:FileType": "JPEG",
-  "File:FileTypeExtension": "jpg",
-  "File:MIMEType": "image/jpeg",
-  "File:ExifByteOrder": "Big-endian (Motorola, MM)",
-  "File:CurrentIPTCDigest": "f33b502881202aa8d00086d7fea7df0b",
-  "File:ImageWidth": 3000,
-  "File:ImageHeight": 4000,
-  "File:EncodingProcess": "Baseline DCT, Huffman coding",
-  "File:BitsPerSample": 8,
-  "File:ColorComponents": 3,
-  "File:
-[1777915196.969] [metadata] Read 20 results, first has 91 fields
-[1777915196.970] [metadata] Emitting batch of 20 results
-[1777915196.972] [exiftool] Reading metadata for 14 files
-[1777915196.972] [exiftool] First file: Some("D:\\OneDrive\\Pictures\\2012\\IMG_0445.jpg")
-[1777915196.977] [JS LOG] [metadata] Received 20 metadata results for scan_id 1777915188095
-[1777915196.985] [exiftool] Output length: 128757 bytes
-[1777915196.986] [exiftool] First 500 chars of output: [{
-  "SourceFile": "D:/OneDrive/Pictures/2012/IMG_0334.jpg",
-  "ExifTool:ExifToolVersion": 13.57,
-  "File:FileType": "JPEG",
-  "File:FileTypeExtension": "jpg",
-  "File:MIMEType": "image/jpeg",
-  "File:ExifByteOrder": "Big-endian (Motorola, MM)",
-  "File:CurrentIPTCDigest": "958f474bb21b1164929214aeb556c340",
-  "File:ImageWidth": 3000,
-  "File:ImageHeight": 4000,
-  "File:EncodingProcess": "Baseline DCT, Huffman coding",
-  "File:BitsPerSample": 8,
-  "File:ColorComponents": 3,
-  "File:
-[1777915196.989] [metadata] Read 20 results, first has 91 fields
-[1777915196.989] [metadata] Emitting batch of 20 results
-[1777915196.997] [JS LOG] [metadata] Received 20 metadata results for scan_id 1777915188095
-[1777915197.029] [exiftool] Output length: 136138 bytes
-[1777915197.030] [exiftool] First 500 chars of output: [{
-  "SourceFile": "D:/OneDrive/Pictures/2012/IMG_0237.jpg",
-  "ExifTool:ExifToolVersion": 13.57,
-  "File:FileType": "JPEG",
-  "File:FileTypeExtension": "jpg",
-  "File:MIMEType": "image/jpeg",
-  "File:ExifByteOrder": "Little-endian (Intel, II)",
-  "File:CurrentIPTCDigest": "451752d46261b56b50b20bc1d76bda7b",
-  "File:ImageWidth": 4000,
-  "File:ImageHeight": 3000,
-  "File:EncodingProcess": "Baseline DCT, Huffman coding",
-  "File:BitsPerSample": 8,
-  "File:ColorComponents": 3,
-  "File:
-[1777915197.032] [metadata] Read 20 results, first has 173 fields
-[1777915197.033] [metadata] Emitting batch of 20 results
-[1777915197.058] [JS LOG] [metadata] Received 20 metadata results for scan_id 1777915188095
-[1777915197.112] [exiftool] Found in PATH: exiftool.exe
-[1777915197.113] [exiftool] Using command: exiftool.exe
-[1777915197.447] [exiftool] Found in PATH: exiftool.exe
-[1777915197.449] [exiftool] Using command: exiftool.exe
-[1777915198.144] [exiftool] Output length: 50592 bytes
-[1777915198.144] [exiftool] First 500 chars of output: [{
-  "SourceFile": "D:/OneDrive/Pictures/2012/IMG_0445.jpg",
-  "ExifTool:ExifToolVersion": 13.57,
-  "File:FileType": "JPEG",
-  "File:FileTypeExtension": "jpg",
-  "File:MIMEType": "image/jpeg",
-  "File:ExifByteOrder": "Little-endian (Intel, II)",
-  "File:CurrentIPTCDigest": "8d615e93d5748c2b01fae135b698623b",
-  "File:ImageWidth": 4000,
-  "File:ImageHeight": 3000,
-  "File:EncodingProcess": "Baseline DCT, Huffman coding",
-  "File:BitsPerSample": 8,
-  "File:ColorComponents": 3,
-  "File:
-[1777915198.146] [metadata] Read 14 results, first has 175 fields
-[1777915198.147] [metadata] Emitting batch of 14 results
-[1777915198.149] [exiftool] Output length: 123120 bytes
-[1777915198.150] [exiftool] First 500 chars of output: [{
-  "SourceFile": "D:/OneDrive/Pictures/2012/IMG_0417.jpg",
-  "ExifTool:ExifToolVersion": 13.57,
-  "File:FileType": "JPEG",
-  "File:FileTypeExtension": "jpg",
-  "File:MIMEType": "image/jpeg",
-  "File:ExifByteOrder": "Little-endian (Intel, II)",
-  "File:CurrentIPTCDigest": "63a01e39d663981f4e2149f6d6478678",
-  "File:ImageWidth": 4000,
-  "File:ImageHeight": 3000,
-  "File:EncodingProcess": "Baseline DCT, Huffman coding",
-  "File:BitsPerSample": 8,
-  "File:ColorComponents": 3,
-  "File:
-[1777915198.153] [metadata] Read 20 results, first has 169 fields
-[1777915198.154] [metadata] Emitting batch of 20 results
-[1777915198.160] [JS LOG] [metadata] Received 14 metadata results for scan_id 1777915188095
-[1777915198.166] [JS LOG] [metadata] Received 20 metadata results for scan_id 1777915188095
+warning: `medialibrary-tauri` (lib) generated 1 warning
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 14.65s
+     Running `target\debug\medialibrary-tauri.exe`
+[1778051808.239] [JS LOG] [setup] all listeners registered
+[1778051808.239] [JS LOG] [setup] all listeners registered
+[1778051811.466] [JS LOG] [startScan] folder=D:\OneDrive\Pictures\2008 scanId=1778051811464
+[1778051811.478] [exiftool] Reading 1 files, first: Some("D:\\OneDrive\\Pictures\\2008\\IMG_7459.jpg")
+[1778051811.479] [exiftool] Reading 1 files, first: Some("D:\\OneDrive\\Pictures\\2008\\SDC13584.jpg")
+[1778051811.983] [JS LOG] [photo_found] received 2 photos
+[1778051811.985] [JS LOG] [photo_found] flushing 2 photos (total buffer was 2)
+[1778051811.986] [JS LOG] [scan_complete] scan_id=1778051811464
+[1778051811.986] [JS LOG] [photo_found] flushing 0 photos (total buffer was 0)
+[1778051811.996] [JS LOG] [prioritizeQueues] 2 paths
+[1778051812.000] [JS LOG] [prioritizeQueues] 2 paths
+[1778051812.014] [JS LOG] [prioritizeQueues] 2 paths
+[1778051812.026] [JS LOG] [thumbnail] received 1 results
+[1778051812.026] [JS LOG] [thumbnail] flushing 1 results
+[1778051812.032] [JS LOG] [thumbnail] received 1 results
+[1778051812.234] [JS LOG] [thumbnail] flushing 1 results
+[1778051812.712] [exiftool] Using: exiftool.exe
+[1778051813.157] [exiftool] Output: 4339 bytes
+[1778051813.157] [exiftool] Output: 4066 bytes
+[1778051813.158] [metadata] Read 1 results, first has 99 fields
+[1778051813.158] [metadata] Emitting batch of 1 results
+[1778051813.158] [metadata] Read 1 results, first has 96 fields
+[1778051813.158] [metadata] Emitting batch of 1 results
+[1778051813.161] [JS LOG] [metadata] received 1 results
+[1778051813.162] [JS LOG] [metadata] flushing 1 results
+[1778051813.173] [JS LOG] [metadata] received 1 results
+[1778051813.375] [JS LOG] [metadata] flushing 1 results
+[1778051847.280] [JS LOG] [startScan] folder=D:\OneDrive\Pictures\2012 scanId=1778051847278
+[1778051847.286] [exiftool] Reading 1 files, first: Some("D:\\OneDrive\\Pictures\\2012\\IMAG0261.jpg")
+[1778051847.287] [exiftool] Reading 1 files, first: Some("D:\\OneDrive\\Pictures\\2012\\IMAG0262.jpg")
+[1778051847.288] [exiftool] Reading 1 files, first: Some("D:\\OneDrive\\Pictures\\2012\\IMAG0266.jpg")
+[1778051847.290] [exiftool] Reading 1 files, first: Some("D:\\OneDrive\\Pictures\\2012\\IMAG0267.jpg")
+[1778051847.810] [JS LOG] [photo_found] received 297 photos
+[1778051847.849] [JS LOG] [photo_found] flushing 297 photos (total buffer was 297)
+[1778051847.882] [JS LOG] [thumbnail] received 4 results
+[1778051847.896] [JS LOG] [thumbnail] flushing 4 results
+[1778051847.920] [JS LOG] [prioritizeQueues] 30 paths
+[1778051847.955] [JS LOG] [prioritizeQueues] 30 paths
+[1778051848.015] [exiftool] Output: 2456 bytes
+[1778051848.017] [metadata] Read 1 results, first has 60 fields
+[1778051848.017] [metadata] Emitting batch of 1 results
+[1778051848.021] [exiftool] Output: 2425 bytes
+[1778051848.022] [metadata] Read 1 results, first has 59 fields
+[1778051848.022] [metadata] Emitting batch of 1 results
+[1778051848.023] [exiftool] Reading 20 files, first: Some("D:\\OneDrive\\Pictures\\2012\\IMAG0268.jpg")
+[1778051848.026] [exiftool] Reading 20 files, first: Some("D:\\OneDrive\\Pictures\\2012\\IMAG0313.jpg")
+[1778051848.050] [exiftool] Output: 2709 bytes
+[1778051848.101] [metadata] Read 1 results, first has 68 fields
+[1778051848.101] [metadata] Emitting batch of 1 results
+[1778051848.109] [exiftool] Output: 2709 bytes
+[1778051848.109] [metadata] Read 1 results, first has 68 fields
+[1778051848.109] [metadata] Emitting batch of 1 results
+[1778051848.109] [exiftool] Reading 20 files, first: Some("D:\\OneDrive\\Pictures\\2012\\IMAG0355.jpg")
+[1778051848.109] [exiftool] Reading 20 files, first: Some("D:\\OneDrive\\Pictures\\2012\\IMAG0385.jpg")
+[1778051849.104] [exiftool] Output: 49222 bytes
+[1778051849.113] [metadata] Read 20 results, first has 59 fields
+[1778051849.113] [metadata] Emitting batch of 20 results
+[1778051849.121] [exiftool] Reading 20 files, first: Some("D:\\OneDrive\\Pictures\\2012\\IMAG0425.jpg")
+[1778051849.263] [exiftool] Output: 52420 bytes
+[1778051849.281] [metadata] Read 20 results, first has 58 fields
+[1778051849.283] [metadata] Emitting batch of 20 results
+[1778051849.301] [exiftool] Reading 20 files, first: Some("D:\\OneDrive\\Pictures\\2012\\IMG_0023.jpg")
+[1778051849.335] [exiftool] Output: 48065 bytes
+[1778051849.335] [exiftool] Output: 49439 bytes
+[1778051849.342] [metadata] Read 20 results, first has 56 fields
+[1778051849.343] [metadata] Read 20 results, first has 60 fields
+[1778051849.360] [metadata] Emitting batch of 20 results
+[1778051849.360] [metadata] Emitting batch of 20 results
+[1778051849.364] [exiftool] Reading 20 files, first: Some("D:\\OneDrive\\Pictures\\2012\\IMG_0044.jpg")
+[1778051849.364] [exiftool] Reading 20 files, first: Some("D:\\OneDrive\\Pictures\\2012\\IMG_0065.jpg")
+[1778051850.953] [exiftool] Output: 121503 bytes
+[1778051850.971] [metadata] Read 20 results, first has 99 fields
+[1778051850.971] [metadata] Emitting batch of 20 results
+[1778051850.982] [exiftool] Reading 20 files, first: Some("D:\\OneDrive\\Pictures\\2012\\IMG_0101.jpg")
+[1778051851.284] [exiftool] Output: 119740 bytes
+[1778051851.294] [metadata] Read 20 results, first has 64 fields
+[1778051851.294] [metadata] Emitting batch of 20 results
+[1778051851.303] [exiftool] Reading 20 files, first: Some("D:\\OneDrive\\Pictures\\2012\\IMG_0173.jpg")
+[1778051851.353] [exiftool] Output: 126615 bytes
+[1778051851.363] [metadata] Read 20 results, first has 174 fields
+[1778051851.363] [metadata] Emitting batch of 20 results
+[1778051851.372] [exiftool] Reading 20 files, first: Some("D:\\OneDrive\\Pictures\\2012\\IMG_0239.jpg")
+[1778051851.460] [exiftool] Output: 127413 bytes
+[1778051851.470] [metadata] Read 20 results, first has 183 fields
+[1778051851.470] [metadata] Emitting batch of 20 results
+[1778051851.481] [exiftool] Reading 20 files, first: Some("D:\\OneDrive\\Pictures\\2012\\IMG_0283.jpg")
+[1778051851.721] [JS LOG] [prioritizeQueues] 26 paths
+[1778051852.616] [exiftool] Output: 133886 bytes
+[1778051852.628] [metadata] Read 20 results, first has 93 fields
+[1778051852.628] [metadata] Emitting batch of 20 results
+[1778051852.639] [exiftool] Reading 20 files, first: Some("D:\\OneDrive\\Pictures\\2012\\IMG_0335.jpg")
+[1778051852.727] [exiftool] Output: 117861 bytes
+[1778051852.738] [metadata] Read 20 results, first has 175 fields
+[1778051852.738] [metadata] Emitting batch of 20 results
+[1778051852.747] [exiftool] Reading 20 files, first: Some("D:\\OneDrive\\Pictures\\2012\\IMG_0418.jpg")
+[1778051852.906] [exiftool] Output: 133345 bytes
+[1778051852.917] [metadata] Read 20 results, first has 173 fields
+[1778051852.917] [metadata] Emitting batch of 20 results
+[1778051852.928] [exiftool] Reading 13 files, first: Some("D:\\OneDrive\\Pictures\\2012\\IMG_0446.jpg")
+[1778051853.013] [exiftool] Output: 121238 bytes
+[1778051853.023] [metadata] Read 20 results, first has 175 fields
+[1778051853.023] [metadata] Emitting batch of 20 results
+[1778051853.728] [exiftool] Output: 43875 bytes
+[1778051853.732] [metadata] Read 13 results, first has 175 fields
+[1778051853.732] [metadata] Emitting batch of 13 results
+[1778051853.929] [exiftool] Output: 131400 bytes
+[1778051853.940] [metadata] Read 20 results, first has 175 fields
+[1778051853.940] [metadata] Emitting batch of 20 results
+[1778051854.009] [exiftool] Output: 123337 bytes
+[1778051854.023] [metadata] Read 20 results, first has 167 fields
+[1778051854.023] [metadata] Emitting batch of 20 results
+[1778051854.314] [JS LOG] [thumbnail] received 4 results
+[1778051854.314] [JS LOG] [thumbnail] received 4 results
+[1778051854.316] [JS LOG] [scan_complete] scan_id=1778051847278
+[1778051854.317] [JS LOG] [photo_found] flushing 0 photos (total buffer was 0)
+[1778051854.318] [JS LOG] [thumbnail] flushing 8 results
+[1778051854.531] [JS LOG] [thumbnail] received 4 results
+[1778051854.532] [JS LOG] [thumbnail] received 4 results
+[1778051854.534] [JS LOG] [thumbnail] received 6 results
+[1778051854.537] [JS LOG] [thumbnail] received 5 results
+[1778051854.539] [JS LOG] [thumbnail] received 4 results
+[1778051854.542] [JS LOG] [metadata] received 1 results
+[1778051854.542] [JS LOG] [metadata] flushing 1 results
+[1778051854.799] [JS LOG] [prioritizeQueues] 27 paths
+[1778051855.227] [JS LOG] [metadata] received 1 results
+[1778051855.228] [JS LOG] [metadata] received 1 results
+[1778051855.229] [JS LOG] [metadata] received 1 results
+[1778051855.230] [JS LOG] [thumbnail] received 4 results
+[1778051855.232] [JS LOG] [thumbnail] received 5 results
+[1778051855.234] [JS LOG] [thumbnail] received 5 results
+[1778051855.235] [JS LOG] [thumbnail] received 4 results
+[1778051855.236] [JS LOG] [thumbnail] received 4 results
+[1778051855.238] [JS LOG] [thumbnail] received 4 results
+[1778051855.239] [JS LOG] [thumbnail] received 6 results
+[1778051855.240] [JS LOG] [thumbnail] flushing 55 results
+[1778051855.606] [JS LOG] [thumbnail] received 4 results
+[1778051855.609] [JS LOG] [thumbnail] received 7 results
+[1778051855.611] [JS LOG] [thumbnail] received 7 results
+[1778051855.613] [JS LOG] [thumbnail] received 8 results
+[1778051855.616] [JS LOG] [thumbnail] received 8 results
+[1778051855.619] [JS LOG] [thumbnail] received 8 results
+[1778051855.623] [JS LOG] [thumbnail] received 8 results
+[1778051855.623] [JS LOG] [thumbnail] flushing 50 results
+[1778051855.626] [JS LOG] [thumbnail] received 8 results
+[1778051855.628] [JS LOG] [thumbnail] received 9 results
+[1778051855.631] [JS LOG] [metadata] received 20 results
+[1778051855.635] [JS LOG] [metadata] received 20 results
+[1778051855.638] [JS LOG] [metadata] received 20 results
+[1778051855.638] [JS LOG] [metadata] flushing 63 results
+[1778051855.959] [JS LOG] [metadata] received 20 results
+[1778051855.961] [JS LOG] [thumbnail] received 10 results
+[1778051855.964] [JS LOG] [thumbnail] received 8 results
+[1778051855.966] [JS LOG] [thumbnail] received 8 results
+[1778051855.968] [JS LOG] [thumbnail] received 10 results
+[1778051855.969] [JS LOG] [thumbnail] flushing 53 results
+[1778051855.972] [JS LOG] [thumbnail] received 12 results
+[1778051855.974] [JS LOG] [thumbnail] received 9 results
+[1778051855.976] [JS LOG] [thumbnail] received 10 results
+[1778051855.978] [JS LOG] [thumbnail] received 5 results
+[1778051855.981] [JS LOG] [thumbnail] received 9 results
+[1778051855.985] [JS LOG] [thumbnail] received 7 results
+[1778051855.985] [JS LOG] [thumbnail] flushing 52 results
+[1778051855.987] [JS LOG] [thumbnail] received 6 results
+[1778051855.990] [JS LOG] [thumbnail] received 8 results
+[1778051855.993] [JS LOG] [thumbnail] received 7 results
+[1778051855.995] [JS LOG] [thumbnail] received 8 results
+[1778051855.997] [JS LOG] [thumbnail] received 5 results
+[1778051855.999] [JS LOG] [thumbnail] received 5 results
+[1778051856.001] [JS LOG] [thumbnail] received 6 results
+[1778051856.003] [JS LOG] [thumbnail] received 5 results
+[1778051856.007] [JS LOG] [thumbnail] flushing 50 results
+[1778051856.009] [JS LOG] [thumbnail] received 6 results
+[1778051856.011] [JS LOG] [thumbnail] received 2 results
+[1778051856.018] [JS LOG] [metadata] received 20 results
+[1778051856.034] [JS LOG] [metadata] received 20 results
+[1778051856.036] [JS LOG] [metadata] flushing 60 results
+[1778051856.319] [JS LOG] [metadata] received 20 results
+[1778051856.323] [JS LOG] [metadata] received 20 results
+[1778051856.329] [JS LOG] [metadata] received 20 results
+[1778051856.330] [JS LOG] [metadata] flushing 60 results
+[1778051856.575] [JS LOG] [metadata] received 20 results
+[1778051856.580] [JS LOG] [metadata] received 20 results
+[1778051856.585] [JS LOG] [metadata] received 20 results
+[1778051856.586] [JS LOG] [metadata] flushing 60 results
+[1778051856.713] [JS LOG] [metadata] received 13 results
+[1778051856.718] [JS LOG] [metadata] received 20 results
+[1778051856.723] [JS LOG] [metadata] received 20 results
+[1778051856.724] [JS LOG] [metadata] flushing 53 results
+[1778051856.875] [JS LOG] [thumbnail] received 8 results
+[1778051856.882] [JS LOG] [thumbnail] flushing 16 results
+[1778051858.141] [JS LOG] [thumbnail] received 4 results
+[1778051858.355] [JS LOG] [thumbnail] flushing 4 results
+[1778051858.461] [JS LOG] [thumbnail] received 5 results
+[1778051858.662] [JS LOG] [thumbnail] flushing 5 results
+[1778051865.112] [JS LOG] [startScan] folder=D:\OneDrive\Pictures\2012 scanId=1778051865110
+[1778051865.121] [exiftool] Reading 1 files, first: Some("D:\\OneDrive\\Pictures\\2012\\IMAG0261.jpg")
+[1778051865.121] [exiftool] Reading 1 files, first: Some("D:\\OneDrive\\Pictures\\2012\\IMAG0262.jpg")
+[1778051865.121] [exiftool] Reading 1 files, first: Some("D:\\OneDrive\\Pictures\\2012\\IMAG0266.jpg")
+[1778051865.122] [exiftool] Reading 1 files, first: Some("D:\\OneDrive\\Pictures\\2012\\IMAG0267.jpg")
+[1778051865.631] [JS LOG] [thumbnail] received 5 results
+[1778051865.648] [JS LOG] [thumbnail] flushing 5 results
+[1778051865.650] [JS LOG] [photo_found] received 297 photos
+[1778051865.652] [JS LOG] [photo_found] flushing 297 photos (total buffer was 297)
+[1778051865.673] [JS LOG] [prioritizeQueues] 30 paths
+[1778051865.698] [JS LOG] [prioritizeQueues] 30 paths
+[1778051865.826] [exiftool] Output: 2709 bytes
+[1778051865.827] [metadata] Read 1 results, first has 68 fields
+[1778051865.836] [metadata] Emitting batch of 1 results
+[1778051865.836] [exiftool] Reading 20 files, first: Some("D:\\OneDrive\\Pictures\\2012\\IMAG0268.jpg")
+[1778051865.974] [exiftool] Output: 2425 bytes
+[1778051865.974] [metadata] Read 1 results, first has 59 fields
+[1778051865.977] [exiftool] Output: 2456 bytes
+[1778051865.977] [metadata] Emitting batch of 1 results
+[1778051865.977] [metadata] Read 1 results, first has 60 fields
+[1778051865.977] [metadata] Emitting batch of 1 results
+[1778051865.978] [exiftool] Reading 20 files, first: Some("D:\\OneDrive\\Pictures\\2012\\IMAG0313.jpg")
+[1778051865.978] [exiftool] Reading 20 files, first: Some("D:\\OneDrive\\Pictures\\2012\\IMAG0355.jpg")
+[1778051866.042] [exiftool] Output: 2709 bytes
+[1778051866.062] [metadata] Read 1 results, first has 68 fields
+[1778051866.063] [metadata] Emitting batch of 1 results
+[1778051866.063] [exiftool] Reading 20 files, first: Some("D:\\OneDrive\\Pictures\\2012\\IMAG0385.jpg")
+[1778051867.121] [exiftool] Output: 48065 bytes
+[1778051867.127] [metadata] Read 20 results, first has 60 fields
+[1778051867.127] [metadata] Emitting batch of 20 results
+[1778051867.137] [exiftool] Reading 20 files, first: Some("D:\\OneDrive\\Pictures\\2012\\IMAG0425.jpg")
+[1778051867.140] [exiftool] Output: 49222 bytes
+[1778051867.146] [metadata] Read 20 results, first has 59 fields
+[1778051867.146] [metadata] Emitting batch of 20 results
+[1778051867.150] [exiftool] Reading 20 files, first: Some("D:\\OneDrive\\Pictures\\2012\\IMG_0023.jpg")
+[1778051867.157] [exiftool] Output: 49439 bytes
+[1778051867.184] [metadata] Read 20 results, first has 56 fields
+[1778051867.184] [metadata] Emitting batch of 20 results
+[1778051867.190] [exiftool] Reading 20 files, first: Some("D:\\OneDrive\\Pictures\\2012\\IMG_0044.jpg")
+[1778051867.298] [exiftool] Output: 52420 bytes
+[1778051867.333] [metadata] Read 20 results, first has 58 fields
+[1778051867.333] [metadata] Emitting batch of 20 results
+[1778051867.339] [exiftool] Reading 20 files, first: Some("D:\\OneDrive\\Pictures\\2012\\IMG_0065.jpg")
+[1778051869.008] [exiftool] Output: 121503 bytes
+[1778051869.018] [metadata] Read 20 results, first has 99 fields
+[1778051869.018] [metadata] Emitting batch of 20 results
+[1778051869.028] [exiftool] Reading 20 files, first: Some("D:\\OneDrive\\Pictures\\2012\\IMG_0101.jpg")
+[1778051869.045] [exiftool] Output: 119740 bytes
+[1778051869.057] [metadata] Read 20 results, first has 64 fields
+[1778051869.057] [metadata] Emitting batch of 20 results
+[1778051869.067] [exiftool] Reading 20 files, first: Some("D:\\OneDrive\\Pictures\\2012\\IMG_0173.jpg")
+[1778051869.130] [exiftool] Output: 126615 bytes
+[1778051869.141] [metadata] Read 20 results, first has 174 fields
+[1778051869.141] [metadata] Emitting batch of 20 results
+[1778051869.147] [exiftool] Output: 127413 bytes
+[1778051869.151] [exiftool] Reading 20 files, first: Some("D:\\OneDrive\\Pictures\\2012\\IMG_0239.jpg")
+[1778051869.158] [metadata] Read 20 results, first has 183 fields
+[1778051869.158] [metadata] Emitting batch of 20 results
+[1778051869.169] [exiftool] Reading 20 files, first: Some("D:\\OneDrive\\Pictures\\2012\\IMG_0283.jpg")
+[1778051870.389] [exiftool] Output: 117861 bytes
+[1778051870.398] [metadata] Read 20 results, first has 175 fields
+[1778051870.398] [metadata] Emitting batch of 20 results
+[1778051870.407] [exiftool] Reading 20 files, first: Some("D:\\OneDrive\\Pictures\\2012\\IMG_0335.jpg")
+[1778051870.482] [exiftool] Output: 133886 bytes
+[1778051870.494] [metadata] Read 20 results, first has 93 fields
+[1778051870.494] [metadata] Emitting batch of 20 results
+[1778051870.504] [exiftool] Reading 20 files, first: Some("D:\\OneDrive\\Pictures\\2012\\IMG_0418.jpg")
+[1778051870.508] [exiftool] Output: 133345 bytes
+[1778051870.520] [metadata] Read 20 results, first has 173 fields
+[1778051870.520] [metadata] Emitting batch of 20 results
+[1778051870.526] [exiftool] Output: 121238 bytes
+[1778051870.531] [exiftool] Reading 13 files, first: Some("D:\\OneDrive\\Pictures\\2012\\IMG_0446.jpg")
+[1778051870.537] [metadata] Read 20 results, first has 175 fields
+[1778051870.537] [metadata] Emitting batch of 20 results
+[1778051870.612] [JS LOG] [prioritizeQueues] 26 paths
+[1778051871.267] [exiftool] Output: 43875 bytes
+[1778051871.271] [metadata] Read 13 results, first has 175 fields
+[1778051871.271] [metadata] Emitting batch of 13 results
+[1778051871.526] [exiftool] Output: 131400 bytes
+[1778051871.537] [metadata] Read 20 results, first has 175 fields
+[1778051871.537] [metadata] Emitting batch of 20 results
+[1778051871.574] [exiftool] Output: 123337 bytes
+[1778051871.584] [metadata] Read 20 results, first has 167 fields
+[1778051871.584] [metadata] Emitting batch of 20 results
+[1778051872.746] [JS LOG] [thumbnail] received 4 results
+[1778051872.747] [JS LOG] [thumbnail] received 4 results
+[1778051872.749] [JS LOG] [thumbnail] received 5 results
+[1778051872.750] [JS LOG] [scan_complete] scan_id=1778051865110
+[1778051872.751] [JS LOG] [photo_found] flushing 0 photos (total buffer was 0)
+[1778051872.752] [JS LOG] [thumbnail] flushing 13 results
+[1778051872.967] [JS LOG] [thumbnail] received 5 results
+[1778051872.968] [JS LOG] [thumbnail] received 6 results
+[1778051872.970] [JS LOG] [thumbnail] received 5 results
+[1778051872.971] [JS LOG] [thumbnail] received 6 results
+[1778051872.973] [JS LOG] [metadata] received 1 results
+[1778051872.974] [JS LOG] [metadata] flushing 1 results
+[1778051873.116] [JS LOG] [prioritizeQueues] 26 paths
+[1778051873.291] [JS LOG] [metadata] received 1 results
+[1778051873.292] [JS LOG] [metadata] received 1 results
+[1778051873.293] [JS LOG] [metadata] received 1 results
+[1778051873.294] [JS LOG] [thumbnail] received 4 results
+[1778051873.296] [JS LOG] [thumbnail] received 4 results
+[1778051873.298] [JS LOG] [thumbnail] received 4 results
+[1778051873.300] [JS LOG] [thumbnail] received 4 results
+[1778051873.302] [JS LOG] [thumbnail] received 4 results
+[1778051873.306] [JS LOG] [thumbnail] received 4 results
+[1778051873.307] [JS LOG] [thumbnail] received 5 results
+[1778051873.307] [JS LOG] [thumbnail] flushing 51 results
+[1778051873.512] [JS LOG] [thumbnail] received 6 results
+[1778051873.514] [JS LOG] [thumbnail] received 12 results
+[1778051873.517] [JS LOG] [thumbnail] received 14 results
+[1778051873.520] [JS LOG] [thumbnail] received 13 results
+[1778051873.524] [JS LOG] [thumbnail] received 13 results
+[1778051873.525] [JS LOG] [thumbnail] flushing 58 results
+[1778051873.528] [JS LOG] [thumbnail] received 13 results
+[1778051873.530] [JS LOG] [thumbnail] received 14 results
+[1778051873.534] [JS LOG] [thumbnail] received 14 results
+[1778051873.537] [JS LOG] [thumbnail] received 16 results
+[1778051873.538] [JS LOG] [thumbnail] flushing 57 results
+[1778051873.541] [JS LOG] [metadata] received 20 results
+[1778051873.544] [JS LOG] [metadata] received 20 results
+[1778051873.549] [JS LOG] [metadata] received 20 results
+[1778051873.549] [JS LOG] [metadata] flushing 63 results
+[1778051873.767] [JS LOG] [thumbnail] received 5 results
+[1778051873.768] [JS LOG] [thumbnail] received 5 results
+[1778051873.770] [JS LOG] [thumbnail] received 6 results
+[1778051873.772] [JS LOG] [thumbnail] received 6 results
+[1778051873.774] [JS LOG] [thumbnail] received 6 results
+[1778051873.778] [JS LOG] [metadata] received 20 results
+[1778051873.780] [JS LOG] [thumbnail] received 9 results
+[1778051873.783] [JS LOG] [thumbnail] received 10 results
+[1778051873.785] [JS LOG] [thumbnail] received 9 results
+[1778051873.786] [JS LOG] [thumbnail] flushing 56 results
+[1778051873.788] [JS LOG] [thumbnail] received 4 results
+[1778051873.791] [JS LOG] [thumbnail] received 9 results
+[1778051873.793] [JS LOG] [thumbnail] received 11 results
+[1778051873.796] [JS LOG] [thumbnail] received 11 results
+[1778051873.802] [JS LOG] [metadata] received 20 results
+[1778051873.807] [JS LOG] [metadata] received 20 results
+[1778051873.808] [JS LOG] [metadata] flushing 60 results
+[1778051874.028] [JS LOG] [metadata] received 20 results
+[1778051874.032] [JS LOG] [metadata] received 20 results
+[1778051874.036] [JS LOG] [metadata] received 20 results
+[1778051874.037] [JS LOG] [metadata] flushing 60 results
+[1778051874.229] [JS LOG] [metadata] received 20 results
+[1778051874.233] [JS LOG] [metadata] received 20 results
+[1778051874.237] [JS LOG] [metadata] received 20 results
+[1778051874.239] [JS LOG] [metadata] flushing 60 results
+[1778051874.422] [JS LOG] [metadata] received 13 results
+[1778051874.427] [JS LOG] [metadata] received 20 results
+[1778051874.431] [JS LOG] [metadata] received 20 results
+[1778051874.432] [JS LOG] [metadata] flushing 53 results
+[1778051874.528] [JS LOG] [thumbnail] received 2 results
+[1778051874.539] [JS LOG] [thumbnail] flushing 37 results
+[1778051874.712] [JS LOG] [thumbnail] received 9 results
+[1778051874.913] [JS LOG] [thumbnail] flushing 9 results
+[1778051875.083] [JS LOG] [thumbnail] received 11 results
+[1778051875.285] [JS LOG] [thumbnail] flushing 11 results

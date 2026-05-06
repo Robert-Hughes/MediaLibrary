@@ -7,18 +7,16 @@ are covered by integration tests that simulate UI interaction and confirm that t
 Now
 ===
 
-* The 'sticky' headings at the top have become a bit broken - only the group level headings (OS Metadata and Image metadata) are sticky, but the second row of the header (individual field names) should also be sticky
-* Double clicking on a column resize handle to auto-size the column should take into account the desired content width of all
- the cells in that column. It seems like it currently only uses the column header text width.
-
-* Loading 2010 folder seems to hang, never shows any photos! UI has spinners going but can't interact - main thread of browser too busy?
-
 Later- *** DO NOT WORK ON ANY OF THE BELOW FEATURES ***
 =====
 
-* (GOOD MODEL) - Do a full review of the app, particularly around the loading/scanning/worker threads with potential sync/race conditions and the potential of getting into broken state
+* (GOOD MODEL) - Do a full review of the app's code (not features), including but not limited to:
+  * the loading/scanning/worker threads with potential sync/race conditions and the potential of getting into broken state
   * Overall architecture, design of batching, use of React and virtualised DOM and best practices for handling large tables and updates.
-  * Graceful handling of errors and not getting into weird states with errors, or when scans are cancelled due to switching folder or closing the app
+  * Graceful handling of errors and not getting into weird states with errors, or when scans are cancelled due to switching folder or closing the app.
+  * Performance issues, e.g. where we're repeating the same work many times or have any scaling O(N^2)
+  * The layout of the source code and the size/responsibilities of each module/file
+  * The test coverage - are there areas or logic missing tests? Are there lots of repeated/redundant tests? Do the tests properly test the parts of the app they purport to, or do they mock so much that they're pointless?
 
 
 * On the Select Columns dialog, next to the Select All and Deselect All buttons, add a Default button that resets the selected columns (and their order) to the default
@@ -61,3 +59,5 @@ all the Image metadata.
 * Compare with functionalty of the Update Metadata prompts approach - add anything missing to here? Check the instruction files and also the scripts and sample reports/json files to see if we're missing anything that we figured out before.
 
 * Figure out how exiftool should be bundled/installed/etc. - Currently in "C:\Users\xman2\AppData\Local\Programs\ExifTool\ExifTool.exe"
+
+* Use RUST_LOG standard logging for verbosity stuff, not our own thing
