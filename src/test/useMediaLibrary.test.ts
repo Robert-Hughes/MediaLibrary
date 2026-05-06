@@ -248,6 +248,70 @@ describe("useMediaLibrary", () => {
     expect(result.current[0].kind).toBe("idle");
   });
 
+  it("photo_found events with a stale scan_id are ignored", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/photos");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => { await result.current[1].openFolder(); });
+    const currentScanId = mock.currentScanId;
+
+    // Emit a photo_found with a different (stale) scan_id
+    act(() => { mock.emitPhotoFound(makePhoto({ relative_path: "stale.jpg" }), currentScanId - 1); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(150); });
+
+    // Stale photo should not have been added; state should still be loading
+    expect(result.current[0].kind).toBe("loading");
+
+    // A current-scan photo should be accepted
+    act(() => { mock.emitPhotoFound(makePhoto({ relative_path: "fresh.jpg" }), currentScanId); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(150); });
+
+    const state = result.current[0];
+    if (state.kind === "loaded") {
+      expect(state.photos).toHaveLength(1);
+      expect(state.photos[0].relative_path).toBe("fresh.jpg");
+    }
+  });
+
+  it("image_metadata_ready and thumbnail_ready with a stale scan_id are ignored", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/photos");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => { await result.current[1].openFolder(); });
+    act(() => { mock.emitPhotoFound(makePhoto({ relative_path: "a.jpg" })); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(150); });
+
+    const stale = mock.currentScanId - 1;
+    act(() => { mock.emitImageMetadataReady("a.jpg", { "IFD0:Model": "Stale" }, stale); });
+    act(() => { mock.emitThumbnailReady("a.jpg", "stale-data", stale); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(300); });
+
+    const state = result.current[0];
+    if (state.kind === "loaded") {
+      // Stale events should not have written to the stores
+      expect(state.imageMetadata.get("a.jpg")).toBe("loading");
+      expect(state.thumbnails.get("a.jpg")).toBe("loading");
+      expect(state.metadataProgress.getRemaining()).toBe(1);
+    }
+  });
+
+  it("worker_error events with a stale scan_id are still appended", async () => {
+    // Worker_error currently doesn't filter by scan_id; this documents that.
+    // If that behaviour changes, this test will need updating.
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/photos");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => { await result.current[1].openFolder(); });
+    act(() => { mock.emitPhotoFound(makePhoto({ relative_path: "a.jpg" })); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(150); });
+
+    act(() => { mock.emitWorkerError("metadata", "stale", ["x.jpg"], mock.currentScanId - 1); });
+    const state = result.current[0];
+    if (state.kind === "loaded") {
+      expect(state.workerErrors).toHaveLength(1);
+    }
+  });
+
   it("photo_found events after closeFolder are ignored", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/photos");
