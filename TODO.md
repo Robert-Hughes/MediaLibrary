@@ -7,9 +7,6 @@ are covered by integration tests that simulate UI interaction and confirm that t
 Now
 ===
 
-Later- *** DO NOT WORK ON ANY OF THE BELOW FEATURES ***
-=====
-
 * (GOOD MODEL) - Do a full review of the app's code (not features), including but not limited to:
   * the loading/scanning/worker threads with potential sync/race conditions and the potential of getting into broken state
   * Overall architecture, design of batching, use of React and virtualised DOM and best practices for handling large tables and updates.
@@ -18,6 +15,11 @@ Later- *** DO NOT WORK ON ANY OF THE BELOW FEATURES ***
   * The layout of the source code and the size/responsibilities of each module/file
   * The test coverage - are there areas or logic missing tests? Are there lots of repeated/redundant tests? Do the tests properly test the parts of the app they purport to, or do they mock so much that they're pointless?
 
+
+Later- *** DO NOT WORK ON ANY OF THE BELOW FEATURES ***
+=====
+
+* Allow mixing and matching of different column types. Show the OS/Image header on each colum instead.
 
 * On the Select Columns dialog, next to the Select All and Deselect All buttons, add a Default button that resets the selected columns (and their order) to the default
 
