@@ -291,28 +291,33 @@ export function PhotoList({
     updateVisible();
   }, [virtualItems, thumbnails, imageMetadata]);
 
-  // Initial notification when photos first load - notify about first batch immediately
+  // Defensive kickstart: when photos first appear in a scan, notify about the
+  // first 30 paths that still need loading.  This runs once per scan so the
+  // backend can begin draining the prioritised queue before the virtualizer
+  // has measured the DOM.  After this fires, the visibility-tracking effect
+  // above takes over.
+  //
+  // The latch is keyed by `thumbnails` identity: a new scan installs new store
+  // instances, which resets the latch and lets the kickstart fire again.
+  const kickstartedForStoreRef = useRef<ThumbnailStore | null>(null);
   useEffect(() => {
-    if (photos.length > 0) {
-      // Notify about the first 30 photos that need loading to kickstart loading
-      const initialPaths = photos.slice(0, 30)
-        .filter(p => {
-          // Only prioritize images that don't already have both thumbnail and metadata loaded
-          const thumbnailState = thumbnails.get(p.relative_path);
-          const metadataState = imageMetadata.get(p.relative_path);
-          
-          const thumbnailNeedsLoading = thumbnailState === "loading";
-          const metadataNeedsLoading = metadataState === "loading";
-          
-          return thumbnailNeedsLoading || metadataNeedsLoading;
-        })
-        .map(p => p.relative_path);
-      
-      if (initialPaths.length > 0) {
-        onVisibilityChange(initialPaths);
+    if (photos.length === 0) return;
+    if (kickstartedForStoreRef.current === thumbnails) return;
+    kickstartedForStoreRef.current = thumbnails;
+
+    const initialPaths: string[] = [];
+    const limit = Math.min(30, photos.length);
+    for (let i = 0; i < limit; i++) {
+      const path = photos[i].relative_path;
+      if (thumbnails.get(path) === "loading" || imageMetadata.get(path) === "loading") {
+        initialPaths.push(path);
       }
     }
-  }, [photos.length, thumbnails, imageMetadata, onVisibilityChange]); // Only run when photos first load or count changes
+
+    if (initialPaths.length > 0) {
+      onVisibilityChange(initialPaths);
+    }
+  }, [photos, thumbnails, imageMetadata, onVisibilityChange]);
 
   useEffect(() => {
     if (selectedIndex !== null && listRef.current) {
