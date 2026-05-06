@@ -15,9 +15,17 @@ Now
   * The layout of the source code and the size/responsibilities of each module/file
   * The test coverage - are there areas or logic missing tests? Are there lots of repeated/redundant tests? Do the tests properly test the parts of the app they purport to, or do they mock so much that they're pointless?
 
+* Got findings, working through fixing them.
+ Currently on 3. Performance, done all except:
+   sortPhotos re-runs on every photo batch AND every metadata batch
+   prioritize() is O(N×M): builds a HashSet from the full queue
+
+
 
 Later- *** DO NOT WORK ON ANY OF THE BELOW FEATURES ***
 =====
+
+* When loading metadata still and we have the spinner at the top, show the progress (e.g. X out of Y)
 
 * Allow mixing and matching of different column types. Show the OS/Image header on each colum instead.
   * Swapping createdf/mnodified currently doesn't work (headers change, data doesn't)
