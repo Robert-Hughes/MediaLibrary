@@ -46,6 +46,27 @@ function formatVariant(v: Variant | undefined): string {
 
 const MIN_COL_WIDTH = 40;
 
+/**
+ * Return the visible paths that still need a thumbnail or metadata load,
+ * in the iteration order of `visible` (which matches display top-to-bottom).
+ *
+ * Iterates `visible` directly — O(V), not O(total photos) — so a 30-row
+ * scroll on a 10k-photo library doesn't scan the full list.
+ */
+export function selectVisibleNeedingLoad(
+  visible: Iterable<string>,
+  thumbnails: { get: (path: string) => unknown },
+  imageMetadata: { get: (path: string) => unknown },
+): string[] {
+  const out: string[] = [];
+  for (const path of visible) {
+    if (thumbnails.get(path) === "loading" || imageMetadata.get(path) === "loading") {
+      out.push(path);
+    }
+  }
+  return out;
+}
+
 function buildGridTemplate(
   visibleOSColumns: string[],
   visibleColumns: string[],
@@ -243,20 +264,7 @@ export function PhotoList({
   // Track visibility for prioritization
   useEffect(() => {
     const notify = () => {
-      const visibleOrdered = photosRef.current
-        .filter(p => visibleRef.current.has(p.relative_path))
-        .filter(p => {
-          // Only prioritize images that don't already have both thumbnail and metadata loaded
-          const thumbnailState = thumbnails.get(p.relative_path);
-          const metadataState = imageMetadata.get(p.relative_path);
-          
-          const thumbnailNeedsLoading = thumbnailState === "loading";
-          const metadataNeedsLoading = metadataState === "loading";
-          
-          return thumbnailNeedsLoading || metadataNeedsLoading;
-        })
-        .map(p => p.relative_path);
-      
+      const visibleOrdered = selectVisibleNeedingLoad(visibleRef.current, thumbnails, imageMetadata);
       if (visibleOrdered.length > 0) {
         onVisibilityChangeRef.current(visibleOrdered);
       }
