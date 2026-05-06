@@ -3,6 +3,7 @@ import { vi } from "vitest";
 import { PhotoList } from "../components/PhotoList";
 import { ThumbnailStore, ImageMetadataStore } from "../types";
 import type { PhotoInfo } from "../types";
+import { makePhotos } from "./factories";
 
 const defaultSortProps = {
   sortConfig: { primary: null, secondary: null } as const,
@@ -10,35 +11,17 @@ const defaultSortProps = {
 };
 
 describe("PhotoList prioritization optimization", () => {
-  const mockPhotos: PhotoInfo[] = [
-    {
-      relative_path: "photo1.jpg",
-      filename: "photo1.jpg",
-      date_modified: 1640995200,
-      date_created: 1640995200,
-    },
-    {
-      relative_path: "photo2.jpg",
-      filename: "photo2.jpg",
-      date_modified: 1640995200,
-      date_created: 1640995200,
-    },
-    {
-      relative_path: "photo3.jpg",
-      filename: "photo3.jpg",
-      date_modified: 1640995200,
-      date_created: 1640995200,
-    },
-  ];
+  const mockPhotos: PhotoInfo[] = makePhotos(["photo1.jpg", "photo2.jpg", "photo3.jpg"])
+    .map((p) => ({ ...p, date_modified: 1640995200, date_created: 1640995200 }));
 
   let thumbnailStore: ThumbnailStore;
   let metadataStore: ImageMetadataStore;
-  let onVisibilityChangeMock: (paths: string[]) => void;
+  let onVisibilityChangeMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     thumbnailStore = new ThumbnailStore();
     metadataStore = new ImageMetadataStore();
-    onVisibilityChangeMock = vi.fn() as (paths: string[]) => void;
+    onVisibilityChangeMock = vi.fn();
 
     // Add all photos to stores (they start in "loading" state)
     mockPhotos.forEach(photo => {
@@ -186,7 +169,7 @@ describe("PhotoList prioritization optimization", () => {
       expect.arrayContaining(["photo2.jpg", "photo3.jpg"])
     );
     // The call should not include photo1.jpg since it's not in loading state
-    const calls = (onVisibilityChangeMock as ReturnType<typeof vi.fn>).mock.calls;
+    const calls = onVisibilityChangeMock.mock.calls;
     const allCalledPaths = calls.flat();
     expect(allCalledPaths).not.toContain("photo1.jpg");
   });

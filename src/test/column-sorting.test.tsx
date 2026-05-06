@@ -5,18 +5,9 @@ import { PhotoList } from "../components/PhotoList";
 import { ThumbnailStore, ImageMetadataStore } from "../types";
 import type { PhotoInfo, SortConfig } from "../types";
 import { sortPhotos, nextSortConfig } from "../utils/sorting";
+import { makePhoto } from "./factories";
 
 // ── sorting utility unit tests ─────────────────────────────────────────────────
-
-function makePhoto(overrides: Partial<PhotoInfo> = {}): PhotoInfo {
-  return {
-    relative_path: "photo.jpg",
-    filename: "photo.jpg",
-    date_modified: null,
-    date_created: null,
-    ...overrides,
-  };
-}
 
 describe("nextSortConfig", () => {
   const noSort: SortConfig = { primary: null, secondary: null };
