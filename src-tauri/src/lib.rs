@@ -45,9 +45,41 @@ macro_rules! log_verbose {
 
 // ── Shared state ──────────────────────────────────────────────────────────────
 
-struct ScanState {
+pub struct ScanState {
     running:   Mutex<bool>,
     cancelled: Mutex<Option<Arc<AtomicBool>>>,
+}
+
+impl ScanState {
+    pub fn new() -> Self {
+        Self {
+            running: Mutex::new(false),
+            cancelled: Mutex::new(None),
+        }
+    }
+
+    /// Mark a scan as no longer running.  The cancellation flag is intentionally
+    /// left in place: workers from this scan may still be draining their queues,
+    /// and a `stop_scan` arriving in that window must still be able to signal
+    /// them.  The next `start_scan` overwrites the flag with its own.
+    pub fn mark_finished(&self) {
+        *self.running.lock().unwrap() = false;
+    }
+
+    /// Signal cancellation if a flag is currently installed.
+    /// Returns true if a flag was set.
+    pub fn signal_cancellation(&self) -> bool {
+        if let Some(flag) = self.cancelled.lock().unwrap().as_ref() {
+            flag.store(true, Ordering::Relaxed);
+            true
+        } else {
+            false
+        }
+    }
+}
+
+impl Default for ScanState {
+    fn default() -> Self { Self::new() }
 }
 
 /// Holds both the thumbnail and image metadata queues so both can be prioritised.
@@ -472,9 +504,7 @@ fn stop_scan(
     scan_state: State<'_, ScanState>,
     active_queues: State<'_, ActiveQueues>,
 ) -> Result<(), String> {
-    if let Some(flag) = scan_state.cancelled.lock().unwrap().as_ref() {
-        flag.store(true, Ordering::Relaxed);
-    }
+    scan_state.signal_cancellation();
     if let Some(q) = active_queues.thumbnails.lock().unwrap().as_ref() {
         q.abort();
     }
@@ -571,8 +601,37 @@ fn load_image(path: String) -> Result<String, String> {
 
 fn clear_running(app: &AppHandle) {
     if let Some(state) = app.try_state::<ScanState>() {
-        *state.running.lock().unwrap() = false;
-        *state.cancelled.lock().unwrap() = None;
+        state.mark_finished();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mark_finished_keeps_cancellation_flag_so_late_stop_scan_can_signal_workers() {
+        // After scan_complete the workers may still be draining for several seconds.
+        // A stop_scan arriving in that window must still be able to flip the
+        // cancellation flag so the workers exit promptly.
+        let state = ScanState::new();
+        let flag = Arc::new(AtomicBool::new(false));
+        *state.cancelled.lock().unwrap() = Some(flag.clone());
+        *state.running.lock().unwrap() = true;
+
+        state.mark_finished();
+
+        // running is cleared so a new scan can begin, but the flag is still
+        // reachable via stop_scan -> signal_cancellation.
+        assert_eq!(*state.running.lock().unwrap(), false);
+        assert!(state.signal_cancellation(), "cancellation flag should still be installed");
+        assert!(flag.load(Ordering::Relaxed), "workers should now see the cancellation");
+    }
+
+    #[test]
+    fn signal_cancellation_returns_false_when_no_flag_installed() {
+        let state = ScanState::new();
+        assert!(!state.signal_cancellation());
     }
 }
 
