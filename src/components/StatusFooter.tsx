@@ -5,10 +5,10 @@ interface Props {
 }
 
 export function StatusFooter({ message }: Props) {
-  const spinRef = useSpinnerSync<HTMLSpanElement>();
+  const spinStyle = useSpinnerSync();
   return (
     <div className="status-footer" data-testid="status-footer">
-      <span ref={spinRef} className="status-footer-spinner" aria-hidden="true" />
+      <span style={spinStyle} className="status-footer-spinner" aria-hidden="true" />
       <span className="status-footer-message">{message}</span>
     </div>
   );

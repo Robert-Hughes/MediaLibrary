@@ -182,7 +182,9 @@ body {
   to { transform: rotate(360deg); }
 }
 
-/* All spinners share the same phase via useSpinnerSync (Web Animations API). */
+/* All spinners share the same phase via useSpinnerSync, which sets a negative
+   animation-delay equal to the document timeline time at mount. No JS animation
+   queries — see hooks/useSpinnerSync.ts. */
 .spinner,
 .menu-bar-spinner,
 .photo-thumb-spin-inner,
@@ -549,6 +551,14 @@ body {
   color: #ff6b6b;
   font-size: 14px;
   cursor: help;
+}
+
+/* Lightweight placeholder shown in metadata cells while the row is loading.
+   Only the first visible metadata cell renders an actual spinner — the rest
+   render this dash to avoid mounting one spinner per cell. */
+.cell-loading-placeholder {
+  color: var(--text-dim);
+  opacity: 0.5;
 }
 
 .photo-list-empty {

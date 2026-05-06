@@ -16,7 +16,7 @@ export function GalleryView({ photos, currentIndex, folderPath, onClose, onNavig
   const photo = photos[currentIndex];
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const spinRef = useSpinnerSync<HTMLDivElement>();
+  const spinStyle = useSpinnerSync();
 
   // Load the full image whenever the current photo changes.
   useEffect(() => {
@@ -79,7 +79,7 @@ export function GalleryView({ photos, currentIndex, folderPath, onClose, onNavig
 
         <div className="gallery-image-area" data-testid="gallery-image-area">
           {loading ? (
-            <div ref={spinRef} className="gallery-spinner" data-testid="gallery-spinner" />
+            <div style={spinStyle} className="gallery-spinner" data-testid="gallery-spinner" />
           ) : imageSrc ? (
             <img
               src={imageSrc}

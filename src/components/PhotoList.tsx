@@ -562,10 +562,16 @@ const PhotoRow = memo(function PhotoRow({
       {visibleOSColumns.includes("date_created") && (
         <div className="grid-cell grid-cell-date" data-col="date_created" data-testid="photo-date-created">{formatDate(photo.date_created)}</div>
       )}
-      {visibleColumns.map((col) => (
+      {visibleColumns.map((col, i) => (
         <div key={col} className="grid-cell grid-cell-metadata" data-col={col}>
           {metadataLoading ? (
-            <Spinner className="cell-spinner" aria-label="Loading" data-testid="metadata-loading" />
+            // One spinner per row (in the first metadata cell), dashes elsewhere.
+            // Per-cell spinners were O(rows × cols) and dominated initial render.
+            i === 0 ? (
+              <Spinner className="cell-spinner" aria-label="Loading" data-testid="metadata-loading" />
+            ) : (
+              <span className="cell-loading-placeholder" aria-hidden="true">—</span>
+            )
           ) : metadataFailed ? (
             <span className="metadata-error" title="Failed to load metadata">✗</span>
           ) : (
