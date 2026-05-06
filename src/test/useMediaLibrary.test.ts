@@ -324,6 +324,86 @@ describe("useMediaLibrary", () => {
     expect(result.current[0].kind).toBe("idle");
   });
 
+  it("scan_complete with zero photos transitions from loading to loaded", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/empty");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => { await result.current[1].openFolder(); });
+    expect(result.current[0].kind).toBe("loading");
+
+    act(() => { mock.emitScanComplete(); });
+
+    const state = result.current[0];
+    expect(state.kind).toBe("loaded");
+    if (state.kind === "loaded") {
+      expect(state.photos).toEqual([]);
+      expect(state.scanning).toBe(false);
+      expect(state.folder).toBe("/empty");
+    }
+  });
+
+  it("scan_complete after photos arrive sets scanning to false", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/photos");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => { await result.current[1].openFolder(); });
+    act(() => { mock.emitPhotoFound(makePhoto({ relative_path: "a.jpg" })); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(150); });
+
+    let state = result.current[0];
+    if (state.kind === "loaded") expect(state.scanning).toBe(true);
+
+    act(() => { mock.emitScanComplete(); });
+
+    state = result.current[0];
+    if (state.kind === "loaded") expect(state.scanning).toBe(false);
+  });
+
+  it("metadataVersion increments only when sorted by an image metadata column", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/photos");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => { await result.current[1].openFolder(); });
+    act(() => { mock.emitPhotoFound(makePhoto({ relative_path: "a.jpg" })); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(150); });
+
+    // No primary sort: metadataVersion stays at 0 when metadata arrives
+    let state = result.current[0];
+    if (state.kind === "loaded") expect(state.metadataVersion).toBe(0);
+    act(() => { mock.emitImageMetadataReady("a.jpg", { "IFD0:Model": "Canon" }); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+    state = result.current[0];
+    if (state.kind === "loaded") expect(state.metadataVersion).toBe(0);
+
+    // Sort by an OS column: metadataVersion still does not increment
+    act(() => {
+      result.current[1].setSortConfig({
+        primary: { column: "date_modified", columnType: "os", direction: "asc" },
+        secondary: null,
+      });
+    });
+    act(() => { mock.emitPhotoFound(makePhoto({ relative_path: "b.jpg" })); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(150); });
+    act(() => { mock.emitImageMetadataReady("b.jpg", { "IFD0:Model": "Nikon" }); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+    state = result.current[0];
+    if (state.kind === "loaded") expect(state.metadataVersion).toBe(0);
+
+    // Sort by an image metadata column: metadataVersion increments on the next batch
+    act(() => {
+      result.current[1].setSortConfig({
+        primary: { column: "IFD0:Model", columnType: "image", direction: "asc" },
+        secondary: null,
+      });
+    });
+    act(() => { mock.emitPhotoFound(makePhoto({ relative_path: "c.jpg" })); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(150); });
+    act(() => { mock.emitImageMetadataReady("c.jpg", { "IFD0:Model": "Sony" }); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+    state = result.current[0];
+    if (state.kind === "loaded") expect(state.metadataVersion).toBeGreaterThan(0);
+  });
+
   it("closeFolder invokes stop_scan on the backend", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/photos");
