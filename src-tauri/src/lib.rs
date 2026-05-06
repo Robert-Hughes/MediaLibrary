@@ -73,6 +73,7 @@ struct ScanCompletePayload {
 
 #[derive(Clone, Serialize)]
 struct ScanErrorPayload {
+    scan_id: u64,
     message: String,
 }
 
@@ -198,6 +199,7 @@ fn start_scan(
 
         if !root.is_dir() {
             let _ = app_clone.emit("scan_error", ScanErrorPayload {
+                scan_id,
                 message: format!("{} is not a directory", folder_path),
             });
             clear_running(&app_clone);

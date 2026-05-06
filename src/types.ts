@@ -228,6 +228,7 @@ export interface ThumbnailReadyPayload {
 }
 
 export interface ScanErrorPayload {
+  scan_id: number;
   message: string;
 }
 

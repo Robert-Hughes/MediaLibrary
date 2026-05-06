@@ -379,6 +379,7 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
       const unlistenError = await api.listen("scan_error", (raw) => {
         if (cancelled) return;
         const payload = raw as ScanErrorPayload;
+        if (payload.scan_id !== activeScanIdRef.current) return;
         console.error("Scan error:", payload.message);
         setAppState({ kind: "idle" });
       });

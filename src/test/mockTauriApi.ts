@@ -18,7 +18,7 @@ export interface MockTauriApi {
   emitScanComplete: (scanId?: number) => void;
   emitImageMetadataReady: (relativePath: string, metadata: Record<string, Variant>, scanId?: number) => void;
   emitThumbnailReady: (relativePath: string, thumbnail: string, scanId?: number) => void;
-  emitScanError: (message: string) => void;
+  emitScanError: (message: string, scanId?: number) => void;
   emitWorkerError: (workerType: string, errorMessage: string, affectedFiles?: string[], scanId?: number) => void;
   lastPrioritizedPaths: string[];
   lastWindowTitle: string | null;
@@ -43,8 +43,11 @@ export function createMockTauriApi(): MockTauriApi {
       emit("image_metadata_ready", { scan_id: scanId ?? mock.currentScanId, results: [{ relative_path, metadata }] } satisfies ImageMetadataReadyPayload),
     emitThumbnailReady: (relative_path, thumbnail, scanId) =>
       emit("thumbnail_ready", { scan_id: scanId ?? mock.currentScanId, results: [{ relative_path, thumbnail }] } satisfies ThumbnailReadyPayload),
-    emitScanError: (message) =>
-      emit("scan_error", { message } satisfies ScanErrorPayload),
+    emitScanError: (message, scanId) =>
+      emit("scan_error", {
+        scan_id: scanId ?? mock.currentScanId,
+        message,
+      } satisfies ScanErrorPayload),
     emitWorkerError: (worker_type, error_message, affected_files = [], scanId) =>
       emit("worker_error", {
         scan_id: scanId ?? mock.currentScanId,
