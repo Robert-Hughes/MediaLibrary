@@ -174,6 +174,30 @@ describe("useMediaLibrary", () => {
     });
   });
 
+  it("scan_error during loading resets state to idle", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/photos");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => { await result.current[1].openFolder(); });
+    expect(result.current[0].kind).toBe("loading");
+
+    act(() => { mock.emitScanError("not a directory"); });
+    expect(result.current[0].kind).toBe("idle");
+  });
+
+  it("scan_error after photos have loaded resets state to idle", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/photos");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => { await result.current[1].openFolder(); });
+    act(() => { mock.emitPhotoFound(makePhoto({ relative_path: "a.jpg" })); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(150); });
+    expect(result.current[0].kind).toBe("loaded");
+
+    act(() => { mock.emitScanError("disk read failed"); });
+    expect(result.current[0].kind).toBe("idle");
+  });
+
   it("photo_found events after closeFolder are ignored", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/photos");
