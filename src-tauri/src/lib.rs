@@ -1,5 +1,5 @@
-mod scanner;
-mod work_queue;
+pub mod scanner;
+pub mod work_queue;
 
 use serde::Serialize;
 use std::sync::atomic::{AtomicBool, Ordering};
