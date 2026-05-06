@@ -1,8 +1,10 @@
 import type { PhotoInfo } from "../types";
 
-export function makePhoto(overrides: Partial<PhotoInfo> & { relative_path: string }): PhotoInfo {
+export function makePhoto(overrides: Partial<PhotoInfo> = {}): PhotoInfo {
+  const relative_path = overrides.relative_path ?? "photo.jpg";
   return {
-    filename: overrides.relative_path.split("/").pop() ?? overrides.relative_path,
+    relative_path,
+    filename: relative_path.split("/").pop() ?? relative_path,
     date_modified: null,
     date_created: null,
     ...overrides,
