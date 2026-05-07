@@ -479,6 +479,32 @@ describe("useMediaLibrary", () => {
     if (state.kind === "loaded") expect(state.metadataVersion).toBeGreaterThan(0);
   });
 
+  it("closeFolder cancels pending batch timers and drops buffered events", async () => {
+    // Buffer photos that are sitting in photoBufferRef waiting for the 100ms
+    // batch flush.  closeFolder should drop them so a stale flush doesn't
+    // try to apply them after the user has left the folder.
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/photos");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => { await result.current[1].openFolder(); });
+
+    // Get past the loading→loaded transition so we're in a state with timers.
+    act(() => { mock.emitPhotoFound(makePhoto({ relative_path: "a.jpg" })); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(150); });
+
+    // Queue more photos that are sitting in the buffer behind the timer.
+    act(() => { mock.emitPhotoFound(makePhoto({ relative_path: "b.jpg" })); });
+    act(() => { mock.emitPhotoFound(makePhoto({ relative_path: "c.jpg" })); });
+
+    // Close before the timer fires.
+    act(() => { result.current[1].closeFolder(); });
+    expect(result.current[0].kind).toBe("idle");
+
+    // Advance well past any timer interval — nothing should happen.
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    expect(result.current[0].kind).toBe("idle");
+  });
+
   it("closeFolder invokes stop_scan on the backend", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/photos");
