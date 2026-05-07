@@ -64,15 +64,22 @@ export function sortPhotos(
 /**
  * Decide whether sorting should be suspended right now.
  *
- * Suspended means: the photos list is shown in arrival order, and the
- * column-header indicators / sort-toggle clicks are hidden in the UI.
+ * Suspended means: the photos list is shown in arrival order and the
+ * column-header indicators are hidden in the UI.  Clicks on column headers
+ * are *not* blocked — the user must always be able to change the sort, even
+ * if the resulting sort is itself suspended.
  *
  * Two conditions trigger suspension:
  *  - the directory walk is still running, OR
- *  - the active sort depends on image metadata that hasn't fully arrived yet.
+ *  - the *primary* sort is by an image-metadata column and ExifTool data
+ *    hasn't fully arrived yet.
  *
- * Path / OS-metadata sorts continue to work the moment scanning ends — they
- * don't need ExifTool data.
+ * Only the primary is consulted: a secondary image sort is a tiebreaker, and
+ * during loading it just degrades gracefully (rows missing the secondary
+ * value sort to the end).  Checking secondary too made the user-visible
+ * behaviour confusing — clicking an OS column to escape an image sort would
+ * demote the image sort to secondary (per `nextSortConfig`) and still leave
+ * the UI suspended.
  */
 export function shouldSuspendSorting(
   scanning: boolean,
@@ -80,10 +87,8 @@ export function shouldSuspendSorting(
   metadataRemaining: number,
 ): boolean {
   if (scanning) return true;
-  const sortNeedsMetadata =
-    sortConfig.primary?.columnType === "image" ||
-    sortConfig.secondary?.columnType === "image";
-  return sortNeedsMetadata && metadataRemaining > 0;
+  const primaryNeedsMetadata = sortConfig.primary?.columnType === "image";
+  return primaryNeedsMetadata && metadataRemaining > 0;
 }
 
 /** Returns the next SortConfig when a column header is clicked. */

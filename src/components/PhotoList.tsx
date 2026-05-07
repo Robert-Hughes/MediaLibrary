@@ -345,9 +345,12 @@ export function PhotoList({
   }, [onSelectColumns]);
 
   const handleColumnClick = useCallback((column: string, columnType: "path" | "os" | "image") => {
-    if (sortingDisabled) return;
+    // Clicks are always honoured — sortingDisabled only governs whether the
+    // *resulting* sort applies and is shown.  Without this, once a user lands
+    // in a suspended state (e.g., image-column sort while metadata is still
+    // loading) they would be unable to click an OS column to escape it.
     onSortChange(nextSortConfig(sortConfig, column, columnType));
-  }, [onSortChange, sortConfig, sortingDisabled]);
+  }, [onSortChange, sortConfig]);
 
   const handleResizeStart = useCallback((e: React.PointerEvent, col: string) => {
     e.preventDefault();

@@ -44,8 +44,14 @@ describe("shouldSuspendSorting", () => {
     expect(shouldSuspendSorting(false, imageSort, 0)).toBe(false);
   });
 
-  it("an image-column secondary sort also suspends while metadata is pending", () => {
-    expect(shouldSuspendSorting(false, imageSecondary, 1)).toBe(true);
+  it("does NOT suspend when only the secondary is an image sort", () => {
+    // Secondary sorts are tiebreakers; during metadata loading the primary
+    // still applies fine and rows missing the secondary value just degrade
+    // to the primary order.  Suspending on secondary alone would trap users
+    // who promote an OS column to primary while an image sort was active —
+    // the image sort gets demoted to secondary by nextSortConfig and would
+    // otherwise keep the UI suspended.
+    expect(shouldSuspendSorting(false, imageSecondary, 1)).toBe(false);
     expect(shouldSuspendSorting(false, imageSecondary, 0)).toBe(false);
   });
 
@@ -419,17 +425,25 @@ describe("PhotoList sortingDisabled", () => {
     expect(document.querySelector(".sort-indicator--primary")?.textContent).toContain("▲");
   });
 
-  it("ignores header clicks while sortingDisabled — onSortChange is not called", async () => {
+  it("still honours header clicks while sortingDisabled (so users can change the sort)", async () => {
+    // Regression: previously the click handler short-circuited on
+    // sortingDisabled, which meant once the user landed in a suspended
+    // state (image sort + metadata pending), they couldn't click an OS
+    // column to switch to a sort that *would* apply.
     const onSortChange = vi.fn();
     const { thumbnails, imageMetadata } = makeSortStores();
+    const imagePrimary: SortConfig = {
+      primary: { column: "IFD0:Model", columnType: "image", direction: "asc" },
+      secondary: null,
+    };
     render(
       <PhotoList
         photos={mockPhotos}
         thumbnails={thumbnails}
         imageMetadata={imageMetadata}
-        visibleColumns={[]}
+        visibleColumns={["IFD0:Model"]}
         visibleOSColumns={["date_modified"]}
-        sortConfig={sortConfig}
+        sortConfig={imagePrimary}
         onSortChange={onSortChange}
         sortingDisabled
         selectedIndex={null}
@@ -440,6 +454,9 @@ describe("PhotoList sortingDisabled", () => {
       />
     );
     await userEvent.click(screen.getByText("Modified"));
-    expect(onSortChange).not.toHaveBeenCalled();
+    expect(onSortChange).toHaveBeenCalledWith({
+      primary: { column: "date_modified", columnType: "os", direction: "asc" },
+      secondary: { column: "IFD0:Model", columnType: "image", direction: "asc" },
+    });
   });
 });
