@@ -1,48 +1,13 @@
 pub mod scanner;
+pub mod util;
 pub mod work_queue;
 
 use serde::Serialize;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Condvar, Mutex, OnceLock};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, State};
 use work_queue::WorkQueue;
-
-// ── Timestamp helper ──────────────────────────────────────────────────────────
-
-fn get_timestamp() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap();
-    let millis = now.as_millis();
-    format!("{}.{:03}", millis / 1000, millis % 1000)
-}
-
-macro_rules! log_ts {
-    ($($arg:tt)*) => {
-        eprintln!("[{}] {}", get_timestamp(), format!($($arg)*))
-    };
-}
-
-// ── Verbosity helpers ──────────────────────────────────────────────────────────
-
-static VERBOSE: OnceLock<bool> = OnceLock::new();
-
-/// Returns true when MEDIA_LIBRARY_VERBOSE=1 (or any non-empty value) is set.
-/// Checked once on first call and cached for the lifetime of the process.
-pub(crate) fn is_verbose() -> bool {
-    *VERBOSE.get_or_init(|| std::env::var("MEDIA_LIBRARY_VERBOSE").is_ok())
-}
-
-/// Like log_ts! but only emits when MEDIA_LIBRARY_VERBOSE is set.
-macro_rules! log_verbose {
-    ($($arg:tt)*) => {
-        if $crate::is_verbose() {
-            eprintln!("[{}] [verbose] {}", get_timestamp(), format!($($arg)*))
-        }
-    };
-}
 
 // ── Shared state ──────────────────────────────────────────────────────────────
 
@@ -218,7 +183,7 @@ struct ThumbnailResult {
 
 #[tauri::command]
 fn log_to_console(level: String, message: String) {
-    let timestamp = get_timestamp();
+    let timestamp = util::timestamp();
     
     match level.as_str() {
         "log" => eprintln!("[{}] [JS LOG] {}", timestamp, message),

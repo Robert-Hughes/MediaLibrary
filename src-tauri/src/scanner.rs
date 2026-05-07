@@ -13,31 +13,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 use walkdir::WalkDir;
 
-// ── Timestamp helper ──────────────────────────────────────────────────────────
-
-fn get_timestamp() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap();
-    let millis = now.as_millis();
-    format!("{}.{:03}", millis / 1000, millis % 1000)
-}
-
-macro_rules! log_ts {
-    ($($arg:tt)*) => {
-        eprintln!("[{}] {}", get_timestamp(), format!($($arg)*))
-    };
-}
-
-/// Like log_ts! but only emits when MEDIA_LIBRARY_VERBOSE is set.
-macro_rules! log_verbose {
-    ($($arg:tt)*) => {
-        if crate::is_verbose() {
-            eprintln!("[{}] [verbose] {}", get_timestamp(), format!($($arg)*))
-        }
-    };
-}
+use crate::{log_ts, log_verbose};
 
 // ── ExifTool path cache ───────────────────────────────────────────────────────
 
