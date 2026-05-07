@@ -61,6 +61,31 @@ export function sortPhotos(
   });
 }
 
+/**
+ * Decide whether sorting should be suspended right now.
+ *
+ * Suspended means: the photos list is shown in arrival order, and the
+ * column-header indicators / sort-toggle clicks are hidden in the UI.
+ *
+ * Two conditions trigger suspension:
+ *  - the directory walk is still running, OR
+ *  - the active sort depends on image metadata that hasn't fully arrived yet.
+ *
+ * Path / OS-metadata sorts continue to work the moment scanning ends — they
+ * don't need ExifTool data.
+ */
+export function shouldSuspendSorting(
+  scanning: boolean,
+  sortConfig: SortConfig,
+  metadataRemaining: number,
+): boolean {
+  if (scanning) return true;
+  const sortNeedsMetadata =
+    sortConfig.primary?.columnType === "image" ||
+    sortConfig.secondary?.columnType === "image";
+  return sortNeedsMetadata && metadataRemaining > 0;
+}
+
 /** Returns the next SortConfig when a column header is clicked. */
 export function nextSortConfig(current: SortConfig, column: string, columnType: SortKey["columnType"]): SortConfig {
   const { primary } = current;

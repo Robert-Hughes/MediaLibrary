@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useSyncExternalStore } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useMediaLibrary, type TauriApi, type MediaLibraryActions } from "./useMediaLibrary";
@@ -11,7 +11,7 @@ import { GalleryView } from "./components/GalleryView";
 import { StatusFooter } from "./components/StatusFooter";
 import { ColumnSelectionDialog } from "./components/ColumnSelectionDialog";
 import { ErrorBanner } from "./components/ErrorBanner";
-import { sortPhotos } from "./utils/sorting";
+import { sortPhotos, shouldSuspendSorting } from "./utils/sorting";
 import { DEFAULT_COLUMNS, DEFAULT_OS_COLUMNS } from "./utils/columnConfig";
 import "./App.css";
 
@@ -39,18 +39,29 @@ function LoadedView({
   showColumnDialog: boolean;
   setShowColumnDialog: (v: boolean) => void;
 }) {
-  // While a scan is in progress we show photos in arrival order — sorting
-  // would re-run on every photo_found and image_metadata_ready batch, costing
-  // hundreds of full sorts per scan with no UX benefit (the list is incomplete
-  // anyway).  The final sort runs once on scan_complete when `scanning` flips
-  // to false.
+  // Subscribe to metadata progress so sorting unblocks once metadata loading
+  // completes, not just when the directory walk finishes.  Keeps re-renders
+  // here cheap — getRemaining() returns a number and the store batches
+  // notifications via queueMicrotask.
+  const metadataProgress = state.metadataProgress;
+  const metadataRemaining = useSyncExternalStore(
+    metadataProgress.subscribe.bind(metadataProgress),
+    metadataProgress.getSnapshot().bind(metadataProgress),
+  );
+
+  const sortingDisabled = shouldSuspendSorting(state.scanning, state.sortConfig, metadataRemaining);
+
+  // We show photos in arrival order whenever sorting is suspended — both
+  // during the directory walk and (for image-metadata sorts) while ExifTool
+  // is still streaming results.  Without this gate, an active image-column
+  // sort would re-run on every metadata batch (~50–125 full sorts per scan).
   const sortedPhotos = useMemo(
-    () => state.scanning
+    () => sortingDisabled
       ? state.photos
       : sortPhotos(state.photos, state.sortConfig, state.imageMetadata),
     // metadataVersion is the invalidation signal for image-metadata sorts
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state.photos, state.sortConfig, state.metadataVersion, state.imageMetadata, state.scanning],
+    [state.photos, state.sortConfig, state.metadataVersion, state.imageMetadata, sortingDisabled],
   );
 
   return (
@@ -76,7 +87,7 @@ function LoadedView({
         onOSColumnsReorder={actions.setVisibleOSColumns}
         sortConfig={state.sortConfig}
         onSortChange={actions.setSortConfig}
-        sortingDisabled={state.scanning}
+        sortingDisabled={sortingDisabled}
         selectedIndex={state.selectedIndex}
         onSelect={actions.selectPhoto}
         onShowInExplorer={actions.showInExplorer}
