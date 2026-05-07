@@ -435,6 +435,28 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
 
   const closeFolder = useCallback(() => {
     activeScanIdRef.current = -1;
+
+    // Cancel any pending batch flushes — they would still safely no-op against
+    // the idle state, but leaving timers running keeps closures alive past
+    // the scan they belong to and adds noise on next render.
+    if (batchTimerRef.current) {
+      clearTimeout(batchTimerRef.current);
+      batchTimerRef.current = null;
+    }
+    if (metadataBatchTimerRef.current) {
+      clearTimeout(metadataBatchTimerRef.current);
+      metadataBatchTimerRef.current = null;
+    }
+    if (thumbnailBatchTimerRef.current) {
+      clearTimeout(thumbnailBatchTimerRef.current);
+      thumbnailBatchTimerRef.current = null;
+    }
+
+    // Drop any buffered events that haven't been flushed yet.
+    photoBufferRef.current = [];
+    metadataBufferRef.current = [];
+    thumbnailBufferRef.current = [];
+
     setAppState({ kind: "idle" });
     api.invoke("stop_scan").catch(() => {});
     api.invoke("set_window_title", { title: "Media Library" }).catch(() => {});
