@@ -398,6 +398,42 @@ describe("useMediaLibrary", () => {
     if (state.kind === "loaded") expect(state.scanning).toBe(false);
   });
 
+  it("sortConfig persists across scan_complete (App applies sort once scanning ends)", async () => {
+    // We assert at the hook level that scanning flips false on scan_complete
+    // and sortConfig is preserved.  App.tsx skips sortPhotos while scanning
+    // is true and runs it once when scanning becomes false — the test in
+    // column-sorting verifies the PhotoList side of that contract.
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/photos");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => { await result.current[1].openFolder(); });
+    act(() => { mock.emitPhotoFound(makePhoto({ relative_path: "b.jpg" })); });
+    act(() => { mock.emitPhotoFound(makePhoto({ relative_path: "a.jpg" })); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(150); });
+
+    act(() => {
+      result.current[1].setSortConfig({
+        primary: { column: "relative_path", columnType: "path", direction: "asc" },
+        secondary: null,
+      });
+    });
+
+    let state = result.current[0];
+    if (state.kind === "loaded") {
+      expect(state.scanning).toBe(true);
+      expect(state.sortConfig.primary?.column).toBe("relative_path");
+    }
+
+    act(() => { mock.emitScanComplete(); });
+
+    state = result.current[0];
+    if (state.kind === "loaded") {
+      expect(state.scanning).toBe(false);
+      // Sort config preserved so App can apply it now that scanning has ended.
+      expect(state.sortConfig.primary?.column).toBe("relative_path");
+    }
+  });
+
   it("metadataVersion increments only when sorted by an image metadata column", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/photos");

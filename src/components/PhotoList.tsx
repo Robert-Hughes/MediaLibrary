@@ -19,6 +19,9 @@ interface Props {
   onOSColumnsReorder?: (columns: string[]) => void;
   sortConfig: SortConfig;
   onSortChange: (config: SortConfig) => void;
+  /** When true, sort-toggle clicks are ignored and the ▲/▼ markers are hidden.
+   *  Set during scanning to make it visually clear that sorting isn't active. */
+  sortingDisabled?: boolean;
   selectedIndex: number | null;
   onSelect: (index: number | null) => void;
   onShowInExplorer: (index: number) => void;
@@ -105,7 +108,8 @@ function ResizeHandle({ col, onResizeStart, onResizeMove, onResizeEnd, onReset }
   );
 }
 
-function SortIndicator({ column, sortConfig }: { column: string; sortConfig: SortConfig }) {
+function SortIndicator({ column, sortConfig, disabled }: { column: string; sortConfig: SortConfig; disabled?: boolean }) {
+  if (disabled) return null;
   const { primary, secondary } = sortConfig;
   if (primary?.column === column) {
     return <span className="sort-indicator sort-indicator--primary">{primary.direction === "asc" ? " ▲" : " ▼"}</span>;
@@ -120,6 +124,7 @@ interface HeaderProps {
   visibleColumns: string[];
   visibleOSColumns: string[];
   sortConfig: SortConfig;
+  sortingDisabled?: boolean;
   dragOver: { col: string; side: "before" | "after" } | null;
   onColumnContextMenu: (e: React.MouseEvent) => void;
   onColumnClick: (column: string, columnType: "path" | "os" | "image") => void;
@@ -141,7 +146,7 @@ const OS_COLUMN_LABELS: Record<string, string> = {
 
 function PhotoListHeader(props: HeaderProps) {
   const {
-    visibleColumns, visibleOSColumns, sortConfig, dragOver,
+    visibleColumns, visibleOSColumns, sortConfig, sortingDisabled, dragOver,
     onColumnContextMenu, onColumnClick,
     onResizeStart, onResizeMove, onResizeEnd, onResetWidth,
     onColDragStart, onColDragOver, onColDragLeave, onColDrop, onColDragEnd,
@@ -175,7 +180,7 @@ function PhotoListHeader(props: HeaderProps) {
         onClick={() => onColumnClick("relative_path", "path")}
       >
         Path
-        <SortIndicator column="relative_path" sortConfig={sortConfig} />
+        <SortIndicator column="relative_path" sortConfig={sortConfig} disabled={sortingDisabled} />
         <ResizeHandle col="relative_path" onResizeStart={onResizeStart} onResizeMove={onResizeMove} onResizeEnd={onResizeEnd} onReset={onResetWidth} />
       </div>
 
@@ -194,7 +199,7 @@ function PhotoListHeader(props: HeaderProps) {
           onClick={() => onColumnClick(col, "os")}
         >
           {OS_COLUMN_LABELS[col] ?? col}
-          <SortIndicator column={col} sortConfig={sortConfig} />
+          <SortIndicator column={col} sortConfig={sortConfig} disabled={sortingDisabled} />
           <ResizeHandle col={col} onResizeStart={onResizeStart} onResizeMove={onResizeMove} onResizeEnd={onResizeEnd} onReset={onResetWidth} />
         </div>
       ))}
@@ -214,7 +219,7 @@ function PhotoListHeader(props: HeaderProps) {
           onClick={() => onColumnClick(col, "image")}
         >
           {col}
-          <SortIndicator column={col} sortConfig={sortConfig} />
+          <SortIndicator column={col} sortConfig={sortConfig} disabled={sortingDisabled} />
           <ResizeHandle col={col} onResizeStart={onResizeStart} onResizeMove={onResizeMove} onResizeEnd={onResizeEnd} onReset={onResetWidth} />
         </div>
       ))}
@@ -226,7 +231,7 @@ export function PhotoList({
   photos, thumbnails, imageMetadata, visibleColumns, visibleOSColumns,
   columnWidths = {}, onColumnWidthChange,
   onColumnsReorder, onOSColumnsReorder,
-  sortConfig, onSortChange,
+  sortConfig, onSortChange, sortingDisabled,
   selectedIndex, onSelect, onShowInExplorer, onVisibilityChange, onPhotoOpen, onSelectColumns
 }: Props) {
   const listRef = useRef<HTMLDivElement>(null);
@@ -340,8 +345,9 @@ export function PhotoList({
   }, [onSelectColumns]);
 
   const handleColumnClick = useCallback((column: string, columnType: "path" | "os" | "image") => {
+    if (sortingDisabled) return;
     onSortChange(nextSortConfig(sortConfig, column, columnType));
-  }, [onSortChange, sortConfig]);
+  }, [onSortChange, sortConfig, sortingDisabled]);
 
   const handleResizeStart = useCallback((e: React.PointerEvent, col: string) => {
     e.preventDefault();
@@ -478,7 +484,7 @@ export function PhotoList({
   const [columnContextMenu, setColumnContextMenu] = useState<{ x: number, y: number } | null>(null);
 
   const headerProps: HeaderProps = {
-    visibleColumns, visibleOSColumns, sortConfig, dragOver,
+    visibleColumns, visibleOSColumns, sortConfig, sortingDisabled, dragOver,
     onColumnContextMenu: handleColumnContextMenu,
     onColumnClick: handleColumnClick,
     onResizeStart: handleResizeStart,

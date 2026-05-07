@@ -39,11 +39,18 @@ function LoadedView({
   showColumnDialog: boolean;
   setShowColumnDialog: (v: boolean) => void;
 }) {
+  // While a scan is in progress we show photos in arrival order — sorting
+  // would re-run on every photo_found and image_metadata_ready batch, costing
+  // hundreds of full sorts per scan with no UX benefit (the list is incomplete
+  // anyway).  The final sort runs once on scan_complete when `scanning` flips
+  // to false.
   const sortedPhotos = useMemo(
-    () => sortPhotos(state.photos, state.sortConfig, state.imageMetadata),
+    () => state.scanning
+      ? state.photos
+      : sortPhotos(state.photos, state.sortConfig, state.imageMetadata),
     // metadataVersion is the invalidation signal for image-metadata sorts
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state.photos, state.sortConfig, state.metadataVersion, state.imageMetadata],
+    [state.photos, state.sortConfig, state.metadataVersion, state.imageMetadata, state.scanning],
   );
 
   return (
@@ -69,6 +76,7 @@ function LoadedView({
         onOSColumnsReorder={actions.setVisibleOSColumns}
         sortConfig={state.sortConfig}
         onSortChange={actions.setSortConfig}
+        sortingDisabled={state.scanning}
         selectedIndex={state.selectedIndex}
         onSelect={actions.selectPhoto}
         onShowInExplorer={actions.showInExplorer}

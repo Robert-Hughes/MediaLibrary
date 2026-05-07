@@ -318,3 +318,80 @@ describe("PhotoList sort indicator", () => {
     expect(document.querySelector(".sort-indicator--secondary")?.textContent).toContain("▼");
   });
 });
+
+describe("PhotoList sortingDisabled", () => {
+  const sortConfig: SortConfig = {
+    primary: { column: "date_modified", columnType: "os", direction: "asc" },
+    secondary: null,
+  };
+
+  it("hides ▲/▼ indicators when sortingDisabled is true", () => {
+    const { thumbnails, imageMetadata } = makeSortStores();
+    render(
+      <PhotoList
+        photos={mockPhotos}
+        thumbnails={thumbnails}
+        imageMetadata={imageMetadata}
+        visibleColumns={[]}
+        visibleOSColumns={["date_modified"]}
+        sortConfig={sortConfig}
+        onSortChange={() => {}}
+        sortingDisabled
+        selectedIndex={null}
+        onSelect={() => {}}
+        onShowInExplorer={() => {}}
+        onVisibilityChange={() => {}}
+        onPhotoOpen={() => {}}
+      />
+    );
+    expect(document.querySelector(".sort-indicator--primary")).toBeNull();
+    expect(document.querySelector(".sort-indicator--secondary")).toBeNull();
+  });
+
+  it("shows the indicators again once sortingDisabled flips back to false", () => {
+    const { thumbnails, imageMetadata } = makeSortStores();
+    const props = {
+      photos: mockPhotos,
+      thumbnails,
+      imageMetadata,
+      visibleColumns: [],
+      visibleOSColumns: ["date_modified"],
+      sortConfig,
+      onSortChange: () => {},
+      selectedIndex: null,
+      onSelect: () => {},
+      onShowInExplorer: () => {},
+      onVisibilityChange: () => {},
+      onPhotoOpen: () => {},
+    };
+    const { rerender } = render(<PhotoList {...props} sortingDisabled />);
+    expect(document.querySelector(".sort-indicator--primary")).toBeNull();
+
+    rerender(<PhotoList {...props} sortingDisabled={false} />);
+    expect(document.querySelector(".sort-indicator--primary")?.textContent).toContain("▲");
+  });
+
+  it("ignores header clicks while sortingDisabled — onSortChange is not called", async () => {
+    const onSortChange = vi.fn();
+    const { thumbnails, imageMetadata } = makeSortStores();
+    render(
+      <PhotoList
+        photos={mockPhotos}
+        thumbnails={thumbnails}
+        imageMetadata={imageMetadata}
+        visibleColumns={[]}
+        visibleOSColumns={["date_modified"]}
+        sortConfig={sortConfig}
+        onSortChange={onSortChange}
+        sortingDisabled
+        selectedIndex={null}
+        onSelect={() => {}}
+        onShowInExplorer={() => {}}
+        onVisibilityChange={() => {}}
+        onPhotoOpen={() => {}}
+      />
+    );
+    await userEvent.click(screen.getByText("Modified"));
+    expect(onSortChange).not.toHaveBeenCalled();
+  });
+});
