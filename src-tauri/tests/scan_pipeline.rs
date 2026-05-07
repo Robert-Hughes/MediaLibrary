@@ -83,7 +83,7 @@ fn walk_feeds_queues_and_workers_drain_them_with_no_loss() {
         scanner::scan_folder(&root, walk_cancel, |photo| {
             walk_metadata.push(photo.relative_path.clone());
             walk_thumb.push(photo.relative_path);
-        });
+        }, |_| {});
     });
 
     walk.join().unwrap();
@@ -140,7 +140,7 @@ fn cancellation_during_walk_shuts_pipeline_down_cleanly() {
         scanner::scan_folder(&root, walk_cancel, |photo| {
             walk_metadata.push(photo.relative_path.clone());
             walk_thumb.push(photo.relative_path);
-        });
+        }, |_| {});
     });
 
     // Cancel almost immediately, simulating the user switching folders.
