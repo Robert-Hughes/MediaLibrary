@@ -475,12 +475,26 @@ fn start_scan(
         let image_metadata_queue_walk = image_metadata_queue.clone();
         let thumb_queue_walk = thumb_queue.clone();
         
+        let app_walk_err = app_clone.clone();
         let walk_handle = std::thread::spawn(move || {
-            scanner::scan_folder(&root, cancel_walk, |photo| {
-                image_metadata_queue_walk.push(photo.relative_path.clone());
-                thumb_queue_walk.push(photo.relative_path.clone());
-                photo_queue_clone.lock().unwrap().push(photo);
-            });
+            scanner::scan_folder(
+                &root,
+                cancel_walk,
+                |photo| {
+                    image_metadata_queue_walk.push(photo.relative_path.clone());
+                    thumb_queue_walk.push(photo.relative_path.clone());
+                    photo_queue_clone.lock().unwrap().push(photo);
+                },
+                |err| {
+                    log_ts!("[walk] error: {} ({:?})", err.message, err.path);
+                    let _ = app_walk_err.emit("worker_error", WorkerErrorPayload {
+                        scan_id,
+                        worker_type: "scanner".to_string(),
+                        error_message: err.message,
+                        affected_files: err.path.into_iter().collect(),
+                    });
+                },
+            );
             walk_complete_clone.store(true, Ordering::Relaxed);
         });
         

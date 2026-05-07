@@ -90,6 +90,15 @@ pub struct PhotoInfo {
     pub date_created: Option<i64>,
 }
 
+/// A directory-walk failure (permission denied, broken symlink, IO error,
+/// etc.).  Reported per-entry — the walk continues past the failure.
+#[derive(Debug, Clone)]
+pub struct WalkErrorInfo {
+    /// The path that produced the error, if WalkDir was able to identify it.
+    pub path: Option<String>,
+    pub message: String,
+}
+
 /// A value in the image metadata.
 /// Can be a string, a number, or a list of variants.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -111,9 +120,19 @@ pub struct ImageMetadata {
 /// Walk `folder` and call `on_photo` for each image file found.
 /// Only reads OS metadata (a cheap `stat` call) — no image I/O.
 /// Checks `cancellation_flag` and stops early if set to true.
-pub fn scan_folder<F>(folder: &Path, cancellation_flag: Arc<AtomicBool>, mut on_photo: F)
+///
+/// Per-entry walk failures (permission denied, broken symlink, etc.) are
+/// reported via `on_error` — they previously were silently dropped, leaving
+/// the user wondering why files in a folder didn't appear.
+pub fn scan_folder<P, E>(
+    folder: &Path,
+    cancellation_flag: Arc<AtomicBool>,
+    mut on_photo: P,
+    mut on_error: E,
+)
 where
-    F: FnMut(PhotoInfo),
+    P: FnMut(PhotoInfo),
+    E: FnMut(WalkErrorInfo),
 {
     for entry in WalkDir::new(folder).follow_links(false) {
         if cancellation_flag.load(Ordering::Relaxed) {
@@ -122,7 +141,13 @@ where
 
         let entry = match entry {
             Ok(e) => e,
-            Err(_) => continue,
+            Err(err) => {
+                on_error(WalkErrorInfo {
+                    path: err.path().map(|p| p.to_string_lossy().into_owned()),
+                    message: err.to_string(),
+                });
+                continue;
+            }
         };
 
         if !entry.file_type().is_file() {
@@ -428,7 +453,7 @@ mod tests {
 
     fn collect(folder: &Path) -> Vec<PhotoInfo> {
         let mut photos = Vec::new();
-        scan_folder(folder, Arc::new(AtomicBool::new(false)), |p| photos.push(p));
+        scan_folder(folder, Arc::new(AtomicBool::new(false)), |p| photos.push(p), |_| {});
         photos.sort_by(|a, b| a.relative_path.cmp(&b.relative_path));
         photos
     }
@@ -482,7 +507,7 @@ mod tests {
         fs::write(dir.path().join("b.jpg"), b"x").unwrap();
         fs::write(dir.path().join("c.jpg"), b"x").unwrap();
         let mut count = 0;
-        scan_folder(dir.path(), Arc::new(AtomicBool::new(false)), |_| count += 1);
+        scan_folder(dir.path(), Arc::new(AtomicBool::new(false)), |_| count += 1, |_| {});
         assert_eq!(count, 3);
     }
 
@@ -533,6 +558,36 @@ mod tests {
         assert!(!result.unwrap().is_empty());
     }
     
+    #[test]
+    fn walk_errors_are_reported_via_on_error_callback() {
+        // Walking a path that doesn't exist produces one WalkDir error.
+        // Previously these were silently dropped — the user would never know
+        // a folder was unreadable.
+        let mut errors = Vec::new();
+        scan_folder(
+            Path::new("D:/this-path-definitely-does-not-exist-_xyz_999"),
+            Arc::new(AtomicBool::new(false)),
+            |_| {},
+            |e| errors.push(e),
+        );
+        assert!(!errors.is_empty(), "expected at least one WalkErrorInfo for a missing root");
+        assert!(!errors[0].message.is_empty());
+    }
+
+    #[test]
+    fn happy_path_walk_does_not_invoke_on_error(){
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("a.jpg"), b"x").unwrap();
+        let mut errors = 0;
+        scan_folder(
+            dir.path(),
+            Arc::new(AtomicBool::new(false)),
+            |_| {},
+            |_| errors += 1,
+        );
+        assert_eq!(errors, 0);
+    }
+
     #[test]
     fn parse_exiftool_json_test() {
         let json = r#"[{"SourceFile": "D:/test.jpg", "Number": 13.5, "String": "Yes", "List": ["A"]}]"#;
