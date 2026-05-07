@@ -4,8 +4,56 @@ import { describe, it, expect, vi } from "vitest";
 import { PhotoList } from "../components/PhotoList";
 import { ThumbnailStore, ImageMetadataStore } from "../types";
 import type { PhotoInfo, SortConfig } from "../types";
-import { sortPhotos, nextSortConfig } from "../utils/sorting";
+import { sortPhotos, nextSortConfig, shouldSuspendSorting } from "../utils/sorting";
 import { makePhoto } from "./factories";
+
+// ── shouldSuspendSorting ──────────────────────────────────────────────────────
+
+describe("shouldSuspendSorting", () => {
+  const noSort: SortConfig = { primary: null, secondary: null };
+  const pathSort: SortConfig = {
+    primary: { column: "relative_path", columnType: "path", direction: "asc" },
+    secondary: null,
+  };
+  const osSort: SortConfig = {
+    primary: { column: "date_modified", columnType: "os", direction: "asc" },
+    secondary: null,
+  };
+  const imageSort: SortConfig = {
+    primary: { column: "IFD0:Model", columnType: "image", direction: "asc" },
+    secondary: null,
+  };
+  const imageSecondary: SortConfig = {
+    primary: { column: "relative_path", columnType: "path", direction: "asc" },
+    secondary: { column: "IFD0:Model", columnType: "image", direction: "asc" },
+  };
+
+  it("suspends while scanning regardless of sort or metadata state", () => {
+    expect(shouldSuspendSorting(true, noSort, 0)).toBe(true);
+    expect(shouldSuspendSorting(true, pathSort, 0)).toBe(true);
+    expect(shouldSuspendSorting(true, imageSort, 0)).toBe(true);
+  });
+
+  it("path/OS sorts work the moment scanning ends, even with metadata still pending", () => {
+    expect(shouldSuspendSorting(false, pathSort, 5000)).toBe(false);
+    expect(shouldSuspendSorting(false, osSort, 5000)).toBe(false);
+  });
+
+  it("image-column primary sort stays suspended until metadata is fully loaded", () => {
+    expect(shouldSuspendSorting(false, imageSort, 1)).toBe(true);
+    expect(shouldSuspendSorting(false, imageSort, 0)).toBe(false);
+  });
+
+  it("an image-column secondary sort also suspends while metadata is pending", () => {
+    expect(shouldSuspendSorting(false, imageSecondary, 1)).toBe(true);
+    expect(shouldSuspendSorting(false, imageSecondary, 0)).toBe(false);
+  });
+
+  it("no sort: never suspended once scanning ends", () => {
+    expect(shouldSuspendSorting(false, noSort, 1000)).toBe(false);
+    expect(shouldSuspendSorting(false, noSort, 0)).toBe(false);
+  });
+});
 
 // ── sorting utility unit tests ─────────────────────────────────────────────────
 

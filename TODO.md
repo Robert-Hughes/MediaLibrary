@@ -7,19 +7,12 @@ are covered by integration tests that simulate UI interaction and confirm that t
 Now
 ===
 
-* (GOOD MODEL) - Do a full review of the app's code (not features), including but not limited to:
-  * the loading/scanning/worker threads with potential sync/race conditions and the potential of getting into broken state
-  * Overall architecture, design of batching, use of React and virtualised DOM and best practices for handling large tables and updates.
-  * Graceful handling of errors and not getting into weird states with errors, or when scans are cancelled due to switching folder or closing the app.
-  * Performance issues, e.g. where we're repeating the same work many times or have any scaling O(N^2)
-  * The layout of the source code and the size/responsibilities of each module/file
-  * The test coverage - are there areas or logic missing tests? Are there lots of repeated/redundant tests? Do the tests properly test the parts of the app they purport to, or do they mock so much that they're pointless?
-
 * Got findings, working through fixing them.
  Currently on 3. Performance, done all except:
    sortPhotos re-runs on every photo batch AND every metadata batch
-   prioritize() is O(N×M): builds a HashSet from the full queue
 
+
+* Briefly seeing a frame of wrong columns when open a folder (with non-default columns saved)
 
 
 Later- *** DO NOT WORK ON ANY OF THE BELOW FEATURES ***
