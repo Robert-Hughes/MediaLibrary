@@ -16,12 +16,12 @@ describe("PhotoList prioritization optimization", () => {
 
   let thumbnailStore: ThumbnailStore;
   let metadataStore: ImageMetadataStore;
-  let onVisibilityChangeMock: ReturnType<typeof vi.fn>;
+  let onVisibilityChangeMock: ReturnType<typeof vi.fn<(paths: string[]) => void>>;
 
   beforeEach(() => {
     thumbnailStore = new ThumbnailStore();
     metadataStore = new ImageMetadataStore();
-    onVisibilityChangeMock = vi.fn();
+    onVisibilityChangeMock = vi.fn<(paths: string[]) => void>();
 
     // Add all photos to stores (they start in "loading" state)
     mockPhotos.forEach(photo => {
