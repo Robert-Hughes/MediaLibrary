@@ -7,11 +7,6 @@ are covered by integration tests that simulate UI interaction and confirm that t
 Now
 ===
 
-* Got findings, working through fixing them.
- Currently on 3. Performance, done all except:
-   sortPhotos re-runs on every photo batch AND every metadata batch
-
-
 * Briefly seeing a frame of wrong columns when open a folder (with non-default columns saved)
 
 
