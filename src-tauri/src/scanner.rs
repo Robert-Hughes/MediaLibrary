@@ -256,11 +256,25 @@ pub fn read_image_metadata_batch(
 }
 
 fn parse_exiftool_batch_json(
-    json: &str, 
+    json: &str,
     rel_paths: &[String],
     abs_paths: &[std::path::PathBuf],
 ) -> Vec<ImageMetadata> {
-    let list: Vec<HashMap<String, Variant>> = serde_json::from_str(json).unwrap_or_default();
+    let list: Vec<HashMap<String, Variant>> = match serde_json::from_str(json) {
+        Ok(v) => v,
+        Err(e) => {
+            // Without this log, an unparseable ExifTool response silently
+            // produced empty metadata for every file in the batch with no
+            // indication why.  Include a short prefix of the offending JSON
+            // so the cause is diagnosable from the log.
+            let preview: String = json.chars().take(200).collect();
+            log_ts!(
+                "[parse_exiftool] Failed to parse ExifTool JSON ({} files affected): {}. First 200 chars: {:?}",
+                rel_paths.len(), e, preview
+            );
+            Vec::new()
+        }
+    };
     
     // Map ExifTool output by SourceFile
     let mut map_by_source = HashMap::new();
