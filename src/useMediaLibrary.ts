@@ -37,6 +37,42 @@ export interface MediaLibraryActions {
 
 const RECENT_FOLDERS_KEY = "media_library_recent_folders";
 const MAX_RECENT_FOLDERS = 5;
+
+/**
+ * Decide whether to flush the buffer now or schedule a deferred flush.
+ *
+ * The first flush of a stream goes immediately (so the UI shows results as
+ * soon as the first event lands), and any flush where the buffer has
+ * accumulated `flushAtCount` items also goes immediately (to keep memory
+ * bounded under heavy load).  Otherwise we defer for `debounceMs` so a
+ * burst of small events coalesces into one React update.
+ *
+ * Used by three near-identical handlers (photo_found, image_metadata_ready,
+ * thumbnail_ready); extracted so they share the same coalescing semantics.
+ */
+function scheduleBatchedFlush(
+  bufferLength: number,
+  timerRef: { current: ReturnType<typeof setTimeout> | null },
+  isFirstFlushRef: { current: boolean },
+  flush: () => void,
+  debounceMs: number,
+  flushAtCount = 50,
+) {
+  const shouldFlushNow = isFirstFlushRef.current || bufferLength >= flushAtCount;
+  if (shouldFlushNow) {
+    isFirstFlushRef.current = false;
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+    flush();
+  } else if (!timerRef.current) {
+    timerRef.current = setTimeout(() => {
+      timerRef.current = null;
+      flush();
+    }, debounceMs);
+  }
+}
 /** Cap on retained worker errors. A misconfigured ExifTool or a bad folder
  *  can produce thousands of failures; without a cap the array grows unbounded
  *  and bloats React state.  Most-recent-N is what the user can act on. */
@@ -256,22 +292,13 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
           photoBufferRef.current.push(photo);
         }
 
-        const shouldFlushNow = isFirstFlushRef.current || 
-                             photoBufferRef.current.length >= 50;
-
-        if (shouldFlushNow) {
-          isFirstFlushRef.current = false;
-          if (batchTimerRef.current) {
-            clearTimeout(batchTimerRef.current);
-            batchTimerRef.current = null;
-          }
-          flushBatch();
-        } else if (!batchTimerRef.current) {
-          batchTimerRef.current = setTimeout(() => {
-            batchTimerRef.current = null;
-            flushBatch();
-          }, 100);
-        }
+        scheduleBatchedFlush(
+          photoBufferRef.current.length,
+          batchTimerRef,
+          isFirstFlushRef,
+          flushBatch,
+          100,
+        );
       });
 
       const unlistenComplete = await api.listen("scan_complete", (raw) => {
@@ -330,26 +357,14 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
         if (scan_id !== activeScanIdRef.current) return;
         console.log(`[metadata] received ${results.length} results`);
 
-        // Buffer metadata events instead of processing individually
         metadataBufferRef.current.push(...results);
-
-        const shouldFlushNow = isFirstMetadataFlushRef.current ||
-                             metadataBufferRef.current.length >= 50;
-
-        if (shouldFlushNow) {
-          isFirstMetadataFlushRef.current = false;
-          if (metadataBatchTimerRef.current) {
-            clearTimeout(metadataBatchTimerRef.current);
-            metadataBatchTimerRef.current = null;
-          }
-          flushMetadataBatch();
-        } else if (!metadataBatchTimerRef.current) {
-          // Use longer interval (200ms) to reduce update frequency
-          metadataBatchTimerRef.current = setTimeout(() => {
-            metadataBatchTimerRef.current = null;
-            flushMetadataBatch();
-          }, 200);
-        }
+        scheduleBatchedFlush(
+          metadataBufferRef.current.length,
+          metadataBatchTimerRef,
+          isFirstMetadataFlushRef,
+          flushMetadataBatch,
+          200,
+        );
       });
 
       const unlistenThumbnail = await api.listen("thumbnail_ready", (raw) => {
@@ -358,26 +373,14 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
         if (scan_id !== activeScanIdRef.current) return;
         console.log(`[thumbnail] received ${results.length} results`);
 
-        // Buffer thumbnail events instead of processing individually
         thumbnailBufferRef.current.push(...results);
-
-        const shouldFlushNow = isFirstThumbnailFlushRef.current ||
-                             thumbnailBufferRef.current.length >= 50;
-
-        if (shouldFlushNow) {
-          isFirstThumbnailFlushRef.current = false;
-          if (thumbnailBatchTimerRef.current) {
-            clearTimeout(thumbnailBatchTimerRef.current);
-            thumbnailBatchTimerRef.current = null;
-          }
-          flushThumbnailBatch();
-        } else if (!thumbnailBatchTimerRef.current) {
-          // Use longer interval (200ms) to reduce update frequency
-          thumbnailBatchTimerRef.current = setTimeout(() => {
-            thumbnailBatchTimerRef.current = null;
-            flushThumbnailBatch();
-          }, 200);
-        }
+        scheduleBatchedFlush(
+          thumbnailBufferRef.current.length,
+          thumbnailBatchTimerRef,
+          isFirstThumbnailFlushRef,
+          flushThumbnailBatch,
+          200,
+        );
       });
 
       const unlistenError = await api.listen("scan_error", (raw) => {
