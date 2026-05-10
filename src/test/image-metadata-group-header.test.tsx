@@ -50,7 +50,7 @@ describe("PhotoList per-column kind labels", () => {
       />
     );
     expect(screen.getByText("Image")).toBeInTheDocument();
-    expect(screen.getByText("OS")).toBeInTheDocument();
+    expect(screen.getAllByText("OS")).toHaveLength(2);
   });
 
   it("does not render any 'Image' kind label when no image columns are enabled", () => {
@@ -72,7 +72,7 @@ describe("PhotoList per-column kind labels", () => {
     expect(screen.queryByText("Image")).not.toBeInTheDocument();
   });
 
-  it("renders no kind labels in empty-state when no metadata columns are enabled", () => {
+  it("renders only the Path OS kind label in empty-state when no metadata columns are enabled", () => {
     const thumbnails = new ThumbnailStore();
     const imageMetadata = new ImageMetadataStore();
     render(
@@ -90,7 +90,35 @@ describe("PhotoList per-column kind labels", () => {
       />
     );
     expect(screen.queryByText("Image")).not.toBeInTheDocument();
-    expect(screen.queryByText("OS")).not.toBeInTheDocument();
+    expect(screen.getAllByText("OS")).toHaveLength(1);
+  });
+
+  it("formats Preview and Path with the same two-line header layout", () => {
+    const { thumbnails, imageMetadata } = makeStores(mockPhotos);
+    render(
+      <PhotoList
+        photos={mockPhotos}
+        thumbnails={thumbnails}
+        imageMetadata={imageMetadata}
+        visibleColumns={[imgCol("ExifIFD:DateTimeOriginal")]}
+        selectedIndex={null}
+        onSelect={() => {}}
+        onShowInExplorer={() => {}}
+        onVisibilityChange={() => {}}
+        {...defaultSortProps}
+        onPhotoOpen={() => {}}
+      />
+    );
+
+    const previewHeader = screen.getByText("Preview").closest(".grid-header") as HTMLElement;
+    const pathHeader = screen.getByText("Path").closest(".grid-header") as HTMLElement;
+
+    expect(previewHeader).toHaveClass("grid-header--metadata");
+    expect(pathHeader).toHaveClass("grid-header--metadata");
+    expect(previewHeader.style.gridRow).toBe("1 / 3");
+    expect(pathHeader.style.gridRow).toBe("1 / 3");
+    expect(pathHeader.querySelector(".grid-header-kind")?.textContent).toBe("OS");
+    expect(previewHeader.querySelector(".grid-header-kind--empty")).toBeInTheDocument();
   });
 
   it("renders one 'Image' label per image column when multiple image columns are enabled", () => {
@@ -133,7 +161,8 @@ describe("PhotoList kind-label context menu", () => {
       />
     );
 
-    await userEvent.pointer({ keys: "[MouseRight]", target: screen.getByText("OS") });
+    const osKindLabels = screen.getAllByText("OS");
+    await userEvent.pointer({ keys: "[MouseRight]", target: osKindLabels[1] });
     expect(screen.getByText("Select Columns...")).toBeInTheDocument();
   });
 
@@ -179,7 +208,8 @@ describe("PhotoList kind-label context menu", () => {
       />
     );
 
-    await userEvent.pointer({ keys: "[MouseRight]", target: screen.getByText("OS") });
+    const osKindLabels = screen.getAllByText("OS");
+    await userEvent.pointer({ keys: "[MouseRight]", target: osKindLabels[1] });
     await userEvent.click(screen.getByText("Select Columns..."));
     expect(onSelectColumns).toHaveBeenCalledTimes(1);
   });
