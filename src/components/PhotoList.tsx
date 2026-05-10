@@ -515,7 +515,7 @@ export function PhotoList({
     );
   }
 
-  const totalSize = rowVirtualizer.getTotalSize();
+  const totalSize = photos.length * rowHeight;
 
   return (
     <div className="photo-table-wrapper" ref={listRef} onClick={() => { setContextMenu(null); setColumnContextMenu(null); }} onDragOver={handleWrapperDragOver}>
@@ -551,7 +551,7 @@ export function PhotoList({
                 onSelect={onSelect}
                 onPhotoOpen={onPhotoOpen}
                 onContextMenu={handleContextMenu}
-                virtualStart={virtualRow.start}
+                virtualStart={virtualRow.index * rowHeight}
               />
             );
           })}
