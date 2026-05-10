@@ -376,6 +376,31 @@ body {
   background: var(--surface-hover, #2a2a2a);
 }
 
+.grid-header--metadata {
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  padding: 5px 8px 6px;
+}
+
+.grid-header-kind {
+  display: block;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  line-height: 1.1;
+}
+
+.grid-header-label {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .grid-header--drop-before {
   border-left: 2px solid var(--accent);
   background: color-mix(in srgb, var(--accent) 12%, transparent);

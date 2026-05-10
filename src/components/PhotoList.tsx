@@ -118,22 +118,12 @@ function PhotoListHeader(props: HeaderProps) {
     return `grid-header grid-header--sortable${drop}`;
   };
 
-  // Row 1: Preview spans rows 1-3; Path's row-1 cell is empty; each metadata
-  // column gets its own small "OS"/"Image" tag. Row 2: sortable label cells.
+  // Metadata headers span both header rows so the kind label and column label
+  // share one click/drag/drop target.
   return (
     <>
       <div className="grid-header-group grid-cell-thumb" style={{ gridRow: "1 / 3" }}>Preview</div>
       <div className="grid-header-group grid-header-group--empty" style={{ gridRow: 1, gridColumn: 2 }} />
-      {visibleColumns.map((col, i) => (
-        <div
-          key={`kind-${col.key}`}
-          className="grid-header-group grid-header-group--kind"
-          style={{ gridRow: 1, gridColumn: 3 + i }}
-          onContextMenu={onColumnContextMenu}
-        >
-          {KIND_LABELS[col.kind]}
-        </div>
-      ))}
 
       <div className="grid-header grid-cell-thumb" style={{ gridRow: 2, gridColumn: 1 }} />
       <div
@@ -152,8 +142,8 @@ function PhotoListHeader(props: HeaderProps) {
         return (
           <div
             key={col.key}
-            className={headerClass(col.key)}
-            style={{ gridRow: 2, gridColumn: 3 + i }}
+            className={`${headerClass(col.key)} grid-header--metadata`}
+            style={{ gridRow: "1 / 3", gridColumn: 3 + i }}
             draggable
             onDragStart={(e) => onColDragStart(e, col.key)}
             onDragOver={(e) => onColDragOver(e, col.key)}
@@ -163,8 +153,11 @@ function PhotoListHeader(props: HeaderProps) {
             onContextMenu={onColumnContextMenu}
             onClick={() => onColumnClick(col.key, col.kind)}
           >
-            {label}
-            <SortIndicator column={col.key} sortConfig={sortConfig} disabled={sortingDisabled} />
+            <span className="grid-header-kind">{KIND_LABELS[col.kind]}</span>
+            <span className="grid-header-label">
+              {label}
+              <SortIndicator column={col.key} sortConfig={sortConfig} disabled={sortingDisabled} />
+            </span>
             <ResizeHandle col={col.key} onResizeStart={onResizeStart} onResizeMove={onResizeMove} onResizeEnd={onResizeEnd} onReset={onResetWidth} />
           </div>
         );
