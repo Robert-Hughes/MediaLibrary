@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { vi } from "vitest";
 import { ColumnSelectionDialog } from "../components/ColumnSelectionDialog";
+import { DEFAULT_COLUMNS, DEFAULT_OS_COLUMNS } from "../utils/columnConfig";
 
 describe("ColumnSelectionDialog Select All / Deselect All", () => {
   const allKeys = [
@@ -140,5 +141,59 @@ describe("ColumnSelectionDialog Select All / Deselect All", () => {
     // Save and verify no columns are selected
     await userEvent.click(screen.getByText("Save Changes"));
     expect(onSave).toHaveBeenCalledWith([], []);
+  });
+
+  it("renders Default button", () => {
+    render(
+      <ColumnSelectionDialog
+        allKeys={allKeys}
+        visibleColumns={[]}
+        visibleOSColumns={[]}
+        onSave={() => {}}
+        onClose={() => {}}
+      />
+    );
+    expect(screen.getByText("Default")).toBeInTheDocument();
+  });
+
+  it("Default button resets selection to DEFAULT_COLUMNS and DEFAULT_OS_COLUMNS", async () => {
+    const onSave = vi.fn();
+    render(
+      <ColumnSelectionDialog
+        allKeys={allKeys}
+        visibleColumns={["IFD0:Model", "IFD0:Make"]}
+        visibleOSColumns={[]}
+        onSave={onSave}
+        onClose={() => {}}
+      />
+    );
+
+    await userEvent.click(screen.getByText("Default"));
+    await userEvent.click(screen.getByText("Save Changes"));
+
+    expect(onSave).toHaveBeenCalledWith(DEFAULT_COLUMNS, DEFAULT_OS_COLUMNS);
+  });
+
+  it("Default button preserves column order matching DEFAULT_COLUMNS", async () => {
+    const onSave = vi.fn();
+    // allKeys includes XMP-dc:Subject which is in DEFAULT_COLUMNS at index 2
+    render(
+      <ColumnSelectionDialog
+        allKeys={[...allKeys, { key: "ExifIFD:DateTimeOriginal", count: 3 }]}
+        visibleColumns={["IFD0:Model"]}
+        visibleOSColumns={[]}
+        onSave={onSave}
+        onClose={() => {}}
+      />
+    );
+
+    await userEvent.click(screen.getByText("Default"));
+    await userEvent.click(screen.getByText("Save Changes"));
+
+    const [savedColumns] = onSave.mock.calls[0];
+    // ExifIFD:DateTimeOriginal is first in DEFAULT_COLUMNS, XMP-dc:Subject is third
+    expect(savedColumns.indexOf("ExifIFD:DateTimeOriginal")).toBeLessThan(
+      savedColumns.indexOf("XMP-dc:Subject")
+    );
   });
 });
