@@ -57,7 +57,7 @@ function buildGridTemplate(
 ): string {
   const w = (key: string, def: string) => widths[key] ? `${widths[key]}px` : def;
   return [
-    "52px",
+    w("preview", "52px"),
     w("relative_path", "minmax(200px, 2fr)"),
     ...visibleColumns.map((c) =>
       w(c.key, c.kind === "os" ? "minmax(120px, 1fr)" : "minmax(150px, 1fr)"),
@@ -133,6 +133,7 @@ function PhotoListHeader(props: HeaderProps) {
       >
         <span className="grid-header-kind grid-header-kind--empty" aria-hidden="true" />
         <span className="grid-header-label">Preview</span>
+        <ResizeHandle col="preview" onResizeStart={onResizeStart} onResizeMove={onResizeMove} onResizeEnd={onResizeEnd} onReset={onResetWidth} />
       </div>
       <div
         className="grid-header grid-header--sortable grid-header--metadata"
