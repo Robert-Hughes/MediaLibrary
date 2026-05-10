@@ -237,8 +237,7 @@ describe("PhotoList sort indicator", () => {
         photos={mockPhotos}
         thumbnails={thumbnails}
         imageMetadata={imageMetadata}
-        visibleColumns={[]}
-        visibleOSColumns={["date_modified"]}
+        visibleColumns={[{ key: "date_modified", kind: "os" }]}
         sortConfig={{ primary: null, secondary: null }}
         onSortChange={() => {}}
         selectedIndex={null}
@@ -258,8 +257,7 @@ describe("PhotoList sort indicator", () => {
         photos={mockPhotos}
         thumbnails={thumbnails}
         imageMetadata={imageMetadata}
-        visibleColumns={[]}
-        visibleOSColumns={["date_modified"]}
+        visibleColumns={[{ key: "date_modified", kind: "os" }]}
         sortConfig={{ primary: { column: "date_modified", columnType: "os", direction: "asc" }, secondary: null }}
         onSortChange={() => {}}
         selectedIndex={null}
@@ -281,8 +279,7 @@ describe("PhotoList sort indicator", () => {
         photos={mockPhotos}
         thumbnails={thumbnails}
         imageMetadata={imageMetadata}
-        visibleColumns={[]}
-        visibleOSColumns={["date_modified"]}
+        visibleColumns={[{ key: "date_modified", kind: "os" }]}
         sortConfig={{ primary: { column: "date_modified", columnType: "os", direction: "desc" }, secondary: null }}
         onSortChange={() => {}}
         selectedIndex={null}
@@ -303,8 +300,7 @@ describe("PhotoList sort indicator", () => {
         photos={mockPhotos}
         thumbnails={thumbnails}
         imageMetadata={imageMetadata}
-        visibleColumns={[]}
-        visibleOSColumns={["date_modified"]}
+        visibleColumns={[{ key: "date_modified", kind: "os" }]}
         sortConfig={{ primary: null, secondary: null }}
         onSortChange={onSortChange}
         selectedIndex={null}
@@ -329,8 +325,7 @@ describe("PhotoList sort indicator", () => {
         photos={mockPhotos}
         thumbnails={thumbnails}
         imageMetadata={imageMetadata}
-        visibleColumns={[]}
-        visibleOSColumns={["date_modified"]}
+        visibleColumns={[{ key: "date_modified", kind: "os" }]}
         sortConfig={{ primary: { column: "date_modified", columnType: "os", direction: "asc" }, secondary: null }}
         onSortChange={onSortChange}
         selectedIndex={null}
@@ -354,8 +349,10 @@ describe("PhotoList sort indicator", () => {
         photos={mockPhotos}
         thumbnails={thumbnails}
         imageMetadata={imageMetadata}
-        visibleColumns={[]}
-        visibleOSColumns={["date_modified", "date_created"]}
+        visibleColumns={[
+          { key: "date_modified", kind: "os" },
+          { key: "date_created", kind: "os" },
+        ]}
         sortConfig={{
           primary: { column: "date_modified", columnType: "os", direction: "asc" },
           secondary: { column: "date_created", columnType: "os", direction: "desc" },
@@ -386,8 +383,7 @@ describe("PhotoList sortingDisabled", () => {
         photos={mockPhotos}
         thumbnails={thumbnails}
         imageMetadata={imageMetadata}
-        visibleColumns={[]}
-        visibleOSColumns={["date_modified"]}
+        visibleColumns={[{ key: "date_modified", kind: "os" }]}
         sortConfig={sortConfig}
         onSortChange={() => {}}
         sortingDisabled
@@ -408,8 +404,7 @@ describe("PhotoList sortingDisabled", () => {
       photos: mockPhotos,
       thumbnails,
       imageMetadata,
-      visibleColumns: [],
-      visibleOSColumns: ["date_modified"],
+      visibleColumns: [{ key: "date_modified", kind: "os" as const }],
       sortConfig,
       onSortChange: () => {},
       selectedIndex: null,
@@ -441,8 +436,10 @@ describe("PhotoList sortingDisabled", () => {
         photos={mockPhotos}
         thumbnails={thumbnails}
         imageMetadata={imageMetadata}
-        visibleColumns={["IFD0:Model"]}
-        visibleOSColumns={["date_modified"]}
+        visibleColumns={[
+          { key: "date_modified", kind: "os" },
+          { key: "IFD0:Model", kind: "image" },
+        ]}
         sortConfig={imagePrimary}
         onSortChange={onSortChange}
         sortingDisabled

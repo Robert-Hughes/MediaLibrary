@@ -14,10 +14,9 @@ describe("ColumnSelectionDialog alphabetical sorting", () => {
     const { container } = render(
       <ColumnSelectionDialog 
         allKeys={allKeys} 
-        visibleColumns={[]} 
-        visibleOSColumns={[]} 
-        onSave={() => {}} 
-        onClose={() => {}} 
+        visibleColumns={[]}
+        onSave={() => {}}
+        onClose={() => {}}
       />
     );
 
@@ -57,10 +56,9 @@ describe("ColumnSelectionDialog alphabetical sorting", () => {
     const { container } = render(
       <ColumnSelectionDialog 
         allKeys={allKeys} 
-        visibleColumns={[]} 
-        visibleOSColumns={[]} 
-        onSave={() => {}} 
-        onClose={() => {}} 
+        visibleColumns={[]}
+        onSave={() => {}}
+        onClose={() => {}}
       />
     );
 
@@ -90,10 +88,9 @@ describe("ColumnSelectionDialog alphabetical sorting", () => {
     const { container } = render(
       <ColumnSelectionDialog 
         allKeys={allKeys} 
-        visibleColumns={[]} 
-        visibleOSColumns={[]} 
-        onSave={() => {}} 
-        onClose={() => {}} 
+        visibleColumns={[]}
+        onSave={() => {}}
+        onClose={() => {}}
       />
     );
 

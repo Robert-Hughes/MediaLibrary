@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { vi } from "vitest";
 import { ColumnSelectionDialog } from "../components/ColumnSelectionDialog";
+import type { VisibleColumn } from "../types";
 
 describe("ColumnSelectionDialog OS Metadata", () => {
   const allKeys = [
@@ -9,14 +10,18 @@ describe("ColumnSelectionDialog OS Metadata", () => {
     { key: "IFD0:Make", count: 8 },
   ];
 
+  const cols = (...arr: VisibleColumn[]): VisibleColumn[] => arr;
+
   it("renders OS metadata section with checkboxes", () => {
     render(
-      <ColumnSelectionDialog 
-        allKeys={allKeys} 
-        visibleColumns={[]} 
-        visibleOSColumns={["date_modified", "date_created"]} 
-        onSave={() => {}} 
-        onClose={() => {}} 
+      <ColumnSelectionDialog
+        allKeys={allKeys}
+        visibleColumns={cols(
+          { key: "date_modified", kind: "os" },
+          { key: "date_created", kind: "os" },
+        )}
+        onSave={() => {}}
+        onClose={() => {}}
       />
     );
 
@@ -28,87 +33,83 @@ describe("ColumnSelectionDialog OS Metadata", () => {
 
   it("shows OS columns as checked when they are visible", () => {
     render(
-      <ColumnSelectionDialog 
-        allKeys={allKeys} 
-        visibleColumns={[]} 
-        visibleOSColumns={["date_modified", "date_created"]} 
-        onSave={() => {}} 
-        onClose={() => {}} 
+      <ColumnSelectionDialog
+        allKeys={allKeys}
+        visibleColumns={cols(
+          { key: "date_modified", kind: "os" },
+          { key: "date_created", kind: "os" },
+        )}
+        onSave={() => {}}
+        onClose={() => {}}
       />
     );
 
     const checkboxes = screen.getAllByRole("checkbox") as HTMLInputElement[];
-    const modifiedCheckbox = checkboxes.find(c => c.nextSibling?.textContent === "Date Modified");
-    const createdCheckbox = checkboxes.find(c => c.nextSibling?.textContent === "Date Created");
-    
-    expect(modifiedCheckbox?.checked).toBe(true);
-    expect(createdCheckbox?.checked).toBe(true);
+    expect(checkboxes.find(c => c.nextSibling?.textContent === "Date Modified")?.checked).toBe(true);
+    expect(checkboxes.find(c => c.nextSibling?.textContent === "Date Created")?.checked).toBe(true);
   });
 
   it("shows OS columns as unchecked when they are not visible", () => {
     render(
-      <ColumnSelectionDialog 
-        allKeys={allKeys} 
-        visibleColumns={[]} 
-        visibleOSColumns={[]} 
-        onSave={() => {}} 
-        onClose={() => {}} 
+      <ColumnSelectionDialog
+        allKeys={allKeys}
+        visibleColumns={[]}
+        onSave={() => {}}
+        onClose={() => {}}
       />
     );
 
     const checkboxes = screen.getAllByRole("checkbox") as HTMLInputElement[];
-    const modifiedCheckbox = checkboxes.find(c => c.nextSibling?.textContent === "Date Modified");
-    const createdCheckbox = checkboxes.find(c => c.nextSibling?.textContent === "Date Created");
-    
-    expect(modifiedCheckbox?.checked).toBe(false);
-    expect(createdCheckbox?.checked).toBe(false);
+    expect(checkboxes.find(c => c.nextSibling?.textContent === "Date Modified")?.checked).toBe(false);
+    expect(checkboxes.find(c => c.nextSibling?.textContent === "Date Created")?.checked).toBe(false);
   });
 
   it("calls onSave with updated OS column selection", async () => {
     const onSave = vi.fn();
     render(
-      <ColumnSelectionDialog 
-        allKeys={allKeys} 
-        visibleColumns={["IFD0:Model"]} 
-        visibleOSColumns={["date_modified"]} 
-        onSave={onSave} 
-        onClose={() => {}} 
+      <ColumnSelectionDialog
+        allKeys={allKeys}
+        visibleColumns={cols(
+          { key: "date_modified", kind: "os" },
+          { key: "IFD0:Model", kind: "image" },
+        )}
+        onSave={onSave}
+        onClose={() => {}}
       />
     );
 
-    // Toggle Date Created on
-    const createdLabel = screen.getByText("Date Created");
-    await userEvent.click(createdLabel);
-    
+    await userEvent.click(screen.getByText("Date Created"));
     await userEvent.click(screen.getByText("Save Changes"));
-    expect(onSave).toHaveBeenCalledWith(
-      ["IFD0:Model"],
-      expect.arrayContaining(["date_modified", "date_created"]),
-      false
-    );
+
+    const [saved] = onSave.mock.calls[0];
+    const keys = (saved as VisibleColumn[]).map((c) => c.key);
+    expect(keys).toEqual(expect.arrayContaining(["date_modified", "date_created", "IFD0:Model"]));
   });
 
   it("calls onSave with updated OS column deselection", async () => {
     const onSave = vi.fn();
     render(
-      <ColumnSelectionDialog 
-        allKeys={allKeys} 
-        visibleColumns={["IFD0:Model"]} 
-        visibleOSColumns={["date_modified", "date_created"]} 
-        onSave={onSave} 
-        onClose={() => {}} 
+      <ColumnSelectionDialog
+        allKeys={allKeys}
+        visibleColumns={cols(
+          { key: "date_modified", kind: "os" },
+          { key: "date_created", kind: "os" },
+          { key: "IFD0:Model", kind: "image" },
+        )}
+        onSave={onSave}
+        onClose={() => {}}
       />
     );
 
-    // Toggle Date Modified off
-    const modifiedLabel = screen.getByText("Date Modified");
-    await userEvent.click(modifiedLabel);
-    
+    await userEvent.click(screen.getByText("Date Modified"));
     await userEvent.click(screen.getByText("Save Changes"));
+
     expect(onSave).toHaveBeenCalledWith(
-      ["IFD0:Model"],
-      ["date_created"],
-      false
+      [
+        { key: "date_created", kind: "os" },
+        { key: "IFD0:Model", kind: "image" },
+      ],
+      false,
     );
   });
 });

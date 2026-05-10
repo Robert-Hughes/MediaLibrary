@@ -7,18 +7,15 @@ are covered by integration tests that simulate UI interaction and confirm that t
 Now
 ===
 
-* Briefly seeing a frame of wrong columns when open a folder (with non-default columns saved)
 
 
-Later- *** DO NOT WORK ON ANY OF THE BELOW FEATURES ***
+
+Later- *** DO NOT WORK ON ANY \OF THE BELOW FEATURES ***
 =====
-
-* When loading metadata still and we have the spinner at the top, show the progress (e.g. X out of Y)
 
 * Allow mixing and matching of different column types. Show the OS/Image header on each colum instead.
   * Swapping createdf/mnodified currently doesn't work (headers change, data doesn't)
 
-* On the Select Columns dialog, next to the Select All and Deselect All buttons, add a Default button that resets the selected columns (and their order) to the default
 
 * The gallery view that shows a single image should have a details pane on the right hand side which shows a big table of all the properties of the image, including
 all the Image metadata.

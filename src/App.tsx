@@ -79,11 +79,9 @@ function LoadedView({
         thumbnails={state.thumbnails}
         imageMetadata={state.imageMetadata}
         visibleColumns={state.visibleColumns}
-        visibleOSColumns={state.visibleOSColumns}
         columnWidths={state.columnWidths}
         onColumnWidthChange={actions.updateColumnWidth}
         onColumnsReorder={actions.setVisibleColumns}
-        onOSColumnsReorder={actions.setVisibleOSColumns}
         sortConfig={state.sortConfig}
         onSortChange={actions.setSortConfig}
         sortingDisabled={sortingDisabled}
@@ -108,10 +106,8 @@ function LoadedView({
         <ColumnSelectionDialog
           allKeys={Array.from(state.imageMetadata.getKeyFrequency().entries()).map(([key, count]) => ({ key, count }))}
           visibleColumns={state.visibleColumns}
-          visibleOSColumns={state.visibleOSColumns}
-          onSave={(cols, osCols, resetWidths) => {
+          onSave={(cols, resetWidths) => {
             actions.setVisibleColumns(cols);
-            actions.setVisibleOSColumns(osCols);
             if (resetWidths) actions.resetColumnWidths();
             setShowColumnDialog(false);
           }}
@@ -183,7 +179,6 @@ export default function App() {
             thumbnails={new ThumbnailStore()}
             imageMetadata={new ImageMetadataStore()}
             visibleColumns={state.visibleColumns}
-            visibleOSColumns={state.visibleOSColumns}
             columnWidths={state.columnWidths}
             sortConfig={state.sortConfig}
             onSortChange={() => {}}

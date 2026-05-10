@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { vi } from "vitest";
 import { ColumnSelectionDialog } from "../components/ColumnSelectionDialog";
+import type { VisibleColumn } from "../types";
 
 describe("ColumnSelectionDialog keyboard shortcuts", () => {
   const allKeys = [
@@ -9,21 +10,25 @@ describe("ColumnSelectionDialog keyboard shortcuts", () => {
     { key: "IFD0:Make", count: 8 },
   ];
 
+  const cols = (...arr: VisibleColumn[]): VisibleColumn[] => arr;
+
   it("closes dialog when Escape key is pressed", async () => {
     const onClose = vi.fn();
     const onSave = vi.fn();
 
     render(
-      <ColumnSelectionDialog 
-        allKeys={allKeys} 
-        visibleColumns={["IFD0:Model"]} 
-        visibleOSColumns={["date_modified", "date_created"]} 
-        onSave={onSave} 
-        onClose={onClose} 
+      <ColumnSelectionDialog
+        allKeys={allKeys}
+        visibleColumns={cols(
+          { key: "date_modified", kind: "os" },
+          { key: "date_created", kind: "os" },
+          { key: "IFD0:Model", kind: "image" },
+        )}
+        onSave={onSave}
+        onClose={onClose}
       />
     );
 
-    // Press Escape key
     await userEvent.keyboard("{Escape}");
 
     expect(onClose).toHaveBeenCalledTimes(1);
@@ -35,22 +40,27 @@ describe("ColumnSelectionDialog keyboard shortcuts", () => {
     const onSave = vi.fn();
 
     render(
-      <ColumnSelectionDialog 
-        allKeys={allKeys} 
-        visibleColumns={["IFD0:Model"]} 
-        visibleOSColumns={["date_modified", "date_created"]} 
-        onSave={onSave} 
-        onClose={onClose} 
+      <ColumnSelectionDialog
+        allKeys={allKeys}
+        visibleColumns={cols(
+          { key: "date_modified", kind: "os" },
+          { key: "date_created", kind: "os" },
+          { key: "IFD0:Model", kind: "image" },
+        )}
+        onSave={onSave}
+        onClose={onClose}
       />
     );
 
-    // Press Enter key
     await userEvent.keyboard("{Enter}");
 
     expect(onSave).toHaveBeenCalledWith(
-      ["IFD0:Model"],
-      ["date_modified", "date_created"],
-      false
+      [
+        { key: "date_modified", kind: "os" },
+        { key: "date_created", kind: "os" },
+        { key: "IFD0:Model", kind: "image" },
+      ],
+      false,
     );
     expect(onClose).not.toHaveBeenCalled();
   });
@@ -60,31 +70,31 @@ describe("ColumnSelectionDialog keyboard shortcuts", () => {
     const onSave = vi.fn();
 
     render(
-      <ColumnSelectionDialog 
-        allKeys={allKeys} 
-        visibleColumns={["IFD0:Model"]} 
-        visibleOSColumns={["date_modified"]} 
-        onSave={onSave} 
-        onClose={onClose} 
+      <ColumnSelectionDialog
+        allKeys={allKeys}
+        visibleColumns={cols(
+          { key: "date_modified", kind: "os" },
+          { key: "IFD0:Model", kind: "image" },
+        )}
+        onSave={onSave}
+        onClose={onClose}
       />
     );
 
-    // Toggle IFD0:Make on
-    const makeLabel = screen.getByText("IFD0:Make");
-    await userEvent.click(makeLabel);
+    await userEvent.click(screen.getByText("IFD0:Make"));
+    await userEvent.click(screen.getByText("Date Created"));
 
-    // Toggle Date Created on
-    const createdLabel = screen.getByText("Date Created");
-    await userEvent.click(createdLabel);
-
-    // Press Enter key
     await userEvent.keyboard("{Enter}");
 
-    expect(onSave).toHaveBeenCalledWith(
-      expect.arrayContaining(["IFD0:Model", "IFD0:Make"]),
-      expect.arrayContaining(["date_modified", "date_created"]),
-      false
-    );
+    expect(onSave).toHaveBeenCalledTimes(1);
+    const [savedCols, resetWidths] = onSave.mock.calls[0];
+    expect(resetWidths).toBe(false);
+    expect(savedCols).toEqual(expect.arrayContaining([
+      { key: "date_modified", kind: "os" },
+      { key: "date_created", kind: "os" },
+      { key: "IFD0:Model", kind: "image" },
+      { key: "IFD0:Make", kind: "image" },
+    ]));
   });
 
   it("keyboard shortcuts work when dialog has focus", async () => {
@@ -92,20 +102,17 @@ describe("ColumnSelectionDialog keyboard shortcuts", () => {
     const onSave = vi.fn();
 
     render(
-      <ColumnSelectionDialog 
-        allKeys={allKeys} 
-        visibleColumns={[]} 
-        visibleOSColumns={[]} 
-        onSave={onSave} 
-        onClose={onClose} 
+      <ColumnSelectionDialog
+        allKeys={allKeys}
+        visibleColumns={[]}
+        onSave={onSave}
+        onClose={onClose}
       />
     );
 
-    // Focus on the dialog
     const dialog = screen.getByTestId("column-dialog");
     dialog.focus();
 
-    // Press Escape
     await userEvent.keyboard("{Escape}");
 
     expect(onClose).toHaveBeenCalledTimes(1);

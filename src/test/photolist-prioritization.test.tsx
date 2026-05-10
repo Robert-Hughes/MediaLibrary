@@ -36,8 +36,11 @@ describe("PhotoList prioritization optimization", () => {
         photos={mockPhotos}
         thumbnails={thumbnailStore}
         imageMetadata={metadataStore}
-        visibleColumns={["ExifIFD:DateTimeOriginal"]}
-        visibleOSColumns={["date_modified", "date_created"]}
+        visibleColumns={[
+          { key: "date_modified", kind: "os" },
+          { key: "date_created", kind: "os" },
+          { key: "ExifIFD:DateTimeOriginal", kind: "image" },
+        ]}
         {...defaultSortProps}
         selectedIndex={null}
         onSelect={() => {}}
@@ -64,8 +67,11 @@ describe("PhotoList prioritization optimization", () => {
         photos={mockPhotos}
         thumbnails={thumbnailStore}
         imageMetadata={metadataStore}
-        visibleColumns={["ExifIFD:DateTimeOriginal"]}
-        visibleOSColumns={["date_modified", "date_created"]}
+        visibleColumns={[
+          { key: "date_modified", kind: "os" },
+          { key: "date_created", kind: "os" },
+          { key: "ExifIFD:DateTimeOriginal", kind: "image" },
+        ]}
         {...defaultSortProps}
         selectedIndex={null}
         onSelect={() => {}}
@@ -95,8 +101,11 @@ describe("PhotoList prioritization optimization", () => {
         photos={mockPhotos}
         thumbnails={thumbnailStore}
         imageMetadata={metadataStore}
-        visibleColumns={["ExifIFD:DateTimeOriginal"]}
-        visibleOSColumns={["date_modified", "date_created"]}
+        visibleColumns={[
+          { key: "date_modified", kind: "os" },
+          { key: "date_created", kind: "os" },
+          { key: "ExifIFD:DateTimeOriginal", kind: "image" },
+        ]}
         {...defaultSortProps}
         selectedIndex={null}
         onSelect={() => {}}
@@ -123,8 +132,11 @@ describe("PhotoList prioritization optimization", () => {
         photos={mockPhotos}
         thumbnails={thumbnailStore}
         imageMetadata={metadataStore}
-        visibleColumns={["ExifIFD:DateTimeOriginal"]}
-        visibleOSColumns={["date_modified", "date_created"]}
+        visibleColumns={[
+          { key: "date_modified", kind: "os" },
+          { key: "date_created", kind: "os" },
+          { key: "ExifIFD:DateTimeOriginal", kind: "image" },
+        ]}
         {...defaultSortProps}
         selectedIndex={null}
         onSelect={() => {}}
@@ -152,8 +164,11 @@ describe("PhotoList prioritization optimization", () => {
         photos={mockPhotos}
         thumbnails={thumbnailStore}
         imageMetadata={metadataStore}
-        visibleColumns={["ExifIFD:DateTimeOriginal"]}
-        visibleOSColumns={["date_modified", "date_created"]}
+        visibleColumns={[
+          { key: "date_modified", kind: "os" },
+          { key: "date_created", kind: "os" },
+          { key: "ExifIFD:DateTimeOriginal", kind: "image" },
+        ]}
         {...defaultSortProps}
         selectedIndex={null}
         onSelect={() => {}}
@@ -179,8 +194,11 @@ describe("PhotoList prioritization optimization", () => {
         photos={mockPhotos}
         thumbnails={thumbnailStore}
         imageMetadata={metadataStore}
-        visibleColumns={["ExifIFD:DateTimeOriginal"]}
-        visibleOSColumns={["date_modified", "date_created"]}
+        visibleColumns={[
+          { key: "date_modified", kind: "os" },
+          { key: "date_created", kind: "os" },
+          { key: "ExifIFD:DateTimeOriginal", kind: "image" },
+        ]}
         {...defaultSortProps}
         selectedIndex={null}
         onSelect={() => {}}
@@ -207,8 +225,11 @@ describe("PhotoList prioritization optimization", () => {
         photos={mockPhotos}
         thumbnails={thumbnailStore}
         imageMetadata={metadataStore}
-        visibleColumns={["ExifIFD:DateTimeOriginal"]}
-        visibleOSColumns={["date_modified", "date_created"]}
+        visibleColumns={[
+          { key: "date_modified", kind: "os" },
+          { key: "date_created", kind: "os" },
+          { key: "ExifIFD:DateTimeOriginal", kind: "image" },
+        ]}
         {...defaultSortProps}
         selectedIndex={null}
         onSelect={() => {}}
@@ -245,7 +266,6 @@ describe("initial-kickstart prioritization fires once per scan", () => {
           thumbnails={thumbs}
           imageMetadata={metadata}
           visibleColumns={[]}
-          visibleOSColumns={[]}
           {...defaultSortProps}
           selectedIndex={null}
           onSelect={() => {}}

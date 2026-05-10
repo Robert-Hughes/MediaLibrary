@@ -18,10 +18,9 @@ describe("ColumnSelectionDialog search functionality", () => {
     render(
       <ColumnSelectionDialog 
         allKeys={allKeys} 
-        visibleColumns={[]} 
-        visibleOSColumns={[]} 
-        onSave={() => {}} 
-        onClose={() => {}} 
+        visibleColumns={[]}
+        onSave={() => {}}
+        onClose={() => {}}
       />
     );
 
@@ -33,10 +32,9 @@ describe("ColumnSelectionDialog search functionality", () => {
     render(
       <ColumnSelectionDialog 
         allKeys={allKeys} 
-        visibleColumns={[]} 
-        visibleOSColumns={[]} 
-        onSave={() => {}} 
-        onClose={() => {}} 
+        visibleColumns={[]}
+        onSave={() => {}}
+        onClose={() => {}}
       />
     );
 
@@ -55,10 +53,9 @@ describe("ColumnSelectionDialog search functionality", () => {
     render(
       <ColumnSelectionDialog 
         allKeys={allKeys} 
-        visibleColumns={[]} 
-        visibleOSColumns={[]} 
-        onSave={() => {}} 
-        onClose={() => {}} 
+        visibleColumns={[]}
+        onSave={() => {}}
+        onClose={() => {}}
       />
     );
 
@@ -77,10 +74,9 @@ describe("ColumnSelectionDialog search functionality", () => {
     render(
       <ColumnSelectionDialog 
         allKeys={allKeys} 
-        visibleColumns={[]} 
-        visibleOSColumns={[]} 
-        onSave={() => {}} 
-        onClose={() => {}} 
+        visibleColumns={[]}
+        onSave={() => {}}
+        onClose={() => {}}
       />
     );
 
@@ -97,10 +93,9 @@ describe("ColumnSelectionDialog search functionality", () => {
     render(
       <ColumnSelectionDialog 
         allKeys={allKeys} 
-        visibleColumns={[]} 
-        visibleOSColumns={[]} 
-        onSave={() => {}} 
-        onClose={() => {}} 
+        visibleColumns={[]}
+        onSave={() => {}}
+        onClose={() => {}}
       />
     );
 
@@ -125,10 +120,9 @@ describe("ColumnSelectionDialog search functionality", () => {
     render(
       <ColumnSelectionDialog 
         allKeys={allKeys} 
-        visibleColumns={[]} 
-        visibleOSColumns={[]} 
-        onSave={onSave} 
-        onClose={() => {}} 
+        visibleColumns={[]}
+        onSave={onSave}
+        onClose={() => {}}
       />
     );
 
@@ -145,9 +139,8 @@ describe("ColumnSelectionDialog search functionality", () => {
     await userEvent.click(screen.getByText("Save Changes"));
 
     expect(onSave).toHaveBeenCalledWith(
-      ["GPS:GPSLatitude"],
-      [],
-      false
+      [{ key: "GPS:GPSLatitude", kind: "image" }],
+      false,
     );
   });
 
@@ -155,10 +148,9 @@ describe("ColumnSelectionDialog search functionality", () => {
     render(
       <ColumnSelectionDialog 
         allKeys={allKeys} 
-        visibleColumns={[]} 
-        visibleOSColumns={[]} 
-        onSave={() => {}} 
-        onClose={() => {}} 
+        visibleColumns={[]}
+        onSave={() => {}}
+        onClose={() => {}}
       />
     );
 

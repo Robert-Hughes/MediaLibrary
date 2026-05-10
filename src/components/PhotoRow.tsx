@@ -1,5 +1,5 @@
 import { memo, useCallback, useSyncExternalStore } from "react";
-import type { ImageMetadataStore, PhotoInfo, ThumbnailStore, Variant } from "../types";
+import type { ImageMetadataStore, PhotoInfo, ThumbnailStore, Variant, VisibleColumn } from "../types";
 import { Spinner } from "./Spinner";
 
 function formatDate(ts: number | null): string {
@@ -17,14 +17,19 @@ function formatVariant(v: Variant | undefined): string {
   return "—";
 }
 
+function osValue(photo: PhotoInfo, key: string): number | null {
+  if (key === "date_modified") return photo.date_modified;
+  if (key === "date_created") return photo.date_created;
+  return null;
+}
+
 interface RowProps {
   photo: PhotoInfo;
   index: number;
   selected: boolean;
   thumbnails: ThumbnailStore;
   imageMetadata: ImageMetadataStore;
-  visibleColumns: string[];
-  visibleOSColumns: string[];
+  visibleColumns: VisibleColumn[];
   onSelect: (index: number | null) => void;
   onPhotoOpen: (index: number) => void;
   onContextMenu: (e: React.MouseEvent, index: number) => void;
@@ -32,7 +37,7 @@ interface RowProps {
 }
 
 export const PhotoRow = memo(function PhotoRow({
-  photo, index, selected, thumbnails, imageMetadata, visibleColumns, visibleOSColumns,
+  photo, index, selected, thumbnails, imageMetadata, visibleColumns,
   onSelect, onPhotoOpen, onContextMenu, virtualStart
 }: RowProps) {
   const subscribeThumb = useCallback((cb: () => void) => thumbnails.subscribe(photo.relative_path, cb), [thumbnails, photo.relative_path]);
@@ -55,6 +60,10 @@ export const PhotoRow = memo(function PhotoRow({
   const handleContextMenuEvent = useCallback((e: React.MouseEvent) => onContextMenu(e, index), [onContextMenu, index]);
 
   const rowClass = `photo-row ${index % 2 === 0 ? "photo-row--even" : "photo-row--odd"} ${selected ? "photo-row--selected" : ""}`;
+
+  // Index of the first image-metadata cell — used to place exactly one spinner
+  // per row while metadata is loading (per-cell spinners were O(rows × cols)).
+  const firstImageIdx = visibleColumns.findIndex((c) => c.kind === "image");
 
   return (
     <div
@@ -89,29 +98,40 @@ export const PhotoRow = memo(function PhotoRow({
         </div>
       </div>
       <div className="grid-cell grid-cell-path" data-col="relative_path" data-testid="photo-path">{photo.relative_path}</div>
-      {visibleOSColumns.includes("date_modified") && (
-        <div className="grid-cell grid-cell-date" data-col="date_modified" data-testid="photo-date-modified">{formatDate(photo.date_modified)}</div>
-      )}
-      {visibleOSColumns.includes("date_created") && (
-        <div className="grid-cell grid-cell-date" data-col="date_created" data-testid="photo-date-created">{formatDate(photo.date_created)}</div>
-      )}
-      {visibleColumns.map((col, i) => (
-        <div key={col} className="grid-cell grid-cell-metadata" data-col={col}>
-          {metadataLoading ? (
-            // One spinner per row (in the first metadata cell), dashes elsewhere.
-            // Per-cell spinners were O(rows × cols) and dominated initial render.
-            i === 0 ? (
-              <Spinner className="cell-spinner" aria-label="Loading" data-testid="metadata-loading" />
+      {visibleColumns.map((col, i) => {
+        if (col.kind === "os") {
+          const testId = col.key === "date_modified"
+            ? "photo-date-modified"
+            : col.key === "date_created"
+              ? "photo-date-created"
+              : undefined;
+          return (
+            <div
+              key={col.key}
+              className="grid-cell grid-cell-date"
+              data-col={col.key}
+              data-testid={testId}
+            >
+              {formatDate(osValue(photo, col.key))}
+            </div>
+          );
+        }
+        return (
+          <div key={col.key} className="grid-cell grid-cell-metadata" data-col={col.key}>
+            {metadataLoading ? (
+              i === firstImageIdx ? (
+                <Spinner className="cell-spinner" aria-label="Loading" data-testid="metadata-loading" />
+              ) : (
+                <span className="cell-loading-placeholder" aria-hidden="true">—</span>
+              )
+            ) : metadataFailed ? (
+              <span className="metadata-error" title="Failed to load metadata">✗</span>
             ) : (
-              <span className="cell-loading-placeholder" aria-hidden="true">—</span>
-            )
-          ) : metadataFailed ? (
-            <span className="metadata-error" title="Failed to load metadata">✗</span>
-          ) : (
-            formatVariant(metadata[col])
-          )}
-        </div>
-      ))}
+              formatVariant(metadata[col.key])
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 });
