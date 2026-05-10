@@ -105,6 +105,11 @@ const KIND_LABELS: Record<VisibleColumn["kind"], string> = {
   image: "Image",
 };
 
+function cssPixels(value: string): number {
+  const n = parseFloat(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
 function PhotoListHeader(props: HeaderProps) {
   const {
     visibleColumns, sortConfig, sortingDisabled, dragOver,
@@ -341,7 +346,7 @@ export function PhotoList({
     let cellPadding = 0;
     if (cells.length > 0) {
       const s = getComputedStyle(cells[0]);
-      cellPadding = parseFloat(s.paddingLeft) + parseFloat(s.paddingRight);
+      cellPadding = cssPixels(s.paddingLeft) + cssPixels(s.paddingRight);
     }
     cells.forEach((cell) => {
       range.selectNodeContents(cell);
@@ -355,10 +360,20 @@ export function PhotoList({
     if (handle?.parentElement) {
       const headerCell = handle.parentElement;
       const hs = getComputedStyle(headerCell);
-      const headerPadding = parseFloat(hs.paddingLeft) + parseFloat(hs.paddingRight);
-      range.setStart(headerCell, 0);
-      range.setEndBefore(handle);
-      const hw = (range.getBoundingClientRect?.().width ?? 0) + headerPadding;
+      const headerPadding = cssPixels(hs.paddingLeft) + cssPixels(hs.paddingRight);
+      const headerParts = headerCell.querySelectorAll<HTMLElement>(".grid-header-kind, .grid-header-label");
+      let headerContentWidth = 0;
+      headerParts.forEach((part) => {
+        range.selectNodeContents(part);
+        const w = range.getBoundingClientRect?.().width ?? 0;
+        if (w > headerContentWidth) headerContentWidth = w;
+      });
+      if (headerParts.length === 0) {
+        range.setStart(headerCell, 0);
+        range.setEndBefore(handle);
+        headerContentWidth = range.getBoundingClientRect?.().width ?? 0;
+      }
+      const hw = headerContentWidth + headerPadding;
       if (hw > maxWidth) maxWidth = hw;
     }
 

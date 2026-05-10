@@ -1,5 +1,6 @@
 import { render, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
+import { useState } from "react";
 import { PhotoList } from "../components/PhotoList";
 import { ThumbnailStore, ImageMetadataStore } from "../types";
 import type { PhotoInfo } from "../types";
@@ -112,30 +113,67 @@ describe("column resize handles", () => {
     expect(onColumnWidthChange).toHaveBeenCalledWith("date_modified", expect.any(Number));
   });
 
-  it("calls onColumnWidthChange with 0 on double-click (reset to auto)", () => {
+  it("auto-sizes from intrinsic content and does not grow on repeated double-clicks", () => {
     const onColumnWidthChange = vi.fn();
     const { thumbnails, imageMetadata } = makeStores();
+    let selectedRangeNode: Node | null = null;
+    const range = {
+      selectNodeContents: vi.fn((node: Node) => { selectedRangeNode = node; }),
+      setStart: vi.fn((node: Node) => { selectedRangeNode = node; }),
+      setEndBefore: vi.fn(),
+      getBoundingClientRect: vi.fn(() => {
+        const el = selectedRangeNode as HTMLElement | null;
+        if (el?.classList?.contains("grid-header-kind")) return { width: 12 } as DOMRect;
+        if (el?.classList?.contains("grid-header-label")) return { width: 44 } as DOMRect;
+        if (el?.dataset?.col === "date_modified") return { width: 80 } as DOMRect;
+        return { width: 300 } as DOMRect;
+      }),
+    } as unknown as Range;
+    const createRangeSpy = vi.spyOn(document, "createRange").mockReturnValue(range);
+    const getComputedStyleSpy = vi.spyOn(window, "getComputedStyle").mockReturnValue({
+      paddingLeft: "8px",
+      paddingRight: "8px",
+    } as CSSStyleDeclaration);
+
+    function StatefulPhotoList() {
+      const [columnWidths, setColumnWidths] = useState<Record<string, number>>({ date_modified: 300 });
+      return (
+        <PhotoList
+          photos={mockPhotos}
+          thumbnails={thumbnails}
+          imageMetadata={imageMetadata}
+          visibleColumns={[{ key: "date_modified", kind: "os" }]}
+          columnWidths={columnWidths}
+          onColumnWidthChange={(col, width) => {
+            onColumnWidthChange(col, width);
+            setColumnWidths({ [col]: width });
+          }}
+          {...defaultSortProps}
+          selectedIndex={null}
+          onSelect={() => {}}
+          onShowInExplorer={() => {}}
+          onVisibilityChange={() => {}}
+          onPhotoOpen={() => {}}
+        />
+      );
+    }
+
     render(
-      <PhotoList
-        photos={mockPhotos}
-        thumbnails={thumbnails}
-        imageMetadata={imageMetadata}
-        visibleColumns={[{ key: "date_modified", kind: "os" }]}
-        columnWidths={{ date_modified: 200 }}
-        onColumnWidthChange={onColumnWidthChange}
-        {...defaultSortProps}
-        selectedIndex={null}
-        onSelect={() => {}}
-        onShowInExplorer={() => {}}
-        onVisibilityChange={() => {}}
-        onPhotoOpen={() => {}}
-      />
+      <StatefulPhotoList />
     );
 
     const handle = document.querySelector('[data-testid="resize-handle-date_modified"]')!;
     fireEvent.dblClick(handle);
+    fireEvent.dblClick(handle);
 
-    expect(onColumnWidthChange).toHaveBeenCalledWith("date_modified", 0);
+    expect(onColumnWidthChange).toHaveBeenNthCalledWith(1, "date_modified", 100);
+    expect(onColumnWidthChange).toHaveBeenNthCalledWith(2, "date_modified", 100);
+    expect(range.selectNodeContents).toHaveBeenCalledWith(expect.objectContaining({
+      className: expect.stringContaining("grid-header-label"),
+    }));
+
+    createRangeSpy.mockRestore();
+    getComputedStyleSpy.mockRestore();
   });
 
   it("clicking resize handle does not trigger column sort", () => {
