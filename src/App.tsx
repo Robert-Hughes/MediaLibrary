@@ -12,7 +12,7 @@ import { StatusFooter } from "./components/StatusFooter";
 import { ColumnSelectionDialog } from "./components/ColumnSelectionDialog";
 import { ErrorBanner } from "./components/ErrorBanner";
 import { sortPhotos, shouldSuspendSorting } from "./utils/sorting";
-import { DEFAULT_COLUMNS, DEFAULT_OS_COLUMNS } from "./utils/columnConfig";
+import { loadColumnConfig } from "./utils/columnConfig";
 import "./App.css";
 
 const tauriApi: TauriApi = {
@@ -126,6 +126,7 @@ function LoadedView({
 export default function App() {
   const [state, actions] = useMediaLibrary(tauriApi);
   const [showColumnDialog, setShowColumnDialog] = useState(false);
+  const loadingColumns = useMemo(() => loadColumnConfig(), []);
   const [cliFolder, setCliFolder] = useState<string | null | undefined>(undefined);
   const cliCheckedRef = useRef(false);
 
@@ -182,8 +183,8 @@ export default function App() {
             photos={[]}
             thumbnails={new ThumbnailStore()}
             imageMetadata={new ImageMetadataStore()}
-            visibleColumns={DEFAULT_COLUMNS}
-            visibleOSColumns={DEFAULT_OS_COLUMNS}
+            visibleColumns={loadingColumns.visibleColumns}
+            visibleOSColumns={loadingColumns.visibleOSColumns}
             sortConfig={{ primary: null, secondary: null }}
             onSortChange={() => {}}
             selectedIndex={null}
