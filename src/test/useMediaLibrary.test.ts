@@ -434,6 +434,31 @@ describe("useMediaLibrary", () => {
     }
   });
 
+  it("resetColumnWidths clears all stored widths", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/photos");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => { await result.current[1].openFolder(); });
+    act(() => { mock.emitPhotoFound(makePhoto({ relative_path: "a.jpg" })); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(150); });
+
+    act(() => { result.current[1].updateColumnWidth("IFD0:Model", 200); });
+    act(() => { result.current[1].updateColumnWidth("ExifIFD:DateTimeOriginal", 300); });
+
+    let state = result.current[0];
+    if (state.kind === "loaded") {
+      expect(state.columnWidths["IFD0:Model"]).toBe(200);
+      expect(state.columnWidths["ExifIFD:DateTimeOriginal"]).toBe(300);
+    }
+
+    act(() => { result.current[1].resetColumnWidths(); });
+
+    state = result.current[0];
+    if (state.kind === "loaded") {
+      expect(state.columnWidths).toEqual({});
+    }
+  });
+
   it("metadataVersion increments only when sorted by an image metadata column", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/photos");

@@ -5,7 +5,7 @@ interface Props {
   allKeys: Array<{ key: string; count: number }>;
   visibleColumns: string[];
   visibleOSColumns: string[];
-  onSave: (columns: string[], osColumns: string[]) => void;
+  onSave: (columns: string[], osColumns: string[], resetWidths?: boolean) => void;
   onClose: () => void;
 }
 
@@ -13,6 +13,7 @@ export function ColumnSelectionDialog({ allKeys, visibleColumns, visibleOSColumn
   const [selected, setSelected] = useState<Set<string>>(new Set(visibleColumns));
   const [selectedOS, setSelectedOS] = useState<Set<string>>(new Set(visibleOSColumns));
   const [searchTerm, setSearchTerm] = useState<string>("");
+  const [resetWidths, setResetWidths] = useState(false);
 
   // Handle keyboard shortcuts
   useEffect(() => {
@@ -22,7 +23,7 @@ export function ColumnSelectionDialog({ allKeys, visibleColumns, visibleOSColumn
         onClose();
       } else if (e.key === "Enter") {
         e.preventDefault();
-        onSave(Array.from(selected), Array.from(selectedOS));
+        onSave(Array.from(selected), Array.from(selectedOS), resetWidths);
       }
     };
 
@@ -57,6 +58,7 @@ export function ColumnSelectionDialog({ allKeys, visibleColumns, visibleOSColumn
   const resetToDefaults = () => {
     setSelected(new Set(DEFAULT_COLUMNS));
     setSelectedOS(new Set(DEFAULT_OS_COLUMNS));
+    setResetWidths(true);
   };
 
   // Sort keys alphabetically instead of by frequency
@@ -149,7 +151,7 @@ export function ColumnSelectionDialog({ allKeys, visibleColumns, visibleOSColumn
 
         <div className="dialog-footer">
           <button className="btn-secondary" onClick={onClose}>Cancel</button>
-          <button className="btn-primary" onClick={() => onSave(Array.from(selected), Array.from(selectedOS))}>Save Changes</button>
+          <button className="btn-primary" onClick={() => onSave(Array.from(selected), Array.from(selectedOS), resetWidths)}>Save Changes</button>
         </div>
       </div>
     </div>

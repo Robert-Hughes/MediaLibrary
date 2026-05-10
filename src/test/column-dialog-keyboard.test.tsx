@@ -49,7 +49,8 @@ describe("ColumnSelectionDialog keyboard shortcuts", () => {
 
     expect(onSave).toHaveBeenCalledWith(
       ["IFD0:Model"],
-      ["date_modified", "date_created"]
+      ["date_modified", "date_created"],
+      false
     );
     expect(onClose).not.toHaveBeenCalled();
   });
@@ -81,7 +82,8 @@ describe("ColumnSelectionDialog keyboard shortcuts", () => {
 
     expect(onSave).toHaveBeenCalledWith(
       expect.arrayContaining(["IFD0:Model", "IFD0:Make"]),
-      expect.arrayContaining(["date_modified", "date_created"])
+      expect.arrayContaining(["date_modified", "date_created"]),
+      false
     );
   });
 

@@ -110,9 +110,10 @@ function LoadedView({
           allKeys={Array.from(state.imageMetadata.getKeyFrequency().entries()).map(([key, count]) => ({ key, count }))}
           visibleColumns={state.visibleColumns}
           visibleOSColumns={state.visibleOSColumns}
-          onSave={(cols, osCols) => {
+          onSave={(cols, osCols, resetWidths) => {
             actions.setVisibleColumns(cols);
             actions.setVisibleOSColumns(osCols);
+            if (resetWidths) actions.resetColumnWidths();
             setShowColumnDialog(false);
           }}
           onClose={() => setShowColumnDialog(false)}

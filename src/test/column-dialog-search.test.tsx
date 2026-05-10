@@ -146,7 +146,8 @@ describe("ColumnSelectionDialog search functionality", () => {
 
     expect(onSave).toHaveBeenCalledWith(
       ["GPS:GPSLatitude"],
-      []
+      [],
+      false
     );
   });
 
