@@ -2,7 +2,8 @@ import { render, screen } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { vi } from "vitest";
 import { ColumnSelectionDialog } from "../components/ColumnSelectionDialog";
-import { DEFAULT_COLUMNS, DEFAULT_OS_COLUMNS } from "../utils/columnConfig";
+import { DEFAULT_VISIBLE_COLUMNS } from "../utils/columnConfig";
+import type { VisibleColumn } from "../types";
 
 describe("ColumnSelectionDialog Select All / Deselect All", () => {
   const allKeys = [
@@ -11,14 +12,15 @@ describe("ColumnSelectionDialog Select All / Deselect All", () => {
     { key: "XMP-dc:Subject", count: 5 },
   ];
 
+  const cols = (...arr: VisibleColumn[]): VisibleColumn[] => arr;
+
   it("renders Select All and Deselect All buttons", () => {
     render(
-      <ColumnSelectionDialog 
-        allKeys={allKeys} 
-        visibleColumns={[]} 
-        visibleOSColumns={[]} 
-        onSave={() => {}} 
-        onClose={() => {}} 
+      <ColumnSelectionDialog
+        allKeys={allKeys}
+        visibleColumns={[]}
+        onSave={() => {}}
+        onClose={() => {}}
       />
     );
 
@@ -30,119 +32,98 @@ describe("ColumnSelectionDialog Select All / Deselect All", () => {
     const onSave = vi.fn();
 
     render(
-      <ColumnSelectionDialog 
-        allKeys={allKeys} 
-        visibleColumns={[]} 
-        visibleOSColumns={[]} 
-        onSave={onSave} 
-        onClose={() => {}} 
+      <ColumnSelectionDialog
+        allKeys={allKeys}
+        visibleColumns={[]}
+        onSave={onSave}
+        onClose={() => {}}
       />
     );
 
-    // Click Select All
-    const selectAllButton = screen.getByText("Select All");
-    await userEvent.click(selectAllButton);
+    await userEvent.click(screen.getByText("Select All"));
 
-    // All checkboxes should be checked
     const checkboxes = screen.getAllByRole("checkbox") as HTMLInputElement[];
-    checkboxes.forEach(checkbox => {
-      expect(checkbox.checked).toBe(true);
-    });
+    checkboxes.forEach(cb => expect(cb.checked).toBe(true));
 
-    // Save and verify all columns are selected
     await userEvent.click(screen.getByText("Save Changes"));
-    expect(onSave).toHaveBeenCalledWith(
-      expect.arrayContaining(["IFD0:Model", "IFD0:Make", "XMP-dc:Subject"]),
-      expect.arrayContaining(["date_modified", "date_created"]),
-      false
-    );
+    const [saved] = onSave.mock.calls[0];
+    const keys = saved.map((c: VisibleColumn) => c.key);
+    expect(keys).toEqual(expect.arrayContaining([
+      "IFD0:Model", "IFD0:Make", "XMP-dc:Subject", "date_modified", "date_created",
+    ]));
   });
 
   it("deselects all columns when Deselect All is clicked", async () => {
     const onSave = vi.fn();
 
     render(
-      <ColumnSelectionDialog 
-        allKeys={allKeys} 
-        visibleColumns={["IFD0:Model", "IFD0:Make"]} 
-        visibleOSColumns={["date_modified", "date_created"]} 
-        onSave={onSave} 
-        onClose={() => {}} 
+      <ColumnSelectionDialog
+        allKeys={allKeys}
+        visibleColumns={cols(
+          { key: "date_modified", kind: "os" },
+          { key: "date_created", kind: "os" },
+          { key: "IFD0:Model", kind: "image" },
+          { key: "IFD0:Make", kind: "image" },
+        )}
+        onSave={onSave}
+        onClose={() => {}}
       />
     );
 
-    // Click Deselect All
-    const deselectAllButton = screen.getByText("Deselect All");
-    await userEvent.click(deselectAllButton);
+    await userEvent.click(screen.getByText("Deselect All"));
 
-    // All checkboxes should be unchecked
     const checkboxes = screen.getAllByRole("checkbox") as HTMLInputElement[];
-    checkboxes.forEach(checkbox => {
-      expect(checkbox.checked).toBe(false);
-    });
+    checkboxes.forEach(cb => expect(cb.checked).toBe(false));
 
-    // Save and verify no columns are selected
     await userEvent.click(screen.getByText("Save Changes"));
-    expect(onSave).toHaveBeenCalledWith([], [], false);
+    expect(onSave).toHaveBeenCalledWith([], false);
   });
 
   it("Select All works after making individual selections", async () => {
     const onSave = vi.fn();
 
     render(
-      <ColumnSelectionDialog 
-        allKeys={allKeys} 
-        visibleColumns={["IFD0:Model"]} 
-        visibleOSColumns={["date_modified"]} 
-        onSave={onSave} 
-        onClose={() => {}} 
+      <ColumnSelectionDialog
+        allKeys={allKeys}
+        visibleColumns={cols(
+          { key: "date_modified", kind: "os" },
+          { key: "IFD0:Model", kind: "image" },
+        )}
+        onSave={onSave}
+        onClose={() => {}}
       />
     );
 
-    // Manually toggle some items
-    const makeLabel = screen.getByText("IFD0:Make");
-    await userEvent.click(makeLabel);
+    await userEvent.click(screen.getByText("IFD0:Make"));
+    await userEvent.click(screen.getByText("Date Created"));
 
-    const createdLabel = screen.getByText("Date Created");
-    await userEvent.click(createdLabel);
-
-    // Now click Select All - should select everything
-    const selectAllButton = screen.getByText("Select All");
-    await userEvent.click(selectAllButton);
-
-    // Save and verify all columns are selected
+    await userEvent.click(screen.getByText("Select All"));
     await userEvent.click(screen.getByText("Save Changes"));
-    expect(onSave).toHaveBeenCalledWith(
-      expect.arrayContaining(["IFD0:Model", "IFD0:Make", "XMP-dc:Subject"]),
-      expect.arrayContaining(["date_modified", "date_created"]),
-      false
-    );
+
+    const [saved] = onSave.mock.calls[0];
+    const keys = saved.map((c: VisibleColumn) => c.key);
+    expect(keys).toEqual(expect.arrayContaining([
+      "IFD0:Model", "IFD0:Make", "XMP-dc:Subject", "date_modified", "date_created",
+    ]));
   });
 
   it("Deselect All works after Select All", async () => {
     const onSave = vi.fn();
 
     render(
-      <ColumnSelectionDialog 
-        allKeys={allKeys} 
-        visibleColumns={[]} 
-        visibleOSColumns={[]} 
-        onSave={onSave} 
-        onClose={() => {}} 
+      <ColumnSelectionDialog
+        allKeys={allKeys}
+        visibleColumns={[]}
+        onSave={onSave}
+        onClose={() => {}}
       />
     );
 
-    // First select all
-    const selectAllButton = screen.getByText("Select All");
-    await userEvent.click(selectAllButton);
+    await userEvent.click(screen.getByText("Select All"));
+    await userEvent.click(screen.getByText("Deselect All"));
 
-    // Then deselect all
-    const deselectAllButton = screen.getByText("Deselect All");
-    await userEvent.click(deselectAllButton);
-
-    // Save and verify no columns are selected
     await userEvent.click(screen.getByText("Save Changes"));
-    expect(onSave).toHaveBeenCalledWith([], [], false);
+    expect(onSave).toHaveBeenCalledWith([], false);
   });
 
   it("renders Default button", () => {
@@ -150,7 +131,6 @@ describe("ColumnSelectionDialog Select All / Deselect All", () => {
       <ColumnSelectionDialog
         allKeys={allKeys}
         visibleColumns={[]}
-        visibleOSColumns={[]}
         onSave={() => {}}
         onClose={() => {}}
       />
@@ -158,13 +138,15 @@ describe("ColumnSelectionDialog Select All / Deselect All", () => {
     expect(screen.getByText("Default")).toBeInTheDocument();
   });
 
-  it("Default button resets selection to DEFAULT_COLUMNS and DEFAULT_OS_COLUMNS, with resetWidths=true", async () => {
+  it("Default button resets selection to defaults, with resetWidths=true", async () => {
     const onSave = vi.fn();
     render(
       <ColumnSelectionDialog
         allKeys={allKeys}
-        visibleColumns={["IFD0:Model", "IFD0:Make"]}
-        visibleOSColumns={[]}
+        visibleColumns={cols(
+          { key: "IFD0:Model", kind: "image" },
+          { key: "IFD0:Make", kind: "image" },
+        )}
         onSave={onSave}
         onClose={() => {}}
       />
@@ -173,7 +155,11 @@ describe("ColumnSelectionDialog Select All / Deselect All", () => {
     await userEvent.click(screen.getByText("Default"));
     await userEvent.click(screen.getByText("Save Changes"));
 
-    expect(onSave).toHaveBeenCalledWith(DEFAULT_COLUMNS, DEFAULT_OS_COLUMNS, true);
+    const [saved, resetWidths] = onSave.mock.calls[0];
+    expect(resetWidths).toBe(true);
+    const savedKeys = (saved as VisibleColumn[]).map((c) => c.key).sort();
+    const defaultKeys = DEFAULT_VISIBLE_COLUMNS.map((c) => c.key).sort();
+    expect(savedKeys).toEqual(defaultKeys);
   });
 
   it("normal Save does not set resetWidths", async () => {
@@ -181,8 +167,7 @@ describe("ColumnSelectionDialog Select All / Deselect All", () => {
     render(
       <ColumnSelectionDialog
         allKeys={allKeys}
-        visibleColumns={["IFD0:Model"]}
-        visibleOSColumns={[]}
+        visibleColumns={cols({ key: "IFD0:Model", kind: "image" })}
         onSave={onSave}
         onClose={() => {}}
       />
@@ -190,17 +175,18 @@ describe("ColumnSelectionDialog Select All / Deselect All", () => {
 
     await userEvent.click(screen.getByText("Save Changes"));
 
-    expect(onSave).toHaveBeenCalledWith(["IFD0:Model"], [], false);
+    expect(onSave).toHaveBeenCalledWith(
+      [{ key: "IFD0:Model", kind: "image" }],
+      false,
+    );
   });
 
-  it("Default button preserves column order matching DEFAULT_COLUMNS", async () => {
+  it("Default button produces columns matching DEFAULT_VISIBLE_COLUMNS order", async () => {
     const onSave = vi.fn();
-    // allKeys includes XMP-dc:Subject which is in DEFAULT_COLUMNS at index 2
     render(
       <ColumnSelectionDialog
         allKeys={[...allKeys, { key: "ExifIFD:DateTimeOriginal", count: 3 }]}
-        visibleColumns={["IFD0:Model"]}
-        visibleOSColumns={[]}
+        visibleColumns={cols({ key: "IFD0:Model", kind: "image" })}
         onSave={onSave}
         onClose={() => {}}
       />
@@ -209,10 +195,11 @@ describe("ColumnSelectionDialog Select All / Deselect All", () => {
     await userEvent.click(screen.getByText("Default"));
     await userEvent.click(screen.getByText("Save Changes"));
 
-    const [savedColumns] = onSave.mock.calls[0];
-    // ExifIFD:DateTimeOriginal is first in DEFAULT_COLUMNS, XMP-dc:Subject is third
-    expect(savedColumns.indexOf("ExifIFD:DateTimeOriginal")).toBeLessThan(
-      savedColumns.indexOf("XMP-dc:Subject")
+    const [saved] = onSave.mock.calls[0];
+    const keys = (saved as VisibleColumn[]).map((c) => c.key);
+    // ExifIFD:DateTimeOriginal precedes XMP-dc:Subject in defaults
+    expect(keys.indexOf("ExifIFD:DateTimeOriginal")).toBeLessThan(
+      keys.indexOf("XMP-dc:Subject"),
     );
   });
 });

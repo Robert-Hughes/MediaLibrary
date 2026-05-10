@@ -28,8 +28,7 @@ describe("column resize handles", () => {
         photos={mockPhotos}
         thumbnails={thumbnails}
         imageMetadata={imageMetadata}
-        visibleColumns={[]}
-        visibleOSColumns={["date_modified"]}
+        visibleColumns={[{ key: "date_modified", kind: "os" }]}
         {...defaultSortProps}
         selectedIndex={null}
         onSelect={() => {}}
@@ -48,8 +47,10 @@ describe("column resize handles", () => {
         photos={mockPhotos}
         thumbnails={thumbnails}
         imageMetadata={imageMetadata}
-        visibleColumns={[]}
-        visibleOSColumns={["date_modified", "date_created"]}
+        visibleColumns={[
+          { key: "date_modified", kind: "os" },
+          { key: "date_created", kind: "os" },
+        ]}
         {...defaultSortProps}
         selectedIndex={null}
         onSelect={() => {}}
@@ -69,8 +70,7 @@ describe("column resize handles", () => {
         photos={mockPhotos}
         thumbnails={thumbnails}
         imageMetadata={imageMetadata}
-        visibleColumns={["IFD0:Model"]}
-        visibleOSColumns={[]}
+        visibleColumns={[{ key: "IFD0:Model", kind: "image" }]}
         {...defaultSortProps}
         selectedIndex={null}
         onSelect={() => {}}
@@ -90,8 +90,7 @@ describe("column resize handles", () => {
         photos={mockPhotos}
         thumbnails={thumbnails}
         imageMetadata={imageMetadata}
-        visibleColumns={[]}
-        visibleOSColumns={["date_modified"]}
+        visibleColumns={[{ key: "date_modified", kind: "os" }]}
         columnWidths={{}}
         onColumnWidthChange={onColumnWidthChange}
         {...defaultSortProps}
@@ -121,8 +120,7 @@ describe("column resize handles", () => {
         photos={mockPhotos}
         thumbnails={thumbnails}
         imageMetadata={imageMetadata}
-        visibleColumns={[]}
-        visibleOSColumns={["date_modified"]}
+        visibleColumns={[{ key: "date_modified", kind: "os" }]}
         columnWidths={{ date_modified: 200 }}
         onColumnWidthChange={onColumnWidthChange}
         {...defaultSortProps}
@@ -148,8 +146,7 @@ describe("column resize handles", () => {
         photos={mockPhotos}
         thumbnails={thumbnails}
         imageMetadata={imageMetadata}
-        visibleColumns={[]}
-        visibleOSColumns={["date_modified"]}
+        visibleColumns={[{ key: "date_modified", kind: "os" }]}
         sortConfig={{ primary: null, secondary: null }}
         onSortChange={onSortChange}
         selectedIndex={null}
@@ -174,8 +171,7 @@ describe("column resize handles", () => {
         photos={[]}
         thumbnails={thumbnails}
         imageMetadata={imageMetadata}
-        visibleColumns={[]}
-        visibleOSColumns={["date_modified"]}
+        visibleColumns={[{ key: "date_modified", kind: "os" }]}
         {...defaultSortProps}
         selectedIndex={null}
         onSelect={() => {}}
@@ -197,8 +193,7 @@ describe("buildGridTemplate (via rendered styles)", () => {
         photos={mockPhotos}
         thumbnails={thumbnails}
         imageMetadata={imageMetadata}
-        visibleColumns={[]}
-        visibleOSColumns={["date_modified"]}
+        visibleColumns={[{ key: "date_modified", kind: "os" }]}
         columnWidths={{ relative_path: 350, date_modified: 140 }}
         onColumnWidthChange={() => {}}
         {...defaultSortProps}
@@ -221,8 +216,7 @@ describe("buildGridTemplate (via rendered styles)", () => {
         photos={mockPhotos}
         thumbnails={thumbnails}
         imageMetadata={imageMetadata}
-        visibleColumns={[]}
-        visibleOSColumns={["date_modified"]}
+        visibleColumns={[{ key: "date_modified", kind: "os" }]}
         {...defaultSortProps}
         selectedIndex={null}
         onSelect={() => {}}

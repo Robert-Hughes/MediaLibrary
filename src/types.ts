@@ -181,6 +181,15 @@ export class MetadataProgressStore {
   }
 }
 
+// ── Columns ───────────────────────────────────────────────────────────────────
+
+export type ColumnKind = "os" | "image";
+
+export interface VisibleColumn {
+  key: string;
+  kind: ColumnKind;
+}
+
 // ── Sorting ───────────────────────────────────────────────────────────────────
 
 export type SortColumnType = "path" | "os" | "image";
@@ -204,8 +213,7 @@ export type AppState =
   | {
       kind: "loading";
       folder: string;
-      visibleColumns: string[];
-      visibleOSColumns: string[];
+      visibleColumns: VisibleColumn[];
       columnWidths: Record<string, number>;
       sortConfig: SortConfig;
     }
@@ -220,9 +228,8 @@ export type AppState =
       galleryIndex: number | null;
       selectedIndex: number | null;
 
-      // Dynamic columns configuration
-      visibleColumns: string[];         // Keys of image metadata to show in columns
-      visibleOSColumns: string[];       // OS metadata columns to show (date_modified, date_created)
+      // Unified, ordered list of metadata columns (mix of OS and image kinds)
+      visibleColumns: VisibleColumn[];
 
       // Column widths (pixels); absent key means use CSS default
       columnWidths: Record<string, number>;

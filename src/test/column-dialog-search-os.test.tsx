@@ -13,7 +13,6 @@ describe("ColumnSelectionDialog search filters OS metadata fields", () => {
       <ColumnSelectionDialog
         allKeys={allKeys}
         visibleColumns={[]}
-        visibleOSColumns={[]}
         onSave={() => {}}
         onClose={() => {}}
       />
@@ -32,7 +31,6 @@ describe("ColumnSelectionDialog search filters OS metadata fields", () => {
       <ColumnSelectionDialog
         allKeys={allKeys}
         visibleColumns={[]}
-        visibleOSColumns={[]}
         onSave={() => {}}
         onClose={() => {}}
       />
@@ -51,7 +49,6 @@ describe("ColumnSelectionDialog search filters OS metadata fields", () => {
       <ColumnSelectionDialog
         allKeys={allKeys}
         visibleColumns={[]}
-        visibleOSColumns={[]}
         onSave={() => {}}
         onClose={() => {}}
       />
@@ -69,7 +66,6 @@ describe("ColumnSelectionDialog search filters OS metadata fields", () => {
       <ColumnSelectionDialog
         allKeys={allKeys}
         visibleColumns={[]}
-        visibleOSColumns={[]}
         onSave={() => {}}
         onClose={() => {}}
       />
@@ -90,7 +86,6 @@ describe("ColumnSelectionDialog search filters OS metadata fields", () => {
       <ColumnSelectionDialog
         allKeys={allKeys}
         visibleColumns={[]}
-        visibleOSColumns={[]}
         onSave={() => {}}
         onClose={() => {}}
       />
@@ -109,7 +104,6 @@ describe("ColumnSelectionDialog search filters OS metadata fields", () => {
       <ColumnSelectionDialog
         allKeys={allKeys}
         visibleColumns={[]}
-        visibleOSColumns={[]}
         onSave={() => {}}
         onClose={() => {}}
       />
@@ -127,7 +121,6 @@ describe("ColumnSelectionDialog search filters OS metadata fields", () => {
       <ColumnSelectionDialog
         allKeys={allKeys}
         visibleColumns={[]}
-        visibleOSColumns={[]}
         onSave={() => {}}
         onClose={() => {}}
       />

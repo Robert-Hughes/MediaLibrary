@@ -2,23 +2,10 @@ import { render, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import { PhotoList } from "../components/PhotoList";
 import { ThumbnailStore, ImageMetadataStore } from "../types";
-import type { PhotoInfo } from "../types";
+import type { PhotoInfo, VisibleColumn } from "../types";
 
-/**
- * jsdom's DragEvent constructor silently ignores `clientX` in its init dict,
- * so fireEvent.dragOver/drop({ clientX }) never reaches the handler.
- *
- * Workaround: dispatch a plain MouseEvent with type 'dragover'/'drop'.
- * MouseEvent DOES honour clientX from its init.  React's synthetic event
- * delegation fires onDragOver/onDrop based on the event type string, so the
- * correct handlers still run.
- *
- * getBoundingClientRect() returns all-zeros in jsdom → midpoint = 0:
- *   clientX: -1  →  -1 < 0  →  side = "before"  (drop indicator on left edge)
- *   clientX:  1  →   1 < 0  →  side = "after"   (drop indicator on right edge)
- */
 const BEFORE = -1;
-const AFTER  =  1;
+const AFTER = 1;
 
 function doDragOver(el: HTMLElement, clientX: number) {
   fireEvent(el, new MouseEvent("dragover", { bubbles: true, cancelable: true, clientX }));
@@ -43,14 +30,15 @@ function makeStores() {
   return { thumbnails, imageMetadata };
 }
 
-// ── draggable attribute ───────────────────────────────────────────────────────
+const img = (key: string): VisibleColumn => ({ key, kind: "image" });
+const os = (key: string): VisibleColumn => ({ key, kind: "os" });
 
 describe("column header draggable attribute", () => {
   it("image metadata column headers are draggable", () => {
     const { thumbnails, imageMetadata } = makeStores();
     render(
       <PhotoList photos={mockPhotos} thumbnails={thumbnails} imageMetadata={imageMetadata}
-        visibleColumns={["IFD0:Model", "ExifIFD:DateTimeOriginal"]} visibleOSColumns={[]}
+        visibleColumns={[img("IFD0:Model"), img("ExifIFD:DateTimeOriginal")]}
         {...defaultSortProps} selectedIndex={null} onSelect={() => {}}
         onShowInExplorer={() => {}} onVisibilityChange={() => {}} onPhotoOpen={() => {}} />
     );
@@ -61,7 +49,7 @@ describe("column header draggable attribute", () => {
     const { thumbnails, imageMetadata } = makeStores();
     render(
       <PhotoList photos={mockPhotos} thumbnails={thumbnails} imageMetadata={imageMetadata}
-        visibleColumns={[]} visibleOSColumns={["date_modified", "date_created"]}
+        visibleColumns={[os("date_modified"), os("date_created")]}
         {...defaultSortProps} selectedIndex={null} onSelect={() => {}}
         onShowInExplorer={() => {}} onVisibilityChange={() => {}} onPhotoOpen={() => {}} />
     );
@@ -72,7 +60,7 @@ describe("column header draggable attribute", () => {
     const { thumbnails, imageMetadata } = makeStores();
     render(
       <PhotoList photos={mockPhotos} thumbnails={thumbnails} imageMetadata={imageMetadata}
-        visibleColumns={[]} visibleOSColumns={[]}
+        visibleColumns={[]}
         {...defaultSortProps} selectedIndex={null} onSelect={() => {}}
         onShowInExplorer={() => {}} onVisibilityChange={() => {}} onPhotoOpen={() => {}} />
     );
@@ -80,16 +68,13 @@ describe("column header draggable attribute", () => {
   });
 });
 
-// ── insertion logic ───────────────────────────────────────────────────────────
-
-describe("image metadata column reorder insertion", () => {
-  // columns: [IFD0:Model(0), ExifIFD(1), GPS(2)]
+describe("metadata column reorder insertion", () => {
   function setup(onColumnsReorder = vi.fn()) {
     const { thumbnails, imageMetadata } = makeStores();
     render(
       <PhotoList photos={mockPhotos} thumbnails={thumbnails} imageMetadata={imageMetadata}
-        visibleColumns={["IFD0:Model", "ExifIFD:DateTimeOriginal", "GPS:GPSLatitude"]}
-        visibleOSColumns={[]} onColumnsReorder={onColumnsReorder}
+        visibleColumns={[img("IFD0:Model"), img("ExifIFD:DateTimeOriginal"), img("GPS:GPSLatitude")]}
+        onColumnsReorder={onColumnsReorder}
         {...defaultSortProps} selectedIndex={null} onSelect={() => {}}
         onShowInExplorer={() => {}} onVisibilityChange={() => {}} onPhotoOpen={() => {}} />
     );
@@ -100,39 +85,43 @@ describe("image metadata column reorder insertion", () => {
   }
 
   it("drag right, drop on LEFT half → inserts before target", () => {
-    // drag IFD0(0) onto GPS(2), left half → IFD0 lands before GPS
     const { onColumnsReorder, get } = setup();
     fireEvent.dragStart(get("IFD0:Model"));
     doDragOver(get("GPS:GPSLatitude"), BEFORE);
     doDrop(get("GPS:GPSLatitude"), BEFORE);
-    expect(onColumnsReorder).toHaveBeenCalledWith(["ExifIFD:DateTimeOriginal", "IFD0:Model", "GPS:GPSLatitude"]);
+    expect(onColumnsReorder).toHaveBeenCalledWith([
+      img("ExifIFD:DateTimeOriginal"), img("IFD0:Model"), img("GPS:GPSLatitude"),
+    ]);
   });
 
   it("drag right, drop on RIGHT half → inserts after target", () => {
-    // drag IFD0(0) onto ExifIFD(1), right half → IFD0 lands after ExifIFD
     const { onColumnsReorder, get } = setup();
     fireEvent.dragStart(get("IFD0:Model"));
     doDragOver(get("ExifIFD:DateTimeOriginal"), AFTER);
     doDrop(get("ExifIFD:DateTimeOriginal"), AFTER);
-    expect(onColumnsReorder).toHaveBeenCalledWith(["ExifIFD:DateTimeOriginal", "IFD0:Model", "GPS:GPSLatitude"]);
+    expect(onColumnsReorder).toHaveBeenCalledWith([
+      img("ExifIFD:DateTimeOriginal"), img("IFD0:Model"), img("GPS:GPSLatitude"),
+    ]);
   });
 
   it("drag left, drop on LEFT half → inserts before target", () => {
-    // drag GPS(2) onto IFD0(0), left half → GPS lands before IFD0
     const { onColumnsReorder, get } = setup();
     fireEvent.dragStart(get("GPS:GPSLatitude"));
     doDragOver(get("IFD0:Model"), BEFORE);
     doDrop(get("IFD0:Model"), BEFORE);
-    expect(onColumnsReorder).toHaveBeenCalledWith(["GPS:GPSLatitude", "IFD0:Model", "ExifIFD:DateTimeOriginal"]);
+    expect(onColumnsReorder).toHaveBeenCalledWith([
+      img("GPS:GPSLatitude"), img("IFD0:Model"), img("ExifIFD:DateTimeOriginal"),
+    ]);
   });
 
   it("drag left, drop on RIGHT half → inserts after target", () => {
-    // drag GPS(2) onto ExifIFD(1), right half → GPS lands after ExifIFD
     const { onColumnsReorder, get } = setup();
     fireEvent.dragStart(get("GPS:GPSLatitude"));
     doDragOver(get("ExifIFD:DateTimeOriginal"), AFTER);
     doDrop(get("ExifIFD:DateTimeOriginal"), AFTER);
-    expect(onColumnsReorder).toHaveBeenCalledWith(["IFD0:Model", "ExifIFD:DateTimeOriginal", "GPS:GPSLatitude"]);
+    expect(onColumnsReorder).toHaveBeenCalledWith([
+      img("IFD0:Model"), img("ExifIFD:DateTimeOriginal"), img("GPS:GPSLatitude"),
+    ]);
   });
 
   it("dropping onto the same column does nothing", () => {
@@ -145,47 +134,44 @@ describe("image metadata column reorder insertion", () => {
 });
 
 describe("OS metadata column reorder insertion", () => {
-  // columns: [date_modified(0), date_created(1)]
-  function setup(onOSColumnsReorder = vi.fn()) {
+  function setup(onColumnsReorder = vi.fn()) {
     const { thumbnails, imageMetadata } = makeStores();
     render(
       <PhotoList photos={mockPhotos} thumbnails={thumbnails} imageMetadata={imageMetadata}
-        visibleColumns={[]} visibleOSColumns={["date_modified", "date_created"]}
-        onOSColumnsReorder={onOSColumnsReorder}
+        visibleColumns={[os("date_modified"), os("date_created")]}
+        onColumnsReorder={onColumnsReorder}
         {...defaultSortProps} selectedIndex={null} onSelect={() => {}}
         onShowInExplorer={() => {}} onVisibilityChange={() => {}} onPhotoOpen={() => {}} />
     );
     const headers = () =>
       Array.from(document.querySelectorAll(".grid-header--sortable[draggable]")) as HTMLElement[];
     const get = (text: string) => headers().find((h) => h.textContent?.includes(text))!;
-    return { onOSColumnsReorder, get };
+    return { onColumnsReorder, get };
   }
 
   it("drag right-to-left, drop on LEFT half → inserts before target", () => {
-    // drag date_created(1) onto date_modified(0), left half → created before modified
-    const { onOSColumnsReorder, get } = setup();
+    const { onColumnsReorder, get } = setup();
     fireEvent.dragStart(get("Created"));
     doDragOver(get("Modified"), BEFORE);
     doDrop(get("Modified"), BEFORE);
-    expect(onOSColumnsReorder).toHaveBeenCalledWith(["date_created", "date_modified"]);
+    expect(onColumnsReorder).toHaveBeenCalledWith([os("date_created"), os("date_modified")]);
   });
 
   it("drag right-to-left, drop on RIGHT half → inserts after target (no-op)", () => {
-    // drag date_created(1) onto date_modified(0), right half → created after modified = original order
-    const { onOSColumnsReorder, get } = setup();
+    const { onColumnsReorder, get } = setup();
     fireEvent.dragStart(get("Created"));
     doDragOver(get("Modified"), AFTER);
     doDrop(get("Modified"), AFTER);
-    expect(onOSColumnsReorder).toHaveBeenCalledWith(["date_modified", "date_created"]);
+    expect(onColumnsReorder).toHaveBeenCalledWith([os("date_modified"), os("date_created")]);
   });
 });
 
-describe("OS column header gridColumn positions follow visibleOSColumns order", () => {
-  function renderWithOrder(visibleOSColumns: string[]) {
+describe("metadata column header gridColumn positions follow visibleColumns order", () => {
+  function renderWithOrder(visibleColumns: VisibleColumn[]) {
     const { thumbnails, imageMetadata } = makeStores();
     render(
       <PhotoList photos={mockPhotos} thumbnails={thumbnails} imageMetadata={imageMetadata}
-        visibleColumns={[]} visibleOSColumns={visibleOSColumns}
+        visibleColumns={visibleColumns}
         {...defaultSortProps} selectedIndex={null} onSelect={() => {}}
         onShowInExplorer={() => {}} onVisibilityChange={() => {}} onPhotoOpen={() => {}} />
     );
@@ -195,57 +181,64 @@ describe("OS column header gridColumn positions follow visibleOSColumns order", 
   }
 
   it("renders [date_modified, date_created] at columns 3 and 4", () => {
-    const { get } = renderWithOrder(["date_modified", "date_created"]);
+    const { get } = renderWithOrder([os("date_modified"), os("date_created")]);
     expect(get("Modified").style.gridColumn).toBe("3");
     expect(get("Created").style.gridColumn).toBe("4");
   });
 
   it("renders [date_created, date_modified] at columns 3 and 4 in the reordered order", () => {
-    // Regression: previously date_modified was hardcoded to gridColumn 3,
-    // and date_created to (modified-present ? 4 : 3) — so after a drag-reorder
-    // they would render swapped relative to the underlying grid template.
-    const { get } = renderWithOrder(["date_created", "date_modified"]);
+    const { get } = renderWithOrder([os("date_created"), os("date_modified")]);
     expect(get("Created").style.gridColumn).toBe("3");
     expect(get("Modified").style.gridColumn).toBe("4");
   });
 
   it("renders only date_created at column 3 when date_modified is hidden", () => {
-    const { get } = renderWithOrder(["date_created"]);
+    const { get } = renderWithOrder([os("date_created")]);
     expect(get("Created").style.gridColumn).toBe("3");
+  });
+
+  it("interleaved OS and image columns get sequential positions", () => {
+    const { get } = renderWithOrder([
+      img("IFD0:Model"),
+      os("date_modified"),
+      img("ExifIFD:DateTimeOriginal"),
+    ]);
+    expect(get("IFD0:Model").style.gridColumn).toBe("3");
+    expect(get("Modified").style.gridColumn).toBe("4");
+    expect(get("ExifIFD:DateTimeOriginal").style.gridColumn).toBe("5");
   });
 });
 
-describe("cross-group drop is ignored", () => {
-  it("dropping an OS column onto an image column does nothing", () => {
+describe("cross-kind drop is allowed (unified columns)", () => {
+  it("dropping an OS column onto an image column reorders within the unified array", () => {
     const onColumnsReorder = vi.fn();
-    const onOSColumnsReorder = vi.fn();
     const { thumbnails, imageMetadata } = makeStores();
     render(
       <PhotoList photos={mockPhotos} thumbnails={thumbnails} imageMetadata={imageMetadata}
-        visibleColumns={["IFD0:Model"]} visibleOSColumns={["date_modified", "date_created"]}
-        onColumnsReorder={onColumnsReorder} onOSColumnsReorder={onOSColumnsReorder}
+        visibleColumns={[os("date_modified"), os("date_created"), img("IFD0:Model")]}
+        onColumnsReorder={onColumnsReorder}
         {...defaultSortProps} selectedIndex={null} onSelect={() => {}}
         onShowInExplorer={() => {}} onVisibilityChange={() => {}} onPhotoOpen={() => {}} />
     );
     const all = Array.from(document.querySelectorAll(".grid-header--sortable[draggable]")) as HTMLElement[];
     const modifiedHeader = all.find((h) => h.textContent?.includes("Modified"))!;
-    const modelHeader    = all.find((h) => h.textContent?.includes("IFD0:Model"))!;
+    const modelHeader = all.find((h) => h.textContent?.includes("IFD0:Model"))!;
     fireEvent.dragStart(modifiedHeader);
     doDragOver(modelHeader, BEFORE);
     doDrop(modelHeader, BEFORE);
-    expect(onColumnsReorder).not.toHaveBeenCalled();
-    expect(onOSColumnsReorder).not.toHaveBeenCalled();
+    // date_modified was at index 0, dropped before IFD0:Model (index 2)
+    expect(onColumnsReorder).toHaveBeenCalledWith([
+      os("date_created"), os("date_modified"), img("IFD0:Model"),
+    ]);
   });
 });
-
-// ── drop indicator classes ─────────────────────────────────────────────────────
 
 describe("drag-over drop indicator", () => {
   function setup() {
     const { thumbnails, imageMetadata } = makeStores();
     render(
       <PhotoList photos={mockPhotos} thumbnails={thumbnails} imageMetadata={imageMetadata}
-        visibleColumns={["IFD0:Model", "ExifIFD:DateTimeOriginal"]} visibleOSColumns={[]}
+        visibleColumns={[img("IFD0:Model"), img("ExifIFD:DateTimeOriginal")]}
         onColumnsReorder={() => {}}
         {...defaultSortProps} selectedIndex={null} onSelect={() => {}}
         onShowInExplorer={() => {}} onVisibilityChange={() => {}} onPhotoOpen={() => {}} />
@@ -277,7 +270,6 @@ describe("drag-over drop indicator", () => {
     fireEvent.dragStart(get("IFD0:Model"));
     doDragOver(get("ExifIFD:DateTimeOriginal"), BEFORE);
     expect(get("ExifIFD:DateTimeOriginal").classList.contains("grid-header--drop-before")).toBe(true);
-    // cursor moves to right half
     doDragOver(get("ExifIFD:DateTimeOriginal"), AFTER);
     expect(get("ExifIFD:DateTimeOriginal").classList.contains("grid-header--drop-after")).toBe(true);
     expect(get("ExifIFD:DateTimeOriginal").classList.contains("grid-header--drop-before")).toBe(false);

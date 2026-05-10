@@ -1,32 +1,39 @@
-import type { SortConfig, SortKey } from "../types";
+import type { SortConfig, SortKey, VisibleColumn } from "../types";
 
 export const COLUMN_CONFIG_KEY = "media_library_columns_config";
 
-export const DEFAULT_COLUMNS = [
-  "ExifIFD:DateTimeOriginal",
-  "XMP-dc:Description",
-  "XMP-dc:Subject",
-  "GPS:GPSLatitude",
-  "GPS:GPSLongitude",
-  "XMP-iptcCore:Location",
-  "XMP-photoshop:City",
-  "XMP-photoshop:State",
-  "XMP-photoshop:Country",
+export const DEFAULT_VISIBLE_COLUMNS: VisibleColumn[] = [
+  { key: "date_modified", kind: "os" },
+  { key: "date_created", kind: "os" },
+  { key: "ExifIFD:DateTimeOriginal", kind: "image" },
+  { key: "XMP-dc:Description", kind: "image" },
+  { key: "XMP-dc:Subject", kind: "image" },
+  { key: "GPS:GPSLatitude", kind: "image" },
+  { key: "GPS:GPSLongitude", kind: "image" },
+  { key: "XMP-iptcCore:Location", kind: "image" },
+  { key: "XMP-photoshop:City", kind: "image" },
+  { key: "XMP-photoshop:State", kind: "image" },
+  { key: "XMP-photoshop:Country", kind: "image" },
 ];
 
-export const DEFAULT_OS_COLUMNS = ["date_modified", "date_created"];
+export const OS_COLUMN_KEYS = ["date_modified", "date_created"] as const;
 
 export const DEFAULT_SORT_CONFIG: SortConfig = { primary: null, secondary: null };
 
 export interface ColumnConfig {
-  visibleColumns: string[];
-  visibleOSColumns: string[];
+  visibleColumns: VisibleColumn[];
   sortConfig: SortConfig;
   columnWidths: Record<string, number>;
 }
 
-function isStringArray(v: unknown): v is string[] {
-  return Array.isArray(v) && v.every((x) => typeof x === "string");
+function isVisibleColumn(v: unknown): v is VisibleColumn {
+  if (!v || typeof v !== "object") return false;
+  const c = v as Record<string, unknown>;
+  return typeof c.key === "string" && (c.kind === "os" || c.kind === "image");
+}
+
+function isVisibleColumnArray(v: unknown): v is VisibleColumn[] {
+  return Array.isArray(v) && v.every(isVisibleColumn);
 }
 
 function isValidSortKey(v: unknown): v is SortKey {
@@ -53,20 +60,31 @@ function isValidColumnWidths(v: unknown): v is Record<string, number> {
   return Object.values(v as Record<string, unknown>).every((n) => typeof n === "number" && n >= 0);
 }
 
+function defaultConfig(): ColumnConfig {
+  return {
+    visibleColumns: DEFAULT_VISIBLE_COLUMNS,
+    sortConfig: DEFAULT_SORT_CONFIG,
+    columnWidths: {},
+  };
+}
+
 export function loadColumnConfig(): ColumnConfig {
   try {
     const raw = localStorage.getItem(COLUMN_CONFIG_KEY);
-    if (!raw) return { visibleColumns: DEFAULT_COLUMNS, visibleOSColumns: DEFAULT_OS_COLUMNS, sortConfig: DEFAULT_SORT_CONFIG, columnWidths: {} };
+    if (!raw) return defaultConfig();
 
     const parsed = JSON.parse(raw) as Record<string, unknown>;
+    if (!isVisibleColumnArray(parsed.visibleColumns)) {
+      // Old shape (string[] + visibleOSColumns) or otherwise corrupt — reset.
+      return defaultConfig();
+    }
     return {
-      visibleColumns: isStringArray(parsed.visibleColumns) ? parsed.visibleColumns : DEFAULT_COLUMNS,
-      visibleOSColumns: isStringArray(parsed.visibleOSColumns) ? parsed.visibleOSColumns : DEFAULT_OS_COLUMNS,
+      visibleColumns: parsed.visibleColumns,
       sortConfig: isValidSortConfig(parsed.sortConfig) ? parsed.sortConfig : DEFAULT_SORT_CONFIG,
       columnWidths: isValidColumnWidths(parsed.columnWidths) ? parsed.columnWidths : {},
     };
   } catch {
-    return { visibleColumns: DEFAULT_COLUMNS, visibleOSColumns: DEFAULT_OS_COLUMNS, sortConfig: DEFAULT_SORT_CONFIG, columnWidths: {} };
+    return defaultConfig();
   }
 }
 

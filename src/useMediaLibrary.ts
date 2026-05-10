@@ -10,6 +10,7 @@ import type {
   PhotoInfo,
   Variant,
   SortConfig,
+  VisibleColumn,
 } from "./types";
 import { loadColumnConfig, saveColumnConfig } from "./utils/columnConfig";
 
@@ -28,8 +29,7 @@ export interface MediaLibraryActions {
   openGallery: (index: number) => void;
   closeGallery: () => void;
   navigateGallery: (delta: -1 | 1) => void;
-  setVisibleColumns: (columns: string[]) => void;
-  setVisibleOSColumns: (columns: string[]) => void;
+  setVisibleColumns: (columns: VisibleColumn[]) => void;
   setSortConfig: (config: SortConfig) => void;
   updateColumnWidth: (col: string, width: number) => void;
   resetColumnWidths: () => void;
@@ -165,8 +165,8 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
     imageMetadataStoreRef.current      = new ImageMetadataStore();
     metadataProgressStoreRef.current   = new MetadataProgressStore();
     
-    const { visibleColumns, visibleOSColumns, sortConfig, columnWidths } = loadColumnConfig();
-    setAppState({ kind: "loading", folder, visibleColumns, visibleOSColumns, columnWidths, sortConfig });
+    const { visibleColumns, sortConfig, columnWidths } = loadColumnConfig();
+    setAppState({ kind: "loading", folder, visibleColumns, columnWidths, sortConfig });
     api.invoke("set_window_title", { title: `Media Library — ${folder}` }).catch(() => {});
 
     await api.invoke("start_scan", { scanId, folderPath: folder });
@@ -209,14 +209,13 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
             galleryIndex: null,
             selectedIndex: null,
             visibleColumns: prev.visibleColumns,
-            visibleOSColumns: prev.visibleOSColumns,
             columnWidths: prev.columnWidths,
             sortConfig: prev.sortConfig,
             metadataVersion: 0,
             workerErrors: [],
           };
         }
-        
+
         if (prev.kind === "loaded") {
           const newPhotos = batch.length > 0 ? [...prev.photos, ...batch] : prev.photos;
           
@@ -340,7 +339,6 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
               galleryIndex: null,
               selectedIndex: null,
               visibleColumns: prev.visibleColumns,
-              visibleOSColumns: prev.visibleOSColumns,
               columnWidths: prev.columnWidths,
               sortConfig: prev.sortConfig,
               metadataVersion: 0,
@@ -511,26 +509,18 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
     });
   }, []);
 
-  const setVisibleColumns = useCallback((columns: string[]) => {
+  const setVisibleColumns = useCallback((columns: VisibleColumn[]) => {
     setAppState((prev) => {
       if (prev.kind !== "loaded") return prev;
-      saveColumnConfig({ visibleColumns: columns, visibleOSColumns: prev.visibleOSColumns, sortConfig: prev.sortConfig, columnWidths: prev.columnWidths });
+      saveColumnConfig({ visibleColumns: columns, sortConfig: prev.sortConfig, columnWidths: prev.columnWidths });
       return { ...prev, visibleColumns: columns };
-    });
-  }, []);
-
-  const setVisibleOSColumns = useCallback((columns: string[]) => {
-    setAppState((prev) => {
-      if (prev.kind !== "loaded") return prev;
-      saveColumnConfig({ visibleColumns: prev.visibleColumns, visibleOSColumns: columns, sortConfig: prev.sortConfig, columnWidths: prev.columnWidths });
-      return { ...prev, visibleOSColumns: columns };
     });
   }, []);
 
   const setSortConfig = useCallback((config: SortConfig) => {
     setAppState((prev) => {
       if (prev.kind !== "loaded") return prev;
-      saveColumnConfig({ visibleColumns: prev.visibleColumns, visibleOSColumns: prev.visibleOSColumns, sortConfig: config, columnWidths: prev.columnWidths });
+      saveColumnConfig({ visibleColumns: prev.visibleColumns, sortConfig: config, columnWidths: prev.columnWidths });
       return { ...prev, sortConfig: config };
     });
   }, []);
@@ -541,7 +531,7 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
       const newWidths = width > 0
         ? { ...prev.columnWidths, [col]: width }
         : Object.fromEntries(Object.entries(prev.columnWidths).filter(([k]) => k !== col));
-      saveColumnConfig({ visibleColumns: prev.visibleColumns, visibleOSColumns: prev.visibleOSColumns, sortConfig: prev.sortConfig, columnWidths: newWidths });
+      saveColumnConfig({ visibleColumns: prev.visibleColumns, sortConfig: prev.sortConfig, columnWidths: newWidths });
       return { ...prev, columnWidths: newWidths };
     });
   }, []);
@@ -549,7 +539,7 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
   const resetColumnWidths = useCallback(() => {
     setAppState((prev) => {
       if (prev.kind !== "loaded") return prev;
-      saveColumnConfig({ visibleColumns: prev.visibleColumns, visibleOSColumns: prev.visibleOSColumns, sortConfig: prev.sortConfig, columnWidths: {} });
+      saveColumnConfig({ visibleColumns: prev.visibleColumns, sortConfig: prev.sortConfig, columnWidths: {} });
       return { ...prev, columnWidths: {} };
     });
   }, []);
@@ -563,5 +553,5 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
     });
   }, []);
 
-  return [{ ...appState, recentFolders }, { openFolder, openRecent, closeFolder, prioritizeQueues, selectPhoto, showInExplorer, openGallery, closeGallery, navigateGallery, setVisibleColumns, setVisibleOSColumns, setSortConfig, updateColumnWidth, resetColumnWidths, dismissError }];
+  return [{ ...appState, recentFolders }, { openFolder, openRecent, closeFolder, prioritizeQueues, selectPhoto, showInExplorer, openGallery, closeGallery, navigateGallery, setVisibleColumns, setSortConfig, updateColumnWidth, resetColumnWidths, dismissError }];
 }

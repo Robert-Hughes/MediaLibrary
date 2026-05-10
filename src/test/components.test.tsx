@@ -21,15 +21,18 @@ function makeStores(photos: PhotoInfo[], thumbOverrides: Record<string, string> 
   return { thumbs, imageMetadata };
 }
 
-function renderList(photos: PhotoInfo[], opts: { thumbOverrides?: Record<string, string>, selectedIndex?: number | null, onSelect?: (i: number | null) => void, onPhotoOpen?: (i: number) => void, onShowInExplorer?: (i: number) => void, visibleColumns?: string[], visibleOSColumns?: string[], onSelectColumns?: () => void } = {}) {
+function renderList(photos: PhotoInfo[], opts: { thumbOverrides?: Record<string, string>, selectedIndex?: number | null, onSelect?: (i: number | null) => void, onPhotoOpen?: (i: number) => void, onShowInExplorer?: (i: number) => void, visibleColumns?: import("../types").VisibleColumn[], onSelectColumns?: () => void } = {}) {
   const { thumbs, imageMetadata } = makeStores(photos, opts.thumbOverrides ?? {});
   render(
-    <PhotoList 
-      photos={photos} 
-      thumbnails={thumbs} 
+    <PhotoList
+      photos={photos}
+      thumbnails={thumbs}
       imageMetadata={imageMetadata}
-      visibleColumns={opts.visibleColumns ?? ["IFD0:Model"]}
-      visibleOSColumns={opts.visibleOSColumns ?? ["date_modified", "date_created"]}
+      visibleColumns={opts.visibleColumns ?? [
+        { key: "date_modified", kind: "os" },
+        { key: "date_created", kind: "os" },
+        { key: "IFD0:Model", kind: "image" },
+      ]}
       selectedIndex={opts.selectedIndex ?? null}
       onSelect={opts.onSelect ?? (() => {})}
       onShowInExplorer={opts.onShowInExplorer ?? (() => {})}
@@ -137,7 +140,7 @@ describe("PhotoList", () => {
   it("shows empty message when no photos", () => {
     const { thumbs, imageMetadata } = makeStores([]);
     render(<PhotoList photos={[]} thumbnails={thumbs} imageMetadata={imageMetadata}
-      visibleColumns={[]} visibleOSColumns={["date_modified", "date_created"]} sortConfig={{ primary: null, secondary: null }} onSortChange={noop} selectedIndex={null} onSelect={noop} onShowInExplorer={noop} onVisibilityChange={noop} onPhotoOpen={noop} onSelectColumns={noop} />);
+      visibleColumns={[{ key: "date_modified", kind: "os" }, { key: "date_created", kind: "os" }]} sortConfig={{ primary: null, secondary: null }} onSortChange={noop} selectedIndex={null} onSelect={noop} onShowInExplorer={noop} onVisibilityChange={noop} onPhotoOpen={noop} onSelectColumns={noop} />);
     expect(screen.getByTestId("photo-list-empty")).toBeInTheDocument();
   });
 
@@ -163,7 +166,7 @@ describe("PhotoList", () => {
     const { thumbs, imageMetadata } = makeStores(photos);
     act(() => { imageMetadata.set("a.jpg", { "IFD0:Model": "Canon EOS R5" }); });
     render(<PhotoList photos={photos} thumbnails={thumbs} imageMetadata={imageMetadata}
-      visibleColumns={["IFD0:Model"]} visibleOSColumns={["date_modified", "date_created"]} sortConfig={{ primary: null, secondary: null }} onSortChange={noop} selectedIndex={null} onSelect={noop} onShowInExplorer={noop} onVisibilityChange={noop} onPhotoOpen={noop} onSelectColumns={noop} />);
+      visibleColumns={[{ key: "date_modified", kind: "os" }, { key: "date_created", kind: "os" }, { key: "IFD0:Model", kind: "image" }]} sortConfig={{ primary: null, secondary: null }} onSortChange={noop} selectedIndex={null} onSelect={noop} onShowInExplorer={noop} onVisibilityChange={noop} onPhotoOpen={noop} onSelectColumns={noop} />);
     expect(screen.getByText("Canon EOS R5")).toBeInTheDocument();
     expect(screen.queryByTestId("metadata-loading")).not.toBeInTheDocument();
   });
@@ -223,7 +226,7 @@ describe("ColumnSelectionDialog", () => {
   ];
 
   it("renders all keys with counts", () => {
-    render(<ColumnSelectionDialog allKeys={allKeys} visibleColumns={[]} visibleOSColumns={["date_modified", "date_created"]} onSave={noop} onClose={noop} />);
+    render(<ColumnSelectionDialog allKeys={allKeys} visibleColumns={[{ key: "date_modified", kind: "os" }, { key: "date_created", kind: "os" }]} onSave={noop} onClose={noop} />);
     expect(screen.getByText("IFD0:Model")).toBeInTheDocument();
     expect(screen.getByText("(10 files)")).toBeInTheDocument();
     expect(screen.getByText("IFD0:Make")).toBeInTheDocument();
@@ -231,7 +234,7 @@ describe("ColumnSelectionDialog", () => {
   });
 
   it("checks currently visible columns", () => {
-    render(<ColumnSelectionDialog allKeys={allKeys} visibleColumns={["IFD0:Model"]} visibleOSColumns={["date_modified", "date_created"]} onSave={noop} onClose={noop} />);
+    render(<ColumnSelectionDialog allKeys={allKeys} visibleColumns={[{ key: "date_modified", kind: "os" }, { key: "date_created", kind: "os" }, { key: "IFD0:Model", kind: "image" }]} onSave={noop} onClose={noop} />);
     const checkboxes = screen.getAllByRole("checkbox") as HTMLInputElement[];
     expect(checkboxes.find(c => c.nextSibling?.textContent === "IFD0:Model")?.checked).toBe(true);
     expect(checkboxes.find(c => c.nextSibling?.textContent === "IFD0:Make")?.checked).toBe(false);
@@ -239,17 +242,15 @@ describe("ColumnSelectionDialog", () => {
 
   it("calls onSave with updated selection", async () => {
     const onSave = vi.fn();
-    render(<ColumnSelectionDialog allKeys={allKeys} visibleColumns={["IFD0:Model"]} visibleOSColumns={["date_modified", "date_created"]} onSave={onSave} onClose={noop} />);
-    
+    render(<ColumnSelectionDialog allKeys={allKeys} visibleColumns={[{ key: "date_modified", kind: "os" }, { key: "date_created", kind: "os" }, { key: "IFD0:Model", kind: "image" }]} onSave={onSave} onClose={noop} />);
+
     // Toggle Make on
     const makeLabel = screen.getByText("IFD0:Make");
     await userEvent.click(makeLabel);
-    
+
     await userEvent.click(screen.getByText("Save Changes"));
-    expect(onSave).toHaveBeenCalledWith(
-      expect.arrayContaining(["IFD0:Model", "IFD0:Make"]),
-      expect.arrayContaining(["date_modified", "date_created"]),
-      false
-    );
+    const [saved] = onSave.mock.calls[0];
+    const keys = (saved as Array<{ key: string }>).map((c) => c.key);
+    expect(keys).toEqual(expect.arrayContaining(["date_modified", "date_created", "IFD0:Model", "IFD0:Make"]));
   });
 });

@@ -41,8 +41,11 @@ describe("PhotoList column header context menu", () => {
         photos={mockPhotos}
         thumbnails={thumbnailStore}
         imageMetadata={metadataStore}
-        visibleColumns={["ExifIFD:DateTimeOriginal"]}
-        visibleOSColumns={["date_modified", "date_created"]}
+        visibleColumns={[
+          { key: "date_modified", kind: "os" },
+          { key: "date_created", kind: "os" },
+          { key: "ExifIFD:DateTimeOriginal", kind: "image" },
+        ]}
         {...defaultSortProps}
         selectedIndex={null}
         onSelect={() => {}}
@@ -67,8 +70,11 @@ describe("PhotoList column header context menu", () => {
         photos={mockPhotos}
         thumbnails={thumbnailStore}
         imageMetadata={metadataStore}
-        visibleColumns={["ExifIFD:DateTimeOriginal"]}
-        visibleOSColumns={["date_modified", "date_created"]}
+        visibleColumns={[
+          { key: "date_modified", kind: "os" },
+          { key: "date_created", kind: "os" },
+          { key: "ExifIFD:DateTimeOriginal", kind: "image" },
+        ]}
         {...defaultSortProps}
         selectedIndex={null}
         onSelect={() => {}}
@@ -96,8 +102,12 @@ describe("PhotoList column header context menu", () => {
         photos={mockPhotos}
         thumbnails={thumbnailStore}
         imageMetadata={metadataStore}
-        visibleColumns={["ExifIFD:DateTimeOriginal", "IFD0:Model"]}
-        visibleOSColumns={["date_modified", "date_created"]}
+        visibleColumns={[
+          { key: "date_modified", kind: "os" },
+          { key: "date_created", kind: "os" },
+          { key: "ExifIFD:DateTimeOriginal", kind: "image" },
+          { key: "IFD0:Model", kind: "image" },
+        ]}
         {...defaultSortProps}
         selectedIndex={null}
         onSelect={() => {}}
@@ -128,8 +138,11 @@ describe("PhotoList column header context menu", () => {
         photos={mockPhotos}
         thumbnails={thumbnailStore}
         imageMetadata={metadataStore}
-        visibleColumns={["ExifIFD:DateTimeOriginal"]}
-        visibleOSColumns={["date_modified", "date_created"]}
+        visibleColumns={[
+          { key: "date_modified", kind: "os" },
+          { key: "date_created", kind: "os" },
+          { key: "ExifIFD:DateTimeOriginal", kind: "image" },
+        ]}
         {...defaultSortProps}
         selectedIndex={null}
         onSelect={() => {}}

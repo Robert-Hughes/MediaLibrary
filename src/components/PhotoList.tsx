@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ThumbnailStore, ImageMetadataStore } from "../types";
-import type { PhotoInfo, SortConfig } from "../types";
+import type { PhotoInfo, SortConfig, VisibleColumn } from "../types";
 import { ContextMenu } from "./ContextMenu";
 import { PhotoRow } from "./PhotoRow";
 import { ResizeHandle } from "./ResizeHandle";
@@ -11,12 +11,10 @@ interface Props {
   photos: PhotoInfo[];
   thumbnails: ThumbnailStore;
   imageMetadata: ImageMetadataStore;
-  visibleColumns: string[];
-  visibleOSColumns: string[];
+  visibleColumns: VisibleColumn[];
   columnWidths?: Record<string, number>;
   onColumnWidthChange?: (col: string, width: number) => void;
-  onColumnsReorder?: (columns: string[]) => void;
-  onOSColumnsReorder?: (columns: string[]) => void;
+  onColumnsReorder?: (columns: VisibleColumn[]) => void;
   sortConfig: SortConfig;
   onSortChange: (config: SortConfig) => void;
   /** When true, sort-toggle clicks are ignored and the ▲/▼ markers are hidden.
@@ -54,16 +52,16 @@ export function selectVisibleNeedingLoad(
 }
 
 function buildGridTemplate(
-  visibleOSColumns: string[],
-  visibleColumns: string[],
+  visibleColumns: VisibleColumn[],
   widths: Record<string, number>,
 ): string {
   const w = (key: string, def: string) => widths[key] ? `${widths[key]}px` : def;
   return [
     "52px",
     w("relative_path", "minmax(200px, 2fr)"),
-    ...visibleOSColumns.map((c) => w(c, "minmax(120px, 1fr)")),
-    ...visibleColumns.map((c) => w(c, "minmax(150px, 1fr)")),
+    ...visibleColumns.map((c) =>
+      w(c.key, c.kind === "os" ? "minmax(120px, 1fr)" : "minmax(150px, 1fr)"),
+    ),
   ].join(" ");
 }
 
@@ -80,8 +78,7 @@ function SortIndicator({ column, sortConfig, disabled }: { column: string; sortC
 }
 
 interface HeaderProps {
-  visibleColumns: string[];
-  visibleOSColumns: string[];
+  visibleColumns: VisibleColumn[];
   sortConfig: SortConfig;
   sortingDisabled?: boolean;
   dragOver: { col: string; side: "before" | "after" } | null;
@@ -91,10 +88,10 @@ interface HeaderProps {
   onResizeMove: (e: React.PointerEvent) => void;
   onResizeEnd: (e: React.PointerEvent) => void;
   onResetWidth: (col: string) => void;
-  onColDragStart: (e: React.DragEvent, col: string, group: "os" | "image") => void;
+  onColDragStart: (e: React.DragEvent, col: string) => void;
   onColDragOver: (e: React.DragEvent, col: string) => void;
   onColDragLeave: (e: React.DragEvent) => void;
-  onColDrop: (e: React.DragEvent, col: string, group: "os" | "image") => void;
+  onColDrop: (e: React.DragEvent, col: string) => void;
   onColDragEnd: () => void;
 }
 
@@ -103,33 +100,40 @@ const OS_COLUMN_LABELS: Record<string, string> = {
   date_created: "Created",
 };
 
+const KIND_LABELS: Record<VisibleColumn["kind"], string> = {
+  os: "OS",
+  image: "Image",
+};
+
 function PhotoListHeader(props: HeaderProps) {
   const {
-    visibleColumns, visibleOSColumns, sortConfig, sortingDisabled, dragOver,
+    visibleColumns, sortConfig, sortingDisabled, dragOver,
     onColumnContextMenu, onColumnClick,
     onResizeStart, onResizeMove, onResizeEnd, onResetWidth,
     onColDragStart, onColDragOver, onColDragLeave, onColDrop, onColDragEnd,
   } = props;
-  const osColumnCount = visibleOSColumns.length;
-
-  // First two columns are always thumbnail (1) + path (2). OS columns start at
-  // gridColumn 3 in the order they appear in visibleOSColumns; image-metadata
-  // columns follow in their own order.
-  const osColumnStart = 3;
-  const imageColumnStart = osColumnStart + osColumnCount;
 
   const headerClass = (col: string) => {
     const drop = dragOver?.col === col ? ` grid-header--drop-${dragOver.side}` : "";
     return `grid-header grid-header--sortable${drop}`;
   };
 
+  // Row 1: Preview spans rows 1-3; Path's row-1 cell is empty; each metadata
+  // column gets its own small "OS"/"Image" tag. Row 2: sortable label cells.
   return (
     <>
       <div className="grid-header-group grid-cell-thumb" style={{ gridRow: "1 / 3" }}>Preview</div>
-      <div className="grid-header-group" style={{ gridColumn: `span ${1 + osColumnCount}`, gridRow: 1 }} onContextMenu={onColumnContextMenu}>OS Metadata</div>
-      {visibleColumns.length > 0 && (
-        <div className="grid-header-group" style={{ gridColumn: `span ${visibleColumns.length}`, gridRow: 1 }} onContextMenu={onColumnContextMenu}>Image Metadata</div>
-      )}
+      <div className="grid-header-group grid-header-group--empty" style={{ gridRow: 1, gridColumn: 2 }} />
+      {visibleColumns.map((col, i) => (
+        <div
+          key={`kind-${col.key}`}
+          className="grid-header-group grid-header-group--kind"
+          style={{ gridRow: 1, gridColumn: 3 + i }}
+          onContextMenu={onColumnContextMenu}
+        >
+          {KIND_LABELS[col.kind]}
+        </div>
+      ))}
 
       <div className="grid-header grid-cell-thumb" style={{ gridRow: 2, gridColumn: 1 }} />
       <div
@@ -143,53 +147,36 @@ function PhotoListHeader(props: HeaderProps) {
         <ResizeHandle col="relative_path" onResizeStart={onResizeStart} onResizeMove={onResizeMove} onResizeEnd={onResizeEnd} onReset={onResetWidth} />
       </div>
 
-      {visibleOSColumns.map((col, i) => (
-        <div
-          key={col}
-          className={headerClass(col)}
-          style={{ gridRow: 2, gridColumn: osColumnStart + i }}
-          draggable
-          onDragStart={(e) => onColDragStart(e, col, "os")}
-          onDragOver={(e) => onColDragOver(e, col)}
-          onDragLeave={onColDragLeave}
-          onDrop={(e) => onColDrop(e, col, "os")}
-          onDragEnd={onColDragEnd}
-          onContextMenu={onColumnContextMenu}
-          onClick={() => onColumnClick(col, "os")}
-        >
-          {OS_COLUMN_LABELS[col] ?? col}
-          <SortIndicator column={col} sortConfig={sortConfig} disabled={sortingDisabled} />
-          <ResizeHandle col={col} onResizeStart={onResizeStart} onResizeMove={onResizeMove} onResizeEnd={onResizeEnd} onReset={onResetWidth} />
-        </div>
-      ))}
-
-      {visibleColumns.map((col, i) => (
-        <div
-          key={col}
-          className={headerClass(col)}
-          style={{ gridRow: 2, gridColumn: imageColumnStart + i }}
-          draggable
-          onDragStart={(e) => onColDragStart(e, col, "image")}
-          onDragOver={(e) => onColDragOver(e, col)}
-          onDragLeave={onColDragLeave}
-          onDrop={(e) => onColDrop(e, col, "image")}
-          onDragEnd={onColDragEnd}
-          onContextMenu={onColumnContextMenu}
-          onClick={() => onColumnClick(col, "image")}
-        >
-          {col}
-          <SortIndicator column={col} sortConfig={sortConfig} disabled={sortingDisabled} />
-          <ResizeHandle col={col} onResizeStart={onResizeStart} onResizeMove={onResizeMove} onResizeEnd={onResizeEnd} onReset={onResetWidth} />
-        </div>
-      ))}
+      {visibleColumns.map((col, i) => {
+        const label = col.kind === "os" ? (OS_COLUMN_LABELS[col.key] ?? col.key) : col.key;
+        return (
+          <div
+            key={col.key}
+            className={headerClass(col.key)}
+            style={{ gridRow: 2, gridColumn: 3 + i }}
+            draggable
+            onDragStart={(e) => onColDragStart(e, col.key)}
+            onDragOver={(e) => onColDragOver(e, col.key)}
+            onDragLeave={onColDragLeave}
+            onDrop={(e) => onColDrop(e, col.key)}
+            onDragEnd={onColDragEnd}
+            onContextMenu={onColumnContextMenu}
+            onClick={() => onColumnClick(col.key, col.kind)}
+          >
+            {label}
+            <SortIndicator column={col.key} sortConfig={sortConfig} disabled={sortingDisabled} />
+            <ResizeHandle col={col.key} onResizeStart={onResizeStart} onResizeMove={onResizeMove} onResizeEnd={onResizeEnd} onReset={onResetWidth} />
+          </div>
+        );
+      })}
     </>
   );
 }
 
 export function PhotoList({
-  photos, thumbnails, imageMetadata, visibleColumns, visibleOSColumns,
+  photos, thumbnails, imageMetadata, visibleColumns,
   columnWidths = {}, onColumnWidthChange,
-  onColumnsReorder, onOSColumnsReorder,
+  onColumnsReorder,
   sortConfig, onSortChange, sortingDisabled,
   selectedIndex, onSelect, onShowInExplorer, onVisibilityChange, onPhotoOpen, onSelectColumns
 }: Props) {
@@ -201,7 +188,7 @@ export function PhotoList({
   const resizeDragRef = useRef<{ col: string; startX: number; startWidth: number; pointerId: number } | null>(null);
 
   // Column drag-and-drop reorder state
-  const colDragRef = useRef<{ col: string; group: "os" | "image" } | null>(null);
+  const colDragRef = useRef<{ col: string } | null>(null);
   const [dragOver, setDragOver] = useState<{ col: string; side: "before" | "after" } | null>(null);
 
   const effectiveWidths = Object.keys(liveWidths).length > 0
@@ -381,8 +368,8 @@ export function PhotoList({
     onColumnWidthChange(col, measured);
   }, [onColumnWidthChange]);
 
-  const handleColDragStart = useCallback((e: React.DragEvent, col: string, group: "os" | "image") => {
-    colDragRef.current = { col, group };
+  const handleColDragStart = useCallback((e: React.DragEvent, col: string) => {
+    colDragRef.current = { col };
     if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
   }, []);
 
@@ -416,12 +403,12 @@ export function PhotoList({
     }
   }, []);
 
-  const handleColDrop = useCallback((e: React.DragEvent, dropCol: string, group: "os" | "image") => {
+  const handleColDrop = useCallback((e: React.DragEvent, dropCol: string) => {
     e.preventDefault();
     const drag = colDragRef.current;
     colDragRef.current = null;
     setDragOver(null);
-    if (!drag || drag.group !== group || drag.col === dropCol) return;
+    if (!drag || drag.col === dropCol) return;
 
     const side = dropSide(e);
 
@@ -436,24 +423,14 @@ export function PhotoList({
         ? (from < to ? to - 1 : to)
         : (from < to ? to : to + 1);
 
-    if (group === "os") {
-      const arr = [...visibleOSColumns];
-      const from = arr.indexOf(drag.col);
-      const to = arr.indexOf(dropCol);
-      if (from === -1 || to === -1) return;
-      arr.splice(from, 1);
-      arr.splice(insertAt(from, to), 0, drag.col);
-      onOSColumnsReorder?.(arr);
-    } else {
-      const arr = [...visibleColumns];
-      const from = arr.indexOf(drag.col);
-      const to = arr.indexOf(dropCol);
-      if (from === -1 || to === -1) return;
-      arr.splice(from, 1);
-      arr.splice(insertAt(from, to), 0, drag.col);
-      onColumnsReorder?.(arr);
-    }
-  }, [visibleColumns, visibleOSColumns, onColumnsReorder, onOSColumnsReorder]);
+    const arr = [...visibleColumns];
+    const from = arr.findIndex((c) => c.key === drag.col);
+    const to = arr.findIndex((c) => c.key === dropCol);
+    if (from === -1 || to === -1) return;
+    const [moved] = arr.splice(from, 1);
+    arr.splice(insertAt(from, to), 0, moved);
+    onColumnsReorder?.(arr);
+  }, [visibleColumns, onColumnsReorder]);
 
   const handleColDragEnd = useCallback(() => {
     colDragRef.current = null;
@@ -464,7 +441,7 @@ export function PhotoList({
   const [columnContextMenu, setColumnContextMenu] = useState<{ x: number, y: number } | null>(null);
 
   const headerProps: HeaderProps = {
-    visibleColumns, visibleOSColumns, sortConfig, sortingDisabled, dragOver,
+    visibleColumns, sortConfig, sortingDisabled, dragOver,
     onColumnContextMenu: handleColumnContextMenu,
     onColumnClick: handleColumnClick,
     onResizeStart: handleResizeStart,
@@ -481,7 +458,7 @@ export function PhotoList({
   // The grid template is exposed to descendants via the --grid-columns CSS
   // variable.  PhotoRow reads it via var(--grid-columns) so column-width
   // changes don't invalidate every memoised row's props.
-  const gridColumns = buildGridTemplate(visibleOSColumns, visibleColumns, effectiveWidths);
+  const gridColumns = buildGridTemplate(visibleColumns, effectiveWidths);
   const gridStyle = {
     gridTemplateColumns: gridColumns,
     gridTemplateRows: "auto auto 1fr",
@@ -537,7 +514,6 @@ export function PhotoList({
                 thumbnails={thumbnails}
                 imageMetadata={imageMetadata}
                 visibleColumns={visibleColumns}
-                visibleOSColumns={visibleOSColumns}
                 onSelect={onSelect}
                 onPhotoOpen={onPhotoOpen}
                 onContextMenu={handleContextMenu}

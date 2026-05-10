@@ -17,8 +17,12 @@ describe("PhotoList", () => {
         photos={photos}
         thumbnails={thumbnails}
         imageMetadata={metadata}
-        visibleColumns={["ExifIFD:DateTimeOriginal", "IFD0:Model"]}
-        visibleOSColumns={["date_modified", "date_created"]}
+        visibleColumns={[
+          { key: "date_modified", kind: "os" },
+          { key: "date_created", kind: "os" },
+          { key: "ExifIFD:DateTimeOriginal", kind: "image" },
+          { key: "IFD0:Model", kind: "image" },
+        ]}
         sortConfig={{ primary: null, secondary: null }}
         onSortChange={() => {}}
         selectedIndex={null}
