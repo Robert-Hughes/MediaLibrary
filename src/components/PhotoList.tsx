@@ -350,9 +350,16 @@ export function PhotoList({
     // is currently too wide or too narrow.
     const range = document.createRange();
     let maxWidth = 0;
-    container.querySelectorAll<HTMLElement>(`[data-col="${col}"]`).forEach((cell) => {
+    const cells = container.querySelectorAll<HTMLElement>(`[data-col="${col}"]`);
+    // Compute padding once from the first cell — all share the same class.
+    let cellPadding = 0;
+    if (cells.length > 0) {
+      const s = getComputedStyle(cells[0]);
+      cellPadding = parseFloat(s.paddingLeft) + parseFloat(s.paddingRight);
+    }
+    cells.forEach((cell) => {
       range.selectNodeContents(cell);
-      const w = range.getBoundingClientRect?.().width ?? 0;
+      const w = (range.getBoundingClientRect?.().width ?? 0) + cellPadding;
       if (w > maxWidth) maxWidth = w;
     });
 
@@ -360,9 +367,12 @@ export function PhotoList({
     // position at the column's right edge doesn't anchor the measurement there.
     const handle = container.querySelector<HTMLElement>(`[data-testid="resize-handle-${col}"]`);
     if (handle?.parentElement) {
-      range.setStart(handle.parentElement, 0);
+      const headerCell = handle.parentElement;
+      const hs = getComputedStyle(headerCell);
+      const headerPadding = parseFloat(hs.paddingLeft) + parseFloat(hs.paddingRight);
+      range.setStart(headerCell, 0);
       range.setEndBefore(handle);
-      const hw = range.getBoundingClientRect?.().width ?? 0;
+      const hw = (range.getBoundingClientRect?.().width ?? 0) + headerPadding;
       if (hw > maxWidth) maxWidth = hw;
     }
 
