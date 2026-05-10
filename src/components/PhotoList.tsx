@@ -29,6 +29,11 @@ interface Props {
 }
 
 const MIN_COL_WIDTH = 40;
+const DEFAULT_PREVIEW_COL_WIDTH = 52;
+const MIN_ROW_HEIGHT = 44;
+const THUMBNAIL_CELL_GUTTER = 8;
+const PREVIEW_ASPECT_HEIGHT = 3;
+const PREVIEW_ASPECT_WIDTH = 4;
 
 /**
  * Return the visible paths that still need a thumbnail or metadata load,
@@ -63,6 +68,16 @@ function buildGridTemplate(
       w(c.key, c.kind === "os" ? "minmax(120px, 1fr)" : "minmax(150px, 1fr)"),
     ),
   ].join(" ");
+}
+
+function previewColumnWidth(widths: Record<string, number>): number {
+  return widths.preview || DEFAULT_PREVIEW_COL_WIDTH;
+}
+
+function rowHeightForPreview(width: number): number {
+  const thumbnailWidth = Math.max(0, width - THUMBNAIL_CELL_GUTTER);
+  const thumbnailHeight = Math.round((thumbnailWidth * PREVIEW_ASPECT_HEIGHT) / PREVIEW_ASPECT_WIDTH);
+  return Math.max(MIN_ROW_HEIGHT, thumbnailHeight + THUMBNAIL_CELL_GUTTER);
 }
 
 function SortIndicator({ column, sortConfig, disabled }: { column: string; sortConfig: SortConfig; disabled?: boolean }) {
@@ -199,6 +214,8 @@ export function PhotoList({
   const effectiveWidths = Object.keys(liveWidths).length > 0
     ? { ...columnWidths, ...liveWidths }
     : columnWidths;
+  const rowHeight = rowHeightForPreview(previewColumnWidth(effectiveWidths));
+  const thumbnailHeight = Math.max(0, rowHeight - THUMBNAIL_CELL_GUTTER);
   
   // Use refs for callbacks to avoid re-creating observers when they change
   const onVisibilityChangeRef = useRef(onVisibilityChange);
@@ -211,7 +228,7 @@ export function PhotoList({
   const rowVirtualizer = useVirtualizer({
     count: photos.length,
     getScrollElement: () => listRef.current,
-    estimateSize: () => 44, // Estimated row height in pixels (matches .photo-row td height)
+    estimateSize: () => rowHeight, // Matches --row-height below.
     overscan: 10, // Render 10 extra rows above/below viewport for smooth scrolling
   });
 
@@ -478,6 +495,8 @@ export function PhotoList({
     gridTemplateColumns: gridColumns,
     gridTemplateRows: "auto auto 1fr",
     "--grid-columns": gridColumns,
+    "--row-height": `${rowHeight}px`,
+    "--thumb-height": `${thumbnailHeight}px`,
   } as React.CSSProperties;
 
   if (photos.length === 0) {

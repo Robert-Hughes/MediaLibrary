@@ -464,7 +464,7 @@ body {
 /* Grid cells */
 .grid-cell {
   padding: 4px 8px;
-  height: 44px;
+  height: var(--row-height, 44px);
   border-bottom: 1px solid var(--border);
   font-size: 13px;
   color: var(--text-primary);
@@ -518,7 +518,7 @@ body {
 
 .photo-thumb {
   width: calc(100% - 8px);
-  height: 36px;
+  height: var(--thumb-height, 36px);
   margin: 4px auto;
   border-radius: 4px;
   overflow: hidden;
