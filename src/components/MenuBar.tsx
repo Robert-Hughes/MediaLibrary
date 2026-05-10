@@ -19,8 +19,13 @@ export function MenuBar({ photoCount, scanning, metadataProgress, onOpenFolder, 
     metadataProgress?.subscribe.bind(metadataProgress) ?? (() => () => {}),
     metadataProgress?.getSnapshot().bind(metadataProgress) ?? (() => 0)
   );
-  
+  const metadataTotal = useSyncExternalStore(
+    metadataProgress?.subscribe.bind(metadataProgress) ?? (() => () => {}),
+    metadataProgress?.getTotalSnapshot().bind(metadataProgress) ?? (() => 0)
+  );
+
   const imageMetadataLoading = metadataRemaining > 0;
+  const metadataLoaded = metadataTotal - metadataRemaining;
   
   return (
     <div className="menu-bar" data-testid="menu-bar">
@@ -44,7 +49,7 @@ export function MenuBar({ photoCount, scanning, metadataProgress, onOpenFolder, 
       {!scanning && imageMetadataLoading && (
         <>
           <span style={spinStyle} className="menu-bar-spinner" data-testid="menu-bar-metadata-spinner" aria-label="Loading metadata…" />
-          <span className="menu-bar-status" data-testid="menu-bar-metadata-label">Loading metadata…</span>
+          <span className="menu-bar-status" data-testid="menu-bar-metadata-label">Loading metadata… ({metadataLoaded} of {metadataTotal})</span>
         </>
       )}
     </div>

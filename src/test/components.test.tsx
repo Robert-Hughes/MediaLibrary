@@ -106,7 +106,7 @@ describe("MenuBar", () => {
     
     render(<MenuBar {...base} metadataProgress={progress} />);
     expect(screen.getByTestId("menu-bar-metadata-spinner")).toBeInTheDocument();
-    expect(screen.getByTestId("menu-bar-metadata-label")).toHaveTextContent("Loading metadata");
+    expect(screen.getByTestId("menu-bar-metadata-label")).toHaveTextContent("Loading metadata… (5 of 10)");
   });
 
   it("calls onSelectColumns when columns button is clicked", async () => {

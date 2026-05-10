@@ -156,6 +156,10 @@ export class MetadataProgressStore {
     return Math.max(0, this.totalPhotos - this.receivedCount);
   }
 
+  getTotal(): number {
+    return this.totalPhotos;
+  }
+
   subscribe(callback: () => void): () => void {
     this.subscribers.add(callback);
     return () => this.subscribers.delete(callback);
@@ -163,6 +167,10 @@ export class MetadataProgressStore {
 
   getSnapshot(): () => number {
     return () => this.getRemaining();
+  }
+
+  getTotalSnapshot(): () => number {
+    return () => this.totalPhotos;
   }
 
   private notifySubscribers() {
