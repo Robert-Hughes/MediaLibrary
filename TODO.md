@@ -7,15 +7,10 @@ are covered by integration tests that simulate UI interaction and confirm that t
 Now
 ===
 
-
-
+* Thumbnail column resizing good
 
 Later- *** DO NOT WORK ON ANY \OF THE BELOW FEATURES ***
 =====
-
-* Allow mixing and matching of different column types. Show the OS/Image header on each colum instead.
-  * Swapping createdf/mnodified currently doesn't work (headers change, data doesn't)
-
 
 * The gallery view that shows a single image should have a details pane on the right hand side which shows a big table of all the properties of the image, including
 all the Image metadata.
