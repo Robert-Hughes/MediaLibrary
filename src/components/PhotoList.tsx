@@ -118,22 +118,28 @@ function PhotoListHeader(props: HeaderProps) {
     return `grid-header grid-header--sortable${drop}`;
   };
 
-  // Metadata headers span both header rows so the kind label and column label
-  // share one click/drag/drop target.
+  // Headers span both header rows so the kind label and column label share the
+  // same height and interaction target.
   return (
     <>
-      <div className="grid-header-group grid-cell-thumb" style={{ gridRow: "1 / 3" }}>Preview</div>
-      <div className="grid-header-group grid-header-group--empty" style={{ gridRow: 1, gridColumn: 2 }} />
-
-      <div className="grid-header grid-cell-thumb" style={{ gridRow: 2, gridColumn: 1 }} />
       <div
-        className="grid-header grid-header--sortable"
-        style={{ gridRow: 2, gridColumn: 2 }}
+        className="grid-header grid-header--metadata"
+        style={{ gridRow: "1 / 3", gridColumn: 1 }}
+      >
+        <span className="grid-header-kind grid-header-kind--empty" aria-hidden="true" />
+        <span className="grid-header-label">Preview</span>
+      </div>
+      <div
+        className="grid-header grid-header--sortable grid-header--metadata"
+        style={{ gridRow: "1 / 3", gridColumn: 2 }}
         onContextMenu={onColumnContextMenu}
         onClick={() => onColumnClick("relative_path", "path")}
       >
-        Path
-        <SortIndicator column="relative_path" sortConfig={sortConfig} disabled={sortingDisabled} />
+        <span className="grid-header-kind">OS</span>
+        <span className="grid-header-label">
+          Path
+          <SortIndicator column="relative_path" sortConfig={sortConfig} disabled={sortingDisabled} />
+        </span>
         <ResizeHandle col="relative_path" onResizeStart={onResizeStart} onResizeMove={onResizeMove} onResizeEnd={onResizeEnd} onReset={onResetWidth} />
       </div>
 

@@ -395,6 +395,10 @@ body {
   line-height: 1.1;
 }
 
+.grid-header-kind--empty {
+  min-height: 11px;
+}
+
 .grid-header-label {
   display: block;
   overflow: hidden;
