@@ -165,7 +165,8 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
     imageMetadataStoreRef.current      = new ImageMetadataStore();
     metadataProgressStoreRef.current   = new MetadataProgressStore();
     
-    setAppState({ kind: "loading", folder });
+    const { visibleColumns, visibleOSColumns, sortConfig, columnWidths } = loadColumnConfig();
+    setAppState({ kind: "loading", folder, visibleColumns, visibleOSColumns, columnWidths, sortConfig });
     api.invoke("set_window_title", { title: `Media Library — ${folder}` }).catch(() => {});
 
     await api.invoke("start_scan", { scanId, folderPath: folder });
@@ -197,7 +198,6 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
           // Update metadata progress store with new total
           metadataProgressStoreRef.current.setTotal(batch.length);
 
-          const { visibleColumns, visibleOSColumns, sortConfig, columnWidths } = loadColumnConfig();
           return {
             kind: "loaded",
             folder: prev.folder,
@@ -208,10 +208,10 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
             scanning: true,
             galleryIndex: null,
             selectedIndex: null,
-            visibleColumns,
-            visibleOSColumns,
-            columnWidths,
-            sortConfig,
+            visibleColumns: prev.visibleColumns,
+            visibleOSColumns: prev.visibleOSColumns,
+            columnWidths: prev.columnWidths,
+            sortConfig: prev.sortConfig,
             metadataVersion: 0,
             workerErrors: [],
           };
@@ -329,7 +329,6 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
         setAppState((prev) => {
           if (prev.kind === "loaded") return { ...prev, scanning: false };
           if (prev.kind === "loading") {
-            const { visibleColumns, visibleOSColumns, sortConfig, columnWidths } = loadColumnConfig();
             return {
               kind: "loaded",
               folder: prev.folder,
@@ -340,10 +339,10 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
               scanning: false,
               galleryIndex: null,
               selectedIndex: null,
-              visibleColumns,
-              visibleOSColumns,
-              columnWidths,
-              sortConfig,
+              visibleColumns: prev.visibleColumns,
+              visibleOSColumns: prev.visibleOSColumns,
+              columnWidths: prev.columnWidths,
+              sortConfig: prev.sortConfig,
               metadataVersion: 0,
               workerErrors: [],
             };
