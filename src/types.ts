@@ -201,7 +201,14 @@ export interface SortConfig {
 
 export type AppState =
   | { kind: "idle" }
-  | { kind: "loading"; folder: string }
+  | {
+      kind: "loading";
+      folder: string;
+      visibleColumns: string[];
+      visibleOSColumns: string[];
+      columnWidths: Record<string, number>;
+      sortConfig: SortConfig;
+    }
   | {
       kind: "loaded";
       folder: string;
