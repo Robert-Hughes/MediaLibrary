@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { DEFAULT_COLUMNS, DEFAULT_OS_COLUMNS } from "../utils/columnConfig";
 
 interface Props {
   allKeys: Array<{ key: string; count: number }>;
@@ -53,6 +54,11 @@ export function ColumnSelectionDialog({ allKeys, visibleColumns, visibleOSColumn
     setSelectedOS(new Set());
   };
 
+  const resetToDefaults = () => {
+    setSelected(new Set(DEFAULT_COLUMNS));
+    setSelectedOS(new Set(DEFAULT_OS_COLUMNS));
+  };
+
   // Sort keys alphabetically instead of by frequency
   const sortedKeys = [...allKeys].sort((a, b) => a.key.localeCompare(b.key));
 
@@ -85,6 +91,7 @@ export function ColumnSelectionDialog({ allKeys, visibleColumns, visibleOSColumn
           <div className="column-actions">
             <button className="btn-secondary btn-small" onClick={selectAll}>Select All</button>
             <button className="btn-secondary btn-small" onClick={deselectAll}>Deselect All</button>
+            <button className="btn-secondary btn-small" onClick={resetToDefaults}>Default</button>
           </div>
 
           <div className="column-search">
