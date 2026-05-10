@@ -39,6 +39,31 @@ describe("PhotoRow", () => {
     );
   });
 
+  it("fits thumbnail images without cropping", () => {
+    const thumbnails = new ThumbnailStore();
+    const metadata = new ImageMetadataStore();
+    thumbnails.set("1.jpg", "base64string");
+    metadata.set("1.jpg", {});
+
+    render(
+      <PhotoList
+        photos={[{ relative_path: "1.jpg", filename: "1.jpg", date_modified: null, date_created: null }]}
+        thumbnails={thumbnails}
+        imageMetadata={metadata}
+        visibleColumns={[]}
+        sortConfig={{ primary: null, secondary: null }}
+        onSortChange={() => {}}
+        selectedIndex={null}
+        onSelect={vi.fn()}
+        onShowInExplorer={vi.fn()}
+        onVisibilityChange={vi.fn()}
+        onPhotoOpen={vi.fn()}
+      />
+    );
+
+    expect(document.querySelector(".photo-thumb-img")).not.toBeNull();
+  });
+
   it("rows read gridTemplateColumns from a CSS custom property, not from props", () => {
     // Regression: gridColumns used to be a per-render string passed to every
     // memoised PhotoRow.  A column-resize drag (which fires setLiveWidths on
