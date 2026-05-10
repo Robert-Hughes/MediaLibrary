@@ -344,17 +344,25 @@ export function PhotoList({
     const container = listRef.current;
     if (!container) { onColumnWidthChange(col, 0); return; }
 
-    // scrollWidth returns the full content width even when overflow:hidden clips the
-    // visible area, so it correctly measures the intrinsic width of each rendered cell.
+    // Use Range.getBoundingClientRect() to get the intrinsic content width.
+    // Unlike scrollWidth, this reports the actual rendered content extent rather
+    // than the element's layout width, so it works correctly whether the column
+    // is currently too wide or too narrow.
+    const range = document.createRange();
     let maxWidth = 0;
     container.querySelectorAll<HTMLElement>(`[data-col="${col}"]`).forEach((cell) => {
-      if (cell.scrollWidth > maxWidth) maxWidth = cell.scrollWidth;
+      range.selectNodeContents(cell);
+      const w = range.getBoundingClientRect?.().width ?? 0;
+      if (w > maxWidth) maxWidth = w;
     });
 
-    // Also include the header cell's natural width (reached via its resize-handle).
+    // Header cell: select up to (not including) the ResizeHandle so the handle's
+    // position at the column's right edge doesn't anchor the measurement there.
     const handle = container.querySelector<HTMLElement>(`[data-testid="resize-handle-${col}"]`);
     if (handle?.parentElement) {
-      const hw = handle.parentElement.scrollWidth;
+      range.setStart(handle.parentElement, 0);
+      range.setEndBefore(handle);
+      const hw = range.getBoundingClientRect?.().width ?? 0;
       if (hw > maxWidth) maxWidth = hw;
     }
 
