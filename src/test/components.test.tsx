@@ -248,7 +248,8 @@ describe("ColumnSelectionDialog", () => {
     await userEvent.click(screen.getByText("Save Changes"));
     expect(onSave).toHaveBeenCalledWith(
       expect.arrayContaining(["IFD0:Model", "IFD0:Make"]),
-      expect.arrayContaining(["date_modified", "date_created"])
+      expect.arrayContaining(["date_modified", "date_created"]),
+      false
     );
   });
 });

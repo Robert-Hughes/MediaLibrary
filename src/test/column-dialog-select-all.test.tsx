@@ -53,7 +53,8 @@ describe("ColumnSelectionDialog Select All / Deselect All", () => {
     await userEvent.click(screen.getByText("Save Changes"));
     expect(onSave).toHaveBeenCalledWith(
       expect.arrayContaining(["IFD0:Model", "IFD0:Make", "XMP-dc:Subject"]),
-      expect.arrayContaining(["date_modified", "date_created"])
+      expect.arrayContaining(["date_modified", "date_created"]),
+      false
     );
   });
 
@@ -82,7 +83,7 @@ describe("ColumnSelectionDialog Select All / Deselect All", () => {
 
     // Save and verify no columns are selected
     await userEvent.click(screen.getByText("Save Changes"));
-    expect(onSave).toHaveBeenCalledWith([], []);
+    expect(onSave).toHaveBeenCalledWith([], [], false);
   });
 
   it("Select All works after making individual selections", async () => {
@@ -113,7 +114,8 @@ describe("ColumnSelectionDialog Select All / Deselect All", () => {
     await userEvent.click(screen.getByText("Save Changes"));
     expect(onSave).toHaveBeenCalledWith(
       expect.arrayContaining(["IFD0:Model", "IFD0:Make", "XMP-dc:Subject"]),
-      expect.arrayContaining(["date_modified", "date_created"])
+      expect.arrayContaining(["date_modified", "date_created"]),
+      false
     );
   });
 
@@ -140,7 +142,7 @@ describe("ColumnSelectionDialog Select All / Deselect All", () => {
 
     // Save and verify no columns are selected
     await userEvent.click(screen.getByText("Save Changes"));
-    expect(onSave).toHaveBeenCalledWith([], []);
+    expect(onSave).toHaveBeenCalledWith([], [], false);
   });
 
   it("renders Default button", () => {
@@ -156,7 +158,7 @@ describe("ColumnSelectionDialog Select All / Deselect All", () => {
     expect(screen.getByText("Default")).toBeInTheDocument();
   });
 
-  it("Default button resets selection to DEFAULT_COLUMNS and DEFAULT_OS_COLUMNS", async () => {
+  it("Default button resets selection to DEFAULT_COLUMNS and DEFAULT_OS_COLUMNS, with resetWidths=true", async () => {
     const onSave = vi.fn();
     render(
       <ColumnSelectionDialog
@@ -171,7 +173,24 @@ describe("ColumnSelectionDialog Select All / Deselect All", () => {
     await userEvent.click(screen.getByText("Default"));
     await userEvent.click(screen.getByText("Save Changes"));
 
-    expect(onSave).toHaveBeenCalledWith(DEFAULT_COLUMNS, DEFAULT_OS_COLUMNS);
+    expect(onSave).toHaveBeenCalledWith(DEFAULT_COLUMNS, DEFAULT_OS_COLUMNS, true);
+  });
+
+  it("normal Save does not set resetWidths", async () => {
+    const onSave = vi.fn();
+    render(
+      <ColumnSelectionDialog
+        allKeys={allKeys}
+        visibleColumns={["IFD0:Model"]}
+        visibleOSColumns={[]}
+        onSave={onSave}
+        onClose={() => {}}
+      />
+    );
+
+    await userEvent.click(screen.getByText("Save Changes"));
+
+    expect(onSave).toHaveBeenCalledWith(["IFD0:Model"], [], false);
   });
 
   it("Default button preserves column order matching DEFAULT_COLUMNS", async () => {

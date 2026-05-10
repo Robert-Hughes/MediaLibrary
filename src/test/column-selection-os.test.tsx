@@ -83,7 +83,8 @@ describe("ColumnSelectionDialog OS Metadata", () => {
     await userEvent.click(screen.getByText("Save Changes"));
     expect(onSave).toHaveBeenCalledWith(
       ["IFD0:Model"],
-      expect.arrayContaining(["date_modified", "date_created"])
+      expect.arrayContaining(["date_modified", "date_created"]),
+      false
     );
   });
 
@@ -106,7 +107,8 @@ describe("ColumnSelectionDialog OS Metadata", () => {
     await userEvent.click(screen.getByText("Save Changes"));
     expect(onSave).toHaveBeenCalledWith(
       ["IFD0:Model"],
-      ["date_created"]
+      ["date_created"],
+      false
     );
   });
 });
