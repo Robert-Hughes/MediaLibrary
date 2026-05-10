@@ -299,9 +299,16 @@ describe("buildGridTemplate (via rendered styles)", () => {
 
   it("scales row and thumbnail height from preview column width using 4:3", () => {
     const { thumbnails, imageMetadata } = makeStores();
+    const photos = [
+      mockPhotos[0],
+      { ...mockPhotos[0], relative_path: "b.jpg", filename: "b.jpg" },
+    ];
+    thumbnails.add("b.jpg");
+    imageMetadata.add("b.jpg");
+
     render(
       <PhotoList
-        photos={mockPhotos}
+        photos={photos}
         thumbnails={thumbnails}
         imageMetadata={imageMetadata}
         visibleColumns={[{ key: "date_modified", kind: "os" }]}
@@ -319,6 +326,12 @@ describe("buildGridTemplate (via rendered styles)", () => {
     const grid = document.querySelector(".photo-grid") as HTMLElement;
     expect(grid.style.getPropertyValue("--row-height")).toBe("65px");
     expect(grid.style.getPropertyValue("--thumb-height")).toBe("57px");
+
+    const rows = Array.from(document.querySelectorAll(".photo-row")) as HTMLElement[];
+    const body = document.querySelector(".grid-body") as HTMLElement;
+    expect(rows[0].style.transform).toBe("translateY(0px)");
+    expect(rows[1].style.transform).toBe("translateY(65px)");
+    expect(body.style.height).toBe("130px");
   });
 
   it("uses minmax defaults when no column widths are provided", () => {
