@@ -292,3 +292,56 @@ describe("drag-over drop indicator", () => {
     expect(get("ExifIFD:DateTimeOriginal").classList.contains("grid-header--drop-after")).toBe(false);
   });
 });
+
+describe("combined metadata header interactions", () => {
+  function setup(onColumnsReorder = vi.fn(), onSortChange = vi.fn()) {
+    const { thumbnails, imageMetadata } = makeStores();
+    render(
+      <PhotoList photos={mockPhotos} thumbnails={thumbnails} imageMetadata={imageMetadata}
+        visibleColumns={[os("date_modified"), img("IFD0:Model"), img("ExifIFD:DateTimeOriginal")]}
+        onColumnsReorder={onColumnsReorder}
+        sortConfig={{ primary: null, secondary: null }}
+        onSortChange={onSortChange}
+        selectedIndex={null} onSelect={() => {}}
+        onShowInExplorer={() => {}} onVisibilityChange={() => {}} onPhotoOpen={() => {}} />
+    );
+    const metadataHeaders = () =>
+      Array.from(document.querySelectorAll(".grid-header--metadata[draggable]")) as HTMLElement[];
+    const getMetadataAtGridColumn = (gridColumn: string) =>
+      metadataHeaders().find((h) => h.style.gridColumn === gridColumn)!;
+    return { onColumnsReorder, onSortChange, getMetadataAtGridColumn };
+  }
+
+  it("metadata headers span both header rows and are draggable", () => {
+    const { getMetadataAtGridColumn } = setup();
+    expect(getMetadataAtGridColumn("3").style.gridRow).toBe("1 / 3");
+    expect(getMetadataAtGridColumn("3").getAttribute("draggable")).toBe("true");
+    expect(getMetadataAtGridColumn("4").getAttribute("draggable")).toBe("true");
+  });
+
+  it("dragging from one combined header to another reorders columns", () => {
+    const { onColumnsReorder, getMetadataAtGridColumn } = setup();
+    fireEvent.dragStart(getMetadataAtGridColumn("3"));
+    doDragOver(getMetadataAtGridColumn("5"), BEFORE);
+    doDrop(getMetadataAtGridColumn("5"), BEFORE);
+    expect(onColumnsReorder).toHaveBeenCalledWith([
+      img("IFD0:Model"), os("date_modified"), img("ExifIFD:DateTimeOriginal"),
+    ]);
+  });
+
+  it("combined headers show the drop indicator on drag-over", () => {
+    const { getMetadataAtGridColumn } = setup();
+    fireEvent.dragStart(getMetadataAtGridColumn("3"));
+    doDragOver(getMetadataAtGridColumn("5"), AFTER);
+    expect(getMetadataAtGridColumn("5").classList.contains("grid-header--drop-after")).toBe(true);
+  });
+
+  it("clicking a combined header sorts by that column", () => {
+    const { onSortChange, getMetadataAtGridColumn } = setup();
+    fireEvent.click(getMetadataAtGridColumn("3"));
+    expect(onSortChange).toHaveBeenCalledWith({
+      primary: { column: "date_modified", columnType: "os", direction: "asc" },
+      secondary: null,
+    });
+  });
+});
