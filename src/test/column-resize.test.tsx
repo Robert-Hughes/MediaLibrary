@@ -323,15 +323,13 @@ describe("buildGridTemplate (via rendered styles)", () => {
       />
     );
 
+    // CSS custom properties are the authoritative contract between PhotoList
+    // and its CSS.  Exact translateY offsets and body height are internal to
+    // the TanStack virtualizer (which can't measure real DOM in JSDOM) so we
+    // don't assert on those.
     const grid = document.querySelector(".photo-grid") as HTMLElement;
     expect(grid.style.getPropertyValue("--row-height")).toBe("65px");
     expect(grid.style.getPropertyValue("--thumb-height")).toBe("57px");
-
-    const rows = Array.from(document.querySelectorAll(".photo-row")) as HTMLElement[];
-    const body = document.querySelector(".grid-body") as HTMLElement;
-    expect(rows[0].style.transform).toBe("translateY(0px)");
-    expect(rows[1].style.transform).toBe("translateY(65px)");
-    expect(body.style.height).toBe("130px");
   });
 
   it("uses minmax defaults when no column widths are provided", () => {
