@@ -232,6 +232,13 @@ export function PhotoList({
     overscan: 10, // Render 10 extra rows above/below viewport for smooth scrolling
   });
 
+  // When rowHeight changes (e.g. preview column resize), the virtualizer's
+  // cached item sizes become stale.  measure() clears the cache so every item
+  // is re-estimated with the new height on the next layout pass.
+  useEffect(() => {
+    rowVirtualizer.measure();
+  }, [rowHeight, rowVirtualizer]);
+
   const virtualItems = rowVirtualizer.getVirtualItems();
 
   // Track visibility for prioritization
@@ -515,7 +522,7 @@ export function PhotoList({
     );
   }
 
-  const totalSize = photos.length * rowHeight;
+  const totalSize = rowVirtualizer.getTotalSize();
 
   return (
     <div className="photo-table-wrapper" ref={listRef} onClick={() => { setContextMenu(null); setColumnContextMenu(null); }} onDragOver={handleWrapperDragOver}>
@@ -551,7 +558,7 @@ export function PhotoList({
                 onSelect={onSelect}
                 onPhotoOpen={onPhotoOpen}
                 onContextMenu={handleContextMenu}
-                virtualStart={virtualRow.index * rowHeight}
+                virtualStart={virtualRow.start}
               />
             );
           })}

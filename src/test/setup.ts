@@ -16,20 +16,22 @@ if (typeof IntersectionObserver === "undefined") {
 // Mock @tanstack/react-virtual to render all items in tests (no virtualization)
 // This allows tests to find all rows without needing to simulate scrolling
 vi.mock("@tanstack/react-virtual", () => ({
-  useVirtualizer: ({ count }: { count: number }) => {
+  useVirtualizer: ({ count, estimateSize }: { count: number; estimateSize: () => number }) => {
+    const size = estimateSize();
     // Return a mock virtualizer that renders all items
     const items = Array.from({ length: count }, (_, index) => ({
       index,
-      start: index * 80,
-      size: 80,
-      end: (index + 1) * 80,
+      start: index * size,
+      size,
+      end: (index + 1) * size,
       key: index,
     }));
     
     return {
       getVirtualItems: () => items,
-      getTotalSize: () => count * 80,
+      getTotalSize: () => count * size,
       scrollToIndex: () => {},
+      measure: () => {},
     };
   },
 }));
