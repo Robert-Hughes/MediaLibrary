@@ -311,8 +311,10 @@ fn parse_exiftool_batch_json(
 /// Generate a base64-encoded JPEG thumbnail for the image at `path`.
 /// 
 /// Strategy:
-/// 1. Try to extract embedded EXIF thumbnail (fast, ~10-50ms)
-/// 2. Fall back to full decode and resize (slow, ~100-500ms in release, 2-4s in debug)
+/// 1. Try to extract an embedded EXIF thumbnail. If its largest dimension
+///    is >= 160 px, use it as-is (fast path, ~10-50 ms).
+/// 2. Otherwise, full-decode the image and resize so the largest dimension
+///    is 160 px (slow path, ~100-500 ms release, 2-4 s debug).
 pub fn thumbnail_for(path: &Path) -> Option<String> {
     // TEMPORARY: simulate slow thumbnail generation for load testing.
     #[cfg(not(test))]
@@ -330,6 +332,9 @@ pub fn thumbnail_for(path: &Path) -> Option<String> {
 }
 
 /// Try to extract an embedded EXIF thumbnail (very fast).
+///
+/// Returns `Some` only when the embedded thumbnail's largest dimension is
+/// >= 160 px — in that case we return it as-is without re-encoding.
 fn extract_exif_thumbnail(path: &Path) -> Option<String> {
     use std::fs::File;
     use std::io::{BufReader, Read};
@@ -371,18 +376,17 @@ fn extract_exif_thumbnail(path: &Path) -> Option<String> {
             
             // Check if it's a valid JPEG (starts with 0xFF 0xD8)
             if thumbnail_bytes.len() > 2 && thumbnail_bytes[0] == 0xFF && thumbnail_bytes[1] == 0xD8 {
-                // Try to load and resize if needed
+                // Decode just enough to check dimensions
                 if let Ok(img) = image::load_from_memory(thumbnail_bytes) {
-                    // Only resize if significantly larger than target
-                    if img.width() > 160 || img.height() > 160 {
-                        let resized = img.thumbnail(80, 80);
-                        let mut buf = Vec::new();
-                        resized.write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Jpeg).ok()?;
-                        return Some(base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &buf));
-                    } else {
-                        // Use embedded thumbnail as-is
-                        return Some(base64::Engine::encode(&base64::engine::general_purpose::STANDARD, thumbnail_bytes));
+                    let largest = img.width().max(img.height());
+                    if largest >= 160 {
+                        // Embedded thumbnail is large enough — use as-is
+                        return Some(base64::Engine::encode(
+                            &base64::engine::general_purpose::STANDARD,
+                            thumbnail_bytes,
+                        ));
                     }
+                    // Embedded thumbnail is too small; fall through to full decode
                 }
             }
         }
@@ -415,7 +419,7 @@ fn find_tiff_offset(data: &[u8]) -> Option<usize> {
 
 fn full_decode_thumbnail(path: &Path) -> Option<String> {
     let img = image::open(path).ok()?;
-    let thumb = img.thumbnail(80, 80);
+    let thumb = img.thumbnail(160, 160);
     let mut buf = Vec::new();
     thumb.write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Jpeg).ok()?;
     Some(base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &buf))
@@ -572,18 +576,39 @@ mod tests {
     }
 
     #[test]
-    fn exif_thumbnail_is_extracted() {
-        // Test with a checked-in sample image that has an embedded EXIF thumbnail
-        // Path is relative to the workspace root (where Cargo.toml is located)
+    fn exif_thumbnail_too_small_is_rejected() {
+        // The test image's embedded thumbnail is ~100×68 px, which is below the
+        // 160 px threshold.  extract_exif_thumbnail should return None so we
+        // fall through to the full-decode path.
         let workspace_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
         let path = workspace_root.join("test_images/real_with_exif.jpg");
-        
+
         if !path.exists() {
             panic!("Test image not found at {:?}. Please ensure test_images/real_with_exif.jpg exists in the repository.", path);
         }
-        
+
         let result = extract_exif_thumbnail(&path);
-        assert!(result.is_some(), "Expected to extract an EXIF thumbnail from the sample image");
+        assert!(result.is_none(), "Embedded thumbnail is < 160 px; should have been rejected");
+
+        // thumbnail_for should still succeed via the full-decode fallback
+        let thumb = thumbnail_for(&path);
+        assert!(thumb.is_some(), "Expected thumbnail_for to succeed via full decode");
+        assert!(!thumb.unwrap().is_empty());
+    }
+
+    #[test]
+    fn exif_thumbnail_large_enough_is_used() {
+        // large_with_exif.jpg has a 200×150 embedded thumbnail (≥ 160 px),
+        // so extract_exif_thumbnail should return it directly.
+        let workspace_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let path = workspace_root.join("test_images/large_with_exif.jpg");
+
+        if !path.exists() {
+            panic!("Test image not found at {:?}. Please ensure test_images/large_with_exif.jpg exists in the repository.", path);
+        }
+
+        let result = extract_exif_thumbnail(&path);
+        assert!(result.is_some(), "Expected embedded thumbnail (200×150) to be accepted (≥ 160 px)");
         assert!(!result.unwrap().is_empty());
     }
 }
