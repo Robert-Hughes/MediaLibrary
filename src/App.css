@@ -517,7 +517,7 @@ body {
 .photo-row:hover .grid-cell { background: #1e2128; }
 
 .photo-thumb {
-  width: 36px;
+  width: calc(100% - 8px);
   height: 36px;
   margin: 4px auto;
   border-radius: 4px;
