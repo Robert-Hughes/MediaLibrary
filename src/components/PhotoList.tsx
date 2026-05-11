@@ -30,6 +30,7 @@ interface Props {
   searchQuery?: string;
   /** Shown in the grid body when `photos` is empty but the folder is not (search had no hits). */
   emptySearchMessage?: string | null;
+  draftEdits?: Record<string, Record<string, string | null>>;
 }
 
 const MIN_COL_WIDTH = 40;
@@ -205,6 +206,7 @@ export function PhotoList({
   selectedIndex, onSelect, onShowInExplorer, onVisibilityChange, onPhotoOpen, onSelectColumns,
   searchQuery = "",
   emptySearchMessage = null,
+  draftEdits = {},
 }: Props) {
   const listRef = useRef<HTMLDivElement>(null);
   const visibleRef = useRef<Set<string>>(new Set());
@@ -579,6 +581,7 @@ export function PhotoList({
                 thumbnails={thumbnails}
                 imageMetadata={imageMetadata}
                 visibleColumns={visibleColumns}
+                draftEdits={draftEdits[photo.relative_path]}
                 onSelect={onSelect}
                 onPhotoOpen={onPhotoOpen}
                 onContextMenu={handleContextMenu}

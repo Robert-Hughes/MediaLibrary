@@ -113,6 +113,20 @@ function LoadedView({
       ? "No photos match your search."
       : null;
 
+  const draftEditsSummary = useMemo(() => {
+    if (!state.draftEdits) return null;
+    let filesCount = 0;
+    let editsCount = 0;
+    for (const edits of Object.values(state.draftEdits)) {
+      const keys = Object.keys(edits);
+      if (keys.length > 0) {
+        filesCount++;
+        editsCount += keys.length;
+      }
+    }
+    return filesCount > 0 ? { files: filesCount, edits: editsCount } : null;
+  }, [state.draftEdits]);
+
   return (
     <>
       <ErrorBanner errors={state.workerErrors} onDismiss={actions.dismissError} />
@@ -124,6 +138,7 @@ function LoadedView({
         onOpenFolder={actions.openFolder}
         onCloseFolder={actions.closeFolder}
         onSelectColumns={() => setShowColumnDialog(true)}
+        draftEditsSummary={draftEditsSummary}
       />
       <div className="list-search-bar" data-testid="list-search-bar">
         <label className="list-search-label" htmlFor="list-search-input">
@@ -159,6 +174,7 @@ function LoadedView({
         onSelectColumns={() => setShowColumnDialog(true)}
         searchQuery={listSearchQuery}
         emptySearchMessage={emptySearchMessage}
+        draftEdits={state.draftEdits}
       />
       {state.galleryIndex !== null && displayPhotos.length > 0 && (
         <GalleryView
