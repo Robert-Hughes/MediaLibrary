@@ -92,6 +92,22 @@ describe("useMediaLibrary", () => {
     if (state.kind === "loaded") expect(state.galleryIndex).toBe(1);
   });
 
+  it("navigateGallery respects listLength when clamping", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/photos");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => { await result.current[1].openFolder(); });
+    makePhotos(["a.jpg", "b.jpg", "c.jpg"]).forEach((p) => act(() => { mock.emitPhotoFound(p); }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(150); });
+    act(() => { result.current[1].openGallery(0); });
+    act(() => { result.current[1].navigateGallery(1, { listLength: 2 }); });
+    let state = result.current[0];
+    if (state.kind === "loaded") expect(state.galleryIndex).toBe(1);
+    act(() => { result.current[1].navigateGallery(1, { listLength: 2 }); });
+    state = result.current[0];
+    if (state.kind === "loaded") expect(state.galleryIndex).toBe(1);
+  });
+
   it("navigateGallery clamps at boundaries", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/photos");
