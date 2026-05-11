@@ -7,16 +7,12 @@ are covered by integration tests that simulate UI interaction and confirm that t
 Now
 ===
 
-* Thumbnail column resizing good
 
 Later- *** DO NOT WORK ON ANY \OF THE BELOW FEATURES ***
 =====
 
-* The gallery view that shows a single image should have a details pane on the right hand side which shows a big table of all the properties of the image, including
-all the Image metadata.
-
-* The details table in the gallery view should have a search feature (to search both keys and values)
-* The list view should have a search feature (to search the path, OS metadata and Image metadata for all the images, including the Image metadata not currently being shown if those columns are hidden)
+* The details table in the gallery view should have a search feature (to search both keys and values). This should filter the rows being shown to only those with a match, and highlight the bits of the text that match.
+* The main list view should also have a search feature (to search the path, OS metadata and Image metadata for all the images, including the Image metadata not currently being shown if those columns are hidden). Again, this should filter the rows being shown to only those that match, and highlight the bits of the text that match. (If the match is part of a piece of metadata that isn't curently being shown, no highlight would be shown.)
 * When the list view is filtered via a search, the navigation in the gallery mode should sync with this (i.e. next/prev moves to the next/prev in the filtered search results)
 
 * The app should allow editing of metadata. For now, edits will be kept just as 'draft' changes and not actually applied to the files on disk.
@@ -47,7 +43,7 @@ all the Image metadata.
 * Using OpenAI API to analyze image contents
   * How do "cached" input tokens work - can we cache the prompt telling it to describe the image as that's common across all images?
 * Combine image description with other metadata (and 'storyline') to propose changes to metadata. This could be a mix of programmatic and Open AI Responses API?
-* Compare with functionalty of the Update Metadata prompts approach - add anything missing to here? Check the instruction files and also the scripts and sample reports/json files to see if we're missing anything that we figured out before.
+* Compare with functionalty of the Update Metadata prompts approach - add anything missing to here? Check the instruction files and also the scripts and sample reports/json files to see if we're missing anything that we figured out before. Also the TODO of the previous approach!
 
 * Figure out how exiftool should be bundled/installed/etc. - Currently in "C:\Users\xman2\AppData\Local\Programs\ExifTool\ExifTool.exe"
 
