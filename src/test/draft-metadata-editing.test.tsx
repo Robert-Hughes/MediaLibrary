@@ -100,6 +100,21 @@ describe("Draft Metadata Editing Integration", () => {
     expect(draftNewInDetails).toBeInTheDocument();
     expect(draftNewInDetails).toHaveClass("draft-new");
 
+    // Click the draft badge in DetailsPane to filter to has:edits
+    const detailsBadge = screen.getByTitle("Show only edited fields");
+    await user.click(detailsBadge);
+    
+    // Details search input should have has:edits
+    expect(screen.getByTestId("details-search-input")).toHaveValue("has:edits");
+
+    // We should still see "IFD0:Make" but NOT "OS Metadata" (since OS metadata cannot be edited, so it has no edits)
+    expect(screen.getByTestId("details-section-IFD0")).toBeInTheDocument();
+    expect(screen.queryByTestId("details-section-os")).toBeNull();
+
+    // Clear details search
+    await user.clear(screen.getByTestId("details-search-input"));
+    expect(screen.getByTestId("details-section-os")).toBeInTheDocument();
+
     // Close gallery
     await user.click(screen.getByTestId("gallery-close-btn"));
 

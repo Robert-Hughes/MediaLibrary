@@ -150,21 +150,35 @@ export function DetailsPane({ photo, metadata, draftEdits = {}, onSetDraft, onDi
   );
 
   const filteredOsEntries = useMemo(() => {
-    if (!normalizedDetailsQuery) return osEntries;
-    return osEntries.filter(([label, value, key]) => detailsRowMatchesSearch(label, value, key, normalizedDetailsQuery));
-  }, [osEntries, normalizedDetailsQuery]);
+    let query = normalizedDetailsQuery;
+    const hasEditsFilter = query.includes("has:edits");
+    if (hasEditsFilter) {
+      query = query.replace("has:edits", "").trim();
+    }
+    if (!query && !hasEditsFilter) return osEntries;
+    return osEntries.filter(([label, value, key]) => {
+      if (hasEditsFilter && draftEdits[key] === undefined) return false;
+      return detailsRowMatchesSearch(label, value, key, query);
+    });
+  }, [osEntries, normalizedDetailsQuery, draftEdits]);
 
   const filteredImageGroups = useMemo(() => {
-    if (!normalizedDetailsQuery) return imageGroups;
+    let query = normalizedDetailsQuery;
+    const hasEditsFilter = query.includes("has:edits");
+    if (hasEditsFilter) {
+      query = query.replace("has:edits", "").trim();
+    }
+    if (!query && !hasEditsFilter) return imageGroups;
     return imageGroups
       .map((g) => ({
         ...g,
-        entries: g.entries.filter((e) =>
-          detailsRowMatchesSearch(e.label, e.value, e.fullKey, normalizedDetailsQuery),
-        ),
+        entries: g.entries.filter((e) => {
+          if (hasEditsFilter && draftEdits[e.fullKey] === undefined) return false;
+          return detailsRowMatchesSearch(e.label, e.value, e.fullKey, query);
+        }),
       }))
       .filter((g) => g.entries.length > 0);
-  }, [imageGroups, normalizedDetailsQuery]);
+  }, [imageGroups, normalizedDetailsQuery, draftEdits]);
 
   const showOsSection = !normalizedDetailsQuery || filteredOsEntries.length > 0;
 
@@ -173,7 +187,12 @@ export function DetailsPane({ photo, metadata, draftEdits = {}, onSetDraft, onDi
       <h2 className="details-pane-title" style={{ display: "flex", alignItems: "center" }}>
         Properties
         {Object.keys(draftEdits).length > 0 && (
-          <span className="row-draft-badge" style={{ marginLeft: "auto" }}>
+          <span 
+            className="row-draft-badge" 
+            style={{ marginLeft: "auto", cursor: "pointer" }}
+            onClick={() => setDetailsSearch("has:edits")}
+            title="Show only edited fields"
+          >
             {Object.keys(draftEdits).length} edit{Object.keys(draftEdits).length === 1 ? "" : "s"}
           </span>
         )}
