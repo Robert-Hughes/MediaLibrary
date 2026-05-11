@@ -23,7 +23,7 @@ function formatVariantForSearch(v: Variant | undefined): string {
  * Build searchable text for one list row: path, OS timestamps as shown in the grid,
  * and all image metadata keys/values (including keys not shown as columns).
  */
-export function buildListSearchHaystack(photo: PhotoInfo, meta: ImageMetadataState): string {
+export function buildListSearchHaystack(photo: PhotoInfo, meta: ImageMetadataState, edits?: Record<string, string | null>): string {
   const chunks: string[] = [
     photo.relative_path,
     photo.filename,
@@ -38,6 +38,12 @@ export function buildListSearchHaystack(photo: PhotoInfo, meta: ImageMetadataSta
     }
   }
 
+  if (edits) {
+    for (const [key, value] of Object.entries(edits)) {
+      chunks.push(key, value === null ? "—" : value);
+    }
+  }
+
   return chunks.join("\n");
 }
 
@@ -45,9 +51,10 @@ export function photoMatchesListSearch(
   photo: PhotoInfo,
   normalizedQuery: string,
   meta: ImageMetadataState,
+  edits?: Record<string, string | null>,
 ): boolean {
   if (!normalizedQuery) return true;
-  return haystackContainsNormalized(buildListSearchHaystack(photo, meta), normalizedQuery);
+  return haystackContainsNormalized(buildListSearchHaystack(photo, meta, edits), normalizedQuery);
 }
 
 export function filterPhotosForListSearch(
@@ -72,6 +79,6 @@ export function filterPhotosForListSearch(
       }
     }
     if (!q) return true;
-    return photoMatchesListSearch(p, q, imageMetadata.get(p.relative_path));
+    return photoMatchesListSearch(p, q, imageMetadata.get(p.relative_path), draftEdits?.[p.relative_path]);
   });
 }

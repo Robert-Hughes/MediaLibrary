@@ -228,4 +228,70 @@ describe("Draft Metadata Editing Integration", () => {
     rows = screen.getAllByTestId("photo-row");
     expect(rows).toHaveLength(2);
   });
+
+  it("can search for draft edited values in both list view and details pane", async () => {
+    const user = userEvent.setup();
+
+    mockApiInstance.pickFolderResolves("/photos");
+    render(<App />);
+    await act(async () => {
+      await new Promise(r => setTimeout(r, 50));
+    });
+
+    await user.click(screen.getByTestId("open-folder-btn"));
+
+    const photo = makePhoto({ relative_path: "edited.jpg" });
+    await act(async () => {
+      mockApiInstance.emitPhotoFound(photo);
+    });
+
+    const metadata = { "IFD0:Make": "Canon" };
+    await act(async () => {
+      mockApiInstance.emitImageMetadataReady(photo.relative_path, metadata);
+    });
+
+    await act(async () => {
+      await new Promise(r => setTimeout(r, 250));
+    });
+
+    // Open gallery and edit value
+    let rows = screen.getAllByTestId("photo-row");
+    await user.dblClick(rows[0]);
+    await user.click(screen.getByTestId("gallery-info-toggle"));
+    
+    const canonCell = within(screen.getByTestId("details-section-IFD0")).getByTitle("Canon");
+    await user.pointer({ keys: "[MouseRight]", target: canonCell });
+    await user.click(screen.getByText("Edit"));
+    
+    const input = screen.getByRole("textbox");
+    await user.clear(input);
+    await user.type(input, "Nikon"); // new draft value
+    await user.click(screen.getByText("Save"));
+
+    // Verify Details table search matches "Nikon"
+    const detailsSearch = screen.getByTestId("details-search-input");
+    await user.clear(detailsSearch);
+    await user.type(detailsSearch, "Nikon");
+    
+    // We should see IFD0 section
+    expect(screen.getByTestId("details-section-IFD0")).toBeInTheDocument();
+    expect(screen.queryByTestId("details-section-os")).toBeNull();
+
+    // Close gallery
+    await user.click(screen.getByTestId("gallery-close-btn"));
+
+    // Verify List view search matches "Nikon"
+    const listSearch = screen.getByTestId("list-search-input");
+    await user.clear(listSearch);
+    await user.type(listSearch, "Nikon");
+
+    // The photo should still be visible because it matches
+    rows = screen.getAllByTestId("photo-row");
+    expect(rows).toHaveLength(1);
+
+    // If we search for something unrelated, it should disappear
+    await user.clear(listSearch);
+    await user.type(listSearch, "Panasonic");
+    expect(screen.queryByTestId("photo-row")).toBeNull();
+  });
 });
