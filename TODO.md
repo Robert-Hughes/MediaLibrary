@@ -7,14 +7,6 @@ are covered by integration tests that simulate UI interaction and confirm that t
 Now
 ===
 
-
-Later- *** DO NOT WORK ON ANY \OF THE BELOW FEATURES ***
-=====
-
-* The details table in the gallery view should have a search feature (to search both keys and values). This should filter the rows being shown to only those with a match, and highlight the bits of the text that match.
-* The main list view should also have a search feature (to search the path, OS metadata and Image metadata for all the images, including the Image metadata not currently being shown if those columns are hidden). Again, this should filter the rows being shown to only those that match, and highlight the bits of the text that match. (If the match is part of a piece of metadata that isn't curently being shown, no highlight would be shown.)
-* When the list view is filtered via a search, the navigation in the gallery mode should sync with this (i.e. next/prev moves to the next/prev in the filtered search results)
-
 * The app should allow editing of metadata. For now, edits will be kept just as 'draft' changes and not actually applied to the files on disk.
     * We should store in the app's local storage a database of draft edits. For each folder that the user has opened and made draft edits, we'll store a separate
     file that contains all the draft edits the user has made for files in that folder. The format would be something like a JSONL file with line for each file where there are draft edits
@@ -28,6 +20,11 @@ Later- *** DO NOT WORK ON ANY \OF THE BELOW FEATURES ***
     * New edits can be made in the gallery view's details table by right clicking on a value cell in the table and selected "Edit", which will show a popup dialog prompting for the new value.
     * At the top of the list view where it currently shows "X photos", it should also show the number of pending draft edits, something like: "X photos, Y draft edits across P files". (Clearly
     this would just count edits for files in the current folder).
+
+
+Later- *** DO NOT WORK ON ANY \OF THE BELOW FEATURES ***
+=====
+
 
 * The app should allow committing the draft edits to the real files. When there are pending edits, a button should appear at the top of the list after the info text showing that there are pending edits, saying "Apply All Edits".
 * There should also be an option in the right click menu for a row in the list view to apply edits to just that row
@@ -43,6 +40,7 @@ Later- *** DO NOT WORK ON ANY \OF THE BELOW FEATURES ***
 * Using OpenAI API to analyze image contents
   * How do "cached" input tokens work - can we cache the prompt telling it to describe the image as that's common across all images?
 * Combine image description with other metadata (and 'storyline') to propose changes to metadata. This could be a mix of programmatic and Open AI Responses API?
+
 * Compare with functionalty of the Update Metadata prompts approach - add anything missing to here? Check the instruction files and also the scripts and sample reports/json files to see if we're missing anything that we figured out before. Also the TODO of the previous approach!
 
 * Figure out how exiftool should be bundled/installed/etc. - Currently in "C:\Users\xman2\AppData\Local\Programs\ExifTool\ExifTool.exe"

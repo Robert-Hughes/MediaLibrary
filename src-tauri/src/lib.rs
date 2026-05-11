@@ -1,7 +1,7 @@
 pub mod scanner;
 pub mod util;
 pub mod work_queue;
-
+pub mod draft_edits;
 use serde::Serialize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
@@ -603,7 +603,15 @@ fn set_window_title(title: String, app: AppHandle) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+fn load_draft_edits(folder_path: String) -> Result<draft_edits::DraftEditsPayload, String> {
+    draft_edits::load_draft_edits(&folder_path)
+}
 
+#[tauri::command]
+fn save_draft_edits(folder_path: String, data: draft_edits::DraftEditsPayload) -> Result<(), String> {
+    draft_edits::save_draft_edits(&folder_path, data)
+}
 
 fn clear_running(app: &AppHandle) {
     if let Some(state) = app.try_state::<ScanState>() {
@@ -754,7 +762,9 @@ pub fn run() {
             stop_scan,
             prioritize_queues,
             show_in_explorer,
-            set_window_title
+            set_window_title,
+            load_draft_edits,
+            save_draft_edits
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
