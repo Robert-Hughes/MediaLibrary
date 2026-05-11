@@ -54,8 +54,24 @@ export function filterPhotosForListSearch(
   photos: PhotoInfo[],
   query: string,
   imageMetadata: ImageMetadataStore,
+  draftEdits?: Record<string, Record<string, string | null>>
 ): PhotoInfo[] {
-  const q = normalizeListSearchQuery(query);
-  if (!q) return photos;
-  return photos.filter((p) => photoMatchesListSearch(p, q, imageMetadata.get(p.relative_path)));
+  let q = normalizeListSearchQuery(query);
+  const hasEditsFilter = q.includes("has:edits");
+  if (hasEditsFilter) {
+    q = q.replace("has:edits", "").trim();
+  }
+
+  if (!q && !hasEditsFilter) return photos;
+
+  return photos.filter((p) => {
+    if (hasEditsFilter) {
+      const edits = draftEdits?.[p.relative_path];
+      if (!edits || Object.keys(edits).length === 0) {
+        return false;
+      }
+    }
+    if (!q) return true;
+    return photoMatchesListSearch(p, q, imageMetadata.get(p.relative_path));
+  });
 }

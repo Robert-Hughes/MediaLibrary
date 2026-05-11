@@ -31,6 +31,7 @@ interface Props {
   /** Shown in the grid body when `photos` is empty but the folder is not (search had no hits). */
   emptySearchMessage?: string | null;
   draftEdits?: Record<string, Record<string, string | null>>;
+  onDiscardAllEdits?: (fileRelativePath: string) => void;
 }
 
 const MIN_COL_WIDTH = 40;
@@ -207,6 +208,7 @@ export function PhotoList({
   searchQuery = "",
   emptySearchMessage = null,
   draftEdits = {},
+  onDiscardAllEdits,
 }: Props) {
   const listRef = useRef<HTMLDivElement>(null);
   const visibleRef = useRef<Set<string>>(new Set());
@@ -600,6 +602,9 @@ export function PhotoList({
           options={[
             { label: "View", onClick: () => onPhotoOpen(contextMenu.index) },
             { label: "Show in File Explorer", onClick: () => onShowInExplorer(contextMenu.index) },
+            ...(draftEdits[photos[contextMenu.index].relative_path] && Object.keys(draftEdits[photos[contextMenu.index].relative_path]).length > 0 && onDiscardAllEdits
+              ? [{ label: "Discard all edits", onClick: () => onDiscardAllEdits(photos[contextMenu.index].relative_path) }]
+              : [])
           ]}
           onClose={() => setContextMenu(null)}
         />

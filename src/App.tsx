@@ -72,10 +72,10 @@ function LoadedView({
   }, [state.folder]);
 
   const displayPhotos = useMemo(
-    () => filterPhotosForListSearch(sortedPhotos, listSearchQuery, state.imageMetadata),
+    () => filterPhotosForListSearch(sortedPhotos, listSearchQuery, state.imageMetadata, state.draftEdits),
     // metadataVersion: hidden metadata can start matching after ExifTool results arrive
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [sortedPhotos, listSearchQuery, state.imageMetadata, state.metadataVersion],
+    [sortedPhotos, listSearchQuery, state.imageMetadata, state.metadataVersion, state.draftEdits],
   );
 
   useEffect(() => {
@@ -127,6 +127,10 @@ function LoadedView({
     return filesCount > 0 ? { files: filesCount, edits: editsCount } : null;
   }, [state.draftEdits]);
 
+  const onClickDraftSummary = useCallback(() => {
+    setListSearchQuery("has:edits");
+  }, []);
+
   return (
     <>
       <ErrorBanner errors={state.workerErrors} onDismiss={actions.dismissError} />
@@ -139,6 +143,7 @@ function LoadedView({
         onCloseFolder={actions.closeFolder}
         onSelectColumns={() => setShowColumnDialog(true)}
         draftEditsSummary={draftEditsSummary}
+        onClickDraftSummary={onClickDraftSummary}
       />
       <div className="list-search-bar" data-testid="list-search-bar">
         <label className="list-search-label" htmlFor="list-search-input">
@@ -175,6 +180,7 @@ function LoadedView({
         searchQuery={listSearchQuery}
         emptySearchMessage={emptySearchMessage}
         draftEdits={state.draftEdits}
+        onDiscardAllEdits={actions.discardAllDraftEdits}
       />
       {state.galleryIndex !== null && displayPhotos.length > 0 && (
         <GalleryView
