@@ -3,6 +3,7 @@ import type { PhotoInfo, ImageMetadataState, Variant } from "../types";
 import { HighlightedText } from "./HighlightedText";
 import { ContextMenu } from "./ContextMenu";
 import { ValueEditDialog } from "./ValueEditDialog";
+import { NewPropertyDialog } from "./NewPropertyDialog";
 import { haystackContainsNormalized, normalizeListSearchQuery } from "../utils/listSearchText";
 import { ask } from "@tauri-apps/plugin-dialog";
 
@@ -100,29 +101,26 @@ function detailsRowMatchesSearch(label: string, value: string, draftValue: strin
 }
 
 function DetailsValueCell({ 
-  valueKey, 
   originalValue, 
   draftValue, 
   searchQuery, 
-  onContextMenu,
-  editable = true
 }: { 
-  valueKey: string, 
   originalValue: string, 
   draftValue?: string | null, 
   searchQuery: string, 
-  onContextMenu: (e: React.MouseEvent, key: string, original: string, draft?: string | null) => void,
-  editable?: boolean
 }) {
   return (
     <td 
       className="details-value" 
       title={originalValue} 
-      onContextMenu={editable ? (e) => onContextMenu(e, valueKey, originalValue, draftValue) : undefined}
     >
       {draftValue !== undefined ? (
         <>
-          <s className="draft-original" style={{ opacity: 0.6 }}><HighlightedText text={originalValue} searchQuery={searchQuery} /></s>{" "}
+          {originalValue ? (
+            <>
+              <s className="draft-original" style={{ opacity: 0.6 }}><HighlightedText text={originalValue} searchQuery={searchQuery} /></s>{" "}
+            </>
+          ) : null}
           <strong className="draft-new">
             <HighlightedText text={draftValue === null ? "—" : draftValue} searchQuery={searchQuery} />
           </strong>
@@ -138,6 +136,7 @@ export function DetailsPane({ photo, metadata, draftEdits = {}, onSetDraft, onDi
   const [detailsSearch, setDetailsSearch] = useState("");
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, key: string, originalValue: string, draftValue?: string | null } | null>(null);
   const [editDialog, setEditDialog] = useState<{ key: string, initialValue: string } | null>(null);
+  const [showNewPropertyDialog, setShowNewPropertyDialog] = useState(false);
 
   const handleContextMenu = (e: React.MouseEvent, key: string, originalValue: string, draftValue?: string | null) => {
     e.preventDefault();
@@ -146,10 +145,19 @@ export function DetailsPane({ photo, metadata, draftEdits = {}, onSetDraft, onDi
   const normalizedDetailsQuery = useMemo(() => normalizeListSearchQuery(detailsSearch), [detailsSearch]);
 
   const osEntries = useMemo(() => getOsEntries(photo), [photo]);
-  const imageGroups = useMemo(
-    () => (metadata !== "loading" ? groupImageMetadata(metadata) : []),
-    [metadata],
-  );
+  const imageGroups = useMemo(() => {
+    if (metadata === "loading") return [];
+    
+    const combinedMetadata: Record<string, Variant> = { ...metadata };
+    if (draftEdits) {
+      for (const [key, value] of Object.entries(draftEdits)) {
+        if (value !== null && !(key in combinedMetadata)) {
+          combinedMetadata[key] = "";
+        }
+      }
+    }
+    return groupImageMetadata(combinedMetadata);
+  }, [metadata, draftEdits]);
 
   const filteredOsEntries = useMemo(() => {
     let query = normalizedDetailsQuery;
@@ -240,16 +248,13 @@ export function DetailsPane({ photo, metadata, draftEdits = {}, onSetDraft, onDi
               <tbody>
                 {filteredOsEntries.map(([label, value, propKey]) => (
                   <tr key={label} className="details-row" data-testid="details-row">
-                    <td className="details-key">
+                    <td className="details-key" style={draftEdits[propKey] !== undefined ? { color: "var(--accent-draft)" } : undefined}>
                       <HighlightedText text={label} searchQuery={detailsSearch} />
                     </td>
                     <DetailsValueCell
-                      valueKey={propKey}
                       originalValue={value}
                       draftValue={draftEdits[propKey]}
                       searchQuery={detailsSearch}
-                      onContextMenu={handleContextMenu}
-                      editable={false}
                     />
                   </tr>
                 ))}
@@ -264,39 +269,54 @@ export function DetailsPane({ photo, metadata, draftEdits = {}, onSetDraft, onDi
             <h3 className="details-section-header">Image Metadata</h3>
             <div className="details-loading">Loading metadata…</div>
           </section>
-        ) : imageGroups.length === 0 ? (
-          <section className="details-section" data-testid="details-section-empty">
-            <h3 className="details-section-header">Image Metadata</h3>
-            <div className="details-empty">No image metadata available</div>
-          </section>
         ) : (
-          filteredImageGroups.map((group) => (
-            <section
-              className="details-section"
-              key={group.prefix}
-              data-testid={`details-section-${group.prefix}`}
-            >
-              <h3 className="details-section-header">{group.prefix}</h3>
-              <table className="details-table">
-                <tbody>
-                  {group.entries.map((entry) => (
-                    <tr key={entry.fullKey} className="details-row" data-testid="details-row">
-                      <td className="details-key">
-                        <HighlightedText text={entry.label} searchQuery={detailsSearch} />
-                      </td>
-                      <DetailsValueCell
-                        valueKey={entry.fullKey}
-                        originalValue={entry.value}
-                        draftValue={draftEdits[entry.fullKey]}
-                        searchQuery={detailsSearch}
-                        onContextMenu={handleContextMenu}
-                      />
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </section>
-          ))
+          <>
+            {filteredImageGroups.length === 0 ? (
+              <section className="details-section" data-testid="details-section-empty">
+                <h3 className="details-section-header">Image Metadata</h3>
+                <div className="details-empty">No image metadata available</div>
+              </section>
+            ) : (
+              filteredImageGroups.map((group) => (
+                <section
+                  className="details-section"
+                  key={group.prefix}
+                  data-testid={`details-section-${group.prefix}`}
+                >
+                  <h3 className="details-section-header">{group.prefix}</h3>
+                  <table className="details-table">
+                    <tbody>
+                      {group.entries.map((entry) => (
+                        <tr 
+                          key={entry.fullKey} 
+                          className="details-row" 
+                          data-testid="details-row"
+                          onContextMenu={(e) => handleContextMenu(e, entry.fullKey, entry.value, draftEdits[entry.fullKey])}
+                        >
+                          <td className="details-key" style={draftEdits[entry.fullKey] !== undefined ? { color: "var(--accent-draft)" } : undefined}>
+                            <HighlightedText text={entry.label} searchQuery={detailsSearch} />
+                          </td>
+                          <DetailsValueCell
+                            originalValue={entry.value}
+                            draftValue={draftEdits[entry.fullKey]}
+                            searchQuery={detailsSearch}
+                          />
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </section>
+              ))
+            )}
+            <div style={{ padding: "8px 16px", marginTop: "8px" }}>
+              <button 
+                className="button button--secondary" 
+                onClick={() => setShowNewPropertyDialog(true)}
+              >
+                + Add Property
+              </button>
+            </div>
+          </>
         )}
       </div>
 
@@ -338,6 +358,16 @@ export function DetailsPane({ photo, metadata, draftEdits = {}, onSetDraft, onDi
             setEditDialog(null);
           }}
           onCancel={() => setEditDialog(null)}
+        />
+      )}
+
+      {showNewPropertyDialog && (
+        <NewPropertyDialog
+          onSave={(key, value) => {
+            onSetDraft?.(key, value);
+            setShowNewPropertyDialog(false);
+          }}
+          onCancel={() => setShowNewPropertyDialog(false)}
         />
       )}
     </div>
