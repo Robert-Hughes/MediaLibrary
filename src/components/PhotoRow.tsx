@@ -71,7 +71,7 @@ export const PhotoRow = memo(function PhotoRow({
   const handleContextMenuEvent = useCallback((e: React.MouseEvent) => onContextMenu(e, index), [onContextMenu, index]);
 
   const hasDrafts = Object.keys(draftEdits).length > 0;
-  const rowClass = `photo-row ${index % 2 === 0 ? "photo-row--even" : "photo-row--odd"} ${selected ? "photo-row--selected" : ""} ${hasDrafts ? "photo-row--has-drafts" : ""}`;
+  const rowClass = `photo-row ${index % 2 === 0 ? "photo-row--even" : "photo-row--odd"} ${selected ? "photo-row--selected" : ""}`;
 
   // Index of the first image-metadata cell — used to place exactly one spinner
   // per row while metadata is loading (per-cell spinners were O(rows × cols)).
