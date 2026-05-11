@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { useSpinnerSync } from "../hooks/useSpinnerSync";
-import type { PhotoInfo } from "../types";
+import { DetailsPane } from "./DetailsPane";
+import type { PhotoInfo, ImageMetadataStore } from "../types";
 
 interface Props {
   photos: PhotoInfo[];
@@ -10,13 +11,22 @@ interface Props {
   onNavigate: (delta: -1 | 1) => void;
   /** Injectable for testing — defaults to the real Tauri invoke */
   loadImage?: (path: string) => Promise<string | null>;
+  /** Observable store for image metadata (EXIF, XMP, etc.) */
+  imageMetadata?: ImageMetadataStore;
 }
 
-export function GalleryView({ photos, currentIndex, folderPath, onClose, onNavigate, loadImage }: Props) {
+export function GalleryView({ photos, currentIndex, folderPath, onClose, onNavigate, loadImage, imageMetadata }: Props) {
   const photo = photos[currentIndex];
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [detailsVisible, setDetailsVisible] = useState(false);
   const spinStyle = useSpinnerSync();
+
+  // Subscribe to this photo's metadata reactively via useSyncExternalStore.
+  const metadataState = useSyncExternalStore(
+    (cb) => imageMetadata?.subscribe(photo?.relative_path ?? "", cb) ?? (() => {}),
+    () => imageMetadata?.get(photo?.relative_path ?? "") ?? "loading",
+  );
 
   // Load the full image whenever the current photo changes.
   useEffect(() => {
@@ -36,6 +46,7 @@ export function GalleryView({ photos, currentIndex, folderPath, onClose, onNavig
       if (e.key === "Escape") { e.preventDefault(); onClose(); }
       if (e.key === "ArrowLeft")  { e.preventDefault(); onNavigate(-1); }
       if (e.key === "ArrowRight") { e.preventDefault(); onNavigate(1); }
+      if (e.key === "i" || e.key === "I") { e.preventDefault(); setDetailsVisible((v) => !v); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -54,7 +65,7 @@ export function GalleryView({ photos, currentIndex, folderPath, onClose, onNavig
     >
       {/* Stop clicks on the inner content from closing the overlay */}
       <div
-        className="gallery-content"
+        className={`gallery-content ${detailsVisible ? "gallery-content--with-details" : ""}`}
         data-testid="gallery-content"
         onClick={(e) => e.stopPropagation()}
       >
@@ -65,6 +76,16 @@ export function GalleryView({ photos, currentIndex, folderPath, onClose, onNavig
           aria-label="Close gallery"
         >
           ✕
+        </button>
+
+        <button
+          className={`gallery-info-toggle ${detailsVisible ? "gallery-info-toggle--active" : ""}`}
+          data-testid="gallery-info-toggle"
+          onClick={() => setDetailsVisible((v) => !v)}
+          aria-label={detailsVisible ? "Hide details" : "Show details"}
+          title={detailsVisible ? "Hide details (I)" : "Show details (I)"}
+        >
+          ℹ
         </button>
 
         <button
@@ -103,6 +124,10 @@ export function GalleryView({ photos, currentIndex, folderPath, onClose, onNavig
         >
           ›
         </button>
+
+        {detailsVisible && (
+          <DetailsPane photo={photo} metadata={metadataState} />
+        )}
 
         <div className="gallery-caption" data-testid="gallery-caption">
           <span className="gallery-path">{photo.relative_path}</span>
