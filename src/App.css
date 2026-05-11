@@ -1322,3 +1322,24 @@ body {
   border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
   font-weight: 500;
 }
+
+.row-draft-badge {
+  display: inline-block;
+  font-size: 11px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  padding: 2px 6px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  font-weight: 500;
+  margin-left: 8px;
+  flex-shrink: 0;
+}
+
+.photo-row--has-drafts .grid-cell {
+  background: color-mix(in srgb, var(--surface) 80%, var(--accent)) !important;
+}
+
+.photo-row--has-drafts:hover .grid-cell {
+  background: color-mix(in srgb, var(--surface) 70%, var(--accent)) !important;
+}

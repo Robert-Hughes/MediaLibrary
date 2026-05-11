@@ -22,7 +22,7 @@ Now
     this would just count edits for files in the current folder).
 
 
-Later- *** DO NOT WORK ON ANY \OF THE BELOW FEATURES ***
+Later- *** DO NOT WORK ON ANY OF THE BELOW FEATURES ***
 =====
 
 

@@ -102,19 +102,21 @@ function DetailsValueCell({
   originalValue, 
   draftValue, 
   searchQuery, 
-  onContextMenu 
+  onContextMenu,
+  editable = true
 }: { 
   valueKey: string, 
   originalValue: string, 
   draftValue?: string | null, 
   searchQuery: string, 
-  onContextMenu: (e: React.MouseEvent, key: string, original: string, draft?: string | null) => void 
+  onContextMenu: (e: React.MouseEvent, key: string, original: string, draft?: string | null) => void,
+  editable?: boolean
 }) {
   return (
     <td 
       className="details-value" 
       title={originalValue} 
-      onContextMenu={(e) => onContextMenu(e, valueKey, originalValue, draftValue)}
+      onContextMenu={editable ? (e) => onContextMenu(e, valueKey, originalValue, draftValue) : undefined}
     >
       {draftValue !== undefined ? (
         <>
@@ -168,7 +170,14 @@ export function DetailsPane({ photo, metadata, draftEdits = {}, onSetDraft, onDi
 
   return (
     <div className="details-pane" data-testid="details-pane">
-      <h2 className="details-pane-title">Properties</h2>
+      <h2 className="details-pane-title" style={{ display: "flex", alignItems: "center" }}>
+        Properties
+        {Object.keys(draftEdits).length > 0 && (
+          <span className="row-draft-badge" style={{ marginLeft: "auto" }}>
+            {Object.keys(draftEdits).length} edit{Object.keys(draftEdits).length === 1 ? "" : "s"}
+          </span>
+        )}
+      </h2>
 
       <div className="details-pane-toolbar">
         <label className="details-search-label" htmlFor="details-search-input">
@@ -204,6 +213,7 @@ export function DetailsPane({ photo, metadata, draftEdits = {}, onSetDraft, onDi
                       draftValue={draftEdits[propKey]}
                       searchQuery={detailsSearch}
                       onContextMenu={handleContextMenu}
+                      editable={false}
                     />
                   </tr>
                 ))}
