@@ -130,12 +130,9 @@ describe("Draft Metadata Editing Integration", () => {
     await user.dblClick(newRows[0]);
     await user.click(screen.getByTestId("gallery-info-toggle"));
 
-    // Right click Sony to discard
-    const newSonyCell = within(screen.getByTestId("details-section-IFD0")).getAllByRole("cell")[1];
-    await user.pointer({ keys: "[MouseRight]", target: newSonyCell });
-    
-    // Click "Discard"
-    await user.click(screen.getByText("Discard"));
+    // Click "Discard All" button at the top of the details pane
+    const discardAllBtn = screen.getByTitle("Discard all edits for this photo");
+    await user.click(discardAllBtn);
 
     // Details pane should show Canon again, no draft
     expect(within(screen.getByTestId("details-section-IFD0")).getByTitle("Canon")).toBeInTheDocument();

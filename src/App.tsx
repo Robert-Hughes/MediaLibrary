@@ -194,6 +194,7 @@ function LoadedView({
           draftEdits={state.draftEdits?.[displayPhotos[state.galleryIndex].relative_path]}
           onSetDraft={actions.setDraftValue}
           onDiscardDraft={actions.discardDraftValue}
+          onDiscardAllEdits={actions.discardAllDraftEdits}
         />
       )}
       {showColumnDialog && (

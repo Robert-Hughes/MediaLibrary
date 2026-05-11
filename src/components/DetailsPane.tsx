@@ -11,6 +11,7 @@ interface Props {
   draftEdits?: Record<string, string | null>;
   onSetDraft?: (key: string, value: string | null) => void;
   onDiscardDraft?: (key: string) => void;
+  onDiscardAllEdits?: () => void;
 }
 
 /** Format an OS timestamp (seconds since epoch, from Rust) into a readable string. */
@@ -132,7 +133,7 @@ function DetailsValueCell({
   );
 }
 
-export function DetailsPane({ photo, metadata, draftEdits = {}, onSetDraft, onDiscardDraft }: Props) {
+export function DetailsPane({ photo, metadata, draftEdits = {}, onSetDraft, onDiscardDraft, onDiscardAllEdits }: Props) {
   const [detailsSearch, setDetailsSearch] = useState("");
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, key: string, originalValue: string, draftValue?: string | null } | null>(null);
   const [editDialog, setEditDialog] = useState<{ key: string, initialValue: string } | null>(null);
@@ -187,14 +188,24 @@ export function DetailsPane({ photo, metadata, draftEdits = {}, onSetDraft, onDi
       <h2 className="details-pane-title" style={{ display: "flex", alignItems: "center" }}>
         Properties
         {Object.keys(draftEdits).length > 0 && (
-          <span 
-            className="row-draft-badge" 
-            style={{ marginLeft: "auto", cursor: "pointer" }}
-            onClick={() => setDetailsSearch("has:edits")}
-            title="Show only edited fields"
-          >
-            {Object.keys(draftEdits).length} edit{Object.keys(draftEdits).length === 1 ? "" : "s"}
-          </span>
+          <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "6px" }}>
+            <span 
+              className="row-draft-badge" 
+              style={{ cursor: "pointer", marginLeft: 0 }}
+              onClick={() => setDetailsSearch("has:edits")}
+              title="Show only edited fields"
+            >
+              {Object.keys(draftEdits).length} edit{Object.keys(draftEdits).length === 1 ? "" : "s"}
+            </span>
+            <button
+              className="button button--secondary"
+              style={{ padding: "2px 6px", fontSize: "11px", minHeight: "auto", borderRadius: "8px" }}
+              onClick={onDiscardAllEdits}
+              title="Discard all edits for this photo"
+            >
+              Discard All
+            </button>
+          </div>
         )}
       </h2>
 
