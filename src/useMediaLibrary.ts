@@ -122,7 +122,7 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
   const isFirstMetadataFlushRef = useRef<boolean>(true);
 
   // Buffer for thumbnail_ready events to avoid excessive state updates.
-  const thumbnailBufferRef = useRef<{ relative_path: string; thumbnail: string }[]>([]);
+  const thumbnailBufferRef = useRef<{ relative_path: string; thumbnail: string | null }[]>([]);
   const thumbnailBatchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isFirstThumbnailFlushRef = useRef<boolean>(true);
 
@@ -283,7 +283,7 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
       if (batch.length > 0) console.log(`[thumbnail] flushing ${batch.length} results`);
 
       for (const res of batch) {
-        thumbnailStoreRef.current.set(res.relative_path, res.thumbnail);
+        thumbnailStoreRef.current.set(res.relative_path, res.thumbnail === null ? "failed" : res.thumbnail);
       }
       // No React state update needed - useSyncExternalStore handles per-row updates
     };

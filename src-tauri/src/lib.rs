@@ -176,7 +176,7 @@ struct ThumbnailReadyPayload {
 #[derive(Clone, Serialize)]
 struct ThumbnailResult {
     relative_path: String,
-    thumbnail: String,
+    thumbnail: Option<String>,
 }
 
 // ── Commands ──────────────────────────────────────────────────────────────────
@@ -390,12 +390,11 @@ fn start_scan(
                             if cancelled.load(Ordering::Relaxed) { break; }
                             
                             let abs = root.join(rel_path.replace('/', std::path::MAIN_SEPARATOR_STR));
-                            if let Some(thumbnail) = scanner::thumbnail_for(&abs) {
-                                batch.push(ThumbnailResult {
-                                    relative_path: rel_path,
-                                    thumbnail,
-                                });
-                            }
+                            let thumbnail = scanner::thumbnail_for(&abs);
+                            batch.push(ThumbnailResult {
+                                relative_path: rel_path,
+                                thumbnail,
+                            });
                             
                             // Emit batch if enough time has elapsed
                             if last_emit.elapsed() >= emit_interval && !batch.is_empty() {

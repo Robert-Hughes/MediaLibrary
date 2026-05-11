@@ -18,7 +18,7 @@ export interface MockTauriApi {
   emitPhotoFound: (photo: PhotoInfo, scanId?: number) => void;
   emitScanComplete: (scanId?: number) => void;
   emitImageMetadataReady: (relativePath: string, metadata: Record<string, Variant>, scanId?: number) => void;
-  emitThumbnailReady: (relativePath: string, thumbnail: string, scanId?: number) => void;
+  emitThumbnailReady: (relativePath: string, thumbnail: string | null, scanId?: number) => void;
   emitScanError: (message: string, scanId?: number) => void;
   emitWorkerError: (workerType: string, errorMessage: string, affectedFiles?: string[], scanId?: number) => void;
   lastPrioritizedPaths: string[];
