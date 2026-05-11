@@ -105,18 +105,20 @@ describe("groupImageMetadata", () => {
 
     const exifGroup = groups.find((g) => g.prefix === "ExifIFD");
     expect(exifGroup).toBeDefined();
-    expect(exifGroup!.entries).toEqual([["ISO", "100"]]);
+    expect(exifGroup!.entries).toEqual([{ label: "ISO", value: "100", fullKey: "ExifIFD:ISO" }]);
 
     const ifdGroup = groups.find((g) => g.prefix === "IFD0");
     expect(ifdGroup).toBeDefined();
     expect(ifdGroup!.entries).toEqual([
-      ["Make", "Canon"],
-      ["Model", "EOS R5"],
+      { label: "Make", value: "Canon", fullKey: "IFD0:Make" },
+      { label: "Model", value: "EOS R5", fullKey: "IFD0:Model" },
     ]);
 
     const xmpGroup = groups.find((g) => g.prefix === "XMP-dc");
     expect(xmpGroup).toBeDefined();
-    expect(xmpGroup!.entries).toEqual([["Subject", "landscape, nature"]]);
+    expect(xmpGroup!.entries).toEqual([
+      { label: "Subject", value: "landscape, nature", fullKey: "XMP-dc:Subject" },
+    ]);
   });
 
   it('places keys without a colon in "Other" group at the end', () => {
@@ -129,8 +131,8 @@ describe("groupImageMetadata", () => {
 
     expect(groups[groups.length - 1].prefix).toBe("Other");
     expect(groups[groups.length - 1].entries).toEqual([
-      ["FileName", "photo.jpg"],
-      ["FileSize", "4.2 MB"],
+      { label: "FileName", value: "photo.jpg", fullKey: "FileName" },
+      { label: "FileSize", value: "4.2 MB", fullKey: "FileSize" },
     ]);
   });
 
