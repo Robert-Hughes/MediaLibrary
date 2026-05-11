@@ -144,6 +144,7 @@ function LoadedView({
         onSelectColumns={() => setShowColumnDialog(true)}
         draftEditsSummary={draftEditsSummary}
         onClickDraftSummary={onClickDraftSummary}
+        onDiscardAllEdits={() => actions.discardAllDraftEdits()}
       />
       <div className="list-search-bar" data-testid="list-search-bar">
         <label className="list-search-label" htmlFor="list-search-input">
