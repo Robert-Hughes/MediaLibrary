@@ -85,15 +85,27 @@ export function GalleryView({ photos, currentIndex, folderPath, onClose, onNavig
       const py = e.clientY - centerY;
 
       const scaleRatio = newScale / scale;
+      let newX = px - (px - pan.x) * scaleRatio;
+      let newY = py - (py - pan.y) * scaleRatio;
+
+      const maxPanX = (rect.width * newScale) * 0.45;
+      const maxPanY = (rect.height * newScale) * 0.45;
+      
       setPan({
-        x: px - (px - pan.x) * scaleRatio,
-        y: py - (py - pan.y) * scaleRatio,
+        x: Math.max(-maxPanX, Math.min(newX, maxPanX)),
+        y: Math.max(-maxPanY, Math.min(newY, maxPanY)),
       });
     }
     setScale(newScale);
   };
 
   const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.button === 1) {
+      e.preventDefault();
+      setScale(1);
+      setPan({ x: 0, y: 0 });
+      return;
+    }
     if (scale <= 1 || !imageSrc || e.button !== 0) return;
     e.preventDefault();
     setIsDragging(true);
@@ -101,10 +113,17 @@ export function GalleryView({ photos, currentIndex, folderPath, onClose, onNavig
   };
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!isDragging) return;
+    if (!isDragging || !areaRef.current) return;
+    const rect = areaRef.current.getBoundingClientRect();
+    const maxPanX = (rect.width * scale) * 0.45;
+    const maxPanY = (rect.height * scale) * 0.45;
+    
+    const newX = e.clientX - dragStart.x;
+    const newY = e.clientY - dragStart.y;
+
     setPan({
-      x: e.clientX - dragStart.x,
-      y: e.clientY - dragStart.y,
+      x: Math.max(-maxPanX, Math.min(newX, maxPanX)),
+      y: Math.max(-maxPanY, Math.min(newY, maxPanY)),
     });
   };
 
