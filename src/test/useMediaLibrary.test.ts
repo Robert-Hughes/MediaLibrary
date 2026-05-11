@@ -228,6 +228,24 @@ describe("useMediaLibrary", () => {
     expect(result.current[0].kind).toBe("loaded");
   });
 
+  it("thumbnail failures (null) set thumbnail store to 'failed'", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/photos");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+
+    await act(async () => { await result.current[1].openFolder(); });
+    act(() => { mock.emitPhotoFound(makePhoto({ relative_path: "a.jpg" })); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(150); });
+
+    act(() => { mock.emitThumbnailReady("a.jpg", null); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(300); });
+
+    const state = result.current[0];
+    if (state.kind === "loaded") {
+      expect(state.thumbnails.get("a.jpg")).toBe("failed");
+    }
+  });
+
   it("worker_error events append to workerErrors when in loaded state", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/photos");

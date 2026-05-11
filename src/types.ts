@@ -264,7 +264,7 @@ export interface ImageMetadataReadyPayload {
 
 export interface ThumbnailReadyPayload {
   scan_id: number;
-  results: { relative_path: string; thumbnail: string }[];
+  results: { relative_path: string; thumbnail: string | null }[];
 }
 
 export interface ScanErrorPayload {
