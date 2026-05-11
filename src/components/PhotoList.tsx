@@ -5,7 +5,6 @@ import type { PhotoInfo, SortConfig, VisibleColumn } from "../types";
 import { ContextMenu } from "./ContextMenu";
 import { PhotoRow } from "./PhotoRow";
 import { ResizeHandle } from "./ResizeHandle";
-import { Highlighter } from "./Highlighter";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { nextSortConfig } from "../utils/sorting";
 
@@ -386,8 +385,22 @@ export function PhotoList({
       cellPadding = cssPixels(s.paddingLeft) + cssPixels(s.paddingRight);
     }
     cells.forEach((cell) => {
-      range.selectNodeContents(cell);
-      const w = (range.getBoundingClientRect?.().width ?? 0) + cellPadding;
+      const textSpan = cell.querySelector('.photo-cell-text');
+      const badge = cell.querySelector('.row-draft-badge');
+      let w = 0;
+      if (textSpan || badge) {
+        if (textSpan) {
+          range.selectNodeContents(textSpan);
+          w += range.getBoundingClientRect()?.width ?? 0;
+        }
+        if (badge) {
+          w += badge.getBoundingClientRect().width + 8; // 8px gap
+        }
+      } else {
+        range.selectNodeContents(cell);
+        w = range.getBoundingClientRect()?.width ?? 0;
+      }
+      w += cellPadding;
       if (w > maxWidth) maxWidth = w;
     });
 

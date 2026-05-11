@@ -111,7 +111,9 @@ export const PhotoRow = memo(function PhotoRow({
       </div>
       <div className="grid-cell grid-cell-path" data-col="relative_path" data-testid="photo-path">
         <div style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
-          <CellContent text={photo.relative_path} draftValue={draftEdits["relative_path"]} searchQuery={searchQuery} />
+          <span className="photo-cell-text">
+            <CellContent text={photo.relative_path} draftValue={draftEdits["relative_path"]} searchQuery={searchQuery} />
+          </span>
         </div>
         {hasDrafts && (
           <span className="row-draft-badge" title={`${Object.keys(draftEdits).length} pending edit(s)`}>
