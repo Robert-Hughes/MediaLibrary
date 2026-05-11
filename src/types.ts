@@ -206,6 +206,11 @@ export interface SortConfig {
   secondary: SortKey | null;
 }
 
+// ── Draft Edits ───────────────────────────────────────────────────────────────
+
+export type DraftEditsValue = string | null;
+export type DraftEditsByFile = Record<string, Record<string, DraftEditsValue>>;
+
 // ── App state ─────────────────────────────────────────────────────────────────
 
 export type AppState =
@@ -240,6 +245,9 @@ export type AppState =
 
       // Worker errors
       workerErrors: WorkerErrorPayload[];
+
+      // Draft Edits
+      draftEdits: DraftEditsByFile;
     };
 
 // ── Event payloads from Rust ──────────────────────────────────────────────────

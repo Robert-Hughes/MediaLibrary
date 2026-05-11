@@ -4,6 +4,20 @@ import { formatPhotoRowDate } from "../utils/listSearchFilter";
 import { HighlightedText } from "./HighlightedText";
 import { Spinner } from "./Spinner";
 
+function CellContent({ text, draftValue, searchQuery }: { text: string, draftValue?: string | null, searchQuery: string }) {
+  if (draftValue !== undefined) {
+    return (
+      <>
+        <s className="draft-original" style={{ opacity: 0.6 }}><HighlightedText text={text} searchQuery={searchQuery} /></s>{" "}
+        <strong className="draft-new" style={{ color: "var(--accent-color, #ffaa00)" }}>
+          <HighlightedText text={draftValue === null ? "—" : draftValue} searchQuery={searchQuery} />
+        </strong>
+      </>
+    );
+  }
+  return <HighlightedText text={text} searchQuery={searchQuery} />;
+}
+
 function formatVariant(v: Variant | undefined): string {
   if (v === undefined) return "—";
   if (typeof v === "string") return v;
@@ -25,6 +39,7 @@ interface RowProps {
   thumbnails: ThumbnailStore;
   imageMetadata: ImageMetadataStore;
   visibleColumns: VisibleColumn[];
+  draftEdits?: Record<string, string | null>;
   onSelect: (index: number | null) => void;
   onPhotoOpen: (index: number) => void;
   onContextMenu: (e: React.MouseEvent, index: number) => void;
@@ -33,7 +48,7 @@ interface RowProps {
 }
 
 export const PhotoRow = memo(function PhotoRow({
-  photo, index, selected, thumbnails, imageMetadata, visibleColumns,
+  photo, index, selected, thumbnails, imageMetadata, visibleColumns, draftEdits = {},
   onSelect, onPhotoOpen, onContextMenu, virtualStart, searchQuery = "",
 }: RowProps) {
   const subscribeThumb = useCallback((cb: () => void) => thumbnails.subscribe(photo.relative_path, cb), [thumbnails, photo.relative_path]);
@@ -94,7 +109,7 @@ export const PhotoRow = memo(function PhotoRow({
         </div>
       </div>
       <div className="grid-cell grid-cell-path" data-col="relative_path" data-testid="photo-path">
-        <HighlightedText text={photo.relative_path} searchQuery={searchQuery} />
+        <CellContent text={photo.relative_path} draftValue={draftEdits["relative_path"]} searchQuery={searchQuery} />
       </div>
       {visibleColumns.map((col, i) => {
         if (col.kind === "os") {
@@ -110,7 +125,7 @@ export const PhotoRow = memo(function PhotoRow({
               data-col={col.key}
               data-testid={testId}
             >
-              <HighlightedText text={formatPhotoRowDate(osValue(photo, col.key))} searchQuery={searchQuery} />
+              <CellContent text={formatPhotoRowDate(osValue(photo, col.key))} draftValue={draftEdits[col.key]} searchQuery={searchQuery} />
             </div>
           );
         }
@@ -125,7 +140,7 @@ export const PhotoRow = memo(function PhotoRow({
             ) : metadataFailed ? (
               <span className="metadata-error" title="Failed to load metadata">✗</span>
             ) : (
-              <HighlightedText text={formatVariant(metadata[col.key])} searchQuery={searchQuery} />
+              <CellContent text={formatVariant(metadata[col.key])} draftValue={draftEdits[col.key]} searchQuery={searchQuery} />
             )}
           </div>
         );

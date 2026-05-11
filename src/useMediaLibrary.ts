@@ -12,6 +12,7 @@ import type {
   SortConfig,
   VisibleColumn,
 } from "./types";
+import type { DraftEditsByFile } from "./types";
 import { loadColumnConfig, saveColumnConfig } from "./utils/columnConfig";
 
 export interface TauriApi {
@@ -34,6 +35,8 @@ export interface MediaLibraryActions {
   updateColumnWidth: (col: string, width: number) => void;
   resetColumnWidths: () => void;
   dismissError: (index: number) => void;
+  setDraftValue: (fileRelativePath: string, propertyKey: string, newValue: string | null) => void;
+  discardDraftValue: (fileRelativePath: string, propertyKey: string) => void;
 }
 
 const RECENT_FOLDERS_KEY = "media_library_recent_folders";
@@ -96,6 +99,7 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
   const thumbnailStoreRef           = useRef<ThumbnailStore>(new ThumbnailStore());
   const imageMetadataStoreRef       = useRef<ImageMetadataStore>(new ImageMetadataStore());
   const metadataProgressStoreRef    = useRef<MetadataProgressStore>(new MetadataProgressStore());
+  const draftEditsRef               = useRef<DraftEditsByFile>({});
 
   // The scan_id of the most recently started scan. Events with a different
   // scan_id are stale (from a previous scan) and are discarded.
@@ -164,6 +168,13 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
     thumbnailStoreRef.current          = new ThumbnailStore();
     imageMetadataStoreRef.current      = new ImageMetadataStore();
     metadataProgressStoreRef.current   = new MetadataProgressStore();
+
+    try {
+      draftEditsRef.current = (await api.invoke("load_draft_edits", { folderPath: folder })) as DraftEditsByFile;
+    } catch (e) {
+      console.error("Failed to load draft edits", e);
+      draftEditsRef.current = {};
+    }
     
     const { visibleColumns, sortConfig, columnWidths } = loadColumnConfig();
     setAppState({ kind: "loading", folder, visibleColumns, columnWidths, sortConfig });
@@ -213,6 +224,7 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
             sortConfig: prev.sortConfig,
             metadataVersion: 0,
             workerErrors: [],
+            draftEdits: draftEditsRef.current,
           };
         }
 
@@ -343,6 +355,7 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
               sortConfig: prev.sortConfig,
               metadataVersion: 0,
               workerErrors: [],
+              draftEdits: draftEditsRef.current,
             };
           }
           return prev;
@@ -554,6 +567,37 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
     });
   }, []);
 
+  const setDraftValue = useCallback((fileRelativePath: string, propertyKey: string, newValue: string | null) => {
+    setAppState((prev) => {
+      if (prev.kind !== "loaded") return prev;
+      const fileEdits = prev.draftEdits[fileRelativePath] || {};
+      const newDraftEdits = {
+        ...prev.draftEdits,
+        [fileRelativePath]: { ...fileEdits, [propertyKey]: newValue },
+      };
+      api.invoke("save_draft_edits", { folderPath: prev.folder, data: newDraftEdits }).catch(console.error);
+      return { ...prev, draftEdits: newDraftEdits };
+    });
+  }, [api]);
+
+  const discardDraftValue = useCallback((fileRelativePath: string, propertyKey: string) => {
+    setAppState((prev) => {
+      if (prev.kind !== "loaded") return prev;
+      const fileEdits = prev.draftEdits[fileRelativePath];
+      if (!fileEdits || !(propertyKey in fileEdits)) return prev;
+      const newFileEdits = { ...fileEdits };
+      delete newFileEdits[propertyKey];
+      const newDraftEdits = { ...prev.draftEdits };
+      if (Object.keys(newFileEdits).length === 0) {
+        delete newDraftEdits[fileRelativePath];
+      } else {
+        newDraftEdits[fileRelativePath] = newFileEdits;
+      }
+      api.invoke("save_draft_edits", { folderPath: prev.folder, data: newDraftEdits }).catch(console.error);
+      return { ...prev, draftEdits: newDraftEdits };
+    });
+  }, [api]);
+
   const mediaLibraryActions = useMemo(
     () => ({
       openFolder,
@@ -570,6 +614,8 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
       updateColumnWidth,
       resetColumnWidths,
       dismissError,
+      setDraftValue,
+      discardDraftValue,
     }),
     [
       openFolder,
@@ -586,6 +632,8 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
       updateColumnWidth,
       resetColumnWidths,
       dismissError,
+      setDraftValue,
+      discardDraftValue,
     ],
   );
 
