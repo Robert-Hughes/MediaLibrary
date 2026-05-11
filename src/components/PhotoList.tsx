@@ -26,6 +26,10 @@ interface Props {
   onVisibilityChange: (visiblePaths: string[]) => void;
   onPhotoOpen: (index: number) => void;
   onSelectColumns?: () => void;
+  /** Case-insensitive substring match highlighting in visible cells. */
+  searchQuery?: string;
+  /** Shown in the grid body when `photos` is empty but the folder is not (search had no hits). */
+  emptySearchMessage?: string | null;
 }
 
 const MIN_COL_WIDTH = 40;
@@ -198,7 +202,9 @@ export function PhotoList({
   columnWidths = {}, onColumnWidthChange,
   onColumnsReorder,
   sortConfig, onSortChange, sortingDisabled,
-  selectedIndex, onSelect, onShowInExplorer, onVisibilityChange, onPhotoOpen, onSelectColumns
+  selectedIndex, onSelect, onShowInExplorer, onVisibilityChange, onPhotoOpen, onSelectColumns,
+  searchQuery = "",
+  emptySearchMessage = null,
 }: Props) {
   const listRef = useRef<HTMLDivElement>(null);
   const visibleRef = useRef<Set<string>>(new Set());
@@ -511,12 +517,30 @@ export function PhotoList({
       <div className="photo-table-wrapper" ref={listRef} onClick={() => { setContextMenu(null); setColumnContextMenu(null); }} onDragOver={handleWrapperDragOver}>
         <div
           className="photo-grid"
-          data-testid="photo-list-empty"
+          data-testid={emptySearchMessage ? "photo-list-search-empty" : "photo-list-empty"}
           role="grid"
           style={gridStyle}
         >
           <PhotoListHeader {...headerProps} />
-          <div className="grid-body" style={{ gridColumn: "1 / -1", gridRow: 3, position: "relative", minHeight: "200px", display: "flex", alignItems: "center", justifyContent: "center", color: "#666", fontStyle: "italic" }} />
+          <div
+            className="grid-body"
+            data-testid={emptySearchMessage ? "photo-list-search-empty-message" : undefined}
+            style={{
+              gridColumn: "1 / -1",
+              gridRow: 3,
+              position: "relative",
+              minHeight: "200px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              color: "#666",
+              fontStyle: emptySearchMessage ? "normal" : "italic",
+              padding: "0 24px",
+              textAlign: "center",
+            }}
+          >
+            {emptySearchMessage ?? null}
+          </div>
         </div>
       </div>
     );
@@ -559,6 +583,7 @@ export function PhotoList({
                 onPhotoOpen={onPhotoOpen}
                 onContextMenu={handleContextMenu}
                 virtualStart={virtualRow.start}
+                searchQuery={searchQuery}
               />
             );
           })}
