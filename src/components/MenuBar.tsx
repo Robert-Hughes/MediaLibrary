@@ -12,6 +12,7 @@ interface Props {
   onCloseFolder: () => void;
   onSelectColumns: () => void;
   draftEditsSummary?: { files: number; edits: number } | null;
+  onClickDraftSummary?: () => void;
 }
 
 export function MenuBar({
@@ -23,6 +24,7 @@ export function MenuBar({
   onCloseFolder,
   onSelectColumns,
   draftEditsSummary = null,
+  onClickDraftSummary,
 }: Props) {
   const spinStyle = useSpinnerSync();
   
@@ -58,7 +60,12 @@ export function MenuBar({
           : `${photoCount} photo${photoCount === 1 ? "" : "s"}`}
       </span>
       {draftEditsSummary && draftEditsSummary.files > 0 ? (
-        <span className="menu-bar-draft-summary">
+        <span 
+          className="menu-bar-draft-summary"
+          onClick={onClickDraftSummary}
+          style={{ cursor: onClickDraftSummary ? "pointer" : "default" }}
+          title={onClickDraftSummary ? "Show only photos with edits" : undefined}
+        >
           {`${draftEditsSummary.edits} draft edit${draftEditsSummary.edits === 1 ? "" : "s"} across ${draftEditsSummary.files} file${draftEditsSummary.files === 1 ? "" : "s"}`}
         </span>
       ) : null}

@@ -132,4 +132,85 @@ describe("Draft Metadata Editing Integration", () => {
     expect(within(finalRows[0]).getByText("Canon")).toBeInTheDocument();
     expect(screen.queryByText("Sony")).toBeNull();
   });
+
+  it("can filter list view to has:edits via badge and discard all edits from context menu", async () => {
+    const user = userEvent.setup();
+
+    mockApiInstance.pickFolderResolves("/photos");
+    render(<App />);
+
+    // Wait for App to load
+    await act(async () => {
+      await new Promise(r => setTimeout(r, 50));
+    });
+
+    // Open folder
+    await user.click(screen.getByTestId("open-folder-btn"));
+
+    // Emit two photos
+    const photo1 = makePhoto({ relative_path: "edited.jpg" });
+    const photo2 = makePhoto({ relative_path: "unedited.jpg" });
+    await act(async () => {
+      mockApiInstance.emitPhotoFound(photo1);
+      mockApiInstance.emitPhotoFound(photo2);
+    });
+
+    const metadata = { "IFD0:Make": "Canon" };
+    await act(async () => {
+      mockApiInstance.emitImageMetadataReady(photo1.relative_path, metadata);
+      mockApiInstance.emitImageMetadataReady(photo2.relative_path, metadata);
+    });
+
+    await act(async () => {
+      await new Promise(r => setTimeout(r, 250));
+    });
+
+    let rows = screen.getAllByTestId("photo-row");
+    expect(rows).toHaveLength(2);
+
+    // Edit the first photo via gallery
+    await user.dblClick(rows[0]);
+    await user.click(screen.getByTestId("gallery-info-toggle"));
+    
+    const canonCell = within(screen.getByTestId("details-section-IFD0")).getByTitle("Canon");
+    await user.pointer({ keys: "[MouseRight]", target: canonCell });
+    await user.click(screen.getByText("Edit"));
+    
+    const input = screen.getByRole("textbox");
+    await user.clear(input);
+    await user.type(input, "Sony");
+    await user.click(screen.getByText("Save"));
+
+    // Close gallery
+    await user.click(screen.getByTestId("gallery-close-btn"));
+
+    // Both rows still visible
+    rows = screen.getAllByTestId("photo-row");
+    expect(rows).toHaveLength(2);
+
+    const draftBadge = screen.getByTitle("Show only photos with edits");
+    await user.click(draftBadge);
+
+    // List view should be filtered to just 1 photo
+    rows = screen.getAllByTestId("photo-row");
+    expect(rows).toHaveLength(1);
+    expect(within(rows[0]).getByText("edited.jpg")).toBeInTheDocument();
+
+    // The search input should have "has:edits"
+    expect(screen.getByTestId("list-search-input")).toHaveValue("has:edits");
+
+    // Right click the row and discard all edits
+    await user.pointer({ keys: "[MouseRight]", target: rows[0] });
+    await user.click(screen.getByText("Discard all edits"));
+
+    // The list is now empty because no edits exist but filter is still has:edits
+    expect(screen.queryByTestId("photo-row")).toBeNull();
+
+    // Clear filter
+    await user.clear(screen.getByTestId("list-search-input"));
+    
+    // Both rows back
+    rows = screen.getAllByTestId("photo-row");
+    expect(rows).toHaveLength(2);
+  });
 });
