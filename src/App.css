@@ -1336,11 +1336,3 @@ body {
   margin-left: 8px;
   flex-shrink: 0;
 }
-
-.photo-row--has-drafts .grid-cell {
-  background: color-mix(in srgb, var(--surface) 80%, var(--accent-draft)) !important;
-}
-
-.photo-row--has-drafts:hover .grid-cell {
-  background: color-mix(in srgb, var(--surface) 70%, var(--accent-draft)) !important;
-}
