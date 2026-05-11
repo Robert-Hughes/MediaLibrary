@@ -14,6 +14,7 @@
   --accent:        #4a9eff;
   --accent-hover:  #6bbeff;
   --accent-press:  #2a6fc4;
+  --accent-draft:  #ffaa00;
   --text-primary:  #e8eaf0;
   --text-secondary:#7a8099;
   --text-dim:      #4a4f63;
@@ -1300,7 +1301,7 @@ body {
 
 .draft-new {
   font-weight: 600;
-  color: var(--accent); /* Uses the primary accent color */
+  color: var(--accent-draft); /* Uses the primary accent color */
 }
 
 /* Ensure empty draft removals render distinctly */
@@ -1314,32 +1315,32 @@ body {
   align-items: center;
   gap: 6px;
   font-size: 12px;
-  color: var(--accent);
+  color: var(--accent-draft);
   margin-left: auto; /* Push to right if inside a flex container */
-  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  background: color-mix(in srgb, var(--accent-draft) 15%, transparent);
   padding: 4px 10px;
   border-radius: 12px;
-  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent-draft) 30%, transparent);
   font-weight: 500;
 }
 
 .row-draft-badge {
   display: inline-block;
   font-size: 11px;
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  color: var(--accent-draft);
+  background: color-mix(in srgb, var(--accent-draft) 15%, transparent);
   padding: 2px 6px;
   border-radius: 8px;
-  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent-draft) 30%, transparent);
   font-weight: 500;
   margin-left: 8px;
   flex-shrink: 0;
 }
 
 .photo-row--has-drafts .grid-cell {
-  background: color-mix(in srgb, var(--surface) 80%, var(--accent)) !important;
+  background: color-mix(in srgb, var(--surface) 80%, var(--accent-draft)) !important;
 }
 
 .photo-row--has-drafts:hover .grid-cell {
-  background: color-mix(in srgb, var(--surface) 70%, var(--accent)) !important;
+  background: color-mix(in srgb, var(--surface) 70%, var(--accent-draft)) !important;
 }

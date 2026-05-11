@@ -9,7 +9,7 @@ function CellContent({ text, draftValue, searchQuery }: { text: string, draftVal
     return (
       <>
         <s className="draft-original" style={{ opacity: 0.6 }}><HighlightedText text={text} searchQuery={searchQuery} /></s>{" "}
-        <strong className="draft-new" style={{ color: "var(--accent-color, #ffaa00)" }}>
+        <strong className="draft-new">
           <HighlightedText text={draftValue === null ? "—" : draftValue} searchQuery={searchQuery} />
         </strong>
       </>
