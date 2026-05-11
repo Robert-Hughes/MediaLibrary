@@ -16,9 +16,10 @@ interface Props {
   draftEdits?: Record<string, string | null>;
   onSetDraft?: (fileRelativePath: string, key: string, value: string | null) => void;
   onDiscardDraft?: (fileRelativePath: string, key: string) => void;
+  onDiscardAllEdits?: (fileRelativePath: string) => void;
 }
 
-export function GalleryView({ photos, currentIndex, folderPath, onClose, onNavigate, loadImage, imageMetadata, draftEdits, onSetDraft, onDiscardDraft }: Props) {
+export function GalleryView({ photos, currentIndex, folderPath, onClose, onNavigate, loadImage, imageMetadata, draftEdits, onSetDraft, onDiscardDraft, onDiscardAllEdits }: Props) {
   const photo = photos[currentIndex];
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -238,6 +239,7 @@ export function GalleryView({ photos, currentIndex, folderPath, onClose, onNavig
             draftEdits={draftEdits}
             onSetDraft={(key, value) => onSetDraft?.(photo.relative_path, key, value)}
             onDiscardDraft={(key) => onDiscardDraft?.(photo.relative_path, key)}
+            onDiscardAllEdits={() => onDiscardAllEdits?.(photo.relative_path)}
           />
         )}
 

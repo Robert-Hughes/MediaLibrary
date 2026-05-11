@@ -7,19 +7,6 @@ are covered by integration tests that simulate UI interaction and confirm that t
 Now
 ===
 
-* The app should allow editing of metadata. For now, edits will be kept just as 'draft' changes and not actually applied to the files on disk.
-    * We should store in the app's local storage a database of draft edits. For each folder that the user has opened and made draft edits, we'll store a separate
-    file that contains all the draft edits the user has made for files in that folder. The format would be something like a JSONL file with line for each file where there are draft edits
-    and each line contains a dict of properties to the proposed new values
-    * This file should be kept in sync as the user makes edits in the UI, in case the program crashes
-    * When loading a folder, check if our local database already has draft edits from a previous session, and load it
-    * The draft edits should be clearly noted in the list view's column values, showing the original value with a strikethrough and the proposed new value
-      written afterwards highlighted in bold.
-    * The draft edits should also be clearly noted in the gallery view's details table, showing the original value with a strikethrough and the proposed new value
-      written afterwards highlighted in bold.
-    * New edits can be made in the gallery view's details table by right clicking on a value cell in the table and selected "Edit", which will show a popup dialog prompting for the new value.
-    * At the top of the list view where it currently shows "X photos", it should also show the number of pending draft edits, something like: "X photos, Y draft edits across P files". (Clearly
-    this would just count edits for files in the current folder).
 
 
 Later- *** DO NOT WORK ON ANY OF THE BELOW FEATURES ***
@@ -34,7 +21,7 @@ Later- *** DO NOT WORK ON ANY OF THE BELOW FEATURES ***
     * The command should use explicit tag names instead of generic shortcuts, e.g.
             exiftool -XMP-dc:Description="New" -IPTC:Caption-Abstract="New" image.jpg
 * After exiftool reports success, we should verify the edits were successful by re-querying metadata from the relevant image(s) using the same process that we already do
-  when populating image metadata for a newly opened folder. This newly loaded metadata should match exactly the edits we made, and if not an error should be shown.
+  (when populating image metadata for a newly opened folder). This newly loaded metadata should match exactly the edits we made, and if not an error should be shown.
 * After a successful edit and verification, we can delete the locally stored edits from our local database (only the ones that were successfully applied!)
 
 * Using OpenAI API to analyze image contents
