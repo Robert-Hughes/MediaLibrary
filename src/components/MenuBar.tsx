@@ -46,6 +46,7 @@ export function MenuBar({
   
   return (
     <div className="menu-bar" data-testid="menu-bar">
+      <img src="/icon.png" alt="Icon" className="menu-bar-logo" />
       <button className="menu-bar-btn" onClick={onOpenFolder} data-testid="menu-bar-open-btn">
         Open Folder
       </button>
