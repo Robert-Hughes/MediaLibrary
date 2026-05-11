@@ -14,6 +14,7 @@ type EventHandler = (payload: unknown) => void;
 export interface MockTauriApi {
   api: TauriApi;
   pickFolderResolves: (path: string | null) => void;
+  draftEditsByFolder: Record<string, Record<string, Record<string, string | null>>>;
   emitPhotoFound: (photo: PhotoInfo, scanId?: number) => void;
   emitScanComplete: (scanId?: number) => void;
   emitImageMetadataReady: (relativePath: string, metadata: Record<string, Variant>, scanId?: number) => void;
@@ -55,6 +56,7 @@ export function createMockTauriApi(): MockTauriApi {
         error_message,
         affected_files,
       } satisfies WorkerErrorPayload),
+    draftEditsByFolder: {},
     lastPrioritizedPaths: [],
     lastWindowTitle: null,
     invocations: [],
@@ -82,6 +84,15 @@ export function createMockTauriApi(): MockTauriApi {
       }
       if (cmd === "set_window_title") {
         mock.lastWindowTitle = (args?.title as string) ?? null;
+        return;
+      }
+      if (cmd === "load_draft_edits") {
+        const folder = args?.folderPath as string;
+        return mock.draftEditsByFolder[folder] || {};
+      }
+      if (cmd === "save_draft_edits") {
+        const folder = args?.folderPath as string;
+        mock.draftEditsByFolder[folder] = args?.data as any;
         return;
       }
       throw new Error(`Unexpected invoke: ${cmd}`);
