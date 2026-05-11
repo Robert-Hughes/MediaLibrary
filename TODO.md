@@ -13,16 +13,16 @@ Later- *** DO NOT WORK ON ANY OF THE BELOW FEATURES ***
 =====
 
 
-* The app should allow committing the draft edits to the real files. When there are pending edits, a button should appear at the top of the list after the info text showing that there are pending edits, saying "Apply All Edits".
+* The app should allow committing the draft edits to the real files. When there are pending edits, a button should appear at the top of the list after the info text showing that there are pending edits, saying "Apply All Edits" (similar to the existing Discard all button).
 * There should also be an option in the right click menu for a row in the list view to apply edits to just that row
-* The details table on the gallery view should also show a button at the bottom to apply edits to just that photo
+* The details table on the gallery view should also show a button at the top to apply edits to just that photo (similar to the existing Discard button)
 * Applying edits from any of these places should prompt for confirmation before doing anything
 * After confirmation, exiftool should be used to apply the edits:
     * The command should use explicit tag names instead of generic shortcuts, e.g.
             exiftool -XMP-dc:Description="New" -IPTC:Caption-Abstract="New" image.jpg
 * After exiftool reports success, we should verify the edits were successful by re-querying metadata from the relevant image(s) using the same process that we already do
   (when populating image metadata for a newly opened folder). This newly loaded metadata should match exactly the edits we made, and if not an error should be shown.
-* After a successful edit and verification, we can delete the locally stored edits from our local database (only the ones that were successfully applied!)
+* After a successful edit and verification, we can delete the locally stored edits from our local database (only the ones that were successfully applied!) - both in-memory and on disk
 
 * Using OpenAI API to analyze image contents
   * How do "cached" input tokens work - can we cache the prompt telling it to describe the image as that's common across all images?

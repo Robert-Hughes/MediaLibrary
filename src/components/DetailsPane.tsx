@@ -4,6 +4,7 @@ import { HighlightedText } from "./HighlightedText";
 import { ContextMenu } from "./ContextMenu";
 import { ValueEditDialog } from "./ValueEditDialog";
 import { haystackContainsNormalized, normalizeListSearchQuery } from "../utils/listSearchText";
+import { ask } from "@tauri-apps/plugin-dialog";
 
 interface Props {
   photo: PhotoInfo;
@@ -200,7 +201,12 @@ export function DetailsPane({ photo, metadata, draftEdits = {}, onSetDraft, onDi
             <button
               className="button button--secondary"
               style={{ padding: "2px 6px", fontSize: "11px", minHeight: "auto", borderRadius: "8px" }}
-              onClick={onDiscardAllEdits}
+              onClick={async () => {
+                if (!onDiscardAllEdits) return;
+                const numEdits = Object.keys(draftEdits).length;
+                const confirmed = await ask(`Are you sure you want to discard ${numEdits} edit${numEdits === 1 ? "" : "s"} for this photo?`, { title: "Discard Edits", kind: "warning" });
+                if (confirmed) onDiscardAllEdits();
+              }}
               title="Discard all edits for this photo"
             >
               Discard All

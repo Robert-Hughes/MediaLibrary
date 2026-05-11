@@ -37,7 +37,7 @@ export interface MediaLibraryActions {
   dismissError: (index: number) => void;
   setDraftValue: (fileRelativePath: string, propertyKey: string, newValue: string | null) => void;
   discardDraftValue: (fileRelativePath: string, propertyKey: string) => void;
-  discardAllDraftEdits: (fileRelativePath: string) => void;
+  discardAllDraftEdits: (fileRelativePath?: string) => void;
 }
 
 const RECENT_FOLDERS_KEY = "media_library_recent_folders";
@@ -599,11 +599,20 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
     });
   }, [api]);
 
-  const discardAllDraftEdits = useCallback((fileRelativePath: string) => {
+  const discardAllDraftEdits = useCallback((fileRelativePath?: string) => {
     setAppState((prev) => {
-      if (prev.kind !== "loaded" || !prev.draftEdits?.[fileRelativePath]) return prev;
-      const newDraftEdits = { ...prev.draftEdits };
-      delete newDraftEdits[fileRelativePath];
+      if (prev.kind !== "loaded") return prev;
+      
+      let newDraftEdits: Record<string, Record<string, string | null>>;
+      if (fileRelativePath) {
+        if (!prev.draftEdits?.[fileRelativePath]) return prev;
+        newDraftEdits = { ...prev.draftEdits };
+        delete newDraftEdits[fileRelativePath];
+      } else {
+        if (!prev.draftEdits || Object.keys(prev.draftEdits).length === 0) return prev;
+        newDraftEdits = {};
+      }
+      
       api.invoke("save_draft_edits", { folderPath: prev.folder, data: newDraftEdits }).catch(console.error);
       return { ...prev, draftEdits: newDraftEdits };
     });

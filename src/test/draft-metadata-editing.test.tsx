@@ -17,6 +17,9 @@ vi.mock("@tauri-apps/api/core", () => ({
 vi.mock("@tauri-apps/api/event", () => ({
   listen: (evt: string, handler: any) => mockApiInstance.api.listen(evt, (payload: any) => handler({ payload })),
 }));
+vi.mock("@tauri-apps/plugin-dialog", () => ({
+  ask: vi.fn().mockResolvedValue(true),
+}));
 
 describe("Draft Metadata Editing Integration", () => {
   beforeEach(() => {
@@ -290,5 +293,71 @@ describe("Draft Metadata Editing Integration", () => {
     await user.clear(listSearch);
     await user.type(listSearch, "Panasonic");
     expect(screen.queryByTestId("photo-row")).toBeNull();
+  });
+
+  it("can discard all edits across all photos using the menu bar button", async () => {
+    const user = userEvent.setup();
+
+    mockApiInstance.pickFolderResolves("/photos");
+    render(<App />);
+    await act(async () => {
+      await new Promise(r => setTimeout(r, 50));
+    });
+
+    await user.click(screen.getByTestId("open-folder-btn"));
+
+    const photo1 = makePhoto({ relative_path: "pic1.jpg" });
+    const photo2 = makePhoto({ relative_path: "pic2.jpg" });
+    await act(async () => {
+      mockApiInstance.emitPhotoFound(photo1);
+      mockApiInstance.emitPhotoFound(photo2);
+    });
+
+    const metadata = { "IFD0:Make": "Canon" };
+    await act(async () => {
+      mockApiInstance.emitImageMetadataReady(photo1.relative_path, metadata);
+      mockApiInstance.emitImageMetadataReady(photo2.relative_path, metadata);
+    });
+
+    await act(async () => {
+      await new Promise(r => setTimeout(r, 250));
+    });
+
+    let rows = screen.getAllByTestId("photo-row");
+    
+    // Edit first photo
+    await user.dblClick(rows[0]);
+    await user.click(screen.getByTestId("gallery-info-toggle"));
+    let canonCell = within(screen.getByTestId("details-section-IFD0")).getByTitle("Canon");
+    await user.pointer({ keys: "[MouseRight]", target: canonCell });
+    await user.click(screen.getByText("Edit"));
+    let input = screen.getByRole("textbox");
+    await user.clear(input);
+    await user.type(input, "Nikon");
+    await user.click(screen.getByText("Save"));
+    await user.click(screen.getByTestId("gallery-close-btn"));
+
+    // Edit second photo
+    rows = screen.getAllByTestId("photo-row");
+    await user.dblClick(rows[1]);
+    await user.click(screen.getByTestId("gallery-info-toggle"));
+    canonCell = within(screen.getByTestId("details-section-IFD0")).getByTitle("Canon");
+    await user.pointer({ keys: "[MouseRight]", target: canonCell });
+    await user.click(screen.getByText("Edit"));
+    input = screen.getByRole("textbox");
+    await user.clear(input);
+    await user.type(input, "Sony");
+    await user.click(screen.getByText("Save"));
+    await user.click(screen.getByTestId("gallery-close-btn"));
+
+    // Verify header summary shows 2 edits across 2 files
+    expect(screen.getByText(/2 draft edits across 2 files/)).toBeInTheDocument();
+
+    // Click global Discard All button
+    const globalDiscardBtn = screen.getByTitle("Discard all edits across all files");
+    await user.click(globalDiscardBtn);
+
+    // Verify edits are gone (no draft badge in header)
+    expect(screen.queryByText(/draft edit/)).toBeNull();
   });
 });
