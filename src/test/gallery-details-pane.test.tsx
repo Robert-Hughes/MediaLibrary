@@ -246,6 +246,19 @@ describe("Gallery details pane search", () => {
     expect(keyCell?.querySelector("mark")).toHaveTextContent("Relative");
   });
 
+  it("hides OS Metadata heading when no OS rows match the query", async () => {
+    const store = createPopulatedStore(PHOTOS, {
+      "2024/a.jpg": { "IFD0:Make": "Canon" },
+    });
+
+    renderGallery({ imageMetadata: store, currentIndex: 0 });
+
+    await userEvent.click(screen.getByTestId("gallery-info-toggle"));
+    await userEvent.type(screen.getByTestId("details-search-input"), "Canon");
+
+    expect(screen.queryByTestId("details-section-os")).not.toBeInTheDocument();
+  });
+
   it("matches full image metadata key not shown in label and still shows the row", async () => {
     const store = createPopulatedStore(PHOTOS, {
       "2024/a.jpg": { "IFD0:Make": "Canon" },

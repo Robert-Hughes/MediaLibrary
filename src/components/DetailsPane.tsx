@@ -119,6 +119,8 @@ export function DetailsPane({ photo, metadata }: Props) {
       .filter((g) => g.entries.length > 0);
   }, [imageGroups, normalizedDetailsQuery]);
 
+  const showOsSection = !normalizedDetailsQuery || filteredOsEntries.length > 0;
+
   return (
     <div className="details-pane" data-testid="details-pane">
       <h2 className="details-pane-title">Properties</h2>
@@ -141,23 +143,25 @@ export function DetailsPane({ photo, metadata }: Props) {
 
       <div className="details-pane-body">
         {/* OS Metadata */}
-        <section className="details-section" data-testid="details-section-os">
-          <h3 className="details-section-header">OS Metadata</h3>
-          <table className="details-table">
-            <tbody>
-              {filteredOsEntries.map(([label, value]) => (
-                <tr key={label} className="details-row" data-testid="details-row">
-                  <td className="details-key">
-                    <HighlightedText text={label} searchQuery={detailsSearch} />
-                  </td>
-                  <td className="details-value">
-                    <HighlightedText text={value} searchQuery={detailsSearch} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </section>
+        {showOsSection && (
+          <section className="details-section" data-testid="details-section-os">
+            <h3 className="details-section-header">OS Metadata</h3>
+            <table className="details-table">
+              <tbody>
+                {filteredOsEntries.map(([label, value]) => (
+                  <tr key={label} className="details-row" data-testid="details-row">
+                    <td className="details-key">
+                      <HighlightedText text={label} searchQuery={detailsSearch} />
+                    </td>
+                    <td className="details-value">
+                      <HighlightedText text={value} searchQuery={detailsSearch} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </section>
+        )}
 
         {/* Image Metadata */}
         {metadata === "loading" ? (
