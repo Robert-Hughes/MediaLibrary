@@ -100,6 +100,7 @@ function LoadedView({
           onClose={actions.closeGallery}
           onNavigate={actions.navigateGallery}
           loadImage={loadImage}
+          imageMetadata={state.imageMetadata}
         />
       )}
       {showColumnDialog && (
