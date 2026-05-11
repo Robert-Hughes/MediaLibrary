@@ -1,13 +1,8 @@
 import { memo, useCallback, useSyncExternalStore } from "react";
 import type { ImageMetadataStore, PhotoInfo, ThumbnailStore, Variant, VisibleColumn } from "../types";
+import { formatPhotoRowDate } from "../utils/listSearchFilter";
+import { HighlightedText } from "./HighlightedText";
 import { Spinner } from "./Spinner";
-
-function formatDate(ts: number | null): string {
-  if (ts === null) return "—";
-  return new Date(ts * 1000).toLocaleDateString(undefined, {
-    year: "numeric", month: "short", day: "numeric",
-  });
-}
 
 function formatVariant(v: Variant | undefined): string {
   if (v === undefined) return "—";
@@ -34,11 +29,12 @@ interface RowProps {
   onPhotoOpen: (index: number) => void;
   onContextMenu: (e: React.MouseEvent, index: number) => void;
   virtualStart: number;
+  searchQuery?: string;
 }
 
 export const PhotoRow = memo(function PhotoRow({
   photo, index, selected, thumbnails, imageMetadata, visibleColumns,
-  onSelect, onPhotoOpen, onContextMenu, virtualStart
+  onSelect, onPhotoOpen, onContextMenu, virtualStart, searchQuery = "",
 }: RowProps) {
   const subscribeThumb = useCallback((cb: () => void) => thumbnails.subscribe(photo.relative_path, cb), [thumbnails, photo.relative_path]);
   const getThumbSnapshot = useCallback(() => thumbnails.get(photo.relative_path), [thumbnails, photo.relative_path]);
@@ -97,7 +93,9 @@ export const PhotoRow = memo(function PhotoRow({
           )}
         </div>
       </div>
-      <div className="grid-cell grid-cell-path" data-col="relative_path" data-testid="photo-path">{photo.relative_path}</div>
+      <div className="grid-cell grid-cell-path" data-col="relative_path" data-testid="photo-path">
+        <HighlightedText text={photo.relative_path} searchQuery={searchQuery} />
+      </div>
       {visibleColumns.map((col, i) => {
         if (col.kind === "os") {
           const testId = col.key === "date_modified"
@@ -112,7 +110,7 @@ export const PhotoRow = memo(function PhotoRow({
               data-col={col.key}
               data-testid={testId}
             >
-              {formatDate(osValue(photo, col.key))}
+              <HighlightedText text={formatPhotoRowDate(osValue(photo, col.key))} searchQuery={searchQuery} />
             </div>
           );
         }
@@ -127,7 +125,7 @@ export const PhotoRow = memo(function PhotoRow({
             ) : metadataFailed ? (
               <span className="metadata-error" title="Failed to load metadata">✗</span>
             ) : (
-              formatVariant(metadata[col.key])
+              <HighlightedText text={formatVariant(metadata[col.key])} searchQuery={searchQuery} />
             )}
           </div>
         );

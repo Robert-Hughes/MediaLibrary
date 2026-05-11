@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, useSyncExternalStore } from "react";
+import { useState, useEffect, useRef, useMemo, useSyncExternalStore, useCallback } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useMediaLibrary, type TauriApi, type MediaLibraryActions } from "./useMediaLibrary";
@@ -12,6 +12,8 @@ import { StatusFooter } from "./components/StatusFooter";
 import { ColumnSelectionDialog } from "./components/ColumnSelectionDialog";
 import { ErrorBanner } from "./components/ErrorBanner";
 import { sortPhotos, shouldSuspendSorting } from "./utils/sorting";
+import { filterPhotosForListSearch } from "./utils/listSearchFilter";
+import { listSearchQueryIsActive } from "./utils/listSearchText";
 import "./App.css";
 
 const tauriApi: TauriApi = {
@@ -63,19 +65,83 @@ function LoadedView({
     [state.photos, state.sortConfig, state.metadataVersion, state.imageMetadata, sortingDisabled],
   );
 
+  const [listSearchQuery, setListSearchQuery] = useState("");
+
+  useEffect(() => {
+    setListSearchQuery("");
+  }, [state.folder]);
+
+  const displayPhotos = useMemo(
+    () => filterPhotosForListSearch(sortedPhotos, listSearchQuery, state.imageMetadata),
+    // metadataVersion: hidden metadata can start matching after ExifTool results arrive
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [sortedPhotos, listSearchQuery, state.imageMetadata, state.metadataVersion],
+  );
+
+  useEffect(() => {
+    const len = displayPhotos.length;
+    if (state.selectedIndex !== null && state.selectedIndex >= len) {
+      actions.selectPhoto(null);
+    }
+    if (state.galleryIndex !== null && (len === 0 || state.galleryIndex >= len)) {
+      actions.closeGallery();
+    }
+  }, [displayPhotos.length, state.selectedIndex, state.galleryIndex, actions]);
+
+  const onShowInExplorer = useCallback(
+    async (index: number) => {
+      const photo = displayPhotos[index];
+      if (!photo) return;
+      await invoke("show_in_explorer", {
+        folder: state.folder,
+        relativePath: photo.relative_path,
+      });
+    },
+    [displayPhotos, state.folder],
+  );
+
+  const onGalleryNavigate = useCallback(
+    (delta: -1 | 1) => {
+      actions.navigateGallery(delta, { listLength: displayPhotos.length });
+    },
+    [actions, displayPhotos.length],
+  );
+
+  const listSearchActive = listSearchQueryIsActive(listSearchQuery);
+  const emptySearchMessage =
+    listSearchActive && sortedPhotos.length > 0 && displayPhotos.length === 0
+      ? "No photos match your search."
+      : null;
+
   return (
     <>
       <ErrorBanner errors={state.workerErrors} onDismiss={actions.dismissError} />
       <MenuBar
-        photoCount={state.photos.length}
+        photoCount={displayPhotos.length}
+        photoCountTotal={listSearchActive ? sortedPhotos.length : undefined}
         scanning={state.scanning}
         metadataProgress={state.metadataProgress}
         onOpenFolder={actions.openFolder}
         onCloseFolder={actions.closeFolder}
         onSelectColumns={() => setShowColumnDialog(true)}
       />
+      <div className="list-search-bar" data-testid="list-search-bar">
+        <label className="list-search-label" htmlFor="list-search-input">
+          Search
+        </label>
+        <input
+          id="list-search-input"
+          type="search"
+          className="list-search-input"
+          data-testid="list-search-input"
+          placeholder="Path, file dates, image metadata…"
+          value={listSearchQuery}
+          onChange={(e) => setListSearchQuery(e.target.value)}
+          aria-label="Search photos"
+        />
+      </div>
       <PhotoList
-        photos={sortedPhotos}
+        photos={displayPhotos}
         thumbnails={state.thumbnails}
         imageMetadata={state.imageMetadata}
         visibleColumns={state.visibleColumns}
@@ -87,18 +153,20 @@ function LoadedView({
         sortingDisabled={sortingDisabled}
         selectedIndex={state.selectedIndex}
         onSelect={actions.selectPhoto}
-        onShowInExplorer={actions.showInExplorer}
+        onShowInExplorer={onShowInExplorer}
         onVisibilityChange={actions.prioritizeQueues}
         onPhotoOpen={actions.openGallery}
         onSelectColumns={() => setShowColumnDialog(true)}
+        searchQuery={listSearchQuery}
+        emptySearchMessage={emptySearchMessage}
       />
-      {state.galleryIndex !== null && (
+      {state.galleryIndex !== null && displayPhotos.length > 0 && (
         <GalleryView
-          photos={sortedPhotos}
+          photos={displayPhotos}
           currentIndex={state.galleryIndex}
           folderPath={state.folder}
           onClose={actions.closeGallery}
-          onNavigate={actions.navigateGallery}
+          onNavigate={onGalleryNavigate}
           loadImage={loadImage}
           imageMetadata={state.imageMetadata}
         />

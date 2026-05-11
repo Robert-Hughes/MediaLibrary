@@ -4,6 +4,8 @@ import type { MetadataProgressStore } from "../types";
 
 interface Props {
   photoCount: number;
+  /** When set and different from `photoCount`, count label shows "n of total" (filtered list). */
+  photoCountTotal?: number;
   scanning: boolean;
   metadataProgress: MetadataProgressStore | null;
   onOpenFolder: () => void;
@@ -11,7 +13,15 @@ interface Props {
   onSelectColumns: () => void;
 }
 
-export function MenuBar({ photoCount, scanning, metadataProgress, onOpenFolder, onCloseFolder, onSelectColumns }: Props) {
+export function MenuBar({
+  photoCount,
+  photoCountTotal,
+  scanning,
+  metadataProgress,
+  onOpenFolder,
+  onCloseFolder,
+  onSelectColumns,
+}: Props) {
   const spinStyle = useSpinnerSync();
   
   // Subscribe to metadata progress store
@@ -41,7 +51,9 @@ export function MenuBar({ photoCount, scanning, metadataProgress, onOpenFolder, 
       </button>
       <div className="menu-bar-divider" />
       <span className="menu-bar-count" data-testid="menu-bar-count">
-        {photoCount} photo{photoCount === 1 ? "" : "s"}
+        {photoCountTotal != null && photoCountTotal !== photoCount
+          ? `${photoCount} of ${photoCountTotal} photo${photoCountTotal === 1 ? "" : "s"}`
+          : `${photoCount} photo${photoCount === 1 ? "" : "s"}`}
       </span>
       {scanning && (
         <span style={spinStyle} className="menu-bar-spinner" data-testid="menu-bar-spinner" aria-label="Scanning…" />
