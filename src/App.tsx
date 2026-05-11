@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useSyncExternalStore } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useMediaLibrary, type TauriApi, type MediaLibraryActions } from "./useMediaLibrary";
 import { ThumbnailStore, ImageMetadataStore } from "./types";
@@ -20,7 +20,7 @@ const tauriApi: TauriApi = {
 };
 
 async function loadImage(path: string): Promise<string | null> {
-  try { return await invoke<string>("load_image", { path }); }
+  try { return convertFileSrc(path); }
   catch { return null; }
 }
 
