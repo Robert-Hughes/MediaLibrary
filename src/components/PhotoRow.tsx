@@ -70,7 +70,8 @@ export const PhotoRow = memo(function PhotoRow({
   const handleDoubleClick = useCallback(() => onPhotoOpen(index), [onPhotoOpen, index]);
   const handleContextMenuEvent = useCallback((e: React.MouseEvent) => onContextMenu(e, index), [onContextMenu, index]);
 
-  const rowClass = `photo-row ${index % 2 === 0 ? "photo-row--even" : "photo-row--odd"} ${selected ? "photo-row--selected" : ""}`;
+  const hasDrafts = Object.keys(draftEdits).length > 0;
+  const rowClass = `photo-row ${index % 2 === 0 ? "photo-row--even" : "photo-row--odd"} ${selected ? "photo-row--selected" : ""} ${hasDrafts ? "photo-row--has-drafts" : ""}`;
 
   // Index of the first image-metadata cell — used to place exactly one spinner
   // per row while metadata is loading (per-cell spinners were O(rows × cols)).
@@ -109,7 +110,14 @@ export const PhotoRow = memo(function PhotoRow({
         </div>
       </div>
       <div className="grid-cell grid-cell-path" data-col="relative_path" data-testid="photo-path">
-        <CellContent text={photo.relative_path} draftValue={draftEdits["relative_path"]} searchQuery={searchQuery} />
+        <div style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
+          <CellContent text={photo.relative_path} draftValue={draftEdits["relative_path"]} searchQuery={searchQuery} />
+        </div>
+        {hasDrafts && (
+          <span className="row-draft-badge" title={`${Object.keys(draftEdits).length} pending edit(s)`}>
+            {Object.keys(draftEdits).length} draft edit{Object.keys(draftEdits).length === 1 ? "" : "s"}
+          </span>
+        )}
       </div>
       {visibleColumns.map((col, i) => {
         if (col.kind === "os") {

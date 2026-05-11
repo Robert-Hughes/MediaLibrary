@@ -56,12 +56,12 @@ export function MenuBar({
         {photoCountTotal != null && photoCountTotal !== photoCount
           ? `${photoCount} of ${photoCountTotal} photo${photoCountTotal === 1 ? "" : "s"}`
           : `${photoCount} photo${photoCount === 1 ? "" : "s"}`}
-        {draftEditsSummary && draftEditsSummary.files > 0 ? (
-          <span className="menu-bar-draft-summary">
-            {`, ${draftEditsSummary.edits} draft edit${draftEditsSummary.edits === 1 ? "" : "s"} across ${draftEditsSummary.files} file${draftEditsSummary.files === 1 ? "" : "s"}`}
-          </span>
-        ) : null}
       </span>
+      {draftEditsSummary && draftEditsSummary.files > 0 ? (
+        <span className="menu-bar-draft-summary">
+          {`${draftEditsSummary.edits} draft edit${draftEditsSummary.edits === 1 ? "" : "s"} across ${draftEditsSummary.files} file${draftEditsSummary.files === 1 ? "" : "s"}`}
+        </span>
+      ) : null}
       {scanning && (
         <span style={spinStyle} className="menu-bar-spinner" data-testid="menu-bar-spinner" aria-label="Scanning…" />
       )}
