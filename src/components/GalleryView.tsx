@@ -1,4 +1,4 @@
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore, useRef } from "react";
 import { useSpinnerSync } from "../hooks/useSpinnerSync";
 import { DetailsPane } from "./DetailsPane";
 import type { PhotoInfo, ImageMetadataStore } from "../types";
@@ -21,6 +21,18 @@ export function GalleryView({ photos, currentIndex, folderPath, onClose, onNavig
   const [loading, setLoading] = useState(true);
   const [detailsVisible, setDetailsVisible] = useState(false);
   const spinStyle = useSpinnerSync();
+
+  const areaRef = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+
+  // Reset zoom on navigation
+  useEffect(() => {
+    setScale(1);
+    setPan({ x: 0, y: 0 });
+  }, [currentIndex]);
 
   // Subscribe to this photo's metadata reactively via useSyncExternalStore.
   const metadataState = useSyncExternalStore(
@@ -51,6 +63,54 @@ export function GalleryView({ photos, currentIndex, folderPath, onClose, onNavig
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose, onNavigate]);
+
+  const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
+    if (!imageSrc) return;
+    
+    const zoomFactor = Math.pow(2, e.deltaY * -0.002);
+    let newScale = scale * zoomFactor;
+    newScale = Math.max(1, Math.min(newScale, 50));
+
+    if (newScale === 1) {
+      setScale(1);
+      setPan({ x: 0, y: 0 });
+      return;
+    }
+
+    if (areaRef.current) {
+      const rect = areaRef.current.getBoundingClientRect();
+      const centerX = rect.left + rect.width / 2;
+      const centerY = rect.top + rect.height / 2;
+      const px = e.clientX - centerX;
+      const py = e.clientY - centerY;
+
+      const scaleRatio = newScale / scale;
+      setPan({
+        x: px - (px - pan.x) * scaleRatio,
+        y: py - (py - pan.y) * scaleRatio,
+      });
+    }
+    setScale(newScale);
+  };
+
+  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (scale <= 1 || !imageSrc || e.button !== 0) return;
+    e.preventDefault();
+    setIsDragging(true);
+    setDragStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
+  };
+
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!isDragging) return;
+    setPan({
+      x: e.clientX - dragStart.x,
+      y: e.clientY - dragStart.y,
+    });
+  };
+
+  const handleMouseUpOrLeave = () => {
+    setIsDragging(false);
+  };
 
   if (!photo) return null;
 
@@ -98,7 +158,17 @@ export function GalleryView({ photos, currentIndex, folderPath, onClose, onNavig
           ‹
         </button>
 
-        <div className="gallery-image-area" data-testid="gallery-image-area">
+        <div 
+          className="gallery-image-area" 
+          data-testid="gallery-image-area"
+          ref={areaRef}
+          onWheel={handleWheel}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUpOrLeave}
+          onMouseLeave={handleMouseUpOrLeave}
+          style={{ overflow: 'hidden' }}
+        >
           {loading ? (
             <div style={spinStyle} className="gallery-spinner" data-testid="gallery-spinner" />
           ) : imageSrc ? (
@@ -107,6 +177,12 @@ export function GalleryView({ photos, currentIndex, folderPath, onClose, onNavig
               alt={photo.relative_path}
               className="gallery-image"
               data-testid="gallery-image"
+              style={{
+                transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})`,
+                transition: isDragging ? 'none' : 'transform 0.1s ease-out',
+                cursor: scale > 1 ? (isDragging ? 'grabbing' : 'grab') : 'default'
+              }}
+              draggable={false}
             />
           ) : (
             <div className="gallery-error" data-testid="gallery-error">
