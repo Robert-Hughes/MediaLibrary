@@ -7,7 +7,7 @@ are covered by integration tests that simulate UI interaction and confirm that t
 Now
 ===
 
-
+* Figure out how non-string properties are handled, inc. numbers and arrays. Especially considering editing!
 
 Later- *** DO NOT WORK ON ANY OF THE BELOW FEATURES ***
 =====
