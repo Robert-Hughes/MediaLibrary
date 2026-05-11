@@ -1,11 +1,16 @@
 import { useMemo, useState } from "react";
 import type { PhotoInfo, ImageMetadataState, Variant } from "../types";
 import { HighlightedText } from "./HighlightedText";
+import { ContextMenu } from "./ContextMenu";
+import { ValueEditDialog } from "./ValueEditDialog";
 import { haystackContainsNormalized, normalizeListSearchQuery } from "../utils/listSearchText";
 
 interface Props {
   photo: PhotoInfo;
   metadata: ImageMetadataState;
+  draftEdits?: Record<string, string | null>;
+  onSetDraft?: (key: string, value: string | null) => void;
+  onDiscardDraft?: (key: string) => void;
 }
 
 /** Format an OS timestamp (seconds since epoch, from Rust) into a readable string. */
@@ -26,12 +31,12 @@ function formatVariant(value: Variant): string {
 /**
  * OS-level metadata entries (always available from the directory walk).
  */
-function getOsEntries(photo: PhotoInfo): Array<[string, string]> {
+function getOsEntries(photo: PhotoInfo): Array<[string, string, string]> {
   return [
-    ["Filename", photo.filename],
-    ["Relative Path", photo.relative_path],
-    ["Date Modified", formatTimestamp(photo.date_modified)],
-    ["Date Created", formatTimestamp(photo.date_created)],
+    ["Filename", photo.filename, "filename"],
+    ["Relative Path", photo.relative_path, "relative_path"],
+    ["Date Modified", formatTimestamp(photo.date_modified), "date_modified"],
+    ["Date Created", formatTimestamp(photo.date_created), "date_created"],
   ];
 }
 
@@ -92,8 +97,48 @@ function detailsRowMatchesSearch(label: string, value: string, fullKey: string, 
   return haystackContainsNormalized(`${label}\n${value}\n${fullKey}`, normalizedQuery);
 }
 
-export function DetailsPane({ photo, metadata }: Props) {
+function DetailsValueCell({ 
+  valueKey, 
+  originalValue, 
+  draftValue, 
+  searchQuery, 
+  onContextMenu 
+}: { 
+  valueKey: string, 
+  originalValue: string, 
+  draftValue?: string | null, 
+  searchQuery: string, 
+  onContextMenu: (e: React.MouseEvent, key: string, original: string, draft?: string | null) => void 
+}) {
+  return (
+    <td 
+      className="details-value" 
+      title={originalValue} 
+      onContextMenu={(e) => onContextMenu(e, valueKey, originalValue, draftValue)}
+    >
+      {draftValue !== undefined ? (
+        <>
+          <s className="draft-original" style={{ opacity: 0.6 }}><HighlightedText text={originalValue} searchQuery={searchQuery} /></s>{" "}
+          <strong className="draft-new" style={{ color: "var(--accent-color, #ffaa00)" }}>
+            <HighlightedText text={draftValue === null ? "—" : draftValue} searchQuery={searchQuery} />
+          </strong>
+        </>
+      ) : (
+        <HighlightedText text={originalValue} searchQuery={searchQuery} />
+      )}
+    </td>
+  );
+}
+
+export function DetailsPane({ photo, metadata, draftEdits = {}, onSetDraft, onDiscardDraft }: Props) {
   const [detailsSearch, setDetailsSearch] = useState("");
+  const [contextMenu, setContextMenu] = useState<{ x: number, y: number, key: string, originalValue: string, draftValue?: string | null } | null>(null);
+  const [editDialog, setEditDialog] = useState<{ key: string, initialValue: string } | null>(null);
+
+  const handleContextMenu = (e: React.MouseEvent, key: string, originalValue: string, draftValue?: string | null) => {
+    e.preventDefault();
+    setContextMenu({ x: e.clientX, y: e.clientY, key, originalValue, draftValue });
+  };
   const normalizedDetailsQuery = useMemo(() => normalizeListSearchQuery(detailsSearch), [detailsSearch]);
 
   const osEntries = useMemo(() => getOsEntries(photo), [photo]);
@@ -104,7 +149,7 @@ export function DetailsPane({ photo, metadata }: Props) {
 
   const filteredOsEntries = useMemo(() => {
     if (!normalizedDetailsQuery) return osEntries;
-    return osEntries.filter(([label, value]) => detailsRowMatchesSearch(label, value, label, normalizedDetailsQuery));
+    return osEntries.filter(([label, value, key]) => detailsRowMatchesSearch(label, value, key, normalizedDetailsQuery));
   }, [osEntries, normalizedDetailsQuery]);
 
   const filteredImageGroups = useMemo(() => {
@@ -148,14 +193,18 @@ export function DetailsPane({ photo, metadata }: Props) {
             <h3 className="details-section-header">OS Metadata</h3>
             <table className="details-table">
               <tbody>
-                {filteredOsEntries.map(([label, value]) => (
+                {filteredOsEntries.map(([label, value, propKey]) => (
                   <tr key={label} className="details-row" data-testid="details-row">
                     <td className="details-key">
                       <HighlightedText text={label} searchQuery={detailsSearch} />
                     </td>
-                    <td className="details-value">
-                      <HighlightedText text={value} searchQuery={detailsSearch} />
-                    </td>
+                    <DetailsValueCell
+                      valueKey={propKey}
+                      originalValue={value}
+                      draftValue={draftEdits[propKey]}
+                      searchQuery={detailsSearch}
+                      onContextMenu={handleContextMenu}
+                    />
                   </tr>
                 ))}
               </tbody>
@@ -189,9 +238,13 @@ export function DetailsPane({ photo, metadata }: Props) {
                       <td className="details-key">
                         <HighlightedText text={entry.label} searchQuery={detailsSearch} />
                       </td>
-                      <td className="details-value" title={entry.value}>
-                        <HighlightedText text={entry.value} searchQuery={detailsSearch} />
-                      </td>
+                      <DetailsValueCell
+                        valueKey={entry.fullKey}
+                        originalValue={entry.value}
+                        draftValue={draftEdits[entry.fullKey]}
+                        searchQuery={detailsSearch}
+                        onContextMenu={handleContextMenu}
+                      />
                     </tr>
                   ))}
                 </tbody>
@@ -200,6 +253,47 @@ export function DetailsPane({ photo, metadata }: Props) {
           ))
         )}
       </div>
+
+      {contextMenu && (
+        <ContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          options={[
+            {
+              label: "Edit",
+              onClick: () => {
+                setEditDialog({
+                  key: contextMenu.key,
+                  initialValue: contextMenu.draftValue !== undefined && contextMenu.draftValue !== null
+                    ? contextMenu.draftValue
+                    : contextMenu.originalValue,
+                });
+                setContextMenu(null);
+              },
+            },
+            ...(contextMenu.draftValue !== undefined
+              ? [{ label: "Discard", onClick: () => { onDiscardDraft?.(contextMenu.key); setContextMenu(null); } }]
+              : []),
+            {
+              label: "Remove",
+              onClick: () => { onSetDraft?.(contextMenu.key, null); setContextMenu(null); },
+            },
+          ]}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
+
+      {editDialog && (
+        <ValueEditDialog
+          propertyKey={editDialog.key}
+          initialValue={editDialog.initialValue}
+          onSave={(newValue) => {
+            onSetDraft?.(editDialog.key, newValue);
+            setEditDialog(null);
+          }}
+          onCancel={() => setEditDialog(null)}
+        />
+      )}
     </div>
   );
 }

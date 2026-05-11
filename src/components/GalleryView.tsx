@@ -13,9 +13,12 @@ interface Props {
   loadImage?: (path: string) => Promise<string | null>;
   /** Observable store for image metadata (EXIF, XMP, etc.) */
   imageMetadata?: ImageMetadataStore;
+  draftEdits?: Record<string, string | null>;
+  onSetDraft?: (fileRelativePath: string, key: string, value: string | null) => void;
+  onDiscardDraft?: (fileRelativePath: string, key: string) => void;
 }
 
-export function GalleryView({ photos, currentIndex, folderPath, onClose, onNavigate, loadImage, imageMetadata }: Props) {
+export function GalleryView({ photos, currentIndex, folderPath, onClose, onNavigate, loadImage, imageMetadata, draftEdits, onSetDraft, onDiscardDraft }: Props) {
   const photo = photos[currentIndex];
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -229,7 +232,13 @@ export function GalleryView({ photos, currentIndex, folderPath, onClose, onNavig
         </button>
 
         {detailsVisible && (
-          <DetailsPane photo={photo} metadata={metadataState} />
+          <DetailsPane 
+            photo={photo} 
+            metadata={metadataState} 
+            draftEdits={draftEdits}
+            onSetDraft={(key, value) => onSetDraft?.(photo.relative_path, key, value)}
+            onDiscardDraft={(key) => onDiscardDraft?.(photo.relative_path, key)}
+          />
         )}
 
         <div className="gallery-caption" data-testid="gallery-caption">

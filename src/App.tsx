@@ -185,6 +185,9 @@ function LoadedView({
           onNavigate={onGalleryNavigate}
           loadImage={loadImage}
           imageMetadata={state.imageMetadata}
+          draftEdits={state.draftEdits?.[displayPhotos[state.galleryIndex].relative_path]}
+          onSetDraft={actions.setDraftValue}
+          onDiscardDraft={actions.discardDraftValue}
         />
       )}
       {showColumnDialog && (

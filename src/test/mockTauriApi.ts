@@ -67,6 +67,7 @@ export function createMockTauriApi(): MockTauriApi {
     invoke: async (cmd, args) => {
       mock.invocations.push({ cmd, args });
       if (cmd === "pick_folder") return nextFolder;
+      if (cmd === "get_cli_folder") return null;
       if (cmd === "start_scan") {
         // The frontend now generates the scanId and passes it in args
         mock.currentScanId = (args?.scanId as number) ?? (mock.currentScanId + 1);
