@@ -1288,3 +1288,37 @@ body {
   font-size: 12px;
   color: var(--text-dim);
 }
+
+/* ── Draft Metadata Edits ─────────────────────────────────────────────────── */
+
+.draft-original {
+  text-decoration: line-through;
+  opacity: 0.6;
+  margin-right: 6px;
+  font-size: 0.9em;
+}
+
+.draft-new {
+  font-weight: 600;
+  color: var(--accent); /* Uses the primary accent color */
+}
+
+/* Ensure empty draft removals render distinctly */
+.draft-new:empty::before {
+  content: "—";
+  opacity: 0.8;
+}
+
+.menu-bar-draft-summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--accent);
+  margin-left: auto; /* Push to right if inside a flex container */
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  padding: 4px 10px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  font-weight: 500;
+}

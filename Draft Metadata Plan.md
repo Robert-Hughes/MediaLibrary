@@ -4,25 +4,25 @@ overview: Add metadata draft editing with per-folder on-disk JSONL persistence, 
 todos:
   - id: rust-draft-edits-storage
     content: Add Rust draft_edits JSONL read/write + tauri commands in `src-tauri/src/lib.rs` (and new module).
-    status: pending
+    status: done
   - id: frontend-draft-state
     content: Extend `src/types.ts` and `src/useMediaLibrary.ts` to load drafts on folder open and expose actions to set/discard drafts with immediate persistence.
-    status: pending
+    status: done
   - id: ui-draft-overlay-list
     content: Update `PhotoRow` to render strikethrough original + bold proposed value for path/OS/image columns when drafts exist; update `MenuBar` + `App` to show draft counts.
-    status: pending
+    status: done
   - id: ui-draft-overlay-details
     content: Update `DetailsPane` to overlay drafts and add right-click context menu with Edit/Discard/Remove; add `ValueEditDialog` modal.
-    status: pending
+    status: done
   - id: wire-gallery-and-dialog
     content: Pass draft data + edit callbacks through `GalleryView` and `App` into `DetailsPane` and dialog.
-    status: pending
+    status: done
   - id: tests-integration-draft-edit
     content: Update `src/test/mockTauriApi.ts` for new tauri commands; add integration tests covering edit flow, list+details rendering, counts, discard/remove, and persistence across reopen.
-    status: pending
+    status: done
   - id: run-and-fix
     content: Run `npx vitest run` and `npx tsc --noEmit`; fix any failing tests and ensure coverage for user-facing paths.
-    status: pending
+    status: done
 isProject: false
 ---
 
