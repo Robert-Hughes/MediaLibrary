@@ -230,6 +230,40 @@ describe("Gallery details pane with navigation", () => {
   });
 });
 
+describe("Gallery details pane search", () => {
+  it("filters OS rows and highlights matching text", async () => {
+    renderGallery({ currentIndex: 0 });
+
+    await userEvent.click(screen.getByTestId("gallery-info-toggle"));
+    const search = screen.getByTestId("details-search-input");
+    await userEvent.type(search, "Relative");
+
+    const osSection = screen.getByTestId("details-section-os");
+    const rows = within(osSection).getAllByTestId("details-row");
+    expect(rows).toHaveLength(1);
+    const keyCell = rows[0].querySelector(".details-key");
+    expect(keyCell).toHaveTextContent("Relative Path");
+    expect(keyCell?.querySelector("mark")).toHaveTextContent("Relative");
+  });
+
+  it("matches full image metadata key not shown in label and still shows the row", async () => {
+    const store = createPopulatedStore(PHOTOS, {
+      "2024/a.jpg": { "IFD0:Make": "Canon" },
+    });
+
+    renderGallery({ imageMetadata: store, currentIndex: 0 });
+
+    await userEvent.click(screen.getByTestId("gallery-info-toggle"));
+    await userEvent.type(screen.getByTestId("details-search-input"), "IFD0:");
+
+    const section = screen.getByTestId("details-section-IFD0");
+    const rows = within(section).getAllByTestId("details-row");
+    expect(rows).toHaveLength(1);
+    expect(within(rows[0]).getByText("Make")).toBeInTheDocument();
+    expect(within(rows[0]).queryAllByRole("mark")).toHaveLength(0);
+  });
+});
+
 describe("Gallery keyboard shortcuts coexistence", () => {
   it("I key toggles details while Escape still closes gallery", async () => {
     const onClose = vi.fn();

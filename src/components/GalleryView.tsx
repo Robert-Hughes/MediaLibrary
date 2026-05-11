@@ -55,7 +55,15 @@ export function GalleryView({ photos, currentIndex, folderPath, onClose, onNavig
   // Keyboard navigation.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { e.preventDefault(); onClose(); }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onClose();
+        return;
+      }
+      const target = e.target as HTMLElement | null;
+      if (target?.closest?.("input, textarea, select, [contenteditable='true']")) {
+        return;
+      }
       if (e.key === "ArrowLeft")  { e.preventDefault(); onNavigate(-1); }
       if (e.key === "ArrowRight") { e.preventDefault(); onNavigate(1); }
       if (e.key === "i" || e.key === "I") { e.preventDefault(); setDetailsVisible((v) => !v); }

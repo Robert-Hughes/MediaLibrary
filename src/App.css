@@ -254,6 +254,41 @@ body {
   margin-left: 4px;
 }
 
+/* ── List search (loaded folder) ─────────────────────────────────────────── */
+
+.list-search-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  padding: 8px 12px;
+  background: var(--surface-alt);
+  border-bottom: 1px solid var(--border);
+}
+
+.list-search-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.list-search-input {
+  flex: 1;
+  min-width: 0;
+  max-width: 420px;
+  padding: 6px 10px;
+  font-size: 13px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+}
+
+.list-search-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
 /* ── Toolbar ──────────────────────────────────────────────────────────────── */
 
 .toolbar {
@@ -833,6 +868,44 @@ body {
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
   letter-spacing: 0.02em;
+}
+
+.details-pane-toolbar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.details-search-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.details-search-input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 10px;
+  font-size: 13px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+}
+
+.details-search-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.search-highlight {
+  background: rgba(74, 158, 255, 0.35);
+  color: inherit;
+  padding: 0 1px;
+  border-radius: 2px;
 }
 
 .details-pane-body {

@@ -1,5 +1,7 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import type { PhotoInfo, ImageMetadataState, Variant } from "../types";
+import { HighlightedText } from "./HighlightedText";
+import { haystackContainsNormalized, normalizeListSearchQuery } from "../utils/listSearchText";
 
 interface Props {
   photo: PhotoInfo;
@@ -39,9 +41,16 @@ function extractPrefix(key: string): string {
   return colon > 0 ? key.slice(0, colon) : "Other";
 }
 
-interface MetadataGroup {
+export interface MetadataEntry {
+  label: string;
+  value: string;
+  /** Original metadata key (e.g. "IFD0:Make"); used for search, not always shown. */
+  fullKey: string;
+}
+
+export interface MetadataGroup {
   prefix: string;
-  entries: Array<[string, string]>;
+  entries: MetadataEntry[];
 }
 
 /**
@@ -49,7 +58,7 @@ interface MetadataGroup {
  * Returns groups sorted alphabetically by prefix, with "Other" last.
  */
 function groupImageMetadata(metadata: Record<string, Variant>): MetadataGroup[] {
-  const grouped = new Map<string, Array<[string, string]>>();
+  const grouped = new Map<string, MetadataEntry[]>();
 
   const sortedKeys = Object.keys(metadata).sort((a, b) => a.localeCompare(b));
 
@@ -57,7 +66,11 @@ function groupImageMetadata(metadata: Record<string, Variant>): MetadataGroup[] 
     const prefix = extractPrefix(key);
     if (!grouped.has(prefix)) grouped.set(prefix, []);
     const label = key.includes(":") ? key.slice(key.indexOf(":") + 1) : key;
-    grouped.get(prefix)!.push([label, formatVariant(metadata[key])]);
+    grouped.get(prefix)!.push({
+      label,
+      value: formatVariant(metadata[key]),
+      fullKey: key,
+    });
   }
 
   const groups: MetadataGroup[] = [];
@@ -74,16 +87,57 @@ function groupImageMetadata(metadata: Record<string, Variant>): MetadataGroup[] 
   return groups;
 }
 
+function detailsRowMatchesSearch(label: string, value: string, fullKey: string, normalizedQuery: string): boolean {
+  if (!normalizedQuery) return true;
+  return haystackContainsNormalized(`${label}\n${value}\n${fullKey}`, normalizedQuery);
+}
+
 export function DetailsPane({ photo, metadata }: Props) {
+  const [detailsSearch, setDetailsSearch] = useState("");
+  const normalizedDetailsQuery = useMemo(() => normalizeListSearchQuery(detailsSearch), [detailsSearch]);
+
   const osEntries = useMemo(() => getOsEntries(photo), [photo]);
   const imageGroups = useMemo(
     () => (metadata !== "loading" ? groupImageMetadata(metadata) : []),
     [metadata],
   );
 
+  const filteredOsEntries = useMemo(() => {
+    if (!normalizedDetailsQuery) return osEntries;
+    return osEntries.filter(([label, value]) => detailsRowMatchesSearch(label, value, label, normalizedDetailsQuery));
+  }, [osEntries, normalizedDetailsQuery]);
+
+  const filteredImageGroups = useMemo(() => {
+    if (!normalizedDetailsQuery) return imageGroups;
+    return imageGroups
+      .map((g) => ({
+        ...g,
+        entries: g.entries.filter((e) =>
+          detailsRowMatchesSearch(e.label, e.value, e.fullKey, normalizedDetailsQuery),
+        ),
+      }))
+      .filter((g) => g.entries.length > 0);
+  }, [imageGroups, normalizedDetailsQuery]);
+
   return (
     <div className="details-pane" data-testid="details-pane">
       <h2 className="details-pane-title">Properties</h2>
+
+      <div className="details-pane-toolbar">
+        <label className="details-search-label" htmlFor="details-search-input">
+          Search
+        </label>
+        <input
+          id="details-search-input"
+          type="search"
+          className="details-search-input"
+          data-testid="details-search-input"
+          placeholder="Filter keys and values…"
+          value={detailsSearch}
+          onChange={(e) => setDetailsSearch(e.target.value)}
+          aria-label="Search properties"
+        />
+      </div>
 
       <div className="details-pane-body">
         {/* OS Metadata */}
@@ -91,10 +145,14 @@ export function DetailsPane({ photo, metadata }: Props) {
           <h3 className="details-section-header">OS Metadata</h3>
           <table className="details-table">
             <tbody>
-              {osEntries.map(([label, value]) => (
-                <tr key={label} className="details-row">
-                  <td className="details-key">{label}</td>
-                  <td className="details-value">{value}</td>
+              {filteredOsEntries.map(([label, value]) => (
+                <tr key={label} className="details-row" data-testid="details-row">
+                  <td className="details-key">
+                    <HighlightedText text={label} searchQuery={detailsSearch} />
+                  </td>
+                  <td className="details-value">
+                    <HighlightedText text={value} searchQuery={detailsSearch} />
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -113,7 +171,7 @@ export function DetailsPane({ photo, metadata }: Props) {
             <div className="details-empty">No image metadata available</div>
           </section>
         ) : (
-          imageGroups.map((group) => (
+          filteredImageGroups.map((group) => (
             <section
               className="details-section"
               key={group.prefix}
@@ -122,10 +180,14 @@ export function DetailsPane({ photo, metadata }: Props) {
               <h3 className="details-section-header">{group.prefix}</h3>
               <table className="details-table">
                 <tbody>
-                  {group.entries.map(([label, value]) => (
-                    <tr key={label} className="details-row">
-                      <td className="details-key">{label}</td>
-                      <td className="details-value" title={value}>{value}</td>
+                  {group.entries.map((entry) => (
+                    <tr key={entry.fullKey} className="details-row" data-testid="details-row">
+                      <td className="details-key">
+                        <HighlightedText text={entry.label} searchQuery={detailsSearch} />
+                      </td>
+                      <td className="details-value" title={entry.value}>
+                        <HighlightedText text={entry.value} searchQuery={detailsSearch} />
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -140,4 +202,3 @@ export function DetailsPane({ photo, metadata }: Props) {
 
 // Export for unit testing
 export { groupImageMetadata, formatVariant, formatTimestamp, getOsEntries, extractPrefix };
-export type { MetadataGroup };
