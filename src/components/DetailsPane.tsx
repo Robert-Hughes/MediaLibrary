@@ -92,9 +92,9 @@ function groupImageMetadata(metadata: Record<string, Variant>): MetadataGroup[] 
   return groups;
 }
 
-function detailsRowMatchesSearch(label: string, value: string, fullKey: string, normalizedQuery: string): boolean {
+function detailsRowMatchesSearch(label: string, value: string, draftValue: string | null | undefined, fullKey: string, normalizedQuery: string): boolean {
   if (!normalizedQuery) return true;
-  return haystackContainsNormalized(`${label}\n${value}\n${fullKey}`, normalizedQuery);
+  return haystackContainsNormalized(`${label}\n${value}\n${draftValue ?? ""}\n${fullKey}`, normalizedQuery);
 }
 
 function DetailsValueCell({ 
@@ -158,7 +158,7 @@ export function DetailsPane({ photo, metadata, draftEdits = {}, onSetDraft, onDi
     if (!query && !hasEditsFilter) return osEntries;
     return osEntries.filter(([label, value, key]) => {
       if (hasEditsFilter && draftEdits[key] === undefined) return false;
-      return detailsRowMatchesSearch(label, value, key, query);
+      return detailsRowMatchesSearch(label, value, draftEdits[key], key, query);
     });
   }, [osEntries, normalizedDetailsQuery, draftEdits]);
 
@@ -174,7 +174,7 @@ export function DetailsPane({ photo, metadata, draftEdits = {}, onSetDraft, onDi
         ...g,
         entries: g.entries.filter((e) => {
           if (hasEditsFilter && draftEdits[e.fullKey] === undefined) return false;
-          return detailsRowMatchesSearch(e.label, e.value, e.fullKey, query);
+          return detailsRowMatchesSearch(e.label, e.value, draftEdits[e.fullKey], e.fullKey, query);
         }),
       }))
       .filter((g) => g.entries.length > 0);
