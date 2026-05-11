@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ThumbnailStore, ImageMetadataStore, MetadataProgressStore } from "./types";
 import type {
   AppState,
@@ -28,7 +28,7 @@ export interface MediaLibraryActions {
   showInExplorer: (index: number) => Promise<void>;
   openGallery: (index: number) => void;
   closeGallery: () => void;
-  navigateGallery: (delta: -1 | 1) => void;
+  navigateGallery: (delta: -1 | 1, options?: { listLength?: number }) => void;
   setVisibleColumns: (columns: VisibleColumn[]) => void;
   setSortConfig: (config: SortConfig) => void;
   updateColumnWidth: (col: string, width: number) => void;
@@ -501,10 +501,11 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
     );
   }, []);
 
-  const navigateGallery = useCallback((delta: number) => {
+  const navigateGallery = useCallback((delta: number, options?: { listLength?: number }) => {
     setAppState((prev) => {
       if (prev.kind !== "loaded" || prev.galleryIndex === null) return prev;
-      const nextIndex = Math.max(0, Math.min(prev.photos.length - 1, prev.galleryIndex + delta));
+      const len = options?.listLength ?? prev.photos.length;
+      const nextIndex = Math.max(0, Math.min(len - 1, prev.galleryIndex + delta));
       return { ...prev, galleryIndex: nextIndex, selectedIndex: nextIndex };
     });
   }, []);
@@ -553,5 +554,40 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
     });
   }, []);
 
-  return [{ ...appState, recentFolders }, { openFolder, openRecent, closeFolder, prioritizeQueues, selectPhoto, showInExplorer, openGallery, closeGallery, navigateGallery, setVisibleColumns, setSortConfig, updateColumnWidth, resetColumnWidths, dismissError }];
+  const mediaLibraryActions = useMemo(
+    () => ({
+      openFolder,
+      openRecent,
+      closeFolder,
+      prioritizeQueues,
+      selectPhoto,
+      showInExplorer,
+      openGallery,
+      closeGallery,
+      navigateGallery,
+      setVisibleColumns,
+      setSortConfig,
+      updateColumnWidth,
+      resetColumnWidths,
+      dismissError,
+    }),
+    [
+      openFolder,
+      openRecent,
+      closeFolder,
+      prioritizeQueues,
+      selectPhoto,
+      showInExplorer,
+      openGallery,
+      closeGallery,
+      navigateGallery,
+      setVisibleColumns,
+      setSortConfig,
+      updateColumnWidth,
+      resetColumnWidths,
+      dismissError,
+    ],
+  );
+
+  return [{ ...appState, recentFolders }, mediaLibraryActions];
 }
