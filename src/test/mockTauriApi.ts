@@ -7,6 +7,7 @@ import type {
   ScanErrorPayload,
   WorkerErrorPayload,
   Variant,
+  ApplyEditsResult,
 } from "../types";
 
 type EventHandler = (payload: unknown) => void;
@@ -27,6 +28,8 @@ export interface MockTauriApi {
   invocations: Array<{ cmd: string; args?: Record<string, unknown> }>;
   /** The scan_id returned by the most recent start_scan call. */
   currentScanId: number;
+  /** Override apply_draft_edits_cmd result. Default: success with no applied/failed. */
+  applyEditsResult: ApplyEditsResult;
 }
 
 export function createMockTauriApi(): MockTauriApi {
@@ -61,6 +64,7 @@ export function createMockTauriApi(): MockTauriApi {
     lastWindowTitle: null,
     invocations: [],
     currentScanId: 1,
+    applyEditsResult: { applied: [], failed: [], fresh_metadata: {} },
   };
 
   const api: TauriApi = {
@@ -95,6 +99,9 @@ export function createMockTauriApi(): MockTauriApi {
         const folder = args?.folderPath as string;
         mock.draftEditsByFolder[folder] = args?.data as any;
         return;
+      }
+      if (cmd === "apply_draft_edits_cmd") {
+        return mock.applyEditsResult;
       }
       throw new Error(`Unexpected invoke: ${cmd}`);
     },

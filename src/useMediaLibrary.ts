@@ -11,6 +11,7 @@ import type {
   Variant,
   SortConfig,
   VisibleColumn,
+  ApplyEditsResult,
 } from "./types";
 import type { DraftEditsByFile } from "./types";
 import { loadColumnConfig, saveColumnConfig } from "./utils/columnConfig";
@@ -38,6 +39,7 @@ export interface MediaLibraryActions {
   setDraftValue: (fileRelativePath: string, propertyKey: string, newValue: string | null) => void;
   discardDraftValue: (fileRelativePath: string, propertyKey: string) => void;
   discardAllDraftEdits: (fileRelativePath?: string) => void;
+  applyDraftEdits: (fileRelativePath?: string) => Promise<ApplyEditsResult>;
 }
 
 const RECENT_FOLDERS_KEY = "media_library_recent_folders";
@@ -618,6 +620,70 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
     });
   }, [api]);
 
+  const applyDraftEdits = useCallback(async (fileRelativePath?: string): Promise<ApplyEditsResult> => {
+    const current = stateRef.current;
+    if (current.kind !== "loaded") {
+      return { applied: [], failed: [], fresh_metadata: {} };
+    }
+
+    const relPaths = fileRelativePath
+      ? [fileRelativePath]
+      : Object.keys(current.draftEdits ?? {});
+
+    if (relPaths.length === 0) {
+      return { applied: [], failed: [], fresh_metadata: {} };
+    }
+
+    const result = (await api.invoke("apply_draft_edits_cmd", {
+      folderPath: current.folder,
+      relPaths,
+    })) as ApplyEditsResult;
+
+    // Update state: remove applied drafts, merge fresh metadata
+    setAppState((prev) => {
+      if (prev.kind !== "loaded") return prev;
+
+      // Remove applied drafts from in-memory state
+      const newDraftEdits = { ...prev.draftEdits };
+      for (const path of result.applied) {
+        delete newDraftEdits[path];
+      }
+
+      // Merge fresh metadata into the store
+      for (const [path, meta] of Object.entries(result.fresh_metadata)) {
+        imageMetadataStoreRef.current.set(path, meta);
+      }
+
+      return {
+        ...prev,
+        draftEdits: newDraftEdits,
+        metadataVersion: prev.metadataVersion + 1,
+      };
+    });
+
+    // Surface failures as worker errors
+    if (result.failed.length > 0) {
+      setAppState((prev) => {
+        if (prev.kind !== "loaded") return prev;
+        const newErrors = [
+          ...prev.workerErrors,
+          ...result.failed.map((f) => ({
+            scan_id: -1,
+            worker_type: "apply",
+            error_message: f.reason,
+            affected_files: [f.relative_path],
+          })),
+        ];
+        if (newErrors.length > MAX_WORKER_ERRORS) {
+          newErrors.splice(0, newErrors.length - MAX_WORKER_ERRORS);
+        }
+        return { ...prev, workerErrors: newErrors };
+      });
+    }
+
+    return result;
+  }, [api]);
+
   const mediaLibraryActions = useMemo(
     () => ({
       openFolder,
@@ -637,6 +703,7 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
       setDraftValue,
       discardDraftValue,
       discardAllDraftEdits,
+      applyDraftEdits,
     }),
     [
       openFolder,
@@ -656,6 +723,7 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
       setDraftValue,
       discardDraftValue,
       discardAllDraftEdits,
+      applyDraftEdits,
     ],
   );
 
