@@ -21,7 +21,7 @@ static EXIFTOOL_CMD: OnceLock<String> = OnceLock::new();
 
 /// Locate the exiftool executable once and cache the result for the process
 /// lifetime.  Logs the chosen path at normal verbosity on first call only.
-fn find_exiftool() -> &'static str {
+pub(crate) fn find_exiftool() -> &'static str {
     EXIFTOOL_CMD.get_or_init(|| {
         #[cfg(target_os = "windows")]
         {
