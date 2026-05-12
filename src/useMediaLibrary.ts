@@ -12,6 +12,8 @@ import type {
   SortConfig,
   VisibleColumn,
   ApplyEditsResult,
+  ApplyEditsStartedPayload,
+  ApplyEditsProgressPayload,
 } from "./types";
 import type { DraftEditsByFile } from "./types";
 import { loadColumnConfig, saveColumnConfig } from "./utils/columnConfig";
@@ -40,6 +42,7 @@ export interface MediaLibraryActions {
   discardDraftValue: (fileRelativePath: string, propertyKey: string) => void;
   discardAllDraftEdits: (fileRelativePath?: string) => void;
   applyDraftEdits: (fileRelativePath?: string) => Promise<ApplyEditsResult>;
+  cancelApplyEdits: () => void;
 }
 
 const RECENT_FOLDERS_KEY = "media_library_recent_folders";
@@ -228,6 +231,7 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
             metadataVersion: 0,
             workerErrors: [],
             draftEdits: draftEditsRef.current,
+            applying: null,
           };
         }
 
@@ -359,6 +363,7 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
               metadataVersion: 0,
               workerErrors: [],
               draftEdits: draftEditsRef.current,
+              applying: null,
             };
           }
           return prev;
@@ -423,9 +428,83 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
         });
       });
 
+      const unlistenApplyStarted = await api.listen("apply_edits_started", (raw) => {
+        if (cancelled) return;
+        const payload = raw as ApplyEditsStartedPayload;
+        setAppState((prev) => {
+          if (prev.kind !== "loaded") return prev;
+          return {
+            ...prev,
+            applying: {
+              total: payload.total,
+              current: 0,
+              currentFile: null,
+              failureCount: 0,
+              cancelling: false,
+            },
+          };
+        });
+      });
+
+      const unlistenApplyProgress = await api.listen("apply_edits_progress", (raw) => {
+        if (cancelled) return;
+        const payload = raw as ApplyEditsProgressPayload;
+
+        // Apply per-file changes incrementally so the UI reflects file/disk state
+        // in real time and a crash mid-operation leaves coherent state.
+        if (payload.fresh_metadata) {
+          imageMetadataStoreRef.current.set(payload.relative_path, payload.fresh_metadata);
+        }
+
+        setAppState((prev) => {
+          if (prev.kind !== "loaded") return prev;
+
+          let newDraftEdits = prev.draftEdits;
+          if (payload.applied) {
+            // Remove draft for the successfully-applied file
+            newDraftEdits = { ...prev.draftEdits };
+            delete newDraftEdits[payload.relative_path];
+          }
+
+          let newErrors = prev.workerErrors;
+          if (payload.error) {
+            newErrors = [
+              ...prev.workerErrors,
+              {
+                scan_id: -1,
+                worker_type: "apply",
+                error_message: payload.error,
+                affected_files: [payload.relative_path],
+              },
+            ];
+            if (newErrors.length > MAX_WORKER_ERRORS) {
+              newErrors = newErrors.slice(newErrors.length - MAX_WORKER_ERRORS);
+            }
+          }
+
+          const applying = prev.applying ? {
+            ...prev.applying,
+            current: payload.current,
+            currentFile: payload.relative_path,
+            failureCount: prev.applying.failureCount + (payload.error ? 1 : 0),
+          } : null;
+
+          return {
+            ...prev,
+            draftEdits: newDraftEdits,
+            workerErrors: newErrors,
+            applying,
+            metadataVersion: payload.fresh_metadata
+              ? prev.metadataVersion + 1
+              : prev.metadataVersion,
+          };
+        });
+      });
+
       unlisteners.push(
         unlistenFound, unlistenComplete, unlistenMetadata,
         unlistenThumbnail, unlistenError, unlistenWorkerError,
+        unlistenApplyStarted, unlistenApplyProgress,
       );
 
       // All listeners registered — unblock any startScan that was awaiting.
@@ -620,6 +699,15 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
     });
   }, [api]);
 
+  /**
+   * Apply draft edits. The backend processes files one at a time, emitting
+   * `apply_edits_started` once and `apply_edits_progress` after each file.
+   * Those events drive incremental state updates (see setup()), so this
+   * function does not need to apply any state changes from the final result.
+   *
+   * The promise resolves once all files are done (or cancellation took effect).
+   * Callers can use the result for a final summary; state is already current.
+   */
   const applyDraftEdits = useCallback(async (fileRelativePath?: string): Promise<ApplyEditsResult> => {
     const current = stateRef.current;
     if (current.kind !== "loaded") {
@@ -634,54 +722,24 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
       return { applied: [], failed: [], fresh_metadata: {} };
     }
 
-    const result = (await api.invoke("apply_draft_edits_cmd", {
-      folderPath: current.folder,
-      relPaths,
-    })) as ApplyEditsResult;
-
-    // Update state: remove applied drafts, merge fresh metadata
-    setAppState((prev) => {
-      if (prev.kind !== "loaded") return prev;
-
-      // Remove applied drafts from in-memory state
-      const newDraftEdits = { ...prev.draftEdits };
-      for (const path of result.applied) {
-        delete newDraftEdits[path];
-      }
-
-      // Merge fresh metadata into the store
-      for (const [path, meta] of Object.entries(result.fresh_metadata)) {
-        imageMetadataStoreRef.current.set(path, meta);
-      }
-
-      return {
-        ...prev,
-        draftEdits: newDraftEdits,
-        metadataVersion: prev.metadataVersion + 1,
-      };
-    });
-
-    // Surface failures as worker errors
-    if (result.failed.length > 0) {
-      setAppState((prev) => {
-        if (prev.kind !== "loaded") return prev;
-        const newErrors = [
-          ...prev.workerErrors,
-          ...result.failed.map((f) => ({
-            scan_id: -1,
-            worker_type: "apply",
-            error_message: f.reason,
-            affected_files: [f.relative_path],
-          })),
-        ];
-        if (newErrors.length > MAX_WORKER_ERRORS) {
-          newErrors.splice(0, newErrors.length - MAX_WORKER_ERRORS);
-        }
-        return { ...prev, workerErrors: newErrors };
-      });
+    try {
+      const result = (await api.invoke("apply_draft_edits_cmd", {
+        folderPath: current.folder,
+        relPaths,
+      })) as ApplyEditsResult;
+      return result;
+    } finally {
+      // Always clear the in-flight modal regardless of resolution path
+      setAppState((prev) => prev.kind === "loaded" ? { ...prev, applying: null } : prev);
     }
+  }, [api]);
 
-    return result;
+  const cancelApplyEdits = useCallback(() => {
+    api.invoke("cancel_apply_edits").catch(() => {});
+    setAppState((prev) => {
+      if (prev.kind !== "loaded" || !prev.applying) return prev;
+      return { ...prev, applying: { ...prev.applying, cancelling: true } };
+    });
   }, [api]);
 
   const mediaLibraryActions = useMemo(
@@ -704,6 +762,7 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
       discardDraftValue,
       discardAllDraftEdits,
       applyDraftEdits,
+      cancelApplyEdits,
     }),
     [
       openFolder,
@@ -724,6 +783,7 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
       discardDraftValue,
       discardAllDraftEdits,
       applyDraftEdits,
+      cancelApplyEdits,
     ],
   );
 

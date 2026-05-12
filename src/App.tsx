@@ -10,6 +10,7 @@ import { PhotoList } from "./components/PhotoList";
 import { GalleryView } from "./components/GalleryView";
 import { StatusFooter } from "./components/StatusFooter";
 import { ColumnSelectionDialog } from "./components/ColumnSelectionDialog";
+import { ApplyProgressDialog } from "./components/ApplyProgressDialog";
 import { ErrorBanner } from "./components/ErrorBanner";
 import { sortPhotos, shouldSuspendSorting } from "./utils/sorting";
 import { filterPhotosForListSearch } from "./utils/listSearchFilter";
@@ -211,6 +212,12 @@ function LoadedView({
             setShowColumnDialog(false);
           }}
           onClose={() => setShowColumnDialog(false)}
+        />
+      )}
+      {state.applying && (
+        <ApplyProgressDialog
+          applying={state.applying}
+          onCancel={actions.cancelApplyEdits}
         />
       )}
       {state.scanning && <StatusFooter message="Discovering files…" />}
