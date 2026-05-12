@@ -2,6 +2,7 @@ pub mod scanner;
 pub mod util;
 pub mod work_queue;
 pub mod draft_edits;
+pub mod apply_edits;
 use serde::Serialize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
@@ -612,6 +613,28 @@ fn save_draft_edits(folder_path: String, data: draft_edits::DraftEditsPayload) -
     draft_edits::save_draft_edits(&folder_path, data)
 }
 
+/// Apply draft edits for the specified files, then remove successfully-applied
+/// entries from the on-disk draft store.
+#[tauri::command]
+fn apply_draft_edits_cmd(
+    folder_path: String,
+    rel_paths: Vec<String>,
+) -> Result<apply_edits::ApplyEditsResult, String> {
+    let all_drafts = draft_edits::load_draft_edits(&folder_path)?;
+    let result = apply_edits::apply_draft_edits(&folder_path, &rel_paths, &all_drafts);
+
+    // Remove successfully-applied entries from on-disk store
+    if !result.applied.is_empty() {
+        let mut remaining = all_drafts;
+        for path in &result.applied {
+            remaining.remove(path);
+        }
+        draft_edits::save_draft_edits(&folder_path, remaining)?;
+    }
+
+    Ok(result)
+}
+
 fn clear_running(app: &AppHandle) {
     if let Some(state) = app.try_state::<ScanState>() {
         state.mark_finished();
@@ -763,7 +786,8 @@ pub fn run() {
             show_in_explorer,
             set_window_title,
             load_draft_edits,
-            save_draft_edits
+            save_draft_edits,
+            apply_draft_edits_cmd
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
