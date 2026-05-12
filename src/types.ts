@@ -278,3 +278,14 @@ export interface WorkerErrorPayload {
   error_message: string;
   affected_files: string[];
 }
+
+export interface ApplyEditsFailedFile {
+  relative_path: string;
+  reason: string;
+}
+
+export interface ApplyEditsResult {
+  applied: string[];
+  failed: ApplyEditsFailedFile[];
+  fresh_metadata: Record<string, Record<string, Variant>>;
+}
