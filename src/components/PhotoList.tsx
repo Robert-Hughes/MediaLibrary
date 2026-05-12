@@ -33,6 +33,7 @@ interface Props {
   emptySearchMessage?: string | null;
   draftEdits?: Record<string, Record<string, string | null>>;
   onDiscardAllEdits?: (fileRelativePath: string) => void;
+  onApplyEdits?: (fileRelativePath: string) => void;
 }
 
 const MIN_COL_WIDTH = 40;
@@ -210,6 +211,7 @@ export function PhotoList({
   emptySearchMessage = null,
   draftEdits = {},
   onDiscardAllEdits,
+  onApplyEdits,
 }: Props) {
   const listRef = useRef<HTMLDivElement>(null);
   const visibleRef = useRef<Set<string>>(new Set());
@@ -617,13 +619,24 @@ export function PhotoList({
           options={[
             { label: "View", onClick: () => onPhotoOpen(contextMenu.index) },
             { label: "Show in File Explorer", onClick: () => onShowInExplorer(contextMenu.index) },
-            ...(draftEdits[photos[contextMenu.index].relative_path] && Object.keys(draftEdits[photos[contextMenu.index].relative_path]).length > 0 && onDiscardAllEdits
-              ? [{ label: "Discard all edits", onClick: async () => {
-                  const path = photos[contextMenu.index].relative_path;
-                  const numEdits = Object.keys(draftEdits[path] || {}).length;
-                  const confirmed = await ask(`Are you sure you want to discard ${numEdits} edit${numEdits === 1 ? "" : "s"} for this photo?`, { title: "Discard Edits", kind: "warning" });
-                  if (confirmed) onDiscardAllEdits(path);
-                } }]
+            ...(draftEdits[photos[contextMenu.index].relative_path] && Object.keys(draftEdits[photos[contextMenu.index].relative_path]).length > 0
+              ? [
+                  ...(onApplyEdits ? [{ label: "Apply edits", onClick: async () => {
+                      const path = photos[contextMenu.index].relative_path;
+                      const numEdits = Object.keys(draftEdits[path] || {}).length;
+                      const confirmed = await ask(
+                        `Apply ${numEdits} edit${numEdits === 1 ? "" : "s"} to ${photos[contextMenu.index].filename}?\n\nThis will permanently modify the original image file. There is no backup.`,
+                        { title: "Apply Edits", kind: "warning" }
+                      );
+                      if (confirmed) { setContextMenu(null); onApplyEdits(path); }
+                    } }] : []),
+                  ...(onDiscardAllEdits ? [{ label: "Discard all edits", onClick: async () => {
+                      const path = photos[contextMenu.index].relative_path;
+                      const numEdits = Object.keys(draftEdits[path] || {}).length;
+                      const confirmed = await ask(`Are you sure you want to discard ${numEdits} edit${numEdits === 1 ? "" : "s"} for this photo?`, { title: "Discard Edits", kind: "warning" });
+                      if (confirmed) onDiscardAllEdits(path);
+                    } }] : []),
+                ]
               : [])
           ]}
           onClose={() => setContextMenu(null)}

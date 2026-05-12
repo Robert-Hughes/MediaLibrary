@@ -14,6 +14,7 @@ interface Props {
   onSetDraft?: (key: string, value: string | null) => void;
   onDiscardDraft?: (key: string) => void;
   onDiscardAllEdits?: () => void;
+  onApplyEdits?: () => void;
 }
 
 /** Format an OS timestamp (seconds since epoch, from Rust) into a readable string. */
@@ -132,7 +133,7 @@ function DetailsValueCell({
   );
 }
 
-export function DetailsPane({ photo, metadata, draftEdits = {}, onSetDraft, onDiscardDraft, onDiscardAllEdits }: Props) {
+export function DetailsPane({ photo, metadata, draftEdits = {}, onSetDraft, onDiscardDraft, onDiscardAllEdits, onApplyEdits }: Props) {
   const [detailsSearch, setDetailsSearch] = useState("");
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, key: string, originalValue: string, draftValue?: string | null } | null>(null);
   const [editDialog, setEditDialog] = useState<{ key: string, initialValue: string } | null>(null);
@@ -206,6 +207,24 @@ export function DetailsPane({ photo, metadata, draftEdits = {}, onSetDraft, onDi
             >
               {Object.keys(draftEdits).length} edit{Object.keys(draftEdits).length === 1 ? "" : "s"}
             </span>
+            {onApplyEdits && (
+              <button
+                className="button button--primary"
+                style={{ padding: "2px 6px", fontSize: "11px", minHeight: "auto", borderRadius: "8px" }}
+                onClick={async () => {
+                  const numEdits = Object.keys(draftEdits).length;
+                  const confirmed = await ask(
+                    `Apply ${numEdits} edit${numEdits === 1 ? "" : "s"} to this photo?\n\nThis will permanently modify the original image file. There is no backup.`,
+                    { title: "Apply Edits", kind: "warning" }
+                  );
+                  if (confirmed) onApplyEdits();
+                }}
+                data-testid="details-pane-apply-btn"
+                title="Apply draft edits to the original image file"
+              >
+                Apply
+              </button>
+            )}
             <button
               className="button button--secondary"
               style={{ padding: "2px 6px", fontSize: "11px", minHeight: "auto", borderRadius: "8px" }}

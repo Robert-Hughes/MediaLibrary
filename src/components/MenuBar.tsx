@@ -15,6 +15,7 @@ interface Props {
   draftEditsSummary?: { files: number; edits: number } | null;
   onClickDraftSummary?: () => void;
   onDiscardAllEdits?: () => void;
+  onApplyAllEdits?: () => void;
 }
 
 export function MenuBar({
@@ -28,6 +29,7 @@ export function MenuBar({
   draftEditsSummary = null,
   onClickDraftSummary,
   onDiscardAllEdits,
+  onApplyAllEdits,
 }: Props) {
   const spinStyle = useSpinnerSync();
   
@@ -73,6 +75,23 @@ export function MenuBar({
           >
             {`${draftEditsSummary.edits} draft edit${draftEditsSummary.edits === 1 ? "" : "s"} across ${draftEditsSummary.files} file${draftEditsSummary.files === 1 ? "" : "s"}`}
           </span>
+          {onApplyAllEdits && (
+            <button
+              className="button button--primary"
+              style={{ padding: "2px 6px", fontSize: "11px", minHeight: "auto", borderRadius: "8px" }}
+              onClick={async () => {
+                const confirmed = await ask(
+                  `Apply ${draftEditsSummary.edits} edit${draftEditsSummary.edits === 1 ? "" : "s"} across ${draftEditsSummary.files} file${draftEditsSummary.files === 1 ? "" : "s"}?\n\nThis will permanently modify the original image files. There is no backup.`,
+                  { title: "Apply All Edits", kind: "warning" }
+                );
+                if (confirmed) onApplyAllEdits();
+              }}
+              data-testid="menu-bar-apply-all-btn"
+              title="Apply all draft edits to the original image files"
+            >
+              Apply All Edits
+            </button>
+          )}
           {onDiscardAllEdits && (
             <button
               className="button button--secondary"
