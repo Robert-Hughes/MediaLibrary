@@ -248,7 +248,19 @@ export type AppState =
 
       // Draft Edits
       draftEdits: DraftEditsByFile;
+
+      // Apply-edits in-flight state (non-null while apply_draft_edits_cmd is running)
+      applying: ApplyEditsInFlight | null;
     };
+
+export interface ApplyEditsInFlight {
+  total: number;
+  current: number;
+  /** File currently being processed (most recent progress event), if any. */
+  currentFile: string | null;
+  failureCount: number;
+  cancelling: boolean;
+}
 
 // ── Event payloads from Rust ──────────────────────────────────────────────────
 
@@ -288,4 +300,17 @@ export interface ApplyEditsResult {
   applied: string[];
   failed: ApplyEditsFailedFile[];
   fresh_metadata: Record<string, Record<string, Variant>>;
+}
+
+export interface ApplyEditsStartedPayload {
+  total: number;
+}
+
+export interface ApplyEditsProgressPayload {
+  current: number;
+  total: number;
+  relative_path: string;
+  applied: boolean;
+  error: string | null;
+  fresh_metadata: Record<string, Variant> | null;
 }

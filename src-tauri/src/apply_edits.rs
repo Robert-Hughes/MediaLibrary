@@ -26,9 +26,9 @@ pub struct ApplyEditsResult {
 /// file state even when verification detects a mismatch or partial write.
 ///
 /// `error` is `None` on full success, `Some` for any failure (hard or verification).
-struct SingleFileOutcome {
-    fresh_metadata: Option<HashMap<String, Variant>>,
-    error: Option<String>,
+pub struct SingleFileOutcome {
+    pub fresh_metadata: Option<HashMap<String, Variant>>,
+    pub error: Option<String>,
 }
 
 impl SingleFileOutcome {
@@ -46,7 +46,7 @@ impl SingleFileOutcome {
 }
 
 /// Apply draft edits to a single file using exiftool, then re-read and verify.
-fn apply_single_file(
+pub fn apply_single_file(
     folder_path: &str,
     rel_path: &str,
     edits: &HashMap<String, Option<String>>,

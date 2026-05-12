@@ -30,6 +30,7 @@ export interface MockTauriApi {
   currentScanId: number;
   /** Override apply_draft_edits_cmd result. Default: success with no applied/failed. */
   applyEditsResult: ApplyEditsResult;
+  cancelApplyEditsCalled: boolean;
 }
 
 export function createMockTauriApi(): MockTauriApi {
@@ -65,6 +66,7 @@ export function createMockTauriApi(): MockTauriApi {
     invocations: [],
     currentScanId: 1,
     applyEditsResult: { applied: [], failed: [], fresh_metadata: {} },
+    cancelApplyEditsCalled: false,
   };
 
   const api: TauriApi = {
@@ -101,7 +103,35 @@ export function createMockTauriApi(): MockTauriApi {
         return;
       }
       if (cmd === "apply_draft_edits_cmd") {
-        return mock.applyEditsResult;
+        const result = mock.applyEditsResult;
+        const relPaths = (args?.relPaths as string[]) ?? [];
+        const total = result.applied.length + result.failed.length;
+
+        // Mirror the backend: emit started, then one progress event per file
+        emit("apply_edits_started", { total });
+
+        let current = 0;
+        for (const path of relPaths) {
+          const isApplied = result.applied.includes(path);
+          const failedEntry = result.failed.find((f) => f.relative_path === path);
+          if (!isApplied && !failedEntry) continue;
+
+          current += 1;
+          emit("apply_edits_progress", {
+            current,
+            total,
+            relative_path: path,
+            applied: isApplied,
+            error: failedEntry ? failedEntry.reason : null,
+            fresh_metadata: result.fresh_metadata[path] ?? null,
+          });
+        }
+
+        return result;
+      }
+      if (cmd === "cancel_apply_edits") {
+        mock.cancelApplyEditsCalled = true;
+        return;
       }
       throw new Error(`Unexpected invoke: ${cmd}`);
     },
