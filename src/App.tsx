@@ -144,6 +144,7 @@ function LoadedView({
         onSelectColumns={() => setShowColumnDialog(true)}
         draftEditsSummary={draftEditsSummary}
         onClickDraftSummary={onClickDraftSummary}
+        onApplyAllEdits={() => actions.applyDraftEdits()}
         onDiscardAllEdits={() => actions.discardAllDraftEdits()}
       />
       <div className="list-search-bar" data-testid="list-search-bar">
@@ -182,6 +183,7 @@ function LoadedView({
         emptySearchMessage={emptySearchMessage}
         draftEdits={state.draftEdits}
         onDiscardAllEdits={actions.discardAllDraftEdits}
+        onApplyEdits={(path) => actions.applyDraftEdits(path)}
       />
       {state.galleryIndex !== null && displayPhotos.length > 0 && (
         <GalleryView
@@ -196,6 +198,7 @@ function LoadedView({
           onSetDraft={actions.setDraftValue}
           onDiscardDraft={actions.discardDraftValue}
           onDiscardAllEdits={actions.discardAllDraftEdits}
+          onApplyEdits={(path) => actions.applyDraftEdits(path)}
         />
       )}
       {showColumnDialog && (
