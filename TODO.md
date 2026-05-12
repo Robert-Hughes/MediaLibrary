@@ -7,22 +7,16 @@ are covered by integration tests that simulate UI interaction and confirm that t
 Now
 ===
 
-* Figure out how non-string properties are handled, inc. numbers and arrays. Especially considering editing, saving/loading to JSONL and writing back to the file using exiftool
+* The visibilty state of the details pane (in the gallery view) should be remembered, so if you close then re-open the gallery the details pane would automatically be shown if it was like that before
+
+* Application of edits should be blocking so the UI doesn't get out of sync - show a progress bar or similar in a modal dialog.
+The process should still be robust to crashes/cancellation, so do keep data and files up-to-date throughout the process as much as possible rather than waiting til the end.
 
 Later- *** DO NOT WORK ON ANY OF THE BELOW FEATURES ***
 =====
 
+* Figure out how non-string properties are handled, inc. numbers and arrays. Especially considering editing, saving/loading to JSONL and writing back to the file using exiftool
 
-* The app should allow committing the draft edits to the real files. When there are pending edits, a button should appear at the top of the list after the info text showing that there are pending edits, saying "Apply All Edits" (similar to the existing Discard all button).
-* There should also be an option in the right click menu for a row in the list view to apply edits to just that row
-* The details table on the gallery view should also show a button at the top to apply edits to just that photo (similar to the existing Discard button)
-* Applying edits from any of these places should prompt for confirmation before doing anything
-* After confirmation, exiftool should be used to apply the edits:
-    * The command should use explicit tag names instead of generic shortcuts, e.g.
-            exiftool -XMP-dc:Description="New" -IPTC:Caption-Abstract="New" image.jpg
-* After exiftool reports success, we should verify the edits were successful by re-querying metadata from the relevant image(s) using the same process that we already do
-  (when populating image metadata for a newly opened folder). This newly loaded metadata should match exactly the edits we made, and if not an error should be shown.
-* After a successful edit and verification, we can delete the locally stored edits from our local database (only the ones that were successfully applied!) - both in-memory and on disk
 
 * Using OpenAI API to analyze image contents
   * How do "cached" input tokens work - can we cache the prompt telling it to describe the image as that's common across all images?
