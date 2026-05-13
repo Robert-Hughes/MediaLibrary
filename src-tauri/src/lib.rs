@@ -3,6 +3,7 @@ pub mod util;
 pub mod work_queue;
 pub mod draft_edits;
 pub mod apply_edits;
+pub mod tag_schema;
 use serde::Serialize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
@@ -658,6 +659,15 @@ fn load_draft_edits(folder_path: String) -> Result<draft_edits::DraftEditsPayloa
     draft_edits::load_draft_edits(&folder_path)
 }
 
+/// Look up schema info for a single tag.  Returns `Ok(None)` when the registry
+/// is built but the tag is unknown; returns `Err` only when the registry
+/// itself could not be built.
+#[tauri::command]
+fn get_tag_info(tag: String) -> Result<Option<tag_schema::TagInfo>, String> {
+    let registry = tag_schema::get_registry().map_err(|e| e.to_string())?;
+    Ok(registry.lookup(&tag).cloned())
+}
+
 #[tauri::command]
 fn save_draft_edits(folder_path: String, data: draft_edits::DraftEditsPayload) -> Result<(), String> {
     draft_edits::save_draft_edits(&folder_path, data)
@@ -907,7 +917,8 @@ pub fn run() {
             load_draft_edits,
             save_draft_edits,
             apply_draft_edits_cmd,
-            cancel_apply_edits
+            cancel_apply_edits,
+            get_tag_info
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
