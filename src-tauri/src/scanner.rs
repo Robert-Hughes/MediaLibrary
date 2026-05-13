@@ -13,7 +13,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 use walkdir::WalkDir;
 
-use crate::{log_ts, log_verbose};
 
 // ── ExifTool path cache ───────────────────────────────────────────────────────
 
@@ -38,16 +37,16 @@ pub(crate) fn find_exiftool() -> &'static str {
                     Command::new(path).arg("-ver").output().is_ok()
                 };
                 if found {
-                    log_ts!("[exiftool] Using: {}", path);
+                    log::info!("[exiftool] Using: {}", path);
                     return path.to_string();
                 }
             }
-            log_ts!("[exiftool] Warning: not found in expected locations; will try 'exiftool.exe'");
+            log::warn!("[exiftool] Warning: not found in expected locations; will try 'exiftool.exe'");
             "exiftool.exe".to_string()
         }
         #[cfg(not(target_os = "windows"))]
         {
-            log_ts!("[exiftool] Using: exiftool");
+            log::info!("[exiftool] Using: exiftool");
             "exiftool".to_string()
         }
     })
@@ -196,7 +195,7 @@ pub fn read_image_metadata_batch(
         return Ok(Vec::new());
     }
 
-    log_ts!("[exiftool] Reading {} files, first: {:?}", abs_paths.len(), abs_paths.first());
+    log::info!("[exiftool] Reading {} files, first: {:?}", abs_paths.len(), abs_paths.first());
 
     // TEMPORARY: simulate slow metadata reading for load testing.
     #[cfg(not(test))]
@@ -225,18 +224,18 @@ pub fn read_image_metadata_batch(
         Ok(out) => {
             if !out.status.success() {
                 let stderr = String::from_utf8_lossy(&out.stderr);
-                log_ts!("[exiftool] Command failed (status {:?}): {}", out.status, stderr);
+                log::error!("[exiftool] Command failed (status {:?}): {}", out.status, stderr);
                 return Err(format!("ExifTool failed: {}", stderr));
             }
 
             let json = String::from_utf8_lossy(&out.stdout);
-            log_ts!("[exiftool] Output: {} bytes", json.len());
+            log::debug!("[exiftool] Output: {} bytes", json.len());
 
             if !json.trim().is_empty() {
-                log_verbose!("[exiftool] First 500 chars: {}", &json.chars().take(500).collect::<String>());
+                log::debug!("[exiftool] First 500 chars: {}", &json.chars().take(500).collect::<String>());
                 Ok(parse_exiftool_batch_json(&json, rel_paths, abs_paths))
             } else {
-                log_ts!("[exiftool] Warning: empty output for {} files", abs_paths.len());
+                log::warn!("[exiftool] Warning: empty output for {} files", abs_paths.len());
                 Ok(rel_paths
                     .iter()
                     .map(|r| ImageMetadata {
@@ -250,7 +249,7 @@ pub fn read_image_metadata_batch(
             let error_msg = format!(
                 "Failed to execute ExifTool: {}. Please ensure ExifTool is installed and accessible.", e
             );
-            log_ts!("[exiftool] {}", error_msg);
+            log::error!("[exiftool] {}", error_msg);
             Err(error_msg)
         }
     }
@@ -269,7 +268,7 @@ fn parse_exiftool_batch_json(
             // indication why.  Include a short prefix of the offending JSON
             // so the cause is diagnosable from the log.
             let preview: String = json.chars().take(200).collect();
-            log_ts!(
+            log::error!(
                 "[parse_exiftool] Failed to parse ExifTool JSON ({} files affected): {}. First 200 chars: {:?}",
                 rel_paths.len(), e, preview
             );
@@ -294,8 +293,8 @@ fn parse_exiftool_batch_json(
         
         // Look up metadata using normalized path
         let metadata = map_by_source.remove(&normalized_abs).unwrap_or_else(|| {
-            log_ts!("[parse_exiftool] Warning: No metadata found for path: {}", normalized_abs);
-            log_ts!("[parse_exiftool] Available keys: {:?}", map_by_source.keys().take(3).collect::<Vec<_>>());
+            log::warn!("[parse_exiftool] Warning: No metadata found for path: {}", normalized_abs);
+            log::warn!("[parse_exiftool] Available keys: {:?}", map_by_source.keys().take(3).collect::<Vec<_>>());
             HashMap::new()
         });
         

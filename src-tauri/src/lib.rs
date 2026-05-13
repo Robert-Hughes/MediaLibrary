@@ -238,14 +238,10 @@ struct ApplyEditsStartedPayload {
 
 #[tauri::command]
 fn log_to_console(level: String, message: String) {
-    let timestamp = util::timestamp();
-    
     match level.as_str() {
-        "log" => eprintln!("[{}] [JS LOG] {}", timestamp, message),
-        "info" => eprintln!("[{}] [JS INFO] {}", timestamp, message),
-        "warn" => eprintln!("[{}] [JS WARN] {}", timestamp, message),
-        "error" => eprintln!("[{}] [JS ERROR] {}", timestamp, message),
-        _ => eprintln!("[{}] [JS] {}", timestamp, message),
+        "error" => log::error!("[JS] {}", message),
+        "warn"  => log::warn!("[JS] {}", message),
+        _       => log::info!("[JS] {}", message),
     }
 }
 
@@ -288,7 +284,7 @@ fn start_scan(
     active_queues: State<'_, ActiveQueues>,
 ) -> Result<(), String> {
     if !scan_state.wait_until_finished(Duration::from_secs(1)) {
-        log_ts!("[start_scan] ERROR: Previous scan did not finish in time");
+        log::error!("[start_scan] Previous scan did not finish in time");
         return Err("A scan is already in progress and could not be stopped".into());
     }
     scan_state.mark_running();
@@ -352,7 +348,7 @@ fn start_scan(
                         crate::work_queue::PopResult::Items(items) => items,
                         crate::work_queue::PopResult::Timeout => {
                             if !batch_results.is_empty() {
-                                log_ts!("[metadata] Emitting batch of {} results (timeout flush)", batch_results.len());
+                                log::debug!("[metadata] Emitting batch of {} results (timeout flush)", batch_results.len());
                                 let _ = app.emit("image_metadata_ready", ImageMetadataReadyPayload {
                                     scan_id,
                                     results: std::mem::take(&mut batch_results),
@@ -370,7 +366,7 @@ fn start_scan(
 
                     match scanner::read_image_metadata_batch(&rel_paths, &abs_paths) {
                         Ok(results) => {
-                            log_ts!("[metadata] Read {} results, first has {} fields",
+                            log::debug!("[metadata] Read {} results, first has {} fields",
                                 results.len(),
                                 results.first().map(|r| r.metadata.len()).unwrap_or(0));
                             
@@ -382,7 +378,7 @@ fn start_scan(
                             }
                         }
                         Err(error_msg) => {
-                            log_ts!("[metadata] Error reading metadata: {}", error_msg);
+                            log::error!("[metadata] Error reading metadata: {}", error_msg);
                             
                             // Emit error to UI
                             let _ = app.emit("worker_error", WorkerErrorPayload {
@@ -407,7 +403,7 @@ fn start_scan(
                     
                     // Emit batch if enough time has elapsed
                     if last_emit.elapsed() >= emit_interval && !batch_results.is_empty() {
-                        log_ts!("[metadata] Emitting batch of {} results", batch_results.len());
+                        log::debug!("[metadata] Emitting batch of {} results", batch_results.len());
                         let _ = app.emit("image_metadata_ready", ImageMetadataReadyPayload {
                             scan_id,
                             results: std::mem::take(&mut batch_results),
@@ -418,7 +414,7 @@ fn start_scan(
                 
                 // Emit any remaining results
                 if !batch_results.is_empty() {
-                    log_ts!("[metadata] Emitting final batch of {} results", batch_results.len());
+                    log::debug!("[metadata] Emitting final batch of {} results", batch_results.len());
                     let _ = app.emit("image_metadata_ready", ImageMetadataReadyPayload {
                         scan_id,
                         results: batch_results,
@@ -505,7 +501,7 @@ fn start_scan(
                     photo_queue_clone.lock().unwrap().push(photo);
                 },
                 |err| {
-                    log_ts!("[walk] error: {} ({:?})", err.message, err.path);
+                    log::warn!("[walk] error: {} ({:?})", err.message, err.path);
                     let _ = app_walk_err.emit("worker_error", WorkerErrorPayload {
                         scan_id,
                         worker_type: "scanner".to_string(),
@@ -698,7 +694,7 @@ fn apply_draft_edits_cmd(
 
     for rel_path in &rel_paths {
         if cancel_flag.load(Ordering::Relaxed) {
-            log_ts!("[apply_edits] Cancelled at {}/{}", current, total);
+            log::info!("[apply_edits] Cancelled at {}/{}", current, total);
             break;
         }
 
@@ -718,7 +714,7 @@ fn apply_draft_edits_cmd(
         if was_applied {
             all_drafts.remove(rel_path.as_str());
             if let Err(e) = draft_edits::save_draft_edits(&folder_path, all_drafts.clone()) {
-                log_ts!("[apply_edits] Warning: failed to persist draft removal for {}: {}", rel_path, e);
+                log::warn!("[apply_edits] Warning: failed to persist draft removal for {}: {}", rel_path, e);
             }
         }
 
@@ -892,6 +888,7 @@ mod tests {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
