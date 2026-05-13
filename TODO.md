@@ -9,9 +9,6 @@ Now
 
 * The visibilty state of the details pane (in the gallery view) should be remembered, so if you close then re-open the gallery the details pane would automatically be shown if it was like that before
 
-* Application of edits should be blocking so the UI doesn't get out of sync - show a progress bar or similar in a modal dialog.
-The process should still be robust to crashes/cancellation, so do keep data and files up-to-date throughout the process as much as possible rather than waiting til the end.
-
 Later- *** DO NOT WORK ON ANY OF THE BELOW FEATURES ***
 =====
 
