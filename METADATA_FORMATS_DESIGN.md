@@ -1,0 +1,314 @@
+# Metadata Formats — Design
+
+Companion document: `METADATA_FORMATS_PLAN.md` (phased implementation).
+
+This document describes how MediaLibrary handles image metadata: the types it preserves, how it reads, edits, and writes metadata, and the rationale for the design choices. It is aimed primarily at developers but also useful for advanced users who want to understand what the app actually does to their files.
+
+The guiding principle: **never hide behaviour from the user where it affects the outcome.** If exiftool coerces a value, the user sees it. If a tag is unwritable, the user is told. If we don't know a tag's type, we say so rather than guessing.
+
+---
+
+## 1. The problem
+
+Image metadata is not just key/value strings. A single file may contain:
+
+- Plain text (`XMP-dc:Creator`)
+- Multi-language alternatives (`XMP-dc:Description` with `x-default`, `en`, `fr`, ...)
+- Unordered bags of strings (`XMP-dc:Subject`, `IPTC:Keywords`)
+- Ordered sequences (`XMP-xmpRights:Owner`)
+- Integers (`Rating`, `ISO`)
+- Floats and rationals (`FNumber`, `ExposureTime`, `GPSLatitude`)
+- Enumerations (`Orientation`, `Flash`, `WhiteBalance`)
+- Booleans (`XMP-xmpRights:Marked`)
+- Nested structures (`XMP-mwg-rs:Regions` for face/area markup)
+- Dates with timezone and sub-second precision
+
+The previous pipeline collapsed all of these to strings at the draft layer. The result:
+
+- Editing `Keywords = ["beach", "sunset"]` pre-filled the editor with `"beach, sunset"` and saved it back as a **single keyword** containing a comma. Data corruption.
+- Numeric fields written as strings sometimes round-tripped silently and sometimes did not, with no signal to the user.
+- Nested structs from exiftool crashed the whole batch parse silently, dropping every file's metadata in that batch.
+- New-property edits had no way to know what type they should be.
+
+The new design fixes these by preserving type all the way through.
+
+---
+
+## 2. The `Variant` type
+
+A single discriminated union covers every shape metadata can take:
+
+```rust
+pub enum Variant {
+    Null,
+    Bool(bool),
+    Integer(i64),
+    Float(f64),
+    String(String),
+    List(Vec<Variant>),
+    Object(BTreeMap<String, Variant>),
+}
+```
+
+The frontend mirrors this:
+
+```ts
+type Variant =
+  | null | boolean | number | string
+  | Variant[]
+  | { [k: string]: Variant };
+```
+
+Every metadata value, draft edit, and write-back payload uses `Variant`. There is no place in the pipeline where a list becomes a comma-joined string, or where a number becomes a stringified number, except at the deliberate boundary of the exiftool command line itself.
+
+### Why no separate `Object` in older versions
+
+The previous `Variant` had only `String`, `Number`, `List`. exiftool's `-j` output for nested XMP structs (e.g. `Keys` group on QuickTime, region markup) contains JSON objects. The untagged enum failed to deserialize these, and because the failure was on the whole `Vec<HashMap<String, Variant>>` parse, the entire batch's metadata was discarded. Adding `Object` fixes both the immediate parse failure and the silent-batch-drop failure mode.
+
+### Why `Integer` and `Float` separately
+
+JSON does not distinguish; exiftool's `-n` output for `Rating` is `5`, for `FNumber` is `5.6`. Preserving the distinction lets us write back the correct form to exiftool (`-n -Rating=5` succeeds; `-n -Rating=5.0` may warn). The frontend's `number` type collapses them, but the schema (next section) tells the writer which form to use.
+
+---
+
+## 3. The tag schema registry
+
+`Variant` describes the shape of a value. It does not describe what shape a value *should* have for a given tag. For that, MediaLibrary builds a registry of tag types at startup.
+
+### Source: `exiftool -listx`
+
+exiftool publishes its own writable-tag database as XML via `exiftool -listx`. Each tag entry includes group, name, writability, base type, count (single / list / lang-alt), and — for enum tags — the full value-to-label mapping.
+
+MediaLibrary runs `exiftool -listx -lang en` once at startup and parses the XML into an in-memory `TagRegistry`. No disk cache — registry is cheap (~hundreds of milliseconds) and always matches the installed exiftool version.
+
+### What the registry tells us
+
+For each tag (keyed by `Group:Name`, e.g. `XMP-dc:Subject`):
+
+- Is it writable?
+- What is its base type? `Text`, `Integer`, `Real`, `Rational`, `Boolean`, `DateTime`, `LangAlt`, `Struct`, `Binary`.
+- Is it a list? `Bag` (unordered, e.g. Keywords), `Seq` (ordered), `Alt` (alternatives, used by LangAlt).
+- For enums: the list of `(code, label)` pairs.
+- Bounds (min/max) where exiftool publishes them.
+
+### What the registry does not tell us
+
+`-listx` does not describe exiftool's *code-based* `PrintConv` — the Perl that formats `ExposureTime: 0.004` as `"1/250"`, `GPSLatitude: 51.50726` as `"51 deg 30' 26.16\" N"`, or `Flash: 16` as `"Off, Did not fire"`. These are functions, not tables. We never reimplement them. See Section 5.
+
+### Unknown tags
+
+If a user edits a tag not in the registry (rare camera-specific MakerNotes, custom XMP namespaces, future exiftool versions with new tags), it is marked `Unknown` and treated as text with a warning banner. The user can still edit, but is told the schema doesn't describe the tag.
+
+---
+
+## 4. Reading: two passes
+
+`scanner.rs` runs exiftool twice per scan batch:
+
+**Pass A — pretty:**
+```
+exiftool -a -G1 -s -struct -charset filename=utf8 -charset utf8 \
+  --system:all --composite:all -j <paths>
+```
+
+**Pass B — numeric:**
+```
+exiftool -a -G1 -s -struct -n -charset filename=utf8 -charset utf8 \
+  --system:all --composite:all -j <paths>
+```
+
+### Flag explanations
+
+- `-G1` — Prefix each tag with its group-1 name (the specific block: `XMP-dc`, `ExifIFD`, `IPTC`, `Track1`). exiftool tag families have multiple grouping axes; G1 is the specific sub-group. Without it, `DateTimeOriginal` could come from `ExifIFD` or `XMP-exif` and we couldn't tell which. We do not use `-G0:1` (which would prepend `XMP:` etc.) because G1 alone already encodes enough to disambiguate writes.
+- `-s` — Short tag names (no description text).
+- `-struct` — Keep nested structs as JSON objects rather than flattening to dotted keys. Required for face regions, `Keys` group on QuickTime, etc.
+- `-a` — Allow duplicate tags (e.g. `Subject` from both `XMP-dc` and `IPTC`).
+- `--system:all --composite:all` — Exclude file-system metadata (size, mtime — we have those) and computed composites (we don't want them in drafts).
+- `-j` — JSON output.
+- `-charset filename=utf8 -charset utf8` — UTF-8 throughout. Avoids Windows code-page surprises.
+- `-n` (pass B only) — No PrintConv. Raw machine values.
+
+### Why two passes
+
+| Tag | Pass A (default) | Pass B (`-n`) |
+|---|---|---|
+| `Orientation` | `"Rotate 90 CW"` | `6` |
+| `ExposureTime` | `"1/250"` | `0.004` |
+| `FNumber` | `"5.6"` | `5.6` |
+| `GPSLatitude` | `"51 deg 30' 26.16\" N"` | `51.50726667` |
+| `Flash` | `"Off, Did not fire"` | `16` |
+| `FileSize` | `"4.2 MB"` | `4404019` |
+| `Keywords` | `["beach", "sunset"]` | `["beach", "sunset"]` (same — no PrintConv applies) |
+
+We want **pass A for display** (matches what every other tool shows) and **pass B for editing and verification** (the actual machine value, unambiguous on write).
+
+### Why not just compute pretty form ourselves
+
+For enum tags (`Orientation`, `WhiteBalance`, `Flash`-as-table), we could — `-listx` gives us the table. We don't, for two reasons:
+
+1. Code-based PrintConv (`ExposureTime`, `GPSLatitude`, `FileSize`, `Duration`, `LensID` against external lens database, hundreds of MakerNotes formatters) is implemented in Perl in exiftool's source. Reimplementing means tracking exiftool's release-by-release changes forever. Wrong tool for the job.
+2. Even where we could (enums), the user benefit is small. Two-pass cost is one extra exiftool exec per scan batch, not per file. exiftool's startup time dominates; the second pass adds maybe 50%, not 100%, of the wall time.
+
+If scan latency ever becomes a real complaint, the fallback is lazy pass-A: scan with `-n` only, fire a second exec on details-pane open for just the selected file. Defer until measured.
+
+### Cost
+
+Two execs per batch. For a 1000-file scan in batches of 100, that's 20 execs instead of 10. exiftool startup is the dominant cost; the file-read cost is paid once (filesystem cache).
+
+---
+
+## 5. Editing: schema-driven UI
+
+The edit dialog is a router on `TagKind` from the registry. Each kind has a dedicated control. The user is never asked "is this a string or a number?" — the schema knows.
+
+### Editors by kind
+
+| Kind | Control | Notes |
+|---|---|---|
+| `Text` | text input | |
+| `LangAlt` | language tab strip; per-lang textarea | `x-default` always present and explicit |
+| `Bag<Text>` (Keywords, Subject) | chip editor | individual add/remove; never joined |
+| `Seq<Text>` | chip editor with reorder | order matters |
+| `Integer` | numeric input + bounds | |
+| `Real` | numeric input | |
+| `Rational` (ExposureTime, ShutterSpeedValue) | numerator/denominator pair, or decimal toggle | |
+| `Boolean` | tri-state (true / false / unset) | |
+| `DateTime` | datetime picker | emits `YYYY:MM:DD HH:MM:SS±ZZ:ZZ` |
+| `Enum<Integer>` (Orientation, Flash-base) | dropdown of labels | draft stores code; display shows label |
+| `Enum<String>` (some XMP enums) | dropdown of labels | |
+| `Struct` | nested form | each field recurses |
+| `Unknown` | text input + warning | "schema doesn't describe this tag" |
+| `Binary` | read-only | "not editable in app" |
+
+### Special-case overrides
+
+A small set of tags exiftool's `-listx` describes too thinly to drive a good editor. These have hardcoded overrides:
+
+- **GPS coordinates**: `GPS*Latitude`, `GPS*Longitude`, `GPS*Altitude` get a DMS / decimal composite editor. App owns the conversion math — fixed, not version-dependent.
+- **`Flash`**: bitfield editor with checkboxes per bit (fired / return-detected / red-eye / function), plus mode sub-enum. Bit layout hardcoded per exiftool documentation. Computed code preview shown.
+- **Datetimes** where listx returns `string`: name-matched (`*Date*`, `*Time*`) and value-pattern-matched, then upgraded to datetime editor.
+
+The override list lives in one file (`src/metadata/tag_overrides.ts`). Adding a new override is a single-file change.
+
+### Worked example: Orientation
+
+1. Pass A reads `Orientation = "Rotate 90 CW"` (display).
+2. Pass B reads `Orientation = 6` (raw).
+3. Details pane shows `"Rotate 90 CW"`.
+4. User clicks edit. Registry says `Orientation` is `Enum<Integer>` with options `[(1, "Horizontal (normal)"), ..., (6, "Rotate 90 CW"), ...]`.
+5. Editor renders a dropdown of labels, with `"Rotate 90 CW"` selected.
+6. User picks `"Rotate 180"`. Draft stores `{ value: Variant::Integer(3), intent: Set }`.
+7. On apply, write-back emits `exiftool -n -Orientation=3`.
+8. Re-read pass A shows `"Rotate 180"`. Verify succeeds.
+
+### Worked example: ExposureTime
+
+1. Pass A: `"1/250"`. Pass B: `0.004`.
+2. Details pane shows `"1/250"`.
+3. User clicks edit. Registry says `Rational`, no enum table.
+4. Editor renders numerator/denominator inputs (`1` and `250`) with a decimal toggle.
+5. User changes denominator to `500`. Draft stores `{ value: Variant::Float(0.002), intent: Set }`.
+6. Write-back: `exiftool -n -ExposureTime=0.002`.
+7. exiftool writes the rational `1/500` to the file.
+8. Re-read pass A shows `"1/500"`. Verify succeeds.
+
+### Worked example: Keywords
+
+1. Pass A: `["beach", "sunset"]`. Pass B: same.
+2. Details pane shows chips: [beach] [sunset].
+3. User clicks edit. Registry says `Bag<Text>`.
+4. Editor renders chip editor with `beach` and `sunset`, plus an input to add.
+5. User adds `vacation`, removes `sunset`. Draft stores `{ value: Variant::List([String("beach"), String("vacation")]), intent: Set }`.
+6. Write-back: `exiftool -XMP-dc:Subject= -XMP-dc:Subject=beach -XMP-dc:Subject=vacation`. The empty assignment clears the existing list before re-adding; explicit replace, no ambiguity.
+7. Re-read shows `["beach", "vacation"]`. Verify succeeds.
+
+---
+
+## 6. Writing: argument construction and verification
+
+### Argument rules
+
+For each draft edit, the writer builds exiftool argv based on the tag's kind and the edit's intent:
+
+| Intent | Kind | Args |
+|---|---|---|
+| `Set` | `Text` / `Integer` / `Real` / etc. | `-TAG=value` |
+| `Set` | `Bag` / `Seq` | `-TAG=` then `-TAG=item1 -TAG=item2 ...` (explicit clear + repeat) |
+| `Set` | `LangAlt` | `-TAG-lang=value` per language; `x-default` explicit |
+| `ListAdd` | `Bag` / `Seq` | `-TAG+=item` per item |
+| `ListRemove` | `Bag` / `Seq` | `-TAG-=item` per item |
+| `Delete` | any | `-TAG=` |
+
+The previous implementation joined list values with `", "` and emitted `-TAG=a, b`. exiftool does not split on comma by default; the result was a single-element list containing the joined string. The repeated-arg form is unambiguous and matches exiftool's documented contract.
+
+### `-n` scope: two-pass write
+
+exiftool's `-n` is global to an invocation. A single invocation cannot mix numeric-form and pretty-form arguments. The writer therefore splits the argv into two groups and runs exiftool twice:
+
+- **Group A (numeric)**: `Integer`, `Real`, `Rational`, `Boolean`, `Enum<Integer>`, GPS coords, datetime where we send raw — invoked with `-n`.
+- **Group B (text)**: `Text`, `LangAlt`, `Bag<Text>`, `Seq<Text>` — invoked without `-n`.
+
+Either group may be empty, in which case its invocation is skipped. Numeric group runs first so text-group edits can depend on numeric tags being set (rare but possible for derived fields).
+
+### Argv preview
+
+Before applying, the user sees the exact argv we will execute, broken down by invocation. The user can copy it, run it themselves, or cancel. For the first ten applies per session this is on by default — trust-building. After that, opt-in via a toggle.
+
+### Verification
+
+After write, the file is re-read with the scan flags. The new `Variant` is compared to the intended `Variant` using type-aware equality:
+
+- Lists: multiset for `Bag`, ordered for `Seq`.
+- Floats: within type-specific epsilon (rationals tighter than reals).
+- LangAlt: per-language map equality.
+- Structs: recursive field equality.
+
+Three outcomes:
+
+1. **Match** — green badge. Draft cleared.
+2. **Coerced** — exiftool wrote a normalized value (e.g. we sent `5`, file holds `5/1`; we sent `"True"`, file holds `True`). Yellow. Message: `exiftool normalized: sent <a>, file holds <b>. Accept?` The user confirms (clears draft) or reverts (re-stages with the file's value as the new draft).
+3. **Mismatch / missing** — red. Possible causes: tag is not writable in this format (some formats don't support all XMP tags); exiftool silently dropped it; a higher-priority tag overwrote it. Expandable diff. Draft retained.
+
+The previous implementation skipped the verify check entirely for non-`String` variants (`apply_edits.rs:121`), silently accepting any post-write value. The new behaviour never hides divergence.
+
+### Apply log
+
+Every apply appends one line per tag to `MediaLibraryApplyLog.jsonl` next to the draft file: timestamp, file path, tag, intent, full argv, value before, value after, outcome. Append-only, never read by the app. User-inspectable for forensics or undo.
+
+---
+
+## 7. Persistence: drafts only
+
+MediaLibrary persists draft edits (`MediaLibraryDraftEdits.jsonl`). Read metadata is **not** cached — every scan re-queries exiftool. Reasons:
+
+- exiftool is the source of truth; caching invites staleness.
+- The file is the canonical store. Sidecars introduce sync questions we don't want to answer.
+- exiftool startup amortizes well over batches; scan cost is acceptable.
+
+Draft schema is versioned. Loading a v1 (string-only) draft file triggers a one-time migration: each string value becomes `{ value: Variant::String(s), intent: Set }`; explicit nulls become `intent: Delete`. The v1 file is backed up to `MediaLibraryDraftEdits.v1.bak.jsonl` before rewriting. The user sees a toast describing what happened.
+
+---
+
+## 8. What we explicitly do not do
+
+- **No PrintConv reimplementation.** Pretty display comes from exiftool itself (pass A). We don't ship a Perl-equivalent formatter.
+- **No silent type coercion.** If exiftool normalizes a value on write, the user is told.
+- **No silent batch drops.** A single bad file logs a warning; other files in the batch parse normally.
+- **No comma-joined list editing.** Lists are always edited as lists.
+- **No auto-sync between overlapping tags.** `Keywords` (IPTC), `Subject` (XMP-dc), and `HierarchicalSubject` (Lightroom) overlap conceptually. We display them as separate fields and document the overlap. The user decides which to edit.
+- **No magic for unwritable tags.** Block at the UI with the registry's reason.
+- **No general RDF/XMP graph editor.** We work with the flat tag list `-listx` exposes. Struct editing is supported for the cases exiftool surfaces; we don't expose RDF semantics.
+
+---
+
+## 9. Glossary
+
+- **Variant** — Discriminated union covering every JSON-shape metadata can take. The internal currency.
+- **TagKind** — The schema's classification of a tag (`Text`, `Bag<Text>`, `Enum<Integer>`, etc.). Drives which editor renders.
+- **PrintConv** — exiftool's mechanism for converting raw machine values to human-readable form. Table-based (we use it) or code-based (we don't reimplement).
+- **`-n`** — exiftool flag suppressing PrintConv. Returns raw values.
+- **`-G1`** — exiftool flag prefixing tag names with their specific group (`XMP-dc:Subject` not `Subject`).
+- **`-listx`** — exiftool flag producing the writable-tag database as XML.
+- **LangAlt** — XMP alternative-language array (e.g. `Description` in multiple languages with one `x-default`).
+- **Bag / Seq / Alt** — XMP list types: unordered, ordered, alternatives.
+- **EditIntent** — `Set` / `Delete` / `ListAdd` / `ListRemove`. Determines the exiftool operator (`=`, `+=`, `-=`).
