@@ -26,6 +26,37 @@ export type Variant =
   | Variant[]
   | { [k: string]: Variant };
 
+// ── Tag schema ────────────────────────────────────────────────────────────────
+
+/**
+ * Mirrors `tag_schema::TagKind` in src-tauri.  Serde emits these as
+ * `{ "kind": "<variant>", "data": <payload> }` for variants with data, or
+ * `{ "kind": "<variant>" }` for unit variants.
+ */
+export type TagKind =
+  | { kind: "Text" }
+  | { kind: "LangAlt" }
+  | { kind: "Integer"; data: { min: number | null; max: number | null } }
+  | { kind: "Real" }
+  | { kind: "Rational" }
+  | { kind: "Boolean" }
+  | { kind: "DateTime" }
+  | { kind: "Enum"; data: { repr: "Integer" | "String"; options: { code: string; label: string }[] } }
+  | { kind: "Bag"; data: TagKind }
+  | { kind: "Seq"; data: TagKind }
+  | { kind: "Alt"; data: TagKind }
+  | { kind: "Struct"; data: Record<string, TagKind> }
+  | { kind: "Binary" }
+  | { kind: "Unknown" };
+
+export interface TagInfo {
+  group: string;
+  name: string;
+  writable: boolean;
+  kind: TagKind;
+  description: string | null;
+}
+
 // ── Thumbnail store ───────────────────────────────────────────────────────────
 
 export type ThumbnailState = "loading" | "failed" | string;
