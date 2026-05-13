@@ -157,15 +157,31 @@ fn read_os_metadata(path: &Path) -> (Option<i64>, Option<i64>) {
 
 /// Read image metadata for a batch of files using ExifTool.
 ///
-/// We use the following flags:
-///  -a: Allow duplicate tag names (to see all occurrences)
-///  -G1: Group tags by location (e.g. [IFD0], [XMP-dc])
-///  -s: Short tag names
-///  --system:all: Exclude OS-level system tags
-///  --composite:all: Exclude tags calculated by ExifTool (to see only original data)
-///  -j: Output in JSON format
+/// Flags:
+///  -a                    Allow duplicate tag names (see all occurrences)
+///  -G1                   Group tags by location (e.g. IFD0:Make, XMP-dc:Subject).
+///                        G1 is the specific block; format family (G0) is
+///                        implicit in the prefix.
+///  -s                    Short tag names
+///  -struct               Preserve nested XMP structs as JSON objects (face
+///                        regions, QuickTime Keys group, etc.) — these now
+///                        round-trip into `Variant::Object` instead of being
+///                        silently dropped.  Safe because the Variant enum
+///                        supports `Object` as of Phase 1.
+///  -charset filename=utf8 Force UTF-8 path handling so non-ASCII filenames
+///                        work on Windows.
+///  -charset utf8         Force UTF-8 for tag values.
+///  --system:all          Exclude OS-level system tags
+///  --composite:all       Exclude composite (computed) tags
+///  -j                    JSON output
 ///
-/// Returns Ok(results) on success, or Err(error_message) if ExifTool fails to execute.
+/// Phase 6 of METADATA_FORMATS_PLAN.md calls for a two-pass read (with and
+/// without `-n`) so display values stay human-readable while edits bind to
+/// raw machine values.  The two-pass restructure is deferred — see
+/// QUESTIONS.md — to avoid rippling the ImageMetadata shape change through
+/// the entire frontend in the same commit.
+///
+/// Returns Ok(results) on success, or Err(error_message) if ExifTool fails.
 pub fn read_image_metadata_batch(
     rel_paths: &[String],
     abs_paths: &[std::path::PathBuf],
@@ -189,6 +205,9 @@ pub fn read_image_metadata_batch(
     cmd.arg("-a")
         .arg("-G1")
         .arg("-s")
+        .arg("-struct")
+        .arg("-charset").arg("filename=utf8")
+        .arg("-charset").arg("utf8")
         .arg("--system:all")
         .arg("--composite:all")
         .arg("-j");
