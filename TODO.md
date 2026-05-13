@@ -7,7 +7,6 @@ are covered by integration tests that simulate UI interaction and confirm that t
 Now
 ===
 
-* The visibilty state of the details pane (in the gallery view) should be remembered, so if you close then re-open the gallery the details pane would automatically be shown if it was like that before
 
 Later- *** DO NOT WORK ON ANY OF THE BELOW FEATURES ***
 =====
@@ -23,4 +22,3 @@ Later- *** DO NOT WORK ON ANY OF THE BELOW FEATURES ***
 
 * Figure out how exiftool should be bundled/installed/etc. - Currently in "C:\Users\xman2\AppData\Local\Programs\ExifTool\ExifTool.exe"
 
-* Use RUST_LOG standard logging for verbosity stuff, not our own thing
