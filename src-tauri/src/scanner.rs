@@ -228,28 +228,50 @@ fn parse_exiftool_batch_json(
     rel_paths: &[String],
     abs_paths: &[std::path::PathBuf],
 ) -> Vec<ImageMetadata> {
-    let list: Vec<HashMap<String, Variant>> = match serde_json::from_str(json) {
+    // Parse as a generic JSON array first so one bad entry doesn't kill the
+    // whole batch.  Each entry is then converted independently — a failure on
+    // one file logs and skips, leaving the rest intact.
+    let raw_entries: Vec<serde_json::Value> = match serde_json::from_str(json) {
         Ok(v) => v,
         Err(e) => {
-            // Without this log, an unparseable ExifTool response silently
-            // produced empty metadata for every file in the batch with no
-            // indication why.  Include a short prefix of the offending JSON
-            // so the cause is diagnosable from the log.
             let preview: String = json.chars().take(200).collect();
             log::error!(
-                "[parse_exiftool] Failed to parse ExifTool JSON ({} files affected): {}. First 200 chars: {:?}",
+                "[parse_exiftool] Failed to parse outer ExifTool JSON ({} files affected): {}. First 200 chars: {:?}",
                 rel_paths.len(), e, preview
             );
             Vec::new()
         }
     };
-    
-    // Map ExifTool output by SourceFile
-    let mut map_by_source = HashMap::new();
-    for mut map in list {
-        if let Some(Variant::String(source)) = map.remove("SourceFile") {
-            let normalized_source = source.replace('\\', "/");
-            map_by_source.insert(normalized_source, map);
+
+    let mut map_by_source: HashMap<String, HashMap<String, Variant>> = HashMap::new();
+    for (idx, raw) in raw_entries.into_iter().enumerate() {
+        // Pull SourceFile out of the raw JSON before attempting full conversion
+        // so we can name the file in any failure log.
+        let source = raw.get("SourceFile").and_then(|v| v.as_str()).map(|s| s.to_string());
+
+        let mut map: HashMap<String, Variant> = match serde_json::from_value(raw) {
+            Ok(m) => m,
+            Err(e) => {
+                log::warn!(
+                    "[parse_exiftool] Skipping entry {} ({}): failed to parse as HashMap<String, Variant>: {}",
+                    idx,
+                    source.as_deref().unwrap_or("<no SourceFile>"),
+                    e
+                );
+                continue;
+            }
+        };
+
+        // Re-extract from the typed map to keep behaviour consistent with the
+        // previous code path (which removed SourceFile after parsing).
+        if let Some(Variant::String(s)) = map.remove("SourceFile") {
+            map_by_source.insert(s.replace('\\', "/"), map);
+        } else if let Some(s) = source {
+            // SourceFile was present in the raw JSON but didn't survive typed
+            // conversion — still register the entry by the raw path.
+            map_by_source.insert(s.replace('\\', "/"), map);
+        } else {
+            log::warn!("[parse_exiftool] Entry {} has no SourceFile; cannot map to a request path", idx);
         }
     }
     
@@ -540,6 +562,42 @@ mod tests {
         let json = r#"[{"SourceFile": "D:/test.jpg", "Number": 13.5, "String": "Yes", "List": ["A"]}]"#;
         let parsed: Result<Vec<std::collections::HashMap<String, Variant>>, _> = serde_json::from_str(json);
         assert!(parsed.is_ok(), "Failed to parse json: {:?}", parsed.err());
+    }
+
+    #[test]
+    fn parse_exiftool_skips_bad_entries_keeps_others() {
+        // The middle entry has a nested object that the current Variant enum
+        // cannot represent.  Per-entry isolation means the other two entries
+        // must still come through.
+        let json = r#"[
+            {"SourceFile": "D:/a.jpg", "Tag": "ok"},
+            {"SourceFile": "D:/b.jpg", "Bad": {"nested": "object"}},
+            {"SourceFile": "D:/c.jpg", "Tag": "ok"}
+        ]"#;
+        let rel = vec!["a.jpg".to_string(), "b.jpg".to_string(), "c.jpg".to_string()];
+        let abs = vec![
+            std::path::PathBuf::from("D:/a.jpg"),
+            std::path::PathBuf::from("D:/b.jpg"),
+            std::path::PathBuf::from("D:/c.jpg"),
+        ];
+        let results = parse_exiftool_batch_json(json, &rel, &abs);
+        assert_eq!(results.len(), 3, "every requested path returns an entry");
+        let a = results.iter().find(|r| r.relative_path == "a.jpg").unwrap();
+        let c = results.iter().find(|r| r.relative_path == "c.jpg").unwrap();
+        let b = results.iter().find(|r| r.relative_path == "b.jpg").unwrap();
+        assert!(matches!(a.metadata.get("Tag"), Some(Variant::String(s)) if s == "ok"));
+        assert!(matches!(c.metadata.get("Tag"), Some(Variant::String(s)) if s == "ok"));
+        assert!(b.metadata.is_empty(), "bad entry yields empty metadata, not a dropped batch");
+    }
+
+    #[test]
+    fn parse_exiftool_malformed_outer_json_logs_and_returns_empty_metadata() {
+        let json = "not json at all";
+        let rel = vec!["x.jpg".to_string()];
+        let abs = vec![std::path::PathBuf::from("D:/x.jpg")];
+        let results = parse_exiftool_batch_json(json, &rel, &abs);
+        assert_eq!(results.len(), 1);
+        assert!(results[0].metadata.is_empty());
     }
 
     #[test]
