@@ -4,7 +4,6 @@ use std::path::Path;
 use std::process::Command;
 
 use crate::scanner::{self, Variant};
-use crate::log_ts;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct FailedFile {
@@ -83,7 +82,7 @@ pub fn apply_single_file(
 
     cmd.arg(&abs_path);
 
-    log_ts!("[apply_edits] Running exiftool for: {}", rel_path);
+    log::info!("[apply_edits] Running exiftool for: {}", rel_path);
 
     let output = match cmd.output() {
         Ok(o) => o,
@@ -121,11 +120,11 @@ pub fn apply_single_file(
                     }
                     Some(_other) => {
                         // Non-string variant — exiftool may normalise the format; accept it
-                        log_ts!("[apply_edits] Warning: {} has non-string variant after write", key);
+                        log::warn!("[apply_edits] Warning: {} has non-string variant after write", key);
                     }
                     None => {
                         // Tag absent — some formats silently drop unsupported tags
-                        log_ts!("[apply_edits] Warning: {} not found in fresh metadata after write", key);
+                        log::warn!("[apply_edits] Warning: {} not found in fresh metadata after write", key);
                     }
                 }
             }
@@ -166,7 +165,7 @@ pub fn apply_draft_edits(
         let edits = match all_drafts.get(rel_path.as_str()) {
             Some(e) if !e.is_empty() => e,
             _ => {
-                log_ts!("[apply_edits] No drafts for {}, skipping", rel_path);
+                log::debug!("[apply_edits] No drafts for {}, skipping", rel_path);
                 continue;
             }
         };
@@ -181,11 +180,11 @@ pub fn apply_draft_edits(
 
         match outcome.error {
             None => {
-                log_ts!("[apply_edits] Successfully applied edits to {}", rel_path);
+                log::info!("[apply_edits] Successfully applied edits to {}", rel_path);
                 applied.push(rel_path.clone());
             }
             Some(reason) => {
-                log_ts!("[apply_edits] Failed for {}: {}", rel_path, reason);
+                log::error!("[apply_edits] Failed for {}: {}", rel_path, reason);
                 failed.push(FailedFile { relative_path: rel_path.clone(), reason });
             }
         }
