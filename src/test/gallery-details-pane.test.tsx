@@ -6,7 +6,7 @@
  */
 import { render, screen, within, waitFor, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { GalleryView } from "../components/GalleryView";
 import { ImageMetadataStore } from "../types";
 import { makePhotos } from "./factories";
@@ -45,6 +45,10 @@ function renderGallery(overrides: Partial<Parameters<typeof GalleryView>[0]> = {
 }
 
 // ── Integration tests ────────────────────────────────────────────────────────
+
+beforeEach(() => {
+  localStorage.clear();
+});
 
 describe("Gallery details pane toggle", () => {
   it("details pane is hidden by default", () => {
@@ -109,6 +113,39 @@ describe("Gallery details pane toggle", () => {
 
     await userEvent.click(screen.getByTestId("gallery-info-toggle"));
     expect(content.classList.contains("gallery-content--with-details")).toBe(true);
+  });
+
+  it("details pane visibility persists across gallery remounts", async () => {
+    const { unmount } = renderGallery();
+
+    // Open the pane
+    await userEvent.click(screen.getByTestId("gallery-info-toggle"));
+    expect(screen.getByTestId("details-pane")).toBeInTheDocument();
+
+    // Simulate closing and re-opening the gallery
+    unmount();
+    renderGallery();
+
+    // Pane should still be visible on remount (state persisted via localStorage)
+    expect(screen.getByTestId("details-pane")).toBeInTheDocument();
+  });
+
+  it("details pane closed state also persists across remounts", async () => {
+    // Pre-seed localStorage with hidden state
+    localStorage.setItem("media_library_gallery_details_visible", "0");
+
+    const { unmount } = renderGallery();
+    expect(screen.queryByTestId("details-pane")).not.toBeInTheDocument();
+
+    // Open it, then close it
+    await userEvent.click(screen.getByTestId("gallery-info-toggle"));
+    await userEvent.click(screen.getByTestId("gallery-info-toggle"));
+    expect(screen.queryByTestId("details-pane")).not.toBeInTheDocument();
+
+    // Remount — should still be hidden
+    unmount();
+    renderGallery();
+    expect(screen.queryByTestId("details-pane")).not.toBeInTheDocument();
   });
 });
 
