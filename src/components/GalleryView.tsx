@@ -3,6 +3,24 @@ import { useSpinnerSync } from "../hooks/useSpinnerSync";
 import { DetailsPane } from "./DetailsPane";
 import type { PhotoInfo, ImageMetadataStore } from "../types";
 
+const GALLERY_DETAILS_VISIBLE_KEY = "media_library_gallery_details_visible";
+
+function loadDetailsVisible(): boolean {
+  try {
+    return localStorage.getItem(GALLERY_DETAILS_VISIBLE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function saveDetailsVisible(visible: boolean): void {
+  try {
+    localStorage.setItem(GALLERY_DETAILS_VISIBLE_KEY, visible ? "1" : "0");
+  } catch {
+    // localStorage may be unavailable (e.g. in tests) — silently ignore
+  }
+}
+
 interface Props {
   photos: PhotoInfo[];
   currentIndex: number;
@@ -24,7 +42,14 @@ export function GalleryView({ photos, currentIndex, folderPath, onClose, onNavig
   const photo = photos[currentIndex];
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [detailsVisible, setDetailsVisible] = useState(false);
+  const [detailsVisible, setDetailsVisibleState] = useState<boolean>(loadDetailsVisible);
+  const setDetailsVisible = (update: boolean | ((prev: boolean) => boolean)) => {
+    setDetailsVisibleState((prev) => {
+      const next = typeof update === "function" ? update(prev) : update;
+      saveDetailsVisible(next);
+      return next;
+    });
+  };
   const spinStyle = useSpinnerSync();
 
   const areaRef = useRef<HTMLDivElement>(null);
