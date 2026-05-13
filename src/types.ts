@@ -10,7 +10,21 @@ export interface PhotoInfo {
 
 // ── Variant type ──────────────────────────────────────────────────────────────
 
-export type Variant = string | number | Variant[];
+/**
+ * Mirrors the Rust `Variant` enum (see src-tauri/src/scanner.rs).
+ *
+ * The Rust side distinguishes `Integer(i64)` from `Float(f64)`; TypeScript
+ * collapses both into `number`.  Where the distinction matters for write-back,
+ * the tag schema (Phase 2) supplies the type rather than relying on runtime
+ * shape.
+ */
+export type Variant =
+  | null
+  | boolean
+  | number
+  | string
+  | Variant[]
+  | { [k: string]: Variant };
 
 // ── Thumbnail store ───────────────────────────────────────────────────────────
 

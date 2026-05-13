@@ -6,7 +6,7 @@
 ///  - `read_image_metadata`  — reads metadata for a single file using ExifTool.
 ///  - `thumbnail_for`        — generates a thumbnail.
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -43,13 +43,24 @@ pub struct WalkErrorInfo {
 }
 
 /// A value in the image metadata.
-/// Can be a string, a number, or a list of variants.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// Covers every JSON shape that exiftool's `-j` output can produce, plus the
+/// internal shapes we want to round-trip through drafts and write-back.
+///
+/// Order of arms matters for `#[serde(untagged)]`: serde tries each in order
+/// and picks the first that matches.  `Integer` must precede `Float` so `5`
+/// stays an integer rather than becoming `5.0`.  `String` is last among the
+/// scalar arms so numeric-looking JSON strings stay strings.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(untagged)]
 pub enum Variant {
+    Null,
+    Bool(bool),
+    Integer(i64),
+    Float(f64),
     String(String),
-    Number(f64),
     List(Vec<Variant>),
+    Object(BTreeMap<String, Variant>),
 }
 
 /// Image-level metadata for a single photo, delivered asynchronously after discovery.
@@ -565,29 +576,123 @@ mod tests {
     }
 
     #[test]
-    fn parse_exiftool_skips_bad_entries_keeps_others() {
-        // The middle entry has a nested object that the current Variant enum
-        // cannot represent.  Per-entry isolation means the other two entries
-        // must still come through.
+    fn parse_exiftool_preserves_nested_objects() {
+        // Variant::Object now accepts nested objects (e.g. QuickTime Keys group,
+        // mwg-rs face regions).  Previously this entry would have failed to
+        // deserialize and dropped the whole batch.
         let json = r#"[
             {"SourceFile": "D:/a.jpg", "Tag": "ok"},
-            {"SourceFile": "D:/b.jpg", "Bad": {"nested": "object"}},
+            {"SourceFile": "D:/b.mov", "Keys": {"creator": "alice", "year": 2024}},
             {"SourceFile": "D:/c.jpg", "Tag": "ok"}
         ]"#;
-        let rel = vec!["a.jpg".to_string(), "b.jpg".to_string(), "c.jpg".to_string()];
+        let rel = vec!["a.jpg".to_string(), "b.mov".to_string(), "c.jpg".to_string()];
         let abs = vec![
             std::path::PathBuf::from("D:/a.jpg"),
-            std::path::PathBuf::from("D:/b.jpg"),
+            std::path::PathBuf::from("D:/b.mov"),
             std::path::PathBuf::from("D:/c.jpg"),
         ];
         let results = parse_exiftool_batch_json(json, &rel, &abs);
-        assert_eq!(results.len(), 3, "every requested path returns an entry");
+        assert_eq!(results.len(), 3);
+        let b = results.iter().find(|r| r.relative_path == "b.mov").unwrap();
+        match b.metadata.get("Keys") {
+            Some(Variant::Object(m)) => {
+                assert!(matches!(m.get("creator"), Some(Variant::String(s)) if s == "alice"));
+                assert!(matches!(m.get("year"), Some(Variant::Integer(2024))));
+            }
+            other => panic!("expected Variant::Object for Keys, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parse_exiftool_skips_non_object_entries_keeps_others() {
+        // An entry that isn't a JSON object can't deserialize to a HashMap.
+        // Per-entry isolation means the others must still come through.
+        let json = r#"[
+            {"SourceFile": "D:/a.jpg", "Tag": "ok"},
+            [1, 2, 3],
+            {"SourceFile": "D:/c.jpg", "Tag": "ok"}
+        ]"#;
+        let rel = vec!["a.jpg".to_string(), "c.jpg".to_string()];
+        let abs = vec![
+            std::path::PathBuf::from("D:/a.jpg"),
+            std::path::PathBuf::from("D:/c.jpg"),
+        ];
+        let results = parse_exiftool_batch_json(json, &rel, &abs);
+        assert_eq!(results.len(), 2);
         let a = results.iter().find(|r| r.relative_path == "a.jpg").unwrap();
         let c = results.iter().find(|r| r.relative_path == "c.jpg").unwrap();
-        let b = results.iter().find(|r| r.relative_path == "b.jpg").unwrap();
         assert!(matches!(a.metadata.get("Tag"), Some(Variant::String(s)) if s == "ok"));
         assert!(matches!(c.metadata.get("Tag"), Some(Variant::String(s)) if s == "ok"));
-        assert!(b.metadata.is_empty(), "bad entry yields empty metadata, not a dropped batch");
+    }
+
+    #[test]
+    fn variant_integer_takes_precedence_over_float() {
+        let v: Variant = serde_json::from_str("5").unwrap();
+        assert_eq!(v, Variant::Integer(5));
+    }
+
+    #[test]
+    fn variant_float_for_fractional() {
+        let v: Variant = serde_json::from_str("5.6").unwrap();
+        match v {
+            Variant::Float(f) => assert!((f - 5.6).abs() < 1e-9),
+            other => panic!("expected Float, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn variant_bool_roundtrip() {
+        let v: Variant = serde_json::from_str("true").unwrap();
+        assert_eq!(v, Variant::Bool(true));
+        let s = serde_json::to_string(&Variant::Bool(false)).unwrap();
+        assert_eq!(s, "false");
+    }
+
+    #[test]
+    fn variant_null_roundtrip() {
+        let v: Variant = serde_json::from_str("null").unwrap();
+        assert_eq!(v, Variant::Null);
+        let s = serde_json::to_string(&Variant::Null).unwrap();
+        assert_eq!(s, "null");
+    }
+
+    #[test]
+    fn variant_string_roundtrip() {
+        let v: Variant = serde_json::from_str("\"hello\"").unwrap();
+        assert_eq!(v, Variant::String("hello".to_string()));
+    }
+
+    #[test]
+    fn variant_list_roundtrip() {
+        let v: Variant = serde_json::from_str("[1, \"two\", false]").unwrap();
+        assert_eq!(
+            v,
+            Variant::List(vec![
+                Variant::Integer(1),
+                Variant::String("two".to_string()),
+                Variant::Bool(false),
+            ])
+        );
+    }
+
+    #[test]
+    fn variant_nested_object_roundtrip() {
+        let json = r#"{"name": "alice", "age": 30, "tags": ["a", "b"]}"#;
+        let v: Variant = serde_json::from_str(json).unwrap();
+        match v {
+            Variant::Object(m) => {
+                assert!(matches!(m.get("name"), Some(Variant::String(s)) if s == "alice"));
+                assert!(matches!(m.get("age"), Some(Variant::Integer(30))));
+                assert!(matches!(m.get("tags"), Some(Variant::List(_))));
+            }
+            other => panic!("expected Object, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn variant_large_integer_preserved_as_integer() {
+        let v: Variant = serde_json::from_str("4404019").unwrap();
+        assert_eq!(v, Variant::Integer(4404019));
     }
 
     #[test]

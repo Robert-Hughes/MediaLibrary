@@ -23,11 +23,29 @@ function formatTimestamp(ts: number | null): string {
   return new Date(ts * 1000).toLocaleString();
 }
 
-/** Recursively format a Variant value for display. */
+/**
+ * Recursively format a Variant value for display.
+ *
+ * Phase 1: keeps the string-join shape used by existing search/filter code so
+ * those flows keep working.  A subsequent phase replaces this with a typed
+ * renderer (chip lists, struct sub-tables, etc.) — see
+ * METADATA_FORMATS_PLAN.md §1.3.
+ *
+ * Edit-dialog seed values must NOT be derived from this string output, since
+ * that was the source of the keywords-as-CSV corruption bug.  The raw
+ * `Variant` is the source of truth for editing.
+ */
 function formatVariant(value: Variant): string {
+  if (value === null) return "";
   if (Array.isArray(value)) {
     return value.map(formatVariant).join(", ");
   }
+  if (typeof value === "object") {
+    return Object.entries(value)
+      .map(([k, v]) => `${k}: ${formatVariant(v)}`)
+      .join("; ");
+  }
+  if (typeof value === "boolean") return value ? "true" : "false";
   if (typeof value === "number") return String(value);
   return String(value);
 }
