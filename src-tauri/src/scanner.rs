@@ -10,46 +10,14 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 use walkdir::WalkDir;
 
 
-// ── ExifTool path cache ───────────────────────────────────────────────────────
+// ── ExifTool executable name ──────────────────────────────────────────────────
 
-static EXIFTOOL_CMD: OnceLock<String> = OnceLock::new();
-
-/// Locate the exiftool executable once and cache the result for the process
-/// lifetime.  Logs the chosen path at normal verbosity on first call only.
 pub(crate) fn find_exiftool() -> &'static str {
-    EXIFTOOL_CMD.get_or_init(|| {
-        #[cfg(target_os = "windows")]
-        {
-            let candidates = [
-                "exiftool.exe", // PATH first
-                r"C:\Users\xman2\AppData\Local\Programs\ExifTool\ExifTool.exe",
-                r"C:\Program Files\ExifTool\exiftool.exe",
-                r"C:\Program Files\ExifTool\ExifTool.exe",
-            ];
-            for path in &candidates {
-                let found = if path.contains('\\') {
-                    std::path::Path::new(path).exists()
-                } else {
-                    Command::new(path).arg("-ver").output().is_ok()
-                };
-                if found {
-                    log::info!("[exiftool] Using: {}", path);
-                    return path.to_string();
-                }
-            }
-            log::warn!("[exiftool] Warning: not found in expected locations; will try 'exiftool.exe'");
-            "exiftool.exe".to_string()
-        }
-        #[cfg(not(target_os = "windows"))]
-        {
-            log::info!("[exiftool] Using: exiftool");
-            "exiftool".to_string()
-        }
-    })
+    if cfg!(target_os = "windows") { "exiftool.exe" } else { "exiftool" }
 }
 
 /// File extensions recognised as photos.

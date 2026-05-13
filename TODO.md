@@ -20,5 +20,3 @@ Later- *** DO NOT WORK ON ANY OF THE BELOW FEATURES ***
 
 * Compare with functionalty of the Update Metadata prompts approach - add anything missing to here? Check the instruction files and also the scripts and sample reports/json files to see if we're missing anything that we figured out before. Also the TODO of the previous approach!
 
-* Figure out how exiftool should be bundled/installed/etc. - Currently in "C:\Users\xman2\AppData\Local\Programs\ExifTool\ExifTool.exe"
-
