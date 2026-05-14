@@ -66,6 +66,12 @@ mkfx gps_decimal_rational.jpg \
 mkfx flash_bitfield.jpg \
     -EXIF:Flash=25
 
+# Face regions (MWG XMP). exiftool's struct argument syntax: nested
+# {field=value,...} blocks. The fixture has two face regions identifying
+# Alice and Bob.
+mkfx face_regions_mwg.jpg \
+    "-XMP-mwg-rs:RegionInfo={AppliedToDimensions={W=1000,H=1000,Unit=pixel},RegionList=[{Name=Alice,Type=Face,Area={X=0.30,Y=0.40,W=0.10,H=0.15}},{Name=Bob,Type=Face,Area={X=0.60,Y=0.40,W=0.10,H=0.15}}]}"
+
 # Unicode filename: the build script copies the keywords_basic content into a
 # file whose name contains non-ASCII characters.  Tests that exercise
 # `-charset filename=utf8` use this fixture.

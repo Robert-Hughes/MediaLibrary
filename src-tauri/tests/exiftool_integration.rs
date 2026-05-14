@@ -290,6 +290,53 @@ fn roundtrip_set_orientation_via_numeric_pass() {
     }
 }
 
+// ── Face regions (Bag<Struct>) ───────────────────────────────────────────────
+
+#[test]
+fn face_regions_round_trip_through_struct_variant() {
+    // Confirms the Phase 1 Variant::Object support + Phase 6 -struct flag
+    // round-trip a real nested-struct XMP value (XMP-mwg-rs:RegionInfo
+    // containing AppliedToDimensions + a list of two Region structs).
+    let Some(src) = fixture_path("face_regions_mwg.jpg") else { return };
+    let (dir, dst) = copy_to_temp(&src);
+    let m = read_one(dir.path(), &dst);
+
+    let region_info = m.metadata.get("XMP-mwg-rs:RegionInfo");
+    let region_info = match region_info {
+        Some(Variant::Object(map)) => map,
+        other => panic!("expected RegionInfo as Object, got {:?}", other),
+    };
+
+    // AppliedToDimensions sub-struct should be present.
+    let dims = match region_info.get("AppliedToDimensions") {
+        Some(Variant::Object(d)) => d,
+        other => panic!("expected AppliedToDimensions as Object, got {:?}", other),
+    };
+    assert!(dims.contains_key("W"));
+    assert!(dims.contains_key("H"));
+
+    // RegionList should be a List of two struct entries.
+    let list = match region_info.get("RegionList") {
+        Some(Variant::List(items)) => items,
+        other => panic!("expected RegionList as List, got {:?}", other),
+    };
+    assert_eq!(list.len(), 2, "expected 2 regions");
+
+    let names: Vec<String> = list
+        .iter()
+        .filter_map(|item| {
+            if let Variant::Object(region) = item {
+                if let Some(Variant::String(name)) = region.get("Name") {
+                    return Some(name.clone());
+                }
+            }
+            None
+        })
+        .collect();
+    assert!(names.contains(&"Alice".to_string()), "names: {:?}", names);
+    assert!(names.contains(&"Bob".to_string()), "names: {:?}", names);
+}
+
 // ── Unicode filename ─────────────────────────────────────────────────────────
 
 #[test]
