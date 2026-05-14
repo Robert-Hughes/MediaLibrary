@@ -443,6 +443,119 @@ fn typed_apply_writes_bag_as_separate_items_end_to_end() {
     }
 }
 
+// ── Coerced-write detection ──────────────────────────────────────────────────
+
+#[test]
+fn typed_apply_rating_fractional_coerces_or_rejects_cleanly() {
+    // Rating is integer 0-5. Writing 3.5 exercises exiftool's value coercion:
+    // depending on version it may store 3, 4, "3.5", or reject the write.
+    // The verifier should either accept the coerced result (matches_variant
+    // float-epsilon path) or report a clean mismatch — never panic.
+    let Some(src) = fixture_path("rating_3.jpg") else { return };
+    let (dir, dst) = copy_to_temp(&src);
+    let folder = dir.path().to_str().unwrap();
+    let rel = rel_of(dir.path(), &dst);
+
+    let mut edits: std::collections::HashMap<String, DraftEdit> = std::collections::HashMap::new();
+    edits.insert(
+        "XMP-xmp:Rating".to_string(),
+        DraftEdit { value: Some(Variant::Float(3.5)), intent: EditIntent::Set },
+    );
+
+    let outcome = apply_edits::apply_single_file_typed(folder, &rel, &edits);
+    // Coercion either yields a matched float (3.5 → 3.5 in file) or a
+    // clean verification-failure message naming the tag.  We just assert
+    // it didn't hard-fail.
+    assert!(outcome.fresh_metadata.is_some(),
+        "expected fresh_metadata available even on coerced write; error: {:?}",
+        outcome.error);
+    println!("[rating coerce] outcome.error = {:?}", outcome.error);
+
+    // Re-read should still parse without panic.
+    let m = read_one(dir.path(), &dst);
+    let _ = m.metadata.get("XMP-xmp:Rating");
+}
+
+// ── ListAdd / ListRemove intents ─────────────────────────────────────────────
+
+#[test]
+fn typed_apply_list_add_appends_items_to_bag() {
+    // Starting from keywords_basic.jpg with ["beach","sunset"], emit a
+    // typed DraftEdit with intent=ListAdd value=["vacation"] and confirm
+    // the result is the original plus the new item.
+    let Some(src) = fixture_path("keywords_basic.jpg") else { return };
+    let (dir, dst) = copy_to_temp(&src);
+    let folder = dir.path().to_str().unwrap();
+    let rel = rel_of(dir.path(), &dst);
+
+    let mut edits: std::collections::HashMap<String, DraftEdit> = std::collections::HashMap::new();
+    edits.insert(
+        "XMP-dc:Subject".to_string(),
+        DraftEdit {
+            value: Some(Variant::List(vec![Variant::String("vacation".into())])),
+            intent: EditIntent::ListAdd,
+        },
+    );
+
+    let outcome = apply_edits::apply_single_file_typed(folder, &rel, &edits);
+    assert!(outcome.error.is_none(), "apply failed: {:?}", outcome.error);
+
+    let m = read_one(dir.path(), &dst);
+    match m.metadata.get("XMP-dc:Subject") {
+        Some(Variant::List(items)) => {
+            let strs: Vec<String> = items
+                .iter()
+                .filter_map(|v| if let Variant::String(s) = v { Some(s.clone()) } else { None })
+                .collect();
+            assert!(strs.contains(&"beach".to_string()), "beach missing from {:?}", strs);
+            assert!(strs.contains(&"sunset".to_string()), "sunset missing from {:?}", strs);
+            assert!(strs.contains(&"vacation".to_string()), "vacation missing from {:?}", strs);
+            assert_eq!(strs.len(), 3, "expected 3 subjects, got {:?}", strs);
+        }
+        other => panic!("expected Subject as List, got {:?}", other),
+    }
+}
+
+#[test]
+fn typed_apply_list_remove_drops_items_from_bag() {
+    // Start from keywords_basic.jpg with ["beach","sunset"], emit a
+    // typed DraftEdit with intent=ListRemove value=["beach"], confirm
+    // result is ["sunset"].
+    let Some(src) = fixture_path("keywords_basic.jpg") else { return };
+    let (dir, dst) = copy_to_temp(&src);
+    let folder = dir.path().to_str().unwrap();
+    let rel = rel_of(dir.path(), &dst);
+
+    let mut edits: std::collections::HashMap<String, DraftEdit> = std::collections::HashMap::new();
+    edits.insert(
+        "XMP-dc:Subject".to_string(),
+        DraftEdit {
+            value: Some(Variant::List(vec![Variant::String("beach".into())])),
+            intent: EditIntent::ListRemove,
+        },
+    );
+
+    let outcome = apply_edits::apply_single_file_typed(folder, &rel, &edits);
+    assert!(outcome.error.is_none(), "apply failed: {:?}", outcome.error);
+
+    let m = read_one(dir.path(), &dst);
+    match m.metadata.get("XMP-dc:Subject") {
+        Some(Variant::List(items)) => {
+            let strs: Vec<String> = items
+                .iter()
+                .filter_map(|v| if let Variant::String(s) = v { Some(s.clone()) } else { None })
+                .collect();
+            assert!(!strs.contains(&"beach".to_string()), "beach should be removed: {:?}", strs);
+            assert!(strs.contains(&"sunset".to_string()), "sunset should remain: {:?}", strs);
+        }
+        Some(Variant::String(s)) => {
+            // Single-element list may collapse to scalar.
+            assert_eq!(s, "sunset");
+        }
+        other => panic!("expected Subject as List or single String, got {:?}", other),
+    }
+}
+
 // ── Keywords list write-back (the regression-of-record) ──────────────────────
 
 #[test]
