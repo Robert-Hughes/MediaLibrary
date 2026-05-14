@@ -23,12 +23,14 @@ Open and resolved design questions live in `QUESTIONS.md` — read it before wor
 | 4 — GpsEditor (paired-tag) | done | `eb30db4` |
 | 4 — FlashEditor (bitfield) | done | `0d8180d` |
 | 4 — Struct recursive editor | done | `a45cceb` |
+| 4 — Schema-aware NewPropertyDialog | done | `1d1166d` |
+| 5.5 — Apply log + pretty-printer | done | `83cc7ac` + `183aa4f` |
 | 5 — write-back fidelity (build_args + two-pass exec + typed verify) | done | `61fb955` + `139974c` + `7062695` |
 | 6 — scanner flag changes (struct, utf8) | done | `b1c911b` |
 | 6 — two-pass display/raw split | done | `ccbe0dc` |
 | 7 — generated TS types via ts-rs | done | `8bacbf4` |
 | 7 — integration test tier scaffold | done | `1cf678c` |
-| 7 — fixture corpus (10 fixtures, 14 integration tests) | done | `e1043cf` + `7062695` + `2fdad87` + `609136f` |
+| 7 — fixture corpus (10 fixtures, 18 integration tests) | done | `e1043cf` + `7062695` + `2fdad87` + `609136f` + `24b9da9` + `83cc7ac` |
 | 7 — non-JPEG format-coverage fixtures (PNG/TIFF/HEIC/MOV/RAW) + unwritable-tag test | **deferred** | needs real source files for each format |
 
 ---
