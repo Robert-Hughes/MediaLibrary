@@ -14,6 +14,8 @@ import { useTagInfo } from "../../hooks/useTagInfo";
 import type { DraftEdit, TagKind, Variant } from "../../types";
 import { ValueEditDialog } from "../ValueEditDialog";
 import { BagEditor, initialItemsFrom } from "./BagEditor";
+import { EnumEditor, initialCodeFrom } from "./EnumEditor";
+import { LangAltEditor, initialLangsFrom } from "./LangAltEditor";
 import { variantToDisplayString } from "../../draft";
 
 interface Props {
@@ -21,6 +23,8 @@ interface Props {
   /** Current value as a Variant (from raw_metadata or display) or fall back to the legacy string. */
   initialVariant?: Variant;
   initialString: string;
+  /** Full metadata for the file (used by LangAltEditor to gather per-language siblings). */
+  metadataForFile?: Record<string, Variant>;
   onSave: (edit: DraftEdit) => void;
   onCancel: () => void;
 }
@@ -35,6 +39,7 @@ export function TypedValueEditor({
   propertyKey,
   initialVariant,
   initialString,
+  metadataForFile,
   onSave,
   onCancel,
 }: Props) {
@@ -60,6 +65,36 @@ export function TypedValueEditor({
       <BagEditor
         propertyKey={propertyKey}
         initialItems={initialItems}
+        onSave={onSave}
+        onCancel={onCancel}
+      />
+    );
+  }
+
+  if (tag && tag.kind.kind === "Enum") {
+    const { repr, options } = tag.kind.data;
+    const code = initialCodeFrom(initialVariant, undefined, options);
+    return (
+      <EnumEditor
+        propertyKey={propertyKey}
+        repr={repr}
+        options={options}
+        initialCode={code === "" ? initialString : code}
+        onSave={onSave}
+        onCancel={onCancel}
+      />
+    );
+  }
+
+  if (tag && tag.kind.kind === "LangAlt") {
+    const initialLangs = initialLangsFrom(initialVariant, metadataForFile ?? {}, propertyKey);
+    if (Object.keys(initialLangs).length === 0 && initialString) {
+      initialLangs["x-default"] = initialString;
+    }
+    return (
+      <LangAltEditor
+        propertyKey={propertyKey}
+        initialLangs={initialLangs}
         onSave={onSave}
         onCancel={onCancel}
       />

@@ -1244,6 +1244,82 @@ body {
   padding: 4px;
 }
 
+/* ── EnumEditor ────────────────────────────────────────────────────────── */
+
+.enum-editor-select {
+  width: 100%;
+  padding: 6px 8px;
+  font-size: 14px;
+  border: 1px solid var(--border-color, #ccc);
+  border-radius: 4px;
+  background: var(--bg-input, #fff);
+}
+
+/* ── LangAltEditor ─────────────────────────────────────────────────────── */
+
+.langalt-editor-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 8px;
+  align-items: center;
+}
+
+.langalt-editor-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border: 1px solid var(--border-color, #ccc);
+  border-radius: 4px 4px 0 0;
+  background: var(--bg-secondary, #f4f4f4);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.langalt-editor-tab--active {
+  background: var(--bg-input, #fff);
+  border-bottom-color: var(--bg-input, #fff);
+  font-weight: 600;
+}
+
+.langalt-editor-tab-remove {
+  cursor: pointer;
+  color: var(--text-secondary, #666);
+  padding: 0 2px;
+  font-weight: bold;
+}
+
+.langalt-editor-tab-remove:hover {
+  color: var(--text-primary, #000);
+}
+
+.langalt-editor-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+}
+
+.langalt-editor-add-input {
+  width: 140px;
+  padding: 4px 6px;
+  font-size: 13px;
+  border: 1px solid var(--border-color, #ccc);
+  border-radius: 4px;
+}
+
+.langalt-editor-textarea {
+  width: 100%;
+  min-height: 100px;
+  padding: 8px;
+  font-size: 14px;
+  border: 1px solid var(--border-color, #ccc);
+  border-radius: 4px;
+  resize: vertical;
+  font-family: inherit;
+}
+
 .column-section {
   margin-bottom: 24px;
 }
