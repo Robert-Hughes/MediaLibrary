@@ -290,6 +290,66 @@ fn roundtrip_set_orientation_via_numeric_pass() {
     }
 }
 
+// ── Unicode filename ─────────────────────────────────────────────────────────
+
+#[test]
+fn unicode_filename_does_not_crash_scanner() {
+    // `unicode_paths_漢字.jpg` exercises the -charset filename=utf8 flag.
+    // On Windows exiftool subprocess argument encoding has long-standing
+    // quirks: CreateProcess delivers args in the active code page, not
+    // UTF-8, so even with the flag the file may not be findable.  We
+    // confirm the scanner returns gracefully (Ok with possibly-empty
+    // metadata or an Err) rather than panicking.
+    let Some(src) = fixture_path("unicode_paths_漢字.jpg") else { return };
+    let (dir, dst) = copy_to_temp(&src);
+    let rel = rel_of(dir.path(), &dst);
+    let result = scanner::read_image_metadata_batch(&[rel], &[dst]);
+    match result {
+        Ok(results) => {
+            // If exiftool found the file, sanity-check metadata; otherwise
+            // accept the empty case (Windows path-encoding limitation).
+            if let Some(r) = results.into_iter().next() {
+                if !r.metadata.is_empty() {
+                    println!("[unicode test] exiftool read metadata: ok");
+                }
+            }
+        }
+        Err(e) => {
+            // Acceptable failure: exiftool couldn't find the file due to
+            // platform path-encoding limits.  We assert only that the
+            // failure was reported cleanly, not by panic.
+            println!("[unicode test] expected platform-quirk failure: {}", e);
+        }
+    }
+}
+
+// ── Malformed JPEG: per-entry parse isolation ────────────────────────────────
+
+#[test]
+fn malformed_truncated_does_not_kill_batch() {
+    // Per-entry parse isolation (Phase 0) means a truncated/malformed JPEG
+    // mixed into a batch must not drop metadata for the valid files.
+    let Some(good) = fixture_path("keywords_basic.jpg") else { return };
+    let Some(bad) = fixture_path("malformed_truncated.jpg") else { return };
+    let (_dir, good_dst) = copy_to_temp(&good);
+    let (_dir2, bad_dst) = copy_to_temp(&bad);
+
+    let rel_paths = vec!["good.jpg".to_string(), "bad.jpg".to_string()];
+    let abs_paths = vec![good_dst.clone(), bad_dst.clone()];
+
+    let results = scanner::read_image_metadata_batch(&rel_paths, &abs_paths)
+        .expect("batch read should not hard-fail");
+    assert_eq!(results.len(), 2);
+
+    // The good file's metadata should be intact.
+    let good_result = results.iter().find(|r| r.relative_path == "good.jpg").unwrap();
+    assert!(!good_result.metadata.is_empty(), "good file must still have metadata");
+    // The bad file may have zero or partial metadata, but the call must
+    // have returned an entry for it (no per-file failure should propagate
+    // as a missing entry).
+    assert!(results.iter().any(|r| r.relative_path == "bad.jpg"));
+}
+
 // ── Typed apply path: typed DraftEdit with Variant::List ─────────────────────
 
 #[test]
