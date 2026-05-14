@@ -5,6 +5,34 @@ use std::process::Command;
 
 use crate::scanner::{self, Variant};
 
+/// Run one exiftool write invocation against `path` with the provided args.
+/// `numeric=true` prepends `-n` so values are interpreted as raw numerics.
+fn run_exiftool_write(path: &Path, args: &[String], numeric: bool) -> Result<(), String> {
+    let exiftool_cmd = scanner::find_exiftool();
+    let mut cmd = Command::new(exiftool_cmd);
+    cmd.arg("-overwrite_original");
+    if numeric {
+        cmd.arg("-n");
+    }
+    for a in args {
+        cmd.arg(a);
+    }
+    cmd.arg(path);
+
+    let output = cmd.output().map_err(|e| format!(
+        "Failed to execute ExifTool: {}. Please ensure ExifTool is installed.", e
+    ))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!(
+            "ExifTool failed ({}): {}",
+            if numeric { "-n pass" } else { "text pass" },
+            stderr.trim()
+        ));
+    }
+    Ok(())
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
@@ -72,86 +100,150 @@ pub fn apply_single_file(
         return SingleFileOutcome::hard_failure(format!("File not found: {}", abs_path.display()));
     }
 
-    let exiftool_cmd = scanner::find_exiftool();
+    // Look up schema (best-effort).  If exiftool -listx is unavailable the
+    // registry build fails; we proceed with no schema and every tag goes
+    // through the text/no-`-n` path.  That's the same behaviour we had
+    // before Phase 2, so degrade rather than fail.
+    let registry = crate::tag_schema::get_registry().ok();
 
-    let mut cmd = Command::new(exiftool_cmd);
-    cmd.arg("-overwrite_original");
+    // Convert legacy string edits to typed DraftEdits, then build argv per
+    // tag.  Accumulate numeric vs text groups for two-pass exec.
+    let mut combined = crate::write_args::BuiltArgs::default();
+    for (key, raw_value) in edits {
+        let edit = crate::draft_edits::DraftEdit::from_legacy_string(raw_value.clone());
+        let info = registry.and_then(|r| r.lookup(key));
+        let args = crate::write_args::build_args(key, info, &edit);
+        combined.extend(args);
+    }
 
-    for (key, value) in edits {
-        match value {
-            Some(v) => { cmd.arg(format!("-{}={}", key, v)); }
-            None    => { cmd.arg(format!("-{}=", key)); }
+    if combined.is_empty() {
+        return SingleFileOutcome::hard_failure(
+            "build_args produced no arguments (all tags rejected?)".to_string(),
+        );
+    }
+
+    log::info!(
+        "[apply_edits] Running exiftool for {} (numeric args: {}, text args: {})",
+        rel_path, combined.numeric.len(), combined.text.len()
+    );
+
+    // Numeric pass first.  Edits in the text group may reference tags set
+    // here for derived-field interactions (rare, but exiftool docs reserve
+    // the right).
+    if !combined.numeric.is_empty() {
+        if let Err(e) = run_exiftool_write(&abs_path, &combined.numeric, /*numeric=*/true) {
+            return SingleFileOutcome::hard_failure(e);
+        }
+    }
+    if !combined.text.is_empty() {
+        if let Err(e) = run_exiftool_write(&abs_path, &combined.text, /*numeric=*/false) {
+            return SingleFileOutcome::hard_failure(e);
         }
     }
 
-    cmd.arg(&abs_path);
+    // Re-read metadata via the two-pass scanner.  `display` is pretty
+    // (PrintConv'd) values; `raw` is `-n` values.
+    let (fresh_display, fresh_raw) =
+        match scanner::read_image_metadata_batch(&[rel_path.to_string()], &[abs_path]) {
+            Ok(mut results) => match results.pop() {
+                Some(r) => (r.metadata, r.raw_metadata),
+                None => return SingleFileOutcome::hard_failure(
+                    "Post-write read returned no entry".to_string(),
+                ),
+            },
+            Err(e) => return SingleFileOutcome::hard_failure(format!("Post-write read failed: {}", e)),
+        };
 
-    log::info!("[apply_edits] Running exiftool for: {}", rel_path);
-
-    let output = match cmd.output() {
-        Ok(o) => o,
-        Err(e) => return SingleFileOutcome::hard_failure(format!(
-            "Failed to execute ExifTool: {}. Please ensure ExifTool is installed.", e
-        )),
-    };
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return SingleFileOutcome::hard_failure(format!("ExifTool failed: {}", stderr.trim()));
-    }
-
-    // Re-read metadata. A read failure here is a hard failure — we have nothing to show.
-    let fresh_meta = match scanner::read_image_metadata_batch(&[rel_path.to_string()], &[abs_path]) {
-        Ok(results) => results.into_iter().next().map(|r| r.metadata).unwrap_or_default(),
-        Err(e) => return SingleFileOutcome::hard_failure(format!("Post-write read failed: {}", e)),
-    };
-
-    // Verify each edit is reflected in the fresh metadata.
-    // A mismatch is a soft failure: we return the fresh metadata so the UI
-    // can show the actual file state (which may be partially written).
+    // Verify each edit is reflected in either the display or the raw view.
+    // Display is what users see; raw is what we sent with -n.  A match in
+    // either is acceptable — the two views are just different presentations
+    // of the same underlying tag.  A mismatch is a soft failure: we return
+    // the fresh metadata so the UI can show the actual file state.
     for (key, expected_value) in edits {
         match expected_value {
             Some(expected) => {
-                match fresh_meta.get(key) {
-                    Some(Variant::String(actual)) => {
-                        if actual != expected {
-                            let reason = format!(
-                                "Verification failed for {}: expected {:?}, got {:?}",
-                                key, expected, actual
-                            );
-                            return SingleFileOutcome::verification_failure(fresh_meta, reason);
-                        }
-                    }
-                    Some(_other) => {
-                        // Non-string variant — exiftool may normalise the format; accept it
-                        log::warn!("[apply_edits] Warning: {} has non-string variant after write", key);
-                    }
-                    None => {
-                        // Tag absent — some formats silently drop unsupported tags
-                        log::warn!("[apply_edits] Warning: {} not found in fresh metadata after write", key);
-                    }
+                let display_match = matches_string(fresh_display.get(key), expected);
+                let raw_match = matches_string(fresh_raw.get(key), expected);
+                if !display_match && !raw_match {
+                    let actual = describe(fresh_display.get(key), fresh_raw.get(key));
+                    let reason = format!(
+                        "Verification failed for {}: expected {:?}, got {}",
+                        key, expected, actual
+                    );
+                    return SingleFileOutcome::verification_failure(fresh_display, reason);
                 }
             }
             None => {
-                // Tag should be absent or empty after removal
-                if let Some(v) = fresh_meta.get(key) {
+                // Delete: tag must be absent or empty in the display view.
+                if let Some(v) = fresh_display.get(key) {
                     let v_str = match v {
                         Variant::String(s) => s.clone(),
-                        _ => String::new(),
+                        Variant::Null => String::new(),
+                        _ => format!("{:?}", v),
                     };
                     if !v_str.is_empty() {
                         let reason = format!(
                             "Verification failed for {}: expected tag removed, got {:?}",
                             key, v_str
                         );
-                        return SingleFileOutcome::verification_failure(fresh_meta, reason);
+                        return SingleFileOutcome::verification_failure(fresh_display, reason);
                     }
                 }
             }
         }
     }
 
-    SingleFileOutcome::success(fresh_meta)
+    SingleFileOutcome::success(fresh_display)
+}
+
+/// Is `actual` (a Variant from a fresh re-read) string-equal to the legacy
+/// `expected` from the draft store?  String values compare directly; numeric
+/// variants render to their decimal form so `"5"` matches `Variant::Integer(5)`.
+fn matches_string(actual: Option<&Variant>, expected: &str) -> bool {
+    match actual {
+        None => false,
+        Some(Variant::String(s)) => s == expected,
+        Some(Variant::Integer(n)) => n.to_string() == expected,
+        Some(Variant::Float(f)) => {
+            // Float compare with a small epsilon if expected parses as float.
+            // ε of 1e-6 is conservative for the precision exiftool round-trips
+            // through its rational forms (e.g. ExposureTime, GPS).
+            if let Ok(parsed) = expected.parse::<f64>() {
+                (f - parsed).abs() < 1e-6
+            } else {
+                f.to_string() == expected
+            }
+        }
+        Some(Variant::Bool(b)) => {
+            matches!(expected, "1" | "True" | "true") == *b
+                || matches!(expected, "0" | "False" | "false") == !*b
+        }
+        Some(Variant::Null) => expected.is_empty(),
+        Some(Variant::List(items)) => {
+            // Pre-Phase-3b: drafts come in as legacy comma-joined strings.
+            // Accept either join form for compatibility.
+            let joined = items
+                .iter()
+                .map(|v| match v {
+                    Variant::String(s) => s.clone(),
+                    other => format!("{:?}", other),
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            joined == expected
+        }
+        Some(Variant::Object(_)) => false,
+    }
+}
+
+fn describe(display: Option<&Variant>, raw: Option<&Variant>) -> String {
+    match (display, raw) {
+        (None, None) => "<tag absent in both views>".to_string(),
+        (Some(d), None) => format!("display={:?}", d),
+        (None, Some(r)) => format!("raw={:?}", r),
+        (Some(d), Some(r)) if d == r => format!("{:?}", d),
+        (Some(d), Some(r)) => format!("display={:?}, raw={:?}", d, r),
+    }
 }
 
 /// Apply draft edits for the given relative paths, using the provided drafts map.
@@ -208,6 +300,60 @@ mod tests {
     fn is_hard_failure(outcome: &SingleFileOutcome, substr: &str) -> bool {
         outcome.fresh_metadata.is_none()
             && outcome.error.as_deref().map_or(false, |e| e.contains(substr))
+    }
+
+    // ── matches_string ────────────────────────────────────────────────
+
+    #[test]
+    fn matches_string_handles_variant_string() {
+        assert!(matches_string(Some(&Variant::String("hi".into())), "hi"));
+        assert!(!matches_string(Some(&Variant::String("hi".into())), "bye"));
+    }
+
+    #[test]
+    fn matches_string_handles_integer() {
+        assert!(matches_string(Some(&Variant::Integer(5)), "5"));
+        assert!(!matches_string(Some(&Variant::Integer(5)), "6"));
+        // After exiftool round-trip, an editor sending "6" for Orientation
+        // sees fresh raw=Integer(6); legacy draft layer carries strings.
+        assert!(matches_string(Some(&Variant::Integer(6)), "6"));
+    }
+
+    #[test]
+    fn matches_string_handles_float_with_epsilon() {
+        assert!(matches_string(Some(&Variant::Float(0.0040001)), "0.004"));
+        assert!(!matches_string(Some(&Variant::Float(0.5)), "0.6"));
+    }
+
+    #[test]
+    fn matches_string_handles_bool() {
+        assert!(matches_string(Some(&Variant::Bool(true)), "1"));
+        assert!(matches_string(Some(&Variant::Bool(true)), "True"));
+        assert!(matches_string(Some(&Variant::Bool(false)), "0"));
+        assert!(matches_string(Some(&Variant::Bool(false)), "False"));
+    }
+
+    #[test]
+    fn matches_string_handles_null_and_empty() {
+        assert!(matches_string(Some(&Variant::Null), ""));
+        assert!(!matches_string(Some(&Variant::Null), "x"));
+    }
+
+    #[test]
+    fn matches_string_handles_list_comma_join() {
+        // Pre-Phase-3b: drafts are still legacy CSV strings.  A list result
+        // should compare equal to its comma-joined form.
+        let list = Variant::List(vec![
+            Variant::String("a".into()),
+            Variant::String("b".into()),
+        ]);
+        assert!(matches_string(Some(&list), "a, b"));
+        assert!(!matches_string(Some(&list), "a"));
+    }
+
+    #[test]
+    fn matches_string_returns_false_for_absent_tag() {
+        assert!(!matches_string(None, "anything"));
     }
 
     #[test]
