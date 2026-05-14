@@ -206,6 +206,7 @@ function LoadedView({
           imageMetadata={state.imageMetadata}
           draftEdits={legacyDraftEdits[displayPhotos[state.galleryIndex].relative_path]}
           onSetDraft={actions.setDraftValue}
+          onSetDraftTyped={actions.setDraftTyped}
           onDiscardDraft={actions.discardDraftValue}
           onDiscardAllEdits={actions.discardAllDraftEdits}
           onApplyEdits={(path) => actions.applyDraftEdits(path)}

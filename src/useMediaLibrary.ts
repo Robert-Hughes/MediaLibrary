@@ -15,7 +15,7 @@ import type {
   ApplyEditsStartedPayload,
   ApplyEditsProgressPayload,
 } from "./types";
-import type { DraftEditsByFile, LegacyDraftEditsByFile } from "./types";
+import type { DraftEdit, DraftEditsByFile, LegacyDraftEditsByFile } from "./types";
 import {
   draftFromLegacyString,
   mapLegacyToTyped,
@@ -44,6 +44,7 @@ export interface MediaLibraryActions {
   resetColumnWidths: () => void;
   dismissError: (index: number) => void;
   setDraftValue: (fileRelativePath: string, propertyKey: string, newValue: string | null) => void;
+  setDraftTyped: (fileRelativePath: string, propertyKey: string, edit: DraftEdit) => void;
   discardDraftValue: (fileRelativePath: string, propertyKey: string) => void;
   discardAllDraftEdits: (fileRelativePath?: string) => void;
   applyDraftEdits: (fileRelativePath?: string) => Promise<ApplyEditsResult>;
@@ -671,6 +672,29 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
     });
   }, [api]);
 
+  /**
+   * Set a draft to a typed value.  Used by Phase 4 typed editors (BagEditor,
+   * LangAltEditor, …) so list/object values keep their structure all the way
+   * to the on-disk JSONL.  The legacy mapTypedToLegacy step still flattens
+   * the value for the Tauri save call — until the typed Tauri command lands,
+   * lists round-trip through the comma-joined display string at save time.
+   */
+  const setDraftTyped = useCallback((fileRelativePath: string, propertyKey: string, edit: DraftEdit) => {
+    setAppState((prev) => {
+      if (prev.kind !== "loaded") return prev;
+      const fileEdits = prev.draftEdits[fileRelativePath] || {};
+      const newDraftEdits: DraftEditsByFile = {
+        ...prev.draftEdits,
+        [fileRelativePath]: { ...fileEdits, [propertyKey]: edit },
+      };
+      api.invoke("save_draft_edits", {
+        folderPath: prev.folder,
+        data: mapTypedToLegacy(newDraftEdits),
+      }).catch(console.error);
+      return { ...prev, draftEdits: newDraftEdits };
+    });
+  }, [api]);
+
   const discardDraftValue = useCallback((fileRelativePath: string, propertyKey: string) => {
     setAppState((prev) => {
       if (prev.kind !== "loaded") return prev;
@@ -774,6 +798,7 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
       resetColumnWidths,
       dismissError,
       setDraftValue,
+      setDraftTyped,
       discardDraftValue,
       discardAllDraftEdits,
       applyDraftEdits,
@@ -795,6 +820,7 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
       resetColumnWidths,
       dismissError,
       setDraftValue,
+      setDraftTyped,
       discardDraftValue,
       discardAllDraftEdits,
       applyDraftEdits,
