@@ -5,6 +5,7 @@ pub mod draft_edits;
 pub mod apply_edits;
 pub mod tag_schema;
 pub mod write_args;
+pub mod apply_log;
 use serde::Serialize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
