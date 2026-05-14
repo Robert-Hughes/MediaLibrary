@@ -1191,6 +1191,59 @@ body {
   margin-bottom: 16px;
 }
 
+/* ── BagEditor chip list (Phase 4) ─────────────────────────────────────── */
+
+.bag-editor-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px;
+  min-height: 48px;
+  border: 1px solid var(--border-color, #ccc);
+  border-radius: 4px;
+  background: var(--bg-input, #fff);
+  margin-bottom: 8px;
+}
+
+.bag-editor-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px 2px 8px;
+  background: var(--accent-soft, #e3f2fd);
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.bag-editor-chip-text {
+  white-space: nowrap;
+}
+
+.bag-editor-chip-remove {
+  background: transparent;
+  border: 0;
+  padding: 0 6px;
+  cursor: pointer;
+  color: var(--text-secondary, #666);
+  font-size: 16px;
+  line-height: 1;
+}
+
+.bag-editor-chip-remove:hover {
+  color: var(--text-primary, #000);
+}
+
+.bag-editor-input {
+  flex: 1;
+  min-width: 100px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font-size: 14px;
+  padding: 4px;
+}
+
 .column-section {
   margin-bottom: 24px;
 }

@@ -1,8 +1,9 @@
 import { useMemo, useState } from "react";
-import type { PhotoInfo, ImageMetadataState, Variant } from "../types";
+import type { DraftEdit, PhotoInfo, ImageMetadataState, Variant } from "../types";
 import { HighlightedText } from "./HighlightedText";
 import { ContextMenu } from "./ContextMenu";
-import { ValueEditDialog } from "./ValueEditDialog";
+import { TypedValueEditor } from "./editors/TypedValueEditor";
+import { variantToDisplayString } from "../draft";
 import { NewPropertyDialog } from "./NewPropertyDialog";
 import { haystackContainsNormalized, normalizeListSearchQuery } from "../utils/listSearchText";
 import { ask } from "@tauri-apps/plugin-dialog";
@@ -12,6 +13,8 @@ interface Props {
   metadata: ImageMetadataState;
   draftEdits?: Record<string, string | null>;
   onSetDraft?: (key: string, value: string | null) => void;
+  /** Typed setter, used by Phase 4 editors that need to write Variant::List etc. */
+  onSetDraftTyped?: (key: string, edit: DraftEdit) => void;
   onDiscardDraft?: (key: string) => void;
   onDiscardAllEdits?: () => void;
   onApplyEdits?: () => void;
@@ -151,7 +154,7 @@ function DetailsValueCell({
   );
 }
 
-export function DetailsPane({ photo, metadata, draftEdits = {}, onSetDraft, onDiscardDraft, onDiscardAllEdits, onApplyEdits }: Props) {
+export function DetailsPane({ photo, metadata, draftEdits = {}, onSetDraft, onSetDraftTyped, onDiscardDraft, onDiscardAllEdits, onApplyEdits }: Props) {
   const [detailsSearch, setDetailsSearch] = useState("");
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, key: string, originalValue: string, draftValue?: string | null } | null>(null);
   const [editDialog, setEditDialog] = useState<{ key: string, initialValue: string } | null>(null);
@@ -387,11 +390,23 @@ export function DetailsPane({ photo, metadata, draftEdits = {}, onSetDraft, onDi
       )}
 
       {editDialog && (
-        <ValueEditDialog
+        <TypedValueEditor
           propertyKey={editDialog.key}
-          initialValue={editDialog.initialValue}
-          onSave={(newValue) => {
-            onSetDraft?.(editDialog.key, newValue);
+          initialVariant={
+            metadata !== "loading" ? (metadata[editDialog.key] as Variant | undefined) : undefined
+          }
+          initialString={editDialog.initialValue}
+          onSave={(edit) => {
+            if (onSetDraftTyped) {
+              onSetDraftTyped(editDialog.key, edit);
+            } else {
+              // Fallback for callers that haven't wired the typed setter yet:
+              // collapse the typed value to its display string and use the
+              // legacy callback.  Lists round-trip as comma-joined here, which
+              // is the legacy-corruption pre-refactor behaviour but only on
+              // the fallback path.
+              onSetDraft?.(editDialog.key, edit.intent === "Delete" ? null : variantToDisplayString(edit.value));
+            }
             setEditDialog(null);
           }}
           onCancel={() => setEditDialog(null)}
