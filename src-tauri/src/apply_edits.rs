@@ -6,12 +6,16 @@ use std::process::Command;
 use crate::scanner::{self, Variant};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
 pub struct FailedFile {
     pub relative_path: String,
     pub reason: String,
 }
 
 #[derive(Serialize, Debug)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
 pub struct ApplyEditsResult {
     pub applied: Vec<String>,
     pub failed: Vec<FailedFile>,

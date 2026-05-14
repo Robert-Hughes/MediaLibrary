@@ -35,8 +35,8 @@ function formatTimestamp(ts: number | null): string {
  * that was the source of the keywords-as-CSV corruption bug.  The raw
  * `Variant` is the source of truth for editing.
  */
-function formatVariant(value: Variant): string {
-  if (value === null) return "";
+function formatVariant(value: Variant | undefined): string {
+  if (value === null || value === undefined) return "";
   if (Array.isArray(value)) {
     return value.map(formatVariant).join(", ");
   }

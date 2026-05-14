@@ -26,10 +26,14 @@ const PHOTO_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "gif", "bmp", "webp", 
 /// A single photo entry from the directory walk.
 /// Contains only path and OS metadata — Image metadata arrives separately via `read_image_metadata`.
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
 pub struct PhotoInfo {
     pub relative_path: String,
     pub filename: String,
+    #[cfg_attr(test, ts(type = "number | null"))]
     pub date_modified: Option<i64>,
+    #[cfg_attr(test, ts(type = "number | null"))]
     pub date_created: Option<i64>,
 }
 
@@ -53,10 +57,15 @@ pub struct WalkErrorInfo {
 /// scalar arms so numeric-looking JSON strings stay strings.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(untagged)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
 pub enum Variant {
     Null,
     Bool(bool),
-    Integer(i64),
+    // Tauri serialises i64 as a JSON number which JS parses as `number` (not
+    // `bigint`), so override the ts-rs default of `bigint` here.  Risk is the
+    // usual 2^53 precision ceiling, acceptable for EXIF/XMP integers.
+    Integer(#[cfg_attr(test, ts(type = "number"))] i64),
     Float(f64),
     String(String),
     List(Vec<Variant>),
@@ -66,6 +75,8 @@ pub enum Variant {
 /// Image-level metadata for a single photo, delivered asynchronously after discovery.
 /// Contains arbitrary key-value pairs from ExifTool.
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
 pub struct ImageMetadata {
     pub relative_path: String,
     pub metadata: HashMap<String, Variant>,
