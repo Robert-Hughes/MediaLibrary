@@ -77,9 +77,9 @@ JSON does not distinguish; exiftool's `-n` output for `Rating` is `5`, for `FNum
 
 ### Source: `exiftool -listx`
 
-exiftool publishes its own writable-tag database as XML via `exiftool -listx`. Each tag entry includes group, name, writability, base type, count (single / list / lang-alt), and — for enum tags — the full value-to-label mapping.
+exiftool publishes its own writable-tag database as XML via `exiftool -listx`. Each tag entry includes group, name, writability, base type, and — for enum tags — the full value-to-label mapping.
 
-MediaLibrary runs `exiftool -listx -lang en` once at startup and parses the XML into an in-memory `TagRegistry`. No disk cache — registry is cheap (~hundreds of milliseconds) and always matches the installed exiftool version.
+MediaLibrary runs `exiftool -listx -lang en` lazily on first registry access and parses the XML into an in-memory `TagRegistry`. The parsed result is cached to disk at `<dirs::cache_dir>/MediaLibrary/tag_schema_<version>.json`, keyed by the output of `exiftool -ver`. Subsequent app launches read the cache directly; an exiftool version change produces a cache-miss filename and triggers a full rebuild. Cache failures (missing dir, write error, unparseable existing file) degrade silently to the live build path.
 
 ### What the registry tells us
 
@@ -93,7 +93,11 @@ For each tag (keyed by `Group:Name`, e.g. `XMP-dc:Subject`):
 
 ### What the registry does not tell us
 
-`-listx` does not describe exiftool's *code-based* `PrintConv` — the Perl that formats `ExposureTime: 0.004` as `"1/250"`, `GPSLatitude: 51.50726` as `"51 deg 30' 26.16\" N"`, or `Flash: 16` as `"Off, Did not fire"`. These are functions, not tables. We never reimplement them. See Section 5.
+Two gaps in `-listx`:
+
+1. **Code-based PrintConv.** `-listx` does not describe exiftool's Perl-implemented formatters — the code that turns `ExposureTime: 0.004` into `"1/250"`, `GPSLatitude: 51.50726` into `"51 deg 30' 26.16\" N"`, or `Flash: 16` into `"Off, Did not fire"`. These are functions, not tables. We never reimplement them. See Section 5.
+
+2. **XMP bag/seq/alt list-ness.** `-listx` emits `type='string'` for `XMP-dc:Subject` even though Subject is a Bag of strings; same for `Creator` (Seq) and a handful of others. This isn't a bug — `-listx`'s `count` attribute is only set for tags with explicit count limits (e.g. IPTC), and XMP namespaces declare list-ness in the XMP spec rather than in exiftool's table definitions. We close the gap with a small hand-curated override table at the bottom of `tag_schema.rs` covering the well-known XMP list/seq/alt tags (Subject, Creator, HierarchicalSubject, mwg-rs:Regions, …). The override list is one entry per tag and easy to grow as new namespaces matter.
 
 ### Unknown tags
 
@@ -180,6 +184,10 @@ The edit dialog is a router on `TagKind` from the registry. Each kind has a dedi
 | `Unknown` | text input + warning | "schema doesn't describe this tag" |
 | `Binary` | read-only | "not editable in app" |
 
+### Recursive composition
+
+The editor router is generic over `TagKind`. Each kind's editor delegates back to the router for any inner kind. That means arbitrary nesting works without special cases: a `Bag<Struct>` renders as a chip-list of expandable sub-forms, a `Seq<LangAlt>` as an ordered list of language-tab strips, a `Struct` whose field is itself a `Bag<Text>` as a sub-form containing a chip editor. No depth limit. Face-region markup (`XMP-mwg-rs:Regions`, a Bag of structs with per-face name/area sub-fields) works through the same router as a flat string tag.
+
 ### Special-case overrides
 
 A small set of tags exiftool's `-listx` describes too thinly to drive a good editor. These have hardcoded overrides:
@@ -189,6 +197,19 @@ A small set of tags exiftool's `-listx` describes too thinly to drive a good edi
 - **Datetimes** where listx returns `string`: name-matched (`*Date*`, `*Time*`) and value-pattern-matched, then upgraded to datetime editor.
 
 The override list lives in one file (`src/metadata/tag_overrides.ts`). Adding a new override is a single-file change.
+
+#### GPS paired tags
+
+`GPSLatitude` is meaningless without `GPSLatitudeRef` (the N/S hemisphere). Same for Longitude/LongitudeRef and Altitude/AltitudeRef (above-or-below-sea-level).
+
+How we handle the pairing:
+
+- Draft store keeps each tag as a **separate entry**. No paired-edit primitive at the draft layer.
+- The GPS editor displays a one-line warning above the input: "Editing this location will also write `GPSLatitudeRef`, `GPSLongitudeRef`, …".
+- On save the editor writes all paired draft entries together so the numeric value and its reference can never be out of sync.
+- Discarding the location discards every paired draft entry.
+
+The same pattern applies to any future paired-tag editor (the warning text and the on-save write-list are the only per-editor bits).
 
 ### Worked example: Orientation
 
@@ -225,6 +246,8 @@ The override list lives in one file (`src/metadata/tag_overrides.ts`). Adding a 
 ---
 
 ## 6. Writing: argument construction and verification
+
+> **Implementor's note.** The list-set sequence (`-TAG= -TAG=a -TAG=b`) and the `-n` preference for ambiguous numeric tags (e.g. `Rating` accepting both `5` and `5.0`) both need real-fixture exploratory testing during Phase 5 implementation. Findings must be recorded as code comments at the argv-builder call site so the next reader doesn't re-derive them from exiftool docs. Default policy: prefer the numeric `-n` form everywhere it applies — most robust against locale and presentation quirks.
 
 ### Argument rules
 

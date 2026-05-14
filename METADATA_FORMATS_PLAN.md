@@ -4,6 +4,24 @@ Companion document: `METADATA_FORMATS_DESIGN.md` (rationale, examples, user-faci
 
 This plan replaces the current string-collapsing metadata pipeline with a typed, schema-aware one that preserves data fidelity from exiftool through the UI and back to the file. Each phase is independently mergeable and revertible. Ship in order.
 
+Open and resolved design questions live in `QUESTIONS.md` — read it before working on any deferred phase.
+
+## Status
+
+| Phase | State | Commit |
+|---|---|---|
+| 0 — safety net | done | `b3a1920` |
+| 1 — Variant + frontend mirror | done | `62993d9` |
+| 2 — schema registry | done | `dff1139` + `3ba3bed` (disk cache) |
+| 3 backend — typed drafts + JSONL migration | done | `676ee6c` |
+| 3b — frontend draft-layer rewire | **deferred** |  |
+| 4 — type-aware editors | **deferred** |  |
+| 5 — write-back fidelity | **deferred** |  |
+| 6 — scanner flag changes (struct, utf8) | done | `b1c911b` |
+| 6 — two-pass display/raw split | **deferred** |  |
+| 7 — generated TS types via ts-rs | done | `8bacbf4` |
+| 7 — integration test tier + fixtures | **deferred** |  |
+
 ---
 
 ## Phase 0 — Safety net (no behaviour change)
@@ -18,7 +36,10 @@ Goal: stop silent failures before changing semantics.
 
 ### 0.2 Fixture corpus
 
-- New directory: `src-tauri/tests/fixtures/exiftool/`.
+Fixtures live at `test_images/` at the repo root (existing dir, not a new
+`src-tauri/tests/fixtures/` tree). `test_images/README.md` is the source of
+truth for what each file contains.
+
 - Capture real `-j` output from:
   - JPEG with XMP `Subject` + IPTC `Keywords`
   - MOV with `Keys` group (nested object)
@@ -26,8 +47,8 @@ Goal: stop silent failures before changing semantics.
   - JPEG with multi-language `XMP-dc:Description`
   - JPEG with face-region struct (`XMP-mwg-rs:Regions`)
   - JPEG with `Rating`, `Flash`, `Orientation` (enums)
-- Each fixture is the literal exiftool stdout, committed.
-- Tests: feed fixture → assert parse succeeds, assert specific tag values present.
+- Each fixture is committed as the actual image file (4×4 pixels, ~2 KB).
+- Tests open the committed file directly. No exiftool runs at test setup.
 
 **Deliverable:** one commit. No user-visible change. Reliability net for everything below.
 
@@ -126,7 +147,9 @@ pub enum TagKind {
 pub enum EnumRepr { Integer, String }
 ```
 
-- Held in `Arc<RwLock<TagRegistry>>` on the Tauri state. In-memory only — no disk cache.
+- Built lazily on first access via `OnceLock` (single-thread guard).
+- Backed by an on-disk JSON cache at `<dirs::cache_dir>/MediaLibrary/tag_schema_<ver>.json`, keyed by the output of `exiftool -ver`. A single `exiftool -ver` subprocess at registry init determines the cache filename. A version change → cache miss → full rebuild → write back.
+- Cache failures (missing dir, write error, parse error in an existing file) are non-fatal: degrade to the live build path, log the reason.
 - Lookup is `Group:Name` (matches `-G1` output).
 - Fallback for unlisted tags: `TagKind::Unknown`, writable = unknown. Treated as text by editor with a warning.
 
@@ -174,8 +197,9 @@ Outer map shape unchanged: `HashMap<RelativePath, HashMap<TagKey, DraftEdit>>`.
 
 Add top-level `"schema_version": 2` to each line. Migrator at load time:
 
-- v1 (current, `Option<String>`): wrap each value as `Variant::String(s)` with `intent: Set`. `None` → `intent: Delete`.
-- Before rewriting, copy `MediaLibraryDraftEdits.jsonl` to `MediaLibraryDraftEdits.v1.bak.jsonl` once. Log the migration. Surface a one-time toast in UI: "Draft edits migrated to schema v2. Backup saved."
+- v1 (`Option<String>`): wrap each value as `Variant::String(s)` with `intent: Set`. `None` → `intent: Delete`.
+- Before rewriting, copy `MediaLibraryDraftEdits.jsonl` to `MediaLibraryDraftEdits.v1.bak.jsonl` once. Log at info.
+- No user-facing toast: the user has no v1 drafts in the wild (confirmed). The migration code stays in place as defensive insurance and is fully unit-tested, but is dead-code in practice.
 
 ### 3.3 Frontend draft store
 
@@ -207,7 +231,15 @@ Never display the diff as a string compare of joined representations.
 
 ## Phase 4 — Type-aware editors
 
-`ValueEditDialog` becomes a router on `TagKind`. Each kind has a dedicated control:
+`ValueEditDialog` becomes a router on `TagKind`. Each kind has a dedicated control.
+
+The router is **recursive and fully generic**: it handles arbitrary nesting
+(list of struct, struct containing a list of lang-alt, etc.). The editor
+component for each kind delegates to the router for its inner kinds rather
+than hard-coding leaf-only assumptions. A `Bag<Struct>` (e.g. face regions)
+is rendered as a chip-list whose each entry expands into a sub-form keyed by
+the struct's field map; a `Seq<LangAlt>` is rendered as an ordered list of
+language-tab strips. No depth limit.
 
 ### 4.1 Editors by kind
 
@@ -239,6 +271,23 @@ App owns conversion logic for tags exiftool's `-listx` does not describe semanti
 
 This list lives in `src/metadata/tag_overrides.ts`. Adding a new override is a single-file change.
 
+#### GPS paired-tag handling
+
+Each GPS coordinate is actually two tags: the numeric value
+(`GPSLatitude`) and the hemisphere reference (`GPSLatitudeRef`, `N`/`S`).
+Same for `GPSLongitude`/`GPSLongitudeRef` and `GPSAltitude`/`GPSAltitudeRef`
+(above/below sea level).
+
+Policy:
+- Drafts store each tag as a **separate entry** in the `DraftEdit` map.
+  No paired-edit primitive at the draft layer.
+- The specialised GPS editor displays a one-line warning above the input:
+  "Editing this location will also write `GPSLatitudeRef`,
+  `GPSLongitudeRef`, …".
+- On save, the editor writes all paired draft entries together so the
+  numeric value and its reference can never be out of sync.
+- Discarding the location discards every paired draft entry.
+
 ### 4.3 New-property dialog
 
 `src/components/NewPropertyDialog.tsx:32`:
@@ -252,6 +301,20 @@ This list lives in `src/metadata/tag_overrides.ts`. Adding a new override is a s
 ---
 
 ## Phase 5 — Write-back fidelity
+
+**Required exploratory work before / during implementation** (tracked as
+QUESTIONS.md Q11 and Q12):
+
+- Confirm exiftool's behaviour for ambiguous numeric tags (e.g. `Rating`
+  accepts both `5` and `5.0`; `Orientation` accepts both code and label).
+  Default policy: prefer the numeric `-n` form everywhere it applies — it's
+  the most robust against locale and presentation quirks.
+- Confirm list `Set` via the documented `-TAG= -TAG=a -TAG=b` sequence
+  actually yields `[a, b]` and not a stray empty element.
+
+Both findings must be recorded as **code comments at the argv-builder call
+site** so the next reader sees why we call exiftool this way and doesn't
+have to re-derive it from docs.
 
 ### 5.1 Argument builder
 
@@ -356,9 +419,22 @@ pub struct ImageMetadata {
 - Editor binds to `raw[tag]`.
 - Verification compares `raw` before/after.
 
-### 6.3 Cost
+### 6.3 Cost and scheduling
 
-Two exiftool invocations per scan batch (not per file). Batched scan already amortizes startup cost over many files; adding a second pass roughly doubles scan time. Acceptable. If complaints arise, switch to lazy pass-A-on-selection.
+Two exiftool invocations per scan batch (not per file). Batched scan already
+amortizes startup cost over many files; adding a second pass roughly doubles
+scan time. Acceptable.
+
+Both passes run **up-front in one read cycle**, sequential on the same
+worker. No half-loaded state where pass A has landed but pass B hasn't; UI
+sees `ImageMetadata` only when both passes are complete. Pass A (pretty,
+display) runs first since it's the more likely to be rendered if downstream
+work fails part-way.
+
+We don't gain wall time by running the two passes in parallel: exiftool
+startup dominates and the OS file cache is hot for the second read, so
+serialised cost is roughly `1 + 0.5` × baseline rather than `2 ×`. CPU
+isn't the bottleneck.
 
 **Deliverable:** one commit. Visible change: display values now match exiftool exactly (pretty form preserved for free).
 
@@ -366,32 +442,40 @@ Two exiftool invocations per scan batch (not per file). Batched scan already amo
 
 ## Phase 7 — Tests and documentation
 
+**There is no CI for this project.** All builds and tests run manually and
+locally. The implications are baked into every section below: regenerated
+artefacts (ts-rs bindings, integration-tier `.json` outputs) are committed
+by hand, drift detection is the human's responsibility, and there is no
+matrix runner across exiftool versions. AGENTS.md documents the manual
+workflow contributors are expected to follow.
+
 Test strategy: **hybrid tiers**.
 
-- **Unit tier** (`cargo test`, `vitest`) — fast, offline, runs every commit. Operates on fixture JSON/XML strings and pre-baked image fixtures. No exiftool exec.
+- **Unit tier** (`cargo test`, `vitest`) — fast, offline, runs every change. Operates on fixture JSON/XML strings and pre-baked image fixtures. No exiftool exec.
 - **Integration tier** (`cargo test --features integration`, `vitest --project integration`) — disabled by default. Runs real exiftool against image fixtures. Round-trip write-and-re-read tests. Required for sign-off.
 
-`AGENTS.md` (created in 7.0 below) tells contributors that running `cargo test` alone is not sufficient — the integration tier must be run to claim full pass.
+AGENTS.md tells contributors that running `cargo test` alone is not sufficient — the integration tier must also be run to claim full pass.
 
 ### 7.0 AGENTS.md and fixture corpus
 
-Create `AGENTS.md` at repo root documenting:
+`AGENTS.md` documents:
 
 - The hybrid test tiers and how to run each.
 - The image fixture corpus location and provenance.
-- The mutation testing job.
-- Required pre-commit / pre-merge tier coverage.
+- The generated-types (ts-rs) regeneration workflow.
 
-Image fixtures live at `src-tauri/tests/fixtures/images/`. Each fixture is a real JPEG / TIFF / HEIC / MOV / RAW source from `D:\OneDrive\Pictures` that has been:
+Image fixtures live at `test_images/` at the repo root (existing dir; do
+not create a new `src-tauri/tests/fixtures/` tree). Each fixture is a real
+JPEG / TIFF / HEIC / MOV / RAW source that has been:
 
 1. Resized to 4×4 pixels (or smallest legal for the format) with exiftool `-all=` stripped, then specific tags re-applied to a known state.
 2. Renamed by what it tests: `keywords_basic.jpg`, `langalt_description.jpg`, `gps_decimal_rational.jpg`, `face_regions_mwg.jpg`, `orientation_rotate90.jpg`, `flash_bitfield.jpg`, `nested_keys_quicktime.mov`, `unicode_paths_漢字.jpg`, `malformed_truncated.jpg`, etc.
 3. Committed to git directly (no LFS). Each fixture is expected to be <2 KB after stripping.
-4. Documented in `src-tauri/tests/fixtures/images/README.md` — one line per fixture: file, source camera/format, what it tests, exact tag values it should contain.
+4. Documented in `test_images/README.md` — one line per fixture: file, source camera/format, what it tests, exact tag values it should contain.
 
 Fixtures are static. **No exiftool runs during test setup.** Tests open the committed file and assert. To add a new fixture, the contributor runs exiftool by hand once to produce it, commits the file plus an entry in the README. The README acts as the canonical "what does this file contain" reference.
 
-A small helper script `tools/build-fixture.sh` (committed but not run in CI) documents how each fixture was produced — so the corpus is reproducible by hand if someone wants to regenerate.
+A small helper script `tools/build-fixture.sh` (committed but not run automatically) documents how each fixture was produced — so the corpus is reproducible by hand if someone wants to regenerate.
 
 ### 7.1 Test matrix: design section → tests
 
@@ -421,7 +505,7 @@ The table maps every promise in `METADATA_FORMATS_DESIGN.md` to a named test. If
 | Lookup by `Group:Name` works | `registry_lookup_by_group_name` | unit | same |
 | Unlisted tag → `TagKind::Unknown` | `registry_unknown_tag_falls_back` | unit | same |
 | Real `exiftool -listx` startup actually populates non-empty registry | `live_listx_registry_nonempty` | integration | `src-tauri/tests/integration/registry.rs` |
-| Registry rebuild on different exiftool versions doesn't panic | `live_listx_compat_versions` | integration (matrix CI) | same |
+| Registry rebuild on different exiftool versions doesn't panic | `live_listx_compat_versions` | integration (manually re-run across installed exiftool versions; no CI matrix) | same |
 
 Fixture: `src-tauri/tests/fixtures/listx/sample_listx.xml` — a hand-curated trimmed subset of real `-listx` output covering each `TagKind`. Plus `sample_listx_v12.xml` and `sample_listx_v13.xml` if behaviour differs.
 
@@ -524,7 +608,7 @@ Fixtures needed:
 | Mixed-version JSONL handled (one line v1, one v2) | `migrate_mixed_versions` | unit | same |
 | Corrupt JSONL line skipped, others preserved | `loader_skips_bad_lines` | unit | same |
 | Property: any `DraftEdit` JSONL round-trips | `prop_draftedit_jsonl_roundtrip` | unit (proptest) | same |
-| Frontend draft store type matches backend | type-check via `tsc --noEmit` in CI | unit | tsconfig |
+| Frontend draft store type matches backend | type-check via `npx tsc --noEmit` (run locally — no CI) | unit | tsconfig |
 
 #### Design §8 — Non-goals (negative tests)
 
@@ -555,27 +639,29 @@ Automated tests can't cover everything Tauri does (window IPC, OS file dialog, d
 Two-pass scanner could regress. Cheap check:
 
 - `bench_scan_100_jpgs` — benchmark target, asserts wall time < 2× baseline.
-- Run on every PR via `cargo bench --bench scan` (Criterion).
+- Run manually via `cargo bench --bench scan` (Criterion). No CI; perf regressions are caught when someone runs it.
 
-### 7.4 Frontend type contract
+### 7.4 Frontend type contract (ts-rs)
 
-TypeScript types mirror Rust types. Drift is a recurring failure mode. Mitigation:
+**Implemented.** See AGENTS.md → "Generated types" for the live workflow.
 
-- `src-tauri/build.rs` emits a `types.generated.ts` from Rust types via `ts-rs` for `Variant`, `TagInfo`, `TagKind`, `DraftEdit`, `EditIntent`, `ImageMetadata`.
-- `src/types.ts` imports from `types.generated.ts`; hand-written types are forbidden for the cross-boundary shapes.
-- CI fails if `types.generated.ts` is out of date (build it in CI, diff against committed copy).
+- Cross-boundary types derive `ts_rs::TS` via `#[cfg_attr(test, derive(ts_rs::TS))]` so production builds pay nothing.
+- `cargo test --manifest-path src-tauri/Cargo.toml` regenerates `src/types/generated/*.ts` as a side effect.
+- `src/types.ts` re-exports from `src/types/generated/` plus hand-written frontend-only types (stores, AppState, event payloads).
+- `i64` fields override the ts-rs default `bigint` → `number` via `#[cfg_attr(test, ts(type = "number"))]` (or `"number | null"` for `Option<i64>`).
+- No CI: the workflow relies on contributors running `cargo test` after touching annotated types and committing the regenerated `.ts` files in the same commit.
 
 ### 7.5 Tooling
 
 - `tools/inspect-apply-log.ts` — pretty-prints `MediaLibraryApplyLog.jsonl`.
-- `tools/build-fixture.sh` — documented commands to regenerate each test fixture (committed but not run in CI).
-- `tools/check-fixtures.sh` — verifies each committed fixture still contains the tags `tests/fixtures/images/README.md` says it does. Run in CI.
+- `tools/build-fixture.sh` — documented commands to regenerate each test fixture. Committed for reproducibility; not run automatically.
+- `tools/check-fixtures.sh` — verifies each committed fixture still contains the tags `test_images/README.md` says it does. Run manually before commits that touch fixtures.
 
 ### 7.6 Documentation
 
 - `METADATA_FORMATS_DESIGN.md` linked from README.
-- `AGENTS.md` describes test tiers and fixture provenance.
-- `src-tauri/tests/fixtures/images/README.md` is the fixture index.
+- `AGENTS.md` describes test tiers, fixture provenance, and the ts-rs regeneration workflow.
+- `test_images/README.md` is the fixture index.
 
 **Deliverable:** commit per sub-section. Order: 7.0 (fixtures + AGENTS.md) before any test work; 7.1 subsections per design section in design order.
 
