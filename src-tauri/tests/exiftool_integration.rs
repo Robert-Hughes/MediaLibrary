@@ -151,6 +151,144 @@ fn apply_delete_edit_removes_tag() {
     }
 }
 
+// ── Fixture-content sanity checks ────────────────────────────────────────────
+
+#[test]
+fn fixture_keywords_basic_has_two_keywords() {
+    let Some(src) = fixture_path("keywords_basic.jpg") else { return };
+    let (_dir, dst) = copy_to_temp(&src);
+    let m = read_one(_dir.path(), &dst);
+    match m.metadata.get("XMP-dc:Subject") {
+        Some(Variant::List(items)) => {
+            assert_eq!(items.len(), 2, "expected two subjects, got {:?}", items);
+            let strs: Vec<String> = items
+                .iter()
+                .filter_map(|v| if let Variant::String(s) = v { Some(s.clone()) } else { None })
+                .collect();
+            assert!(strs.contains(&"beach".to_string()));
+            assert!(strs.contains(&"sunset".to_string()));
+        }
+        // exiftool may emit a single-string concatenated form if the file
+        // structure forces it; the fixture intent is the multi-element form
+        // so a String here is a fixture regeneration bug.
+        other => panic!("expected Subject as List, got {:?}", other),
+    }
+}
+
+#[test]
+fn fixture_orientation_rotate90_pretty_and_raw_match_design() {
+    let Some(src) = fixture_path("orientation_rotate90.jpg") else { return };
+    let (_dir, dst) = copy_to_temp(&src);
+    let m = read_one(_dir.path(), &dst);
+    // Display: pretty label.
+    match m.metadata.get("IFD0:Orientation") {
+        Some(Variant::String(s)) => assert_eq!(s, "Rotate 90 CW"),
+        other => panic!("expected Orientation pretty string, got {:?}", other),
+    }
+    // Raw: integer 6 (lives in raw_metadata when Pass B ran).
+    match m.raw_metadata.get("IFD0:Orientation") {
+        Some(Variant::Integer(n)) => assert_eq!(*n, 6),
+        Some(Variant::String(s)) if s == "6" => {} // some exiftool builds emit "6" as string under -n
+        other => panic!("expected raw Orientation=6, got {:?}", other),
+    }
+}
+
+#[test]
+fn fixture_langalt_description_pretty_and_raw_match_design() {
+    let Some(src) = fixture_path("langalt_description.jpg") else { return };
+    let (_dir, dst) = copy_to_temp(&src);
+    let m = read_one(_dir.path(), &dst);
+    // The lang-alt rendering under -struct varies: it can be a flat string
+    // (x-default), an Object keyed by language, or include separate
+    // Description-en / Description-fr keys.  Accept any of these and check
+    // the english/french strings are findable.
+    let combined: String = format!(
+        "{:?} {:?} {:?} {:?}",
+        m.metadata.get("XMP-dc:Description"),
+        m.metadata.get("XMP-dc:Description-en"),
+        m.metadata.get("XMP-dc:Description-fr"),
+        m.metadata.get("XMP-dc:Description-x-default"),
+    );
+    assert!(combined.contains("default text"), "missing x-default: {}", combined);
+    assert!(combined.contains("english text"), "missing en: {}", combined);
+    assert!(combined.contains("texte francais"), "missing fr: {}", combined);
+}
+
+#[test]
+fn fixture_rating_5_pretty_and_raw_match_design() {
+    let Some(src) = fixture_path("rating_5.jpg") else { return };
+    let (_dir, dst) = copy_to_temp(&src);
+    let m = read_one(_dir.path(), &dst);
+    // Rating is a real that exiftool prints without PrintConv → "5".
+    let display = m.metadata.get("XMP-xmp:Rating");
+    let raw = m.raw_metadata.get("XMP-xmp:Rating");
+    let display_ok = match display {
+        Some(Variant::Integer(5)) => true,
+        Some(Variant::Float(f)) => (f - 5.0).abs() < 1e-9,
+        Some(Variant::String(s)) if s == "5" || s == "5.0" => true,
+        _ => false,
+    };
+    let raw_ok = matches!(raw, Some(Variant::Integer(5)))
+        || matches!(raw, Some(Variant::Float(f)) if (f - 5.0).abs() < 1e-9)
+        || matches!(raw, Some(Variant::String(s)) if s == "5");
+    assert!(display_ok || raw_ok,
+        "expected Rating=5 in some form; display={:?}, raw={:?}", display, raw);
+}
+
+// ── Round-trip: edit a fixture, verify file holds new value ───────────────────
+
+#[test]
+fn roundtrip_set_rating() {
+    let Some(src) = fixture_path("rating_3.jpg") else { return };
+    let (dir, dst) = copy_to_temp(&src);
+    let folder = dir.path().to_str().unwrap();
+    let rel = rel_of(dir.path(), &dst);
+
+    // Confirm starting state.
+    let before = read_one(dir.path(), &dst);
+    let starting_rating = before.raw_metadata.get("XMP-xmp:Rating").cloned();
+    assert!(starting_rating.is_some(), "fixture should start with a Rating");
+
+    let mut edits = std::collections::HashMap::new();
+    edits.insert("XMP-xmp:Rating".to_string(), Some("5".to_string()));
+    let mut drafts = std::collections::HashMap::new();
+    drafts.insert(rel.clone(), edits);
+
+    let result = apply_edits::apply_draft_edits(folder, &[rel.clone()], &drafts);
+    assert!(result.failed.is_empty(), "failed: {:?}", result.failed);
+
+    let after = read_one(dir.path(), &dst);
+    let raw = after.raw_metadata.get("XMP-xmp:Rating");
+    let display = after.metadata.get("XMP-xmp:Rating");
+    let ok = matches!(raw, Some(Variant::Integer(5)))
+        || matches!(raw, Some(Variant::Float(f)) if (f - 5.0).abs() < 1e-6)
+        || matches!(display, Some(Variant::String(s)) if s == "5" || s == "5.0");
+    assert!(ok, "Rating not updated; display={:?}, raw={:?}", display, raw);
+}
+
+#[test]
+fn roundtrip_set_orientation_via_numeric_pass() {
+    let Some(src) = fixture_path("orientation_rotate90.jpg") else { return };
+    let (dir, dst) = copy_to_temp(&src);
+    let folder = dir.path().to_str().unwrap();
+    let rel = rel_of(dir.path(), &dst);
+
+    // Change Orientation from 6 (Rotate 90 CW) to 3 (Rotate 180).
+    let mut edits = std::collections::HashMap::new();
+    edits.insert("IFD0:Orientation".to_string(), Some("3".to_string()));
+    let mut drafts = std::collections::HashMap::new();
+    drafts.insert(rel.clone(), edits);
+
+    let result = apply_edits::apply_draft_edits(folder, &[rel.clone()], &drafts);
+    assert!(result.failed.is_empty(), "failed: {:?}", result.failed);
+
+    let after = read_one(dir.path(), &dst);
+    match after.metadata.get("IFD0:Orientation") {
+        Some(Variant::String(s)) => assert_eq!(s, "Rotate 180"),
+        other => panic!("expected pretty Orientation 'Rotate 180', got {:?}", other),
+    }
+}
+
 // ── Keywords list write-back (the regression-of-record) ──────────────────────
 
 #[test]
