@@ -77,10 +77,34 @@ impl SingleFileOutcome {
 }
 
 /// Apply draft edits to a single file using exiftool, then re-read and verify.
+///
+/// Legacy entry: accepts the string-only edit map and wraps each value into
+/// a typed `DraftEdit` via `from_legacy_string`.  Existing callers (the
+/// frontend save → apply_draft_edits_cmd → here pipeline pre-Phase 3b/4)
+/// keep working unchanged; chip editors that produce `Variant::List` use
+/// `apply_single_file_typed` directly so list-shape survives write-back.
 pub fn apply_single_file(
     folder_path: &str,
     rel_path: &str,
     edits: &HashMap<String, Option<String>>,
+) -> SingleFileOutcome {
+    let typed: HashMap<String, crate::draft_edits::DraftEdit> = edits
+        .iter()
+        .map(|(k, v)| (k.clone(), crate::draft_edits::DraftEdit::from_legacy_string(v.clone())))
+        .collect();
+    apply_single_file_typed(folder_path, rel_path, &typed)
+}
+
+/// Apply typed draft edits to a single file using exiftool, then re-read and verify.
+///
+/// This is the canonical entry point.  Variant values flow straight to
+/// `write_args::build_args` so list-shape (Bag<Text>, etc.) and object-shape
+/// (LangAlt) reach exiftool as repeated `-TAG=item` / `-TAG-lang=value` args
+/// rather than getting flattened through the legacy string view.
+pub fn apply_single_file_typed(
+    folder_path: &str,
+    rel_path: &str,
+    edits: &HashMap<String, crate::draft_edits::DraftEdit>,
 ) -> SingleFileOutcome {
     if edits.is_empty() {
         return SingleFileOutcome::hard_failure("No edits to apply".to_string());
@@ -89,7 +113,6 @@ pub fn apply_single_file(
     let abs_path = Path::new(folder_path)
         .join(rel_path.replace('/', std::path::MAIN_SEPARATOR_STR));
 
-    // Validate all keys before touching the filesystem
     for key in edits.keys() {
         if key.contains('\n') || key.contains('\0') {
             return SingleFileOutcome::hard_failure(format!("Invalid tag key: {:?}", key));
@@ -100,19 +123,12 @@ pub fn apply_single_file(
         return SingleFileOutcome::hard_failure(format!("File not found: {}", abs_path.display()));
     }
 
-    // Look up schema (best-effort).  If exiftool -listx is unavailable the
-    // registry build fails; we proceed with no schema and every tag goes
-    // through the text/no-`-n` path.  That's the same behaviour we had
-    // before Phase 2, so degrade rather than fail.
     let registry = crate::tag_schema::get_registry().ok();
 
-    // Convert legacy string edits to typed DraftEdits, then build argv per
-    // tag.  Accumulate numeric vs text groups for two-pass exec.
     let mut combined = crate::write_args::BuiltArgs::default();
-    for (key, raw_value) in edits {
-        let edit = crate::draft_edits::DraftEdit::from_legacy_string(raw_value.clone());
+    for (key, edit) in edits {
         let info = registry.and_then(|r| r.lookup(key));
-        let args = crate::write_args::build_args(key, info, &edit);
+        let args = crate::write_args::build_args(key, info, edit);
         combined.extend(args);
     }
 
@@ -159,22 +175,10 @@ pub fn apply_single_file(
     // either is acceptable — the two views are just different presentations
     // of the same underlying tag.  A mismatch is a soft failure: we return
     // the fresh metadata so the UI can show the actual file state.
-    for (key, expected_value) in edits {
-        match expected_value {
-            Some(expected) => {
-                let display_match = matches_string(fresh_display.get(key), expected);
-                let raw_match = matches_string(fresh_raw.get(key), expected);
-                if !display_match && !raw_match {
-                    let actual = describe(fresh_display.get(key), fresh_raw.get(key));
-                    let reason = format!(
-                        "Verification failed for {}: expected {:?}, got {}",
-                        key, expected, actual
-                    );
-                    return SingleFileOutcome::verification_failure(fresh_display, reason);
-                }
-            }
-            None => {
-                // Delete: tag must be absent or empty in the display view.
+    use crate::draft_edits::EditIntent;
+    for (key, edit) in edits {
+        match edit.intent {
+            EditIntent::Delete => {
                 if let Some(v) = fresh_display.get(key) {
                     let v_str = match v {
                         Variant::String(s) => s.clone(),
@@ -190,15 +194,133 @@ pub fn apply_single_file(
                     }
                 }
             }
+            EditIntent::Set | EditIntent::ListAdd | EditIntent::ListRemove => {
+                let expected = match &edit.value {
+                    Some(v) => v,
+                    None => continue, // Set with None — odd but treat as delete; skip verify
+                };
+                let display_match = matches_variant(fresh_display.get(key), expected);
+                let raw_match = matches_variant(fresh_raw.get(key), expected);
+                // For ListAdd / ListRemove, the post-write list contains
+                // changes-applied-to-existing; equality with `expected` (the
+                // items added/removed) is too strict.  Best-effort: at least
+                // require the changed items to be present (Add) or absent
+                // (Remove) in the fresh list.  Full diff semantics land with
+                // the editor that emits these intents.
+                let intent_ok = match edit.intent {
+                    EditIntent::ListAdd => list_contains_all(fresh_display.get(key), expected),
+                    EditIntent::ListRemove => list_contains_none(fresh_display.get(key), expected),
+                    _ => false,
+                };
+                if !display_match && !raw_match && !intent_ok {
+                    let actual = describe(fresh_display.get(key), fresh_raw.get(key));
+                    let reason = format!(
+                        "Verification failed for {}: expected {:?}, got {}",
+                        key, expected, actual
+                    );
+                    return SingleFileOutcome::verification_failure(fresh_display, reason);
+                }
+            }
         }
     }
 
     SingleFileOutcome::success(fresh_display)
 }
 
+/// Type-aware Variant equality with `Bag`-style multiset comparison for lists.
+fn matches_variant(actual: Option<&Variant>, expected: &Variant) -> bool {
+    let actual = match actual {
+        Some(v) => v,
+        None => return matches!(expected, Variant::Null),
+    };
+    match (actual, expected) {
+        (Variant::Null, Variant::Null) => true,
+        (Variant::Bool(a), Variant::Bool(b)) => a == b,
+        (Variant::Integer(a), Variant::Integer(b)) => a == b,
+        (Variant::Integer(a), Variant::Float(b)) | (Variant::Float(b), Variant::Integer(a)) => {
+            ((*a as f64) - b).abs() < 1e-6
+        }
+        (Variant::Float(a), Variant::Float(b)) => (a - b).abs() < 1e-6,
+        (Variant::String(a), Variant::String(b)) => a == b,
+        (Variant::List(a), Variant::List(b)) => {
+            // Multiset equality: same items, ignore order.  Seq vs Bag is a
+            // Phase 5 refinement; for now exact ordered comparison is
+            // probably what users want for both kinds, so try that first.
+            if a == b {
+                return true;
+            }
+            if a.len() != b.len() {
+                return false;
+            }
+            let mut bb: Vec<&Variant> = b.iter().collect();
+            for item in a {
+                if let Some(pos) = bb.iter().position(|x| matches_variant(Some(*x), item)) {
+                    bb.swap_remove(pos);
+                } else {
+                    return false;
+                }
+            }
+            bb.is_empty()
+        }
+        (Variant::Object(a), Variant::Object(b)) => a == b,
+        // Single scalar accepted against a one-element list (and vice versa).
+        // exiftool naturally promotes a scalar into a Bag when the tag is a
+        // list type — the verifier should treat that promotion as a match.
+        (Variant::List(items), other) if items.len() == 1 => matches_variant(Some(&items[0]), other),
+        (other, Variant::List(items)) if items.len() == 1 => matches_variant(Some(other), &items[0]),
+        // Cross-type fallback: stringify both and compare.  This catches
+        // numeric-as-string round-trips from exiftool.
+        _ => {
+            let a_s = match actual {
+                Variant::String(s) => s.clone(),
+                Variant::Integer(n) => n.to_string(),
+                Variant::Float(f) => f.to_string(),
+                Variant::Bool(b) => if *b { "1".to_string() } else { "0".to_string() },
+                _ => return false,
+            };
+            let b_s = match expected {
+                Variant::String(s) => s.clone(),
+                Variant::Integer(n) => n.to_string(),
+                Variant::Float(f) => f.to_string(),
+                Variant::Bool(b) => if *b { "1".to_string() } else { "0".to_string() },
+                _ => return false,
+            };
+            a_s == b_s
+        }
+    }
+}
+
+fn list_contains_all(actual: Option<&Variant>, expected: &Variant) -> bool {
+    let items_expected: &[Variant] = match expected {
+        Variant::List(items) => items,
+        _ => return false,
+    };
+    let items_actual: &[Variant] = match actual {
+        Some(Variant::List(items)) => items,
+        _ => return false,
+    };
+    items_expected.iter().all(|e| items_actual.iter().any(|a| matches_variant(Some(a), e)))
+}
+
+fn list_contains_none(actual: Option<&Variant>, expected: &Variant) -> bool {
+    let items_expected: &[Variant] = match expected {
+        Variant::List(items) => items,
+        _ => return false,
+    };
+    let items_actual: &[Variant] = match actual {
+        Some(Variant::List(items)) => items,
+        _ => return true, // tag absent → nothing to remove from → ok
+    };
+    items_expected.iter().all(|e| !items_actual.iter().any(|a| matches_variant(Some(a), e)))
+}
+
 /// Is `actual` (a Variant from a fresh re-read) string-equal to the legacy
 /// `expected` from the draft store?  String values compare directly; numeric
 /// variants render to their decimal form so `"5"` matches `Variant::Integer(5)`.
+///
+/// Used by the existing unit tests; the live apply path now uses
+/// `matches_variant` for typed comparison.
+#[cfg_attr(not(test), allow(dead_code))]
 fn matches_string(actual: Option<&Variant>, expected: &str) -> bool {
     match actual {
         None => false,

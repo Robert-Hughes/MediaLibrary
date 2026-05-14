@@ -23,6 +23,7 @@ use std::path::{Path, PathBuf};
 
 use medialibrary_tauri_lib::{
     apply_edits,
+    draft_edits::{DraftEdit, EditIntent},
     scanner::{self, Variant},
 };
 
@@ -286,6 +287,52 @@ fn roundtrip_set_orientation_via_numeric_pass() {
     match after.metadata.get("IFD0:Orientation") {
         Some(Variant::String(s)) => assert_eq!(s, "Rotate 180"),
         other => panic!("expected pretty Orientation 'Rotate 180', got {:?}", other),
+    }
+}
+
+// ── Typed apply path: typed DraftEdit with Variant::List ─────────────────────
+
+#[test]
+fn typed_apply_writes_bag_as_separate_items_end_to_end() {
+    // The end-to-end test for the keywords-CSV bug fix.  We send a typed
+    // DraftEdit with Variant::List(["alpha", "beta", "gamma"]) for
+    // XMP-dc:Subject, run the typed apply path, re-read, and assert the
+    // file has THREE separate subjects, not one comma-joined string.
+    let Some(src) = fixture_path("real_with_exif.jpg") else { return };
+    let (dir, dst) = copy_to_temp(&src);
+    let folder = dir.path().to_str().unwrap();
+    let rel = rel_of(dir.path(), &dst);
+
+    let mut edits: std::collections::HashMap<String, DraftEdit> =
+        std::collections::HashMap::new();
+    edits.insert(
+        "XMP-dc:Subject".to_string(),
+        DraftEdit {
+            value: Some(Variant::List(vec![
+                Variant::String("alpha".into()),
+                Variant::String("beta".into()),
+                Variant::String("gamma".into()),
+            ])),
+            intent: EditIntent::Set,
+        },
+    );
+
+    let outcome = apply_edits::apply_single_file_typed(folder, &rel, &edits);
+    assert!(outcome.error.is_none(), "apply failed: {:?}", outcome.error);
+
+    let m = read_one(dir.path(), &dst);
+    match m.metadata.get("XMP-dc:Subject") {
+        Some(Variant::List(items)) => {
+            assert_eq!(items.len(), 3, "expected 3 subjects, got {:?}", items);
+            let strs: Vec<String> = items
+                .iter()
+                .filter_map(|v| if let Variant::String(s) = v { Some(s.clone()) } else { None })
+                .collect();
+            assert!(strs.contains(&"alpha".to_string()));
+            assert!(strs.contains(&"beta".to_string()));
+            assert!(strs.contains(&"gamma".to_string()));
+        }
+        other => panic!("expected Subject as 3-item List, got {:?}", other),
     }
 }
 

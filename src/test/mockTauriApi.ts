@@ -93,14 +93,19 @@ export function createMockTauriApi(): MockTauriApi {
         mock.lastWindowTitle = (args?.title as string) ?? null;
         return;
       }
-      if (cmd === "load_draft_edits") {
+      if (cmd === "load_draft_edits" || cmd === "load_draft_edits_typed") {
         const folder = args?.folderPath as string;
         return mock.draftEditsByFolder[folder] || {};
       }
-      if (cmd === "save_draft_edits") {
+      if (cmd === "save_draft_edits" || cmd === "save_draft_edits_typed") {
         const folder = args?.folderPath as string;
         mock.draftEditsByFolder[folder] = args?.data as any;
         return;
+      }
+      if (cmd === "get_tag_info") {
+        // Tests don't exercise schema-driven editors; return null so
+        // TypedValueEditor falls through to the legacy text input.
+        return null;
       }
       if (cmd === "apply_draft_edits_cmd") {
         const result = mock.applyEditsResult;

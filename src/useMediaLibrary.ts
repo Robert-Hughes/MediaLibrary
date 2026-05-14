@@ -15,11 +15,9 @@ import type {
   ApplyEditsStartedPayload,
   ApplyEditsProgressPayload,
 } from "./types";
-import type { DraftEdit, DraftEditsByFile, LegacyDraftEditsByFile } from "./types";
+import type { DraftEdit, DraftEditsByFile } from "./types";
 import {
   draftFromLegacyString,
-  mapLegacyToTyped,
-  mapTypedToLegacy,
 } from "./draft";
 import { loadColumnConfig, saveColumnConfig } from "./utils/columnConfig";
 
@@ -182,8 +180,7 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
     metadataProgressStoreRef.current   = new MetadataProgressStore();
 
     try {
-      const legacy = (await api.invoke("load_draft_edits", { folderPath: folder })) as LegacyDraftEditsByFile;
-      draftEditsRef.current = mapLegacyToTyped(legacy);
+      draftEditsRef.current = (await api.invoke("load_draft_edits_typed", { folderPath: folder })) as DraftEditsByFile;
     } catch (e) {
       console.error("Failed to load draft edits", e);
       draftEditsRef.current = {};
@@ -664,9 +661,9 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
         ...prev.draftEdits,
         [fileRelativePath]: { ...fileEdits, [propertyKey]: draftFromLegacyString(newValue) },
       };
-      api.invoke("save_draft_edits", {
+      api.invoke("save_draft_edits_typed", {
         folderPath: prev.folder,
-        data: mapTypedToLegacy(newDraftEdits),
+        data: newDraftEdits,
       }).catch(console.error);
       return { ...prev, draftEdits: newDraftEdits };
     });
@@ -687,9 +684,9 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
         ...prev.draftEdits,
         [fileRelativePath]: { ...fileEdits, [propertyKey]: edit },
       };
-      api.invoke("save_draft_edits", {
+      api.invoke("save_draft_edits_typed", {
         folderPath: prev.folder,
-        data: mapTypedToLegacy(newDraftEdits),
+        data: newDraftEdits,
       }).catch(console.error);
       return { ...prev, draftEdits: newDraftEdits };
     });
@@ -708,9 +705,9 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
       } else {
         newDraftEdits[fileRelativePath] = newFileEdits;
       }
-      api.invoke("save_draft_edits", {
+      api.invoke("save_draft_edits_typed", {
         folderPath: prev.folder,
-        data: mapTypedToLegacy(newDraftEdits),
+        data: newDraftEdits,
       }).catch(console.error);
       return { ...prev, draftEdits: newDraftEdits };
     });
@@ -730,9 +727,9 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
         newDraftEdits = {};
       }
 
-      api.invoke("save_draft_edits", {
+      api.invoke("save_draft_edits_typed", {
         folderPath: prev.folder,
-        data: mapTypedToLegacy(newDraftEdits),
+        data: newDraftEdits,
       }).catch(console.error);
       return { ...prev, draftEdits: newDraftEdits };
     });
