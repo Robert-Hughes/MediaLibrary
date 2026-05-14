@@ -16,6 +16,9 @@ import { ValueEditDialog } from "../ValueEditDialog";
 import { BagEditor, initialItemsFrom } from "./BagEditor";
 import { EnumEditor, initialCodeFrom } from "./EnumEditor";
 import { LangAltEditor, initialLangsFrom } from "./LangAltEditor";
+import { NumericEditor } from "./NumericEditor";
+import { BooleanEditor } from "./BooleanEditor";
+import { DateTimeEditor } from "./DateTimeEditor";
 import { variantToDisplayString } from "../../draft";
 
 interface Props {
@@ -80,6 +83,51 @@ export function TypedValueEditor({
         repr={repr}
         options={options}
         initialCode={code === "" ? initialString : code}
+        onSave={onSave}
+        onCancel={onCancel}
+      />
+    );
+  }
+
+  if (tag && (tag.kind.kind === "Integer" || tag.kind.kind === "Real" || tag.kind.kind === "Rational")) {
+    const min = tag.kind.kind === "Integer" ? tag.kind.data.min : null;
+    const max = tag.kind.kind === "Integer" ? tag.kind.data.max : null;
+    return (
+      <NumericEditor
+        propertyKey={propertyKey}
+        kind={tag.kind.kind}
+        min={min}
+        max={max}
+        initialValue={initialString}
+        onSave={onSave}
+        onCancel={onCancel}
+      />
+    );
+  }
+
+  if (tag && tag.kind.kind === "Boolean") {
+    const v = typeof initialVariant === "boolean"
+      ? initialVariant
+      : initialString.toLowerCase() === "true" || initialString === "1"
+      ? true
+      : initialString.toLowerCase() === "false" || initialString === "0"
+      ? false
+      : null;
+    return (
+      <BooleanEditor
+        propertyKey={propertyKey}
+        initialValue={v}
+        onSave={onSave}
+        onCancel={onCancel}
+      />
+    );
+  }
+
+  if (tag && tag.kind.kind === "DateTime") {
+    return (
+      <DateTimeEditor
+        propertyKey={propertyKey}
+        initialValue={initialString}
         onSave={onSave}
         onCancel={onCancel}
       />
