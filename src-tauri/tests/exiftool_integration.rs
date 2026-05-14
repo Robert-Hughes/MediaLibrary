@@ -443,6 +443,40 @@ fn typed_apply_writes_bag_as_separate_items_end_to_end() {
     }
 }
 
+// ── Apply log audit file ─────────────────────────────────────────────────────
+
+#[test]
+fn apply_emits_apply_log_jsonl_entry() {
+    // After a typed apply the folder should contain a
+    // `MediaLibraryApplyLog.jsonl` audit file with one header line plus one
+    // line per tag edited.
+    let Some(src) = fixture_path("rating_3.jpg") else { return };
+    let (dir, dst) = copy_to_temp(&src);
+    let folder = dir.path().to_str().unwrap();
+    let rel = rel_of(dir.path(), &dst);
+
+    let mut edits: std::collections::HashMap<String, DraftEdit> = std::collections::HashMap::new();
+    edits.insert(
+        "XMP-xmp:Rating".to_string(),
+        DraftEdit { value: Some(Variant::Integer(5)), intent: EditIntent::Set },
+    );
+
+    let outcome = apply_edits::apply_single_file_typed(folder, &rel, &edits);
+    assert!(outcome.error.is_none(), "{:?}", outcome.error);
+
+    let log_path = dir.path().join("MediaLibraryApplyLog.jsonl");
+    assert!(log_path.exists(), "apply log file should exist after typed apply");
+
+    let contents = std::fs::read_to_string(&log_path).unwrap();
+    let lines: Vec<&str> = contents.lines().collect();
+    assert!(lines.len() >= 2, "expected header + at least one entry: {:?}", lines);
+    assert!(lines[0].starts_with("// "), "first line should be header");
+    assert!(lines[1].contains("XMP-xmp:Rating"));
+    assert!(lines[1].contains("\"Set\""));
+    assert!(lines[1].contains("\"Match\"") || lines[1].contains("\"Mismatch\"")
+        || lines[1].contains("\"Coerced\""));
+}
+
 // ── Coerced-write detection ──────────────────────────────────────────────────
 
 #[test]

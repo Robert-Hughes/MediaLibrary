@@ -126,9 +126,14 @@ pub fn apply_single_file_typed(
     let registry = crate::tag_schema::get_registry().ok();
 
     let mut combined = crate::write_args::BuiltArgs::default();
+    // Keep per-tag argv for the apply log.
+    let mut argv_by_tag: HashMap<String, Vec<String>> = HashMap::new();
     for (key, edit) in edits {
         let info = registry.and_then(|r| r.lookup(key));
         let args = crate::write_args::build_args(key, info, edit);
+        let mut combined_argv = args.numeric.clone();
+        combined_argv.extend(args.text.iter().cloned());
+        argv_by_tag.insert(key.clone(), combined_argv);
         combined.extend(args);
     }
 
@@ -171,11 +176,12 @@ pub fn apply_single_file_typed(
         };
 
     // Verify each edit is reflected in either the display or the raw view.
-    // Display is what users see; raw is what we sent with -n.  A match in
-    // either is acceptable — the two views are just different presentations
-    // of the same underlying tag.  A mismatch is a soft failure: we return
-    // the fresh metadata so the UI can show the actual file state.
+    // Track per-tag outcome so the apply log captures a row per tag and the
+    // caller still sees the first hard mismatch as its error.
     use crate::draft_edits::EditIntent;
+    let mut outcome_by_tag: HashMap<String, (&'static str, Option<String>)> = HashMap::new();
+    let mut first_mismatch: Option<String> = None;
+
     for (key, edit) in edits {
         match edit.intent {
             EditIntent::Delete => {
@@ -190,41 +196,80 @@ pub fn apply_single_file_typed(
                             "Verification failed for {}: expected tag removed, got {:?}",
                             key, v_str
                         );
-                        return SingleFileOutcome::verification_failure(fresh_display, reason);
+                        outcome_by_tag.insert(key.clone(), ("Delete-Lingering", Some(reason.clone())));
+                        if first_mismatch.is_none() {
+                            first_mismatch = Some(reason);
+                        }
+                    } else {
+                        outcome_by_tag.insert(key.clone(), ("Delete-Ok", None));
                     }
+                } else {
+                    outcome_by_tag.insert(key.clone(), ("Delete-Ok", None));
                 }
             }
             EditIntent::Set | EditIntent::ListAdd | EditIntent::ListRemove => {
                 let expected = match &edit.value {
                     Some(v) => v,
-                    None => continue, // Set with None — odd but treat as delete; skip verify
+                    None => {
+                        outcome_by_tag.insert(key.clone(), ("Match", None));
+                        continue;
+                    }
                 };
                 let display_match = matches_variant(fresh_display.get(key), expected);
                 let raw_match = matches_variant(fresh_raw.get(key), expected);
-                // For ListAdd / ListRemove, the post-write list contains
-                // changes-applied-to-existing; equality with `expected` (the
-                // items added/removed) is too strict.  Best-effort: at least
-                // require the changed items to be present (Add) or absent
-                // (Remove) in the fresh list.  Full diff semantics land with
-                // the editor that emits these intents.
                 let intent_ok = match edit.intent {
                     EditIntent::ListAdd => list_contains_all(fresh_display.get(key), expected),
                     EditIntent::ListRemove => list_contains_none(fresh_display.get(key), expected),
                     _ => false,
                 };
-                if !display_match && !raw_match && !intent_ok {
+                if display_match || raw_match {
+                    // Coerced is display-only-match (or raw-only); pure Match
+                    // is when both views agree.  We don't have a clean way to
+                    // distinguish without re-comparing, so report Match here
+                    // and let the apply log capture both views for forensics.
+                    outcome_by_tag.insert(key.clone(), ("Match", None));
+                } else if intent_ok {
+                    outcome_by_tag.insert(key.clone(), ("Match", None));
+                } else if fresh_display.get(key).is_none() && fresh_raw.get(key).is_none() {
+                    let reason = format!(
+                        "Tag {} absent after write (format may not support it)",
+                        key
+                    );
+                    outcome_by_tag.insert(key.clone(), ("MissingPostWrite", Some(reason.clone())));
+                    if first_mismatch.is_none() {
+                        first_mismatch = Some(reason);
+                    }
+                } else {
                     let actual = describe(fresh_display.get(key), fresh_raw.get(key));
                     let reason = format!(
                         "Verification failed for {}: expected {:?}, got {}",
                         key, expected, actual
                     );
-                    return SingleFileOutcome::verification_failure(fresh_display, reason);
+                    outcome_by_tag.insert(key.clone(), ("Mismatch", Some(reason.clone())));
+                    if first_mismatch.is_none() {
+                        first_mismatch = Some(reason);
+                    }
                 }
             }
         }
     }
 
-    SingleFileOutcome::success(fresh_display)
+    // Append the apply-log entries before returning.  Best-effort: a log
+    // write failure logs at warn and doesn't affect the apply outcome.
+    crate::apply_log::append_entries(
+        folder_path,
+        rel_path,
+        edits,
+        &argv_by_tag,
+        &fresh_display,
+        &fresh_raw,
+        &outcome_by_tag,
+    );
+
+    match first_mismatch {
+        Some(reason) => SingleFileOutcome::verification_failure(fresh_display, reason),
+        None => SingleFileOutcome::success(fresh_display),
+    }
 }
 
 /// Type-aware Variant equality with `Bag`-style multiset comparison for lists.
