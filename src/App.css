@@ -1341,6 +1341,20 @@ body {
   cursor: pointer;
 }
 
+/* ── GpsEditor ─────────────────────────────────────────────────────────── */
+
+.gps-editor-row {
+  display: grid;
+  grid-template-columns: 90px 1fr 70px;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.gps-editor-row label {
+  font-size: 14px;
+}
+
 .column-section {
   margin-bottom: 24px;
 }

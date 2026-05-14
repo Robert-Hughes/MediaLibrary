@@ -19,6 +19,7 @@ import { LangAltEditor, initialLangsFrom } from "./LangAltEditor";
 import { NumericEditor } from "./NumericEditor";
 import { BooleanEditor } from "./BooleanEditor";
 import { DateTimeEditor } from "./DateTimeEditor";
+import { GpsEditor, gpsGroupFor, parseDecimalDegrees, parseHemisphere } from "./GpsEditor";
 import { variantToDisplayString } from "../../draft";
 
 interface Props {
@@ -26,9 +27,11 @@ interface Props {
   /** Current value as a Variant (from raw_metadata or display) or fall back to the legacy string. */
   initialVariant?: Variant;
   initialString: string;
-  /** Full metadata for the file (used by LangAltEditor to gather per-language siblings). */
+  /** Full metadata for the file (used by LangAltEditor and GpsEditor to gather sibling keys). */
   metadataForFile?: Record<string, Variant>;
   onSave: (edit: DraftEdit) => void;
+  /** Multi-tag save, used by GpsEditor and any future paired-tag editor. */
+  onSaveBatch?: (edits: Array<{ key: string; edit: DraftEdit }>) => void;
   onCancel: () => void;
 }
 
@@ -44,9 +47,29 @@ export function TypedValueEditor({
   initialString,
   metadataForFile,
   onSave,
+  onSaveBatch,
   onCancel,
 }: Props) {
   const tag = useTagInfo(propertyKey);
+
+  // GPS override (name-matched, not schema-kind-matched): writable only when
+  // we have a multi-tag save callback because the editor writes 4 paired tags.
+  const gpsGroup = onSaveBatch ? gpsGroupFor(propertyKey) : null;
+  if (gpsGroup && metadataForFile) {
+    const latVal = metadataForFile[gpsGroup.latitudeKey];
+    const lonVal = metadataForFile[gpsGroup.longitudeKey];
+    return (
+      <GpsEditor
+        group={gpsGroup}
+        initialLatDecimal={parseDecimalDegrees(latVal)}
+        initialLatRef={parseHemisphere(metadataForFile[gpsGroup.latitudeRefKey] ?? latVal, "lat") as "N" | "S"}
+        initialLonDecimal={parseDecimalDegrees(lonVal)}
+        initialLonRef={parseHemisphere(metadataForFile[gpsGroup.longitudeRefKey] ?? lonVal, "lon") as "E" | "W"}
+        onSave={onSaveBatch!}
+        onCancel={onCancel}
+      />
+    );
+  }
 
   if (tag === "loading") {
     // First-call lookup; schema build can take 100-500ms.  Show the legacy
