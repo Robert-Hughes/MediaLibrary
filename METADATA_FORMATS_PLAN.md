@@ -16,9 +16,13 @@ Open and resolved design questions live in `QUESTIONS.md` — read it before wor
 | 3 backend — typed drafts + JSONL migration | done | `676ee6c` |
 | 3b — frontend draft-layer typed storage | done | `f604351` |
 | 3b — typed end-to-end (Tauri commands + apply path) | done | `7062695` |
-| 4 — typed editor router | done | `8eb69a9` |
+| 4 — typed editor router + onSaveBatch plumbing | done | `8eb69a9` + `eb30db4` |
 | 4 — BagEditor (Bag<Text>) | done | `8eb69a9` |
-| 4 — other editor kinds (LangAlt, Enum, GPS, Flash, …) | **deferred** |  |
+| 4 — EnumEditor + LangAltEditor | done | `d9120c4` |
+| 4 — NumericEditor + BooleanEditor + DateTimeEditor | done | `2431913` |
+| 4 — GpsEditor (paired-tag) | done | `eb30db4` |
+| 4 — FlashEditor (bitfield) | **deferred** |  |
+| 4 — Struct recursive editor | **deferred** |  |
 | 5 — write-back fidelity (build_args + two-pass exec + typed verify) | done | `61fb955` + `139974c` + `7062695` |
 | 6 — scanner flag changes (struct, utf8) | done | `b1c911b` |
 | 6 — two-pass display/raw split | done | `ccbe0dc` |
