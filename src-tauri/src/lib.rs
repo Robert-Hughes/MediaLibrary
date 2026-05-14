@@ -674,6 +674,21 @@ fn save_draft_edits(folder_path: String, data: draft_edits::DraftEditsPayload) -
     draft_edits::save_draft_edits(&folder_path, data)
 }
 
+/// Typed-shape save (Phase 3b/4).  Frontend editors that carry Variant
+/// values (BagEditor, …) call this instead of `save_draft_edits` so list
+/// and object values round-trip into the v2 JSONL without flattening
+/// through the legacy string view.  The legacy command stays available
+/// for existing callers and tests.
+#[tauri::command]
+fn save_draft_edits_typed(folder_path: String, data: draft_edits::TypedDraftEdits) -> Result<(), String> {
+    draft_edits::save_typed_draft_edits(&folder_path, &data)
+}
+
+#[tauri::command]
+fn load_draft_edits_typed(folder_path: String) -> Result<draft_edits::TypedDraftEdits, String> {
+    draft_edits::load_typed_draft_edits(&folder_path)
+}
+
 /// Apply draft edits for the specified files.
 ///
 /// Processes files one at a time so the operation can be cancelled at a clean
@@ -690,7 +705,11 @@ fn apply_draft_edits_cmd(
 ) -> Result<apply_edits::ApplyEditsResult, String> {
     let cancel_flag = apply_state.install();
 
-    let mut all_drafts = draft_edits::load_draft_edits(&folder_path).unwrap_or_default();
+    // Load typed drafts directly — preserves Variant::List / Object shapes
+    // that the BagEditor and friends produce.  The legacy string view loses
+    // list-ness, so going through it here would re-introduce the
+    // keywords-CSV corruption.
+    let mut all_drafts = draft_edits::load_typed_draft_edits(&folder_path).unwrap_or_default();
 
     let total = rel_paths.iter()
         .filter(|p| all_drafts.get(p.as_str()).map_or(false, |e| !e.is_empty()))
@@ -716,15 +735,13 @@ fn apply_draft_edits_cmd(
 
         current += 1;
 
-        let outcome = apply_edits::apply_single_file(&folder_path, rel_path, &edits);
+        let outcome = apply_edits::apply_single_file_typed(&folder_path, rel_path, &edits);
         let was_applied = outcome.error.is_none();
 
-        // Persist incrementally: remove the draft entry from disk as soon as
-        // its file has been written + verified.  If we crash after this point,
-        // the next launch sees consistent state.
+        // Persist incrementally.
         if was_applied {
             all_drafts.remove(rel_path.as_str());
-            if let Err(e) = draft_edits::save_draft_edits(&folder_path, all_drafts.clone()) {
+            if let Err(e) = draft_edits::save_typed_draft_edits(&folder_path, &all_drafts) {
                 log::warn!("[apply_edits] Warning: failed to persist draft removal for {}: {}", rel_path, e);
             }
         }
@@ -917,6 +934,8 @@ pub fn run() {
             set_window_title,
             load_draft_edits,
             save_draft_edits,
+            save_draft_edits_typed,
+            load_draft_edits_typed,
             apply_draft_edits_cmd,
             cancel_apply_edits,
             get_tag_info
