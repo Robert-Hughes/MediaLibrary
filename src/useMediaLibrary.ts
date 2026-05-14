@@ -21,6 +21,34 @@ import {
 } from "./draft";
 import { loadColumnConfig, saveColumnConfig } from "./utils/columnConfig";
 
+/**
+ * Convert whatever shape the Tauri boundary returned into the canonical
+ * typed `DraftEditsByFile`.  Live backend returns typed; tests / older
+ * builds may still return the legacy `string | null` shape.  Per-edit
+ * detection handles mixed shapes gracefully.
+ */
+function normalizeDraftsFromTauri(raw: unknown): DraftEditsByFile {
+  if (!raw || typeof raw !== "object") return {};
+  const out: DraftEditsByFile = {};
+  for (const [file, fileEdits] of Object.entries(raw as Record<string, unknown>)) {
+    if (!fileEdits || typeof fileEdits !== "object") continue;
+    const typed: Record<string, DraftEdit> = {};
+    for (const [key, value] of Object.entries(fileEdits as Record<string, unknown>)) {
+      if (value && typeof value === "object" && "intent" in value && "value" in value) {
+        typed[key] = value as DraftEdit;
+      } else if (value === null) {
+        typed[key] = { value: null, intent: "Delete" };
+      } else if (typeof value === "string") {
+        typed[key] = { value, intent: "Set" };
+      } else {
+        typed[key] = { value: value as DraftEdit["value"], intent: "Set" };
+      }
+    }
+    out[file] = typed;
+  }
+  return out;
+}
+
 export interface TauriApi {
   invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
   listen: (event: string, handler: (payload: unknown) => void) => Promise<() => void>;
@@ -181,7 +209,11 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
     metadataProgressStoreRef.current   = new MetadataProgressStore();
 
     try {
-      draftEditsRef.current = (await api.invoke("load_draft_edits_typed", { folderPath: folder })) as DraftEditsByFile;
+      const raw = await api.invoke("load_draft_edits_typed", { folderPath: folder });
+      // Backwards-compat: a mock or legacy backend may still return the
+      // string-shape map.  Detect and convert per-edit if we see a value
+      // that isn't `{ value, intent }`.
+      draftEditsRef.current = normalizeDraftsFromTauri(raw);
     } catch (e) {
       console.error("Failed to load draft edits", e);
       draftEditsRef.current = {};

@@ -21,15 +21,15 @@ Open and resolved design questions live in `QUESTIONS.md` — read it before wor
 | 4 — EnumEditor + LangAltEditor | done | `d9120c4` |
 | 4 — NumericEditor + BooleanEditor + DateTimeEditor | done | `2431913` |
 | 4 — GpsEditor (paired-tag) | done | `eb30db4` |
-| 4 — FlashEditor (bitfield) | **deferred** |  |
-| 4 — Struct recursive editor | **deferred** |  |
+| 4 — FlashEditor (bitfield) | done | `0d8180d` |
+| 4 — Struct recursive editor | done | `a45cceb` |
 | 5 — write-back fidelity (build_args + two-pass exec + typed verify) | done | `61fb955` + `139974c` + `7062695` |
 | 6 — scanner flag changes (struct, utf8) | done | `b1c911b` |
 | 6 — two-pass display/raw split | done | `ccbe0dc` |
 | 7 — generated TS types via ts-rs | done | `8bacbf4` |
 | 7 — integration test tier scaffold | done | `1cf678c` |
-| 7 — fixture corpus (7 fixtures, 11 integration tests) | done | `e1043cf` + `7062695` |
-| 7 — additional integration fixtures (face regions, MOV Keys, …) | **deferred** | `test_images/README.md` lists planned |
+| 7 — fixture corpus (10 fixtures, 14 integration tests) | done | `e1043cf` + `7062695` + `2fdad87` + `609136f` |
+| 7 — non-JPEG format-coverage fixtures (PNG/TIFF/HEIC/MOV/RAW) + unwritable-tag test | **deferred** | needs real source files for each format |
 
 ---
 
