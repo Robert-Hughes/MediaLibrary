@@ -15,6 +15,7 @@ import { ErrorBanner } from "./components/ErrorBanner";
 import { sortPhotos, shouldSuspendSorting } from "./utils/sorting";
 import { filterPhotosForListSearch } from "./utils/listSearchFilter";
 import { listSearchQueryIsActive } from "./utils/listSearchText";
+import { mapTypedToLegacy } from "./draft";
 import "./App.css";
 
 const tauriApi: TauriApi = {
@@ -72,11 +73,19 @@ function LoadedView({
     setListSearchQuery("");
   }, [state.folder]);
 
+  // Components and the search filter still consume the legacy `string | null`
+  // shape; storage in `state.draftEdits` is typed (Phase 3b).  Derive the
+  // legacy view once per draft-state change.
+  const legacyDraftEdits = useMemo(
+    () => mapTypedToLegacy(state.draftEdits),
+    [state.draftEdits],
+  );
+
   const displayPhotos = useMemo(
-    () => filterPhotosForListSearch(sortedPhotos, listSearchQuery, state.imageMetadata, state.draftEdits),
+    () => filterPhotosForListSearch(sortedPhotos, listSearchQuery, state.imageMetadata, legacyDraftEdits),
     // metadataVersion: hidden metadata can start matching after ExifTool results arrive
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [sortedPhotos, listSearchQuery, state.imageMetadata, state.metadataVersion, state.draftEdits],
+    [sortedPhotos, listSearchQuery, state.imageMetadata, state.metadataVersion, legacyDraftEdits],
   );
 
   useEffect(() => {
@@ -182,7 +191,7 @@ function LoadedView({
         onSelectColumns={() => setShowColumnDialog(true)}
         searchQuery={listSearchQuery}
         emptySearchMessage={emptySearchMessage}
-        draftEdits={state.draftEdits}
+        draftEdits={legacyDraftEdits}
         onDiscardAllEdits={actions.discardAllDraftEdits}
         onApplyEdits={(path) => actions.applyDraftEdits(path)}
       />
@@ -195,7 +204,7 @@ function LoadedView({
           onNavigate={onGalleryNavigate}
           loadImage={loadImage}
           imageMetadata={state.imageMetadata}
-          draftEdits={state.draftEdits?.[displayPhotos[state.galleryIndex].relative_path]}
+          draftEdits={legacyDraftEdits[displayPhotos[state.galleryIndex].relative_path]}
           onSetDraft={actions.setDraftValue}
           onDiscardDraft={actions.discardDraftValue}
           onDiscardAllEdits={actions.discardAllDraftEdits}

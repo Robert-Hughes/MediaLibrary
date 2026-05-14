@@ -6,13 +6,13 @@
 
 import type { PhotoInfo } from "./types/generated/PhotoInfo";
 import type { Variant } from "./types/generated/Variant";
+import type { DraftEdit } from "./types/generated/DraftEdit";
 
-export type { PhotoInfo, Variant };
+export type { PhotoInfo, Variant, DraftEdit };
 export type { TagInfo } from "./types/generated/TagInfo";
 export type { TagKind } from "./types/generated/TagKind";
 export type { EnumOption } from "./types/generated/EnumOption";
 export type { EnumRepr } from "./types/generated/EnumRepr";
-export type { DraftEdit } from "./types/generated/DraftEdit";
 export type { EditIntent } from "./types/generated/EditIntent";
 export type { ImageMetadata } from "./types/generated/ImageMetadata";
 export type { ApplyEditsResult } from "./types/generated/ApplyEditsResult";
@@ -214,8 +214,16 @@ export interface SortConfig {
 
 // ── Draft Edits ───────────────────────────────────────────────────────────────
 
+/**
+ * Internal storage shape: typed DraftEdit carrying value + intent (see
+ * METADATA_FORMATS_DESIGN.md §7).  Components and tests still consume the
+ * legacy `string | null` view; conversion happens in `src/draft.ts`.
+ */
+export type DraftEditsByFile = Record<string, Record<string, DraftEdit>>;
+
+/** Legacy display value for components and the Tauri boundary. */
 export type DraftEditsValue = string | null;
-export type DraftEditsByFile = Record<string, Record<string, DraftEditsValue>>;
+export type LegacyDraftEditsByFile = Record<string, Record<string, DraftEditsValue>>;
 
 // ── App state ─────────────────────────────────────────────────────────────────
 
