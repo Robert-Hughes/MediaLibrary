@@ -65,7 +65,9 @@ export function useTagInfo(key: string | null | undefined): CacheEntry {
   }, [key]);
 
   if (!key) return null;
-  return cache.get(key) ?? "loading";
+  // Differentiate "not yet cached" from "cached as null".  The ?? operator
+  // would mistakenly collapse cached null → "loading".
+  return cache.has(key) ? (cache.get(key) as CacheEntry) : "loading";
 }
 
 // ── Test helpers ────────────────────────────────────────────────────────────
