@@ -73,13 +73,29 @@ pub enum Variant {
 }
 
 /// Image-level metadata for a single photo, delivered asynchronously after discovery.
-/// Contains arbitrary key-value pairs from ExifTool.
+///
+/// Two views of the same file, captured in one scan cycle (see `read_image_metadata_batch`):
+///
+/// - `metadata`     — exiftool's pretty values (e.g. `Orientation = "Rotate 90 CW"`,
+///                    `ExposureTime = "1/250"`, `GPSLatitude = "51 deg 30' 26.16\" N"`).
+///                    What the UI displays in the details pane and column cells.
+/// - `raw_metadata` — exiftool with `-n` (no PrintConv) for the same tags
+///                    (`Orientation = 6`, `ExposureTime = 0.004`, `GPSLatitude = 51.50726667`).
+///                    Used by editors for unambiguous binding and by the
+///                    verifier for type-aware equality after write-back.
+///                    Empty until Phase 4/5 consumers wire it in; populated
+///                    by the scanner unconditionally so the data is there
+///                    when those consumers arrive.
+///
+/// Both are populated atomically — no half-loaded state. See
+/// METADATA_FORMATS_DESIGN.md §4 for the full rationale.
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
 pub struct ImageMetadata {
     pub relative_path: String,
     pub metadata: HashMap<String, Variant>,
+    pub raw_metadata: HashMap<String, Variant>,
 }
 
 /// Walk `folder` and call `on_photo` for each image file found.
@@ -186,13 +202,26 @@ fn read_os_metadata(path: &Path) -> (Option<i64>, Option<i64>) {
 ///  --composite:all       Exclude composite (computed) tags
 ///  -j                    JSON output
 ///
-/// Phase 6 of METADATA_FORMATS_PLAN.md calls for a two-pass read (with and
-/// without `-n`) so display values stay human-readable while edits bind to
-/// raw machine values.  The two-pass restructure is deferred — see
-/// QUESTIONS.md — to avoid rippling the ImageMetadata shape change through
-/// the entire frontend in the same commit.
+/// Runs **two passes** per batch and merges them into one `ImageMetadata`
+/// per file:
 ///
-/// Returns Ok(results) on success, or Err(error_message) if ExifTool fails.
+/// - Pass A: no `-n`. Pretty values — `Orientation = "Rotate 90 CW"`,
+///   `ExposureTime = "1/250"`. Lands in `metadata`.
+/// - Pass B: with `-n`. Raw values — `Orientation = 6`,
+///   `ExposureTime = 0.004`. Lands in `raw_metadata`.
+///
+/// Both passes use the same flags otherwise, so the second pass is cheap
+/// (exiftool startup dominates; the OS file cache is hot). They run
+/// sequentially on the same worker — parallelism gains nothing because
+/// startup, not CPU, is the cost. Pass A runs first because if Pass B
+/// fails partway we still have something to show.
+///
+/// Failure of Pass A is a hard error (no display data → nothing to show).
+/// Failure of Pass B is logged and we proceed with empty `raw_metadata`;
+/// editors that need raw values can fall back to parsing the display.
+///
+/// Returns Ok(results) on Pass A success, Err(error_message) if Pass A
+/// fails to execute.
 pub fn read_image_metadata_batch(
     rel_paths: &[String],
     abs_paths: &[std::path::PathBuf],
@@ -201,7 +230,7 @@ pub fn read_image_metadata_batch(
         return Ok(Vec::new());
     }
 
-    log::info!("[exiftool] Reading {} files, first: {:?}", abs_paths.len(), abs_paths.first());
+    log::info!("[exiftool] Reading {} files (two-pass), first: {:?}", abs_paths.len(), abs_paths.first());
 
     // TEMPORARY: simulate slow metadata reading for load testing.
     #[cfg(not(test))]
@@ -209,9 +238,47 @@ pub fn read_image_metadata_batch(
         std::thread::sleep(std::time::Duration::from_millis(500));
     }
 
-    // find_exiftool() is called once and cached; subsequent calls are free.
-    let exiftool_cmd = find_exiftool();
+    // Pass A: pretty values (no -n).
+    let display_map = run_exiftool_pass(abs_paths, false)?;
 
+    // Pass B: raw values (-n).  A failure here is non-fatal; we degrade
+    // to empty raw_metadata.
+    let raw_map = match run_exiftool_pass(abs_paths, true) {
+        Ok(m) => m,
+        Err(e) => {
+            log::warn!("[exiftool] Pass B (-n) failed ({}); raw_metadata will be empty for this batch", e);
+            HashMap::new()
+        }
+    };
+
+    // Merge by source path.
+    let mut results = Vec::with_capacity(rel_paths.len());
+    let mut display = display_map;
+    let mut raw = raw_map;
+    for (i, rel_path) in rel_paths.iter().enumerate() {
+        let abs_path = &abs_paths[i];
+        let key = abs_path.to_string_lossy().replace('\\', "/");
+        let metadata = display.remove(&key).unwrap_or_default();
+        let raw_metadata = raw.remove(&key).unwrap_or_default();
+        if metadata.is_empty() {
+            log::warn!("[parse_exiftool] Warning: no display metadata for {}", key);
+        }
+        results.push(ImageMetadata {
+            relative_path: rel_path.clone(),
+            metadata,
+            raw_metadata,
+        });
+    }
+    Ok(results)
+}
+
+/// Run one exiftool pass over `paths` and return a per-SourceFile map.
+/// `numeric=true` adds `-n` to drop PrintConv formatting.
+fn run_exiftool_pass(
+    paths: &[std::path::PathBuf],
+    numeric: bool,
+) -> Result<HashMap<String, HashMap<String, Variant>>, String> {
+    let exiftool_cmd = find_exiftool();
     let mut cmd = Command::new(exiftool_cmd);
     cmd.arg("-a")
         .arg("-G1")
@@ -222,72 +289,49 @@ pub fn read_image_metadata_batch(
         .arg("--system:all")
         .arg("--composite:all")
         .arg("-j");
-
-    for path in abs_paths {
+    if numeric {
+        cmd.arg("-n");
+    }
+    for path in paths {
         cmd.arg(path);
     }
 
-    let output = cmd.output();
+    let output = cmd.output().map_err(|e| format!(
+        "Failed to execute ExifTool: {}. Please ensure ExifTool is installed and accessible.", e
+    ))?;
 
-    match output {
-        Ok(out) => {
-            if !out.status.success() {
-                let stderr = String::from_utf8_lossy(&out.stderr);
-                log::error!("[exiftool] Command failed (status {:?}): {}", out.status, stderr);
-                return Err(format!("ExifTool failed: {}", stderr));
-            }
-
-            let json = String::from_utf8_lossy(&out.stdout);
-            log::debug!("[exiftool] Output: {} bytes", json.len());
-
-            if !json.trim().is_empty() {
-                log::debug!("[exiftool] First 500 chars: {}", &json.chars().take(500).collect::<String>());
-                Ok(parse_exiftool_batch_json(&json, rel_paths, abs_paths))
-            } else {
-                log::warn!("[exiftool] Warning: empty output for {} files", abs_paths.len());
-                Ok(rel_paths
-                    .iter()
-                    .map(|r| ImageMetadata {
-                        relative_path: r.clone(),
-                        metadata: HashMap::new(),
-                    })
-                    .collect())
-            }
-        }
-        Err(e) => {
-            let error_msg = format!(
-                "Failed to execute ExifTool: {}. Please ensure ExifTool is installed and accessible.", e
-            );
-            log::error!("[exiftool] {}", error_msg);
-            Err(error_msg)
-        }
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        log::error!("[exiftool] Pass {} failed (status {:?}): {}",
+            if numeric { "B(-n)" } else { "A" }, output.status, stderr);
+        return Err(format!("ExifTool failed: {}", stderr));
     }
+
+    let json = String::from_utf8_lossy(&output.stdout);
+    if json.trim().is_empty() {
+        return Ok(HashMap::new());
+    }
+    Ok(parse_exiftool_pass_json(&json))
 }
 
-fn parse_exiftool_batch_json(
-    json: &str,
-    rel_paths: &[String],
-    abs_paths: &[std::path::PathBuf],
-) -> Vec<ImageMetadata> {
-    // Parse as a generic JSON array first so one bad entry doesn't kill the
-    // whole batch.  Each entry is then converted independently — a failure on
-    // one file logs and skips, leaving the rest intact.
+/// Parse one exiftool `-j` array into a map keyed by normalized SourceFile path.
+/// Per-entry isolation: a single bad entry logs and is skipped, leaving the
+/// rest intact.
+fn parse_exiftool_pass_json(json: &str) -> HashMap<String, HashMap<String, Variant>> {
     let raw_entries: Vec<serde_json::Value> = match serde_json::from_str(json) {
         Ok(v) => v,
         Err(e) => {
             let preview: String = json.chars().take(200).collect();
             log::error!(
-                "[parse_exiftool] Failed to parse outer ExifTool JSON ({} files affected): {}. First 200 chars: {:?}",
-                rel_paths.len(), e, preview
+                "[parse_exiftool] Failed to parse outer ExifTool JSON: {}. First 200 chars: {:?}",
+                e, preview
             );
-            Vec::new()
+            return HashMap::new();
         }
     };
 
     let mut map_by_source: HashMap<String, HashMap<String, Variant>> = HashMap::new();
     for (idx, raw) in raw_entries.into_iter().enumerate() {
-        // Pull SourceFile out of the raw JSON before attempting full conversion
-        // so we can name the file in any failure log.
         let source = raw.get("SourceFile").and_then(|v| v.as_str()).map(|s| s.to_string());
 
         let mut map: HashMap<String, Variant> = match serde_json::from_value(raw) {
@@ -303,38 +347,41 @@ fn parse_exiftool_batch_json(
             }
         };
 
-        // Re-extract from the typed map to keep behaviour consistent with the
-        // previous code path (which removed SourceFile after parsing).
         if let Some(Variant::String(s)) = map.remove("SourceFile") {
             map_by_source.insert(s.replace('\\', "/"), map);
         } else if let Some(s) = source {
-            // SourceFile was present in the raw JSON but didn't survive typed
-            // conversion — still register the entry by the raw path.
             map_by_source.insert(s.replace('\\', "/"), map);
         } else {
             log::warn!("[parse_exiftool] Entry {} has no SourceFile; cannot map to a request path", idx);
         }
     }
-    
+
+    map_by_source
+}
+
+/// Legacy entry point retained for tests: takes JSON for one pass, the input
+/// paths, and returns full `ImageMetadata` (with empty `raw_metadata`).
+#[cfg(test)]
+fn parse_exiftool_batch_json(
+    json: &str,
+    rel_paths: &[String],
+    abs_paths: &[std::path::PathBuf],
+) -> Vec<ImageMetadata> {
+    let mut map_by_source = parse_exiftool_pass_json(json);
     let mut results = Vec::with_capacity(rel_paths.len());
-    
     for (i, rel_path) in rel_paths.iter().enumerate() {
         let abs_path = &abs_paths[i];
         let normalized_abs = abs_path.to_string_lossy().replace('\\', "/");
-        
-        // Look up metadata using normalized path
         let metadata = map_by_source.remove(&normalized_abs).unwrap_or_else(|| {
             log::warn!("[parse_exiftool] Warning: No metadata found for path: {}", normalized_abs);
-            log::warn!("[parse_exiftool] Available keys: {:?}", map_by_source.keys().take(3).collect::<Vec<_>>());
             HashMap::new()
         });
-        
         results.push(ImageMetadata {
             relative_path: rel_path.clone(),
             metadata,
+            raw_metadata: HashMap::new(),
         });
     }
-    
     results
 }
 
@@ -723,6 +770,31 @@ mod tests {
     fn variant_large_integer_preserved_as_integer() {
         let v: Variant = serde_json::from_str("4404019").unwrap();
         assert_eq!(v, Variant::Integer(4404019));
+    }
+
+    #[test]
+    fn parse_pass_json_keys_results_by_normalized_source() {
+        let json = r#"[
+            {"SourceFile": "D:\\a.jpg", "Tag": "X"},
+            {"SourceFile": "D:/b.jpg", "Tag": "Y"}
+        ]"#;
+        let map = parse_exiftool_pass_json(json);
+        assert_eq!(map.len(), 2);
+        assert!(matches!(map.get("D:/a.jpg").and_then(|m| m.get("Tag")),
+            Some(Variant::String(s)) if s == "X"));
+        assert!(matches!(map.get("D:/b.jpg").and_then(|m| m.get("Tag")),
+            Some(Variant::String(s)) if s == "Y"));
+    }
+
+    #[test]
+    fn parse_pass_json_handles_struct_values() {
+        // Pass A typically returns nested Keys / regions structs.
+        let json = r#"[{"SourceFile":"D:/a.mov","Keys":{"creator":"alice"}}]"#;
+        let map = parse_exiftool_pass_json(json);
+        match map.get("D:/a.mov").and_then(|m| m.get("Keys")) {
+            Some(Variant::Object(_)) => {}
+            other => panic!("expected Object, got {:?}", other),
+        }
     }
 
     #[test]
