@@ -15,6 +15,8 @@ interface Props {
   onSetDraft?: (key: string, value: string | null) => void;
   /** Typed setter, used by Phase 4 editors that need to write Variant::List etc. */
   onSetDraftTyped?: (key: string, edit: DraftEdit) => void;
+  /** Batch setter for paired-tag editors (GPS). */
+  onSetDraftBatch?: (edits: Array<{ key: string; edit: DraftEdit }>) => void;
   onDiscardDraft?: (key: string) => void;
   onDiscardAllEdits?: () => void;
   onApplyEdits?: () => void;
@@ -154,7 +156,7 @@ function DetailsValueCell({
   );
 }
 
-export function DetailsPane({ photo, metadata, draftEdits = {}, onSetDraft, onSetDraftTyped, onDiscardDraft, onDiscardAllEdits, onApplyEdits }: Props) {
+export function DetailsPane({ photo, metadata, draftEdits = {}, onSetDraft, onSetDraftTyped, onSetDraftBatch, onDiscardDraft, onDiscardAllEdits, onApplyEdits }: Props) {
   const [detailsSearch, setDetailsSearch] = useState("");
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, key: string, originalValue: string, draftValue?: string | null } | null>(null);
   const [editDialog, setEditDialog] = useState<{ key: string, initialValue: string } | null>(null);
@@ -397,6 +399,7 @@ export function DetailsPane({ photo, metadata, draftEdits = {}, onSetDraft, onSe
           }
           metadataForFile={metadata !== "loading" ? (metadata as Record<string, Variant>) : undefined}
           initialString={editDialog.initialValue}
+          onSaveBatch={onSetDraftBatch ? (edits) => { onSetDraftBatch(edits); setEditDialog(null); } : undefined}
           onSave={(edit) => {
             if (onSetDraftTyped) {
               onSetDraftTyped(editDialog.key, edit);

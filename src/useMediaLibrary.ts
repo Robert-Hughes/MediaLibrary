@@ -43,6 +43,7 @@ export interface MediaLibraryActions {
   dismissError: (index: number) => void;
   setDraftValue: (fileRelativePath: string, propertyKey: string, newValue: string | null) => void;
   setDraftTyped: (fileRelativePath: string, propertyKey: string, edit: DraftEdit) => void;
+  setDraftBatch: (fileRelativePath: string, edits: Array<{ key: string; edit: DraftEdit }>) => void;
   discardDraftValue: (fileRelativePath: string, propertyKey: string) => void;
   discardAllDraftEdits: (fileRelativePath?: string) => void;
   applyDraftEdits: (fileRelativePath?: string) => Promise<ApplyEditsResult>;
@@ -676,6 +677,31 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
    * the value for the Tauri save call — until the typed Tauri command lands,
    * lists round-trip through the comma-joined display string at save time.
    */
+  /**
+   * Set many draft entries for one file in a single state update.  Used by
+   * paired-tag editors like GpsEditor that must update Latitude / Ref /
+   * Longitude / Ref atomically so the on-disk file never has half-updated
+   * coords if the user navigates away mid-edit.
+   */
+  const setDraftBatch = useCallback((fileRelativePath: string, edits: Array<{ key: string; edit: DraftEdit }>) => {
+    setAppState((prev) => {
+      if (prev.kind !== "loaded") return prev;
+      const fileEdits = { ...(prev.draftEdits[fileRelativePath] || {}) };
+      for (const { key, edit } of edits) {
+        fileEdits[key] = edit;
+      }
+      const newDraftEdits: DraftEditsByFile = {
+        ...prev.draftEdits,
+        [fileRelativePath]: fileEdits,
+      };
+      api.invoke("save_draft_edits_typed", {
+        folderPath: prev.folder,
+        data: newDraftEdits,
+      }).catch(console.error);
+      return { ...prev, draftEdits: newDraftEdits };
+    });
+  }, [api]);
+
   const setDraftTyped = useCallback((fileRelativePath: string, propertyKey: string, edit: DraftEdit) => {
     setAppState((prev) => {
       if (prev.kind !== "loaded") return prev;
@@ -796,6 +822,7 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
       dismissError,
       setDraftValue,
       setDraftTyped,
+      setDraftBatch,
       discardDraftValue,
       discardAllDraftEdits,
       applyDraftEdits,
@@ -818,6 +845,7 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
       dismissError,
       setDraftValue,
       setDraftTyped,
+      setDraftBatch,
       discardDraftValue,
       discardAllDraftEdits,
       applyDraftEdits,

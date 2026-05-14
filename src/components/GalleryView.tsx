@@ -34,12 +34,13 @@ interface Props {
   draftEdits?: Record<string, string | null>;
   onSetDraft?: (fileRelativePath: string, key: string, value: string | null) => void;
   onSetDraftTyped?: (fileRelativePath: string, key: string, edit: import("../types").DraftEdit) => void;
+  onSetDraftBatch?: (fileRelativePath: string, edits: Array<{ key: string; edit: import("../types").DraftEdit }>) => void;
   onDiscardDraft?: (fileRelativePath: string, key: string) => void;
   onDiscardAllEdits?: (fileRelativePath: string) => void;
   onApplyEdits?: (fileRelativePath: string) => void;
 }
 
-export function GalleryView({ photos, currentIndex, folderPath, onClose, onNavigate, loadImage, imageMetadata, draftEdits, onSetDraft, onSetDraftTyped, onDiscardDraft, onDiscardAllEdits, onApplyEdits }: Props) {
+export function GalleryView({ photos, currentIndex, folderPath, onClose, onNavigate, loadImage, imageMetadata, draftEdits, onSetDraft, onSetDraftTyped, onSetDraftBatch, onDiscardDraft, onDiscardAllEdits, onApplyEdits }: Props) {
   const photo = photos[currentIndex];
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -266,6 +267,7 @@ export function GalleryView({ photos, currentIndex, folderPath, onClose, onNavig
             draftEdits={draftEdits}
             onSetDraft={(key, value) => onSetDraft?.(photo.relative_path, key, value)}
             onSetDraftTyped={(key, edit) => onSetDraftTyped?.(photo.relative_path, key, edit)}
+            onSetDraftBatch={(edits) => onSetDraftBatch?.(photo.relative_path, edits)}
             onDiscardDraft={(key) => onDiscardDraft?.(photo.relative_path, key)}
             onDiscardAllEdits={() => onDiscardAllEdits?.(photo.relative_path)}
             onApplyEdits={() => onApplyEdits?.(photo.relative_path)}
