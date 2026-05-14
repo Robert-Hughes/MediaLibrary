@@ -37,3 +37,10 @@ dirs = "5"
 [dev-dependencies]
 tempfile = "3.0"
 ts-rs = "10"
+
+[features]
+default = []
+# Integration tier: tests that exec real exiftool against image fixtures
+# in `test_images/`.  Run via `cargo test --features integration`. See
+# AGENTS.md for the tier policy.
+integration = []
