@@ -41,6 +41,8 @@ pub type DraftEditsPayload = HashMap<String, HashMap<String, Option<String>>>;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
 pub enum EditIntent {
     Set,
     Delete,
@@ -49,6 +51,8 @@ pub enum EditIntent {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
 pub struct DraftEdit {
     pub value: Option<Variant>,
     pub intent: EditIntent,

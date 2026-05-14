@@ -28,10 +28,17 @@ use crate::scanner::find_exiftool;
 /// argument construction (see `METADATA_FORMATS_DESIGN.md` §5, §6).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "kind", content = "data")]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
 pub enum TagKind {
     Text,
     LangAlt,
-    Integer { min: Option<i64>, max: Option<i64> },
+    Integer {
+        #[cfg_attr(test, ts(type = "number | null"))]
+        min: Option<i64>,
+        #[cfg_attr(test, ts(type = "number | null"))]
+        max: Option<i64>,
+    },
     Real,
     Rational,
     Boolean,
@@ -46,12 +53,16 @@ pub enum TagKind {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
 pub enum EnumRepr {
     Integer,
     String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
 pub struct EnumOption {
     pub code: String,
     pub label: String,
@@ -59,6 +70,8 @@ pub struct EnumOption {
 
 /// Schema info for a single tag.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
 pub struct TagInfo {
     /// Group-1 name (e.g. `XMP-dc`, `IFD0`, `IPTC`). Matches the prefix used
     /// in metadata keys produced by the scanner.

@@ -66,13 +66,32 @@ Each fixture's purpose, source, and expected tag contents are documented in `tes
 
 ## Generated types
 
-Cross-boundary types (`Variant`, `TagInfo`, `TagKind`, `DraftEdit`, `EditIntent`, `ImageMetadata`) are generated from Rust into `src/types.generated.ts` via `ts-rs`.
+Cross-boundary types (`Variant`, `PhotoInfo`, `ImageMetadata`, `TagInfo`, `TagKind`, `EnumOption`, `EnumRepr`, `DraftEdit`, `EditIntent`, `ApplyEditsResult`, `FailedFile`) are generated from Rust into `src/types/generated/*.ts` by [ts-rs](https://github.com/Aleph-Alpha/ts-rs).
 
-- Do not hand-edit `types.generated.ts`.
-- After changing any Rust type with `#[derive(TS)]`, run `cargo test` once locally — that regenerates the file. Commit the regenerated file with the Rust change.
-- CI regenerates and `diff`s; out-of-date generated files fail the build.
+`src/types.ts` re-exports from `src/types/generated/` plus hand-written frontend-only types (the observable stores, `AppState`, event payloads, sorting and column types).
 
-`src/types.ts` re-exports from `types.generated.ts` plus hand-written frontend-only types.
+### Workflow
+
+There is **no CI** for this project — all builds and tests are run manually and locally. That means the generated bindings can drift if you don't keep them in sync by hand.
+
+After changing the shape of any Rust type with `#[derive(TS)]` (gated behind `#[cfg_attr(test, derive(ts_rs::TS))]` so it costs nothing in production builds):
+
+1. From repo root, run `cargo test --manifest-path src-tauri/Cargo.toml`. The export attribute (`#[ts(export, export_to = "../../src/types/generated/")]`) writes the regenerated `.ts` files as a side effect of the test run.
+2. Run `npx tsc --noEmit` to make sure the rest of the frontend still compiles against the new shapes.
+3. Run `npm test -- --run` to catch any runtime-shape mismatches the type check missed.
+4. Commit the regenerated `.ts` files in the same commit as the Rust change. Do not edit them by hand — the header comment says so and reviewers will flag it.
+
+### Adding a new shared type
+
+1. In the appropriate Rust file (`scanner.rs`, `tag_schema.rs`, `draft_edits.rs`, `apply_edits.rs`), add the `cfg_attr(test, derive(ts_rs::TS))` and `cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))` lines next to `#[derive(Serialize, …)]`.
+2. For `i64` / `u64` fields that should appear as TS `number` (not `bigint`), add `#[cfg_attr(test, ts(type = "number"))]` (or `"number | null"` for `Option<i64>`) on the field. Default `i64`→`bigint` does not match Tauri's JSON wire shape.
+3. `cargo test`, verify a new file appeared under `src/types/generated/`, re-export it from `src/types.ts`.
+
+### Pitfalls
+
+- The `export_to` path is **relative to the Rust file's crate root** (`src-tauri/`). `../../src/types/generated/` lands at the repo-root `src/`. Not `../src/...` — that lands inside `src-tauri/src/`.
+- `cfg_attr(test, ...)` means the derive only fires under `cargo test`, not `cargo build`. If you change a Rust type and only build, the bindings won't regenerate. Always run `cargo test` after touching annotated types.
+- ts-rs maps `HashMap<String, T>` to `{ [key in string]?: T }` — note the `?`, values are optional. Frontend code consuming these must handle `T | undefined`.
 
 ---
 

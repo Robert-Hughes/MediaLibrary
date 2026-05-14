@@ -1,61 +1,22 @@
-// ── Domain types ──────────────────────────────────────────────────────────────
+// ── Generated wire-shape types ────────────────────────────────────────────────
+//
+// These are re-exports of types generated from Rust by ts-rs (see AGENTS.md
+// "Generated types").  Do not hand-edit the originals in
+// `src/types/generated/`; regenerate by running `cargo test` in src-tauri.
 
-/** A photo as discovered by the directory walk (path + OS metadata only). */
-export interface PhotoInfo {
-  relative_path: string;
-  filename: string;
-  date_modified: number | null;
-  date_created: number | null;
-}
+import type { PhotoInfo } from "./types/generated/PhotoInfo";
+import type { Variant } from "./types/generated/Variant";
 
-// ── Variant type ──────────────────────────────────────────────────────────────
-
-/**
- * Mirrors the Rust `Variant` enum (see src-tauri/src/scanner.rs).
- *
- * The Rust side distinguishes `Integer(i64)` from `Float(f64)`; TypeScript
- * collapses both into `number`.  Where the distinction matters for write-back,
- * the tag schema (Phase 2) supplies the type rather than relying on runtime
- * shape.
- */
-export type Variant =
-  | null
-  | boolean
-  | number
-  | string
-  | Variant[]
-  | { [k: string]: Variant };
-
-// ── Tag schema ────────────────────────────────────────────────────────────────
-
-/**
- * Mirrors `tag_schema::TagKind` in src-tauri.  Serde emits these as
- * `{ "kind": "<variant>", "data": <payload> }` for variants with data, or
- * `{ "kind": "<variant>" }` for unit variants.
- */
-export type TagKind =
-  | { kind: "Text" }
-  | { kind: "LangAlt" }
-  | { kind: "Integer"; data: { min: number | null; max: number | null } }
-  | { kind: "Real" }
-  | { kind: "Rational" }
-  | { kind: "Boolean" }
-  | { kind: "DateTime" }
-  | { kind: "Enum"; data: { repr: "Integer" | "String"; options: { code: string; label: string }[] } }
-  | { kind: "Bag"; data: TagKind }
-  | { kind: "Seq"; data: TagKind }
-  | { kind: "Alt"; data: TagKind }
-  | { kind: "Struct"; data: Record<string, TagKind> }
-  | { kind: "Binary" }
-  | { kind: "Unknown" };
-
-export interface TagInfo {
-  group: string;
-  name: string;
-  writable: boolean;
-  kind: TagKind;
-  description: string | null;
-}
+export type { PhotoInfo, Variant };
+export type { TagInfo } from "./types/generated/TagInfo";
+export type { TagKind } from "./types/generated/TagKind";
+export type { EnumOption } from "./types/generated/EnumOption";
+export type { EnumRepr } from "./types/generated/EnumRepr";
+export type { DraftEdit } from "./types/generated/DraftEdit";
+export type { EditIntent } from "./types/generated/EditIntent";
+export type { ImageMetadata } from "./types/generated/ImageMetadata";
+export type { ApplyEditsResult } from "./types/generated/ApplyEditsResult";
+export type { FailedFile as ApplyEditsFailedFile } from "./types/generated/FailedFile";
 
 // ── Thumbnail store ───────────────────────────────────────────────────────────
 
@@ -334,17 +295,6 @@ export interface WorkerErrorPayload {
   worker_type: string;
   error_message: string;
   affected_files: string[];
-}
-
-export interface ApplyEditsFailedFile {
-  relative_path: string;
-  reason: string;
-}
-
-export interface ApplyEditsResult {
-  applied: string[];
-  failed: ApplyEditsFailedFile[];
-  fresh_metadata: Record<string, Record<string, Variant>>;
 }
 
 export interface ApplyEditsStartedPayload {
