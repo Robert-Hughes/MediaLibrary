@@ -11,12 +11,10 @@ export function formatPhotoRowDate(ts: number | null): string {
   });
 }
 
+import { variantToDisplayString } from "../draft";
+
 function formatVariantForSearch(v: Variant | undefined): string {
-  if (v === undefined) return "";
-  if (typeof v === "string") return v;
-  if (typeof v === "number") return v.toString();
-  if (Array.isArray(v)) return v.map(formatVariantForSearch).join(", ");
-  return "";
+  return variantToDisplayString(v);
 }
 
 /**
