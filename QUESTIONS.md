@@ -1,56 +1,33 @@
-# Open questions from the metadata-formats refactor
+# Open questions and decisions log
 
-Log of decisions deferred during implementation. Review and answer before continuing the phases that depend on each.
+Living document. Resolved items kept for traceability.
 
-## General
+## Resolved
 
-1. **`test_images/` already exists at repo root** with `dummy.jpg`, `large_with_exif.jpg`, `real_with_exif.jpg`, plus a stray `MediaLibraryDraftEdits.jsonl`. The plan called for fixtures under `src-tauri/tests/fixtures/images/`. Should new fixtures live alongside the existing ones in `test_images/`, or in the new `src-tauri/tests/fixtures/images/`? Either way, the existing `scanner.rs` tests reference `test_images/...` and must keep working. Current bias: keep the existing `test_images/` for thumbnail tests; add new metadata fixtures under `src-tauri/tests/fixtures/images/`.
+| # | Question | Decision |
+|---|---|---|
+| 1 | Fixture location | `test_images/` at repo root. Single fixture corpus. No separate `src-tauri/tests/fixtures/` tree. |
+| 2 | Stray `MediaLibraryDraftEdits.jsonl` in `test_images/` | Deleted. Was untracked. |
+| 3 | `Variant::Null` vs `Option<Variant>` | Keep `Variant::Null`. Avoids `Option<Option<…>>` mess at boundaries. |
+| 4 | `Variant::Integer` precision | `i64` is fine. Out-of-range writes will surface as verifier mismatches (Phase 5). |
+| 5 | listx runtime cost | Cache result to `<dirs::cache_dir>/MediaLibrary/tag_schema_<ver>.json`. Build lazily on first `get_registry()` call. Cache key includes exiftool `-ver`. |
+| 6 | Cache invalidation on exiftool version change | Cache filename is keyed by version. New version → cache miss → rebuild. Single `exiftool -ver` subprocess at registry init. |
+| 7 | Phase 3 migration | No saved drafts in the wild. Migration code exists and is tested but is dead-code in practice. Keep as defensive insurance; no UX toast needed. |
+| 8 | Cross-version draft compatibility | N/A — single-user local desktop app. |
+| 9 | Struct editor (face regions etc.) | Generic recursive editor that handles arbitrary nesting of all kinds, including list-of-struct, struct-of-list, etc. One renderer routed by `TagKind`. |
+| 10 | GPS paired-tag handling | Draft stores GPS tags as separate entries (`GPSLatitude`, `GPSLatitudeRef`, …). The specialised GPS editor displays a one-line warning that editing the location will modify all paired tags. Editor writes all paired drafts together on save. |
+| 13 | Apply log location | Next to the draft file: `MediaLibraryApplyLog.jsonl` in the photo folder. |
+| 14 | Two-pass scanner | Run both passes up-front in one read cycle. No half-loaded state. |
+| 15 | Two-pass worker scheduling | Same worker, sequential invocations. Pretty pass first (most likely to be displayed), numeric pass second. |
+| 16 | CI exiftool | Assume installed and on PATH. No CI config additions in this refactor. |
 
-2. **`MediaLibraryDraftEdits.jsonl` in `test_images/`** — this file is checked in but appears to be a stray. Safe to delete? It's preventing a clean fixture corpus story.
+## Open
 
-## Phase 1 (Variant)
-
-3. **`Variant::Null` vs `Option<Variant>`** — the plan adds a `Null` arm. ExifTool's `-j` output never produces JSON `null`, but our internal flows may want to. Worth keeping the `Null` arm explicitly? Current bias: yes, for symmetry with frontend `null`.
-
-4. **`Variant::Integer(i64)` precision** — some EXIF fields use `u32` (offsets) or larger. `i64` covers everything practical but lossy serialization across the Tauri boundary may apply. Confirm `i64` is acceptable.
-
-## Phase 2 (schema registry)
-
-5. **`exiftool -listx` runtime cost.** Reported anecdotally as 200–500 ms with peaks to a few seconds. Doing this synchronously at startup blocks the splash screen. Should the registry build async with a "schema loading" placeholder, blocking only the new-property dialog and the verify path? Current bias: build lazily, first time any path needs it, with a single in-flight guard.
-
-6. **Schema rebuild on exiftool version change.** Within a single app session, exiftool can't change versions, so no rebuild logic is needed. Confirm.
-
-## Phase 3 (draft migration)
-
-7. **Migration timing.** Run on first load of the draft file, eagerly? Or only when a draft edit is about to be saved? Eager is simpler. Bias: eager, with backup file and toast.
-
-8. **What about drafts saved while the user has both schema versions in their workflow?** If they edit on machine A (v2), pull the JSONL onto machine B running an older build (v1 reader)... v1 reader will fail. Probably not a real scenario for a local desktop app, but flag it.
-
-## Phase 4 (editors)
-
-9. **Editor for `Struct` (face regions etc.)** — the plan says "expandable form per field". Real face-region structs are arrays of structs (one per face). Editor needs to handle list-of-struct, not just struct. Spec the UX more precisely before implementing.
-
-10. **`GPSAltitudeRef` is paired with `GPSAltitude` (above/below sea level). Same for Latitude/Longitude Ref tags.** The plan says the GPS editor handles this. Implementation question: does the editor write both tags as one apply, or does the draft store them as separate entries? Bias: separate entries in draft; editor writes both on save.
-
-## Phase 5 (write-back)
-
-11. **`-n` scoping by two-pass exec** — the plan splits args into a numeric group and a text group. What about tags whose `-n` behaviour is ambiguous (e.g. `Rating` is integer but exiftool accepts both `5` and `5.0`)? Probably fine to put them in the `-n` group always. Confirm by exiftool's docs during implementation.
-
-12. **List `Set` semantics: `-TAG=` then `-TAG=item`** — exiftool actually documents `-TAG=` as a delete. Sending `-TAG= -TAG=a -TAG=b` should yield `[a, b]` but verify with a real fixture.
-
-13. **Apply log location** — `MediaLibraryApplyLog.jsonl` next to the draft file? Or in app-data dir? Per-folder is more discoverable but spreads logs across many places. Bias: next to the draft file.
-
-## Phase 6 (scanner two-pass)
-
-14. **Two-pass cost** — doubles scan time. Defer to lazy pass-A (per-file on details-pane open) if perf complaints arise? Bias: ship two-pass first, measure, then revisit.
-
-15. **Worker scheduling** — the scanner runs in a work queue (`work_queue.rs`). Two exiftool invocations per batch: same worker, sequential, or parallel? Bias: sequential same worker — we don't gain wall time by running both at once because exiftool startup dominates and CPU isn't the bottleneck.
-
-## Phase 7 (tests)
-
-16. **CI exiftool installation** — the integration tier needs exiftool on PATH in CI. Windows runner with `choco install exiftool` is straightforward; macOS/Linux is even easier. No existing CI config in repo — does one exist that I haven't found? If not, adding it is out of scope here but should be flagged.
-
-17. **`ts-rs` adoption** — the plan calls for generated TS types. The repo doesn't currently use any type-generation crate. Adding it is straightforward but touches every shared type. Defer until Phase 3 actually needs the migration.
+| # | Question | Notes |
+|---|---|---|
+| 11 | exiftool `-n` behaviour for ambiguous numeric tags (e.g. `Rating` accepts `5` and `5.0`) | Exploratory testing required during Phase 5 implementation. Strongly prefer `-n` form for robustness; document exploratory findings as code comments. |
+| 12 | List `Set` via `-TAG= -TAG=a -TAG=b` | Exploratory testing required during Phase 5. Record findings as code comments at the argv-builder call site. |
+| 17 | `ts-rs` adoption | Pending user decision after explanation. |
 
 ## Decisions taken without explicit confirmation
 
