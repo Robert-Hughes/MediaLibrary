@@ -21,7 +21,7 @@ Expected runtime: under 30 seconds total. CI runs this tier on every PR push.
 
 ### Tier 2: integration (disabled by default, required for sign-off)
 
-Runs real `exiftool` against real image fixtures in `src-tauri/tests/fixtures/images/`. Performs write-then-re-read round-trips. This is the tier that verifies the design's central promise: type-faithful round-trip through exiftool.
+Runs real `exiftool` against real image fixtures in `test_images/`. Performs write-then-re-read round-trips. This is the tier that verifies the design's central promise: type-faithful round-trip through exiftool.
 
 ```
 cargo test --features integration
@@ -41,21 +41,21 @@ Expected runtime: 60–120 seconds. CI runs this tier on every PR push in a sepa
 
 ## Image fixtures
 
-Live at `src-tauri/tests/fixtures/images/`. Provenance:
+Live at `test_images/` at the repo root. Provenance:
 
 - Sourced from real photographs in `D:\OneDrive\Pictures` covering varied camera manufacturers and formats.
 - Image content stripped to 4×4 pixels (smallest legal for the format) to keep repo size low.
 - Specific metadata tags re-applied to a known state, then committed.
 - No Git LFS. Each fixture is <2 KB; the corpus fits comfortably in the repo.
 
-Each fixture's purpose, source, and expected tag contents are documented in `src-tauri/tests/fixtures/images/README.md`. **The README is the source of truth** for what each fixture contains. Tests assert against the README's claims, not against re-running exiftool.
+Each fixture's purpose, source, and expected tag contents are documented in `test_images/README.md`. **The README is the source of truth** for what each fixture contains. Tests assert against the README's claims, not against re-running exiftool.
 
 ### Adding a new fixture
 
 1. Pick a source file from `D:\OneDrive\Pictures` (or any image with the metadata shape you want to test).
 2. Run the documented recipe in `tools/build-fixture.sh` to shrink the image and apply the target tags.
-3. Place under `src-tauri/tests/fixtures/images/<descriptive_name>.<ext>`.
-4. Add an entry to `src-tauri/tests/fixtures/images/README.md` describing what it contains and what it tests.
+3. Place under `test_images/<descriptive_name>.<ext>`.
+4. Add an entry to `test_images/README.md` describing what it contains and what it tests.
 5. Commit the fixture and README update together.
 
 `tools/build-fixture.sh` is committed for reproducibility but **never run in CI or during test setup**. Tests open the committed file directly. This keeps test behaviour reasoning-friendly: the file on disk is what the test sees.
@@ -96,4 +96,4 @@ Use the `log` crate (already migrated from custom macros). Set `RUST_LOG=mediabr
 - `METADATA_FORMATS_DESIGN.md` — how metadata types flow through the app and why.
 - `METADATA_FORMATS_PLAN.md` — phased implementation plan.
 - `TODO.md` — short-form running task list.
-- `src-tauri/tests/fixtures/images/README.md` — fixture corpus index.
+- `test_images/README.md` — fixture corpus index.

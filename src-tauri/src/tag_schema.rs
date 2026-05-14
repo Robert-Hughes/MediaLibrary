@@ -3,17 +3,17 @@
 //! See `METADATA_FORMATS_DESIGN.md` §3 for the design and rationale.
 //!
 //! The registry is constructed lazily on first access via `get_registry()`.
-//! It runs `exiftool -listx -lang en` once per process, parses the XML, and
-//! returns an in-memory map of `Group:Name` → `TagInfo`.
+//! On the first call per process, the schema is loaded from a disk cache
+//! keyed by exiftool version (`<cache_dir>/MediaLibrary/tag_schema_<ver>.json`).
+//! On a cache miss — or when the exiftool version has changed since the
+//! last run — `exiftool -listx -lang en` runs, the XML is parsed, and the
+//! result is written to the cache for next time.
 //!
 //! `-listx` exposes most of what we need (group, name, base type, writable,
 //! enum value tables, count) but is silent on XMP bag/seq/alt list-ness:
 //! XMP-dc:Subject reports `type='string'` despite being a Bag of strings.
 //! That gap is filled by a small hand-curated override table at the bottom
 //! of this file derived from the XMP specification.
-//!
-//! See `QUESTIONS.md` for unresolved schema questions (e.g. async build,
-//! version handling).
 
 use quick_xml::events::Event;
 use quick_xml::Reader;
@@ -272,6 +272,122 @@ impl TagRegistry {
         let xml = String::from_utf8_lossy(&output.stdout);
         Self::from_listx_xml(&xml)
     }
+
+    /// Build with disk-cache fast path.
+    ///
+    /// Cache file: `<dirs::cache_dir()>/MediaLibrary/tag_schema_<ver>.json`.
+    /// Version comes from `exiftool -ver`; a single subprocess call.  When
+    /// the cache file for the current version exists and parses, it is
+    /// used directly.  Otherwise we fall back to `build()` and write the
+    /// result to the cache for next time.
+    ///
+    /// Cache failures are non-fatal: a missing cache dir, a write error,
+    /// or a parse error in an existing file all degrade to the live build
+    /// path, logging the reason.
+    pub fn build_cached() -> Result<Self, SchemaError> {
+        let version = read_exiftool_version()?;
+        let cache_path = cache_path_for(&version);
+
+        if let Some(ref path) = cache_path {
+            if path.exists() {
+                match std::fs::read_to_string(path) {
+                    Ok(contents) => match serde_json::from_str::<TagRegistry>(&contents) {
+                        Ok(r) => {
+                            log::info!(
+                                "[tag_schema] Loaded {} tags from cache {} (exiftool {})",
+                                r.len(),
+                                path.display(),
+                                version
+                            );
+                            return Ok(r);
+                        }
+                        Err(e) => log::warn!(
+                            "[tag_schema] Cache file at {} unparseable ({}); rebuilding",
+                            path.display(),
+                            e
+                        ),
+                    },
+                    Err(e) => log::warn!(
+                        "[tag_schema] Could not read cache {} ({}); rebuilding",
+                        path.display(),
+                        e
+                    ),
+                }
+            }
+        }
+
+        let registry = Self::build()?;
+
+        if let Some(path) = cache_path {
+            if let Some(parent) = path.parent() {
+                if let Err(e) = std::fs::create_dir_all(parent) {
+                    log::warn!(
+                        "[tag_schema] Could not create cache dir {} ({}); skipping cache write",
+                        parent.display(),
+                        e
+                    );
+                    return Ok(registry);
+                }
+            }
+            match serde_json::to_string(&registry) {
+                Ok(json) => match std::fs::write(&path, json) {
+                    Ok(_) => log::info!(
+                        "[tag_schema] Cached {} tags to {} (exiftool {})",
+                        registry.len(),
+                        path.display(),
+                        version
+                    ),
+                    Err(e) => log::warn!(
+                        "[tag_schema] Cache write failed at {} ({}); registry still usable",
+                        path.display(),
+                        e
+                    ),
+                },
+                Err(e) => log::warn!("[tag_schema] Cache serialize failed ({}); skipping write", e),
+            }
+        }
+
+        Ok(registry)
+    }
+}
+
+/// Run `exiftool -ver`. Returns trimmed version string (e.g. `13.57`).
+fn read_exiftool_version() -> Result<String, SchemaError> {
+    let cmd = find_exiftool();
+    let output = Command::new(cmd)
+        .arg("-ver")
+        .output()
+        .map_err(|e| SchemaError::ExifToolFailed(e.to_string()))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+        return Err(SchemaError::ExifToolFailed(format!("exiftool -ver failed: {}", stderr)));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+fn cache_path_for(version: &str) -> Option<std::path::PathBuf> {
+    let dir = dirs::cache_dir()?;
+    // Slashes-or-dots-in-version turn into filename-safe form. exiftool
+    // versions are like `13.57` — safe — but be defensive.
+    let safe: String = version
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-' { c } else { '_' })
+        .collect();
+    Some(dir.join("MediaLibrary").join(format!("tag_schema_{}.json", safe)))
+}
+
+// Allow TagRegistry to serialize/deserialize for the disk cache.
+impl Serialize for TagRegistry {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        self.tags.serialize(s)
+    }
+}
+
+impl<'de> Deserialize<'de> for TagRegistry {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let tags = BTreeMap::<String, TagInfo>::deserialize(d)?;
+        Ok(TagRegistry { tags })
+    }
 }
 
 struct PartialTag {
@@ -404,10 +520,10 @@ static REGISTRY: OnceLock<Result<TagRegistry, String>> = OnceLock::new();
 /// same error (no retry within a process).
 pub fn get_registry() -> Result<&'static TagRegistry, &'static str> {
     let entry = REGISTRY.get_or_init(|| {
-        log::info!("[tag_schema] Building registry from exiftool -listx (one-time)");
-        match TagRegistry::build() {
+        log::info!("[tag_schema] Initialising registry (cache-first)");
+        match TagRegistry::build_cached() {
             Ok(r) => {
-                log::info!("[tag_schema] Registry built with {} tags", r.len());
+                log::info!("[tag_schema] Registry ready with {} tags", r.len());
                 Ok(r)
             }
             Err(e) => {
@@ -567,6 +683,36 @@ mod tests {
         let r = fixture_registry();
         assert!(r.lookup("Nonexistent:Tag").is_none());
         assert!(r.lookup("XMP-dc:NotARealField").is_none());
+    }
+
+    #[test]
+    fn registry_serde_roundtrip_for_disk_cache() {
+        // The build_cached() path writes serde_json of TagRegistry to disk
+        // and reads it back.  Verify the round-trip preserves every kind we
+        // emit in the fixture.
+        let original = fixture_registry();
+        let json = serde_json::to_string(&original).expect("serialize");
+        let restored: TagRegistry = serde_json::from_str(&json).expect("deserialize");
+        // Compare via the same lookups we make at runtime.
+        for key in ["IFD0:Orientation", "IPTC:Keywords", "XMP-dc:Subject",
+                    "XMP-dc:Description", "XMP-xmp:Rating", "Foo:BinaryThing",
+                    "XMP-mwg-rs:Regions"] {
+            let a = original.lookup(key);
+            let b = restored.lookup(key);
+            assert_eq!(a, b, "lookup mismatch after roundtrip for {}", key);
+        }
+        assert_eq!(original.len(), restored.len());
+    }
+
+    #[test]
+    fn cache_path_sanitises_version_string() {
+        let p = cache_path_for("13.57").unwrap();
+        assert!(p.to_string_lossy().contains("tag_schema_13.57.json"));
+        let p2 = cache_path_for("13/57 weird!").unwrap();
+        let s = p2.to_string_lossy().into_owned();
+        assert!(!s.contains('/') || s.contains("MediaLibrary"), "no stray slashes in version segment");
+        assert!(!s.contains(' '));
+        assert!(!s.contains('!'));
     }
 
     #[test]
