@@ -20,6 +20,7 @@ import { NumericEditor } from "./NumericEditor";
 import { BooleanEditor } from "./BooleanEditor";
 import { DateTimeEditor } from "./DateTimeEditor";
 import { GpsEditor, gpsGroupFor, parseDecimalDegrees, parseHemisphere } from "./GpsEditor";
+import { FlashEditor, isFlashTag } from "./FlashEditor";
 import { variantToDisplayString } from "../../draft";
 
 interface Props {
@@ -51,6 +52,24 @@ export function TypedValueEditor({
   onCancel,
 }: Props) {
   const tag = useTagInfo(propertyKey);
+
+  // Flash override (name-matched, takes precedence over the schema's
+  // generic Enum<Integer> view because the bitfield decoder makes the
+  // user experience far better than a flat dropdown of 0–127 codes).
+  if (isFlashTag(propertyKey)) {
+    const code =
+      typeof initialVariant === "number"
+        ? Math.trunc(initialVariant)
+        : Number(initialString) || 0;
+    return (
+      <FlashEditor
+        propertyKey={propertyKey}
+        initialCode={code}
+        onSave={onSave}
+        onCancel={onCancel}
+      />
+    );
+  }
 
   // GPS override (name-matched, not schema-kind-matched): writable only when
   // we have a multi-tag save callback because the editor writes 4 paired tags.
