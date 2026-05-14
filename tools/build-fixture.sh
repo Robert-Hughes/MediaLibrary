@@ -66,4 +66,16 @@ mkfx gps_decimal_rational.jpg \
 mkfx flash_bitfield.jpg \
     -EXIF:Flash=25
 
+# Unicode filename: the build script copies the keywords_basic content into a
+# file whose name contains non-ASCII characters.  Tests that exercise
+# `-charset filename=utf8` use this fixture.
+cp -f "test_images/keywords_basic.jpg" "test_images/unicode_paths_漢字.jpg"
+echo "  built test_images/unicode_paths_漢字.jpg"
+
+# Malformed JPEG: truncate `real_with_exif.jpg` mid-marker.  The per-entry
+# parse safety net (Phase 0) means scanning a folder containing this file
+# must not kill metadata for the other files in the batch.
+head -c 1024 "$BASE" > "test_images/malformed_truncated.jpg"
+echo "  built test_images/malformed_truncated.jpg"
+
 echo "Done."

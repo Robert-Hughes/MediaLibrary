@@ -34,15 +34,15 @@ Built from `real_with_exif.jpg` via `tools/build-fixture.sh` (run by hand once, 
 | `langalt_description.jpg` | `XMP-dc:Description` with `x-default = "default text"`, `en = "english text"`, `fr = "texte francais"` | LangAlt read across multiple languages. |
 | `gps_decimal_rational.jpg` | `GPSLatitude = 51.50726667 N`, `GPSLongitude = -0.12775 W` | GPS coord read; will support GPS editor work in Phase 4. |
 | `flash_bitfield.jpg` | `EXIF:Flash = 25` (Auto, fired) | Flash bitfield read. |
+| `unicode_paths_漢字.jpg` | copy of `keywords_basic.jpg` | Filename carries non-ASCII characters. Exercises `-charset filename=utf8`; integration test asserts the scanner returns gracefully even on Windows where CreateProcess argument encoding can defeat the flag. |
+| `malformed_truncated.jpg` | first 1 KB of `real_with_exif.jpg` (head -c 1024) | Truncated JPEG. Per-entry parse isolation must keep the rest of a batch intact when this file is mixed in. |
 
 ## Planned fixtures (still TODO)
 
 Build via `tools/build-fixture.sh` extensions or by hand. Each ~2 KB.
 
-- `face_regions_mwg.jpg` — JPEG with `XMP-mwg-rs:Regions` containing two face structs. Struct read + nested object preservation under `-struct`. Building this requires nested-struct argument syntax in exiftool; deferred until Phase 4 needs it.
+- `face_regions_mwg.jpg` — JPEG with `XMP-mwg-rs:Regions` containing two face structs. Struct read + nested object preservation under `-struct`. Building this requires nested-struct argument syntax in exiftool.
 - `nested_keys_quicktime.mov` — QuickTime MOV with `Keys` group. Variant `Object` carrying through without crashing. Requires a real MOV source.
-- `unicode_paths_漢字.jpg` — JPEG with Unicode filename. `-charset filename=utf8`.
-- `malformed_truncated.jpg` — JPEG truncated mid-marker. Per-entry parse isolation: must not kill the batch when mixed with valid files.
 - `unwritable_in_png.png` — PNG where attempting to write an XMP-mwg-rs tag is expected to be silently dropped by exiftool. Verifier's "missing post-write" outcome.
 
 Format coverage matrix (each format gets at least one Keywords round-trip):
