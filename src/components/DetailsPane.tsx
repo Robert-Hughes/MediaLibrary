@@ -395,6 +395,7 @@ export function DetailsPane({ photo, metadata, draftEdits = {}, onSetDraft, onSe
           initialVariant={
             metadata !== "loading" ? (metadata[editDialog.key] as Variant | undefined) : undefined
           }
+          metadataForFile={metadata !== "loading" ? (metadata as Record<string, Variant>) : undefined}
           initialString={editDialog.initialValue}
           onSave={(edit) => {
             if (onSetDraftTyped) {

@@ -14,14 +14,18 @@ Open and resolved design questions live in `QUESTIONS.md` — read it before wor
 | 1 — Variant + frontend mirror | done | `62993d9` |
 | 2 — schema registry | done | `dff1139` + `3ba3bed` (disk cache) |
 | 3 backend — typed drafts + JSONL migration | done | `676ee6c` |
-| 3b — frontend draft-layer rewire | **deferred** |  |
-| 4 — type-aware editors | **deferred** |  |
-| 5 — write-back fidelity (build_args + two-pass exec + verify) | done | `61fb955` + `139974c` |
+| 3b — frontend draft-layer typed storage | done | `f604351` |
+| 3b — typed end-to-end (Tauri commands + apply path) | done | `7062695` |
+| 4 — typed editor router | done | `8eb69a9` |
+| 4 — BagEditor (Bag<Text>) | done | `8eb69a9` |
+| 4 — other editor kinds (LangAlt, Enum, GPS, Flash, …) | **deferred** |  |
+| 5 — write-back fidelity (build_args + two-pass exec + typed verify) | done | `61fb955` + `139974c` + `7062695` |
 | 6 — scanner flag changes (struct, utf8) | done | `b1c911b` |
 | 6 — two-pass display/raw split | done | `ccbe0dc` |
 | 7 — generated TS types via ts-rs | done | `8bacbf4` |
 | 7 — integration test tier scaffold | done | `1cf678c` |
-| 7 — fixture corpus build-out | **deferred** | `test_images/README.md` lists planned fixtures |
+| 7 — fixture corpus (7 fixtures, 11 integration tests) | done | `e1043cf` + `7062695` |
+| 7 — additional integration fixtures (face regions, MOV Keys, …) | **deferred** | `test_images/README.md` lists planned |
 
 ---
 
