@@ -21,6 +21,7 @@ import { BooleanEditor } from "./BooleanEditor";
 import { DateTimeEditor } from "./DateTimeEditor";
 import { GpsEditor, gpsGroupFor, parseDecimalDegrees, parseHemisphere } from "./GpsEditor";
 import { FlashEditor, isFlashTag } from "./FlashEditor";
+import { StructEditor, initialObjectFrom } from "./StructEditor";
 import { variantToDisplayString } from "../../draft";
 
 interface Props {
@@ -185,6 +186,35 @@ export function TypedValueEditor({
       <LangAltEditor
         propertyKey={propertyKey}
         initialLangs={initialLangs}
+        onSave={onSave}
+        onCancel={onCancel}
+      />
+    );
+  }
+
+  if (tag && tag.kind.kind === "Struct") {
+    const initialObject = initialObjectFrom(initialVariant);
+    return (
+      <StructEditor
+        propertyKey={propertyKey}
+        initialObject={initialObject}
+        innerEditor={TypedValueEditor}
+        onSave={onSave}
+        onCancel={onCancel}
+      />
+    );
+  }
+
+  // Also route Variant::Object values that come through tags whose schema
+  // claims Text — common for tags listx doesn't describe as struct but
+  // exiftool's -struct flag has nonetheless delivered as an object.  LangAlt
+  // is handled above so we won't intercept Description-style objects here.
+  if (initialVariant && typeof initialVariant === "object" && !Array.isArray(initialVariant)) {
+    return (
+      <StructEditor
+        propertyKey={propertyKey}
+        initialObject={initialObjectFrom(initialVariant)}
+        innerEditor={TypedValueEditor}
         onSave={onSave}
         onCancel={onCancel}
       />

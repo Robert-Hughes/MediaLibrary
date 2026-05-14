@@ -1383,6 +1383,68 @@ body {
   border-radius: 4px;
 }
 
+/* ── StructEditor ─────────────────────────────────────────────────────── */
+
+.struct-editor-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.struct-editor-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.struct-editor-key {
+  width: 140px;
+  padding: 4px 6px;
+  font-size: 13px;
+  border: 1px solid var(--border-color, #ccc);
+  border-radius: 4px;
+  font-family: monospace;
+}
+
+.struct-editor-value {
+  flex: 1;
+  padding: 4px 6px;
+  font-size: 13px;
+  border: 1px solid var(--border-color, #ccc);
+  border-radius: 4px;
+}
+
+.struct-editor-complex-preview {
+  flex: 1;
+  padding: 4px 6px;
+  font-size: 13px;
+  color: var(--text-secondary, #666);
+  font-style: italic;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.struct-editor-remove {
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font-size: 18px;
+  color: var(--text-secondary, #666);
+  padding: 0 6px;
+}
+
+.struct-editor-remove:hover {
+  color: var(--text-primary, #000);
+}
+
+.struct-editor-add {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
 .column-section {
   margin-bottom: 24px;
 }
