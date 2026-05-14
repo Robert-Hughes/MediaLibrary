@@ -1,5 +1,13 @@
 import "@testing-library/jest-dom";
-import { vi } from "vitest";
+import { afterEach, vi } from "vitest";
+import { cleanup } from "@testing-library/react";
+
+// Unmount React trees between tests so the DOM doesn't bleed across
+// `it()` blocks.  Without this, `screen.getByTestId(...)` in test N+1
+// can hit elements left behind by test N and fail with confusing errors.
+afterEach(() => {
+  cleanup();
+});
 
 // jsdom does not implement IntersectionObserver — provide a no-op stub so
 // components that use it can render without errors in tests.
