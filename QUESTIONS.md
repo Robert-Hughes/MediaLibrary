@@ -21,13 +21,17 @@ Living document. Resolved items kept for traceability.
 | 15 | Two-pass worker scheduling | Same worker, sequential invocations. Pretty pass first (most likely to be displayed), numeric pass second. |
 | 16 | CI exiftool | Assume installed and on PATH. No CI config additions in this refactor. |
 
+## Resolved (cont'd)
+
+| # | Question | Decision |
+|---|---|---|
+| 11 | exiftool `-n` for ambiguous numerics | Implemented in `write_args.rs`. Numeric kinds (Integer, Real, Rational, Boolean, Enum<Integer>) go to the `-n` group unconditionally. Bool renders as `1`/`0` in the numeric pass. Live round-trip verification gated by `cargo test --features integration` — first four tests pass, more added as fixture corpus grows. |
+| 12 | List `Set` via `-TAG= -TAG=a -TAG=b` | Implemented in `write_args::build_set` for `Bag<_>` and `Seq<_>` kinds. Emits explicit clear then repeated args. Unit-tested with the regression-of-record (`set_bag_emits_clear_then_repeated_args`). Real-fixture verification pending Phase 3b — once the frontend carries `Variant::List` through, the integration test `apply_keywords_writes_back_as_separate_items_not_csv` gains teeth. |
+| 17 | `ts-rs` adoption | Implemented. See AGENTS.md "Generated types". `cfg_attr(test)` so production builds pay nothing; `cargo test` regenerates the bindings. `i64` overridden to TS `number`. |
+
 ## Open
 
-| # | Question | Notes |
-|---|---|---|
-| 11 | exiftool `-n` behaviour for ambiguous numeric tags (e.g. `Rating` accepts `5` and `5.0`) | Exploratory testing required during Phase 5 implementation. Strongly prefer `-n` form for robustness; document exploratory findings as code comments. |
-| 12 | List `Set` via `-TAG= -TAG=a -TAG=b` | Exploratory testing required during Phase 5. Record findings as code comments at the argv-builder call site. |
-| 17 | `ts-rs` adoption | Pending user decision after explanation. |
+_No outstanding questions. Phases 3b and 4 are deferred but well-specified (see PLAN status table + this file's "Deferred work" section)._
 
 ## Decisions taken without explicit confirmation
 

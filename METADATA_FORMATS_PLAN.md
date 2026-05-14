@@ -16,11 +16,12 @@ Open and resolved design questions live in `QUESTIONS.md` — read it before wor
 | 3 backend — typed drafts + JSONL migration | done | `676ee6c` |
 | 3b — frontend draft-layer rewire | **deferred** |  |
 | 4 — type-aware editors | **deferred** |  |
-| 5 — write-back fidelity | **deferred** |  |
+| 5 — write-back fidelity (build_args + two-pass exec + verify) | done | `61fb955` + `139974c` |
 | 6 — scanner flag changes (struct, utf8) | done | `b1c911b` |
-| 6 — two-pass display/raw split | **deferred** |  |
+| 6 — two-pass display/raw split | done | `ccbe0dc` |
 | 7 — generated TS types via ts-rs | done | `8bacbf4` |
-| 7 — integration test tier + fixtures | **deferred** |  |
+| 7 — integration test tier scaffold | done | `1cf678c` |
+| 7 — fixture corpus build-out | **deferred** | `test_images/README.md` lists planned fixtures |
 
 ---
 
