@@ -4,6 +4,14 @@ import { HighlightedText } from "./HighlightedText";
 import { ContextMenu } from "./ContextMenu";
 import { TypedValueEditor } from "./editors/TypedValueEditor";
 import { variantToDisplayString } from "../draft";
+
+/**
+ * Format a Variant for display.  Single source of truth for the legacy
+ * comma-joined / key:value-joined rendering — re-exported as
+ * `formatVariant` below so existing tests and call sites keep working
+ * during the gradual migration to typed display components.
+ */
+const formatVariantImpl = variantToDisplayString;
 import { NewPropertyDialog } from "./NewPropertyDialog";
 import { haystackContainsNormalized, normalizeListSearchQuery } from "../utils/listSearchText";
 import { ask } from "@tauri-apps/plugin-dialog";
@@ -29,31 +37,14 @@ function formatTimestamp(ts: number | null): string {
 }
 
 /**
- * Recursively format a Variant value for display.
+ * Recursively format a Variant value for display.  Re-exports
+ * `variantToDisplayString` from draft.ts as the single source of truth.
  *
- * Phase 1: keeps the string-join shape used by existing search/filter code so
- * those flows keep working.  A subsequent phase replaces this with a typed
- * renderer (chip lists, struct sub-tables, etc.) — see
- * METADATA_FORMATS_PLAN.md §1.3.
- *
- * Edit-dialog seed values must NOT be derived from this string output, since
- * that was the source of the keywords-as-CSV corruption bug.  The raw
- * `Variant` is the source of truth for editing.
+ * Edit-dialog seed values must NOT be derived from this string output,
+ * since that was the source of the keywords-as-CSV corruption bug.
+ * The raw `Variant` is the source of truth for editing.
  */
-function formatVariant(value: Variant | undefined): string {
-  if (value === null || value === undefined) return "";
-  if (Array.isArray(value)) {
-    return value.map(formatVariant).join(", ");
-  }
-  if (typeof value === "object") {
-    return Object.entries(value)
-      .map(([k, v]) => `${k}: ${formatVariant(v)}`)
-      .join("; ");
-  }
-  if (typeof value === "boolean") return value ? "true" : "false";
-  if (typeof value === "number") return String(value);
-  return String(value);
-}
+const formatVariant = formatVariantImpl;
 
 /**
  * OS-level metadata entries (always available from the directory walk).

@@ -18,12 +18,12 @@ function CellContent({ text, draftValue, searchQuery }: { text: string, draftVal
   return <HighlightedText text={text} searchQuery={searchQuery} />;
 }
 
+import { variantToDisplayString } from "../draft";
+
 function formatVariant(v: Variant | undefined): string {
   if (v === undefined) return "—";
-  if (typeof v === "string") return v;
-  if (typeof v === "number") return v.toString();
-  if (Array.isArray(v)) return v.map(formatVariant).join(", ");
-  return "—";
+  const s = variantToDisplayString(v);
+  return s === "" ? "—" : s;
 }
 
 function osValue(photo: PhotoInfo, key: string): number | null {
