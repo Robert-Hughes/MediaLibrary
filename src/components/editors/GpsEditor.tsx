@@ -87,16 +87,26 @@ export function GpsEditor({
         return;
       }
       altitudeEdits = [
-        { key: group.altitudeKey, edit: { value: alt, intent: "Set" } },
+        {
+          key: group.altitudeKey,
+          edit: { value: alt, intent: "Set", display: `${alt} m ${altRef === "above" ? "Above" : "Below"} Sea Level` },
+        },
         // exiftool encodes AltitudeRef as 0 (above sea level) or 1 (below).
-        { key: group.altitudeRefKey, edit: { value: altRef === "above" ? 0 : 1, intent: "Set" } },
+        {
+          key: group.altitudeRefKey,
+          edit: {
+            value: altRef === "above" ? 0 : 1,
+            intent: "Set",
+            display: altRef === "above" ? "Above Sea Level" : "Below Sea Level",
+          },
+        },
       ];
     }
     onSave([
-      { key: group.latitudeKey, edit: { value: lat, intent: "Set" } },
-      { key: group.latitudeRefKey, edit: { value: latRef, intent: "Set" } },
-      { key: group.longitudeKey, edit: { value: lon, intent: "Set" } },
-      { key: group.longitudeRefKey, edit: { value: lonRef, intent: "Set" } },
+      { key: group.latitudeKey, edit: { value: lat, intent: "Set", display: decimalToDms(lat, latRef) } },
+      { key: group.latitudeRefKey, edit: { value: latRef, intent: "Set", display: latRef } },
+      { key: group.longitudeKey, edit: { value: lon, intent: "Set", display: decimalToDms(lon, lonRef) } },
+      { key: group.longitudeRefKey, edit: { value: lonRef, intent: "Set", display: lonRef } },
       ...altitudeEdits,
     ]);
   };
@@ -219,6 +229,22 @@ export function GpsEditor({
  * Kept so older imports (`gpsGroupFor`) still resolve.
  */
 export const gpsGroupFor = gpsTagGroup;
+
+/**
+ * Format a decimal-degrees value plus hemisphere as exiftool's canonical
+ * DMS display string, e.g. `51 deg 30' 26.16" N`.  Used for the
+ * DraftEdit.display field so the pending-change cell shows the same form
+ * the user would see in the read view (Pass A pretty output).
+ */
+export function decimalToDms(decimal: number, hemisphere: "N" | "S" | "E" | "W"): string {
+  const abs = Math.abs(decimal);
+  const deg = Math.floor(abs);
+  const minFloat = (abs - deg) * 60;
+  const min = Math.floor(minFloat);
+  const sec = (minFloat - min) * 60;
+  const secStr = sec.toFixed(2).replace(/\.?0+$/, "");
+  return `${deg} deg ${min}' ${secStr}" ${hemisphere}`;
+}
 
 /**
  * Best-effort extraction of decimal-degrees latitude from a metadata value.
