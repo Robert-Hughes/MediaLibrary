@@ -10,9 +10,10 @@ interface Props {
   onSave: (edit: DraftEdit) => void;
   onCancel: () => void;
   headerHint?: React.ReactNode;
+  readOnly?: boolean;
 }
 
-export function BooleanEditor({ propertyKey, initialValue, onSave, onCancel, headerHint }: Props) {
+export function BooleanEditor({ propertyKey, initialValue, onSave, onCancel, headerHint, readOnly }: Props) {
   const [value, setValue] = useState<boolean | null>(initialValue);
 
   const handleSave = () => {
@@ -67,6 +68,8 @@ export function BooleanEditor({ propertyKey, initialValue, onSave, onCancel, hea
             className="dialog-btn dialog-btn-primary"
             onClick={handleSave}
             data-testid="boolean-editor-save"
+            disabled={readOnly}
+            title={readOnly ? "Tag is read-only per ExifTool schema" : undefined}
           >
             Save
           </button>

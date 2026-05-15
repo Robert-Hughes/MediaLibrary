@@ -36,6 +36,7 @@ interface Props {
   onSave: (edits: Array<{ key: string; edit: DraftEdit }>) => void;
   onCancel: () => void;
   headerHint?: React.ReactNode;
+  readOnly?: boolean;
 }
 
 export function GpsEditor({
@@ -49,6 +50,7 @@ export function GpsEditor({
   onSave,
   onCancel,
   headerHint,
+  readOnly,
 }: Props) {
   const [latDecimal, setLatDecimal] = useState<string>(initialLatDecimal === null ? "" : String(initialLatDecimal));
   const [latRef, setLatRef] = useState<"N" | "S">(initialLatRef);
@@ -63,6 +65,7 @@ export function GpsEditor({
   const [error, setError] = useState<string | null>(null);
 
   const handleSave = () => {
+    if (readOnly) return;
     const lat = parseFloat(latDecimal);
     const lon = parseFloat(lonDecimal);
     if (!Number.isFinite(lat) || lat < 0 || lat > 90) {
@@ -196,7 +199,13 @@ export function GpsEditor({
           <button className="dialog-btn dialog-btn-secondary" onClick={onCancel}>
             Cancel
           </button>
-          <button className="dialog-btn dialog-btn-primary" onClick={handleSave} data-testid="gps-editor-save">
+          <button
+            className="dialog-btn dialog-btn-primary"
+            onClick={handleSave}
+            data-testid="gps-editor-save"
+            disabled={readOnly}
+            title={readOnly ? "Tag is read-only per ExifTool schema" : undefined}
+          >
             Save
           </button>
         </div>

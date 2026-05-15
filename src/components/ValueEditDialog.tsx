@@ -6,9 +6,10 @@ interface Props {
   onSave: (newValue: string) => void;
   onCancel: () => void;
   headerHint?: React.ReactNode;
+  readOnly?: boolean;
 }
 
-export function ValueEditDialog({ propertyKey, initialValue, onSave, onCancel, headerHint }: Props) {
+export function ValueEditDialog({ propertyKey, initialValue, onSave, onCancel, headerHint, readOnly }: Props) {
   const [value, setValue] = useState(initialValue);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -19,7 +20,7 @@ export function ValueEditDialog({ propertyKey, initialValue, onSave, onCancel, h
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter") {
-      onSave(value);
+      if (!readOnly) onSave(value);
     } else if (e.key === "Escape") {
       onCancel();
     }
@@ -44,7 +45,12 @@ export function ValueEditDialog({ propertyKey, initialValue, onSave, onCancel, h
           <button className="dialog-btn dialog-btn-secondary" onClick={onCancel}>
             Cancel
           </button>
-          <button className="dialog-btn dialog-btn-primary" onClick={() => onSave(value)}>
+          <button
+            className="dialog-btn dialog-btn-primary"
+            onClick={() => onSave(value)}
+            disabled={readOnly}
+            title={readOnly ? "Tag is read-only per ExifTool schema" : undefined}
+          >
             Save
           </button>
         </div>

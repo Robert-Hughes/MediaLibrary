@@ -25,6 +25,7 @@ interface Props {
   onSave: (edit: DraftEdit) => void;
   onCancel: () => void;
   headerHint?: React.ReactNode;
+  readOnly?: boolean;
 }
 
 interface FlashFields {
@@ -68,7 +69,7 @@ const RETURN_LABELS: Record<number, string> = {
   3: "Return detected",
 };
 
-export function FlashEditor({ propertyKey, initialCode, onSave, onCancel, headerHint }: Props) {
+export function FlashEditor({ propertyKey, initialCode, onSave, onCancel, headerHint, readOnly }: Props) {
   const [fields, setFields] = useState<FlashFields>(decodeFlashCode(initialCode));
 
   const update = <K extends keyof FlashFields>(key: K, value: FlashFields[K]) => {
@@ -78,6 +79,7 @@ export function FlashEditor({ propertyKey, initialCode, onSave, onCancel, header
   const code = encodeFlashFields(fields);
 
   const handleSave = () => {
+    if (readOnly) return;
     onSave({ value: code, intent: "Set" });
   };
 
@@ -148,7 +150,13 @@ export function FlashEditor({ propertyKey, initialCode, onSave, onCancel, header
           <button className="dialog-btn dialog-btn-secondary" onClick={onCancel}>
             Cancel
           </button>
-          <button className="dialog-btn dialog-btn-primary" onClick={handleSave} data-testid="flash-editor-save">
+          <button
+            className="dialog-btn dialog-btn-primary"
+            onClick={handleSave}
+            data-testid="flash-editor-save"
+            disabled={readOnly}
+            title={readOnly ? "Tag is read-only per ExifTool schema" : undefined}
+          >
             Save
           </button>
         </div>

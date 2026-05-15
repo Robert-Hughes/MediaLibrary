@@ -12,9 +12,10 @@ interface Props {
   onSave: (edit: DraftEdit) => void;
   onCancel: () => void;
   headerHint?: React.ReactNode;
+  readOnly?: boolean;
 }
 
-export function DateTimeEditor({ propertyKey, initialValue, onSave, onCancel, headerHint }: Props) {
+export function DateTimeEditor({ propertyKey, initialValue, onSave, onCancel, headerHint, readOnly }: Props) {
   const [value, setValue] = useState<string>(toIsoLocal(initialValue));
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -24,6 +25,7 @@ export function DateTimeEditor({ propertyKey, initialValue, onSave, onCancel, he
   }, []);
 
   const handleSave = () => {
+    if (readOnly) return;
     const result = toExiftoolFormat(value);
     if (result === null) {
       setError("invalid date/time");
@@ -63,6 +65,8 @@ export function DateTimeEditor({ propertyKey, initialValue, onSave, onCancel, he
             className="dialog-btn dialog-btn-primary"
             onClick={handleSave}
             data-testid="datetime-editor-save"
+            disabled={readOnly}
+            title={readOnly ? "Tag is read-only per ExifTool schema" : undefined}
           >
             Save
           </button>

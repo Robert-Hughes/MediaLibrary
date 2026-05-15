@@ -16,9 +16,10 @@ interface Props {
   onSave: (edit: DraftEdit) => void;
   onCancel: () => void;
   headerHint?: React.ReactNode;
+  readOnly?: boolean;
 }
 
-export function NumericEditor({ propertyKey, kind, min, max, initialValue, onSave, onCancel, headerHint }: Props) {
+export function NumericEditor({ propertyKey, kind, min, max, initialValue, onSave, onCancel, headerHint, readOnly }: Props) {
   const [value, setValue] = useState<string>(initialValue);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -54,6 +55,7 @@ export function NumericEditor({ propertyKey, kind, min, max, initialValue, onSav
   };
 
   const handleSave = () => {
+    if (readOnly) return;
     const result = validate(value);
     if (!result.ok) {
       setError(result.error);
@@ -103,6 +105,8 @@ export function NumericEditor({ propertyKey, kind, min, max, initialValue, onSav
             className="dialog-btn dialog-btn-primary"
             onClick={handleSave}
             data-testid="numeric-editor-save"
+            disabled={readOnly}
+            title={readOnly ? "Tag is read-only per ExifTool schema" : undefined}
           >
             Save
           </button>

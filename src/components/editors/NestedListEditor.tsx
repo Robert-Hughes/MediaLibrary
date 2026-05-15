@@ -28,6 +28,7 @@ interface Props {
   onSave: (edit: DraftEdit) => void;
   onCancel: () => void;
   headerHint?: React.ReactNode;
+  readOnly?: boolean;
 }
 
 /** Construct an empty Variant appropriate for `inner` so "Add item" produces
@@ -80,6 +81,7 @@ export function NestedListEditor({
   onSave,
   onCancel,
   headerHint,
+  readOnly,
 }: Props) {
   const [items, setItems] = useState<Variant[]>(initialItems);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
@@ -115,6 +117,7 @@ export function NestedListEditor({
   };
 
   const handleSave = () => {
+    if (readOnly) return;
     onSave({ value: items, intent: "Set" });
   };
 
@@ -233,6 +236,8 @@ export function NestedListEditor({
             className="dialog-btn dialog-btn-primary"
             onClick={handleSave}
             data-testid="nested-list-editor-save"
+            disabled={readOnly}
+            title={readOnly ? "Tag is read-only per ExifTool schema" : undefined}
           >
             Save
           </button>

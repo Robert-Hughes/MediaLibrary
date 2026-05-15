@@ -36,6 +36,7 @@ interface Props {
   onSave: (edit: DraftEdit) => void;
   onCancel: () => void;
   headerHint?: React.ReactNode;
+  readOnly?: boolean;
 }
 
 /** Convert a chip string to the appropriate Variant scalar.  Returns null
@@ -66,7 +67,7 @@ function chipToVariant(s: string, kind: BagInnerKind): Variant | null {
   }
 }
 
-export function BagEditor({ propertyKey, initialItems, ordered = false, innerKind = "Text", onSave, onCancel, headerHint }: Props) {
+export function BagEditor({ propertyKey, initialItems, ordered = false, innerKind = "Text", onSave, onCancel, headerHint, readOnly }: Props) {
   const [items, setItems] = useState<string[]>(initialItems);
   const [draftItem, setDraftItem] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -114,6 +115,7 @@ export function BagEditor({ propertyKey, initialItems, ordered = false, innerKin
   };
 
   const handleSave = () => {
+    if (readOnly) return;
     // If the user typed without pressing Enter, fold the pending text in.
     let final = items;
     const trimmed = draftItem.trim();
@@ -209,6 +211,8 @@ export function BagEditor({ propertyKey, initialItems, ordered = false, innerKin
             className="dialog-btn dialog-btn-primary"
             onClick={handleSave}
             data-testid="bag-editor-save"
+            disabled={readOnly}
+            title={readOnly ? "Tag is read-only per ExifTool schema" : undefined}
           >
             Save
           </button>

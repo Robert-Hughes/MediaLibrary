@@ -19,9 +19,10 @@ interface Props {
   onSave: (edit: DraftEdit) => void;
   onCancel: () => void;
   headerHint?: React.ReactNode;
+  readOnly?: boolean;
 }
 
-export function EnumEditor({ propertyKey, repr, options, initialCode, onSave, onCancel, headerHint }: Props) {
+export function EnumEditor({ propertyKey, repr, options, initialCode, onSave, onCancel, headerHint, readOnly }: Props) {
   const [selected, setSelected] = useState<string>(initialCode);
   const [customMode, setCustomMode] = useState<boolean>(!options.some((o) => o.code === initialCode));
   const [customValue, setCustomValue] = useState<string>(initialCode);
@@ -35,6 +36,7 @@ export function EnumEditor({ propertyKey, repr, options, initialCode, onSave, on
   }, [onCancel]);
 
   const handleSave = () => {
+    if (readOnly) return;
     const code = customMode ? customValue.trim() : selected;
     if (!code) return;
     const variant: Variant = repr === "Integer" ? Number(code) : code;
@@ -97,6 +99,8 @@ export function EnumEditor({ propertyKey, repr, options, initialCode, onSave, on
             className="dialog-btn dialog-btn-primary"
             onClick={handleSave}
             data-testid="enum-editor-save"
+            disabled={readOnly}
+            title={readOnly ? "Tag is read-only per ExifTool schema" : undefined}
           >
             Save
           </button>

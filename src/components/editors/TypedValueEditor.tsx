@@ -89,6 +89,7 @@ export function TypedValueEditor({
   onCancel,
 }: Props) {
   const tag = useTagInfo(propertyKey);
+  const readOnly = tag !== null && tag !== "loading" && !tag.writable;
 
   // ── Override 1: Flash bitfield ─────────────────────────────────────────
   if (isFlashTag(propertyKey)) {
@@ -102,6 +103,7 @@ export function TypedValueEditor({
         initialCode={code}
         onSave={onSave}
         onCancel={onCancel}
+        readOnly={readOnly}
         headerHint={
           <EditorMetaHint
             source={
@@ -147,6 +149,7 @@ export function TypedValueEditor({
         initialAltitudeRef={initialAltitudeRef}
         onSave={onSaveBatch!}
         onCancel={onCancel}
+        readOnly={readOnly}
         headerHint={
           <EditorMetaHint
             source={{
@@ -177,6 +180,7 @@ export function TypedValueEditor({
         initialValue={initialString}
         onSave={(s) => onSave({ value: s, intent: "Set" })}
         onCancel={onCancel}
+        readOnly={readOnly}
         headerHint={schemaHint()}
       />
     );
@@ -231,6 +235,7 @@ export function TypedValueEditor({
         initialCode={code === "" ? initialString : code}
         onSave={onSave}
         onCancel={onCancel}
+        readOnly={readOnly}
         headerHint={schemaHint()}
       />
     );
@@ -245,6 +250,7 @@ export function TypedValueEditor({
         initialValue={initialString}
         onSave={onSave}
         onCancel={onCancel}
+        readOnly={readOnly}
         headerHint={schemaHint()}
       />
     );
@@ -262,6 +268,7 @@ export function TypedValueEditor({
         initialValue={initialString}
         onSave={onSave}
         onCancel={onCancel}
+        readOnly={readOnly}
         headerHint={schemaHint()}
       />
     );
@@ -281,6 +288,7 @@ export function TypedValueEditor({
         initialValue={v}
         onSave={onSave}
         onCancel={onCancel}
+        readOnly={readOnly}
         headerHint={schemaHint()}
       />
     );
@@ -293,6 +301,7 @@ export function TypedValueEditor({
         initialValue={initialString}
         onSave={onSave}
         onCancel={onCancel}
+        readOnly={readOnly}
         headerHint={schemaHint()}
       />
     );
@@ -309,6 +318,7 @@ export function TypedValueEditor({
         initialLangs={initialLangs}
         onSave={onSave}
         onCancel={onCancel}
+        readOnly={readOnly}
         headerHint={schemaHint()}
       />
     );
@@ -323,6 +333,7 @@ export function TypedValueEditor({
         innerEditor={TypedValueEditor}
         onSave={onSave}
         onCancel={onCancel}
+        readOnly={readOnly}
         headerHint={schemaHint()}
       />
     );
@@ -363,6 +374,7 @@ export function TypedValueEditor({
         innerEditor={TypedValueEditor}
         onSave={onSave}
         onCancel={onCancel}
+        readOnly={readOnly}
         headerHint={schemaHint("Routing as Struct because the read value is a nested object")}
       />
     );
@@ -386,6 +398,7 @@ export function TypedValueEditor({
         initialValue={initialString}
         onSave={onSave}
         onCancel={onCancel}
+        readOnly={readOnly}
         headerHint={schemaHint("Upgraded to a date picker because the name and value look like a date")}
       />
     );
@@ -399,6 +412,7 @@ export function TypedValueEditor({
         initialValue={initialString}
         onSave={(s) => onSave({ value: s, intent: "Set" })}
         onCancel={onCancel}
+        readOnly={readOnly}
         headerHint={schemaHint()}
       />
     );
@@ -411,6 +425,7 @@ export function TypedValueEditor({
       initialValue={initialString}
       onSave={(s) => onSave({ value: s, intent: "Set" })}
       onCancel={onCancel}
+      readOnly={readOnly}
       headerHint={schemaHint()}
     />
   );
@@ -437,17 +452,20 @@ function UnknownEditor({
   onSave,
   onCancel,
   headerHint,
+  readOnly,
 }: {
   propertyKey: string;
   initialValue: string;
   onSave: (s: string) => void;
   onCancel: () => void;
   headerHint?: React.ReactNode;
+  readOnly?: boolean;
 }) {
   const [value, setValue] = useState(initialValue);
   const handleKey = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter") onSave(value);
-    else if (e.key === "Escape") onCancel();
+    if (e.key === "Enter") {
+      if (!readOnly) onSave(value);
+    } else if (e.key === "Escape") onCancel();
   };
   return (
     <div className="dialog-overlay" data-testid="unknown-editor-overlay">
@@ -469,7 +487,12 @@ function UnknownEditor({
           <button className="dialog-btn dialog-btn-secondary" onClick={onCancel}>
             Cancel
           </button>
-          <button className="dialog-btn dialog-btn-primary" onClick={() => onSave(value)}>
+          <button
+            className="dialog-btn dialog-btn-primary"
+            onClick={() => onSave(value)}
+            disabled={readOnly}
+            title={readOnly ? "Tag is read-only per ExifTool schema" : undefined}
+          >
             Save
           </button>
         </div>

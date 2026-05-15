@@ -98,16 +98,23 @@ export function EditorMetaHint({ source }: Props) {
 
   // source.kind === "schema"
   const { tag, override } = source;
+  const readOnly = !tag.writable;
   return (
     <p
-      className="dialog-hint editor-meta-hint"
+      className={
+        "dialog-hint editor-meta-hint" + (readOnly ? " editor-meta-hint-warning" : "")
+      }
       data-testid="editor-meta-hint"
       data-source="schema"
+      data-readonly={readOnly ? "true" : "false"}
+      style={readOnly ? { color: "var(--accent-warning, #aa6)" } : undefined}
     >
+      {readOnly ? "⚠ " : null}
       <strong>
         <code>{tag.group}:{tag.name}</code> — {describeKind(tag.kind)}
       </strong>
-      {" · "}From ExifTool schema{!tag.writable ? " (read-only)" : ""}
+      {" · "}From ExifTool schema
+      {readOnly ? " — read-only, saves will be rejected" : ""}
       {override ? ` · ${override}` : ""}
       {tag.description ? <><br />{tag.description}</> : null}
     </p>
