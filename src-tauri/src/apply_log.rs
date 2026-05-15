@@ -21,12 +21,14 @@ use std::io::Write;
 use std::path::Path;
 
 const LOG_FILE_NAME: &str = "MediaLibraryApplyLog.jsonl";
-/// Schema version embedded in each entry.  Bumped to 2 in Phase 8.8 when the
-/// `before_display` / `before_raw` fields landed.  Tools that read the log
-/// can dispatch on `schema_version`.
-const LOG_SCHEMA_VERSION: u32 = 2;
+/// Schema version embedded in each entry.  Bumps:
+///  - 2 (Phase 8.8): added `before_display` / `before_raw`.
+///  - 3 (Phase 8 fix-up): added `before_read_failed` so a `null` before
+///        value can be distinguished from "the pre-write read itself
+///        failed".  v2 readers see the new field as ignorable.
+const LOG_SCHEMA_VERSION: u32 = 3;
 const HEADER_COMMENT: &str =
-    "// Apply-edits audit log. Append-only. Each line is one tag's outcome from one apply. schema_version=2.";
+    "// Apply-edits audit log. Append-only. Each line is one tag's outcome from one apply. schema_version=3.";
 
 #[derive(Serialize)]
 struct ApplyLogEntry<'a> {
@@ -40,11 +42,16 @@ struct ApplyLogEntry<'a> {
     /// argv we passed to exiftool for this tag.
     argv: &'a [String],
     /// Phase 8.8 — the file's value before our write (pretty / display view).
-    /// Optional because pre-write read can fail (logged at warn) without
-    /// blocking the apply.
+    /// `null` here means *the tag was absent before the write* (when paired
+    /// with `before_read_failed=false`).  When `before_read_failed=true`,
+    /// these are unconditionally `null` and convey no information.
     before_display: Option<&'a Variant>,
     /// Phase 8.8 — the file's value before our write (raw / -n view).
     before_raw: Option<&'a Variant>,
+    /// Phase 8 fix-up — `true` when the pre-write metadata read failed
+    /// (logged at warn), `false` when the read succeeded and the
+    /// before-fields are authoritative.
+    before_read_failed: bool,
     /// What the file holds after the write (pretty / display view).
     after_display: Option<&'a Variant>,
     /// What the file holds after the write (raw / -n view).
@@ -74,6 +81,7 @@ pub fn append_entries(
     after_display: &std::collections::HashMap<String, Variant>,
     after_raw: &std::collections::HashMap<String, Variant>,
     tag_outcomes: &[TagOutcome],
+    before_read_failed: bool,
 ) {
     let path = Path::new(folder_path).join(LOG_FILE_NAME);
     let needs_header = !path.exists();
@@ -117,6 +125,7 @@ pub fn append_entries(
             argv,
             before_display: before_display.get(tag),
             before_raw: before_raw.get(tag),
+            before_read_failed,
             after_display: after_display.get(tag),
             after_raw: after_raw.get(tag),
             outcome,
@@ -230,19 +239,42 @@ mod tests {
 
         let outcomes = vec![outcome("XMP-dc:Title", "Match")];
 
-        append_entries(folder, "a.jpg", &edits, &argv, &before, &before, &after_display, &after_raw, &outcomes);
+        append_entries(folder, "a.jpg", &edits, &argv, &before, &before, &after_display, &after_raw, &outcomes, false);
 
         let contents = std::fs::read_to_string(dir.path().join(LOG_FILE_NAME)).unwrap();
         assert!(contents.starts_with("// "), "first line should be the header comment");
-        assert!(contents.contains("schema_version=2"), "header should advertise schema version");
+        assert!(contents.contains("schema_version=3"), "header should advertise schema version");
         let lines: Vec<&str> = contents.lines().collect();
         assert_eq!(lines.len(), 2, "expected header + one entry");
         assert!(lines[1].contains("\"XMP-dc:Title\""));
         assert!(lines[1].contains("\"Match\""));
-        // Phase 8.8: schema version + before fields are present in the entry.
-        assert!(lines[1].contains("\"schema_version\":2"));
+        // schema version + before fields + before_read_failed flag.
+        assert!(lines[1].contains("\"schema_version\":3"));
         assert!(lines[1].contains("\"before_display\""));
         assert!(lines[1].contains("\"before_raw\""));
+        assert!(lines[1].contains("\"before_read_failed\":false"));
+    }
+
+    #[test]
+    fn append_entries_records_before_read_failed_when_pre_read_blew_up() {
+        // Phase 8 fix-up: if the pre-write metadata read failed, the
+        // before-fields are unconditionally null but the failure flag
+        // must mark them as not authoritative.
+        let dir = tempdir().unwrap();
+        let folder = dir.path().to_str().unwrap();
+        let mut edits: HashMap<String, DraftEdit> = HashMap::new();
+        edits.insert("XMP-dc:Title".to_string(),
+            DraftEdit { value: Some(Variant::String("New".into())), intent: EditIntent::Set });
+        let argv = HashMap::new();
+        let before = HashMap::new();   // empty: pre-read failed
+        let after = HashMap::new();
+        let outcomes = vec![outcome("XMP-dc:Title", "Match")];
+
+        append_entries(folder, "a.jpg", &edits, &argv, &before, &before, &after, &after, &outcomes, true);
+
+        let contents = std::fs::read_to_string(dir.path().join(LOG_FILE_NAME)).unwrap();
+        assert!(contents.contains("\"before_read_failed\":true"),
+            "flag must surface in entry when pre-read failed: {}", contents);
     }
 
     #[test]
@@ -276,6 +308,7 @@ mod tests {
             &after,
             &after,
             &outcomes,
+            false,
         );
 
         let contents = std::fs::read_to_string(dir.path().join(LOG_FILE_NAME)).unwrap();
@@ -301,8 +334,8 @@ mod tests {
         let after = HashMap::new();
         let outcomes = vec![outcome("Tag", "Match")];
 
-        append_entries(folder, "a.jpg", &edits, &argv, &before, &before, &after, &after, &outcomes);
-        append_entries(folder, "b.jpg", &edits, &argv, &before, &before, &after, &after, &outcomes);
+        append_entries(folder, "a.jpg", &edits, &argv, &before, &before, &after, &after, &outcomes, false);
+        append_entries(folder, "b.jpg", &edits, &argv, &before, &before, &after, &after, &outcomes, false);
 
         let contents = std::fs::read_to_string(dir.path().join(LOG_FILE_NAME)).unwrap();
         let lines: Vec<&str> = contents.lines().collect();
