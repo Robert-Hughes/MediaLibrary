@@ -51,6 +51,45 @@ describe("EnumEditor", () => {
     const edit = onSave.mock.calls[0][0];
     expect(edit.intent).toBe("Set");
     expect(edit.value).toBe(3);
+    expect(edit.display).toBe("Rotate 180");
+  });
+
+  it("emits raw code as display when Custom… code is out-of-spec", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn();
+    render(
+      <EnumEditor
+        propertyKey="X"
+        repr="Integer"
+        options={orientationOptions}
+        initialCode="9"
+        onSave={onSave}
+        onCancel={() => {}}
+      />,
+    );
+    const customInput = screen.getByTestId("enum-editor-custom") as HTMLInputElement;
+    await user.clear(customInput);
+    await user.type(customInput, "11");
+    fireEvent.click(screen.getByTestId("enum-editor-save"));
+    expect(onSave.mock.calls[0][0].display).toBe("11");
+  });
+
+  it("emits schema label as display for in-spec String repr", () => {
+    const onSave = vi.fn();
+    render(
+      <EnumEditor
+        propertyKey="X"
+        repr="String"
+        options={[{ code: "yes", label: "Yes" }, { code: "no", label: "No" }]}
+        initialCode="yes"
+        onSave={onSave}
+        onCancel={() => {}}
+      />,
+    );
+    const select = screen.getByTestId("enum-editor-select") as HTMLSelectElement;
+    fireEvent.change(select, { target: { value: "no" } });
+    fireEvent.click(screen.getByTestId("enum-editor-save"));
+    expect(onSave.mock.calls[0][0].display).toBe("No");
   });
 
   it("emits string Variant on Save for String repr", () => {
