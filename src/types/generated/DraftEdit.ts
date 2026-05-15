@@ -2,4 +2,13 @@
 import type { EditIntent } from "./EditIntent";
 import type { Variant } from "./Variant";
 
-export type DraftEdit = { value: Variant | null, intent: EditIntent, };
+export type DraftEdit = { value: Variant | null, intent: EditIntent, 
+/**
+ * Optional pretty-printed form of `value`, computed by the editor that
+ * produced this draft (enum label, rational fraction, GPS DMS, …).
+ * When present, the UI prefers this over a generic `String(value)` for
+ * the "pending change" cell.  Persisted to JSONL so restored drafts
+ * keep their pretty form across app restarts.  See
+ * METADATA_FORMATS_DESIGN.md §display-roundtrip.
+ */
+display?: string, };

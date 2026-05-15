@@ -56,16 +56,26 @@ pub enum EditIntent {
 pub struct DraftEdit {
     pub value: Option<Variant>,
     pub intent: EditIntent,
+    /// Optional pretty-printed form of `value`, computed by the editor that
+    /// produced this draft (enum label, rational fraction, GPS DMS, …).
+    /// When present, the UI prefers this over a generic `String(value)` for
+    /// the "pending change" cell.  Persisted to JSONL so restored drafts
+    /// keep their pretty form across app restarts.  See
+    /// METADATA_FORMATS_DESIGN.md §display-roundtrip.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub display: Option<String>,
 }
 
 impl DraftEdit {
     /// Construct from a legacy string edit (`None` → delete, `Some(s)` → set).
     pub fn from_legacy_string(v: Option<String>) -> Self {
         match v {
-            None => DraftEdit { value: None, intent: EditIntent::Delete },
+            None => DraftEdit { value: None, intent: EditIntent::Delete, display: None },
             Some(s) => DraftEdit {
                 value: Some(Variant::String(s)),
                 intent: EditIntent::Set,
+                display: None,
             },
         }
     }
@@ -349,15 +359,16 @@ mod tests {
                     Variant::String("sunset".to_string()),
                 ])),
                 intent: EditIntent::Set,
+                display: Some("beach, sunset".to_string()),
             },
         );
         edits.insert(
             "Rating".to_string(),
-            DraftEdit { value: Some(Variant::Integer(5)), intent: EditIntent::Set },
+            DraftEdit { value: Some(Variant::Integer(5)), intent: EditIntent::Set, display: None },
         );
         edits.insert(
             "ToRemove".to_string(),
-            DraftEdit { value: None, intent: EditIntent::Delete },
+            DraftEdit { value: None, intent: EditIntent::Delete, display: None },
         );
         data.insert("a.jpg".to_string(), edits);
 
@@ -445,13 +456,65 @@ mod tests {
     }
 
     #[test]
+    fn display_field_is_persisted_and_restored() {
+        let dir = tempdir().unwrap();
+        let mut data: TypedDraftEdits = HashMap::new();
+        let mut edits = HashMap::new();
+        edits.insert(
+            "EXIF:Orientation".to_string(),
+            DraftEdit {
+                value: Some(Variant::Integer(6)),
+                intent: EditIntent::Set,
+                display: Some("Rotate 90 CW".to_string()),
+            },
+        );
+        data.insert("a.jpg".to_string(), edits);
+        save_typed_draft_edits(dir.path().to_str().unwrap(), &data).unwrap();
+        let loaded = load_typed_draft_edits(dir.path().to_str().unwrap()).unwrap();
+        assert_eq!(loaded, data);
+        // Sanity: the literal string is in the file.
+        let contents = read_file(dir.path(), FILE_NAME);
+        assert!(contents.contains("Rotate 90 CW"), "display field missing from JSONL: {}", contents);
+    }
+
+    #[test]
+    fn display_field_omitted_when_none() {
+        // Drafts with no display value should not write a `"display":null`
+        // field — keeps the on-disk shape minimal and v1-style files
+        // round-trip without growing.
+        let dir = tempdir().unwrap();
+        let mut data: TypedDraftEdits = HashMap::new();
+        let mut edits = HashMap::new();
+        edits.insert(
+            "Rating".to_string(),
+            DraftEdit { value: Some(Variant::Integer(5)), intent: EditIntent::Set, display: None },
+        );
+        data.insert("a.jpg".to_string(), edits);
+        save_typed_draft_edits(dir.path().to_str().unwrap(), &data).unwrap();
+        let contents = read_file(dir.path(), FILE_NAME);
+        assert!(!contents.contains("\"display\""), "display key leaked when None: {}", contents);
+    }
+
+    #[test]
+    fn legacy_v1_load_has_no_display() {
+        let dir = tempdir().unwrap();
+        write_file(
+            dir.path(),
+            FILE_NAME,
+            "{\"relative_path\":\"a.jpg\",\"edits\":{\"k\":\"v\"}}\n",
+        );
+        let loaded = load_typed_draft_edits(dir.path().to_str().unwrap()).unwrap();
+        assert_eq!(loaded["a.jpg"]["k"].display, None);
+    }
+
+    #[test]
     fn idempotent_v2_load_save_load() {
         let dir = tempdir().unwrap();
         let mut data: TypedDraftEdits = HashMap::new();
         let mut edits = HashMap::new();
         edits.insert(
             "k".to_string(),
-            DraftEdit { value: Some(Variant::Bool(true)), intent: EditIntent::Set },
+            DraftEdit { value: Some(Variant::Bool(true)), intent: EditIntent::Set, display: None },
         );
         data.insert("a.jpg".to_string(), edits);
         save_typed_draft_edits(dir.path().to_str().unwrap(), &data).unwrap();

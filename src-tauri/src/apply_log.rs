@@ -227,7 +227,7 @@ mod tests {
         let mut edits: HashMap<String, DraftEdit> = HashMap::new();
         edits.insert(
             "XMP-dc:Title".to_string(),
-            DraftEdit { value: Some(Variant::String("Hi".into())), intent: EditIntent::Set },
+            DraftEdit { value: Some(Variant::String("Hi".into())), intent: EditIntent::Set, display: None },
         );
 
         let mut argv: HashMap<String, Vec<String>> = HashMap::new();
@@ -264,7 +264,7 @@ mod tests {
         let folder = dir.path().to_str().unwrap();
         let mut edits: HashMap<String, DraftEdit> = HashMap::new();
         edits.insert("XMP-dc:Title".to_string(),
-            DraftEdit { value: Some(Variant::String("New".into())), intent: EditIntent::Set });
+            DraftEdit { value: Some(Variant::String("New".into())), intent: EditIntent::Set, display: None });
         let argv = HashMap::new();
         let before = HashMap::new();   // empty: pre-read failed
         let after = HashMap::new();
@@ -285,7 +285,7 @@ mod tests {
         let mut edits: HashMap<String, DraftEdit> = HashMap::new();
         edits.insert(
             "XMP-dc:Title".to_string(),
-            DraftEdit { value: Some(Variant::String("New".into())), intent: EditIntent::Set },
+            DraftEdit { value: Some(Variant::String("New".into())), intent: EditIntent::Set, display: None },
         );
         let argv = HashMap::new();
 
@@ -325,7 +325,7 @@ mod tests {
             let mut m = HashMap::new();
             m.insert(
                 "Tag".to_string(),
-                DraftEdit { value: Some(Variant::Integer(1)), intent: EditIntent::Set },
+                DraftEdit { value: Some(Variant::Integer(1)), intent: EditIntent::Set, display: None },
             );
             m
         };

@@ -288,16 +288,16 @@ mod tests {
     }
 
     fn set(v: Variant) -> DraftEdit {
-        DraftEdit { value: Some(v), intent: EditIntent::Set }
+        DraftEdit { value: Some(v), intent: EditIntent::Set, display: None }
     }
     fn delete() -> DraftEdit {
-        DraftEdit { value: None, intent: EditIntent::Delete }
+        DraftEdit { value: None, intent: EditIntent::Delete, display: None }
     }
     fn list_add(v: Variant) -> DraftEdit {
-        DraftEdit { value: Some(v), intent: EditIntent::ListAdd }
+        DraftEdit { value: Some(v), intent: EditIntent::ListAdd, display: None }
     }
     fn list_remove(v: Variant) -> DraftEdit {
-        DraftEdit { value: Some(v), intent: EditIntent::ListRemove }
+        DraftEdit { value: Some(v), intent: EditIntent::ListRemove, display: None }
     }
 
     #[test]
