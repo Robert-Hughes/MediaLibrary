@@ -1,13 +1,15 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { useTagInfo } from "../hooks/useTagInfo";
+import { useSchemaTagNames } from "../hooks/useSchemaTagNames";
 import { describeKind } from "./editors/EditorMetaHint";
 
 interface Props {
   onSave: (key: string, value: string) => void;
   onCancel: () => void;
+  existingKeys?: ReadonlySet<string>;
 }
 
-export function NewPropertyDialog({ onSave, onCancel }: Props) {
+export function NewPropertyDialog({ onSave, onCancel, existingKeys }: Props) {
   const [key, setKey] = useState("");
   const [value, setValue] = useState("");
   const keyInputRef = useRef<HTMLInputElement>(null);
@@ -16,6 +18,15 @@ export function NewPropertyDialog({ onSave, onCancel }: Props) {
   // otherwise we pepper the backend with lookups for half-typed strings.
   const lookupKey = key.includes(":") ? key : "";
   const tagInfo = useTagInfo(lookupKey);
+
+  const allTagNames = useSchemaTagNames();
+
+  // Filter suggestions to match the current input (case-insensitive).
+  const suggestions = useMemo(() => {
+    if (allTagNames === "loading" || !key) return [];
+    const lower = key.toLowerCase();
+    return allTagNames.filter((t) => t.toLowerCase().includes(lower));
+  }, [allTagNames, key]);
 
   useEffect(() => {
     keyInputRef.current?.focus();
@@ -65,6 +76,8 @@ export function NewPropertyDialog({ onSave, onCancel }: Props) {
     }
   }
 
+  const isDuplicate = !!key && !!existingKeys?.has(key);
+
   const unwritable = tagInfo !== "loading" && tagInfo !== null && !tagInfo.writable;
   const disabled = !key || !value || unwritable;
 
@@ -80,13 +93,30 @@ export function NewPropertyDialog({ onSave, onCancel }: Props) {
             <input
               ref={keyInputRef}
               type="text"
+              list="schema-tag-names"
               className="dialog-input"
               value={key}
               onChange={(e) => setKey(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="XMP-dc:Description"
               data-testid="new-property-key"
+              autoComplete="off"
             />
+            <datalist id="schema-tag-names">
+              {suggestions.map((t) => (
+                <option key={t} value={t} />
+              ))}
+            </datalist>
+            {isDuplicate && (
+              <p
+                className="dialog-hint editor-meta-hint editor-meta-hint-warning"
+                data-testid="new-property-duplicate-warning"
+                style={{ color: "var(--accent-warning, #aa6)" }}
+              >
+                ⚠ <code>{key}</code> already exists in this image&apos;s metadata.
+                {" "}Saving will overwrite the existing value.
+              </p>
+            )}
             {schemaLine}
           </div>
           <div>

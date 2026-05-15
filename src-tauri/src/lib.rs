@@ -683,6 +683,14 @@ fn preload_schema() -> Result<(), String> {
     tag_schema::get_registry().map(|_| ()).map_err(|e| e.to_string())
 }
 
+/// Returns all `Group:Name` keys in the schema registry, sorted.
+/// Used by the "Add New Property" dialog for autocomplete.
+#[tauri::command]
+fn list_schema_tags() -> Result<Vec<String>, String> {
+    let registry = tag_schema::get_registry().map_err(|e| e.to_string())?;
+    Ok(registry.all_keys().map(|s| s.to_owned()).collect())
+}
+
 #[tauri::command]
 fn save_draft_edits(folder_path: String, data: draft_edits::DraftEditsPayload) -> Result<(), String> {
     draft_edits::save_draft_edits(&folder_path, data)
@@ -966,7 +974,8 @@ pub fn run() {
             apply_draft_edits_cmd,
             cancel_apply_edits,
             get_tag_info,
-            preload_schema
+            preload_schema,
+            list_schema_tags
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

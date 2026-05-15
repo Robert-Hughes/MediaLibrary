@@ -174,6 +174,19 @@ export function DetailsPane({ photo, metadata, draftEdits = {}, onSetDraft, onSe
     return groupImageMetadata(combinedMetadata);
   }, [metadata, draftEdits]);
 
+  const existingMetadataKeys = useMemo(() => {
+    const keys = new Set<string>();
+    if (metadata !== "loading") {
+      for (const k of Object.keys(metadata)) keys.add(k);
+    }
+    if (draftEdits) {
+      for (const [k, v] of Object.entries(draftEdits)) {
+        if (v !== null) keys.add(k);
+      }
+    }
+    return keys;
+  }, [metadata, draftEdits]);
+
   const filteredOsEntries = useMemo(() => {
     let query = normalizedDetailsQuery;
     const hasEditsFilter = query.includes("has:edits");
@@ -415,6 +428,7 @@ export function DetailsPane({ photo, metadata, draftEdits = {}, onSetDraft, onSe
             setShowNewPropertyDialog(false);
           }}
           onCancel={() => setShowNewPropertyDialog(false)}
+          existingKeys={existingMetadataKeys}
         />
       )}
     </div>

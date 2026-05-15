@@ -121,6 +121,10 @@ impl TagRegistry {
         self.tags.is_empty()
     }
 
+    pub fn all_keys(&self) -> impl Iterator<Item = &str> {
+        self.tags.keys().map(|s| s.as_str())
+    }
+
     /// Build from raw `exiftool -listx -lang en` XML output.
     /// Public for testing against fixture XML.
     pub fn from_listx_xml(xml: &str) -> Result<Self, SchemaError> {
