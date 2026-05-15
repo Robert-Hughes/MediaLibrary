@@ -247,7 +247,7 @@ The same pattern applies to any future paired-tag editor (the warning text and t
 
 ## 6. Writing: argument construction and verification
 
-> **Implementor's note.** The list-set sequence (`-TAG= -TAG=a -TAG=b`) and the `-n` preference for ambiguous numeric tags (e.g. `Rating` accepting both `5` and `5.0`) both need real-fixture exploratory testing during Phase 5 implementation. Findings must be recorded as code comments at the argv-builder call site so the next reader doesn't re-derive them from exiftool docs. Default policy: prefer the numeric `-n` form everywhere it applies — most robust against locale and presentation quirks.
+Default policy: prefer the numeric `-n` form everywhere it applies — most robust against locale and presentation quirks.
 
 ### Argument rules
 
@@ -272,10 +272,6 @@ exiftool's `-n` is global to an invocation. A single invocation cannot mix numer
 - **Group B (text)**: `Text`, `LangAlt`, `Bag<Text>`, `Seq<Text>` — invoked without `-n`.
 
 Either group may be empty, in which case its invocation is skipped. Numeric group runs first so text-group edits can depend on numeric tags being set (rare but possible for derived fields).
-
-### Argv preview
-
-Before applying, the user sees the exact argv we will execute, broken down by invocation. The user can copy it, run it themselves, or cancel. For the first ten applies per session this is on by default — trust-building. After that, opt-in via a toggle.
 
 ### Verification
 
@@ -308,7 +304,7 @@ MediaLibrary persists draft edits (`MediaLibraryDraftEdits.jsonl`). Read metadat
 - The file is the canonical store. Sidecars introduce sync questions we don't want to answer.
 - exiftool startup amortizes well over batches; scan cost is acceptable.
 
-Draft schema is versioned. Loading a v1 (string-only) draft file triggers a one-time migration: each string value becomes `{ value: Variant::String(s), intent: Set }`; explicit nulls become `intent: Delete`. The v1 file is backed up to `MediaLibraryDraftEdits.v1.bak.jsonl` before rewriting. The user sees a toast describing what happened.
+Draft schema is versioned. Loading a v1 (string-only) draft file triggers a one-time migration: each string value becomes `{ value: Variant::String(s), intent: Set }`; explicit nulls become `intent: Delete`. The v1 file is backed up to `MediaLibraryDraftEdits.v1.bak.jsonl` before rewriting.
 
 ---
 
