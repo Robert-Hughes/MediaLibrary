@@ -76,6 +76,14 @@ export interface MediaLibraryActions {
   discardAllDraftEdits: (fileRelativePath?: string) => void;
   applyDraftEdits: (fileRelativePath?: string) => Promise<ApplyEditsResult>;
   cancelApplyEdits: () => void;
+  /** Phase 8.1: clear a Coerced/Mismatch outcome and drop its draft. */
+  acceptVerifyOutcome: (fileRelativePath: string, tag: string) => void;
+  /** Phase 8.1: re-stage the draft with the value exiftool actually wrote. */
+  revertVerifyOutcome: (fileRelativePath: string, tag: string, observedRaw: Variant | null) => void;
+  /** Phase 8.1: dismiss a single pending verify outcome without touching the draft. */
+  dismissVerifyOutcome: (fileRelativePath: string, tag: string) => void;
+  /** Phase 8.1: dismiss every pending verify outcome without acting on them. */
+  dismissAllVerifyOutcomes: () => void;
 }
 
 const RECENT_FOLDERS_KEY = "media_library_recent_folders";
@@ -269,6 +277,7 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
             workerErrors: [],
             draftEdits: draftEditsRef.current,
             applying: null,
+            verifyOutcomes: {},
           };
         }
 
@@ -401,6 +410,7 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
               workerErrors: [],
               draftEdits: draftEditsRef.current,
               applying: null,
+              verifyOutcomes: {},
             };
           }
           return prev;
@@ -496,11 +506,74 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
         setAppState((prev) => {
           if (prev.kind !== "loaded") return prev;
 
+          // Phase 8.1: prune drafts per-tag based on the backend's verification
+          // outcomes.  Match and DeleteOk are conclusively safe to drop; the
+          // rest stay so the user can act on them via VerifyOutcomeDialog.
+          //
+          // Backwards compatibility: when the payload omits `tag_outcomes`
+          // (older backend builds, mocked tests), fall back to the previous
+          // semantic of "drop the entire file's drafts on success".  Live
+          // backend always emits the array so production gets the
+          // per-tag-clearing behaviour.
           let newDraftEdits = prev.draftEdits;
-          if (payload.applied) {
-            // Remove draft for the successfully-applied file
+          let newVerifyOutcomes = prev.verifyOutcomes;
+          const fileOutcomes = payload.tag_outcomes ?? [];
+
+          if (fileOutcomes.length === 0 && payload.applied) {
             newDraftEdits = { ...prev.draftEdits };
             delete newDraftEdits[payload.relative_path];
+          }
+
+          if (fileOutcomes.length > 0) {
+            const fileDrafts = prev.draftEdits[payload.relative_path];
+            if (fileDrafts) {
+              const updatedDrafts = { ...fileDrafts };
+              let touched = false;
+              for (const o of fileOutcomes) {
+                if (o.kind === "Match" || o.kind === "DeleteOk") {
+                  if (updatedDrafts[o.tag]) {
+                    delete updatedDrafts[o.tag];
+                    touched = true;
+                  }
+                }
+              }
+              if (touched) {
+                newDraftEdits = { ...prev.draftEdits };
+                if (Object.keys(updatedDrafts).length === 0) {
+                  delete newDraftEdits[payload.relative_path];
+                } else {
+                  newDraftEdits[payload.relative_path] = updatedDrafts;
+                }
+              }
+            }
+
+            const interesting = fileOutcomes.filter((o) =>
+              o.kind === "Coerced"
+              || o.kind === "Mismatch"
+              || o.kind === "MissingPostWrite"
+              || o.kind === "DeleteLingering"
+            );
+            if (interesting.length > 0) {
+              newVerifyOutcomes = { ...prev.verifyOutcomes };
+              const existing = newVerifyOutcomes[payload.relative_path] ?? [];
+              const merged = [...existing];
+              for (const o of interesting) {
+                // Replace any prior entry for the same tag so the latest
+                // attempt's verdict wins (re-applies are idempotent here).
+                const idx = merged.findIndex((m) => m.tag === o.tag);
+                const entry = {
+                  tag: o.tag,
+                  kind: o.kind,
+                  sent: o.sent,
+                  beforeDisplay: o.before_display,
+                  observedDisplay: o.observed_display,
+                  observedRaw: o.observed_raw,
+                  message: o.message,
+                };
+                if (idx >= 0) merged[idx] = entry; else merged.push(entry);
+              }
+              newVerifyOutcomes[payload.relative_path] = merged;
+            }
           }
 
           let newErrors = prev.workerErrors;
@@ -529,6 +602,7 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
           return {
             ...prev,
             draftEdits: newDraftEdits,
+            verifyOutcomes: newVerifyOutcomes,
             workerErrors: newErrors,
             applying,
             metadataVersion: payload.fresh_metadata
@@ -674,6 +748,111 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
       if (prev.kind !== "loaded") return prev;
       saveColumnConfig({ visibleColumns: prev.visibleColumns, sortConfig: prev.sortConfig, columnWidths: {} });
       return { ...prev, columnWidths: {} };
+    });
+  }, []);
+
+  /**
+   * Phase 8.1 — Accept a Coerced (or otherwise pending) verification outcome:
+   * remove the entry from `verifyOutcomes` AND drop the corresponding draft so
+   * the file's "saved" state matches what exiftool actually wrote.
+   */
+  const acceptVerifyOutcome = useCallback((fileRelativePath: string, tag: string) => {
+    setAppState((prev) => {
+      if (prev.kind !== "loaded") return prev;
+
+      // Drop the per-tag draft so the next save call mirrors disk.
+      let newDraftEdits = prev.draftEdits;
+      const fileDrafts = prev.draftEdits[fileRelativePath];
+      if (fileDrafts && fileDrafts[tag]) {
+        const updated = { ...fileDrafts };
+        delete updated[tag];
+        newDraftEdits = { ...prev.draftEdits };
+        if (Object.keys(updated).length === 0) {
+          delete newDraftEdits[fileRelativePath];
+        } else {
+          newDraftEdits[fileRelativePath] = updated;
+        }
+        api.invoke("save_draft_edits_typed", {
+          folderPath: prev.folder,
+          data: newDraftEdits,
+        }).catch(console.error);
+      }
+
+      const newOutcomes = { ...prev.verifyOutcomes };
+      const remaining = (newOutcomes[fileRelativePath] ?? []).filter((o) => o.tag !== tag);
+      if (remaining.length === 0) {
+        delete newOutcomes[fileRelativePath];
+      } else {
+        newOutcomes[fileRelativePath] = remaining;
+      }
+      return { ...prev, draftEdits: newDraftEdits, verifyOutcomes: newOutcomes };
+    });
+  }, [api]);
+
+  /**
+   * Phase 8.1 — Revert a Coerced outcome: re-stage the draft with the value
+   * exiftool actually wrote (raw view), so the user's next save attempt acts
+   * on the file as it now is rather than on the original sent value.
+   */
+  const revertVerifyOutcome = useCallback((fileRelativePath: string, tag: string, observedRaw: Variant | null) => {
+    setAppState((prev) => {
+      if (prev.kind !== "loaded") return prev;
+
+      const newEdit: DraftEdit = observedRaw === null
+        ? { value: null, intent: "Delete" }
+        : { value: observedRaw, intent: "Set" };
+      const fileEdits = prev.draftEdits[fileRelativePath] || {};
+      const newDraftEdits: DraftEditsByFile = {
+        ...prev.draftEdits,
+        [fileRelativePath]: { ...fileEdits, [tag]: newEdit },
+      };
+      api.invoke("save_draft_edits_typed", {
+        folderPath: prev.folder,
+        data: newDraftEdits,
+      }).catch(console.error);
+
+      const newOutcomes = { ...prev.verifyOutcomes };
+      const remaining = (newOutcomes[fileRelativePath] ?? []).filter((o) => o.tag !== tag);
+      if (remaining.length === 0) {
+        delete newOutcomes[fileRelativePath];
+      } else {
+        newOutcomes[fileRelativePath] = remaining;
+      }
+      return { ...prev, draftEdits: newDraftEdits, verifyOutcomes: newOutcomes };
+    });
+  }, [api]);
+
+  /**
+   * Dismiss one pending verify outcome without acting on it.  Draft is
+   * untouched — used for Mismatch / MissingPostWrite / DeleteLingering rows
+   * where the user has acknowledged the failure and will fix it manually.
+   */
+  const dismissVerifyOutcome = useCallback((fileRelativePath: string, tag: string) => {
+    setAppState((prev) => {
+      if (prev.kind !== "loaded") return prev;
+      const list = prev.verifyOutcomes[fileRelativePath];
+      if (!list) return prev;
+      const remaining = list.filter((o) => o.tag !== tag);
+      const newOutcomes = { ...prev.verifyOutcomes };
+      if (remaining.length === 0) {
+        delete newOutcomes[fileRelativePath];
+      } else {
+        newOutcomes[fileRelativePath] = remaining;
+      }
+      return { ...prev, verifyOutcomes: newOutcomes };
+    });
+  }, []);
+
+  /**
+   * Dismiss every pending verify outcome without acting on them.  Drafts are
+   * untouched — the user can still see and triage them later from the draft
+   * pane if they reopen the file.
+   */
+  const dismissAllVerifyOutcomes = useCallback(() => {
+    setAppState((prev) => {
+      if (prev.kind !== "loaded") return prev;
+      if (Object.keys(prev.verifyOutcomes).length === 0) return prev;
+      return { ...prev, verifyOutcomes: {} };
     });
   }, []);
 
@@ -859,6 +1038,10 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
       discardAllDraftEdits,
       applyDraftEdits,
       cancelApplyEdits,
+      acceptVerifyOutcome,
+      revertVerifyOutcome,
+      dismissVerifyOutcome,
+      dismissAllVerifyOutcomes,
     }),
     [
       openFolder,
@@ -882,6 +1065,10 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
       discardAllDraftEdits,
       applyDraftEdits,
       cancelApplyEdits,
+      acceptVerifyOutcome,
+      revertVerifyOutcome,
+      dismissVerifyOutcome,
+      dismissAllVerifyOutcomes,
     ],
   );
 

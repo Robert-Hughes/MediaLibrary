@@ -147,11 +147,15 @@ fn build_set(tag: &str, info: Option<&TagInfo>, value: Option<&Variant>) -> Buil
             numeric: vec![],
             text: vec![format!("-{}={}", tag, render_scalar_text(v))],
         },
-        // DateTime: text group; we emit exiftool's expected format
-        // (YYYY:MM:DD HH:MM:SS±ZZ:ZZ) from the Variant::String value.
+        // DateTime: numeric group.  Per design §6, datetimes "where we send
+        // raw" belong with the -n invocation; exiftool accepts the canonical
+        // `YYYY:MM:DD HH:MM:SS±ZZ:ZZ` literal under -n without trying to
+        // PrintConv-parse a localised string back into the field.  This
+        // matches the worked example in design §5 and avoids surprises when
+        // the system locale would otherwise reformat the string.
         (Some(TagKind::DateTime), Some(v)) => BuiltArgs {
-            numeric: vec![],
-            text: vec![format!("-{}={}", tag, render_scalar_text(v))],
+            numeric: vec![format!("-{}={}", tag, render_scalar_text(v))],
+            text: vec![],
         },
         // Struct: opaque, emit as a single JSON-encoded text value.
         // exiftool's -struct accepts {field=value,...} syntax; we use the
@@ -452,6 +456,20 @@ mod tests {
         let i = info(TagKind::Real);
         let args = build_args("Composite:GPSAltitude", Some(&i), &set(Variant::Float(123.45)));
         assert_eq!(args.numeric, vec!["-Composite:GPSAltitude=123.45"]);
+    }
+
+    #[test]
+    fn datetime_uses_numeric_group() {
+        // Phase 8.7: design §6 puts DateTime in the -n group so the literal
+        // YYYY:MM:DD HH:MM:SS±ZZ:ZZ form bypasses PrintConv re-parsing.
+        let i = info(TagKind::DateTime);
+        let args = build_args(
+            "EXIF:DateTimeOriginal",
+            Some(&i),
+            &set(Variant::String("2026:05:15 10:30:00".into())),
+        );
+        assert_eq!(args.numeric, vec!["-EXIF:DateTimeOriginal=2026:05:15 10:30:00"]);
+        assert!(args.text.is_empty());
     }
 
     #[test]

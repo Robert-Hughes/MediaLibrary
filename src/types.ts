@@ -17,6 +17,7 @@ export type { EditIntent } from "./types/generated/EditIntent";
 export type { ImageMetadata } from "./types/generated/ImageMetadata";
 export type { ApplyEditsResult } from "./types/generated/ApplyEditsResult";
 export type { FailedFile as ApplyEditsFailedFile } from "./types/generated/FailedFile";
+export type { TagOutcome } from "./types/generated/TagOutcome";
 
 // ── Thumbnail store ───────────────────────────────────────────────────────────
 
@@ -265,6 +266,14 @@ export type AppState =
 
       // Apply-edits in-flight state (non-null while apply_draft_edits_cmd is running)
       applying: ApplyEditsInFlight | null;
+
+      /**
+       * Per-file verification outcomes left over from the most recent apply
+       * that need user attention (Coerced / Mismatch / MissingPostWrite /
+       * DeleteLingering).  Empty record when nothing pends.  The
+       * VerifyOutcomeDialog renders while this is non-empty.
+       */
+      verifyOutcomes: Record<string, TagOutcomeEntry[]>;
     };
 
 export interface ApplyEditsInFlight {
@@ -274,6 +283,16 @@ export interface ApplyEditsInFlight {
   currentFile: string | null;
   failureCount: number;
   cancelling: boolean;
+}
+
+export interface TagOutcomeEntry {
+  tag: string;
+  kind: string;
+  sent: Variant | null;
+  beforeDisplay: Variant | null;
+  observedDisplay: Variant | null;
+  observedRaw: Variant | null;
+  message: string | null;
 }
 
 // ── Event payloads from Rust ──────────────────────────────────────────────────
@@ -316,4 +335,10 @@ export interface ApplyEditsProgressPayload {
   applied: boolean;
   error: string | null;
   fresh_metadata: Record<string, Variant> | null;
+  /**
+   * Per-tag verification outcomes (Phase 8.1).  The Rust side prunes
+   * Match/DeleteOk drafts on its own; the frontend mirrors those drops
+   * locally and accumulates the rest into pendingOutcomes for triage.
+   */
+  tag_outcomes: import("./types/generated/TagOutcome").TagOutcome[];
 }

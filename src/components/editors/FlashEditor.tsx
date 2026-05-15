@@ -155,11 +155,6 @@ export function FlashEditor({ propertyKey, initialCode, onSave, onCancel }: Prop
   );
 }
 
-/**
- * Recognise Flash tags by name.  Multiple group prefixes carry the same
- * conceptual tag (`EXIF:Flash`, `IFD0:Flash`, `MakerNotes:Flash` …) — match
- * any `*:Flash` so the editor lights up wherever exiftool exposes it.
- */
-export function isFlashTag(key: string): boolean {
-  return /^[\w-]+:Flash$/.test(key);
-}
+// Phase 8.2: matcher moved into src/metadata/tag_overrides.ts so all editor
+// overrides live in one file.  Re-exported here for backward compatibility.
+export { isFlashTag } from "../../metadata/tag_overrides";
