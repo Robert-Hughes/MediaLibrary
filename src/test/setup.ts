@@ -7,6 +7,18 @@ import { cleanup } from "@testing-library/react";
 // can hit elements left behind by test N and fail with confusing errors.
 afterEach(() => {
   cleanup();
+  // Components persist UI preferences (e.g. GalleryView's
+  // gallery-info-toggle state, GALLERY_DETAILS_VISIBLE_KEY) to localStorage.
+  // jsdom shares one localStorage across every test in the file, so a
+  // toggle in test N flipped the persisted value and test N+1 mounts with
+  // a non-default initial state.  The discardAllBtn flake in
+  // draft-metadata-editing.test.tsx ("can edit and discard…") came from
+  // exactly this: the first gallery-info-toggle click persisted "1", the
+  // close-then-reopen restored details=visible, and the second toggle
+  // click hid the details pane — making the discard-all button absent.
+  // Wiping localStorage between tests gives every test the production-
+  // default initial UI state.
+  try { localStorage.clear(); } catch { /* jsdom may have torn it down */ }
 });
 
 // jsdom does not implement IntersectionObserver — provide a no-op stub so
