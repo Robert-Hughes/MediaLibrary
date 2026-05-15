@@ -6,6 +6,7 @@ import {
   FlashEditor,
   decodeFlashCode,
   encodeFlashFields,
+  describeFlashCode,
   isFlashTag,
 } from "../components/editors/FlashEditor";
 
@@ -101,7 +102,21 @@ describe("FlashEditor", () => {
     );
     fireEvent.click(screen.getByTestId("flash-editor-red-eye"));
     fireEvent.click(screen.getByTestId("flash-editor-save"));
-    expect(onSave.mock.calls[0][0]).toEqual({ value: 89, intent: "Set" });
+    expect(onSave.mock.calls[0][0]).toMatchObject({ value: 89, intent: "Set" });
+    expect(onSave.mock.calls[0][0].display).toMatch(/Fired/);
+    expect(onSave.mock.calls[0][0].display).toMatch(/Red-eye reduction/);
+  });
+});
+
+describe("describeFlashCode", () => {
+  it("describes fired + auto + red-eye", () => {
+    expect(describeFlashCode(decodeFlashCode(89))).toBe("Fired, Auto, Red-eye reduction");
+  });
+  it("collapses to 'No flash function' when that bit is set", () => {
+    expect(describeFlashCode(decodeFlashCode(0b100000))).toBe("No flash function");
+  });
+  it("describes did-not-fire when bit 0 is clear", () => {
+    expect(describeFlashCode(decodeFlashCode(0))).toBe("Did not fire");
   });
 });
 

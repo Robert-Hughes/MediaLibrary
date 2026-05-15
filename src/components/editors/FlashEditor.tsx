@@ -56,6 +56,25 @@ export function encodeFlashFields(f: FlashFields): number {
   );
 }
 
+/**
+ * Compose a human-readable description from the field bag — used for the
+ * DraftEdit.display string so the pending-change cell shows "Flash fired,
+ * Auto, Red-eye reduction" instead of a bare integer code.  Roughly mirrors
+ * exiftool's PrintConv for the Flash tag.
+ */
+export function describeFlashCode(f: FlashFields): string {
+  const parts: string[] = [];
+  if (f.noFunction) {
+    parts.push("No flash function");
+  } else {
+    parts.push(f.fired ? "Fired" : "Did not fire");
+    if (f.mode !== 0) parts.push(MODE_LABELS[f.mode]);
+    if (f.returnStatus !== 0) parts.push(RETURN_LABELS[f.returnStatus]);
+    if (f.redEye) parts.push("Red-eye reduction");
+  }
+  return parts.join(", ");
+}
+
 const MODE_LABELS: Record<number, string> = {
   0: "Unknown",
   1: "Compulsory firing",
@@ -80,7 +99,7 @@ export function FlashEditor({ propertyKey, initialCode, onSave, onCancel, header
 
   const handleSave = () => {
     if (readOnly) return;
-    onSave({ value: code, intent: "Set" });
+    onSave({ value: code, intent: "Set", display: describeFlashCode(fields) });
   };
 
   return (
