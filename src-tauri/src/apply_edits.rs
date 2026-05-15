@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use std::process::Command;
 
@@ -411,26 +411,29 @@ fn verify_list_remove(
 }
 
 /// Verify a `Delete` intent.  Phase 8.9: typed absence — tag is "gone" iff
-/// it is missing from the raw map or its raw value is `Variant::Null`.  The
-/// previous implementation `format!("{:?}", v).is_empty()`-tested non-string
-/// values and so always reported lingering for e.g. `Variant::Integer(0)`.
+/// it is missing (or `Variant::Null` / empty string) in *both* the display
+/// and raw views.  Earlier versions checked only `fresh_raw`, which let a
+/// silent Pass B failure (`scanner.rs` logs "raw_metadata will be empty for
+/// this batch") report DeleteOk while the display map still held the tag.
 fn verify_delete(
     key: &str,
     fresh_raw: &HashMap<String, Variant>,
     fresh_display: &HashMap<String, Variant>,
 ) -> (String, Option<String>) {
-    let absent = match fresh_raw.get(key) {
-        None => true,
-        Some(Variant::Null) => true,
-        // Empty string is also "gone" by exiftool's convention for some
-        // string-typed tags after a `-TAG=` clear.
-        Some(Variant::String(s)) if s.is_empty() => true,
-        _ => false,
-    };
-    if absent {
+    fn looks_absent(v: Option<&Variant>) -> bool {
+        match v {
+            None => true,
+            Some(Variant::Null) => true,
+            // Empty string is also "gone" by exiftool's convention for some
+            // string-typed tags after a `-TAG=` clear.
+            Some(Variant::String(s)) if s.is_empty() => true,
+            _ => false,
+        }
+    }
+    if looks_absent(fresh_raw.get(key)) && looks_absent(fresh_display.get(key)) {
         ("DeleteOk".to_string(), None)
     } else {
-        let v = fresh_raw.get(key).or_else(|| fresh_display.get(key));
+        let v = fresh_display.get(key).or_else(|| fresh_raw.get(key));
         let reason = format!(
             "Delete verification failed for {}: tag still present (post-write value: {:?})",
             key, v
@@ -439,15 +442,26 @@ fn verify_delete(
     }
 }
 
-/// Strict (byte-identical) Variant equality with no float epsilon, no
-/// multiset promotion, no scalar-to-list promotion, no cross-type fallback.
-/// Used to distinguish Match from Coerced.
+/// Strict Variant equality used to distinguish Match from Coerced.  No
+/// multiset promotion, no scalar↔list promotion, no cross-type fallback —
+/// the post-write value's shape must mirror what we sent.
+///
+/// Floats use a tight epsilon (`STRICT_FLOAT_EPS`) rather than bit-identity:
+/// exiftool round-trips through Perl's NV → rational → string → NV pipeline
+/// for many tags, so the bit pattern often differs by a ULP from what we
+/// sent even when the user's intent was preserved.  Bit-strict equality
+/// would falsely report Coerced for every such write.  The epsilon is
+/// chosen to be tighter than `matches_variant`'s loose 1e-6 so the
+/// Match/Coerced split still surfaces real normalisations (5 → 5/1 stored
+/// as 5.0 stays Match; 0.004 → 1/250 → 0.004000000000000001 stays Match;
+/// 0.5 → 0.6 trips Coerced via the loose check, then Mismatch).
+const STRICT_FLOAT_EPS: f64 = 1e-9;
 fn variant_strict_eq(a: &Variant, b: &Variant) -> bool {
     match (a, b) {
         (Variant::Null, Variant::Null) => true,
         (Variant::Bool(x), Variant::Bool(y)) => x == y,
         (Variant::Integer(x), Variant::Integer(y)) => x == y,
-        (Variant::Float(x), Variant::Float(y)) => x.to_bits() == y.to_bits(),
+        (Variant::Float(x), Variant::Float(y)) => (x - y).abs() < STRICT_FLOAT_EPS,
         (Variant::String(x), Variant::String(y)) => x == y,
         (Variant::List(x), Variant::List(y)) => {
             x.len() == y.len() && x.iter().zip(y.iter()).all(|(a, b)| variant_strict_eq(a, b))
@@ -463,10 +477,22 @@ fn variant_strict_eq(a: &Variant, b: &Variant) -> bool {
 /// Type-aware Variant equality.  Bag is multiset, Seq is ordered (Phase 8.6).
 /// `kind` may be None when the tag isn't in the registry; in that case we
 /// fall back to multiset semantics for lists (most XMP list tags are Bag-shaped).
+///
+/// Recursive calls thread the appropriate inner kind so a `Seq<Bag<Text>>`
+/// keeps Seq-ordered at the outer level and Bag-multiset at each element,
+/// and a `Bag<Struct>` recurses into the struct's field map for per-field
+/// kind awareness.
 fn matches_variant(actual: Option<&Variant>, expected: &Variant, kind: Option<&TagKind>) -> bool {
     let actual = match actual {
         Some(v) => v,
         None => return matches!(expected, Variant::Null),
+    };
+    // Resolve the inner kind for one level of List recursion.
+    let list_inner: Option<&TagKind> = match kind {
+        Some(TagKind::Bag(inner)) | Some(TagKind::Seq(inner)) | Some(TagKind::Alt(inner)) => {
+            Some(inner.as_ref())
+        }
+        _ => None,
     };
     match (actual, expected) {
         (Variant::Null, Variant::Null) => true,
@@ -483,13 +509,13 @@ fn matches_variant(actual: Option<&Variant>, expected: &Variant, kind: Option<&T
             let ordered = matches!(kind, Some(TagKind::Seq(_)));
             if ordered {
                 if a.len() != b.len() { return false; }
-                a.iter().zip(b.iter()).all(|(x, y)| matches_variant(Some(x), y, None))
+                a.iter().zip(b.iter()).all(|(x, y)| matches_variant(Some(x), y, list_inner))
             } else {
                 if a == b { return true; }
                 if a.len() != b.len() { return false; }
                 let mut bb: Vec<&Variant> = b.iter().collect();
                 for item in a {
-                    if let Some(pos) = bb.iter().position(|x| matches_variant(Some(*x), item, None)) {
+                    if let Some(pos) = bb.iter().position(|x| matches_variant(Some(*x), item, list_inner)) {
                         bb.swap_remove(pos);
                     } else {
                         return false;
@@ -499,19 +525,30 @@ fn matches_variant(actual: Option<&Variant>, expected: &Variant, kind: Option<&T
             }
         }
         (Variant::Object(a), Variant::Object(b)) => {
-            // Per-key recursion (LangAlt is map-of-language-codes).  Strict
-            // key set equality, type-aware value equality.
+            // Per-key recursion.  When the kind is Struct, look up each
+            // field's own kind so nested lists keep ordered/multiset
+            // semantics; LangAlt is map-of-lang-code → text so per-value
+            // kind is None and falls back to scalar equality.
             if a.len() != b.len() { return false; }
-            a.iter().all(|(k, v)| b.get(k).map_or(false, |v2| matches_variant(Some(v), v2, None)))
+            let field_kinds: Option<&BTreeMap<String, TagKind>> = match kind {
+                Some(TagKind::Struct(fields)) => Some(fields),
+                _ => None,
+            };
+            a.iter().all(|(k, v)| {
+                b.get(k).map_or(false, |v2| {
+                    let inner = field_kinds.and_then(|f| f.get(k));
+                    matches_variant(Some(v), v2, inner)
+                })
+            })
         }
         // Single scalar accepted against a one-element list (and vice versa).
         // exiftool naturally promotes a scalar into a Bag when the tag is a
         // list type — the verifier should treat that promotion as a match.
         (Variant::List(items), other) if items.len() == 1 => {
-            matches_variant(Some(&items[0]), other, None)
+            matches_variant(Some(&items[0]), other, list_inner)
         }
         (other, Variant::List(items)) if items.len() == 1 => {
-            matches_variant(Some(other), &items[0], None)
+            matches_variant(Some(other), &items[0], list_inner)
         }
         // Cross-type fallback: stringify both and compare.  This catches
         // numeric-as-string round-trips from exiftool.
@@ -926,6 +963,84 @@ mod tests {
         let raw = map(&[("X", Variant::String(String::new()))]);
         let (kind, _) = verify_delete("X", &raw, &display);
         assert_eq!(kind, "DeleteOk");
+    }
+
+    // ── verify_delete needs absence in BOTH display and raw maps ─────────────
+
+    #[test]
+    fn verify_delete_lingering_when_only_raw_is_absent() {
+        // Pass B (raw) silently failed for this batch, so raw map is empty,
+        // but the display map still holds the tag — design wants the
+        // disagreement surfaced as DeleteLingering, not DeleteOk.
+        let display = map(&[("X", Variant::String("still here".into()))]);
+        let raw = HashMap::new();
+        let (kind, msg) = verify_delete("X", &raw, &display);
+        assert_eq!(kind, "DeleteLingering");
+        assert!(msg.unwrap().contains("still present"));
+    }
+
+    #[test]
+    fn verify_delete_ok_when_both_views_absent() {
+        let display = HashMap::new();
+        let raw = HashMap::new();
+        let (kind, _) = verify_delete("X", &raw, &display);
+        assert_eq!(kind, "DeleteOk");
+    }
+
+    // ── variant_strict_eq float epsilon (Phase 8 fix-up) ─────────────────────
+
+    #[test]
+    fn variant_strict_eq_floats_within_strict_eps_are_equal() {
+        // exiftool round-trips 0.004 (= 1/250) through a rational form and may
+        // re-emit a value differing by a ULP.  Strict equality must allow this
+        // so the apply path reports Match, not Coerced.
+        assert!(variant_strict_eq(&Variant::Float(0.004), &Variant::Float(0.004 + 1e-12)));
+    }
+
+    #[test]
+    fn variant_strict_eq_floats_outside_strict_eps_are_not_equal() {
+        // A meaningful divergence still trips Coerced (and the loose check
+        // then decides whether it's Coerced or Mismatch).
+        assert!(!variant_strict_eq(&Variant::Float(0.004), &Variant::Float(0.005)));
+    }
+
+    // ── matches_variant kind threading (Phase 8 fix-up) ──────────────────────
+
+    #[test]
+    fn matches_variant_threads_inner_kind_for_seq_of_seq() {
+        // Outer Seq is ordered; inner Seq is ordered too.  Reversing the
+        // inner element order must not match.
+        let a = Variant::List(vec![Variant::List(vec![
+            Variant::String("a".into()),
+            Variant::String("b".into()),
+        ])]);
+        let b = Variant::List(vec![Variant::List(vec![
+            Variant::String("b".into()),
+            Variant::String("a".into()),
+        ])]);
+        let outer = TagKind::Seq(Box::new(TagKind::Seq(Box::new(TagKind::Text))));
+        assert!(!matches_variant(Some(&a), &b, Some(&outer)),
+            "Seq<Seq<Text>> must stay ordered through recursion");
+    }
+
+    #[test]
+    fn matches_variant_threads_struct_field_kinds() {
+        // Struct field `tags` is Seq — so reversing inside that field must
+        // not match even though the outer struct compares per-key.
+        let mut a_obj: BTreeMap<String, Variant> = BTreeMap::new();
+        a_obj.insert("tags".to_string(),
+            Variant::List(vec![Variant::String("x".into()), Variant::String("y".into())]));
+        let mut b_obj: BTreeMap<String, Variant> = BTreeMap::new();
+        b_obj.insert("tags".to_string(),
+            Variant::List(vec![Variant::String("y".into()), Variant::String("x".into())]));
+        let mut fields: BTreeMap<String, TagKind> = BTreeMap::new();
+        fields.insert("tags".to_string(), TagKind::Seq(Box::new(TagKind::Text)));
+        let kind = TagKind::Struct(fields);
+        assert!(!matches_variant(
+            Some(&Variant::Object(a_obj)),
+            &Variant::Object(b_obj),
+            Some(&kind),
+        ));
     }
 
     // ── 8.1: Match retains tags_to_clear; Coerced does not ───────────────────
