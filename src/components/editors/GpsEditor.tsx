@@ -29,6 +29,10 @@ interface Props {
   initialLatRef: "N" | "S";
   initialLonDecimal: number | null;
   initialLonRef: "E" | "W";
+  /** Phase 8 fix-up — paired GPSAltitude (metres). Empty string clears the tag. */
+  initialAltitudeMetres?: number | null;
+  /** "above" → AltitudeRef=0, "below" → AltitudeRef=1. */
+  initialAltitudeRef?: "above" | "below";
   onSave: (edits: Array<{ key: string; edit: DraftEdit }>) => void;
   onCancel: () => void;
 }
@@ -39,6 +43,8 @@ export function GpsEditor({
   initialLatRef,
   initialLonDecimal,
   initialLonRef,
+  initialAltitudeMetres,
+  initialAltitudeRef,
   onSave,
   onCancel,
 }: Props) {
@@ -46,6 +52,12 @@ export function GpsEditor({
   const [latRef, setLatRef] = useState<"N" | "S">(initialLatRef);
   const [lonDecimal, setLonDecimal] = useState<string>(initialLonDecimal === null ? "" : String(initialLonDecimal));
   const [lonRef, setLonRef] = useState<"E" | "W">(initialLonRef);
+  const [altMetres, setAltMetres] = useState<string>(
+    initialAltitudeMetres === null || initialAltitudeMetres === undefined
+      ? ""
+      : String(Math.abs(initialAltitudeMetres)),
+  );
+  const [altRef, setAltRef] = useState<"above" | "below">(initialAltitudeRef ?? "above");
   const [error, setError] = useState<string | null>(null);
 
   const handleSave = () => {
@@ -59,11 +71,28 @@ export function GpsEditor({
       setError("Longitude must be 0–180 (use E/W for hemisphere).");
       return;
     }
+    // Altitude is optional. Empty input keeps the existing on-disk altitude
+    // untouched by emitting no draft for the altitude pair.
+    const altTrim = altMetres.trim();
+    let altitudeEdits: Array<{ key: string; edit: DraftEdit }> = [];
+    if (altTrim !== "") {
+      const alt = parseFloat(altTrim);
+      if (!Number.isFinite(alt) || alt < 0) {
+        setError("Altitude must be a non-negative number of metres (use above/below for sign).");
+        return;
+      }
+      altitudeEdits = [
+        { key: group.altitudeKey, edit: { value: alt, intent: "Set" } },
+        // exiftool encodes AltitudeRef as 0 (above sea level) or 1 (below).
+        { key: group.altitudeRefKey, edit: { value: altRef === "above" ? 0 : 1, intent: "Set" } },
+      ];
+    }
     onSave([
       { key: group.latitudeKey, edit: { value: lat, intent: "Set" } },
       { key: group.latitudeRefKey, edit: { value: latRef, intent: "Set" } },
       { key: group.longitudeKey, edit: { value: lon, intent: "Set" } },
       { key: group.longitudeRefKey, edit: { value: lonRef, intent: "Set" } },
+      ...altitudeEdits,
     ]);
   };
 
@@ -73,9 +102,12 @@ export function GpsEditor({
         <h3>Edit GPS location</h3>
         <div className="dialog-body">
           <p className="dialog-hint" data-testid="gps-editor-warning">
-            Editing GPS coordinates writes <code>{group.latitudeKey}</code>,{" "}
-            <code>{group.latitudeRefKey}</code>, <code>{group.longitudeKey}</code>, and{" "}
-            <code>{group.longitudeRefKey}</code> together.
+            Editing GPS location writes <code>{group.latitudeKey}</code>,{" "}
+            <code>{group.latitudeRefKey}</code>, <code>{group.longitudeKey}</code>,{" "}
+            <code>{group.longitudeRefKey}</code>
+            {", and (when altitude is filled in) "}
+            <code>{group.altitudeKey}</code>{", "}<code>{group.altitudeRefKey}</code>{" "}
+            together.
           </p>
           <div className="gps-editor-row">
             <label>Latitude:</label>
@@ -125,6 +157,30 @@ export function GpsEditor({
             >
               <option value="E">E</option>
               <option value="W">W</option>
+            </select>
+          </div>
+          <div className="gps-editor-row">
+            <label>Altitude (m):</label>
+            <input
+              type="number"
+              step="any"
+              min="0"
+              value={altMetres}
+              onChange={(e) => {
+                setAltMetres(e.target.value);
+                setError(null);
+              }}
+              placeholder="optional"
+              data-testid="gps-editor-alt-input"
+              className="dialog-input"
+            />
+            <select
+              value={altRef}
+              onChange={(e) => setAltRef(e.target.value as "above" | "below")}
+              data-testid="gps-editor-alt-ref"
+            >
+              <option value="above">above sea level</option>
+              <option value="below">below sea level</option>
             </select>
           </div>
           {error && (

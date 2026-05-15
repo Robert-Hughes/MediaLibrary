@@ -15,6 +15,8 @@ const exampleGroup = {
   latitudeRefKey: "GPS:GPSLatitudeRef",
   longitudeKey: "GPS:GPSLongitude",
   longitudeRefKey: "GPS:GPSLongitudeRef",
+  altitudeKey: "GPS:GPSAltitude",
+  altitudeRefKey: "GPS:GPSAltitudeRef",
 };
 
 beforeEach(() => cleanup());
@@ -61,6 +63,54 @@ describe("GpsEditor", () => {
     expect(byKey["GPS:GPSLatitudeRef"]).toEqual({ value: "N", intent: "Set" });
     expect(byKey["GPS:GPSLongitude"]).toEqual({ value: 0.13, intent: "Set" });
     expect(byKey["GPS:GPSLongitudeRef"]).toEqual({ value: "W", intent: "Set" });
+  });
+
+  it("Save emits 6 paired DraftEdits when altitude is filled", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn();
+    render(
+      <GpsEditor
+        group={exampleGroup}
+        initialLatDecimal={51.5}
+        initialLatRef="N"
+        initialLonDecimal={0.13}
+        initialLonRef="W"
+        initialAltitudeMetres={null}
+        initialAltitudeRef="above"
+        onSave={onSave}
+        onCancel={() => {}}
+      />,
+    );
+    const alt = screen.getByTestId("gps-editor-alt-input") as HTMLInputElement;
+    await user.type(alt, "120.5");
+    fireEvent.click(screen.getByTestId("gps-editor-save"));
+    const edits = onSave.mock.calls[0][0] as Array<{ key: string; edit: { value: unknown; intent: string } }>;
+    expect(edits).toHaveLength(6);
+    const byKey = Object.fromEntries(edits.map((e) => [e.key, e.edit]));
+    expect(byKey["GPS:GPSAltitude"]).toEqual({ value: 120.5, intent: "Set" });
+    // exiftool encodes AltitudeRef as 0 (above) or 1 (below).
+    expect(byKey["GPS:GPSAltitudeRef"]).toEqual({ value: 0, intent: "Set" });
+  });
+
+  it("Empty altitude leaves the altitude pair untouched", () => {
+    const onSave = vi.fn();
+    render(
+      <GpsEditor
+        group={exampleGroup}
+        initialLatDecimal={51.5}
+        initialLatRef="N"
+        initialLonDecimal={0.13}
+        initialLonRef="W"
+        onSave={onSave}
+        onCancel={() => {}}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("gps-editor-save"));
+    const edits = onSave.mock.calls[0][0] as Array<{ key: string }>;
+    expect(edits).toHaveLength(4);
+    const keys = edits.map((e) => e.key);
+    expect(keys).not.toContain("GPS:GPSAltitude");
+    expect(keys).not.toContain("GPS:GPSAltitudeRef");
   });
 
   it("rejects out-of-range latitude", async () => {
