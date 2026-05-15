@@ -6,6 +6,7 @@ import userEvent from "@testing-library/user-event";
 import { NumericEditor } from "../components/editors/NumericEditor";
 import { BooleanEditor } from "../components/editors/BooleanEditor";
 import { DateTimeEditor, toIsoLocal, toExiftoolFormat } from "../components/editors/DateTimeEditor";
+import { RationalEditor } from "../components/editors/RationalEditor";
 
 beforeEach(() => cleanup());
 
@@ -162,6 +163,68 @@ describe("DateTimeEditor", () => {
     fireEvent.click(screen.getByTestId("datetime-editor-save"));
     expect(onSave).not.toHaveBeenCalled();
     expect(screen.getByTestId("datetime-editor-error")).toBeInTheDocument();
+  });
+});
+
+describe("RationalEditor", () => {
+  it("emits fraction string as display in fraction mode", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn();
+    render(
+      <RationalEditor
+        propertyKey="EXIF:ExposureTime"
+        initialValue="1/250"
+        onSave={onSave}
+        onCancel={() => {}}
+      />,
+    );
+    const num = screen.getByTestId("rational-editor-num") as HTMLInputElement;
+    const den = screen.getByTestId("rational-editor-den") as HTMLInputElement;
+    await user.clear(num);
+    await user.type(num, "1");
+    await user.clear(den);
+    await user.type(den, "8000");
+    fireEvent.click(screen.getByTestId("rational-editor-save"));
+    expect(onSave).toHaveBeenCalledOnce();
+    expect(onSave.mock.calls[0][0].display).toBe("1/8000");
+    expect(onSave.mock.calls[0][0].value).toBeCloseTo(1 / 8000, 9);
+  });
+
+  it("emits integer-form display when denominator is 1", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn();
+    render(
+      <RationalEditor
+        propertyKey="X"
+        initialValue="2/1"
+        onSave={onSave}
+        onCancel={() => {}}
+      />,
+    );
+    const num = screen.getByTestId("rational-editor-num") as HTMLInputElement;
+    await user.clear(num);
+    await user.type(num, "3");
+    fireEvent.click(screen.getByTestId("rational-editor-save"));
+    expect(onSave.mock.calls[0][0].display).toBe("3");
+  });
+
+  it("emits reduced fraction display in decimal mode", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn();
+    render(
+      <RationalEditor
+        propertyKey="X"
+        initialValue="0.5"
+        onSave={onSave}
+        onCancel={() => {}}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("rational-editor-mode-decimal"));
+    const dec = screen.getByTestId("rational-editor-decimal") as HTMLInputElement;
+    await user.clear(dec);
+    await user.type(dec, "0.004");
+    fireEvent.click(screen.getByTestId("rational-editor-save"));
+    expect(onSave.mock.calls[0][0].display).toBe("1/250");
   });
 });
 
