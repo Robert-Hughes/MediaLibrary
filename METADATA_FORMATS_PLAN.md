@@ -32,6 +32,8 @@ Open and resolved design questions live in `QUESTIONS.md` — read it before wor
 | 7 — integration test tier scaffold | done | `1cf678c` |
 | 7 — fixture corpus (10 fixtures, 18 integration tests) | done | `e1043cf` + `7062695` + `2fdad87` + `609136f` + `24b9da9` + `83cc7ac` |
 | 7 — non-JPEG format-coverage fixtures (PNG/TIFF/HEIC/MOV/RAW) + unwritable-tag test | **deferred** | needs real source files for each format |
+| 8 — design-gap closure (see Phase 8 below) | **done** | (see per-item commits) |
+| 5.3 — argv preview UI | **dropped** | scope cut; not worth the surface area |
 
 ---
 
@@ -697,3 +699,113 @@ Two-pass scanner could regress. Cheap check:
 - Not auto-syncing `Keywords` ↔ `Subject` ↔ `HierarchicalSubject`. Show as separate fields; document the overlap.
 - Not silently dropping unwritable tags. Block at the UI with the registry's reason.
 - Not reimplementing exiftool's Perl PrintConv code. Pretty display comes from exiftool itself (pass A).
+- Argv preview panel (formerly Phase 5.3). Cut from scope; trust-building deemed not worth the surface area.
+
+---
+
+## Phase 8 — Design-gap closure
+
+Audit (2026-05) of code vs `METADATA_FORMATS_DESIGN.md` found the following promises unimplemented or wrong. Each item lists the design clause it satisfies and the file(s) that change.
+
+### 8.1 Coerced verification outcome
+
+Design §6 requires three outcomes (Match / Coerced / Mismatch) with user confirm-or-revert on Coerced. Current code (`src-tauri/src/apply_edits.rs:225-232`) collapses Coerced into Match — comment admits "no clean way to distinguish without re-comparing".
+
+- Re-compare strict equality (post-write `Variant` == intended `Variant`, exact). If strict fails but type-aware equality (multiset / epsilon / per-lang / recursive) succeeds, return `Outcome::Coerced { sent, observed }`.
+- Plumb `Coerced` through the apply-result IPC type to the frontend.
+- Frontend: yellow badge on the row, message `exiftool normalized: sent <a>, file holds <b>. Accept?`, two actions (Accept → clear draft; Revert → re-stage with observed value). Lives in `ApplyProgressDialog.tsx` or a new `VerifyOutcomeRow.tsx`.
+- Tests: `verify_rational_coerced_to_fraction` (sent `5`, file holds `5/1`), `verify_bool_coerced_case` (sent `"true"`, file holds `True`).
+
+### 8.2 Consolidate overrides into `src/metadata/tag_overrides.ts`
+
+Design §5 specifies one file owning all editor overrides. Currently scattered: `FlashEditor.tsx::isFlashTag`, `GpsEditor.tsx::gpsGroupFor`. No `src/metadata/` directory exists.
+
+- Create `src/metadata/tag_overrides.ts` exporting:
+  - `gpsTagGroup(tag): 'lat' | 'lon' | 'alt' | null`
+  - `isFlashTag(tag): boolean`
+  - `isDateTimeNamePattern(tag, value): boolean` (see 8.5)
+  - `OVERRIDES: Array<{ match: (tag, kind) => boolean, editor: ComponentType }>` — table the router consults before the schema-kind switch.
+- `TypedValueEditor.tsx` consults the table first, schema kind second.
+- Move `isFlashTag` and `gpsGroupFor` out of editor files; re-import.
+
+### 8.3 Unknown and Binary editor branches
+
+Design §5 table requires:
+- `Unknown` → text input + warning banner "Tag not in exiftool's writable schema; treating as raw text. Edit may be silently rejected."
+- `Binary` → read-only with "binary, not editable in app".
+
+Currently both fall through to plain text input with no notice. Add explicit branches in `TypedValueEditor.tsx` and matching test cases (`unknown_tag_shows_warning`, `binary_tag_not_editable` — already in §7.1 test matrix but unimplemented).
+
+### 8.4 Rational num/den editor
+
+Design §5 table: Rational gets numerator/denominator pair plus a decimal toggle. Current `NumericEditor.tsx` handles Rational with the same single decimal input as Real.
+
+- New `RationalEditor.tsx`:
+  - Two integer inputs (num, den), den ≥ 1.
+  - Toggle to decimal mode → single float input; converts back to a reduced rational on commit (or stores Float and lets exiftool rationalize — pick one and comment why).
+  - Commits `Variant::Float(num/den)` on save (matches the worked example in design §5).
+- Route `TagKind::Rational` to it in `TypedValueEditor.tsx`.
+- Tests: `rational_editor_toggle_modes`, `rational_editor_den_zero_rejected`.
+
+### 8.5 Date-name pattern upgrade
+
+Design §5 "Special-case overrides": tags listx returns as `string` but whose name matches `*Date*` / `*Time*` and whose value matches an exiftool date pattern should upgrade to `DateTimeEditor`.
+
+- Add `isDateTimeNamePattern(tag, value)` in `tag_overrides.ts`.
+- Router: if `kind == Text` and the predicate is true, use `DateTimeEditor`.
+- Test `datetime_string_tag_upgraded_when_name_matches`.
+
+### 8.6 Seq-ordered verification
+
+Design §6: Bag is multiset, Seq is ordered. `apply_edits.rs:290-308` treats both as multiset (comment: "Seq vs Bag is a Phase 5 refinement").
+
+- Thread the tag's `TagKind` into the verifier so it knows Bag vs Seq.
+- Bag → multiset compare (existing). Seq → element-wise ordered compare. Alt → per-language map (LangAlt path already correct — confirm).
+- Test `verify_seq_order_matters` (already in §7.1 test matrix; activate).
+
+### 8.7 DateTime in numeric write group
+
+Design §6 lists "datetime where we send raw" in Group A (numeric, `-n`). `write_args.rs:152` puts DateTime in the text group.
+
+- Move DateTime case into the numeric group selector in `write_args.rs`.
+- Re-run integration round-trip for DateTime to confirm exiftool accepts the raw `YYYY:MM:DD HH:MM:SS±ZZ:ZZ` form under `-n` (it does; record finding as a code comment per the Phase 5 implementor's note).
+
+### 8.8 Apply log: value-before snapshot
+
+Design §6: "timestamp, file path, tag, intent, full argv, value before, value after, outcome". `apply_log.rs:26-46` records `intended_value`, `argv`, `after_display`, `after_raw` — no pre-write value.
+
+- Add `before: Option<Variant>` to the log entry struct (Option because new properties have no prior value).
+- Capture the original `Variant` from the pre-write `ImageMetadata.raw[tag]` at the call site in `apply_edits.rs` and pass it through.
+- Bump apply-log schema version field; document in the file's header comment.
+
+### 8.9 Delete-verification fragility
+
+`apply_edits.rs:188-208` formats non-string post-write values via `format!("{:?}", v)` then checks `is_empty()`. Debug format of `Variant::Integer(0)` etc. is never empty → false "tag still present" reports for Delete intent.
+
+- Replace the string-format check with a typed predicate: tag is "absent" iff the post-write `ImageMetadata.raw` map has no entry for the key, or the entry is `Variant::Null`.
+- Delete `format!("{:?}", v).is_empty()` branch.
+- Test `verify_delete_typed_absence` (Delete on Rating; assert post-write absence detected even when exiftool leaves a default-zero composite elsewhere).
+
+### 8.10 Seq reorder UI
+
+Design §5: `Seq<Text>` is "chip editor with reorder". `BagEditor.tsx` is reused for Seq with no reorder affordance.
+
+- Either: split into `SeqEditor.tsx` with drag-handle reorder (HTML5 drag or `dnd-kit`), or extend `BagEditor` with an `ordered` prop that enables drag handles.
+- Router sends `Bag<Text>` → BagEditor (no reorder), `Seq<Text>` → SeqEditor (reorder).
+- Test `seq_editor_reorder` (already in §7.1 test matrix; activate).
+
+---
+
+### Sequencing
+
+Independent items; each is one or two files. Suggested order by user impact:
+
+1. 8.1 Coerced outcome — biggest correctness win; user currently can't tell when exiftool changed their value.
+2. 8.8 + 8.9 apply-log + delete-verify — forensics and Delete correctness.
+3. 8.7 DateTime write group — silent latent bug.
+4. 8.6 Seq verify — silent latent bug.
+5. 8.2 + 8.3 + 8.5 overrides consolidation, Unknown/Binary branches, date-name upgrade — one frontend touch.
+6. 8.4 Rational editor — nice-to-have.
+7. 8.10 Seq reorder UI — nice-to-have.
+
+Each ships as its own commit.

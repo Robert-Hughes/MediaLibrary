@@ -11,6 +11,7 @@ import { GalleryView } from "./components/GalleryView";
 import { StatusFooter } from "./components/StatusFooter";
 import { ColumnSelectionDialog } from "./components/ColumnSelectionDialog";
 import { ApplyProgressDialog } from "./components/ApplyProgressDialog";
+import { VerifyOutcomeDialog } from "./components/VerifyOutcomeDialog";
 import { ErrorBanner } from "./components/ErrorBanner";
 import { sortPhotos, shouldSuspendSorting } from "./utils/sorting";
 import { filterPhotosForListSearch } from "./utils/listSearchFilter";
@@ -229,6 +230,15 @@ function LoadedView({
         <ApplyProgressDialog
           applying={state.applying}
           onCancel={actions.cancelApplyEdits}
+        />
+      )}
+      {!state.applying && Object.keys(state.verifyOutcomes ?? {}).length > 0 && (
+        <VerifyOutcomeDialog
+          outcomes={state.verifyOutcomes}
+          onAccept={actions.acceptVerifyOutcome}
+          onRevert={actions.revertVerifyOutcome}
+          onDismiss={actions.dismissVerifyOutcome}
+          onDismissAll={actions.dismissAllVerifyOutcomes}
         />
       )}
       {state.scanning && <StatusFooter message="Discovering files…" />}

@@ -220,6 +220,10 @@ struct ThumbnailResult {
 }
 
 /// Emitted by apply_draft_edits_cmd after each file is processed.
+///
+/// `tag_outcomes` carries the per-tag verification result so the frontend
+/// can surface Coerced (yellow accept-or-revert) and Mismatch entries to the
+/// user without re-querying the backend.
 #[derive(Clone, Serialize)]
 struct ApplyEditsProgressPayload {
     current: usize,
@@ -228,6 +232,7 @@ struct ApplyEditsProgressPayload {
     applied: bool,
     error: Option<String>,
     fresh_metadata: Option<std::collections::HashMap<String, scanner::Variant>>,
+    tag_outcomes: Vec<apply_edits::TagOutcome>,
 }
 
 /// Emitted by apply_draft_edits_cmd before the first file is processed,
@@ -739,11 +744,23 @@ fn apply_draft_edits_cmd(
         let outcome = apply_edits::apply_single_file_typed(&folder_path, rel_path, &edits);
         let was_applied = outcome.error.is_none();
 
-        // Persist incrementally.
-        if was_applied {
-            all_drafts.remove(rel_path.as_str());
-            if let Err(e) = draft_edits::save_typed_draft_edits(&folder_path, &all_drafts) {
-                log::warn!("[apply_edits] Warning: failed to persist draft removal for {}: {}", rel_path, e);
+        // Persist incrementally.  Phase 8.1: prune only the per-tag drafts
+        // whose outcomes are conclusively safe to drop (Match / DeleteOk).
+        // Coerced and Mismatch entries stay so the user can accept-or-revert
+        // (Coerced) or fix the underlying problem (Mismatch).  Previously the
+        // whole file's draft map was wiped on success, which hid Coerced from
+        // the user the moment exiftool returned a normalised value.
+        if !outcome.tags_to_clear.is_empty() {
+            if let Some(file_drafts) = all_drafts.get_mut(rel_path.as_str()) {
+                for tag in &outcome.tags_to_clear {
+                    file_drafts.remove(tag);
+                }
+                if file_drafts.is_empty() {
+                    all_drafts.remove(rel_path.as_str());
+                }
+                if let Err(e) = draft_edits::save_typed_draft_edits(&folder_path, &all_drafts) {
+                    log::warn!("[apply_edits] Warning: failed to persist draft removal for {}: {}", rel_path, e);
+                }
             }
         }
 
@@ -754,6 +771,7 @@ fn apply_draft_edits_cmd(
             applied: was_applied,
             error: outcome.error.clone(),
             fresh_metadata: outcome.fresh_metadata.clone(),
+            tag_outcomes: outcome.outcomes.clone(),
         });
 
         if let Some(meta) = outcome.fresh_metadata {

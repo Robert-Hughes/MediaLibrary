@@ -17,13 +17,11 @@
 
 import { useState } from "react";
 import type { DraftEdit } from "../../types";
+import { gpsTagGroup, type GpsTagGroup } from "../../metadata/tag_overrides";
 
-export interface GpsTagGroup {
-  latitudeKey: string;
-  latitudeRefKey: string;
-  longitudeKey: string;
-  longitudeRefKey: string;
-}
+// Re-export so existing call sites that imported the type from here keep
+// working.  Phase 8.2 moved the override matcher itself into tag_overrides.ts.
+export type { GpsTagGroup };
 
 interface Props {
   group: GpsTagGroup;
@@ -149,34 +147,10 @@ export function GpsEditor({
 }
 
 /**
- * Given a key like `GPS:GPSLatitude` or `XMP-exif:GPSLatitude`, return the
- * paired-tag group covering the same coordinate set.  Returns `null` if the
- * key doesn't look like a GPS coord (so the router can fall through to the
- * default editor).
+ * Backward-compatible alias for the consolidated `gpsTagGroup`.
+ * Kept so older imports (`gpsGroupFor`) still resolve.
  */
-export function gpsGroupFor(key: string): GpsTagGroup | null {
-  // Match common prefixes: "GPS:" (exiftool group), "XMP-exif:", "Composite:".
-  const m = key.match(/^([\w-]+):(GPS(?:Latitude|Longitude))(?!Ref)$/);
-  if (!m) return null;
-  const [, group, name] = m;
-  if (name === "GPSLatitude") {
-    return {
-      latitudeKey: `${group}:GPSLatitude`,
-      latitudeRefKey: `${group}:GPSLatitudeRef`,
-      longitudeKey: `${group}:GPSLongitude`,
-      longitudeRefKey: `${group}:GPSLongitudeRef`,
-    };
-  }
-  if (name === "GPSLongitude") {
-    return {
-      latitudeKey: `${group}:GPSLatitude`,
-      latitudeRefKey: `${group}:GPSLatitudeRef`,
-      longitudeKey: `${group}:GPSLongitude`,
-      longitudeRefKey: `${group}:GPSLongitudeRef`,
-    };
-  }
-  return null;
-}
+export const gpsGroupFor = gpsTagGroup;
 
 /**
  * Best-effort extraction of decimal-degrees latitude from a metadata value.

@@ -1,15 +1,26 @@
-// Schema-aware editor router (Phase 4 MVP).
+// Schema-aware editor router.
 //
-// Picks an editor component based on the tag's TagKind:
+// Picks an editor component based on the tag's TagKind plus a small set of
+// name- and pattern-based overrides centralised in
+// `src/metadata/tag_overrides.ts`.  See METADATA_FORMATS_DESIGN.md §5 for
+// the full table.
 //
-// - Bag<Text>   → BagEditor (chip list; first concrete typed editor)
-// - Seq<Text>   → BagEditor (with order preserved by typed-list save)
-// - everything  → legacy ValueEditDialog (single text input)
+// Lookup precedence (Phase 8):
 //
-// As more typed editors land (LangAlt, Enum, Integer, GPS, Flash, Struct),
-// they get added as cases here.  The fallback to ValueEditDialog keeps the
-// existing UI working for every tag we haven't migrated yet.
+//   1. Override matchers (Flash, GPS, date-name pattern).  These win even
+//      against the schema kind because the override editor is materially
+//      better than what the schema would produce.
+//   2. Schema TagKind.  Drives the regular editor table.
+//   3. Variant-shape fallbacks for tags exiftool returns as Object/struct
+//      with no schema entry.
+//   4. Plain text input as a last resort.
+//
+// Two TagKinds exist purely to satisfy design §5:
+//   - Unknown — render a text input plus a warning the user is editing a
+//                tag the schema doesn't describe.
+//   - Binary  — read-only "binary, not editable in app" message.
 
+import { useState } from "react";
 import { useTagInfo } from "../../hooks/useTagInfo";
 import type { DraftEdit, TagKind, Variant } from "../../types";
 import { ValueEditDialog } from "../ValueEditDialog";
@@ -17,12 +28,18 @@ import { BagEditor, initialItemsFrom } from "./BagEditor";
 import { EnumEditor, initialCodeFrom } from "./EnumEditor";
 import { LangAltEditor, initialLangsFrom } from "./LangAltEditor";
 import { NumericEditor } from "./NumericEditor";
+import { RationalEditor } from "./RationalEditor";
 import { BooleanEditor } from "./BooleanEditor";
 import { DateTimeEditor } from "./DateTimeEditor";
-import { GpsEditor, gpsGroupFor, parseDecimalDegrees, parseHemisphere } from "./GpsEditor";
-import { FlashEditor, isFlashTag } from "./FlashEditor";
+import { GpsEditor, parseDecimalDegrees, parseHemisphere } from "./GpsEditor";
+import { FlashEditor } from "./FlashEditor";
 import { StructEditor, initialObjectFrom } from "./StructEditor";
 import { variantToDisplayString } from "../../draft";
+import {
+  gpsTagGroup,
+  isFlashTag,
+  isDateTimeNamePattern,
+} from "../../metadata/tag_overrides";
 
 interface Props {
   propertyKey: string;
@@ -54,9 +71,7 @@ export function TypedValueEditor({
 }: Props) {
   const tag = useTagInfo(propertyKey);
 
-  // Flash override (name-matched, takes precedence over the schema's
-  // generic Enum<Integer> view because the bitfield decoder makes the
-  // user experience far better than a flat dropdown of 0–127 codes).
+  // ── Override 1: Flash bitfield ─────────────────────────────────────────
   if (isFlashTag(propertyKey)) {
     const code =
       typeof initialVariant === "number"
@@ -72,9 +87,8 @@ export function TypedValueEditor({
     );
   }
 
-  // GPS override (name-matched, not schema-kind-matched): writable only when
-  // we have a multi-tag save callback because the editor writes 4 paired tags.
-  const gpsGroup = onSaveBatch ? gpsGroupFor(propertyKey) : null;
+  // ── Override 2: GPS composite editor (writable only with paired-batch save). ─
+  const gpsGroup = onSaveBatch ? gpsTagGroup(propertyKey) : null;
   if (gpsGroup && metadataForFile) {
     const latVal = metadataForFile[gpsGroup.latitudeKey];
     const lonVal = metadataForFile[gpsGroup.longitudeKey];
@@ -111,6 +125,7 @@ export function TypedValueEditor({
       <BagEditor
         propertyKey={propertyKey}
         initialItems={initialItems}
+        ordered={tag.kind.kind === "Seq"}
         onSave={onSave}
         onCancel={onCancel}
       />
@@ -132,7 +147,20 @@ export function TypedValueEditor({
     );
   }
 
-  if (tag && (tag.kind.kind === "Integer" || tag.kind.kind === "Real" || tag.kind.kind === "Rational")) {
+  // Phase 8.4: Rational gets a dedicated num/den editor.  Integer / Real
+  // continue to use the single-input NumericEditor.
+  if (tag && tag.kind.kind === "Rational") {
+    return (
+      <RationalEditor
+        propertyKey={propertyKey}
+        initialValue={initialString}
+        onSave={onSave}
+        onCancel={onCancel}
+      />
+    );
+  }
+
+  if (tag && (tag.kind.kind === "Integer" || tag.kind.kind === "Real")) {
     const min = tag.kind.kind === "Integer" ? tag.kind.data.min : null;
     const max = tag.kind.kind === "Integer" ? tag.kind.data.max : null;
     return (
@@ -205,6 +233,28 @@ export function TypedValueEditor({
     );
   }
 
+  // ── Phase 8.3: Binary — read-only with explanation. ───────────────────
+  if (tag && tag.kind.kind === "Binary") {
+    return (
+      <div className="dialog-overlay" data-testid="binary-editor-overlay">
+        <div className="dialog-content">
+          <h3>{propertyKey}</h3>
+          <div className="dialog-body">
+            <p className="dialog-hint" data-testid="binary-editor-message">
+              This tag holds binary data and is not editable in this app.  Use
+              ExifTool directly if you need to write it.
+            </p>
+          </div>
+          <div className="dialog-footer">
+            <button className="dialog-btn dialog-btn-primary" onClick={onCancel}>
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // Also route Variant::Object values that come through tags whose schema
   // claims Text — common for tags listx doesn't describe as struct but
   // exiftool's -struct flag has nonetheless delivered as an object.  LangAlt
@@ -216,6 +266,36 @@ export function TypedValueEditor({
         initialObject={initialObjectFrom(initialVariant)}
         innerEditor={TypedValueEditor}
         onSave={onSave}
+        onCancel={onCancel}
+      />
+    );
+  }
+
+  // ── Phase 8.5: date-name pattern upgrade. ─────────────────────────────
+  // Tag is Text per schema, but its name and value both look like a date —
+  // give the user a real date picker instead of a free-form text box.
+  const dateCandidate = initialVariant ?? initialString;
+  if (
+    (!tag || tag.kind.kind === "Text" || tag.kind.kind === "Unknown")
+    && isDateTimeNamePattern(propertyKey, dateCandidate)
+  ) {
+    return (
+      <DateTimeEditor
+        propertyKey={propertyKey}
+        initialValue={initialString}
+        onSave={onSave}
+        onCancel={onCancel}
+      />
+    );
+  }
+
+  // ── Phase 8.3: Unknown — text input plus a warning. ───────────────────
+  if (tag && tag.kind.kind === "Unknown") {
+    return (
+      <UnknownEditor
+        propertyKey={propertyKey}
+        initialValue={initialString}
+        onSave={(s) => onSave({ value: s, intent: "Set" })}
         onCancel={onCancel}
       />
     );
@@ -234,3 +314,57 @@ export function TypedValueEditor({
 
 /** Pretty-print a Variant for the "initialString" prop fallback. */
 export const fallbackString = variantToDisplayString;
+
+// Local Unknown-tag editor: same shape as ValueEditDialog but with a banner
+// warning the user the schema doesn't describe this tag.  Phase 8.3.
+function UnknownEditor({
+  propertyKey,
+  initialValue,
+  onSave,
+  onCancel,
+}: {
+  propertyKey: string;
+  initialValue: string;
+  onSave: (s: string) => void;
+  onCancel: () => void;
+}) {
+  const [value, setValue] = useState(initialValue);
+  const handleKey = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") onSave(value);
+    else if (e.key === "Escape") onCancel();
+  };
+  return (
+    <div className="dialog-overlay" data-testid="unknown-editor-overlay">
+      <div className="dialog-content">
+        <h3>Edit {propertyKey}</h3>
+        <div className="dialog-body">
+          <p
+            className="dialog-hint"
+            data-testid="unknown-editor-warning"
+            style={{ color: "var(--accent-warning, #aa6)", marginBottom: 8 }}
+          >
+            ⚠ This tag is not in ExifTool's writable schema.  Treating it as
+            raw text — your edit may be silently rejected by ExifTool.
+          </p>
+          <input
+            type="text"
+            className="dialog-input"
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            onKeyDown={handleKey}
+            autoFocus
+            data-testid="unknown-editor-input"
+          />
+        </div>
+        <div className="dialog-footer">
+          <button className="dialog-btn dialog-btn-secondary" onClick={onCancel}>
+            Cancel
+          </button>
+          <button className="dialog-btn dialog-btn-primary" onClick={() => onSave(value)}>
+            Save
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
