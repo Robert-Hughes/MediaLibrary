@@ -1,12 +1,20 @@
-// Chip editor for Bag<Text> tags (XMP-dc:Subject, IPTC:Keywords, etc.).
+// Chip editor for Bag<Text> / Seq<Text> tags (XMP-dc:Subject, IPTC:Keywords,
+// XMP-dc:Creator, etc.).
 //
-// First concrete typed editor (Phase 4 MVP).  Emits a typed DraftEdit with
-// value = Variant::List([Variant::String, …]) and intent = Set.  Replaces the
-// keywords-CSV corruption mode of the legacy text input by maintaining
-// chip-level identity.
+// Each chip is a string in the editor; on save the chips are converted to
+// the inner kind (Text by default; Integer / Real / Boolean parsed if the
+// router declares one of those).  Bag<Struct> / Bag<LangAlt> are not
+// handled here — the router falls through to the schema-aware default for
+// those.
+//
+// Replaces the keywords-CSV corruption mode of the legacy text input by
+// maintaining chip-level identity all the way through the save call.
 
 import { useState, useEffect, useRef } from "react";
 import type { DraftEdit, Variant } from "../../types";
+
+/** Inner kinds this chip editor knows how to round-trip through string form. */
+export type BagInnerKind = "Text" | "Integer" | "Real" | "Boolean" | "Unknown";
 
 interface Props {
   propertyKey: string;
@@ -19,13 +27,48 @@ interface Props {
    * this false because order is not part of their semantics.
    */
   ordered?: boolean;
+  /**
+   * Phase 8 fix-up: TagKind of each chip's value.  Drives parsing on save
+   * so a `Bag<Integer>` round-trips as Variant::Integer rather than via the
+   * old string cast.
+   */
+  innerKind?: BagInnerKind;
   onSave: (edit: DraftEdit) => void;
   onCancel: () => void;
 }
 
-export function BagEditor({ propertyKey, initialItems, ordered = false, onSave, onCancel }: Props) {
+/** Convert a chip string to the appropriate Variant scalar.  Returns null
+ *  when the chip can't be parsed at the requested kind (caller falls back
+ *  to keeping it as text and surfaces an error). */
+function chipToVariant(s: string, kind: BagInnerKind): Variant | null {
+  switch (kind) {
+    case "Integer": {
+      const n = Number(s);
+      if (!Number.isFinite(n) || !Number.isInteger(n)) return null;
+      return n;
+    }
+    case "Real": {
+      const n = Number(s);
+      if (!Number.isFinite(n)) return null;
+      return n;
+    }
+    case "Boolean": {
+      const lower = s.trim().toLowerCase();
+      if (lower === "true" || lower === "1") return true;
+      if (lower === "false" || lower === "0") return false;
+      return null;
+    }
+    case "Text":
+    case "Unknown":
+    default:
+      return s;
+  }
+}
+
+export function BagEditor({ propertyKey, initialItems, ordered = false, innerKind = "Text", onSave, onCancel }: Props) {
   const [items, setItems] = useState<string[]>(initialItems);
   const [draftItem, setDraftItem] = useState("");
+  const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -76,8 +119,20 @@ export function BagEditor({ propertyKey, initialItems, ordered = false, onSave, 
     if (trimmed && !final.includes(trimmed)) {
       final = [...final, trimmed];
     }
-    const list: Variant = final.map((s) => s as Variant);
-    onSave({ value: list, intent: "Set" });
+    // Phase 8 fix-up: parse each chip per innerKind so a Bag<Integer>
+    // round-trips as Variant::Integer rather than via the previous unsound
+    // `s as Variant` cast (which only worked accidentally because Variant
+    // includes string).
+    const parsed: Variant[] = [];
+    for (const s of final) {
+      const v = chipToVariant(s, innerKind);
+      if (v === null) {
+        setError(`"${s}" is not a valid ${innerKind} value`);
+        return;
+      }
+      parsed.push(v);
+    }
+    onSave({ value: parsed, intent: "Set" });
   };
 
   return (
@@ -140,7 +195,9 @@ export function BagEditor({ propertyKey, initialItems, ordered = false, onSave, 
           <p className="dialog-hint">
             Press Enter or comma to add an item. Backspace on an empty input removes the last item.
             {ordered && " Order matters — use ↑ / ↓ to reorder."}
+            {innerKind !== "Text" && innerKind !== "Unknown" && ` Each chip will be parsed as ${innerKind}.`}
           </p>
+          {error && <p className="dialog-error" data-testid="bag-editor-error">{error}</p>}
         </div>
         <div className="dialog-footer">
           <button className="dialog-btn dialog-btn-secondary" onClick={onCancel}>

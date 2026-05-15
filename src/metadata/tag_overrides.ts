@@ -19,17 +19,21 @@ export interface GpsTagGroup {
   latitudeRefKey: string;
   longitudeKey: string;
   longitudeRefKey: string;
+  /** Phase 8 fix-up — GPSAltitude (metres) paired with its 0=above-sea-level / 1=below ref. */
+  altitudeKey: string;
+  altitudeRefKey: string;
 }
 
 /**
- * Given a key like `GPS:GPSLatitude` or `XMP-exif:GPSLatitude`, return the
- * paired-tag group covering the same coordinate set.  Returns `null` if the
- * key isn't a GPS coord.  The Ref-suffix variants (`GPSLatitudeRef`, …) are
- * intentionally excluded so the user editing the Ref directly falls through
- * to the schema router rather than getting bounced into the GPS editor.
+ * Given a key like `GPS:GPSLatitude`, `XMP-exif:GPSLongitude`, or
+ * `GPS:GPSAltitude`, return the paired-tag group covering the same
+ * coordinate triple.  Returns `null` if the key isn't a GPS coord.  The
+ * Ref-suffix variants (`GPSLatitudeRef`, `GPSAltitudeRef`, …) are
+ * intentionally excluded so editing the Ref directly falls through to the
+ * schema router rather than bouncing into the GPS composite editor.
  */
 export function gpsTagGroup(key: string): GpsTagGroup | null {
-  const m = key.match(/^([\w-]+):(GPS(?:Latitude|Longitude))(?!Ref)$/);
+  const m = key.match(/^([\w-]+):(GPS(?:Latitude|Longitude|Altitude))(?!Ref)$/);
   if (!m) return null;
   const [, group] = m;
   return {
@@ -37,6 +41,8 @@ export function gpsTagGroup(key: string): GpsTagGroup | null {
     latitudeRefKey: `${group}:GPSLatitudeRef`,
     longitudeKey: `${group}:GPSLongitude`,
     longitudeRefKey: `${group}:GPSLongitudeRef`,
+    altitudeKey: `${group}:GPSAltitude`,
+    altitudeRefKey: `${group}:GPSAltitudeRef`,
   };
 }
 

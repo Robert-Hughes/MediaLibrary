@@ -24,7 +24,7 @@ import { useState } from "react";
 import { useTagInfo } from "../../hooks/useTagInfo";
 import type { DraftEdit, TagKind, Variant } from "../../types";
 import { ValueEditDialog } from "../ValueEditDialog";
-import { BagEditor, initialItemsFrom } from "./BagEditor";
+import { BagEditor, initialItemsFrom, type BagInnerKind } from "./BagEditor";
 import { EnumEditor, initialCodeFrom } from "./EnumEditor";
 import { LangAltEditor, initialLangsFrom } from "./LangAltEditor";
 import { NumericEditor } from "./NumericEditor";
@@ -54,10 +54,27 @@ interface Props {
   onCancel: () => void;
 }
 
-function isBagOrSeqOfText(kind: TagKind): boolean {
-  if (kind.kind !== "Bag" && kind.kind !== "Seq") return false;
+/** Returns the inner BagInnerKind if `kind` is a Bag or Seq whose inner
+ *  is one of the scalar kinds the chip editor can round-trip; null otherwise.
+ *  Bag<Struct> / Bag<LangAlt> / Bag<Bag<…>> fall through to the default
+ *  router because the chip editor can't represent those without a proper
+ *  per-item nested editor (deferred). */
+function bagInnerScalar(kind: TagKind): BagInnerKind | null {
+  if (kind.kind !== "Bag" && kind.kind !== "Seq") return null;
   const inner = kind.data;
-  return inner.kind === "Text" || inner.kind === "Unknown";
+  switch (inner.kind) {
+    case "Text":
+    case "Unknown":
+      return inner.kind;
+    case "Integer":
+      return "Integer";
+    case "Real":
+      return "Real";
+    case "Boolean":
+      return "Boolean";
+    default:
+      return null;
+  }
 }
 
 export function TypedValueEditor({
@@ -92,6 +109,20 @@ export function TypedValueEditor({
   if (gpsGroup && metadataForFile) {
     const latVal = metadataForFile[gpsGroup.latitudeKey];
     const lonVal = metadataForFile[gpsGroup.longitudeKey];
+    const altVal = metadataForFile[gpsGroup.altitudeKey];
+    const altRefVal = metadataForFile[gpsGroup.altitudeRefKey];
+    // exiftool's GPSAltitudeRef is `0` (above) or `1` (below) in raw form;
+    // pretty form may render as "Above Sea Level" / "Below Sea Level".
+    let initialAltitudeRef: "above" | "below" = "above";
+    if (typeof altRefVal === "number") {
+      initialAltitudeRef = altRefVal === 1 ? "below" : "above";
+    } else if (typeof altRefVal === "string" && /below/i.test(altRefVal)) {
+      initialAltitudeRef = "below";
+    }
+    const initialAltitudeMetres =
+      typeof altVal === "number" ? altVal
+      : typeof altVal === "string" && altVal.trim() !== "" ? parseFloat(altVal)
+      : null;
     return (
       <GpsEditor
         group={gpsGroup}
@@ -99,6 +130,8 @@ export function TypedValueEditor({
         initialLatRef={parseHemisphere(metadataForFile[gpsGroup.latitudeRefKey] ?? latVal, "lat") as "N" | "S"}
         initialLonDecimal={parseDecimalDegrees(lonVal)}
         initialLonRef={parseHemisphere(metadataForFile[gpsGroup.longitudeRefKey] ?? lonVal, "lon") as "E" | "W"}
+        initialAltitudeMetres={Number.isFinite(initialAltitudeMetres as number) ? (initialAltitudeMetres as number) : null}
+        initialAltitudeRef={initialAltitudeRef}
         onSave={onSaveBatch!}
         onCancel={onCancel}
       />
@@ -119,17 +152,21 @@ export function TypedValueEditor({
     );
   }
 
-  if (tag && isBagOrSeqOfText(tag.kind)) {
-    const initialItems = initialItemsFrom(initialVariant ?? initialString);
-    return (
-      <BagEditor
-        propertyKey={propertyKey}
-        initialItems={initialItems}
-        ordered={tag.kind.kind === "Seq"}
-        onSave={onSave}
-        onCancel={onCancel}
-      />
-    );
+  if (tag) {
+    const inner = bagInnerScalar(tag.kind);
+    if (inner) {
+      const initialItems = initialItemsFrom(initialVariant ?? initialString);
+      return (
+        <BagEditor
+          propertyKey={propertyKey}
+          initialItems={initialItems}
+          ordered={tag.kind.kind === "Seq"}
+          innerKind={inner}
+          onSave={onSave}
+          onCancel={onCancel}
+        />
+      );
+    }
   }
 
   if (tag && tag.kind.kind === "Enum") {
@@ -274,10 +311,14 @@ export function TypedValueEditor({
   // ── Phase 8.5: date-name pattern upgrade. ─────────────────────────────
   // Tag is Text per schema, but its name and value both look like a date —
   // give the user a real date picker instead of a free-form text box.
-  const dateCandidate = initialVariant ?? initialString;
+  //
+  // Use `initialString` (display view) rather than `initialVariant` (raw).
+  // raw_metadata for date tags is often a number (e.g. exiftool's -n form
+  // for some camera fields) which would never match the YYYY:MM:DD…
+  // pattern; the display view is the canonical exiftool date string.
   if (
     (!tag || tag.kind.kind === "Text" || tag.kind.kind === "Unknown")
-    && isDateTimeNamePattern(propertyKey, dateCandidate)
+    && isDateTimeNamePattern(propertyKey, initialString)
   ) {
     return (
       <DateTimeEditor

@@ -440,16 +440,25 @@ fn collect_attrs(e: &quick_xml::events::BytesStart) -> BTreeMap<String, String> 
 ///
 /// exiftool type vocabulary (partial): `string`, `int8u`/`int16u`/`int32u`,
 /// `int8s`/`int16s`/`int32s`, `int64u`, `float`, `double`, `rational32u`,
-/// `rational64u`, `rational64s`, `boolean`, `date`, `lang-alt`, `struct`,
-/// `undef`, `?` (unknown). `int*` and friends → Integer; rational → Rational;
-/// float/double → Real; date → DateTime; lang-alt → LangAlt; struct → Struct
+/// `rational64u`, `rational64s`, `boolean`, `date`, `date+`, `datetime`,
+/// `lang-alt`, `struct`, `undef`, `?` (unknown).
+///
+/// `int*` and friends → Integer; rational → Rational; float/double → Real;
+/// any date-flavoured type → DateTime; lang-alt → LangAlt; struct → Struct
 /// (we leave fields empty here — populated by override table if known).
+///
+/// Phase 8 fix-up: `date+` (multiple dates) and `datetime` (XMP-flavoured
+/// alias used by some namespaces) were previously unrecognised and fell
+/// through to `Unknown`, so write_args's DateTime → numeric arm and
+/// matches_variant's DateTime epsilon never fired for them.
 fn derive_kind(type_attr: &str, count: Option<u32>, options: &[EnumOption]) -> TagKind {
     let base = match type_attr {
         "string" => TagKind::Text,
         "lang-alt" => TagKind::LangAlt,
         "boolean" => TagKind::Boolean,
-        "date" => TagKind::DateTime,
+        // Every date-shaped type exiftool emits: bare `date`, `date+` (one
+        // or more dates), and `datetime` (XMP variant).
+        "date" | "date+" | "datetime" => TagKind::DateTime,
         "struct" => TagKind::Struct(BTreeMap::new()),
         "?" | "" | "undef" => TagKind::Unknown,
         "float" | "double" | "real" => TagKind::Real,
@@ -498,6 +507,18 @@ fn apply_overrides(tags: &mut BTreeMap<String, TagInfo>) {
         // the editor will treat unknown struct fields as text. Acceptable
         // first cut; Phase 4 can populate `Struct` field maps explicitly.
         ("XMP-mwg-rs:Regions", || TagKind::Struct(BTreeMap::new())),
+        // Phase 8 fix-up: the XMP datetime tags listx reports as `string`
+        // because XMP itself doesn't constrain them at the schema level.
+        // Promoting them here means the DateTime editor lights up, the
+        // verifier compares with date-aware semantics, and write_args
+        // sends them through the numeric (-n) group per design §6.
+        ("XMP-xmp:CreateDate", || TagKind::DateTime),
+        ("XMP-xmp:ModifyDate", || TagKind::DateTime),
+        ("XMP-xmp:MetadataDate", || TagKind::DateTime),
+        ("XMP-photoshop:DateCreated", || TagKind::DateTime),
+        ("XMP-exif:DateTimeOriginal", || TagKind::DateTime),
+        ("XMP-exif:DateTimeDigitized", || TagKind::DateTime),
+        ("XMP-iptcCore:DateCreated", || TagKind::DateTime),
     ];
 
     for (key, build) in overrides {
@@ -673,6 +694,30 @@ mod tests {
     fn modify_date_is_datetime() {
         let r = fixture_registry();
         let t = r.lookup("IFD0:ModifyDate").unwrap();
+        assert!(matches!(t.kind, TagKind::DateTime));
+    }
+
+    #[test]
+    fn derive_kind_recognises_all_date_flavours() {
+        // Phase 8 fix-up: `date+` and `datetime` previously fell through to
+        // Unknown, leaving write_args's DateTime → numeric arm and the
+        // datetime override editor inert for tags carrying these types.
+        assert!(matches!(derive_kind("date", None, &[]), TagKind::DateTime));
+        assert!(matches!(derive_kind("date+", None, &[]), TagKind::DateTime));
+        assert!(matches!(derive_kind("datetime", None, &[]), TagKind::DateTime));
+    }
+
+    #[test]
+    fn xmp_datetime_overrides_promote_string_tags_to_datetime() {
+        // listx says XMP-xmp:CreateDate is a plain string because XMP doesn't
+        // constrain it at the schema level; the override table promotes the
+        // common XMP datetime tags so editors / verifier / write_args all
+        // treat them as DateTime.
+        let r = fixture_registry();
+        let t = r.lookup("XMP-xmp:CreateDate").expect("override should add the tag");
+        assert!(matches!(t.kind, TagKind::DateTime),
+            "XMP-xmp:CreateDate should be DateTime, got {:?}", t.kind);
+        let t = r.lookup("XMP-photoshop:DateCreated").expect("override should add");
         assert!(matches!(t.kind, TagKind::DateTime));
     }
 
