@@ -157,14 +157,16 @@ fn build_set(tag: &str, info: Option<&TagInfo>, value: Option<&Variant>) -> Buil
             numeric: vec![format!("-{}={}", tag, render_scalar_text(v))],
             text: vec![],
         },
-        // Struct: opaque, emit as a single JSON-encoded text value.
-        // exiftool's -struct accepts {field=value,...} syntax; we use the
-        // serde_json round-trip for safety.  Real struct editing is a Phase
-        // 4 problem and the test matrix will refine this when the editors
-        // land.
+        // Struct: emit using exiftool's -struct serialization, NOT JSON.
+        // exiftool parses struct values as `{field=value,nested={k=v},
+        // list=[a,b]}` with `\` as the escape char for the metacharacters
+        // `,{}[]=\`.  JSON would be silently mis-parsed (every quote
+        // becomes part of the field name) and verification would always
+        // mismatch — see METADATA_FORMATS_DESIGN.md §5 worked example for
+        // mwg-rs:Regions.
         (Some(TagKind::Struct(_)), Some(v)) => BuiltArgs {
             numeric: vec![],
-            text: vec![format!("-{}={}", tag, render_scalar_text(v))],
+            text: vec![format!("-{}={}", tag, render_struct_text(v))],
         },
         // Binary: not writable in this app.  Caller should have rejected.
         (Some(TagKind::Binary), _) => BuiltArgs::default(),
@@ -223,6 +225,53 @@ fn render_scalar_text(v: &Variant) -> String {
             .join(", "),
         Variant::Object(_) => serde_json::to_string(v).unwrap_or_default(),
     }
+}
+
+/// Render a `Variant` using exiftool's `-struct` serialization syntax.
+///
+/// Exiftool's struct format (see Image::ExifTool docs, "Structured
+/// Information"):
+///
+///     {field1=value1,field2={nested=val},listfield=[a,b,c]}
+///
+/// The metacharacters `, { } [ ] = \` are escaped with a leading backslash
+/// inside scalar leaves.  Empty objects become `{}`; empty lists `[]`.
+///
+/// We intentionally do NOT JSON-encode here.  exiftool does not understand
+/// JSON in struct positions, and the round-trip via `-struct` reads is the
+/// authoritative shape.
+fn render_struct_text(v: &Variant) -> String {
+    fn escape_scalar(s: &str) -> String {
+        let mut out = String::with_capacity(s.len());
+        for c in s.chars() {
+            if matches!(c, ',' | '{' | '}' | '[' | ']' | '=' | '\\') {
+                out.push('\\');
+            }
+            out.push(c);
+        }
+        out
+    }
+    fn render(v: &Variant) -> String {
+        match v {
+            Variant::Null => String::new(),
+            Variant::Bool(b) => if *b { "True".to_string() } else { "False".to_string() },
+            Variant::Integer(n) => n.to_string(),
+            Variant::Float(f) => f.to_string(),
+            Variant::String(s) => escape_scalar(s),
+            Variant::List(items) => {
+                let inner: Vec<String> = items.iter().map(render).collect();
+                format!("[{}]", inner.join(","))
+            }
+            Variant::Object(map) => {
+                let inner: Vec<String> = map
+                    .iter()
+                    .map(|(k, val)| format!("{}={}", escape_scalar(k), render(val)))
+                    .collect();
+                format!("{{{}}}", inner.join(","))
+            }
+        }
+    }
+    render(v)
 }
 
 /// Render a `Variant` for the numeric (`-n`) pass.  Bool becomes `1`/`0` so
@@ -477,6 +526,54 @@ mod tests {
         let i = info(TagKind::Rational);
         let args = build_args("EXIF:ExposureTime", Some(&i), &set(Variant::Float(0.004)));
         assert_eq!(args.numeric, vec!["-EXIF:ExposureTime=0.004"]);
+    }
+
+    // ── Phase 8 fix: struct argv uses exiftool -struct syntax, not JSON ──
+
+    #[test]
+    fn struct_render_uses_brace_syntax_not_json() {
+        let mut inner = BTreeMap::new();
+        inner.insert("Name".to_string(), Variant::String("John".into()));
+        inner.insert("Type".to_string(), Variant::String("Face".into()));
+        let i = info(TagKind::Struct(BTreeMap::new()));
+        let args = build_args("XMP-mwg-rs:Region", Some(&i), &set(Variant::Object(inner)));
+        // Brace form, not JSON.  Field ordering is alphabetic via BTreeMap.
+        assert_eq!(args.text, vec!["-XMP-mwg-rs:Region={Name=John,Type=Face}"]);
+        // Critically: should NOT contain JSON quotes.
+        assert!(!args.text[0].contains("\""), "argv must not be JSON: {:?}", args.text);
+    }
+
+    #[test]
+    fn struct_render_handles_nested_object_and_list() {
+        let mut area = BTreeMap::new();
+        area.insert("X".to_string(), Variant::Float(0.5));
+        area.insert("Y".to_string(), Variant::Float(0.5));
+        let mut region = BTreeMap::new();
+        region.insert("Area".to_string(), Variant::Object(area));
+        region.insert("Names".to_string(), Variant::List(vec![
+            Variant::String("a".into()),
+            Variant::String("b".into()),
+        ]));
+        let i = info(TagKind::Struct(BTreeMap::new()));
+        let args = build_args("X:R", Some(&i), &set(Variant::Object(region)));
+        assert_eq!(args.text, vec!["-X:R={Area={X=0.5,Y=0.5},Names=[a,b]}"]);
+    }
+
+    #[test]
+    fn struct_render_escapes_metacharacters_in_scalars() {
+        let mut o = BTreeMap::new();
+        // Value containing every metachar exiftool struct parser cares about.
+        o.insert("k".to_string(), Variant::String("a,b{c}d[e]f=g\\h".into()));
+        let i = info(TagKind::Struct(BTreeMap::new()));
+        let args = build_args("X:S", Some(&i), &set(Variant::Object(o)));
+        assert_eq!(args.text, vec![r"-X:S={k=a\,b\{c\}d\[e\]f\=g\\h}"]);
+    }
+
+    #[test]
+    fn struct_render_empty_object_and_list() {
+        let i = info(TagKind::Struct(BTreeMap::new()));
+        let args = build_args("X:S", Some(&i), &set(Variant::Object(BTreeMap::new())));
+        assert_eq!(args.text, vec!["-X:S={}"]);
     }
 
     #[test]
