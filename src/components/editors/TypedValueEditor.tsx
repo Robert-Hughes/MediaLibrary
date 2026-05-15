@@ -34,6 +34,7 @@ import { DateTimeEditor } from "./DateTimeEditor";
 import { GpsEditor, parseDecimalDegrees, parseHemisphere } from "./GpsEditor";
 import { FlashEditor } from "./FlashEditor";
 import { StructEditor, initialObjectFrom } from "./StructEditor";
+import { NestedListEditor, initialItemsFromVariant } from "./NestedListEditor";
 import { variantToDisplayString } from "../../draft";
 import {
   gpsTagGroup,
@@ -162,6 +163,25 @@ export function TypedValueEditor({
           initialItems={initialItems}
           ordered={tag.kind.kind === "Seq"}
           innerKind={inner}
+          onSave={onSave}
+          onCancel={onCancel}
+        />
+      );
+    }
+    // Bag/Seq/Alt of a non-scalar inner (Struct, LangAlt, nested Bag, …).
+    // Hands off to the recursive NestedListEditor; each item is edited
+    // through TypedValueEditor itself, so arbitrary depth works.
+    if (
+      (tag.kind.kind === "Bag" || tag.kind.kind === "Seq" || tag.kind.kind === "Alt")
+      && inner === null
+    ) {
+      const items = initialItemsFromVariant(initialVariant);
+      return (
+        <NestedListEditor
+          propertyKey={propertyKey}
+          kind={tag.kind}
+          initialItems={items}
+          innerEditor={TypedValueEditor}
           onSave={onSave}
           onCancel={onCancel}
         />
