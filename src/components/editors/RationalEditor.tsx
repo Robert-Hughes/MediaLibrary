@@ -27,6 +27,7 @@ interface Props {
   onSave: (edit: DraftEdit) => void;
   onCancel: () => void;
   headerHint?: React.ReactNode;
+  readOnly?: boolean;
 }
 
 /** Best-effort split of an initial value into num/den.  Accepts:
@@ -81,7 +82,7 @@ function gcd(a: number, b: number): number {
   return a || 1;
 }
 
-export function RationalEditor({ propertyKey, initialValue, onSave, onCancel, headerHint }: Props) {
+export function RationalEditor({ propertyKey, initialValue, onSave, onCancel, headerHint, readOnly }: Props) {
   const initial = initialFraction(initialValue);
   const [mode, setMode] = useState<"fraction" | "decimal">("fraction");
   const [num, setNum] = useState<string>(String(initial.num));
@@ -137,6 +138,7 @@ export function RationalEditor({ propertyKey, initialValue, onSave, onCancel, he
   };
 
   const handleSave = () => {
+    if (readOnly) return;
     const result = validate();
     if (!result.ok) {
       setError(result.error);
@@ -244,6 +246,8 @@ export function RationalEditor({ propertyKey, initialValue, onSave, onCancel, he
             className="dialog-btn dialog-btn-primary"
             onClick={handleSave}
             data-testid="rational-editor-save"
+            disabled={readOnly}
+            title={readOnly ? "Tag is read-only per ExifTool schema" : undefined}
           >
             Save
           </button>

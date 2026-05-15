@@ -73,6 +73,25 @@ describe("NumericEditor", () => {
     expect(screen.getByTestId("numeric-editor-error")).toHaveTextContent("≤ 5");
   });
 
+  it("readOnly disables Save and ignores clicks", async () => {
+    const onSave = vi.fn();
+    render(
+      <NumericEditor
+        propertyKey="EXIF:ExifVersion"
+        kind="Integer"
+        initialValue="42"
+        readOnly
+        onSave={onSave}
+        onCancel={() => {}}
+      />,
+    );
+    const saveBtn = screen.getByTestId("numeric-editor-save") as HTMLButtonElement;
+    expect(saveBtn).toBeDisabled();
+    expect(saveBtn).toHaveAttribute("title", "Tag is read-only per ExifTool schema");
+    fireEvent.click(saveBtn);
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
   it("Real accepts decimal", async () => {
     const user = userEvent.setup();
     const onSave = vi.fn();

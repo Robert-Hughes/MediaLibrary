@@ -22,6 +22,7 @@ interface Props {
   onSave: (edit: DraftEdit) => void;
   onCancel: () => void;
   headerHint?: React.ReactNode;
+  readOnly?: boolean;
 }
 
 export interface InnerEditorProps {
@@ -55,7 +56,7 @@ function isComplex(v: Variant): boolean {
   return Array.isArray(v) || (typeof v === "object" && v !== null);
 }
 
-export function StructEditor({ propertyKey, initialObject, innerEditor, onSave, onCancel, headerHint }: Props) {
+export function StructEditor({ propertyKey, initialObject, innerEditor, onSave, onCancel, headerHint, readOnly }: Props) {
   const [rows, setRows] = useState<FieldRow[]>(objectToRows(initialObject));
   const [newFieldKey, setNewFieldKey] = useState("");
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
@@ -76,6 +77,7 @@ export function StructEditor({ propertyKey, initialObject, innerEditor, onSave, 
   };
 
   const handleSave = () => {
+    if (readOnly) return;
     onSave({ value: rowsToObject(rows), intent: "Set" });
   };
 
@@ -188,6 +190,8 @@ export function StructEditor({ propertyKey, initialObject, innerEditor, onSave, 
             className="dialog-btn dialog-btn-primary"
             onClick={handleSave}
             data-testid="struct-editor-save"
+            disabled={readOnly}
+            title={readOnly ? "Tag is read-only per ExifTool schema" : undefined}
           >
             Save
           </button>

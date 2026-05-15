@@ -17,9 +17,10 @@ interface Props {
   onSave: (edit: DraftEdit) => void;
   onCancel: () => void;
   headerHint?: React.ReactNode;
+  readOnly?: boolean;
 }
 
-export function LangAltEditor({ propertyKey, initialLangs, onSave, onCancel, headerHint }: Props) {
+export function LangAltEditor({ propertyKey, initialLangs, onSave, onCancel, headerHint, readOnly }: Props) {
   // Always carry an x-default tab.
   const initial: Record<string, string> = { "x-default": "", ...initialLangs };
   const [langs, setLangs] = useState<Record<string, string>>(initial);
@@ -49,6 +50,7 @@ export function LangAltEditor({ propertyKey, initialLangs, onSave, onCancel, hea
   };
 
   const handleSave = () => {
+    if (readOnly) return;
     // Drop empty entries except x-default (we always emit it).
     const out: Record<string, Variant> = {};
     for (const [lang, value] of Object.entries(langs)) {
@@ -135,6 +137,8 @@ export function LangAltEditor({ propertyKey, initialLangs, onSave, onCancel, hea
             className="dialog-btn dialog-btn-primary"
             onClick={handleSave}
             data-testid="langalt-editor-save"
+            disabled={readOnly}
+            title={readOnly ? "Tag is read-only per ExifTool schema" : undefined}
           >
             Save
           </button>
