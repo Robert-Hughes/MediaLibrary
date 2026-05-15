@@ -675,6 +675,14 @@ fn get_tag_info(tag: String) -> Result<Option<tag_schema::TagInfo>, String> {
     Ok(registry.lookup(&tag).cloned())
 }
 
+/// Eagerly warms the tag-schema registry so the first `get_tag_info` call is
+/// instant.  Called once at startup; the front-end blocks its UI until this
+/// resolves so editors never see a missing-schema flash.
+#[tauri::command]
+fn preload_schema() -> Result<(), String> {
+    tag_schema::get_registry().map(|_| ()).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 fn save_draft_edits(folder_path: String, data: draft_edits::DraftEditsPayload) -> Result<(), String> {
     draft_edits::save_draft_edits(&folder_path, data)
@@ -957,7 +965,8 @@ pub fn run() {
             load_draft_edits_typed,
             apply_draft_edits_cmd,
             cancel_apply_edits,
-            get_tag_info
+            get_tag_info,
+            preload_schema
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

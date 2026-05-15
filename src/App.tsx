@@ -250,7 +250,16 @@ export default function App() {
   const [state, actions] = useMediaLibrary(tauriApi);
   const [showColumnDialog, setShowColumnDialog] = useState(false);
   const [cliFolder, setCliFolder] = useState<string | null | undefined>(undefined);
+  const [schemaReady, setSchemaReady] = useState(false);
   const cliCheckedRef = useRef(false);
+
+  // Warm the tag-schema registry before the UI becomes interactive so editors
+  // never see a missing-schema flash on first use.
+  useEffect(() => {
+    invoke("preload_schema")
+      .catch((err) => console.error("[App] preload_schema failed:", err))
+      .finally(() => setSchemaReady(true));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Check for CLI folder argument on mount (before first render)
   useEffect(() => {
@@ -276,6 +285,21 @@ export default function App() {
 
   return (
     <div className="app">
+      {!schemaReady && (
+        <div className="dialog-overlay" data-testid="schema-loading-dialog">
+          <div className="dialog-content" style={{ width: 360 }}>
+            <div className="dialog-header">
+              <span className="dialog-title">Loading schema…</span>
+            </div>
+            <div className="dialog-body">
+              <div className="dialog-hint">
+                Building tag schema from ExifTool. This only happens once.
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {checkingCli && (
         <>
           <div style={{ flex: 1 }} />
