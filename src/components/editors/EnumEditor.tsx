@@ -40,7 +40,11 @@ export function EnumEditor({ propertyKey, repr, options, initialCode, onSave, on
     const code = customMode ? customValue.trim() : selected;
     if (!code) return;
     const variant: Variant = repr === "Integer" ? Number(code) : code;
-    onSave({ value: variant, intent: "Set" });
+    // Pretty form for the orange "pending" cell: schema label when the code
+    // is in-spec, raw code otherwise (Custom… or unknown).
+    const match = options.find((o) => o.code === code);
+    const display = match ? match.label : code;
+    onSave({ value: variant, intent: "Set", display });
   };
 
   return (
