@@ -9,9 +9,10 @@ interface Props {
   initialValue: boolean | null;
   onSave: (edit: DraftEdit) => void;
   onCancel: () => void;
+  headerHint?: React.ReactNode;
 }
 
-export function BooleanEditor({ propertyKey, initialValue, onSave, onCancel }: Props) {
+export function BooleanEditor({ propertyKey, initialValue, onSave, onCancel, headerHint }: Props) {
   const [value, setValue] = useState<boolean | null>(initialValue);
 
   const handleSave = () => {
@@ -26,6 +27,7 @@ export function BooleanEditor({ propertyKey, initialValue, onSave, onCancel }: P
     <div className="dialog-overlay" data-testid="boolean-editor-overlay">
       <div className="dialog-content">
         <h3>Edit {propertyKey}</h3>
+        {headerHint}
         <div className="dialog-body">
           <div className="boolean-editor-radios">
             <label>

@@ -24,6 +24,7 @@ interface Props {
   initialCode: number;
   onSave: (edit: DraftEdit) => void;
   onCancel: () => void;
+  headerHint?: React.ReactNode;
 }
 
 interface FlashFields {
@@ -67,7 +68,7 @@ const RETURN_LABELS: Record<number, string> = {
   3: "Return detected",
 };
 
-export function FlashEditor({ propertyKey, initialCode, onSave, onCancel }: Props) {
+export function FlashEditor({ propertyKey, initialCode, onSave, onCancel, headerHint }: Props) {
   const [fields, setFields] = useState<FlashFields>(decodeFlashCode(initialCode));
 
   const update = <K extends keyof FlashFields>(key: K, value: FlashFields[K]) => {
@@ -84,6 +85,7 @@ export function FlashEditor({ propertyKey, initialCode, onSave, onCancel }: Prop
     <div className="dialog-overlay" data-testid="flash-editor-overlay">
       <div className="dialog-content">
         <h3>Edit {propertyKey}</h3>
+        {headerHint}
         <div className="dialog-body">
           <div className="flash-editor-grid">
             <label>

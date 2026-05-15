@@ -26,6 +26,7 @@ interface Props {
   initialValue: string;
   onSave: (edit: DraftEdit) => void;
   onCancel: () => void;
+  headerHint?: React.ReactNode;
 }
 
 /** Best-effort split of an initial value into num/den.  Accepts:
@@ -80,7 +81,7 @@ function gcd(a: number, b: number): number {
   return a || 1;
 }
 
-export function RationalEditor({ propertyKey, initialValue, onSave, onCancel }: Props) {
+export function RationalEditor({ propertyKey, initialValue, onSave, onCancel, headerHint }: Props) {
   const initial = initialFraction(initialValue);
   const [mode, setMode] = useState<"fraction" | "decimal">("fraction");
   const [num, setNum] = useState<string>(String(initial.num));
@@ -170,6 +171,7 @@ export function RationalEditor({ propertyKey, initialValue, onSave, onCancel }: 
     <div className="dialog-overlay" data-testid="rational-editor-overlay">
       <div className="dialog-content">
         <h3>Edit {propertyKey}</h3>
+        {headerHint}
         <div className="dialog-body">
           <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 8 }}>
             <label>

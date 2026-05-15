@@ -11,9 +11,10 @@ interface Props {
   initialValue: string;
   onSave: (edit: DraftEdit) => void;
   onCancel: () => void;
+  headerHint?: React.ReactNode;
 }
 
-export function DateTimeEditor({ propertyKey, initialValue, onSave, onCancel }: Props) {
+export function DateTimeEditor({ propertyKey, initialValue, onSave, onCancel, headerHint }: Props) {
   const [value, setValue] = useState<string>(toIsoLocal(initialValue));
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -35,6 +36,7 @@ export function DateTimeEditor({ propertyKey, initialValue, onSave, onCancel }: 
     <div className="dialog-overlay" data-testid="datetime-editor-overlay">
       <div className="dialog-content">
         <h3>Edit {propertyKey}</h3>
+        {headerHint}
         <div className="dialog-body">
           <input
             ref={inputRef}

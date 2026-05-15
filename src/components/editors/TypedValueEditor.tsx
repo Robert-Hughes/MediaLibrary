@@ -22,7 +22,7 @@
 
 import { useState } from "react";
 import { useTagInfo } from "../../hooks/useTagInfo";
-import type { DraftEdit, TagKind, Variant } from "../../types";
+import type { DraftEdit, TagInfo, TagKind, Variant } from "../../types";
 import { ValueEditDialog } from "../ValueEditDialog";
 import { BagEditor, initialItemsFrom, type BagInnerKind } from "./BagEditor";
 import { EnumEditor, initialCodeFrom } from "./EnumEditor";
@@ -41,6 +41,7 @@ import {
   isFlashTag,
   isDateTimeNamePattern,
 } from "../../metadata/tag_overrides";
+import { EditorMetaHint, type EditorMetaSource } from "./EditorMetaHint";
 
 interface Props {
   propertyKey: string;
@@ -101,6 +102,17 @@ export function TypedValueEditor({
         initialCode={code}
         onSave={onSave}
         onCancel={onCancel}
+        headerHint={
+          <EditorMetaHint
+            source={
+              tag && tag !== "loading"
+                ? { kind: "schema", tag, override: "Edited via Flash bitfield helper" }
+                : tag === "loading"
+                ? { kind: "loading" }
+                : { kind: "synthetic", label: "EXIF Flash", description: "Bitfield packed into an Integer (see EXIF spec)" }
+            }
+          />
+        }
       />
     );
   }
@@ -135,9 +147,25 @@ export function TypedValueEditor({
         initialAltitudeRef={initialAltitudeRef}
         onSave={onSaveBatch!}
         onCancel={onCancel}
+        headerHint={
+          <EditorMetaHint
+            source={{
+              kind: "synthetic",
+              label: "GPS location",
+              description: "Paired group from ExifTool schema — writes Latitude/Longitude (+ ref) and optional Altitude (+ ref) together",
+            }}
+          />
+        }
       />
     );
   }
+
+  // Shared meta-hint banner — built once per render, threaded into every
+  // non-override editor below so the user always sees the same datatype +
+  // source line in the same slot.
+  const schemaHint = (override?: string) => (
+    <EditorMetaHint source={buildSource(tag, override)} />
+  );
 
   if (tag === "loading") {
     // First-call lookup; schema build can take 100-500ms.  Show the legacy
@@ -149,6 +177,7 @@ export function TypedValueEditor({
         initialValue={initialString}
         onSave={(s) => onSave({ value: s, intent: "Set" })}
         onCancel={onCancel}
+        headerHint={schemaHint()}
       />
     );
   }
@@ -165,6 +194,7 @@ export function TypedValueEditor({
           innerKind={inner}
           onSave={onSave}
           onCancel={onCancel}
+          headerHint={schemaHint()}
         />
       );
     }
@@ -184,6 +214,7 @@ export function TypedValueEditor({
           innerEditor={TypedValueEditor}
           onSave={onSave}
           onCancel={onCancel}
+          headerHint={schemaHint()}
         />
       );
     }
@@ -200,6 +231,7 @@ export function TypedValueEditor({
         initialCode={code === "" ? initialString : code}
         onSave={onSave}
         onCancel={onCancel}
+        headerHint={schemaHint()}
       />
     );
   }
@@ -213,6 +245,7 @@ export function TypedValueEditor({
         initialValue={initialString}
         onSave={onSave}
         onCancel={onCancel}
+        headerHint={schemaHint()}
       />
     );
   }
@@ -229,6 +262,7 @@ export function TypedValueEditor({
         initialValue={initialString}
         onSave={onSave}
         onCancel={onCancel}
+        headerHint={schemaHint()}
       />
     );
   }
@@ -247,6 +281,7 @@ export function TypedValueEditor({
         initialValue={v}
         onSave={onSave}
         onCancel={onCancel}
+        headerHint={schemaHint()}
       />
     );
   }
@@ -258,6 +293,7 @@ export function TypedValueEditor({
         initialValue={initialString}
         onSave={onSave}
         onCancel={onCancel}
+        headerHint={schemaHint()}
       />
     );
   }
@@ -273,6 +309,7 @@ export function TypedValueEditor({
         initialLangs={initialLangs}
         onSave={onSave}
         onCancel={onCancel}
+        headerHint={schemaHint()}
       />
     );
   }
@@ -286,6 +323,7 @@ export function TypedValueEditor({
         innerEditor={TypedValueEditor}
         onSave={onSave}
         onCancel={onCancel}
+        headerHint={schemaHint()}
       />
     );
   }
@@ -296,6 +334,7 @@ export function TypedValueEditor({
       <div className="dialog-overlay" data-testid="binary-editor-overlay">
         <div className="dialog-content">
           <h3>{propertyKey}</h3>
+          {schemaHint()}
           <div className="dialog-body">
             <p className="dialog-hint" data-testid="binary-editor-message">
               This tag holds binary data and is not editable in this app.  Use
@@ -324,6 +363,7 @@ export function TypedValueEditor({
         innerEditor={TypedValueEditor}
         onSave={onSave}
         onCancel={onCancel}
+        headerHint={schemaHint("Routing as Struct because the read value is a nested object")}
       />
     );
   }
@@ -346,6 +386,7 @@ export function TypedValueEditor({
         initialValue={initialString}
         onSave={onSave}
         onCancel={onCancel}
+        headerHint={schemaHint("Upgraded to a date picker because the name and value look like a date")}
       />
     );
   }
@@ -358,6 +399,7 @@ export function TypedValueEditor({
         initialValue={initialString}
         onSave={(s) => onSave({ value: s, intent: "Set" })}
         onCancel={onCancel}
+        headerHint={schemaHint()}
       />
     );
   }
@@ -369,8 +411,19 @@ export function TypedValueEditor({
       initialValue={initialString}
       onSave={(s) => onSave({ value: s, intent: "Set" })}
       onCancel={onCancel}
+      headerHint={schemaHint()}
     />
   );
+}
+
+/** Compute the EditorMetaHint source for the resolved tag-info state. */
+function buildSource(
+  tag: TagInfo | "loading" | null,
+  override?: string,
+): EditorMetaSource {
+  if (tag === "loading") return { kind: "loading" };
+  if (!tag) return { kind: "unknown" };
+  return { kind: "schema", tag, override };
 }
 
 /** Pretty-print a Variant for the "initialString" prop fallback. */
@@ -383,11 +436,13 @@ function UnknownEditor({
   initialValue,
   onSave,
   onCancel,
+  headerHint,
 }: {
   propertyKey: string;
   initialValue: string;
   onSave: (s: string) => void;
   onCancel: () => void;
+  headerHint?: React.ReactNode;
 }) {
   const [value, setValue] = useState(initialValue);
   const handleKey = (e: React.KeyboardEvent) => {
@@ -398,15 +453,8 @@ function UnknownEditor({
     <div className="dialog-overlay" data-testid="unknown-editor-overlay">
       <div className="dialog-content">
         <h3>Edit {propertyKey}</h3>
+        {headerHint}
         <div className="dialog-body">
-          <p
-            className="dialog-hint"
-            data-testid="unknown-editor-warning"
-            style={{ color: "var(--accent-warning, #aa6)", marginBottom: 8 }}
-          >
-            ⚠ This tag is not in ExifTool's writable schema.  Treating it as
-            raw text — your edit may be silently rejected by ExifTool.
-          </p>
           <input
             type="text"
             className="dialog-input"

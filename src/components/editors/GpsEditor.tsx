@@ -35,6 +35,7 @@ interface Props {
   initialAltitudeRef?: "above" | "below";
   onSave: (edits: Array<{ key: string; edit: DraftEdit }>) => void;
   onCancel: () => void;
+  headerHint?: React.ReactNode;
 }
 
 export function GpsEditor({
@@ -47,6 +48,7 @@ export function GpsEditor({
   initialAltitudeRef,
   onSave,
   onCancel,
+  headerHint,
 }: Props) {
   const [latDecimal, setLatDecimal] = useState<string>(initialLatDecimal === null ? "" : String(initialLatDecimal));
   const [latRef, setLatRef] = useState<"N" | "S">(initialLatRef);
@@ -100,6 +102,7 @@ export function GpsEditor({
     <div className="dialog-overlay" data-testid="gps-editor-overlay">
       <div className="dialog-content">
         <h3>Edit GPS location</h3>
+        {headerHint}
         <div className="dialog-body">
           <p className="dialog-hint" data-testid="gps-editor-warning">
             Editing GPS location writes <code>{group.latitudeKey}</code>,{" "}

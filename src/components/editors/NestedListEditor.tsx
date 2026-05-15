@@ -27,6 +27,7 @@ interface Props {
   innerEditor: (props: InnerEditorProps) => React.ReactNode;
   onSave: (edit: DraftEdit) => void;
   onCancel: () => void;
+  headerHint?: React.ReactNode;
 }
 
 /** Construct an empty Variant appropriate for `inner` so "Add item" produces
@@ -78,6 +79,7 @@ export function NestedListEditor({
   innerEditor: SubEditor,
   onSave,
   onCancel,
+  headerHint,
 }: Props) {
   const [items, setItems] = useState<Variant[]>(initialItems);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
@@ -139,6 +141,7 @@ export function NestedListEditor({
     <div className="dialog-overlay" data-testid="nested-list-editor-overlay">
       <div className="dialog-content">
         <h3>Edit {propertyKey}</h3>
+        {headerHint}
         <div className="dialog-body">
           {items.length === 0 && (
             <p className="dialog-hint" data-testid="nested-list-editor-empty">

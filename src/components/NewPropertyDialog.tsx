@@ -1,40 +1,10 @@
 import { useState, useRef, useEffect } from "react";
 import { useTagInfo } from "../hooks/useTagInfo";
-import type { TagKind } from "../types";
+import { describeKind } from "./editors/EditorMetaHint";
 
 interface Props {
   onSave: (key: string, value: string) => void;
   onCancel: () => void;
-}
-
-/**
- * Friendly one-line description of what kind of value a tag expects.
- * Mirrors the design doc's TagKind table.  Used for the live schema-info
- * line under the key input.
- */
-function describeKind(kind: TagKind): string {
-  switch (kind.kind) {
-    case "Text": return "Text";
-    case "LangAlt": return "Language-alternative text (multi-language)";
-    case "Integer": {
-      const { min, max } = kind.data;
-      const bounds = (min !== null && min !== undefined) || (max !== null && max !== undefined)
-        ? ` (${min ?? "—"} … ${max ?? "—"})`
-        : "";
-      return `Integer${bounds}`;
-    }
-    case "Real": return "Real number";
-    case "Rational": return "Rational number";
-    case "Boolean": return "Boolean (true/false)";
-    case "DateTime": return "Date/time";
-    case "Enum": return `Enum (${kind.data.options.length} options)`;
-    case "Bag": return `Bag (unordered list of ${describeKind(kind.data).toLowerCase()})`;
-    case "Seq": return `Seq (ordered list of ${describeKind(kind.data).toLowerCase()})`;
-    case "Alt": return `Alt (alternatives of ${describeKind(kind.data).toLowerCase()})`;
-    case "Struct": return "Struct (nested object)";
-    case "Binary": return "Binary (not editable)";
-    case "Unknown": return "Unknown type";
-  }
 }
 
 export function NewPropertyDialog({ onSave, onCancel }: Props) {
@@ -64,24 +34,32 @@ export function NewPropertyDialog({ onSave, onCancel }: Props) {
   if (lookupKey && tagInfo !== "loading") {
     if (tagInfo === null) {
       schemaLine = (
-        <p className="dialog-hint" data-testid="new-property-schema-unknown">
-          Tag <code>{lookupKey}</code> is not in exiftool&apos;s writable schema.
-          The edit will be sent as raw text and may be silently rejected by
-          exiftool.
+        <p
+          className="dialog-hint editor-meta-hint editor-meta-hint-warning"
+          data-testid="new-property-schema-unknown"
+          style={{ color: "var(--accent-warning, #aa6)" }}
+        >
+          ⚠ <code>{lookupKey}</code> is not in ExifTool&apos;s writable schema.
+          {" "}The edit will be sent as raw text and may be silently rejected by ExifTool.
         </p>
       );
     } else if (!tagInfo.writable) {
       schemaLine = (
-        <p className="dialog-error" data-testid="new-property-schema-unwritable">
-          <strong>Tag <code>{lookupKey}</code> is not writable.</strong>
-          {" "}exiftool will refuse to write this value.
+        <p className="dialog-error editor-meta-hint" data-testid="new-property-schema-unwritable">
+          <strong>
+            <code>{tagInfo.group}:{tagInfo.name}</code> — {describeKind(tagInfo.kind)}
+          </strong>
+          {" · "}From ExifTool schema (read-only) — ExifTool will refuse to write this value.
         </p>
       );
     } else {
       schemaLine = (
-        <p className="dialog-hint" data-testid="new-property-schema-info">
-          <strong>{describeKind(tagInfo.kind)}</strong>
-          {tagInfo.description ? ` — ${tagInfo.description}` : ""}
+        <p className="dialog-hint editor-meta-hint" data-testid="new-property-schema-info">
+          <strong>
+            <code>{tagInfo.group}:{tagInfo.name}</code> — {describeKind(tagInfo.kind)}
+          </strong>
+          {" · "}From ExifTool schema
+          {tagInfo.description ? <><br />{tagInfo.description}</> : null}
         </p>
       );
     }
