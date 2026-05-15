@@ -11,6 +11,75 @@ vi.mock("@tauri-apps/api/event", () => ({
   listen: vi.fn(() => Promise.resolve(() => {})),
 }));
 
+describe("App schema preloading", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("shows schema loading dialog before preload_schema resolves", async () => {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const mockInvoke = vi.mocked(invoke);
+
+    let resolvePreload!: () => void;
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === "preload_schema") {
+        return new Promise<void>((res) => { resolvePreload = res; });
+      }
+      return Promise.resolve(null);
+    });
+
+    render(<App />);
+
+    expect(screen.getByTestId("schema-loading-dialog")).toBeInTheDocument();
+
+    resolvePreload();
+    await waitFor(() => {
+      expect(screen.queryByTestId("schema-loading-dialog")).not.toBeInTheDocument();
+    });
+  });
+
+  it("dismisses schema loading dialog after preload_schema resolves", async () => {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const mockInvoke = vi.mocked(invoke);
+
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === "preload_schema") return Promise.resolve();
+      if (cmd === "get_cli_folder") return Promise.resolve(null);
+      return Promise.resolve(null);
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("schema-loading-dialog")).not.toBeInTheDocument();
+    });
+  });
+
+  it("dismisses schema loading dialog even when preload_schema fails", async () => {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const mockInvoke = vi.mocked(invoke);
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === "preload_schema") return Promise.reject(new Error("schema build failed"));
+      if (cmd === "get_cli_folder") return Promise.resolve(null);
+      return Promise.resolve(null);
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("schema-loading-dialog")).not.toBeInTheDocument();
+    });
+    expect(consoleError).toHaveBeenCalledWith(
+      "[App] preload_schema failed:",
+      expect.any(Error),
+    );
+
+    consoleError.mockRestore();
+  });
+});
+
 describe("App CLI folder argument", () => {
   beforeEach(() => {
     vi.clearAllMocks();
