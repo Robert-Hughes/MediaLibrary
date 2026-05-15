@@ -8,6 +8,7 @@ import {
   gpsGroupFor,
   parseDecimalDegrees,
   parseHemisphere,
+  decimalToDms,
 } from "../components/editors/GpsEditor";
 
 const exampleGroup = {
@@ -59,10 +60,14 @@ describe("GpsEditor", () => {
     const edits = onSave.mock.calls[0][0] as Array<{ key: string; edit: { value: unknown; intent: string } }>;
     expect(edits).toHaveLength(4);
     const byKey = Object.fromEntries(edits.map((e) => [e.key, e.edit]));
-    expect(byKey["GPS:GPSLatitude"]).toEqual({ value: 51.5, intent: "Set" });
-    expect(byKey["GPS:GPSLatitudeRef"]).toEqual({ value: "N", intent: "Set" });
-    expect(byKey["GPS:GPSLongitude"]).toEqual({ value: 0.13, intent: "Set" });
-    expect(byKey["GPS:GPSLongitudeRef"]).toEqual({ value: "W", intent: "Set" });
+    expect(byKey["GPS:GPSLatitude"]).toMatchObject({ value: 51.5, intent: "Set" });
+    expect(byKey["GPS:GPSLatitudeRef"]).toMatchObject({ value: "N", intent: "Set" });
+    expect(byKey["GPS:GPSLongitude"]).toMatchObject({ value: 0.13, intent: "Set" });
+    expect(byKey["GPS:GPSLongitudeRef"]).toMatchObject({ value: "W", intent: "Set" });
+    // Pretty-form display for the pending-change cell.
+    expect((byKey["GPS:GPSLatitude"] as { display?: string }).display).toBe(`51 deg 30' 0" N`);
+    expect((byKey["GPS:GPSLatitudeRef"] as { display?: string }).display).toBe("N");
+    expect((byKey["GPS:GPSLongitudeRef"] as { display?: string }).display).toBe("W");
   });
 
   it("Save emits 6 paired DraftEdits when altitude is filled", async () => {
@@ -87,9 +92,11 @@ describe("GpsEditor", () => {
     const edits = onSave.mock.calls[0][0] as Array<{ key: string; edit: { value: unknown; intent: string } }>;
     expect(edits).toHaveLength(6);
     const byKey = Object.fromEntries(edits.map((e) => [e.key, e.edit]));
-    expect(byKey["GPS:GPSAltitude"]).toEqual({ value: 120.5, intent: "Set" });
+    expect(byKey["GPS:GPSAltitude"]).toMatchObject({ value: 120.5, intent: "Set" });
+    expect((byKey["GPS:GPSAltitude"] as { display?: string }).display).toBe("120.5 m Above Sea Level");
     // exiftool encodes AltitudeRef as 0 (above) or 1 (below).
-    expect(byKey["GPS:GPSAltitudeRef"]).toEqual({ value: 0, intent: "Set" });
+    expect(byKey["GPS:GPSAltitudeRef"]).toMatchObject({ value: 0, intent: "Set" });
+    expect((byKey["GPS:GPSAltitudeRef"] as { display?: string }).display).toBe("Above Sea Level");
   });
 
   it("Empty altitude leaves the altitude pair untouched", () => {
@@ -155,6 +162,18 @@ describe("gpsGroupFor", () => {
   it("does not match non-GPS tags", () => {
     expect(gpsGroupFor("XMP-dc:Subject")).toBeNull();
     expect(gpsGroupFor("plain")).toBeNull();
+  });
+});
+
+describe("decimalToDms", () => {
+  it("formats a decimal latitude with hemisphere", () => {
+    expect(decimalToDms(51.50726667, "N")).toBe(`51 deg 30' 26.16" N`);
+  });
+  it("renders whole degrees without trailing zeros", () => {
+    expect(decimalToDms(51.5, "N")).toBe(`51 deg 30' 0" N`);
+  });
+  it("uses the supplied hemisphere regardless of sign", () => {
+    expect(decimalToDms(0.13, "W")).toMatch(/W$/);
   });
 });
 
