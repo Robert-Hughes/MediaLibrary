@@ -144,7 +144,20 @@ export function RationalEditor({ propertyKey, initialValue, onSave, onCancel, he
       setError(result.error);
       return;
     }
-    onSave({ value: result.variant, intent: "Set" });
+    // Pretty form for the orange "pending" cell: the rational fraction.
+    // For decimal-mode input we synthesise the fraction via decimalToRational;
+    // for fraction-mode we use the user's literal num/den (preserves "1/8000"
+    // even if the decimal would simplify oddly).
+    let display: string;
+    if (mode === "fraction") {
+      const n = parseInt(num, 10);
+      const d = parseInt(den, 10);
+      display = d === 1 ? String(n) : `${n}/${d}`;
+    } else {
+      const r = decimalToRational(result.variant as number);
+      display = r.den === 1 ? String(r.num) : `${r.num}/${r.den}`;
+    }
+    onSave({ value: result.variant, intent: "Set", display });
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
