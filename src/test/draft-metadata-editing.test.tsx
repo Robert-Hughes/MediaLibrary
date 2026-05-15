@@ -129,9 +129,10 @@ describe("Draft Metadata Editing Integration", () => {
     expect(draftNewInList).toBeInTheDocument();
     expect(draftNewInList).toHaveClass("draft-new");
 
-    // Open gallery again
+    // Open gallery again.  GalleryView persists the info-toggle state to
+    // localStorage so reopening restores details=visible without a second
+    // click — mimicking the user behaviour the production app delivers.
     await user.dblClick(newRows[0]);
-    await user.click(screen.getByTestId("gallery-info-toggle"));
 
     // Click "Discard All" button at the top of the details pane
     const discardAllBtn = screen.getByTitle("Discard all edits for this photo");
@@ -337,10 +338,10 @@ describe("Draft Metadata Editing Integration", () => {
     await user.click(screen.getByText("Save"));
     await user.click(screen.getByTestId("gallery-close-btn"));
 
-    // Edit second photo
+    // Edit second photo.  Same reasoning as above: GalleryView persists
+    // detailsVisible across opens, so no second toggle click needed.
     rows = screen.getAllByTestId("photo-row");
     await user.dblClick(rows[1]);
-    await user.click(screen.getByTestId("gallery-info-toggle"));
     canonCell = within(screen.getByTestId("details-section-IFD0")).getByTitle("Canon");
     await user.pointer({ keys: "[MouseRight]", target: canonCell });
     await user.click(screen.getByText("Edit"));
