@@ -24,12 +24,13 @@ export type LegacyDraftEditsByFile = Record<string, Record<string, string | null
  * Returns:
  * - `undefined` if no draft exists for the key
  * - `null`      if the draft is a Delete intent (UI shows "—" / strikethrough)
- * - otherwise   a string formed from the Variant value (matching the legacy
- *               `string | null` shape that components use today)
+ * - otherwise   the editor-supplied pretty form (`d.display`) when present,
+ *               else a generic stringification of the Variant value
  */
 export function displayStringOf(d: DraftEdit | undefined): string | null | undefined {
   if (d === undefined) return undefined;
   if (d.intent === "Delete") return null;
+  if (d.display !== undefined && d.display !== null) return d.display;
   return variantToDisplayString(d.value);
 }
 
@@ -69,6 +70,8 @@ export function mapTypedToLegacy(typed: TypedDraftEditsByFile): LegacyDraftEdits
     for (const [key, d] of Object.entries(edits)) {
       if (d.intent === "Delete") {
         fileOut[key] = null;
+      } else if (d.display !== undefined && d.display !== null) {
+        fileOut[key] = d.display;
       } else {
         fileOut[key] = variantToDisplayString(d.value);
       }
@@ -104,7 +107,13 @@ export function deriveLegacyFileEdits(
   if (!typedFile) return {};
   const out: Record<string, string | null> = {};
   for (const [key, d] of Object.entries(typedFile)) {
-    out[key] = d.intent === "Delete" ? null : variantToDisplayString(d.value);
+    if (d.intent === "Delete") {
+      out[key] = null;
+    } else if (d.display !== undefined && d.display !== null) {
+      out[key] = d.display;
+    } else {
+      out[key] = variantToDisplayString(d.value);
+    }
   }
   return out;
 }
