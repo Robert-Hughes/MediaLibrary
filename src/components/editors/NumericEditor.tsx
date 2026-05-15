@@ -15,9 +15,10 @@ interface Props {
   initialValue: string;
   onSave: (edit: DraftEdit) => void;
   onCancel: () => void;
+  headerHint?: React.ReactNode;
 }
 
-export function NumericEditor({ propertyKey, kind, min, max, initialValue, onSave, onCancel }: Props) {
+export function NumericEditor({ propertyKey, kind, min, max, initialValue, onSave, onCancel, headerHint }: Props) {
   const [value, setValue] = useState<string>(initialValue);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -74,6 +75,7 @@ export function NumericEditor({ propertyKey, kind, min, max, initialValue, onSav
     <div className="dialog-overlay" data-testid="numeric-editor-overlay">
       <div className="dialog-content">
         <h3>Edit {propertyKey}</h3>
+        {headerHint}
         <div className="dialog-body">
           <input
             ref={inputRef}

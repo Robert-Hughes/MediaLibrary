@@ -18,9 +18,10 @@ interface Props {
   initialCode: string;
   onSave: (edit: DraftEdit) => void;
   onCancel: () => void;
+  headerHint?: React.ReactNode;
 }
 
-export function EnumEditor({ propertyKey, repr, options, initialCode, onSave, onCancel }: Props) {
+export function EnumEditor({ propertyKey, repr, options, initialCode, onSave, onCancel, headerHint }: Props) {
   const [selected, setSelected] = useState<string>(initialCode);
   const [customMode, setCustomMode] = useState<boolean>(!options.some((o) => o.code === initialCode));
   const [customValue, setCustomValue] = useState<string>(initialCode);
@@ -44,6 +45,7 @@ export function EnumEditor({ propertyKey, repr, options, initialCode, onSave, on
     <div className="dialog-overlay" data-testid="enum-editor-overlay">
       <div className="dialog-content">
         <h3>Edit {propertyKey}</h3>
+        {headerHint}
         <div className="dialog-body">
           {!customMode && (
             <select

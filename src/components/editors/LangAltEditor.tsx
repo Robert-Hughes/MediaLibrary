@@ -16,9 +16,10 @@ interface Props {
   initialLangs: Record<string, string>;
   onSave: (edit: DraftEdit) => void;
   onCancel: () => void;
+  headerHint?: React.ReactNode;
 }
 
-export function LangAltEditor({ propertyKey, initialLangs, onSave, onCancel }: Props) {
+export function LangAltEditor({ propertyKey, initialLangs, onSave, onCancel, headerHint }: Props) {
   // Always carry an x-default tab.
   const initial: Record<string, string> = { "x-default": "", ...initialLangs };
   const [langs, setLangs] = useState<Record<string, string>>(initial);
@@ -65,6 +66,7 @@ export function LangAltEditor({ propertyKey, initialLangs, onSave, onCancel }: P
     <div className="dialog-overlay" data-testid="langalt-editor-overlay" onKeyDown={handleKeyDown}>
       <div className="dialog-content">
         <h3>Edit {propertyKey}</h3>
+        {headerHint}
         <div className="dialog-body">
           <div className="langalt-editor-tabs" data-testid="langalt-editor-tabs">
             {Object.keys(langs).map((lang) => (

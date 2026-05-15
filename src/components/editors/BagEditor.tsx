@@ -35,6 +35,7 @@ interface Props {
   innerKind?: BagInnerKind;
   onSave: (edit: DraftEdit) => void;
   onCancel: () => void;
+  headerHint?: React.ReactNode;
 }
 
 /** Convert a chip string to the appropriate Variant scalar.  Returns null
@@ -65,7 +66,7 @@ function chipToVariant(s: string, kind: BagInnerKind): Variant | null {
   }
 }
 
-export function BagEditor({ propertyKey, initialItems, ordered = false, innerKind = "Text", onSave, onCancel }: Props) {
+export function BagEditor({ propertyKey, initialItems, ordered = false, innerKind = "Text", onSave, onCancel, headerHint }: Props) {
   const [items, setItems] = useState<string[]>(initialItems);
   const [draftItem, setDraftItem] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -139,6 +140,7 @@ export function BagEditor({ propertyKey, initialItems, ordered = false, innerKin
     <div className="dialog-overlay" data-testid="bag-editor-overlay">
       <div className="dialog-content">
         <h3>Edit {propertyKey}</h3>
+        {headerHint}
         <div className="dialog-body">
           <div className="bag-editor-chips" data-testid="bag-editor-chips">
             {items.map((item, idx) => (
