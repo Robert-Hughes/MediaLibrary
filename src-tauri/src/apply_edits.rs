@@ -172,16 +172,21 @@ pub fn apply_single_file_typed(
     // Capture the pre-write metadata so the apply-log can record the value
     // before our edit and the frontend can show it in revert affordances.
     // Best-effort: a read failure here is non-fatal.  We log and proceed
-    // with empty before-views.
-    let (before_display, before_raw) =
+    // with empty before-views; the failure is propagated to the apply-log
+    // entry as `before_read_failed=true` so a `null` before-value can be
+    // distinguished from "tag was genuinely absent".
+    let (before_display, before_raw, before_read_failed) =
         match scanner::read_image_metadata_batch(&[rel_path.to_string()], &[abs_path.clone()]) {
             Ok(mut results) => match results.pop() {
-                Some(r) => (r.metadata, r.raw_metadata),
-                None => (HashMap::new(), HashMap::new()),
+                Some(r) => (r.metadata, r.raw_metadata, false),
+                None => {
+                    log::warn!("[apply_edits] Pre-write read returned no entry for {}", rel_path);
+                    (HashMap::new(), HashMap::new(), true)
+                }
             },
             Err(e) => {
                 log::warn!("[apply_edits] Pre-write read failed for {}: {}", rel_path, e);
-                (HashMap::new(), HashMap::new())
+                (HashMap::new(), HashMap::new(), true)
             }
         };
 
@@ -292,6 +297,7 @@ pub fn apply_single_file_typed(
         &fresh_display,
         &fresh_raw,
         &tag_outcomes,
+        before_read_failed,
     );
 
     SingleFileOutcome {
