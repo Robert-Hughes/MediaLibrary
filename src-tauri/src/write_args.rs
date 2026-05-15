@@ -12,22 +12,6 @@
 //! values, one without for text/lang-alt/list-of-text — because `-n` is
 //! global to an invocation.  Numeric runs first; text-group edits can depend
 //! on numeric tags being already set (rare but possible for derived fields).
-//!
-//! ## Exploratory testing required during implementation
-//!
-//! Two open questions (`QUESTIONS.md` Q11, Q12) need real-fixture
-//! verification:
-//!
-//! - List `Set` via `-TAG=` then `-TAG=a -TAG=b`: confirmed by exiftool docs
-//!   to clear the existing list and re-add.  But: empty assignment is also
-//!   the delete operator.  Need a fixture round-trip showing the resulting
-//!   list is `[a, b]` and not `[]` or `[a, b, ""]`.
-//! - `-n` behaviour for tags that exiftool accepts in both forms (e.g.
-//!   `Rating` accepts both `5` and `5.0`): default policy here is to prefer
-//!   the numeric form.  Confirm via fixture.
-//!
-//! Findings, when collected, should be written as code comments at the
-//! relevant arms below.
 
 use crate::draft_edits::{DraftEdit, EditIntent};
 use crate::scanner::Variant;
@@ -90,7 +74,7 @@ fn build_set(tag: &str, info: Option<&TagInfo>, value: Option<&Variant>) -> Buil
         },
         // Bag / Seq: explicit clear, then one -TAG=item per element.
         // Empty assignment first is the documented exiftool idiom for
-        // "replace the whole list" (Q12, pending fixture verification).
+        // "replace the whole list".
         (Some(TagKind::Bag(_)) | Some(TagKind::Seq(_)), Some(Variant::List(items))) => {
             // Lists of text live in the text group; lists of numeric kinds
             // are rare in exiftool's writable tag set and we currently treat
