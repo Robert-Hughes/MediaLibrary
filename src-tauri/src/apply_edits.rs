@@ -331,18 +331,25 @@ fn verify_set(
     let display_v = fresh_display.get(key);
     let raw_v = fresh_raw.get(key);
 
-    // Empty-string / Null Set: exiftool's `-TAG=` clears the tag, so most
-    // formats will report the tag as absent (or Null / empty string) after
-    // write.  Treat that as a Match — the user asked for an empty value and
-    // the file now reflects that, even though no actual tag was retained.
+    // Empty-string / Null / empty-List Set: exiftool's `-TAG=` clears the
+    // tag, so most formats will report the tag as absent (or Null / empty
+    // string / empty list) after write.  Treat that as a Match — the user
+    // asked for an empty value and the file now reflects that, even though
+    // no actual tag was retained.  Empty-List covers Bag/Seq tags being
+    // cleared (e.g. `[B]AIOcrText` set to no items); without this arm the
+    // verifier reports MissingPostWrite and the apply UI calls it a
+    // failure.
     fn is_empty_value(v: &Variant) -> bool {
-        matches!(v, Variant::Null) || matches!(v, Variant::String(s) if s.is_empty())
+        matches!(v, Variant::Null)
+            || matches!(v, Variant::String(s) if s.is_empty())
+            || matches!(v, Variant::List(l) if l.is_empty())
     }
     fn is_empty_or_absent(v: Option<&Variant>) -> bool {
         match v {
             None => true,
             Some(Variant::Null) => true,
             Some(Variant::String(s)) if s.is_empty() => true,
+            Some(Variant::List(l)) if l.is_empty() => true,
             _ => false,
         }
     }
@@ -979,6 +986,58 @@ mod tests {
         let raw = HashMap::new();
         let (kind, _) = verify_set("X", Some(&Variant::Null), &display, &raw, None);
         assert_eq!(kind, "Match");
+    }
+
+    #[test]
+    fn verify_set_empty_list_matches_when_tag_absent_post_write() {
+        // Regression: Bag/Seq cleared (Variant::List vec![]) used to report
+        // MissingPostWrite because the empty-value short-circuit only
+        // covered Null/empty-String.  exiftool's `-TAG=` clear drops the
+        // tag entirely, so absent + we sent empty must be a Match.
+        let display = HashMap::new();
+        let raw = HashMap::new();
+        let kind_bag = TagKind::Bag(Box::new(TagKind::Text));
+        let (outcome, msg) = verify_set(
+            "AIOcrText",
+            Some(&Variant::List(vec![])),
+            &display,
+            &raw,
+            Some(&kind_bag),
+        );
+        assert_eq!(outcome, "Match");
+        assert!(msg.is_none());
+    }
+
+    #[test]
+    fn verify_set_empty_list_matches_when_tag_empty_list_post_write() {
+        // Some formats retain the list shell with no items rather than
+        // dropping the tag.  Empty == empty is still a Match.
+        let display = map(&[("X", Variant::List(vec![]))]);
+        let raw = map(&[("X", Variant::List(vec![]))]);
+        let (outcome, _) = verify_set(
+            "X",
+            Some(&Variant::List(vec![])),
+            &display,
+            &raw,
+            None,
+        );
+        assert_eq!(outcome, "Match");
+    }
+
+    #[test]
+    fn verify_set_empty_list_mismatch_when_post_write_has_items() {
+        // Empty-list Set must NOT short-circuit to Match when the file
+        // still holds items — that's a real write failure.
+        let display = map(&[("X", Variant::List(vec![Variant::String("kept".into())]))]);
+        let raw = map(&[("X", Variant::List(vec![Variant::String("kept".into())]))]);
+        let (outcome, _) = verify_set(
+            "X",
+            Some(&Variant::List(vec![])),
+            &display,
+            &raw,
+            None,
+        );
+        assert_eq!(outcome, "Mismatch");
     }
 
     #[test]
