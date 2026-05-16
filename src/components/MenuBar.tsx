@@ -55,7 +55,7 @@ export function MenuBar({
         Open Folder…
       </button>
       <button className="menu-bar-btn" onClick={onCloseFolder} data-testid="menu-bar-close-btn">
-        Close
+        Close Folder
       </button>
       <div className="menu-bar-divider" />
       <button className="menu-bar-btn" onClick={onSelectColumns} data-testid="menu-bar-columns-btn">
