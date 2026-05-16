@@ -39,6 +39,7 @@ export function ValueEditDialog({ propertyKey, initialValue, onSave, onCancel, h
             value={value}
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={handleKeyDown}
+            data-testid="value-edit-input"
           />
         </div>
         <div className="dialog-footer">
@@ -50,6 +51,7 @@ export function ValueEditDialog({ propertyKey, initialValue, onSave, onCancel, h
             onClick={() => onSave(value)}
             disabled={readOnly}
             title={readOnly ? "Tag is read-only per ExifTool schema" : undefined}
+            data-testid="value-edit-save"
           >
             Save
           </button>
