@@ -499,8 +499,17 @@ fn wrap_count(kind: TagKind, count: Option<u32>) -> TagKind {
 }
 
 /// Hand-curated overrides for XMP list/seq/alt and well-known struct types
-/// that listx does not describe. Derived from the XMP specification.
+/// that listx does not describe, plus targeted fix-ups for the long tail of
+/// `type='undef'` EXIF tags.  See `AGENTS.md` (Tag-schema overrides) for the
+/// invariants this table is allowed to break.
 fn apply_overrides(tags: &mut BTreeMap<String, TagInfo>) {
+    // `Binary` overrides also force `writable=false`: ExifTool reports these
+    // as writable, but only via `-Tag<=file.bin`, and the UI has no editor
+    // that produces that input.  Treating them as read-only keeps them out
+    // of the autocomplete and prevents bogus "write failed" surprises.
+    fn writable_for(kind: &TagKind) -> bool {
+        !matches!(kind, TagKind::Binary)
+    }
     let overrides: &[(&str, fn() -> TagKind)] = &[
         // XMP Dublin Core
         ("XMP-dc:Subject", || TagKind::Bag(Box::new(TagKind::Text))),
@@ -530,12 +539,67 @@ fn apply_overrides(tags: &mut BTreeMap<String, TagInfo>) {
         ("XMP-exif:DateTimeOriginal", || TagKind::DateTime),
         ("XMP-exif:DateTimeDigitized", || TagKind::DateTime),
         ("XMP-iptcCore:DateCreated", || TagKind::DateTime),
+
+        // ── Unknown-kind cleanups ──────────────────────────────────────
+        // `-listx` reports `type='undef'` for a long tail of EXIF tags.
+        // That maps to `TagKind::Unknown`, which the UI then treats as
+        // "unknown editor — fall back to text".  In practice the tags
+        // split into two camps:
+        //
+        //   1. Short ASCII version strings that ExifTool will happily
+        //      accept via `-Tag=value`.  Promote these to `Text` so the
+        //      user gets a real editor.
+        //
+        //   2. Opaque binary blobs (MakerNotes, preview/thumbnail JPEG
+        //      streams, the entire XMP packet as a single tag) which are
+        //      technically `writable='true'` per listx but only via
+        //      `-Tag<=file.bin`.  Demote these to `Binary` so the UI marks
+        //      them read-only and stops listing them in autocomplete.
+
+        // (1) ASCII version strings — writable as 4-char ASCII via `-Tag=`.
+        ("ExifIFD:ExifVersion", || TagKind::Text),
+        ("ExifIFD:FlashpixVersion", || TagKind::Text),
+        ("InteropIFD:InteropVersion", || TagKind::Text),
+
+        // (2) Binary blobs — writable only via file redirection.  Marking
+        //     them Binary makes the UI treat them as read-only and the
+        //     writable filter on autocomplete drops them too (Binary +
+        //     no editor = nothing for the user to do here).
+        ("ExifIFD:MakerNoteApple", || TagKind::Binary),
+        ("ExifIFD:MakerNoteCanon", || TagKind::Binary),
+        ("ExifIFD:MakerNoteCasio", || TagKind::Binary),
+        ("ExifIFD:MakerNoteCasio2", || TagKind::Binary),
+        ("ExifIFD:MakerNoteDJI", || TagKind::Binary),
+        ("ExifIFD:MakerNoteDJIInfo", || TagKind::Binary),
+        ("ExifIFD:MakerNoteFLIR", || TagKind::Binary),
+        ("ExifIFD:MakerNoteFujiFilm", || TagKind::Binary),
+        ("ExifIFD:MakerNoteGE", || TagKind::Binary),
+        ("ExifIFD:MakerNoteNikon", || TagKind::Binary),
+        ("ExifIFD:MakerNoteOlympus", || TagKind::Binary),
+        ("ExifIFD:MakerNotePanasonic", || TagKind::Binary),
+        ("ExifIFD:MakerNotePentax", || TagKind::Binary),
+        ("ExifIFD:MakerNoteRicoh", || TagKind::Binary),
+        ("ExifIFD:MakerNoteSamsung1a", || TagKind::Binary),
+        ("ExifIFD:MakerNoteSamsung2", || TagKind::Binary),
+        ("ExifIFD:MakerNoteSanyo", || TagKind::Binary),
+        ("ExifIFD:MakerNoteSigma", || TagKind::Binary),
+        ("ExifIFD:MakerNoteSony", || TagKind::Binary),
+        ("IFD0:DNGPrivateData", || TagKind::Binary),
+        ("IFD0:DustRemovalData", || TagKind::Binary),
+        ("IFD0:ThumbnailImage", || TagKind::Binary),
+        ("IFD1:ThumbnailImage", || TagKind::Binary),
+        ("IFD0:PreviewImage", || TagKind::Binary),
+        ("IFD0:XMP", || TagKind::Binary),
     ];
 
     for (key, build) in overrides {
         let kind = build();
+        let writable = writable_for(&kind);
         if let Some(existing) = tags.get_mut(*key) {
             existing.kind = kind;
+            // Only tighten — never grant write permission listx said the
+            // tag doesn't have.
+            existing.writable = existing.writable && writable;
         } else {
             // Override applies even when listx didn't expose the tag —
             // ensures `XMP-mwg-rs:Regions` is editable when the namespace
@@ -546,7 +610,7 @@ fn apply_overrides(tags: &mut BTreeMap<String, TagInfo>) {
                 TagInfo {
                     group: group.to_string(),
                     name: name.to_string(),
-                    writable: true,
+                    writable,
                     kind,
                     description: None,
                 },
@@ -737,6 +801,71 @@ mod tests {
         let r = fixture_registry();
         let t = r.lookup("XMP-xmp:Rating").unwrap();
         assert!(matches!(t.kind, TagKind::Real));
+    }
+
+    #[test]
+    fn undef_version_strings_promoted_to_text() {
+        // listx exposes ExifVersion / FlashpixVersion / InteropVersion as
+        // type='undef', which derives to Unknown.  The override table
+        // promotes them to Text so the user gets a real string editor.
+        let mut tags: BTreeMap<String, TagInfo> = BTreeMap::new();
+        tags.insert("ExifIFD:ExifVersion".to_string(), TagInfo {
+            group: "ExifIFD".to_string(),
+            name: "ExifVersion".to_string(),
+            writable: true,
+            kind: TagKind::Unknown,
+            description: None,
+        });
+        apply_overrides(&mut tags);
+        let t = tags.get("ExifIFD:ExifVersion").expect("override should keep tag");
+        assert!(matches!(t.kind, TagKind::Text));
+        assert!(t.writable);
+    }
+
+    #[test]
+    fn undef_binary_blobs_demoted_to_binary_and_readonly() {
+        // MakerNotes / preview/thumbnail JPEGs / opaque DNG buffers are
+        // writable='true' per listx but only via `-Tag<=file.bin`.  The
+        // override marks them Binary AND forces writable=false so the UI
+        // treats them as read-only and the autocomplete drops them.
+        let mut tags: BTreeMap<String, TagInfo> = BTreeMap::new();
+        tags.insert("ExifIFD:MakerNoteCanon".to_string(), TagInfo {
+            group: "ExifIFD".to_string(),
+            name: "MakerNoteCanon".to_string(),
+            writable: true,
+            kind: TagKind::Unknown,
+            description: None,
+        });
+        tags.insert("IFD0:PreviewImage".to_string(), TagInfo {
+            group: "IFD0".to_string(),
+            name: "PreviewImage".to_string(),
+            writable: true,
+            kind: TagKind::Unknown,
+            description: None,
+        });
+        apply_overrides(&mut tags);
+        let mk = tags.get("ExifIFD:MakerNoteCanon").unwrap();
+        assert!(matches!(mk.kind, TagKind::Binary));
+        assert!(!mk.writable);
+        let pv = tags.get("IFD0:PreviewImage").unwrap();
+        assert!(matches!(pv.kind, TagKind::Binary));
+        assert!(!pv.writable);
+    }
+
+    #[test]
+    fn binary_override_does_not_grant_write_when_listx_said_no() {
+        // Defensive: if listx ever reported a Binary-overridden tag as
+        // writable=false, the override must NOT flip that to true.
+        let mut tags: BTreeMap<String, TagInfo> = BTreeMap::new();
+        tags.insert("ExifIFD:MakerNoteCanon".to_string(), TagInfo {
+            group: "ExifIFD".to_string(),
+            name: "MakerNoteCanon".to_string(),
+            writable: false,
+            kind: TagKind::Unknown,
+            description: None,
+        });
+        apply_overrides(&mut tags);
+        assert!(!tags.get("ExifIFD:MakerNoteCanon").unwrap().writable);
     }
 
     #[test]

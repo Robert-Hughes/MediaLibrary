@@ -95,6 +95,51 @@ After changing the shape of any Rust type with `#[derive(TS)]` (gated behind `#[
 
 ---
 
+## Tag-schema overrides
+
+The tag registry is built from `exiftool -listx -lang en` (see
+`src-tauri/src/tag_schema.rs`), but listx is silent or wrong on several
+things that the rest of the app needs to know. Those gaps are patched
+in a hand-curated table (`apply_overrides`) at the bottom of that file.
+
+There are three classes of override; add to whichever fits:
+
+- **XMP list/seq/alt shape** — listx reports XMP bags/seqs/alts as plain
+  `string`. We upgrade them to `Bag<Text>` / `Seq<Text>` / etc. Source:
+  the XMP specification. Examples: `XMP-dc:Subject`, `XMP-dc:Creator`,
+  `XMP-lr:HierarchicalSubject`.
+- **DateTime promotion** — XMP doesn't constrain datetime strings at
+  the schema level, so listx says `string`. We promote the well-known
+  XMP datetime tags to `DateTime` so the editor, verifier, and
+  `write_args` numeric-group routing all kick in.
+- **`type='undef'` cleanups** — listx reports a long tail of EXIF tags
+  as `type='undef'`, which falls through to `TagKind::Unknown`. In
+  practice these split into two camps:
+    - ASCII version strings (`ExifVersion`, `FlashpixVersion`,
+      `InteropVersion`) that ExifTool accepts via `-Tag=value`.
+      Promote to `Text`.
+    - Opaque binary blobs (MakerNotes, PreviewImage, ThumbnailImage,
+      XMP-as-undef, DustRemovalData, DNGPrivateData…) that are
+      writable per listx but only via `-Tag<=file.bin`. Demote to
+      `Binary`. The override mechanism also forces `writable=false`
+      for any kind it sets to `Binary`, so the UI marks them
+      read-only and the autocomplete drops them. The override never
+      *grants* write permission listx denied.
+
+If you find another tag that needs help (the schema badge is wrong, the
+wrong editor opens, writes silently fail), add it to `apply_overrides`
+with a comment explaining which camp it falls into. There are tests in
+the same file (`undef_version_strings_promoted_to_text`,
+`undef_binary_blobs_demoted_to_binary_and_readonly`,
+`binary_override_does_not_grant_write_when_listx_said_no`) that you
+can extend.
+
+See also `DATATYPE_MISMATCHES.md` for the deferred work on
+`Bag(Unknown)` schema-vs-value-badge mismatches (ComponentsConfiguration,
+LensSerialNumber, etc.).
+
+---
+
 ## Logging
 
 Use the `log` crate (already migrated from custom macros). Set `RUST_LOG=mediabrary=debug` for verbose output during dev. Tests should not depend on log output unless explicitly asserting.
@@ -116,3 +161,4 @@ Use the `log` crate (already migrated from custom macros). Set `RUST_LOG=mediabr
 - `METADATA_FORMATS_PLAN.md` — phased implementation plan.
 - `TODO.md` — short-form running task list.
 - `test_images/README.md` — fixture corpus index.
+- `DATATYPE_MISMATCHES.md` — analysis of schema-vs-runtime datatype-badge mismatches and the options for fixing them.
