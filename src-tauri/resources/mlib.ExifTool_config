@@ -1,0 +1,45 @@
+# ExifTool user-defined config registering the `XMP-mlib` namespace used by
+# MediaLibrary for AI-generated metadata. Embedded in the application binary
+# (see `src-tauri/src/exiftool_config.rs`) and materialised to the user's
+# cache directory at runtime; passed to every exiftool invocation via
+# `-config <path>`. Does NOT touch the user's exiftool install.
+#
+# Field semantics:
+#   AIDescription    - prose description (~50 words) of the image
+#   AIInterpretation - one short hedged sentence about mood/intent (or empty)
+#   AITags           - bag of search-friendly tags
+#   AIObjects        - bag of distinct nouns visible in the image
+#   AIOcrText        - bag of transcribed text regions
+#   AIModel          - model id that produced the description
+#   AIGeneratedAt    - generation timestamp (XMP DateTime)
+#   AIPromptVersion  - prompt+schema version string for staleness detection
+
+%Image::ExifTool::UserDefined = (
+    'Image::ExifTool::XMP::Main' => {
+        mlib => {
+            SubDirectory => {
+                TagTable => 'Image::ExifTool::UserDefined::mlib',
+            },
+        },
+    },
+);
+
+%Image::ExifTool::UserDefined::mlib = (
+    GROUPS    => { 0 => 'XMP', 1 => 'XMP-mlib', 2 => 'Image' },
+    NAMESPACE => { 'mlib' => 'https://medialibrary.local/ns/1.0/' },
+    WRITABLE  => 'string',
+
+    AIDescription    => { },
+    AIInterpretation => { },
+    AITags           => { List => 'Bag' },
+    AIObjects        => { List => 'Bag' },
+    AIOcrText        => { List => 'Bag' },
+    AIModel          => { },
+    AIGeneratedAt    => {
+        Groups => { 2 => 'Time' },
+        %Image::ExifTool::XMP::dateTimeInfo,
+    },
+    AIPromptVersion  => { },
+);
+
+1; #end

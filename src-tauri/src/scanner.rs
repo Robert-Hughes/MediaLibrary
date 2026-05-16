@@ -8,7 +8,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
-use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use walkdir::WalkDir;
@@ -278,8 +277,7 @@ fn run_exiftool_pass(
     paths: &[std::path::PathBuf],
     numeric: bool,
 ) -> Result<HashMap<String, HashMap<String, Variant>>, String> {
-    let exiftool_cmd = find_exiftool();
-    let mut cmd = Command::new(exiftool_cmd);
+    let mut cmd = crate::exiftool_config::exiftool_command();
     cmd.arg("-a")
         .arg("-G1")
         .arg("-s")

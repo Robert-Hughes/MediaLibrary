@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
-use std::process::Command;
 
 use crate::scanner::{self, Variant};
 use crate::tag_schema::TagKind;
@@ -9,8 +8,7 @@ use crate::tag_schema::TagKind;
 /// Run one exiftool write invocation against `path` with the provided args.
 /// `numeric=true` prepends `-n` so values are interpreted as raw numerics.
 fn run_exiftool_write(path: &Path, args: &[String], numeric: bool) -> Result<(), String> {
-    let exiftool_cmd = scanner::find_exiftool();
-    let mut cmd = Command::new(exiftool_cmd);
+    let mut cmd = crate::exiftool_config::exiftool_command();
     cmd.arg("-overwrite_original");
     if numeric {
         cmd.arg("-n");
