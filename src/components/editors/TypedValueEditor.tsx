@@ -34,6 +34,7 @@ import { DateTimeEditor } from "./DateTimeEditor";
 import { GpsEditor, parseDecimalDegrees, parseHemisphere } from "./GpsEditor";
 import { FlashEditor } from "./FlashEditor";
 import { StructEditor, initialObjectFrom } from "./StructEditor";
+import { READ_ONLY_TOOLTIP } from "./readOnlyMessages";
 import { NestedListEditor, initialItemsFromVariant } from "./NestedListEditor";
 import { variantToDisplayString } from "../../draft";
 import {
@@ -491,7 +492,7 @@ function UnknownEditor({
             className="dialog-btn dialog-btn-primary"
             onClick={() => onSave(value)}
             disabled={readOnly}
-            title={readOnly ? "Tag is read-only per ExifTool schema" : undefined}
+            title={readOnly ? READ_ONLY_TOOLTIP : undefined}
           >
             Save
           </button>

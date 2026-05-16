@@ -13,6 +13,7 @@
 import { useState } from "react";
 import type { DraftEdit, Variant } from "../../types";
 import { variantToDisplayString } from "../../draft";
+import { READ_ONLY_TOOLTIP } from "./readOnlyMessages";
 
 interface Props {
   propertyKey: string;
@@ -191,7 +192,7 @@ export function StructEditor({ propertyKey, initialObject, innerEditor, onSave, 
             onClick={handleSave}
             data-testid="struct-editor-save"
             disabled={readOnly}
-            title={readOnly ? "Tag is read-only per ExifTool schema" : undefined}
+            title={readOnly ? READ_ONLY_TOOLTIP : undefined}
           >
             Save
           </button>

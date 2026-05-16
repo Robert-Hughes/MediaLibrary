@@ -20,6 +20,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import type { DraftEdit, Variant } from "../../types";
+import { READ_ONLY_TOOLTIP } from "./readOnlyMessages";
 
 interface Props {
   propertyKey: string;
@@ -260,7 +261,7 @@ export function RationalEditor({ propertyKey, initialValue, onSave, onCancel, he
             onClick={handleSave}
             data-testid="rational-editor-save"
             disabled={readOnly}
-            title={readOnly ? "Tag is read-only per ExifTool schema" : undefined}
+            title={readOnly ? READ_ONLY_TOOLTIP : undefined}
           >
             Save
           </button>

@@ -12,6 +12,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import type { DraftEdit, Variant } from "../../types";
+import { READ_ONLY_TOOLTIP } from "./readOnlyMessages";
 
 /** Inner kinds this chip editor knows how to round-trip through string form. */
 export type BagInnerKind = "Text" | "Integer" | "Real" | "Boolean" | "Unknown";
@@ -212,7 +213,7 @@ export function BagEditor({ propertyKey, initialItems, ordered = false, innerKin
             onClick={handleSave}
             data-testid="bag-editor-save"
             disabled={readOnly}
-            title={readOnly ? "Tag is read-only per ExifTool schema" : undefined}
+            title={readOnly ? READ_ONLY_TOOLTIP : undefined}
           >
             Save
           </button>

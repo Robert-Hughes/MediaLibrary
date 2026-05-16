@@ -10,6 +10,7 @@
 
 import { useState } from "react";
 import type { DraftEdit, Variant } from "../../types";
+import { READ_ONLY_TOOLTIP } from "./readOnlyMessages";
 
 interface Props {
   propertyKey: string;
@@ -138,7 +139,7 @@ export function LangAltEditor({ propertyKey, initialLangs, onSave, onCancel, hea
             onClick={handleSave}
             data-testid="langalt-editor-save"
             disabled={readOnly}
-            title={readOnly ? "Tag is read-only per ExifTool schema" : undefined}
+            title={readOnly ? READ_ONLY_TOOLTIP : undefined}
           >
             Save
           </button>
