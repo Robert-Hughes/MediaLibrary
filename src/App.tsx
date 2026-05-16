@@ -81,6 +81,27 @@ function LoadedView({
     setListSearchQuery("");
   }, [state.folder]);
 
+  // Ctrl/Cmd+F focuses the relevant search box.  When the gallery's
+  // details pane is visible its in-pane search is the right target;
+  // otherwise the main list-view search box.  Both inputs use stable
+  // ids so a DOM lookup is enough — no need to thread refs through the
+  // component tree.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      if (e.key !== "f" && e.key !== "F") return;
+      const details = document.getElementById("details-search-input") as HTMLInputElement | null;
+      const list = document.getElementById("list-search-input") as HTMLInputElement | null;
+      const target = details ?? list;
+      if (!target) return;
+      e.preventDefault();
+      target.focus();
+      target.select();
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, []);
+
   // Components and the search filter still consume the legacy `string | null`
   // shape; storage in `state.draftEdits` is typed (Phase 3b).  Derive the
   // legacy view once per draft-state change.
