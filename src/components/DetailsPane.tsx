@@ -146,19 +146,20 @@ function DetailsValueCell({
         <>
           {originalValue ? (
             <>
+              {valueBadge ? <DatatypeBadge code={valueBadge.code} label={valueBadge.label} variant="value" /> : null}
               <s className="draft-original" style={{ opacity: 0.6 }}><HighlightedText text={originalValue} searchQuery={searchQuery} /></s>
-              {valueBadge ? <DatatypeBadge code={valueBadge.code} label={valueBadge.label} variant="value" /> : null}{" "}
+              {" "}
             </>
           ) : null}
+          {draftBadge ? <DatatypeBadge code={draftBadge.code} label={draftBadge.label} variant="draft" /> : null}
           <strong className="draft-new">
             <HighlightedText text={draftValue === null ? "—" : draftValue} searchQuery={searchQuery} />
           </strong>
-          {draftBadge ? <DatatypeBadge code={draftBadge.code} label={draftBadge.label} variant="draft" /> : null}
         </>
       ) : (
         <>
-          <HighlightedText text={originalValue} searchQuery={searchQuery} />
           {valueBadge ? <DatatypeBadge code={valueBadge.code} label={valueBadge.label} variant="value" /> : null}
+          <HighlightedText text={originalValue} searchQuery={searchQuery} />
         </>
       )}
     </td>
@@ -212,8 +213,8 @@ function DetailsImageRow({
       onContextMenu={onContextMenu}
     >
       <td className="details-key" style={draftValue !== undefined ? { color: "var(--accent-draft)" } : undefined}>
-        <HighlightedText text={entry.label} searchQuery={searchQuery} />
         {schemaInfo ? <DatatypeBadge code={schemaInfo.code} label={schemaInfo.label} variant="schema" /> : null}
+        <HighlightedText text={entry.label} searchQuery={searchQuery} />
       </td>
       <DetailsValueCell
         originalValue={entry.value}
