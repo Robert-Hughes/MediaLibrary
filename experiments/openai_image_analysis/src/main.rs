@@ -384,7 +384,6 @@ async fn call_responses_api(
     tracing::info!("Response status: {}", status);
 
     if !status.is_success() {
-        tracing::error!("API error response: {}", body);
         return Err(format!("API request failed with status {}: {}", status, body).into());
     }
 
@@ -685,6 +684,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             match call_responses_api(&client, &api_key, model, text_prompt, &sample_images).await {
                 Ok(response) => {
                     tracing::info!("API Response: {}", serde_json::to_string_pretty(&response)?);
+                    println!("\n=== Text Response ===\n{}", response["output"][0]["content"][0]["text"]);
                 }
                 Err(e) => {
                     tracing::error!("API call failed: {}", e);
