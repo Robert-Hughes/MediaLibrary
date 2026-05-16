@@ -482,6 +482,7 @@ async fn list_models_with_pricing(client: &Client, api_key: &str) -> Result<(), 
         Cell::new("Output").set_alignment(CellAlignment::Right),
         Cell::new("Batch / Flex").set_alignment(CellAlignment::Center),
         Cell::new("1024x1024").set_alignment(CellAlignment::Right),
+        Cell::new("10k Images").set_alignment(CellAlignment::Right),
         Cell::new("Images/$1").set_alignment(CellAlignment::Right),
         Cell::new("Created").set_alignment(CellAlignment::Right),
     ]);
@@ -498,6 +499,7 @@ async fn list_models_with_pricing(client: &Client, api_key: &str) -> Result<(), 
         if let Some(pricing) = pricing_table.get(&model_id) {
             let tokens_1024 = calculate_image_tokens(1024, 1024, &model_id);
             let cost_1024 = (tokens_1024 as f64 / 1_000_000.0) * pricing.input_per_1m;
+            let cost_10k = cost_1024 * 10_000.0;
             let flex_str = if pricing.supports_batch { "Yes" } else { "No" };
             
             let cached_str = if pricing.cached_input_per_1m > 0.0 {
@@ -519,6 +521,7 @@ async fn list_models_with_pricing(client: &Client, api_key: &str) -> Result<(), 
                 format!("${:.2}", pricing.output_per_1m),
                 flex_str.to_string(),
                 format!("${:.6}", cost_1024),
+                format!("${:.2}", cost_10k),
                 images_per_dollar,
                 created_str,
             ]);
@@ -529,6 +532,7 @@ async fn list_models_with_pricing(client: &Client, api_key: &str) -> Result<(), 
                 "N/A".to_string(),
                 "N/A".to_string(),
                 "-".to_string(),
+                "N/A".to_string(),
                 "N/A".to_string(),
                 "N/A".to_string(),
                 created_str,
