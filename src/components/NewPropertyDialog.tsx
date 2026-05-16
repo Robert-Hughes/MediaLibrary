@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useMemo } from "react";
 import { useTagInfo } from "../hooks/useTagInfo";
 import { useSchemaTagNames } from "../hooks/useSchemaTagNames";
 import { describeKind } from "./editors/EditorMetaHint";
+import { filterTagsByFilename } from "../utils/tagGroupApplicability";
 
 interface Props {
   /**
@@ -13,9 +14,12 @@ interface Props {
   onSave: (key: string) => void;
   onCancel: () => void;
   existingKeys?: ReadonlySet<string>;
+  /** Filename of the photo being edited.  Drives file-type filtering of
+   * the autocomplete suggestions so a JPEG doesn't surface Vorbis tags. */
+  filename?: string;
 }
 
-export function NewPropertyDialog({ onSave, onCancel, existingKeys }: Props) {
+export function NewPropertyDialog({ onSave, onCancel, existingKeys, filename }: Props) {
   const [key, setKey] = useState("");
   const keyInputRef = useRef<HTMLInputElement>(null);
 
@@ -29,8 +33,9 @@ export function NewPropertyDialog({ onSave, onCancel, existingKeys }: Props) {
   const suggestions = useMemo(() => {
     if (allTagNames === "loading" || !key) return [];
     const lower = key.toLowerCase();
-    return allTagNames.filter((t) => t.toLowerCase().includes(lower));
-  }, [allTagNames, key]);
+    const applicable = filterTagsByFilename(allTagNames, filename);
+    return applicable.filter((t) => t.toLowerCase().includes(lower));
+  }, [allTagNames, key, filename]);
 
   useEffect(() => {
     keyInputRef.current?.focus();

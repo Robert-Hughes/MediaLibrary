@@ -125,6 +125,13 @@ impl TagRegistry {
         self.tags.keys().map(|s| s.as_str())
     }
 
+    /// Iterator over (`Group:Name`, `TagInfo`) for writable tags only.
+    /// Used by the autocomplete command: surfacing read-only entries lets
+    /// users pick a key that ExifTool will subsequently refuse to set.
+    pub fn all_writable(&self) -> impl Iterator<Item = (&str, &TagInfo)> {
+        self.tags.iter().filter(|(_, info)| info.writable).map(|(k, v)| (k.as_str(), v))
+    }
+
     /// Build from raw `exiftool -listx -lang en` XML output.
     /// Public for testing against fixture XML.
     pub fn from_listx_xml(xml: &str) -> Result<Self, SchemaError> {

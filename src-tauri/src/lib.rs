@@ -683,12 +683,17 @@ fn preload_schema() -> Result<(), String> {
     tag_schema::get_registry().map(|_| ()).map_err(|e| e.to_string())
 }
 
-/// Returns all `Group:Name` keys in the schema registry, sorted.
-/// Used by the "Add New Property" dialog for autocomplete.
+/// Returns the writable `Group:Name` keys in the schema registry, sorted.
+/// Used by the "Add New Property" dialog for autocomplete — listing
+/// read-only tags would only let the user pick a key that ExifTool would
+/// then refuse to write.
 #[tauri::command]
 fn list_schema_tags() -> Result<Vec<String>, String> {
     let registry = tag_schema::get_registry().map_err(|e| e.to_string())?;
-    Ok(registry.all_keys().map(|s| s.to_owned()).collect())
+    Ok(registry
+        .all_writable()
+        .map(|(k, _)| k.to_owned())
+        .collect())
 }
 
 #[tauri::command]
