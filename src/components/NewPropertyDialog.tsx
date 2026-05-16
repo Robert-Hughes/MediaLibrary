@@ -4,14 +4,19 @@ import { useSchemaTagNames } from "../hooks/useSchemaTagNames";
 import { describeKind } from "./editors/EditorMetaHint";
 
 interface Props {
-  onSave: (key: string, value: string) => void;
+  /**
+   * Called once the user has chosen a writable key.  The parent is
+   * expected to swap in a `TypedValueEditor` for that key so the user
+   * gets a schema-appropriate editor (numeric / boolean / Bag / GPS /
+   * Flash / …) instead of a generic string box.
+   */
+  onSave: (key: string) => void;
   onCancel: () => void;
   existingKeys?: ReadonlySet<string>;
 }
 
 export function NewPropertyDialog({ onSave, onCancel, existingKeys }: Props) {
   const [key, setKey] = useState("");
-  const [value, setValue] = useState("");
   const keyInputRef = useRef<HTMLInputElement>(null);
 
   // Only consult the registry once the user has typed a colon-shaped tag —
@@ -21,7 +26,6 @@ export function NewPropertyDialog({ onSave, onCancel, existingKeys }: Props) {
 
   const allTagNames = useSchemaTagNames();
 
-  // Filter suggestions to match the current input (case-insensitive).
   const suggestions = useMemo(() => {
     if (allTagNames === "loading" || !key) return [];
     const lower = key.toLowerCase();
@@ -32,15 +36,17 @@ export function NewPropertyDialog({ onSave, onCancel, existingKeys }: Props) {
     keyInputRef.current?.focus();
   }, []);
 
+  const unwritable = tagInfo !== "loading" && tagInfo !== null && !tagInfo.writable;
+  const disabled = !key || unwritable;
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && key && value) {
-      onSave(key, value);
+    if (e.key === "Enter" && !disabled) {
+      onSave(key);
     } else if (e.key === "Escape") {
       onCancel();
     }
   };
 
-  // ── Schema-info line under the key input ───────────────────────────────
   let schemaLine: React.ReactNode = null;
   if (lookupKey && tagInfo !== "loading") {
     if (tagInfo === null) {
@@ -77,9 +83,6 @@ export function NewPropertyDialog({ onSave, onCancel, existingKeys }: Props) {
   }
 
   const isDuplicate = !!key && !!existingKeys?.has(key);
-
-  const unwritable = tagInfo !== "loading" && tagInfo !== null && !tagInfo.writable;
-  const disabled = !key || !value || unwritable;
 
   return (
     <div className="dialog-overlay">
@@ -119,18 +122,6 @@ export function NewPropertyDialog({ onSave, onCancel, existingKeys }: Props) {
             )}
             {schemaLine}
           </div>
-          <div>
-            <label style={{ display: "block", marginBottom: "4px", fontSize: "12px", opacity: 0.8 }}>Value</label>
-            <input
-              type="text"
-              className="dialog-input"
-              value={value}
-              onChange={(e) => setValue(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Value"
-              data-testid="new-property-value"
-            />
-          </div>
         </div>
         <div className="dialog-footer">
           <button className="dialog-btn dialog-btn-secondary" onClick={onCancel}>
@@ -138,11 +129,11 @@ export function NewPropertyDialog({ onSave, onCancel, existingKeys }: Props) {
           </button>
           <button
             className="dialog-btn dialog-btn-primary"
-            onClick={() => onSave(key, value)}
+            onClick={() => onSave(key)}
             disabled={disabled}
-            data-testid="new-property-add"
+            data-testid="new-property-next"
           >
-            Add
+            Next
           </button>
         </div>
       </div>

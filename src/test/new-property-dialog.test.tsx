@@ -1,4 +1,8 @@
 // NewPropertyDialog unit tests.
+//
+// The dialog is stage 1 of a two-step new-property flow: it only picks a
+// key.  Stage 2 (a TypedValueEditor for that key) is owned by the parent
+// (DetailsPane) and is exercised by the editor-specific test files.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { fireEvent, render, screen, cleanup, waitFor } from "@testing-library/react";
@@ -27,11 +31,11 @@ beforeEach(() => {
 });
 
 describe("NewPropertyDialog", () => {
-  it("renders empty form", () => {
+  it("renders empty form with Next disabled", () => {
     render(<NewPropertyDialog onSave={() => {}} onCancel={() => {}} />);
     expect(screen.getByTestId("new-property-key")).toBeInTheDocument();
-    expect(screen.getByTestId("new-property-value")).toBeInTheDocument();
-    expect(screen.getByTestId("new-property-add")).toBeDisabled();
+    expect(screen.queryByTestId("new-property-value")).toBeNull();
+    expect(screen.getByTestId("new-property-next")).toBeDisabled();
   });
 
   it("does not look up the schema until a colon is typed", async () => {
@@ -45,7 +49,6 @@ describe("NewPropertyDialog", () => {
   });
 
   it("shows the unknown-tag warning when schema lookup misses", async () => {
-    // Pre-seed the cache so we don't need to wait for the async lookup.
     _setTagInfoCacheEntry("XMP-dc:NotARealTag", null);
     render(<NewPropertyDialog onSave={() => {}} onCancel={() => {}} />);
     const keyInput = screen.getByTestId("new-property-key") as HTMLInputElement;
@@ -55,7 +58,7 @@ describe("NewPropertyDialog", () => {
     });
   });
 
-  it("shows the unwritable-tag warning and disables Add", async () => {
+  it("shows the unwritable-tag warning and disables Next", async () => {
     _setTagInfoCacheEntry("Foo:Readonly", {
       group: "Foo",
       name: "Readonly",
@@ -67,13 +70,10 @@ describe("NewPropertyDialog", () => {
     fireEvent.change(screen.getByTestId("new-property-key"), {
       target: { value: "Foo:Readonly" },
     });
-    fireEvent.change(screen.getByTestId("new-property-value"), {
-      target: { value: "anything" },
-    });
     await waitFor(() => {
       expect(screen.getByTestId("new-property-schema-unwritable")).toBeInTheDocument();
     });
-    expect(screen.getByTestId("new-property-add")).toBeDisabled();
+    expect(screen.getByTestId("new-property-next")).toBeDisabled();
   });
 
   it("shows kind info for a known writable tag", async () => {
@@ -124,7 +124,6 @@ describe("NewPropertyDialog", () => {
   it("datalist is empty when input is blank", async () => {
     _setSchemaTagNamesCache(["XMP-dc:Title", "IPTC:Keywords"]);
     render(<NewPropertyDialog onSave={() => {}} onCancel={() => {}} />);
-    // key input starts empty — no suggestions
     const datalist = document.getElementById("schema-tag-names");
     expect(datalist).not.toBeNull();
     expect(datalist!.querySelectorAll("option")).toHaveLength(0);
@@ -224,7 +223,9 @@ describe("NewPropertyDialog", () => {
     });
   });
 
-  it("Save still works when key is a duplicate (overwrite is allowed)", async () => {
+  // ── Stage transition ───────────────────────────────────────────────────
+
+  it("Next still works when key is a duplicate (overwrite is allowed)", async () => {
     const user = userEvent.setup();
     const onSave = vi.fn();
     const existingKeys = new Set(["XMP-dc:Title"]);
@@ -245,17 +246,14 @@ describe("NewPropertyDialog", () => {
     fireEvent.change(screen.getByTestId("new-property-key"), {
       target: { value: "XMP-dc:Title" },
     });
-    fireEvent.change(screen.getByTestId("new-property-value"), {
-      target: { value: "New Title" },
-    });
     await waitFor(() => {
-      expect(screen.getByTestId("new-property-add")).not.toBeDisabled();
+      expect(screen.getByTestId("new-property-next")).not.toBeDisabled();
     });
-    await user.click(screen.getByTestId("new-property-add"));
-    expect(onSave).toHaveBeenCalledWith("XMP-dc:Title", "New Title");
+    await user.click(screen.getByTestId("new-property-next"));
+    expect(onSave).toHaveBeenCalledWith("XMP-dc:Title");
   });
 
-  it("Save calls onSave with key and value", async () => {
+  it("Next calls onSave with just the key (no value field)", async () => {
     const user = userEvent.setup();
     const onSave = vi.fn();
     _setTagInfoCacheEntry("XMP-dc:Title", {
@@ -269,13 +267,57 @@ describe("NewPropertyDialog", () => {
     fireEvent.change(screen.getByTestId("new-property-key"), {
       target: { value: "XMP-dc:Title" },
     });
-    fireEvent.change(screen.getByTestId("new-property-value"), {
-      target: { value: "Hello" },
-    });
     await waitFor(() => {
-      expect(screen.getByTestId("new-property-add")).not.toBeDisabled();
+      expect(screen.getByTestId("new-property-next")).not.toBeDisabled();
     });
-    await user.click(screen.getByTestId("new-property-add"));
-    expect(onSave).toHaveBeenCalledWith("XMP-dc:Title", "Hello");
+    await user.click(screen.getByTestId("new-property-next"));
+    expect(onSave).toHaveBeenCalledWith("XMP-dc:Title");
+  });
+
+  it("Next is enabled even before a colon is typed (key not in schema → text fallback)", async () => {
+    const onSave = vi.fn();
+    render(<NewPropertyDialog onSave={onSave} onCancel={() => {}} />);
+    fireEvent.change(screen.getByTestId("new-property-key"), {
+      target: { value: "FreeFormKey" },
+    });
+    expect(screen.getByTestId("new-property-next")).not.toBeDisabled();
+  });
+
+  it("Enter on the key field advances when valid", async () => {
+    const onSave = vi.fn();
+    _setTagInfoCacheEntry("XMP-dc:Title", {
+      group: "XMP-dc",
+      name: "Title",
+      writable: true,
+      kind: { kind: "Text" },
+      description: null,
+    });
+    render(<NewPropertyDialog onSave={onSave} onCancel={() => {}} />);
+    const keyInput = screen.getByTestId("new-property-key");
+    fireEvent.change(keyInput, { target: { value: "XMP-dc:Title" } });
+    await waitFor(() => {
+      expect(screen.getByTestId("new-property-next")).not.toBeDisabled();
+    });
+    fireEvent.keyDown(keyInput, { key: "Enter" });
+    expect(onSave).toHaveBeenCalledWith("XMP-dc:Title");
+  });
+
+  it("Enter does not advance while the tag is unwritable", async () => {
+    const onSave = vi.fn();
+    _setTagInfoCacheEntry("Foo:Readonly", {
+      group: "Foo",
+      name: "Readonly",
+      writable: false,
+      kind: { kind: "Text" },
+      description: null,
+    });
+    render(<NewPropertyDialog onSave={onSave} onCancel={() => {}} />);
+    const keyInput = screen.getByTestId("new-property-key");
+    fireEvent.change(keyInput, { target: { value: "Foo:Readonly" } });
+    await waitFor(() => {
+      expect(screen.getByTestId("new-property-schema-unwritable")).toBeInTheDocument();
+    });
+    fireEvent.keyDown(keyInput, { key: "Enter" });
+    expect(onSave).not.toHaveBeenCalled();
   });
 });

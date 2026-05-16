@@ -151,6 +151,9 @@ export function DetailsPane({ photo, metadata, draftEdits = {}, onSetDraftTyped,
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, key: string, originalValue: string, draftValue?: string | null } | null>(null);
   const [editDialog, setEditDialog] = useState<{ key: string, initialValue: string } | null>(null);
   const [showNewPropertyDialog, setShowNewPropertyDialog] = useState(false);
+  // Stage 2 of the new-property flow: key picked, now show a TypedValueEditor
+  // for that key.  null when no flow is active or we're still on stage 1.
+  const [newPropertyKey, setNewPropertyKey] = useState<string | null>(null);
 
   const handleContextMenu = (e: React.MouseEvent, key: string, originalValue: string, draftValue?: string | null) => {
     e.preventDefault();
@@ -422,12 +425,27 @@ export function DetailsPane({ photo, metadata, draftEdits = {}, onSetDraftTyped,
 
       {showNewPropertyDialog && (
         <NewPropertyDialog
-          onSave={(key, value) => {
-            onSetDraftTyped?.(key, { value, intent: "Set" });
+          onSave={(key) => {
             setShowNewPropertyDialog(false);
+            setNewPropertyKey(key);
           }}
           onCancel={() => setShowNewPropertyDialog(false)}
           existingKeys={existingMetadataKeys}
+        />
+      )}
+
+      {newPropertyKey !== null && (
+        <TypedValueEditor
+          propertyKey={newPropertyKey}
+          initialVariant={undefined}
+          initialString=""
+          metadataForFile={metadata !== "loading" ? (metadata as Record<string, Variant>) : undefined}
+          onSaveBatch={onSetDraftBatch ? (edits) => { onSetDraftBatch(edits); setNewPropertyKey(null); } : undefined}
+          onSave={(edit) => {
+            onSetDraftTyped?.(newPropertyKey, edit);
+            setNewPropertyKey(null);
+          }}
+          onCancel={() => setNewPropertyKey(null)}
         />
       )}
     </div>

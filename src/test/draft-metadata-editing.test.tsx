@@ -188,13 +188,18 @@ describe("Draft Metadata Editing Integration", () => {
     await user.dblClick(rows[0]);
     await user.click(screen.getByTestId("gallery-info-toggle"));
 
-    // Click "+ Add Property"
+    // Click "+ Add Property" → stage 1 (key picker)
     await user.click(screen.getByText("+ Add Property"));
 
-    // Fill the dialog and save
+    // Pick the key and advance to stage 2
     await user.type(screen.getByTestId("new-property-key"), "XMP-dc:Description");
-    await user.type(screen.getByTestId("new-property-value"), "Hello");
-    await user.click(screen.getByTestId("new-property-add"));
+    await user.click(screen.getByTestId("new-property-next"));
+
+    // Stage 2: TypedValueEditor for this key (Unknown → ValueEditDialog
+    // fallback because the seeded cache entry is null).  Fill the value
+    // and save.
+    await user.type(screen.getByTestId("value-edit-input"), "Hello");
+    await user.click(screen.getByTestId("value-edit-save"));
 
     // Draft badge present: 1 edit on this photo
     expect(screen.getByTitle("Show only edited fields")).toBeInTheDocument();
