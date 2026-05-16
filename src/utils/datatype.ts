@@ -1,0 +1,63 @@
+import type { TagKind, Variant } from "../types";
+
+export interface DatatypeInfo {
+  code: string;
+  label: string;
+}
+
+/**
+ * Map a schema {@link TagKind} to a short datatype badge.  Returns `null`
+ * when the schema is unknown (caller renders no badge).
+ */
+export function schemaDatatype(kind: TagKind | null | undefined): DatatypeInfo | null {
+  if (!kind) return null;
+  switch (kind.kind) {
+    case "Text":     return { code: "S",   label: "String" };
+    case "LangAlt":  return { code: "LA",  label: "LangAlt" };
+    case "Integer":  return { code: "I",   label: "Integer" };
+    case "Real":     return { code: "R",   label: "Real" };
+    case "Rational": return { code: "Q",   label: "Rational" };
+    case "Boolean":  return { code: "B",   label: "Boolean" };
+    case "DateTime": return { code: "D",   label: "DateTime" };
+    case "Enum":     return { code: "E",   label: "Enum" };
+    case "Bag":      return { code: "[B]", label: "Bag (unordered list)" };
+    case "Seq":      return { code: "[S]", label: "Seq (ordered list)" };
+    case "Alt":      return { code: "[A]", label: "Alt (alternatives)" };
+    case "Struct":   return { code: "{}",  label: "Struct" };
+    case "Binary":   return { code: "Bin", label: "Binary" };
+    case "Unknown":  return { code: "?",   label: "Unknown" };
+  }
+}
+
+/**
+ * Map a runtime {@link Variant} value to its datatype badge.  Returns
+ * `null` when there is no value to describe (undefined input).
+ */
+export function variantDatatype(v: Variant | undefined): DatatypeInfo | null {
+  if (v === undefined) return null;
+  if (v === null) return { code: "∅", label: "Null" };
+  if (typeof v === "boolean") return { code: "B", label: "Boolean" };
+  if (typeof v === "number") return { code: "N", label: "Number" };
+  if (typeof v === "string") return { code: "S", label: "String" };
+  if (Array.isArray(v)) return { code: "L", label: "List" };
+  if (typeof v === "object") return { code: "{}", label: "Object" };
+  return null;
+}
+
+/**
+ * Decide whether a runtime variant code is compatible with a schema code.
+ * The JS Variant collapses int/real to `number`, so `N` is treated as a
+ * match for both `I` and `R`.  Rational (`Q`) is wire-encoded as a
+ * `"num/den"` string, so a numeric variant against `Q` is a mismatch.
+ */
+export function datatypesMatch(variantCode: string, schemaCode: string): boolean {
+  if (variantCode === schemaCode) return true;
+  if (variantCode === "N") return schemaCode === "I" || schemaCode === "R";
+  if (variantCode === "S") {
+    return schemaCode === "LA" || schemaCode === "D" || schemaCode === "E" || schemaCode === "Q";
+  }
+  if (variantCode === "L") {
+    return schemaCode === "[B]" || schemaCode === "[S]" || schemaCode === "[A]";
+  }
+  return false;
+}
