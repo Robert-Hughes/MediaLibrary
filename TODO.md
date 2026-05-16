@@ -26,14 +26,14 @@ Make it appear to the left or above the cursor if it won't fit to the bottom rig
 * UI improvement: move the list view's search box into the top-right corner of the window, on the same row as the buttons like Open Folder and Close
 * UI improvement: rename the "Close" button on the top bar to "Close Folder"
 
-
-Later- *** DO NOT WORK ON ANY OF THE BELOW FEATURES ***
-=====
-
 * Fetch this design file, read its readme, and consider how we could integrate the design. https://api.anthropic.com/v1/design/h/5nr5fPNh5vfGUrZ6BOOkUw?open_file=Media+Library+Classic+Layout.html (Media Library Classic Layout.html, NOT the 'Redesign' version)
   * Focus on the styling aspects, not the layout or functionality. I like the dark/light theme toggle, hopefully we can add that.
   * Give me a short report on how we could make our app look like this and if there are any trade-offs we would need to make
   * No edits, just investigate
+
+Later- *** DO NOT WORK ON ANY OF THE BELOW FEATURES ***
+=====
+
 
 * Reverse geo-coding. Consider doing this before the image analysis and passing in as input? Same with other metadata tags possibly?
 
