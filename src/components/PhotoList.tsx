@@ -394,6 +394,61 @@ export function PhotoList({
     setContextMenu({ x: e.clientX, y: e.clientY, index });
   }, [onSelect]);
 
+  // Keyboard navigation: arrow keys move the selection by one, Home/End jump
+  // to the first/last row, Ctrl+A selects every row.  Lives on document so
+  // the list responds even when no specific row currently has focus.  We
+  // skip when the user is typing in an input/textarea/contenteditable and
+  // when any modal dialog (including the gallery overlay) is open — those
+  // own the keyboard for their own scope.
+  const photosLenRef = useRef(photos.length);
+  photosLenRef.current = photos.length;
+  const selectedIndexRef = useRef(selectedIndex);
+  selectedIndexRef.current = selectedIndex;
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t) {
+        const tag = t.tagName;
+        if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || t.isContentEditable) return;
+      }
+      // A modal dialog is open — let it handle the key.  Gallery uses the
+      // same overlay class so this covers both.
+      if (document.querySelector(".dialog-overlay, .gallery-overlay")) return;
+      const len = photosLenRef.current;
+      if (len === 0) return;
+      const cur = selectedIndexRef.current;
+
+      const moveTo = (next: number) => {
+        e.preventDefault();
+        const clamped = Math.max(0, Math.min(len - 1, next));
+        anchorRef.current = clamped;
+        setSelectedIndices(new Set([clamped]));
+        onSelect(clamped);
+      };
+
+      if (e.key === "ArrowDown") {
+        moveTo(cur === null ? 0 : cur + 1);
+      } else if (e.key === "ArrowUp") {
+        moveTo(cur === null ? 0 : cur - 1);
+      } else if (e.key === "Home") {
+        moveTo(0);
+      } else if (e.key === "End") {
+        moveTo(len - 1);
+      } else if ((e.ctrlKey || e.metaKey) && (e.key === "a" || e.key === "A")) {
+        e.preventDefault();
+        const all = new Set<number>();
+        for (let i = 0; i < len; i++) all.add(i);
+        setSelectedIndices(all);
+        anchorRef.current = 0;
+        // Update the parent's anchor too so subsequent shift/ctrl gestures
+        // and the row-context-menu pickup the right "first selected" row.
+        if (cur === null) onSelect(0);
+      }
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [onSelect]);
+
   const handleColumnContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     if (onSelectColumns) {
