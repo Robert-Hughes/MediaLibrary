@@ -201,8 +201,9 @@ function LoadedView({
         searchQuery={listSearchQuery}
         emptySearchMessage={emptySearchMessage}
         draftEdits={legacyDraftEdits}
-        onDiscardAllEdits={actions.discardAllDraftEdits}
-        onApplyEdits={(path) => actions.applyDraftEdits(path)}
+        onDiscardAllEdits={(paths) => actions.discardAllDraftEdits(paths)}
+        onApplyEdits={(paths) => actions.applyDraftEdits(paths)}
+        onGenerateAiDescription={(relPaths) => describe.actions.start(state.folder, relPaths)}
       />
       {state.galleryIndex !== null && displayPhotos.length > 0 && (
         <GalleryView
