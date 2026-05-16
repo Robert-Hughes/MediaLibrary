@@ -7,6 +7,7 @@ pub mod tag_schema;
 pub mod write_args;
 pub mod apply_log;
 pub mod exiftool_config;
+pub mod settings;
 use serde::Serialize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
@@ -821,6 +822,37 @@ fn cancel_apply_edits(apply_state: State<'_, ApplyEditsState>) -> Result<(), Str
     Ok(())
 }
 
+/// Locate the per-user app-data directory for settings/log files.  Uses
+/// tauri's `path()` resolver so the location follows OS conventions
+/// (`%APPDATA%` on Windows, `~/Library/Application Support` on macOS,
+/// `$XDG_CONFIG_HOME` on Linux).
+fn app_data_dir(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    use tauri::Manager;
+    app.path()
+        .app_data_dir()
+        .map_err(|e| format!("app_data_dir unavailable: {}", e))
+}
+
+#[tauri::command]
+fn load_settings_cmd(app: AppHandle) -> Result<settings::Settings, String> {
+    let dir = app_data_dir(&app)?;
+    settings::load_settings(&dir)
+}
+
+#[tauri::command]
+fn save_settings_cmd(app: AppHandle, settings_data: settings::Settings) -> Result<(), String> {
+    let dir = app_data_dir(&app)?;
+    settings::save_settings(&dir, &settings_data)
+}
+
+/// Returns the static list of vision models we recommend for image
+/// description, so the Settings dropdown stays in sync with the backend's
+/// pricing/cost-estimation knowledge.
+#[tauri::command]
+fn list_recommended_models() -> Vec<String> {
+    settings::RECOMMENDED_MODELS.iter().map(|s| s.to_string()).collect()
+}
+
 fn clear_running(app: &AppHandle) {
     if let Some(state) = app.try_state::<ScanState>() {
         state.mark_finished();
@@ -981,7 +1013,10 @@ pub fn run() {
             cancel_apply_edits,
             get_tag_info,
             preload_schema,
-            list_schema_tags
+            list_schema_tags,
+            load_settings_cmd,
+            save_settings_cmd,
+            list_recommended_models
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
