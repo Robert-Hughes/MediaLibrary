@@ -69,8 +69,8 @@ export interface MediaLibraryActions {
   setDraftTyped: (fileRelativePath: string, propertyKey: string, edit: DraftEdit) => void;
   setDraftBatch: (fileRelativePath: string, edits: Array<{ key: string; edit: DraftEdit }>) => void;
   discardDraftValue: (fileRelativePath: string, propertyKey: string) => void;
-  discardAllDraftEdits: (fileRelativePath?: string) => void;
-  applyDraftEdits: (fileRelativePath?: string) => Promise<ApplyEditsResult>;
+  discardAllDraftEdits: (fileRelativePath?: string | string[]) => void;
+  applyDraftEdits: (fileRelativePath?: string | string[]) => Promise<ApplyEditsResult>;
   cancelApplyEdits: () => void;
   /** Phase 8.1: clear a Coerced/Mismatch outcome and drop its draft. */
   acceptVerifyOutcome: (fileRelativePath: string, tag: string) => void;
@@ -923,15 +923,17 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
     });
   }, [api]);
 
-  const discardAllDraftEdits = useCallback((fileRelativePath?: string) => {
+  const discardAllDraftEdits = useCallback((fileRelativePath?: string | string[]) => {
     setAppState((prev) => {
       if (prev.kind !== "loaded") return prev;
 
       let newDraftEdits: DraftEditsByFile;
-      if (fileRelativePath) {
-        if (!prev.draftEdits?.[fileRelativePath]) return prev;
+      if (fileRelativePath !== undefined) {
+        const paths = Array.isArray(fileRelativePath) ? fileRelativePath : [fileRelativePath];
+        const matching = paths.filter((p) => prev.draftEdits?.[p]);
+        if (matching.length === 0) return prev;
         newDraftEdits = { ...prev.draftEdits };
-        delete newDraftEdits[fileRelativePath];
+        for (const p of matching) delete newDraftEdits[p];
       } else {
         if (!prev.draftEdits || Object.keys(prev.draftEdits).length === 0) return prev;
         newDraftEdits = {};
@@ -954,15 +956,19 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
    * The promise resolves once all files are done (or cancellation took effect).
    * Callers can use the result for a final summary; state is already current.
    */
-  const applyDraftEdits = useCallback(async (fileRelativePath?: string): Promise<ApplyEditsResult> => {
+  const applyDraftEdits = useCallback(async (fileRelativePath?: string | string[]): Promise<ApplyEditsResult> => {
     const current = stateRef.current;
     if (current.kind !== "loaded") {
       return { applied: [], failed: [], fresh_metadata: {} };
     }
 
-    const relPaths = fileRelativePath
-      ? [fileRelativePath]
-      : Object.keys(current.draftEdits ?? {});
+    let relPaths: string[];
+    if (fileRelativePath === undefined) {
+      relPaths = Object.keys(current.draftEdits ?? {});
+    } else {
+      const requested = Array.isArray(fileRelativePath) ? fileRelativePath : [fileRelativePath];
+      relPaths = requested.filter((p) => current.draftEdits?.[p]);
+    }
 
     if (relPaths.length === 0) {
       return { applied: [], failed: [], fresh_metadata: {} };

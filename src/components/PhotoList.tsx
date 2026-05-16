@@ -32,8 +32,10 @@ interface Props {
   /** Shown in the grid body when `photos` is empty but the folder is not (search had no hits). */
   emptySearchMessage?: string | null;
   draftEdits?: Record<string, Record<string, string | null>>;
-  onDiscardAllEdits?: (fileRelativePath: string) => void;
-  onApplyEdits?: (fileRelativePath: string) => void;
+  onDiscardAllEdits?: (fileRelativePaths: string[]) => void;
+  onApplyEdits?: (fileRelativePaths: string[]) => void;
+  /** Trigger AI-description flow for the given relative paths. */
+  onGenerateAiDescription?: (fileRelativePaths: string[]) => void;
 }
 
 const MIN_COL_WIDTH = 40;
@@ -212,6 +214,7 @@ export function PhotoList({
   draftEdits = {},
   onDiscardAllEdits,
   onApplyEdits,
+  onGenerateAiDescription,
 }: Props) {
   const listRef = useRef<HTMLDivElement>(null);
   const visibleRef = useRef<Set<string>>(new Set());
@@ -319,9 +322,75 @@ export function PhotoList({
     }
   }, [selectedIndex, rowVirtualizer]);
 
+  // Multi-select state. `selectedIndex` from the parent is the anchor; the
+  // internal Set captures additional rows added via Ctrl/Shift-click. Plain
+  // clicks collapse the set back to a single item.
+  const [selectedIndices, setSelectedIndices] = useState<Set<number>>(() =>
+    selectedIndex !== null ? new Set([selectedIndex]) : new Set(),
+  );
+  const anchorRef = useRef<number | null>(selectedIndex);
+
+  // Reset multi-selection when the parent's anchor changes externally
+  // (e.g. keyboard nav, search clearing) so we never display stale highlights.
+  useEffect(() => {
+    if (selectedIndex === null) {
+      setSelectedIndices(new Set());
+      anchorRef.current = null;
+      return;
+    }
+    setSelectedIndices((prev) => (prev.has(selectedIndex) && prev.size > 0 ? prev : new Set([selectedIndex])));
+    if (anchorRef.current === null) anchorRef.current = selectedIndex;
+  }, [selectedIndex]);
+
+  // Drop selections that no longer point to valid rows (search filter, etc.).
+  useEffect(() => {
+    setSelectedIndices((prev) => {
+      const trimmed = new Set<number>();
+      for (const i of prev) if (i >= 0 && i < photos.length) trimmed.add(i);
+      return trimmed.size === prev.size ? prev : trimmed;
+    });
+  }, [photos.length]);
+
+  const handleRowSelect = useCallback((index: number, modifiers: { ctrl: boolean; shift: boolean }) => {
+    if (modifiers.shift && anchorRef.current !== null) {
+      const start = Math.min(anchorRef.current, index);
+      const end = Math.max(anchorRef.current, index);
+      const range = new Set<number>();
+      for (let i = start; i <= end; i++) range.add(i);
+      setSelectedIndices(range);
+      onSelect(index);
+      return;
+    }
+    if (modifiers.ctrl) {
+      setSelectedIndices((prev) => {
+        const next = new Set(prev);
+        if (next.has(index)) {
+          next.delete(index);
+        } else {
+          next.add(index);
+        }
+        return next;
+      });
+      anchorRef.current = index;
+      onSelect(index);
+      return;
+    }
+    anchorRef.current = index;
+    setSelectedIndices(new Set([index]));
+    onSelect(index);
+  }, [onSelect]);
+
   const handleContextMenu = useCallback((e: React.MouseEvent, index: number) => {
     e.preventDefault();
-    onSelect(index);
+    // If right-clicking a row that's not already part of the selection,
+    // collapse the selection to that row first — matches OS file-manager
+    // conventions and avoids surprising "this acts on N rows" prompts.
+    setSelectedIndices((prev) => {
+      if (prev.has(index)) return prev;
+      anchorRef.current = index;
+      onSelect(index);
+      return new Set([index]);
+    });
     setContextMenu({ x: e.clientX, y: e.clientY, index });
   }, [onSelect]);
 
@@ -596,12 +665,12 @@ export function PhotoList({
                 key={photo.relative_path}
                 photo={photo}
                 index={virtualRow.index}
-                selected={selectedIndex === virtualRow.index}
+                selected={selectedIndices.has(virtualRow.index)}
                 thumbnails={thumbnails}
                 imageMetadata={imageMetadata}
                 visibleColumns={visibleColumns}
                 draftEdits={draftEdits[photo.relative_path]}
-                onSelect={onSelect}
+                onSelect={handleRowSelect}
                 onPhotoOpen={onPhotoOpen}
                 onContextMenu={handleContextMenu}
                 virtualStart={virtualRow.start}
@@ -612,36 +681,81 @@ export function PhotoList({
         </div>
       </div>
 
-      {contextMenu && (
-        <ContextMenu
-          x={contextMenu.x}
-          y={contextMenu.y}
-          options={[
-            { label: "View", onClick: () => onPhotoOpen(contextMenu.index) },
-            { label: "Show in File Explorer", onClick: () => onShowInExplorer(contextMenu.index) },
-            ...(draftEdits[photos[contextMenu.index].relative_path] && Object.keys(draftEdits[photos[contextMenu.index].relative_path]).length > 0
-              ? [
-                  ...(onApplyEdits ? [{ label: "Apply edits", onClick: async () => {
-                      const path = photos[contextMenu.index].relative_path;
-                      const numEdits = Object.keys(draftEdits[path] || {}).length;
+      {contextMenu && (() => {
+        const indices = Array.from(selectedIndices).sort((a, b) => a - b);
+        const effectiveIndices = indices.length > 0 ? indices : [contextMenu.index];
+        const selectedPaths = effectiveIndices
+          .map((i) => photos[i]?.relative_path)
+          .filter((p): p is string => typeof p === "string");
+        const editablePaths = selectedPaths.filter(
+          (p) => draftEdits[p] && Object.keys(draftEdits[p]).length > 0,
+        );
+        const totalEdits = editablePaths.reduce(
+          (sum, p) => sum + Object.keys(draftEdits[p] ?? {}).length,
+          0,
+        );
+        const count = selectedPaths.length;
+        const noun = count === 1 ? "photo" : "photos";
+        const firstIndex = effectiveIndices[0];
+        return (
+          <ContextMenu
+            x={contextMenu.x}
+            y={contextMenu.y}
+            options={[
+              {
+                label: count > 1 ? `View (${photos[firstIndex]?.filename ?? "first"})` : "View",
+                onClick: () => onPhotoOpen(firstIndex),
+              },
+              {
+                label: count > 1
+                  ? `Show in File Explorer (${photos[firstIndex]?.filename ?? "first"})`
+                  : "Show in File Explorer",
+                onClick: () => onShowInExplorer(firstIndex),
+              },
+              ...(onGenerateAiDescription && selectedPaths.length > 0
+                ? [{
+                    label: count > 1
+                      ? `Generate AI Description (${count} ${noun})`
+                      : "Generate AI Description",
+                    onClick: () => onGenerateAiDescription(selectedPaths),
+                  }]
+                : []),
+              ...(editablePaths.length > 0 && onApplyEdits
+                ? [{
+                    label: editablePaths.length > 1
+                      ? `Apply edits (${editablePaths.length} ${editablePaths.length === 1 ? "photo" : "photos"})`
+                      : "Apply edits",
+                    onClick: async () => {
+                      const target = editablePaths.length === 1
+                        ? (photos[effectiveIndices.find((i) => photos[i]?.relative_path === editablePaths[0])!]?.filename ?? editablePaths[0])
+                        : `${editablePaths.length} photos`;
                       const confirmed = await ask(
-                        `Apply ${numEdits} edit${numEdits === 1 ? "" : "s"} to ${photos[contextMenu.index].filename}?\n\nThis will permanently modify the original image file. There is no backup.`,
-                        { title: "Apply Edits", kind: "warning" }
+                        `Apply ${totalEdits} edit${totalEdits === 1 ? "" : "s"} to ${target}?\n\nThis will permanently modify the original image file${editablePaths.length === 1 ? "" : "s"}. There is no backup.`,
+                        { title: "Apply Edits", kind: "warning" },
                       );
-                      if (confirmed) { setContextMenu(null); onApplyEdits(path); }
-                    } }] : []),
-                  ...(onDiscardAllEdits ? [{ label: "Discard all edits", onClick: async () => {
-                      const path = photos[contextMenu.index].relative_path;
-                      const numEdits = Object.keys(draftEdits[path] || {}).length;
-                      const confirmed = await ask(`Are you sure you want to discard ${numEdits} edit${numEdits === 1 ? "" : "s"} for this photo?`, { title: "Discard Edits", kind: "warning" });
-                      if (confirmed) onDiscardAllEdits(path);
-                    } }] : []),
-                ]
-              : [])
-          ]}
-          onClose={() => setContextMenu(null)}
-        />
-      )}
+                      if (confirmed) { setContextMenu(null); onApplyEdits(editablePaths); }
+                    },
+                  }]
+                : []),
+              ...(editablePaths.length > 0 && onDiscardAllEdits
+                ? [{
+                    label: editablePaths.length > 1
+                      ? `Discard all edits (${editablePaths.length} ${editablePaths.length === 1 ? "photo" : "photos"})`
+                      : "Discard all edits",
+                    onClick: async () => {
+                      const confirmed = await ask(
+                        `Are you sure you want to discard ${totalEdits} edit${totalEdits === 1 ? "" : "s"} across ${editablePaths.length} ${editablePaths.length === 1 ? "photo" : "photos"}?`,
+                        { title: "Discard Edits", kind: "warning" },
+                      );
+                      if (confirmed) onDiscardAllEdits(editablePaths);
+                    },
+                  }]
+                : []),
+            ]}
+            onClose={() => setContextMenu(null)}
+          />
+        );
+      })()}
 
       {columnContextMenu && onSelectColumns && (
         <ContextMenu

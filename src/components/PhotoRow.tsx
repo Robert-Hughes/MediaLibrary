@@ -40,7 +40,7 @@ interface RowProps {
   imageMetadata: ImageMetadataStore;
   visibleColumns: VisibleColumn[];
   draftEdits?: Record<string, string | null>;
-  onSelect: (index: number | null) => void;
+  onSelect: (index: number, modifiers: { ctrl: boolean; shift: boolean }) => void;
   onPhotoOpen: (index: number) => void;
   onContextMenu: (e: React.MouseEvent, index: number) => void;
   virtualStart: number;
@@ -66,7 +66,10 @@ export const PhotoRow = memo(function PhotoRow({
   const metadataLoading = metadata === "loading";
   const metadataFailed = metadata !== "loading" && typeof metadata === "object" && "_error" in metadata;
 
-  const handleSelect = useCallback(() => onSelect(index), [onSelect, index]);
+  const handleSelect = useCallback(
+    (e: React.MouseEvent) => onSelect(index, { ctrl: e.ctrlKey || e.metaKey, shift: e.shiftKey }),
+    [onSelect, index],
+  );
   const handleDoubleClick = useCallback(() => onPhotoOpen(index), [onPhotoOpen, index]);
   const handleContextMenuEvent = useCallback((e: React.MouseEvent) => onContextMenu(e, index), [onContextMenu, index]);
 
