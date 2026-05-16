@@ -388,7 +388,16 @@ export function DetailsPane({ photo, metadata, draftEdits = {}, onSetDraft, onSe
               : []),
             {
               label: "Remove",
-              onClick: () => { onSetDraft?.(contextMenu.key, null); setContextMenu(null); },
+              onClick: () => {
+                const existsInOriginal =
+                  metadata !== "loading" && contextMenu.key in (metadata as Record<string, Variant>);
+                if (existsInOriginal) {
+                  onSetDraft?.(contextMenu.key, null);
+                } else {
+                  onDiscardDraft?.(contextMenu.key);
+                }
+                setContextMenu(null);
+              },
             },
           ]}
           onClose={() => setContextMenu(null)}
