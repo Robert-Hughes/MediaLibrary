@@ -7,7 +7,7 @@ import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import App from "../App";
 import { createMockTauriApi } from "./mockTauriApi";
 import { makePhoto } from "./factories";
-import { _setTagInfoCacheEntry } from "../hooks/useTagInfo";
+import { _clearTagInfoCache, _setTagInfoCacheEntry } from "../hooks/useTagInfo";
 
 let mockApiInstance: ReturnType<typeof createMockTauriApi>;
 
@@ -25,9 +25,17 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
 describe("Draft Metadata Editing Integration", () => {
   beforeEach(() => {
     mockApiInstance = createMockTauriApi();
+    // In production the schema cache is populated at startup via a
+    // blocking modal, so by the time the user opens any editor the
+    // useTagInfo cache is already warm. Mirror that here: pre-seed the
+    // keys these tests touch so editors render synchronously and the
+    // suite doesn't drift past the 5s timeout on slower machines.
+    _setTagInfoCacheEntry("IFD0:Make", null);
+    _setTagInfoCacheEntry("XMP-dc:Description", null);
   });
 
   afterEach(() => {
+    _clearTagInfoCache();
     vi.clearAllMocks();
     vi.resetModules();
   });
@@ -152,9 +160,6 @@ describe("Draft Metadata Editing Integration", () => {
 
   it("removing a newly-added property drops the draft instead of leaving a delete-draft", async () => {
     const user = userEvent.setup();
-
-    // Pre-seed schema lookup so NewPropertyDialog renders synchronously.
-    _setTagInfoCacheEntry("XMP-dc:Description", null);
 
     mockApiInstance.pickFolderResolves("/photos");
     render(<App />);
