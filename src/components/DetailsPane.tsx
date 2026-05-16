@@ -519,10 +519,15 @@ export function DetailsPane({ photo, metadata, draftEdits = {}, typedDraftEdits,
                 const inMeta = typeof metadata === "object"
                   && metadata !== null
                   && "XMP-mlib:AIDescription" in (metadata as Record<string, Variant>);
-                const inDraft = "XMP-mlib:AIDescription" in draftEdits;
+                // Prefer the typed draft store when wired through — it's the
+                // source of truth and survives the legacy-map round-trip
+                // dropping files with empty edits.
+                const inDraft = typedDraftEdits
+                  ? "XMP-mlib:AIDescription" in typedDraftEdits
+                  : "XMP-mlib:AIDescription" in draftEdits;
                 if (inMeta || inDraft) {
                   const confirmed = await ask(
-                    "This image already has an AI description. Generating a new one will overwrite the existing draft. Continue?",
+                    "This image already has an AI description. Generating a new one will overwrite the existing one. Continue?",
                     { title: "Overwrite AI description?", kind: "warning" }
                   );
                   if (!confirmed) return;

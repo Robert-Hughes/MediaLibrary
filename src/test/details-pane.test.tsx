@@ -254,6 +254,63 @@ describe("DetailsPane component", () => {
   });
 });
 
+// ── Generate-AI overwrite confirmation ──────────────────────────────────────
+
+describe("DetailsPane: Generate-AI overwrite confirmation", () => {
+  const photo = makePhoto({ relative_path: "p.jpg", filename: "p.jpg", date_modified: 0, date_created: 0 });
+  beforeEach(() => { cleanup(); });
+
+  it("warns when the AI description exists only as a draft (regression)", async () => {
+    const ask = vi.fn().mockResolvedValue(false);
+    vi.doMock("@tauri-apps/plugin-dialog", () => ({ ask }));
+    vi.resetModules();
+    const { DetailsPane: Fresh } = await import("../components/DetailsPane");
+    const onGenerate = vi.fn();
+    const typedDraftEdits: Record<string, DraftEdit> = {
+      "XMP-mlib:AIDescription": { value: "older description", intent: "Set" },
+    };
+
+    const user = userEvent.setup();
+    render(
+      <Fresh
+        photo={photo}
+        metadata={{} as Record<string, Variant>}
+        typedDraftEdits={typedDraftEdits}
+        draftEdits={{ "XMP-mlib:AIDescription": "older description" }}
+        onGenerateAiDescription={onGenerate}
+      />,
+    );
+    await user.click(screen.getByTestId("details-pane-generate-ai-btn"));
+    expect(ask).toHaveBeenCalledTimes(1);
+    // Message no longer hard-codes the word "draft"; refers to "the existing one".
+    expect(ask.mock.calls[0][0]).toMatch(/existing one/i);
+    expect(ask.mock.calls[0][0]).not.toMatch(/draft/i);
+    // User said No → onGenerate must not fire.
+    expect(onGenerate).not.toHaveBeenCalled();
+    vi.doUnmock("@tauri-apps/plugin-dialog");
+  });
+
+  it("does not warn when no AI description exists anywhere", async () => {
+    const ask = vi.fn().mockResolvedValue(true);
+    vi.doMock("@tauri-apps/plugin-dialog", () => ({ ask }));
+    vi.resetModules();
+    const { DetailsPane: Fresh } = await import("../components/DetailsPane");
+    const onGenerate = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <Fresh
+        photo={photo}
+        metadata={{} as Record<string, Variant>}
+        onGenerateAiDescription={onGenerate}
+      />,
+    );
+    await user.click(screen.getByTestId("details-pane-generate-ai-btn"));
+    expect(ask).not.toHaveBeenCalled();
+    expect(onGenerate).toHaveBeenCalledTimes(1);
+    vi.doUnmock("@tauri-apps/plugin-dialog");
+  });
+});
+
 // ── Two-step Add-Property flow ──────────────────────────────────────────────
 
 describe("DetailsPane: Add-Property two-step flow", () => {
