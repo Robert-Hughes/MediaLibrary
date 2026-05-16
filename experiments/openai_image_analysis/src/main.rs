@@ -23,6 +23,7 @@ struct ModelPricing {
     input_per_1m: f64,
     cached_input_per_1m: f64,
     output_per_1m: f64,
+    supports_batch: bool,
 }
 
 /// Get pricing information for models (prices per 1M tokens in USD)
@@ -34,36 +35,42 @@ fn get_model_pricing() -> HashMap<String, ModelPricing> {
         input_per_1m: 5.00,
         cached_input_per_1m: 0.50,
         output_per_1m: 30.00,
+        supports_batch: true,
     });
 
     pricing.insert("gpt-5.5-pro".to_string(), ModelPricing {
         input_per_1m: 30.00,
         cached_input_per_1m: 0.0,
         output_per_1m: 180.00,
+        supports_batch: true,
     });
 
     pricing.insert("gpt-5.4".to_string(), ModelPricing {
         input_per_1m: 2.50,
         cached_input_per_1m: 0.25,
         output_per_1m: 15.00,
+        supports_batch: true,
     });
 
     pricing.insert("gpt-5.4-mini".to_string(), ModelPricing {
         input_per_1m: 0.75,
         cached_input_per_1m: 0.075,
         output_per_1m: 4.50,
+        supports_batch: true,
     });
 
     pricing.insert("gpt-5.4-nano".to_string(), ModelPricing {
         input_per_1m: 0.20,
         cached_input_per_1m: 0.02,
         output_per_1m: 1.25,
+        supports_batch: true,
     });
 
     pricing.insert("gpt-5.4-pro".to_string(), ModelPricing {
         input_per_1m: 30.00,
         cached_input_per_1m: 0.0,
         output_per_1m: 180.00,
+        supports_batch: true,
     });
 
     // Realtime models
@@ -71,12 +78,14 @@ fn get_model_pricing() -> HashMap<String, ModelPricing> {
         input_per_1m: 4.00,  // Text input
         cached_input_per_1m: 0.40,
         output_per_1m: 16.00,
+        supports_batch: false,
     });
 
     pricing.insert("gpt-realtime-mini".to_string(), ModelPricing {
         input_per_1m: 0.60,  // Text input
         cached_input_per_1m: 0.06,
         output_per_1m: 2.40,
+        supports_batch: false,
     });
 
     // Image generation models
@@ -84,18 +93,21 @@ fn get_model_pricing() -> HashMap<String, ModelPricing> {
         input_per_1m: 5.00,  // Text input
         cached_input_per_1m: 1.25,
         output_per_1m: 30.00,
+        supports_batch: false,
     });
 
     pricing.insert("gpt-image-1.5".to_string(), ModelPricing {
         input_per_1m: 5.00,  // Text input
         cached_input_per_1m: 1.25,
         output_per_1m: 10.00,
+        supports_batch: false,
     });
 
     pricing.insert("gpt-image-1-mini".to_string(), ModelPricing {
         input_per_1m: 2.00,  // Text input
         cached_input_per_1m: 0.20,
         output_per_1m: 8.00,
+        supports_batch: false,
     });
 
     // Transcription models
@@ -103,12 +115,14 @@ fn get_model_pricing() -> HashMap<String, ModelPricing> {
         input_per_1m: 2.50,
         cached_input_per_1m: 0.0,
         output_per_1m: 10.00,
+        supports_batch: false,
     });
 
     pricing.insert("gpt-4o-mini-transcribe".to_string(), ModelPricing {
         input_per_1m: 1.25,
         cached_input_per_1m: 0.0,
         output_per_1m: 5.00,
+        supports_batch: false,
     });
 
     // Legacy models
@@ -116,12 +130,14 @@ fn get_model_pricing() -> HashMap<String, ModelPricing> {
         input_per_1m: 1.75,
         cached_input_per_1m: 0.175,
         output_per_1m: 14.00,
+        supports_batch: true,
     });
 
     pricing.insert("gpt-5.3-codex".to_string(), ModelPricing {
         input_per_1m: 1.75,
         cached_input_per_1m: 0.175,
         output_per_1m: 14.00,
+        supports_batch: true,
     });
 
     // GPT-4 series (legacy)
@@ -129,30 +145,35 @@ fn get_model_pricing() -> HashMap<String, ModelPricing> {
         input_per_1m: 2.50,
         cached_input_per_1m: 1.25,
         output_per_1m: 10.00,
+        supports_batch: true,
     });
 
     pricing.insert("gpt-4o-mini".to_string(), ModelPricing {
         input_per_1m: 0.15,
         cached_input_per_1m: 0.075,
         output_per_1m: 0.60,
+        supports_batch: true,
     });
 
     pricing.insert("gpt-4.1".to_string(), ModelPricing {
         input_per_1m: 2.50,
         cached_input_per_1m: 1.25,
         output_per_1m: 10.00,
+        supports_batch: true,
     });
 
     pricing.insert("gpt-4.1-mini".to_string(), ModelPricing {
         input_per_1m: 0.40,
         cached_input_per_1m: 0.20,
         output_per_1m: 1.60,
+        supports_batch: true,
     });
 
     pricing.insert("gpt-4.1-nano".to_string(), ModelPricing {
         input_per_1m: 0.10,
         cached_input_per_1m: 0.05,
         output_per_1m: 0.40,
+        supports_batch: true,
     });
 
     pricing
@@ -449,6 +470,12 @@ async fn list_models_with_pricing(client: &Client, api_key: &str) -> Result<(), 
                 println!("  Cached Input: ${:.2} / 1M tokens", pricing.cached_input_per_1m);
             }
             println!("  Output:       ${:.2} / 1M tokens", pricing.output_per_1m);
+            
+            if pricing.supports_batch {
+                println!("  Batch API (50% off): ✓ Supported");
+                println!("    Batch Input:  ${:.2} / 1M tokens", pricing.input_per_1m * 0.5);
+                println!("    Batch Output: ${:.2} / 1M tokens", pricing.output_per_1m * 0.5);
+            }
             
             // Calculate and display cost for a 1024x1024 image
             let tokens_1024 = calculate_image_tokens(1024, 1024, &model_id);
