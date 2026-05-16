@@ -272,7 +272,7 @@ function DetailsRowContextMenu({
           onClick: onEdit,
         },
         ...(contextMenu.draftValue !== undefined
-          ? [{ label: "Discard", onClick: onDiscard }]
+          ? [{ label: "Discard edit", onClick: onDiscard }]
           : []),
         {
           label: "Remove",
@@ -400,12 +400,12 @@ export function DetailsPane({ photo, metadata, draftEdits = {}, typedDraftEdits,
               onClick={async () => {
                 if (!onDiscardAllEdits) return;
                 const numEdits = Object.keys(draftEdits).length;
-                const confirmed = await ask(`Are you sure you want to discard ${numEdits} edit${numEdits === 1 ? "" : "s"} for this photo?`, { title: "Discard Edits", kind: "warning" });
+                const confirmed = await ask(`Are you sure you want to discard ${numEdits} edit${numEdits === 1 ? "" : "s"} for this photo?`, { title: "Discard all edits", kind: "warning" });
                 if (confirmed) onDiscardAllEdits();
               }}
               title="Discard all edits for this photo"
             >
-              Discard All
+              Discard all edits
             </button>
           </div>
         )}
