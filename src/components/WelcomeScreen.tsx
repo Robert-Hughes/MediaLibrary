@@ -15,7 +15,7 @@ export function WelcomeScreen({ onOpenFolder, recentFolders, onOpenRecent }: Pro
         onClick={onOpenFolder}
         data-testid="open-folder-btn"
       >
-        Open Folder
+        Open Folder…
       </button>
 
       {recentFolders.length > 0 && (

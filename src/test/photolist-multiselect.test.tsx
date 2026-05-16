@@ -174,7 +174,7 @@ describe("PhotoList context menu (multi-select)", () => {
     const { onGenerateAiDescription } = setup();
     fireEvent.click(rows()[2]);
     fireEvent.contextMenu(rows()[2]);
-    const btn = await screen.findByRole("button", { name: "Generate AI Description" });
+    const btn = await screen.findByRole("button", { name: "Generate AI Description…" });
     await userEvent.click(btn);
     expect(onGenerateAiDescription).toHaveBeenCalledWith(["2.jpg"]);
   });

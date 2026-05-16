@@ -163,7 +163,7 @@ describe("PhotoList kind-label context menu", () => {
 
     const osKindLabels = screen.getAllByText("OS");
     await userEvent.pointer({ keys: "[MouseRight]", target: osKindLabels[1] });
-    expect(screen.getByText("Select Columns...")).toBeInTheDocument();
+    expect(screen.getByText("Select Columns…")).toBeInTheDocument();
   });
 
   it("shows context menu when right-clicking an 'Image' kind label", async () => {
@@ -186,7 +186,7 @@ describe("PhotoList kind-label context menu", () => {
     );
 
     await userEvent.pointer({ keys: "[MouseRight]", target: screen.getByText("Image") });
-    expect(screen.getByText("Select Columns...")).toBeInTheDocument();
+    expect(screen.getByText("Select Columns…")).toBeInTheDocument();
   });
 
   it("clicking Select Columns from a kind-label context menu invokes onSelectColumns", async () => {
@@ -210,7 +210,7 @@ describe("PhotoList kind-label context menu", () => {
 
     const osKindLabels = screen.getAllByText("OS");
     await userEvent.pointer({ keys: "[MouseRight]", target: osKindLabels[1] });
-    await userEvent.click(screen.getByText("Select Columns..."));
+    await userEvent.click(screen.getByText("Select Columns…"));
     expect(onSelectColumns).toHaveBeenCalledTimes(1);
   });
 });

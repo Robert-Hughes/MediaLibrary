@@ -155,7 +155,7 @@ describe("Apply Draft Edits – PhotoList context menu", () => {
     const row = screen.getByTestId("photo-row");
     await user.pointer({ target: row, keys: "[MouseRight]" });
 
-    expect(screen.getByText("Apply edits")).toBeInTheDocument();
+    expect(screen.getByText("Apply edits…")).toBeInTheDocument();
   });
 
   it("Apply edits option not shown when row has no drafts", async () => {
@@ -179,7 +179,7 @@ describe("Apply Draft Edits – PhotoList context menu", () => {
     const { user } = await openFolderWithPhoto(photo);
     const row = screen.getByTestId("photo-row");
     await user.pointer({ target: row, keys: "[MouseRight]" });
-    await user.click(screen.getByText("Apply edits"));
+    await user.click(screen.getByText("Apply edits…"));
     await act(async () => { await new Promise(r => setTimeout(r, 50)); });
 
     const applyCall = mockApiInstance.invocations.find(i => i.cmd === "apply_draft_edits_cmd");

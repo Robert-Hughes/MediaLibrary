@@ -61,7 +61,7 @@ describe("PhotoList column header context menu", () => {
     await userEvent.pointer({ keys: "[MouseRight]", target: pathHeader });
 
     // Should show context menu with "Select Columns..." option
-    expect(screen.getByText("Select Columns...")).toBeInTheDocument();
+    expect(screen.getByText("Select Columns…")).toBeInTheDocument();
   });
 
   it("calls onSelectColumns when clicking 'Select Columns...' in context menu", async () => {
@@ -90,7 +90,7 @@ describe("PhotoList column header context menu", () => {
     await userEvent.pointer({ keys: "[MouseRight]", target: modifiedHeader });
 
     // Click on "Select Columns..." option
-    const selectColumnsOption = screen.getByText("Select Columns...");
+    const selectColumnsOption = screen.getByText("Select Columns…");
     await userEvent.click(selectColumnsOption);
 
     expect(onSelectColumnsMock).toHaveBeenCalledTimes(1);
@@ -123,10 +123,10 @@ describe("PhotoList column header context menu", () => {
     await userEvent.pointer({ keys: "[MouseRight]", target: dateHeader });
 
     // Should show context menu
-    expect(screen.getByText("Select Columns...")).toBeInTheDocument();
+    expect(screen.getByText("Select Columns…")).toBeInTheDocument();
 
     // Click on "Select Columns..." option
-    const selectColumnsOption = screen.getByText("Select Columns...");
+    const selectColumnsOption = screen.getByText("Select Columns…");
     await userEvent.click(selectColumnsOption);
 
     expect(onSelectColumnsMock).toHaveBeenCalledTimes(1);

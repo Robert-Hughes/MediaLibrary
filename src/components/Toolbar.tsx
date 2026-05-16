@@ -22,7 +22,7 @@ export function Toolbar({ folder, photoCount, onOpenFolder, onCloseFolder }: Pro
         data-testid="toolbar-open-btn"
         title="Open a different folder"
       >
-        Open Folder
+        Open Folder…
       </button>
       <button
         className="toolbar-btn"

@@ -715,16 +715,16 @@ export function PhotoList({
               ...(onGenerateAiDescription && selectedPaths.length > 0
                 ? [{
                     label: count > 1
-                      ? `Generate AI Description (${count} ${noun})`
-                      : "Generate AI Description",
+                      ? `Generate AI Description… (${count} ${noun})`
+                      : "Generate AI Description…",
                     onClick: () => onGenerateAiDescription(selectedPaths),
                   }]
                 : []),
               ...(editablePaths.length > 0 && onApplyEdits
                 ? [{
                     label: editablePaths.length > 1
-                      ? `Apply edits (${editablePaths.length} ${editablePaths.length === 1 ? "photo" : "photos"})`
-                      : "Apply edits",
+                      ? `Apply edits… (${editablePaths.length} ${editablePaths.length === 1 ? "photo" : "photos"})`
+                      : "Apply edits…",
                     onClick: async () => {
                       const target = editablePaths.length === 1
                         ? (photos[effectiveIndices.find((i) => photos[i]?.relative_path === editablePaths[0])!]?.filename ?? editablePaths[0])
@@ -740,8 +740,8 @@ export function PhotoList({
               ...(editablePaths.length > 0 && onDiscardAllEdits
                 ? [{
                     label: editablePaths.length > 1
-                      ? `Discard all edits (${editablePaths.length} ${editablePaths.length === 1 ? "photo" : "photos"})`
-                      : "Discard all edits",
+                      ? `Discard all edits… (${editablePaths.length} ${editablePaths.length === 1 ? "photo" : "photos"})`
+                      : "Discard all edits…",
                     onClick: async () => {
                       const confirmed = await ask(
                         `Are you sure you want to discard ${totalEdits} edit${totalEdits === 1 ? "" : "s"} across ${editablePaths.length} ${editablePaths.length === 1 ? "photo" : "photos"}?`,
@@ -762,7 +762,7 @@ export function PhotoList({
           x={columnContextMenu.x}
           y={columnContextMenu.y}
           options={[
-            { label: "Select Columns...", onClick: () => { onSelectColumns(); setColumnContextMenu(null); } },
+            { label: "Select Columns…", onClick: () => { onSelectColumns(); setColumnContextMenu(null); } },
           ]}
           onClose={() => setColumnContextMenu(null)}
         />
