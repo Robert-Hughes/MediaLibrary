@@ -8,6 +8,8 @@ pub mod write_args;
 pub mod apply_log;
 pub mod exiftool_config;
 pub mod settings;
+pub mod openai_describe;
+pub mod describe_log;
 use serde::Serialize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
@@ -853,6 +855,319 @@ fn list_recommended_models() -> Vec<String> {
     settings::RECOMMENDED_MODELS.iter().map(|s| s.to_string()).collect()
 }
 
+// ── AI image-description commands ─────────────────────────────────────────────
+
+#[derive(Clone, Serialize)]
+struct DescribeEstimateStartedPayload { total: usize }
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DescribeEstimateProgressPayload {
+    current: usize,
+    total: usize,
+    relative_path: String,
+    input_tokens: u32,
+    expected_cost_usd: f64,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DescribeEstimateCompletePayload {
+    total_input_tokens: u64,
+    predicted_cost_usd: f64,
+    upper_bound_cost_usd: f64,
+    model: String,
+}
+
+#[derive(Clone, Serialize)]
+struct DescribeEstimateErrorPayload { relative_path: String, message: String }
+
+#[derive(Clone, Serialize)]
+struct DescribeStartedPayload { total: usize }
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DescribeProgressPayload {
+    current: usize,
+    total: usize,
+    relative_path: String,
+    /// "ok" | "decode_failed" | "incomplete" | "refused" | "http_error" |
+    /// "network_error" | "bad_json"
+    status: String,
+    error: Option<String>,
+}
+
+// `describe_retry` event surface deferred: reqwest_retry doesn't expose a
+// per-attempt hook, so retries are visible in logs but not in the UI for
+// V1. Adding a custom middleware that emits events is the natural follow-up
+// (see docs/IMAGE_ANALYSIS.md "Rate-limit visibility" bullet).
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DescribeCompletePayload {
+    succeeded: Vec<String>,
+    failed: Vec<DescribeFailureRow>,
+    usage_summary: UsageSummary,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DescribeFailureRow {
+    relative_path: String,
+    kind: String,
+    detail: String,
+}
+
+#[derive(Clone, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct UsageSummary {
+    total_input_tokens: u32,
+    total_cached_tokens: u32,
+    total_output_tokens: u32,
+    predicted_cost_usd: f64,
+    actual_cost_usd: f64,
+}
+
+/// Build a fresh OpenAI client using the stored settings. Fails fast if the
+/// API key is empty so the caller can show a "Settings → API key" hint.
+fn make_openai_client(app: &AppHandle) -> Result<(openai_describe::OpenAiClient, settings::Settings), String> {
+    let dir = app_data_dir(app)?;
+    let s = settings::load_settings(&dir)?;
+    if s.openai_api_key.trim().is_empty() {
+        return Err("OpenAI API key is not configured. Open Settings to enter your key.".into());
+    }
+    let client = openai_describe::OpenAiClient::new(
+        openai_describe::DEFAULT_BASE_URL,
+        s.openai_api_key.clone(),
+        3,
+    );
+    Ok((client, s))
+}
+
+/// Resolve a relative path under `folder_path` to an absolute path,
+/// matching how scanner.rs walks the tree (forward-slash relative paths).
+fn resolve_rel(folder_path: &str, rel: &str) -> std::path::PathBuf {
+    std::path::PathBuf::from(folder_path)
+        .join(rel.replace('/', std::path::MAIN_SEPARATOR_STR))
+}
+
+/// Preflight cost estimation phase.  Calls `/responses/input_tokens` once
+/// per image; emits a progress event after each.  Hard-fails on any error
+/// — no local-math fallback (V1 design decision).  Honours the
+/// DescribeState cancellation flag at each image boundary.
+#[tauri::command]
+async fn estimate_describe_cost_cmd(
+    folder_path: String,
+    rel_paths: Vec<String>,
+    app: AppHandle,
+    describe_state: State<'_, openai_describe::DescribeState>,
+) -> Result<(), String> {
+    let cancel_flag = describe_state.install();
+    let (client, s) = make_openai_client(&app)?;
+    let pricing = openai_describe::pricing_for(&s.openai_model)
+        .ok_or_else(|| format!("no pricing entry for model {}", s.openai_model))?;
+
+    let total = rel_paths.len();
+    let _ = app.emit("describe_estimate_started", DescribeEstimateStartedPayload { total });
+
+    let mut total_input_tokens: u64 = 0;
+    let mut current = 0usize;
+    for rel in &rel_paths {
+        if cancel_flag.load(Ordering::Relaxed) {
+            describe_state.clear();
+            return Err("Cancelled by user".into());
+        }
+        current += 1;
+        let abs = resolve_rel(&folder_path, rel);
+        let bytes = openai_describe::load_and_downscale_image(&abs)
+            .map_err(|e| {
+                let _ = app.emit("describe_estimate_error",
+                    DescribeEstimateErrorPayload { relative_path: rel.clone(), message: e.clone() });
+                format!("{}: {}", rel, e)
+            })?;
+        let n = openai_describe::count_input_tokens(&client, &s.openai_model, &bytes)
+            .await
+            .map_err(|e| {
+                let _ = app.emit("describe_estimate_error",
+                    DescribeEstimateErrorPayload { relative_path: rel.clone(), message: e.clone() });
+                format!("{}: {}", rel, e)
+            })?;
+        total_input_tokens += n as u64;
+        let expected_cost = (n as f64 / 1_000_000.0) * pricing.input_per_1m
+            + (openai_describe::EXPECTED_OUTPUT_TOKENS as f64 / 1_000_000.0) * pricing.output_per_1m;
+        let _ = app.emit("describe_estimate_progress", DescribeEstimateProgressPayload {
+            current, total, relative_path: rel.clone(),
+            input_tokens: n, expected_cost_usd: expected_cost,
+        });
+    }
+
+    let predicted_cost = (total_input_tokens as f64 / 1_000_000.0) * pricing.input_per_1m
+        + ((openai_describe::EXPECTED_OUTPUT_TOKENS as u64 * total as u64) as f64 / 1_000_000.0)
+            * pricing.output_per_1m;
+    let upper_bound = (total_input_tokens as f64 / 1_000_000.0) * pricing.input_per_1m
+        + ((openai_describe::MAX_OUTPUT_TOKENS as u64 * total as u64) as f64 / 1_000_000.0)
+            * pricing.output_per_1m;
+    let _ = app.emit("describe_estimate_complete", DescribeEstimateCompletePayload {
+        total_input_tokens, predicted_cost_usd: predicted_cost,
+        upper_bound_cost_usd: upper_bound, model: s.openai_model.clone(),
+    });
+    // Don't clear cancel flag — the run phase reuses it.
+    Ok(())
+}
+
+/// Predicted-cost recomputation used for the audit log; cheap, no
+/// allocations.
+fn predicted_cost(model_p: &openai_describe::ModelPricing, total_input: u64, n_images: u64) -> f64 {
+    (total_input as f64 / 1_000_000.0) * model_p.input_per_1m
+        + ((openai_describe::EXPECTED_OUTPUT_TOKENS as u64 * n_images) as f64 / 1_000_000.0)
+            * model_p.output_per_1m
+}
+
+/// Main describe loop.  Sequential, per-image draft persistence,
+/// cancellable between images.  Emits `describe_started`, per-image
+/// `describe_progress`, optional `describe_retry`, then `describe_complete`
+/// with the aggregate usage summary.
+#[tauri::command]
+async fn describe_images_cmd(
+    folder_path: String,
+    rel_paths: Vec<String>,
+    app: AppHandle,
+    describe_state: State<'_, openai_describe::DescribeState>,
+) -> Result<(), String> {
+    let cancel_flag = describe_state.install();
+    let (client, s) = make_openai_client(&app)?;
+    let pricing = openai_describe::pricing_for(&s.openai_model)
+        .ok_or_else(|| format!("no pricing entry for model {}", s.openai_model))?;
+
+    let total = rel_paths.len();
+    let _ = app.emit("describe_started", DescribeStartedPayload { total });
+
+    let mut succeeded: Vec<String> = Vec::new();
+    let mut failed: Vec<DescribeFailureRow> = Vec::new();
+    let mut log_errors: Vec<describe_log::DescribeLogError> = Vec::new();
+    let mut aggregate = openai_describe::UsageStats::default();
+    let mut total_input_for_predicted: u64 = 0;
+    let mut current = 0usize;
+
+    for rel in &rel_paths {
+        if cancel_flag.load(Ordering::Relaxed) {
+            log::info!("[describe] Cancelled at {}/{}", current, total);
+            break;
+        }
+        current += 1;
+
+        // Decode locally first so a corrupt file is reported without
+        // incurring an API call.
+        let abs = resolve_rel(&folder_path, rel);
+        let bytes = match openai_describe::load_and_downscale_image(&abs) {
+            Ok(b) => b,
+            Err(e) => {
+                let _ = app.emit("describe_progress", DescribeProgressPayload {
+                    current, total, relative_path: rel.clone(),
+                    status: "decode_failed".into(), error: Some(e.clone()),
+                });
+                failed.push(DescribeFailureRow {
+                    relative_path: rel.clone(), kind: "decode".into(), detail: e.clone(),
+                });
+                log_errors.push(describe_log::DescribeLogError {
+                    relative_path: rel.clone(), kind: "decode".into(), detail: e,
+                });
+                continue;
+            }
+        };
+
+        match openai_describe::describe_one(&client, &s.openai_model, &bytes).await {
+            Ok((output, usage)) => {
+                aggregate.add(&usage);
+                total_input_for_predicted += usage.input_tokens as u64;
+
+                let edits = openai_describe::compose_draft_edits(
+                    &s.openai_model, &output, chrono::Utc::now(),
+                );
+                if let Err(e) = openai_describe::merge_into_draft_store(&folder_path, rel, edits) {
+                    // Drafts didn't land; treat as failure so the UI doesn't
+                    // claim success for an image whose result was lost.
+                    let _ = app.emit("describe_progress", DescribeProgressPayload {
+                        current, total, relative_path: rel.clone(),
+                        status: "persist_failed".into(), error: Some(e.clone()),
+                    });
+                    failed.push(DescribeFailureRow {
+                        relative_path: rel.clone(), kind: "persist".into(), detail: e.clone(),
+                    });
+                    log_errors.push(describe_log::DescribeLogError {
+                        relative_path: rel.clone(), kind: "persist".into(), detail: e,
+                    });
+                    continue;
+                }
+                let _ = app.emit("describe_progress", DescribeProgressPayload {
+                    current, total, relative_path: rel.clone(),
+                    status: "ok".into(), error: None,
+                });
+                succeeded.push(rel.clone());
+            }
+            Err(e) => {
+                let kind = e.kind().to_string();
+                let detail = e.detail();
+                let _ = app.emit("describe_progress", DescribeProgressPayload {
+                    current, total, relative_path: rel.clone(),
+                    status: kind.clone(), error: Some(detail.clone()),
+                });
+                failed.push(DescribeFailureRow {
+                    relative_path: rel.clone(), kind: kind.clone(), detail: detail.clone(),
+                });
+                log_errors.push(describe_log::DescribeLogError {
+                    relative_path: rel.clone(), kind, detail,
+                });
+            }
+        }
+    }
+
+    let predicted = predicted_cost(&pricing, total_input_for_predicted, succeeded.len() as u64);
+    let actual = aggregate.cost(&pricing);
+
+    let usage_summary = UsageSummary {
+        total_input_tokens: aggregate.input_tokens,
+        total_cached_tokens: aggregate.cached_input_tokens,
+        total_output_tokens: aggregate.output_tokens,
+        predicted_cost_usd: predicted,
+        actual_cost_usd: actual,
+    };
+
+    // Audit log — best-effort, never fails the command.
+    if let Ok(dir) = app_data_dir(&app) {
+        let entry = describe_log::DescribeLogEntry {
+            ts: chrono::Utc::now()
+                .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+            model: s.openai_model.clone(),
+            prompt_version: openai_describe::PROMPT_VERSION.to_string(),
+            n_images: total,
+            n_succeeded: succeeded.len(),
+            n_failed: failed.len(),
+            total_input_tokens: aggregate.input_tokens,
+            total_cached_tokens: aggregate.cached_input_tokens,
+            total_output_tokens: aggregate.output_tokens,
+            predicted_cost_usd: predicted,
+            actual_cost_usd: actual,
+            errors: log_errors,
+        };
+        if let Err(e) = describe_log::append(&dir, &entry) {
+            log::warn!("[describe] Audit-log append failed: {}", e);
+        }
+    }
+
+    describe_state.clear();
+    let _ = app.emit("describe_complete", DescribeCompletePayload {
+        succeeded, failed, usage_summary,
+    });
+    Ok(())
+}
+
+#[tauri::command]
+fn cancel_describe_cmd(describe_state: State<'_, openai_describe::DescribeState>) -> Result<(), String> {
+    describe_state.signal_cancel();
+    Ok(())
+}
+
 fn clear_running(app: &AppHandle) {
     if let Some(state) = app.try_state::<ScanState>() {
         state.mark_finished();
@@ -996,6 +1311,7 @@ pub fn run() {
         .manage(ScanState::new())
         .manage(ActiveQueues::new())
         .manage(ApplyEditsState::new())
+        .manage(openai_describe::DescribeState::default())
         .invoke_handler(tauri::generate_handler![
             log_to_console,
             get_cli_folder,
@@ -1016,7 +1332,10 @@ pub fn run() {
             list_schema_tags,
             load_settings_cmd,
             save_settings_cmd,
-            list_recommended_models
+            list_recommended_models,
+            estimate_describe_cost_cmd,
+            describe_images_cmd,
+            cancel_describe_cmd
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
