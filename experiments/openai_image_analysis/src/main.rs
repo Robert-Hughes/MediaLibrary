@@ -440,8 +440,8 @@ async fn list_models_with_pricing(client: &Client, api_key: &str) -> Result<(), 
     if let Some(models) = models_response["data"].as_array() {
         for model in models {
             if let Some(model_id) = model["id"].as_str() {
-                // Only include models that support vision and are not checkpoints
-                if supports_vision(model_id) && !is_checkpoint_model(model_id) {
+                // Only include models that support vision, are not checkpoints, and have pricing data
+                if supports_vision(model_id) && !is_checkpoint_model(model_id) && pricing_table.contains_key(model_id) {
                     vision_models.push((model_id.to_string(), model.clone()));
                 }
             }
