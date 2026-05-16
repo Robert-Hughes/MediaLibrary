@@ -1,9 +1,20 @@
 use base64::Engine;
 use clap::Parser;
+use image::ImageReader;
 use reqwest::Client;
 use std::collections::HashMap;
 use std::env;
-use std::fs;
+use std::io::Cursor;
+
+/// Max dimension (long side) to resize an image to before uploading.
+///
+/// Rationale: OpenAI's vision models internally resize images so the short side
+/// fits within ~768px (for "high" detail) or down to a 512px tile grid. Uploading
+/// a multi-megapixel original wastes bandwidth, balloons the base64 payload by
+/// ~33%, and increases request latency — the server discards the extra pixels
+/// anyway. Downscaling client-side to 1024px long side gives the model the same
+/// effective input it would have used, at a fraction of the upload size.
+const MAX_IMAGE_DIMENSION: u32 = 1024;
 
 const OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
 
@@ -297,34 +308,73 @@ fn get_api_key() -> String {
     env::var("OPENAI_API_KEY").expect("OPENAI_API_KEY must be set")
 }
 
-/// Read image and convert to base64
-fn encode_image_to_base64(path: &str) -> Result<String, Box<dyn std::error::Error>> {
-    let data = fs::read(path)?;
-    Ok(base64::engine::general_purpose::STANDARD.encode(&data))
-}
+/// Load, downscale, and re-encode an image as JPEG bytes.
+///
+/// We downscale to MAX_IMAGE_DIMENSION on the long side before sending. There's
+/// no benefit to uploading a high-res image and having the OpenAI server
+/// downscale it internally — we pay for the bandwidth + base64 overhead and the
+/// model only ever sees the lower-resolution version anyway. Doing the resize
+/// locally also gives us deterministic, inspectable inputs and lets us drop the
+/// per-image `detail` parameter (the resize already bounds the token cost).
+///
+/// Images smaller than the cap are still re-encoded to JPEG quality 85 to strip
+/// metadata and normalise the encoding.
+fn load_and_downscale_image(path: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    let img = ImageReader::open(path)?.with_guessed_format()?.decode()?;
 
-/// Load image from file and create content item for Responses API
-pub fn image_content_item(path: &str) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
-    let extension = std::path::Path::new(path)
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("jpeg")
-        .to_lowercase();
-
-    let media_type = match extension.as_str() {
-        "png" => "image/png",
-        "gif" => "image/gif",
-        "webp" => "image/webp",
-        _ => "image/jpeg",
+    let (w, h) = (img.width(), img.height());
+    let resized = if w.max(h) > MAX_IMAGE_DIMENSION {
+        // Preserve aspect ratio; fit long side to MAX_IMAGE_DIMENSION.
+        img.resize(
+            MAX_IMAGE_DIMENSION,
+            MAX_IMAGE_DIMENSION,
+            image::imageops::FilterType::Lanczos3,
+        )
+    } else {
+        img
     };
 
-    let data = encode_image_to_base64(path)?;
-    let image_url = format!("data:{};base64,{}", media_type, data);
+    // Re-encode as JPEG. JPEG at q=85 is a good size/quality tradeoff for
+    // photographic content and is universally supported by the vision API.
+    let rgb = resized.to_rgb8();
+    let mut buf = Vec::new();
+    {
+        let mut cursor = Cursor::new(&mut buf);
+        let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut cursor, 85);
+        encoder.encode(
+            rgb.as_raw(),
+            rgb.width(),
+            rgb.height(),
+            image::ExtendedColorType::Rgb8,
+        )?;
+    }
+
+    tracing::info!(
+        "Image {}: {}x{} -> {}x{}, {} bytes JPEG",
+        path,
+        w,
+        h,
+        rgb.width(),
+        rgb.height(),
+        buf.len()
+    );
+
+    Ok(buf)
+}
+
+/// Load image from file and create content item for Responses API.
+///
+/// The image is downscaled locally (see `load_and_downscale_image`) and always
+/// uploaded as JPEG, regardless of source format. We drop the per-image
+/// `detail` field because we've already bounded the resolution client-side.
+pub fn image_content_item(path: &str) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    let jpeg_bytes = load_and_downscale_image(path)?;
+    let data = base64::engine::general_purpose::STANDARD.encode(&jpeg_bytes);
+    let image_url = format!("data:image/jpeg;base64,{}", data);
 
     Ok(serde_json::json!({
         "type": "input_image",
         "image_url": image_url,
-        "detail": "auto"
     }))
 }
 
