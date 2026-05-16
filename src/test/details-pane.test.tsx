@@ -232,6 +232,26 @@ describe("DetailsPane component", () => {
     render(<DetailsPane photo={photo} metadata="loading" />);
     expect(screen.getByText("Properties")).toBeInTheDocument();
   });
+
+  it("renders the action buttons in a sticky footer outside the scrolling body", () => {
+    render(
+      <DetailsPane
+        photo={photo}
+        metadata={{}}
+        onGenerateAiDescription={() => {}}
+      />,
+    );
+    const footer = screen.getByTestId("details-pane-footer");
+    expect(footer).toBeInTheDocument();
+    // The footer must be a sibling of the scroll container, not nested in it.
+    const body = footer.parentElement?.querySelector(".details-pane-body");
+    expect(body).not.toBeNull();
+    expect(body!.contains(footer)).toBe(false);
+
+    // Both action buttons live in the sticky footer.
+    expect(within(footer).getByText("+ Add Property")).toBeInTheDocument();
+    expect(within(footer).getByTestId("details-pane-generate-ai-btn")).toBeInTheDocument();
+  });
 });
 
 // ── Two-step Add-Property flow ──────────────────────────────────────────────

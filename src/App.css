@@ -947,6 +947,16 @@ body {
   background: var(--text-dim);
 }
 
+.details-pane-footer {
+  flex-shrink: 0;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  background: rgba(22, 24, 28, 0.96);
+}
+
 .details-section {
   padding: 0 16px;
   margin-bottom: 4px;
