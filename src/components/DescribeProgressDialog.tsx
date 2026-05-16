@@ -14,6 +14,7 @@
  * operation. Cancellation is a single backend `cancel_describe_cmd` call
  * that the loop honours at the next image boundary in either phase.
  */
+import { useEffect } from "react";
 import type {
   DescribeFailure,
   DescribeProgressState,
@@ -129,6 +130,20 @@ function UsageSummary({ s }: { s: DescribeUsageSummary }) {
 }
 
 export function DescribeProgressDialog({ state, onConfirm, onCancel, onClose }: Props) {
+  // Escape mirrors the Cancel button in any phase before `done`, and Close
+  // on the done panel.  Matches the rest of the app's dialog conventions
+  // (see ColumnSelectionDialog, ValueEditDialog).
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      if (state.phase === "done") onClose();
+      else onCancel();
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [state.phase, onCancel, onClose]);
+
   return (
     <div className="dialog-overlay" data-testid="describe-progress-dialog">
       <div className="dialog-content" style={{ width: 520 }}>
