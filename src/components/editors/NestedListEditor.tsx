@@ -17,6 +17,7 @@ import { useState } from "react";
 import type { DraftEdit, TagKind, Variant } from "../../types";
 import { variantToDisplayString } from "../../draft";
 import type { InnerEditorProps } from "./StructEditor";
+import { READ_ONLY_TOOLTIP } from "./readOnlyMessages";
 
 interface Props {
   propertyKey: string;
@@ -237,7 +238,7 @@ export function NestedListEditor({
             onClick={handleSave}
             data-testid="nested-list-editor-save"
             disabled={readOnly}
-            title={readOnly ? "Tag is read-only per ExifTool schema" : undefined}
+            title={readOnly ? READ_ONLY_TOOLTIP : undefined}
           >
             Save
           </button>

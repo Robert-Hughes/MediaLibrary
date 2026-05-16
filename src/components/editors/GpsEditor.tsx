@@ -18,6 +18,7 @@
 import { useState } from "react";
 import type { DraftEdit } from "../../types";
 import { gpsTagGroup, type GpsTagGroup } from "../../metadata/tag_overrides";
+import { READ_ONLY_TOOLTIP } from "./readOnlyMessages";
 
 // Re-export so existing call sites that imported the type from here keep
 // working.  Phase 8.2 moved the override matcher itself into tag_overrides.ts.
@@ -214,7 +215,7 @@ export function GpsEditor({
             onClick={handleSave}
             data-testid="gps-editor-save"
             disabled={readOnly}
-            title={readOnly ? "Tag is read-only per ExifTool schema" : undefined}
+            title={readOnly ? READ_ONLY_TOOLTIP : undefined}
           >
             Save
           </button>

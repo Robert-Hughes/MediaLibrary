@@ -10,6 +10,7 @@
 
 import { useEffect, useState } from "react";
 import type { DraftEdit, EnumOption, EnumRepr, Variant } from "../../types";
+import { READ_ONLY_TOOLTIP } from "./readOnlyMessages";
 
 interface Props {
   propertyKey: string;
@@ -104,7 +105,7 @@ export function EnumEditor({ propertyKey, repr, options, initialCode, onSave, on
             onClick={handleSave}
             data-testid="enum-editor-save"
             disabled={readOnly}
-            title={readOnly ? "Tag is read-only per ExifTool schema" : undefined}
+            title={readOnly ? READ_ONLY_TOOLTIP : undefined}
           >
             Save
           </button>

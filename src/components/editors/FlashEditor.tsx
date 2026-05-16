@@ -18,6 +18,7 @@
 
 import { useState } from "react";
 import type { DraftEdit } from "../../types";
+import { READ_ONLY_TOOLTIP } from "./readOnlyMessages";
 
 interface Props {
   propertyKey: string;
@@ -174,7 +175,7 @@ export function FlashEditor({ propertyKey, initialCode, onSave, onCancel, header
             onClick={handleSave}
             data-testid="flash-editor-save"
             disabled={readOnly}
-            title={readOnly ? "Tag is read-only per ExifTool schema" : undefined}
+            title={readOnly ? READ_ONLY_TOOLTIP : undefined}
           >
             Save
           </button>

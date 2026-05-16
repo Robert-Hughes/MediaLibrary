@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { READ_ONLY_TOOLTIP } from "./editors/readOnlyMessages";
 
 interface Props {
   propertyKey: string;
@@ -50,7 +51,7 @@ export function ValueEditDialog({ propertyKey, initialValue, onSave, onCancel, h
             className="dialog-btn dialog-btn-primary"
             onClick={() => onSave(value)}
             disabled={readOnly}
-            title={readOnly ? "Tag is read-only per ExifTool schema" : undefined}
+            title={readOnly ? READ_ONLY_TOOLTIP : undefined}
             data-testid="value-edit-save"
           >
             Save
