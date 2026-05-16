@@ -6,6 +6,8 @@ import { TypedValueEditor } from "./editors/TypedValueEditor";
 import { useTagInfo } from "../hooks/useTagInfo";
 import { READ_ONLY_REMOVE_TOOLTIP } from "./editors/readOnlyMessages";
 import { variantToDisplayString } from "../draft";
+import { DatatypeBadge } from "./DatatypeBadge";
+import { schemaDatatype, variantDatatype, datatypesMatch } from "../utils/datatype";
 
 /**
  * Format a Variant for display.  Single source of truth for the legacy
@@ -22,6 +24,12 @@ interface Props {
   photo: PhotoInfo;
   metadata: ImageMetadataState;
   draftEdits?: Record<string, string | null>;
+  /**
+   * Typed view of the same drafts (key → DraftEdit). Required so the
+   * draft-value datatype badge can inspect the underlying Variant; the
+   * legacy string map flattens that shape.
+   */
+  typedDraftEdits?: Record<string, DraftEdit>;
   /** Typed setter used by every editor (Phase 4+). */
   onSetDraftTyped?: (key: string, edit: DraftEdit) => void;
   /** Batch setter for paired-tag editors (GPS). */
@@ -116,35 +124,105 @@ function detailsRowMatchesSearch(label: string, value: string, draftValue: strin
   return haystackContainsNormalized(`${label}\n${value}\n${draftValue ?? ""}\n${fullKey}`, normalizedQuery);
 }
 
-function DetailsValueCell({ 
-  originalValue, 
-  draftValue, 
-  searchQuery, 
-}: { 
-  originalValue: string, 
-  draftValue?: string | null, 
-  searchQuery: string, 
+function DetailsValueCell({
+  originalValue,
+  draftValue,
+  searchQuery,
+  valueBadge,
+  draftBadge,
+}: {
+  originalValue: string,
+  draftValue?: string | null,
+  searchQuery: string,
+  valueBadge?: { code: string; label: string } | null,
+  draftBadge?: { code: string; label: string } | null,
 }) {
   return (
-    <td 
-      className="details-value" 
-      title={originalValue} 
+    <td
+      className="details-value"
+      title={originalValue}
     >
       {draftValue !== undefined ? (
         <>
           {originalValue ? (
             <>
-              <s className="draft-original" style={{ opacity: 0.6 }}><HighlightedText text={originalValue} searchQuery={searchQuery} /></s>{" "}
+              <s className="draft-original" style={{ opacity: 0.6 }}><HighlightedText text={originalValue} searchQuery={searchQuery} /></s>
+              {valueBadge ? <DatatypeBadge code={valueBadge.code} label={valueBadge.label} variant="value" /> : null}{" "}
             </>
           ) : null}
           <strong className="draft-new">
             <HighlightedText text={draftValue === null ? "—" : draftValue} searchQuery={searchQuery} />
           </strong>
+          {draftBadge ? <DatatypeBadge code={draftBadge.code} label={draftBadge.label} variant="draft" /> : null}
         </>
       ) : (
-        <HighlightedText text={originalValue} searchQuery={searchQuery} />
+        <>
+          <HighlightedText text={originalValue} searchQuery={searchQuery} />
+          {valueBadge ? <DatatypeBadge code={valueBadge.code} label={valueBadge.label} variant="value" /> : null}
+        </>
       )}
     </td>
+  );
+}
+
+/**
+ * One image-metadata row. Owns its `useTagInfo` lookup so each row can
+ * independently render schema/value/draft datatype badges. Lifted out of
+ * `DetailsPane` because hooks can't run inside `.map()` callbacks.
+ */
+function DetailsImageRow({
+  entry,
+  rawValue,
+  draftValue,
+  typedDraft,
+  searchQuery,
+  onContextMenu,
+}: {
+  entry: MetadataEntry;
+  rawValue: Variant | undefined;
+  draftValue: string | null | undefined;
+  typedDraft: DraftEdit | undefined;
+  searchQuery: string;
+  onContextMenu: (e: React.MouseEvent) => void;
+}) {
+  const tag = useTagInfo(entry.fullKey);
+  const schemaInfo = tag && tag !== "loading" ? schemaDatatype(tag.kind) : null;
+
+  const valueInfo = variantDatatype(rawValue);
+  const showValueBadge =
+    schemaInfo != null && valueInfo != null && !datatypesMatch(valueInfo.code, schemaInfo.code);
+
+  const draftVariant = typedDraft && typedDraft.intent !== "Delete" ? typedDraft.value : undefined;
+  const draftInfo = variantDatatype(draftVariant ?? undefined);
+  const showDraftBadge =
+    typedDraft != null
+    && typedDraft.intent !== "Delete"
+    && draftInfo != null
+    && (
+      (valueInfo != null && !datatypesMatch(draftInfo.code, valueInfo.code) && draftInfo.code !== valueInfo.code)
+      || (schemaInfo != null && !datatypesMatch(draftInfo.code, schemaInfo.code))
+    );
+
+  return (
+    <tr
+      key={entry.fullKey}
+      className="details-row"
+      data-testid="details-row"
+      data-row-key={entry.fullKey}
+      onContextMenu={onContextMenu}
+    >
+      <td className="details-key" style={draftValue !== undefined ? { color: "var(--accent-draft)" } : undefined}>
+        <HighlightedText text={entry.label} searchQuery={searchQuery} />
+        {schemaInfo ? <DatatypeBadge code={schemaInfo.code} label={schemaInfo.label} variant="schema" /> : null}
+      </td>
+      <DetailsValueCell
+        originalValue={entry.value}
+        draftValue={draftValue}
+        searchQuery={searchQuery}
+        valueBadge={showValueBadge ? valueInfo : null}
+        draftBadge={showDraftBadge ? draftInfo : null}
+      />
+    </tr>
   );
 }
 
@@ -197,7 +275,7 @@ function DetailsRowContextMenu({
   );
 }
 
-export function DetailsPane({ photo, metadata, draftEdits = {}, onSetDraftTyped, onSetDraftBatch, onDiscardDraft, onDiscardAllEdits, onApplyEdits }: Props) {
+export function DetailsPane({ photo, metadata, draftEdits = {}, typedDraftEdits, onSetDraftTyped, onSetDraftBatch, onDiscardDraft, onDiscardAllEdits, onApplyEdits }: Props) {
   const [detailsSearch, setDetailsSearch] = useState("");
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, key: string, originalValue: string, draftValue?: string | null } | null>(null);
   const [editDialog, setEditDialog] = useState<{ key: string, initialValue: string } | null>(null);
@@ -386,21 +464,15 @@ export function DetailsPane({ photo, metadata, draftEdits = {}, onSetDraftTyped,
                   <table className="details-table">
                     <tbody>
                       {group.entries.map((entry) => (
-                        <tr 
-                          key={entry.fullKey} 
-                          className="details-row" 
-                          data-testid="details-row"
+                        <DetailsImageRow
+                          key={entry.fullKey}
+                          entry={entry}
+                          rawValue={typeof metadata === "object" ? (metadata as Record<string, Variant>)[entry.fullKey] : undefined}
+                          draftValue={draftEdits[entry.fullKey]}
+                          typedDraft={typedDraftEdits?.[entry.fullKey]}
+                          searchQuery={detailsSearch}
                           onContextMenu={(e) => handleContextMenu(e, entry.fullKey, entry.value, draftEdits[entry.fullKey])}
-                        >
-                          <td className="details-key" style={draftEdits[entry.fullKey] !== undefined ? { color: "var(--accent-draft)" } : undefined}>
-                            <HighlightedText text={entry.label} searchQuery={detailsSearch} />
-                          </td>
-                          <DetailsValueCell
-                            originalValue={entry.value}
-                            draftValue={draftEdits[entry.fullKey]}
-                            searchQuery={detailsSearch}
-                          />
-                        </tr>
+                        />
                       ))}
                     </tbody>
                   </table>
