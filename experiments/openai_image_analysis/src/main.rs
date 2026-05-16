@@ -460,39 +460,46 @@ async fn list_models_with_pricing(client: &Client, api_key: &str) -> Result<(), 
         created_b.cmp(&created_a) // Reverse order for newest first
     });
 
+    // Print ASCII Table Header
+    println!("{:<25} | {:<7} | {:<7} | {:<7} | {:^6} | {:<12} | {:<10}", 
+             "Model", "Input", "Cached", "Output", "Flex", "1024x1024", "Created");
+    println!("{:-<25}-+-{:-<7}-+-{:-<7}-+-{:-<7}-+-{:-<6}-+-{:-<12}-+-{:-<10}", 
+             "", "", "", "", "", "", "");
+
     for (model_id, model) in vision_models {
-        println!("Model: {}", model_id);
-        println!("  Vision: ✓ Supported");
+        let created_str = if let Some(created) = model["created"].as_i64() {
+            chrono::DateTime::from_timestamp(created, 0)
+                .map(|dt| dt.format("%Y-%m-%d").to_string())
+                .unwrap_or_else(|| "-".to_string())
+        } else {
+            "-".to_string()
+        };
 
         if let Some(pricing) = pricing_table.get(&model_id) {
-            println!("  Input:        ${:.2} / 1M tokens", pricing.input_per_1m);
-            if pricing.cached_input_per_1m > 0.0 {
-                println!("  Cached Input: ${:.2} / 1M tokens", pricing.cached_input_per_1m);
-            }
-            println!("  Output:       ${:.2} / 1M tokens", pricing.output_per_1m);
-            
-            if pricing.supports_batch {
-                println!("  Batch / Flex (50% off): ✓ Supported");
-                println!("    Batch Input:  ${:.2} / 1M tokens", pricing.input_per_1m * 0.5);
-                println!("    Batch Output: ${:.2} / 1M tokens", pricing.output_per_1m * 0.5);
-            }
-            
-            // Calculate and display cost for a 1024x1024 image
             let tokens_1024 = calculate_image_tokens(1024, 1024, &model_id);
             let cost_1024 = (tokens_1024 as f64 / 1_000_000.0) * pricing.input_per_1m;
-            println!("  1024x1024 Image: {} tokens (${:.6})", tokens_1024, cost_1024);
+            let flex_str = if pricing.supports_batch { "Yes" } else { "No" };
+            
+            let cached_str = if pricing.cached_input_per_1m > 0.0 {
+                format!("${:.2}", pricing.cached_input_per_1m)
+            } else {
+                "-".to_string()
+            };
+
+            println!("{:<25} | ${:<6.2} | {:<7} | ${:<6.2} | {:^6} | ${:<11.6} | {:<10}",
+                model_id,
+                pricing.input_per_1m,
+                cached_str,
+                pricing.output_per_1m,
+                flex_str,
+                cost_1024,
+                created_str
+            );
         } else {
-            println!("  Pricing: Not available in pricing table");
+            println!("{:<25} | {:<7} | {:<7} | {:<7} | {:^6} | {:<12} | {:<10}",
+                model_id, "N/A", "N/A", "N/A", "-", "N/A", created_str
+            );
         }
-
-        if let Some(created) = model["created"].as_i64() {
-            let datetime = chrono::DateTime::from_timestamp(created, 0);
-            if let Some(dt) = datetime {
-                println!("  Created: {}", dt.format("%Y-%m-%d"));
-            }
-        }
-
-        println!();
     }
 
     println!("Note: Only models with vision/image input support are shown (excluding checkpoint/snapshot models)");
