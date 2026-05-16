@@ -44,6 +44,13 @@ interface Props {
    * the feature (e.g. read-only contexts, older tests).
    */
   onGenerateAiDescription?: () => void;
+  /**
+   * Reveal this photo in the host file manager. Same backend pathway as
+   * the list-view context menu's "Show in File Explorer" entry — the
+   * App-level callback owns the index/path lookup so DetailsPane stays
+   * agnostic about how the photo is addressed.
+   */
+  onShowInFileExplorer?: () => void;
 }
 
 /** Format an OS timestamp (seconds since epoch, from Rust) into a readable string. */
@@ -293,7 +300,7 @@ function DetailsRowContextMenu({
   );
 }
 
-export function DetailsPane({ photo, metadata, draftEdits = {}, typedDraftEdits, onSetDraftTyped, onSetDraftBatch, onDiscardDraft, onDiscardAllEdits, onApplyEdits, onGenerateAiDescription }: Props) {
+export function DetailsPane({ photo, metadata, draftEdits = {}, typedDraftEdits, onSetDraftTyped, onSetDraftBatch, onDiscardDraft, onDiscardAllEdits, onApplyEdits, onGenerateAiDescription, onShowInFileExplorer }: Props) {
   const [detailsSearch, setDetailsSearch] = useState("");
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, key: string, originalValue: string, draftValue?: string | null } | null>(null);
   const [editDialog, setEditDialog] = useState<{ key: string, initialValue: string } | null>(null);
@@ -510,6 +517,16 @@ export function DetailsPane({ photo, metadata, draftEdits = {}, typedDraftEdits,
           >
             + Add Property
           </button>
+          {onShowInFileExplorer && (
+            <button
+              className="button button--secondary"
+              data-testid="details-pane-show-in-explorer-btn"
+              title="Reveal this image in the host file manager"
+              onClick={() => onShowInFileExplorer()}
+            >
+              Show in File Explorer
+            </button>
+          )}
           {onGenerateAiDescription && (
             <button
               className="button button--secondary"
