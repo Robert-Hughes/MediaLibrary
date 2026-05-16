@@ -216,7 +216,9 @@ fn render_scalar_text(v: &Variant) -> String {
 /// Exiftool's struct format (see Image::ExifTool docs, "Structured
 /// Information"):
 ///
-///     {field1=value1,field2={nested=val},listfield=[a,b,c]}
+/// ```text
+/// {field1=value1,field2={nested=val},listfield=[a,b,c]}
+/// ```
 ///
 /// The metacharacters `, { } [ ] = \` are escaped with a leading backslash
 /// inside scalar leaves.  Empty objects become `{}`; empty lists `[]`.
