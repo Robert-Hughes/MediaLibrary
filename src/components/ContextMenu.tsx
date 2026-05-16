@@ -6,6 +6,8 @@ interface Props {
   options: Array<{
     label: string;
     onClick: () => void;
+    disabled?: boolean;
+    title?: string;
   }>;
   onClose: () => void;
 }
@@ -49,9 +51,12 @@ export function ContextMenu({ x, y, options, onClose }: Props) {
             <button
               className="context-menu-btn"
               onClick={() => {
+                if (opt.disabled) return;
                 opt.onClick();
                 onClose();
               }}
+              disabled={opt.disabled}
+              title={opt.title}
             >
               {opt.label}
             </button>
