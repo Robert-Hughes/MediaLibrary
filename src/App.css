@@ -1604,3 +1604,35 @@ body {
   margin-left: 8px;
   flex-shrink: 0;
 }
+
+/* Datatype badges in DetailsPane: small monospace pill, color by provenance. */
+.datatype-badge {
+  display: inline-block;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 9px;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 4px;
+  margin-left: 6px;
+  vertical-align: middle;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.datatype-badge--schema {
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--text-secondary) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--text-secondary) 25%, transparent);
+}
+
+.datatype-badge--value {
+  color: #d68a2a;
+  background: color-mix(in srgb, #d68a2a 15%, transparent);
+  border: 1px solid color-mix(in srgb, #d68a2a 30%, transparent);
+}
+
+.datatype-badge--draft {
+  color: var(--accent-draft);
+  background: color-mix(in srgb, var(--accent-draft) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent-draft) 30%, transparent);
+}
