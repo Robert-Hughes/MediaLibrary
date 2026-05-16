@@ -27,6 +27,28 @@ interface Props {
   onClose: () => void;
 }
 
+/**
+ * Map the backend's `status` / failure `kind` strings to a short
+ * human-readable label. Kept here so the dialog is the only place that
+ * cares about display copy — the backend wires use the raw kinds for
+ * telemetry. Unknown kinds fall through as the raw value so a new
+ * failure mode is still legible while we add a proper label.
+ */
+export function friendlyFailureLabel(kind: string): string {
+  switch (kind) {
+    case "decode": return "Could not decode image";
+    case "http": return "API request failed";
+    case "network": return "Network error";
+    case "incomplete": return "Response was truncated";
+    case "refused": return "Refused by model";
+    case "bad_json": return "Could not parse model response";
+    case "usage_parse": return "Description received but token usage could not be measured";
+    case "preflight_failed": return "Preflight failed before any image was processed";
+    case "command_failed": return "Describe command failed to start";
+    default: return kind;
+  }
+}
+
 function formatCost(usd: number): string {
   // Below a cent we want users to see the actual scale, not a confusing
   // "$0.00". Sub-cent costs are the norm for single-image runs.
@@ -70,8 +92,9 @@ function FailureList({ failures }: { failures: DescribeFailure[] }) {
       </summary>
       <ul style={{ marginTop: 6, paddingLeft: 18, fontSize: 12 }}>
         {failures.map((f) => (
-          <li key={f.relativePath} title={f.detail}>
-            <strong>{f.relativePath}</strong>: {f.kind} — {f.detail}
+          <li key={f.relativePath} title={`${f.kind}: ${f.detail}`}>
+            <strong>{f.relativePath}</strong>: {friendlyFailureLabel(f.kind)}
+            {f.detail && <> — <span style={{ color: "var(--text-secondary)" }}>{f.detail}</span></>}
           </li>
         ))}
       </ul>

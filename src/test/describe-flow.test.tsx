@@ -207,7 +207,10 @@ describe("AI-description flow", () => {
 
     await screen.findByTestId("describe-done-summary");
     // Failure list is gated behind a <details> element.
-    expect(screen.getByTestId("describe-failure-list")).toHaveTextContent(/incomplete/);
+    // Friendly label replaces the raw `incomplete` kind in the visible
+    // text; the raw kind and detail remain accessible via the `title`
+    // tooltip on the row.
+    expect(screen.getByTestId("describe-failure-list")).toHaveTextContent(/Response was truncated/i);
     expect(screen.getByTestId("describe-failure-list")).toHaveTextContent(/max_output_tokens/);
   });
 
