@@ -472,7 +472,7 @@ async fn list_models_with_pricing(client: &Client, api_key: &str) -> Result<(), 
             println!("  Output:       ${:.2} / 1M tokens", pricing.output_per_1m);
             
             if pricing.supports_batch {
-                println!("  Batch API (50% off): ✓ Supported");
+                println!("  Batch / Flex (50% off): ✓ Supported");
                 println!("    Batch Input:  ${:.2} / 1M tokens", pricing.input_per_1m * 0.5);
                 println!("    Batch Output: ${:.2} / 1M tokens", pricing.output_per_1m * 0.5);
             }
