@@ -54,8 +54,8 @@ body {
 }
 
 .welcome-logo {
-  width: 160px;
-  height: 160px;
+  width: 280px;
+  height: 280px;
   margin-bottom: 24px;
   object-fit: contain;
 }
