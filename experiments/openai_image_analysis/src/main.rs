@@ -847,6 +847,57 @@ fn write_error_stub(
     Ok(())
 }
 
+/// Token usage extracted from a single API response. Mirrors the shape of
+/// `response.usage` from the Responses API so we can log actual costs and
+/// compare them to the preflight prediction. `reasoning_tokens` is non-zero
+/// only for reasoning-tier models (o-series, gpt-5 reasoning variants); for
+/// the chat/vision models used here it's always 0 but we plumb it through
+/// so the schema is uniform.
+#[derive(Debug, Default, Clone, Copy)]
+struct UsageStats {
+    input_tokens: u32,
+    cached_input_tokens: u32,
+    output_tokens: u32,
+    reasoning_tokens: u32,
+}
+
+impl UsageStats {
+    fn from_response(response: &serde_json::Value) -> Self {
+        let usage = &response["usage"];
+        Self {
+            input_tokens: usage["input_tokens"].as_u64().unwrap_or(0) as u32,
+            cached_input_tokens: usage["input_tokens_details"]["cached_tokens"]
+                .as_u64()
+                .unwrap_or(0) as u32,
+            output_tokens: usage["output_tokens"].as_u64().unwrap_or(0) as u32,
+            reasoning_tokens: usage["output_tokens_details"]["reasoning_tokens"]
+                .as_u64()
+                .unwrap_or(0) as u32,
+        }
+    }
+
+    fn add(&mut self, other: &UsageStats) {
+        self.input_tokens += other.input_tokens;
+        self.cached_input_tokens += other.cached_input_tokens;
+        self.output_tokens += other.output_tokens;
+        self.reasoning_tokens += other.reasoning_tokens;
+    }
+
+    /// Compute the cost of this usage given a pricing row.
+    /// Cached input tokens are billed at `cached_input_per_1m` (typically
+    /// ~10% of standard input rate); non-cached input at `input_per_1m`.
+    fn cost(&self, p: &ModelPricing) -> f64 {
+        let non_cached_input = self.input_tokens.saturating_sub(self.cached_input_tokens);
+        let input_cost = (non_cached_input as f64 / 1_000_000.0) * p.input_per_1m;
+        let cached_cost =
+            (self.cached_input_tokens as f64 / 1_000_000.0) * p.cached_input_per_1m;
+        // Reasoning tokens are billed as output tokens by OpenAI.
+        let output_cost =
+            ((self.output_tokens + self.reasoning_tokens) as f64 / 1_000_000.0) * p.output_per_1m;
+        input_cost + cached_cost + output_cost
+    }
+}
+
 /// Process one image: call the API, detect truncation, parse + pretty-print
 /// the structured JSON, optionally write it to disk next to the source.
 ///
@@ -855,13 +906,18 @@ fn write_error_stub(
 /// file. This prevents silent staleness — without it, a failed call would
 /// leave the previous run's JSON in place and the operator would be misled
 /// into thinking the file matches the latest model+prompt.
+///
+/// Returns the response's usage stats (or `None` on early failure) so the
+/// caller can aggregate actual cost and compare to the preflight estimate.
 async fn process_image(
     client: &Client,
     api_key: &str,
     model: &str,
     image_path: &str,
     write_next_to_image: bool,
-) -> Result<(), Box<dyn std::error::Error>> {
+    predicted_input_tokens: u32,
+    pricing: Option<&ModelPricing>,
+) -> Result<Option<UsageStats>, Box<dyn std::error::Error>> {
     println!("\n--- Processing: {} ---", image_path);
 
     let response = match call_responses_api(client, api_key, model, &[image_path]).await {
@@ -873,6 +929,49 @@ async fn process_image(
             return Err(e);
         }
     };
+
+    // Extract actual usage and report alongside the preflight prediction so
+    // discrepancies between predicted and billed tokens are visible per
+    // image. Notable cases this surfaces:
+    //   - cached_input_tokens > 0 → prompt caching is hitting; effective
+    //     input cost drops to ~10% on the cached portion.
+    //   - actual output_tokens far from EXPECTED_OUTPUT_TOKENS → tune the
+    //     constant for better estimates.
+    //   - actual input_tokens differing from the /input_tokens preflight →
+    //     suggests the two endpoints account differently (worth knowing).
+    let usage = UsageStats::from_response(&response);
+    println!(
+        "  usage: input={} (cached={}) output={} reasoning={} total={}",
+        usage.input_tokens,
+        usage.cached_input_tokens,
+        usage.output_tokens,
+        usage.reasoning_tokens,
+        usage.input_tokens + usage.output_tokens + usage.reasoning_tokens
+    );
+    if let Some(p) = pricing {
+        let actual_cost = usage.cost(p);
+        let predicted_cost = (predicted_input_tokens as f64 / 1_000_000.0) * p.input_per_1m
+            + (EXPECTED_OUTPUT_TOKENS as f64 / 1_000_000.0) * p.output_per_1m;
+        let delta = actual_cost - predicted_cost;
+        let pct = if predicted_cost > 0.0 {
+            (delta / predicted_cost) * 100.0
+        } else {
+            0.0
+        };
+        println!(
+            "  cost:  predicted=${:.6}  actual=${:.6}  delta=${:+.6} ({:+.1}%)",
+            predicted_cost, actual_cost, delta, pct
+        );
+        println!(
+            "  tokens: input predicted={} actual={} (delta={:+}) | output expected={} actual={} (delta={:+})",
+            predicted_input_tokens,
+            usage.input_tokens,
+            usage.input_tokens as i64 - predicted_input_tokens as i64,
+            EXPECTED_OUTPUT_TOKENS,
+            usage.output_tokens,
+            usage.output_tokens as i64 - EXPECTED_OUTPUT_TOKENS as i64
+        );
+    }
     tracing::debug!("API Response: {}", serde_json::to_string_pretty(&response)?);
 
     let raw_text = response["output"][0]["content"][0]["text"]
@@ -904,7 +1003,10 @@ async fn process_image(
                 &raw_text,
             )?;
         }
-        return Ok(());
+        // Incomplete responses still produced billable usage — return it so
+        // the aggregator counts what was actually consumed, not what was
+        // successfully parsed.
+        return Ok(Some(usage));
     }
 
     match serde_json::from_str::<serde_json::Value>(&raw_text) {
@@ -927,7 +1029,7 @@ async fn process_image(
         }
     }
 
-    Ok(())
+    Ok(Some(usage))
 }
 
 #[tokio::main]
@@ -1037,11 +1139,79 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Sequential processing — one API call per image, no batching.
     // Errors on individual images are logged and don't abort the run, so a
     // bad file in a large batch doesn't waste the earlier successful calls.
+    let mut aggregate_usage = UsageStats::default();
+    let predicted_by_image: std::collections::HashMap<&str, u32> = per_image_tokens
+        .iter()
+        .map(|(p, t)| (p.as_str(), *t))
+        .collect();
     for image in &args.images {
-        if let Err(e) = process_image(&client, &api_key, model, image, args.output_next_to_image).await {
-            tracing::error!("Failed to process {}: {}", image, e);
+        let predicted = predicted_by_image.get(image.as_str()).copied().unwrap_or(0);
+        match process_image(
+            &client,
+            &api_key,
+            model,
+            image,
+            args.output_next_to_image,
+            predicted,
+            pricing,
+        )
+        .await
+        {
+            Ok(Some(u)) => aggregate_usage.add(&u),
+            Ok(None) => {}
+            Err(e) => tracing::error!("Failed to process {}: {}", image, e),
         }
     }
+
+    // --- Post-run summary: actual usage + cost vs preflight prediction ---
+    println!("\n=== Actual Usage Summary ===");
+    println!(
+        "Aggregate tokens: input={} (cached={}) output={} reasoning={}",
+        aggregate_usage.input_tokens,
+        aggregate_usage.cached_input_tokens,
+        aggregate_usage.output_tokens,
+        aggregate_usage.reasoning_tokens
+    );
+    if let Some(p) = pricing {
+        let actual_total = aggregate_usage.cost(p);
+        let predicted_input_cost =
+            (total_input_tokens as f64 / 1_000_000.0) * p.input_per_1m;
+        let predicted_output_cost =
+            (total_expected_output as f64 / 1_000_000.0) * p.output_per_1m;
+        let predicted_total = predicted_input_cost + predicted_output_cost;
+        let delta = actual_total - predicted_total;
+        let pct = if predicted_total > 0.0 {
+            (delta / predicted_total) * 100.0
+        } else {
+            0.0
+        };
+        println!(
+            "Predicted total: ${:.6}  Actual total: ${:.6}  Delta: ${:+.6} ({:+.1}%)",
+            predicted_total, actual_total, delta, pct
+        );
+        let cache_hit_pct = if aggregate_usage.input_tokens > 0 {
+            (aggregate_usage.cached_input_tokens as f64 / aggregate_usage.input_tokens as f64)
+                * 100.0
+        } else {
+            0.0
+        };
+        println!(
+            "Prompt cache hit rate: {:.1}% of input tokens ({} / {})",
+            cache_hit_pct,
+            aggregate_usage.cached_input_tokens,
+            aggregate_usage.input_tokens
+        );
+        let avg_output = if !args.images.is_empty() {
+            aggregate_usage.output_tokens as f64 / args.images.len() as f64
+        } else {
+            0.0
+        };
+        println!(
+            "Avg output tokens/image: {:.0} (EXPECTED_OUTPUT_TOKENS const = {})",
+            avg_output, EXPECTED_OUTPUT_TOKENS
+        );
+    }
+    println!("=============================");
 
     Ok(())
 }
