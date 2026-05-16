@@ -31,9 +31,10 @@ export function NewPropertyDialog({ onSave, onCancel, existingKeys, filename }: 
   const allTagNames = useSchemaTagNames();
 
   const suggestions = useMemo(() => {
-    if (allTagNames === "loading" || !key) return [];
-    const lower = key.toLowerCase();
+    if (allTagNames === "loading") return [];
     const applicable = filterTagsByFilename(allTagNames, filename);
+    if (!key) return applicable;
+    const lower = key.toLowerCase();
     return applicable.filter((t) => t.toLowerCase().includes(lower));
   }, [allTagNames, key, filename]);
 
