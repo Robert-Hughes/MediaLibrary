@@ -1,10 +1,12 @@
 # Test Set for Model Comparison
 
-20 photos from `D:\OneDrive\Pictures\2010` covering a deliberately wide range
-of photo types. Most already carry EXIF descriptions and keyword tags (visible
-via `exiftool`), so they double as a ground-truth set for spot-checking model
-output: compare each model's `description` / `tags` / `ocr_text` against the
-existing metadata.
+21 images covering a deliberately wide range of photo types. 20 are from
+`D:\OneDrive\Pictures\2010` and already carry EXIF descriptions and keyword
+tags (visible via `exiftool`), so they double as a ground-truth set for
+spot-checking model output: compare each model's `description` / `tags` /
+`ocr_text` against the existing metadata. The 21st is a phone screenshot of
+a text-heavy webpage — an adversarial OCR / non-photographic case that
+stresses how each model handles content that isn't really a "photo".
 
 ## Photos
 
@@ -30,6 +32,7 @@ existing metadata.
 | 18 | `Image0009.jpg` | Pub / indoor scene | Group of people + objects + indoor lighting |
 | 19 | `Image0686.jpg` | Punting on river | Activity recognition (specific to Cambridge) |
 | 20 | `Image0058.jpg` | Close-up still life | Handbag — fashion-object close-up |
+| 21 | `Screenshot_20260508_112540_Samsung Browser.jpg` (in `2026/`) | Webpage screenshot | Text-heavy phone screenshot — non-photographic content, stresses OCR and the model's handling of UI/document images |
 
 ## Running the Test Set
 
@@ -38,9 +41,9 @@ The tool processes one image per API call sequentially. With
 file as `<stem> (<model>).json`, so multiple runs against the same image with
 different models accumulate side-by-side outputs that can be diffed.
 
-Cost ballpark per model for all 20 photos (1024x1024 input, ~250 output
-tokens/image): nano $0.01, mini $0.025, gpt-4o $0.04, gpt-5.4 $0.08, gpt-5.5 $0.17.
-Total across all five models ≈ $0.32.
+Cost ballpark per model for all 21 photos (1024x1024 input, ~250 output
+tokens/image): nano $0.01, mini $0.025, gpt-4o $0.04, gpt-5.4 $0.09, gpt-5.5 $0.18.
+Total across all five models ≈ $0.34.
 
 ### PowerShell one-liners
 
@@ -68,7 +71,8 @@ $IMG = @(
     "D:\OneDrive\Pictures\2010\Image0021.jpg",
     "D:\OneDrive\Pictures\2010\Image0009.jpg",
     "D:\OneDrive\Pictures\2010\Image0686.jpg",
-    "D:\OneDrive\Pictures\2010\Image0058.jpg"
+    "D:\OneDrive\Pictures\2010\Image0058.jpg",
+    "D:\OneDrive\Pictures\2026\Screenshot_20260508_112540_Samsung Browser.jpg"
 )
 $ARGS_LIST = @()
 foreach ($p in $IMG) { $ARGS_LIST += @("--image", $p) }
@@ -116,3 +120,8 @@ exiftool -Description -Subject -Keywords @IMG
 - **Meta-scene handling** on `Image0322.jpg` — does the model recognise this
   as a *model of a bridge in a museum display case*, or just call it a
   bridge?
+- **Non-photographic content** on the Samsung Browser screenshot — does the
+  model identify it as a screenshot/webpage (correct), describe it as a
+  photo of a phone (wrong abstraction), or just dump OCR? Are tags
+  appropriate (e.g. `screenshot`, `webpage`) or photographic (`indoor`,
+  `close-up`)?
