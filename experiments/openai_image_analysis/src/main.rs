@@ -450,16 +450,17 @@ fn description_schema() -> serde_json::Value {
     })
 }
 
-/// Build request for Responses API with text + images
+/// Build request for Responses API with images only.
+///
+/// The user message contains only image content items — no text. The full task
+/// description lives in SYSTEM_INSTRUCTIONS, and the schema enforces the
+/// output shape, so a per-call user prompt adds nothing. Dropping it saves a
+/// few tokens per request and keeps the per-call payload trivially constant.
 fn build_response_request(
     model: &str,
-    text: &str,
     image_paths: &[&str],
 ) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
-    let mut content: Vec<serde_json::Value> = vec![serde_json::json!({
-        "type": "input_text",
-        "text": text
-    })];
+    let mut content: Vec<serde_json::Value> = Vec::new();
 
     for path in image_paths {
         content.push(image_content_item(path)?);
@@ -522,12 +523,11 @@ async fn call_responses_api(
     client: &Client,
     api_key: &str,
     model: &str,
-    text: &str,
     image_paths: &[&str],
 ) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
     let url = format!("{}/responses", OPENAI_BASE_URL);
 
-    let request_body = build_response_request(model, text, image_paths)?;
+    let request_body = build_response_request(model, image_paths)?;
 
     tracing::info!("Sending request to {}", url);
     tracing::debug!("Request body: {}", serde_json::to_string_pretty(&request_body)?);
@@ -749,10 +749,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Err("No sample images configured. Add image paths to sample_images vector in main().".into());
     }
 
-    // Minimal user prompt: the heavy lifting (style, length, JSON shape) is in
-    // SYSTEM_INSTRUCTIONS + the response schema. Keeping the user message tiny
-    // and constant maximises cacheability of the per-request prefix.
-    let text_prompt = "Describe this image.";
+    // No per-call user text: the full task description is in
+    // SYSTEM_INSTRUCTIONS and the response schema enforces output shape, so a
+    // user prompt would just be tokens for nothing.
 
     // --- Pre-flight cost estimation ---
     let pricing_table = get_model_pricing();
@@ -763,7 +762,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut total_input_tokens = 0;
 
     // Use official OpenAI token counting API
-    match build_response_request(model, text_prompt, &sample_images) {
+    match build_response_request(model, &sample_images) {
         Ok(request_body) => {
             let count_url = format!("{}/responses/input_tokens", OPENAI_BASE_URL);
             tracing::info!("Calling token counting API: {}", count_url);
@@ -808,7 +807,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Err("Cost estimation unavailable due to token API failure.".into());
     }
 
-    match build_response_request(model, text_prompt, &sample_images) {
+    match build_response_request(model, &sample_images) {
         Ok(request) => {
             let preview_request = truncate_json_strings(&request, 100);
             let request_str = serde_json::to_string_pretty(&preview_request)?;
@@ -849,7 +848,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return Ok(());
             }
 
-            match call_responses_api(&client, &api_key, model, text_prompt, &sample_images).await {
+            match call_responses_api(&client, &api_key, model, &sample_images).await {
                 Ok(response) => {
                     tracing::info!("API Response: {}", serde_json::to_string_pretty(&response)?);
 
