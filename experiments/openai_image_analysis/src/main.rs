@@ -550,6 +550,30 @@ async fn list_models_with_pricing(client: &Client, api_key: &str) -> Result<(), 
     Ok(())
 }
 
+/// Recursively truncate long strings in a JSON value for previewing
+fn truncate_json_strings(value: &serde_json::Value, max_len: usize) -> serde_json::Value {
+    match value {
+        serde_json::Value::String(s) => {
+            if s.len() > max_len {
+                serde_json::Value::String(format!("{}... (truncated, total {} chars)", &s[..max_len], s.len()))
+            } else {
+                value.clone()
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            serde_json::Value::Array(arr.iter().map(|v| truncate_json_strings(v, max_len)).collect())
+        }
+        serde_json::Value::Object(obj) => {
+            let mut new_obj = serde_json::Map::new();
+            for (k, v) in obj {
+                new_obj.insert(k.clone(), truncate_json_strings(v, max_len));
+            }
+            serde_json::Value::Object(new_obj)
+        }
+        _ => value.clone(),
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     init_logging();
@@ -654,11 +678,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     match build_response_request(model, text_prompt, &sample_images) {
         Ok(request) => {
-            let request_str = serde_json::to_string_pretty(&request)?;
-            tracing::info!("Request to be sent:\n{}", request_str);
+            let preview_request = truncate_json_strings(&request, 100);
+            let request_str = serde_json::to_string_pretty(&preview_request)?;
+            tracing::info!("Request to be sent (truncated for preview):\n{}", request_str);
 
             // Confirmation prompt
-            println!("\n=== Request Preview ===");
+            println!("\n=== Request Preview (Base64 truncated) ===");
             println!("{}", request_str);
             println!("======================");
             print!("Send this request to OpenAI API? (y/n): ");
