@@ -31,6 +31,32 @@ export interface MockTauriApi {
   /** Override apply_draft_edits_cmd result. Default: success with no applied/failed. */
   applyEditsResult: ApplyEditsResult;
   cancelApplyEditsCalled: boolean;
+  /** Stored settings; defaults to empty API key + gpt-4o. */
+  settings: { openai_api_key: string; openai_model: string };
+  /** Recommended-models list returned by list_recommended_models. */
+  recommendedModels: string[];
+  /** Records the most recent estimate_describe_cost_cmd arguments. */
+  lastEstimateArgs: { folderPath: string; relPaths: string[] } | null;
+  /** Records the most recent describe_images_cmd arguments. */
+  lastDescribeArgs: { folderPath: string; relPaths: string[] } | null;
+  cancelDescribeCalled: boolean;
+  /**
+   * Drives the events emitted by estimate_describe_cost_cmd. Tests can mutate
+   * this to simulate per-image token counts.
+   */
+  estimateTokenSchedule: number[];
+  /** Override describe progress / completion. Each entry is one rel_path's result. */
+  describeSchedule: Array<{ relativePath: string; status: string; error?: string | null }>;
+  /** Override the usage summary emitted by describe_complete. */
+  describeUsageSummary: {
+    totalInputTokens: number; totalCachedTokens: number;
+    totalOutputTokens: number; predictedCostUsd: number; actualCostUsd: number;
+  };
+  /** Override the estimate-complete payload. */
+  describeEstimateComplete: {
+    totalInputTokens: number; predictedCostUsd: number;
+    upperBoundCostUsd: number; model: string;
+  };
 }
 
 export function createMockTauriApi(): MockTauriApi {
@@ -67,6 +93,20 @@ export function createMockTauriApi(): MockTauriApi {
     currentScanId: 1,
     applyEditsResult: { applied: [], failed: [], fresh_metadata: {} },
     cancelApplyEditsCalled: false,
+    settings: { openai_api_key: "", openai_model: "gpt-4o" },
+    recommendedModels: ["gpt-4o", "gpt-5.4-nano", "gpt-5.4-mini", "gpt-5.4", "gpt-5.5"],
+    lastEstimateArgs: null,
+    lastDescribeArgs: null,
+    cancelDescribeCalled: false,
+    estimateTokenSchedule: [],
+    describeSchedule: [],
+    describeUsageSummary: {
+      totalInputTokens: 0, totalCachedTokens: 0, totalOutputTokens: 0,
+      predictedCostUsd: 0, actualCostUsd: 0,
+    },
+    describeEstimateComplete: {
+      totalInputTokens: 0, predictedCostUsd: 0, upperBoundCostUsd: 0, model: "gpt-4o",
+    },
   };
 
   const api: TauriApi = {
@@ -136,6 +176,68 @@ export function createMockTauriApi(): MockTauriApi {
       }
       if (cmd === "cancel_apply_edits") {
         mock.cancelApplyEditsCalled = true;
+        return;
+      }
+      if (cmd === "preload_schema") {
+        return;
+      }
+      if (cmd === "load_settings_cmd") {
+        return mock.settings;
+      }
+      if (cmd === "save_settings_cmd") {
+        mock.settings = args?.settingsData as typeof mock.settings;
+        return;
+      }
+      if (cmd === "list_recommended_models") {
+        return mock.recommendedModels;
+      }
+      if (cmd === "estimate_describe_cost_cmd") {
+        const folderPath = args?.folderPath as string;
+        const relPaths = (args?.relPaths as string[]) ?? [];
+        mock.lastEstimateArgs = { folderPath, relPaths };
+        // Yield to the event loop before emitting events so the hook's
+        // useEffect has a chance to subscribe to them. Without this, the
+        // synchronous emit can happen before listen() resolves and the
+        // dialog never advances.
+        const total = relPaths.length;
+        await new Promise((r) => setTimeout(r, 0));
+        emit("describe_estimate_started", { total });
+        for (let i = 0; i < total; i++) {
+          const tokens = mock.estimateTokenSchedule[i] ?? 1000;
+          emit("describe_estimate_progress", {
+            current: i + 1, total, relativePath: relPaths[i],
+            inputTokens: tokens, expectedCostUsd: 0.001,
+          });
+        }
+        emit("describe_estimate_complete", mock.describeEstimateComplete);
+        return;
+      }
+      if (cmd === "describe_images_cmd") {
+        const folderPath = args?.folderPath as string;
+        const relPaths = (args?.relPaths as string[]) ?? [];
+        mock.lastDescribeArgs = { folderPath, relPaths };
+        const total = relPaths.length;
+        await new Promise((r) => setTimeout(r, 0));
+        emit("describe_started", { total });
+        const succeeded: string[] = [];
+        const failed: Array<{ relativePath: string; kind: string; detail: string }> = [];
+        for (let i = 0; i < total; i++) {
+          const rp = relPaths[i];
+          const sched = mock.describeSchedule[i] ?? { relativePath: rp, status: "ok" };
+          emit("describe_progress", {
+            current: i + 1, total, relativePath: rp,
+            status: sched.status, error: sched.error ?? null,
+          });
+          if (sched.status === "ok") succeeded.push(rp);
+          else failed.push({ relativePath: rp, kind: sched.status, detail: sched.error ?? "" });
+        }
+        emit("describe_complete", {
+          succeeded, failed, usageSummary: mock.describeUsageSummary,
+        });
+        return;
+      }
+      if (cmd === "cancel_describe_cmd") {
+        mock.cancelDescribeCalled = true;
         return;
       }
       throw new Error(`Unexpected invoke: ${cmd}`);
