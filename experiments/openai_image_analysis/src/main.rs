@@ -378,6 +378,57 @@ pub fn image_content_item(path: &str) -> Result<serde_json::Value, Box<dyn std::
     }))
 }
 
+/// System-level instructions sent in the Responses API `instructions` field.
+///
+/// Rationale:
+/// - Putting the system prompt in `instructions` (separate from the user
+///   message) makes it a stable prefix across calls, which helps prompt
+///   caching kick in when we process many images with the same setup.
+/// - Imperative phrasing + explicit prohibitions ("no preamble") suppresses
+///   the model's default tendency to start with filler like "The image shows".
+/// - Constraining length keeps output cost bounded and predictable.
+const SYSTEM_INSTRUCTIONS: &str = "\
+You are an image description engine for a media library. Output a literal, \
+factual description of the image contents only. Do not speculate about the \
+photographer's intent, the meaning, or the emotional tone. Do not start with \
+phrases like 'The image shows', 'This is a photo of', 'I can see', or similar \
+preamble — begin directly with the description. Use 2-4 sentences in present \
+tense. Note any visible text verbatim. If the image is blank, blurry, or \
+unidentifiable, say so plainly.";
+
+/// JSON schema for structured output.
+///
+/// Rationale: a downstream media library consumer wants machine-parseable
+/// fields, not free-form prose. Using `text.format.json_schema` with
+/// `strict: true` guarantees the model returns valid JSON matching this shape
+/// — no regex post-processing, no malformed-JSON retries.
+fn description_schema() -> serde_json::Value {
+    serde_json::json!({
+        "type": "object",
+        "properties": {
+            "description": {
+                "type": "string",
+                "description": "Literal description of the image contents, 2-4 sentences."
+            },
+            "objects": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Distinct nouns visible in the image (people, animals, objects, landmarks)."
+            },
+            "scene_type": {
+                "type": "string",
+                "description": "Short category, e.g. 'indoor portrait', 'landscape', 'document scan'."
+            },
+            "ocr_text": {
+                "type": "string",
+                "description": "Any text visible in the image, transcribed verbatim. Empty string if none."
+            }
+        },
+        "required": ["description", "objects", "scene_type", "ocr_text"],
+        "additionalProperties": false
+    })
+}
+
 /// Build request for Responses API with text + images
 fn build_response_request(
     model: &str,
@@ -393,13 +444,25 @@ fn build_response_request(
         content.push(image_content_item(path)?);
     }
 
+    // System prompt goes in `instructions` (stable prefix → cacheable).
+    // User message holds only the per-call content (text + images).
+    // `text.format` requests a strict JSON-schema-conformant response.
     let request = serde_json::json!({
         "model": model,
+        "instructions": SYSTEM_INSTRUCTIONS,
         "input": [{
             "type": "message",
             "role": "user",
             "content": content
         }],
+        "text": {
+            "format": {
+                "type": "json_schema",
+                "name": "image_description",
+                "strict": true,
+                "schema": description_schema()
+            }
+        },
     });
 
     Ok(request)
@@ -637,7 +700,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Err("No sample images configured. Add image paths to sample_images vector in main().".into());
     }
 
-    let text_prompt = "Describe what's in these images";
+    // Minimal user prompt: the heavy lifting (style, length, JSON shape) is in
+    // SYSTEM_INSTRUCTIONS + the response schema. Keeping the user message tiny
+    // and constant maximises cacheability of the per-request prefix.
+    let text_prompt = "Describe this image.";
 
     // --- Pre-flight cost estimation ---
     let pricing_table = get_model_pricing();
