@@ -447,6 +447,26 @@ fn build_response_request(
     // System prompt goes in `instructions` (stable prefix → cacheable).
     // User message holds only the per-call content (text + images).
     // `text.format` requests a strict JSON-schema-conformant response.
+    //
+    // Determinism / cost-control knobs:
+    // - `temperature: 0`     Lowest variance. Note: this does NOT give
+    //                        bit-exact reproducibility (MoE routing and GPU
+    //                        nondeterminism still leak through), but it
+    //                        eliminates the bulk of sampling-driven variation
+    //                        so repeated calls on the same image give nearly
+    //                        identical descriptions.
+    // - `top_p: 1`           Explicit; nucleus sampling neutralised so
+    //                        temperature is the sole knob.
+    // - `seed: 42`           Best-effort reproducibility for the
+    //                        non-deterministic remainder. OpenAI treats this
+    //                        as a hint, not a guarantee.
+    // - `max_output_tokens`  Bounds worst-case cost and stops runaway
+    //                        responses. 300 tokens is comfortably above what
+    //                        the schema (2-4 sentence description + small
+    //                        arrays) should ever need.
+    //
+    // Note: reasoning models (o-series, gpt-5 reasoning variants) ignore
+    // temperature/top_p. That's fine — they're not the target here.
     let request = serde_json::json!({
         "model": model,
         "instructions": SYSTEM_INSTRUCTIONS,
@@ -463,6 +483,10 @@ fn build_response_request(
                 "schema": description_schema()
             }
         },
+        "temperature": 0,
+        "top_p": 1,
+        "seed": 42,
+        "max_output_tokens": 300,
     });
 
     Ok(request)
