@@ -824,7 +824,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             match call_responses_api(&client, &api_key, model, text_prompt, &sample_images).await {
                 Ok(response) => {
                     tracing::info!("API Response: {}", serde_json::to_string_pretty(&response)?);
-                    println!("\n=== Text Response ===\n{}", response["output"][0]["content"][0]["text"]);
+
+                    // With structured output, the model returns a JSON string in
+                    // the `text` field that conforms to our schema. Parse and
+                    // pretty-print it so the output is readable instead of a
+                    // single escaped one-liner.
+                    let raw_text = response["output"][0]["content"][0]["text"]
+                        .as_str()
+                        .unwrap_or("");
+                    match serde_json::from_str::<serde_json::Value>(raw_text) {
+                        Ok(parsed) => {
+                            println!(
+                                "\n=== Structured Response ===\n{}",
+                                serde_json::to_string_pretty(&parsed)?
+                            );
+                        }
+                        Err(e) => {
+                            tracing::warn!("Response text was not valid JSON: {}", e);
+                            println!("\n=== Text Response (raw) ===\n{}", raw_text);
+                        }
+                    }
                 }
                 Err(e) => {
                     tracing::error!("API call failed: {}", e);
