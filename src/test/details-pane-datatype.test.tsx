@@ -17,8 +17,8 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(() => Promise.resolve(null)),
 }));
 
-function tagInfo(group: string, name: string, kind: TagKind): TagInfo {
-  return { group, name, writable: true, kind, description: null };
+function tagInfo(group: string, name: string, kind: TagKind, writable = true): TagInfo {
+  return { group, name, writable, kind, description: null };
 }
 
 function findRow(key: string): HTMLElement {
@@ -253,6 +253,38 @@ describe("DetailsPane datatype badges", () => {
     expect(within(row).getByTestId("datatype-badge-schema")).toHaveAttribute("data-code", "R");
     expect(within(row).queryByTestId("datatype-badge-value")).toBeNull();
     expect(within(row).getByTestId("datatype-badge-draft")).toHaveAttribute("data-code", "S");
+  });
+
+  it("read-only schema → value cell gets details-value--readonly class", () => {
+    _setTagInfoCacheEntry(
+      "IFD0:Make",
+      tagInfo("IFD0", "Make", { kind: "Text" }, /*writable*/ false),
+    );
+    render(<DetailsPane photo={photo} metadata={{ "IFD0:Make": "Canon" } as Record<string, Variant>} />);
+    const row = findRow("IFD0:Make");
+    const cell = row.querySelector("td.details-value") as HTMLElement;
+    expect(cell.classList.contains("details-value--readonly")).toBe(true);
+    expect(cell.getAttribute("data-readonly")).toBe("true");
+  });
+
+  it("writable schema → value cell omits read-only class", () => {
+    _setTagInfoCacheEntry(
+      "XMP-dc:Description",
+      tagInfo("XMP-dc", "Description", { kind: "Text" }, /*writable*/ true),
+    );
+    render(<DetailsPane photo={photo} metadata={{ "XMP-dc:Description": "hi" } as Record<string, Variant>} />);
+    const row = findRow("XMP-dc:Description");
+    const cell = row.querySelector("td.details-value") as HTMLElement;
+    expect(cell.classList.contains("details-value--readonly")).toBe(false);
+    expect(cell.getAttribute("data-readonly")).toBeNull();
+  });
+
+  it("unknown tag → value cell stays editable-looking (no read-only class)", () => {
+    _setTagInfoCacheEntry("Made-Up:Thing", null);
+    render(<DetailsPane photo={photo} metadata={{ "Made-Up:Thing": "x" } as Record<string, Variant>} />);
+    const row = findRow("Made-Up:Thing");
+    const cell = row.querySelector("td.details-value") as HTMLElement;
+    expect(cell.classList.contains("details-value--readonly")).toBe(false);
   });
 
   it("OS section rows never render a schema badge", () => {

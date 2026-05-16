@@ -130,17 +130,20 @@ function DetailsValueCell({
   searchQuery,
   valueBadge,
   draftBadge,
+  readOnly,
 }: {
   originalValue: string,
   draftValue?: string | null,
   searchQuery: string,
   valueBadge?: { code: string; label: string } | null,
   draftBadge?: { code: string; label: string } | null,
+  readOnly?: boolean,
 }) {
   return (
     <td
-      className="details-value"
-      title={originalValue}
+      className={readOnly ? "details-value details-value--readonly" : "details-value"}
+      title={readOnly ? `${originalValue}\n(read-only — schema forbids edits)` : originalValue}
+      data-readonly={readOnly ? "true" : undefined}
     >
       {draftValue !== undefined ? (
         <>
@@ -188,6 +191,7 @@ function DetailsImageRow({
 }) {
   const tag = useTagInfo(entry.fullKey);
   const schemaInfo = tag && tag !== "loading" ? schemaDatatype(tag.kind) : null;
+  const readOnly = tag != null && tag !== "loading" && !tag.writable;
 
   const valueInfo = variantDatatype(rawValue);
   const showValueBadge =
@@ -222,6 +226,7 @@ function DetailsImageRow({
         searchQuery={searchQuery}
         valueBadge={showValueBadge ? valueInfo : null}
         draftBadge={showDraftBadge ? draftInfo : null}
+        readOnly={readOnly}
       />
     </tr>
   );
