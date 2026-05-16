@@ -1,7 +1,7 @@
 use base64::Engine;
 use clap::Parser;
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::collections::HashMap;
 use std::env;
 use std::fs;
@@ -304,49 +304,29 @@ fn encode_image_to_base64(path: &str) -> Result<String, Box<dyn std::error::Erro
     Ok(base64::engine::general_purpose::STANDARD.encode(&data))
 }
 
-/// Load image from file and create input item for API
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ImageInput {
-    #[serde(rename = "type")]
-    pub input_type: String,
-    pub source: ImageSource,
-}
+/// Load image from file and create content item for Responses API
+pub fn image_content_item(path: &str) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    let extension = std::path::Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("jpeg")
+        .to_lowercase();
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ImageSource {
-    #[serde(rename = "type")]
-    pub source_type: String,
-    pub media_type: String,
-    pub data: String,
-}
+    let media_type = match extension.as_str() {
+        "png" => "image/png",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        _ => "image/jpeg",
+    };
 
-impl ImageInput {
-    pub fn from_file(path: &str) -> Result<Self, Box<dyn std::error::Error>> {
-        let extension = std::path::Path::new(path)
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("jpeg")
-            .to_lowercase();
+    let data = encode_image_to_base64(path)?;
+    let image_url = format!("data:{};base64,{}", media_type, data);
 
-        let media_type = match extension.as_str() {
-            "png" => "image/png",
-            "gif" => "image/gif",
-            "webp" => "image/webp",
-            "pdf" => "application/pdf",
-            _ => "image/jpeg",
-        };
-
-        let data = encode_image_to_base64(path)?;
-
-        Ok(ImageInput {
-            input_type: "input_image".to_string(),
-            source: ImageSource {
-                source_type: "base64".to_string(),
-                media_type: media_type.to_string(),
-                data,
-            },
-        })
-    }
+    Ok(serde_json::json!({
+        "type": "input_image",
+        "image_url": image_url,
+        "detail": "auto"
+    }))
 }
 
 /// Build request for Responses API with text + images
@@ -355,19 +335,22 @@ fn build_response_request(
     text: &str,
     image_paths: &[&str],
 ) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
-    let mut inputs: Vec<serde_json::Value> = vec![serde_json::json!({
+    let mut content: Vec<serde_json::Value> = vec![serde_json::json!({
         "type": "input_text",
         "text": text
     })];
 
     for path in image_paths {
-        let image_input = ImageInput::from_file(path)?;
-        inputs.push(serde_json::to_value(image_input)?);
+        content.push(image_content_item(path)?);
     }
 
     let request = serde_json::json!({
         "model": model,
-        "inputs": inputs,
+        "input": [{
+            "type": "message",
+            "role": "user",
+            "content": content
+        }],
     });
 
     Ok(request)
@@ -644,19 +627,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Ok(resp) => {
                     let status = resp.status();
                     let err_body = resp.text().await.unwrap_or_default();
-                    println!("Error: Token API returned {}. {}", status, err_body);
+                    return Err(format!("Token API returned {}. {}", status, err_body).into());
                 }
                 Err(e) => {
-                    println!("Error: Token API request failed: {}", e);
+                    return Err(format!("Token API request failed: {}", e).into());
                 }
             }
         }
-        Err(e) => println!("Error: Failed to build request for token estimation: {}", e),
+        Err(e) => return Err(format!("Failed to build request for token estimation: {}", e).into()),
     }
     
     if total_input_tokens == 0 {
-        println!("Cost estimation unavailable due to token API failure.");
-        println!("==================================");
+        return Err("Cost estimation unavailable due to token API failure.".into());
     } else {
         // 3. Best guess output tokens (assuming a standard ~150 word response at 1.5 tokens/word)
         let estimated_output_tokens = 225;
