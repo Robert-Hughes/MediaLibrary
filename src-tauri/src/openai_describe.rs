@@ -153,16 +153,29 @@ pub struct UsageStats {
 }
 
 impl UsageStats {
-    pub fn from_response(response: &serde_json::Value) -> Self {
-        let usage = &response["usage"];
-        Self {
-            input_tokens: usage["input_tokens"].as_u64().unwrap_or(0) as u32,
-            cached_input_tokens: usage["input_tokens_details"]["cached_tokens"]
-                .as_u64().unwrap_or(0) as u32,
-            output_tokens: usage["output_tokens"].as_u64().unwrap_or(0) as u32,
-            reasoning_tokens: usage["output_tokens_details"]["reasoning_tokens"]
-                .as_u64().unwrap_or(0) as u32,
-        }
+    /// Parse the `usage` block of a `/responses` response.
+    ///
+    /// `input_tokens` and `output_tokens` are required — these drive cost
+    /// reporting and the audit log; silently treating a missing field as
+    /// zero (the previous behaviour) hid API shape drift and produced
+    /// "$0.00" cost summaries. `cached_input_tokens` and
+    /// `reasoning_tokens` are optional and default to zero (the latter is
+    /// only emitted by reasoning models).
+    pub fn from_response(response: &serde_json::Value) -> Result<Self, String> {
+        let usage = response.get("usage").ok_or_else(|| {
+            "response.usage missing — cost reporting cannot proceed".to_string()
+        })?;
+        let input_tokens = usage.get("input_tokens").and_then(|v| v.as_u64()).ok_or_else(|| {
+            "usage.input_tokens missing or not a number".to_string()
+        })? as u32;
+        let output_tokens = usage.get("output_tokens").and_then(|v| v.as_u64()).ok_or_else(|| {
+            "usage.output_tokens missing or not a number".to_string()
+        })? as u32;
+        let cached_input_tokens = usage["input_tokens_details"]["cached_tokens"]
+            .as_u64().unwrap_or(0) as u32;
+        let reasoning_tokens = usage["output_tokens_details"]["reasoning_tokens"]
+            .as_u64().unwrap_or(0) as u32;
+        Ok(Self { input_tokens, cached_input_tokens, output_tokens, reasoning_tokens })
     }
 
     pub fn add(&mut self, other: &UsageStats) {
@@ -335,6 +348,11 @@ pub enum DescribeError {
     Incomplete { reason: String, raw_text: String },
     Refused { detail: String },
     BadJson { detail: String, raw_text: String },
+    /// `usage` block missing or malformed in an otherwise-successful
+    /// response. Surfaced separately from BadJson so the GUI and audit
+    /// log can flag a cost-reporting gap without conflating it with the
+    /// model returning unparseable content.
+    UsageParse { detail: String, raw_text: String },
 }
 
 impl DescribeError {
@@ -346,6 +364,7 @@ impl DescribeError {
             DescribeError::Incomplete { .. } => "incomplete",
             DescribeError::Refused { .. } => "refused",
             DescribeError::BadJson { .. } => "bad_json",
+            DescribeError::UsageParse { .. } => "usage_parse",
         }
     }
     pub fn detail(&self) -> String {
@@ -353,9 +372,61 @@ impl DescribeError {
             DescribeError::Decode(s) | DescribeError::Network(s) => s.clone(),
             DescribeError::HttpError { status, body } => format!("HTTP {}: {}", status, body),
             DescribeError::Incomplete { reason, .. } => format!("response truncated: {}", reason),
-            DescribeError::Refused { detail } | DescribeError::BadJson { detail, .. } => detail.clone(),
+            DescribeError::Refused { detail }
+            | DescribeError::BadJson { detail, .. }
+            | DescribeError::UsageParse { detail, .. } => detail.clone(),
         }
     }
+}
+
+/// Walk `output[*].content[*]` looking for a refusal part. Refusals can
+/// appear at any index and may be encoded as either `{"type":"refusal",
+/// "refusal":"…"}` or, in some shapes, with the text in a `text` field
+/// when the type is `refusal`. Returns the first non-empty refusal text.
+fn find_refusal(response: &serde_json::Value) -> Option<String> {
+    let output = response.get("output")?.as_array()?;
+    for msg in output {
+        let content = match msg.get("content").and_then(|c| c.as_array()) {
+            Some(c) => c,
+            None => continue,
+        };
+        for part in content {
+            if let Some(s) = part.get("refusal").and_then(|v| v.as_str()) {
+                if !s.is_empty() { return Some(s.to_string()); }
+            }
+            if part.get("type").and_then(|v| v.as_str()) == Some("refusal") {
+                if let Some(s) = part.get("text").and_then(|v| v.as_str()) {
+                    if !s.is_empty() { return Some(s.to_string()); }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Walk `output[*].content[*]` for the first `output_text` part and return
+/// its `text` field. Mirrors the refusal scan so a non-output_text part
+/// (e.g. a reasoning block in front of the text) doesn't hide the JSON
+/// payload we need to parse.
+fn find_output_text(response: &serde_json::Value) -> Option<String> {
+    let output = response.get("output")?.as_array()?;
+    for msg in output {
+        let content = match msg.get("content").and_then(|c| c.as_array()) {
+            Some(c) => c,
+            None => continue,
+        };
+        for part in content {
+            let ty = part.get("type").and_then(|v| v.as_str()).unwrap_or("");
+            if ty == "output_text" {
+                if let Some(s) = part.get("text").and_then(|v| v.as_str()) {
+                    return Some(s.to_string());
+                }
+            }
+        }
+    }
+    // Fall back to the legacy unconditional index lookup so older mock
+    // payloads (and tests) without an explicit `type` field still work.
+    response["output"][0]["content"][0]["text"].as_str().map(str::to_string)
 }
 
 /// Call `/responses` once for a single image.  Returns parsed structured
@@ -387,21 +458,29 @@ pub async fn describe_one(
     let json: serde_json::Value = serde_json::from_str(&text)
         .map_err(|e| DescribeError::BadJson { detail: e.to_string(), raw_text: text.clone() })?;
 
-    // Detect content-moderation refusals.  Responses API surfaces these as
-    // a refusal content part rather than an HTTP error.
-    if let Some(refusal) = json["output"][0]["content"][0]["refusal"].as_str() {
-        return Err(DescribeError::Refused { detail: refusal.to_string() });
+    // Detect content-moderation refusals. The Responses API surfaces
+    // these as a `refusal` content part somewhere inside `output[*].content[*]`
+    // — not necessarily at index 0 — and sometimes alongside (or instead
+    // of) an `output_text` part. Walk every part rather than guessing a
+    // fixed index.
+    if let Some(refusal) = find_refusal(&json) {
+        return Err(DescribeError::Refused { detail: refusal });
     }
 
     let status_str = json["status"].as_str().unwrap_or("");
-    let raw_text = json["output"][0]["content"][0]["text"]
-        .as_str().unwrap_or("").to_string();
+    let raw_text = find_output_text(&json).unwrap_or_default();
     if status_str == "incomplete" {
         let reason = json["incomplete_details"]["reason"].as_str().unwrap_or("unknown").to_string();
         return Err(DescribeError::Incomplete { reason, raw_text });
     }
 
-    let usage = UsageStats::from_response(&json);
+    let usage = UsageStats::from_response(&json).map_err(|detail| {
+        log::warn!(
+            "[describe] usage parse failed; cost reporting will be incomplete: {} (body: {})",
+            detail, text
+        );
+        DescribeError::UsageParse { detail, raw_text: text.clone() }
+    })?;
     let parsed: AiOutput = serde_json::from_str(&raw_text)
         .map_err(|e| DescribeError::BadJson { detail: e.to_string(), raw_text: raw_text.clone() })?;
     Ok((parsed, usage))
@@ -634,6 +713,42 @@ mod tests {
         }
     }
 
+    #[test]
+    fn find_refusal_locates_refusal_at_non_zero_content_index() {
+        // Real-world shape: a reasoning model can prepend other content
+        // parts before the refusal. The previous index-0 lookup missed
+        // refusals when content[0] was, say, a reasoning summary.
+        let json = serde_json::json!({
+            "output": [{ "content": [
+                { "type": "output_text", "text": "" },
+                { "type": "refusal", "refusal": "cannot help" }
+            ]}]
+        });
+        assert_eq!(find_refusal(&json).as_deref(), Some("cannot help"));
+    }
+
+    #[test]
+    fn find_refusal_returns_none_when_no_refusal_present() {
+        let json = serde_json::json!({
+            "output": [{ "content": [{ "type": "output_text", "text": "ok" }] }]
+        });
+        assert!(find_refusal(&json).is_none());
+    }
+
+    #[test]
+    fn find_output_text_skips_non_text_parts() {
+        // A reasoning summary part before the JSON payload must not mask
+        // the actual text. find_output_text walks until it finds a part
+        // whose type is "output_text".
+        let json = serde_json::json!({
+            "output": [{ "content": [
+                { "type": "reasoning", "summary": "thinking…" },
+                { "type": "output_text", "text": "{\"x\":1}" }
+            ]}]
+        });
+        assert_eq!(find_output_text(&json).as_deref(), Some("{\"x\":1}"));
+    }
+
     #[tokio::test]
     async fn describe_one_returns_refused_when_refusal_field_present() {
         let server = MockServer::start().await;
@@ -651,6 +766,55 @@ mod tests {
             Err(DescribeError::Refused { detail }) => assert_eq!(detail, "cannot help"),
             other => panic!("expected Refused, got {:?}", other),
         }
+    }
+
+    #[tokio::test]
+    async fn describe_one_returns_usage_parse_when_usage_block_is_missing() {
+        // Defensive: if OpenAI changes the response shape, cost reporting
+        // must fail loudly rather than silently report $0. The audit log
+        // and the per-image failure list both rely on this error path.
+        let server = MockServer::start().await;
+        let body = serde_json::json!({
+            "status": "completed",
+            "output": [{ "content": [{ "type": "output_text",
+                "text": "{\"description\":\"d\",\"objects\":[],\"tags\":[],\"ocr_text\":[],\"interpretation\":\"\"}" }] }]
+            // usage intentionally absent
+        });
+        Mock::given(method("POST")).and(path("/responses"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(body))
+            .mount(&server).await;
+        let client = OpenAiClient::new(server.uri(), "k", 1);
+        match describe_one(&client, "gpt-4o", &tiny_png_bytes()).await {
+            Err(DescribeError::UsageParse { detail, .. }) => {
+                assert!(detail.contains("usage"), "got: {}", detail);
+            }
+            other => panic!("expected UsageParse, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn from_response_returns_err_when_input_tokens_missing() {
+        // Targeted at the parser itself rather than the full HTTP path, so
+        // future shape changes are diagnosed without spinning up a mock.
+        let json = serde_json::json!({
+            "usage": { "output_tokens": 42, "input_tokens_details": {} }
+        });
+        let err = UsageStats::from_response(&json).expect_err("must fail on missing input_tokens");
+        assert!(err.contains("input_tokens"), "got: {}", err);
+    }
+
+    #[test]
+    fn from_response_tolerates_missing_optional_sub_blocks() {
+        // cached/reasoning details are model-specific and may be absent;
+        // these legitimate gaps should not break cost reporting.
+        let json = serde_json::json!({
+            "usage": { "input_tokens": 100, "output_tokens": 20 }
+        });
+        let u = UsageStats::from_response(&json).expect("required fields present");
+        assert_eq!(u.input_tokens, 100);
+        assert_eq!(u.output_tokens, 20);
+        assert_eq!(u.cached_input_tokens, 0);
+        assert_eq!(u.reasoning_tokens, 0);
     }
 
     #[tokio::test]
