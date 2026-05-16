@@ -363,3 +363,130 @@ describe("DetailsPane: Add-Property two-step flow", () => {
     expect(screen.queryByTestId("value-edit-input")).toBeNull();
   });
 });
+
+// ── Read-only schema handling in the row context menu ─────────────────────
+
+describe("DetailsPane: read-only row context menu", () => {
+  const photo = makePhoto({
+    relative_path: "p.jpg",
+    filename: "p.jpg",
+    date_modified: 0,
+    date_created: 0,
+  });
+
+  beforeEach(() => {
+    cleanup();
+    _clearTagInfoCache();
+  });
+
+  function openRowContextMenu() {
+    const row = screen.getAllByTestId("details-row").find((r) =>
+      within(r).queryByText("Make") !== null,
+    );
+    expect(row).toBeDefined();
+    fireEvent.contextMenu(row!);
+  }
+
+  it("relabels Edit to View and disables Remove for a read-only existing tag", async () => {
+    _setTagInfoCacheEntry("IFD0:Make", {
+      group: "IFD0",
+      name: "Make",
+      writable: false,
+      kind: { kind: "Text" },
+      description: null,
+    });
+    const onSetDraftTyped = vi.fn();
+    const onDiscardDraft = vi.fn();
+
+    render(
+      <DetailsPane
+        photo={photo}
+        metadata={{ "IFD0:Make": "Canon" }}
+        onSetDraftTyped={onSetDraftTyped}
+        onDiscardDraft={onDiscardDraft}
+      />,
+    );
+
+    openRowContextMenu();
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "View" })).toBeInTheDocument();
+    });
+    expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
+
+    const removeBtn = screen.getByRole("button", { name: "Remove" });
+    expect(removeBtn).toBeDisabled();
+    expect(removeBtn).toHaveAttribute(
+      "title",
+      "Tag is read-only per ExifTool schema — cannot be removed",
+    );
+
+    fireEvent.click(removeBtn);
+    expect(onSetDraftTyped).not.toHaveBeenCalled();
+    expect(onDiscardDraft).not.toHaveBeenCalled();
+  });
+
+  it("keeps Edit + enabled Remove for a writable existing tag", async () => {
+    _setTagInfoCacheEntry("IFD0:Make", {
+      group: "IFD0",
+      name: "Make",
+      writable: true,
+      kind: { kind: "Text" },
+      description: null,
+    });
+    const onSetDraftTyped = vi.fn();
+
+    render(
+      <DetailsPane
+        photo={photo}
+        metadata={{ "IFD0:Make": "Canon" }}
+        onSetDraftTyped={onSetDraftTyped}
+      />,
+    );
+
+    openRowContextMenu();
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
+    });
+    expect(screen.queryByRole("button", { name: "View" })).toBeNull();
+
+    const removeBtn = screen.getByRole("button", { name: "Remove" });
+    expect(removeBtn).not.toBeDisabled();
+
+    fireEvent.click(removeBtn);
+    expect(onSetDraftTyped).toHaveBeenCalledWith("IFD0:Make", {
+      value: null,
+      intent: "Delete",
+    });
+  });
+
+  it("clicking View on a read-only tag still opens the editor (Save stays disabled)", async () => {
+    _setTagInfoCacheEntry("IFD0:Make", {
+      group: "IFD0",
+      name: "Make",
+      writable: false,
+      kind: { kind: "Text" },
+      description: null,
+    });
+
+    render(
+      <DetailsPane
+        photo={photo}
+        metadata={{ "IFD0:Make": "Canon" }}
+        onSetDraftTyped={vi.fn()}
+      />,
+    );
+
+    openRowContextMenu();
+
+    const viewBtn = await screen.findByRole("button", { name: "View" });
+    fireEvent.click(viewBtn);
+
+    // The editor dialog opens (text-fallback ValueEditDialog), and its Save
+    // button is disabled per the existing read-only-aware Save logic.
+    const saveBtn = await screen.findByTestId("value-edit-save");
+    expect(saveBtn).toBeDisabled();
+    expect(saveBtn).toHaveAttribute("title", "Tag is read-only per ExifTool schema");
+  });
+});
