@@ -142,7 +142,7 @@ function DetailsValueCell({
   return (
     <td
       className={readOnly ? "details-value details-value--readonly" : "details-value"}
-      title={readOnly ? `${originalValue}\n(read-only — schema forbids edits)` : originalValue}
+      title={readOnly ? `${originalValue}\n(read-only)` : originalValue}
       data-readonly={readOnly ? "true" : undefined}
     >
       {draftValue !== undefined ? (
@@ -438,6 +438,7 @@ export function DetailsPane({ photo, metadata, draftEdits = {}, typedDraftEdits,
                       originalValue={value}
                       draftValue={draftEdits[propKey]}
                       searchQuery={detailsSearch}
+                      readOnly
                     />
                   </tr>
                 ))}
