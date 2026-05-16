@@ -19,6 +19,7 @@ import type {
   DescribeProgressState,
   DescribeUsageSummary,
 } from "../types";
+import { RunningProgressPanel } from "./RunningProgressPanel";
 
 interface Props {
   state: DescribeProgressState;
@@ -218,43 +219,23 @@ export function DescribeProgressDialog({ state, onConfirm, onCancel, onClose }: 
 
           {/* ── Running ────────────────────────────────────────────────── */}
           {state.phase === "running" && (
-            <>
-              <div className="dialog-hint" data-testid="describe-running-count">
-                {state.current} of {state.total}{" "}
-                {state.total === 1 ? "image" : "images"}
-                {state.failures.length > 0 && (
-                  <span style={{ marginLeft: 12, color: "var(--accent-error, #d33)" }}>
-                    ({state.failures.length} failed)
-                  </span>
-                )}
-              </div>
-              <ProgressBar current={state.current} total={state.total} />
-              <div
-                style={{
-                  marginTop: 12, fontSize: 12, color: "var(--text-secondary)",
-                  whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-                }}
-                title={state.currentFile ?? ""}
-                data-testid="describe-current-file"
-              >
-                {state.currentFile ?? " "}
-              </div>
-              <div style={{ marginTop: 20, display: "flex", justifyContent: "flex-end" }}>
-                <button
-                  className="button button--secondary"
-                  onClick={onCancel}
-                  disabled={state.cancelling}
-                  data-testid="describe-cancel-btn"
-                >
-                  {state.cancelling ? "Cancelling…" : "Cancel"}
-                </button>
-              </div>
-              <div style={{ marginTop: 12, fontSize: 11, color: "var(--text-secondary)" }}>
-                Each image's description is added to your drafts as soon as
-                it arrives. If cancelled, descriptions already produced
-                remain in drafts.
-              </div>
-            </>
+            <RunningProgressPanel
+              testidPrefix="describe-running"
+              current={state.current}
+              total={state.total}
+              noun="image"
+              failureCount={state.failures.length}
+              currentFile={state.currentFile}
+              cancelling={state.cancelling}
+              onCancel={onCancel}
+              footer={
+                <div style={{ marginTop: 12, fontSize: 11, color: "var(--text-secondary)" }}>
+                  Each image's description is added to your drafts as soon
+                  as it arrives. If cancelled, descriptions already produced
+                  remain in drafts.
+                </div>
+              }
+            />
           )}
 
           {/* ── Done ───────────────────────────────────────────────────── */}
