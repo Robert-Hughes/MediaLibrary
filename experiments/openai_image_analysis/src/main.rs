@@ -1,7 +1,6 @@
 use base64::Engine;
 use clap::Parser;
 use reqwest::Client;
-use serde::Serialize;
 use std::collections::HashMap;
 use std::env;
 use std::fs;
@@ -440,17 +439,17 @@ async fn list_models_with_pricing(client: &Client, api_key: &str) -> Result<(), 
     vision_models.sort_by(|a, b| {
         let pricing_a = pricing_table.get(&a.0);
         let pricing_b = pricing_table.get(&b.0);
-        
+
         let cost_a = pricing_a.map(|p| {
             let tokens = calculate_image_tokens(1024, 1024, &a.0);
             (tokens as f64 / 1_000_000.0) * p.input_per_1m
         }).unwrap_or(0.0);
-        
+
         let cost_b = pricing_b.map(|p| {
             let tokens = calculate_image_tokens(1024, 1024, &b.0);
             (tokens as f64 / 1_000_000.0) * p.input_per_1m
         }).unwrap_or(0.0);
-        
+
         cost_b.partial_cmp(&cost_a).unwrap_or(std::cmp::Ordering::Equal)
     });
 
@@ -484,7 +483,7 @@ async fn list_models_with_pricing(client: &Client, api_key: &str) -> Result<(), 
             let cost_1024 = (tokens_1024 as f64 / 1_000_000.0) * pricing.input_per_1m;
             let cost_10k = cost_1024 * 10_000.0;
             let flex_str = if pricing.supports_batch { "Yes" } else { "No" };
-            
+
             let cached_str = if pricing.cached_input_per_1m > 0.0 {
                 format!("${:.2}", pricing.cached_input_per_1m)
             } else {
@@ -522,7 +521,7 @@ async fn list_models_with_pricing(client: &Client, api_key: &str) -> Result<(), 
             ]);
         }
     }
-    
+
     println!("{table}");
 
     println!("Note: Only models with vision/image input support are shown (excluding checkpoint/snapshot models)");
@@ -590,21 +589,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let text_prompt = "Describe what's in these images";
-    
+
     // --- Pre-flight cost estimation ---
     let pricing_table = get_model_pricing();
     let pricing = pricing_table.get(model);
-    
+
     println!("\n=== Pre-flight Cost Estimation ===");
-    
+
     let mut total_input_tokens = 0;
-    
+
     // Use official OpenAI token counting API
     match build_response_request(model, text_prompt, &sample_images) {
         Ok(request_body) => {
             let count_url = format!("{}/responses/input_tokens", OPENAI_BASE_URL);
             tracing::info!("Calling token counting API: {}", count_url);
-            
+
             let count_response = client
                 .post(&count_url)
                 .header("Authorization", format!("Bearer {}", api_key))
@@ -612,15 +611,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .json(&request_body)
                 .send()
                 .await;
-                
+
             match count_response {
                 Ok(resp) if resp.status().is_success() => {
                     if let Ok(body) = resp.text().await {
                         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body) {
-                            if let Some(tokens) = json["total_tokens"].as_u64() {
+                            if let Some(tokens) = json["input_tokens"].as_u64() {
                                 total_input_tokens = tokens as u32;
                                 println!("Exact input tokens (via API): {}", total_input_tokens);
+                            } else {
+                                return Err(format!("Token API 200 but no 'input_tokens'. Body: {}", body).into());
                             }
+                        } else {
+                            return Err(format!("Token API returned non-JSON response: {}", body).into());
                         }
                     }
                 }
@@ -636,26 +639,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Err(e) => return Err(format!("Failed to build request for token estimation: {}", e).into()),
     }
-    
+
     if total_input_tokens == 0 {
         return Err("Cost estimation unavailable due to token API failure.".into());
-    } else {
-        // 3. Best guess output tokens (assuming a standard ~150 word response at 1.5 tokens/word)
-        let estimated_output_tokens = 225;
-        println!("Estimated output tokens (guess): {}", estimated_output_tokens);
-        
-        if let Some(p) = pricing {
-            let input_cost = (total_input_tokens as f64 / 1_000_000.0) * p.input_per_1m;
-            let output_cost = (estimated_output_tokens as f64 / 1_000_000.0) * p.output_per_1m;
-            let total_cost = input_cost + output_cost;
-            println!("Estimated total cost (Standard): ${:.6} (Input: ${:.6}, Output: ${:.6})", total_cost, input_cost, output_cost);
-            if p.supports_batch {
-                println!("Estimated total cost (Flex):     ${:.6} (Input: ${:.6}, Output: ${:.6})", total_cost * 0.5, input_cost * 0.5, output_cost * 0.5);
-            }
-        } else {
-            println!("Cost estimation unavailable: Model not in pricing table.");
-        }
-        println!("==================================");
     }
 
     match build_response_request(model, text_prompt, &sample_images) {
@@ -664,10 +650,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let request_str = serde_json::to_string_pretty(&preview_request)?;
             tracing::info!("Request to be sent (truncated for preview):\n{}", request_str);
 
+            println!("Exact input tokens (via API): {}", total_input_tokens);
+
+            // Best guess output tokens (assuming a standard ~150 word response at 1.5 tokens/word)
+            let estimated_output_tokens = 225;
+            println!("Estimated output tokens (guess): {}", estimated_output_tokens);
+
+            if let Some(p) = pricing {
+                let input_cost = (total_input_tokens as f64 / 1_000_000.0) * p.input_per_1m;
+                let output_cost = (estimated_output_tokens as f64 / 1_000_000.0) * p.output_per_1m;
+                let total_cost = input_cost + output_cost;
+                println!("Estimated total cost (Standard): ${:.6} (Input: ${:.6}, Output: ${:.6})", total_cost, input_cost, output_cost);
+                if p.supports_batch {
+                    println!("Estimated total cost (Flex):     ${:.6} (Input: ${:.6}, Output: ${:.6})", total_cost * 0.5, input_cost * 0.5, output_cost * 0.5);
+                }
+            } else {
+                println!("Cost estimation unavailable: Model not in pricing table.");
+            }
+            println!("==================================");
+
             // Confirmation prompt
-            println!("\n=== Request Preview (Base64 truncated) ===");
-            println!("{}", request_str);
-            println!("======================");
             print!("Send this request to OpenAI API? (y/n): ");
 
             use std::io::Write;

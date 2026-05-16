@@ -7,16 +7,32 @@ are covered by integration tests that simulate UI interaction and confirm that t
 Now
 ===
 
+Investigate and plan how we could implement the following feature. No edits yet, just analysis.
 
-Add/update tests and make small commits as you work
+Generate image descriptions for photos using the Open AI /responses API, uploading each image along with a prompt along the lines of "Describe this image in about 50 words".
+
+The user flow would be something like:
+* User configures their Open AI API key in a settings screen. Settings are persisted automatically. Other settings could be added here later, like detail level for the generated description, which model to use etc., but for now just API key
+* User manually triggers this operation on an image from the details panel in the gallery view, with a button next to the Add Property field something like "Generate AI Description"
+* This would do a rough cost estimate of the operation (see below for example) and prompt the user if they're happy with this.
+* The request would be kicked off with a blocking dialog box (similar to what we do for exiftool draft metadata application, re-use the same code/components if we can!) showing progress.
+* On success, a new (draft) property value would be present - a new metadata on the image, e.g. a custom XMP tag like XMP-medialibrary:AI-description (please suggest a suitable name that exiftool will like and matches industry standards) with the value returned by the AI
+* The new property could be manually edited/discarded etc. as normal - nothing special.
+
+See the experiments\openai_image_analysis sub-project for an example of how this could be done - it shows pre-flight price estimation and how to prompt the model. Use this as guidance but
+please suggest any changes, improvements or issues with this approach.
+
+Is there anything I might be missing in this feature description, or any other suggestions?
+
+BATCHING OR FLEX approach for API?
+
+Structured result?
+
+Prompt to force model to reply with just a description, no fluff?
 
 Later- *** DO NOT WORK ON ANY OF THE BELOW FEATURES ***
 =====
 
-* Review the various misc files in the repo (e.g. md files, log files, temp files). See what we can remove and what we should keep as useful docs/design references. Consider moving to docs/.
-
-* Using OpenAI API to analyze image contents
-  * How do "cached" input tokens work - can we cache the prompt telling it to describe the image as that's common across all images?
 * Combine image description with other metadata (and 'storyline') to propose changes to metadata. This could be a mix of programmatic and Open AI Responses API?
 
 * Compare with functionalty of the Update Metadata prompts approach - add anything missing to here? Check the instruction files and also the scripts and sample reports/json files to see if we're missing anything that we figured out before. Also the TODO of the previous approach!
