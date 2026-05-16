@@ -158,6 +158,16 @@ describe("initialCodeFrom", () => {
     expect(initialCodeFrom(undefined, "Rotate 90 CW", orientationOptions)).toBe("6");
   });
 
+  it("resolves a raw value that is actually a display label to its code", () => {
+    // exiftool without -n returns the pretty label as the variant.  Must
+    // still land us on the enum dropdown, not Custom mode.
+    expect(initialCodeFrom("Rotate 90 CW", undefined, orientationOptions)).toBe("6");
+  });
+
+  it("resolves a numeric raw code string to its option code", () => {
+    expect(initialCodeFrom("6", undefined, orientationOptions)).toBe("6");
+  });
+
   it("returns the display value when no schema match", () => {
     expect(initialCodeFrom(undefined, "Custom-thing", orientationOptions)).toBe("Custom-thing");
   });
