@@ -186,22 +186,9 @@ function LoadedView({
         onClickDraftSummary={onClickDraftSummary}
         onApplyAllEdits={() => actions.applyDraftEdits()}
         onDiscardAllEdits={() => actions.discardAllDraftEdits()}
+        searchQuery={listSearchQuery}
+        onSearchQueryChange={setListSearchQuery}
       />
-      <div className="list-search-bar" data-testid="list-search-bar">
-        <label className="list-search-label" htmlFor="list-search-input">
-          Search
-        </label>
-        <input
-          id="list-search-input"
-          type="search"
-          className="list-search-input"
-          data-testid="list-search-input"
-          placeholder="Path, file dates, image metadata…"
-          value={listSearchQuery}
-          onChange={(e) => setListSearchQuery(e.target.value)}
-          aria-label="Search photos"
-        />
-      </div>
       <PhotoList
         photos={displayPhotos}
         thumbnails={state.thumbnails}
