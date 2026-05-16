@@ -38,9 +38,11 @@ interface Props {
   onDiscardDraft?: (fileRelativePath: string, key: string) => void;
   onDiscardAllEdits?: (fileRelativePath: string) => void;
   onApplyEdits?: (fileRelativePath: string) => void;
+  /** Trigger the AI-description flow for the currently-displayed photo. */
+  onGenerateAiDescription?: (fileRelativePath: string) => void;
 }
 
-export function GalleryView({ photos, currentIndex, folderPath, onClose, onNavigate, loadImage, imageMetadata, draftEdits, typedDraftEdits, onSetDraftTyped, onSetDraftBatch, onDiscardDraft, onDiscardAllEdits, onApplyEdits }: Props) {
+export function GalleryView({ photos, currentIndex, folderPath, onClose, onNavigate, loadImage, imageMetadata, draftEdits, typedDraftEdits, onSetDraftTyped, onSetDraftBatch, onDiscardDraft, onDiscardAllEdits, onApplyEdits, onGenerateAiDescription }: Props) {
   const photo = photos[currentIndex];
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -271,6 +273,7 @@ export function GalleryView({ photos, currentIndex, folderPath, onClose, onNavig
             onDiscardDraft={(key) => onDiscardDraft?.(photo.relative_path, key)}
             onDiscardAllEdits={() => onDiscardAllEdits?.(photo.relative_path)}
             onApplyEdits={() => onApplyEdits?.(photo.relative_path)}
+            onGenerateAiDescription={onGenerateAiDescription ? () => onGenerateAiDescription(photo.relative_path) : undefined}
           />
         )}
 

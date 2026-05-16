@@ -13,6 +13,9 @@ import { ColumnSelectionDialog } from "./components/ColumnSelectionDialog";
 import { ApplyProgressDialog } from "./components/ApplyProgressDialog";
 import { VerifyOutcomeDialog } from "./components/VerifyOutcomeDialog";
 import { ErrorBanner } from "./components/ErrorBanner";
+import { SettingsDialog } from "./components/SettingsDialog";
+import { DescribeProgressDialog } from "./components/DescribeProgressDialog";
+import { useDescribeImages } from "./hooks/useDescribeImages";
 import { sortPhotos, shouldSuspendSorting } from "./utils/sorting";
 import { filterPhotosForListSearch } from "./utils/listSearchFilter";
 import { listSearchQueryIsActive } from "./utils/listSearchText";
@@ -37,11 +40,15 @@ function LoadedView({
   actions,
   showColumnDialog,
   setShowColumnDialog,
+  onOpenSettings,
+  describe,
 }: {
   state: LoadedState;
   actions: MediaLibraryActions;
   showColumnDialog: boolean;
   setShowColumnDialog: (v: boolean) => void;
+  onOpenSettings: () => void;
+  describe: ReturnType<typeof useDescribeImages>;
 }) {
   // Subscribe to metadata progress so sorting unblocks once metadata loading
   // completes, not just when the directory walk finishes.  Keeps re-renders
@@ -153,6 +160,7 @@ function LoadedView({
         onOpenFolder={actions.openFolder}
         onCloseFolder={actions.closeFolder}
         onSelectColumns={() => setShowColumnDialog(true)}
+        onOpenSettings={onOpenSettings}
         draftEditsSummary={draftEditsSummary}
         onClickDraftSummary={onClickDraftSummary}
         onApplyAllEdits={() => actions.applyDraftEdits()}
@@ -212,6 +220,7 @@ function LoadedView({
           onDiscardDraft={actions.discardDraftValue}
           onDiscardAllEdits={actions.discardAllDraftEdits}
           onApplyEdits={(path) => actions.applyDraftEdits(path)}
+          onGenerateAiDescription={(relPath) => describe.actions.start(state.folder, [relPath])}
         />
       )}
       {showColumnDialog && (
@@ -249,9 +258,11 @@ function LoadedView({
 export default function App() {
   const [state, actions] = useMediaLibrary(tauriApi);
   const [showColumnDialog, setShowColumnDialog] = useState(false);
+  const [showSettingsDialog, setShowSettingsDialog] = useState(false);
   const [cliFolder, setCliFolder] = useState<string | null | undefined>(undefined);
   const [schemaReady, setSchemaReady] = useState(false);
   const cliCheckedRef = useRef(false);
+  const describe = useDescribeImages();
 
   // Warm the tag-schema registry before the UI becomes interactive so editors
   // never see a missing-schema flash on first use.
@@ -324,6 +335,7 @@ export default function App() {
             onOpenFolder={actions.openFolder}
             onCloseFolder={actions.closeFolder}
             onSelectColumns={() => setShowColumnDialog(true)}
+            onOpenSettings={() => setShowSettingsDialog(true)}
           />
           <PhotoList
             photos={[]}
@@ -350,6 +362,21 @@ export default function App() {
           actions={actions}
           showColumnDialog={showColumnDialog}
           setShowColumnDialog={setShowColumnDialog}
+          onOpenSettings={() => setShowSettingsDialog(true)}
+          describe={describe}
+        />
+      )}
+
+      {showSettingsDialog && (
+        <SettingsDialog onClose={() => setShowSettingsDialog(false)} />
+      )}
+
+      {describe.open && (
+        <DescribeProgressDialog
+          state={describe.state}
+          onConfirm={describe.actions.confirm}
+          onCancel={describe.actions.cancel}
+          onClose={describe.actions.close}
         />
       )}
     </div>
