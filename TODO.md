@@ -8,15 +8,21 @@ Now
 ===
 
 
+Add/update tests and make small commits as you work
+
 Later- *** DO NOT WORK ON ANY OF THE BELOW FEATURES ***
 =====
 
-* Figure out how non-string properties are handled, inc. numbers and arrays. Especially considering editing, saving/loading to JSONL and writing back to the file using exiftool
-
+* Review the various misc files in the repo (e.g. md files, log files, temp files). See what we can remove and what we should keep as useful docs/design references. Consider moving to docs/.
 
 * Using OpenAI API to analyze image contents
   * How do "cached" input tokens work - can we cache the prompt telling it to describe the image as that's common across all images?
 * Combine image description with other metadata (and 'storyline') to propose changes to metadata. This could be a mix of programmatic and Open AI Responses API?
 
 * Compare with functionalty of the Update Metadata prompts approach - add anything missing to here? Check the instruction files and also the scripts and sample reports/json files to see if we're missing anything that we figured out before. Also the TODO of the previous approach!
+  * GPS reverse geocoding done up-front as separate step?
+  * Combine image data with text data for the model in one go, or do images first as separate pass (more token heavy perhaps??)
+
+* DATATYPE_MISMATCHES.md
+  * Why does ComponentsConfiguration show as: [B]ComponentsConfiguration	(S)   Y, Cb, Cr, -      i.e. it has schema datatype bag but value datatype string. This is an unedited property so comes directly from exiftool, how come the datatypes are different
 

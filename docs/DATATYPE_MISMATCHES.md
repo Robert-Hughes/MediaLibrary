@@ -13,6 +13,9 @@ user edit involved. The most visible example is `ExifIFD:ComponentsConfiguration
 [B]ComponentsConfiguration   (S)   Y, Cb, Cr, -
 ```
 
+Same thing for XMP-dc:Title:
+LA Title	Big waggle! {} x-default: Big waggle!
+
 Schema says **Bag** (`[B]`); runtime variant is a **String** (`(S)`).
 
 ## Why it happens
