@@ -16,9 +16,6 @@ import type {
   ApplyEditsProgressPayload,
 } from "./types";
 import type { DraftEdit, DraftEditsByFile } from "./types";
-import {
-  draftFromLegacyString,
-} from "./draft";
 import { loadColumnConfig, saveColumnConfig } from "./utils/columnConfig";
 
 /**
@@ -69,7 +66,6 @@ export interface MediaLibraryActions {
   updateColumnWidth: (col: string, width: number) => void;
   resetColumnWidths: () => void;
   dismissError: (index: number) => void;
-  setDraftValue: (fileRelativePath: string, propertyKey: string, newValue: string | null) => void;
   setDraftTyped: (fileRelativePath: string, propertyKey: string, edit: DraftEdit) => void;
   setDraftBatch: (fileRelativePath: string, edits: Array<{ key: string; edit: DraftEdit }>) => void;
   discardDraftValue: (fileRelativePath: string, propertyKey: string) => void;
@@ -865,29 +861,6 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
     });
   }, []);
 
-  const setDraftValue = useCallback((fileRelativePath: string, propertyKey: string, newValue: string | null) => {
-    setAppState((prev) => {
-      if (prev.kind !== "loaded") return prev;
-      const fileEdits = prev.draftEdits[fileRelativePath] || {};
-      const newDraftEdits: DraftEditsByFile = {
-        ...prev.draftEdits,
-        [fileRelativePath]: { ...fileEdits, [propertyKey]: draftFromLegacyString(newValue) },
-      };
-      api.invoke("save_draft_edits_typed", {
-        folderPath: prev.folder,
-        data: newDraftEdits,
-      }).catch(console.error);
-      return { ...prev, draftEdits: newDraftEdits };
-    });
-  }, [api]);
-
-  /**
-   * Set a draft to a typed value.  Used by Phase 4 typed editors (BagEditor,
-   * LangAltEditor, …) so list/object values keep their structure all the way
-   * to the on-disk JSONL.  The legacy mapTypedToLegacy step still flattens
-   * the value for the Tauri save call — until the typed Tauri command lands,
-   * lists round-trip through the comma-joined display string at save time.
-   */
   /**
    * Set many draft entries for one file in a single state update.  Used by
    * paired-tag editors like GpsEditor that must update Latitude / Ref /
@@ -1031,7 +1004,6 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
       updateColumnWidth,
       resetColumnWidths,
       dismissError,
-      setDraftValue,
       setDraftTyped,
       setDraftBatch,
       discardDraftValue,
@@ -1058,7 +1030,6 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
       updateColumnWidth,
       resetColumnWidths,
       dismissError,
-      setDraftValue,
       setDraftTyped,
       setDraftBatch,
       discardDraftValue,
