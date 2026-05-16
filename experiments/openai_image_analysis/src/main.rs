@@ -776,9 +776,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut total_input_tokens = 0;
 
-    // Use official OpenAI token counting API
+    // Use official OpenAI token counting API.
+    //
+    // The /responses/input_tokens endpoint rejects sampling/generation params
+    // (`temperature`, `top_p`, `seed`, `max_output_tokens`) with an
+    // "unknown_parameter" 400 — it only accepts the input-shaping fields
+    // (model, instructions, input, text). Strip those before sending.
     match build_response_request(model, &sample_images) {
         Ok(request_body) => {
+            let mut count_body = request_body.clone();
+            if let Some(obj) = count_body.as_object_mut() {
+                for k in ["temperature", "top_p", "seed", "max_output_tokens"] {
+                    obj.remove(k);
+                }
+            }
+
             let count_url = format!("{}/responses/input_tokens", OPENAI_BASE_URL);
             tracing::info!("Calling token counting API: {}", count_url);
 
@@ -786,7 +798,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .post(&count_url)
                 .header("Authorization", format!("Bearer {}", api_key))
                 .header("Content-Type", "application/json")
-                .json(&request_body)
+                .json(&count_body)
                 .send()
                 .await;
 
