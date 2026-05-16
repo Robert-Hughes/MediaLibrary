@@ -73,6 +73,10 @@ export function useDescribeImages(options: UseDescribeImagesOptions = {}): {
   onApplyEditsRef.current = options.onApplyEdits;
   const [open, setOpen] = useState(false);
   const [state, setState] = useState<DescribeProgressState>(INITIAL_HIDDEN);
+  // Track latest phase synchronously so `cancel` can decide whether to
+  // close immediately without depending on the setState batching order.
+  const phaseRef = useRef<DescribeProgressState["phase"]>("estimating");
+  phaseRef.current = state.phase;
   // Folder remembered for the confirm step (the run command needs it too).
   const folderRef = useRef<string>("");
 
@@ -227,8 +231,22 @@ export function useDescribeImages(options: UseDescribeImagesOptions = {}): {
   }, []);
 
   const cancel = useCallback(() => {
-    setState((s) => ({ ...s, cancelling: true }));
+    // In `estimating` or `awaiting-confirm` there is no backend run to
+    // wait on — close the dialog immediately so Cancel feels responsive.
+    // We still signal the backend so an in-flight estimate loop stops at
+    // the next image boundary instead of burning more token-count calls
+    // after the user has bailed.
+    //
+    // In `running` we leave the dialog open and wait for `describe_complete`
+    // to flip the phase to `done`, since cancellation is per-image and the
+    // user wants to see what landed before the dialog disappears.
     void invoke("cancel_describe_cmd").catch(() => {/* best effort */});
+    if (phaseRef.current === "running") {
+      setState((s) => ({ ...s, cancelling: true }));
+    } else {
+      setOpen(false);
+      setState(INITIAL_HIDDEN);
+    }
   }, []);
 
   const close = useCallback(() => {

@@ -214,19 +214,29 @@ describe("AI-description flow", () => {
     expect(screen.getByTestId("describe-failure-list")).toHaveTextContent(/max_output_tokens/);
   });
 
-  it("cancel during running invokes cancel_describe_cmd", async () => {
-    // The mock emits all events synchronously, so to observe a running-phase
-    // cancel we'd need a custom mock that pauses. Easier: drive the
-    // estimating phase (which has no delays either but the dialog still
-    // shows a Cancel button) and assert the click reaches the backend.
+  it("cancel during awaiting-confirm closes the dialog and signals backend", async () => {
     mockApiInstance.settings = { openai_api_key: "sk-test", openai_model: "gpt-4o" };
     const { user, aiBtn } = await startAiDescription();
     await user.click(aiBtn);
     await act(async () => { await new Promise(r => setTimeout(r, 50)); });
-    // After estimating completes synchronously we're in awaiting-confirm.
     const cancelBtn = await screen.findByTestId("describe-cancel-btn");
     await user.click(cancelBtn);
-    // The hook's cancel handler invokes the backend regardless of phase.
     expect(mockApiInstance.cancelDescribeCalled).toBe(true);
+    await waitFor(() => {
+      expect(screen.queryByTestId("describe-progress-dialog")).not.toBeInTheDocument();
+    });
+  });
+
+  it("Escape key in pre-run phase closes the dialog and signals backend", async () => {
+    mockApiInstance.settings = { openai_api_key: "sk-test", openai_model: "gpt-4o" };
+    const { user, aiBtn } = await startAiDescription();
+    await user.click(aiBtn);
+    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    await screen.findByTestId("describe-cancel-btn");
+    await user.keyboard("{Escape}");
+    expect(mockApiInstance.cancelDescribeCalled).toBe(true);
+    await waitFor(() => {
+      expect(screen.queryByTestId("describe-progress-dialog")).not.toBeInTheDocument();
+    });
   });
 });
