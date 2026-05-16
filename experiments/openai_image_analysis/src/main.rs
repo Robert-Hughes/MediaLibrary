@@ -494,9 +494,9 @@ fn build_response_request(
     //                        identical descriptions.
     // - `top_p: 1`           Explicit; nucleus sampling neutralised so
     //                        temperature is the sole knob.
-    // - `seed: 42`           Best-effort reproducibility for the
-    //                        non-deterministic remainder. OpenAI treats this
-    //                        as a hint, not a guarantee.
+    // - `seed`               Not supported by the Responses API (rejected as
+    //                        unknown_parameter — it's a Chat Completions
+    //                        field). Determinism rests on temperature=0 alone.
     // - `max_output_tokens`  Bounds worst-case cost and stops runaway
     //                        responses. Set to 600: a typical photo response
     //                        is ~250 tokens (description ~100, objects/tags
@@ -526,7 +526,6 @@ fn build_response_request(
         },
         "temperature": 0,
         "top_p": 1,
-        "seed": 42,
         "max_output_tokens": MAX_OUTPUT_TOKENS,
     });
 
@@ -786,7 +785,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Ok(request_body) => {
             let mut count_body = request_body.clone();
             if let Some(obj) = count_body.as_object_mut() {
-                for k in ["temperature", "top_p", "seed", "max_output_tokens"] {
+                for k in ["temperature", "top_p", "max_output_tokens"] {
                     obj.remove(k);
                 }
             }
