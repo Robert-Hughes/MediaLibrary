@@ -27,7 +27,7 @@ use reqwest_retry::{policies::ExponentialBackoff, RetryTransientMiddleware};
 use serde::{Deserialize, Serialize};
 use std::io::Cursor;
 
-use crate::draft_edits::{DraftEdit, EditIntent, TypedDraftEdits};
+use crate::draft_edits::{DraftEdit, EditIntent};
 use crate::scanner::Variant;
 
 /// Long-side cap before upload.  See experiment for rationale: server-side
@@ -422,24 +422,6 @@ pub fn compose_draft_edits(
     edits
 }
 
-/// Merge `new_edits` for `rel_path` into the on-disk typed-draft store.
-/// Existing drafts for unrelated tags are preserved; existing `XMP-mlib:*`
-/// drafts are overwritten (idempotency check happens client-side before
-/// this point — backend always overwrites if reached).
-pub fn merge_into_draft_store(
-    folder_path: &str,
-    rel_path: &str,
-    new_edits: std::collections::HashMap<String, DraftEdit>,
-) -> Result<(), String> {
-    let mut all: TypedDraftEdits = crate::draft_edits::load_typed_draft_edits(folder_path)
-        .unwrap_or_default();
-    let file_edits = all.entry(rel_path.to_string()).or_default();
-    for (k, v) in new_edits {
-        file_edits.insert(k, v);
-    }
-    crate::draft_edits::save_typed_draft_edits(folder_path, &all)
-}
-
 // ── Cancellation flag ───────────────────────────────────────────────────────
 
 /// Shared cancellation flag; mirrors `ApplyEditsState` but lives here so
@@ -553,37 +535,6 @@ mod tests {
             }
             other => panic!("expected String variant, got {:?}", other),
         }
-    }
-
-    #[test]
-    fn merge_into_draft_store_preserves_unrelated_drafts() {
-        // Putting AI edits next to an unrelated user edit must not clobber
-        // the user edit — load_typed_draft_edits + insert + save must be
-        // additive at the per-tag level.
-        let dir = tempfile::tempdir().unwrap();
-        let folder = dir.path().to_str().unwrap();
-
-        // Seed with a user-authored draft.
-        let mut seeded: TypedDraftEdits = std::collections::HashMap::new();
-        let mut for_file = std::collections::HashMap::new();
-        for_file.insert(
-            "XMP-dc:Subject".to_string(),
-            DraftEdit { value: Some(Variant::String("by hand".into())), intent: EditIntent::Set, display: None },
-        );
-        seeded.insert("img.jpg".to_string(), for_file);
-        crate::draft_edits::save_typed_draft_edits(folder, &seeded).unwrap();
-
-        // Merge in AI edits for the same file.
-        let out = AiOutput {
-            description: "ai".into(), objects: vec![], tags: vec![], ocr_text: vec![], interpretation: "".into(),
-        };
-        let ai_edits = compose_draft_edits("gpt-4o", &out, chrono::Utc::now());
-        merge_into_draft_store(folder, "img.jpg", ai_edits).unwrap();
-
-        let loaded = crate::draft_edits::load_typed_draft_edits(folder).unwrap();
-        let edits = &loaded["img.jpg"];
-        assert!(edits.contains_key("XMP-dc:Subject"), "user draft must survive merge");
-        assert!(edits.contains_key("XMP-mlib:AIDescription"), "AI draft must be present after merge");
     }
 
     #[tokio::test]

@@ -19,6 +19,7 @@ import type {
   DescribeProgressState,
   DescribeFailure,
   DescribeUsageSummary,
+  DraftEdit,
 } from "../types";
 
 const INITIAL_HIDDEN: DescribeProgressState = {
@@ -46,11 +47,30 @@ export interface DescribeActions {
   close: () => void;
 }
 
-export function useDescribeImages(): {
+export interface UseDescribeImagesOptions {
+  /**
+   * Invoked for each image whose describe call succeeded, with the typed
+   * draft edits the backend produced for it. The caller is responsible
+   * for merging these into the in-memory draft store (which then
+   * persists via the existing save_draft_edits_typed pipeline).
+   *
+   * Keeping persistence in the caller — rather than the backend writing
+   * directly to draft_edits.jsonl — means the UI re-renders immediately
+   * and there is exactly one writer to the typed-draft store.
+   */
+  onApplyEdits?: (relativePath: string, edits: Record<string, DraftEdit>) => void;
+}
+
+export function useDescribeImages(options: UseDescribeImagesOptions = {}): {
   open: boolean;
   state: DescribeProgressState;
   actions: DescribeActions;
 } {
+  // Hold the latest callback in a ref so the event subscription effect
+  // doesn't have to resubscribe whenever the parent re-renders with a
+  // fresh `onApplyEdits` closure.
+  const onApplyEditsRef = useRef(options.onApplyEdits);
+  onApplyEditsRef.current = options.onApplyEdits;
   const [open, setOpen] = useState(false);
   const [state, setState] = useState<DescribeProgressState>(INITIAL_HIDDEN);
   // Folder remembered for the confirm step (the run command needs it too).
@@ -117,7 +137,14 @@ export function useDescribeImages(): {
       relativePath: string;
       status: string;
       error: string | null;
+      edits?: Record<string, DraftEdit>;
     }>("describe_progress", (p) => {
+      if (p.status === "ok" && p.edits) {
+        // Fire-and-forget: the parent's setDraftBatch is synchronous and
+        // schedules its own persistence. We don't await it here so a slow
+        // save doesn't stall the progress UI.
+        onApplyEditsRef.current?.(p.relativePath, p.edits);
+      }
       setState((s) => {
         const failures = p.status !== "ok"
           ? [...s.failures, { relativePath: p.relativePath, kind: p.status, detail: p.error ?? "" }]

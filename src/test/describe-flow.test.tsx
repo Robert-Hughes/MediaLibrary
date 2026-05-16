@@ -135,6 +135,45 @@ describe("AI-description flow", () => {
     });
   });
 
+  it("applies backend-emitted edits into the in-memory draft store", async () => {
+    // Regression: the frontend used to rely on the backend writing
+    // draft_edits.jsonl directly, so the UI never saw the new edits
+    // after a describe run completed. The architecture now ships edits
+    // in the per-image progress event and the hook funnels them through
+    // setDraftBatch — proven here by inspecting the mock's draft store
+    // after the run.
+    mockApiInstance.settings = { openai_api_key: "sk-test", openai_model: "gpt-4o" };
+    mockApiInstance.describeSchedule = [
+      {
+        relativePath: "test.jpg",
+        status: "ok",
+        edits: {
+          "XMP-mlib:AIDescription": {
+            value: { type: "String", value: "a calm beach scene" },
+            intent: "Set",
+          },
+          "XMP-mlib:AITags": {
+            value: { type: "List", value: [{ type: "String", value: "beach" }] },
+            intent: "Set",
+          },
+        },
+      },
+    ];
+
+    const { user, aiBtn } = await startAiDescription();
+    await user.click(aiBtn);
+    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    await user.click(await screen.findByTestId("describe-confirm-btn"));
+    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    await screen.findByTestId("describe-done-summary");
+
+    const folderDrafts = mockApiInstance.draftEditsByFolder["/photos"];
+    expect(folderDrafts).toBeTruthy();
+    expect(folderDrafts["test.jpg"]).toBeTruthy();
+    expect(folderDrafts["test.jpg"]["XMP-mlib:AIDescription"]).toBeTruthy();
+    expect(folderDrafts["test.jpg"]["XMP-mlib:AITags"]).toBeTruthy();
+  });
+
   it("renders per-image failures in the done panel", async () => {
     mockApiInstance.settings = { openai_api_key: "sk-test", openai_model: "gpt-4o" };
     mockApiInstance.describeSchedule = [

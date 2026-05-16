@@ -262,7 +262,16 @@ export default function App() {
   const [cliFolder, setCliFolder] = useState<string | null | undefined>(undefined);
   const [schemaReady, setSchemaReady] = useState(false);
   const cliCheckedRef = useRef(false);
-  const describe = useDescribeImages();
+  // Hand the describe flow a callback that merges backend-produced edits
+  // into the same in-memory draft store the editors write to. The hook
+  // wires this to the per-image `describe_progress` event so the UI
+  // reflects new AI drafts the instant each image's call returns.
+  const describe = useDescribeImages({
+    onApplyEdits: (relPath, edits) => {
+      const entries = Object.entries(edits).map(([key, edit]) => ({ key, edit }));
+      if (entries.length > 0) actions.setDraftBatch(relPath, entries);
+    },
+  });
 
   // Warm the tag-schema registry before the UI becomes interactive so editors
   // never see a missing-schema flash on first use.

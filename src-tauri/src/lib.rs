@@ -891,10 +891,17 @@ struct DescribeProgressPayload {
     current: usize,
     total: usize,
     relative_path: String,
-    /// "ok" | "decode_failed" | "incomplete" | "refused" | "http_error" |
-    /// "network_error" | "bad_json"
+    /// "ok" | "decode" | "incomplete" | "refused" | "http" |
+    /// "network" | "bad_json" | "usage_parse_failed"
     status: String,
     error: Option<String>,
+    /// Typed draft edits to apply for this file when `status == "ok"`.
+    /// Backend hands these to the frontend rather than writing the draft
+    /// store itself — the frontend owns the in-memory draft state and
+    /// uses the existing `save_draft_edits_typed` pipeline so the UI and
+    /// disk stay in sync.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    edits: Option<std::collections::HashMap<String, draft_edits::DraftEdit>>,
 }
 
 // `describe_retry` event surface deferred: reqwest_retry doesn't expose a
@@ -968,6 +975,10 @@ async fn estimate_describe_cost_cmd(
         .ok_or_else(|| format!("no pricing entry for model {}", s.openai_model))?;
 
     let total = rel_paths.len();
+    log::info!(
+        "[describe] estimate starting model={} total={}",
+        s.openai_model, total
+    );
     let _ = app.emit("describe_estimate_started", DescribeEstimateStartedPayload { total });
 
     let mut total_input_tokens: u64 = 0;
@@ -1007,11 +1018,20 @@ async fn estimate_describe_cost_cmd(
     let upper_bound = (total_input_tokens as f64 / 1_000_000.0) * pricing.input_per_1m
         + ((openai_describe::MAX_OUTPUT_TOKENS as u64 * total as u64) as f64 / 1_000_000.0)
             * pricing.output_per_1m;
+    log::info!(
+        "[describe] estimate complete total_input_tokens={} predicted_cost_usd={:.6} upper_bound_cost_usd={:.6}",
+        total_input_tokens, predicted_cost, upper_bound
+    );
     let _ = app.emit("describe_estimate_complete", DescribeEstimateCompletePayload {
         total_input_tokens, predicted_cost_usd: predicted_cost,
         upper_bound_cost_usd: upper_bound, model: s.openai_model.clone(),
     });
-    // Don't clear cancel flag — the run phase reuses it.
+    // The cancel flag installed for this estimate run is dropped: the user
+    // is now in the awaiting-confirm phase. If they confirm, the
+    // `describe_images_cmd` handler will install a fresh flag for the run
+    // loop; if they cancel from the dialog before confirming, the dialog
+    // simply closes — there's no in-flight work to signal.
+    describe_state.clear();
     Ok(())
 }
 
@@ -1040,6 +1060,10 @@ async fn describe_images_cmd(
         .ok_or_else(|| format!("no pricing entry for model {}", s.openai_model))?;
 
     let total = rel_paths.len();
+    log::info!(
+        "[describe] starting describe model={} prompt_version={} total={}",
+        s.openai_model, openai_describe::PROMPT_VERSION, total
+    );
     let _ = app.emit("describe_started", DescribeStartedPayload { total });
 
     let mut succeeded: Vec<String> = Vec::new();
@@ -1055,6 +1079,7 @@ async fn describe_images_cmd(
             break;
         }
         current += 1;
+        log::info!("[describe] ({}/{}) starting {}", current, total, rel);
 
         // Decode locally first so a corrupt file is reported without
         // incurring an API call.
@@ -1062,9 +1087,10 @@ async fn describe_images_cmd(
         let bytes = match openai_describe::load_and_downscale_image(&abs) {
             Ok(b) => b,
             Err(e) => {
+                log::warn!("[describe] ({}/{}) decode failed for {}: {}", current, total, rel, e);
                 let _ = app.emit("describe_progress", DescribeProgressPayload {
                     current, total, relative_path: rel.clone(),
-                    status: "decode_failed".into(), error: Some(e.clone()),
+                    status: "decode".into(), error: Some(e.clone()), edits: None,
                 });
                 failed.push(DescribeFailureRow {
                     relative_path: rel.clone(), kind: "decode".into(), detail: e.clone(),
@@ -1084,33 +1110,26 @@ async fn describe_images_cmd(
                 let edits = openai_describe::compose_draft_edits(
                     &s.openai_model, &output, chrono::Utc::now(),
                 );
-                if let Err(e) = openai_describe::merge_into_draft_store(&folder_path, rel, edits) {
-                    // Drafts didn't land; treat as failure so the UI doesn't
-                    // claim success for an image whose result was lost.
-                    let _ = app.emit("describe_progress", DescribeProgressPayload {
-                        current, total, relative_path: rel.clone(),
-                        status: "persist_failed".into(), error: Some(e.clone()),
-                    });
-                    failed.push(DescribeFailureRow {
-                        relative_path: rel.clone(), kind: "persist".into(), detail: e.clone(),
-                    });
-                    log_errors.push(describe_log::DescribeLogError {
-                        relative_path: rel.clone(), kind: "persist".into(), detail: e,
-                    });
-                    continue;
-                }
+                log::info!(
+                    "[describe] ({}/{}) ok {} input_tokens={} output_tokens={} tags={}",
+                    current, total, rel, usage.input_tokens, usage.output_tokens, edits.len()
+                );
                 let _ = app.emit("describe_progress", DescribeProgressPayload {
                     current, total, relative_path: rel.clone(),
-                    status: "ok".into(), error: None,
+                    status: "ok".into(), error: None, edits: Some(edits),
                 });
                 succeeded.push(rel.clone());
             }
             Err(e) => {
                 let kind = e.kind().to_string();
                 let detail = e.detail();
+                log::warn!(
+                    "[describe] ({}/{}) failed {} kind={} detail={}",
+                    current, total, rel, kind, detail
+                );
                 let _ = app.emit("describe_progress", DescribeProgressPayload {
                     current, total, relative_path: rel.clone(),
-                    status: kind.clone(), error: Some(detail.clone()),
+                    status: kind.clone(), error: Some(detail.clone()), edits: None,
                 });
                 failed.push(DescribeFailureRow {
                     relative_path: rel.clone(), kind: kind.clone(), detail: detail.clone(),
@@ -1121,6 +1140,11 @@ async fn describe_images_cmd(
             }
         }
     }
+
+    log::info!(
+        "[describe] finished succeeded={} failed={} total_input_tokens={} total_output_tokens={}",
+        succeeded.len(), failed.len(), aggregate.input_tokens, aggregate.output_tokens
+    );
 
     let predicted = predicted_cost(&pricing, total_input_for_predicted, succeeded.len() as u64);
     let actual = aggregate.cost(&pricing);

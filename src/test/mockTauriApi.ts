@@ -46,7 +46,13 @@ export interface MockTauriApi {
    */
   estimateTokenSchedule: number[];
   /** Override describe progress / completion. Each entry is one rel_path's result. */
-  describeSchedule: Array<{ relativePath: string; status: string; error?: string | null }>;
+  describeSchedule: Array<{
+    relativePath: string;
+    status: string;
+    error?: string | null;
+    /** Typed draft edits the mock backend should emit alongside an "ok" status. */
+    edits?: Record<string, unknown>;
+  }>;
   /** Override the usage summary emitted by describe_complete. */
   describeUsageSummary: {
     totalInputTokens: number; totalCachedTokens: number;
@@ -227,6 +233,7 @@ export function createMockTauriApi(): MockTauriApi {
           emit("describe_progress", {
             current: i + 1, total, relativePath: rp,
             status: sched.status, error: sched.error ?? null,
+            edits: sched.status === "ok" ? (sched.edits ?? {}) : undefined,
           });
           if (sched.status === "ok") succeeded.push(rp);
           else failed.push({ relativePath: rp, kind: sched.status, detail: sched.error ?? "" });

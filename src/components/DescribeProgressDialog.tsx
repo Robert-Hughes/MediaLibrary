@@ -227,8 +227,9 @@ export function DescribeProgressDialog({ state, onConfirm, onCancel, onClose }: 
                 </button>
               </div>
               <div style={{ marginTop: 12, fontSize: 11, color: "var(--text-secondary)" }}>
-                Drafts are saved after each image. If cancelled, descriptions
-                already produced remain in drafts.
+                Each image's description is added to your drafts as soon as
+                it arrives. If cancelled, descriptions already produced
+                remain in drafts.
               </div>
             </>
           )}
