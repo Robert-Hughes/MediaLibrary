@@ -536,9 +536,15 @@ export function DetailsPane({ photo, metadata, draftEdits = {}, typedDraftEdits,
       {editDialog && (
         <TypedValueEditor
           propertyKey={editDialog.key}
-          initialVariant={
-            metadata !== "loading" ? (metadata[editDialog.key] as Variant | undefined) : undefined
-          }
+          initialVariant={(() => {
+            // Prefer the typed draft Variant when one is already pending —
+            // otherwise an editor that consults the raw value (notably
+            // EnumEditor) would silently revert to the on-disk metadata
+            // every time the row was re-edited.
+            const pending = typedDraftEdits?.[editDialog.key];
+            if (pending && pending.intent !== "Delete") return pending.value;
+            return metadata !== "loading" ? (metadata[editDialog.key] as Variant | undefined) : undefined;
+          })()}
           metadataForFile={metadata !== "loading" ? (metadata as Record<string, Variant>) : undefined}
           initialString={editDialog.initialValue}
           onSaveBatch={onSetDraftBatch ? (edits) => { onSetDraftBatch(edits); setEditDialog(null); } : undefined}
