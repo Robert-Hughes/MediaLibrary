@@ -453,11 +453,22 @@ async fn list_models_with_pricing(client: &Client, api_key: &str) -> Result<(), 
         return Ok(());
     }
 
-    // Sort by creation date (most recent first)
+    // Sort by estimated cost for a 1024x1024 image (descending)
     vision_models.sort_by(|a, b| {
-        let created_a = a.1["created"].as_i64().unwrap_or(0);
-        let created_b = b.1["created"].as_i64().unwrap_or(0);
-        created_b.cmp(&created_a) // Reverse order for newest first
+        let pricing_a = pricing_table.get(&a.0);
+        let pricing_b = pricing_table.get(&b.0);
+        
+        let cost_a = pricing_a.map(|p| {
+            let tokens = calculate_image_tokens(1024, 1024, &a.0);
+            (tokens as f64 / 1_000_000.0) * p.input_per_1m
+        }).unwrap_or(0.0);
+        
+        let cost_b = pricing_b.map(|p| {
+            let tokens = calculate_image_tokens(1024, 1024, &b.0);
+            (tokens as f64 / 1_000_000.0) * p.input_per_1m
+        }).unwrap_or(0.0);
+        
+        cost_b.partial_cmp(&cost_a).unwrap_or(std::cmp::Ordering::Equal)
     });
 
     use comfy_table::{Table, Cell, CellAlignment};
