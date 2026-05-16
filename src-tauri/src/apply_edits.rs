@@ -331,6 +331,28 @@ fn verify_set(
     let display_v = fresh_display.get(key);
     let raw_v = fresh_raw.get(key);
 
+    // Empty-string / Null Set: exiftool's `-TAG=` clears the tag, so most
+    // formats will report the tag as absent (or Null / empty string) after
+    // write.  Treat that as a Match — the user asked for an empty value and
+    // the file now reflects that, even though no actual tag was retained.
+    fn is_empty_value(v: &Variant) -> bool {
+        matches!(v, Variant::Null) || matches!(v, Variant::String(s) if s.is_empty())
+    }
+    fn is_empty_or_absent(v: Option<&Variant>) -> bool {
+        match v {
+            None => true,
+            Some(Variant::Null) => true,
+            Some(Variant::String(s)) if s.is_empty() => true,
+            _ => false,
+        }
+    }
+    if is_empty_value(expected)
+        && is_empty_or_absent(display_v)
+        && is_empty_or_absent(raw_v)
+    {
+        return ("Match".to_string(), None);
+    }
+
     if display_v.is_none() && raw_v.is_none() {
         let reason = format!(
             "Tag {} absent after write (format may not support it)",
@@ -898,6 +920,81 @@ mod tests {
         let (kind, msg) = verify_set("X", Some(&Variant::Integer(5)), &display, &raw, None);
         assert_eq!(kind, "MissingPostWrite");
         assert!(msg.unwrap().contains("absent after write"));
+    }
+
+    // ── Empty-string Set on a new or existing tag is a Match, not MissingPostWrite.
+    // exiftool's `-TAG=` clears the tag, so the post-write file typically has
+    // the tag absent.  The user asked for an empty value and got it — report
+    // success.  Regression: previously surfaced as MissingPostWrite/Mismatch
+    // and the apply UI reported the operation as failed.
+
+    #[test]
+    fn verify_set_empty_string_matches_when_tag_absent_post_write() {
+        let display = HashMap::new();
+        let raw = HashMap::new();
+        let (kind, msg) = verify_set(
+            "X",
+            Some(&Variant::String(String::new())),
+            &display,
+            &raw,
+            None,
+        );
+        assert_eq!(kind, "Match", "empty-string Set + absent post-write must be Match");
+        assert!(msg.is_none());
+    }
+
+    #[test]
+    fn verify_set_empty_string_matches_when_tag_null_post_write() {
+        let display = map(&[("X", Variant::Null)]);
+        let raw = map(&[("X", Variant::Null)]);
+        let (kind, _) = verify_set(
+            "X",
+            Some(&Variant::String(String::new())),
+            &display,
+            &raw,
+            None,
+        );
+        assert_eq!(kind, "Match");
+    }
+
+    #[test]
+    fn verify_set_empty_string_matches_when_tag_empty_string_post_write() {
+        // Some formats retain the tag with an empty value rather than dropping it.
+        let display = map(&[("X", Variant::String(String::new()))]);
+        let raw = map(&[("X", Variant::String(String::new()))]);
+        let (kind, _) = verify_set(
+            "X",
+            Some(&Variant::String(String::new())),
+            &display,
+            &raw,
+            None,
+        );
+        assert_eq!(kind, "Match");
+    }
+
+    #[test]
+    fn verify_set_null_value_matches_when_tag_absent_post_write() {
+        // Variant::Null Set is the typed equivalent of an empty edit.
+        let display = HashMap::new();
+        let raw = HashMap::new();
+        let (kind, _) = verify_set("X", Some(&Variant::Null), &display, &raw, None);
+        assert_eq!(kind, "Match");
+    }
+
+    #[test]
+    fn verify_set_empty_string_mismatch_when_post_write_has_real_value() {
+        // Empty-string Set should NOT short-circuit to Match if the file
+        // still carries a non-empty value — that's a real write failure.
+        let display = map(&[("X", Variant::String("leftover".into()))]);
+        let raw = map(&[("X", Variant::String("leftover".into()))]);
+        let (kind, _) = verify_set(
+            "X",
+            Some(&Variant::String(String::new())),
+            &display,
+            &raw,
+            None,
+        );
+        assert_eq!(kind, "Mismatch");
     }
 
     // ── 8.6: Seq is ordered, Bag is multiset ──────────────────────────────────
