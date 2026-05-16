@@ -25,7 +25,11 @@ export function schemaDatatype(kind: TagKind | null | undefined): DatatypeInfo |
     case "Alt":      return { code: "[A]", label: "Alt (alternatives)" };
     case "Struct":   return { code: "{}",  label: "Struct" };
     case "Binary":   return { code: "Bin", label: "Binary" };
-    case "Unknown":  return { code: "?",   label: "Unknown" };
+    // `Unknown` means exiftool listed the tag with type `?`/`""`/`undef` —
+    // present in the schema but with no committed datatype. Conveys no
+    // useful information to the user, so suppress the badge entirely and
+    // let the row fall back to the "no schema" rendering path.
+    case "Unknown":  return null;
   }
 }
 
