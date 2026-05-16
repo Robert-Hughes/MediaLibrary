@@ -471,6 +471,7 @@ async fn list_models_with_pricing(client: &Client, api_key: &str) -> Result<(), 
         Cell::new("Output").set_alignment(CellAlignment::Right),
         Cell::new("Flex").set_alignment(CellAlignment::Center),
         Cell::new("1024x1024").set_alignment(CellAlignment::Right),
+        Cell::new("Images/$1").set_alignment(CellAlignment::Right),
         Cell::new("Created").set_alignment(CellAlignment::Right),
     ]);
 
@@ -494,6 +495,12 @@ async fn list_models_with_pricing(client: &Client, api_key: &str) -> Result<(), 
                 "-".to_string()
             };
 
+            let images_per_dollar = if cost_1024 > 0.0 {
+                format!("{}", (1.0 / cost_1024).floor() as u64)
+            } else {
+                "N/A".to_string()
+            };
+
             table.add_row(vec![
                 model_id,
                 format!("${:.2}", pricing.input_per_1m),
@@ -501,6 +508,7 @@ async fn list_models_with_pricing(client: &Client, api_key: &str) -> Result<(), 
                 format!("${:.2}", pricing.output_per_1m),
                 flex_str.to_string(),
                 format!("${:.6}", cost_1024),
+                images_per_dollar,
                 created_str,
             ]);
         } else {
@@ -510,6 +518,7 @@ async fn list_models_with_pricing(client: &Client, api_key: &str) -> Result<(), 
                 "N/A".to_string(),
                 "N/A".to_string(),
                 "-".to_string(),
+                "N/A".to_string(),
                 "N/A".to_string(),
                 created_str,
             ]);
