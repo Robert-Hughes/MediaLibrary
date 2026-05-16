@@ -12,6 +12,7 @@ interface Props {
   onOpenFolder: () => void;
   onCloseFolder: () => void;
   onSelectColumns: () => void;
+  onOpenSettings: () => void;
   draftEditsSummary?: { files: number; edits: number } | null;
   onClickDraftSummary?: () => void;
   onDiscardAllEdits?: () => void;
@@ -26,6 +27,7 @@ export function MenuBar({
   onOpenFolder,
   onCloseFolder,
   onSelectColumns,
+  onOpenSettings,
   draftEditsSummary = null,
   onClickDraftSummary,
   onDiscardAllEdits,
@@ -58,6 +60,9 @@ export function MenuBar({
       <div className="menu-bar-divider" />
       <button className="menu-bar-btn" onClick={onSelectColumns} data-testid="menu-bar-columns-btn">
         Select Columns…
+      </button>
+      <button className="menu-bar-btn" onClick={onOpenSettings} data-testid="menu-bar-settings-btn">
+        Settings…
       </button>
       <div className="menu-bar-divider" />
       <span className="menu-bar-count" data-testid="menu-bar-count">

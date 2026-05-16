@@ -285,6 +285,51 @@ export interface ApplyEditsInFlight {
   cancelling: boolean;
 }
 
+// ── AI image-description (see docs/IMAGE_ANALYSIS.md) ──────────────────────────
+
+export type DescribePhase = "estimating" | "awaiting-confirm" | "running" | "done";
+
+export interface DescribeEstimate {
+  totalInputTokens: number;
+  predictedCostUsd: number;
+  upperBoundCostUsd: number;
+  model: string;
+}
+
+export interface DescribeFailure {
+  relativePath: string;
+  kind: string;
+  detail: string;
+}
+
+export interface DescribeUsageSummary {
+  totalInputTokens: number;
+  totalCachedTokens: number;
+  totalOutputTokens: number;
+  predictedCostUsd: number;
+  actualCostUsd: number;
+}
+
+/**
+ * UI state machine for the AI-description flow. Single object covers all
+ * four phases; the dialog reads `phase` and renders the matching panel.
+ * Mirrors `ApplyEditsInFlight` in spirit but adds estimate + result fields.
+ */
+export interface DescribeProgressState {
+  phase: DescribePhase;
+  total: number;
+  current: number;
+  currentFile: string | null;
+  cancelling: boolean;
+  failures: DescribeFailure[];
+  succeeded: string[];
+  estimate: DescribeEstimate | null;
+  estimateError: string | null;
+  usageSummary: DescribeUsageSummary | null;
+  /** Original rel-paths the dialog was opened for — needed for confirm step. */
+  relPaths: string[];
+}
+
 export interface TagOutcomeEntry {
   tag: string;
   kind: string;

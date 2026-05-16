@@ -37,6 +37,13 @@ interface Props {
   onDiscardDraft?: (key: string) => void;
   onDiscardAllEdits?: () => void;
   onApplyEdits?: () => void;
+  /**
+   * Trigger the AI-description flow for this photo. Wired by App so the
+   * progress dialog can live at the app level rather than per-pane.
+   * Optional so DetailsPane keeps rendering when the parent doesn't wire
+   * the feature (e.g. read-only contexts, older tests).
+   */
+  onGenerateAiDescription?: () => void;
 }
 
 /** Format an OS timestamp (seconds since epoch, from Rust) into a readable string. */
@@ -286,7 +293,7 @@ function DetailsRowContextMenu({
   );
 }
 
-export function DetailsPane({ photo, metadata, draftEdits = {}, typedDraftEdits, onSetDraftTyped, onSetDraftBatch, onDiscardDraft, onDiscardAllEdits, onApplyEdits }: Props) {
+export function DetailsPane({ photo, metadata, draftEdits = {}, typedDraftEdits, onSetDraftTyped, onSetDraftBatch, onDiscardDraft, onDiscardAllEdits, onApplyEdits, onGenerateAiDescription }: Props) {
   const [detailsSearch, setDetailsSearch] = useState("");
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, key: string, originalValue: string, draftValue?: string | null } | null>(null);
   const [editDialog, setEditDialog] = useState<{ key: string, initialValue: string } | null>(null);
@@ -491,13 +498,40 @@ export function DetailsPane({ photo, metadata, draftEdits = {}, typedDraftEdits,
                 </section>
               ))
             )}
-            <div style={{ padding: "8px 16px", marginTop: "8px" }}>
-              <button 
-                className="button button--secondary" 
+            <div style={{ padding: "8px 16px", marginTop: "8px", display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button
+                className="button button--secondary"
                 onClick={() => setShowNewPropertyDialog(true)}
               >
                 + Add Property
               </button>
+              {onGenerateAiDescription && (
+                <button
+                  className="button button--secondary"
+                  data-testid="details-pane-generate-ai-btn"
+                  title="Generate an AI description for this image via OpenAI"
+                  onClick={async () => {
+                    // Idempotency check: existing AI description either in
+                    // the file's metadata or as a pending draft means the
+                    // user is about to overwrite. Surface that before
+                    // burning an API call.
+                    const inMeta = typeof metadata === "object"
+                      && metadata !== null
+                      && "XMP-mlib:AIDescription" in (metadata as Record<string, Variant>);
+                    const inDraft = "XMP-mlib:AIDescription" in draftEdits;
+                    if (inMeta || inDraft) {
+                      const confirmed = await ask(
+                        "This image already has an AI description. Generating a new one will overwrite the existing draft. Continue?",
+                        { title: "Overwrite AI description?", kind: "warning" }
+                      );
+                      if (!confirmed) return;
+                    }
+                    onGenerateAiDescription();
+                  }}
+                >
+                  Generate AI Description
+                </button>
+              )}
             </div>
           </>
         )}

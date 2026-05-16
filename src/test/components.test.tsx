@@ -83,7 +83,7 @@ describe("WelcomeScreen", () => {
 // ── MenuBar ───────────────────────────────────────────────────────────────────
 
 describe("MenuBar", () => {
-  const base = { photoCount: 3, scanning: false, metadataProgress: null, onOpenFolder: noop, onCloseFolder: noop, onSelectColumns: noop };
+  const base = { photoCount: 3, scanning: false, metadataProgress: null, onOpenFolder: noop, onCloseFolder: noop, onSelectColumns: noop, onOpenSettings: noop };
 
   it("shows the photo count", () => {
     render(<MenuBar {...base} />);
