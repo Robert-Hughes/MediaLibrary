@@ -121,6 +121,35 @@ describe("NewPropertyDialog", () => {
     });
   });
 
+  it("filters out groups inapplicable to the file extension", async () => {
+    _setSchemaTagNamesCache([
+      "IFD0:Make",
+      "ExifIFD:ExifVersion",
+      "Vorbis:Title",
+      "FLAC:Picture",
+      "XMP-dc:Title",
+    ]);
+    render(
+      <NewPropertyDialog
+        onSave={() => {}}
+        onCancel={() => {}}
+        filename="photo.jpg"
+      />,
+    );
+    fireEvent.change(screen.getByTestId("new-property-key"), {
+      target: { value: "i" }, // case-insensitive substring
+    });
+    await waitFor(() => {
+      const datalist = document.getElementById("schema-tag-names");
+      const values = Array.from(datalist!.querySelectorAll("option")).map((o) => o.getAttribute("value"));
+      expect(values).toContain("IFD0:Make");
+      expect(values).toContain("XMP-dc:Title");
+      // Audio-only groups must not surface on a JPEG.
+      expect(values).not.toContain("Vorbis:Title");
+      expect(values).not.toContain("FLAC:Picture");
+    });
+  });
+
   it("datalist is empty when input is blank", async () => {
     _setSchemaTagNamesCache(["XMP-dc:Title", "IPTC:Keywords"]);
     render(<NewPropertyDialog onSave={() => {}} onCancel={() => {}} />);

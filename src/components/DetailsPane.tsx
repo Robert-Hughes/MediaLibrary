@@ -558,6 +558,7 @@ export function DetailsPane({ photo, metadata, draftEdits = {}, typedDraftEdits,
           }}
           onCancel={() => setShowNewPropertyDialog(false)}
           existingKeys={existingMetadataKeys}
+          filename={photo.filename}
         />
       )}
 
