@@ -738,7 +738,8 @@ async fn list_models_with_pricing(client: &Client, api_key: &str) -> Result<(), 
 
     println!("{table}");
 
-    println!("Note: Only models with vision/image input support are shown (excluding checkpoint/snapshot models)");
+    println!("Note: Filtered to the pareto-frontier set of vision-capable models recommended for photo description / tagging");
+    println!("      (checkpoint/snapshot models, audio/code variants, dominated models, and 'pro' tier excluded). See MODEL_CHOICE.md.");
     println!("Prices are per 1M tokens in USD");
     println!("Source: https://developers.openai.com/api/docs/pricing");
     println!("Vision support: https://developers.openai.com/api/docs/guides/images-vision");
