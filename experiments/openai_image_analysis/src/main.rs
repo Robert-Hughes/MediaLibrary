@@ -595,7 +595,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let input_cost = (total_input_tokens as f64 / 1_000_000.0) * p.input_per_1m;
             let output_cost = (estimated_output_tokens as f64 / 1_000_000.0) * p.output_per_1m;
             let total_cost = input_cost + output_cost;
-            println!("Estimated total cost: ${:.6} (Input: ${:.6}, Output: ${:.6})", total_cost, input_cost, output_cost);
+            println!("Estimated total cost (Standard): ${:.6} (Input: ${:.6}, Output: ${:.6})", total_cost, input_cost, output_cost);
+            if p.supports_batch {
+                println!("Estimated total cost (Flex):     ${:.6} (Input: ${:.6}, Output: ${:.6})", total_cost * 0.5, input_cost * 0.5, output_cost * 0.5);
+            }
         } else {
             println!("Cost estimation unavailable: Model not in pricing table.");
         }
