@@ -37,9 +37,28 @@ const OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
 #[command(name = "openai_image_analysis")]
 #[command(about = "OpenAI API experimentation tool", long_about = None)]
 struct Args {
-    /// List available models with pricing information
+    /// List recommended models with pricing information
     #[arg(long)]
     list_models: bool,
+
+    /// Model ID to use for image description (required unless --list-models).
+    /// No default — we want the choice to be explicit and visible in shell
+    /// history, since model swaps change cost and output.
+    #[arg(long)]
+    model: Option<String>,
+
+    /// Image file(s) to process. Repeat the flag for multiple images
+    /// (e.g. --image a.jpg --image b.jpg). Images are processed sequentially,
+    /// one API call per image. Required unless --list-models.
+    #[arg(long = "image")]
+    images: Vec<String>,
+
+    /// Write each image's structured JSON response next to the source image,
+    /// named "<stem> (<model>).json". Useful for running the same images
+    /// through multiple models and diffing the outputs. Without this flag,
+    /// responses are only printed to stdout.
+    #[arg(long)]
+    output_next_to_image: bool,
 }
 
 /// Pricing information for a model
@@ -220,6 +239,22 @@ fn is_checkpoint_model(model_id: &str) -> bool {
     }
 
     false
+}
+
+/// Models we consider worth listing for this task (photo description /
+/// tagging).
+///
+/// The full OpenAI catalogue includes many vision-capable models that are
+/// either strictly cost-dominated, role-mismatched (audio transcribers,
+/// code-tuned variants), or overkill ("pro" tier at ~10–40x flagship cost for
+/// negligible gain here). See MODEL_CHOICE.md for the detailed analysis.
+/// `--list-models` filters to just the pareto-frontier set so the table is
+/// actually a useful decision aid.
+fn is_recommended_for_image_description(model_id: &str) -> bool {
+    matches!(
+        model_id,
+        "gpt-5.4-nano" | "gpt-5.4-mini" | "gpt-4o" | "gpt-5.4" | "gpt-5.5"
+    )
 }
 
 /// Check if a model supports vision/image inputs
@@ -598,7 +633,11 @@ async fn list_models_with_pricing(client: &Client, api_key: &str) -> Result<(), 
         for model in models {
             if let Some(model_id) = model["id"].as_str() {
                 // Only include models that support vision, are not checkpoints, and have pricing data
-                if supports_vision(model_id) && !is_checkpoint_model(model_id) && pricing_table.contains_key(model_id) {
+                if supports_vision(model_id)
+                    && !is_checkpoint_model(model_id)
+                    && pricing_table.contains_key(model_id)
+                    && is_recommended_for_image_description(model_id)
+                {
                     vision_models.push((model_id.to_string(), model.clone()));
                 }
             }
@@ -707,28 +746,109 @@ async fn list_models_with_pricing(client: &Client, api_key: &str) -> Result<(), 
     Ok(())
 }
 
-/// Recursively truncate long strings in a JSON value for previewing
-fn truncate_json_strings(value: &serde_json::Value, max_len: usize) -> serde_json::Value {
-    match value {
-        serde_json::Value::String(s) => {
-            if s.len() > max_len {
-                serde_json::Value::String(format!("{}... (truncated, total {} chars)", &s[..max_len], s.len()))
-            } else {
-                value.clone()
-            }
+/// Count exact input tokens for a single image, via the /responses/input_tokens
+/// endpoint. Sampling/generation params are stripped — that endpoint rejects them.
+async fn count_input_tokens(
+    client: &Client,
+    api_key: &str,
+    model: &str,
+    image_path: &str,
+) -> Result<u32, Box<dyn std::error::Error>> {
+    let request_body = build_response_request(model, &[image_path])?;
+    let mut count_body = request_body;
+    if let Some(obj) = count_body.as_object_mut() {
+        for k in ["temperature", "top_p", "max_output_tokens"] {
+            obj.remove(k);
         }
-        serde_json::Value::Array(arr) => {
-            serde_json::Value::Array(arr.iter().map(|v| truncate_json_strings(v, max_len)).collect())
-        }
-        serde_json::Value::Object(obj) => {
-            let mut new_obj = serde_json::Map::new();
-            for (k, v) in obj {
-                new_obj.insert(k.clone(), truncate_json_strings(v, max_len));
-            }
-            serde_json::Value::Object(new_obj)
-        }
-        _ => value.clone(),
     }
+
+    let count_url = format!("{}/responses/input_tokens", OPENAI_BASE_URL);
+    let resp = client
+        .post(&count_url)
+        .header("Authorization", format!("Bearer {}", api_key))
+        .header("Content-Type", "application/json")
+        .json(&count_body)
+        .send()
+        .await?;
+
+    let status = resp.status();
+    let body = resp.text().await?;
+    if !status.is_success() {
+        return Err(format!("Token API returned {}: {}", status, body).into());
+    }
+    let json: serde_json::Value = serde_json::from_str(&body)?;
+    let tokens = json["input_tokens"]
+        .as_u64()
+        .ok_or_else(|| format!("Token API response missing 'input_tokens': {}", body))?;
+    Ok(tokens as u32)
+}
+
+/// Build the output filename for --output-next-to-image: place a JSON file
+/// next to the source image, suffixed with the model name in parens so
+/// outputs from different models for the same image don't collide.
+fn output_path_for(image_path: &str, model: &str) -> std::path::PathBuf {
+    let p = std::path::Path::new(image_path);
+    let parent = p.parent().unwrap_or_else(|| std::path::Path::new("."));
+    let stem = p
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("output");
+    parent.join(format!("{} ({}).json", stem, model))
+}
+
+/// Process one image: call the API, detect truncation, parse + pretty-print
+/// the structured JSON, optionally write it to disk next to the source.
+async fn process_image(
+    client: &Client,
+    api_key: &str,
+    model: &str,
+    image_path: &str,
+    write_next_to_image: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    println!("\n--- Processing: {} ---", image_path);
+
+    let response = call_responses_api(client, api_key, model, &[image_path]).await?;
+    tracing::debug!("API Response: {}", serde_json::to_string_pretty(&response)?);
+
+    // Truncation check — hitting max_output_tokens cuts off mid-token and leaves
+    // the structured JSON unparseable. Warn loudly so the operator raises the cap.
+    let status = response["status"].as_str().unwrap_or("");
+    if status == "incomplete" {
+        let reason = response["incomplete_details"]["reason"]
+            .as_str()
+            .unwrap_or("unknown");
+        tracing::warn!(
+            "Response is incomplete (reason: {}). Structured JSON likely truncated.",
+            reason
+        );
+        println!(
+            "!!! WARNING: response status='incomplete', reason='{}'. Raise MAX_OUTPUT_TOKENS and retry.",
+            reason
+        );
+    }
+
+    let raw_text = response["output"][0]["content"][0]["text"]
+        .as_str()
+        .unwrap_or("");
+
+    match serde_json::from_str::<serde_json::Value>(raw_text) {
+        Ok(parsed) => {
+            let pretty = serde_json::to_string_pretty(&parsed)?;
+            println!("=== Structured Response ===\n{}", pretty);
+
+            if write_next_to_image {
+                let out = output_path_for(image_path, model);
+                std::fs::write(&out, &pretty)?;
+                println!("Wrote {}", out.display());
+            }
+        }
+        Err(e) => {
+            tracing::warn!("Response text was not valid JSON: {}", e);
+            println!("=== Text Response (raw) ===\n{}", raw_text);
+        }
+    }
+
+    Ok(())
 }
 
 #[tokio::main]
@@ -739,6 +859,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenv::dotenv().ok();
 
     let args = Args::parse();
+
+    // Validate args before touching environment / network so the failure
+    // message tells the user what they actually got wrong (missing --model)
+    // instead of complaining about OPENAI_API_KEY.
+    if !args.list_models {
+        if args.model.is_none() {
+            return Err("--model is required (or pass --list-models). No default — choose explicitly.".into());
+        }
+        if args.images.is_empty() {
+            return Err("At least one --image is required (repeat --image for multiple).".into());
+        }
+    }
+
     let api_key = get_api_key();
     let client = Client::new();
 
@@ -748,203 +881,86 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    // Normal mode: Responses API
-    let model = "gpt-4o";
-    tracing::info!("OpenAI API experimentation tool");
-    tracing::info!("Using model: {}", model);
+    let model = args.model.as_deref().expect("validated above");
 
-    // Example: Image + text request
-    // Replace these with actual image paths from your workspace
-    let sample_images = vec![
-        "D:\\OneDrive\\Pictures\\2010\\Image0149.jpg", // Note: The user hasn't provided this image, it might fail to load. We wrap it in a warning but let it proceed to check file exist.
-    ];
+    tracing::info!("Model: {}", model);
+    tracing::info!("Images: {} file(s)", args.images.len());
 
-    if sample_images.is_empty() {
-        return Err("No sample images configured. Add image paths to sample_images vector in main().".into());
-    }
-
-    // No per-call user text: the full task description is in
-    // SYSTEM_INSTRUCTIONS and the response schema enforces output shape, so a
-    // user prompt would just be tokens for nothing.
-
-    // --- Pre-flight cost estimation ---
+    // --- Pre-flight: per-image token count, summed for combined estimate ---
     let pricing_table = get_model_pricing();
     let pricing = pricing_table.get(model);
 
     println!("\n=== Pre-flight Cost Estimation ===");
 
-    let mut total_input_tokens = 0;
-
-    // Use official OpenAI token counting API.
-    //
-    // The /responses/input_tokens endpoint rejects sampling/generation params
-    // (`temperature`, `top_p`, `seed`, `max_output_tokens`) with an
-    // "unknown_parameter" 400 — it only accepts the input-shaping fields
-    // (model, instructions, input, text). Strip those before sending.
-    match build_response_request(model, &sample_images) {
-        Ok(request_body) => {
-            let mut count_body = request_body.clone();
-            if let Some(obj) = count_body.as_object_mut() {
-                for k in ["temperature", "top_p", "max_output_tokens"] {
-                    obj.remove(k);
-                }
-            }
-
-            let count_url = format!("{}/responses/input_tokens", OPENAI_BASE_URL);
-            tracing::info!("Calling token counting API: {}", count_url);
-
-            let count_response = client
-                .post(&count_url)
-                .header("Authorization", format!("Bearer {}", api_key))
-                .header("Content-Type", "application/json")
-                .json(&count_body)
-                .send()
-                .await;
-
-            match count_response {
-                Ok(resp) if resp.status().is_success() => {
-                    if let Ok(body) = resp.text().await {
-                        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body) {
-                            if let Some(tokens) = json["input_tokens"].as_u64() {
-                                total_input_tokens = tokens as u32;
-                                println!("Exact input tokens (via API): {}", total_input_tokens);
-                            } else {
-                                return Err(format!("Token API 200 but no 'input_tokens'. Body: {}", body).into());
-                            }
-                        } else {
-                            return Err(format!("Token API returned non-JSON response: {}", body).into());
-                        }
-                    }
-                }
-                Ok(resp) => {
-                    let status = resp.status();
-                    let err_body = resp.text().await.unwrap_or_default();
-                    return Err(format!("Token API returned {}. {}", status, err_body).into());
-                }
-                Err(e) => {
-                    return Err(format!("Token API request failed: {}", e).into());
-                }
-            }
-        }
-        Err(e) => return Err(format!("Failed to build request for token estimation: {}", e).into()),
+    let mut per_image_tokens: Vec<(String, u32)> = Vec::new();
+    let mut total_input_tokens: u64 = 0;
+    for image in &args.images {
+        let tokens = count_input_tokens(&client, &api_key, model, image).await?;
+        println!("  {}: {} input tokens", image, tokens);
+        per_image_tokens.push((image.clone(), tokens));
+        total_input_tokens += tokens as u64;
     }
 
-    if total_input_tokens == 0 {
-        return Err("Cost estimation unavailable due to token API failure.".into());
-    }
+    let n = args.images.len() as u64;
+    let total_expected_output = EXPECTED_OUTPUT_TOKENS as u64 * n;
+    let total_max_output = MAX_OUTPUT_TOKENS as u64 * n;
 
-    match build_response_request(model, &sample_images) {
-        Ok(request) => {
-            let preview_request = truncate_json_strings(&request, 100);
-            let request_str = serde_json::to_string_pretty(&preview_request)?;
-            tracing::info!("Request to be sent (truncated for preview):\n{}", request_str);
+    println!(
+        "Total input tokens: {} across {} image(s)",
+        total_input_tokens, n
+    );
+    println!(
+        "Expected output tokens: {}  (worst case capped at {} = {}/image × {})",
+        total_expected_output, total_max_output, MAX_OUTPUT_TOKENS, n
+    );
 
-            println!("Exact input tokens (via API): {}", total_input_tokens);
+    if let Some(p) = pricing {
+        let input_cost = (total_input_tokens as f64 / 1_000_000.0) * p.input_per_1m;
+        let expected_output_cost =
+            (total_expected_output as f64 / 1_000_000.0) * p.output_per_1m;
+        let max_output_cost = (total_max_output as f64 / 1_000_000.0) * p.output_per_1m;
+        let expected_total = input_cost + expected_output_cost;
+        let upper_bound_total = input_cost + max_output_cost;
+
+        println!(
+            "Expected cost    (Standard): ${:.6}  (Input: ${:.6}, Output: ${:.6})",
+            expected_total, input_cost, expected_output_cost
+        );
+        println!(
+            "Upper-bound cost (Standard): ${:.6}  (Input: ${:.6}, Output: ${:.6} @ {} tok/image cap)",
+            upper_bound_total, input_cost, max_output_cost, MAX_OUTPUT_TOKENS
+        );
+        if p.supports_batch {
+            println!("Expected cost    (Flex):     ${:.6}", expected_total * 0.5);
             println!(
-                "Expected output tokens: {}  (worst case capped at {})",
-                EXPECTED_OUTPUT_TOKENS, MAX_OUTPUT_TOKENS
+                "Upper-bound cost (Flex):     ${:.6}",
+                upper_bound_total * 0.5
             );
-
-            if let Some(p) = pricing {
-                let input_cost = (total_input_tokens as f64 / 1_000_000.0) * p.input_per_1m;
-                // Expected cost: input + typical-photo output.
-                let expected_output_cost =
-                    (EXPECTED_OUTPUT_TOKENS as f64 / 1_000_000.0) * p.output_per_1m;
-                let expected_total = input_cost + expected_output_cost;
-                // Upper-bound cost: input + full output budget. This is the
-                // most you'll pay for a single call given max_output_tokens.
-                let max_output_cost =
-                    (MAX_OUTPUT_TOKENS as f64 / 1_000_000.0) * p.output_per_1m;
-                let upper_bound_total = input_cost + max_output_cost;
-
-                println!(
-                    "Expected cost   (Standard): ${:.6}  (Input: ${:.6}, Output: ${:.6})",
-                    expected_total, input_cost, expected_output_cost
-                );
-                println!(
-                    "Upper-bound cost (Standard): ${:.6}  (Input: ${:.6}, Output: ${:.6} @ {} tok cap)",
-                    upper_bound_total, input_cost, max_output_cost, MAX_OUTPUT_TOKENS
-                );
-                if p.supports_batch {
-                    println!(
-                        "Expected cost   (Flex):     ${:.6}",
-                        expected_total * 0.5
-                    );
-                    println!(
-                        "Upper-bound cost (Flex):     ${:.6}",
-                        upper_bound_total * 0.5
-                    );
-                }
-            } else {
-                println!("Cost estimation unavailable: Model not in pricing table.");
-            }
-            println!("==================================");
-
-            // Confirmation prompt
-            print!("Send this request to OpenAI API? (y/n): ");
-
-            use std::io::Write;
-            std::io::stdout().flush().unwrap();
-            let mut confirmation = String::new();
-            std::io::stdin().read_line(&mut confirmation).expect("Failed to read line");
-
-            if confirmation.trim().to_lowercase() != "y" {
-                tracing::info!("Request cancelled by user");
-                return Ok(());
-            }
-
-            match call_responses_api(&client, &api_key, model, &sample_images).await {
-                Ok(response) => {
-                    tracing::info!("API Response: {}", serde_json::to_string_pretty(&response)?);
-
-                    // Detect truncation up front. When `status == "incomplete"`
-                    // the model hit a limit mid-generation (most commonly
-                    // max_output_tokens) and any JSON in the text field will
-                    // be truncated and unparseable. Warn loudly — the right
-                    // fix is to raise MAX_OUTPUT_TOKENS, not to try to repair
-                    // the JSON.
-                    let status = response["status"].as_str().unwrap_or("");
-                    if status == "incomplete" {
-                        let reason = response["incomplete_details"]["reason"]
-                            .as_str()
-                            .unwrap_or("unknown");
-                        tracing::warn!(
-                            "Response is incomplete (reason: {}). Structured JSON is likely truncated.",
-                            reason
-                        );
-                        println!(
-                            "\n!!! WARNING: response status='incomplete', reason='{}'. Raise MAX_OUTPUT_TOKENS and retry.",
-                            reason
-                        );
-                    }
-
-                    // With structured output, the model returns a JSON string in
-                    // the `text` field that conforms to our schema. Parse and
-                    // pretty-print it so the output is readable instead of a
-                    // single escaped one-liner.
-                    let raw_text = response["output"][0]["content"][0]["text"]
-                        .as_str()
-                        .unwrap_or("");
-                    match serde_json::from_str::<serde_json::Value>(raw_text) {
-                        Ok(parsed) => {
-                            println!(
-                                "\n=== Structured Response ===\n{}",
-                                serde_json::to_string_pretty(&parsed)?
-                            );
-                        }
-                        Err(e) => {
-                            tracing::warn!("Response text was not valid JSON: {}", e);
-                            println!("\n=== Text Response (raw) ===\n{}", raw_text);
-                        }
-                    }
-                }
-                Err(e) => {
-                    tracing::error!("API call failed: {}", e);
-                }
-            }
         }
-        Err(e) => {
-            tracing::error!("Failed to build request: {}", e);
+    } else {
+        println!("Cost estimation unavailable: model '{}' not in pricing table.", model);
+    }
+    println!("==================================");
+
+    // Single confirmation covering the whole batch, not per-image.
+    print!("Send {} request(s) to OpenAI API? (y/n): ", n);
+    use std::io::Write;
+    std::io::stdout().flush().unwrap();
+    let mut confirmation = String::new();
+    std::io::stdin()
+        .read_line(&mut confirmation)
+        .expect("Failed to read line");
+    if confirmation.trim().to_lowercase() != "y" {
+        tracing::info!("Request cancelled by user");
+        return Ok(());
+    }
+
+    // Sequential processing — one API call per image, no batching.
+    // Errors on individual images are logged and don't abort the run, so a
+    // bad file in a large batch doesn't waste the earlier successful calls.
+    for image in &args.images {
+        if let Err(e) = process_image(&client, &api_key, model, image, args.output_next_to_image).await {
+            tracing::error!("Failed to process {}: {}", image, e);
         }
     }
 
