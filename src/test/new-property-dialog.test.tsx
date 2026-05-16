@@ -150,12 +150,16 @@ describe("NewPropertyDialog", () => {
     });
   });
 
-  it("datalist is empty when input is blank", async () => {
+  it("datalist exposes the full applicable list when the input is blank", async () => {
+    // Empty-input case: we want the browser to surface the dropdown arrow
+    // so the user can browse before typing.  Pass no filename so the list
+    // is unfiltered.
     _setSchemaTagNamesCache(["XMP-dc:Title", "IPTC:Keywords"]);
     render(<NewPropertyDialog onSave={() => {}} onCancel={() => {}} />);
     const datalist = document.getElementById("schema-tag-names");
     expect(datalist).not.toBeNull();
-    expect(datalist!.querySelectorAll("option")).toHaveLength(0);
+    const values = Array.from(datalist!.querySelectorAll("option")).map((o) => o.getAttribute("value"));
+    expect(values).toEqual(["XMP-dc:Title", "IPTC:Keywords"]);
   });
 
   // ── Duplicate-key warning ──────────────────────────────────────────────
