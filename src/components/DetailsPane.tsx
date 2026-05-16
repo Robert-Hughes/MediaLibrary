@@ -282,7 +282,7 @@ function DetailsRowContextMenu({
       y={contextMenu.y}
       options={[
         {
-          label: readOnly ? "View" : "Edit",
+          label: readOnly ? "View…" : "Edit…",
           onClick: onEdit,
         },
         ...(contextMenu.draftValue !== undefined
@@ -515,7 +515,7 @@ export function DetailsPane({ photo, metadata, draftEdits = {}, typedDraftEdits,
             className="button button--secondary"
             onClick={() => setShowNewPropertyDialog(true)}
           >
-            + Add Property
+            + Add Property…
           </button>
           {onShowInFileExplorer && (
             <button
@@ -552,7 +552,7 @@ export function DetailsPane({ photo, metadata, draftEdits = {}, typedDraftEdits,
                 onGenerateAiDescription();
               }}
             >
-              Generate AI Description
+              Generate AI Description…
             </button>
           )}
         </div>

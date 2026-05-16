@@ -249,7 +249,7 @@ describe("DetailsPane component", () => {
     expect(body!.contains(footer)).toBe(false);
 
     // Both action buttons live in the sticky footer.
-    expect(within(footer).getByText("+ Add Property")).toBeInTheDocument();
+    expect(within(footer).getByText("+ Add Property…")).toBeInTheDocument();
     expect(within(footer).getByTestId("details-pane-generate-ai-btn")).toBeInTheDocument();
   });
 
@@ -366,7 +366,7 @@ describe("DetailsPane: Add-Property two-step flow", () => {
       />,
     );
 
-    await user.click(screen.getByText("+ Add Property"));
+    await user.click(screen.getByText("+ Add Property…"));
     fireEvent.change(screen.getByTestId("new-property-key"), {
       target: { value: "XMP-dc:Subject" },
     });
@@ -411,7 +411,7 @@ describe("DetailsPane: Add-Property two-step flow", () => {
       />,
     );
 
-    await user.click(screen.getByText("+ Add Property"));
+    await user.click(screen.getByText("+ Add Property…"));
     fireEvent.change(screen.getByTestId("new-property-key"), {
       target: { value: "XMP-foo:Bool" },
     });
@@ -446,7 +446,7 @@ describe("DetailsPane: Add-Property two-step flow", () => {
       />,
     );
 
-    await user.click(screen.getByText("+ Add Property"));
+    await user.click(screen.getByText("+ Add Property…"));
     fireEvent.change(screen.getByTestId("new-property-key"), {
       target: { value: "XMP-dc:Title" },
     });
@@ -508,9 +508,9 @@ describe("DetailsPane: read-only row context menu", () => {
     openRowContextMenu();
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "View" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "View…" })).toBeInTheDocument();
     });
-    expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Edit…" })).toBeNull();
 
     const removeBtn = screen.getByRole("button", { name: "Remove" });
     expect(removeBtn).toBeDisabled();
@@ -545,9 +545,9 @@ describe("DetailsPane: read-only row context menu", () => {
     openRowContextMenu();
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Edit…" })).toBeInTheDocument();
     });
-    expect(screen.queryByRole("button", { name: "View" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "View…" })).toBeNull();
 
     const removeBtn = screen.getByRole("button", { name: "Remove" });
     expect(removeBtn).not.toBeDisabled();
@@ -578,7 +578,7 @@ describe("DetailsPane: read-only row context menu", () => {
 
     openRowContextMenu();
 
-    const viewBtn = await screen.findByRole("button", { name: "View" });
+    const viewBtn = await screen.findByRole("button", { name: "View…" });
     fireEvent.click(viewBtn);
 
     // The editor dialog opens (text-fallback ValueEditDialog), and its Save
@@ -610,7 +610,7 @@ describe("DetailsPane: Edit reopens with pending draft as the seed", () => {
     );
     expect(row).toBeDefined();
     fireEvent.contextMenu(row!);
-    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit…" }));
   }
 
   it("EnumEditor opens on the draft value, not the metadata value", async () => {

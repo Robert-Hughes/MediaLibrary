@@ -52,7 +52,7 @@ export function MenuBar({
     <div className="menu-bar" data-testid="menu-bar">
       <img src="/icon.png" alt="Icon" className="menu-bar-logo" />
       <button className="menu-bar-btn" onClick={onOpenFolder} data-testid="menu-bar-open-btn">
-        Open Folder
+        Open Folder…
       </button>
       <button className="menu-bar-btn" onClick={onCloseFolder} data-testid="menu-bar-close-btn">
         Close
@@ -94,7 +94,7 @@ export function MenuBar({
               data-testid="menu-bar-apply-all-btn"
               title="Apply all draft edits to the original image files"
             >
-              Apply All Edits
+              Apply All Edits…
             </button>
           )}
           {onDiscardAllEdits && (
@@ -107,7 +107,7 @@ export function MenuBar({
               }}
               title="Discard all edits across all files"
             >
-              Discard All
+              Discard All…
             </button>
           )}
         </div>

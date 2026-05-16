@@ -97,7 +97,7 @@ describe("Draft Metadata Editing Integration", () => {
     await user.pointer({ keys: "[MouseRight]", target: canonCell });
 
     // Click "Edit" in context menu
-    await user.click(screen.getByText("Edit"));
+    await user.click(screen.getByText("Edit…"));
 
     // Edit dialog appears
     const input = screen.getByRole("textbox");
@@ -189,7 +189,7 @@ describe("Draft Metadata Editing Integration", () => {
     await user.click(screen.getByTestId("gallery-info-toggle"));
 
     // Click "+ Add Property" → stage 1 (key picker)
-    await user.click(screen.getByText("+ Add Property"));
+    await user.click(screen.getByText("+ Add Property…"));
 
     // Pick the key and advance to stage 2
     await user.type(screen.getByTestId("new-property-key"), "XMP-dc:Description");
@@ -262,7 +262,7 @@ describe("Draft Metadata Editing Integration", () => {
     
     const canonCell = within(screen.getByTestId("details-section-IFD0")).getByTitle("Canon");
     await user.pointer({ keys: "[MouseRight]", target: canonCell });
-    await user.click(screen.getByText("Edit"));
+    await user.click(screen.getByText("Edit…"));
     
     const input = screen.getByRole("textbox");
     await user.clear(input);
@@ -289,7 +289,7 @@ describe("Draft Metadata Editing Integration", () => {
 
     // Right click the row and discard all edits
     await user.pointer({ keys: "[MouseRight]", target: rows[0] });
-    await user.click(screen.getByText("Discard all edits"));
+    await user.click(screen.getByText("Discard all edits…"));
 
     // The list is now empty because no edits exist but filter is still has:edits
     expect(screen.queryByTestId("photo-row")).toBeNull();
@@ -334,7 +334,7 @@ describe("Draft Metadata Editing Integration", () => {
     
     const canonCell = within(screen.getByTestId("details-section-IFD0")).getByTitle("Canon");
     await user.pointer({ keys: "[MouseRight]", target: canonCell });
-    await user.click(screen.getByText("Edit"));
+    await user.click(screen.getByText("Edit…"));
     
     const input = screen.getByRole("textbox");
     await user.clear(input);
@@ -403,7 +403,7 @@ describe("Draft Metadata Editing Integration", () => {
     await user.click(screen.getByTestId("gallery-info-toggle"));
     let canonCell = within(screen.getByTestId("details-section-IFD0")).getByTitle("Canon");
     await user.pointer({ keys: "[MouseRight]", target: canonCell });
-    await user.click(screen.getByText("Edit"));
+    await user.click(screen.getByText("Edit…"));
     let input = screen.getByRole("textbox");
     await user.clear(input);
     await user.type(input, "Nikon");
@@ -416,7 +416,7 @@ describe("Draft Metadata Editing Integration", () => {
     await user.dblClick(rows[1]);
     canonCell = within(screen.getByTestId("details-section-IFD0")).getByTitle("Canon");
     await user.pointer({ keys: "[MouseRight]", target: canonCell });
-    await user.click(screen.getByText("Edit"));
+    await user.click(screen.getByText("Edit…"));
     input = screen.getByRole("textbox");
     await user.clear(input);
     await user.type(input, "Sony");
