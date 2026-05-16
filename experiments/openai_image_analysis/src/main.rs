@@ -460,11 +460,19 @@ async fn list_models_with_pricing(client: &Client, api_key: &str) -> Result<(), 
         created_b.cmp(&created_a) // Reverse order for newest first
     });
 
-    // Print ASCII Table Header
-    println!("{:<25} | {:<7} | {:<7} | {:<7} | {:^6} | {:<12} | {:<10}", 
-             "Model", "Input", "Cached", "Output", "Flex", "1024x1024", "Created");
-    println!("{:-<25}-+-{:-<7}-+-{:-<7}-+-{:-<7}-+-{:-<6}-+-{:-<12}-+-{:-<10}", 
-             "", "", "", "", "", "", "");
+    use comfy_table::{Table, Cell, CellAlignment};
+
+    let mut table = Table::new();
+    table.load_preset(comfy_table::presets::ASCII_MARKDOWN);
+    table.set_header(vec![
+        Cell::new("Model").set_alignment(CellAlignment::Left),
+        Cell::new("Input").set_alignment(CellAlignment::Right),
+        Cell::new("Cached").set_alignment(CellAlignment::Right),
+        Cell::new("Output").set_alignment(CellAlignment::Right),
+        Cell::new("Flex").set_alignment(CellAlignment::Center),
+        Cell::new("1024x1024").set_alignment(CellAlignment::Right),
+        Cell::new("Created").set_alignment(CellAlignment::Right),
+    ]);
 
     for (model_id, model) in vision_models {
         let created_str = if let Some(created) = model["created"].as_i64() {
@@ -486,21 +494,29 @@ async fn list_models_with_pricing(client: &Client, api_key: &str) -> Result<(), 
                 "-".to_string()
             };
 
-            println!("{:<25} | ${:<6.2} | {:<7} | ${:<6.2} | {:^6} | ${:<11.6} | {:<10}",
+            table.add_row(vec![
                 model_id,
-                pricing.input_per_1m,
+                format!("${:.2}", pricing.input_per_1m),
                 cached_str,
-                pricing.output_per_1m,
-                flex_str,
-                cost_1024,
-                created_str
-            );
+                format!("${:.2}", pricing.output_per_1m),
+                flex_str.to_string(),
+                format!("${:.6}", cost_1024),
+                created_str,
+            ]);
         } else {
-            println!("{:<25} | {:<7} | {:<7} | {:<7} | {:^6} | {:<12} | {:<10}",
-                model_id, "N/A", "N/A", "N/A", "-", "N/A", created_str
-            );
+            table.add_row(vec![
+                model_id,
+                "N/A".to_string(),
+                "N/A".to_string(),
+                "N/A".to_string(),
+                "-".to_string(),
+                "N/A".to_string(),
+                created_str,
+            ]);
         }
     }
+    
+    println!("{table}");
 
     println!("Note: Only models with vision/image input support are shown (excluding checkpoint/snapshot models)");
     println!("Prices are per 1M tokens in USD");
