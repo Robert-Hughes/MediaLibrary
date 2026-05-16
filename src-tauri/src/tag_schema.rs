@@ -316,7 +316,10 @@ impl TagRegistry {
             if path.exists() {
                 match std::fs::read_to_string(path) {
                     Ok(contents) => match serde_json::from_str::<TagRegistry>(&contents) {
-                        Ok(r) => {
+                        Ok(mut r) => {
+                            // Apply hard-coded overrides after load so the app
+                            // doesn't need to bump cache keys when adding new ones.
+                            apply_overrides(&mut r.tags);
                             log::info!(
                                 "[tag_schema] Loaded {} tags from cache {} (exiftool {})",
                                 r.len(),
@@ -900,6 +903,17 @@ mod tests {
             assert_eq!(a, b, "lookup mismatch after roundtrip for {}", key);
         }
         assert_eq!(original.len(), restored.len());
+    }
+
+    #[test]
+    fn build_cached_applies_overrides() {
+        // Regression test: ensure build_cached() applies overrides even when
+        // loading from disk. We test this by forcing a cache build (which may
+        // hit disk) and verifying an overridden tag is correct.
+        let reg = TagRegistry::build_cached().expect("build_cached failed");
+        let t = reg.lookup("IFD1:ThumbnailImage").expect("should have ThumbnailImage");
+        assert!(matches!(t.kind, TagKind::Binary));
+        assert!(!t.writable);
     }
 
     #[test]
