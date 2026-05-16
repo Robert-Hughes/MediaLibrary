@@ -490,3 +490,99 @@ describe("DetailsPane: read-only row context menu", () => {
     expect(saveBtn).toHaveAttribute("title", "Tag is read-only per ExifTool schema");
   });
 });
+
+// ── Edit dialog seeds from the pending draft, not the on-disk value ─────────
+
+describe("DetailsPane: Edit reopens with pending draft as the seed", () => {
+  beforeEach(() => {
+    cleanup();
+    _clearTagInfoCache();
+  });
+
+  const photo = makePhoto({
+    relative_path: "p.jpg",
+    filename: "p.jpg",
+    date_modified: 0,
+    date_created: 0,
+  });
+
+  function openRowEdit(rowLabel: string) {
+    const row = screen.getAllByTestId("details-row").find((r) =>
+      within(r).queryByText(rowLabel) !== null,
+    );
+    expect(row).toBeDefined();
+    fireEvent.contextMenu(row!);
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+  }
+
+  it("EnumEditor opens on the draft value, not the metadata value", async () => {
+    _setTagInfoCacheEntry("IFD0:Orientation", {
+      group: "IFD0",
+      name: "Orientation",
+      writable: true,
+      kind: {
+        kind: "Enum",
+        data: {
+          repr: "Integer",
+          options: [
+            { code: "1", label: "Horizontal (normal)" },
+            { code: "6", label: "Rotate 90 CW" },
+            { code: "8", label: "Rotate 270 CW" },
+          ],
+        },
+      },
+      description: null,
+    });
+
+    const typedDraftEdits: Record<string, DraftEdit> = {
+      "IFD0:Orientation": { value: 8, intent: "Set", display: "Rotate 270 CW" },
+    };
+
+    render(
+      <DetailsPane
+        photo={photo}
+        metadata={{ "IFD0:Orientation": 1 as Variant }}
+        draftEdits={{ "IFD0:Orientation": "Rotate 270 CW" }}
+        typedDraftEdits={typedDraftEdits}
+        onSetDraftTyped={vi.fn()}
+      />,
+    );
+
+    openRowEdit("Orientation");
+
+    // Editor must open in dropdown mode (not Custom) and have the draft
+    // selection (8) pre-selected — not the on-disk value (1).
+    const select = await screen.findByTestId("enum-editor-select") as HTMLSelectElement;
+    expect(select.value).toBe("8");
+  });
+
+  it("NumericEditor seeds the input with the pending draft value", async () => {
+    _setTagInfoCacheEntry("XMP-xmp:Rating", {
+      group: "XMP-xmp",
+      name: "Rating",
+      writable: true,
+      kind: { kind: "Real" },
+      description: null,
+    });
+
+    const typedDraftEdits: Record<string, DraftEdit> = {
+      "XMP-xmp:Rating": { value: 4, intent: "Set", display: "4" },
+    };
+
+    render(
+      <DetailsPane
+        photo={photo}
+        metadata={{ "XMP-xmp:Rating": 2 as Variant }}
+        draftEdits={{ "XMP-xmp:Rating": "4" }}
+        typedDraftEdits={typedDraftEdits}
+        onSetDraftTyped={vi.fn()}
+      />,
+    );
+
+    openRowEdit("Rating");
+
+    // The visible numeric input must be seeded with the draft "4", not "2".
+    const input = await screen.findByTestId("numeric-editor-input") as HTMLInputElement;
+    expect(input.value).toBe("4");
+  });
+});
