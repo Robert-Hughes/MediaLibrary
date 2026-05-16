@@ -3,6 +3,8 @@ import type { DraftEdit, PhotoInfo, ImageMetadataState, Variant } from "../types
 import { HighlightedText } from "./HighlightedText";
 import { ContextMenu } from "./ContextMenu";
 import { TypedValueEditor } from "./editors/TypedValueEditor";
+import { useTagInfo } from "../hooks/useTagInfo";
+import { READ_ONLY_REMOVE_TOOLTIP } from "./editors/readOnlyMessages";
 import { variantToDisplayString } from "../draft";
 
 /**
@@ -143,6 +145,55 @@ function DetailsValueCell({
         <HighlightedText text={originalValue} searchQuery={searchQuery} />
       )}
     </td>
+  );
+}
+
+/**
+ * Right-click menu for a property row. Lives in its own component so it can
+ * call `useTagInfo(contextMenu.key)` — schema lookup decides whether to
+ * relabel "Edit" → "View" and whether "Remove" should be blocked. Read-only
+ * tags can be viewed (the Save button inside the dialog stays disabled) but
+ * not removed from the file, since ExifTool refuses delete-writes on
+ * read-only tags just like it refuses value-writes.
+ */
+function DetailsRowContextMenu({
+  contextMenu,
+  existsInOriginal,
+  onEdit,
+  onDiscard,
+  onRemove,
+  onClose,
+}: {
+  contextMenu: { x: number; y: number; key: string; originalValue: string; draftValue?: string | null };
+  existsInOriginal: boolean;
+  onEdit: () => void;
+  onDiscard: () => void;
+  onRemove: () => void;
+  onClose: () => void;
+}) {
+  const tag = useTagInfo(contextMenu.key);
+  const readOnly = tag !== null && tag !== "loading" && !tag.writable;
+  return (
+    <ContextMenu
+      x={contextMenu.x}
+      y={contextMenu.y}
+      options={[
+        {
+          label: readOnly ? "View" : "Edit",
+          onClick: onEdit,
+        },
+        ...(contextMenu.draftValue !== undefined
+          ? [{ label: "Discard", onClick: onDiscard }]
+          : []),
+        {
+          label: "Remove",
+          onClick: onRemove,
+          disabled: readOnly && existsInOriginal,
+          title: readOnly && existsInOriginal ? READ_ONLY_REMOVE_TOOLTIP : undefined,
+        },
+      ]}
+      onClose={onClose}
+    />
   );
 }
 
@@ -369,39 +420,31 @@ export function DetailsPane({ photo, metadata, draftEdits = {}, onSetDraftTyped,
       </div>
 
       {contextMenu && (
-        <ContextMenu
-          x={contextMenu.x}
-          y={contextMenu.y}
-          options={[
-            {
-              label: "Edit",
-              onClick: () => {
-                setEditDialog({
-                  key: contextMenu.key,
-                  initialValue: contextMenu.draftValue !== undefined && contextMenu.draftValue !== null
-                    ? contextMenu.draftValue
-                    : contextMenu.originalValue,
-                });
-                setContextMenu(null);
-              },
-            },
-            ...(contextMenu.draftValue !== undefined
-              ? [{ label: "Discard", onClick: () => { onDiscardDraft?.(contextMenu.key); setContextMenu(null); } }]
-              : []),
-            {
-              label: "Remove",
-              onClick: () => {
-                const existsInOriginal =
-                  metadata !== "loading" && contextMenu.key in (metadata as Record<string, Variant>);
-                if (existsInOriginal) {
-                  onSetDraftTyped?.(contextMenu.key, { value: null, intent: "Delete" });
-                } else {
-                  onDiscardDraft?.(contextMenu.key);
-                }
-                setContextMenu(null);
-              },
-            },
-          ]}
+        <DetailsRowContextMenu
+          contextMenu={contextMenu}
+          existsInOriginal={
+            metadata !== "loading" && contextMenu.key in (metadata as Record<string, Variant>)
+          }
+          onEdit={() => {
+            setEditDialog({
+              key: contextMenu.key,
+              initialValue: contextMenu.draftValue !== undefined && contextMenu.draftValue !== null
+                ? contextMenu.draftValue
+                : contextMenu.originalValue,
+            });
+            setContextMenu(null);
+          }}
+          onDiscard={() => { onDiscardDraft?.(contextMenu.key); setContextMenu(null); }}
+          onRemove={() => {
+            const existsInOriginal =
+              metadata !== "loading" && contextMenu.key in (metadata as Record<string, Variant>);
+            if (existsInOriginal) {
+              onSetDraftTyped?.(contextMenu.key, { value: null, intent: "Delete" });
+            } else {
+              onDiscardDraft?.(contextMenu.key);
+            }
+            setContextMenu(null);
+          }}
           onClose={() => setContextMenu(null)}
         />
       )}
