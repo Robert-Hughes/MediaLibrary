@@ -194,8 +194,12 @@ function DetailsImageRow({
   const readOnly = tag != null && tag !== "loading" && !tag.writable;
 
   const valueInfo = variantDatatype(rawValue);
+  // With a schema, the value badge is a divergence indicator (hidden when
+  // the type matches expectations). Without a schema there is no reference
+  // type, so always surface the runtime datatype as informational.
   const showValueBadge =
-    schemaInfo != null && valueInfo != null && !datatypesMatch(valueInfo.code, schemaInfo.code);
+    valueInfo != null
+    && (schemaInfo == null || !datatypesMatch(valueInfo.code, schemaInfo.code));
 
   const draftVariant = typedDraft && typedDraft.intent !== "Delete" ? typedDraft.value : undefined;
   const draftInfo = variantDatatype(draftVariant ?? undefined);
@@ -204,8 +208,9 @@ function DetailsImageRow({
     && typedDraft.intent !== "Delete"
     && draftInfo != null
     && (
-      (valueInfo != null && !datatypesMatch(draftInfo.code, valueInfo.code) && draftInfo.code !== valueInfo.code)
+      (valueInfo != null && draftInfo.code !== valueInfo.code)
       || (schemaInfo != null && !datatypesMatch(draftInfo.code, schemaInfo.code))
+      || (schemaInfo == null && valueInfo == null)
     );
 
   return (

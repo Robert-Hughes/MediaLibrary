@@ -181,13 +181,70 @@ describe("DetailsPane datatype badges", () => {
     expect(within(row).getByTestId("datatype-badge-draft")).toHaveAttribute("data-code", "S");
   });
 
-  it("unknown tag (TagInfo null) → no badges", () => {
+  it("unknown tag → no schema badge but value badge still shown (informational)", () => {
     _setTagInfoCacheEntry("Made-Up:Thing", null);
     render(<DetailsPane photo={photo} metadata={{ "Made-Up:Thing": "x" } as Record<string, Variant>} />);
     const row = findRow("Made-Up:Thing");
     expect(within(row).queryByTestId("datatype-badge-schema")).toBeNull();
-    expect(within(row).queryByTestId("datatype-badge-value")).toBeNull();
+    expect(within(row).getByTestId("datatype-badge-value")).toHaveAttribute("data-code", "S");
     expect(within(row).queryByTestId("datatype-badge-draft")).toBeNull();
+  });
+
+  it("unknown tag + matching-type draft → value badge only", () => {
+    _setTagInfoCacheEntry("Made-Up:Thing", null);
+    const typed: Record<string, DraftEdit> = {
+      "Made-Up:Thing": { value: "y", intent: "Set" },
+    };
+    render(
+      <DetailsPane
+        photo={photo}
+        metadata={{ "Made-Up:Thing": "x" } as Record<string, Variant>}
+        draftEdits={{ "Made-Up:Thing": "y" }}
+        typedDraftEdits={typed}
+      />,
+    );
+    const row = findRow("Made-Up:Thing");
+    expect(within(row).queryByTestId("datatype-badge-schema")).toBeNull();
+    expect(within(row).getByTestId("datatype-badge-value")).toHaveAttribute("data-code", "S");
+    expect(within(row).queryByTestId("datatype-badge-draft")).toBeNull();
+  });
+
+  it("unknown tag + diverging draft → value + draft badges", () => {
+    _setTagInfoCacheEntry("Made-Up:Thing", null);
+    const typed: Record<string, DraftEdit> = {
+      "Made-Up:Thing": { value: 42, intent: "Set" },
+    };
+    render(
+      <DetailsPane
+        photo={photo}
+        metadata={{ "Made-Up:Thing": "x" } as Record<string, Variant>}
+        draftEdits={{ "Made-Up:Thing": "42" }}
+        typedDraftEdits={typed}
+      />,
+    );
+    const row = findRow("Made-Up:Thing");
+    expect(within(row).queryByTestId("datatype-badge-schema")).toBeNull();
+    expect(within(row).getByTestId("datatype-badge-value")).toHaveAttribute("data-code", "S");
+    expect(within(row).getByTestId("datatype-badge-draft")).toHaveAttribute("data-code", "N");
+  });
+
+  it("unknown tag, draft-only property → draft badge shown", () => {
+    _setTagInfoCacheEntry("Made-Up:Thing", null);
+    const typed: Record<string, DraftEdit> = {
+      "Made-Up:Thing": { value: "new", intent: "Set" },
+    };
+    render(
+      <DetailsPane
+        photo={photo}
+        metadata={{} as Record<string, Variant>}
+        draftEdits={{ "Made-Up:Thing": "new" }}
+        typedDraftEdits={typed}
+      />,
+    );
+    const row = findRow("Made-Up:Thing");
+    expect(within(row).queryByTestId("datatype-badge-schema")).toBeNull();
+    expect(within(row).queryByTestId("datatype-badge-value")).toBeNull();
+    expect(within(row).getByTestId("datatype-badge-draft")).toHaveAttribute("data-code", "S");
   });
 
   it("delete-intent draft on string schema → schema only (delete suppressed)", () => {
