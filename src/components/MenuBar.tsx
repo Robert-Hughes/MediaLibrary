@@ -17,6 +17,9 @@ interface Props {
   onClickDraftSummary?: () => void;
   onDiscardAllEdits?: () => void;
   onApplyAllEdits?: () => void;
+  /** Optional search wiring — when provided, MenuBar renders the search box right-aligned. */
+  searchQuery?: string;
+  onSearchQueryChange?: (q: string) => void;
 }
 
 export function MenuBar({
@@ -32,6 +35,8 @@ export function MenuBar({
   onClickDraftSummary,
   onDiscardAllEdits,
   onApplyAllEdits,
+  searchQuery,
+  onSearchQueryChange,
 }: Props) {
   const spinStyle = useSpinnerSync();
   
@@ -120,6 +125,21 @@ export function MenuBar({
           <span style={spinStyle} className="menu-bar-spinner" data-testid="menu-bar-metadata-spinner" aria-label="Loading metadata…" />
           <span className="menu-bar-status" data-testid="menu-bar-metadata-label">Loading metadata… ({metadataLoaded} of {metadataTotal})</span>
         </>
+      )}
+      {onSearchQueryChange && (
+        <div className="menu-bar-search" data-testid="menu-bar-search">
+          <label className="list-search-label" htmlFor="list-search-input">Search</label>
+          <input
+            id="list-search-input"
+            type="search"
+            className="list-search-input"
+            data-testid="list-search-input"
+            placeholder="Path, file dates, image metadata…"
+            value={searchQuery ?? ""}
+            onChange={(e) => onSearchQueryChange(e.target.value)}
+            aria-label="Search photos"
+          />
+        </div>
       )}
     </div>
   );
