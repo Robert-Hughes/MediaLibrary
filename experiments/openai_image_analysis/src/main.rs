@@ -438,23 +438,40 @@ pub fn image_content_item(path: &str) -> Result<serde_json::Value, Box<dyn std::
 ///   the model's default tendency to start with filler like "The image shows".
 /// - Constraining length keeps output cost bounded and predictable.
 const SYSTEM_INSTRUCTIONS: &str = "\
-You are an image description engine for a media library. Output a literal, \
-factual description of the image contents only. Do not speculate about the \
-photographer's intent, the meaning, or the emotional tone. Do not start with \
-phrases like 'The image shows', 'This is a photo of', 'I can see', or similar \
-preamble — begin directly with the description. Use 2-4 sentences in present \
-tense. \
+You describe images for a personal media library. Your output is consumed \
+by both software (for indexing and search) and a human (for browsing), so \
+it should be informative and engaging — not robotically factual. \
 \
-Provide `tags` as a list of short search-friendly terms a photographer would \
-use to organise this image in a media library: subject (e.g. 'portrait', \
-'landscape', 'still-life'), setting (e.g. 'beach', 'urban', 'indoor'), \
-notable content ('sunset', 'snow', 'crowd', 'wedding'), and stylistic \
-qualities ('black-and-white', 'long-exposure', 'macro') where applicable. \
-Prefer lowercase, hyphenated, single-concept tags. Aim for 5-15 tags. \
+For `description`: 2-4 sentences in present tense. Lead with the most \
+salient content. **Name landmarks, famous buildings, sculptures, locations, \
+and recognizable activities by their proper names when you are confident** \
+— e.g. 'London Eye' not 'ferris wheel', 'Tower of London' not 'castle', \
+'St Pancras Renaissance Hotel' not 'red-brick building', 'punting' not \
+'paddling a boat', 'The Meeting Place statue' not 'bronze sculpture of two \
+people'. Fall back to generic terms only when you are not confident. Do \
+not start with filler ('The image shows', 'This is a photo of', 'I can see') \
+— begin directly with the description. Keep `description` factual: what is \
+actually present in the image. Speculation about intent, meaning, or \
+emotion goes in `interpretation`, not here. \
 \
-For `ocr_text`, list each distinct text region as a separate entry (a sign, \
-a label, a caption are each their own entry). Transcribe verbatim. Empty \
-array if no text is visible. \
+For `tags`: lowercase, hyphenated, single-concept search terms a photographer \
+would use to organise the image — subject ('portrait', 'landscape', \
+'still-life'), setting ('beach', 'urban', 'indoor'), notable content \
+('sunset', 'crowd', 'wedding'), style ('black-and-white', 'long-exposure', \
+'macro'), and **specific places, landmarks, or named activities when known** \
+('london-eye', 'st-pancras', 'thames', 'punting'). Aim for 5-15 tags. \
+\
+For `ocr_text`: each distinct text region transcribed verbatim, as its own \
+entry. Empty array if no text. \
+\
+For `interpretation`: ONE short sentence (or empty string) of explicitly \
+labelled speculation about the photographer's intent, the mood, or the \
+emotional tone of the image. Examples: 'Mood is quiet and contemplative.', \
+'Likely a candid romantic moment between the couple.', 'Appears to \
+celebrate the grandeur of the building.', 'Conveys a sense of scale and \
+isolation.' Use hedging language ('appears', 'likely', 'seems', 'mood is') \
+to make clear this is interpretive, not factual. Leave empty if nothing \
+meaningful can be said (e.g. for documents, screenshots, blurry images). \
 \
 If the image is blank, blurry, or unidentifiable, say so plainly in the \
 description.";
@@ -493,9 +510,18 @@ fn description_schema() -> serde_json::Value {
                 "type": "array",
                 "items": { "type": "string" },
                 "description": "Each visible text region transcribed verbatim, as a separate entry. Empty array if no text."
+            },
+            // `interpretation` is a separate field for explicitly-labelled
+            // speculation about mood, intent, or emotional tone — kept out
+            // of `description` so downstream consumers can choose whether to
+            // surface or hide it. Empty string when there's nothing useful
+            // to say (documents, screenshots, abstract content).
+            "interpretation": {
+                "type": "string",
+                "description": "One short hedging sentence about mood, intent, or emotional tone (or empty string)."
             }
         },
-        "required": ["description", "objects", "tags", "ocr_text"],
+        "required": ["description", "objects", "tags", "ocr_text", "interpretation"],
         "additionalProperties": false
     })
 }
