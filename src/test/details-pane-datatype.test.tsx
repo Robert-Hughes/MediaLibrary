@@ -351,6 +351,14 @@ describe("DetailsPane datatype badges", () => {
     expect(within(os).queryByTestId("datatype-badge-value")).toBeNull();
   });
 
+  it("schema kind Unknown is treated as no-schema (no schema badge, value badge still shown)", () => {
+    _setTagInfoCacheEntry("File:FileType", tagInfo("File", "FileType", { kind: "Unknown" }));
+    render(<DetailsPane photo={photo} metadata={{ "File:FileType": "JPEG" } as Record<string, Variant>} />);
+    const row = findRow("File:FileType");
+    expect(within(row).queryByTestId("datatype-badge-schema")).toBeNull();
+    expect(within(row).getByTestId("datatype-badge-value")).toHaveAttribute("data-code", "S");
+  });
+
   it("OS section value cells are always rendered read-only", () => {
     render(<DetailsPane photo={photo} metadata={{}} />);
     const os = screen.getByTestId("details-section-os");

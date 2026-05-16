@@ -12,7 +12,10 @@ describe("schemaDatatype", () => {
     expect(schemaDatatype({ kind: "Boolean" })?.code).toBe("B");
     expect(schemaDatatype({ kind: "DateTime" })?.code).toBe("D");
     expect(schemaDatatype({ kind: "Binary" })?.code).toBe("Bin");
-    expect(schemaDatatype({ kind: "Unknown" })?.code).toBe("?");
+  });
+
+  it("treats Unknown kind as no schema (returns null)", () => {
+    expect(schemaDatatype({ kind: "Unknown" })).toBeNull();
   });
 
   it("maps container kinds distinctly", () => {
