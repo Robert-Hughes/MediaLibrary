@@ -227,7 +227,7 @@ export function TypedValueEditor({
 
   if (tag && tag.kind.kind === "Enum") {
     const { repr, options } = tag.kind.data;
-    const code = initialCodeFrom(initialVariant, undefined, options);
+    const code = initialCodeFrom(initialVariant, initialString, options);
     return (
       <EnumEditor
         propertyKey={propertyKey}
