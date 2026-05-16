@@ -252,6 +252,27 @@ describe("DetailsPane component", () => {
     expect(within(footer).getByText("+ Add Property")).toBeInTheDocument();
     expect(within(footer).getByTestId("details-pane-generate-ai-btn")).toBeInTheDocument();
   });
+
+  it("renders a Show in File Explorer button when the callback is wired, and fires it on click", async () => {
+    const onShow = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <DetailsPane
+        photo={photo}
+        metadata={{}}
+        onShowInFileExplorer={onShow}
+      />,
+    );
+    const btn = screen.getByTestId("details-pane-show-in-explorer-btn");
+    expect(btn).toBeInTheDocument();
+    await user.click(btn);
+    expect(onShow).toHaveBeenCalledTimes(1);
+  });
+
+  it("omits the Show in File Explorer button when no callback is wired", () => {
+    render(<DetailsPane photo={photo} metadata={{}} />);
+    expect(screen.queryByTestId("details-pane-show-in-explorer-btn")).toBeNull();
+  });
 });
 
 // ── Generate-AI overwrite confirmation ──────────────────────────────────────

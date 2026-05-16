@@ -222,6 +222,10 @@ function LoadedView({
           onDiscardAllEdits={actions.discardAllDraftEdits}
           onApplyEdits={(path) => actions.applyDraftEdits(path)}
           onGenerateAiDescription={(relPath) => describe.actions.start(state.folder, [relPath])}
+          onShowInFileExplorer={(relPath) => {
+            const idx = displayPhotos.findIndex((p) => p.relative_path === relPath);
+            if (idx >= 0) void onShowInExplorer(idx);
+          }}
         />
       )}
       {showColumnDialog && (
