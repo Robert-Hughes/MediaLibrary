@@ -823,8 +823,38 @@ fn output_path_for(image_path: &str, model: &str) -> std::path::PathBuf {
     parent.join(format!("{} ({}).json", stem, model))
 }
 
+/// Write an error stub to the output file so that a failed run does not leave
+/// the previous run's (now-stale) JSON in place. Absence of a fresh stub vs
+/// presence of a real result is unambiguous; silent staleness was a real bug
+/// when MAX_OUTPUT_TOKENS truncated a response and the prior JSON was
+/// mistaken for the current run.
+fn write_error_stub(
+    image_path: &str,
+    model: &str,
+    error_kind: &str,
+    detail: &str,
+    raw_text: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let stub = serde_json::json!({
+        "error": error_kind,
+        "detail": detail,
+        "raw_text": raw_text,
+        "model": model,
+    });
+    let out = output_path_for(image_path, model);
+    std::fs::write(&out, serde_json::to_string_pretty(&stub)?)?;
+    println!("Wrote error stub to {} (replaces any stale prior output)", out.display());
+    Ok(())
+}
+
 /// Process one image: call the API, detect truncation, parse + pretty-print
 /// the structured JSON, optionally write it to disk next to the source.
+///
+/// On any failure (API error, incomplete response, unparseable JSON), if
+/// `write_next_to_image` is set we write an error stub to the same target
+/// file. This prevents silent staleness — without it, a failed call would
+/// leave the previous run's JSON in place and the operator would be misled
+/// into thinking the file matches the latest model+prompt.
 async fn process_image(
     client: &Client,
     api_key: &str,
@@ -834,8 +864,21 @@ async fn process_image(
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!("\n--- Processing: {} ---", image_path);
 
-    let response = call_responses_api(client, api_key, model, &[image_path]).await?;
+    let response = match call_responses_api(client, api_key, model, &[image_path]).await {
+        Ok(r) => r,
+        Err(e) => {
+            if write_next_to_image {
+                write_error_stub(image_path, model, "api_error", &e.to_string(), "")?;
+            }
+            return Err(e);
+        }
+    };
     tracing::debug!("API Response: {}", serde_json::to_string_pretty(&response)?);
+
+    let raw_text = response["output"][0]["content"][0]["text"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
 
     // Truncation check — hitting max_output_tokens cuts off mid-token and leaves
     // the structured JSON unparseable. Warn loudly so the operator raises the cap.
@@ -852,13 +895,19 @@ async fn process_image(
             "!!! WARNING: response status='incomplete', reason='{}'. Raise MAX_OUTPUT_TOKENS and retry.",
             reason
         );
+        if write_next_to_image {
+            write_error_stub(
+                image_path,
+                model,
+                "incomplete",
+                &format!("Response truncated (reason: {}). Raise MAX_OUTPUT_TOKENS.", reason),
+                &raw_text,
+            )?;
+        }
+        return Ok(());
     }
 
-    let raw_text = response["output"][0]["content"][0]["text"]
-        .as_str()
-        .unwrap_or("");
-
-    match serde_json::from_str::<serde_json::Value>(raw_text) {
+    match serde_json::from_str::<serde_json::Value>(&raw_text) {
         Ok(parsed) => {
             let pretty = serde_json::to_string_pretty(&parsed)?;
             println!("=== Structured Response ===\n{}", pretty);
@@ -872,6 +921,9 @@ async fn process_image(
         Err(e) => {
             tracing::warn!("Response text was not valid JSON: {}", e);
             println!("=== Text Response (raw) ===\n{}", raw_text);
+            if write_next_to_image {
+                write_error_stub(image_path, model, "invalid_json", &e.to_string(), &raw_text)?;
+            }
         }
     }
 
