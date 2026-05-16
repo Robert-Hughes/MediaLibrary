@@ -16,6 +16,21 @@ use std::io::Cursor;
 /// effective input it would have used, at a fraction of the upload size.
 const MAX_IMAGE_DIMENSION: u32 = 1024;
 
+/// Hard cap on output tokens per response.
+///
+/// Hitting this cap does NOT cause the model to gracefully compact its
+/// response — generation is a hard cutoff mid-token, leaving the structured
+/// JSON output truncated and unparseable. So this must be set comfortably
+/// above the realistic worst case, and we must check `status == "incomplete"`
+/// on the response to detect cases where we underestimated.
+const MAX_OUTPUT_TOKENS: u32 = 600;
+
+/// Expected output tokens for a typical photo (used for cost estimation only).
+///
+/// Description ~100 tokens, objects/tags arrays ~120, ocr_text often empty.
+/// Bounded above by MAX_OUTPUT_TOKENS.
+const EXPECTED_OUTPUT_TOKENS: u32 = 250;
+
 const OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
 
 #[derive(Parser, Debug)]
@@ -512,7 +527,7 @@ fn build_response_request(
         "temperature": 0,
         "top_p": 1,
         "seed": 42,
-        "max_output_tokens": 600,
+        "max_output_tokens": MAX_OUTPUT_TOKENS,
     });
 
     Ok(request)
@@ -814,21 +829,40 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             tracing::info!("Request to be sent (truncated for preview):\n{}", request_str);
 
             println!("Exact input tokens (via API): {}", total_input_tokens);
-
-            // Best guess output tokens for the structured response: description
-            // (~100) + objects/tags arrays (~120) + ocr_text (variable, often
-            // empty). Matches typical-photo expectation; capped by
-            // max_output_tokens=600 in the request.
-            let estimated_output_tokens = 250;
-            println!("Estimated output tokens (guess): {}", estimated_output_tokens);
+            println!(
+                "Expected output tokens: {}  (worst case capped at {})",
+                EXPECTED_OUTPUT_TOKENS, MAX_OUTPUT_TOKENS
+            );
 
             if let Some(p) = pricing {
                 let input_cost = (total_input_tokens as f64 / 1_000_000.0) * p.input_per_1m;
-                let output_cost = (estimated_output_tokens as f64 / 1_000_000.0) * p.output_per_1m;
-                let total_cost = input_cost + output_cost;
-                println!("Estimated total cost (Standard): ${:.6} (Input: ${:.6}, Output: ${:.6})", total_cost, input_cost, output_cost);
+                // Expected cost: input + typical-photo output.
+                let expected_output_cost =
+                    (EXPECTED_OUTPUT_TOKENS as f64 / 1_000_000.0) * p.output_per_1m;
+                let expected_total = input_cost + expected_output_cost;
+                // Upper-bound cost: input + full output budget. This is the
+                // most you'll pay for a single call given max_output_tokens.
+                let max_output_cost =
+                    (MAX_OUTPUT_TOKENS as f64 / 1_000_000.0) * p.output_per_1m;
+                let upper_bound_total = input_cost + max_output_cost;
+
+                println!(
+                    "Expected cost   (Standard): ${:.6}  (Input: ${:.6}, Output: ${:.6})",
+                    expected_total, input_cost, expected_output_cost
+                );
+                println!(
+                    "Upper-bound cost (Standard): ${:.6}  (Input: ${:.6}, Output: ${:.6} @ {} tok cap)",
+                    upper_bound_total, input_cost, max_output_cost, MAX_OUTPUT_TOKENS
+                );
                 if p.supports_batch {
-                    println!("Estimated total cost (Flex):     ${:.6} (Input: ${:.6}, Output: ${:.6})", total_cost * 0.5, input_cost * 0.5, output_cost * 0.5);
+                    println!(
+                        "Expected cost   (Flex):     ${:.6}",
+                        expected_total * 0.5
+                    );
+                    println!(
+                        "Upper-bound cost (Flex):     ${:.6}",
+                        upper_bound_total * 0.5
+                    );
                 }
             } else {
                 println!("Cost estimation unavailable: Model not in pricing table.");
@@ -851,6 +885,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             match call_responses_api(&client, &api_key, model, &sample_images).await {
                 Ok(response) => {
                     tracing::info!("API Response: {}", serde_json::to_string_pretty(&response)?);
+
+                    // Detect truncation up front. When `status == "incomplete"`
+                    // the model hit a limit mid-generation (most commonly
+                    // max_output_tokens) and any JSON in the text field will
+                    // be truncated and unparseable. Warn loudly — the right
+                    // fix is to raise MAX_OUTPUT_TOKENS, not to try to repair
+                    // the JSON.
+                    let status = response["status"].as_str().unwrap_or("");
+                    if status == "incomplete" {
+                        let reason = response["incomplete_details"]["reason"]
+                            .as_str()
+                            .unwrap_or("unknown");
+                        tracing::warn!(
+                            "Response is incomplete (reason: {}). Structured JSON is likely truncated.",
+                            reason
+                        );
+                        println!(
+                            "\n!!! WARNING: response status='incomplete', reason='{}'. Raise MAX_OUTPUT_TOKENS and retry.",
+                            reason
+                        );
+                    }
 
                     // With structured output, the model returns a JSON string in
                     // the `text` field that conforms to our schema. Parse and
