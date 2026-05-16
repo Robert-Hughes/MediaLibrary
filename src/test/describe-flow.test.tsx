@@ -73,6 +73,25 @@ describe("SettingsDialog", () => {
     expect(mockApiInstance.settings.openai_model).toBe("gpt-4o");
   });
 
+  it("renders per-image cost beside each model in the dropdown", async () => {
+    // User feedback: the bare model id told users nothing about cost.
+    // Each option now ships its own ballpark estimate so the choice has
+    // dollar-scale context at the point of decision.
+    mockApiInstance.perImageCosts = {
+      "gpt-4o": 0.00525,
+      "gpt-5.4-nano": 0.00053,
+    };
+    mockApiInstance.recommendedModels = ["gpt-4o", "gpt-5.4-nano"];
+    const { user } = await openFolderWithPhoto();
+    await user.click(screen.getByTestId("menu-bar-settings-btn"));
+    const select = await screen.findByTestId("settings-model-select") as HTMLSelectElement;
+    await waitFor(() => {
+      const labels = Array.from(select.options).map((o) => o.textContent);
+      expect(labels.some((l) => l && l.includes("gpt-4o") && l.includes("per image"))).toBe(true);
+      expect(labels.some((l) => l && l.includes("gpt-5.4-nano") && /\$0\.000\d/.test(l))).toBe(true);
+    });
+  });
+
   it("warning text near the API key field is visible (replaces consent dialog)", async () => {
     await openFolderWithPhoto();
     const { user } = { user: userEvent.setup() };

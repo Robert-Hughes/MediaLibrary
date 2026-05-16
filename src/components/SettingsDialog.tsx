@@ -17,9 +17,22 @@ interface Props {
   onClose: () => void;
 }
 
+/**
+ * Format a USD cost compactly for the model dropdown. Sub-cent figures
+ * keep four decimal places so users can compare cheap models meaningfully
+ * (gpt-5.4-nano at $0.0003 vs gpt-5.4-mini at $0.0014).
+ */
+function formatPerImageCost(usd: number): string {
+  if (usd < 0.01) return `~$${usd.toFixed(4)}`;
+  return `~$${usd.toFixed(3)}`;
+}
+
 export function SettingsDialog({ onClose }: Props) {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [models, setModels] = useState<string[]>([]);
+  /** Model id → ballpark per-image cost in USD. Missing entries are
+   *  rendered without a cost suffix so an unknown model is still pickable. */
+  const [perImageCosts, setPerImageCosts] = useState<Record<string, number>>({});
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -34,6 +47,23 @@ export function SettingsDialog({ onClose }: Props) {
         if (cancelled) return;
         setSettings(s);
         setModels(ms);
+        // Fire the per-model cost queries in parallel — the backend
+        // already has the pricing table so each call is local-only. We
+        // tolerate per-model failures (Promise.allSettled) so one bad
+        // entry doesn't blank the dropdown's cost column.
+        const results = await Promise.allSettled(
+          ms.map((m) => invoke<number>("estimate_per_image_cost_cmd", { model: m })
+            .then((cost) => [m, cost] as const))
+        );
+        if (cancelled) return;
+        const costs: Record<string, number> = {};
+        for (const r of results) {
+          if (r.status === "fulfilled") {
+            const [m, c] = r.value;
+            costs[m] = c;
+          }
+        }
+        setPerImageCosts(costs);
       } catch (e) {
         if (!cancelled) setLoadError(String(e));
       }
@@ -96,9 +126,13 @@ export function SettingsDialog({ onClose }: Props) {
                   onChange={(e) => persist({ ...settings, openai_model: e.target.value })}
                   style={{ width: "100%", padding: 6 }}
                 >
-                  {models.map((m) => (
-                    <option key={m} value={m}>{m}</option>
-                  ))}
+                  {models.map((m) => {
+                    const c = perImageCosts[m];
+                    const label = c !== undefined
+                      ? `${m} (${formatPerImageCost(c)} per image)`
+                      : m;
+                    return <option key={m} value={m}>{label}</option>;
+                  })}
                 </select>
                 <div style={{ marginTop: 6, fontSize: 11, color: "var(--text-secondary)" }}>
                   gpt-4o is the recommended default: names landmarks

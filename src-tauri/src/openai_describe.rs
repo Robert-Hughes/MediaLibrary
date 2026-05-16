@@ -42,6 +42,25 @@ pub const MAX_OUTPUT_TOKENS: u32 = 600;
 /// in the experiment; bounded by `MAX_OUTPUT_TOKENS`.
 pub const EXPECTED_OUTPUT_TOKENS: u32 = 250;
 
+/// Representative input-token count for one downscaled (≤1024px) image
+/// plus the system prompt. Used only by the model-dropdown cost preview,
+/// where we don't have a real image to call `/responses/input_tokens`
+/// against. Real per-run estimates still use the exact server count.
+/// Calibrated against gpt-4o for a typical landscape 1024×768 photo
+/// (~870 image tokens + ~230 instruction tokens).
+pub const TYPICAL_INPUT_TOKENS_PER_IMAGE: u32 = 1100;
+
+/// Estimate the cost of describing one typical image with `model`.  Used by
+/// the Settings dropdown to give users a ballpark before they commit.
+/// Returns `None` when the model has no pricing entry — callers render the
+/// model id without a cost suffix in that case.
+pub fn estimate_typical_cost_per_image(model: &str) -> Option<f64> {
+    let p = pricing_for(model)?;
+    let input = (TYPICAL_INPUT_TOKENS_PER_IMAGE as f64 / 1_000_000.0) * p.input_per_1m;
+    let output = (EXPECTED_OUTPUT_TOKENS as f64 / 1_000_000.0) * p.output_per_1m;
+    Some(input + output)
+}
+
 /// Prompt + schema version.  Bump when either changes so the audit log and
 /// the `XMP-mlib:AIPromptVersion` written to each file can distinguish
 /// runs.
@@ -483,6 +502,35 @@ mod tests {
         let u = UsageStats { input_tokens: 1000, cached_input_tokens: 0, output_tokens: 250, reasoning_tokens: 0 };
         let c = u.cost(&p);
         assert!((c - 0.005).abs() < 1e-9, "got {}", c);
+    }
+
+    #[test]
+    fn typical_per_image_cost_matches_hand_calc_for_gpt_4o() {
+        // gpt-4o: $2.50/1M input, $10/1M output.
+        // 1100 input tokens + 250 output tokens =
+        //   1100/1e6 * 2.50 + 250/1e6 * 10.00 = 0.00275 + 0.00250 = 0.00525
+        let c = estimate_typical_cost_per_image("gpt-4o").unwrap();
+        assert!((c - 0.00525).abs() < 1e-9, "got {}", c);
+    }
+
+    #[test]
+    fn typical_per_image_cost_returns_none_for_unknown_model() {
+        // Avoids the Settings dropdown silently rendering "$0/image" for a
+        // model we don't price — the caller must decide how to display it.
+        assert!(estimate_typical_cost_per_image("not-a-real-model").is_none());
+    }
+
+    #[test]
+    fn typical_per_image_cost_is_defined_for_every_recommended_model() {
+        // Parallel guard to `pricing_has_entry_for_every_recommended_model`:
+        // if a model joins the recommended set, the dropdown estimator must
+        // know about it too.
+        for &m in crate::settings::RECOMMENDED_MODELS {
+            assert!(
+                estimate_typical_cost_per_image(m).is_some(),
+                "missing typical cost for recommended model {}", m
+            );
+        }
     }
 
     #[test]
