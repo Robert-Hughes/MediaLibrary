@@ -393,8 +393,21 @@ factual description of the image contents only. Do not speculate about the \
 photographer's intent, the meaning, or the emotional tone. Do not start with \
 phrases like 'The image shows', 'This is a photo of', 'I can see', or similar \
 preamble — begin directly with the description. Use 2-4 sentences in present \
-tense. Note any visible text verbatim. If the image is blank, blurry, or \
-unidentifiable, say so plainly.";
+tense. \
+\
+Provide `tags` as a list of short search-friendly terms a photographer would \
+use to organise this image in a media library: subject (e.g. 'portrait', \
+'landscape', 'still-life'), setting (e.g. 'beach', 'urban', 'indoor'), \
+notable content ('sunset', 'snow', 'crowd', 'wedding'), and stylistic \
+qualities ('black-and-white', 'long-exposure', 'macro') where applicable. \
+Prefer lowercase, hyphenated, single-concept tags. Aim for 5-15 tags. \
+\
+For `ocr_text`, list each distinct text region as a separate entry (a sign, \
+a label, a caption are each their own entry). Transcribe verbatim. Empty \
+array if no text is visible. \
+\
+If the image is blank, blurry, or unidentifiable, say so plainly in the \
+description.";
 
 /// JSON schema for structured output.
 ///
@@ -415,16 +428,24 @@ fn description_schema() -> serde_json::Value {
                 "items": { "type": "string" },
                 "description": "Distinct nouns visible in the image (people, animals, objects, landmarks)."
             },
-            "scene_type": {
-                "type": "string",
-                "description": "Short category, e.g. 'indoor portrait', 'landscape', 'document scan'."
+            // `tags` (renamed from `scene_type`) is an array of short
+            // search-friendly terms, matching how photographers tag photos in
+            // media-library software (subject, setting, content, style).
+            "tags": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Photographer-style tags: lowercase, hyphenated, single-concept (e.g. 'sunset', 'portrait', 'black-and-white'). 5-15 entries."
             },
+            // `ocr_text` is an array — distinct text regions (sign, label,
+            // caption) stay distinct rather than being concatenated, so
+            // downstream code can index or display them separately.
             "ocr_text": {
-                "type": "string",
-                "description": "Any text visible in the image, transcribed verbatim. Empty string if none."
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Each visible text region transcribed verbatim, as a separate entry. Empty array if no text."
             }
         },
-        "required": ["description", "objects", "scene_type", "ocr_text"],
+        "required": ["description", "objects", "tags", "ocr_text"],
         "additionalProperties": false
     })
 }
