@@ -482,9 +482,13 @@ fn build_response_request(
     //                        non-deterministic remainder. OpenAI treats this
     //                        as a hint, not a guarantee.
     // - `max_output_tokens`  Bounds worst-case cost and stops runaway
-    //                        responses. 300 tokens is comfortably above what
-    //                        the schema (2-4 sentence description + small
-    //                        arrays) should ever need.
+    //                        responses. Set to 600: a typical photo response
+    //                        is ~250 tokens (description ~100, objects/tags
+    //                        ~120, empty ocr), but document scans or signs
+    //                        with heavy OCR can push the ocr_text array
+    //                        substantially higher. 600 gives headroom without
+    //                        being wasteful — if the model truncates here we
+    //                        want to know.
     //
     // Note: reasoning models (o-series, gpt-5 reasoning variants) ignore
     // temperature/top_p. That's fine — they're not the target here.
@@ -507,7 +511,7 @@ fn build_response_request(
         "temperature": 0,
         "top_p": 1,
         "seed": 42,
-        "max_output_tokens": 300,
+        "max_output_tokens": 600,
     });
 
     Ok(request)
@@ -812,8 +816,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             println!("Exact input tokens (via API): {}", total_input_tokens);
 
-            // Best guess output tokens (assuming a standard ~150 word response at 1.5 tokens/word)
-            let estimated_output_tokens = 225;
+            // Best guess output tokens for the structured response: description
+            // (~100) + objects/tags arrays (~120) + ocr_text (variable, often
+            // empty). Matches typical-photo expectation; capped by
+            // max_output_tokens=600 in the request.
+            let estimated_output_tokens = 250;
             println!("Estimated output tokens (guess): {}", estimated_output_tokens);
 
             if let Some(p) = pricing {
