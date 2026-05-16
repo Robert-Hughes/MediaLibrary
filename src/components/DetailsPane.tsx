@@ -20,8 +20,7 @@ interface Props {
   photo: PhotoInfo;
   metadata: ImageMetadataState;
   draftEdits?: Record<string, string | null>;
-  onSetDraft?: (key: string, value: string | null) => void;
-  /** Typed setter, used by Phase 4 editors that need to write Variant::List etc. */
+  /** Typed setter used by every editor (Phase 4+). */
   onSetDraftTyped?: (key: string, edit: DraftEdit) => void;
   /** Batch setter for paired-tag editors (GPS). */
   onSetDraftBatch?: (edits: Array<{ key: string; edit: DraftEdit }>) => void;
@@ -147,7 +146,7 @@ function DetailsValueCell({
   );
 }
 
-export function DetailsPane({ photo, metadata, draftEdits = {}, onSetDraft, onSetDraftTyped, onSetDraftBatch, onDiscardDraft, onDiscardAllEdits, onApplyEdits }: Props) {
+export function DetailsPane({ photo, metadata, draftEdits = {}, onSetDraftTyped, onSetDraftBatch, onDiscardDraft, onDiscardAllEdits, onApplyEdits }: Props) {
   const [detailsSearch, setDetailsSearch] = useState("");
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, key: string, originalValue: string, draftValue?: string | null } | null>(null);
   const [editDialog, setEditDialog] = useState<{ key: string, initialValue: string } | null>(null);
@@ -392,7 +391,7 @@ export function DetailsPane({ photo, metadata, draftEdits = {}, onSetDraft, onSe
                 const existsInOriginal =
                   metadata !== "loading" && contextMenu.key in (metadata as Record<string, Variant>);
                 if (existsInOriginal) {
-                  onSetDraft?.(contextMenu.key, null);
+                  onSetDraftTyped?.(contextMenu.key, { value: null, intent: "Delete" });
                 } else {
                   onDiscardDraft?.(contextMenu.key);
                 }
@@ -414,16 +413,7 @@ export function DetailsPane({ photo, metadata, draftEdits = {}, onSetDraft, onSe
           initialString={editDialog.initialValue}
           onSaveBatch={onSetDraftBatch ? (edits) => { onSetDraftBatch(edits); setEditDialog(null); } : undefined}
           onSave={(edit) => {
-            if (onSetDraftTyped) {
-              onSetDraftTyped(editDialog.key, edit);
-            } else {
-              // Fallback for callers that haven't wired the typed setter yet:
-              // collapse the typed value to its display string and use the
-              // legacy callback.  Lists round-trip as comma-joined here, which
-              // is the legacy-corruption pre-refactor behaviour but only on
-              // the fallback path.
-              onSetDraft?.(editDialog.key, edit.intent === "Delete" ? null : variantToDisplayString(edit.value));
-            }
+            onSetDraftTyped?.(editDialog.key, edit);
             setEditDialog(null);
           }}
           onCancel={() => setEditDialog(null)}
@@ -433,7 +423,7 @@ export function DetailsPane({ photo, metadata, draftEdits = {}, onSetDraft, onSe
       {showNewPropertyDialog && (
         <NewPropertyDialog
           onSave={(key, value) => {
-            onSetDraft?.(key, value);
+            onSetDraftTyped?.(key, { value, intent: "Set" });
             setShowNewPropertyDialog(false);
           }}
           onCancel={() => setShowNewPropertyDialog(false)}
