@@ -7,6 +7,7 @@ import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import App from "../App";
 import { createMockTauriApi } from "./mockTauriApi";
 import { makePhoto } from "./factories";
+import { _setTagInfoCacheEntry } from "../hooks/useTagInfo";
 
 let mockApiInstance: ReturnType<typeof createMockTauriApi>;
 
@@ -147,6 +148,67 @@ describe("Draft Metadata Editing Integration", () => {
     const finalRows = screen.getAllByTestId("photo-row");
     expect(within(finalRows[0]).getByText("Canon")).toBeInTheDocument();
     expect(screen.queryByText("Sony")).toBeNull();
+  });
+
+  it("removing a newly-added property drops the draft instead of leaving a delete-draft", async () => {
+    const user = userEvent.setup();
+
+    // Pre-seed schema lookup so NewPropertyDialog renders synchronously.
+    _setTagInfoCacheEntry("XMP-dc:Description", null);
+
+    mockApiInstance.pickFolderResolves("/photos");
+    render(<App />);
+    await act(async () => {
+      await new Promise(r => setTimeout(r, 50));
+    });
+
+    await user.click(screen.getByTestId("open-folder-btn"));
+
+    const photo = makePhoto({ relative_path: "test.jpg" });
+    await act(async () => {
+      mockApiInstance.emitPhotoFound(photo);
+    });
+
+    const metadata = { "IFD0:Make": "Canon" };
+    await act(async () => {
+      mockApiInstance.emitImageMetadataReady(photo.relative_path, metadata);
+    });
+
+    await act(async () => {
+      await new Promise(r => setTimeout(r, 250));
+    });
+
+    // Open gallery + info pane
+    const rows = screen.getAllByTestId("photo-row");
+    await user.dblClick(rows[0]);
+    await user.click(screen.getByTestId("gallery-info-toggle"));
+
+    // Click "+ Add Property"
+    await user.click(screen.getByText("+ Add Property"));
+
+    // Fill the dialog and save
+    await user.type(screen.getByTestId("new-property-key"), "XMP-dc:Description");
+    await user.type(screen.getByTestId("new-property-value"), "Hello");
+    await user.click(screen.getByTestId("new-property-add"));
+
+    // Draft badge present: 1 edit on this photo
+    expect(screen.getByTitle("Show only edited fields")).toBeInTheDocument();
+
+    // The new property row should now appear under XMP-dc
+    const xmpSection = screen.getByTestId("details-section-XMP-dc");
+    const newRow = within(xmpSection).getByText("Hello").closest("tr")!;
+    expect(newRow).toBeInTheDocument();
+
+    // Right-click the new row → Remove
+    await user.pointer({ keys: "[MouseRight]", target: newRow });
+    await user.click(screen.getByText("Remove"));
+
+    // No draft should remain — badge gone, Apply gone, Discard All gone,
+    // and the row itself should no longer be rendered.
+    expect(screen.queryByTitle("Show only edited fields")).toBeNull();
+    expect(screen.queryByTestId("details-pane-apply-btn")).toBeNull();
+    expect(screen.queryByTitle("Discard all edits for this photo")).toBeNull();
+    expect(screen.queryByText("Hello")).toBeNull();
   });
 
   it("can filter list view to has:edits via badge and discard all edits from context menu", async () => {
