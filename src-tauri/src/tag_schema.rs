@@ -19,10 +19,7 @@ use quick_xml::events::Event;
 use quick_xml::Reader;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::process::Command;
 use std::sync::OnceLock;
-
-use crate::scanner::find_exiftool;
 
 /// What kind of value a tag holds. Drives editor selection and write-back
 /// argument construction (see `METADATA_FORMATS_DESIGN.md` §5, §6).
@@ -284,8 +281,7 @@ impl TagRegistry {
 
     /// Build by running `exiftool -listx -lang en`.
     pub fn build() -> Result<Self, SchemaError> {
-        let cmd = find_exiftool();
-        let output = Command::new(cmd)
+        let output = crate::exiftool_config::exiftool_command()
             .args(["-listx", "-lang", "en"])
             .output()
             .map_err(|e| SchemaError::ExifToolFailed(e.to_string()))?;
@@ -380,8 +376,7 @@ impl TagRegistry {
 
 /// Run `exiftool -ver`. Returns trimmed version string (e.g. `13.57`).
 fn read_exiftool_version() -> Result<String, SchemaError> {
-    let cmd = find_exiftool();
-    let output = Command::new(cmd)
+    let output = crate::exiftool_config::exiftool_command()
         .arg("-ver")
         .output()
         .map_err(|e| SchemaError::ExifToolFailed(e.to_string()))?;
@@ -542,6 +537,20 @@ fn apply_overrides(tags: &mut BTreeMap<String, TagInfo>) {
         ("XMP-exif:DateTimeOriginal", || TagKind::DateTime),
         ("XMP-exif:DateTimeDigitized", || TagKind::DateTime),
         ("XMP-iptcCore:DateCreated", || TagKind::DateTime),
+
+        // ── XMP-mlib namespace (AI-generated metadata) ────────────────
+        // Registered with exiftool via the embedded user-defined config
+        // (see `exiftool_config.rs`). `-listx` does not enumerate
+        // user-defined namespaces, so the entries here are the only place
+        // these tags appear in the schema.
+        ("XMP-mlib:AIDescription",    || TagKind::Text),
+        ("XMP-mlib:AIInterpretation", || TagKind::Text),
+        ("XMP-mlib:AITags",           || TagKind::Bag(Box::new(TagKind::Text))),
+        ("XMP-mlib:AIObjects",        || TagKind::Bag(Box::new(TagKind::Text))),
+        ("XMP-mlib:AIOcrText",        || TagKind::Bag(Box::new(TagKind::Text))),
+        ("XMP-mlib:AIModel",          || TagKind::Text),
+        ("XMP-mlib:AIGeneratedAt",    || TagKind::DateTime),
+        ("XMP-mlib:AIPromptVersion",  || TagKind::Text),
 
         // ── Unknown-kind cleanups ──────────────────────────────────────
         // `-listx` reports `type='undef'` for a long tail of EXIF tags.
