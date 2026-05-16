@@ -35,6 +35,8 @@ export interface MockTauriApi {
   settings: { openai_api_key: string; openai_model: string };
   /** Recommended-models list returned by list_recommended_models. */
   recommendedModels: string[];
+  /** Per-model ballpark cost returned by estimate_per_image_cost_cmd. */
+  perImageCosts: Record<string, number>;
   /** Records the most recent estimate_describe_cost_cmd arguments. */
   lastEstimateArgs: { folderPath: string; relPaths: string[] } | null;
   /** Records the most recent describe_images_cmd arguments. */
@@ -101,6 +103,13 @@ export function createMockTauriApi(): MockTauriApi {
     cancelApplyEditsCalled: false,
     settings: { openai_api_key: "", openai_model: "gpt-4o" },
     recommendedModels: ["gpt-4o", "gpt-5.4-nano", "gpt-5.4-mini", "gpt-5.4", "gpt-5.5"],
+    perImageCosts: {
+      "gpt-4o": 0.00525,
+      "gpt-5.4-nano": 0.00053,
+      "gpt-5.4-mini": 0.00195,
+      "gpt-5.4": 0.0065,
+      "gpt-5.5": 0.0130,
+    },
     lastEstimateArgs: null,
     lastDescribeArgs: null,
     cancelDescribeCalled: false,
@@ -196,6 +205,10 @@ export function createMockTauriApi(): MockTauriApi {
       }
       if (cmd === "list_recommended_models") {
         return mock.recommendedModels;
+      }
+      if (cmd === "estimate_per_image_cost_cmd") {
+        const model = args?.model as string;
+        return mock.perImageCosts[model] ?? 0.005;
       }
       if (cmd === "estimate_describe_cost_cmd") {
         const folderPath = args?.folderPath as string;

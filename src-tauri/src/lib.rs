@@ -855,6 +855,16 @@ fn list_recommended_models() -> Vec<String> {
     settings::RECOMMENDED_MODELS.iter().map(|s| s.to_string()).collect()
 }
 
+/// Ballpark USD cost of describing a single typical image with `model`.
+/// Drives the per-model cost label in the Settings dropdown so users see
+/// the scale before they pick. Returns an error for unknown models so the
+/// caller can decide between "(price unknown)" and a hard failure.
+#[tauri::command]
+fn estimate_per_image_cost_cmd(model: String) -> Result<f64, String> {
+    openai_describe::estimate_typical_cost_per_image(&model)
+        .ok_or_else(|| format!("no pricing entry for model {}", model))
+}
+
 // ── AI image-description commands ─────────────────────────────────────────────
 
 #[derive(Clone, Serialize)]
@@ -1357,6 +1367,7 @@ pub fn run() {
             load_settings_cmd,
             save_settings_cmd,
             list_recommended_models,
+            estimate_per_image_cost_cmd,
             estimate_describe_cost_cmd,
             describe_images_cmd,
             cancel_describe_cmd
