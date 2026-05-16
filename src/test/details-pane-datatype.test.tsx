@@ -293,4 +293,15 @@ describe("DetailsPane datatype badges", () => {
     expect(within(os).queryByTestId("datatype-badge-schema")).toBeNull();
     expect(within(os).queryByTestId("datatype-badge-value")).toBeNull();
   });
+
+  it("OS section value cells are always rendered read-only", () => {
+    render(<DetailsPane photo={photo} metadata={{}} />);
+    const os = screen.getByTestId("details-section-os");
+    const cells = os.querySelectorAll("td.details-value");
+    expect(cells.length).toBeGreaterThan(0);
+    for (const cell of Array.from(cells)) {
+      expect(cell.classList.contains("details-value--readonly")).toBe(true);
+      expect(cell.getAttribute("data-readonly")).toBe("true");
+    }
+  });
 });
