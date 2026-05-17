@@ -128,17 +128,6 @@ export function MenuBar({
           <span className="menu-bar-status" data-testid="menu-bar-metadata-label">Loading metadata… ({metadataLoaded} of {metadataTotal})</span>
         </>
       )}
-      <button
-        type="button"
-        className="menu-bar-btn menu-bar-theme-toggle"
-        onClick={toggleTheme}
-        aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
-        title={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
-        data-testid="menu-bar-theme-toggle"
-        style={{ marginLeft: "auto" }}
-      >
-        {theme === "dark" ? "☀" : "☾"}
-      </button>
       {onSearchQueryChange && (
         <div className="menu-bar-search" data-testid="menu-bar-search">
           <label className="list-search-label" htmlFor="list-search-input">Search</label>
@@ -154,6 +143,17 @@ export function MenuBar({
           />
         </div>
       )}
+      <button
+        type="button"
+        className="menu-bar-btn menu-bar-theme-toggle"
+        onClick={toggleTheme}
+        aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
+        title={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
+        data-testid="menu-bar-theme-toggle"
+        style={onSearchQueryChange ? undefined : { marginLeft: "auto" }}
+      >
+        {theme === "dark" ? "☀" : "☾"}
+      </button>
     </div>
   );
 }
