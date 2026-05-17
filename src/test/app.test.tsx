@@ -55,25 +55,38 @@ describe("App schema preloading", () => {
     });
   });
 
-  it("dismisses schema loading dialog even when preload_schema fails", async () => {
+  it("shows schema error dialog with PATH guidance when preload_schema fails", async () => {
     const { invoke } = await import("@tauri-apps/api/core");
     const mockInvoke = vi.mocked(invoke);
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
 
+    const backendError = "exiftool not found: No such file or directory (os error 2)";
     mockInvoke.mockImplementation((cmd: string) => {
-      if (cmd === "preload_schema") return Promise.reject(new Error("schema build failed"));
+      if (cmd === "preload_schema") return Promise.reject(backendError);
       if (cmd === "get_cli_folder") return Promise.resolve(null);
       return Promise.resolve(null);
     });
 
     render(<App />);
 
+    // Loading dialog goes away, error dialog appears.
     await waitFor(() => {
       expect(screen.queryByTestId("schema-loading-dialog")).not.toBeInTheDocument();
+      expect(screen.getByTestId("schema-error-dialog")).toBeInTheDocument();
     });
+
+    // Surfaces the actual backend error message to the user.
+    expect(screen.getByTestId("schema-error-message")).toHaveTextContent(backendError);
+
+    // Tells the user to put exiftool on PATH (no mention of settings).
+    const dialog = screen.getByTestId("schema-error-dialog");
+    expect(dialog).toHaveTextContent(/exiftool/i);
+    expect(dialog).toHaveTextContent(/PATH/);
+    expect(dialog.textContent ?? "").not.toMatch(/settings/i);
+
     expect(consoleError).toHaveBeenCalledWith(
       "[App] preload_schema failed:",
-      expect.any(Error),
+      backendError,
     );
 
     consoleError.mockRestore();
