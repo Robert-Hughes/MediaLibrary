@@ -82,33 +82,26 @@ describe("WelcomeScreen", () => {
 // ── MenuBar ───────────────────────────────────────────────────────────────────
 
 describe("MenuBar", () => {
-  const base = { photoCount: 3, scanning: false, metadataProgress: null, onOpenFolder: noop, onCloseFolder: noop, onSelectColumns: noop, onOpenSettings: noop };
+  const base = { onOpenFolder: noop, onCloseFolder: noop, onSelectColumns: noop, onOpenSettings: noop };
 
-  it("shows the photo count", () => {
+  it("renders open / close / columns / settings buttons", () => {
     render(<MenuBar {...base} />);
-    expect(screen.getByTestId("menu-bar-count")).toHaveTextContent("3 photos");
+    expect(screen.getByTestId("menu-bar-open-btn")).toBeInTheDocument();
+    expect(screen.getByTestId("menu-bar-close-btn")).toBeInTheDocument();
+    expect(screen.getByTestId("menu-bar-columns-btn")).toBeInTheDocument();
+    expect(screen.getByTestId("menu-bar-settings-btn")).toBeInTheDocument();
   });
 
-  it("uses singular when count is 1", () => {
-    render(<MenuBar {...base} photoCount={1} />);
-    expect(screen.getByTestId("menu-bar-count")).toHaveTextContent("1 photo");
+  it("renders search box only when onSearchQueryChange is provided", () => {
+    const { rerender } = render(<MenuBar {...base} />);
+    expect(screen.queryByTestId("menu-bar-search")).not.toBeInTheDocument();
+    rerender(<MenuBar {...base} searchQuery="" onSearchQueryChange={noop} />);
+    expect(screen.getByTestId("menu-bar-search")).toBeInTheDocument();
   });
 
-  it("shows scanning spinner while scanning", () => {
-    render(<MenuBar {...base} scanning={true} />);
-    expect(screen.getByTestId("menu-bar-spinner")).toBeInTheDocument();
-    expect(screen.queryByTestId("menu-bar-metadata-label")).not.toBeInTheDocument();
-  });
-
-  it("shows metadata spinner and label when metadata is loading", async () => {
-    const { MetadataProgressStore } = await import("../types");
-    const progress = new MetadataProgressStore();
-    progress.setTotal(10);
-    progress.incrementReceived(5);
-    
-    render(<MenuBar {...base} metadataProgress={progress} />);
-    expect(screen.getByTestId("menu-bar-metadata-spinner")).toBeInTheDocument();
-    expect(screen.getByTestId("menu-bar-metadata-label")).toHaveTextContent("Loading metadata… (5 of 10)");
+  it("renders theme toggle", () => {
+    render(<MenuBar {...base} />);
+    expect(screen.getByTestId("menu-bar-theme-toggle")).toBeInTheDocument();
   });
 
   it("calls onSelectColumns when columns button is clicked", async () => {
