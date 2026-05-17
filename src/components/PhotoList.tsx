@@ -890,10 +890,10 @@ export function PhotoList({
                         const x = existing.length;
                         const msg =
                           n === 1
-                            ? "This photo already has location data. Reverse-geocoding will overwrite all location fields with drafts — fields the geocoder doesn't return will be cleared. Continue?"
+                            ? "This photo already has location data. Reverse-geocoding will overwrite all location name fields (City, State, Country, etc. — GPS coordinates are not touched) with drafts; fields the geocoder doesn't return will be cleared. Continue?"
                             : x === n
-                              ? `All ${n} selected photos already have location data. Reverse-geocoding will overwrite all location fields with drafts — fields the geocoder doesn't return will be cleared. Continue?`
-                              : `${x} of ${n} selected photos already have location data. Reverse-geocoding will overwrite all location fields with drafts for those photos — fields the geocoder doesn't return will be cleared. Continue?`;
+                              ? `All ${n} selected photos already have location data. Reverse-geocoding will overwrite all location name fields (City, State, Country, etc. — GPS coordinates are not touched) with drafts; fields the geocoder doesn't return will be cleared. Continue?`
+                              : `${x} of ${n} selected photos already have location data. Reverse-geocoding will overwrite all location name fields (City, State, Country, etc. — GPS coordinates are not touched) with drafts for those photos; fields the geocoder doesn't return will be cleared. Continue?`;
                         const confirmed = await ask(msg, {
                           title: "Overwrite location data?",
                           kind: "warning",
