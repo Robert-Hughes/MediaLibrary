@@ -1,158 +1,70 @@
-import { useSyncExternalStore } from "react";
-import { useSpinnerSync } from "../hooks/useSpinnerSync";
 import { useTheme } from "../hooks/useTheme";
-import { ask } from "@tauri-apps/plugin-dialog";
-import type { MetadataProgressStore } from "../types";
 
 interface Props {
-  photoCount: number;
-  /** When set and different from `photoCount`, count label shows "n of total" (filtered list). */
-  photoCountTotal?: number;
-  scanning: boolean;
-  metadataProgress: MetadataProgressStore | null;
   onOpenFolder: () => void;
   onCloseFolder: () => void;
   onSelectColumns: () => void;
   onOpenSettings: () => void;
-  draftEditsSummary?: { files: number; edits: number } | null;
-  onClickDraftSummary?: () => void;
-  onDiscardAllEdits?: () => void;
-  onApplyAllEdits?: () => void;
-  /** Optional search wiring — when provided, MenuBar renders the search box right-aligned. */
+  /** Optional search wiring — when provided, MenuBar renders the search box in the right group. */
   searchQuery?: string;
   onSearchQueryChange?: (q: string) => void;
 }
 
 export function MenuBar({
-  photoCount,
-  photoCountTotal,
-  scanning,
-  metadataProgress,
   onOpenFolder,
   onCloseFolder,
   onSelectColumns,
   onOpenSettings,
-  draftEditsSummary = null,
-  onClickDraftSummary,
-  onDiscardAllEdits,
-  onApplyAllEdits,
   searchQuery,
   onSearchQueryChange,
 }: Props) {
-  const spinStyle = useSpinnerSync();
   const { theme, toggle: toggleTheme } = useTheme();
-
-  // Subscribe to metadata progress store
-  const metadataRemaining = useSyncExternalStore(
-    metadataProgress?.subscribe.bind(metadataProgress) ?? (() => () => {}),
-    metadataProgress?.getSnapshot().bind(metadataProgress) ?? (() => 0)
-  );
-  const metadataTotal = useSyncExternalStore(
-    metadataProgress?.subscribe.bind(metadataProgress) ?? (() => () => {}),
-    metadataProgress?.getTotalSnapshot().bind(metadataProgress) ?? (() => 0)
-  );
-
-  const imageMetadataLoading = metadataRemaining > 0;
-  const metadataLoaded = metadataTotal - metadataRemaining;
 
   return (
     <div className="menu-bar" data-testid="menu-bar">
-      <button className="menu-bar-btn" onClick={onOpenFolder} data-testid="menu-bar-open-btn">
-        Open Folder…
-      </button>
-      <button className="menu-bar-btn" onClick={onCloseFolder} data-testid="menu-bar-close-btn">
-        Close Folder
-      </button>
-      <div className="menu-bar-divider" />
-      <button className="menu-bar-btn" onClick={onSelectColumns} data-testid="menu-bar-columns-btn">
-        Select Columns…
-      </button>
-      <button className="menu-bar-btn" onClick={onOpenSettings} data-testid="menu-bar-settings-btn">
-        Settings…
-      </button>
-      <div className="menu-bar-divider" />
-      <span className="menu-bar-count" data-testid="menu-bar-count">
-        {photoCountTotal != null && photoCountTotal !== photoCount
-          ? `${photoCount} of ${photoCountTotal} photo${photoCountTotal === 1 ? "" : "s"}`
-          : `${photoCount} photo${photoCount === 1 ? "" : "s"}`}
-      </span>
-      {draftEditsSummary && draftEditsSummary.files > 0 ? (
-        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-          <span
-            className="menu-bar-draft-summary"
-            onClick={onClickDraftSummary}
-            style={{ cursor: onClickDraftSummary ? "pointer" : "default" }}
-            title={onClickDraftSummary ? "Show only photos with edits" : undefined}
-          >
-            {`${draftEditsSummary.edits} draft edit${draftEditsSummary.edits === 1 ? "" : "s"} across ${draftEditsSummary.files} file${draftEditsSummary.files === 1 ? "" : "s"}`}
-          </span>
-          {onApplyAllEdits && (
-            <button
-              className="button button--primary"
-              style={{ padding: "2px 6px", fontSize: "11px", minHeight: "auto", borderRadius: "8px" }}
-              onClick={async () => {
-                const confirmed = await ask(
-                  `Apply ${draftEditsSummary.edits} edit${draftEditsSummary.edits === 1 ? "" : "s"} across ${draftEditsSummary.files} file${draftEditsSummary.files === 1 ? "" : "s"}?\n\nThis will permanently modify the original image files. There is no backup.`,
-                  { title: "Apply All Edits", kind: "warning" }
-                );
-                if (confirmed) onApplyAllEdits();
-              }}
-              data-testid="menu-bar-apply-all-btn"
-              title="Apply all draft edits to the original image files"
-            >
-              Apply All Edits…
-            </button>
-          )}
-          {onDiscardAllEdits && (
-            <button
-              className="button button--secondary"
-              style={{ padding: "2px 6px", fontSize: "11px", minHeight: "auto", borderRadius: "8px" }}
-              onClick={async () => {
-                const confirmed = await ask(`Are you sure you want to discard all ${draftEditsSummary.edits} edit${draftEditsSummary.edits === 1 ? "" : "s"} across ${draftEditsSummary.files} file${draftEditsSummary.files === 1 ? "" : "s"}?`, { title: "Discard All Edits", kind: "warning" });
-                if (confirmed) onDiscardAllEdits();
-              }}
-              title="Discard all edits across all files"
-            >
-              Discard All…
-            </button>
-          )}
-        </div>
-      ) : null}
-      {scanning && (
-        <span style={spinStyle} className="menu-bar-spinner" data-testid="menu-bar-spinner" aria-label="Scanning…" />
-      )}
-      {!scanning && imageMetadataLoading && (
-        <>
-          <span style={spinStyle} className="menu-bar-spinner" data-testid="menu-bar-metadata-spinner" aria-label="Loading metadata…" />
-          <span className="menu-bar-status" data-testid="menu-bar-metadata-label">Loading metadata… ({metadataLoaded} of {metadataTotal})</span>
-        </>
-      )}
-      {onSearchQueryChange && (
-        <div className="menu-bar-search" data-testid="menu-bar-search">
-          <label className="list-search-label" htmlFor="list-search-input">Search</label>
-          <input
-            id="list-search-input"
-            type="search"
-            className="list-search-input"
-            data-testid="list-search-input"
-            placeholder="Path, file dates, image metadata…"
-            value={searchQuery ?? ""}
-            onChange={(e) => onSearchQueryChange(e.target.value)}
-            aria-label="Search photos"
-          />
-        </div>
-      )}
-      <button
-        type="button"
-        className="menu-bar-btn menu-bar-theme-toggle"
-        onClick={toggleTheme}
-        aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
-        title={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
-        data-testid="menu-bar-theme-toggle"
-        style={onSearchQueryChange ? undefined : { marginLeft: "auto" }}
-      >
-        {theme === "dark" ? "☀" : "☾"}
-      </button>
+      <div className="menu-bar-left">
+        <button className="menu-bar-btn" onClick={onOpenFolder} data-testid="menu-bar-open-btn">
+          Open Folder…
+        </button>
+        <button className="menu-bar-btn" onClick={onCloseFolder} data-testid="menu-bar-close-btn">
+          Close Folder
+        </button>
+        <div className="menu-bar-divider" />
+        <button className="menu-bar-btn" onClick={onSelectColumns} data-testid="menu-bar-columns-btn">
+          Select Columns…
+        </button>
+        <button className="menu-bar-btn" onClick={onOpenSettings} data-testid="menu-bar-settings-btn">
+          Settings…
+        </button>
+      </div>
+
+      <div className="menu-bar-right">
+        {onSearchQueryChange && (
+          <div className="menu-bar-search" data-testid="menu-bar-search">
+            <label className="list-search-label" htmlFor="list-search-input">Search</label>
+            <input
+              id="list-search-input"
+              type="search"
+              className="list-search-input"
+              data-testid="list-search-input"
+              placeholder="Path, file dates, image metadata…"
+              value={searchQuery ?? ""}
+              onChange={(e) => onSearchQueryChange(e.target.value)}
+              aria-label="Search photos"
+            />
+          </div>
+        )}
+        <button
+          type="button"
+          className="menu-bar-btn menu-bar-theme-toggle"
+          onClick={toggleTheme}
+          aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
+          title={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
+          data-testid="menu-bar-theme-toggle"
+        >
+          {theme === "dark" ? "☀" : "☾"}
+        </button>
+      </div>
     </div>
   );
 }

@@ -175,18 +175,10 @@ function LoadedView({
     <>
       <ErrorBanner errors={state.workerErrors} onDismiss={actions.dismissError} />
       <MenuBar
-        photoCount={displayPhotos.length}
-        photoCountTotal={listSearchActive ? sortedPhotos.length : undefined}
-        scanning={state.scanning}
-        metadataProgress={state.metadataProgress}
         onOpenFolder={actions.openFolder}
         onCloseFolder={actions.closeFolder}
         onSelectColumns={() => setShowColumnDialog(true)}
         onOpenSettings={onOpenSettings}
-        draftEditsSummary={draftEditsSummary}
-        onClickDraftSummary={onClickDraftSummary}
-        onApplyAllEdits={() => actions.applyDraftEdits()}
-        onDiscardAllEdits={() => actions.discardAllDraftEdits()}
         searchQuery={listSearchQuery}
         onSearchQueryChange={setListSearchQuery}
       />
@@ -358,9 +350,6 @@ export default function App() {
       {!checkingCli && state.kind === "loading" && (
         <>
           <MenuBar
-            photoCount={0}
-            scanning={true}
-            metadataProgress={null}
             onOpenFolder={actions.openFolder}
             onCloseFolder={actions.closeFolder}
             onSelectColumns={() => setShowColumnDialog(true)}

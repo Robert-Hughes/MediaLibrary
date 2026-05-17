@@ -265,7 +265,6 @@ body {
    animation-delay equal to the document timeline time at mount. No JS animation
    queries — see hooks/useSpinnerSync.ts. */
 .spinner,
-.menu-bar-spinner,
 .photo-thumb-spin-inner,
 .cell-spinner,
 .status-bar-spinner,
@@ -279,7 +278,8 @@ body {
 .menu-bar {
   display: flex;
   align-items: center;
-  gap: 4px;
+  justify-content: space-between;
+  gap: 12px;
   height: 36px;
   padding: 0 8px;
   background: var(--surface);
@@ -287,11 +287,16 @@ body {
   flex-shrink: 0;
 }
 
-.menu-bar-logo {
-  width: 20px;
-  height: 20px;
-  margin: 0 4px;
-  object-fit: contain;
+.menu-bar-left,
+.menu-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.menu-bar-right {
+  gap: 8px;
 }
 
 .menu-bar-btn {
@@ -317,29 +322,6 @@ body {
   margin: 0 4px;
 }
 
-.menu-bar-count {
-  font-size: 12px;
-  color: var(--text-dim);
-  margin-left: 4px;
-}
-
-.menu-bar-spinner {
-  display: inline-block;
-  width: 12px;
-  height: 12px;
-  border: 1.5px solid var(--border);
-  border-top-color: var(--accent);
-  border-radius: 50%;
-  margin-left: 6px;
-  vertical-align: middle;
-}
-
-.menu-bar-status {
-  font-size: 12px;
-  color: var(--text-dim);
-  margin-left: 4px;
-}
-
 /* ── List search (loaded folder) ─────────────────────────────────────────── */
 
 .list-search-bar {
@@ -352,9 +334,6 @@ body {
   border-bottom: 1px solid var(--border);
 }
 
-/* Search box embedded in the menu bar.  `margin-left: auto` shoves it to
- * the right edge so it sits on the same row as Open Folder / Close Folder
- * and pushes against the right side of the window. */
 .menu-bar-theme-toggle {
   display: inline-flex;
   align-items: center;
@@ -1734,20 +1713,6 @@ body {
 .draft-new:empty::before {
   content: "—";
   opacity: 0.8;
-}
-
-.menu-bar-draft-summary {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--accent-draft);
-  margin-left: auto; /* Push to right if inside a flex container */
-  background: color-mix(in srgb, var(--accent-draft) 15%, transparent);
-  padding: 4px 10px;
-  border-radius: 12px;
-  border: 1px solid color-mix(in srgb, var(--accent-draft) 30%, transparent);
-  font-weight: 500;
 }
 
 .row-draft-badge {
