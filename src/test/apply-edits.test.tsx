@@ -56,14 +56,14 @@ describe("Apply Draft Edits – MenuBar", () => {
 
   it("Apply All Edits button is not visible when there are no drafts", async () => {
     await openFolderWithPhoto();
-    expect(screen.queryByTestId("menu-bar-apply-all-btn")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("status-bar-apply-all-btn")).not.toBeInTheDocument();
   });
 
   it("Apply All Edits button appears when there are draft edits", async () => {
     const photo = makePhoto({ relative_path: "test.jpg" });
     await seedDraftEdit(photo);
     await openFolderWithPhoto(photo);
-    expect(screen.getByTestId("menu-bar-apply-all-btn")).toBeInTheDocument();
+    expect(screen.getByTestId("status-bar-apply-all-btn")).toBeInTheDocument();
   });
 
   it("clicking Apply All Edits shows confirmation dialog", async () => {
@@ -72,7 +72,7 @@ describe("Apply Draft Edits – MenuBar", () => {
     await seedDraftEdit(photo);
     const { user } = await openFolderWithPhoto(photo);
 
-    const btn = screen.getByTestId("menu-bar-apply-all-btn");
+    const btn = screen.getByTestId("status-bar-apply-all-btn");
     await user.click(btn);
 
     expect(ask).toHaveBeenCalledWith(
@@ -91,13 +91,13 @@ describe("Apply Draft Edits – MenuBar", () => {
     };
 
     const { user } = await openFolderWithPhoto(photo);
-    expect(screen.getByTestId("menu-bar-apply-all-btn")).toBeInTheDocument();
+    expect(screen.getByTestId("status-bar-apply-all-btn")).toBeInTheDocument();
 
-    await user.click(screen.getByTestId("menu-bar-apply-all-btn"));
+    await user.click(screen.getByTestId("status-bar-apply-all-btn"));
     await act(async () => { await new Promise(r => setTimeout(r, 50)); });
 
     // Button should disappear once drafts are gone
-    expect(screen.queryByTestId("menu-bar-apply-all-btn")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("status-bar-apply-all-btn")).not.toBeInTheDocument();
   });
 
   it("apply_draft_edits_cmd is invoked with correct folder and paths", async () => {
@@ -110,7 +110,7 @@ describe("Apply Draft Edits – MenuBar", () => {
     };
 
     const { user } = await openFolderWithPhoto(photo);
-    await user.click(screen.getByTestId("menu-bar-apply-all-btn"));
+    await user.click(screen.getByTestId("status-bar-apply-all-btn"));
     await act(async () => { await new Promise(r => setTimeout(r, 50)); });
 
     const applyCall = mockApiInstance.invocations.find(i => i.cmd === "apply_draft_edits_cmd");
@@ -127,13 +127,13 @@ describe("Apply Draft Edits – MenuBar", () => {
     await seedDraftEdit(photo);
     const { user } = await openFolderWithPhoto(photo);
 
-    await user.click(screen.getByTestId("menu-bar-apply-all-btn"));
+    await user.click(screen.getByTestId("status-bar-apply-all-btn"));
     await act(async () => { await new Promise(r => setTimeout(r, 50)); });
 
     const applyCall = mockApiInstance.invocations.find(i => i.cmd === "apply_draft_edits_cmd");
     expect(applyCall).toBeUndefined();
     // Drafts still present
-    expect(screen.getByTestId("menu-bar-apply-all-btn")).toBeInTheDocument();
+    expect(screen.getByTestId("status-bar-apply-all-btn")).toBeInTheDocument();
   });
 });
 
@@ -268,11 +268,11 @@ describe("Apply Draft Edits – Progress dialog and cancellation", () => {
     };
 
     const { user } = await openFolderWithPhoto(photo);
-    await user.click(screen.getByTestId("menu-bar-apply-all-btn"));
+    await user.click(screen.getByTestId("status-bar-apply-all-btn"));
     await act(async () => { await new Promise(r => setTimeout(r, 50)); });
 
     expect(screen.queryByTestId("apply-progress-dialog")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("menu-bar-apply-all-btn")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("status-bar-apply-all-btn")).not.toBeInTheDocument();
   });
 
   it("clicking Cancel invokes cancel_apply_edits", async () => {
@@ -293,7 +293,7 @@ describe("Apply Draft Edits – Progress dialog and cancellation", () => {
     // before triggering the apply command, then assert cancel hooks up.
     // The mock will emit started + zero progress events synchronously, then resolve.
     // To check the cancel button, we test it directly:
-    await user.click(screen.getByTestId("menu-bar-apply-all-btn"));
+    await user.click(screen.getByTestId("status-bar-apply-all-btn"));
     await act(async () => { await new Promise(r => setTimeout(r, 50)); });
 
     // Since the mock resolves synchronously, the dialog has already closed.
@@ -315,11 +315,11 @@ describe("Apply Draft Edits – Progress dialog and cancellation", () => {
     };
 
     const { user } = await openFolderWithPhoto(photo);
-    await user.click(screen.getByTestId("menu-bar-apply-all-btn"));
+    await user.click(screen.getByTestId("status-bar-apply-all-btn"));
     await act(async () => { await new Promise(r => setTimeout(r, 100)); });
 
     // Drafts cleared (event-driven)
-    expect(screen.queryByTestId("menu-bar-apply-all-btn")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("status-bar-apply-all-btn")).not.toBeInTheDocument();
   });
 });
 
@@ -343,7 +343,7 @@ describe("Apply Draft Edits – Failure handling", () => {
     };
 
     const { user } = await openFolderWithPhoto(photo);
-    await user.click(screen.getByTestId("menu-bar-apply-all-btn"));
+    await user.click(screen.getByTestId("status-bar-apply-all-btn"));
     await act(async () => { await new Promise(r => setTimeout(r, 50)); });
 
     expect(screen.getByText(/ExifTool failed: permission denied/)).toBeInTheDocument();
@@ -374,13 +374,13 @@ describe("Apply Draft Edits – Failure handling", () => {
     await act(async () => { mockApiInstance.emitScanComplete(); });
     await act(async () => { await new Promise(r => setTimeout(r, 250)); });
 
-    await user.click(screen.getByTestId("menu-bar-apply-all-btn"));
+    await user.click(screen.getByTestId("status-bar-apply-all-btn"));
     await act(async () => { await new Promise(r => setTimeout(r, 50)); });
 
     // Error shown for b.jpg
     expect(screen.getByText(/File not found/)).toBeInTheDocument();
 
     // Apply button still present (b.jpg still has draft)
-    expect(screen.getByTestId("menu-bar-apply-all-btn")).toBeInTheDocument();
+    expect(screen.getByTestId("status-bar-apply-all-btn")).toBeInTheDocument();
   });
 });

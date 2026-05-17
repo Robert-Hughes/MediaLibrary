@@ -4,7 +4,6 @@ import { describe, it, expect, vi } from "vitest";
 import { WelcomeScreen } from "../components/WelcomeScreen";
 import { MenuBar } from "../components/MenuBar";
 import { PhotoList } from "../components/PhotoList";
-import { StatusFooter } from "../components/StatusFooter";
 import { ColumnSelectionDialog } from "../components/ColumnSelectionDialog";
 import { ThumbnailStore, ImageMetadataStore } from "../types";
 import type { PhotoInfo } from "../types";
@@ -117,20 +116,6 @@ describe("MenuBar", () => {
     render(<MenuBar {...base} onSelectColumns={handler} />);
     await userEvent.click(screen.getByTestId("menu-bar-columns-btn"));
     expect(handler).toHaveBeenCalledOnce();
-  });
-});
-
-// ── StatusFooter ──────────────────────────────────────────────────────────────
-
-describe("StatusFooter", () => {
-  it("renders the message", () => {
-    render(<StatusFooter message="Discovering files…" />);
-    expect(screen.getByTestId("status-footer")).toHaveTextContent("Discovering files…");
-  });
-
-  it("renders a spinner element", () => {
-    render(<StatusFooter message="Working…" />);
-    expect(document.querySelector(".status-footer-spinner")).toBeInTheDocument();
   });
 });
 
