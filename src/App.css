@@ -804,6 +804,21 @@ body {
   color: var(--text-dim);
 }
 
+.selection-footer {
+  display: flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 12px;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.selection-footer-message {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
 /* ── Gallery overlay ──────────────────────────────────────────────────────── */
 .gallery-overlay {
   position: fixed;

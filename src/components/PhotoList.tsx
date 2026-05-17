@@ -36,6 +36,8 @@ interface Props {
   onApplyEdits?: (fileRelativePaths: string[]) => void;
   /** Trigger AI-description flow for the given relative paths. */
   onGenerateAiDescription?: (fileRelativePaths: string[]) => void;
+  /** Notified whenever the multi-selection size changes. */
+  onSelectionCountChange?: (count: number) => void;
 }
 
 const MIN_COL_WIDTH = 40;
@@ -215,6 +217,7 @@ export function PhotoList({
   onDiscardAllEdits,
   onApplyEdits,
   onGenerateAiDescription,
+  onSelectionCountChange,
 }: Props) {
   const listRef = useRef<HTMLDivElement>(null);
   const visibleRef = useRef<Set<string>>(new Set());
@@ -342,6 +345,12 @@ export function PhotoList({
     if (anchorRef.current === null) anchorRef.current = selectedIndex;
   }, [selectedIndex]);
 
+  // Notify parent of selection-count changes so it can render a footer or
+  // status pill without having to mirror our internal Set.
+  useEffect(() => {
+    onSelectionCountChange?.(selectedIndices.size);
+  }, [selectedIndices, onSelectionCountChange]);
+
   // Drop selections that no longer point to valid rows (search filter, etc.).
   useEffect(() => {
     setSelectedIndices((prev) => {
@@ -404,6 +413,10 @@ export function PhotoList({
   photosLenRef.current = photos.length;
   const selectedIndexRef = useRef(selectedIndex);
   selectedIndexRef.current = selectedIndex;
+  const rowHeightRef = useRef(rowHeight);
+  rowHeightRef.current = rowHeight;
+  const onPhotoOpenRef = useRef(onPhotoOpen);
+  onPhotoOpenRef.current = onPhotoOpen;
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
@@ -421,19 +434,64 @@ export function PhotoList({
       const moveTo = (next: number) => {
         e.preventDefault();
         const clamped = Math.max(0, Math.min(len - 1, next));
+        if (e.shiftKey) {
+          // Extend range from the existing anchor.  If no anchor yet, treat
+          // the current row (or the destination) as the anchor so the very
+          // first Shift+Arrow gesture still produces a sensible range.
+          if (anchorRef.current === null) {
+            anchorRef.current = cur ?? clamped;
+          }
+          const a = anchorRef.current;
+          const start = Math.min(a, clamped);
+          const end = Math.max(a, clamped);
+          const range = new Set<number>();
+          for (let i = start; i <= end; i++) range.add(i);
+          setSelectedIndices(range);
+          onSelect(clamped);
+          return;
+        }
+        if (e.ctrlKey || e.metaKey) {
+          // Additive: keep existing selection, just add the destination row
+          // and make it the new anchor (matches Ctrl+click semantics).
+          setSelectedIndices((prev) => {
+            const next = new Set(prev);
+            next.add(clamped);
+            return next;
+          });
+          anchorRef.current = clamped;
+          onSelect(clamped);
+          return;
+        }
         anchorRef.current = clamped;
         setSelectedIndices(new Set([clamped]));
         onSelect(clamped);
+      };
+
+      // One page = number of fully-visible rows in the scroll viewport.
+      // Falls back to 10 if the list hasn't measured yet.
+      const pageStep = () => {
+        const h = listRef.current?.clientHeight ?? 0;
+        const rh = rowHeightRef.current || 1;
+        return Math.max(1, Math.floor(h / rh) || 10);
       };
 
       if (e.key === "ArrowDown") {
         moveTo(cur === null ? 0 : cur + 1);
       } else if (e.key === "ArrowUp") {
         moveTo(cur === null ? 0 : cur - 1);
+      } else if (e.key === "PageDown") {
+        moveTo(cur === null ? 0 : cur + pageStep());
+      } else if (e.key === "PageUp") {
+        moveTo(cur === null ? 0 : cur - pageStep());
       } else if (e.key === "Home") {
         moveTo(0);
       } else if (e.key === "End") {
         moveTo(len - 1);
+      } else if (e.key === "Enter") {
+        if (cur !== null && cur >= 0 && cur < len) {
+          e.preventDefault();
+          onPhotoOpenRef.current(cur);
+        }
       } else if ((e.ctrlKey || e.metaKey) && (e.key === "a" || e.key === "A")) {
         e.preventDefault();
         const all = new Set<number>();

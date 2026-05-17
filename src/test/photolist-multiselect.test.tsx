@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -60,6 +61,44 @@ function setup(props: Partial<React.ComponentProps<typeof PhotoList>> = {}) {
 
 function rows() {
   return screen.getAllByTestId("photo-row");
+}
+
+/**
+ * Like setup() but keeps `selectedIndex` in real component state so chained
+ * keyboard gestures see the updated anchor between events.  The plain setup()
+ * leaves selectedIndex frozen, which is fine for single-key tests but breaks
+ * any flow that reads cur after a previous keydown moved it.
+ */
+function setupStateful(opts: { initialIndex?: number | null; photoCount?: number; onSelectionCountChange?: (n: number) => void } = {}) {
+  const thumbnails = new ThumbnailStore();
+  const imageMetadata = new ImageMetadataStore();
+  const photos = makePhotos(opts.photoCount ?? 5);
+  for (const p of photos) {
+    thumbnails.add(p.relative_path);
+    imageMetadata.add(p.relative_path);
+  }
+  const onPhotoOpen = vi.fn();
+  function Wrapper() {
+    const [selectedIndex, setSelectedIndex] = useState<number | null>(opts.initialIndex ?? null);
+    return (
+      <PhotoList
+        photos={photos}
+        thumbnails={thumbnails}
+        imageMetadata={imageMetadata}
+        visibleColumns={[]}
+        sortConfig={{ primary: null, secondary: null }}
+        onSortChange={() => {}}
+        selectedIndex={selectedIndex}
+        onSelect={setSelectedIndex}
+        onShowInExplorer={vi.fn()}
+        onVisibilityChange={vi.fn()}
+        onPhotoOpen={onPhotoOpen}
+        onSelectionCountChange={opts.onSelectionCountChange}
+      />
+    );
+  }
+  render(<Wrapper />);
+  return { onPhotoOpen };
 }
 
 describe("PhotoList multi-select", () => {
@@ -342,5 +381,95 @@ describe("PhotoList keyboard navigation", () => {
     fireEvent.keyDown(input, { key: "ArrowDown" });
     expect(onSelect).not.toHaveBeenCalled();
     document.body.removeChild(input);
+  });
+
+  it("PageDown jumps roughly one page down and clamps at the last row", () => {
+    const { onSelect } = setup({ selectedIndex: 1 });
+    // jsdom reports clientHeight=0, so the handler falls back to a 10-row page step.
+    fireEvent.keyDown(document, { key: "PageDown" });
+    expect(onSelect).toHaveBeenLastCalledWith(4);
+  });
+
+  it("PageUp jumps roughly one page up and clamps at the first row", () => {
+    const { onSelect } = setup({ selectedIndex: 4 });
+    fireEvent.keyDown(document, { key: "PageUp" });
+    expect(onSelect).toHaveBeenLastCalledWith(0);
+  });
+
+  it("Enter opens the currently selected photo", () => {
+    const { onPhotoOpen } = setup({ selectedIndex: 2 });
+    fireEvent.keyDown(document, { key: "Enter" });
+    expect(onPhotoOpen).toHaveBeenCalledWith(2);
+  });
+
+  it("Enter is a no-op when nothing is selected", () => {
+    const { onPhotoOpen } = setup({ selectedIndex: null });
+    fireEvent.keyDown(document, { key: "Enter" });
+    expect(onPhotoOpen).not.toHaveBeenCalled();
+  });
+
+  it("Shift+ArrowDown extends the selection from the anchor", () => {
+    setupStateful({ initialIndex: 1 });
+    fireEvent.keyDown(document, { key: "ArrowDown", shiftKey: true });
+    fireEvent.keyDown(document, { key: "ArrowDown", shiftKey: true });
+    const selected = Array.from(document.querySelectorAll(".photo-row--selected"))
+      .map((el) => el.getAttribute("data-index"))
+      .sort();
+    expect(selected).toEqual(["1", "2", "3"]);
+  });
+
+  it("Shift+ArrowUp shrinks the range when reversing direction", () => {
+    setupStateful({ initialIndex: 1 });
+    fireEvent.keyDown(document, { key: "ArrowDown", shiftKey: true });
+    fireEvent.keyDown(document, { key: "ArrowDown", shiftKey: true });
+    fireEvent.keyDown(document, { key: "ArrowUp", shiftKey: true });
+    const selected = Array.from(document.querySelectorAll(".photo-row--selected"))
+      .map((el) => el.getAttribute("data-index"))
+      .sort();
+    expect(selected).toEqual(["1", "2"]);
+  });
+
+  it("Shift+End selects from the anchor to the last row", () => {
+    setupStateful({ initialIndex: 2 });
+    fireEvent.keyDown(document, { key: "End", shiftKey: true });
+    const selected = Array.from(document.querySelectorAll(".photo-row--selected"))
+      .map((el) => el.getAttribute("data-index"))
+      .sort();
+    expect(selected).toEqual(["2", "3", "4"]);
+  });
+
+  it("Ctrl+ArrowDown adds the next row to the selection without clearing", () => {
+    setupStateful({ initialIndex: 1 });
+    fireEvent.keyDown(document, { key: "ArrowDown", ctrlKey: true });
+    fireEvent.keyDown(document, { key: "ArrowDown", ctrlKey: true });
+    const selected = Array.from(document.querySelectorAll(".photo-row--selected"))
+      .map((el) => el.getAttribute("data-index"))
+      .sort();
+    expect(selected).toEqual(["1", "2", "3"]);
+  });
+
+  it("Ctrl+ArrowDown updates the anchor so a later Shift extends from the new row", () => {
+    setupStateful({ initialIndex: 1 });
+    fireEvent.keyDown(document, { key: "ArrowDown", ctrlKey: true });
+    fireEvent.keyDown(document, { key: "ArrowDown", ctrlKey: true });
+    // Anchor is now at 3; Shift+ArrowDown should produce the [3..4] range,
+    // collapsing the previous additive picks.
+    fireEvent.keyDown(document, { key: "ArrowDown", shiftKey: true });
+    const selected = Array.from(document.querySelectorAll(".photo-row--selected"))
+      .map((el) => el.getAttribute("data-index"))
+      .sort();
+    expect(selected).toEqual(["3", "4"]);
+  });
+
+  it("notifies onSelectionCountChange when the selection grows or shrinks", () => {
+    const onSelectionCountChange = vi.fn();
+    setupStateful({ initialIndex: null, onSelectionCountChange });
+    onSelectionCountChange.mockClear();
+    fireEvent.keyDown(document, { key: "ArrowDown" });
+    expect(onSelectionCountChange).toHaveBeenLastCalledWith(1);
+    fireEvent.keyDown(document, { key: "ArrowDown", shiftKey: true });
+    expect(onSelectionCountChange).toHaveBeenLastCalledWith(2);
+    fireEvent.keyDown(document, { key: "a", ctrlKey: true });
+    expect(onSelectionCountChange).toHaveBeenLastCalledWith(5);
   });
 });
