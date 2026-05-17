@@ -80,16 +80,20 @@ export type ImageMetadataState = "loading" | Record<string, Variant>;
  * Observable store for image-level metadata, keyed by relative_path.
  * Updates only re-render the affected row.
  */
+export type ImageMetadataListener = (path: string, value: ImageMetadataState) => void;
+
 export class ImageMetadataStore {
   private data = new Map<string, ImageMetadataState>();
   private subscribers = new Map<string, Set<() => void>>();
-  
+  private globalSubscribers = new Set<ImageMetadataListener>();
+
   // Tracks how many images have a value for each metadata key.
   private keyFrequency = new Map<string, number>();
 
   add(path: string) {
     if (!this.data.has(path)) {
       this.data.set(path, "loading");
+      this.globalSubscribers.forEach((cb) => cb(path, "loading"));
     }
   }
 
@@ -106,6 +110,12 @@ export class ImageMetadataStore {
 
     this.data.set(path, value);
     this.subscribers.get(path)?.forEach((cb) => cb());
+    this.globalSubscribers.forEach((cb) => cb(path, value));
+  }
+
+  /** Iterate every (path, value) pair currently in the store. */
+  entries(): IterableIterator<[string, ImageMetadataState]> {
+    return this.data.entries();
   }
 
   get(path: string): ImageMetadataState {
@@ -124,6 +134,19 @@ export class ImageMetadataStore {
       if (!set) return;
       set.delete(callback);
       if (set.size === 0) this.subscribers.delete(path);
+    };
+  }
+
+  /**
+   * Subscribe to every mutation in the store.  Used by cross-cutting consumers
+   * (e.g. the search-worker index) that need to track all paths without
+   * per-row subscription bookkeeping.  Fires from both `add()` (with
+   * "loading") and `set()`.
+   */
+  subscribeAll(callback: ImageMetadataListener): () => void {
+    this.globalSubscribers.add(callback);
+    return () => {
+      this.globalSubscribers.delete(callback);
     };
   }
 
