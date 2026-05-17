@@ -35,4 +35,6 @@ Later- *** DO NOT WORK ON ANY OF THE BELOW FEATURES ***
 
 * Typing in the search box when many photos loaded is very laggy. Speed up search and/or make it async with spinner to indicate processing
 
-* Fix app icon on dark background (home screen)
+* Fix app icon on dark background (home screen). Instead of using pngs, create a vector-graphics (e.g. SVG) representation of the logo from scratch
+Don't try to convert the existing png to svg, just generate some ideas of similar logos in SVG and then we will use the directly so that they blend properly
+into light and dark backgrounds.

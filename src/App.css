@@ -1749,9 +1749,9 @@ body {
 }
 
 .datatype-badge--value {
-  color: #d68a2a;
-  background: color-mix(in srgb, #d68a2a 15%, transparent);
-  border: 1px solid color-mix(in srgb, #d68a2a 30%, transparent);
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--text-secondary) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--text-secondary) 25%, transparent);
 }
 
 .datatype-badge--draft {
