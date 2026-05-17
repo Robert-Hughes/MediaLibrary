@@ -1,0 +1,175 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<title>logo.svg contact sheet</title>
+<style>
+  :root { font: 13px system-ui, sans-serif; }
+  body { margin: 0; }
+  section { padding: 20px 24px; border-bottom: 1px solid #0002; }
+  section.light  { background: #fafaf7; color: #14141a; --accent: oklch(0.55 0.13 230); --accent-ink: oklch(0.32 0.12 230); --text-dim: #8a8a93; --surface: #ffffff; --surface-alt: #f4f3ef; }
+  section.dark   { background: #0e0f12; color: #ececef; --accent: oklch(0.72 0.13 230); --accent-ink: oklch(0.85 0.13 230); --text-dim: #6e7077; --surface: #16181c; --surface-alt: #1a1c20; }
+  section.accent-light { background: oklch(0.55 0.13 230); color: white; }
+  section.accent-dark  { background: oklch(0.72 0.13 230); color: #0e0f12; }
+  h3 { margin: 0 0 14px; font-weight: 500; font-size: 13px; opacity: 0.7; text-transform: uppercase; letter-spacing: 0.04em; }
+  .row { display: flex; gap: 24px; align-items: end; flex-wrap: wrap; }
+  .cell { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .cell small { font-size: 11px; opacity: 0.6; }
+  .swatch { display: inline-block; padding: 10px; border-radius: 8px; background: var(--surface); }
+  .swatch.alt { background: var(--surface-alt); }
+  .row.colors { gap: 16px; }
+  .chip { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 12px; border-radius: 8px; background: var(--surface); }
+  svg { display: block; }
+</style>
+</head>
+<body>
+
+<section class="light">
+  <h3>logo-color.svg · light bg · sizes</h3>
+  <div class="row" id="color-light-sizes"></div>
+</section>
+
+<section class="dark">
+  <h3>logo-color.svg · dark bg · sizes</h3>
+  <div class="row" id="color-dark-sizes"></div>
+</section>
+
+<section class="light">
+  <h3>logo.svg (mono) · light theme · text-primary · sizes</h3>
+  <div class="row" id="light-sizes"></div>
+  <h3 style="margin-top:24px">Light theme · color variants @ 32px</h3>
+  <div class="row colors" id="light-colors"></div>
+</section>
+
+<section class="dark">
+  <h3>Dark theme · text-primary color · sizes</h3>
+  <div class="row" id="dark-sizes"></div>
+  <h3 style="margin-top:24px">Dark theme · color variants @ 32px</h3>
+  <div class="row colors" id="dark-colors"></div>
+</section>
+
+<section class="accent-light">
+  <h3>On accent (light) — titlebar / splash</h3>
+  <div class="row" id="acclight-sizes"></div>
+</section>
+
+<section class="accent-dark">
+  <h3>On accent (dark) — titlebar / splash</h3>
+  <div class="row" id="accdark-sizes"></div>
+</section>
+
+<section class="light">
+  <h3>Stroke-weight variants @ 32px (light)</h3>
+  <div class="row" id="light-strokes"></div>
+</section>
+
+<section class="dark">
+  <h3>Stroke-weight variants @ 32px (dark)</h3>
+  <div class="row" id="dark-strokes"></div>
+</section>
+
+<script>
+const sizes = [16, 20, 24, 32, 48, 64, 96, 128];
+const strokes = [1.6, 2.0, 2.4, 2.8, 3.2];
+
+function render(src, size, color, sw) {
+  let s = src;
+  if (sw != null) s = s.replace(/stroke-width="[^"]+"/, `stroke-width="${sw}"`);
+  s = s.replace(/<svg /, `<svg width="${size}" height="${size}" style="color:${color}" `);
+  s = s.replace(/width="64"\s+height="64"\s*/, '');
+  return s;
+}
+function cell(html, label) {
+  return `<div class="cell">${html}<small>${label}</small></div>`;
+}
+function fillSizes(id, color, swatch) {
+  const wrap = swatch ? c => `<span class="swatch ${swatch==='alt'?'alt':''}">${c}</span>` : c => c;
+  document.getElementById(id).innerHTML = sizes.map(sz =>
+    cell(wrap(render(SRC, sz, color)), sz + 'px')
+  ).join('');
+}
+function fillColors(id, defs) {
+  document.getElementById(id).innerHTML = defs.map(([col, label]) =>
+    `<div class="chip">${render(SRC, 32, col)}<small>${label}</small></div>`
+  ).join('');
+}
+function fillStrokes(id, color) {
+  document.getElementById(id).innerHTML = strokes.map(sw =>
+    cell(render(SRC, 32, color, sw), sw)
+  ).join('');
+}
+
+const SRC = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round" stroke-linecap="round">
+  <defs><mask id="apHole" maskUnits="userSpaceOnUse"><rect x="0" y="0" width="64" height="64" fill="white"/><circle cx="41" cy="39" r="22.5" fill="black"/></mask></defs>
+  <path d="M 8 14 L 24 14 L 28 22 L 56 22 Q 60 22 60 26 L 60 56 Q 60 60 56 60 L 8 60 Q 4 60 4 56 L 4 18 Q 4 14 8 14 Z" mask="url(#apHole)"/>
+  <circle cx="41" cy="39" r="21"/>
+  <path d="M 48.8 34.5 L 59.2 28.5"/>
+  <path d="M 48.8 43.5 L 59.2 49.5"/>
+  <path d="M 41 48 L 41 60"/>
+  <path d="M 33.2 43.5 L 22.8 49.5"/>
+  <path d="M 33.2 34.5 L 22.8 28.5"/>
+  <path d="M 41 30 L 41 18"/>
+  <polygon points="48.8,34.5 48.8,43.5 41,48 33.2,43.5 33.2,34.5 41,30"/>
+  <circle cx="41" cy="39" r="2.2" fill="currentColor" stroke="none"/>
+</svg>`;
+
+const COLOR_SRC = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <linearGradient id="g_folder" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2c6b78"/><stop offset="1" stop-color="#0f3742"/></linearGradient>
+    <linearGradient id="g_tab" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3a8390"/><stop offset="1" stop-color="#1d5260"/></linearGradient>
+    <linearGradient id="g_apBody" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1a4856"/><stop offset="1" stop-color="#08222b"/></linearGradient>
+    <linearGradient id="g_iris" x1="0" y1="0" x2="1" y2="0.4">
+      <stop offset="0%" stop-color="#1d4e63"/><stop offset="25%" stop-color="#3aa3a8"/><stop offset="55%" stop-color="#c6d07a"/>
+      <stop offset="80%" stop-color="#e8a850"/><stop offset="100%" stop-color="#b56a2a"/>
+    </linearGradient>
+  </defs>
+  <path d="M 8 14 L 24 14 L 28 22 L 56 22 Q 60 22 60 26 L 60 30 L 4 30 L 4 18 Q 4 14 8 14 Z" fill="url(#g_tab)"/>
+  <path d="M 4 26 L 60 26 L 60 56 Q 60 60 56 60 L 8 60 Q 4 60 4 56 Z" fill="url(#g_folder)"/>
+  <path d="M 8 14 L 24 14 L 28 22 L 56 22 Q 60 22 60 26 L 60 56 Q 60 60 56 60 L 8 60 Q 4 60 4 56 L 4 18 Q 4 14 8 14 Z" fill="none" stroke="#0a2730" stroke-width="1.2" stroke-linejoin="round"/>
+  <circle cx="41" cy="39" r="21" fill="url(#g_apBody)" stroke="#9fdde6" stroke-width="2.2"/>
+  <polygon points="48.8,34.5 48.8,43.5 41,48 33.2,43.5 33.2,34.5 41,30" fill="url(#g_iris)"/>
+  <g stroke="#9fdde6" stroke-width="2.4" stroke-linecap="round">
+    <line x1="48.8" y1="34.5" x2="59.2" y2="28.5"/>
+    <line x1="48.8" y1="43.5" x2="59.2" y2="49.5"/>
+    <line x1="41" y1="48" x2="41" y2="60"/>
+    <line x1="33.2" y1="43.5" x2="22.8" y2="49.5"/>
+    <line x1="33.2" y1="34.5" x2="22.8" y2="28.5"/>
+    <line x1="41" y1="30" x2="41" y2="18"/>
+  </g>
+  <polygon points="48.8,34.5 48.8,43.5 41,48 33.2,43.5 33.2,34.5 41,30" fill="none" stroke="#9fdde6" stroke-width="2.2" stroke-linejoin="round"/>
+</svg>`;
+
+function renderColor(size) {
+  return COLOR_SRC.replace(/width="64"\s+height="64"/, `width="${size}" height="${size}"`);
+}
+function fillColorSizes(id) {
+  document.getElementById(id).innerHTML = sizes.map(sz =>
+    cell(renderColor(sz), sz + 'px')
+  ).join('');
+}
+
+{
+  fillSizes('light-sizes', 'var(--text-primary, #14141a)');
+  fillSizes('dark-sizes',  'var(--text-primary, #ececef)');
+  fillSizes('acclight-sizes', 'white');
+  fillSizes('accdark-sizes',  '#0e0f12');
+  fillColors('light-colors', [
+    ['#14141a','text-primary'],
+    ['oklch(0.55 0.13 230)','accent'],
+    ['oklch(0.32 0.12 230)','accent-ink'],
+    ['#8a8a93','text-dim'],
+  ]);
+  fillColors('dark-colors', [
+    ['#ececef','text-primary'],
+    ['oklch(0.72 0.13 230)','accent'],
+    ['oklch(0.85 0.13 230)','accent-ink'],
+    ['#6e7077','text-dim'],
+  ]);
+  fillStrokes('light-strokes', '#14141a');
+  fillStrokes('dark-strokes',  '#ececef');
+  fillColorSizes('color-light-sizes');
+  fillColorSizes('color-dark-sizes');
+}
+</script>
+</body>
+</html>

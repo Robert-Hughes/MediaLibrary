@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <linearGradient id="folder" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2c6b78"/>
+      <stop offset="1" stop-color="#0f3742"/>
+    </linearGradient>
+    <linearGradient id="folderTab" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3a8390"/>
+      <stop offset="1" stop-color="#1d5260"/>
+    </linearGradient>
+    <linearGradient id="apBody" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1a4856"/>
+      <stop offset="1" stop-color="#08222b"/>
+    </linearGradient>
+    <!-- diagonal rainbow spectrum across hex -->
+    <linearGradient id="iris" x1="0" y1="0" x2="1" y2="0.4">
+      <stop offset="0%"   stop-color="#1d4e63"/>
+      <stop offset="25%"  stop-color="#3aa3a8"/>
+      <stop offset="55%"  stop-color="#c6d07a"/>
+      <stop offset="80%"  stop-color="#e8a850"/>
+      <stop offset="100%" stop-color="#b56a2a"/>
+    </linearGradient>
+  </defs>
+
+  <!-- folder back tab -->
+  <path d="M 8 14 L 24 14 L 28 22 L 56 22 Q 60 22 60 26 L 60 30 L 4 30 L 4 18 Q 4 14 8 14 Z" fill="url(#folderTab)"/>
+  <!-- folder body -->
+  <path d="M 4 26 L 60 26 L 60 56 Q 60 60 56 60 L 8 60 Q 4 60 4 56 Z" fill="url(#folder)"/>
+  <!-- folder outline -->
+  <path d="M 8 14 L 24 14 L 28 22 L 56 22 Q 60 22 60 26 L 60 56 Q 60 60 56 60 L 8 60 Q 4 60 4 56 L 4 18 Q 4 14 8 14 Z" fill="none" stroke="#0a2730" stroke-width="1.2" stroke-linejoin="round"/>
+
+  <!-- aperture body disc -->
+  <circle cx="41" cy="39" r="21" fill="url(#apBody)" stroke="#9fdde6" stroke-width="2.2"/>
+
+  <!-- hex aperture opening: rainbow spectrum -->
+  <polygon points="48.8,34.5 48.8,43.5 41,48 33.2,43.5 33.2,34.5 41,30" fill="url(#iris)"/>
+
+  <!-- spokes drawn AFTER polygon so all 6 are visible -->
+  <g stroke="#9fdde6" stroke-width="2.4" stroke-linecap="round">
+    <line x1="48.8" y1="34.5" x2="59.2" y2="28.5"/>
+    <line x1="48.8" y1="43.5" x2="59.2" y2="49.5"/>
+    <line x1="41"   y1="48"   x2="41"   y2="60"/>
+    <line x1="33.2" y1="43.5" x2="22.8" y2="49.5"/>
+    <line x1="33.2" y1="34.5" x2="22.8" y2="28.5"/>
+    <line x1="41"   y1="30"   x2="41"   y2="18"/>
+  </g>
+
+  <!-- hex outline drawn last so spectrum has clean edge -->
+  <polygon points="48.8,34.5 48.8,43.5 41,48 33.2,43.5 33.2,34.5 41,30" fill="none" stroke="#9fdde6" stroke-width="2.2" stroke-linejoin="round"/>
+</svg>

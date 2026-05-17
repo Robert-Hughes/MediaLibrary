@@ -167,6 +167,44 @@ Use the `log` crate (already migrated from custom macros). Set `RUST_LOG=mediabr
 
 ---
 
+## Icons and logos
+
+**Source of truth: two SVGs in `public/`.** Every icon/logo/mark in the app derives from these.
+
+- `public/logo.svg` — monochrome mark (folder + aperture). Uses `currentColor` so it inherits its color from CSS context. Use this for: favicon, inline UI, monochrome contexts.
+- `public/logo-color.svg` — color mark (gradient folder + spectrum iris in aperture opening). Use this for: app icon, splash, `WelcomeScreen` hero, anywhere a color brand mark is wanted.
+
+**Direct use, no derivation:**
+- `index.html` favicon → `/logo.svg` (`type="image/svg+xml"`).
+- `src/components/WelcomeScreen.tsx` → `<img src="/logo-color.svg" />`.
+
+**Derived rasters (only where the consumer cannot accept SVG):**
+- `src-tauri/icons/*` — Tauri embeds these in the `.exe`/`.app`/`.deb` bundles and platform stores (Microsoft Store, iOS, Android). Tauri's bundler does not accept SVG; PNG/ICO/ICNS are required. These files are **outputs**, not inputs.
+
+### Regenerating Tauri icons
+
+After editing either source SVG:
+
+```
+node scripts/build-icons.mjs
+```
+
+Dependencies (`sharp`, `@tauri-apps/cli`) are already in `devDependencies`.
+
+The script:
+1. Rasterises `public/logo-color.svg` to `src-tauri/icons/app-icon.png` at 1024×1024.
+2. Runs `npx tauri icon src-tauri/icons/app-icon.png`, which regenerates every size and platform variant under `src-tauri/icons/` (32/64/128 PNG, `icon.ico`, `icon.icns`, MS Store `Square*Logo.png`, iOS `AppIcon-*`, Android `mipmap-*`).
+
+Review `git diff src-tauri/icons/` and commit the regenerated set in the same commit as the SVG change.
+
+**Do not hand-edit anything under `src-tauri/icons/`.** It will be overwritten next time the script runs, and the divergence between SVG source and committed raster is exactly the problem this workflow exists to prevent.
+
+### Adding a new icon
+
+Prefer inline SVG (a React component or an `<img src="/foo.svg">`). Only fall back to raster if the consumer is platform tooling that demands it (installers, store assets, OS-level icons). If you add a raster output, document its source SVG and regeneration command alongside it.
+
+---
+
 ## Commits and PRs
 
 - Conventional commit subject lines (e.g. `feat(scanner): ...`, `fix(apply_edits): ...`, `test(roundtrip): ...`).
