@@ -156,6 +156,21 @@ function LoadedView({
     [displayPhotos, state.folder],
   );
 
+  const onCopyPaths = useCallback(
+    async (relativePaths: string[]) => {
+      if (relativePaths.length === 0) return;
+      const folder = state.folder;
+      if (!folder) return;
+      const sep = folder.includes("\\") ? "\\" : "/";
+      const base = folder.replace(/[\\/]+$/, "");
+      const abs = relativePaths
+        .map((p) => base + sep + p.replace(/[\\/]+/g, sep))
+        .join("\n");
+      await navigator.clipboard.writeText(abs);
+    },
+    [state.folder],
+  );
+
   const onGalleryNavigate = useCallback(
     (delta: -1 | 1) => {
       actions.navigateGallery(delta, { listLength: displayPhotos.length });
@@ -246,6 +261,7 @@ function LoadedView({
         onApplyEdits={(paths) => actions.applyDraftEdits(paths)}
         onGenerateAiDescription={(relPaths) => describe.actions.start(state.folder, relPaths)}
         onGeocode={(relPaths) => geocode.actions.start(state.folder, buildGeocodeItems(relPaths))}
+        onCopyPaths={onCopyPaths}
         onSelectionCountChange={setSelectionCount}
       />
       {state.galleryIndex !== null && displayPhotos.length > 0 && (

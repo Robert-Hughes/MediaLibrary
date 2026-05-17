@@ -197,6 +197,37 @@ describe("PhotoList context menu (multi-select)", () => {
     expect(onShowInExplorer).toHaveBeenCalledWith(1);
   });
 
+  it("Copy Path passes the single selected path to onCopyPaths", async () => {
+    const onCopyPaths = vi.fn();
+    setup({ onCopyPaths });
+    fireEvent.click(rows()[2]);
+    fireEvent.contextMenu(rows()[2]);
+    const btn = await screen.findByRole("button", { name: "Copy Path" });
+    await userEvent.click(btn);
+    expect(onCopyPaths).toHaveBeenCalledTimes(1);
+    expect(onCopyPaths).toHaveBeenCalledWith(["2.jpg"]);
+  });
+
+  it("Copy Paths labels with count and passes all selected paths", async () => {
+    const onCopyPaths = vi.fn();
+    setup({ onCopyPaths });
+    fireEvent.click(rows()[1]);
+    fireEvent.click(rows()[2], { ctrlKey: true });
+    fireEvent.click(rows()[4], { ctrlKey: true });
+    fireEvent.contextMenu(rows()[4]);
+    const btn = await screen.findByRole("button", { name: "Copy Paths (3)" });
+    await userEvent.click(btn);
+    expect(onCopyPaths).toHaveBeenCalledWith(["1.jpg", "2.jpg", "4.jpg"]);
+  });
+
+  it("Copy Path is hidden when onCopyPaths prop is not provided", async () => {
+    setup();
+    fireEvent.click(rows()[2]);
+    fireEvent.contextMenu(rows()[2]);
+    await screen.findByRole("button", { name: /^View/ });
+    expect(screen.queryByRole("button", { name: /Copy Path/ })).toBeNull();
+  });
+
   it("Generate AI Description passes all selected paths in a single call", async () => {
     const { onGenerateAiDescription } = setup();
     fireEvent.click(rows()[1]);
