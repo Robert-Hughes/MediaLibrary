@@ -585,7 +585,7 @@ export function DetailsPane({ photo, metadata, draftEdits = {}, typedDraftEdits,
                 });
                 if (hasExisting) {
                   const confirmed = await ask(
-                    "This image already has location data. Reverse-geocoding will overwrite all location fields with drafts — fields the geocoder doesn't return will be cleared. Continue?",
+                    "This image already has location data. Reverse-geocoding will overwrite all location name fields (City, State, Country, etc. — GPS coordinates are not touched) with drafts; fields the geocoder doesn't return will be cleared. Continue?",
                     { title: "Overwrite location data?", kind: "warning" },
                   );
                   if (!confirmed) return;
