@@ -11,6 +11,8 @@ pub mod settings;
 pub mod batch_job;
 pub mod openai_describe;
 pub mod describe_log;
+pub mod geocode_cache;
+pub mod geocode;
 use serde::Serialize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
@@ -1159,6 +1161,176 @@ fn cancel_describe_cmd(describe_state: State<'_, openai_describe::DescribeState>
     Ok(())
 }
 
+// ── Reverse-geocoding commands ────────────────────────────────────────────────
+
+/// One image's GPS, supplied by the frontend so the front end owns the
+/// "draft vs. metadata" precedence rule (see docs/REVERSE_GEOCODE_PLAN.md
+/// §2). The backend never reads the typed-draft store — it just trusts
+/// the resolved lat/lon. `lat`/`lon` are `null` when the image has no
+/// GPS in either drafts or metadata; the loop emits `no_gps` for that
+/// case.
+#[derive(Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GeocodeRequestItem {
+    rel_path: String,
+    lat: Option<f64>,
+    lon: Option<f64>,
+}
+
+/// Per-job summary for the `geocode_complete` event. Explicit per-source
+/// counters as documented in the plan (§4); the frontend renders the
+/// breakdown directly so the user can see what came from cache vs. the
+/// network.
+#[derive(Clone, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct GeocodeSummary {
+    n_succeeded_from_nominatim: u32,
+    n_succeeded_from_cache: u32,
+    n_succeeded_from_overpass: u32,
+    n_no_gps: u32,
+    n_failed: u32,
+}
+
+/// Reverse-geocode a batch of images.
+///
+/// Sequential loop with 1-req/s rate limiting between Nominatim calls
+/// (Overpass calls reuse the same delay, since they hit different
+/// infra but our throughput target is dominated by Nominatim anyway).
+/// Cache hits skip both the network call and the sleep — typical
+/// libraries cluster around a handful of locations so cache hit rate
+/// is high after the first run.
+#[tauri::command]
+async fn geocode_images_cmd(
+    folder_path: String,
+    items: Vec<GeocodeRequestItem>,
+    app: AppHandle,
+    geocode_state: State<'_, geocode::GeocodeState>,
+) -> Result<(), String> {
+    let _ = folder_path; // resolution happens client-side; included for symmetry with describe.
+    let cancel_flag = geocode_state.install();
+    let client = geocode::GeocodeClient::new();
+    let mut cache = if let Ok(dir) = app_data_dir(&app) {
+        geocode_cache::load(&dir)
+    } else {
+        geocode_cache::GeocodeCacheFile::default_v1()
+    };
+
+    let total = items.len();
+    log::info!("[geocode] starting total={}", total);
+    let emitter = batch_job::BatchProgressEmitter::new(&app, "geocode");
+    emitter.started(total);
+
+    let mut succeeded: Vec<String> = Vec::new();
+    let mut failed: Vec<batch_job::BatchFailureRow> = Vec::new();
+    let mut summary = GeocodeSummary::default();
+    let mut current = 0usize;
+    // Rate-limit: 1 req/s minimum between live Nominatim calls.
+    // Cache hits don't consume budget. Tracked here so cancel between
+    // sub-calls is responsive.
+    let mut last_network_call: Option<std::time::Instant> = None;
+
+    for item in &items {
+        if cancel_flag.load(Ordering::Relaxed) {
+            log::info!("[geocode] cancelled at {}/{}", current, total);
+            break;
+        }
+        current += 1;
+        let rel = item.rel_path.clone();
+
+        let (lat, lon) = match (item.lat, item.lon) {
+            (Some(lat), Some(lon)) => (lat, lon),
+            _ => {
+                emitter.progress(current, total, &rel, "no_gps", Some("no GPS coordinates"), None);
+                failed.push(batch_job::BatchFailureRow {
+                    relative_path: rel,
+                    kind: "no_gps".into(),
+                    detail: "no GPS coordinates".into(),
+                });
+                summary.n_no_gps += 1;
+                continue;
+            }
+        };
+
+        // Cache lookup is synchronous, so we can decide pre-sleep
+        // whether a network call is needed.
+        let needs_network = cache.lookup(lat, lon).is_none();
+        if needs_network {
+            if let Some(prev) = last_network_call {
+                let elapsed = prev.elapsed();
+                if elapsed < std::time::Duration::from_millis(1000) {
+                    let sleep_for = std::time::Duration::from_millis(1000) - elapsed;
+                    tokio::time::sleep(sleep_for).await;
+                }
+            }
+        }
+
+        match geocode::geocode_one(&client, &mut cache, lat, lon).await {
+            Ok(result) => {
+                if needs_network {
+                    last_network_call = Some(std::time::Instant::now());
+                }
+                let edits = geocode::compose_geocode_edits(&result.address);
+                log::info!(
+                    "[geocode] ({}/{}) ok {} source={} display={}",
+                    current, total, rel, result.source.as_str(), result.display_name
+                );
+                emitter.progress(current, total, &rel, "ok", None, Some(&edits));
+                succeeded.push(rel);
+                match result.source {
+                    geocode::GeocodeSource::Cache => summary.n_succeeded_from_cache += 1,
+                    geocode::GeocodeSource::Nominatim => summary.n_succeeded_from_nominatim += 1,
+                    geocode::GeocodeSource::NominatimPlusOverpass => {
+                        summary.n_succeeded_from_overpass += 1
+                    }
+                }
+            }
+            Err(e) => {
+                if needs_network {
+                    last_network_call = Some(std::time::Instant::now());
+                }
+                let kind = e.kind().to_string();
+                let detail = e.detail();
+                log::warn!(
+                    "[geocode] ({}/{}) failed {} kind={} detail={}",
+                    current, total, rel, kind, detail
+                );
+                emitter.progress(current, total, &rel, &kind, Some(&detail), None);
+                failed.push(batch_job::BatchFailureRow {
+                    relative_path: rel,
+                    kind,
+                    detail,
+                });
+                summary.n_failed += 1;
+            }
+        }
+    }
+
+    log::info!(
+        "[geocode] finished succeeded={} failed={} no_gps={} from_cache={} from_nominatim={} from_overpass={}",
+        succeeded.len(), failed.len() - summary.n_no_gps as usize,
+        summary.n_no_gps, summary.n_succeeded_from_cache,
+        summary.n_succeeded_from_nominatim, summary.n_succeeded_from_overpass,
+    );
+
+    // Best-effort cache persist; a failure here is a cache-quality
+    // issue, not a user-visible error.
+    if let Ok(dir) = app_data_dir(&app) {
+        if let Err(e) = geocode_cache::save(&dir, &cache) {
+            log::warn!("[geocode] cache save failed: {}", e);
+        }
+    }
+
+    geocode_state.clear();
+    emitter.complete(&succeeded, &failed, &summary);
+    Ok(())
+}
+
+#[tauri::command]
+fn cancel_geocode_cmd(geocode_state: State<'_, geocode::GeocodeState>) -> Result<(), String> {
+    geocode_state.signal_cancel();
+    Ok(())
+}
+
 fn clear_running(app: &AppHandle) {
     if let Some(state) = app.try_state::<ScanState>() {
         state.mark_finished();
@@ -1303,6 +1475,7 @@ pub fn run() {
         .manage(ActiveQueues::new())
         .manage(ApplyEditsState::new())
         .manage(openai_describe::DescribeState::default())
+        .manage(geocode::GeocodeState::default())
         .invoke_handler(tauri::generate_handler![
             log_to_console,
             get_cli_folder,
@@ -1327,7 +1500,9 @@ pub fn run() {
             estimate_per_image_cost_cmd,
             estimate_describe_cost_cmd,
             describe_images_cmd,
-            cancel_describe_cmd
+            cancel_describe_cmd,
+            geocode_images_cmd,
+            cancel_geocode_cmd
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
