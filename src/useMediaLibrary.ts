@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ThumbnailStore, ImageMetadataStore, MetadataProgressStore } from "./types";
+import { ThumbnailStore, ImageMetadataStore, MetadataProgressStore, DraftEditsStore } from "./types";
 import type {
   AppState,
   PhotoFoundPayload,
@@ -142,7 +142,7 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
   const thumbnailStoreRef           = useRef<ThumbnailStore>(new ThumbnailStore());
   const imageMetadataStoreRef       = useRef<ImageMetadataStore>(new ImageMetadataStore());
   const metadataProgressStoreRef    = useRef<MetadataProgressStore>(new MetadataProgressStore());
-  const draftEditsRef               = useRef<DraftEditsByFile>({});
+  const draftEditsStoreRef          = useRef<DraftEditsStore>(new DraftEditsStore());
 
   // The scan_id of the most recently started scan. Events with a different
   // scan_id are stale (from a previous scan) and are discarded.
@@ -217,10 +217,10 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
       // Backwards-compat: a mock or legacy backend may still return the
       // string-shape map.  Detect and convert per-edit if we see a value
       // that isn't `{ value, intent }`.
-      draftEditsRef.current = normalizeDraftsFromTauri(raw);
+      draftEditsStoreRef.current.reset(normalizeDraftsFromTauri(raw));
     } catch (e) {
       console.error("Failed to load draft edits", e);
-      draftEditsRef.current = {};
+      draftEditsStoreRef.current.reset({});
     }
     
     const { visibleColumns, sortConfig, columnWidths } = loadColumnConfig();
@@ -271,7 +271,7 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
             sortConfig: prev.sortConfig,
             metadataVersion: 0,
             workerErrors: [],
-            draftEdits: draftEditsRef.current,
+            draftEdits: draftEditsStoreRef.current.getAll(),
             applying: null,
             verifyOutcomes: {},
           };
@@ -404,7 +404,7 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
               sortConfig: prev.sortConfig,
               metadataVersion: 0,
               workerErrors: [],
-              draftEdits: draftEditsRef.current,
+              draftEdits: draftEditsStoreRef.current.getAll(),
               applying: null,
               verifyOutcomes: {},
             };
@@ -499,50 +499,32 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
           imageMetadataStoreRef.current.set(payload.relative_path, payload.fresh_metadata);
         }
 
+        // Phase 8.1: prune drafts per-tag based on the backend's verification
+        // outcomes.  Match and DeleteOk are conclusively safe to drop; the
+        // rest stay so the user can act on them via VerifyOutcomeDialog.
+        //
+        // Backwards compatibility: when the payload omits `tag_outcomes`
+        // (older backend builds, mocked tests), fall back to the previous
+        // semantic of "drop the entire file's drafts on success".  Live
+        // backend always emits the array so production gets the
+        // per-tag-clearing behaviour.
+        const fileOutcomes = payload.tag_outcomes ?? [];
+        if (fileOutcomes.length === 0 && payload.applied) {
+          draftEditsStoreRef.current.deletePath(payload.relative_path);
+        } else if (fileOutcomes.length > 0) {
+          const tagsToPrune = fileOutcomes
+            .filter((o) => o.kind === "Match" || o.kind === "DeleteOk")
+            .map((o) => o.tag);
+          if (tagsToPrune.length > 0) {
+            draftEditsStoreRef.current.pruneTags(payload.relative_path, tagsToPrune);
+          }
+        }
+
         setAppState((prev) => {
           if (prev.kind !== "loaded") return prev;
 
-          // Phase 8.1: prune drafts per-tag based on the backend's verification
-          // outcomes.  Match and DeleteOk are conclusively safe to drop; the
-          // rest stay so the user can act on them via VerifyOutcomeDialog.
-          //
-          // Backwards compatibility: when the payload omits `tag_outcomes`
-          // (older backend builds, mocked tests), fall back to the previous
-          // semantic of "drop the entire file's drafts on success".  Live
-          // backend always emits the array so production gets the
-          // per-tag-clearing behaviour.
-          let newDraftEdits = prev.draftEdits;
           let newVerifyOutcomes = prev.verifyOutcomes;
-          const fileOutcomes = payload.tag_outcomes ?? [];
-
-          if (fileOutcomes.length === 0 && payload.applied) {
-            newDraftEdits = { ...prev.draftEdits };
-            delete newDraftEdits[payload.relative_path];
-          }
-
           if (fileOutcomes.length > 0) {
-            const fileDrafts = prev.draftEdits[payload.relative_path];
-            if (fileDrafts) {
-              const updatedDrafts = { ...fileDrafts };
-              let touched = false;
-              for (const o of fileOutcomes) {
-                if (o.kind === "Match" || o.kind === "DeleteOk") {
-                  if (updatedDrafts[o.tag]) {
-                    delete updatedDrafts[o.tag];
-                    touched = true;
-                  }
-                }
-              }
-              if (touched) {
-                newDraftEdits = { ...prev.draftEdits };
-                if (Object.keys(updatedDrafts).length === 0) {
-                  delete newDraftEdits[payload.relative_path];
-                } else {
-                  newDraftEdits[payload.relative_path] = updatedDrafts;
-                }
-              }
-            }
-
             const interesting = fileOutcomes.filter((o) =>
               o.kind === "Coerced"
               || o.kind === "Mismatch"
@@ -597,7 +579,6 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
 
           return {
             ...prev,
-            draftEdits: newDraftEdits,
             verifyOutcomes: newVerifyOutcomes,
             workerErrors: newErrors,
             applying,
@@ -679,6 +660,29 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
   const stateRef = useRef(appState);
   stateRef.current = appState;
 
+  // Single hook into every user-initiated draft-edit mutation: keep React
+  // state in sync with the store snapshot and persist to disk.  Future
+  // subscribers (e.g. search-worker index) attach the same way.
+  useEffect(() => {
+    const store = draftEditsStoreRef.current;
+    const unsub = store.subscribe(() => {
+      const next = store.getAll();
+      setAppState((prev) => {
+        if (prev.kind !== "loaded") return prev;
+        if (prev.draftEdits === next) return prev;
+        return { ...prev, draftEdits: next };
+      });
+      const cur = stateRef.current;
+      if (cur.kind === "loaded") {
+        api.invoke("save_draft_edits_typed", {
+          folderPath: cur.folder,
+          data: next,
+        }).catch(console.error);
+      }
+    });
+    return unsub;
+  }, [api]);
+
   const showInExplorer = useCallback(async (index: number) => {
     const current = stateRef.current;
     if (current.kind !== "loaded") return;
@@ -753,37 +757,24 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
    * the file's "saved" state matches what exiftool actually wrote.
    */
   const acceptVerifyOutcome = useCallback((fileRelativePath: string, tag: string) => {
+    // Drop the per-tag draft so the next save call mirrors disk.  Store fires
+    // the persistence + state-sync subscribers; we still need a setAppState
+    // here for the verifyOutcomes side of the change.
+    draftEditsStoreRef.current.deleteTag(fileRelativePath, tag);
     setAppState((prev) => {
       if (prev.kind !== "loaded") return prev;
-
-      // Drop the per-tag draft so the next save call mirrors disk.
-      let newDraftEdits = prev.draftEdits;
-      const fileDrafts = prev.draftEdits[fileRelativePath];
-      if (fileDrafts && fileDrafts[tag]) {
-        const updated = { ...fileDrafts };
-        delete updated[tag];
-        newDraftEdits = { ...prev.draftEdits };
-        if (Object.keys(updated).length === 0) {
-          delete newDraftEdits[fileRelativePath];
-        } else {
-          newDraftEdits[fileRelativePath] = updated;
-        }
-        api.invoke("save_draft_edits_typed", {
-          folderPath: prev.folder,
-          data: newDraftEdits,
-        }).catch(console.error);
-      }
-
+      const list = prev.verifyOutcomes[fileRelativePath];
+      if (!list) return prev;
+      const remaining = list.filter((o) => o.tag !== tag);
       const newOutcomes = { ...prev.verifyOutcomes };
-      const remaining = (newOutcomes[fileRelativePath] ?? []).filter((o) => o.tag !== tag);
       if (remaining.length === 0) {
         delete newOutcomes[fileRelativePath];
       } else {
         newOutcomes[fileRelativePath] = remaining;
       }
-      return { ...prev, draftEdits: newDraftEdits, verifyOutcomes: newOutcomes };
+      return { ...prev, verifyOutcomes: newOutcomes };
     });
-  }, [api]);
+  }, []);
 
   /**
    * Phase 8.1 — Revert a Coerced outcome: re-stage the draft with the value
@@ -791,32 +782,24 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
    * on the file as it now is rather than on the original sent value.
    */
   const revertVerifyOutcome = useCallback((fileRelativePath: string, tag: string, observedRaw: Variant | null) => {
+    const newEdit: DraftEdit = observedRaw === null
+      ? { value: null, intent: "Delete" }
+      : { value: observedRaw, intent: "Set" };
+    draftEditsStoreRef.current.setTag(fileRelativePath, tag, newEdit);
     setAppState((prev) => {
       if (prev.kind !== "loaded") return prev;
-
-      const newEdit: DraftEdit = observedRaw === null
-        ? { value: null, intent: "Delete" }
-        : { value: observedRaw, intent: "Set" };
-      const fileEdits = prev.draftEdits[fileRelativePath] || {};
-      const newDraftEdits: DraftEditsByFile = {
-        ...prev.draftEdits,
-        [fileRelativePath]: { ...fileEdits, [tag]: newEdit },
-      };
-      api.invoke("save_draft_edits_typed", {
-        folderPath: prev.folder,
-        data: newDraftEdits,
-      }).catch(console.error);
-
+      const list = prev.verifyOutcomes[fileRelativePath];
+      if (!list) return prev;
+      const remaining = list.filter((o) => o.tag !== tag);
       const newOutcomes = { ...prev.verifyOutcomes };
-      const remaining = (newOutcomes[fileRelativePath] ?? []).filter((o) => o.tag !== tag);
       if (remaining.length === 0) {
         delete newOutcomes[fileRelativePath];
       } else {
         newOutcomes[fileRelativePath] = remaining;
       }
-      return { ...prev, draftEdits: newDraftEdits, verifyOutcomes: newOutcomes };
+      return { ...prev, verifyOutcomes: newOutcomes };
     });
-  }, [api]);
+  }, []);
 
   /**
    * Dismiss one pending verify outcome without acting on it.  Draft is
@@ -868,84 +851,25 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
    * coords if the user navigates away mid-edit.
    */
   const setDraftBatch = useCallback((fileRelativePath: string, edits: Array<{ key: string; edit: DraftEdit }>) => {
-    setAppState((prev) => {
-      if (prev.kind !== "loaded") return prev;
-      const fileEdits = { ...(prev.draftEdits[fileRelativePath] || {}) };
-      for (const { key, edit } of edits) {
-        fileEdits[key] = edit;
-      }
-      const newDraftEdits: DraftEditsByFile = {
-        ...prev.draftEdits,
-        [fileRelativePath]: fileEdits,
-      };
-      api.invoke("save_draft_edits_typed", {
-        folderPath: prev.folder,
-        data: newDraftEdits,
-      }).catch(console.error);
-      return { ...prev, draftEdits: newDraftEdits };
-    });
-  }, [api]);
+    draftEditsStoreRef.current.setBatch(fileRelativePath, edits);
+  }, []);
 
   const setDraftTyped = useCallback((fileRelativePath: string, propertyKey: string, edit: DraftEdit) => {
-    setAppState((prev) => {
-      if (prev.kind !== "loaded") return prev;
-      const fileEdits = prev.draftEdits[fileRelativePath] || {};
-      const newDraftEdits: DraftEditsByFile = {
-        ...prev.draftEdits,
-        [fileRelativePath]: { ...fileEdits, [propertyKey]: edit },
-      };
-      api.invoke("save_draft_edits_typed", {
-        folderPath: prev.folder,
-        data: newDraftEdits,
-      }).catch(console.error);
-      return { ...prev, draftEdits: newDraftEdits };
-    });
-  }, [api]);
+    draftEditsStoreRef.current.setTag(fileRelativePath, propertyKey, edit);
+  }, []);
 
   const discardDraftValue = useCallback((fileRelativePath: string, propertyKey: string) => {
-    setAppState((prev) => {
-      if (prev.kind !== "loaded") return prev;
-      const fileEdits = prev.draftEdits[fileRelativePath];
-      if (!fileEdits || !(propertyKey in fileEdits)) return prev;
-      const newFileEdits = { ...fileEdits };
-      delete newFileEdits[propertyKey];
-      const newDraftEdits = { ...prev.draftEdits };
-      if (Object.keys(newFileEdits).length === 0) {
-        delete newDraftEdits[fileRelativePath];
-      } else {
-        newDraftEdits[fileRelativePath] = newFileEdits;
-      }
-      api.invoke("save_draft_edits_typed", {
-        folderPath: prev.folder,
-        data: newDraftEdits,
-      }).catch(console.error);
-      return { ...prev, draftEdits: newDraftEdits };
-    });
-  }, [api]);
+    draftEditsStoreRef.current.deleteTag(fileRelativePath, propertyKey);
+  }, []);
 
   const discardAllDraftEdits = useCallback((fileRelativePath?: string | string[]) => {
-    setAppState((prev) => {
-      if (prev.kind !== "loaded") return prev;
-
-      let newDraftEdits: DraftEditsByFile;
-      if (fileRelativePath !== undefined) {
-        const paths = Array.isArray(fileRelativePath) ? fileRelativePath : [fileRelativePath];
-        const matching = paths.filter((p) => prev.draftEdits?.[p]);
-        if (matching.length === 0) return prev;
-        newDraftEdits = { ...prev.draftEdits };
-        for (const p of matching) delete newDraftEdits[p];
-      } else {
-        if (!prev.draftEdits || Object.keys(prev.draftEdits).length === 0) return prev;
-        newDraftEdits = {};
-      }
-
-      api.invoke("save_draft_edits_typed", {
-        folderPath: prev.folder,
-        data: newDraftEdits,
-      }).catch(console.error);
-      return { ...prev, draftEdits: newDraftEdits };
-    });
-  }, [api]);
+    if (fileRelativePath === undefined) {
+      draftEditsStoreRef.current.clear();
+    } else {
+      const paths = Array.isArray(fileRelativePath) ? fileRelativePath : [fileRelativePath];
+      draftEditsStoreRef.current.deletePaths(paths);
+    }
+  }, []);
 
   /**
    * Apply draft edits. The backend processes files one at a time, emitting
