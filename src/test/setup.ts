@@ -1,6 +1,7 @@
 import "@testing-library/jest-dom";
 import { afterEach, vi } from "vitest";
 import { cleanup } from "@testing-library/react";
+import { SearchIndex } from "../search/searchIndex";
 
 // Unmount React trees between tests so the DOM doesn't bleed across
 // `it()` blocks.  Without this, `screen.getByTestId(...)` in test N+1
@@ -31,6 +32,80 @@ if (typeof IntersectionObserver === "undefined") {
     unobserve() {}
     disconnect() {}
   };
+}
+
+// jsdom does not implement Web Workers.  The production hook spawns a
+// search worker via `new Worker(...)`, so tests need *some* Worker
+// implementation.  We install an in-thread shim that runs the same
+// SearchIndex code path the real worker would, dispatching RESULT
+// messages via setTimeout(0) to mimic the asynchronous postMessage
+// boundary.  Integration tests can rely on search filtering exactly the
+// way the production app does it.
+//
+// Tests that need finer control over wire traffic (`useSearchWorker.test`)
+// inject their own fake via the hook's `createWorker` arg and never reach
+// this shim.
+if (typeof Worker === "undefined") {
+  class InThreadSearchWorker {
+    private index = new SearchIndex();
+    onmessage: ((ev: { data: unknown }) => void) | null = null;
+    onerror: unknown = null;
+
+    postMessage(msg: { type: string; [k: string]: unknown }) {
+      switch (msg.type) {
+        case "CLEAR": this.index.clear(); return;
+        case "INIT_PHOTOS":
+          for (const p of (msg as { photos: Parameters<InstanceType<typeof SearchIndex>["setPhoto"]>[0][] }).photos) {
+            this.index.setPhoto(p);
+          }
+          return;
+        case "INIT_META":
+          for (const e of (msg as { entries: { path: string; meta: Parameters<InstanceType<typeof SearchIndex>["setMeta"]>[1] }[] }).entries) {
+            this.index.setMeta(e.path, e.meta);
+          }
+          return;
+        case "INIT_DRAFTS":
+          for (const e of (msg as { entries: { path: string; edits: Parameters<InstanceType<typeof SearchIndex>["setDrafts"]>[1] }[] }).entries) {
+            this.index.setDrafts(e.path, e.edits);
+          }
+          return;
+        case "UPSERT_PHOTO":
+          this.index.setPhoto((msg as { photo: Parameters<InstanceType<typeof SearchIndex>["setPhoto"]>[0] }).photo);
+          return;
+        case "UPSERT_META":
+          this.index.setMeta(
+            (msg as { path: string }).path,
+            (msg as { meta: Parameters<InstanceType<typeof SearchIndex>["setMeta"]>[1] }).meta,
+          );
+          return;
+        case "UPSERT_DRAFTS":
+          this.index.setDrafts(
+            (msg as { path: string }).path,
+            (msg as { edits: Parameters<InstanceType<typeof SearchIndex>["setDrafts"]>[1] }).edits,
+          );
+          return;
+        case "DELETE_PATH":
+          this.index.deletePath((msg as { path: string }).path);
+          return;
+        case "QUERY": {
+          const id = (msg as { id: number }).id;
+          const r = this.index.query((msg as { query: string }).query);
+          setTimeout(() => {
+            this.onmessage?.({
+              data: { type: "RESULT", id, matched: r.matched, hasEditsFilter: r.hasEditsFilter },
+            });
+          }, 0);
+          return;
+        }
+      }
+    }
+
+    terminate() {}
+    addEventListener() {}
+    removeEventListener() {}
+  }
+
+  (globalThis as unknown as Record<string, unknown>).Worker = InThreadSearchWorker;
 }
 
 // Mock @tanstack/react-virtual to render all items in tests (no virtualization)

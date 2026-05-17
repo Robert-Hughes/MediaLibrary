@@ -17,8 +17,8 @@ import { SettingsDialog } from "./components/SettingsDialog";
 import { DescribeProgressDialog } from "./components/DescribeProgressDialog";
 import { useDescribeImages } from "./hooks/useDescribeImages";
 import { sortPhotos, shouldSuspendSorting } from "./utils/sorting";
-import { filterPhotosForListSearch } from "./utils/listSearchFilter";
 import { listSearchQueryIsActive } from "./utils/listSearchText";
+import { useSearchWorker, createSearchWorker } from "./hooks/useSearchWorker";
 import { mapTypedToLegacy } from "./draft";
 import "./App.css";
 
@@ -111,12 +111,22 @@ function LoadedView({
     [state.draftEdits],
   );
 
-  const displayPhotos = useMemo(
-    () => filterPhotosForListSearch(sortedPhotos, listSearchQuery, state.imageMetadata, legacyDraftEdits),
-    // metadataVersion: hidden metadata can start matching after ExifTool results arrive
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [sortedPhotos, listSearchQuery, state.imageMetadata, state.metadataVersion, legacyDraftEdits],
-  );
+  // Off-thread search via Web Worker.  The hook subscribes to the metadata
+  // and draft-edit stores directly, so any mutation (streamed ExifTool
+  // results, draft edits) refreshes results without the App needing to
+  // forward each change.  See `src/hooks/useSearchWorker.ts`.
+  const { matched: searchMatched, pending: searchPending } = useSearchWorker({
+    photos: sortedPhotos,
+    imageMetadataStore: state.imageMetadata,
+    draftEditsStore: state.draftEditsStore,
+    query: listSearchQuery,
+    createWorker: createSearchWorker,
+  });
+
+  const displayPhotos = useMemo(() => {
+    if (searchMatched === null) return sortedPhotos;
+    return sortedPhotos.filter((p) => searchMatched.has(p.relative_path));
+  }, [sortedPhotos, searchMatched]);
 
   useEffect(() => {
     const len = displayPhotos.length;
@@ -181,6 +191,7 @@ function LoadedView({
         onOpenSettings={onOpenSettings}
         searchQuery={listSearchQuery}
         onSearchQueryChange={setListSearchQuery}
+        searching={searchPending}
       />
       <PhotoList
         photos={displayPhotos}

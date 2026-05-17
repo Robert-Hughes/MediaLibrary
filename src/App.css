@@ -379,6 +379,20 @@ body {
   border-color: var(--accent);
 }
 
+.list-search-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: list-search-spinner-rotate 0.8s linear infinite;
+}
+
+@keyframes list-search-spinner-rotate {
+  to { transform: rotate(360deg); }
+}
+
 /* ── Toolbar ──────────────────────────────────────────────────────────────── */
 
 .toolbar {

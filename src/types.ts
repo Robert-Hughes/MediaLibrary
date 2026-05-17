@@ -420,6 +420,9 @@ export type AppState =
 
       // Draft Edits
       draftEdits: DraftEditsByFile;
+      /** Observable store backing `draftEdits`; consumers like the search-
+       *  worker hook subscribe directly so they hear about every mutation. */
+      draftEditsStore: DraftEditsStore;
 
       // Apply-edits in-flight state (non-null while apply_draft_edits_cmd is running)
       applying: ApplyEditsInFlight | null;

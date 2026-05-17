@@ -8,6 +8,10 @@ interface Props {
   /** Optional search wiring — when provided, MenuBar renders the search box in the right group. */
   searchQuery?: string;
   onSearchQueryChange?: (q: string) => void;
+  /** True while the off-thread search worker is processing the current query
+   *  or refreshing results after a photo/metadata/draft change.  Renders an
+   *  inline spinner next to the search box. */
+  searching?: boolean;
 }
 
 export function MenuBar({
@@ -17,6 +21,7 @@ export function MenuBar({
   onOpenSettings,
   searchQuery,
   onSearchQueryChange,
+  searching = false,
 }: Props) {
   const { theme, toggle: toggleTheme } = useTheme();
 
@@ -52,6 +57,14 @@ export function MenuBar({
               onChange={(e) => onSearchQueryChange(e.target.value)}
               aria-label="Search photos"
             />
+            {searching && (
+              <span
+                className="list-search-spinner"
+                data-testid="list-search-spinner"
+                aria-label="Searching"
+                title="Searching…"
+              />
+            )}
           </div>
         )}
         <button

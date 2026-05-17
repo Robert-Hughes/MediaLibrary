@@ -1,7 +1,7 @@
 /**
  * Integration tests for Draft Metadata Editing
  */
-import { render, screen, act, within } from "@testing-library/react";
+import { render, screen, act, within, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import App from "../App";
@@ -279,9 +279,13 @@ describe("Draft Metadata Editing Integration", () => {
     const draftBadge = screen.getByTitle("Show only photos with edits");
     await user.click(draftBadge);
 
-    // List view should be filtered to just 1 photo
+    // List view should be filtered to just 1 photo.  Search runs off-thread
+    // through the worker so the row count change is asynchronous.
+    await waitFor(() => {
+      const filtered = screen.getAllByTestId("photo-row");
+      expect(filtered).toHaveLength(1);
+    });
     rows = screen.getAllByTestId("photo-row");
-    expect(rows).toHaveLength(1);
     expect(within(rows[0]).getByText("edited.jpg")).toBeInTheDocument();
 
     // The search input should have "has:edits"
@@ -292,14 +296,17 @@ describe("Draft Metadata Editing Integration", () => {
     await user.click(screen.getByText("Discard all edits…"));
 
     // The list is now empty because no edits exist but filter is still has:edits
-    expect(screen.queryByTestId("photo-row")).toBeNull();
+    await waitFor(() => {
+      expect(screen.queryByTestId("photo-row")).toBeNull();
+    });
 
     // Clear filter
     await user.clear(screen.getByTestId("list-search-input"));
-    
+
     // Both rows back
-    rows = screen.getAllByTestId("photo-row");
-    expect(rows).toHaveLength(2);
+    await waitFor(() => {
+      expect(screen.getAllByTestId("photo-row")).toHaveLength(2);
+    });
   });
 
   it("can search for draft edited values in both list view and details pane", async () => {
@@ -358,14 +365,18 @@ describe("Draft Metadata Editing Integration", () => {
     await user.clear(listSearch);
     await user.type(listSearch, "Nikon");
 
-    // The photo should still be visible because it matches
-    rows = screen.getAllByTestId("photo-row");
-    expect(rows).toHaveLength(1);
+    // The photo should still be visible because it matches.  Search is
+    // off-thread, so the row count assertion needs to wait.
+    await waitFor(() => {
+      expect(screen.getAllByTestId("photo-row")).toHaveLength(1);
+    });
 
     // If we search for something unrelated, it should disappear
     await user.clear(listSearch);
     await user.type(listSearch, "Panasonic");
-    expect(screen.queryByTestId("photo-row")).toBeNull();
+    await waitFor(() => {
+      expect(screen.queryByTestId("photo-row")).toBeNull();
+    });
   });
 
   it("can discard all edits across all photos using the menu bar button", async () => {
