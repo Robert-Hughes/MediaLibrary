@@ -120,7 +120,7 @@ describe("App CLI folder argument", () => {
     // Should show loading state, not welcome screen
     await waitFor(() => {
       expect(screen.queryByText("Media Library")).not.toBeInTheDocument();
-      expect(screen.getByTestId("status-footer")).toBeInTheDocument();
+      expect(screen.getByTestId("status-bar")).toBeInTheDocument();
     });
   });
 

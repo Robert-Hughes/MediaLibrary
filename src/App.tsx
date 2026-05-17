@@ -8,8 +8,7 @@ import { WelcomeScreen } from "./components/WelcomeScreen";
 import { MenuBar } from "./components/MenuBar";
 import { PhotoList } from "./components/PhotoList";
 import { GalleryView } from "./components/GalleryView";
-import { StatusFooter } from "./components/StatusFooter";
-import { SelectionFooter } from "./components/SelectionFooter";
+import { StatusBar } from "./components/StatusBar";
 import { ColumnSelectionDialog } from "./components/ColumnSelectionDialog";
 import { ApplyProgressDialog } from "./components/ApplyProgressDialog";
 import { VerifyOutcomeDialog } from "./components/VerifyOutcomeDialog";
@@ -266,8 +265,17 @@ function LoadedView({
           onDismissAll={actions.dismissAllVerifyOutcomes}
         />
       )}
-      <SelectionFooter selectedCount={selectionCount} totalCount={displayPhotos.length} />
-      {state.scanning && <StatusFooter message="Discovering files…" />}
+      <StatusBar
+        photoCount={displayPhotos.length}
+        photoCountTotal={listSearchActive ? sortedPhotos.length : undefined}
+        scanning={state.scanning}
+        metadataProgress={state.metadataProgress}
+        selectedCount={selectionCount}
+        draftEditsSummary={draftEditsSummary}
+        onClickDraftSummary={onClickDraftSummary}
+        onApplyAllEdits={() => actions.applyDraftEdits()}
+        onDiscardAllEdits={() => actions.discardAllDraftEdits()}
+      />
     </>
   );
 }
@@ -337,12 +345,7 @@ export default function App() {
         </div>
       )}
 
-      {checkingCli && (
-        <>
-          <div style={{ flex: 1 }} />
-          <StatusFooter message="Starting…" />
-        </>
-      )}
+      {checkingCli && <div style={{ flex: 1 }} />}
 
       {!checkingCli && showWelcome && (
         <WelcomeScreen
@@ -378,7 +381,12 @@ export default function App() {
             onPhotoOpen={() => {}}
             onSelectColumns={() => setShowColumnDialog(true)}
           />
-          <StatusFooter message="Discovering files…" />
+          <StatusBar
+            photoCount={0}
+            scanning={true}
+            metadataProgress={null}
+            selectedCount={0}
+          />
         </>
       )}
 
