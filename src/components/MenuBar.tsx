@@ -47,24 +47,38 @@ export function MenuBar({
         {onSearchQueryChange && (
           <div className="menu-bar-search" data-testid="menu-bar-search">
             <label className="list-search-label" htmlFor="list-search-input">Search</label>
-            <input
-              id="list-search-input"
-              type="search"
-              className="list-search-input"
-              data-testid="list-search-input"
-              placeholder="Path, file dates, image metadata…"
-              value={searchQuery ?? ""}
-              onChange={(e) => onSearchQueryChange(e.target.value)}
-              aria-label="Search photos"
-            />
-            {searching && (
-              <span
-                className="list-search-spinner"
-                data-testid="list-search-spinner"
-                aria-label="Searching"
-                title="Searching…"
+            <div className="list-search-input-wrap">
+              <input
+                id="list-search-input"
+                type="search"
+                className="list-search-input"
+                data-testid="list-search-input"
+                placeholder="Path, file dates, image metadata…"
+                value={searchQuery ?? ""}
+                onChange={(e) => onSearchQueryChange(e.target.value)}
+                aria-label="Search photos"
               />
-            )}
+              {searching && (
+                <span
+                  className="list-search-spinner"
+                  data-testid="list-search-spinner"
+                  aria-label="Searching"
+                  title="Searching…"
+                />
+              )}
+              {(searchQuery ?? "").length > 0 && (
+                <button
+                  type="button"
+                  className="list-search-clear"
+                  data-testid="list-search-clear"
+                  aria-label="Clear search"
+                  title="Clear search"
+                  onClick={() => onSearchQueryChange("")}
+                >
+                  ×
+                </button>
+              )}
+            </div>
           </div>
         )}
         <button
