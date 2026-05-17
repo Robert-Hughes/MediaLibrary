@@ -272,7 +272,8 @@ describe("useSearchWorker", () => {
       vi.advanceTimersByTime(150);
     });
     expect(fake.inbound.filter((m) => m.type === "QUERY").length).toBe(beforeCount + 1);
-    const lastQuery = fake.inbound.filter((m) => m.type === "QUERY").at(-1);
+    const queries = fake.inbound.filter((m) => m.type === "QUERY");
+    const lastQuery = queries[queries.length - 1];
     expect(lastQuery && "query" in lastQuery && lastQuery.query).toBe("abc");
     vi.useRealTimers();
   });

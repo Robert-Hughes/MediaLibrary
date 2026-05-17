@@ -272,6 +272,7 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
             metadataVersion: 0,
             workerErrors: [],
             draftEdits: draftEditsStoreRef.current.getAll(),
+            draftEditsStore: draftEditsStoreRef.current,
             applying: null,
             verifyOutcomes: {},
           };
@@ -405,6 +406,7 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
               metadataVersion: 0,
               workerErrors: [],
               draftEdits: draftEditsStoreRef.current.getAll(),
+            draftEditsStore: draftEditsStoreRef.current,
               applying: null,
               verifyOutcomes: {},
             };
