@@ -519,7 +519,8 @@ body {
 }
 
 .grid-header--sortable:hover {
-  background: var(--surface-hover, #2a2a2a);
+  background: var(--surface-alt);
+  color: var(--text-primary);
 }
 
 .grid-header--metadata {
