@@ -226,6 +226,140 @@ export type DraftEditsByFile = Record<string, Record<string, DraftEdit>>;
 export type DraftEditsValue = string | null;
 export type LegacyDraftEditsByFile = Record<string, Record<string, DraftEditsValue>>;
 
+/**
+ * Per-mutation change record passed to DraftEditsStore subscribers.
+ * `edits` is the new per-tag map after the mutation, or `undefined` if the
+ * entire file's drafts were removed.
+ */
+export interface DraftEditsChange {
+  path: string;
+  edits: Record<string, DraftEdit> | undefined;
+}
+
+export type DraftEditsListener = (changes: DraftEditsChange[]) => void;
+
+/**
+ * Single source of truth for draft edits.  All user-initiated mutations funnel
+ * through methods on this class so subscribers (React-state sync, persistence,
+ * future search-worker index) stay in sync without per-call-site discipline.
+ *
+ * `reset()` is silent — used during scan initialization to seed the store from
+ * disk.  Every other mutator notifies subscribers exactly once with the list of
+ * changed paths (undefined-valued edits = path deleted).
+ */
+export class DraftEditsStore {
+  private snapshot: DraftEditsByFile = {};
+  private listeners = new Set<DraftEditsListener>();
+
+  /** Bulk replace.  Silent — does not fire subscribers. */
+  reset(initial: DraftEditsByFile) {
+    this.snapshot = initial;
+  }
+
+  /** Returns the current immutable snapshot.  Reference changes on every mutation. */
+  getAll(): DraftEditsByFile {
+    return this.snapshot;
+  }
+
+  getFile(path: string): Record<string, DraftEdit> | undefined {
+    return this.snapshot[path];
+  }
+
+  setTag(path: string, tag: string, edit: DraftEdit) {
+    const fileEdits = { ...(this.snapshot[path] ?? {}), [tag]: edit };
+    this.snapshot = { ...this.snapshot, [path]: fileEdits };
+    this.notify([{ path, edits: fileEdits }]);
+  }
+
+  setBatch(path: string, edits: Array<{ key: string; edit: DraftEdit }>) {
+    if (edits.length === 0) return;
+    const fileEdits = { ...(this.snapshot[path] ?? {}) };
+    for (const { key, edit } of edits) fileEdits[key] = edit;
+    this.snapshot = { ...this.snapshot, [path]: fileEdits };
+    this.notify([{ path, edits: fileEdits }]);
+  }
+
+  deleteTag(path: string, tag: string) {
+    const fileEdits = this.snapshot[path];
+    if (!fileEdits || !(tag in fileEdits)) return;
+    const updated = { ...fileEdits };
+    delete updated[tag];
+    const next = { ...this.snapshot };
+    if (Object.keys(updated).length === 0) {
+      delete next[path];
+      this.snapshot = next;
+      this.notify([{ path, edits: undefined }]);
+    } else {
+      next[path] = updated;
+      this.snapshot = next;
+      this.notify([{ path, edits: updated }]);
+    }
+  }
+
+  deletePath(path: string) {
+    if (!this.snapshot[path]) return;
+    const next = { ...this.snapshot };
+    delete next[path];
+    this.snapshot = next;
+    this.notify([{ path, edits: undefined }]);
+  }
+
+  deletePaths(paths: string[]) {
+    const existing = paths.filter((p) => this.snapshot[p]);
+    if (existing.length === 0) return;
+    const next = { ...this.snapshot };
+    for (const p of existing) delete next[p];
+    this.snapshot = next;
+    this.notify(existing.map((p) => ({ path: p, edits: undefined })));
+  }
+
+  clear() {
+    const paths = Object.keys(this.snapshot);
+    if (paths.length === 0) return;
+    this.snapshot = {};
+    this.notify(paths.map((p) => ({ path: p, edits: undefined })));
+  }
+
+  /**
+   * Phase 8.1 apply path: drop the listed tags after backend verification said
+   * they landed cleanly.  No-op if the file or tags are missing.
+   */
+  pruneTags(path: string, tagsToDelete: string[]) {
+    const fileEdits = this.snapshot[path];
+    if (!fileEdits) return;
+    const updated = { ...fileEdits };
+    let touched = false;
+    for (const t of tagsToDelete) {
+      if (t in updated) {
+        delete updated[t];
+        touched = true;
+      }
+    }
+    if (!touched) return;
+    const next = { ...this.snapshot };
+    if (Object.keys(updated).length === 0) {
+      delete next[path];
+      this.snapshot = next;
+      this.notify([{ path, edits: undefined }]);
+    } else {
+      next[path] = updated;
+      this.snapshot = next;
+      this.notify([{ path, edits: updated }]);
+    }
+  }
+
+  subscribe(fn: DraftEditsListener): () => void {
+    this.listeners.add(fn);
+    return () => {
+      this.listeners.delete(fn);
+    };
+  }
+
+  private notify(changes: DraftEditsChange[]) {
+    this.listeners.forEach((cb) => cb(changes));
+  }
+}
+
 // ── App state ─────────────────────────────────────────────────────────────────
 
 export type AppState =
