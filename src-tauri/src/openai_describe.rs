@@ -16,8 +16,6 @@
 //! wiremock and run a deterministic retry sequence without real network.
 
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
 use std::time::Duration;
 
 use base64::Engine;
@@ -522,27 +520,13 @@ pub fn compose_draft_edits(
 
 // ── Cancellation flag ───────────────────────────────────────────────────────
 
-/// Shared cancellation flag; mirrors `ApplyEditsState` but lives here so
-/// the describe loop is the sole owner.  Checked at every image boundary.
-#[derive(Default)]
-pub struct DescribeState {
-    cancelled: std::sync::Mutex<Option<Arc<AtomicBool>>>,
-}
-
-impl DescribeState {
-    pub fn install(&self) -> Arc<AtomicBool> {
-        let flag = Arc::new(AtomicBool::new(false));
-        *self.cancelled.lock().unwrap() = Some(flag.clone());
-        flag
-    }
-    pub fn clear(&self) { *self.cancelled.lock().unwrap() = None; }
-    pub fn signal_cancel(&self) -> bool {
-        if let Some(f) = self.cancelled.lock().unwrap().as_ref() {
-            f.store(true, Ordering::Relaxed);
-            true
-        } else { false }
-    }
-}
+/// Describe-specific cancellation state.
+///
+/// Aliased to the shared `BatchJobCancelState` so describe and geocode
+/// can use the same install/clear/signal_cancel pattern without
+/// duplicate types. They remain separate Tauri-managed instances so
+/// cancelling describe does not cancel a geocode run, and vice versa.
+pub type DescribeState = crate::batch_job::BatchJobCancelState;
 
 // ── Tests ───────────────────────────────────────────────────────────────────
 

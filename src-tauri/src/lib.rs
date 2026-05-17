@@ -8,6 +8,7 @@ pub mod write_args;
 pub mod apply_log;
 pub mod exiftool_config;
 pub mod settings;
+pub mod batch_job;
 pub mod openai_describe;
 pub mod describe_log;
 use serde::Serialize;
@@ -892,48 +893,14 @@ struct DescribeEstimateCompletePayload {
 #[derive(Clone, Serialize)]
 struct DescribeEstimateErrorPayload { relative_path: String, message: String }
 
-#[derive(Clone, Serialize)]
-struct DescribeStartedPayload { total: usize }
-
-#[derive(Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct DescribeProgressPayload {
-    current: usize,
-    total: usize,
-    relative_path: String,
-    /// "ok" | "decode" | "incomplete" | "refused" | "http" |
-    /// "network" | "bad_json" | "usage_parse_failed"
-    status: String,
-    error: Option<String>,
-    /// Typed draft edits to apply for this file when `status == "ok"`.
-    /// Backend hands these to the frontend rather than writing the draft
-    /// store itself — the frontend owns the in-memory draft state and
-    /// uses the existing `save_draft_edits_typed` pipeline so the UI and
-    /// disk stay in sync.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    edits: Option<std::collections::HashMap<String, draft_edits::DraftEdit>>,
-}
-
 // `describe_retry` event surface deferred: reqwest_retry doesn't expose a
 // per-attempt hook, so retries are visible in logs but not in the UI for
 // V1. Adding a custom middleware that emits events is the natural follow-up
 // (see docs/IMAGE_ANALYSIS.md "Rate-limit visibility" bullet).
 
-#[derive(Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct DescribeCompletePayload {
-    succeeded: Vec<String>,
-    failed: Vec<DescribeFailureRow>,
-    usage_summary: UsageSummary,
-}
-
-#[derive(Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct DescribeFailureRow {
-    relative_path: String,
-    kind: String,
-    detail: String,
-}
+// `describe_started`, `describe_progress`, `describe_complete` are emitted
+// through `batch_job::BatchProgressEmitter` — the wire shape lives there.
+// Only the per-job summary (token usage / cost) is describe-specific:
 
 #[derive(Clone, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -1074,10 +1041,11 @@ async fn describe_images_cmd(
         "[describe] starting describe model={} prompt_version={} total={}",
         s.openai_model, openai_describe::PROMPT_VERSION, total
     );
-    let _ = app.emit("describe_started", DescribeStartedPayload { total });
+    let emitter = batch_job::BatchProgressEmitter::new(&app, "describe");
+    emitter.started(total);
 
     let mut succeeded: Vec<String> = Vec::new();
-    let mut failed: Vec<DescribeFailureRow> = Vec::new();
+    let mut failed: Vec<batch_job::BatchFailureRow> = Vec::new();
     let mut log_errors: Vec<describe_log::DescribeLogError> = Vec::new();
     let mut aggregate = openai_describe::UsageStats::default();
     let mut total_input_for_predicted: u64 = 0;
@@ -1098,11 +1066,8 @@ async fn describe_images_cmd(
             Ok(b) => b,
             Err(e) => {
                 log::warn!("[describe] ({}/{}) decode failed for {}: {}", current, total, rel, e);
-                let _ = app.emit("describe_progress", DescribeProgressPayload {
-                    current, total, relative_path: rel.clone(),
-                    status: "decode".into(), error: Some(e.clone()), edits: None,
-                });
-                failed.push(DescribeFailureRow {
+                emitter.progress(current, total, rel, "decode", Some(&e), None);
+                failed.push(batch_job::BatchFailureRow {
                     relative_path: rel.clone(), kind: "decode".into(), detail: e.clone(),
                 });
                 log_errors.push(describe_log::DescribeLogError {
@@ -1124,10 +1089,7 @@ async fn describe_images_cmd(
                     "[describe] ({}/{}) ok {} input_tokens={} output_tokens={} tags={}",
                     current, total, rel, usage.input_tokens, usage.output_tokens, edits.len()
                 );
-                let _ = app.emit("describe_progress", DescribeProgressPayload {
-                    current, total, relative_path: rel.clone(),
-                    status: "ok".into(), error: None, edits: Some(edits),
-                });
+                emitter.progress(current, total, rel, "ok", None, Some(&edits));
                 succeeded.push(rel.clone());
             }
             Err(e) => {
@@ -1137,11 +1099,8 @@ async fn describe_images_cmd(
                     "[describe] ({}/{}) failed {} kind={} detail={}",
                     current, total, rel, kind, detail
                 );
-                let _ = app.emit("describe_progress", DescribeProgressPayload {
-                    current, total, relative_path: rel.clone(),
-                    status: kind.clone(), error: Some(detail.clone()), edits: None,
-                });
-                failed.push(DescribeFailureRow {
+                emitter.progress(current, total, rel, &kind, Some(&detail), None);
+                failed.push(batch_job::BatchFailureRow {
                     relative_path: rel.clone(), kind: kind.clone(), detail: detail.clone(),
                 });
                 log_errors.push(describe_log::DescribeLogError {
@@ -1190,9 +1149,7 @@ async fn describe_images_cmd(
     }
 
     describe_state.clear();
-    let _ = app.emit("describe_complete", DescribeCompletePayload {
-        succeeded, failed, usage_summary,
-    });
+    emitter.complete(&succeeded, &failed, &usage_summary);
     Ok(())
 }
 
