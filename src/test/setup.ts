@@ -51,45 +51,46 @@ if (typeof Worker === "undefined") {
     onmessage: ((ev: { data: unknown }) => void) | null = null;
     onerror: unknown = null;
 
-    postMessage(msg: { type: string; [k: string]: unknown }) {
+    postMessage(rawMsg: unknown) {
+      const msg = rawMsg as { type: string } & Record<string, unknown>;
       switch (msg.type) {
         case "CLEAR": this.index.clear(); return;
         case "INIT_PHOTOS":
-          for (const p of (msg as { photos: Parameters<InstanceType<typeof SearchIndex>["setPhoto"]>[0][] }).photos) {
+          for (const p of msg.photos as Parameters<InstanceType<typeof SearchIndex>["setPhoto"]>[0][]) {
             this.index.setPhoto(p);
           }
           return;
         case "INIT_META":
-          for (const e of (msg as { entries: { path: string; meta: Parameters<InstanceType<typeof SearchIndex>["setMeta"]>[1] }[] }).entries) {
+          for (const e of msg.entries as { path: string; meta: Parameters<InstanceType<typeof SearchIndex>["setMeta"]>[1] }[]) {
             this.index.setMeta(e.path, e.meta);
           }
           return;
         case "INIT_DRAFTS":
-          for (const e of (msg as { entries: { path: string; edits: Parameters<InstanceType<typeof SearchIndex>["setDrafts"]>[1] }[] }).entries) {
+          for (const e of msg.entries as { path: string; edits: Parameters<InstanceType<typeof SearchIndex>["setDrafts"]>[1] }[]) {
             this.index.setDrafts(e.path, e.edits);
           }
           return;
         case "UPSERT_PHOTO":
-          this.index.setPhoto((msg as { photo: Parameters<InstanceType<typeof SearchIndex>["setPhoto"]>[0] }).photo);
+          this.index.setPhoto(msg.photo as Parameters<InstanceType<typeof SearchIndex>["setPhoto"]>[0]);
           return;
         case "UPSERT_META":
           this.index.setMeta(
-            (msg as { path: string }).path,
-            (msg as { meta: Parameters<InstanceType<typeof SearchIndex>["setMeta"]>[1] }).meta,
+            msg.path as string,
+            msg.meta as Parameters<InstanceType<typeof SearchIndex>["setMeta"]>[1],
           );
           return;
         case "UPSERT_DRAFTS":
           this.index.setDrafts(
-            (msg as { path: string }).path,
-            (msg as { edits: Parameters<InstanceType<typeof SearchIndex>["setDrafts"]>[1] }).edits,
+            msg.path as string,
+            msg.edits as Parameters<InstanceType<typeof SearchIndex>["setDrafts"]>[1],
           );
           return;
         case "DELETE_PATH":
-          this.index.deletePath((msg as { path: string }).path);
+          this.index.deletePath(msg.path as string);
           return;
         case "QUERY": {
-          const id = (msg as { id: number }).id;
-          const r = this.index.query((msg as { query: string }).query);
+          const id = msg.id as number;
+          const r = this.index.query(msg.query as string);
           setTimeout(() => {
             this.onmessage?.({
               data: { type: "RESULT", id, matched: r.matched, hasEditsFilter: r.hasEditsFilter },

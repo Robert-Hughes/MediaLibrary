@@ -1,14 +1,17 @@
 /**
- * Integration-style tests for list search: filter, empty state, highlights in visible cells.
+ * Integration tests for list search: filter, empty state, highlights in
+ * visible cells.  Drives the same search pipeline the production app
+ * uses — `useSearchWorker` + the SearchIndex-backed InThreadSearchWorker
+ * stub from `src/test/setup.ts`.
  */
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useMemo, useState } from "react";
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import { PhotoList } from "../components/PhotoList";
-import { ThumbnailStore, ImageMetadataStore } from "../types";
+import { DraftEditsStore, ImageMetadataStore, ThumbnailStore } from "../types";
 import { makePhotos, imgCol } from "./factories";
-import { filterPhotosForListSearch } from "../utils/listSearchFilter";
+import { useSearchWorker, createSearchWorker } from "../hooks/useSearchWorker";
 
 const defaultSortProps = {
   sortConfig: { primary: null, secondary: null } as const,
@@ -39,10 +42,20 @@ function ListSearchHarness({
     m.set("c.jpg", { "IFD0:Make": "Nikon" });
     return m;
   }, [allPhotos]);
+  const drafts = useMemo(() => new DraftEditsStore(), []);
+
+  const { matched } = useSearchWorker({
+    photos: allPhotos,
+    imageMetadataStore: meta,
+    draftEditsStore: drafts,
+    query,
+    debounceMs: 0,
+    createWorker: createSearchWorker,
+  });
 
   const display = useMemo(
-    () => filterPhotosForListSearch(allPhotos, query, meta),
-    [allPhotos, query, meta],
+    () => matched === null ? allPhotos : allPhotos.filter((p) => matched.has(p.relative_path)),
+    [allPhotos, matched],
   );
 
   return (
@@ -81,10 +94,6 @@ describe("List view search", () => {
     date_created: 1_700_000_000,
   }));
 
-  beforeEach(() => {
-    // stable dates for substring search if needed
-  });
-
   it("filters rows by path and highlights the match in the path cell", async () => {
     render(
       <ListSearchHarness
@@ -93,12 +102,16 @@ describe("List view search", () => {
       />,
     );
 
-    expect(screen.getAllByTestId("photo-row")).toHaveLength(3);
+    await waitFor(() => {
+      expect(screen.getAllByTestId("photo-row")).toHaveLength(3);
+    });
 
     await userEvent.type(screen.getByTestId("list-search-input"), "b.jpg");
 
+    await waitFor(() => {
+      expect(screen.getAllByTestId("photo-row")).toHaveLength(1);
+    });
     const rows = screen.getAllByTestId("photo-row");
-    expect(rows).toHaveLength(1);
     const pathCell = within(rows[0].querySelector('[data-testid="photo-path"]') as HTMLElement).getByText(/b\.jpg/i);
     expect(pathCell.closest("mark")).toHaveClass("search-highlight");
   });
@@ -110,8 +123,10 @@ describe("List view search", () => {
 
     await userEvent.type(screen.getByTestId("list-search-input"), "unique-xyz-123");
 
+    await waitFor(() => {
+      expect(screen.getAllByTestId("photo-row")).toHaveLength(1);
+    });
     const rows = screen.getAllByTestId("photo-row");
-    expect(rows).toHaveLength(1);
     expect(rows[0]).toHaveAttribute("data-path", "a.jpg");
 
     const path = within(rows[0].querySelector('[data-testid="photo-path"]') as HTMLElement);
@@ -129,7 +144,9 @@ describe("List view search", () => {
 
     await userEvent.type(screen.getByTestId("list-search-input"), "no-such-match-zzzz");
 
-    expect(screen.getByTestId("photo-list-search-empty")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByTestId("photo-list-search-empty")).toBeInTheDocument();
+    });
     expect(screen.getByTestId("photo-list-search-empty-message")).toHaveTextContent("No photos match your search.");
   });
 });
