@@ -65,6 +65,27 @@ export interface MockTauriApi {
     totalInputTokens: number; predictedCostUsd: number;
     upperBoundCostUsd: number; model: string;
   };
+
+  // ── Reverse-geocoding mock state ─────────────────────────────────────
+  /** Records the most recent geocode_images_cmd arguments. */
+  lastGeocodeArgs: { folderPath: string; items: Array<{ relPath: string; lat: number | null; lon: number | null }> } | null;
+  cancelGeocodeCalled: boolean;
+  /** Per-rel-path geocode outcome. Order corresponds to items[i]. */
+  geocodeSchedule: Array<{
+    relativePath: string;
+    status: string;
+    error?: string | null;
+    /** Typed draft edits emitted on `status === "ok"`. */
+    edits?: Record<string, unknown>;
+  }>;
+  /** Summary emitted by geocode_complete. */
+  geocodeSummary: {
+    nSucceededFromNominatim: number;
+    nSucceededFromCache: number;
+    nSucceededFromOverpass: number;
+    nNoGps: number;
+    nFailed: number;
+  };
 }
 
 export function createMockTauriApi(): MockTauriApi {
@@ -121,6 +142,16 @@ export function createMockTauriApi(): MockTauriApi {
     },
     describeEstimateComplete: {
       totalInputTokens: 0, predictedCostUsd: 0, upperBoundCostUsd: 0, model: "gpt-4o",
+    },
+    lastGeocodeArgs: null,
+    cancelGeocodeCalled: false,
+    geocodeSchedule: [],
+    geocodeSummary: {
+      nSucceededFromNominatim: 0,
+      nSucceededFromCache: 0,
+      nSucceededFromOverpass: 0,
+      nNoGps: 0,
+      nFailed: 0,
     },
   };
 
@@ -258,6 +289,35 @@ export function createMockTauriApi(): MockTauriApi {
       }
       if (cmd === "cancel_describe_cmd") {
         mock.cancelDescribeCalled = true;
+        return;
+      }
+      if (cmd === "geocode_images_cmd") {
+        const folderPath = args?.folderPath as string;
+        const items = (args?.items as Array<{ relPath: string; lat: number | null; lon: number | null }>) ?? [];
+        mock.lastGeocodeArgs = { folderPath, items };
+        const total = items.length;
+        await new Promise((r) => setTimeout(r, 0));
+        emit("geocode_started", { total });
+        const succeeded: string[] = [];
+        const failed: Array<{ relativePath: string; kind: string; detail: string }> = [];
+        for (let i = 0; i < total; i++) {
+          const rp = items[i].relPath;
+          const sched = mock.geocodeSchedule[i] ?? { relativePath: rp, status: "ok" };
+          emit("geocode_progress", {
+            current: i + 1, total, relativePath: rp,
+            status: sched.status, error: sched.error ?? null,
+            edits: sched.status === "ok" ? (sched.edits ?? {}) : undefined,
+          });
+          if (sched.status === "ok") succeeded.push(rp);
+          else failed.push({ relativePath: rp, kind: sched.status, detail: sched.error ?? "" });
+        }
+        emit("geocode_complete", {
+          succeeded, failed, usageSummary: mock.geocodeSummary,
+        });
+        return;
+      }
+      if (cmd === "cancel_geocode_cmd") {
+        mock.cancelGeocodeCalled = true;
         return;
       }
       throw new Error(`Unexpected invoke: ${cmd}`);
