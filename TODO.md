@@ -9,27 +9,7 @@ Now
 
 Work on the following bugs, features and improvements. Make sure to add/update good test coverage for each change where appropriate and make small, incremental commits to git. Try to avoid mixing different features or bits of work within the same commit where possible
 
-* Bug: Cancel button on the AI describe dialog doesn't seem to do anything! The Escape key should also be equivalent to Cancel.
-* Bug: Applying a draft [B]AIOcrText field with empty value fails to apply. Similar bug to that fixed in `9aa6804c9541efa66658b551d23bb3a22fa1904b`, maybe Bags weren't fixed in that commit?
-* Bug: The warning prompt "This image already has an AI description. Generating a new one will overwrite the existing draft." only seems to trigger if there
-is a description already in the image file, not if there is only a draft of one (despite the text of the message!). It should trigger in both cases and the message itself should just say "the existing one" rather than explicitly mentioning drafts.
-* Feature: Add "Show in File Explorer" button to the details panel on the gallery view, to match with the corresponding context menu (re-use same implementation code!)
-* Feature: Menu items, buttons and links that open a dialog rather than performing an action immediately should use ellipses at the end of the label to indicate to the user that there are more options after they click it. We do this already for "Select Columns…", but not many other places (this is a standard UI design rule - are you familiar with this?)
-* Feature: on the main list view, the up/down arrow keys should change the selection (and automatically scroll the new selection into view if it's not already).
-  * Similarly, the home/end keys should select & scroll to the top/bottom row
-* Feature: on the main list view, Ctrl+A should select all rows
-* Feature: Ctrl+F should change input focus to the search box (for both the main list view and on the gallery view if the details panel is visible)
-* UI improvement: the app icon shown on the home screen (when no folder is open) was designed for a white background but is displayed on a black one. This means the semi-transparent edges to not blend well into the background and it looks poor quality. Generate a new rendering of the icon with a proper transparency mask for use on a black background. Also make the logo larger on this screen so that it stands out better.
-* UI improvement: The "Select columns" has nicely styled buttons that fit in with the app's theme, but many other buttons in the app are using default/unstyled buttons that don't fit. Make all the buttons consistently use the nice styling.
-* UI Bug: If you right click on a photo row when your cursor is near the bottom or right edge of the window, the popup context menu is clipped by the window border so can't be seen.
-Make it appear to the left or above the cursor if it won't fit to the bottom right
-* UI improvement: move the list view's search box into the top-right corner of the window, on the same row as the buttons like Open Folder and Close
-* UI improvement: rename the "Close" button on the top bar to "Close Folder"
 
-* Fetch this design file, read its readme, and consider how we could integrate the design. https://api.anthropic.com/v1/design/h/5nr5fPNh5vfGUrZ6BOOkUw?open_file=Media+Library+Classic+Layout.html (Media Library Classic Layout.html, NOT the 'Redesign' version)
-  * Focus on the styling aspects, not the layout or functionality. I like the dark/light theme toggle, hopefully we can add that.
-  * Give me a short report on how we could make our app look like this and if there are any trade-offs we would need to make
-  * No edits, just investigate
 
 Later- *** DO NOT WORK ON ANY OF THE BELOW FEATURES ***
 =====
@@ -54,3 +34,5 @@ Later- *** DO NOT WORK ON ANY OF THE BELOW FEATURES ***
 * Verify behaviour of app first startup if exiftool missing (will fail to generate schema cache - is error properly reported on the blocking dialog?)
 
 * Typing in the search box when many photos loaded is very laggy. Speed up search and/or make it async with spinner to indicate processing
+
+* Fix app icon on dark background (home screen)
