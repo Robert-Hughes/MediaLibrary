@@ -1,40 +1,31 @@
 /**
  * Drives the AI-description flow end-to-end.
  *
- * Returns a `state` object the dialog renders, and a set of action
- * handlers (`start`, `confirm`, `cancel`, `close`). The hook owns:
+ * Thin adapter around `useBatchImageJob` (the shared phase machine for
+ * any sequential per-image batch job). This file owns only the
+ * describe-specific bits: the four `describe_*` command names, the
+ * `describe_estimate_*` event subscriptions, and the typed shapes of
+ * the estimate + summary payloads.
  *
- *  - Tauri event subscriptions for estimate + run phases.
- *  - A single state machine across phases — the dialog never closes
- *    between estimating, awaiting-confirm, running, and done.
- *  - Cancellation that targets the same backend flag in either phase.
- *
- * Tests can drive this by stubbing `invoke` and emitting events through
- * the mock `listen`.
+ * The previous version of this hook held its own state machine and
+ * Tauri subscriptions; that logic now lives in `useBatchImageJob.ts`
+ * so reverse-geocode and any future batch job can share the same
+ * lifecycle without copy-paste.
  */
-import { useCallback, useEffect, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { useMemo } from "react";
+import type { UnlistenFn } from "@tauri-apps/api/event";
+import { listen } from "@tauri-apps/api/event";
 import type {
+  DescribeEstimate,
   DescribeProgressState,
-  DescribeFailure,
   DescribeUsageSummary,
   DraftEdit,
 } from "../types";
-
-const INITIAL_HIDDEN: DescribeProgressState = {
-  phase: "estimating",
-  total: 0,
-  current: 0,
-  currentFile: null,
-  cancelling: false,
-  failures: [],
-  succeeded: [],
-  estimate: null,
-  estimateError: null,
-  usageSummary: null,
-  relPaths: [],
-};
+import {
+  useBatchImageJob,
+  type BatchJobConfig,
+  type BatchJobState,
+} from "./useBatchImageJob";
 
 export interface DescribeActions {
   /** Start the flow for the given absolute folder + relative paths. */
@@ -61,198 +52,114 @@ export interface UseDescribeImagesOptions {
   onApplyEdits?: (relativePath: string, edits: Record<string, DraftEdit>) => void;
 }
 
+/**
+ * Map the generic `BatchJobState` to the legacy `DescribeProgressState`
+ * shape that `DescribeProgressDialog` already renders. Keeping the
+ * adapter at the hook boundary means the dialog component need not
+ * change as part of the refactor.
+ */
+function toLegacyShape(
+  s: BatchJobState<DescribeEstimate, DescribeUsageSummary>,
+): DescribeProgressState {
+  return {
+    phase: s.phase,
+    total: s.total,
+    current: s.current,
+    currentFile: s.currentFile,
+    cancelling: s.cancelling,
+    failures: s.failures,
+    succeeded: s.succeeded,
+    estimate: s.estimate,
+    estimateError: s.estimateError,
+    usageSummary: s.summary,
+    relPaths: s.relPaths,
+  };
+}
+
 export function useDescribeImages(options: UseDescribeImagesOptions = {}): {
   open: boolean;
   state: DescribeProgressState;
   actions: DescribeActions;
 } {
-  // Hold the latest callback in a ref so the event subscription effect
-  // doesn't have to resubscribe whenever the parent re-renders with a
-  // fresh `onApplyEdits` closure.
-  const onApplyEditsRef = useRef(options.onApplyEdits);
-  onApplyEditsRef.current = options.onApplyEdits;
-  const [open, setOpen] = useState(false);
-  const [state, setState] = useState<DescribeProgressState>(INITIAL_HIDDEN);
-  // Track latest phase synchronously so `cancel` can decide whether to
-  // close immediately without depending on the setState batching order.
-  const phaseRef = useRef<DescribeProgressState["phase"]>("estimating");
-  phaseRef.current = state.phase;
-  // Folder remembered for the confirm step (the run command needs it too).
-  const folderRef = useRef<string>("");
+  // Build the adapter config once. `useMemo` is enough — the config has
+  // no closed-over state, just constants and pure parsers.
+  const config = useMemo<BatchJobConfig<string[], DescribeEstimate, DescribeUsageSummary>>(
+    () => ({
+      eventPrefix: "describe",
+      commands: {
+        estimate: "estimate_describe_cost_cmd",
+        run: "describe_images_cmd",
+        cancel: "cancel_describe_cmd",
+      },
+      buildEstimateArgs: (folderPath, relPaths) => ({ folderPath, relPaths }),
+      buildRunArgs: (folderPath, relPaths) => ({ folderPath, relPaths }),
+      totalItems: (relPaths) => relPaths.length,
+      parseEstimatePayload: (raw) => raw as DescribeEstimate,
+      parseSummaryPayload: (raw) => raw as DescribeUsageSummary,
+      subscribeExtras: async (setState) => {
+        // Describe-only: the estimate phase emits its own progress
+        // events because the generic loop's `${prefix}_progress` is
+        // reserved for the main run.
+        const unlisteners: UnlistenFn[] = [];
 
-  // Subscribe to all describe events while open. Unsubscribe on close.
-  useEffect(() => {
-    if (!open) return;
-    const unlisteners: UnlistenFn[] = [];
-    let mounted = true;
+        unlisteners.push(
+          await listen<{ total: number }>("describe_estimate_started", (e) => {
+            setState((s) => ({
+              ...s,
+              phase: "estimating",
+              total: e.payload.total,
+              current: 0,
+            }));
+          }),
+        );
+        unlisteners.push(
+          await listen<{ current: number; total: number; relativePath: string }>(
+            "describe_estimate_progress",
+            (e) => {
+              setState((s) => ({
+                ...s,
+                phase: "estimating",
+                current: e.payload.current,
+                total: e.payload.total,
+                currentFile: e.payload.relativePath,
+              }));
+            },
+          ),
+        );
+        unlisteners.push(
+          await listen<{ relativePath: string; message: string }>(
+            "describe_estimate_error",
+            (e) => {
+              setState((s) => ({
+                ...s,
+                estimateError: `${e.payload.relativePath}: ${e.payload.message}`,
+              }));
+            },
+          ),
+        );
+        unlisteners.push(
+          await listen<DescribeEstimate>("describe_estimate_complete", (e) => {
+            setState((s) => ({
+              ...s,
+              phase: "awaiting-confirm",
+              currentFile: null,
+              estimate: e.payload,
+            }));
+          }),
+        );
+        return unlisteners;
+      },
+    }),
+    [],
+  );
 
-    const sub = async <T,>(evt: string, h: (p: T) => void) => {
-      const off = await listen<T>(evt, (e) => mounted && h(e.payload));
-      unlisteners.push(off);
-    };
+  const job = useBatchImageJob<string[], DescribeEstimate, DescribeUsageSummary>(config, {
+    onApplyEdits: options.onApplyEdits,
+  });
 
-    sub<{ total: number }>("describe_estimate_started", (p) => {
-      setState((s) => ({ ...s, phase: "estimating", total: p.total, current: 0 }));
-    });
-    sub<{ current: number; total: number; relativePath: string }>(
-      "describe_estimate_progress", (p) => {
-        setState((s) => ({
-          ...s,
-          phase: "estimating",
-          current: p.current,
-          total: p.total,
-          currentFile: p.relativePath,
-        }));
-      }
-    );
-    sub<{ relativePath: string; message: string }>(
-      "describe_estimate_error", (p) => {
-        setState((s) => ({
-          ...s,
-          estimateError: `${p.relativePath}: ${p.message}`,
-        }));
-      }
-    );
-    sub<{
-      totalInputTokens: number;
-      predictedCostUsd: number;
-      upperBoundCostUsd: number;
-      model: string;
-    }>("describe_estimate_complete", (p) => {
-      setState((s) => ({
-        ...s,
-        phase: "awaiting-confirm",
-        currentFile: null,
-        estimate: {
-          totalInputTokens: p.totalInputTokens,
-          predictedCostUsd: p.predictedCostUsd,
-          upperBoundCostUsd: p.upperBoundCostUsd,
-          model: p.model,
-        },
-      }));
-    });
-
-    sub<{ total: number }>("describe_started", (p) => {
-      setState((s) => ({ ...s, phase: "running", total: p.total, current: 0, currentFile: null }));
-    });
-    sub<{
-      current: number;
-      total: number;
-      relativePath: string;
-      status: string;
-      error: string | null;
-      edits?: Record<string, DraftEdit>;
-    }>("describe_progress", (p) => {
-      if (p.status === "ok" && p.edits) {
-        // Fire-and-forget: the parent's setDraftBatch is synchronous and
-        // schedules its own persistence. We don't await it here so a slow
-        // save doesn't stall the progress UI.
-        onApplyEditsRef.current?.(p.relativePath, p.edits);
-      }
-      setState((s) => {
-        const failures = p.status !== "ok"
-          ? [...s.failures, { relativePath: p.relativePath, kind: p.status, detail: p.error ?? "" }]
-          : s.failures;
-        const succeeded = p.status === "ok" ? [...s.succeeded, p.relativePath] : s.succeeded;
-        return {
-          ...s,
-          phase: "running",
-          current: p.current,
-          total: p.total,
-          currentFile: p.relativePath,
-          failures,
-          succeeded,
-        };
-      });
-    });
-    sub<{
-      succeeded: string[];
-      failed: DescribeFailure[];
-      usageSummary: DescribeUsageSummary;
-    }>("describe_complete", (p) => {
-      setState((s) => ({
-        ...s,
-        phase: "done",
-        cancelling: false,
-        // Trust the authoritative backend summary on done.
-        succeeded: p.succeeded,
-        failures: p.failed,
-        usageSummary: p.usageSummary,
-      }));
-    });
-
-    return () => {
-      mounted = false;
-      for (const off of unlisteners) off();
-    };
-  }, [open]);
-
-  const start = useCallback((folderPath: string, relPaths: string[]) => {
-    folderRef.current = folderPath;
-    setState({
-      ...INITIAL_HIDDEN,
-      total: relPaths.length,
-      relPaths,
-    });
-    setOpen(true);
-    // Fire-and-forget — events drive the state machine. Errors surface as
-    // describe_estimate_error.
-    void invoke("estimate_describe_cost_cmd", { folderPath, relPaths })
-      .catch((e: unknown) => {
-        // Top-level failures (e.g. missing API key) — fall through to done
-        // with the failure noted so the user sees something rather than a
-        // silent dialog.
-        setState((s) => ({
-          ...s,
-          phase: "done",
-          estimateError: String(e),
-          failures: relPaths.map((rp) => ({
-            relativePath: rp, kind: "preflight_failed", detail: String(e),
-          })),
-        }));
-      });
-  }, []);
-
-  const confirm = useCallback(() => {
-    const folder = folderRef.current;
-    setState((s) => {
-      void invoke("describe_images_cmd", { folderPath: folder, relPaths: s.relPaths })
-        .catch((e: unknown) => {
-          setState((curr) => ({
-            ...curr,
-            phase: "done",
-            failures: [...curr.failures, {
-              relativePath: "(batch)", kind: "command_failed", detail: String(e),
-            }],
-          }));
-        });
-      return { ...s, phase: "running", current: 0, currentFile: null };
-    });
-  }, []);
-
-  const cancel = useCallback(() => {
-    // In `estimating` or `awaiting-confirm` there is no backend run to
-    // wait on — close the dialog immediately so Cancel feels responsive.
-    // We still signal the backend so an in-flight estimate loop stops at
-    // the next image boundary instead of burning more token-count calls
-    // after the user has bailed.
-    //
-    // In `running` we leave the dialog open and wait for `describe_complete`
-    // to flip the phase to `done`, since cancellation is per-image and the
-    // user wants to see what landed before the dialog disappears.
-    void invoke("cancel_describe_cmd").catch(() => {/* best effort */});
-    if (phaseRef.current === "running") {
-      setState((s) => ({ ...s, cancelling: true }));
-    } else {
-      setOpen(false);
-      setState(INITIAL_HIDDEN);
-    }
-  }, []);
-
-  const close = useCallback(() => {
-    setOpen(false);
-    setState(INITIAL_HIDDEN);
-  }, []);
-
-  return { open, state, actions: { start, confirm, cancel, close } };
+  return {
+    open: job.open,
+    state: toLegacyShape(job.state),
+    actions: job.actions,
+  };
 }
