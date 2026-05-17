@@ -9,6 +9,7 @@ import { MenuBar } from "./components/MenuBar";
 import { PhotoList } from "./components/PhotoList";
 import { GalleryView } from "./components/GalleryView";
 import { StatusFooter } from "./components/StatusFooter";
+import { SelectionFooter } from "./components/SelectionFooter";
 import { ColumnSelectionDialog } from "./components/ColumnSelectionDialog";
 import { ApplyProgressDialog } from "./components/ApplyProgressDialog";
 import { VerifyOutcomeDialog } from "./components/VerifyOutcomeDialog";
@@ -76,6 +77,7 @@ function LoadedView({
   );
 
   const [listSearchQuery, setListSearchQuery] = useState("");
+  const [selectionCount, setSelectionCount] = useState(0);
 
   useEffect(() => {
     setListSearchQuery("");
@@ -212,6 +214,7 @@ function LoadedView({
         onDiscardAllEdits={(paths) => actions.discardAllDraftEdits(paths)}
         onApplyEdits={(paths) => actions.applyDraftEdits(paths)}
         onGenerateAiDescription={(relPaths) => describe.actions.start(state.folder, relPaths)}
+        onSelectionCountChange={setSelectionCount}
       />
       {state.galleryIndex !== null && displayPhotos.length > 0 && (
         <GalleryView
@@ -263,6 +266,7 @@ function LoadedView({
           onDismissAll={actions.dismissAllVerifyOutcomes}
         />
       )}
+      <SelectionFooter selectedCount={selectionCount} totalCount={displayPhotos.length} />
       {state.scanning && <StatusFooter message="Discovering files…" />}
     </>
   );
