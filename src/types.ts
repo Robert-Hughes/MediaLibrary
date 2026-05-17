@@ -490,6 +490,77 @@ export interface DescribeProgressState {
   relPaths: string[];
 }
 
+// ── Reverse-geocoding (see docs/REVERSE_GEOCODE_PLAN.md) ──────────────────────
+
+/**
+ * Industry-standard location tag keys written by the reverse-geocode
+ * flow. Each XMP key has a paired IPTC IIM mirror; both are written
+ * together so the legacy mirror stays in lockstep with the XMP source
+ * of truth. See plan §1 for rationale on the choice of these specific
+ * keys (Lightroom / Bridge / Photo Mechanic / digiKam all use them).
+ *
+ * Used by:
+ *  - the "already has location data" overwrite-warning check in
+ *    DetailsPane and PhotoList (any of these keys present in metadata
+ *    or drafts triggers the warning),
+ *  - tests that verify all ten keys land as drafts on success.
+ */
+export const GEOCODE_TARGET_TAGS: readonly string[] = [
+  "XMP-iptcCore:Location",
+  "XMP-photoshop:City",
+  "XMP-photoshop:State",
+  "XMP-photoshop:Country",
+  "XMP-iptcCore:CountryCode",
+  "IPTC:Sub-location",
+  "IPTC:City",
+  "IPTC:Province-State",
+  "IPTC:Country-PrimaryLocationName",
+  "IPTC:Country-PrimaryLocationCode",
+] as const;
+
+export type GeocodePhase = "awaiting-confirm" | "running" | "done";
+
+/** One item in the geocode_images_cmd invocation. */
+export interface GeocodeRequestItem {
+  relPath: string;
+  /** Decimal degrees; null when the image has no GPS. */
+  lat: number | null;
+  lon: number | null;
+}
+
+export interface GeocodeFailure {
+  relativePath: string;
+  kind: string;
+  detail: string;
+}
+
+/**
+ * Per-source counters returned in the geocode_complete payload. Each
+ * field is the count of images that reached that final outcome — they
+ * sum to the batch total (no_gps is mutually exclusive with failed in
+ * the sense that no_gps images are counted only in n_no_gps).
+ */
+export interface GeocodeSummary {
+  nSucceededFromNominatim: number;
+  nSucceededFromCache: number;
+  nSucceededFromOverpass: number;
+  nNoGps: number;
+  nFailed: number;
+}
+
+export interface GeocodeProgressState {
+  phase: GeocodePhase;
+  total: number;
+  current: number;
+  currentFile: string | null;
+  cancelling: boolean;
+  failures: GeocodeFailure[];
+  succeeded: string[];
+  summary: GeocodeSummary | null;
+  /** Original items the dialog was opened for. */
+  items: GeocodeRequestItem[];
+}
+
 export interface TagOutcomeEntry {
   tag: string;
   kind: string;

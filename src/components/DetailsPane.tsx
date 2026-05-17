@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import type { DraftEdit, PhotoInfo, ImageMetadataState, Variant } from "../types";
+import { GEOCODE_TARGET_TAGS } from "../types";
 import { HighlightedText } from "./HighlightedText";
 import { ContextMenu } from "./ContextMenu";
 import { TypedValueEditor } from "./editors/TypedValueEditor";
@@ -44,6 +45,13 @@ interface Props {
    * the feature (e.g. read-only contexts, older tests).
    */
   onGenerateAiDescription?: () => void;
+  /**
+   * Trigger the reverse-geocoding flow for this image. App-level
+   * callback so the geocode progress dialog lives once, not once per
+   * pane. Optional so DetailsPane keeps rendering when the parent
+   * doesn't wire the feature (e.g. tests, read-only contexts).
+   */
+  onGeocode?: () => void;
   /**
    * Reveal this photo in the host file manager. Same backend pathway as
    * the list-view context menu's "Show in File Explorer" entry — the
@@ -300,7 +308,7 @@ function DetailsRowContextMenu({
   );
 }
 
-export function DetailsPane({ photo, metadata, draftEdits = {}, typedDraftEdits, onSetDraftTyped, onSetDraftBatch, onDiscardDraft, onDiscardAllEdits, onApplyEdits, onGenerateAiDescription, onShowInFileExplorer }: Props) {
+export function DetailsPane({ photo, metadata, draftEdits = {}, typedDraftEdits, onSetDraftTyped, onSetDraftBatch, onDiscardDraft, onDiscardAllEdits, onApplyEdits, onGenerateAiDescription, onGeocode, onShowInFileExplorer }: Props) {
   const [detailsSearch, setDetailsSearch] = useState("");
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, key: string, originalValue: string, draftValue?: string | null } | null>(null);
   const [editDialog, setEditDialog] = useState<{ key: string, initialValue: string } | null>(null);
@@ -553,6 +561,39 @@ export function DetailsPane({ photo, metadata, draftEdits = {}, typedDraftEdits,
               }}
             >
               Generate AI Description…
+            </button>
+          )}
+          {onGeocode && (
+            <button
+              className="button button--secondary"
+              data-testid="details-pane-geocode-btn"
+              title="Reverse-geocode this image's GPS via OpenStreetMap Nominatim"
+              onClick={async () => {
+                // Coherent-replacement warning (plan §5, single-image
+                // variant). Check both on-disk metadata and the typed
+                // draft store for any of the §1 target tags.
+                const metaBag =
+                  typeof metadata === "object" && metadata !== null
+                    ? (metadata as Record<string, Variant>)
+                    : {};
+                const hasExisting = GEOCODE_TARGET_TAGS.some((k) => {
+                  const inMeta = k in metaBag;
+                  const inDraft = typedDraftEdits
+                    ? k in typedDraftEdits
+                    : k in draftEdits;
+                  return inMeta || inDraft;
+                });
+                if (hasExisting) {
+                  const confirmed = await ask(
+                    "This image already has location data. Reverse-geocoding will overwrite all location fields with drafts — fields the geocoder doesn't return will be cleared. Continue?",
+                    { title: "Overwrite location data?", kind: "warning" },
+                  );
+                  if (!confirmed) return;
+                }
+                onGeocode();
+              }}
+            >
+              Reverse Geocode…
             </button>
           )}
         </div>

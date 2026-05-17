@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ThumbnailStore, ImageMetadataStore } from "../types";
+import { ThumbnailStore, ImageMetadataStore, GEOCODE_TARGET_TAGS } from "../types";
 import type { PhotoInfo, SortConfig, VisibleColumn } from "../types";
 import { ContextMenu } from "./ContextMenu";
 import { PhotoRow } from "./PhotoRow";
@@ -36,6 +36,8 @@ interface Props {
   onApplyEdits?: (fileRelativePaths: string[]) => void;
   /** Trigger AI-description flow for the given relative paths. */
   onGenerateAiDescription?: (fileRelativePaths: string[]) => void;
+  /** Trigger reverse-geocoding flow for the given relative paths. */
+  onGeocode?: (fileRelativePaths: string[]) => void;
   /** Notified whenever the multi-selection size changes. */
   onSelectionCountChange?: (count: number) => void;
 }
@@ -217,6 +219,7 @@ export function PhotoList({
   onDiscardAllEdits,
   onApplyEdits,
   onGenerateAiDescription,
+  onGeocode,
   onSelectionCountChange,
 }: Props) {
   const listRef = useRef<HTMLDivElement>(null);
@@ -851,6 +854,54 @@ export function PhotoList({
                       }
                       setContextMenu(null);
                       onGenerateAiDescription(selectedPaths);
+                    },
+                  }]
+                : []),
+              // Reverse-geocode entry. Always visible regardless of GPS
+              // presence — per docs/REVERSE_GEOCODE_PLAN.md §5, the
+              // backend surfaces no_gps as a per-image failure in the
+              // done panel instead of hiding the entry (which would be
+              // more confusing than the silent skip behaviour).
+              ...(onGeocode && selectedPaths.length > 0
+                ? [{
+                    label: count > 1
+                      ? `Reverse Geocode… (${count} ${noun})`
+                      : "Reverse Geocode…",
+                    onClick: async () => {
+                      // Coherent-replacement rule from the plan §1: any
+                      // §1 target tag already present in metadata OR
+                      // drafts means a confirm + clear cycle is about
+                      // to happen. The warning copy is deliberate —
+                      // "fields the geocoder doesn't return will be
+                      // cleared" is the user's only signal that an
+                      // empty Nominatim response for, say, State will
+                      // delete an existing State value.
+                      const existing = selectedPaths.filter((p) => {
+                        const meta = imageMetadata.get(p);
+                        const metaBag = typeof meta === "object" && meta !== null
+                          ? (meta as Record<string, unknown>) : {};
+                        const drafts = draftEdits[p] ?? {};
+                        return GEOCODE_TARGET_TAGS.some(
+                          (k) => k in metaBag || k in drafts,
+                        );
+                      });
+                      if (existing.length > 0) {
+                        const n = selectedPaths.length;
+                        const x = existing.length;
+                        const msg =
+                          n === 1
+                            ? "This photo already has location data. Reverse-geocoding will overwrite all location fields with drafts — fields the geocoder doesn't return will be cleared. Continue?"
+                            : x === n
+                              ? `All ${n} selected photos already have location data. Reverse-geocoding will overwrite all location fields with drafts — fields the geocoder doesn't return will be cleared. Continue?`
+                              : `${x} of ${n} selected photos already have location data. Reverse-geocoding will overwrite all location fields with drafts for those photos — fields the geocoder doesn't return will be cleared. Continue?`;
+                        const confirmed = await ask(msg, {
+                          title: "Overwrite location data?",
+                          kind: "warning",
+                        });
+                        if (!confirmed) return;
+                      }
+                      setContextMenu(null);
+                      onGeocode(selectedPaths);
                     },
                   }]
                 : []),

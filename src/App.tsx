@@ -16,6 +16,10 @@ import { ErrorBanner } from "./components/ErrorBanner";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { DescribeProgressDialog } from "./components/DescribeProgressDialog";
 import { useDescribeImages } from "./hooks/useDescribeImages";
+import { GeocodeProgressDialog } from "./components/GeocodeProgressDialog";
+import { useGeocodeImages } from "./hooks/useGeocodeImages";
+import { resolveGps } from "./utils/resolveGps";
+import type { GeocodeRequestItem } from "./types";
 import { sortPhotos, shouldSuspendSorting } from "./utils/sorting";
 import { listSearchQueryIsActive } from "./utils/listSearchText";
 import { useSearchWorker, createSearchWorker } from "./hooks/useSearchWorker";
@@ -42,6 +46,7 @@ function LoadedView({
   setShowColumnDialog,
   onOpenSettings,
   describe,
+  geocode,
 }: {
   state: LoadedState;
   actions: MediaLibraryActions;
@@ -49,6 +54,7 @@ function LoadedView({
   setShowColumnDialog: (v: boolean) => void;
   onOpenSettings: () => void;
   describe: ReturnType<typeof useDescribeImages>;
+  geocode: ReturnType<typeof useGeocodeImages>;
 }) {
   // Subscribe to metadata progress so sorting unblocks once metadata loading
   // completes, not just when the directory walk finishes.  Keeps re-renders
@@ -181,6 +187,29 @@ function LoadedView({
     setListSearchQuery("has:edits");
   }, []);
 
+  /**
+   * Resolve the GPS payload for a set of rel-paths into the shape
+   * the geocode_images_cmd expects. The frontend owns the
+   * "drafts win over metadata" precedence so the backend never has
+   * to read the typed-draft store. See docs/REVERSE_GEOCODE_PLAN.md
+   * §2. Items with no GPS are still included with `lat`/`lon` null —
+   * the backend surfaces them as `no_gps` failures so the user sees
+   * the breakdown in the done panel rather than silently dropping
+   * them at the call site.
+   */
+  const buildGeocodeItems = useCallback(
+    (relPaths: string[]): GeocodeRequestItem[] => {
+      return relPaths.map((relPath) => {
+        const meta = state.imageMetadata.get(relPath);
+        const metaBag = meta === "loading" ? undefined : meta;
+        const drafts = state.draftEdits[relPath];
+        const { lat, lon } = resolveGps(drafts, metaBag);
+        return { relPath, lat, lon };
+      });
+    },
+    [state.imageMetadata, state.draftEdits],
+  );
+
   return (
     <>
       <ErrorBanner errors={state.workerErrors} onDismiss={actions.dismissError} />
@@ -216,6 +245,7 @@ function LoadedView({
         onDiscardAllEdits={(paths) => actions.discardAllDraftEdits(paths)}
         onApplyEdits={(paths) => actions.applyDraftEdits(paths)}
         onGenerateAiDescription={(relPaths) => describe.actions.start(state.folder, relPaths)}
+        onGeocode={(relPaths) => geocode.actions.start(state.folder, buildGeocodeItems(relPaths))}
         onSelectionCountChange={setSelectionCount}
       />
       {state.galleryIndex !== null && displayPhotos.length > 0 && (
@@ -235,6 +265,7 @@ function LoadedView({
           onDiscardAllEdits={actions.discardAllDraftEdits}
           onApplyEdits={(path) => actions.applyDraftEdits(path)}
           onGenerateAiDescription={(relPath) => describe.actions.start(state.folder, [relPath])}
+          onGeocode={(relPath) => geocode.actions.start(state.folder, buildGeocodeItems([relPath]))}
           onShowInFileExplorer={(relPath) => {
             const idx = displayPhotos.findIndex((p) => p.relative_path === relPath);
             if (idx >= 0) void onShowInExplorer(idx);
@@ -296,6 +327,16 @@ export default function App() {
   // wires this to the per-image `describe_progress` event so the UI
   // reflects new AI drafts the instant each image's call returns.
   const describe = useDescribeImages({
+    onApplyEdits: (relPath, edits) => {
+      const entries = Object.entries(edits).map(([key, edit]) => ({ key, edit }));
+      if (entries.length > 0) actions.setDraftBatch(relPath, entries);
+    },
+  });
+  // Same merge-into-drafts pattern as describe — the geocode loop
+  // emits a Set or Delete edit per target tag, and we feed the whole
+  // batch into setDraftBatch so the user sees the new location group
+  // immediately in the details pane.
+  const geocode = useGeocodeImages({
     onApplyEdits: (relPath, edits) => {
       const entries = Object.entries(edits).map(([key, edit]) => ({ key, edit }));
       if (entries.length > 0) actions.setDraftBatch(relPath, entries);
@@ -436,6 +477,7 @@ export default function App() {
           setShowColumnDialog={setShowColumnDialog}
           onOpenSettings={() => setShowSettingsDialog(true)}
           describe={describe}
+          geocode={geocode}
         />
       )}
 
@@ -449,6 +491,15 @@ export default function App() {
           onConfirm={describe.actions.confirm}
           onCancel={describe.actions.cancel}
           onClose={describe.actions.close}
+        />
+      )}
+
+      {geocode.open && (
+        <GeocodeProgressDialog
+          state={geocode.state}
+          onConfirm={geocode.actions.confirm}
+          onCancel={geocode.actions.cancel}
+          onClose={geocode.actions.close}
         />
       )}
     </div>
