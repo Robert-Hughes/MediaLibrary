@@ -140,6 +140,27 @@ LensSerialNumber, etc.).
 
 ---
 
+## Empty-list Set = tag delete (Bag / Seq)
+
+A draft `Set` on a `Bag`/`Seq` tag with `Variant::List(vec![])` (or
+`Variant::Null` / empty `String`) is treated as a tag clear, not as an
+explicit empty `rdf:Bag/` write.  Reason: exiftool's write CLI uses
+`-TAG=` to clear a list, then `-TAG=item` per element.  An empty list
+produces only the clear arg, so exiftool removes the property from
+the file.  There is no clean CLI route to write a literal empty
+`rdf:Bag/`; exiftool doesn't distinguish "tag absent" from "tag
+present but empty" on either read or write through that pathway.
+
+`verify_set` in `apply_edits.rs` therefore returns `Match` when an
+empty-value Set leaves the tag absent (or Null / empty String / empty
+List) post-write.  Tests pin this in
+`verify_set_empty_list_matches_when_tag_absent_post_write` and
+friends.  If downstream consumers ever need a preserved-empty-Bag
+behaviour, that needs a different write path (struct/XMP template or
+direct XMP packet edit) — not a tweak to the apply path.
+
+---
+
 ## Logging
 
 Use the `log` crate (already migrated from custom macros). Set `RUST_LOG=mediabrary=debug` for verbose output during dev. Tests should not depend on log output unless explicitly asserting.
