@@ -1,6 +1,6 @@
 import { memo, useCallback, useSyncExternalStore } from "react";
 import type { ImageMetadataStore, PhotoInfo, ThumbnailStore, Variant, VisibleColumn } from "../types";
-import { formatPhotoRowDate } from "../utils/listSearchFilter";
+import { formatPhotoRowDate } from "../utils/photoDate";
 import { HighlightedText } from "./HighlightedText";
 import { Spinner } from "./Spinner";
 
