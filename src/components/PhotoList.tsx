@@ -38,6 +38,8 @@ interface Props {
   onGenerateAiDescription?: (fileRelativePaths: string[]) => void;
   /** Trigger reverse-geocoding flow for the given relative paths. */
   onGeocode?: (fileRelativePaths: string[]) => void;
+  /** Copy absolute paths for the given relative paths to the clipboard. */
+  onCopyPaths?: (fileRelativePaths: string[]) => void;
   /** Notified whenever the multi-selection size changes. */
   onSelectionCountChange?: (count: number) => void;
 }
@@ -220,6 +222,7 @@ export function PhotoList({
   onApplyEdits,
   onGenerateAiDescription,
   onGeocode,
+  onCopyPaths,
   onSelectionCountChange,
 }: Props) {
   const listRef = useRef<HTMLDivElement>(null);
@@ -828,6 +831,12 @@ export function PhotoList({
                   : "Show in File Explorer",
                 onClick: () => onShowInExplorer(firstIndex),
               },
+              ...(onCopyPaths && selectedPaths.length > 0
+                ? [{
+                    label: count > 1 ? `Copy Paths (${count})` : "Copy Path",
+                    onClick: () => onCopyPaths(selectedPaths),
+                  }]
+                : []),
               ...(onGenerateAiDescription && selectedPaths.length > 0
                 ? [{
                     label: count > 1
