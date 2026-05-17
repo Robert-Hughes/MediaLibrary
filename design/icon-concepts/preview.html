@@ -1,0 +1,38 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<title>Icon concepts</title>
+<style>
+  body { font: 14px system-ui; margin: 0; }
+  .row { display: flex; }
+  .light { background: #fafafa; color: #1a3a4a; --bg: #fafafa; }
+  .dark  { background: #1a1d22; color: #d0e4ec; --bg: #1a1d22; }
+  .cell { width: 20%; padding: 24px; box-sizing: border-box; text-align: center; }
+  .cell svg { width: 96px; height: 96px; display: block; margin: 0 auto 8px; }
+  .small svg { width: 32px; height: 32px; }
+  .tiny svg { width: 16px; height: 16px; }
+  h2 { margin: 16px 24px; font-weight: 500; }
+</style>
+</head>
+<body>
+<h2>96px</h2>
+<div class="row light"></div>
+<div class="row dark"></div>
+<h2>32px (titlebar)</h2>
+<div class="row light small"></div>
+<div class="row dark small"></div>
+<h2>16px (favicon)</h2>
+<div class="row light tiny"></div>
+<div class="row dark tiny"></div>
+<script>
+const files = ['01-aperture.svg','02-stacked-frames.svg','03-frame-aperture.svg','04-ml-monogram.svg','05-grid-shutter.svg'];
+const labels = ['01 line folder + filled aperture','02 filled folder, line aperture knockout','03 tabbed folder + spoked aperture','04 soft folder + tri-blade aperture','05 filled folder + line aperture'];
+Promise.all(files.map(f => fetch(f).then(r => r.text()))).then(svgs => {
+  document.querySelectorAll('.row').forEach(row => {
+    row.innerHTML = svgs.map((s,i) => `<div class="cell">${s}<div>${labels[i]}</div></div>`).join('');
+  });
+});
+</script>
+</body>
+</html>
