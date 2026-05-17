@@ -278,6 +278,7 @@ export default function App() {
   const [showSettingsDialog, setShowSettingsDialog] = useState(false);
   const [cliFolder, setCliFolder] = useState<string | null | undefined>(undefined);
   const [schemaReady, setSchemaReady] = useState(false);
+  const [schemaError, setSchemaError] = useState<string | null>(null);
   const cliCheckedRef = useRef(false);
   // Hand the describe flow a callback that merges backend-produced edits
   // into the same in-memory draft store the editors write to. The hook
@@ -294,8 +295,11 @@ export default function App() {
   // never see a missing-schema flash on first use.
   useEffect(() => {
     invoke("preload_schema")
-      .catch((err) => console.error("[App] preload_schema failed:", err))
-      .finally(() => setSchemaReady(true));
+      .then(() => setSchemaReady(true))
+      .catch((err) => {
+        console.error("[App] preload_schema failed:", err);
+        setSchemaError(typeof err === "string" ? err : err instanceof Error ? err.message : String(err));
+      });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Check for CLI folder argument on mount (before first render)
@@ -322,7 +326,7 @@ export default function App() {
 
   return (
     <div className="app">
-      {!schemaReady && (
+      {!schemaReady && !schemaError && (
         <div className="dialog-overlay" data-testid="schema-loading-dialog">
           <div className="dialog-content" style={{ width: 360 }}>
             <div className="dialog-header">
@@ -332,6 +336,40 @@ export default function App() {
               <div className="dialog-hint">
                 Building tag schema from ExifTool. This only happens once.
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {schemaError && (
+        <div className="dialog-overlay" data-testid="schema-error-dialog">
+          <div className="dialog-content" style={{ width: 480 }}>
+            <div className="dialog-header">
+              <span className="dialog-title">Failed to load tag schema</span>
+            </div>
+            <div className="dialog-body">
+              <div className="dialog-hint">
+                Could not build the tag schema from ExifTool. Make sure
+                <code> exiftool </code> is installed and available on your
+                <code> PATH</code>, then restart the application.
+              </div>
+              <pre
+                data-testid="schema-error-message"
+                style={{
+                  marginTop: 12,
+                  padding: 8,
+                  background: "var(--color-bg-subtle, #f5f5f5)",
+                  border: "1px solid var(--color-border, #ddd)",
+                  borderRadius: 4,
+                  fontSize: 12,
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-word",
+                  maxHeight: 200,
+                  overflow: "auto",
+                }}
+              >
+                {schemaError}
+              </pre>
             </div>
           </div>
         </div>
