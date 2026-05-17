@@ -7,23 +7,87 @@
 }
 
 :root {
-  --bg:            #0d0d0f;
-  --surface:       #16181c;
-  --surface-alt:   #1c1f25;
-  --border:        #2a2d35;
-  --accent:        #4a9eff;
-  --accent-hover:  #6bbeff;
-  --accent-press:  #2a6fc4;
-  --accent-draft:  #ffaa00;
-  --text-primary:  #e8eaf0;
-  --text-secondary:#7a8099;
-  --text-dim:      #4a4f63;
-  --thumb-bg:      #252830;
+  /* Surfaces */
+  --bg:            #fafaf7;
+  --surface:       #ffffff;
+  --surface-alt:   #f4f3ef;
+  --surface-3:     #ebeae5;
+  --row-alt:       #faf9f5;
+  --thumb-bg:      #f4f3ef;
 
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-  font-size: 14px;
+  /* Borders */
+  --border:        oklch(0.92 0.005 90);
+  --border-strong: oklch(0.85 0.005 90);
+
+  /* Text */
+  --text-primary:   #14141a;
+  --text-secondary: #54545e;
+  --text-dim:       #8a8a93;
+  --text-faint:     #b8b8be;
+
+  /* Accent */
+  --accent:        oklch(0.55 0.13 230);
+  --accent-hover:  oklch(0.62 0.14 230);
+  --accent-press:  oklch(0.45 0.13 230);
+  --accent-soft:   oklch(0.96 0.025 230);
+  --accent-ink:    oklch(0.32 0.12 230);
+
+  /* Draft / danger / warn */
+  --accent-draft:   oklch(0.66 0.16 60);
+  --draft-soft:     oklch(0.96 0.045 75);
+  --danger:         oklch(0.58 0.18 25);
+  --accent-error:   oklch(0.58 0.18 25);
+  --accent-warning: oklch(0.60 0.14 75);
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(20, 20, 26, 0.04);
+  --shadow-md: 0 4px 12px rgba(20, 20, 26, 0.06), 0 2px 4px rgba(20, 20, 26, 0.04);
+  --shadow-lg: 0 20px 50px rgba(20, 20, 26, 0.14), 0 8px 20px rgba(20, 20, 26, 0.08);
+
+  /* Gallery overlay (theme-aware) */
+  --overlay-backdrop: rgba(250, 250, 247, 0.92);
+  --overlay-surface:  rgba(255, 255, 255, 0.98);
+
+  font-family: "Geist", "Geist Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-feature-settings: "ss01", "cv11";
+  font-size: 13px;
   color: var(--text-primary);
   background: var(--bg);
+}
+
+[data-theme="dark"] {
+  --bg:            #0e0f12;
+  --surface:       #16181c;
+  --surface-alt:   #1a1c20;
+  --surface-3:     #23262b;
+  --row-alt:       #131418;
+  --thumb-bg:      #252830;
+
+  --border:        oklch(0.27 0.005 250);
+  --border-strong: oklch(0.34 0.005 250);
+
+  --text-primary:   #ececef;
+  --text-secondary: #a4a6ad;
+  --text-dim:       #6e7077;
+  --text-faint:     #494c54;
+
+  --accent:        oklch(0.72 0.13 230);
+  --accent-hover:  oklch(0.80 0.13 230);
+  --accent-press:  oklch(0.60 0.13 230);
+  --accent-soft:   oklch(0.28 0.07 230);
+  --accent-ink:    oklch(0.85 0.13 230);
+
+  --accent-draft:   oklch(0.75 0.16 60);
+  --draft-soft:     oklch(0.28 0.07 60);
+  --accent-error:   oklch(0.72 0.18 25);
+  --accent-warning: oklch(0.78 0.14 75);
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.35), 0 2px 4px rgba(0, 0, 0, 0.25);
+  --shadow-lg: 0 20px 50px rgba(0, 0, 0, 0.55), 0 8px 20px rgba(0, 0, 0, 0.4);
+
+  --overlay-backdrop: rgba(14, 15, 18, 0.92);
+  --overlay-surface:  rgba(22, 24, 28, 0.96);
 }
 
 body {
@@ -291,11 +355,21 @@ body {
 /* Search box embedded in the menu bar.  `margin-left: auto` shoves it to
  * the right edge so it sits on the same row as Open Folder / Close Folder
  * and pushes against the right side of the window. */
+.menu-bar-theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 26px;
+  padding: 0;
+  font-size: 14px;
+  line-height: 1;
+}
+
 .menu-bar-search {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-left: auto;
 }
 
 .menu-bar-search .list-search-input {
@@ -572,21 +646,25 @@ body {
 .photo-row--odd .grid-cell { background: var(--surface-alt); }
 
 .photo-row--selected .grid-cell {
-  background: var(--accent) !important;
-  color: #fff;
+  background: var(--accent-soft) !important;
+  color: var(--accent-ink);
+}
+
+.photo-row--selected .grid-cell:first-child {
+  box-shadow: inset 2px 0 0 var(--accent);
 }
 
 .photo-row--selected .grid-cell-path,
 .photo-row--selected .grid-cell-date {
-  color: #fff;
+  color: var(--accent-ink);
 }
 
 .photo-row--selected .cell-spinner {
-  border-color: rgba(255, 255, 255, 0.3);
-  border-top-color: #fff;
+  border-color: color-mix(in oklch, var(--accent) 30%, transparent);
+  border-top-color: var(--accent);
 }
 
-.photo-row:hover .grid-cell { background: #1e2128; }
+.photo-row:hover .grid-cell { background: var(--surface-alt); }
 
 .photo-thumb {
   width: calc(100% - 8px);
@@ -649,7 +727,7 @@ body {
 }
 
 .metadata-error {
-  color: #ff6b6b;
+  color: var(--accent-error);
   font-size: 14px;
   cursor: help;
 }
@@ -729,7 +807,7 @@ body {
 .gallery-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.92);
+  background: var(--overlay-backdrop);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -861,7 +939,7 @@ body {
 
 .gallery-info-toggle:hover {
   color: var(--text-primary);
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--surface-alt);
 }
 
 .gallery-info-toggle--active {
@@ -878,7 +956,7 @@ body {
   width: 360px;
   height: 100%;
   flex-shrink: 0;
-  background: rgba(22, 24, 28, 0.96);
+  background: var(--overlay-surface);
   border-left: 1px solid var(--border);
   display: flex;
   flex-direction: column;
@@ -939,7 +1017,7 @@ body {
 }
 
 .search-highlight {
-  background: rgba(74, 158, 255, 0.35);
+  background: color-mix(in oklch, var(--accent) 35%, transparent);
   color: inherit;
   padding: 0 1px;
   border-radius: 2px;
@@ -976,7 +1054,7 @@ body {
   flex-wrap: wrap;
   padding: 12px 16px;
   border-top: 1px solid var(--border);
-  background: rgba(22, 24, 28, 0.96);
+  background: var(--overlay-surface);
 }
 
 .details-section {
@@ -997,7 +1075,7 @@ body {
   padding-right: 16px;
   position: sticky;
   top: -1px;
-  background: rgba(22, 24, 28, 1);
+  background: var(--surface);
   z-index: 1;
 }
 
@@ -1007,7 +1085,7 @@ body {
 }
 
 .details-row {
-  border-bottom: 1px solid rgba(42, 45, 53, 0.5);
+  border-bottom: 1px solid color-mix(in oklch, var(--border) 60%, transparent);
 }
 
 .details-row:last-child {
@@ -1100,10 +1178,11 @@ body {
   align-items: flex-start;
   gap: 12px;
   padding: 12px 16px;
-  background: #3d1f1f;
-  border: 1px solid #8b3a3a;
+  background: color-mix(in oklch, var(--danger) 18%, var(--surface));
+  border: 1px solid color-mix(in oklch, var(--danger) 40%, transparent);
+  color: var(--text-primary);
   border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6);
+  box-shadow: var(--shadow-md);
   animation: slideDown 0.3s ease-out;
 }
 
@@ -1137,7 +1216,7 @@ body {
 .error-banner-title {
   font-size: 14px;
   font-weight: 600;
-  color: #ffb3b3;
+  color: var(--accent-error);
   margin-bottom: 4px;
 }
 

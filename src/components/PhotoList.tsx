@@ -678,7 +678,7 @@ export function PhotoList({
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              color: "#666",
+              color: "var(--text-dim)",
               fontStyle: emptySearchMessage ? "normal" : "italic",
               padding: "0 24px",
               textAlign: "center",
