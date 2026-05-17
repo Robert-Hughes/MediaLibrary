@@ -1,3 +1,5 @@
+import { useTheme } from "../hooks/useTheme";
+
 interface Props {
   onOpenFolder: () => void;
   recentFolders: string[];
@@ -5,9 +7,11 @@ interface Props {
 }
 
 export function WelcomeScreen({ onOpenFolder, recentFolders, onOpenRecent }: Props) {
+  const { theme } = useTheme();
+  const iconSrc = theme === "dark" ? "/icon-dark.png" : "/icon-light.png";
   return (
     <div className="welcome-screen" data-testid="welcome-screen">
-      <img src="/icon.png" alt="Media Library Logo" className="welcome-logo" />
+      <img src={iconSrc} alt="Media Library Logo" className="welcome-logo" />
       <h1 className="welcome-title">Media Library</h1>
       <p className="welcome-subtitle">Open a folder to browse your photos</p>
       <button
