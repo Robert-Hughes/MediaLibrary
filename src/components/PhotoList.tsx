@@ -772,7 +772,28 @@ export function PhotoList({
                     label: count > 1
                       ? `Generate AI Description… (${count} ${noun})`
                       : "Generate AI Description…",
-                    onClick: () => onGenerateAiDescription(selectedPaths),
+                    onClick: async () => {
+                      // Mirror the per-photo overwrite warning that lives in
+                      // DetailsPane: count selected photos whose AIDescription
+                      // already exists either on disk or as a draft, and
+                      // confirm before kicking the flow off.
+                      const existing = selectedPaths.filter((p) => {
+                        const meta = imageMetadata.get(p);
+                        const inMeta = typeof meta === "object" && meta !== null
+                          && "XMP-mlib:AIDescription" in (meta as Record<string, unknown>);
+                        const inDraft = "XMP-mlib:AIDescription" in (draftEdits[p] ?? {});
+                        return inMeta || inDraft;
+                      });
+                      if (existing.length > 0) {
+                        const msg = existing.length === 1 && selectedPaths.length === 1
+                          ? "This image already has an AI description. Generating a new one will overwrite the existing one. Continue?"
+                          : `${existing.length} of ${selectedPaths.length} selected ${selectedPaths.length === 1 ? "photo" : "photos"} already ${existing.length === 1 ? "has" : "have"} an AI description. Generating new ones will overwrite the existing ones. Continue?`;
+                        const confirmed = await ask(msg, { title: "Overwrite AI description?", kind: "warning" });
+                        if (!confirmed) return;
+                      }
+                      setContextMenu(null);
+                      onGenerateAiDescription(selectedPaths);
+                    },
                   }]
                 : []),
               ...(editablePaths.length > 0 && onApplyEdits
