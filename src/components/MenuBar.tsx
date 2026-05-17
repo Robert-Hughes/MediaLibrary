@@ -41,7 +41,7 @@ export function MenuBar({
 }: Props) {
   const spinStyle = useSpinnerSync();
   const { theme, toggle: toggleTheme } = useTheme();
-  
+
   // Subscribe to metadata progress store
   const metadataRemaining = useSyncExternalStore(
     metadataProgress?.subscribe.bind(metadataProgress) ?? (() => () => {}),
@@ -54,10 +54,9 @@ export function MenuBar({
 
   const imageMetadataLoading = metadataRemaining > 0;
   const metadataLoaded = metadataTotal - metadataRemaining;
-  
+
   return (
     <div className="menu-bar" data-testid="menu-bar">
-      <img src="/icon.png" alt="Icon" className="menu-bar-logo" />
       <button className="menu-bar-btn" onClick={onOpenFolder} data-testid="menu-bar-open-btn">
         Open Folder…
       </button>
@@ -79,7 +78,7 @@ export function MenuBar({
       </span>
       {draftEditsSummary && draftEditsSummary.files > 0 ? (
         <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-          <span 
+          <span
             className="menu-bar-draft-summary"
             onClick={onClickDraftSummary}
             style={{ cursor: onClickDraftSummary ? "pointer" : "default" }}
