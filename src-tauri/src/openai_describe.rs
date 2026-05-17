@@ -522,11 +522,24 @@ pub fn compose_draft_edits(
 
 /// Describe-specific cancellation state.
 ///
-/// Aliased to the shared `BatchJobCancelState` so describe and geocode
-/// can use the same install/clear/signal_cancel pattern without
-/// duplicate types. They remain separate Tauri-managed instances so
-/// cancelling describe does not cancel a geocode run, and vice versa.
-pub type DescribeState = crate::batch_job::BatchJobCancelState;
+/// Newtype around `BatchJobCancelState` rather than an alias: Tauri
+/// keys its `State<T>` registry by `TypeId`, so two distinct alias
+/// names for the same struct collide at startup. A newtype gives each
+/// batch job its own `TypeId` while keeping the shared lifecycle code.
+#[derive(Default)]
+pub struct DescribeState(crate::batch_job::BatchJobCancelState);
+
+impl DescribeState {
+    pub fn install(&self) -> std::sync::Arc<std::sync::atomic::AtomicBool> {
+        self.0.install()
+    }
+    pub fn clear(&self) {
+        self.0.clear();
+    }
+    pub fn signal_cancel(&self) -> bool {
+        self.0.signal_cancel()
+    }
+}
 
 // ── Tests ───────────────────────────────────────────────────────────────────
 
