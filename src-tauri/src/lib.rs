@@ -1167,39 +1167,19 @@ fn cancel_describe_cmd(describe_state: State<'_, openai_describe::DescribeState>
 /// "draft vs. metadata" precedence rule (see docs/REVERSE_GEOCODE_PLAN.md
 /// §2). The backend never reads the typed-draft store — it just trusts
 /// the resolved lat/lon. `lat`/`lon` are `null` when the image has no
-/// GPS in either drafts or metadata; the loop emits `no_gps` for that
-/// case.
-#[derive(Clone, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct GeocodeRequestItem {
-    rel_path: String,
-    lat: Option<f64>,
-    lon: Option<f64>,
-}
-
-/// Per-job summary for the `geocode_complete` event. Explicit per-source
-/// counters as documented in the plan (§4); the frontend renders the
-/// breakdown directly so the user can see what came from cache vs. the
-/// network.
-#[derive(Clone, Serialize, Default)]
-#[serde(rename_all = "camelCase")]
-struct GeocodeSummary {
-    n_succeeded_from_nominatim: u32,
-    n_succeeded_from_cache: u32,
-    n_succeeded_from_overpass: u32,
-    n_no_gps: u32,
-    n_failed: u32,
-}
+// `GeocodeRequestItem` and `GeocodeSummary` moved into `geocode.rs`
+// alongside the batch runner that owns them — see `geocode::{
+// GeocodeRequestItem, GeocodeSummary}`.
+use geocode::{GeocodeRequestItem, GeocodeSummary};
 
 /// Reverse-geocode a batch of images.
 ///
-/// Sequential loop. Rate-limit budgets are owned by a per-batch
-/// `GeocodeRateLimiter` and kept *separate* per host — see plan §7. A
-/// Nominatim call no longer consumes Overpass's budget (and vice
-/// versa), so the fallback path doesn't lose a second of latency on
-/// every Overpass image. Cache hits skip both buckets entirely —
-/// typical libraries cluster around a handful of locations so cache
-/// hit rate is high after the first run.
+/// Tauri wiring around `geocode::run_geocode_batch`: installs the
+/// cancellation flag, loads/saves the on-disk cache, and adapts the
+/// shared `BatchProgressEmitter` to the runner's `GeocodeEventSink`
+/// trait. The actual loop, per-host rate limiting, mid-pipeline cancel
+/// handling and `cache_io` synthesis live in `geocode.rs` so they can
+/// be exercised from integration tests without a Tauri runtime.
 #[tauri::command]
 async fn geocode_images_cmd(
     folder_path: String,
@@ -1210,110 +1190,81 @@ async fn geocode_images_cmd(
     let _ = folder_path; // resolution happens client-side; included for symmetry with describe.
     let cancel_flag = geocode_state.install();
     let client = geocode::GeocodeClient::new();
-    let mut cache = if let Ok(dir) = app_data_dir(&app) {
-        geocode_cache::load(&dir)
-    } else {
-        geocode_cache::GeocodeCacheFile::default_v1()
+    let app_data = app_data_dir(&app).ok();
+    let mut cache = match &app_data {
+        Some(dir) => geocode_cache::load(dir),
+        None => geocode_cache::GeocodeCacheFile::default_v1(),
     };
 
-    let total = items.len();
-    log::info!("[geocode] starting total={}", total);
-    let emitter = batch_job::BatchProgressEmitter::new(&app, "geocode");
-    emitter.started(total);
+    log::info!("[geocode] starting total={}", items.len());
 
-    let mut succeeded: Vec<String> = Vec::new();
-    let mut failed: Vec<batch_job::BatchFailureRow> = Vec::new();
-    let mut summary = GeocodeSummary::default();
-    let mut current = 0usize;
-    // Per-host rate-limit buckets owned by `geocode_one`. Cache hits
-    // don't touch either bucket; only network calls do.
-    let mut limiter = geocode::GeocodeRateLimiter::new();
+    let sink = TauriGeocodeSink {
+        emitter: batch_job::BatchProgressEmitter::new(&app, "geocode"),
+    };
 
-    for item in &items {
-        if cancel_flag.load(Ordering::Relaxed) {
-            log::info!("[geocode] cancelled at {}/{}", current, total);
-            break;
-        }
-        current += 1;
-        let rel = item.rel_path.clone();
-
-        let (lat, lon) = match (item.lat, item.lon) {
-            (Some(lat), Some(lon)) => (lat, lon),
-            _ => {
-                emitter.progress(current, total, &rel, "no_gps", Some("no GPS coordinates"), None);
-                failed.push(batch_job::BatchFailureRow {
-                    relative_path: rel,
-                    kind: "no_gps".into(),
-                    detail: "no GPS coordinates".into(),
-                });
-                summary.n_no_gps += 1;
-                continue;
-            }
-        };
-
-        match geocode::geocode_one(&client, &mut cache, &mut limiter, &cancel_flag, lat, lon).await {
-            Ok(result) => {
-                let edits = geocode::compose_geocode_edits(&result.address);
-                log::info!(
-                    "[geocode] ({}/{}) ok {} source={} display={}",
-                    current, total, rel, result.source.as_str(), result.display_name
-                );
-                emitter.progress(current, total, &rel, "ok", None, Some(&edits));
-                succeeded.push(rel);
-                match result.source {
-                    geocode::GeocodeSource::Cache => summary.n_succeeded_from_cache += 1,
-                    geocode::GeocodeSource::Nominatim => summary.n_succeeded_from_nominatim += 1,
-                    geocode::GeocodeSource::NominatimPlusOverpass => {
-                        summary.n_succeeded_from_overpass += 1
-                    }
-                }
-            }
-            Err(e) => {
-                let kind = e.kind().to_string();
-                let detail = e.detail();
-                log::warn!(
-                    "[geocode] ({}/{}) failed {} kind={} detail={}",
-                    current, total, rel, kind, detail
-                );
-                emitter.progress(current, total, &rel, &kind, Some(&detail), None);
-                failed.push(batch_job::BatchFailureRow {
-                    relative_path: rel,
-                    kind,
-                    detail,
-                });
-                summary.n_failed += 1;
-            }
-        }
-    }
+    let outcome = geocode::run_geocode_batch(
+        &items,
+        &client,
+        &mut cache,
+        &cancel_flag,
+        &sink,
+        |c| match &app_data {
+            // No app_data_dir → don't try to persist. The batch loop's
+            // typed-draft emissions still landed in the frontend store;
+            // we just can't memoise this batch's results across
+            // restarts.
+            Some(dir) => geocode_cache::save(dir, c),
+            None => Ok(()),
+        },
+    )
+    .await;
 
     log::info!(
         "[geocode] finished succeeded={} failed={} no_gps={} from_cache={} from_nominatim={} from_overpass={}",
-        succeeded.len(), failed.len() - summary.n_no_gps as usize,
-        summary.n_no_gps, summary.n_succeeded_from_cache,
-        summary.n_succeeded_from_nominatim, summary.n_succeeded_from_overpass,
+        outcome.succeeded.len(),
+        outcome.summary.n_failed,
+        outcome.summary.n_no_gps,
+        outcome.summary.n_succeeded_from_cache,
+        outcome.summary.n_succeeded_from_nominatim,
+        outcome.summary.n_succeeded_from_overpass,
     );
 
-    // Persist the cache. A failure here doesn't invalidate the
-    // already-emitted per-image drafts (they live in the typed-draft
-    // store, not the geocache), but it does mean the next batch will
-    // re-issue every network call this batch just paid for. Surface it
-    // as a single synthetic `cache_io` failure row so the user sees a
-    // labelled entry in the done panel rather than a silent log line.
-    if let Ok(dir) = app_data_dir(&app) {
-        if let Err(e) = geocode_cache::save(&dir, &cache) {
-            log::warn!("[geocode] cache save failed: {}", e);
-            failed.push(batch_job::BatchFailureRow {
-                relative_path: "<geocache>".into(),
-                kind: "cache_io".into(),
-                detail: e.clone(),
-            });
-            summary.n_failed += 1;
-        }
-    }
-
     geocode_state.clear();
-    emitter.complete(&succeeded, &failed, &summary);
     Ok(())
+}
+
+/// Bridge from the runner's sink trait to the Tauri event emitter.
+/// Kept inline at the call site (rather than in `batch_job.rs`)
+/// because the sink trait is per-job — describe will get its own when
+/// its loop is similarly extracted.
+struct TauriGeocodeSink<'a> {
+    emitter: batch_job::BatchProgressEmitter<'a>,
+}
+
+impl<'a> geocode::GeocodeEventSink for TauriGeocodeSink<'a> {
+    fn started(&self, total: usize) {
+        self.emitter.started(total);
+    }
+    fn progress(
+        &self,
+        current: usize,
+        total: usize,
+        relative_path: &str,
+        status: &str,
+        error: Option<&str>,
+        edits: Option<&std::collections::HashMap<String, draft_edits::DraftEdit>>,
+    ) {
+        self.emitter
+            .progress(current, total, relative_path, status, error, edits);
+    }
+    fn complete(
+        &self,
+        succeeded: &[String],
+        failed: &[batch_job::BatchFailureRow],
+        summary: &GeocodeSummary,
+    ) {
+        self.emitter.complete(succeeded, failed, summary);
+    }
 }
 
 #[tauri::command]

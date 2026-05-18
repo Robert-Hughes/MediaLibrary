@@ -39,6 +39,39 @@ use crate::geocode_cache::{
 };
 use crate::scanner::Variant;
 
+// ── Wire types for the geocode_images_cmd Tauri command ─────────────────────
+//
+// Lives here (not lib.rs) so the batch runner can reference them
+// without a circular dependency. Public so integration tests can
+// build inputs.
+
+/// One item in a `geocode_images_cmd` invocation.
+///
+/// The frontend resolves draft-GPS-vs-metadata-GPS precedence (see
+/// plan §2) before sending; the backend trusts the lat/lon it
+/// receives and emits `no_gps` per-item failures for missing pairs.
+#[derive(Clone, Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GeocodeRequestItem {
+    pub rel_path: String,
+    pub lat: Option<f64>,
+    pub lon: Option<f64>,
+}
+
+/// Per-job summary for the `geocode_complete` event. Explicit
+/// per-source counters as documented in the plan (§4); the frontend
+/// renders the breakdown so the user sees what came from cache vs.
+/// the network.
+#[derive(Clone, Debug, Default, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GeocodeSummary {
+    pub n_succeeded_from_nominatim: u32,
+    pub n_succeeded_from_cache: u32,
+    pub n_succeeded_from_overpass: u32,
+    pub n_no_gps: u32,
+    pub n_failed: u32,
+}
+
 /// Default endpoints — not user-configurable in V1 (see plan §10).
 pub const NOMINATIM_BASE_URL: &str = "https://nominatim.openstreetmap.org";
 pub const OVERPASS_BASE_URL: &str = "https://overpass-api.de/api/interpreter";
@@ -669,6 +702,169 @@ pub async fn geocode_one(
 /// cancelling a geocode batch does not affect a parallel describe
 /// batch, and vice versa.
 pub type GeocodeState = crate::batch_job::BatchJobCancelState;
+
+// ── Batch runner ────────────────────────────────────────────────────────────
+//
+// The reverse-geocoding command in `lib.rs` is mostly Tauri wiring
+// (AppHandle, State, app_data_dir) wrapped around a pure async loop:
+// for each item, decide GPS, call `geocode_one`, emit progress, build
+// a per-batch summary. The Tauri half is unreachable from integration
+// tests; the loop half is exactly where the plan deviations we care
+// about live (mid-pipeline cancel surfacing as a per-image
+// `cancelled` failure row, end-of-batch `cache_io` synthesis, summary
+// accounting). Extracting the loop into `run_geocode_batch` lets us
+// drive it from a `tests/` integration test with a wiremock server
+// and a recording sink, without needing a Tauri runtime.
+
+/// Sink for events the batch runner emits during a run.
+///
+/// Production wires this to a `BatchProgressEmitter` (which forwards
+/// to Tauri events). Tests implement it as an in-memory accumulator
+/// so they can assert exactly which events the runner produced.
+///
+/// The trait deliberately mirrors `BatchProgressEmitter`'s three
+/// methods so a future migration to a fully-shared sink layer is a
+/// straight rename rather than a redesign.
+pub trait GeocodeEventSink {
+    fn started(&self, total: usize);
+    fn progress(
+        &self,
+        current: usize,
+        total: usize,
+        relative_path: &str,
+        status: &str,
+        error: Option<&str>,
+        edits: Option<&std::collections::HashMap<String, DraftEdit>>,
+    );
+    fn complete(
+        &self,
+        succeeded: &[String],
+        failed: &[crate::batch_job::BatchFailureRow],
+        summary: &GeocodeSummary,
+    );
+}
+
+/// Outcome of a single batch run. Returned from `run_geocode_batch`
+/// so the Tauri command can clear cancel state and log the result,
+/// and so tests can assert on the final counts without relying on
+/// the sink's recorded events alone.
+pub struct GeocodeBatchOutcome {
+    pub succeeded: Vec<String>,
+    pub failed: Vec<crate::batch_job::BatchFailureRow>,
+    pub summary: GeocodeSummary,
+}
+
+/// Run the reverse-geocoding batch loop.
+///
+/// Sequential per-item loop with per-host rate limiting (see
+/// `GeocodeRateLimiter`). Cache hits skip both buckets and the
+/// network entirely. Failures (no-GPS, network, Nominatim-empty,
+/// mid-pipeline cancellation) become per-image entries in the
+/// returned `failed` vec and are mirrored to the sink via
+/// `progress(..., status, ...)`. The cancel flag is polled at the
+/// top of every iteration **and** between sub-calls inside
+/// `geocode_one`; mid-image cancel surfaces as a `Cancelled` failure
+/// for the in-flight image so it shows up in the done panel rather
+/// than the loop breaking silently.
+///
+/// `save_cache` is invoked once after the loop drains. Failures
+/// there become a synthetic `cache_io` failure row attached to a
+/// sentinel `<geocache>` relative path so the user sees a labelled
+/// entry in the done panel; per-image drafts already emitted are not
+/// affected because the typed-draft store is independent of the
+/// network cache.
+pub async fn run_geocode_batch<S, F>(
+    items: &[GeocodeRequestItem],
+    client: &GeocodeClient,
+    cache: &mut GeocodeCacheFile,
+    cancel_flag: &std::sync::atomic::AtomicBool,
+    sink: &S,
+    save_cache: F,
+) -> GeocodeBatchOutcome
+where
+    S: GeocodeEventSink + ?Sized,
+    F: FnOnce(&GeocodeCacheFile) -> Result<(), String>,
+{
+    use std::sync::atomic::Ordering;
+    let total = items.len();
+    sink.started(total);
+
+    let mut succeeded: Vec<String> = Vec::new();
+    let mut failed: Vec<crate::batch_job::BatchFailureRow> = Vec::new();
+    let mut summary = GeocodeSummary::default();
+    let mut current = 0usize;
+    let mut limiter = GeocodeRateLimiter::new();
+
+    for item in items {
+        if cancel_flag.load(Ordering::Relaxed) {
+            break;
+        }
+        current += 1;
+        let rel = item.rel_path.clone();
+
+        let (lat, lon) = match (item.lat, item.lon) {
+            (Some(lat), Some(lon)) => (lat, lon),
+            _ => {
+                sink.progress(current, total, &rel, "no_gps", Some("no GPS coordinates"), None);
+                failed.push(crate::batch_job::BatchFailureRow {
+                    relative_path: rel,
+                    kind: "no_gps".into(),
+                    detail: "no GPS coordinates".into(),
+                });
+                summary.n_no_gps += 1;
+                continue;
+            }
+        };
+
+        match geocode_one(client, cache, &mut limiter, cancel_flag, lat, lon).await {
+            Ok(result) => {
+                let edits = compose_geocode_edits(&result.address);
+                log::info!(
+                    "[geocode] ({}/{}) ok {} source={} display={}",
+                    current, total, rel, result.source.as_str(), result.display_name
+                );
+                sink.progress(current, total, &rel, "ok", None, Some(&edits));
+                succeeded.push(rel);
+                match result.source {
+                    GeocodeSource::Cache => summary.n_succeeded_from_cache += 1,
+                    GeocodeSource::Nominatim => summary.n_succeeded_from_nominatim += 1,
+                    GeocodeSource::NominatimPlusOverpass => {
+                        summary.n_succeeded_from_overpass += 1
+                    }
+                }
+            }
+            Err(e) => {
+                let kind = e.kind().to_string();
+                let detail = e.detail();
+                log::warn!(
+                    "[geocode] ({}/{}) failed {} kind={} detail={}",
+                    current, total, rel, kind, detail
+                );
+                sink.progress(current, total, &rel, &kind, Some(&detail), None);
+                failed.push(crate::batch_job::BatchFailureRow {
+                    relative_path: rel,
+                    kind,
+                    detail,
+                });
+                summary.n_failed += 1;
+            }
+        }
+    }
+
+    if let Err(e) = save_cache(cache) {
+        log::warn!("[geocode] cache save failed: {}", e);
+        failed.push(crate::batch_job::BatchFailureRow {
+            relative_path: "<geocache>".into(),
+            kind: "cache_io".into(),
+            detail: e,
+        });
+        summary.n_failed += 1;
+    }
+
+    sink.complete(&succeeded, &failed, &summary);
+
+    GeocodeBatchOutcome { succeeded, failed, summary }
+}
 
 #[cfg(test)]
 mod tests {
