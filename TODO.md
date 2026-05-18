@@ -7,6 +7,12 @@ are covered by integration tests that simulate UI interaction and confirm that t
 Now
 ===
 
+* Normalize metadata!
+  * Review plan in docs
+  * Implement plan
+  * Review implementation against plan
+  * Manual testing
+
 
 *** DO NOT WORK ON ANY OF THE BELOW ITEMS ***
 
@@ -32,25 +38,7 @@ Also why does the UI even allow you to attempt to modify this field when it's ma
 Features
 ========
 
-* Reverse geo-coding.
-  * Consider doing this before the image analysis and passing in as input? Same with other metadata tags possibly?
-
-* Combine image description with other metadata (and 'storyline') to propose changes to metadata. This could be a mix of programmatic and Open AI Responses API?
-  * Combine image data with text data for the model in one go, or do images first as separate pass (more token heavy perhaps??)
-
 * BATCHING OR FLEX for half-price API?
-
-* Feature to detect and adjust all the different date fields to match DateTimeOriginal (or some other ground truth), including the filename itself which can lend insight if DTO is missing, or indicate a mistake somewhere.
-  * Consider/comapre to exiftool `-AllDates<DateTimeOriginal`
-
-* Feature to normalize alternative/legacy fields
-  * e.g. XMP-dc:Subject and IPTC:Keywords, UserComment / Description / Caption-Abstract / ImageDescription
-  * dedup IPTC:Keywords ∪ XMP-dc:Subject ∪ XMP-lr:HierarchicalSubject; "normalize keywords" command; show diff before apply.
-  * Conflicts between different equivalent tags
-  * Include AI-generated mlib tags?
-
-* Feature to merge AI-generated describe results into proper tags, handling
-conflicts with existing values if present. IPTC:Keywords / XMP-dc:Subject / XMP-lr:HierarchicalSubject. Related to normalize feature?
 
 * Consider feature to **Multi-batch chaining context** | "Batch summary for next run" → prepended to next prompt for theme continuity
 
@@ -61,3 +49,6 @@ conflicts with existing values if present. IPTC:Keywords / XMP-dc:Subject / XMP-
 * Map view, showing locations of all photos/heatmap over the map
 
 * Feature for facial/person recognition?
+
+* Support deletion of photos (make sure all the various in-memory stores are updated)
+* Reload/refresh folder button? (Equivalent to close + open)
