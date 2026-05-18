@@ -8,18 +8,20 @@
  *   running          → /responses calls per image, drafts persisted
  *   done             → final usage summary and per-image outcomes
  *
- * Generalises the visual idiom from `ApplyProgressDialog` (overlay,
- * progress bar, current-file row) but adds the cost-confirm and final-
- * results panels so the user only sees one dialog through the whole
- * operation. Cancellation is a single backend `cancel_describe_cmd` call
- * that the loop honours at the next image boundary in either phase.
+ * Thin wrapper over `BatchJobDialog` — the overlay, header, dialog body
+ * frame, and Escape handling live there. This file supplies the
+ * describe-specific per-phase panels (cost confirmation, usage summary)
+ * and the testid prefix that test selectors depend on.
+ *
+ * The visual idiom for the running phase comes from
+ * `RunningProgressPanel` (also shared with the apply-edits dialog).
  */
-import { useEffect } from "react";
 import type {
   DescribeFailure,
   DescribeProgressState,
   DescribeUsageSummary,
 } from "../types";
+import { BatchJobDialog } from "./BatchJobDialog";
 import { RunningProgressPanel } from "./RunningProgressPanel";
 
 interface Props {
@@ -58,20 +60,13 @@ function formatCost(usd: number): string {
   return `$${usd.toFixed(2)}`;
 }
 
-function PhaseHeader({ state }: { state: DescribeProgressState }) {
-  const title = (() => {
-    switch (state.phase) {
-      case "estimating": return "Estimating cost…";
-      case "awaiting-confirm": return "Confirm AI description";
-      case "running": return state.cancelling ? "Cancelling…" : "Generating descriptions…";
-      case "done": return "Done";
-    }
-  })();
-  return (
-    <div className="dialog-header">
-      <span className="dialog-title">{title}</span>
-    </div>
-  );
+function phaseTitle(state: DescribeProgressState): string {
+  switch (state.phase) {
+    case "estimating": return "Estimating cost…";
+    case "awaiting-confirm": return "Confirm AI description";
+    case "running": return state.cancelling ? "Cancelling…" : "Generating descriptions…";
+    case "done": return "Done";
+  }
 }
 
 function ProgressBar({ current, total }: { current: number; total: number }) {
@@ -130,157 +125,144 @@ function UsageSummary({ s }: { s: DescribeUsageSummary }) {
 }
 
 export function DescribeProgressDialog({ state, onConfirm, onCancel, onClose }: Props) {
-  // Escape mirrors the Cancel button in any phase before `done`, and Close
-  // on the done panel.  Matches the rest of the app's dialog conventions
-  // (see ColumnSelectionDialog, ValueEditDialog).
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      e.preventDefault();
-      if (state.phase === "done") onClose();
-      else onCancel();
-    };
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [state.phase, onCancel, onClose]);
-
   return (
-    <div className="dialog-overlay" data-testid="describe-progress-dialog">
-      <div className="dialog-content" style={{ width: 520 }}>
-        <PhaseHeader state={state} />
-        <div className="dialog-body">
-
-          {/* ── Estimating phase ───────────────────────────────────────── */}
-          {state.phase === "estimating" && (
-            <>
-              <div className="dialog-hint" data-testid="describe-estimate-count">
-                Counting tokens: {state.current} of {state.total}{" "}
-                {state.total === 1 ? "image" : "images"}
-              </div>
-              <ProgressBar current={state.current} total={state.total} />
-              <div
-                style={{
-                  marginTop: 12, fontSize: 12, color: "var(--text-secondary)",
-                  whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-                }}
-                title={state.currentFile ?? ""}
-                data-testid="describe-current-file"
-              >
-                {state.currentFile ?? " "}
-              </div>
-              {state.estimateError && (
-                <div
-                  style={{ marginTop: 12, color: "var(--accent-error, #d33)", fontSize: 12 }}
-                  data-testid="describe-estimate-error"
-                >
-                  {state.estimateError}
-                </div>
-              )}
-              <div style={{ marginTop: 20, display: "flex", justifyContent: "flex-end" }}>
-                <button
-                  className="button button--secondary"
-                  onClick={onCancel}
-                  data-testid="describe-cancel-btn"
-                >
-                  Cancel
-                </button>
-              </div>
-            </>
+    <BatchJobDialog
+      testidPrefix="describe"
+      width={520}
+      phase={state.phase}
+      title={phaseTitle(state)}
+      onCancel={onCancel}
+      onClose={onClose}
+    >
+      {/* ── Estimating phase ───────────────────────────────────────── */}
+      {state.phase === "estimating" && (
+        <>
+          <div className="dialog-hint" data-testid="describe-estimate-count">
+            Counting tokens: {state.current} of {state.total}{" "}
+            {state.total === 1 ? "image" : "images"}
+          </div>
+          <ProgressBar current={state.current} total={state.total} />
+          <div
+            style={{
+              marginTop: 12, fontSize: 12, color: "var(--text-secondary)",
+              whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+            }}
+            title={state.currentFile ?? ""}
+            data-testid="describe-current-file"
+          >
+            {state.currentFile ?? " "}
+          </div>
+          {state.estimateError && (
+            <div
+              style={{ marginTop: 12, color: "var(--accent-error, #d33)", fontSize: 12 }}
+              data-testid="describe-estimate-error"
+            >
+              {state.estimateError}
+            </div>
           )}
+          <div style={{ marginTop: 20, display: "flex", justifyContent: "flex-end" }}>
+            <button
+              className="button button--secondary"
+              onClick={onCancel}
+              data-testid="describe-cancel-btn"
+            >
+              Cancel
+            </button>
+          </div>
+        </>
+      )}
 
-          {/* ── Awaiting confirm ───────────────────────────────────────── */}
-          {state.phase === "awaiting-confirm" && state.estimate && (
-            <>
-              <div className="dialog-hint" data-testid="describe-confirm-summary">
-                Ready to describe {state.total}{" "}
-                {state.total === 1 ? "image" : "images"} using{" "}
-                <code>{state.estimate.model}</code>.
-              </div>
-              <div style={{ marginTop: 12, fontSize: 13 }}>
-                <div>
-                  Total input tokens: {state.estimate.totalInputTokens.toLocaleString()}
-                </div>
-                <div>
-                  Estimated cost: <strong>{formatCost(state.estimate.predictedCostUsd)}</strong>
-                </div>
-                <div style={{ color: "var(--text-secondary)" }}>
-                  Upper bound (if output hits the token cap): {formatCost(state.estimate.upperBoundCostUsd)}
-                </div>
-              </div>
-              <div style={{ marginTop: 12, fontSize: 11, color: "var(--text-secondary)" }}>
-                Each image is uploaded to OpenAI for analysis. Results land
-                as draft edits under the XMP-mlib namespace and can be
-                reviewed before applying.
-              </div>
-              <div style={{ marginTop: 20, display: "flex", justifyContent: "flex-end", gap: 8 }}>
-                <button
-                  className="button button--secondary"
-                  onClick={onCancel}
-                  data-testid="describe-cancel-btn"
-                >
-                  Cancel
-                </button>
-                <button
-                  className="button button--primary"
-                  onClick={onConfirm}
-                  data-testid="describe-confirm-btn"
-                  autoFocus
-                >
-                  Confirm and run
-                </button>
-              </div>
-            </>
-          )}
+      {/* ── Awaiting confirm ───────────────────────────────────────── */}
+      {state.phase === "awaiting-confirm" && state.estimate && (
+        <>
+          <div className="dialog-hint" data-testid="describe-confirm-summary">
+            Ready to describe {state.total}{" "}
+            {state.total === 1 ? "image" : "images"} using{" "}
+            <code>{state.estimate.model}</code>.
+          </div>
+          <div style={{ marginTop: 12, fontSize: 13 }}>
+            <div>
+              Total input tokens: {state.estimate.totalInputTokens.toLocaleString()}
+            </div>
+            <div>
+              Estimated cost: <strong>{formatCost(state.estimate.predictedCostUsd)}</strong>
+            </div>
+            <div style={{ color: "var(--text-secondary)" }}>
+              Upper bound (if output hits the token cap): {formatCost(state.estimate.upperBoundCostUsd)}
+            </div>
+          </div>
+          <div style={{ marginTop: 12, fontSize: 11, color: "var(--text-secondary)" }}>
+            Each image is uploaded to OpenAI for analysis. Results land
+            as draft edits under the XMP-mlib namespace and can be
+            reviewed before applying.
+          </div>
+          <div style={{ marginTop: 20, display: "flex", justifyContent: "flex-end", gap: 8 }}>
+            <button
+              className="button button--secondary"
+              onClick={onCancel}
+              data-testid="describe-cancel-btn"
+            >
+              Cancel
+            </button>
+            <button
+              className="button button--primary"
+              onClick={onConfirm}
+              data-testid="describe-confirm-btn"
+              autoFocus
+            >
+              Confirm and run
+            </button>
+          </div>
+        </>
+      )}
 
-          {/* ── Running ────────────────────────────────────────────────── */}
-          {state.phase === "running" && (
-            <RunningProgressPanel
-              testidPrefix="describe-running"
-              current={state.current}
-              total={state.total}
-              noun="image"
-              failureCount={state.failures.length}
-              currentFile={state.currentFile}
-              cancelling={state.cancelling}
-              onCancel={onCancel}
-              footer={
-                <div style={{ marginTop: 12, fontSize: 11, color: "var(--text-secondary)" }}>
-                  Each image's description is added to your drafts as soon
-                  as it arrives. If cancelled, descriptions already produced
-                  remain in drafts.
-                </div>
-              }
-            />
-          )}
+      {/* ── Running ────────────────────────────────────────────────── */}
+      {state.phase === "running" && (
+        <RunningProgressPanel
+          testidPrefix="describe-running"
+          current={state.current}
+          total={state.total}
+          noun="image"
+          failureCount={state.failures.length}
+          currentFile={state.currentFile}
+          cancelling={state.cancelling}
+          onCancel={onCancel}
+          footer={
+            <div style={{ marginTop: 12, fontSize: 11, color: "var(--text-secondary)" }}>
+              Each image's description is added to your drafts as soon
+              as it arrives. If cancelled, descriptions already produced
+              remain in drafts.
+            </div>
+          }
+        />
+      )}
 
-          {/* ── Done ───────────────────────────────────────────────────── */}
-          {state.phase === "done" && (
-            <>
-              <div className="dialog-hint" data-testid="describe-done-summary">
-                Completed: {state.succeeded.length}/{state.total} succeeded
-                {state.failures.length > 0 && (
-                  <span style={{ marginLeft: 8, color: "var(--accent-error, #d33)" }}>
-                    , {state.failures.length} failed
-                  </span>
-                )}
-              </div>
-              {state.usageSummary && <UsageSummary s={state.usageSummary} />}
-              <FailureList failures={state.failures} />
-              <div style={{ marginTop: 20, display: "flex", justifyContent: "flex-end" }}>
-                <button
-                  className="button button--primary"
-                  onClick={onClose}
-                  data-testid="describe-close-btn"
-                  autoFocus
-                >
-                  Close
-                </button>
-              </div>
-            </>
-          )}
-        </div>
-      </div>
-    </div>
+      {/* ── Done ───────────────────────────────────────────────────── */}
+      {state.phase === "done" && (
+        <>
+          <div className="dialog-hint" data-testid="describe-done-summary">
+            Completed: {state.succeeded.length}/{state.total} succeeded
+            {state.failures.length > 0 && (
+              <span style={{ marginLeft: 8, color: "var(--accent-error, #d33)" }}>
+                , {state.failures.length} failed
+              </span>
+            )}
+          </div>
+          {state.usageSummary && <UsageSummary s={state.usageSummary} />}
+          <FailureList failures={state.failures} />
+          <div style={{ marginTop: 20, display: "flex", justifyContent: "flex-end" }}>
+            <button
+              className="button button--primary"
+              onClick={onClose}
+              data-testid="describe-close-btn"
+              autoFocus
+            >
+              Close
+            </button>
+          </div>
+        </>
+      )}
+    </BatchJobDialog>
   );
 }
 
