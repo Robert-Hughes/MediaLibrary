@@ -7,38 +7,17 @@ are covered by integration tests that simulate UI interaction and confirm that t
 Now
 ===
 
-Feedback from recent reverse-geocoding testing:
 
-* I ran reverse geocoding on "D:\OneDrive\Pictures\2008\IMG_7459.jpg", see the results in the saved drafts for this folder. The IPTC:Sub-location changed from the old value of Clifton Moor to Oakdale Road. I think the old value would have come from the Update Metadata Scripts reverse-geocoding approach (which our implementation is based on) so I'm curious why our implementation
-produced a different result here. Run some example queries of nominatim if you want to see if you can explain the difference.
-Similarly, for "D:\OneDrive\Pictures\2010\Image0009.jpg" the old Sub-location had "Foss Islands" in it (as well as the pub name), but the new result just has the pub name. Why different?
+*** DO NOT WORK ON ANY OF THE BELOW ITEMS ***
 
-Later- *** DO NOT WORK ON ANY OF THE BELOW FEATURES ***
-=====
-
-
-* Reverse geo-coding.
-  * Consider doing this before the image analysis and passing in as input? Same with other metadata tags possibly?
-
-* Combine image description with other metadata (and 'storyline') to propose changes to metadata. This could be a mix of programmatic and Open AI Responses API?
-
-* Compare with functionalty of the Update Metadata prompts approach - add anything missing to here? Check the instruction files and also the scripts and sample reports/json files/logs to see if we're missing anything that we figured out before.
-  * Also the TODO files of the previous approach!
-  * GPS reverse geocoding done up-front as separate step?
-  * Combine image data with text data for the model in one go, or do images first as separate pass (more token heavy perhaps??)
-  * Detecting/fixing GPS clustered data
-  * Detecting/fixing wrong dates in various places
-  * Normalizing across different metadata fields with similar names (e.g. legacy fields)
+Bugs/quirks/tweaks/improvements
+=================================
 
 * DATATYPE_MISMATCHES.md
   * Why does ComponentsConfiguration show as: [B]ComponentsConfiguration	(S)   Y, Cb, Cr, -      i.e. it has schema datatype bag but value datatype string. This is an unedited property so comes directly from exiftool, how come the datatypes are different
 
-* BATCHING OR FLEX for half-price API?
-
 * The app has grown a lot since our last full review. Take a holistic look at everything:
  Review size and responsibilities of files to see if anything has grown too large. Look for potential improvements in app architecture , abstractions or code re-use. Look also for testing gaps or test improvements
-
-* Consider adding FLAC support. Not sure what this would mean.
 
 * Long startup time with blank screen. Could it be loading the tag schema cache?
 
@@ -49,3 +28,36 @@ and make it highly visible?
 
 * JFIF:JFIFVersion has schema type Bag (of ints) but has value of number "1.01". The editor then complains that 1.01 isn't a valid integer.
 Also why does the UI even allow you to attempt to modify this field when it's marked as readonly! This might have been a design decision made earlier, so user can override the schema if they want to try to write something anyway?
+
+Features
+========
+
+* Reverse geo-coding.
+  * Consider doing this before the image analysis and passing in as input? Same with other metadata tags possibly?
+
+* Combine image description with other metadata (and 'storyline') to propose changes to metadata. This could be a mix of programmatic and Open AI Responses API?
+  * Combine image data with text data for the model in one go, or do images first as separate pass (more token heavy perhaps??)
+
+* BATCHING OR FLEX for half-price API?
+
+* Feature to detect and adjust all the different date fields to match DateTimeOriginal (or some other ground truth), including the filename itself which can lend insight if DTO is missing, or indicate a mistake somewhere.
+  * Consider/comapre to exiftool `-AllDates<DateTimeOriginal`
+
+* Feature to normalize alternative/legacy fields
+  * e.g. XMP-dc:Subject and IPTC:Keywords, UserComment / Description / Caption-Abstract / ImageDescription
+  * dedup IPTC:Keywords ∪ XMP-dc:Subject ∪ XMP-lr:HierarchicalSubject; "normalize keywords" command; show diff before apply.
+  * Conflicts between different equivalent tags
+  * Include AI-generated mlib tags?
+
+* Feature to merge AI-generated describe results into proper tags, handling
+conflicts with existing values if present. IPTC:Keywords / XMP-dc:Subject / XMP-lr:HierarchicalSubject. Related to normalize feature?
+
+* Consider feature to **Multi-batch chaining context** | "Batch summary for next run" → prepended to next prompt for theme continuity
+
+* Feature to fill in missing GPS location based on description/tags (which could itself have been AI-generated from the visual content). Could also be used to fix batches of photos all clustered to the exact same GPS location (e.g. by a coarse previous manual edit). e.g. 2010 london photos, or where incorrect GPS was recorded
+
+* Consider adding FLAC support. Not sure what this would mean.
+
+* Map view, showing locations of all photos/heatmap over the map
+
+* Feature for facial/person recognition?
