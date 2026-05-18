@@ -7,15 +7,26 @@ are covered by integration tests that simulate UI interaction and confirm that t
 Now
 ===
 
-Work on the following bugs, features and improvements. Make sure to add/update good test coverage for each change where appropriate and make small, incremental commits to git. Try to avoid mixing different features or bits of work within the same commit where possible
+Feedback from recent reverse-geocoding testing:
 
+* Review the reverse-geocode feature implementation against the plan here: REVERSE_GEOCODE_PLAN.md. Highlight any deviations from the plan or anything else you spot that's suspicious.
+
+* I ran reverse geocoding on "D:\OneDrive\Pictures\2008\IMG_7459.jpg", see the results in the saved drafts for this folder. The IPTC:Sub-location changed from the old value of Clifton Moor to Oakdale Road. I think the old value would have come from the Update Metadata Scripts reverse-geocoding approach (which our implementation is based on) so I'm curious why our implementation
+produced a different result here. Run some example queries of nominatim if you want to see if you can explain the difference.
+Similarly, for "D:\OneDrive\Pictures\2010\Image0009.jpg" the old Sub-location had "Foss Islands" in it (as well as the pub name), but the new result just has the pub name. Why different?
+
+* THere's several places in the code where we want to get the value of some metadata, and we have to check both the metadata store and
+the pending drafts to make sure that we get the correct value (i.e. to respect pending edits the user may have made). Audit these locations and
+consider making a common access pattern that checks both locations, to reduce risk of developer forgetting to check draft edits. As part of the analysis I'd like to see
+a table of places where we read metadata and if/how it checks the drafts or not.
 
 
 Later- *** DO NOT WORK ON ANY OF THE BELOW FEATURES ***
 =====
 
 
-* Reverse geo-coding. Consider doing this before the image analysis and passing in as input? Same with other metadata tags possibly?
+* Reverse geo-coding.
+  * Consider doing this before the image analysis and passing in as input? Same with other metadata tags possibly?
 
 * Combine image description with other metadata (and 'storyline') to propose changes to metadata. This could be a mix of programmatic and Open AI Responses API?
 
@@ -25,11 +36,24 @@ Later- *** DO NOT WORK ON ANY OF THE BELOW FEATURES ***
   * Combine image data with text data for the model in one go, or do images first as separate pass (more token heavy perhaps??)
   * Detecting/fixing GPS clustered data
   * Detecting/fixing wrong dates in various places
+  * Normalizing across different metadata fields with similar names (e.g. legacy fields)
 
 * DATATYPE_MISMATCHES.md
   * Why does ComponentsConfiguration show as: [B]ComponentsConfiguration	(S)   Y, Cb, Cr, -      i.e. it has schema datatype bag but value datatype string. This is an unedited property so comes directly from exiftool, how come the datatypes are different
 
 * BATCHING OR FLEX for half-price API?
 
-* Typing in the search box when many photos loaded is very laggy. Speed up search and/or make it async with spinner to indicate processing
+* The app has grown a lot since our last full review. Take a holistic look at everything:
+ Review size and responsibilities of files to see if anything has grown too large. Look for potential improvements in app architecture , abstractions or code re-use. Look also for testing gaps or test improvements
 
+* Consider adding FLAC support. Not sure what this would mean.
+
+* Long startup time with blank screen. Could it be loading the tag schema cache?
+
+* The warning dialog about overwriting tags (for both AI description and reverse geocode) might be redundant considering there's a dialog that comes up anyway. Maybe move the warning to there
+and make it highly visible?
+
+* IFD1:ThumbnailImage value shows "(Binary data 3965 bytes, use -b option to extract)". Saying "use -b option" is confusing to users of Media Library as they don't interact with exiftool directly
+
+* JFIF:JFIFVersion has schema type Bag (of ints) but has value of number "1.01". The editor then complains that 1.01 isn't a valid integer.
+Also why does the UI even allow you to attempt to modify this field when it's marked as readonly! This might have been a design decision made earlier, so user can override the schema if they want to try to write something anyway?
