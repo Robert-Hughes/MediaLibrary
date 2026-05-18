@@ -187,6 +187,20 @@ impl AddressFields {
     }
 }
 
+/// Priority list of Nominatim `address` keys that represent a *named
+/// feature* — a building, POI, etc. — as opposed to a generic
+/// road/place. Shared between `flatten_address` (which prefers any of
+/// these over a road for the `location` field) and
+/// `should_use_overpass_fallback` (which skips Overpass when any of
+/// these is already populated). Keeping the list in one place avoids
+/// the drift bug where one site picks up a new key and the other
+/// doesn't — the fallback decision would then disagree with the
+/// flattener's view of "did we get a named feature?".
+const NAMED_FEATURE_KEYS: &[&str] = &[
+    "building", "tourism", "amenity", "leisure", "historic", "shop",
+    "memorial", "man_made",
+];
+
 /// Flatten Nominatim's `address` object (a free-form `serde_json::Value`)
 /// into our six-field shape, picking the most specific available value
 /// for each slot per the precedence table in the plan.
@@ -204,14 +218,8 @@ pub fn flatten_address(addr: &serde_json::Value) -> AddressFields {
         }
         None
     }
-    let location = pick(
-        addr,
-        &[
-            "building", "tourism", "amenity", "leisure", "historic", "shop",
-            "memorial", "man_made",
-        ],
-    )
-    .or_else(|| pick(addr, &["road"]));
+    let location =
+        pick(addr, NAMED_FEATURE_KEYS).or_else(|| pick(addr, &["road"]));
     let city = pick(
         addr,
         &["city", "town", "village", "hamlet", "municipality", "suburb"],
@@ -234,15 +242,11 @@ pub fn flatten_address(addr: &serde_json::Value) -> AddressFields {
 /// road or nothing for `location`, and no other named-feature signal.
 /// The caller then tries Overpass for a nearby named POI.
 pub fn should_use_overpass_fallback(addr: &serde_json::Value, parsed: &AddressFields) -> bool {
-    // If any named-feature key was picked up by the flattener, we're
-    // already specific enough. Detect that by re-running the same head
-    // of the priority list as `flatten_address`.
-    let named_keys = [
-        "building", "tourism", "amenity", "leisure", "historic", "shop",
-        "memorial", "man_made",
-    ];
-    for k in named_keys {
-        if addr.get(k).and_then(|v| v.as_str()).map_or(false, |s| !s.is_empty()) {
+    // Reuse the same priority list as `flatten_address` — the decision
+    // "did Nominatim already give us a named feature?" must stay in
+    // lockstep with what the flattener actually consumes.
+    for k in NAMED_FEATURE_KEYS {
+        if addr.get(*k).and_then(|v| v.as_str()).map_or(false, |s| !s.is_empty()) {
             return false;
         }
     }
@@ -411,7 +415,9 @@ impl Default for GeocodeClient {
 }
 
 /// Geocode failure kinds. The frontend's friendly-label map renders
-/// each of these as a human string.
+/// each of these as a human string — keep the `kind()` strings in
+/// sync with `friendlyFailureLabel` in
+/// `src/components/GeocodeProgressDialog.tsx`.
 #[derive(Debug, Clone)]
 pub enum GeocodeError {
     /// The image had no usable GPS in metadata or drafts. Surfaced
@@ -424,6 +430,16 @@ pub enum GeocodeError {
     NominatimEmpty,
     Http { status: u16, body: String },
     Network(String),
+    /// The cancellation flag was observed flipped while this image was
+    /// in flight (between sub-calls, or right before a network call).
+    /// Plan §8: the in-flight image surfaces as a `cancelled` failure
+    /// rather than disappearing silently when the loop breaks.
+    Cancelled,
+    /// Cache file could not be read or written. Currently emitted only
+    /// from the batch-end save path; surfaced as a synthetic
+    /// per-batch failure row so the user knows their cache won't
+    /// survive a restart.
+    CacheIo(String),
 }
 
 impl GeocodeError {
@@ -433,6 +449,8 @@ impl GeocodeError {
             GeocodeError::NominatimEmpty => "nominatim_empty",
             GeocodeError::Http { .. } => "http",
             GeocodeError::Network(_) => "network",
+            GeocodeError::Cancelled => "cancelled",
+            GeocodeError::CacheIo(_) => "cache_io",
         }
     }
     pub fn detail(&self) -> String {
@@ -441,6 +459,8 @@ impl GeocodeError {
             GeocodeError::NominatimEmpty => "Nominatim returned no usable address".into(),
             GeocodeError::Http { status, body } => format!("HTTP {}: {}", status, body),
             GeocodeError::Network(s) => s.clone(),
+            GeocodeError::Cancelled => "cancelled by user".into(),
+            GeocodeError::CacheIo(s) => s.clone(),
         }
     }
 }
@@ -552,13 +572,23 @@ pub async fn overpass_named_nearby(
 /// sleeps so the caller doesn't have to predict whether the Overpass
 /// path will fire. The rate limiter is borrowed `&mut` so a single
 /// instance per batch keeps state across calls.
+///
+/// `cancel_flag` is polled before every potentially-slow step
+/// (rate-limit sleep, network call, the gap between Nominatim and
+/// Overpass) so a user pressing Cancel mid-image surfaces as a
+/// `Cancelled` failure for the in-flight image rather than waiting
+/// for the next image boundary. Plan §8.
 pub async fn geocode_one(
     client: &GeocodeClient,
     cache: &mut GeocodeCacheFile,
     limiter: &mut GeocodeRateLimiter,
+    cancel_flag: &std::sync::atomic::AtomicBool,
     lat: f64,
     lon: f64,
 ) -> Result<GeocodeResult, GeocodeError> {
+    use std::sync::atomic::Ordering;
+    let cancelled = || cancel_flag.load(Ordering::Relaxed);
+
     // Cache hit short-circuits all network calls — no rate-limit spend.
     if let Some(entry) = cache.lookup(lat, lon) {
         let r = entry.result.clone();
@@ -578,7 +608,11 @@ pub async fn geocode_one(
         });
     }
 
+    if cancelled() { return Err(GeocodeError::Cancelled); }
     limiter.wait_nominatim().await;
+    // The sleep itself can run for ~1 s — re-check after waking so a
+    // cancel issued during the sleep doesn't waste a network call.
+    if cancelled() { return Err(GeocodeError::Cancelled); }
     let raw_addr = nominatim_reverse(client, lat, lon).await?;
     let mut parsed = flatten_address(&raw_addr);
     let mut source = GeocodeSource::Nominatim;
@@ -586,7 +620,9 @@ pub async fn geocode_one(
     // Overpass refinement for generic Nominatim results. Separate
     // bucket — see GeocodeRateLimiter doc-comment.
     if should_use_overpass_fallback(&raw_addr, &parsed) {
+        if cancelled() { return Err(GeocodeError::Cancelled); }
         limiter.wait_overpass().await;
+        if cancelled() { return Err(GeocodeError::Cancelled); }
         if let Ok(Some(name)) = overpass_named_nearby(client, lat, lon).await {
             parsed.location = Some(name);
             source = GeocodeSource::NominatimPlusOverpass;
@@ -832,7 +868,8 @@ mod tests {
         let client = GeocodeClient::with_bases(server.uri(), "http://unused".into());
         let mut cache = GeocodeCacheFile::default_v1();
         let mut limiter = GeocodeRateLimiter::new();
-        match geocode_one(&client, &mut cache, &mut limiter, 0.0, 0.0).await {
+        let cancel = std::sync::atomic::AtomicBool::new(false);
+        match geocode_one(&client, &mut cache, &mut limiter, &cancel, 0.0, 0.0).await {
             Err(GeocodeError::NominatimEmpty) => {}
             other => panic!("expected NominatimEmpty, got {:?}", other),
         }
@@ -866,11 +903,33 @@ mod tests {
             "http://127.0.0.1:1".into(),
         );
         let mut limiter = GeocodeRateLimiter::new();
-        let result = geocode_one(&client, &mut cache, &mut limiter, 51.5002, -0.1262)
+        let cancel = std::sync::atomic::AtomicBool::new(false);
+        let result = geocode_one(&client, &mut cache, &mut limiter, &cancel, 51.5002, -0.1262)
             .await
             .unwrap();
         assert_eq!(result.source, GeocodeSource::Cache);
         assert_eq!(result.address.location.as_deref(), Some("Big Ben"));
+    }
+
+    #[tokio::test]
+    async fn geocode_one_returns_cancelled_when_flag_flips_before_nominatim() {
+        // Plan §8: cancel between sub-calls must surface as a per-image
+        // Cancelled failure rather than the loop breaking silently.
+        // Easiest mid-image cancel to verify: flag already true on
+        // entry, cache miss, so the very first cancel check fires
+        // before any network call. No mock server needed — if we
+        // reached the network we'd hit "http://unused".
+        let client = GeocodeClient::with_bases(
+            "http://unused".into(),
+            "http://unused".into(),
+        );
+        let mut cache = GeocodeCacheFile::default_v1();
+        let mut limiter = GeocodeRateLimiter::new();
+        let cancel = std::sync::atomic::AtomicBool::new(true);
+        match geocode_one(&client, &mut cache, &mut limiter, &cancel, 1.0, 2.0).await {
+            Err(GeocodeError::Cancelled) => {}
+            other => panic!("expected Cancelled, got {:?}", other),
+        }
     }
 
     #[tokio::test]

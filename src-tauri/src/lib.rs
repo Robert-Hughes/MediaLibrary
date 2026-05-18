@@ -1251,7 +1251,7 @@ async fn geocode_images_cmd(
             }
         };
 
-        match geocode::geocode_one(&client, &mut cache, &mut limiter, lat, lon).await {
+        match geocode::geocode_one(&client, &mut cache, &mut limiter, &cancel_flag, lat, lon).await {
             Ok(result) => {
                 let edits = geocode::compose_geocode_edits(&result.address);
                 log::info!(
@@ -1293,11 +1293,21 @@ async fn geocode_images_cmd(
         summary.n_succeeded_from_nominatim, summary.n_succeeded_from_overpass,
     );
 
-    // Best-effort cache persist; a failure here is a cache-quality
-    // issue, not a user-visible error.
+    // Persist the cache. A failure here doesn't invalidate the
+    // already-emitted per-image drafts (they live in the typed-draft
+    // store, not the geocache), but it does mean the next batch will
+    // re-issue every network call this batch just paid for. Surface it
+    // as a single synthetic `cache_io` failure row so the user sees a
+    // labelled entry in the done panel rather than a silent log line.
     if let Ok(dir) = app_data_dir(&app) {
         if let Err(e) = geocode_cache::save(&dir, &cache) {
             log::warn!("[geocode] cache save failed: {}", e);
+            failed.push(batch_job::BatchFailureRow {
+                relative_path: "<geocache>".into(),
+                kind: "cache_io".into(),
+                detail: e.clone(),
+            });
+            summary.n_failed += 1;
         }
     }
 
