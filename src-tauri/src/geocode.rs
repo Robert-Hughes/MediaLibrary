@@ -45,12 +45,68 @@ pub const OVERPASS_BASE_URL: &str = "https://overpass-api.de/api/interpreter";
 
 /// Required by Nominatim's usage policy. Bundles the crate version so
 /// it's clear which build is hitting the server during a debugging
-/// session.
+/// session, and the repo URL from Cargo.toml so the contact link
+/// resolves to a real maintained project rather than a placeholder.
 pub fn default_user_agent() -> String {
     format!(
-        "MediaLibrary/{} (https://github.com/media-library)",
-        env!("CARGO_PKG_VERSION")
+        "MediaLibrary/{} ({})",
+        env!("CARGO_PKG_VERSION"),
+        env!("CARGO_PKG_REPOSITORY"),
     )
+}
+
+// ── Rate limiting ───────────────────────────────────────────────────────────
+//
+// Nominatim's usage policy is "at most one request per second"; Overpass's
+// own guidance is the same order of magnitude. The plan §7 calls out
+// *separate* per-host buckets so an Overpass call doesn't share its budget
+// with the next Nominatim call (and vice versa) — Overpass only fires on
+// the fallback path, so coupling the two would burn an unnecessary second
+// of latency on every Overpass image even though the next Nominatim call
+// is genuinely fresh from Nominatim's perspective.
+
+/// Minimum spacing between consecutive requests to the same host.
+pub const RATE_LIMIT_INTERVAL: Duration = Duration::from_millis(1000);
+
+/// Per-host token bucket for the geocode batch loop.
+///
+/// One instance lives for the duration of a single batch (constructed
+/// in `geocode_images_cmd`, dropped at the end). Each host's last-call
+/// instant is tracked independently so the Nominatim and Overpass
+/// schedules don't bleed into each other.
+#[derive(Default)]
+pub struct GeocodeRateLimiter {
+    last_nominatim: Option<std::time::Instant>,
+    last_overpass: Option<std::time::Instant>,
+}
+
+impl GeocodeRateLimiter {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sleep, if necessary, so the next Nominatim call is at least
+    /// `RATE_LIMIT_INTERVAL` after the previous one. Stamps the new
+    /// `last_nominatim` to "now" after waking so the caller doesn't
+    /// need to remember to update it.
+    pub async fn wait_nominatim(&mut self) {
+        Self::wait_for(&mut self.last_nominatim).await;
+    }
+
+    /// Same idea for Overpass — separate bucket from Nominatim.
+    pub async fn wait_overpass(&mut self) {
+        Self::wait_for(&mut self.last_overpass).await;
+    }
+
+    async fn wait_for(slot: &mut Option<std::time::Instant>) {
+        if let Some(prev) = *slot {
+            let elapsed = prev.elapsed();
+            if elapsed < RATE_LIMIT_INTERVAL {
+                tokio::time::sleep(RATE_LIMIT_INTERVAL - elapsed).await;
+            }
+        }
+        *slot = Some(std::time::Instant::now());
+    }
 }
 
 // ── GPS parsing ──────────────────────────────────────────────────────────────
@@ -492,16 +548,18 @@ pub async fn overpass_named_nearby(
     Ok(best.map(|(_, n)| n))
 }
 
-/// Cache → Nominatim → optional Overpass. Pure orchestration; sleeps
-/// (rate limiting) are the caller's responsibility because the run
-/// loop also wants to honour cancel between sub-calls.
+/// Cache → Nominatim → optional Overpass. Owns the per-host rate-limit
+/// sleeps so the caller doesn't have to predict whether the Overpass
+/// path will fire. The rate limiter is borrowed `&mut` so a single
+/// instance per batch keeps state across calls.
 pub async fn geocode_one(
     client: &GeocodeClient,
     cache: &mut GeocodeCacheFile,
+    limiter: &mut GeocodeRateLimiter,
     lat: f64,
     lon: f64,
 ) -> Result<GeocodeResult, GeocodeError> {
-    // Cache hit short-circuits all network calls.
+    // Cache hit short-circuits all network calls — no rate-limit spend.
     if let Some(entry) = cache.lookup(lat, lon) {
         let r = entry.result.clone();
         return Ok(GeocodeResult {
@@ -520,12 +578,15 @@ pub async fn geocode_one(
         });
     }
 
+    limiter.wait_nominatim().await;
     let raw_addr = nominatim_reverse(client, lat, lon).await?;
     let mut parsed = flatten_address(&raw_addr);
     let mut source = GeocodeSource::Nominatim;
 
-    // Overpass refinement for generic Nominatim results.
+    // Overpass refinement for generic Nominatim results. Separate
+    // bucket — see GeocodeRateLimiter doc-comment.
     if should_use_overpass_fallback(&raw_addr, &parsed) {
+        limiter.wait_overpass().await;
         if let Ok(Some(name)) = overpass_named_nearby(client, lat, lon).await {
             parsed.location = Some(name);
             source = GeocodeSource::NominatimPlusOverpass;
@@ -770,7 +831,8 @@ mod tests {
             .await;
         let client = GeocodeClient::with_bases(server.uri(), "http://unused".into());
         let mut cache = GeocodeCacheFile::default_v1();
-        match geocode_one(&client, &mut cache, 0.0, 0.0).await {
+        let mut limiter = GeocodeRateLimiter::new();
+        match geocode_one(&client, &mut cache, &mut limiter, 0.0, 0.0).await {
             Err(GeocodeError::NominatimEmpty) => {}
             other => panic!("expected NominatimEmpty, got {:?}", other),
         }
@@ -803,8 +865,63 @@ mod tests {
             "http://127.0.0.1:1".into(),
             "http://127.0.0.1:1".into(),
         );
-        let result = geocode_one(&client, &mut cache, 51.5002, -0.1262).await.unwrap();
+        let mut limiter = GeocodeRateLimiter::new();
+        let result = geocode_one(&client, &mut cache, &mut limiter, 51.5002, -0.1262)
+            .await
+            .unwrap();
         assert_eq!(result.source, GeocodeSource::Cache);
         assert_eq!(result.address.location.as_deref(), Some("Big Ben"));
+    }
+
+    #[tokio::test]
+    async fn rate_limiter_spaces_consecutive_calls_per_host() {
+        // Two properties to pin: each bucket enforces RATE_LIMIT_INTERVAL
+        // between its own consecutive calls, AND the two buckets are
+        // independent — calls on one don't consume the other's budget.
+        // Tolerance is generous because Windows timer resolution is
+        // ~15 ms and CI runners can be even noisier.
+        let tolerance = std::time::Duration::from_millis(50);
+        let mut limiter = GeocodeRateLimiter::new();
+
+        // Property 1: first call on each bucket is free (no prior stamp).
+        let t = std::time::Instant::now();
+        limiter.wait_nominatim().await;
+        assert!(
+            t.elapsed() < tolerance,
+            "first nominatim call should not sleep, got {:?}",
+            t.elapsed()
+        );
+
+        // Property 2: second call on the same bucket waits the interval.
+        let t = std::time::Instant::now();
+        limiter.wait_nominatim().await;
+        let nominatim_gap = t.elapsed();
+        assert!(
+            nominatim_gap >= RATE_LIMIT_INTERVAL - tolerance,
+            "nominatim bucket should enforce interval, got {:?}",
+            nominatim_gap
+        );
+
+        // Property 3: the FIRST overpass call must NOT wait, even though
+        // two Nominatim calls already happened. This is the key
+        // independence assertion — a shared bucket would force this
+        // call to sleep too.
+        let t = std::time::Instant::now();
+        limiter.wait_overpass().await;
+        assert!(
+            t.elapsed() < tolerance,
+            "first overpass call must be independent of nominatim budget, got {:?}",
+            t.elapsed()
+        );
+
+        // Property 4: second overpass call waits its own interval.
+        let t = std::time::Instant::now();
+        limiter.wait_overpass().await;
+        let overpass_gap = t.elapsed();
+        assert!(
+            overpass_gap >= RATE_LIMIT_INTERVAL - tolerance,
+            "overpass bucket should enforce interval, got {:?}",
+            overpass_gap
+        );
     }
 }

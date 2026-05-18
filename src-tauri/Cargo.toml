@@ -4,6 +4,10 @@ version = "0.1.0"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
+# Embedded into the Nominatim User-Agent header (see
+# `geocode::default_user_agent`). Nominatim's usage policy requires a
+# real contact URL — keep this in sync with the canonical repo.
+repository = "https://github.com/Robert-Hughes/MediaLibrary"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

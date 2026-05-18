@@ -1193,12 +1193,13 @@ struct GeocodeSummary {
 
 /// Reverse-geocode a batch of images.
 ///
-/// Sequential loop with 1-req/s rate limiting between Nominatim calls
-/// (Overpass calls reuse the same delay, since they hit different
-/// infra but our throughput target is dominated by Nominatim anyway).
-/// Cache hits skip both the network call and the sleep — typical
-/// libraries cluster around a handful of locations so cache hit rate
-/// is high after the first run.
+/// Sequential loop. Rate-limit budgets are owned by a per-batch
+/// `GeocodeRateLimiter` and kept *separate* per host — see plan §7. A
+/// Nominatim call no longer consumes Overpass's budget (and vice
+/// versa), so the fallback path doesn't lose a second of latency on
+/// every Overpass image. Cache hits skip both buckets entirely —
+/// typical libraries cluster around a handful of locations so cache
+/// hit rate is high after the first run.
 #[tauri::command]
 async fn geocode_images_cmd(
     folder_path: String,
@@ -1224,10 +1225,9 @@ async fn geocode_images_cmd(
     let mut failed: Vec<batch_job::BatchFailureRow> = Vec::new();
     let mut summary = GeocodeSummary::default();
     let mut current = 0usize;
-    // Rate-limit: 1 req/s minimum between live Nominatim calls.
-    // Cache hits don't consume budget. Tracked here so cancel between
-    // sub-calls is responsive.
-    let mut last_network_call: Option<std::time::Instant> = None;
+    // Per-host rate-limit buckets owned by `geocode_one`. Cache hits
+    // don't touch either bucket; only network calls do.
+    let mut limiter = geocode::GeocodeRateLimiter::new();
 
     for item in &items {
         if cancel_flag.load(Ordering::Relaxed) {
@@ -1251,24 +1251,8 @@ async fn geocode_images_cmd(
             }
         };
 
-        // Cache lookup is synchronous, so we can decide pre-sleep
-        // whether a network call is needed.
-        let needs_network = cache.lookup(lat, lon).is_none();
-        if needs_network {
-            if let Some(prev) = last_network_call {
-                let elapsed = prev.elapsed();
-                if elapsed < std::time::Duration::from_millis(1000) {
-                    let sleep_for = std::time::Duration::from_millis(1000) - elapsed;
-                    tokio::time::sleep(sleep_for).await;
-                }
-            }
-        }
-
-        match geocode::geocode_one(&client, &mut cache, lat, lon).await {
+        match geocode::geocode_one(&client, &mut cache, &mut limiter, lat, lon).await {
             Ok(result) => {
-                if needs_network {
-                    last_network_call = Some(std::time::Instant::now());
-                }
                 let edits = geocode::compose_geocode_edits(&result.address);
                 log::info!(
                     "[geocode] ({}/{}) ok {} source={} display={}",
@@ -1285,9 +1269,6 @@ async fn geocode_images_cmd(
                 }
             }
             Err(e) => {
-                if needs_network {
-                    last_network_call = Some(std::time::Instant::now());
-                }
                 let kind = e.kind().to_string();
                 let detail = e.detail();
                 log::warn!(
