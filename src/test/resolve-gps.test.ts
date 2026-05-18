@@ -12,10 +12,10 @@ import { resolveGps } from "../utils/resolveGps";
 import type { DraftEdit, Variant } from "../types";
 
 function setEdit(value: Variant): DraftEdit {
-  return { value, intent: "Set", display: null };
+  return { value, intent: "Set" };
 }
 function deleteEdit(): DraftEdit {
-  return { value: null, intent: "Delete", display: null };
+  return { value: null, intent: "Delete" };
 }
 
 describe("resolveGps", () => {
