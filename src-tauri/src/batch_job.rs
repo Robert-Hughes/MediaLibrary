@@ -99,7 +99,7 @@ impl BatchJobCancelState {
 /// The frontend renders these uniformly across jobs — only the `kind`
 /// strings differ. Each job documents its own `kind` enumeration in
 /// the dialog's friendly-label table.
-#[derive(Clone, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BatchFailureRow {
     pub relative_path: String,
