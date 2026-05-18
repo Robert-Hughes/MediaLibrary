@@ -11,6 +11,7 @@ import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import App from "../App";
 import { createMockTauriApi } from "./mockTauriApi";
 import { makePhoto } from "./factories";
+import type { Variant } from "../types";
 
 let mockApiInstance: ReturnType<typeof createMockTauriApi>;
 
@@ -26,7 +27,7 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
   ask: vi.fn().mockResolvedValue(true),
 }));
 
-async function openFolderAndSelectPhoto(rel = "test.jpg", metadata: Record<string, unknown> = {}) {
+async function openFolderAndSelectPhoto(rel = "test.jpg", metadata: Record<string, Variant> = {}) {
   const photo = makePhoto({ relative_path: rel });
   const user = userEvent.setup();
   mockApiInstance.pickFolderResolves("/photos");
