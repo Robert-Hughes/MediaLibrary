@@ -10,16 +10,16 @@
  *                      drafts arrive per-image
  *   done             → succeeded/failed breakdown + source counters
  *
- * Mirrors the chrome of DescribeProgressDialog (overlay, sticky cancel
- * via Escape, RunningProgressPanel for the middle phase). The
- * awaiting-confirm and done panels are bespoke: their copy must spell
- * out the coherent-replacement rule from
- * docs/REVERSE_GEOCODE_PLAN.md §1 — fields the geocoder doesn't return
- * are cleared on apply, so the user understands what they're
- * confirming.
+ * Thin wrapper around `BatchJobDialog` — the overlay, header, dialog
+ * body frame, and Escape handling live there. This file supplies the
+ * geocode-specific awaiting-confirm copy (which must spell out the
+ * coherent-replacement rule from docs/REVERSE_GEOCODE_PLAN.md §1 —
+ * fields the geocoder doesn't return are cleared on apply, so the user
+ * understands what they're confirming) and the per-source done-panel
+ * breakdown.
  */
-import { useEffect } from "react";
 import type { GeocodeFailure, GeocodeProgressState, GeocodeSummary } from "../types";
+import { BatchJobDialog } from "./BatchJobDialog";
 import { RunningProgressPanel } from "./RunningProgressPanel";
 
 interface Props {
@@ -44,6 +44,8 @@ export function friendlyFailureLabel(kind: string): string {
       return "Network request failed";
     case "network":
       return "Network error";
+    case "cache_io":
+      return "Could not read or write the geocache file";
     case "cancelled":
       return "Cancelled";
     case "command_failed":
@@ -53,22 +55,15 @@ export function friendlyFailureLabel(kind: string): string {
   }
 }
 
-function PhaseHeader({ state }: { state: GeocodeProgressState }) {
-  const title = (() => {
-    switch (state.phase) {
-      case "awaiting-confirm":
-        return "Confirm reverse geocoding";
-      case "running":
-        return state.cancelling ? "Cancelling…" : "Reverse-geocoding…";
-      case "done":
-        return "Done";
-    }
-  })();
-  return (
-    <div className="dialog-header">
-      <span className="dialog-title">{title}</span>
-    </div>
-  );
+function phaseTitle(state: GeocodeProgressState): string {
+  switch (state.phase) {
+    case "awaiting-confirm":
+      return "Confirm reverse geocoding";
+    case "running":
+      return state.cancelling ? "Cancelling…" : "Reverse-geocoding…";
+    case "done":
+      return "Done";
+  }
 }
 
 function FailureList({ failures }: { failures: GeocodeFailure[] }) {
@@ -202,74 +197,63 @@ function AwaitingConfirmPanel({
 }
 
 export function GeocodeProgressDialog({ state, onConfirm, onCancel, onClose }: Props) {
-  // Escape mirrors Cancel in the pre-done phases and Close on done,
-  // matching the AI-description dialog.
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      e.preventDefault();
-      if (state.phase === "done") onClose();
-      else onCancel();
-    };
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [state.phase, onCancel, onClose]);
-
   return (
-    <div className="dialog-overlay" data-testid="geocode-progress-dialog">
-      <div className="dialog-content" style={{ width: 560 }}>
-        <PhaseHeader state={state} />
-        <div className="dialog-body">
-          {state.phase === "awaiting-confirm" && (
-            <AwaitingConfirmPanel state={state} onCancel={onCancel} onConfirm={onConfirm} />
-          )}
+    <BatchJobDialog
+      testidPrefix="geocode"
+      width={560}
+      phase={state.phase}
+      title={phaseTitle(state)}
+      onCancel={onCancel}
+      onClose={onClose}
+    >
+      {state.phase === "awaiting-confirm" && (
+        <AwaitingConfirmPanel state={state} onCancel={onCancel} onConfirm={onConfirm} />
+      )}
 
-          {state.phase === "running" && (
-            <RunningProgressPanel
-              testidPrefix="geocode-running"
-              current={state.current}
-              total={state.total}
-              noun="image"
-              failureCount={state.failures.length}
-              currentFile={state.currentFile}
-              cancelling={state.cancelling}
-              onCancel={onCancel}
-              footer={
-                <div style={{ marginTop: 12, fontSize: 11, color: "var(--text-secondary)" }}>
-                  Each result lands in drafts as soon as it arrives. Cancelling preserves results
-                  already returned.
-                </div>
-              }
-            />
-          )}
+      {state.phase === "running" && (
+        <RunningProgressPanel
+          testidPrefix="geocode-running"
+          current={state.current}
+          total={state.total}
+          noun="image"
+          failureCount={state.failures.length}
+          currentFile={state.currentFile}
+          cancelling={state.cancelling}
+          onCancel={onCancel}
+          footer={
+            <div style={{ marginTop: 12, fontSize: 11, color: "var(--text-secondary)" }}>
+              Each result lands in drafts as soon as it arrives. Cancelling preserves results
+              already returned.
+            </div>
+          }
+        />
+      )}
 
-          {state.phase === "done" && (
-            <>
-              <div className="dialog-hint" data-testid="geocode-done-summary">
-                Completed: {state.succeeded.length}/{state.total} succeeded
-                {state.failures.length > 0 && (
-                  <span style={{ marginLeft: 8, color: "var(--accent-error, #d33)" }}>
-                    , {state.failures.length} failed
-                  </span>
-                )}
-              </div>
-              {state.summary && <SummaryBreakdown s={state.summary} />}
-              <FailureList failures={state.failures} />
-              <div style={{ marginTop: 20, display: "flex", justifyContent: "flex-end" }}>
-                <button
-                  className="button button--primary"
-                  onClick={onClose}
-                  data-testid="geocode-close-btn"
-                  autoFocus
-                >
-                  Close
-                </button>
-              </div>
-            </>
-          )}
-        </div>
-      </div>
-    </div>
+      {state.phase === "done" && (
+        <>
+          <div className="dialog-hint" data-testid="geocode-done-summary">
+            Completed: {state.succeeded.length}/{state.total} succeeded
+            {state.failures.length > 0 && (
+              <span style={{ marginLeft: 8, color: "var(--accent-error, #d33)" }}>
+                , {state.failures.length} failed
+              </span>
+            )}
+          </div>
+          {state.summary && <SummaryBreakdown s={state.summary} />}
+          <FailureList failures={state.failures} />
+          <div style={{ marginTop: 20, display: "flex", justifyContent: "flex-end" }}>
+            <button
+              className="button button--primary"
+              onClick={onClose}
+              data-testid="geocode-close-btn"
+              autoFocus
+            >
+              Close
+            </button>
+          </div>
+        </>
+      )}
+    </BatchJobDialog>
   );
 }
 
