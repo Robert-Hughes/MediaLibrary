@@ -9,17 +9,9 @@ Now
 
 Feedback from recent reverse-geocoding testing:
 
-* Review the reverse-geocode feature implementation against the plan here: REVERSE_GEOCODE_PLAN.md. Highlight any deviations from the plan or anything else you spot that's suspicious.
-
 * I ran reverse geocoding on "D:\OneDrive\Pictures\2008\IMG_7459.jpg", see the results in the saved drafts for this folder. The IPTC:Sub-location changed from the old value of Clifton Moor to Oakdale Road. I think the old value would have come from the Update Metadata Scripts reverse-geocoding approach (which our implementation is based on) so I'm curious why our implementation
 produced a different result here. Run some example queries of nominatim if you want to see if you can explain the difference.
 Similarly, for "D:\OneDrive\Pictures\2010\Image0009.jpg" the old Sub-location had "Foss Islands" in it (as well as the pub name), but the new result just has the pub name. Why different?
-
-* THere's several places in the code where we want to get the value of some metadata, and we have to check both the metadata store and
-the pending drafts to make sure that we get the correct value (i.e. to respect pending edits the user may have made). Audit these locations and
-consider making a common access pattern that checks both locations, to reduce risk of developer forgetting to check draft edits. As part of the analysis I'd like to see
-a table of places where we read metadata and if/how it checks the drafts or not.
-
 
 Later- *** DO NOT WORK ON ANY OF THE BELOW FEATURES ***
 =====
