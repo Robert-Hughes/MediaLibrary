@@ -10,10 +10,27 @@
 //! result is written to the cache for next time.
 //!
 //! `-listx` exposes most of what we need (group, name, base type, writable,
-//! enum value tables, count) but is silent on XMP bag/seq/alt list-ness:
-//! XMP-dc:Subject reports `type='string'` despite being a Bag of strings.
-//! That gap is filled by a small hand-curated override table at the bottom
-//! of this file derived from the XMP specification.
+//! enum value tables, count) but is silent on two list-ness signals:
+//!
+//!   1. **XMP bag/seq/alt:** XMP-dc:Subject reports `type='string'` despite
+//!      being a Bag of strings. Plain `string`, no marker.
+//!   2. **IIM `List => 1`:** IPTC IIM datasets marked repeatable in
+//!      `Image::ExifTool::IPTC` (Keywords, By-line, SupplementalCategories,
+//!      ContentLocation*, SubjectReference, By-lineTitle, Writer-Editor)
+//!      are byte-identical in `-listx` to scalar IIM strings (City,
+//!      Sub-location, Province-State, …). No `flags` attribute, no hint.
+//!
+//! **Subtle trap:** `-listx`'s `count` attribute on string-shaped IIM tags
+//! is the IIM-spec **max char length**, not array cardinality. Reading
+//! `count='32'` on `Sub-location` as "32-element bag" gave us the wrong
+//! UI `[B]` chip on every IPTC location field. `wrap_count` therefore
+//! skips the wrap for Text/LangAlt kinds; cardinality on numeric tags
+//! (e.g. `rational64u count='3'` GPSLatitude) still works correctly.
+//!
+//! Both gaps are filled by a small hand-curated override table at the
+//! bottom of this file. The IIM section is locked to IIM 4.1 (frozen
+//! 2009) and must stay in lockstep with the `List => 1` flags in
+//! `Image::ExifTool::IPTC`.
 
 use quick_xml::events::Event;
 use quick_xml::Reader;
@@ -489,7 +506,30 @@ fn derive_kind(type_attr: &str, count: Option<u32>, options: &[EnumOption]) -> T
     wrap_count(base, count)
 }
 
+/// Wrap a base kind in `Bag` when `-listx`'s `count` attribute legitimately
+/// means "this tag holds N components" — but NOT for string-shaped tags,
+/// where `count` is the per-entry max length in characters and has nothing
+/// to do with how many entries the tag can hold.
+///
+/// Subtle gotcha that bit us once already: ExifTool's IPTC IIM table reports
+/// the IIM-spec max-length as `count`, so `IPTC:Sub-location` shows up as
+/// `type='string' count='32'` (max 32 chars) and `IPTC:Keywords` as
+/// `type='string' count='64'` (max 64 chars per keyword). They are NOT
+/// 32-element or 64-element arrays. Sub-location is scalar; Keywords is
+/// repeatable, but that fact comes from IIM's `List => 1` Perl flag in
+/// `Image::ExifTool::IPTC`, which `-listx` does not surface — see the
+/// IIM-repeatable override block in `apply_overrides`.
+///
+/// For genuine multi-component tags (`int16u count='2'` colour-component
+/// configs, `rational64u count='3'` GPS coordinates, etc.) the count IS
+/// the number of components and the wrap is correct.
 fn wrap_count(kind: TagKind, count: Option<u32>) -> TagKind {
+    // `count` on a string-shaped tag is a byte/char length cap, not a
+    // cardinality. Skip the wrap; any IIM string that is actually
+    // repeatable per the IIM spec is listed in `apply_overrides`.
+    if matches!(kind, TagKind::Text | TagKind::LangAlt) {
+        return kind;
+    }
     match count {
         Some(n) if n > 1 => TagKind::Bag(Box::new(kind)),
         _ => kind,
@@ -521,6 +561,31 @@ fn apply_overrides(tags: &mut BTreeMap<String, TagInfo>) {
         ("XMP-lr:HierarchicalSubject", || TagKind::Bag(Box::new(TagKind::Text))),
         // XMP rights
         ("XMP-xmpRights:Owner", || TagKind::Bag(Box::new(TagKind::Text))),
+
+        // ── IPTC IIM repeatable strings ────────────────────────────────
+        // The IIM ApplicationRecord defines a small set of DataSets that
+        // may appear more than once in the IIM stream (`List => 1` in
+        // `Image::ExifTool::IPTC`). Every other IIM string is scalar by
+        // spec (City, Sub-location, Province-State, the Country-Primary*
+        // pair, Headline, Caption-Abstract, etc.) even though they may
+        // technically be writable repeatedly at the record-stream level.
+        //
+        // `-listx` does NOT expose the `List` flag (output is identical
+        // between repeatable `Keywords` and scalar `Sub-location` — both
+        // show as `type='string' count='N' writable='true'`), so the only
+        // way to know is to hardcode the list per the IIM 4.1 spec. The
+        // spec is frozen and the table is short — keep it in lockstep
+        // with `Image::ExifTool::IPTC`'s `List` flags. See the comment on
+        // `wrap_count` for why we cannot infer this from `count`.
+        ("IPTC:SubjectReference",        || TagKind::Bag(Box::new(TagKind::Text))), // 2:12
+        ("IPTC:SupplementalCategories",  || TagKind::Bag(Box::new(TagKind::Text))), // 2:20
+        ("IPTC:Keywords",                || TagKind::Bag(Box::new(TagKind::Text))), // 2:25
+        ("IPTC:ContentLocationCode",     || TagKind::Bag(Box::new(TagKind::Text))), // 2:26
+        ("IPTC:ContentLocationName",     || TagKind::Bag(Box::new(TagKind::Text))), // 2:27
+        ("IPTC:By-line",                 || TagKind::Bag(Box::new(TagKind::Text))), // 2:80
+        ("IPTC:By-lineTitle",            || TagKind::Bag(Box::new(TagKind::Text))), // 2:85
+        ("IPTC:Writer-Editor",           || TagKind::Bag(Box::new(TagKind::Text))), // 2:122
+
         // MWG regions: bag of structs. Inner fields not enumerated here —
         // the editor will treat unknown struct fields as text. Acceptable
         // first cut; Phase 4 can populate `Struct` field maps explicitly.
@@ -682,6 +747,17 @@ mod tests {
  <tag id='25' name='Keywords' type='string' count='64' writable='true'>
   <desc lang='en'>Keywords</desc>
  </tag>
+ <tag id='90' name='City' type='string' count='32' writable='true' g2='Location'>
+  <desc lang='en'>City</desc>
+ </tag>
+ <tag id='92' name='Sub-location' type='string' count='32' writable='true' g2='Location'>
+  <desc lang='en'>Sub-location</desc>
+ </tag>
+</table>
+<table name='EXIF::GPS' g0='EXIF' g1='GPS' g2='Location'>
+ <tag id='2' name='GPSLatitude' type='rational64u' count='3' writable='true'>
+  <desc lang='en'>GPS Latitude</desc>
+ </tag>
 </table>
 <table name='XMP::dc' g0='XMP' g1='XMP-dc' g2='Other'>
  <tag id='subject' name='Subject' type='string' writable='true' g2='Image'>
@@ -739,12 +815,64 @@ mod tests {
     }
 
     #[test]
-    fn iptc_keywords_count_yields_bag() {
+    fn iptc_keywords_override_yields_bag() {
+        // Keywords IS repeatable per IIM 4.1 (2:25 has `List => 1` in
+        // Image::ExifTool::IPTC). Note that the `count='64'` attribute is
+        // the per-keyword max length, NOT the cardinality — see the
+        // `iptc_sublocation_count_is_not_bag` test below for the negative
+        // case that pins this distinction. Keywords therefore reaches
+        // `Bag<Text>` via the IIM-repeatable override, not via count
+        // inference.
         let r = fixture_registry();
         let t = r.lookup("IPTC:Keywords").unwrap();
         match &t.kind {
             TagKind::Bag(inner) => assert!(matches!(**inner, TagKind::Text)),
             other => panic!("expected Bag<Text>, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn iptc_sublocation_count_is_not_bag() {
+        // Regression: ExifTool's `-listx` reports IIM 2:92 Sub-location as
+        // `type='string' count='32'`. The 32 is the IIM-spec max byte
+        // length, NOT a 32-element array. Sub-location is scalar per IIM
+        // 4.1 and we used to wrongly wrap any string with `count > 1` as
+        // a Bag, which made the UI show a `[B]` chip on Sub-location,
+        // City, Province-State, Country-PrimaryLocation*, etc. — every
+        // single one of which is scalar by spec. `wrap_count` now skips
+        // the wrap for string-shaped kinds.
+        let r = fixture_registry();
+        let t = r.lookup("IPTC:Sub-location").unwrap();
+        assert!(
+            matches!(t.kind, TagKind::Text),
+            "Sub-location must be scalar Text, got {:?}",
+            t.kind
+        );
+        let c = r.lookup("IPTC:City").unwrap();
+        assert!(
+            matches!(c.kind, TagKind::Text),
+            "City must be scalar Text, got {:?}",
+            c.kind
+        );
+    }
+
+    #[test]
+    fn exif_gps_latitude_count_three_yields_bag() {
+        // Counter-test: for non-string EXIF tags, `count` IS the number
+        // of components, and the wrap is correct. GPSLatitude is three
+        // rationals (deg/min/sec), so the schema kind here is
+        // `Bag<Rational>`. This pins the boundary so a future "fix" of
+        // wrap_count can't quietly disable cardinality inference for
+        // numeric kinds.
+        let r = fixture_registry();
+        let t = r.lookup("GPS:GPSLatitude").unwrap();
+        match &t.kind {
+            TagKind::Bag(inner) => assert!(
+                matches!(**inner, TagKind::Rational),
+                "expected Bag<Rational>, got Bag<{:?}>",
+                inner
+            ),
+            other => panic!("expected Bag<Rational>, got {:?}", other),
         }
     }
 
