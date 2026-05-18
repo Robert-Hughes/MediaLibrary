@@ -161,6 +161,22 @@ direct XMP packet edit) — not a tweak to the apply path.
 
 ---
 
+## Drafts vs committed metadata: three read patterns
+
+Metadata lives in two stores: the committed `imageMetadata` store (what's on disk) and the `draftEdits` store (pending user edits not yet written). Every read site falls into one of three patterns. Pick the right one — mixing them produces silent bugs.
+
+1. **Resolve** — you need *the single effective value* (what the user would see "after save"). Drafts win over metadata. Examples: building the geocode payload to send to the backend, building search haystacks, computing whether a feature gate fires. Use `resolveGps` as the precedence reference (drafts `Set`/`Delete` first, else metadata). If you need this for a non-GPS field, follow the same shape.
+
+2. **Show-both** — UI deliberately renders the committed value AND the draft value side-by-side so the user sees their pending edit vs. the saved state. Examples: `PhotoRow` cells (strikethrough committed + bold draft), `DetailsPane` value rows. These components take `(value, draftValue)` as separate props **on purpose**. Do not "fix" them by merging upstream — you'll erase the edit indicator.
+
+3. **Committed-only** — operate strictly on what's persisted. Examples: sorting (`src/utils/sorting.ts`), backend persistence/verify (`apply_edits.rs`, `draft_edits.rs`), post-write fresh re-reads. Drafts must be excluded. Sorting by pending edits would jump rows around as the user types.
+
+A fourth sub-case shows up in pre-write guards (e.g. AIDescription overwrite warning, geocode coherent-replace check): warn if value exists in metadata OR drafts. That's an OR-exist union, not a resolve — written inline as `inMeta || inDraft`, no helper needed.
+
+**Before adding a new metadata read, decide which of the three patterns you're in and match the existing code for that pattern.** If you reach for "just grab `metadata[key]`" in a display context, ask whether the user's pending edit should be visible there; if yes, you want resolve or show-both, not raw access.
+
+---
+
 ## Logging
 
 Use the `log` crate (already migrated from custom macros). Set `RUST_LOG=mediabrary=debug` for verbose output during dev. Tests should not depend on log output unless explicitly asserting.
