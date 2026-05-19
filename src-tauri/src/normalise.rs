@@ -97,10 +97,12 @@ pub struct GroupInputs {
     /// Group F (Copyright) sources.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub copyright: Option<CopyrightInput>,
+    /// Group D (Headline) sources.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub headline: Option<HeadlineInput>,
     // Future groups land here as they are implemented:
     //   pub description: Option<DescriptionInput>,
     //   pub title: Option<TitleInput>,
-    //   pub headline: Option<HeadlineInput>,
     //   pub location: Option<LocationInput>,
     //   pub dates: Option<DatesInput>,
 }
@@ -161,6 +163,21 @@ pub struct CopyrightInput {
     /// `IPTC:CopyrightNotice`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub iptc_copyright: Option<String>,
+}
+
+/// Headline-group input bundle (plan §1 Group D).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
+pub struct HeadlineInput {
+    /// `XMP-photoshop:Headline` (primary).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub photoshop_headline: Option<String>,
+    /// `IPTC:Headline` (derivative; 256-char IIM limit applied on
+    /// write).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub iptc_headline: Option<String>,
 }
 
 /// One image's payload shipped to `normalise_metadata_cmd`.
@@ -1062,6 +1079,178 @@ mod tests_copyright {
         };
         let out = normalise_copyright(&input).expect("trims primary even when derivatives match");
         assert_eq!(s(&out, "XMP-dc:Rights"), "© 2025 Acme");
+    }
+}
+
+// ── Group D: Headline ──────────────────────────────────────────────────
+//
+// Plan §1 Group D. Canonical = single-sentence headline. No AI.
+// Plain whitespace-collapse + trim. Derivative IPTC:Headline has a
+// 256-char IIM limit and is truncated at a word boundary.
+
+pub const HEADLINE_TARGET_TAGS: &[&str] = &[
+    "XMP-photoshop:Headline",
+    "IPTC:Headline",
+];
+
+const IPTC_HEADLINE_LIMIT: usize = 256;
+
+fn normalise_headline_text(s: &str) -> String {
+    // Single-sentence headlines: same whitespace collapse rule as
+    // copyright. Reused but kept separate so each group's policy stays
+    // legible.
+    normalise_copyright_text(s)
+}
+
+/// Truncate `s` to at most `limit` bytes at a word boundary when
+/// possible; falls back to a hard char-boundary cut for very long
+/// single-word strings.
+fn truncate_at_word(s: &str, limit: usize) -> String {
+    if s.len() <= limit {
+        return s.to_string();
+    }
+    // Find the last space at or before `limit`.
+    let mut cut = limit;
+    while cut > 0 && !s.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    let slice = &s[..cut];
+    if let Some(idx) = slice.rfind(' ') {
+        slice[..idx].trim_end().to_string()
+    } else {
+        slice.trim_end().to_string()
+    }
+}
+
+fn derive_headline_canonical(input: &HeadlineInput) -> Option<String> {
+    if let Some(p) = input.photoshop_headline.as_deref() {
+        let n = normalise_headline_text(p);
+        if !n.is_empty() {
+            return Some(n);
+        }
+    }
+    if let Some(d) = input.iptc_headline.as_deref() {
+        let n = normalise_headline_text(d);
+        if !n.is_empty() {
+            return Some(n);
+        }
+    }
+    None
+}
+
+fn headline_is_normalised(input: &HeadlineInput, canonical: &str) -> bool {
+    let iptc_projection = truncate_at_word(canonical, IPTC_HEADLINE_LIMIT);
+    input.photoshop_headline.as_deref() == Some(canonical)
+        && input.iptc_headline.as_deref() == Some(iptc_projection.as_str())
+}
+
+/// Run Group D (Headline) normalisation for one image.
+pub fn normalise_headline(input: &HeadlineInput) -> Option<GroupOutput> {
+    let canonical = derive_headline_canonical(input)?;
+    if headline_is_normalised(input, &canonical) {
+        return None;
+    }
+    let iptc = truncate_at_word(&canonical, IPTC_HEADLINE_LIMIT);
+    let mut edits = HashMap::new();
+    edits.insert(
+        "XMP-photoshop:Headline".to_string(),
+        DraftEdit {
+            value: Some(Variant::String(canonical.clone())),
+            intent: EditIntent::Set,
+            display: None,
+        },
+    );
+    edits.insert(
+        "IPTC:Headline".to_string(),
+        DraftEdit {
+            value: Some(Variant::String(iptc)),
+            intent: EditIntent::Set,
+            display: None,
+        },
+    );
+    Some(GroupOutput { edits })
+}
+
+#[cfg(test)]
+mod tests_headline {
+    use super::*;
+
+    fn s(g: &GroupOutput, k: &str) -> String {
+        match &g.edits.get(k).unwrap().value {
+            Some(Variant::String(v)) => v.clone(),
+            other => panic!("expected String, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn primary_wins() {
+        let input = HeadlineInput {
+            photoshop_headline: Some("Climbers descend Mont Blanc".into()),
+            iptc_headline: Some("Old IPTC headline".into()),
+        };
+        let out = normalise_headline(&input).unwrap();
+        assert_eq!(s(&out, "XMP-photoshop:Headline"), "Climbers descend Mont Blanc");
+        assert_eq!(s(&out, "IPTC:Headline"), "Climbers descend Mont Blanc");
+    }
+
+    #[test]
+    fn primary_empty_uses_derivative() {
+        let input = HeadlineInput {
+            photoshop_headline: None,
+            iptc_headline: Some("From the IPTC side".into()),
+        };
+        let out = normalise_headline(&input).unwrap();
+        assert_eq!(s(&out, "XMP-photoshop:Headline"), "From the IPTC side");
+        assert_eq!(s(&out, "IPTC:Headline"), "From the IPTC side");
+    }
+
+    #[test]
+    fn all_empty_returns_no_drafts() {
+        assert!(normalise_headline(&HeadlineInput::default()).is_none());
+    }
+
+    #[test]
+    fn whitespace_normalised() {
+        let input = HeadlineInput {
+            photoshop_headline: Some("  Headline   with   gaps  ".into()),
+            ..Default::default()
+        };
+        let out = normalise_headline(&input).unwrap();
+        assert_eq!(s(&out, "XMP-photoshop:Headline"), "Headline with gaps");
+    }
+
+    #[test]
+    fn iptc_headline_truncated_at_word_boundary_when_over_256_bytes() {
+        // Build a long headline > 256 bytes.
+        let long = "word ".repeat(80);
+        let trimmed = long.trim_end().to_string();
+        assert!(trimmed.len() > IPTC_HEADLINE_LIMIT);
+        let input = HeadlineInput {
+            photoshop_headline: Some(trimmed.clone()),
+            ..Default::default()
+        };
+        let out = normalise_headline(&input).unwrap();
+        // Primary holds the full text.
+        assert_eq!(s(&out, "XMP-photoshop:Headline"), trimmed);
+        // IPTC derivative ≤ 256 and ends on a word boundary.
+        let iptc = s(&out, "IPTC:Headline");
+        assert!(iptc.len() <= IPTC_HEADLINE_LIMIT);
+        assert!(!iptc.ends_with(' '));
+        assert!(iptc.ends_with("word"));
+    }
+
+    #[test]
+    fn idempotent_after_one_pass() {
+        let initial = HeadlineInput {
+            photoshop_headline: Some("My Headline".into()),
+            ..Default::default()
+        };
+        let first = normalise_headline(&initial).unwrap();
+        let post = HeadlineInput {
+            photoshop_headline: Some(s(&first, "XMP-photoshop:Headline")),
+            iptc_headline: Some(s(&first, "IPTC:Headline")),
+        };
+        assert!(normalise_headline(&post).is_none());
     }
 }
 
