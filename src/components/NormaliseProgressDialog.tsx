@@ -38,13 +38,13 @@ function groupLabel(g: NormaliseGroup): string {
     case "location": return "Location (XMP ↔ IPTC mirror sync)";
     case "dates": return "Dates (DateTimeOriginal + CreateDate)";
     case "description":
-      // v2 group — surfaced but disabled in v1.
-      return "Description (coming in v2)";
+      return "Description (AI merge — needs OpenAI key)";
   }
 }
 
-/** Groups the user can toggle in v1. Group B (Description) is omitted
- *  because its AI merge lands in v2. */
+/** Groups the user can toggle. Group B (Description) requires an AI
+ *  call when sources are distinct — but the deterministic branches
+ *  (cases 1–3) still work without an API key, so we expose it always. */
 const V1_GROUPS: NormaliseGroup[] = [
   "keywords",
   "creator",
@@ -53,6 +53,7 @@ const V1_GROUPS: NormaliseGroup[] = [
   "title",
   "location",
   "dates",
+  "description",
 ];
 
 function phaseTitle(state: NormaliseProgressState): string {
@@ -200,6 +201,21 @@ function SummaryBreakdown({ s }: { s: NormaliseSummary }) {
             label: "Unparseable date inputs",
             value: s.nUnparseableDateInputsTotal,
             show: s.nUnparseableDateInputsTotal > 0,
+          },
+          {
+            label: "AI description merges",
+            value: s.nAiDescriptionMergedTotal,
+            show: s.nAiDescriptionMergedTotal > 0,
+          },
+          {
+            label: "AI titles generated",
+            value: s.nAiTitleGeneratedTotal,
+            show: s.nAiTitleGeneratedTotal > 0,
+          },
+          {
+            label: "AI errors",
+            value: s.nAiErrorsTotal,
+            show: s.nAiErrorsTotal > 0,
           },
         ]}
       />

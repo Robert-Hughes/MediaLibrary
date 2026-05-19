@@ -280,6 +280,7 @@ function LoadedView({
             "title",
             "location",
             "dates",
+            "description",
           ];
           const items = buildNormaliseItems(
             relPaths,

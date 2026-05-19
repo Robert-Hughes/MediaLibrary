@@ -74,6 +74,7 @@ describe("Metadata-normalisation flow", () => {
     expect(screen.getByTestId("normalise-group-title-checkbox")).toBeInTheDocument();
     expect(screen.getByTestId("normalise-group-location-checkbox")).toBeInTheDocument();
     expect(screen.getByTestId("normalise-group-dates-checkbox")).toBeInTheDocument();
+    expect(screen.getByTestId("normalise-group-description-checkbox")).toBeInTheDocument();
   });
 
   it("confirm sends groupInputs + enabledGroups to backend and lands drafts", async () => {
@@ -114,6 +115,7 @@ describe("Metadata-normalisation flow", () => {
     fireEvent.click(screen.getByTestId("normalise-group-title-checkbox"));
     fireEvent.click(screen.getByTestId("normalise-group-location-checkbox"));
     fireEvent.click(screen.getByTestId("normalise-group-dates-checkbox"));
+    fireEvent.click(screen.getByTestId("normalise-group-description-checkbox"));
 
     fireEvent.click(screen.getByTestId("normalise-confirm-btn"));
     // Backend cmd resolves after a microtask + the event loop.
@@ -145,9 +147,9 @@ describe("Metadata-normalisation flow", () => {
     fireEvent.click(entry);
     await screen.findByTestId("normalise-progress-dialog");
 
-    // Untick all seven.
+    // Untick all eight (Description added in v2).
     for (const g of [
-      "keywords", "creator", "copyright", "headline", "title", "location", "dates",
+      "keywords", "creator", "copyright", "headline", "title", "location", "dates", "description",
     ]) {
       fireEvent.click(screen.getByTestId(`normalise-group-${g}-checkbox`));
     }

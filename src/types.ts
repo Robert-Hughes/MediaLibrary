@@ -32,6 +32,8 @@ export type { HeadlineInput } from "./types/generated/HeadlineInput";
 export type { TitleInput } from "./types/generated/TitleInput";
 export type { LocationInput } from "./types/generated/LocationInput";
 export type { DatesInput } from "./types/generated/DatesInput";
+export type { DescriptionInput } from "./types/generated/DescriptionInput";
+export type { LocationContext } from "./types/generated/LocationContext";
 export type { PerImageStats as NormalisePerImageStats } from "./types/generated/PerImageStats";
 export type { NormaliseSummary } from "./types/generated/NormaliseSummary";
 

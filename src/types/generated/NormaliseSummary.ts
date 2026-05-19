@@ -12,4 +12,4 @@ nSkippedAllNormalised: number,
 /**
  * Total per-group counters across the batch.
  */
-nGroupsNormalisedTotal: number, nGroupsNoopTotal: number, nLocationXmpIimConflictTotal: number, nDateConflictTotal: number, nDtoFromFilenameTotal: number, nDtoFromFilenameDateOnlyTotal: number, nUnparseableDateInputsTotal: number, };
+nGroupsNormalisedTotal: number, nGroupsNoopTotal: number, nLocationXmpIimConflictTotal: number, nDateConflictTotal: number, nDtoFromFilenameTotal: number, nDtoFromFilenameDateOnlyTotal: number, nAiDescriptionMergedTotal: number, nAiTitleGeneratedTotal: number, nAiErrorsTotal: number, nUnparseableDateInputsTotal: number, };

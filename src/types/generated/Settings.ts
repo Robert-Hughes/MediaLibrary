@@ -10,4 +10,11 @@ openai_api_key: string,
  * `RECOMMENDED_MODELS` at save time (free-form not allowed yet — kept
  * strict so cost estimation always has a pricing entry).
  */
-openai_model: string, };
+openai_model: string, 
+/**
+ * Model id used for the metadata-normalisation AI calls.
+ * Independent from `openai_model` because the workload (text-only,
+ * ~1k input tokens) is much cheaper than vision and benefits from
+ * nano-class models.
+ */
+normalise_metadata_model: string, };

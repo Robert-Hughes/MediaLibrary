@@ -2,6 +2,7 @@
 import type { CopyrightInput } from "./CopyrightInput";
 import type { CreatorInput } from "./CreatorInput";
 import type { DatesInput } from "./DatesInput";
+import type { DescriptionInput } from "./DescriptionInput";
 import type { HeadlineInput } from "./HeadlineInput";
 import type { KeywordsInput } from "./KeywordsInput";
 import type { LocationInput } from "./LocationInput";
@@ -45,4 +46,8 @@ location: LocationInput | null,
 /**
  * Group H (Dates — H1 Shutter time + H2 Digitised time) sources.
  */
-dates: DatesInput | null, };
+dates: DatesInput | null, 
+/**
+ * Group B (Description) sources.
+ */
+description: DescriptionInput | null, };
