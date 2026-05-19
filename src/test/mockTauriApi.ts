@@ -86,6 +86,35 @@ export interface MockTauriApi {
     nNoGps: number;
     nFailed: number;
   };
+
+  // ── Metadata-normalisation mock state ────────────────────────────────
+  /** Most recent normalise_metadata_cmd args. */
+  lastNormaliseArgs: {
+    folderPath: string;
+    items: Array<{ relPath: string; groupInputs: Record<string, unknown> }>;
+    enabledGroups: string[];
+  } | null;
+  cancelNormaliseCalled: boolean;
+  /** Per-rel-path normalise outcome. Order corresponds to items[i]. */
+  normaliseSchedule: Array<{
+    relativePath: string;
+    status: string;
+    error?: string | null;
+    /** Typed draft edits emitted on `status === "ok"`. */
+    edits?: Record<string, unknown>;
+  }>;
+  normaliseSummary: {
+    nSucceeded: number;
+    nFailed: number;
+    nSkippedAllNormalised: number;
+    nGroupsNormalisedTotal: number;
+    nGroupsNoopTotal: number;
+    nLocationXmpIimConflictTotal: number;
+    nDateConflictTotal: number;
+    nDtoFromFilenameTotal: number;
+    nDtoFromFilenameDateOnlyTotal: number;
+    nUnparseableDateInputsTotal: number;
+  };
 }
 
 export function createMockTauriApi(): MockTauriApi {
@@ -152,6 +181,16 @@ export function createMockTauriApi(): MockTauriApi {
       nSucceededFromOverpass: 0,
       nNoGps: 0,
       nFailed: 0,
+    },
+    lastNormaliseArgs: null,
+    cancelNormaliseCalled: false,
+    normaliseSchedule: [],
+    normaliseSummary: {
+      nSucceeded: 0, nFailed: 0, nSkippedAllNormalised: 0,
+      nGroupsNormalisedTotal: 0, nGroupsNoopTotal: 0,
+      nLocationXmpIimConflictTotal: 0, nDateConflictTotal: 0,
+      nDtoFromFilenameTotal: 0, nDtoFromFilenameDateOnlyTotal: 0,
+      nUnparseableDateInputsTotal: 0,
     },
   };
 
@@ -318,6 +357,36 @@ export function createMockTauriApi(): MockTauriApi {
       }
       if (cmd === "cancel_geocode_cmd") {
         mock.cancelGeocodeCalled = true;
+        return;
+      }
+      if (cmd === "normalise_metadata_cmd") {
+        const folderPath = args?.folderPath as string;
+        const items = (args?.items as Array<{ relPath: string; groupInputs: Record<string, unknown> }>) ?? [];
+        const enabledGroups = (args?.enabledGroups as string[]) ?? [];
+        mock.lastNormaliseArgs = { folderPath, items, enabledGroups };
+        const total = items.length;
+        await new Promise((r) => setTimeout(r, 0));
+        emit("normalise_started", { total });
+        const succeeded: string[] = [];
+        const failed: Array<{ relativePath: string; kind: string; detail: string }> = [];
+        for (let i = 0; i < total; i++) {
+          const rp = items[i].relPath;
+          const sched = mock.normaliseSchedule[i] ?? { relativePath: rp, status: "ok" };
+          emit("normalise_progress", {
+            current: i + 1, total, relativePath: rp,
+            status: sched.status, error: sched.error ?? null,
+            edits: sched.status === "ok" ? (sched.edits ?? {}) : undefined,
+          });
+          if (sched.status === "ok") succeeded.push(rp);
+          else failed.push({ relativePath: rp, kind: sched.status, detail: sched.error ?? "" });
+        }
+        emit("normalise_complete", {
+          succeeded, failed, usageSummary: mock.normaliseSummary,
+        });
+        return;
+      }
+      if (cmd === "cancel_normalise_cmd") {
+        mock.cancelNormaliseCalled = true;
         return;
       }
       throw new Error(`Unexpected invoke: ${cmd}`);
