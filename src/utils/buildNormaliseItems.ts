@@ -134,6 +134,7 @@ export function buildNormaliseItemForPhoto(
     title: null,
     location: null,
     dates: null,
+    description: null,
   };
 
   if (groupSet.has("keywords")) {
@@ -173,8 +174,11 @@ export function buildNormaliseItemForPhoto(
     groupInputs.title = {
       title: scalar(metadata, drafts, "XMP-dc:Title") ?? null,
       objectName: scalar(metadata, drafts, "IPTC:ObjectName") ?? null,
-      // descriptionCanonical wired in v2 alongside Group B.
+      // Pass-2 + pass-3 dispatcher populates these from Group B / F /
+      // A canonicals; frontend always leaves them empty.
       descriptionCanonical: null,
+      locationContext: null,
+      keywordsContext: [],
     };
   }
 
@@ -190,6 +194,26 @@ export function buildNormaliseItemForPhoto(
       countryIptc: scalar(metadata, drafts, "IPTC:Country-PrimaryLocationName") ?? null,
       countryCodeXmp: scalar(metadata, drafts, "XMP-iptcCore:CountryCode") ?? null,
       countryCodeIptc: scalar(metadata, drafts, "IPTC:Country-PrimaryLocationCode") ?? null,
+    };
+  }
+
+  if (groupSet.has("description")) {
+    groupInputs.description = {
+      description: scalar(metadata, drafts, "XMP-dc:Description") ?? null,
+      imageDescription: scalar(metadata, drafts, "EXIF:ImageDescription") ?? null,
+      captionAbstract: scalar(metadata, drafts, "IPTC:Caption-Abstract") ?? null,
+      iptcCharsetIsUtf8:
+        scalar(metadata, drafts, "IPTC:CodedCharacterSet") === "UTF8" ||
+        scalar(metadata, drafts, "IPTC:CodedCharacterSet") === "%G",
+      aiDescription: scalar(metadata, drafts, "XMP-mlib:AIDescription") ?? null,
+      aiInterpretation: scalar(metadata, drafts, "XMP-mlib:AIInterpretation") ?? null,
+      aiOcrText: list(metadata, drafts, "XMP-mlib:AIOcrText"),
+      aiObjects: list(metadata, drafts, "XMP-mlib:AIObjects"),
+      // location / keywords / date context are populated by the
+      // backend dispatcher from the Pass-1 outputs, not the frontend.
+      locationContext: null,
+      keywordsContext: [],
+      dateContext: null,
     };
   }
 

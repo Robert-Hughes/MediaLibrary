@@ -65,6 +65,5 @@ iptcDigitalCreationTime: string | null,
 /**
  * Filename stem — read-only input used by the H1 filename
  * fallback when all H1 fields are empty (plan §1 Group H).
- * Implementation in a follow-up commit; v1 ignores it.
  */
 fileStem: string | null, };

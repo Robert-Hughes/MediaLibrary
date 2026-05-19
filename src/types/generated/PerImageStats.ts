@@ -27,4 +27,17 @@ nDtoFromFilename: number, nDtoFromFilenameDateOnly: number,
  * Number of date input fields that were non-empty but
  * unparseable.
  */
-nUnparseableDateInputs: number, };
+nUnparseableDateInputs: number, 
+/**
+ * True (1) when Group B fired the AI merge for this image.
+ */
+nAiDescriptionMerged: number, 
+/**
+ * True (1) when Group C fired the AI title generation.
+ */
+nAiTitleGenerated: number, 
+/**
+ * True (1) when an AI call errored on this image (recorded in
+ * audit log).
+ */
+nAiErrors: number, };

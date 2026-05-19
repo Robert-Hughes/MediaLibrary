@@ -18,6 +18,7 @@ const allGroups: NormaliseGroup[] = [
   "title",
   "location",
   "dates",
+  "description",
 ];
 
 function baseState(over: Partial<NormaliseProgressState> = {}): NormaliseProgressState {
@@ -67,9 +68,9 @@ describe("NormaliseProgressDialog — awaiting-confirm", () => {
     fireEvent.click(screen.getByTestId("normalise-group-keywords-checkbox"));
     expect(onSet).toHaveBeenCalledTimes(1);
     expect(onSet.mock.calls[0][0]).not.toContain("keywords");
-    // Other six groups are preserved in canonical order.
+    // Remaining groups preserved in canonical order.
     expect(onSet.mock.calls[0][0]).toEqual([
-      "creator", "copyright", "headline", "title", "location", "dates",
+      "creator", "copyright", "headline", "title", "location", "dates", "description",
     ]);
   });
 
@@ -203,6 +204,9 @@ describe("NormaliseProgressDialog — done", () => {
       nDtoFromFilenameTotal: 0,
       nDtoFromFilenameDateOnlyTotal: 0,
       nUnparseableDateInputsTotal: 0,
+      nAiDescriptionMergedTotal: 0,
+      nAiTitleGeneratedTotal: 0,
+      nAiErrorsTotal: 0,
       ...over,
     };
   }
