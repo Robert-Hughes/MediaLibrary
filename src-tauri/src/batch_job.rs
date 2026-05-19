@@ -94,6 +94,25 @@ pub enum BatchFailureKind {
     NominatimEmpty,
     /// Reading or writing the local geocache file failed.
     CacheIo,
+
+    // ── Metadata-normaliser ────────────────────────────────────────────
+    /// OpenAI returned a non-2xx response or a transport error during
+    /// Group B description merge / Group C title generation.
+    AiCallFailed,
+    /// AI response parsed as JSON but missing the required field for the
+    /// structured-output schema.
+    AiSchemaInvalid,
+    /// AI returned HTTP 429.
+    AiRateLimited,
+    /// Appending to the normaliser audit JSONL log failed.
+    AuditLogIo,
+    /// Bug in the normaliser surfaced as a per-image failure rather than
+    /// crashing the whole batch. Detail string carries the message.
+    Internal,
+    /// Required by plan §6: no OpenAI API key configured but the user
+    /// enabled a group that needs AI (Group B distinct sources, or
+    /// Group C all-empty + description present).
+    AiKeyMissing,
 }
 
 impl BatchFailureKind {
@@ -113,6 +132,12 @@ impl BatchFailureKind {
             BatchFailureKind::NoGps => "no_gps",
             BatchFailureKind::NominatimEmpty => "nominatim_empty",
             BatchFailureKind::CacheIo => "cache_io",
+            BatchFailureKind::AiCallFailed => "ai_call_failed",
+            BatchFailureKind::AiSchemaInvalid => "ai_schema_invalid",
+            BatchFailureKind::AiRateLimited => "ai_rate_limited",
+            BatchFailureKind::AuditLogIo => "audit_log_io",
+            BatchFailureKind::Internal => "internal",
+            BatchFailureKind::AiKeyMissing => "ai_key_missing",
         }
     }
 }
@@ -342,6 +367,12 @@ mod tests {
             (BatchFailureKind::NoGps, "no_gps"),
             (BatchFailureKind::NominatimEmpty, "nominatim_empty"),
             (BatchFailureKind::CacheIo, "cache_io"),
+            (BatchFailureKind::AiCallFailed, "ai_call_failed"),
+            (BatchFailureKind::AiSchemaInvalid, "ai_schema_invalid"),
+            (BatchFailureKind::AiRateLimited, "ai_rate_limited"),
+            (BatchFailureKind::AuditLogIo, "audit_log_io"),
+            (BatchFailureKind::Internal, "internal"),
+            (BatchFailureKind::AiKeyMissing, "ai_key_missing"),
         ];
         for (variant, wire) in all {
             assert_eq!(variant.as_wire(), wire, "as_wire() for {:?}", variant);

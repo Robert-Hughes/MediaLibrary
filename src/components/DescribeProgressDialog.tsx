@@ -24,6 +24,7 @@ import type {
 } from "../types";
 import { BatchJobDialog } from "./BatchJobDialog";
 import { RunningProgressPanel } from "./RunningProgressPanel";
+import { assertExhaustive } from "../utils/assertExhaustive";
 
 interface Props {
   state: DescribeProgressState;
@@ -57,6 +58,21 @@ export function friendlyFailureLabel(kind: BatchFailureKind): string {
     case "nominatim_empty":
     case "cache_io":
       return kind;
+    // Normaliser-only kinds; describe should never emit them.
+    case "ai_call_failed":
+      return "AI request failed";
+    case "ai_schema_invalid":
+      return "AI response did not match expected schema";
+    case "ai_rate_limited":
+      return "AI request rate-limited";
+    case "audit_log_io":
+      return "Could not write audit log";
+    case "internal":
+      return "Internal error";
+    case "ai_key_missing":
+      return "OpenAI API key not configured";
+    default:
+      return assertExhaustive(kind);
   }
 }
 

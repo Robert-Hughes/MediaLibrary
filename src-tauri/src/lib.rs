@@ -1186,10 +1186,10 @@ async fn normalise_metadata_cmd(
     let total = items.len();
     log::info!("[normalise] starting total={} groups={:?}", total, enabled_groups);
 
-    // Set up the AI client when both Group B and / or Group C are
-    // enabled AND the API key is configured. Without it AI-driven
-    // branches fall back to deterministic defaults (plan §1 Group B
-    // case-4 fallback; Group C case-3 no-op).
+    // Plan §1 Group B / Group C require an OpenAI key when their AI
+    // branches fire. We construct the client up-front when either group
+    // is enabled; per-image AI failures surface as failure rows instead
+    // of aborting the batch.
     let wants_ai = enabled_groups.contains(&normalise::NormaliseGroup::Description)
         || enabled_groups.contains(&normalise::NormaliseGroup::Title);
     let ai_client: Option<openai_normalise::OpenAiNormaliseClient> = if wants_ai {
@@ -1200,7 +1200,7 @@ async fn normalise_metadata_cmd(
             )),
             Err(e) => {
                 log::warn!(
-                    "[normalise] AI client unavailable ({}); proceeding without AI",
+                    "[normalise] AI client unavailable ({}); per-image AI branches will fail",
                     e
                 );
                 None
@@ -1214,7 +1214,7 @@ async fn normalise_metadata_cmd(
     emitter.started(total);
 
     let mut succeeded: Vec<String> = Vec::new();
-    let failed: Vec<batch_job::BatchFailureRow> = Vec::new();
+    let mut failed: Vec<batch_job::BatchFailureRow> = Vec::new();
     let mut summary = normalise::NormaliseSummary::default();
     let mut current = 0usize;
 
@@ -1226,9 +1226,39 @@ async fn normalise_metadata_cmd(
         current += 1;
         let rel = item.rel_path.clone();
         let ai_ref = ai_client.as_ref().map(|c| c as &dyn normalise::NormaliseAiClient);
-        let (edits, stats) = normalise::process_image(item, &enabled_groups, ai_ref).await;
+        let (edits, stats, ai_err) =
+            normalise::process_image(item, &enabled_groups, ai_ref).await;
         summary.accumulate(&stats);
         let all_noop = edits.is_empty();
+
+        if let Some(err) = ai_err {
+            // Plan §8: AI failures do not abort the batch; non-AI
+            // groups for the same image still wrote their drafts.
+            // Surface as a per-image failure row in addition to the
+            // succeeded edits.
+            let detail = err.detail.clone();
+            let kind = err.kind;
+            log::warn!("[normalise] ({}/{}) AI failure for {}: {}", current, total, rel, detail);
+            if all_noop {
+                emitter.progress(current, total, &rel, kind.as_wire(), Some(&detail), None);
+            } else {
+                emitter.progress(
+                    current,
+                    total,
+                    &rel,
+                    kind.as_wire(),
+                    Some(&detail),
+                    Some(&edits),
+                );
+            }
+            failed.push(batch_job::BatchFailureRow {
+                relative_path: rel.clone(),
+                kind,
+                detail,
+            });
+            continue;
+        }
+
         if all_noop {
             summary.n_skipped_all_normalised += 1;
             emitter.progress(current, total, &rel, "ok", None, None);
