@@ -24,6 +24,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use std::sync::OnceLock;
 
 use crate::draft_edits::{DraftEdit, EditIntent};
 use crate::scanner::Variant;
@@ -2071,87 +2072,66 @@ fn parse_iptc_date_time(date_s: &str, time_s: Option<&str>, default_offset: &str
 }
 
 /// Outcome of processing one Group H sub-group (H1 or H2).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 struct DateSubgroupResult {
     edits: HashMap<String, DraftEdit>,
     /// True when multiple non-empty sources disagreed and primary won.
     conflict: bool,
-    /// True when an existing non-empty source could not be parsed.
-    /// Surfaced as a stats counter so the user can investigate without
-    /// the run aborting.
-    unparseable: bool,
 }
 
-impl DateSubgroupResult {
-    fn empty() -> Self {
-        Self { edits: HashMap::new(), conflict: false, unparseable: false }
-    }
-}
-
-/// Plain (key, parser-input) for each H-sub-group source. Centralises
-/// the "this string came from this exiftool tag" mapping so each pass
-/// over a sub-group can recover the original key when reporting
-/// conflicts.
-struct DateSource<'a> {
-    /// Target tag key — `None` for the IPTC split pair (handled
-    /// specially because it spans two tags).
-    primary_key: Option<&'a str>,
-    /// Parsed value, or `None` if absent / empty / unparseable.
-    parsed: Option<ParsedDateTime>,
-}
-
+/// Compute drafts for one H sub-group.
+///
+/// `existing_exif` / `existing_xmp` / `existing_iptc` describe what is
+/// already on disk for each target (post-parse; `None` means absent or
+/// unparseable). `canonical_override` is set by the filename-fallback
+/// path when the existing sources are all empty but a filename-derived
+/// datetime is being adopted.
+///
+/// Conflict policy: primary wins. Two sources disagreeing → conflict
+/// counted; primary's value is the canonical.
 fn process_date_subgroup(
-    sources: Vec<DateSource<'_>>,
+    existing_exif: Option<&ParsedDateTime>,
+    existing_xmp: Option<&ParsedDateTime>,
+    existing_iptc: Option<&ParsedDateTime>,
+    canonical_override: Option<&ParsedDateTime>,
+    exif_target_key: &str,
+    xmp_target_key: &str,
     iptc_date_key: &str,
     iptc_time_key: &str,
-    iptc_split: Option<ParsedDateTime>,
-    xmp_target_key: &str,
-    exif_target_key: &str,
 ) -> DateSubgroupResult {
-    // Filter to (key, parsed) pairs we actually have.
-    let mut existing: Vec<(&str, ParsedDateTime)> = Vec::new();
-    for src in &sources {
-        if let (Some(k), Some(p)) = (src.primary_key, src.parsed.clone()) {
-            existing.push((k, p));
-        }
-    }
+    // Derive canonical from existing sources in priority order:
+    // EXIF primary > XMP mirror > IPTC split. Override (filename
+    // fallback) is used only when no existing source exists.
     let mut conflict = false;
-    let canonical = if existing.is_empty() {
-        if let Some(p) = iptc_split.clone() {
-            p
-        } else {
-            return DateSubgroupResult::empty();
+    let canonical: ParsedDateTime = if let Some(p) = existing_exif.cloned() {
+        if let Some(o) = existing_xmp {
+            if o != &p { conflict = true; }
         }
+        if let Some(o) = existing_iptc {
+            if o != &p { conflict = true; }
+        }
+        p
+    } else if let Some(p) = existing_xmp.cloned() {
+        if let Some(o) = existing_iptc {
+            if o != &p { conflict = true; }
+        }
+        p
+    } else if let Some(p) = existing_iptc.cloned() {
+        p
+    } else if let Some(p) = canonical_override.cloned() {
+        p
     } else {
-        // Primary (first element) wins on conflict.
-        let primary = existing[0].clone();
-        for (_, other) in existing.iter().skip(1) {
-            if other != &primary.1 {
-                conflict = true;
-                break;
-            }
-        }
-        if let Some(p) = iptc_split.clone() {
-            if p != primary.1 {
-                conflict = true;
-            }
-        }
-        primary.1
+        return DateSubgroupResult::default();
     };
 
-    // Build the projection per target. Each target gets a set-value
-    // draft only when its current value differs from the projection.
+    // Project canonical to each target; emit a draft only when the
+    // existing-on-disk value differs.
     let mut edits = HashMap::new();
     let canonical_full = canonical.to_canonical();
     let canonical_date = canonical.iptc_date();
     let canonical_time = canonical.iptc_time();
 
-    // EXIF target (canonical full ISO string).
-    let mut sources_iter = sources.into_iter();
-    let exif_src = sources_iter.next();
-    // `exif_src` is for the EXIF primary; project canonical to it if
-    // it differs.
-    if exif_src.as_ref().and_then(|s| s.parsed.as_ref()) != Some(&canonical) {
+    if existing_exif != Some(&canonical) {
         edits.insert(
             exif_target_key.to_string(),
             DraftEdit {
@@ -2161,9 +2141,7 @@ fn process_date_subgroup(
             },
         );
     }
-    // XMP target.
-    let xmp_src = sources_iter.next();
-    if xmp_src.as_ref().and_then(|s| s.parsed.as_ref()) != Some(&canonical) {
+    if existing_xmp != Some(&canonical) {
         edits.insert(
             xmp_target_key.to_string(),
             DraftEdit {
@@ -2173,8 +2151,7 @@ fn process_date_subgroup(
             },
         );
     }
-    // IPTC split pair.
-    if iptc_split.as_ref() != Some(&canonical) {
+    if existing_iptc != Some(&canonical) {
         edits.insert(
             iptc_date_key.to_string(),
             DraftEdit {
@@ -2193,7 +2170,7 @@ fn process_date_subgroup(
         );
     }
 
-    DateSubgroupResult { edits, conflict, unparseable: false }
+    DateSubgroupResult { edits, conflict }
 }
 
 /// Outcome of running Group H on one image.
@@ -2205,6 +2182,115 @@ pub struct DatesOutcome {
     /// Number of source fields that were non-empty but unparseable —
     /// they are ignored and the user sees the count in stats.
     pub n_unparseable_inputs: u32,
+    /// True when the H1 datetime was filled from a filename regex
+    /// (all H1 sources were empty). Surfaced in stats.
+    pub n_dto_from_filename: u32,
+    /// True when the filename match supplied only a date and the time
+    /// was defaulted to `00:00:00`. Subset of `n_dto_from_filename`.
+    pub n_dto_from_filename_date_only: u32,
+}
+
+/// Filename-regex fallback for missing H1 (`EXIF:DateTimeOriginal`).
+///
+/// Triggered only when all H1 sources are empty (plan §1 Group H).
+/// Patterns are tried in order; first match wins. Date-only matches
+/// fill time as `00:00:00` and are flagged in stats so the user can
+/// audit. Sanity bound on year: 1900 ≤ year ≤ (current year + 1).
+///
+/// Returns `(ParsedDateTime, date_only_flag)` on a match.
+fn parse_filename_for_h1(stem: &str) -> Option<(ParsedDateTime, bool)> {
+    // Patterns at any position in the stem. Listed in the order we
+    // want them to be tried — most specific first (Pixel with subsec
+    // before generic ISO, otherwise the generic regex eats the
+    // datetime first and we lose the subsec digits).
+    static PATTERNS: OnceLock<Vec<(regex::Regex, bool, bool)>> = OnceLock::new();
+    let patterns = PATTERNS.get_or_init(|| {
+        // (regex, has_time, has_subsec)
+        // Each regex captures (year, month, day, [hour, minute, second, [subsec]]).
+        vec![
+            (
+                regex::Regex::new(r"PXL[_-](\d{4})(\d{2})(\d{2})[_-](\d{2})(\d{2})(\d{2})(\d{3})").unwrap(),
+                true,
+                true,
+            ),
+            (
+                regex::Regex::new(r"(?:IMG|VID)[_-](\d{4})(\d{2})(\d{2})[_-](\d{2})(\d{2})(\d{2})").unwrap(),
+                true,
+                false,
+            ),
+            (
+                regex::Regex::new(r"Screenshot[ _](\d{4})-(\d{2})-(\d{2})(?:[ _](\d{2})[.\-](\d{2})[.\-](\d{2}))?").unwrap(),
+                true, // captures may have None for time when truly absent
+                false,
+            ),
+            (
+                regex::Regex::new(r"(\d{4})-(\d{2})-(\d{2})[ _T](\d{2})[.\-:](\d{2})[.\-:](\d{2})").unwrap(),
+                true,
+                false,
+            ),
+            (
+                regex::Regex::new(r"(\d{4})(\d{2})(\d{2})[_-](\d{2})(\d{2})(\d{2})").unwrap(),
+                true,
+                false,
+            ),
+            (
+                regex::Regex::new(r"(\d{4})-(\d{2})-(\d{2})").unwrap(),
+                false,
+                false,
+            ),
+        ]
+    });
+
+    let current_year: i32 = chrono::Utc::now()
+        .format("%Y")
+        .to_string()
+        .parse()
+        .unwrap_or(2025);
+    let year_max = current_year + 1;
+    const YEAR_MIN: i32 = 1900;
+
+    for (re, has_time, has_subsec) in patterns {
+        if let Some(caps) = re.captures(stem) {
+            let year: i32 = caps.get(1)?.as_str().parse().ok()?;
+            let month: u32 = caps.get(2)?.as_str().parse().ok()?;
+            let day: u32 = caps.get(3)?.as_str().parse().ok()?;
+            if year < YEAR_MIN || year > year_max {
+                continue;
+            }
+            if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+                continue;
+            }
+            let (hour, minute, second, time_present) = if *has_time {
+                match (caps.get(4), caps.get(5), caps.get(6)) {
+                    (Some(h), Some(m), Some(s)) => {
+                        let h: u32 = h.as_str().parse().ok()?;
+                        let m: u32 = m.as_str().parse().ok()?;
+                        let s: u32 = s.as_str().parse().ok()?;
+                        if h > 23 || m > 59 || s > 59 {
+                            continue;
+                        }
+                        (h, m, s, true)
+                    }
+                    _ => (0, 0, 0, false),
+                }
+            } else {
+                (0, 0, 0, false)
+            };
+            let subsec = if *has_subsec {
+                caps.get(7).map(|m| m.as_str().to_string()).unwrap_or_default()
+            } else {
+                String::new()
+            };
+            let parsed = ParsedDateTime {
+                date: format!("{:04}-{:02}-{:02}", year, month, day),
+                time: format!("{:02}:{:02}:{:02}", hour, minute, second),
+                subsec,
+                offset: String::new(),
+            };
+            return Some((parsed, !time_present));
+        }
+    }
+    None
 }
 
 /// Run Group H (Dates — H1 + H2) normalisation for one image.
@@ -2212,6 +2298,8 @@ pub fn normalise_dates(input: &DatesInput) -> DatesOutcome {
     let mut edits: HashMap<String, DraftEdit> = HashMap::new();
     let mut n_conflict: u32 = 0;
     let mut n_unparseable: u32 = 0;
+    let mut n_from_filename: u32 = 0;
+    let mut n_from_filename_date_only: u32 = 0;
 
     // ── H1: Shutter time ──
     let default_offset_h1 = input.offset_time_original.as_deref().unwrap_or("").trim().to_string();
@@ -2237,16 +2325,33 @@ pub fn normalise_dates(input: &DatesInput) -> DatesOutcome {
     if input.iptc_date_created.as_deref().map(|s| !s.trim().is_empty()).unwrap_or(false) && iptc_split.is_none() {
         n_unparseable += 1;
     }
+
+    // Filename fallback: only fires when *all* H1 sources are empty
+    // (or unparseable). Never overwrites an existing DTO. Tracked
+    // separately so the projection step knows the EXIF target is
+    // still empty on disk (i.e. needs a set-value draft).
+    let mut canonical_override: Option<ParsedDateTime> = None;
+    if exif_parsed.is_none() && xmp_parsed.is_none() && iptc_split.is_none() {
+        if let Some(stem) = input.file_stem.as_deref().filter(|s| !s.trim().is_empty()) {
+            if let Some((parsed, date_only)) = parse_filename_for_h1(stem) {
+                canonical_override = Some(parsed);
+                n_from_filename += 1;
+                if date_only {
+                    n_from_filename_date_only += 1;
+                }
+            }
+        }
+    }
+
     let h1 = process_date_subgroup(
-        vec![
-            DateSource { primary_key: Some("EXIF:DateTimeOriginal"), parsed: exif_parsed },
-            DateSource { primary_key: Some("XMP-photoshop:DateCreated"), parsed: xmp_parsed },
-        ],
+        exif_parsed.as_ref(),
+        xmp_parsed.as_ref(),
+        iptc_split.as_ref(),
+        canonical_override.as_ref(),
+        "EXIF:DateTimeOriginal",
+        "XMP-photoshop:DateCreated",
         "IPTC:DateCreated",
         "IPTC:TimeCreated",
-        iptc_split,
-        "XMP-photoshop:DateCreated",
-        "EXIF:DateTimeOriginal",
     );
     if h1.conflict {
         n_conflict += 1;
@@ -2272,15 +2377,14 @@ pub fn normalise_dates(input: &DatesInput) -> DatesOutcome {
         n_unparseable += 1;
     }
     let h2 = process_date_subgroup(
-        vec![
-            DateSource { primary_key: Some("EXIF:CreateDate"), parsed: exif2 },
-            DateSource { primary_key: Some("XMP-xmp:CreateDate"), parsed: xmp2 },
-        ],
+        exif2.as_ref(),
+        xmp2.as_ref(),
+        iptc2.as_ref(),
+        None,
+        "EXIF:CreateDate",
+        "XMP-xmp:CreateDate",
         "IPTC:DigitalCreationDate",
         "IPTC:DigitalCreationTime",
-        iptc2,
-        "XMP-xmp:CreateDate",
-        "EXIF:CreateDate",
     );
     if h2.conflict {
         n_conflict += 1;
@@ -2291,6 +2395,8 @@ pub fn normalise_dates(input: &DatesInput) -> DatesOutcome {
         output: if edits.is_empty() { None } else { Some(GroupOutput { edits }) },
         n_date_conflict: n_conflict,
         n_unparseable_inputs: n_unparseable,
+        n_dto_from_filename: n_from_filename,
+        n_dto_from_filename_date_only: n_from_filename_date_only,
     }
 }
 
@@ -2453,6 +2559,127 @@ mod tests_dates {
         };
         let second = normalise_dates(&post);
         assert!(second.output.is_none(), "expected idempotent, got {:?}", second.output);
+    }
+
+    #[test]
+    fn filename_fallback_pixel_with_subsec() {
+        let input = DatesInput {
+            file_stem: Some("PXL_20240615_143045123".into()),
+            ..Default::default()
+        };
+        let out = normalise_dates(&input);
+        let g = out.output.expect("filename fallback must emit drafts");
+        assert_eq!(s(&g, "EXIF:DateTimeOriginal"), "2024-06-15T14:30:45.123");
+        assert_eq!(out.n_dto_from_filename, 1);
+        assert_eq!(out.n_dto_from_filename_date_only, 0);
+    }
+
+    #[test]
+    fn filename_fallback_ios_img() {
+        let input = DatesInput {
+            file_stem: Some("IMG_20240615_143045".into()),
+            ..Default::default()
+        };
+        let out = normalise_dates(&input);
+        let g = out.output.unwrap();
+        assert_eq!(s(&g, "EXIF:DateTimeOriginal"), "2024-06-15T14:30:45");
+    }
+
+    #[test]
+    fn filename_fallback_screenshot_date_only() {
+        let input = DatesInput {
+            file_stem: Some("Screenshot 2024-06-15".into()),
+            ..Default::default()
+        };
+        let out = normalise_dates(&input);
+        let g = out.output.unwrap();
+        assert_eq!(s(&g, "EXIF:DateTimeOriginal"), "2024-06-15T00:00:00");
+        assert_eq!(out.n_dto_from_filename, 1);
+        assert_eq!(out.n_dto_from_filename_date_only, 1);
+    }
+
+    #[test]
+    fn filename_fallback_screenshot_with_time() {
+        // Plan §1 H regex table specifies `[ _]` between date and
+        // time (single space/underscore separator) — not " at ".
+        let input = DatesInput {
+            file_stem: Some("Screenshot 2024-06-15 14.30.45".into()),
+            ..Default::default()
+        };
+        let out = normalise_dates(&input);
+        let g = out.output.unwrap();
+        assert_eq!(s(&g, "EXIF:DateTimeOriginal"), "2024-06-15T14:30:45");
+        assert_eq!(out.n_dto_from_filename_date_only, 0);
+    }
+
+    #[test]
+    fn filename_fallback_generic_iso() {
+        let input = DatesInput {
+            file_stem: Some("my photo 2024-06-15T14:30:45 final".into()),
+            ..Default::default()
+        };
+        let out = normalise_dates(&input);
+        let g = out.output.unwrap();
+        assert_eq!(s(&g, "EXIF:DateTimeOriginal"), "2024-06-15T14:30:45");
+    }
+
+    #[test]
+    fn filename_fallback_compact() {
+        let input = DatesInput {
+            file_stem: Some("20240615_143045".into()),
+            ..Default::default()
+        };
+        let out = normalise_dates(&input);
+        let g = out.output.unwrap();
+        assert_eq!(s(&g, "EXIF:DateTimeOriginal"), "2024-06-15T14:30:45");
+    }
+
+    #[test]
+    fn filename_fallback_never_overwrites_existing_dto() {
+        let input = DatesInput {
+            date_time_original: Some("2020:01:01 00:00:00".into()),
+            file_stem: Some("IMG_20240615_143045".into()),
+            ..Default::default()
+        };
+        let out = normalise_dates(&input);
+        // DTO already present → filename ignored. Counter stays 0.
+        assert_eq!(out.n_dto_from_filename, 0);
+        // Canonical = the existing DTO (2020 win), mirrors get
+        // projection drafts but EXIF:DateTimeOriginal isn't rewritten.
+        let g = out.output.unwrap();
+        assert_eq!(s(&g, "XMP-photoshop:DateCreated"), "2020-01-01T00:00:00");
+    }
+
+    #[test]
+    fn filename_year_out_of_bounds_rejected() {
+        let input = DatesInput {
+            file_stem: Some("IMG_18900101_120000".into()),
+            ..Default::default()
+        };
+        let out = normalise_dates(&input);
+        assert!(out.output.is_none());
+        assert_eq!(out.n_dto_from_filename, 0);
+    }
+
+    #[test]
+    fn filename_invalid_month_rejected() {
+        let input = DatesInput {
+            file_stem: Some("IMG_20241335_120000".into()),
+            ..Default::default()
+        };
+        let out = normalise_dates(&input);
+        assert!(out.output.is_none());
+    }
+
+    #[test]
+    fn filename_no_match_returns_no_drafts() {
+        let input = DatesInput {
+            file_stem: Some("random_filename.jpg".into()),
+            ..Default::default()
+        };
+        let out = normalise_dates(&input);
+        assert!(out.output.is_none());
+        assert_eq!(out.n_dto_from_filename, 0);
     }
 
     #[test]
