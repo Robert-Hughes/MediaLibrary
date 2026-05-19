@@ -542,10 +542,16 @@ pub async fn process_image(
     item: &NormaliseRequestItem,
     enabled: &[NormaliseGroup],
     ai: Option<&dyn NormaliseAiClient>,
-) -> (HashMap<String, DraftEdit>, PerImageStats, Option<NormaliseAiError>) {
+) -> (
+    HashMap<String, DraftEdit>,
+    PerImageStats,
+    Option<NormaliseAiError>,
+    Vec<PerImageAiCall>,
+) {
     let mut edits: HashMap<String, DraftEdit> = HashMap::new();
     let mut stats = PerImageStats::default();
     let mut first_ai_error: Option<NormaliseAiError> = None;
+    let mut ai_calls: Vec<PerImageAiCall> = Vec::new();
 
     let is_enabled = |g: NormaliseGroup| enabled.contains(&g);
 
@@ -687,9 +693,21 @@ pub async fn process_image(
             let outcome = normalise_description(&augmented, ai).await;
             if outcome.ai_fired {
                 stats.n_ai_description_merged = 1;
+                if let Some(u) = outcome.ai_usage.clone() {
+                    ai_calls.push(PerImageAiCall {
+                        group: "description",
+                        usage: u,
+                        error: None,
+                    });
+                }
             }
             if let Some(err) = outcome.ai_error.clone() {
                 stats.n_ai_errors += 1;
+                ai_calls.push(PerImageAiCall {
+                    group: "description",
+                    usage: AiCallUsage::default(),
+                    error: Some(err.detail.clone()),
+                });
                 if first_ai_error.is_none() {
                     first_ai_error = Some(err);
                 }
@@ -740,9 +758,21 @@ pub async fn process_image(
             let outcome = normalise_title(&augmented, ai).await;
             if outcome.ai_fired {
                 stats.n_ai_title_generated = 1;
+                if let Some(u) = outcome.ai_usage.clone() {
+                    ai_calls.push(PerImageAiCall {
+                        group: "title",
+                        usage: u,
+                        error: None,
+                    });
+                }
             }
             if let Some(err) = outcome.ai_error.clone() {
                 stats.n_ai_errors += 1;
+                ai_calls.push(PerImageAiCall {
+                    group: "title",
+                    usage: AiCallUsage::default(),
+                    error: Some(err.detail.clone()),
+                });
                 if first_ai_error.is_none() {
                     first_ai_error = Some(err);
                 }
@@ -759,7 +789,7 @@ pub async fn process_image(
         }
     }
 
-    (edits, stats, first_ai_error)
+    (edits, stats, first_ai_error, ai_calls)
 }
 
 /// Whole-batch summary emitted with the `normalise_complete` event.
@@ -821,7 +851,7 @@ mod tests_dispatcher {
                 ..Default::default()
             },
         };
-        let (edits, stats, _err) = process_image(&item, &[NormaliseGroup::Keywords], None).await;
+        let (edits, stats, _err, _calls) = process_image(&item, &[NormaliseGroup::Keywords], None).await;
         assert!(edits.contains_key("XMP-dc:Subject"));
         assert!(!edits.contains_key("XMP-dc:Creator"));
         assert_eq!(stats.n_groups_normalised, 1);
@@ -834,7 +864,7 @@ mod tests_dispatcher {
             rel_path: "x.jpg".into(),
             group_inputs: GroupInputs::default(),
         };
-        let (edits, stats, _err) = process_image(
+        let (edits, stats, _err, _calls) = process_image(
             &item,
             &[
                 NormaliseGroup::Keywords,
@@ -865,11 +895,11 @@ mod tests_dispatcher {
             async fn merge_description(
                 &self,
                 p: DescriptionMergePrompt,
-            ) -> Result<String, String> {
+            ) -> Result<(String, AiCallUsage), String> {
                 *self.captured.lock().await = Some(p);
-                Ok("merged".into())
+                Ok(("merged".into(), AiCallUsage::default()))
             }
-            async fn generate_title(&self, _: TitleGenPrompt) -> Result<String, String> {
+            async fn generate_title(&self, _: TitleGenPrompt) -> Result<(String, AiCallUsage), String> {
                 unreachable!()
             }
         }
@@ -906,12 +936,12 @@ mod tests_dispatcher {
         }
         #[async_trait::async_trait]
         impl NormaliseAiClient for TitleAi {
-            async fn merge_description(&self, _: DescriptionMergePrompt) -> Result<String, String> {
+            async fn merge_description(&self, _: DescriptionMergePrompt) -> Result<(String, AiCallUsage), String> {
                 unreachable!()
             }
-            async fn generate_title(&self, p: TitleGenPrompt) -> Result<String, String> {
+            async fn generate_title(&self, p: TitleGenPrompt) -> Result<(String, AiCallUsage), String> {
                 *self.captured_description.lock().await = Some(p.description);
-                Ok("Generated Title".into())
+                Ok(("Generated Title".into(), AiCallUsage::default()))
             }
         }
         let ai = TitleAi { captured_description: tokio::sync::Mutex::new(None) };
@@ -926,7 +956,7 @@ mod tests_dispatcher {
                 ..Default::default()
             },
         };
-        let (edits, _, _err) = process_image(
+        let (edits, _, _err, _calls) = process_image(
             &item,
             &[NormaliseGroup::Description, NormaliseGroup::Title],
             Some(&ai),
@@ -1201,9 +1231,10 @@ pub struct CapturingAiClient {
 
 #[async_trait::async_trait]
 impl NormaliseAiClient for CapturingAiClient {
-    async fn merge_description(&self, p: DescriptionMergePrompt) -> Result<String, String> {
-        // Stand-in canonical: first non-empty source. Lets Group C see
-        // a description from this image during the estimate walk.
+    async fn merge_description(
+        &self,
+        p: DescriptionMergePrompt,
+    ) -> Result<(String, AiCallUsage), String> {
         let stand_in = p
             .description_sources
             .values()
@@ -1211,10 +1242,13 @@ impl NormaliseAiClient for CapturingAiClient {
             .cloned()
             .unwrap_or_default();
         self.description_prompts.lock().await.push(p);
-        Ok(stand_in)
+        Ok((stand_in, AiCallUsage::default()))
     }
 
-    async fn generate_title(&self, p: TitleGenPrompt) -> Result<String, String> {
+    async fn generate_title(
+        &self,
+        p: TitleGenPrompt,
+    ) -> Result<(String, AiCallUsage), String> {
         let stand_in = p
             .description
             .split_whitespace()
@@ -1222,8 +1256,48 @@ impl NormaliseAiClient for CapturingAiClient {
             .collect::<Vec<_>>()
             .join(" ");
         self.title_prompts.lock().await.push(p);
-        Ok(stand_in)
+        Ok((stand_in, AiCallUsage::default()))
     }
+}
+
+/// Per-AI-call record returned by `process_image` so the dispatcher
+/// can append a row to the JSONL audit log for each one. Includes
+/// successful calls (with usage) and failed calls (with detail).
+#[derive(Debug, Clone)]
+pub struct PerImageAiCall {
+    /// `"description"` (Group B) or `"title"` (Group C).
+    pub group: &'static str,
+    pub usage: AiCallUsage,
+    /// `None` on success; `Some(detail)` when the call failed.
+    pub error: Option<String>,
+}
+
+/// Per-call token usage returned by `NormaliseAiClient` implementors.
+/// Mock clients can return `Default::default()`; the production
+/// `OpenAiNormaliseClient` parses these out of the `/responses`
+/// response body so the audit log can record real cost.
+#[derive(Debug, Clone, Default)]
+pub struct AiCallUsage {
+    pub input_tokens: u32,
+    pub output_tokens: u32,
+}
+
+/// Audit-log row recorded for one AI call. Written to a JSONL file by
+/// the dispatcher; shape matches plan §6 "cost audit".
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub struct NormaliseAuditEntry {
+    pub ts: String,
+    pub model: String,
+    pub prompt_version: String,
+    /// `"description"` (Group B) or `"title"` (Group C).
+    pub group: String,
+    pub input_tokens: u32,
+    pub output_tokens: u32,
+    pub cost_usd: f64,
+    /// Empty string on success; failure detail otherwise.
+    pub error: String,
+    pub relative_path: String,
 }
 
 /// Trait that an injected AI client implements for Group B (and Group
@@ -1231,13 +1305,20 @@ impl NormaliseAiClient for CapturingAiClient {
 /// `OpenAiNormaliseClient` (see `openai_normalise.rs`).
 #[async_trait::async_trait]
 pub trait NormaliseAiClient: Send + Sync {
-    /// Returns the canonical merged description. Errors are surfaced
-    /// to the caller and turned into per-image failure rows.
-    async fn merge_description(&self, prompt: DescriptionMergePrompt) -> Result<String, String>;
+    /// Returns the canonical merged description plus per-call token
+    /// usage. Errors are surfaced to the caller and turned into
+    /// per-image failure rows.
+    async fn merge_description(
+        &self,
+        prompt: DescriptionMergePrompt,
+    ) -> Result<(String, AiCallUsage), String>;
 
     /// Generate a short title from a description + context. Case-3
     /// Title AI path.
-    async fn generate_title(&self, prompt: TitleGenPrompt) -> Result<String, String>;
+    async fn generate_title(
+        &self,
+        prompt: TitleGenPrompt,
+    ) -> Result<(String, AiCallUsage), String>;
 }
 
 /// Title-generation prompt body.
@@ -1259,6 +1340,9 @@ pub struct DescriptionOutcome {
     /// API key was not configured. Surfaced as a per-image failure row
     /// by the dispatcher. Deterministic cases never populate this.
     pub ai_error: Option<NormaliseAiError>,
+    /// Token usage when the AI fired (success or error if usage is
+    /// available). Drives the audit-log entry written by the dispatcher.
+    pub ai_usage: Option<AiCallUsage>,
 }
 
 /// Run Group B (Description) normalisation. Async because case-4 may
@@ -1290,6 +1374,7 @@ pub async fn normalise_description(
     // Cases 2 and 3 — single source OR multiple equal-after-normalise.
     let distinct: std::collections::BTreeSet<&str> =
         non_empty.iter().map(|(_, v)| v.as_str()).collect();
+    let mut ai_usage: Option<AiCallUsage> = None;
     let (canonical, ai_fired) = if distinct.len() == 1 {
         (non_empty[0].1.clone(), false)
     } else {
@@ -1300,7 +1385,10 @@ pub async fn normalise_description(
         let prompt = build_description_merge_prompt(input);
         match ai {
             Some(client) => match client.merge_description(prompt).await {
-                Ok(merged) => (normalise_description_text(&merged), true),
+                Ok((merged, usage)) => {
+                    ai_usage = Some(usage);
+                    (normalise_description_text(&merged), true)
+                }
                 Err(e) => {
                     return DescriptionOutcome {
                         ai_error: Some(NormaliseAiError::from_client_string(e)),
@@ -1318,7 +1406,7 @@ pub async fn normalise_description(
     };
 
     if canonical.is_empty() {
-        return DescriptionOutcome { ai_fired, ..Default::default() };
+        return DescriptionOutcome { ai_fired, ai_usage, ..Default::default() };
     }
 
     let projection_image = ascii_fold(&canonical);
@@ -1360,6 +1448,7 @@ pub async fn normalise_description(
         output: if edits.is_empty() { None } else { Some(GroupOutput { edits }) },
         ai_fired,
         ai_error: None,
+        ai_usage,
     }
 }
 
@@ -1475,10 +1564,10 @@ mod tests_description {
             async fn merge_description(
                 &self,
                 _: DescriptionMergePrompt,
-            ) -> Result<String, String> {
-                Ok("Merged factual description.".into())
+            ) -> Result<(String, AiCallUsage), String> {
+                Ok(("Merged factual description.".into(), AiCallUsage::default()))
             }
-            async fn generate_title(&self, _: TitleGenPrompt) -> Result<String, String> {
+            async fn generate_title(&self, _: TitleGenPrompt) -> Result<(String, AiCallUsage), String> {
                 unreachable!()
             }
         }
@@ -1498,10 +1587,10 @@ mod tests_description {
         struct FailingAi;
         #[async_trait::async_trait]
         impl NormaliseAiClient for FailingAi {
-            async fn merge_description(&self, _: DescriptionMergePrompt) -> Result<String, String> {
+            async fn merge_description(&self, _: DescriptionMergePrompt) -> Result<(String, AiCallUsage), String> {
                 Err("HTTP 429: too many requests".into())
             }
-            async fn generate_title(&self, _: TitleGenPrompt) -> Result<String, String> {
+            async fn generate_title(&self, _: TitleGenPrompt) -> Result<(String, AiCallUsage), String> {
                 unreachable!()
             }
         }
@@ -2649,6 +2738,7 @@ pub struct TitleOutcome {
     /// failed or the AI client was unavailable. Surfaced as a failure
     /// row by the dispatcher; never set for deterministic cases.
     pub ai_error: Option<NormaliseAiError>,
+    pub ai_usage: Option<AiCallUsage>,
 }
 
 fn title_is_normalised(input: &TitleInput, canonical: &str) -> bool {
@@ -2668,6 +2758,7 @@ pub async fn normalise_title(
     ai: Option<&dyn NormaliseAiClient>,
 ) -> TitleOutcome {
     let mut ai_fired = false;
+    let mut ai_usage: Option<AiCallUsage> = None;
 
     let canonical_opt = derive_title_canonical(input);
     let canonical = match canonical_opt {
@@ -2687,11 +2778,12 @@ pub async fn normalise_title(
                         };
                     }
                     Some(client) => match client.generate_title(prompt).await {
-                        Ok(generated) => {
+                        Ok((generated, usage)) => {
                             ai_fired = true;
+                            ai_usage = Some(usage);
                             let n = normalise_title_text(&generated);
                             if n.is_empty() {
-                                return TitleOutcome { ai_fired, ..Default::default() };
+                                return TitleOutcome { ai_fired, ai_usage, ..Default::default() };
                             }
                             n
                         }
@@ -2708,7 +2800,7 @@ pub async fn normalise_title(
     };
 
     if title_is_normalised(input, &canonical) {
-        return TitleOutcome { ai_fired, ..Default::default() };
+        return TitleOutcome { ai_fired, ai_usage, ..Default::default() };
     }
     let object = truncate_at_word(&canonical, IPTC_OBJECT_NAME_LIMIT);
     let mut edits = HashMap::new();
@@ -2736,6 +2828,7 @@ pub async fn normalise_title(
         output: if edits.is_empty() { None } else { Some(GroupOutput { edits }) },
         ai_fired,
         ai_error: None,
+        ai_usage,
     }
 }
 
@@ -2841,13 +2934,13 @@ mod tests_title {
             async fn merge_description(
                 &self,
                 _: DescriptionMergePrompt,
-            ) -> Result<String, String> {
+            ) -> Result<(String, AiCallUsage), String> {
                 unreachable!()
             }
-            async fn generate_title(&self, p: TitleGenPrompt) -> Result<String, String> {
+            async fn generate_title(&self, p: TitleGenPrompt) -> Result<(String, AiCallUsage), String> {
                 assert_eq!(p.description, "Climbers descending Mont Blanc at sunset.");
                 assert_eq!(p.keywords, vec!["mountains".to_string()]);
-                Ok("Climbers At Sunset".into())
+                Ok(("Climbers At Sunset".into(), AiCallUsage::default()))
             }
         }
         let input = TitleInput {
@@ -2866,10 +2959,10 @@ mod tests_title {
         struct FailingAi;
         #[async_trait::async_trait]
         impl NormaliseAiClient for FailingAi {
-            async fn merge_description(&self, _: DescriptionMergePrompt) -> Result<String, String> {
+            async fn merge_description(&self, _: DescriptionMergePrompt) -> Result<(String, AiCallUsage), String> {
                 unreachable!()
             }
-            async fn generate_title(&self, _: TitleGenPrompt) -> Result<String, String> {
+            async fn generate_title(&self, _: TitleGenPrompt) -> Result<(String, AiCallUsage), String> {
                 Err("rate limited".into())
             }
         }
@@ -2889,10 +2982,10 @@ mod tests_title {
         struct ShouldNotFireAi;
         #[async_trait::async_trait]
         impl NormaliseAiClient for ShouldNotFireAi {
-            async fn merge_description(&self, _: DescriptionMergePrompt) -> Result<String, String> {
+            async fn merge_description(&self, _: DescriptionMergePrompt) -> Result<(String, AiCallUsage), String> {
                 unreachable!()
             }
-            async fn generate_title(&self, _: TitleGenPrompt) -> Result<String, String> {
+            async fn generate_title(&self, _: TitleGenPrompt) -> Result<(String, AiCallUsage), String> {
                 panic!("AI should not fire when description is empty")
             }
         }

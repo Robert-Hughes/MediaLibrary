@@ -18,7 +18,7 @@
 use serde::Deserialize;
 
 use crate::normalise::{
-    DescriptionMergePrompt, NormaliseAiClient, TitleGenPrompt,
+    AiCallUsage, DescriptionMergePrompt, NormaliseAiClient, TitleGenPrompt,
 };
 use crate::openai_describe::OpenAiClient;
 
@@ -217,12 +217,23 @@ impl OpenAiNormaliseClient {
     }
 }
 
+/// Extract the `usage` block from a `/responses` body. The Responses
+/// API surfaces `usage.input_tokens` / `usage.output_tokens`; both
+/// default to zero if missing so the audit log still records a row.
+fn extract_usage(body: &serde_json::Value) -> AiCallUsage {
+    let u = &body["usage"];
+    AiCallUsage {
+        input_tokens: u["input_tokens"].as_u64().unwrap_or(0) as u32,
+        output_tokens: u["output_tokens"].as_u64().unwrap_or(0) as u32,
+    }
+}
+
 #[async_trait::async_trait]
 impl NormaliseAiClient for OpenAiNormaliseClient {
     async fn merge_description(
         &self,
         prompt: DescriptionMergePrompt,
-    ) -> Result<String, String> {
+    ) -> Result<(String, AiCallUsage), String> {
         let user_payload = serde_json::to_value(&prompt)
             .map_err(|e| format!("serialise merge prompt: {}", e))?;
         let body = build_request_body(
@@ -234,13 +245,17 @@ impl NormaliseAiClient for OpenAiNormaliseClient {
             DESCRIPTION_OUTPUT_TOKENS,
         );
         let response = post_responses(&self.inner, &body).await?;
+        let usage = extract_usage(&response);
         let text = extract_structured_text(&response)?;
         let parsed: DescriptionReply = serde_json::from_str(&text)
             .map_err(|e| format!("bad description JSON: {} (raw: {})", e, text))?;
-        Ok(parsed.description)
+        Ok((parsed.description, usage))
     }
 
-    async fn generate_title(&self, prompt: TitleGenPrompt) -> Result<String, String> {
+    async fn generate_title(
+        &self,
+        prompt: TitleGenPrompt,
+    ) -> Result<(String, AiCallUsage), String> {
         let user_payload = serde_json::to_value(&prompt)
             .map_err(|e| format!("serialise title prompt: {}", e))?;
         let body = build_request_body(
@@ -252,10 +267,11 @@ impl NormaliseAiClient for OpenAiNormaliseClient {
             TITLE_OUTPUT_TOKENS,
         );
         let response = post_responses(&self.inner, &body).await?;
+        let usage = extract_usage(&response);
         let text = extract_structured_text(&response)?;
         let parsed: TitleReply = serde_json::from_str(&text)
             .map_err(|e| format!("bad title JSON: {} (raw: {})", e, text))?;
-        Ok(parsed.title)
+        Ok((parsed.title, usage))
     }
 }
 

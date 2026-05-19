@@ -1291,7 +1291,7 @@ async fn estimate_normalise_cost_cmd(
         current += 1;
 
         let capturing = normalise::CapturingAiClient::default();
-        let _ = normalise::process_image(
+        let (_e, _s, _err, _calls) = normalise::process_image(
             item,
             &enabled_groups,
             Some(&capturing as &dyn normalise::NormaliseAiClient),
@@ -1425,10 +1425,81 @@ async fn normalise_metadata_cmd(
         current += 1;
         let rel = item.rel_path.clone();
         let ai_ref = ai_client.as_ref().map(|c| c as &dyn normalise::NormaliseAiClient);
-        let (edits, stats, ai_err) =
+        let (edits, stats, ai_err, ai_calls) =
             normalise::process_image(item, &enabled_groups, ai_ref).await;
         summary.accumulate(&stats);
         let all_noop = edits.is_empty();
+
+        // Plan §6: append one audit-log row per AI call (success or
+        // failure). Audit failures are logged-and-swallowed — they
+        // should not abort the user's batch.
+        let needs_conflict_rows = stats.n_location_xmp_iim_conflict > 0 || stats.n_date_conflict > 0;
+        if !ai_calls.is_empty() || needs_conflict_rows {
+            if let Ok(app_dir) = app_data_dir(&app) {
+                let log_path = app_dir.join("normalise_audit.jsonl");
+                let now = chrono::Utc::now().to_rfc3339();
+                let model_name = ai_client.as_ref().map(|c| c.model().to_string())
+                    .unwrap_or_default();
+                let pricing = openai_describe::pricing_for(&model_name);
+                // Conflict-counter rows (user-requested archaeology).
+                if stats.n_location_xmp_iim_conflict > 0 {
+                    let entry = normalise::NormaliseAuditEntry {
+                        ts: now.clone(),
+                        model: String::new(),
+                        prompt_version: openai_normalise::NORMALISE_PROMPT_VERSION.to_string(),
+                        group: "location_conflict".into(),
+                        input_tokens: 0,
+                        output_tokens: 0,
+                        cost_usd: 0.0,
+                        error: format!(
+                            "{} pair(s) XMP↔IIM diverged; primary won",
+                            stats.n_location_xmp_iim_conflict,
+                        ),
+                        relative_path: rel.clone(),
+                    };
+                    let _ = batch_audit_log::append(&log_path, &entry);
+                }
+                if stats.n_date_conflict > 0 {
+                    let entry = normalise::NormaliseAuditEntry {
+                        ts: now.clone(),
+                        model: String::new(),
+                        prompt_version: openai_normalise::NORMALISE_PROMPT_VERSION.to_string(),
+                        group: "date_conflict".into(),
+                        input_tokens: 0,
+                        output_tokens: 0,
+                        cost_usd: 0.0,
+                        error: format!(
+                            "{} date sub-group(s) diverged; primary won",
+                            stats.n_date_conflict,
+                        ),
+                        relative_path: rel.clone(),
+                    };
+                    let _ = batch_audit_log::append(&log_path, &entry);
+                }
+                for call in &ai_calls {
+                    let cost = pricing
+                        .map(|p| {
+                            (call.usage.input_tokens as f64 / 1_000_000.0) * p.input_per_1m
+                                + (call.usage.output_tokens as f64 / 1_000_000.0) * p.output_per_1m
+                        })
+                        .unwrap_or(0.0);
+                    let entry = normalise::NormaliseAuditEntry {
+                        ts: now.clone(),
+                        model: model_name.clone(),
+                        prompt_version: openai_normalise::NORMALISE_PROMPT_VERSION.to_string(),
+                        group: call.group.to_string(),
+                        input_tokens: call.usage.input_tokens,
+                        output_tokens: call.usage.output_tokens,
+                        cost_usd: cost,
+                        error: call.error.clone().unwrap_or_default(),
+                        relative_path: rel.clone(),
+                    };
+                    if let Err(e) = batch_audit_log::append(&log_path, &entry) {
+                        log::warn!("[normalise] audit-log append failed for {}: {}", rel, e);
+                    }
+                }
+            }
+        }
 
         if let Some(err) = ai_err {
             // Plan §8: AI failures do not abort the batch; non-AI
