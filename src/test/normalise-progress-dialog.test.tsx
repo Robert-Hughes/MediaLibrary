@@ -31,6 +31,8 @@ function baseState(over: Partial<NormaliseProgressState> = {}): NormaliseProgres
     failures: [],
     succeeded: [],
     summary: null,
+    estimate: null,
+    estimateError: null,
     items: [],
     enabledGroups: [...allGroups],
     ...over,

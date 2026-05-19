@@ -1,19 +1,19 @@
 /**
  * Drives the metadata-normalisation flow end-to-end.
  *
- * Thin adapter around `useBatchImageJob`. v1 of the normaliser has no
- * AI dispatch, so there is no estimate phase (plan §7 — the estimate
- * phase lands with v2 alongside the Description group's AI merge).
- * The hook therefore jumps straight to `awaiting-confirm` with the
- * items + enabled-groups the caller passed, then on `confirm` invokes
- * `normalise_metadata_cmd` and lets the backend's `normalise_*` events
- * drive the rest of the state machine.
+ * Thin adapter around `useBatchImageJob`. Plan §7 estimate phase fires
+ * before awaiting-confirm whenever any AI-capable group (Description,
+ * Title) is enabled — the backend walks every image and preflights
+ * each fire-able AI prompt against `/responses/input_tokens` so the
+ * dialog can show an exact cost preview.
  *
- * See `docs/NORMALISE_METADATA_PLAN.md` §9 (hook + dialog wiring).
+ * See `docs/NORMALISE_METADATA_PLAN.md` §7, §9.
  */
 import { useMemo, useState } from "react";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
   DraftEdit,
+  NormaliseEstimate,
   NormaliseGroup,
   NormaliseRequestItem,
   NormaliseSummary,
@@ -27,12 +27,11 @@ import {
 } from "./useBatchImageJob";
 
 /**
- * UI state for the normaliser dialog. Mirrors `GeocodeProgressState`
- * in spirit — the BatchJobDialog reads `phase` and the dialog body
- * renders the matching panel.
+ * UI state for the normaliser dialog. Mirrors `DescribeProgressState`
+ * — the estimate phase is enabled now that v2 ships AI calls.
  */
 export interface NormaliseProgressState {
-  phase: Exclude<BatchJobPhase, "estimating">;
+  phase: BatchJobPhase;
   total: number;
   current: number;
   currentFile: string | null;
@@ -40,24 +39,14 @@ export interface NormaliseProgressState {
   failures: BatchJobFailure[];
   succeeded: string[];
   summary: NormaliseSummary | null;
-  /** Items the dialog was opened for; kept so the awaiting-confirm
-   *  panel can show per-group preview counts. */
+  estimate: NormaliseEstimate | null;
+  estimateError: string | null;
   items: NormaliseRequestItem[];
-  /** Groups the user chose in the confirm dialog (or supplied at
-   *  `start`). */
   enabledGroups: NormaliseGroup[];
 }
 
 export interface NormaliseActions {
-  /**
-   * Begin the flow with all groups in `groupInputs` populated. The
-   * user toggles enabled groups inside the dialog before clicking
-   * Confirm; the final set is shipped to the backend at `confirm`
-   * time via `setEnabledGroups`.
-   */
   start: (folderPath: string, items: NormaliseRequestItem[], enabledGroups: NormaliseGroup[]) => void;
-  /** Update the enabled-group selection (typically from dialog
-   *  checkboxes). Latest value is used at confirm time. */
   setEnabledGroups: (groups: NormaliseGroup[]) => void;
   confirm: () => void;
   cancel: () => void;
@@ -74,13 +63,12 @@ interface StartArgs {
 }
 
 function toNormaliseShape(
-  s: BatchJobState<null, NormaliseSummary>,
+  s: BatchJobState<NormaliseEstimate, NormaliseSummary>,
   items: NormaliseRequestItem[],
   enabledGroups: NormaliseGroup[],
 ): NormaliseProgressState {
-  const phase = s.phase === "estimating" ? "awaiting-confirm" : s.phase;
   return {
-    phase,
+    phase: s.phase,
     total: s.total,
     current: s.current,
     currentFile: s.currentFile,
@@ -88,6 +76,8 @@ function toNormaliseShape(
     failures: s.failures,
     succeeded: s.succeeded,
     summary: s.summary,
+    estimate: s.estimate,
+    estimateError: s.estimateError,
     items,
     enabledGroups,
   };
@@ -98,14 +88,9 @@ export function useNormaliseMetadata(options: UseNormaliseMetadataOptions = {}):
   state: NormaliseProgressState;
   actions: NormaliseActions;
 } {
-  // Mutable stash read by `buildRunArgs` at confirm time. Both items
-  // and enabled-groups live here so the user's final checkbox
-  // selection (which may have changed after `start`) is the one
-  // shipped to the backend.
-  //
-  // `buildRunArgs` receives the static `StartArgs` captured at start
-  // time, but we deliberately pass it the live stash via closure
-  // below — the captured value is ignored.
+  // Mutable stash read by `buildRunArgs` / `buildEstimateArgs` at fire
+  // time so the user's latest checkbox selection is the one shipped to
+  // the backend (rather than the value captured at start time).
   const stash = useMemo<{
     items: NormaliseRequestItem[];
     enabledGroups: NormaliseGroup[];
@@ -113,33 +98,83 @@ export function useNormaliseMetadata(options: UseNormaliseMetadataOptions = {}):
     () => ({ items: [], enabledGroups: [] }),
     [],
   );
-  // Separate React state so the dialog UI re-renders when the user
-  // toggles a checkbox. Always kept in sync with `stash.enabledGroups`
-  // via the `setEnabledGroups` action below.
   const [enabledGroupsState, setEnabledGroupsState] = useState<NormaliseGroup[]>([]);
 
-  const config = useMemo<BatchJobConfig<StartArgs, null, NormaliseSummary>>(
+  const config = useMemo<BatchJobConfig<StartArgs, NormaliseEstimate, NormaliseSummary>>(
     () => ({
       eventPrefix: "normalise",
       commands: {
-        // No estimate command in v1 — see file-level comment.
+        estimate: "estimate_normalise_cost_cmd",
         run: "normalise_metadata_cmd",
         cancel: "cancel_normalise_cmd",
       },
-      buildRunArgs: (folderPath, _args) => ({
+      buildEstimateArgs: (folderPath) => ({
         folderPath,
-        // Read from the live stash, NOT the start-time `_args`, so
-        // the user's most-recent checkbox selection wins.
+        items: stash.items,
+        enabledGroups: stash.enabledGroups,
+      }),
+      buildRunArgs: (folderPath) => ({
+        folderPath,
         items: stash.items,
         enabledGroups: stash.enabledGroups,
       }),
       totalItems: (args) => args.items.length,
+      parseEstimatePayload: (raw) => raw as NormaliseEstimate,
       parseSummaryPayload: (raw) => raw as NormaliseSummary,
+      subscribeExtras: async (setState) => {
+        const unlisteners: UnlistenFn[] = [];
+        unlisteners.push(
+          await listen<{ total: number }>("normalise_estimate_started", (e) => {
+            setState((s) => ({
+              ...s,
+              phase: "estimating",
+              total: e.payload.total,
+              current: 0,
+            }));
+          }),
+        );
+        unlisteners.push(
+          await listen<{ current: number; total: number; relativePath: string }>(
+            "normalise_estimate_progress",
+            (e) => {
+              setState((s) => ({
+                ...s,
+                phase: "estimating",
+                current: e.payload.current,
+                total: e.payload.total,
+                currentFile: e.payload.relativePath,
+              }));
+            },
+          ),
+        );
+        unlisteners.push(
+          await listen<{ relativePath: string; message: string }>(
+            "normalise_estimate_error",
+            (e) => {
+              setState((s) => ({
+                ...s,
+                estimateError: `${e.payload.relativePath}: ${e.payload.message}`,
+              }));
+            },
+          ),
+        );
+        unlisteners.push(
+          await listen<NormaliseEstimate>("normalise_estimate_complete", (e) => {
+            setState((s) => ({
+              ...s,
+              phase: "awaiting-confirm",
+              currentFile: null,
+              estimate: e.payload,
+            }));
+          }),
+        );
+        return unlisteners;
+      },
     }),
     [stash],
   );
 
-  const job = useBatchImageJob<StartArgs, null, NormaliseSummary>(config, {
+  const job = useBatchImageJob<StartArgs, NormaliseEstimate, NormaliseSummary>(config, {
     onApplyEdits: options.onApplyEdits,
   });
 

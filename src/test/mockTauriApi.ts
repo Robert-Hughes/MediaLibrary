@@ -359,6 +359,29 @@ export function createMockTauriApi(): MockTauriApi {
         mock.cancelGeocodeCalled = true;
         return;
       }
+      if (cmd === "estimate_normalise_cost_cmd") {
+        // Skip-AI happy path: emit started + immediate complete so the
+        // dialog transitions to awaiting-confirm without any preflight
+        // round-trip in tests. Tests that exercise AI flows can stub
+        // this command explicitly.
+        const items = (args?.items as Array<{ relPath: string }>) ?? [];
+        const enabledGroups = (args?.enabledGroups as string[]) ?? [];
+        const total = items.length;
+        await new Promise((r) => setTimeout(r, 0));
+        emit("normalise_estimate_started", { total });
+        const wantsAi =
+          enabledGroups.includes("description") || enabledGroups.includes("title");
+        emit("normalise_estimate_complete", {
+          nImagesWithAiB: 0,
+          nImagesWithAiC: 0,
+          nImagesNoAi: total,
+          totalInputTokens: 0,
+          predictedCostUsd: 0,
+          upperBoundCostUsd: 0,
+          model: wantsAi ? "gpt-5.4-nano" : "",
+        });
+        return;
+      }
       if (cmd === "normalise_metadata_cmd") {
         const folderPath = args?.folderPath as string;
         const items = (args?.items as Array<{ relPath: string; groupInputs: Record<string, unknown> }>) ?? [];

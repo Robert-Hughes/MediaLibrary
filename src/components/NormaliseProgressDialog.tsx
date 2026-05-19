@@ -11,7 +11,7 @@
  * Thin wrapper around `BatchJobDialog` — the overlay, header, dialog
  * body frame and Escape handling live there.
  */
-import type { BatchFailureKind, NormaliseGroup, NormaliseSummary } from "../types";
+import type { BatchFailureKind, NormaliseEstimate, NormaliseGroup, NormaliseSummary } from "../types";
 import type { NormaliseProgressState } from "../hooks/useNormaliseMetadata";
 import { BatchJobDialog } from "./BatchJobDialog";
 import { BatchSummaryCountersRow } from "./BatchSummaryCountersRow";
@@ -103,6 +103,8 @@ const V1_GROUPS: NormaliseGroup[] = [
 
 function phaseTitle(state: NormaliseProgressState): string {
   switch (state.phase) {
+    case "estimating":
+      return "Estimating cost…";
     case "awaiting-confirm":
       return "Normalise metadata";
     case "running":
@@ -110,6 +112,83 @@ function phaseTitle(state: NormaliseProgressState): string {
     case "done":
       return "Done";
   }
+}
+
+function formatCost(usd: number): string {
+  if (usd < 0.01 && usd > 0) return `$${usd.toFixed(4)}`;
+  return `$${usd.toFixed(2)}`;
+}
+
+function EstimatingPanel({
+  state,
+  onCancel,
+}: {
+  state: NormaliseProgressState;
+  onCancel: () => void;
+}) {
+  return (
+    <div data-testid="normalise-estimating-panel">
+      <div className="dialog-hint">
+        Walking {state.total} {state.total === 1 ? "image" : "images"} to
+        estimate AI cost…
+      </div>
+      <RunningProgressPanel
+        testidPrefix="normalise-estimate"
+        current={state.current}
+        total={state.total}
+        currentFile={state.currentFile}
+        cancelling={state.cancelling}
+        onCancel={onCancel}
+        noun="image"
+      />
+      {state.estimateError && (
+        <div
+          style={{ marginTop: 8, color: "var(--accent-error, #d33)", fontSize: 12 }}
+          data-testid="normalise-estimate-error"
+        >
+          {state.estimateError}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CostPreview({ estimate }: { estimate: NormaliseEstimate }) {
+  const hasAi = estimate.nImagesWithAiB + estimate.nImagesWithAiC > 0;
+  if (!hasAi) {
+    return (
+      <div
+        style={{ marginTop: 10, fontSize: 12, color: "var(--text-secondary)" }}
+        data-testid="normalise-cost-preview"
+      >
+        No AI calls required. Free.
+      </div>
+    );
+  }
+  return (
+    <div
+      style={{ marginTop: 10, fontSize: 12, color: "var(--text-secondary)" }}
+      data-testid="normalise-cost-preview"
+    >
+      AI calls required with model <code>{estimate.model}</code>:
+      <ul style={{ marginTop: 4, paddingLeft: 18 }}>
+        {estimate.nImagesWithAiB > 0 && (
+          <li>{estimate.nImagesWithAiB} description merges</li>
+        )}
+        {estimate.nImagesWithAiC > 0 && (
+          <li>{estimate.nImagesWithAiC} title generations</li>
+        )}
+        {estimate.nImagesNoAi > 0 && (
+          <li>{estimate.nImagesNoAi} images run purely deterministically</li>
+        )}
+      </ul>
+      <div>
+        <strong>Cost:</strong> {formatCost(estimate.predictedCostUsd)} predicted,
+        up to {formatCost(estimate.upperBoundCostUsd)} worst case (output-token
+        variation only).
+      </div>
+    </div>
+  );
 }
 
 function AwaitingConfirmPanel({
@@ -141,6 +220,7 @@ function AwaitingConfirmPanel({
         groups to normalise — drafts are proposed; nothing is written to
         disk until you apply them.
       </div>
+      {state.estimate && <CostPreview estimate={state.estimate} />}
       <div
         style={{ marginTop: 12, fontSize: 13 }}
         data-testid="normalise-group-checklist"
@@ -284,6 +364,7 @@ export function NormaliseProgressDialog({
       onCancel={onCancel}
       onClose={onClose}
     >
+      {state.phase === "estimating" && <EstimatingPanel state={state} onCancel={onCancel} />}
       {state.phase === "awaiting-confirm" && (
         <AwaitingConfirmPanel
           state={state}

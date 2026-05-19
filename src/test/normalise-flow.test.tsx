@@ -66,7 +66,9 @@ describe("Metadata-normalisation flow", () => {
     fireEvent.click(entry);
 
     await screen.findByTestId("normalise-progress-dialog");
-    // All seven v1 group checkboxes rendered.
+    // Dialog opens in the estimating phase (plan §7); wait for the
+    // estimate_complete event to transition into awaiting-confirm.
+    await screen.findByTestId("normalise-group-keywords-checkbox");
     expect(screen.getByTestId("normalise-group-keywords-checkbox")).toBeInTheDocument();
     expect(screen.getByTestId("normalise-group-creator-checkbox")).toBeInTheDocument();
     expect(screen.getByTestId("normalise-group-copyright-checkbox")).toBeInTheDocument();
@@ -106,6 +108,7 @@ describe("Metadata-normalisation flow", () => {
     });
     fireEvent.click(entry);
     await screen.findByTestId("normalise-progress-dialog");
+    await screen.findByTestId("normalise-group-keywords-checkbox");
 
     // Untick everything except Keywords to verify selection survives
     // through to the backend.
@@ -146,6 +149,7 @@ describe("Metadata-normalisation flow", () => {
     });
     fireEvent.click(entry);
     await screen.findByTestId("normalise-progress-dialog");
+    await screen.findByTestId("normalise-group-keywords-checkbox");
 
     // Untick all eight (Description added in v2).
     for (const g of [
@@ -167,6 +171,9 @@ describe("Metadata-normalisation flow", () => {
     });
     fireEvent.click(entry);
     await screen.findByTestId("normalise-progress-dialog");
+    // Wait for the estimate phase to transition to awaiting-confirm
+    // before clicking the per-phase cancel button.
+    await screen.findByTestId("normalise-cancel-btn");
 
     fireEvent.click(screen.getByTestId("normalise-cancel-btn"));
     await waitFor(() => {

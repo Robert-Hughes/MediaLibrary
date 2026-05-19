@@ -475,6 +475,21 @@ export interface DescribeEstimate {
   model: string;
 }
 
+/**
+ * Cost-estimate summary for the metadata-normaliser. Plan §7.
+ * `model` is the empty string when no AI groups are enabled (no
+ * preflight was performed).
+ */
+export interface NormaliseEstimate {
+  nImagesWithAiB: number;
+  nImagesWithAiC: number;
+  nImagesNoAi: number;
+  totalInputTokens: number;
+  predictedCostUsd: number;
+  upperBoundCostUsd: number;
+  model: string;
+}
+
 export interface DescribeFailure {
   relativePath: string;
   kind: BatchFailureKind;
