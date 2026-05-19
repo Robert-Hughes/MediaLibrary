@@ -8,6 +8,7 @@ pub mod write_args;
 pub mod apply_log;
 pub mod exiftool_config;
 pub mod settings;
+pub mod batch_audit_log;
 pub mod batch_job;
 pub mod openai_describe;
 pub mod describe_log;

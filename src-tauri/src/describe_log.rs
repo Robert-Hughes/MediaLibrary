@@ -4,9 +4,11 @@
 //! JSONL line under `<app_data_dir>/describe_log.jsonl`. Lets users (and
 //! us) spot cost surprises, see when prompt-version bumps started landing,
 //! and reason about model-vs-prompt deltas without re-running.
+//!
+//! The on-disk I/O is owned by `batch_audit_log::append`; this module
+//! supplies the wire shape and a typed convenience wrapper.
 
 use serde::{Deserialize, Serialize};
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -40,18 +42,7 @@ pub fn log_file_path(app_data_dir: &Path) -> PathBuf {
 }
 
 pub fn append(app_data_dir: &Path, entry: &DescribeLogEntry) -> Result<(), String> {
-    std::fs::create_dir_all(app_data_dir)
-        .map_err(|e| format!("create_dir_all({}): {}", app_data_dir.display(), e))?;
-    let path = log_file_path(app_data_dir);
-    let mut f = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)
-        .map_err(|e| format!("open {}: {}", path.display(), e))?;
-    let json = serde_json::to_string(entry)
-        .map_err(|e| format!("serialize log entry: {}", e))?;
-    writeln!(f, "{}", json).map_err(|e| format!("write log line: {}", e))?;
-    Ok(())
+    crate::batch_audit_log::append(&log_file_path(app_data_dir), entry)
 }
 
 #[cfg(test)]
