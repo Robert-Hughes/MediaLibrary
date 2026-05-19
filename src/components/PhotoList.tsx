@@ -7,6 +7,7 @@ import { PhotoRow } from "./PhotoRow";
 import { ResizeHandle } from "./ResizeHandle";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { nextSortConfig } from "../utils/sorting";
+import { buildOverwriteWarning } from "./overwriteWarning";
 
 interface Props {
   photos: PhotoInfo[];
@@ -854,11 +855,26 @@ export function PhotoList({
                         const inDraft = "XMP-mlib:AIDescription" in (draftEdits[p] ?? {});
                         return inMeta || inDraft;
                       });
-                      if (existing.length > 0) {
-                        const msg = existing.length === 1 && selectedPaths.length === 1
-                          ? "This image already has an AI description. Generating a new one will overwrite the existing one. Continue?"
-                          : `${existing.length} of ${selectedPaths.length} selected ${selectedPaths.length === 1 ? "photo" : "photos"} already ${existing.length === 1 ? "has" : "have"} an AI description. Generating new ones will overwrite the existing ones. Continue?`;
-                        const confirmed = await ask(msg, { title: "Overwrite AI description?", kind: "warning" });
+                      const warning = buildOverwriteWarning({
+                        existingCount: existing.length,
+                        totalCount: selectedPaths.length,
+                        title: "Overwrite AI description?",
+                        // PhotoList: only one selection means the
+                        // single-selection branch uses "image" to
+                        // match DetailsPane's button copy.
+                        subjectSingular: "image",
+                        subjectPlural: "photos",
+                        dataPhrase: "an AI description",
+                        actionSingle:
+                          "Generating a new one will overwrite the existing one.",
+                        actionPluralAll:
+                          "Generating new ones will overwrite the existing ones.",
+                      });
+                      if (warning) {
+                        const confirmed = await ask(warning.body, {
+                          title: warning.title,
+                          kind: "warning",
+                        });
                         if (!confirmed) return;
                       }
                       setContextMenu(null);
@@ -894,17 +910,20 @@ export function PhotoList({
                           (k) => k in metaBag || k in drafts,
                         );
                       });
-                      if (existing.length > 0) {
-                        const n = selectedPaths.length;
-                        const x = existing.length;
-                        const msg =
-                          n === 1
-                            ? "This photo already has location data. Reverse-geocoding will overwrite all location name fields (City, State, Country, etc. — GPS coordinates are not touched) with drafts; fields the geocoder doesn't return will be cleared. Continue?"
-                            : x === n
-                              ? `All ${n} selected photos already have location data. Reverse-geocoding will overwrite all location name fields (City, State, Country, etc. — GPS coordinates are not touched) with drafts; fields the geocoder doesn't return will be cleared. Continue?`
-                              : `${x} of ${n} selected photos already have location data. Reverse-geocoding will overwrite all location name fields (City, State, Country, etc. — GPS coordinates are not touched) with drafts for those photos; fields the geocoder doesn't return will be cleared. Continue?`;
-                        const confirmed = await ask(msg, {
-                          title: "Overwrite location data?",
+                      const warning = buildOverwriteWarning({
+                        existingCount: existing.length,
+                        totalCount: selectedPaths.length,
+                        title: "Overwrite location data?",
+                        subjectSingular: "photo",
+                        dataPhrase: "location data",
+                        actionSingle:
+                          "Reverse-geocoding will overwrite all location name fields (City, State, Country, etc. — GPS coordinates are not touched) with drafts; fields the geocoder doesn't return will be cleared.",
+                        actionPluralPartial:
+                          "Reverse-geocoding will overwrite all location name fields (City, State, Country, etc. — GPS coordinates are not touched) with drafts for those photos; fields the geocoder doesn't return will be cleared.",
+                      });
+                      if (warning) {
+                        const confirmed = await ask(warning.body, {
+                          title: warning.title,
                           kind: "warning",
                         });
                         if (!confirmed) return;
