@@ -20,6 +20,7 @@ const formatVariantImpl = variantToDisplayString;
 import { NewPropertyDialog } from "./NewPropertyDialog";
 import { haystackContainsNormalized, normalizeListSearchQuery } from "../utils/listSearchText";
 import { ask } from "@tauri-apps/plugin-dialog";
+import { buildOverwriteWarning } from "./overwriteWarning";
 
 interface Props {
   photo: PhotoInfo;
@@ -550,11 +551,20 @@ export function DetailsPane({ photo, metadata, draftEdits = {}, typedDraftEdits,
                 const inDraft = typedDraftEdits
                   ? "XMP-mlib:AIDescription" in typedDraftEdits
                   : "XMP-mlib:AIDescription" in draftEdits;
-                if (inMeta || inDraft) {
-                  const confirmed = await ask(
-                    "This image already has an AI description. Generating a new one will overwrite the existing one. Continue?",
-                    { title: "Overwrite AI description?", kind: "warning" }
-                  );
+                const warning = buildOverwriteWarning({
+                  existingCount: inMeta || inDraft ? 1 : 0,
+                  totalCount: 1,
+                  title: "Overwrite AI description?",
+                  subjectSingular: "image",
+                  dataPhrase: "an AI description",
+                  actionSingle:
+                    "Generating a new one will overwrite the existing one.",
+                });
+                if (warning) {
+                  const confirmed = await ask(warning.body, {
+                    title: warning.title,
+                    kind: "warning",
+                  });
                   if (!confirmed) return;
                 }
                 onGenerateAiDescription();
@@ -583,11 +593,20 @@ export function DetailsPane({ photo, metadata, draftEdits = {}, typedDraftEdits,
                     : k in draftEdits;
                   return inMeta || inDraft;
                 });
-                if (hasExisting) {
-                  const confirmed = await ask(
-                    "This image already has location data. Reverse-geocoding will overwrite all location name fields (City, State, Country, etc. — GPS coordinates are not touched) with drafts; fields the geocoder doesn't return will be cleared. Continue?",
-                    { title: "Overwrite location data?", kind: "warning" },
-                  );
+                const warning = buildOverwriteWarning({
+                  existingCount: hasExisting ? 1 : 0,
+                  totalCount: 1,
+                  title: "Overwrite location data?",
+                  subjectSingular: "image",
+                  dataPhrase: "location data",
+                  actionSingle:
+                    "Reverse-geocoding will overwrite all location name fields (City, State, Country, etc. — GPS coordinates are not touched) with drafts; fields the geocoder doesn't return will be cleared.",
+                });
+                if (warning) {
+                  const confirmed = await ask(warning.body, {
+                    title: warning.title,
+                    kind: "warning",
+                  });
                   if (!confirmed) return;
                 }
                 onGeocode();

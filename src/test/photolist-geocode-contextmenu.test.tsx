@@ -236,7 +236,10 @@ describe("PhotoList: Reverse Geocode context-menu entry (plan §5)", () => {
     const ask = await getAskMock();
     expect(ask).toHaveBeenCalledTimes(1);
     const msg = ask.mock.calls[0]?.[0] as string;
-    expect(msg).toMatch(/^1 of 3 selected photos already have location data/);
+    // Grammar conjugates by `existing.length` after the
+    // `buildOverwriteWarning` refactor — X==1 says "has", X>1 says
+    // "have". Pre-refactor copy always said "have".
+    expect(msg).toMatch(/^1 of 3 selected photos already has location data/);
     expect(msg).toMatch(/for those photos/);
   });
 
