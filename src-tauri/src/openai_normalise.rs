@@ -42,6 +42,25 @@ Use the description as the primary source; use location and keywords for disambi
 pub const DESCRIPTION_OUTPUT_TOKENS: u32 = 400;
 pub const TITLE_OUTPUT_TOKENS: u32 = 30;
 
+/// Synthetic typical cost shown next to each model in the settings
+/// dropdown. Plan §6: assumes the worst case (both Group B and Group C
+/// fire on the same photo) with median prompt sizes. The run-time
+/// estimator (§7) computes exact costs from real prompts.
+pub fn typical_normalise_cost_per_image(model: &str) -> Option<f64> {
+    let p = crate::openai_describe::pricing_for(model)?;
+    // Group B: ~800 input tokens (system + 3 description sources + AI
+    // context + location + keywords + date), ~250 expected output.
+    let b_in: f64 = 800.0;
+    let b_out: f64 = 250.0;
+    // Group C: ~300 input + ~15 output.
+    let c_in: f64 = 300.0;
+    let c_out: f64 = 15.0;
+    Some(
+        ((b_in + c_in) / 1_000_000.0) * p.input_per_1m
+            + ((b_out + c_out) / 1_000_000.0) * p.output_per_1m,
+    )
+}
+
 #[derive(Clone)]
 pub struct OpenAiNormaliseClient {
     inner: OpenAiClient,

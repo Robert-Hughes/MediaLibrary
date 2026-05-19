@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import type { DraftEdit, PhotoInfo, ImageMetadataState, Variant } from "../types";
-import { GEOCODE_TARGET_TAGS } from "../types";
+import { GEOCODE_TARGET_TAGS, NORMALISE_ALL_TARGET_TAGS } from "../types";
 import { HighlightedText } from "./HighlightedText";
 import { ContextMenu } from "./ContextMenu";
 import { TypedValueEditor } from "./editors/TypedValueEditor";
@@ -53,6 +53,13 @@ interface Props {
    * doesn't wire the feature (e.g. tests, read-only contexts).
    */
   onGeocode?: () => void;
+  /**
+   * Trigger the metadata-normalisation flow for this image. App-level
+   * callback so the normalise progress dialog lives once, not once per
+   * pane. Optional so DetailsPane keeps rendering in tests / read-only
+   * contexts that don't wire the feature.
+   */
+  onNormalise?: () => void;
   /**
    * Reveal this photo in the host file manager. Same backend pathway as
    * the list-view context menu's "Show in File Explorer" entry — the
@@ -309,7 +316,7 @@ function DetailsRowContextMenu({
   );
 }
 
-export function DetailsPane({ photo, metadata, draftEdits = {}, typedDraftEdits, onSetDraftTyped, onSetDraftBatch, onDiscardDraft, onDiscardAllEdits, onApplyEdits, onGenerateAiDescription, onGeocode, onShowInFileExplorer }: Props) {
+export function DetailsPane({ photo, metadata, draftEdits = {}, typedDraftEdits, onSetDraftTyped, onSetDraftBatch, onDiscardDraft, onDiscardAllEdits, onApplyEdits, onGenerateAiDescription, onGeocode, onNormalise, onShowInFileExplorer }: Props) {
   const [detailsSearch, setDetailsSearch] = useState("");
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, key: string, originalValue: string, draftValue?: string | null } | null>(null);
   const [editDialog, setEditDialog] = useState<{ key: string, initialValue: string } | null>(null);
@@ -613,6 +620,48 @@ export function DetailsPane({ photo, metadata, draftEdits = {}, typedDraftEdits,
               }}
             >
               Reverse Geocode…
+            </button>
+          )}
+          {onNormalise && (
+            <button
+              className="button button--secondary"
+              data-testid="details-pane-normalise-btn"
+              title="Normalise metadata: sync canonical fields across XMP / IPTC / EXIF"
+              onClick={async () => {
+                // Plan §13 single-image overwrite-warning. "Already has
+                // data" means any of the §1 target tags (across all
+                // groups) is non-empty in metadata OR drafts.
+                const metaBag =
+                  typeof metadata === "object" && metadata !== null
+                    ? (metadata as Record<string, Variant>)
+                    : {};
+                const hasExisting = NORMALISE_ALL_TARGET_TAGS.some((k) => {
+                  const inMeta = k in metaBag;
+                  const inDraft = typedDraftEdits
+                    ? k in typedDraftEdits
+                    : k in draftEdits;
+                  return inMeta || inDraft;
+                });
+                const warning = buildOverwriteWarning({
+                  existingCount: hasExisting ? 1 : 0,
+                  totalCount: 1,
+                  title: "Overwrite metadata fields?",
+                  subjectSingular: "image",
+                  dataPhrase: "metadata in the groups you have selected",
+                  actionSingle:
+                    "Normalising will overwrite those fields with drafts — fields outside the canonical form will be cleared.",
+                });
+                if (warning) {
+                  const confirmed = await ask(warning.body, {
+                    title: warning.title,
+                    kind: "warning",
+                  });
+                  if (!confirmed) return;
+                }
+                onNormalise();
+              }}
+            >
+              Normalise Metadata…
             </button>
           )}
         </div>

@@ -23,6 +23,7 @@ import type { BatchFailureKind } from "./types/generated/BatchFailureKind";
 
 // ── Metadata normalisation (see docs/NORMALISE_METADATA_PLAN.md) ─────────────
 export type { NormaliseGroup } from "./types/generated/NormaliseGroup";
+import type { NormaliseGroup } from "./types/generated/NormaliseGroup";
 export type { NormaliseRequestItem } from "./types/generated/NormaliseRequestItem";
 export type { GroupInputs as NormaliseGroupInputs } from "./types/generated/GroupInputs";
 export type { KeywordsInput } from "./types/generated/KeywordsInput";
@@ -523,6 +524,49 @@ export interface DescribeProgressState {
  *    or drafts triggers the warning),
  *  - tests that verify all ten keys land as drafts on success.
  */
+/**
+ * Per-group target tags written by the metadata normaliser (plan §1).
+ * Used by the "already has data" overwrite-warning check in DetailsPane
+ * and PhotoList: any of the enabled groups' tags present in metadata or
+ * drafts triggers the warning. Keep in sync with the `*_TARGET_TAGS`
+ * constants in `src-tauri/src/normalise.rs`.
+ */
+export const NORMALISE_TARGET_TAGS_BY_GROUP: Record<NormaliseGroup, readonly string[]> = {
+  keywords: ["XMP-lr:HierarchicalSubject", "XMP-dc:Subject", "IPTC:Keywords"],
+  description: ["XMP-dc:Description", "EXIF:ImageDescription", "IPTC:Caption-Abstract"],
+  title: ["XMP-dc:Title", "IPTC:ObjectName"],
+  headline: ["XMP-photoshop:Headline", "IPTC:Headline"],
+  creator: ["XMP-dc:Creator", "EXIF:Artist", "IPTC:By-line"],
+  copyright: ["XMP-dc:Rights", "EXIF:Copyright", "IPTC:CopyrightNotice"],
+  location: [
+    "XMP-iptcCore:Location",
+    "IPTC:Sub-location",
+    "XMP-photoshop:City",
+    "IPTC:City",
+    "XMP-photoshop:State",
+    "IPTC:Province-State",
+    "XMP-photoshop:Country",
+    "IPTC:Country-PrimaryLocationName",
+    "XMP-iptcCore:CountryCode",
+    "IPTC:Country-PrimaryLocationCode",
+  ],
+  dates: [
+    "EXIF:DateTimeOriginal",
+    "XMP-photoshop:DateCreated",
+    "IPTC:DateCreated",
+    "IPTC:TimeCreated",
+    "EXIF:CreateDate",
+    "XMP-xmp:CreateDate",
+    "IPTC:DigitalCreationDate",
+    "IPTC:DigitalCreationTime",
+  ],
+};
+
+/** Flat union of every group's target tags. */
+export const NORMALISE_ALL_TARGET_TAGS: readonly string[] = Object.values(
+  NORMALISE_TARGET_TAGS_BY_GROUP,
+).flat();
+
 export const GEOCODE_TARGET_TAGS: readonly string[] = [
   "XMP-iptcCore:Location",
   "XMP-photoshop:City",

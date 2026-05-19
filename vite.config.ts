@@ -31,5 +31,9 @@ export default defineConfig(async () => ({
     globals: true,
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],
+    // Exclude Claude Code worktree clones so duplicate test runs from
+    // sibling working copies don't double-count and confuse the
+    // headless suite. node_modules / dist remain excluded by default.
+    exclude: ["**/node_modules/**", "**/dist/**", ".claude/**"],
   },
 }));
