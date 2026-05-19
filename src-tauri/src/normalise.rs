@@ -401,6 +401,279 @@ pub fn join_hierarchical_path(components: &[String]) -> String {
     components.join("|")
 }
 
+/// Shared cancel-flag state for the normaliser batch run.
+pub type NormaliseState = crate::batch_job::BatchJobCancelState;
+
+// ── Dispatcher ─────────────────────────────────────────────────────────
+//
+// `process_image` is the per-image entrypoint called by the batch
+// loop. It walks the enabled groups in pass order (plan §2), building
+// up a flat draft-edits map plus a stats struct.
+
+/// Per-image stats tracking from one `process_image` call. Aggregated
+/// across the whole batch into `NormaliseSummary`.
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
+pub struct PerImageStats {
+    /// Number of enabled groups that emitted drafts.
+    pub n_groups_normalised: u32,
+    /// Number of enabled groups whose idempotency detector returned
+    /// no-op (already normalised).
+    pub n_groups_noop: u32,
+    /// Per-group conflict counters (Location: XMP↔IIM disagree;
+    /// Dates: H1/H2 primary vs mirror disagree).
+    pub n_location_xmp_iim_conflict: u32,
+    pub n_date_conflict: u32,
+    /// Dates-specific filename-fallback counters.
+    pub n_dto_from_filename: u32,
+    pub n_dto_from_filename_date_only: u32,
+    /// Number of date input fields that were non-empty but
+    /// unparseable.
+    pub n_unparseable_date_inputs: u32,
+}
+
+/// Process one image. Walks the enabled groups in pass order; returns
+/// the aggregated draft-edit map plus per-image stats.
+pub fn process_image(
+    item: &NormaliseRequestItem,
+    enabled: &[NormaliseGroup],
+) -> (HashMap<String, DraftEdit>, PerImageStats) {
+    let mut edits: HashMap<String, DraftEdit> = HashMap::new();
+    let mut stats = PerImageStats::default();
+
+    let is_enabled = |g: NormaliseGroup| enabled.contains(&g);
+
+    // Pass 1: independent groups (any order). Pass 2 (Description),
+    // pass 3 (Title/Headline) are v2 — Title's deterministic branches
+    // run independently in v1.
+    if is_enabled(NormaliseGroup::Keywords) {
+        if let Some(input) = item.group_inputs.keywords.as_ref() {
+            match normalise_keywords(input) {
+                Some(out) => {
+                    edits.extend(out.edits);
+                    stats.n_groups_normalised += 1;
+                }
+                None => stats.n_groups_noop += 1,
+            }
+        } else {
+            stats.n_groups_noop += 1;
+        }
+    }
+
+    if is_enabled(NormaliseGroup::Creator) {
+        if let Some(input) = item.group_inputs.creator.as_ref() {
+            match normalise_creator(input) {
+                Some(out) => {
+                    edits.extend(out.edits);
+                    stats.n_groups_normalised += 1;
+                }
+                None => stats.n_groups_noop += 1,
+            }
+        } else {
+            stats.n_groups_noop += 1;
+        }
+    }
+
+    if is_enabled(NormaliseGroup::Copyright) {
+        if let Some(input) = item.group_inputs.copyright.as_ref() {
+            match normalise_copyright(input) {
+                Some(out) => {
+                    edits.extend(out.edits);
+                    stats.n_groups_normalised += 1;
+                }
+                None => stats.n_groups_noop += 1,
+            }
+        } else {
+            stats.n_groups_noop += 1;
+        }
+    }
+
+    if is_enabled(NormaliseGroup::Headline) {
+        if let Some(input) = item.group_inputs.headline.as_ref() {
+            match normalise_headline(input) {
+                Some(out) => {
+                    edits.extend(out.edits);
+                    stats.n_groups_normalised += 1;
+                }
+                None => stats.n_groups_noop += 1,
+            }
+        } else {
+            stats.n_groups_noop += 1;
+        }
+    }
+
+    if is_enabled(NormaliseGroup::Title) {
+        if let Some(input) = item.group_inputs.title.as_ref() {
+            match normalise_title(input) {
+                Some(out) => {
+                    edits.extend(out.edits);
+                    stats.n_groups_normalised += 1;
+                }
+                None => stats.n_groups_noop += 1,
+            }
+        } else {
+            stats.n_groups_noop += 1;
+        }
+    }
+
+    if is_enabled(NormaliseGroup::Location) {
+        if let Some(input) = item.group_inputs.location.as_ref() {
+            let outcome = normalise_location(input);
+            stats.n_location_xmp_iim_conflict = outcome.n_xmp_iim_conflict;
+            match outcome.output {
+                Some(out) => {
+                    edits.extend(out.edits);
+                    stats.n_groups_normalised += 1;
+                }
+                None => stats.n_groups_noop += 1,
+            }
+        } else {
+            stats.n_groups_noop += 1;
+        }
+    }
+
+    if is_enabled(NormaliseGroup::Dates) {
+        if let Some(input) = item.group_inputs.dates.as_ref() {
+            let outcome = normalise_dates(input);
+            stats.n_date_conflict = outcome.n_date_conflict;
+            stats.n_dto_from_filename = outcome.n_dto_from_filename;
+            stats.n_dto_from_filename_date_only = outcome.n_dto_from_filename_date_only;
+            stats.n_unparseable_date_inputs = outcome.n_unparseable_inputs;
+            match outcome.output {
+                Some(out) => {
+                    edits.extend(out.edits);
+                    stats.n_groups_normalised += 1;
+                }
+                None => stats.n_groups_noop += 1,
+            }
+        } else {
+            stats.n_groups_noop += 1;
+        }
+    }
+
+    // Group B (Description) deferred to v2.
+
+    (edits, stats)
+}
+
+/// Whole-batch summary emitted with the `normalise_complete` event.
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
+pub struct NormaliseSummary {
+    pub n_succeeded: u32,
+    pub n_failed: u32,
+    /// Images for which every enabled group was a no-op
+    /// (idempotency). Counted toward `n_succeeded`.
+    pub n_skipped_all_normalised: u32,
+    /// Total per-group counters across the batch.
+    pub n_groups_normalised_total: u32,
+    pub n_groups_noop_total: u32,
+    pub n_location_xmp_iim_conflict_total: u32,
+    pub n_date_conflict_total: u32,
+    pub n_dto_from_filename_total: u32,
+    pub n_dto_from_filename_date_only_total: u32,
+    pub n_unparseable_date_inputs_total: u32,
+}
+
+impl NormaliseSummary {
+    pub fn accumulate(&mut self, per_image: &PerImageStats) {
+        self.n_groups_normalised_total += per_image.n_groups_normalised;
+        self.n_groups_noop_total += per_image.n_groups_noop;
+        self.n_location_xmp_iim_conflict_total += per_image.n_location_xmp_iim_conflict;
+        self.n_date_conflict_total += per_image.n_date_conflict;
+        self.n_dto_from_filename_total += per_image.n_dto_from_filename;
+        self.n_dto_from_filename_date_only_total += per_image.n_dto_from_filename_date_only;
+        self.n_unparseable_date_inputs_total += per_image.n_unparseable_date_inputs;
+    }
+}
+
+#[cfg(test)]
+mod tests_dispatcher {
+    use super::*;
+
+    #[test]
+    fn enabled_groups_filter() {
+        // Only Keywords enabled; Creator input present but should be
+        // skipped.
+        let item = NormaliseRequestItem {
+            rel_path: "x.jpg".into(),
+            group_inputs: GroupInputs {
+                keywords: Some(KeywordsInput {
+                    dc_subject: vec!["A".into()],
+                    ..Default::default()
+                }),
+                creator: Some(CreatorInput {
+                    creator: vec!["alice".into()],
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+        };
+        let (edits, stats) = process_image(&item, &[NormaliseGroup::Keywords]);
+        assert!(edits.contains_key("XMP-dc:Subject"));
+        assert!(!edits.contains_key("XMP-dc:Creator"));
+        assert_eq!(stats.n_groups_normalised, 1);
+        assert_eq!(stats.n_groups_noop, 0);
+    }
+
+    #[test]
+    fn all_groups_noop_when_already_normalised() {
+        let item = NormaliseRequestItem {
+            rel_path: "x.jpg".into(),
+            group_inputs: GroupInputs::default(),
+        };
+        let (edits, stats) = process_image(
+            &item,
+            &[
+                NormaliseGroup::Keywords,
+                NormaliseGroup::Creator,
+                NormaliseGroup::Copyright,
+                NormaliseGroup::Headline,
+                NormaliseGroup::Title,
+                NormaliseGroup::Location,
+                NormaliseGroup::Dates,
+            ],
+        );
+        assert!(edits.is_empty());
+        assert_eq!(stats.n_groups_normalised, 0);
+        assert_eq!(stats.n_groups_noop, 7);
+    }
+
+    #[test]
+    fn summary_accumulates_per_image_stats() {
+        let mut summary = NormaliseSummary::default();
+        summary.accumulate(&PerImageStats {
+            n_groups_normalised: 2,
+            n_groups_noop: 1,
+            n_location_xmp_iim_conflict: 1,
+            n_date_conflict: 0,
+            n_dto_from_filename: 1,
+            n_dto_from_filename_date_only: 1,
+            n_unparseable_date_inputs: 0,
+        });
+        summary.accumulate(&PerImageStats {
+            n_groups_normalised: 3,
+            n_groups_noop: 0,
+            n_location_xmp_iim_conflict: 0,
+            n_date_conflict: 1,
+            n_dto_from_filename: 0,
+            n_dto_from_filename_date_only: 0,
+            n_unparseable_date_inputs: 2,
+        });
+        assert_eq!(summary.n_groups_normalised_total, 5);
+        assert_eq!(summary.n_groups_noop_total, 1);
+        assert_eq!(summary.n_location_xmp_iim_conflict_total, 1);
+        assert_eq!(summary.n_date_conflict_total, 1);
+        assert_eq!(summary.n_dto_from_filename_total, 1);
+        assert_eq!(summary.n_dto_from_filename_date_only_total, 1);
+        assert_eq!(summary.n_unparseable_date_inputs_total, 2);
+    }
+}
+
 // ── Group A: Keywords ──────────────────────────────────────────────────
 //
 // Plan §1 Group A. Canonical form: bag of `Parent|Child|Leaf`
