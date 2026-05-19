@@ -207,6 +207,15 @@ pub struct OpenAiClient {
 }
 
 impl OpenAiClient {
+    /// Accessors used by `openai_normalise` so the text-only client
+    /// can reuse the existing reqwest middleware (retry policy,
+    /// timeout) without rebuilding it.
+    pub fn base_url(&self) -> &str { &self.base_url }
+    pub fn api_key(&self) -> &str { &self.api_key }
+    pub fn http(&self) -> &ClientWithMiddleware { &self.client }
+}
+
+impl OpenAiClient {
     /// `max_retries` of 3 with exponential backoff is a balance — enough to
     /// ride out transient 429s without delaying the user beyond ~30s on a
     /// hard failure.  Tests inject `1` to keep the suite fast.
