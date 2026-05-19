@@ -17,6 +17,7 @@
  * `RunningProgressPanel` (also shared with the apply-edits dialog).
  */
 import type {
+  BatchFailureKind,
   DescribeFailure,
   DescribeProgressState,
   DescribeUsageSummary,
@@ -38,7 +39,7 @@ interface Props {
  * telemetry. Unknown kinds fall through as the raw value so a new
  * failure mode is still legible while we add a proper label.
  */
-export function friendlyFailureLabel(kind: string): string {
+export function friendlyFailureLabel(kind: BatchFailureKind): string {
   switch (kind) {
     case "decode": return "Could not decode image";
     case "http": return "API request failed";
@@ -49,7 +50,13 @@ export function friendlyFailureLabel(kind: string): string {
     case "usage_parse": return "Description received but token usage could not be measured";
     case "preflight_failed": return "Preflight failed before any image was processed";
     case "command_failed": return "Describe command failed to start";
-    default: return kind;
+    case "cancelled": return "Cancelled";
+    // Reverse-geocode-only kinds; describe should never emit them, but
+    // the union is shared so list them for exhaustiveness.
+    case "no_gps":
+    case "nominatim_empty":
+    case "cache_io":
+      return kind;
   }
 }
 

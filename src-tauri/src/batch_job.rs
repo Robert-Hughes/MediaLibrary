@@ -31,8 +31,97 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
+
+/// Typed wire kind for a per-image batch-job failure.
+///
+/// Each variant serialises to the snake-case string that has historically
+/// been used as the stringly `kind` field on `BatchFailureRow`,
+/// `DescribeFailure`, and `GeocodeFailure`. Switching to an enum lets the
+/// frontend exhaustively render friendly labels and lets Rust callers stop
+/// allocating `String`s for static error labels.
+///
+/// Variants are grouped by where they originate. New batch features (e.g.
+/// the metadata-normaliser planned in `docs/NORMALISE_METADATA_PLAN.md`)
+/// add their own variants here so the wire contract stays in one place.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
+pub enum BatchFailureKind {
+    // ── Shared transport / lifecycle ────────────────────────────────────
+    /// HTTP request returned a non-2xx status.
+    Http,
+    /// Transport-layer network error (DNS, connection, timeout, …).
+    Network,
+    /// The user cancelled the run before this item completed.
+    Cancelled,
+    /// Frontend-synthesised: the Tauri command itself threw before
+    /// reporting any per-image progress (rare; surfaces as a single
+    /// failure row with `relativePath = "(batch)"`).
+    CommandFailed,
+    /// Frontend-synthesised: the estimate-phase preflight (e.g.
+    /// describe's `/responses/input_tokens` per-image walk) errored
+    /// before any image was processed for real. Every input image
+    /// surfaces with this kind so the user sees the run aborted up-front
+    /// rather than after a partial batch.
+    PreflightFailed,
+
+    // ── AI-description ─────────────────────────────────────────────────
+    /// Local image decode / downscale failed (corrupt file, unsupported
+    /// format, …). The API was never called for this image.
+    Decode,
+    /// API responded with `status: "incomplete"` — typically max-output-
+    /// tokens hit. The partial response is unparseable.
+    Incomplete,
+    /// API refused to answer (policy refusal in `output[].refusal`).
+    Refused,
+    /// API returned a 2xx response whose JSON body didn't match the
+    /// expected schema.
+    BadJson,
+    /// `usage` block missing or malformed in an otherwise-successful
+    /// response. Kept distinct from `BadJson` so a cost-reporting gap
+    /// doesn't get conflated with content-parse failures in the audit
+    /// log.
+    UsageParse,
+
+    // ── Reverse-geocode ────────────────────────────────────────────────
+    /// Image had no resolvable GPS coordinates (neither draft nor
+    /// metadata). Counted separately from real failures in the summary.
+    NoGps,
+    /// Nominatim returned no usable address fields for the GPS query.
+    NominatimEmpty,
+    /// Reading or writing the local geocache file failed.
+    CacheIo,
+}
+
+impl BatchFailureKind {
+    /// Snake-case wire form used in event payloads. Allocates nothing.
+    pub fn as_wire(&self) -> &'static str {
+        match self {
+            BatchFailureKind::Http => "http",
+            BatchFailureKind::Network => "network",
+            BatchFailureKind::Cancelled => "cancelled",
+            BatchFailureKind::CommandFailed => "command_failed",
+            BatchFailureKind::PreflightFailed => "preflight_failed",
+            BatchFailureKind::Decode => "decode",
+            BatchFailureKind::Incomplete => "incomplete",
+            BatchFailureKind::Refused => "refused",
+            BatchFailureKind::BadJson => "bad_json",
+            BatchFailureKind::UsageParse => "usage_parse",
+            BatchFailureKind::NoGps => "no_gps",
+            BatchFailureKind::NominatimEmpty => "nominatim_empty",
+            BatchFailureKind::CacheIo => "cache_io",
+        }
+    }
+}
+
+impl std::fmt::Display for BatchFailureKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_wire())
+    }
+}
 
 /// Cooperative cancellation flag shared between a running batch loop and
 /// the `cancel_${prefix}_cmd` Tauri command.
@@ -97,13 +186,13 @@ impl BatchJobCancelState {
 /// Per-item failure entry on the `${prefix}_complete` payload.
 ///
 /// The frontend renders these uniformly across jobs — only the `kind`
-/// strings differ. Each job documents its own `kind` enumeration in
-/// the dialog's friendly-label table.
+/// values differ between jobs. See `BatchFailureKind` for the closed set
+/// of wire values.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BatchFailureRow {
     pub relative_path: String,
-    pub kind: String,
+    pub kind: BatchFailureKind,
     pub detail: String,
 }
 
@@ -231,6 +320,37 @@ mod tests {
     fn signal_cancel_returns_false_when_nothing_installed() {
         let s = BatchJobCancelState::default();
         assert!(!s.signal_cancel());
+    }
+
+    #[test]
+    fn batch_failure_kind_wire_round_trip_for_every_variant() {
+        // Lock the wire shape: serde rename_all="snake_case" must produce
+        // exactly these strings, and parsing them back must yield the
+        // same variant. New variants added later need to be appended to
+        // this list so a missed `as_wire()` arm fails the test.
+        let all = [
+            (BatchFailureKind::Http, "http"),
+            (BatchFailureKind::Network, "network"),
+            (BatchFailureKind::Cancelled, "cancelled"),
+            (BatchFailureKind::CommandFailed, "command_failed"),
+            (BatchFailureKind::PreflightFailed, "preflight_failed"),
+            (BatchFailureKind::Decode, "decode"),
+            (BatchFailureKind::Incomplete, "incomplete"),
+            (BatchFailureKind::Refused, "refused"),
+            (BatchFailureKind::BadJson, "bad_json"),
+            (BatchFailureKind::UsageParse, "usage_parse"),
+            (BatchFailureKind::NoGps, "no_gps"),
+            (BatchFailureKind::NominatimEmpty, "nominatim_empty"),
+            (BatchFailureKind::CacheIo, "cache_io"),
+        ];
+        for (variant, wire) in all {
+            assert_eq!(variant.as_wire(), wire, "as_wire() for {:?}", variant);
+            let serialised = serde_json::to_string(&variant).unwrap();
+            assert_eq!(serialised, format!("\"{}\"", wire), "serialised form for {:?}", variant);
+            let parsed: BatchFailureKind =
+                serde_json::from_str(&serialised).unwrap();
+            assert_eq!(parsed, variant, "round-trip for {:?}", variant);
+        }
     }
 
     #[test]

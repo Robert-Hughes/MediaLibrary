@@ -476,14 +476,15 @@ pub enum GeocodeError {
 }
 
 impl GeocodeError {
-    pub fn kind(&self) -> &'static str {
+    pub fn kind(&self) -> crate::batch_job::BatchFailureKind {
+        use crate::batch_job::BatchFailureKind as K;
         match self {
-            GeocodeError::NoGps => "no_gps",
-            GeocodeError::NominatimEmpty => "nominatim_empty",
-            GeocodeError::Http { .. } => "http",
-            GeocodeError::Network(_) => "network",
-            GeocodeError::Cancelled => "cancelled",
-            GeocodeError::CacheIo(_) => "cache_io",
+            GeocodeError::NoGps => K::NoGps,
+            GeocodeError::NominatimEmpty => K::NominatimEmpty,
+            GeocodeError::Http { .. } => K::Http,
+            GeocodeError::Network(_) => K::Network,
+            GeocodeError::Cancelled => K::Cancelled,
+            GeocodeError::CacheIo(_) => K::CacheIo,
         }
     }
     pub fn detail(&self) -> String {
@@ -805,10 +806,14 @@ where
         let (lat, lon) = match (item.lat, item.lon) {
             (Some(lat), Some(lon)) => (lat, lon),
             _ => {
-                sink.progress(current, total, &rel, "no_gps", Some("no GPS coordinates"), None);
+                sink.progress(
+                    current, total, &rel,
+                    crate::batch_job::BatchFailureKind::NoGps.as_wire(),
+                    Some("no GPS coordinates"), None,
+                );
                 failed.push(crate::batch_job::BatchFailureRow {
                     relative_path: rel,
-                    kind: "no_gps".into(),
+                    kind: crate::batch_job::BatchFailureKind::NoGps,
                     detail: "no GPS coordinates".into(),
                 });
                 summary.n_no_gps += 1;
@@ -834,13 +839,13 @@ where
                 }
             }
             Err(e) => {
-                let kind = e.kind().to_string();
+                let kind = e.kind();
                 let detail = e.detail();
                 log::warn!(
                     "[geocode] ({}/{}) failed {} kind={} detail={}",
                     current, total, rel, kind, detail
                 );
-                sink.progress(current, total, &rel, &kind, Some(&detail), None);
+                sink.progress(current, total, &rel, kind.as_wire(), Some(&detail), None);
                 failed.push(crate::batch_job::BatchFailureRow {
                     relative_path: rel,
                     kind,
@@ -855,7 +860,7 @@ where
         log::warn!("[geocode] cache save failed: {}", e);
         failed.push(crate::batch_job::BatchFailureRow {
             relative_path: "<geocache>".into(),
-            kind: "cache_io".into(),
+            kind: crate::batch_job::BatchFailureKind::CacheIo,
             detail: e,
         });
         summary.n_failed += 1;

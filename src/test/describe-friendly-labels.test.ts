@@ -25,9 +25,8 @@ describe("friendlyFailureLabel", () => {
       .toMatch(/Description received but token usage could not be measured/);
   });
 
-  it("falls through to the raw kind for unknown values", () => {
-    // Forward-compat: a new backend status string should still be visible
-    // rather than vanishing or rendering as "undefined".
-    expect(friendlyFailureLabel("some_new_kind")).toBe("some_new_kind");
-  });
+  // Exhaustiveness is now enforced by the TypeScript `BatchFailureKind`
+  // union: a missing case is a compile-time error. The previous
+  // "unknown kind falls through to raw" test was retired with the
+  // typed-kind refactor.
 });

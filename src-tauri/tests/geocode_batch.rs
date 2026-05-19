@@ -23,7 +23,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use medialibrary_tauri_lib::batch_job::BatchFailureRow;
+use medialibrary_tauri_lib::batch_job::{BatchFailureKind, BatchFailureRow};
 use medialibrary_tauri_lib::draft_edits::DraftEdit;
 use medialibrary_tauri_lib::geocode::{
     self, GeocodeBatchOutcome, GeocodeClient, GeocodeEventSink, GeocodeRequestItem,
@@ -233,7 +233,7 @@ async fn happy_path_accounting_routes_each_source_to_its_summary_counter() {
     assert_eq!(outcome.summary.n_failed, 0);
     assert_eq!(outcome.succeeded, vec!["b.jpg".to_string(), "c.jpg".into()]);
     assert_eq!(outcome.failed.len(), 1, "no_gps lives in failed[]");
-    assert_eq!(outcome.failed[0].kind, "no_gps");
+    assert_eq!(outcome.failed[0].kind, BatchFailureKind::NoGps);
 
     // The sink must see started → 3× progress → complete in that
     // order. Cheap assertion that the runner doesn't accidentally
@@ -325,7 +325,7 @@ async fn cancel_between_nominatim_and_overpass_emits_cancelled_progress_and_skip
     );
     assert_eq!(outcome.succeeded.len(), 0);
     assert_eq!(outcome.failed.len(), 1);
-    assert_eq!(outcome.failed[0].kind, "cancelled");
+    assert_eq!(outcome.failed[0].kind, BatchFailureKind::Cancelled);
     assert_eq!(outcome.failed[0].relative_path, "a.jpg");
 
     // Cache must not have been polluted with the partial result —
@@ -381,7 +381,7 @@ async fn cache_io_save_failure_appears_as_synthetic_failure_row() {
     let cache_io = outcome
         .failed
         .iter()
-        .find(|f| f.kind == "cache_io")
+        .find(|f| f.kind == BatchFailureKind::CacheIo)
         .expect("cache_io row should be present");
     assert_eq!(cache_io.relative_path, "<geocache>");
     assert_eq!(cache_io.detail, "disk full");
@@ -392,7 +392,7 @@ async fn cache_io_save_failure_appears_as_synthetic_failure_row() {
     let events = sink.events();
     let last = events.last().expect("at least the complete event");
     if let SinkEvent::Complete { failed, summary, .. } = last {
-        assert!(failed.iter().any(|f| f.kind == "cache_io"));
+        assert!(failed.iter().any(|f| f.kind == BatchFailureKind::CacheIo));
         assert_eq!(summary.n_failed, 1);
     } else {
         unreachable!("last event must be Complete");
