@@ -21,6 +21,20 @@ export type { TagOutcome } from "./types/generated/TagOutcome";
 export type { BatchFailureKind } from "./types/generated/BatchFailureKind";
 import type { BatchFailureKind } from "./types/generated/BatchFailureKind";
 
+// ── Metadata normalisation (see docs/NORMALISE_METADATA_PLAN.md) ─────────────
+export type { NormaliseGroup } from "./types/generated/NormaliseGroup";
+export type { NormaliseRequestItem } from "./types/generated/NormaliseRequestItem";
+export type { GroupInputs as NormaliseGroupInputs } from "./types/generated/GroupInputs";
+export type { KeywordsInput } from "./types/generated/KeywordsInput";
+export type { CreatorInput } from "./types/generated/CreatorInput";
+export type { CopyrightInput } from "./types/generated/CopyrightInput";
+export type { HeadlineInput } from "./types/generated/HeadlineInput";
+export type { TitleInput } from "./types/generated/TitleInput";
+export type { LocationInput } from "./types/generated/LocationInput";
+export type { DatesInput } from "./types/generated/DatesInput";
+export type { PerImageStats as NormalisePerImageStats } from "./types/generated/PerImageStats";
+export type { NormaliseSummary } from "./types/generated/NormaliseSummary";
+
 // ── Thumbnail store ───────────────────────────────────────────────────────────
 
 export type ThumbnailState = "loading" | "failed" | string;
