@@ -19,7 +19,13 @@ import { useDescribeImages } from "./hooks/useDescribeImages";
 import { GeocodeProgressDialog } from "./components/GeocodeProgressDialog";
 import { useGeocodeImages } from "./hooks/useGeocodeImages";
 import { resolveGps } from "./utils/resolveGps";
-import type { GeocodeRequestItem } from "./types";
+import type { GeocodeRequestItem, NormaliseGroup } from "./types";
+import { NormaliseProgressDialog } from "./components/NormaliseProgressDialog";
+import { useNormaliseMetadata } from "./hooks/useNormaliseMetadata";
+import {
+  buildNormaliseItems,
+  metadataStoreLookup,
+} from "./utils/buildNormaliseItems";
 import { sortPhotos, shouldSuspendSorting } from "./utils/sorting";
 import { listSearchQueryIsActive } from "./utils/listSearchText";
 import { useSearchWorker, createSearchWorker } from "./hooks/useSearchWorker";
@@ -47,6 +53,7 @@ function LoadedView({
   onOpenSettings,
   describe,
   geocode,
+  normalise,
 }: {
   state: LoadedState;
   actions: MediaLibraryActions;
@@ -55,6 +62,7 @@ function LoadedView({
   onOpenSettings: () => void;
   describe: ReturnType<typeof useDescribeImages>;
   geocode: ReturnType<typeof useGeocodeImages>;
+  normalise: ReturnType<typeof useNormaliseMetadata>;
 }) {
   // Subscribe to metadata progress so sorting unblocks once metadata loading
   // completes, not just when the directory walk finishes.  Keeps re-renders
@@ -261,6 +269,26 @@ function LoadedView({
         onApplyEdits={(paths) => actions.applyDraftEdits(paths)}
         onGenerateAiDescription={(relPaths) => describe.actions.start(state.folder, relPaths)}
         onGeocode={(relPaths) => geocode.actions.start(state.folder, buildGeocodeItems(relPaths))}
+        onNormalise={(relPaths) => {
+          // Default enabled groups: every v1 group. User can untick
+          // individual groups in the confirm dialog.
+          const initialGroups: NormaliseGroup[] = [
+            "keywords",
+            "creator",
+            "copyright",
+            "headline",
+            "title",
+            "location",
+            "dates",
+          ];
+          const items = buildNormaliseItems(
+            relPaths,
+            metadataStoreLookup(state.imageMetadata),
+            state.draftEdits,
+            initialGroups,
+          );
+          normalise.actions.start(state.folder, items, initialGroups);
+        }}
         onCopyPaths={onCopyPaths}
         onSelectionCountChange={setSelectionCount}
       />
@@ -353,6 +381,16 @@ export default function App() {
   // batch into setDraftBatch so the user sees the new location group
   // immediately in the details pane.
   const geocode = useGeocodeImages({
+    onApplyEdits: (relPath, edits) => {
+      const entries = Object.entries(edits).map(([key, edit]) => ({ key, edit }));
+      if (entries.length > 0) actions.setDraftBatch(relPath, entries);
+    },
+  });
+  // Same merge-into-drafts pattern — the normaliser dispatcher emits
+  // a per-group bundle of drafts per image; we feed it into the same
+  // shared draft store so the details pane reflects the new canonical
+  // values as soon as each image lands.
+  const normalise = useNormaliseMetadata({
     onApplyEdits: (relPath, edits) => {
       const entries = Object.entries(edits).map(([key, edit]) => ({ key, edit }));
       if (entries.length > 0) actions.setDraftBatch(relPath, entries);
@@ -494,6 +532,7 @@ export default function App() {
           onOpenSettings={() => setShowSettingsDialog(true)}
           describe={describe}
           geocode={geocode}
+          normalise={normalise}
         />
       )}
 
@@ -516,6 +555,16 @@ export default function App() {
           onConfirm={geocode.actions.confirm}
           onCancel={geocode.actions.cancel}
           onClose={geocode.actions.close}
+        />
+      )}
+
+      {normalise.open && (
+        <NormaliseProgressDialog
+          state={normalise.state}
+          onConfirm={normalise.actions.confirm}
+          onCancel={normalise.actions.cancel}
+          onClose={normalise.actions.close}
+          onSetEnabledGroups={normalise.actions.setEnabledGroups}
         />
       )}
     </div>

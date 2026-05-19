@@ -39,6 +39,8 @@ interface Props {
   onGenerateAiDescription?: (fileRelativePaths: string[]) => void;
   /** Trigger reverse-geocoding flow for the given relative paths. */
   onGeocode?: (fileRelativePaths: string[]) => void;
+  /** Trigger metadata-normalisation flow for the given relative paths. */
+  onNormalise?: (fileRelativePaths: string[]) => void;
   /** Copy absolute paths for the given relative paths to the clipboard. */
   onCopyPaths?: (fileRelativePaths: string[]) => void;
   /** Notified whenever the multi-selection size changes. */
@@ -223,6 +225,7 @@ export function PhotoList({
   onApplyEdits,
   onGenerateAiDescription,
   onGeocode,
+  onNormalise,
   onCopyPaths,
   onSelectionCountChange,
 }: Props) {
@@ -930,6 +933,20 @@ export function PhotoList({
                       }
                       setContextMenu(null);
                       onGeocode(selectedPaths);
+                    },
+                  }]
+                : []),
+              // Metadata-normalisation entry — always visible when ≥1
+              // photo selected. Per-group toggles live inside the
+              // dialog. See docs/NORMALISE_METADATA_PLAN.md §13.
+              ...(onNormalise && selectedPaths.length > 0
+                ? [{
+                    label: count > 1
+                      ? `Normalise Metadata… (${count} ${noun})`
+                      : "Normalise Metadata…",
+                    onClick: () => {
+                      setContextMenu(null);
+                      onNormalise(selectedPaths);
                     },
                   }]
                 : []),
