@@ -15,6 +15,7 @@ pub mod describe_log;
 pub mod geocode_cache;
 pub mod geocode;
 pub mod normalise;
+pub mod openai_normalise;
 use serde::Serialize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
@@ -1185,6 +1186,30 @@ async fn normalise_metadata_cmd(
     let total = items.len();
     log::info!("[normalise] starting total={} groups={:?}", total, enabled_groups);
 
+    // Set up the AI client when both Group B and / or Group C are
+    // enabled AND the API key is configured. Without it AI-driven
+    // branches fall back to deterministic defaults (plan §1 Group B
+    // case-4 fallback; Group C case-3 no-op).
+    let wants_ai = enabled_groups.contains(&normalise::NormaliseGroup::Description)
+        || enabled_groups.contains(&normalise::NormaliseGroup::Title);
+    let ai_client: Option<openai_normalise::OpenAiNormaliseClient> = if wants_ai {
+        match make_openai_client(&app) {
+            Ok((client, settings)) => Some(openai_normalise::OpenAiNormaliseClient::new(
+                client,
+                settings.normalise_metadata_model.clone(),
+            )),
+            Err(e) => {
+                log::warn!(
+                    "[normalise] AI client unavailable ({}); proceeding without AI",
+                    e
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     let emitter = batch_job::BatchProgressEmitter::new(&app, "normalise");
     emitter.started(total);
 
@@ -1200,10 +1225,8 @@ async fn normalise_metadata_cmd(
         }
         current += 1;
         let rel = item.rel_path.clone();
-        // v2 AI client wiring lands in a follow-up commit; for now no
-        // AI client is supplied — Group B falls back to primary-or-
-        // longest, Group C case-3 is a no-op.
-        let (edits, stats) = normalise::process_image(item, &enabled_groups, None).await;
+        let ai_ref = ai_client.as_ref().map(|c| c as &dyn normalise::NormaliseAiClient);
+        let (edits, stats) = normalise::process_image(item, &enabled_groups, ai_ref).await;
         summary.accumulate(&stats);
         let all_noop = edits.is_empty();
         if all_noop {

@@ -28,6 +28,12 @@ pub const RECOMMENDED_MODELS: &[&str] = &[
 
 pub fn default_model() -> String { RECOMMENDED_MODELS[0].to_string() }
 
+/// Default text-only model for the metadata-normalisation AI calls
+/// (Group B description merge, Group C case-3 title generation). Per
+/// `docs/NORMALISE_METADATA_PLAN.md` §6, nano is plenty for the
+/// text-only merge / generate tasks.
+pub fn default_normalise_model() -> String { "gpt-5.4-nano".to_string() }
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
@@ -40,6 +46,12 @@ pub struct Settings {
     /// strict so cost estimation always has a pricing entry).
     #[serde(default = "default_model")]
     pub openai_model: String,
+    /// Model id used for the metadata-normalisation AI calls.
+    /// Independent from `openai_model` because the workload (text-only,
+    /// ~1k input tokens) is much cheaper than vision and benefits from
+    /// nano-class models.
+    #[serde(default = "default_normalise_model")]
+    pub normalise_metadata_model: String,
 }
 
 impl Default for Settings {
@@ -47,6 +59,7 @@ impl Default for Settings {
         Self {
             openai_api_key: String::new(),
             openai_model: default_model(),
+            normalise_metadata_model: default_normalise_model(),
         }
     }
 }
@@ -122,6 +135,7 @@ mod tests {
         let s = Settings {
             openai_api_key: "sk-test-abc".into(),
             openai_model: "gpt-4o".into(),
+            normalise_metadata_model: "gpt-5.4-nano".into(),
         };
         save_settings(dir.path(), &s).unwrap();
         let loaded = load_settings(dir.path()).unwrap();
@@ -135,9 +149,11 @@ mod tests {
         let dir = tempdir().unwrap();
         save_settings(dir.path(), &Settings {
             openai_api_key: "first".into(), openai_model: default_model(),
+            normalise_metadata_model: default_normalise_model(),
         }).unwrap();
         save_settings(dir.path(), &Settings {
             openai_api_key: "second".into(), openai_model: default_model(),
+            normalise_metadata_model: default_normalise_model(),
         }).unwrap();
         let loaded = load_settings(dir.path()).unwrap();
         assert_eq!(loaded.openai_api_key, "second");
