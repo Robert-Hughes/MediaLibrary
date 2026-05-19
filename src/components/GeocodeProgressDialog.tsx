@@ -22,6 +22,7 @@ import type { BatchFailureKind, GeocodeFailure, GeocodeProgressState, GeocodeSum
 import { BatchJobDialog } from "./BatchJobDialog";
 import { BatchSummaryCountersRow } from "./BatchSummaryCountersRow";
 import { RunningProgressPanel } from "./RunningProgressPanel";
+import { assertExhaustive } from "../utils/assertExhaustive";
 
 interface Props {
   state: GeocodeProgressState;
@@ -60,6 +61,16 @@ export function friendlyFailureLabel(kind: BatchFailureKind): string {
     case "usage_parse":
     case "preflight_failed":
       return kind;
+    // Normaliser-only kinds; geocode should never emit them.
+    case "ai_call_failed":
+    case "ai_schema_invalid":
+    case "ai_rate_limited":
+    case "audit_log_io":
+    case "internal":
+    case "ai_key_missing":
+      return kind;
+    default:
+      return assertExhaustive(kind);
   }
 }
 

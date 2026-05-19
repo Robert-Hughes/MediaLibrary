@@ -13,4 +13,4 @@
  * the metadata-normaliser planned in `docs/NORMALISE_METADATA_PLAN.md`)
  * add their own variants here so the wire contract stays in one place.
  */
-export type BatchFailureKind = "http" | "network" | "cancelled" | "command_failed" | "preflight_failed" | "decode" | "incomplete" | "refused" | "bad_json" | "usage_parse" | "no_gps" | "nominatim_empty" | "cache_io";
+export type BatchFailureKind = "http" | "network" | "cancelled" | "command_failed" | "preflight_failed" | "decode" | "incomplete" | "refused" | "bad_json" | "usage_parse" | "no_gps" | "nominatim_empty" | "cache_io" | "ai_call_failed" | "ai_schema_invalid" | "ai_rate_limited" | "audit_log_io" | "internal" | "ai_key_missing";

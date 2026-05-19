@@ -532,16 +532,20 @@ pub struct PerImageStats {
 ///   * Pass 3: Title. Reads Group B's canonical description for the
 ///     case-3 AI title generation.
 ///
-/// `ai` is the injected AI client. When `None`, AI-driven branches
-/// fall back to deterministic defaults (Group B: primary or longest;
-/// Group C: case-3 is a no-op).
+/// `ai` is the injected AI client. When `None`, any group whose
+/// conflict policy requires AI returns a typed failure rather than
+/// silently falling back. The first such failure is returned in the
+/// third tuple element and the dispatcher surfaces it as a per-image
+/// failure row; non-AI groups for the same image still emit their
+/// drafts.
 pub async fn process_image(
     item: &NormaliseRequestItem,
     enabled: &[NormaliseGroup],
     ai: Option<&dyn NormaliseAiClient>,
-) -> (HashMap<String, DraftEdit>, PerImageStats) {
+) -> (HashMap<String, DraftEdit>, PerImageStats, Option<NormaliseAiError>) {
     let mut edits: HashMap<String, DraftEdit> = HashMap::new();
     let mut stats = PerImageStats::default();
+    let mut first_ai_error: Option<NormaliseAiError> = None;
 
     let is_enabled = |g: NormaliseGroup| enabled.contains(&g);
 
@@ -618,20 +622,10 @@ pub async fn process_image(
 
     if is_enabled(NormaliseGroup::Location) {
         if let Some(input) = item.group_inputs.location.as_ref() {
-            // Capture context for pass-2 (Description) and pass-3
-            // (Title) AI prompts.
-            location_context = Some(LocationContext {
-                location: input
-                    .location_xmp
-                    .clone()
-                    .or_else(|| input.location_iptc.clone()),
-                city: input.city_xmp.clone().or_else(|| input.city_iptc.clone()),
-                state: input.state_xmp.clone().or_else(|| input.state_iptc.clone()),
-                country: input
-                    .country_xmp
-                    .clone()
-                    .or_else(|| input.country_iptc.clone()),
-            });
+            // Plan §2: Group B / Group C see POST-normalisation
+            // location context. Use the same primary-wins canonical
+            // logic Group G uses to populate drafts.
+            location_context = Some(derive_location_canonical(input));
             let outcome = normalise_location(input);
             stats.n_location_xmp_iim_conflict = outcome.n_xmp_iim_conflict;
             match outcome.output {
@@ -694,8 +688,11 @@ pub async fn process_image(
             if outcome.ai_fired {
                 stats.n_ai_description_merged = 1;
             }
-            if outcome.ai_error.is_some() {
+            if let Some(err) = outcome.ai_error.clone() {
                 stats.n_ai_errors += 1;
+                if first_ai_error.is_none() {
+                    first_ai_error = Some(err);
+                }
             }
             // Capture canonical for pass-3 — from the emitted XMP-dc
             // draft, falling back to the input if the value already
@@ -744,8 +741,11 @@ pub async fn process_image(
             if outcome.ai_fired {
                 stats.n_ai_title_generated = 1;
             }
-            if outcome.ai_error.is_some() {
+            if let Some(err) = outcome.ai_error.clone() {
                 stats.n_ai_errors += 1;
+                if first_ai_error.is_none() {
+                    first_ai_error = Some(err);
+                }
             }
             match outcome.output {
                 Some(out) => {
@@ -759,7 +759,7 @@ pub async fn process_image(
         }
     }
 
-    (edits, stats)
+    (edits, stats, first_ai_error)
 }
 
 /// Whole-batch summary emitted with the `normalise_complete` event.
@@ -821,7 +821,7 @@ mod tests_dispatcher {
                 ..Default::default()
             },
         };
-        let (edits, stats) = process_image(&item, &[NormaliseGroup::Keywords], None).await;
+        let (edits, stats, _err) = process_image(&item, &[NormaliseGroup::Keywords], None).await;
         assert!(edits.contains_key("XMP-dc:Subject"));
         assert!(!edits.contains_key("XMP-dc:Creator"));
         assert_eq!(stats.n_groups_normalised, 1);
@@ -834,7 +834,7 @@ mod tests_dispatcher {
             rel_path: "x.jpg".into(),
             group_inputs: GroupInputs::default(),
         };
-        let (edits, stats) = process_image(
+        let (edits, stats, _err) = process_image(
             &item,
             &[
                 NormaliseGroup::Keywords,
@@ -926,7 +926,7 @@ mod tests_dispatcher {
                 ..Default::default()
             },
         };
-        let (edits, _) = process_image(
+        let (edits, _, _err) = process_image(
             &item,
             &[NormaliseGroup::Description, NormaliseGroup::Title],
             Some(&ai),
@@ -1061,23 +1061,45 @@ fn project_caption_abstract(canonical: &str, charset_is_utf8: bool) -> String {
     truncate_at_word(&body, IPTC_CAPTION_ABSTRACT_LIMIT)
 }
 
-/// Best deterministic guess at a canonical Description when sources
-/// disagree and no AI is available. Used by case-4 fallback.
-fn fallback_canonical(sources: &[(&str, String)]) -> String {
-    // Prefer the primary `XMP-dc:Description` value when present.
-    for (key, value) in sources {
-        if *key == "XMP-dc:Description" && !value.is_empty() {
-            return value.clone();
+/// Typed AI failure surfaced by Group B / Group C up to the dispatcher.
+/// Mapped to a `BatchFailureKind` so per-image failure rows preserve
+/// the failure mode (rate-limit, transport, bad JSON, missing key).
+#[derive(Debug, Clone)]
+pub struct NormaliseAiError {
+    pub kind: crate::batch_job::BatchFailureKind,
+    pub detail: String,
+}
+
+impl NormaliseAiError {
+    pub fn key_missing() -> Self {
+        Self {
+            kind: crate::batch_job::BatchFailureKind::AiKeyMissing,
+            detail: "OpenAI API key is not configured. Open Settings to enter your key.".into(),
         }
     }
-    // Otherwise pick the longest non-empty source — most likely to be
-    // the most complete description.
-    sources
-        .iter()
-        .filter(|(_, v)| !v.is_empty())
-        .max_by_key(|(_, v)| v.len())
-        .map(|(_, v)| v.clone())
-        .unwrap_or_default()
+
+    /// Classify a `String` error returned by `NormaliseAiClient` calls
+    /// into a typed BatchFailureKind. Recognises `HTTP 429` for rate
+    /// limiting, `HTTP <other>` and `network error:` prefixes for
+    /// transport failures, schema-shaped strings for malformed
+    /// responses, and falls back to `AiCallFailed` otherwise.
+    pub fn from_client_string(detail: String) -> Self {
+        use crate::batch_job::BatchFailureKind as K;
+        let kind = if detail.starts_with("HTTP 429") {
+            K::AiRateLimited
+        } else if detail.starts_with("HTTP ") || detail.starts_with("network error:") {
+            K::AiCallFailed
+        } else if detail.starts_with("missing output[")
+            || detail.starts_with("bad description JSON")
+            || detail.starts_with("bad title JSON")
+            || detail.starts_with("bad JSON")
+        {
+            K::AiSchemaInvalid
+        } else {
+            K::AiCallFailed
+        };
+        Self { kind, detail }
+    }
 }
 
 /// AI-call inputs passed to the Description merge prompt builder.
@@ -1195,7 +1217,10 @@ pub struct TitleGenPrompt {
 pub struct DescriptionOutcome {
     pub output: Option<GroupOutput>,
     pub ai_fired: bool,
-    pub ai_error: Option<String>,
+    /// Set when Group B needed to call AI but the call failed OR the
+    /// API key was not configured. Surfaced as a per-image failure row
+    /// by the dispatcher. Deterministic cases never populate this.
+    pub ai_error: Option<NormaliseAiError>,
 }
 
 /// Run Group B (Description) normalisation. Async because case-4 may
@@ -1227,22 +1252,35 @@ pub async fn normalise_description(
     // Cases 2 and 3 — single source OR multiple equal-after-normalise.
     let distinct: std::collections::BTreeSet<&str> =
         non_empty.iter().map(|(_, v)| v.as_str()).collect();
-    let (canonical, ai_fired, ai_error) = if distinct.len() == 1 {
-        (non_empty[0].1.clone(), false, None)
+    let (canonical, ai_fired) = if distinct.len() == 1 {
+        (non_empty[0].1.clone(), false)
     } else {
-        // Case 4: AI merge when sources distinct.
+        // Case 4: AI merge when sources distinct. Plan §1 Group B
+        // requires AI here; no deterministic fallback. When the AI
+        // client is absent or the call fails the image surfaces as
+        // a failure row and no Group B drafts are emitted.
         let prompt = build_description_merge_prompt(input);
         match ai {
             Some(client) => match client.merge_description(prompt).await {
-                Ok(merged) => (normalise_description_text(&merged), true, None),
-                Err(e) => (fallback_canonical(&target_sources), false, Some(e)),
+                Ok(merged) => (normalise_description_text(&merged), true),
+                Err(e) => {
+                    return DescriptionOutcome {
+                        ai_error: Some(NormaliseAiError::from_client_string(e)),
+                        ..Default::default()
+                    };
+                }
             },
-            None => (fallback_canonical(&target_sources), false, None),
+            None => {
+                return DescriptionOutcome {
+                    ai_error: Some(NormaliseAiError::key_missing()),
+                    ..Default::default()
+                };
+            }
         }
     };
 
     if canonical.is_empty() {
-        return DescriptionOutcome { ai_fired, ai_error, ..Default::default() };
+        return DescriptionOutcome { ai_fired, ..Default::default() };
     }
 
     let projection_image = ascii_fold(&canonical);
@@ -1283,7 +1321,7 @@ pub async fn normalise_description(
     DescriptionOutcome {
         output: if edits.is_empty() { None } else { Some(GroupOutput { edits }) },
         ai_fired,
-        ai_error,
+        ai_error: None,
     }
 }
 
@@ -1375,21 +1413,20 @@ mod tests_description {
     }
 
     #[tokio::test]
-    async fn distinct_sources_with_no_ai_use_primary_fallback() {
+    async fn distinct_sources_with_no_ai_returns_key_missing_error() {
         let input = DescriptionInput {
             description: Some("Primary version.".into()),
             image_description: Some("Different version.".into()),
             ..Default::default()
         };
         let out = normalise_description(&input, None).await;
-        let g = out.output.unwrap();
-        // Plan §1: when AI is unavailable, fall back to primary
-        // (XMP-dc:Description) value rather than aborting. The XMP
-        // target equals the input so no draft for it; the other
-        // targets adopt the canonical.
-        assert!(!g.edits.contains_key("XMP-dc:Description"));
-        assert_eq!(s(&g, "EXIF:ImageDescription"), "Primary version.");
+        // Plan §1 Group B case-4: AI required. No deterministic
+        // fallback. No drafts emitted; ai_error surfaces as a per-image
+        // failure row in the dispatcher.
+        assert!(out.output.is_none());
         assert!(!out.ai_fired);
+        let err = out.ai_error.expect("ai_error must be populated");
+        assert_eq!(err.kind, crate::batch_job::BatchFailureKind::AiKeyMissing);
     }
 
     #[tokio::test]
@@ -1419,12 +1456,12 @@ mod tests_description {
     }
 
     #[tokio::test]
-    async fn ai_error_falls_back_to_primary_and_records_error() {
+    async fn ai_error_returns_no_drafts_and_records_typed_error() {
         struct FailingAi;
         #[async_trait::async_trait]
         impl NormaliseAiClient for FailingAi {
             async fn merge_description(&self, _: DescriptionMergePrompt) -> Result<String, String> {
-                Err("rate limited".into())
+                Err("HTTP 429: too many requests".into())
             }
             async fn generate_title(&self, _: TitleGenPrompt) -> Result<String, String> {
                 unreachable!()
@@ -1436,13 +1473,12 @@ mod tests_description {
             ..Default::default()
         };
         let out = normalise_description(&input, Some(&FailingAi)).await;
-        let g = out.output.unwrap();
-        // Primary preserved on disk (no draft for it); derivative
-        // overwritten with the fallback canonical.
-        assert!(!g.edits.contains_key("XMP-dc:Description"));
-        assert_eq!(s(&g, "EXIF:ImageDescription"), "Primary.");
+        // Plan §1: no fallback. No drafts; failure surfaces to dispatcher.
+        assert!(out.output.is_none());
         assert!(!out.ai_fired);
-        assert_eq!(out.ai_error.as_deref(), Some("rate limited"));
+        let err = out.ai_error.expect("ai_error must be populated");
+        assert_eq!(err.kind, crate::batch_job::BatchFailureKind::AiRateLimited);
+        assert!(err.detail.contains("HTTP 429"));
     }
 
     #[test]
@@ -2571,7 +2607,10 @@ pub fn build_title_gen_prompt(input: &TitleInput) -> Option<TitleGenPrompt> {
 pub struct TitleOutcome {
     pub output: Option<GroupOutput>,
     pub ai_fired: bool,
-    pub ai_error: Option<String>,
+    /// Populated when case-3 (AI title generation) was required but
+    /// failed or the AI client was unavailable. Surfaced as a failure
+    /// row by the dispatcher; never set for deterministic cases.
+    pub ai_error: Option<NormaliseAiError>,
 }
 
 fn title_is_normalised(input: &TitleInput, canonical: &str) -> bool {
@@ -2591,39 +2630,47 @@ pub async fn normalise_title(
     ai: Option<&dyn NormaliseAiClient>,
 ) -> TitleOutcome {
     let mut ai_fired = false;
-    let mut ai_error: Option<String> = None;
 
     let canonical_opt = derive_title_canonical(input);
     let canonical = match canonical_opt {
         Some(c) => c,
         None => {
-            // Case 3: try AI title generation from description.
-            match (ai, build_title_gen_prompt(input)) {
-                (Some(client), Some(prompt)) => {
-                    match client.generate_title(prompt).await {
+            // Case 3: AI title generation from description. Plan §1
+            // Group C: required when targets are all empty and a
+            // description canonical exists. Without AI, surface as a
+            // failure row; without a description, no-op (case 4).
+            match build_title_gen_prompt(input) {
+                None => return TitleOutcome::default(),
+                Some(prompt) => match ai {
+                    None => {
+                        return TitleOutcome {
+                            ai_error: Some(NormaliseAiError::key_missing()),
+                            ..Default::default()
+                        };
+                    }
+                    Some(client) => match client.generate_title(prompt).await {
                         Ok(generated) => {
                             ai_fired = true;
                             let n = normalise_title_text(&generated);
                             if n.is_empty() {
-                                return TitleOutcome { ai_fired, ai_error, ..Default::default() };
+                                return TitleOutcome { ai_fired, ..Default::default() };
                             }
                             n
                         }
                         Err(e) => {
-                            ai_error = Some(e);
-                            return TitleOutcome { ai_fired, ai_error, ..Default::default() };
+                            return TitleOutcome {
+                                ai_error: Some(NormaliseAiError::from_client_string(e)),
+                                ..Default::default()
+                            };
                         }
-                    }
-                }
-                _ => {
-                    return TitleOutcome::default();
-                }
+                    },
+                },
             }
         }
     };
 
     if title_is_normalised(input, &canonical) {
-        return TitleOutcome { ai_fired, ai_error, ..Default::default() };
+        return TitleOutcome { ai_fired, ..Default::default() };
     }
     let object = truncate_at_word(&canonical, IPTC_OBJECT_NAME_LIMIT);
     let mut edits = HashMap::new();
@@ -2650,7 +2697,7 @@ pub async fn normalise_title(
     TitleOutcome {
         output: if edits.is_empty() { None } else { Some(GroupOutput { edits }) },
         ai_fired,
-        ai_error,
+        ai_error: None,
     }
 }
 
@@ -2733,8 +2780,10 @@ mod tests_title {
     }
 
     #[tokio::test]
-    async fn empty_targets_no_ai_returns_no_drafts() {
-        // Case-3 is no-op without an AI client.
+    async fn empty_targets_no_ai_returns_key_missing_error() {
+        // Plan §1 Group C case-3: AI is required when targets empty
+        // and a description canonical exists. Without an AI client we
+        // surface a typed failure rather than silently no-op.
         let input = TitleInput {
             description_canonical: Some("A photo of a cat.".into()),
             ..Default::default()
@@ -2742,6 +2791,8 @@ mod tests_title {
         let out = normalise_title(&input, None).await;
         assert!(out.output.is_none());
         assert!(!out.ai_fired);
+        let err = out.ai_error.expect("ai_error must be populated");
+        assert_eq!(err.kind, crate::batch_job::BatchFailureKind::AiKeyMissing);
     }
 
     #[tokio::test]
@@ -2790,7 +2841,9 @@ mod tests_title {
         };
         let out = normalise_title(&input, Some(&FailingAi)).await;
         assert!(out.output.is_none());
-        assert_eq!(out.ai_error.as_deref(), Some("rate limited"));
+        let err = out.ai_error.expect("ai_error must be populated");
+        // Plain "rate limited" string doesn't match an HTTP prefix → AiCallFailed.
+        assert_eq!(err.kind, crate::batch_job::BatchFailureKind::AiCallFailed);
     }
 
     #[tokio::test]
@@ -2913,6 +2966,44 @@ fn process_pair(
         !(xmp == want && iptc == want)
     });
     PairResult { canonical, conflict }
+}
+
+/// Compute the per-pair canonical values for Group G without producing
+/// drafts. Used by the dispatcher to pass POST-normalisation location
+/// context into Group B / Group C AI prompts (plan §2 pass ordering;
+/// Group B reads Group G output, not raw input).
+pub fn derive_location_canonical(input: &LocationInput) -> LocationContext {
+    let pick = |xmp: Option<&str>, ipt: Option<&str>, canon: fn(&str) -> String| -> Option<String> {
+        let xc = xmp.map(canon).filter(|s| !s.is_empty());
+        let ic = ipt.map(canon).filter(|s| !s.is_empty());
+        match (xc, ic) {
+            (None, None) => None,
+            (Some(v), None) | (None, Some(v)) => Some(v),
+            (Some(x), Some(_)) => Some(x),
+        }
+    };
+    LocationContext {
+        location: pick(
+            input.location_xmp.as_deref(),
+            input.location_iptc.as_deref(),
+            canonicalise_location_text,
+        ),
+        city: pick(
+            input.city_xmp.as_deref(),
+            input.city_iptc.as_deref(),
+            canonicalise_location_text,
+        ),
+        state: pick(
+            input.state_xmp.as_deref(),
+            input.state_iptc.as_deref(),
+            canonicalise_location_text,
+        ),
+        country: pick(
+            input.country_xmp.as_deref(),
+            input.country_iptc.as_deref(),
+            canonicalise_location_text,
+        ),
+    }
 }
 
 /// Outcome of running Group G on one image. The bool flags how many
