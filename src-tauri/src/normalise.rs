@@ -100,9 +100,11 @@ pub struct GroupInputs {
     /// Group D (Headline) sources.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub headline: Option<HeadlineInput>,
+    /// Group C (Title) sources.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<TitleInput>,
     // Future groups land here as they are implemented:
     //   pub description: Option<DescriptionInput>,
-    //   pub title: Option<TitleInput>,
     //   pub location: Option<LocationInput>,
     //   pub dates: Option<DatesInput>,
 }
@@ -178,6 +180,27 @@ pub struct HeadlineInput {
     /// write).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub iptc_headline: Option<String>,
+}
+
+/// Title-group input bundle (plan §1 Group C).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
+pub struct TitleInput {
+    /// `XMP-dc:Title` (LangAlt x-default, primary).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    /// `IPTC:ObjectName` (derivative; 64-char IIM limit applied on
+    /// write).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub object_name: Option<String>,
+    /// Read-only input populated by the Group B (Description) pass:
+    /// the canonical description from the same image. Used by the
+    /// case-3 AI title-generation branch (plan §1 Group C) — deferred
+    /// to v2 of the feature; v1 ignores this field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description_canonical: Option<String>,
 }
 
 /// One image's payload shipped to `normalise_metadata_cmd`.
@@ -1251,6 +1274,213 @@ mod tests_headline {
             iptc_headline: Some(s(&first, "IPTC:Headline")),
         };
         assert!(normalise_headline(&post).is_none());
+    }
+}
+
+// ── Group C: Title ─────────────────────────────────────────────────────
+//
+// Plan §1 Group C. Canonical = short title-case phrase, ≤8 words, no
+// trailing punctuation.
+//
+// v1 deterministic implementation covers cases 1, 2 and 4 of the
+// conflict policy (primary wins → derivative wins → all-empty no-op).
+// Case 3 (AI-generated title from Group B description) is deferred to
+// v2; this v1 simply returns `None` when all targets are empty even if
+// `description_canonical` is supplied.
+//
+// Normalisation here is intentionally narrow: trim whitespace, collapse
+// internal whitespace runs, strip trailing punctuation (`. ! ? , : ;`).
+// Title-case enforcement is **not** applied — risks mangling proper
+// nouns ("iPhone" → "IPhone") without a stopword list. Plan's
+// "title-case ≤8 words" constraint is left to the AI generation path
+// in v2 when the AI prompt enforces it.
+
+pub const TITLE_TARGET_TAGS: &[&str] = &["XMP-dc:Title", "IPTC:ObjectName"];
+
+const IPTC_OBJECT_NAME_LIMIT: usize = 64;
+
+fn normalise_title_text(s: &str) -> String {
+    let collapsed = normalise_copyright_text(s);
+    // Strip a single run of trailing punctuation chars.
+    collapsed
+        .trim_end_matches(|c: char| matches!(c, '.' | '!' | '?' | ',' | ':' | ';'))
+        .trim_end()
+        .to_string()
+}
+
+fn derive_title_canonical(input: &TitleInput) -> Option<String> {
+    if let Some(p) = input.title.as_deref() {
+        let n = normalise_title_text(p);
+        if !n.is_empty() {
+            return Some(n);
+        }
+    }
+    if let Some(d) = input.object_name.as_deref() {
+        let n = normalise_title_text(d);
+        if !n.is_empty() {
+            return Some(n);
+        }
+    }
+    // Case 3 (AI title from description) deferred to v2 — even if
+    // `description_canonical` is set, v1 emits no drafts here.
+    None
+}
+
+fn title_is_normalised(input: &TitleInput, canonical: &str) -> bool {
+    let object_projection = truncate_at_word(canonical, IPTC_OBJECT_NAME_LIMIT);
+    input.title.as_deref() == Some(canonical)
+        && input.object_name.as_deref() == Some(object_projection.as_str())
+}
+
+/// Run Group C (Title) normalisation for one image — v1 deterministic
+/// branches only.
+pub fn normalise_title(input: &TitleInput) -> Option<GroupOutput> {
+    let canonical = derive_title_canonical(input)?;
+    if title_is_normalised(input, &canonical) {
+        return None;
+    }
+    let object = truncate_at_word(&canonical, IPTC_OBJECT_NAME_LIMIT);
+    let mut edits = HashMap::new();
+    edits.insert(
+        "XMP-dc:Title".to_string(),
+        DraftEdit {
+            value: Some(Variant::String(canonical.clone())),
+            intent: EditIntent::Set,
+            display: None,
+        },
+    );
+    edits.insert(
+        "IPTC:ObjectName".to_string(),
+        DraftEdit {
+            value: Some(Variant::String(object)),
+            intent: EditIntent::Set,
+            display: None,
+        },
+    );
+    Some(GroupOutput { edits })
+}
+
+#[cfg(test)]
+mod tests_title {
+    use super::*;
+
+    fn s(g: &GroupOutput, k: &str) -> String {
+        match &g.edits.get(k).unwrap().value {
+            Some(Variant::String(v)) => v.clone(),
+            other => panic!("expected String, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn primary_wins() {
+        let input = TitleInput {
+            title: Some("Sunset Over Mont Blanc".into()),
+            object_name: Some("Old ObjectName".into()),
+            description_canonical: None,
+        };
+        let out = normalise_title(&input).unwrap();
+        assert_eq!(s(&out, "XMP-dc:Title"), "Sunset Over Mont Blanc");
+        assert_eq!(s(&out, "IPTC:ObjectName"), "Sunset Over Mont Blanc");
+    }
+
+    #[test]
+    fn primary_empty_uses_derivative() {
+        let input = TitleInput {
+            title: None,
+            object_name: Some("From IPTC".into()),
+            description_canonical: None,
+        };
+        let out = normalise_title(&input).unwrap();
+        assert_eq!(s(&out, "XMP-dc:Title"), "From IPTC");
+    }
+
+    #[test]
+    fn trailing_punctuation_stripped() {
+        let input = TitleInput {
+            title: Some("Sunset Over Mont Blanc.".into()),
+            ..Default::default()
+        };
+        let out = normalise_title(&input).unwrap();
+        assert_eq!(s(&out, "XMP-dc:Title"), "Sunset Over Mont Blanc");
+    }
+
+    #[test]
+    fn trailing_multiple_punctuation_stripped() {
+        let input = TitleInput {
+            title: Some("Wow!?".into()),
+            ..Default::default()
+        };
+        let out = normalise_title(&input).unwrap();
+        assert_eq!(s(&out, "XMP-dc:Title"), "Wow");
+    }
+
+    #[test]
+    fn whitespace_normalised() {
+        let input = TitleInput {
+            title: Some("  Lots   of   space  ".into()),
+            ..Default::default()
+        };
+        let out = normalise_title(&input).unwrap();
+        assert_eq!(s(&out, "XMP-dc:Title"), "Lots of space");
+    }
+
+    #[test]
+    fn capitalisation_preserved() {
+        // "iPhone" must survive — we don't enforce title-case in v1.
+        let input = TitleInput {
+            title: Some("iPhone in the Snow".into()),
+            ..Default::default()
+        };
+        let out = normalise_title(&input).unwrap();
+        assert_eq!(s(&out, "XMP-dc:Title"), "iPhone in the Snow");
+    }
+
+    #[test]
+    fn all_empty_returns_no_drafts_in_v1_even_with_description() {
+        // Case-3 AI generation is deferred to v2.
+        let input = TitleInput {
+            title: None,
+            object_name: None,
+            description_canonical: Some("A photo of a cat.".into()),
+        };
+        assert!(normalise_title(&input).is_none());
+    }
+
+    #[test]
+    fn empty_input_returns_no_drafts() {
+        assert!(normalise_title(&TitleInput::default()).is_none());
+    }
+
+    #[test]
+    fn iptc_object_name_truncated_at_64_bytes() {
+        let long = "word ".repeat(20); // 100 bytes
+        let trimmed = long.trim_end().to_string();
+        let input = TitleInput {
+            title: Some(trimmed.clone()),
+            ..Default::default()
+        };
+        let out = normalise_title(&input).unwrap();
+        // Primary holds the full text.
+        assert_eq!(s(&out, "XMP-dc:Title"), trimmed);
+        let obj = s(&out, "IPTC:ObjectName");
+        assert!(obj.len() <= IPTC_OBJECT_NAME_LIMIT);
+        assert!(!obj.ends_with(' '));
+        assert!(obj.ends_with("word"));
+    }
+
+    #[test]
+    fn idempotent_after_one_pass() {
+        let initial = TitleInput {
+            title: Some("My Title".into()),
+            ..Default::default()
+        };
+        let first = normalise_title(&initial).unwrap();
+        let post = TitleInput {
+            title: Some(s(&first, "XMP-dc:Title")),
+            object_name: Some(s(&first, "IPTC:ObjectName")),
+            description_canonical: None,
+        };
+        assert!(normalise_title(&post).is_none());
     }
 }
 
