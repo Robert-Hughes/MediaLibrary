@@ -1260,6 +1260,47 @@ impl NormaliseAiClient for CapturingAiClient {
     }
 }
 
+/// Coherent-replacement helper (plan §4 strict). For each target tag in
+/// `group_targets`, if the group's projection has no value for that
+/// tag AND the current state holds a non-empty value, emit a
+/// remove-tag draft. Set-value drafts are the responsibility of each
+/// group's own function — this helper exists to handle the
+/// "canonical has N fields populated and M derivatives empty" case
+/// the plan describes.
+///
+/// **In v1/v2 every group either produces a complete projection across
+/// its target tags or no drafts at all (`all-empty` rule),** so this
+/// helper is currently invoked only for forward-compatibility — when a
+/// future group exposes the partial case it can call this on top of
+/// its existing set-value emission to satisfy plan §4 without a second
+/// rewrite.
+pub fn append_remove_tag_drafts_for_missing_projections(
+    edits: &mut HashMap<String, DraftEdit>,
+    group_targets: &[&str],
+    projection: &HashMap<&'static str, Variant>,
+    current_value_is_non_empty: impl Fn(&str) -> bool,
+) {
+    for tag in group_targets {
+        if projection.contains_key(*tag) {
+            continue;
+        }
+        if edits.contains_key(*tag) {
+            continue;
+        }
+        if !current_value_is_non_empty(tag) {
+            continue;
+        }
+        edits.insert(
+            (*tag).to_string(),
+            DraftEdit {
+                value: None,
+                intent: EditIntent::Delete,
+                display: None,
+            },
+        );
+    }
+}
+
 /// Per-AI-call record returned by `process_image` so the dispatcher
 /// can append a row to the JSONL audit log for each one. Includes
 /// successful calls (with usage) and failed calls (with detail).
