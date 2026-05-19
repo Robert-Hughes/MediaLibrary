@@ -11,7 +11,7 @@
  *
  * See `docs/NORMALISE_METADATA_PLAN.md` §9 (hook + dialog wiring).
  */
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import type {
   DraftEdit,
   NormaliseGroup,
@@ -50,12 +50,15 @@ export interface NormaliseProgressState {
 
 export interface NormaliseActions {
   /**
-   * Begin the flow. The frontend has already resolved the
-   * draft-overlay for every relevant field across all enabled groups
-   * and packed it into the per-image `groupInputs`; the backend
-   * trusts what it receives.
+   * Begin the flow with all groups in `groupInputs` populated. The
+   * user toggles enabled groups inside the dialog before clicking
+   * Confirm; the final set is shipped to the backend at `confirm`
+   * time via `setEnabledGroups`.
    */
   start: (folderPath: string, items: NormaliseRequestItem[], enabledGroups: NormaliseGroup[]) => void;
+  /** Update the enabled-group selection (typically from dialog
+   *  checkboxes). Latest value is used at confirm time. */
+  setEnabledGroups: (groups: NormaliseGroup[]) => void;
   confirm: () => void;
   cancel: () => void;
   close: () => void;
@@ -95,13 +98,25 @@ export function useNormaliseMetadata(options: UseNormaliseMetadataOptions = {}):
   state: NormaliseProgressState;
   actions: NormaliseActions;
 } {
-  // Stash the items + group list across the dialog lifetime so the
-  // dialog panels can read them back. Mirrors the geocode adapter
-  // pattern.
-  const stash = useMemo<{ items: NormaliseRequestItem[]; groups: NormaliseGroup[] }>(
-    () => ({ items: [], groups: [] }),
+  // Mutable stash read by `buildRunArgs` at confirm time. Both items
+  // and enabled-groups live here so the user's final checkbox
+  // selection (which may have changed after `start`) is the one
+  // shipped to the backend.
+  //
+  // `buildRunArgs` receives the static `StartArgs` captured at start
+  // time, but we deliberately pass it the live stash via closure
+  // below — the captured value is ignored.
+  const stash = useMemo<{
+    items: NormaliseRequestItem[];
+    enabledGroups: NormaliseGroup[];
+  }>(
+    () => ({ items: [], enabledGroups: [] }),
     [],
   );
+  // Separate React state so the dialog UI re-renders when the user
+  // toggles a checkbox. Always kept in sync with `stash.enabledGroups`
+  // via the `setEnabledGroups` action below.
+  const [enabledGroupsState, setEnabledGroupsState] = useState<NormaliseGroup[]>([]);
 
   const config = useMemo<BatchJobConfig<StartArgs, null, NormaliseSummary>>(
     () => ({
@@ -111,39 +126,49 @@ export function useNormaliseMetadata(options: UseNormaliseMetadataOptions = {}):
         run: "normalise_metadata_cmd",
         cancel: "cancel_normalise_cmd",
       },
-      buildRunArgs: (folderPath, args) => ({
+      buildRunArgs: (folderPath, _args) => ({
         folderPath,
-        items: args.items,
-        enabledGroups: args.enabledGroups,
+        // Read from the live stash, NOT the start-time `_args`, so
+        // the user's most-recent checkbox selection wins.
+        items: stash.items,
+        enabledGroups: stash.enabledGroups,
       }),
       totalItems: (args) => args.items.length,
       parseSummaryPayload: (raw) => raw as NormaliseSummary,
     }),
-    [],
+    [stash],
   );
 
   const job = useBatchImageJob<StartArgs, null, NormaliseSummary>(config, {
     onApplyEdits: options.onApplyEdits,
   });
 
+  const setEnabledGroups = (groups: NormaliseGroup[]) => {
+    stash.enabledGroups = groups;
+    setEnabledGroupsState(groups);
+  };
+
   const actions: NormaliseActions = {
-    start: (folderPath, items, enabledGroups) => {
+    start: (folderPath, items, initialEnabledGroups) => {
       stash.items = items;
-      stash.groups = enabledGroups;
-      job.actions.start(folderPath, { items, enabledGroups });
+      stash.enabledGroups = initialEnabledGroups;
+      setEnabledGroupsState(initialEnabledGroups);
+      job.actions.start(folderPath, { items, enabledGroups: initialEnabledGroups });
     },
+    setEnabledGroups,
     confirm: job.actions.confirm,
     cancel: job.actions.cancel,
     close: () => {
       stash.items = [];
-      stash.groups = [];
+      stash.enabledGroups = [];
+      setEnabledGroupsState([]);
       job.actions.close();
     },
   };
 
   return {
     open: job.open,
-    state: toNormaliseShape(job.state, stash.items, stash.groups),
+    state: toNormaliseShape(job.state, stash.items, enabledGroupsState),
     actions,
   };
 }
