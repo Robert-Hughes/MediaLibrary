@@ -20,6 +20,7 @@
  */
 import type { BatchFailureKind, GeocodeFailure, GeocodeProgressState, GeocodeSummary } from "../types";
 import { BatchJobDialog } from "./BatchJobDialog";
+import { BatchSummaryCountersRow } from "./BatchSummaryCountersRow";
 import { RunningProgressPanel } from "./RunningProgressPanel";
 
 interface Props {
@@ -107,14 +108,19 @@ function SummaryBreakdown({ s }: { s: GeocodeSummary }) {
       style={{ marginTop: 10, fontSize: 12, color: "var(--text-secondary)" }}
       data-testid="geocode-summary-breakdown"
     >
-      <div>
-        Cache hits: <strong>{s.nSucceededFromCache}</strong> · Nominatim:{" "}
-        <strong>{s.nSucceededFromNominatim}</strong> · Nominatim+Overpass:{" "}
-        <strong>{s.nSucceededFromOverpass}</strong>
-      </div>
-      <div>
-        No GPS: <strong>{s.nNoGps}</strong> · Failed: <strong>{s.nFailed}</strong>
-      </div>
+      <BatchSummaryCountersRow
+        counters={[
+          { label: "Cache hits", value: s.nSucceededFromCache },
+          { label: "Nominatim", value: s.nSucceededFromNominatim },
+          { label: "Nominatim+Overpass", value: s.nSucceededFromOverpass },
+        ]}
+      />
+      <BatchSummaryCountersRow
+        counters={[
+          { label: "No GPS", value: s.nNoGps },
+          { label: "Failed", value: s.nFailed },
+        ]}
+      />
     </div>
   );
 }
