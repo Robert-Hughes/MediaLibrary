@@ -203,10 +203,16 @@ pub struct TitleInput {
     pub object_name: Option<String>,
     /// Read-only input populated by the Group B (Description) pass:
     /// the canonical description from the same image. Used by the
-    /// case-3 AI title-generation branch (plan §1 Group C) — deferred
-    /// to v2 of the feature; v1 ignores this field.
+    /// case-3 AI title-generation branch (plan §1 Group C).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description_canonical: Option<String>,
+    /// Location context used by case-3 AI title generation for
+    /// disambiguation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location_context: Option<LocationContext>,
+    /// Keyword context used by case-3 AI title generation.
+    #[serde(default)]
+    pub keywords_context: Vec<String>,
 }
 
 /// Location-group input bundle (plan §1 Group G).
@@ -505,24 +511,54 @@ pub struct PerImageStats {
     /// Number of date input fields that were non-empty but
     /// unparseable.
     pub n_unparseable_date_inputs: u32,
+    /// True (1) when Group B fired the AI merge for this image.
+    pub n_ai_description_merged: u32,
+    /// True (1) when Group C fired the AI title generation.
+    pub n_ai_title_generated: u32,
+    /// True (1) when an AI call errored on this image (recorded in
+    /// audit log).
+    pub n_ai_errors: u32,
 }
 
 /// Process one image. Walks the enabled groups in pass order; returns
 /// the aggregated draft-edit map plus per-image stats.
-pub fn process_image(
+/// Process one image. Walks the enabled groups in the plan's three-pass
+/// order:
+///   * Pass 1 (independents): Keywords, Creator, Copyright, Location,
+///     Dates, Headline. Captures keywords / location / date context
+///     for downstream passes.
+///   * Pass 2: Description. Reads Group A canonical leaves, Group F
+///     location, Group H date as context for the AI merge.
+///   * Pass 3: Title. Reads Group B's canonical description for the
+///     case-3 AI title generation.
+///
+/// `ai` is the injected AI client. When `None`, AI-driven branches
+/// fall back to deterministic defaults (Group B: primary or longest;
+/// Group C: case-3 is a no-op).
+pub async fn process_image(
     item: &NormaliseRequestItem,
     enabled: &[NormaliseGroup],
+    ai: Option<&dyn NormaliseAiClient>,
 ) -> (HashMap<String, DraftEdit>, PerImageStats) {
     let mut edits: HashMap<String, DraftEdit> = HashMap::new();
     let mut stats = PerImageStats::default();
 
     let is_enabled = |g: NormaliseGroup| enabled.contains(&g);
 
-    // Pass 1: independent groups (any order). Pass 2 (Description),
-    // pass 3 (Title/Headline) are v2 — Title's deterministic branches
-    // run independently in v1.
+    // ── Pass 1: independents ──
+    //
+    // Capture canonical-ish context as we go for pass 2/3 read-only
+    // inputs. The dispatcher constructs these from already-resolved
+    // input values, not from the drafts (which are downstream of the
+    // canonical and don't yet exist when pass 1 runs).
+    let mut keywords_leaves: Vec<String> = Vec::new();
+    let mut location_context: Option<LocationContext> = None;
+    let mut date_context: Option<String> = None;
+
     if is_enabled(NormaliseGroup::Keywords) {
         if let Some(input) = item.group_inputs.keywords.as_ref() {
+            let (paths, leaves) = derive_keywords_canonical(input);
+            keywords_leaves = leaves.clone();
             match normalise_keywords(input) {
                 Some(out) => {
                     edits.extend(out.edits);
@@ -530,6 +566,9 @@ pub fn process_image(
                 }
                 None => stats.n_groups_noop += 1,
             }
+            // `paths` referenced for future debugging; suppress
+            // unused-binding warning without a `let _ =`.
+            let _ = paths;
         } else {
             stats.n_groups_noop += 1;
         }
@@ -577,22 +616,22 @@ pub fn process_image(
         }
     }
 
-    if is_enabled(NormaliseGroup::Title) {
-        if let Some(input) = item.group_inputs.title.as_ref() {
-            match normalise_title(input) {
-                Some(out) => {
-                    edits.extend(out.edits);
-                    stats.n_groups_normalised += 1;
-                }
-                None => stats.n_groups_noop += 1,
-            }
-        } else {
-            stats.n_groups_noop += 1;
-        }
-    }
-
     if is_enabled(NormaliseGroup::Location) {
         if let Some(input) = item.group_inputs.location.as_ref() {
+            // Capture context for pass-2 (Description) and pass-3
+            // (Title) AI prompts.
+            location_context = Some(LocationContext {
+                location: input
+                    .location_xmp
+                    .clone()
+                    .or_else(|| input.location_iptc.clone()),
+                city: input.city_xmp.clone().or_else(|| input.city_iptc.clone()),
+                state: input.state_xmp.clone().or_else(|| input.state_iptc.clone()),
+                country: input
+                    .country_xmp
+                    .clone()
+                    .or_else(|| input.country_iptc.clone()),
+            });
             let outcome = normalise_location(input);
             stats.n_location_xmp_iim_conflict = outcome.n_xmp_iim_conflict;
             match outcome.output {
@@ -609,6 +648,15 @@ pub fn process_image(
 
     if is_enabled(NormaliseGroup::Dates) {
         if let Some(input) = item.group_inputs.dates.as_ref() {
+            // Capture date context for pass-2 — use whatever H1 source
+            // resolves cleanest (DTO first).
+            date_context = input
+                .date_time_original
+                .clone()
+                .or_else(|| input.photoshop_date_created.clone())
+                .or_else(|| input.iptc_date_created.clone())
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty());
             let outcome = normalise_dates(input);
             stats.n_date_conflict = outcome.n_date_conflict;
             stats.n_dto_from_filename = outcome.n_dto_from_filename;
@@ -626,7 +674,90 @@ pub fn process_image(
         }
     }
 
-    // Group B (Description) deferred to v2.
+    // ── Pass 2: Description (reads pass-1 context) ──
+    let mut description_canonical: Option<String> = None;
+    if is_enabled(NormaliseGroup::Description) {
+        if let Some(input) = item.group_inputs.description.as_ref() {
+            // Augment the caller-supplied bundle with pass-1
+            // context. Caller-provided values win when both are set.
+            let mut augmented = input.clone();
+            if augmented.keywords_context.is_empty() {
+                augmented.keywords_context = keywords_leaves.clone();
+            }
+            if augmented.location_context.is_none() {
+                augmented.location_context = location_context.clone();
+            }
+            if augmented.date_context.is_none() {
+                augmented.date_context = date_context.clone();
+            }
+            let outcome = normalise_description(&augmented, ai).await;
+            if outcome.ai_fired {
+                stats.n_ai_description_merged = 1;
+            }
+            if outcome.ai_error.is_some() {
+                stats.n_ai_errors += 1;
+            }
+            // Capture canonical for pass-3 — from the emitted XMP-dc
+            // draft, falling back to the input if the value already
+            // matched (no draft fired).
+            description_canonical = outcome
+                .output
+                .as_ref()
+                .and_then(|g| g.edits.get("XMP-dc:Description"))
+                .and_then(|d| match &d.value {
+                    Some(Variant::String(s)) => Some(s.clone()),
+                    _ => None,
+                })
+                .or_else(|| {
+                    augmented
+                        .description
+                        .clone()
+                        .map(|s| normalise_description_text(&s))
+                        .filter(|s| !s.is_empty())
+                });
+            match outcome.output {
+                Some(out) => {
+                    edits.extend(out.edits);
+                    stats.n_groups_normalised += 1;
+                }
+                None => stats.n_groups_noop += 1,
+            }
+        } else {
+            stats.n_groups_noop += 1;
+        }
+    }
+
+    // ── Pass 3: Title (reads pass-2 canonical) ──
+    if is_enabled(NormaliseGroup::Title) {
+        if let Some(input) = item.group_inputs.title.as_ref() {
+            let mut augmented = input.clone();
+            if augmented.description_canonical.is_none() {
+                augmented.description_canonical = description_canonical.clone();
+            }
+            if augmented.location_context.is_none() {
+                augmented.location_context = location_context.clone();
+            }
+            if augmented.keywords_context.is_empty() {
+                augmented.keywords_context = keywords_leaves.clone();
+            }
+            let outcome = normalise_title(&augmented, ai).await;
+            if outcome.ai_fired {
+                stats.n_ai_title_generated = 1;
+            }
+            if outcome.ai_error.is_some() {
+                stats.n_ai_errors += 1;
+            }
+            match outcome.output {
+                Some(out) => {
+                    edits.extend(out.edits);
+                    stats.n_groups_normalised += 1;
+                }
+                None => stats.n_groups_noop += 1,
+            }
+        } else {
+            stats.n_groups_noop += 1;
+        }
+    }
 
     (edits, stats)
 }
@@ -649,6 +780,9 @@ pub struct NormaliseSummary {
     pub n_date_conflict_total: u32,
     pub n_dto_from_filename_total: u32,
     pub n_dto_from_filename_date_only_total: u32,
+    pub n_ai_description_merged_total: u32,
+    pub n_ai_title_generated_total: u32,
+    pub n_ai_errors_total: u32,
     pub n_unparseable_date_inputs_total: u32,
 }
 
@@ -661,6 +795,9 @@ impl NormaliseSummary {
         self.n_dto_from_filename_total += per_image.n_dto_from_filename;
         self.n_dto_from_filename_date_only_total += per_image.n_dto_from_filename_date_only;
         self.n_unparseable_date_inputs_total += per_image.n_unparseable_date_inputs;
+        self.n_ai_description_merged_total += per_image.n_ai_description_merged;
+        self.n_ai_title_generated_total += per_image.n_ai_title_generated;
+        self.n_ai_errors_total += per_image.n_ai_errors;
     }
 }
 
@@ -668,10 +805,8 @@ impl NormaliseSummary {
 mod tests_dispatcher {
     use super::*;
 
-    #[test]
-    fn enabled_groups_filter() {
-        // Only Keywords enabled; Creator input present but should be
-        // skipped.
+    #[tokio::test]
+    async fn enabled_groups_filter() {
         let item = NormaliseRequestItem {
             rel_path: "x.jpg".into(),
             group_inputs: GroupInputs {
@@ -686,15 +821,15 @@ mod tests_dispatcher {
                 ..Default::default()
             },
         };
-        let (edits, stats) = process_image(&item, &[NormaliseGroup::Keywords]);
+        let (edits, stats) = process_image(&item, &[NormaliseGroup::Keywords], None).await;
         assert!(edits.contains_key("XMP-dc:Subject"));
         assert!(!edits.contains_key("XMP-dc:Creator"));
         assert_eq!(stats.n_groups_normalised, 1);
         assert_eq!(stats.n_groups_noop, 0);
     }
 
-    #[test]
-    fn all_groups_noop_when_already_normalised() {
+    #[tokio::test]
+    async fn all_groups_noop_when_already_normalised() {
         let item = NormaliseRequestItem {
             rel_path: "x.jpg".into(),
             group_inputs: GroupInputs::default(),
@@ -709,11 +844,101 @@ mod tests_dispatcher {
                 NormaliseGroup::Title,
                 NormaliseGroup::Location,
                 NormaliseGroup::Dates,
+                NormaliseGroup::Description,
             ],
-        );
+            None,
+        ).await;
         assert!(edits.is_empty());
         assert_eq!(stats.n_groups_normalised, 0);
-        assert_eq!(stats.n_groups_noop, 7);
+        assert_eq!(stats.n_groups_noop, 8);
+    }
+
+    #[tokio::test]
+    async fn description_inherits_keywords_context_from_pass1() {
+        // Keywords runs first → its canonical leaves are passed into
+        // Group B's input as `keywords_context`.
+        struct ContextCapturingAi {
+            captured: tokio::sync::Mutex<Option<DescriptionMergePrompt>>,
+        }
+        #[async_trait::async_trait]
+        impl NormaliseAiClient for ContextCapturingAi {
+            async fn merge_description(
+                &self,
+                p: DescriptionMergePrompt,
+            ) -> Result<String, String> {
+                *self.captured.lock().await = Some(p);
+                Ok("merged".into())
+            }
+            async fn generate_title(&self, _: TitleGenPrompt) -> Result<String, String> {
+                unreachable!()
+            }
+        }
+        let ai = ContextCapturingAi { captured: tokio::sync::Mutex::new(None) };
+        let item = NormaliseRequestItem {
+            rel_path: "x.jpg".into(),
+            group_inputs: GroupInputs {
+                keywords: Some(KeywordsInput {
+                    dc_subject: vec!["Lion".into(), "Statue".into()],
+                    ..Default::default()
+                }),
+                description: Some(DescriptionInput {
+                    description: Some("first version".into()),
+                    image_description: Some("different version".into()),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+        };
+        let _ = process_image(
+            &item,
+            &[NormaliseGroup::Keywords, NormaliseGroup::Description],
+            Some(&ai),
+        ).await;
+        let captured = ai.captured.lock().await.take().expect("AI must fire on distinct sources");
+        assert!(captured.keywords.contains(&"lion".to_string()));
+        assert!(captured.keywords.contains(&"statue".to_string()));
+    }
+
+    #[tokio::test]
+    async fn title_case3_inherits_description_canonical_from_pass2() {
+        struct TitleAi {
+            captured_description: tokio::sync::Mutex<Option<String>>,
+        }
+        #[async_trait::async_trait]
+        impl NormaliseAiClient for TitleAi {
+            async fn merge_description(&self, _: DescriptionMergePrompt) -> Result<String, String> {
+                unreachable!()
+            }
+            async fn generate_title(&self, p: TitleGenPrompt) -> Result<String, String> {
+                *self.captured_description.lock().await = Some(p.description);
+                Ok("Generated Title".into())
+            }
+        }
+        let ai = TitleAi { captured_description: tokio::sync::Mutex::new(None) };
+        let item = NormaliseRequestItem {
+            rel_path: "x.jpg".into(),
+            group_inputs: GroupInputs {
+                description: Some(DescriptionInput {
+                    description: Some("A factual sentence.".into()),
+                    ..Default::default()
+                }),
+                title: Some(TitleInput::default()), // all targets empty → case 3
+                ..Default::default()
+            },
+        };
+        let (edits, _) = process_image(
+            &item,
+            &[NormaliseGroup::Description, NormaliseGroup::Title],
+            Some(&ai),
+        ).await;
+        let captured = ai.captured_description.lock().await.take().expect("title AI must fire");
+        assert_eq!(captured, "A factual sentence.");
+        // Generated title became a draft.
+        let title_draft = edits.get("XMP-dc:Title").expect("title draft present");
+        match &title_draft.value {
+            Some(Variant::String(s)) => assert_eq!(s, "Generated Title"),
+            other => panic!("expected String, got {:?}", other),
+        }
     }
 
     #[test]
@@ -727,6 +952,9 @@ mod tests_dispatcher {
             n_dto_from_filename: 1,
             n_dto_from_filename_date_only: 1,
             n_unparseable_date_inputs: 0,
+            n_ai_description_merged: 1,
+            n_ai_title_generated: 0,
+            n_ai_errors: 0,
         });
         summary.accumulate(&PerImageStats {
             n_groups_normalised: 3,
@@ -736,14 +964,15 @@ mod tests_dispatcher {
             n_dto_from_filename: 0,
             n_dto_from_filename_date_only: 0,
             n_unparseable_date_inputs: 2,
+            n_ai_description_merged: 0,
+            n_ai_title_generated: 1,
+            n_ai_errors: 1,
         });
         assert_eq!(summary.n_groups_normalised_total, 5);
         assert_eq!(summary.n_groups_noop_total, 1);
-        assert_eq!(summary.n_location_xmp_iim_conflict_total, 1);
-        assert_eq!(summary.n_date_conflict_total, 1);
-        assert_eq!(summary.n_dto_from_filename_total, 1);
-        assert_eq!(summary.n_dto_from_filename_date_only_total, 1);
-        assert_eq!(summary.n_unparseable_date_inputs_total, 2);
+        assert_eq!(summary.n_ai_description_merged_total, 1);
+        assert_eq!(summary.n_ai_title_generated_total, 1);
+        assert_eq!(summary.n_ai_errors_total, 1);
     }
 }
 
@@ -2298,9 +2527,51 @@ fn derive_title_canonical(input: &TitleInput) -> Option<String> {
             return Some(n);
         }
     }
-    // Case 3 (AI title from description) deferred to v2 — even if
-    // `description_canonical` is set, v1 emits no drafts here.
     None
+}
+
+/// Build the Group C AI-title prompt body. Pure function so tests can
+/// pin the wire shape.
+pub fn build_title_gen_prompt(input: &TitleInput) -> Option<TitleGenPrompt> {
+    let description = input
+        .description_canonical
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())?
+        .to_string();
+    let location = match &input.location_context {
+        Some(lc) => {
+            let mut m = serde_json::Map::new();
+            if let Some(s) = lc.location.as_deref().filter(|s| !s.trim().is_empty()) {
+                m.insert("location".into(), serde_json::Value::String(s.into()));
+            }
+            if let Some(s) = lc.city.as_deref().filter(|s| !s.trim().is_empty()) {
+                m.insert("city".into(), serde_json::Value::String(s.into()));
+            }
+            if let Some(s) = lc.state.as_deref().filter(|s| !s.trim().is_empty()) {
+                m.insert("state".into(), serde_json::Value::String(s.into()));
+            }
+            if let Some(s) = lc.country.as_deref().filter(|s| !s.trim().is_empty()) {
+                m.insert("country".into(), serde_json::Value::String(s.into()));
+            }
+            serde_json::Value::Object(m)
+        }
+        None => serde_json::Value::Null,
+    };
+    Some(TitleGenPrompt {
+        description,
+        location,
+        keywords: input.keywords_context.clone(),
+    })
+}
+
+/// Outcome of Title normalisation. Mirrors `DescriptionOutcome` so the
+/// dispatcher can record AI-fired stats and audit-log errors.
+#[derive(Debug, Clone, Default)]
+pub struct TitleOutcome {
+    pub output: Option<GroupOutput>,
+    pub ai_fired: bool,
+    pub ai_error: Option<String>,
 }
 
 fn title_is_normalised(input: &TitleInput, canonical: &str) -> bool {
@@ -2309,32 +2580,78 @@ fn title_is_normalised(input: &TitleInput, canonical: &str) -> bool {
         && input.object_name.as_deref() == Some(object_projection.as_str())
 }
 
-/// Run Group C (Title) normalisation for one image — v1 deterministic
-/// branches only.
-pub fn normalise_title(input: &TitleInput) -> Option<GroupOutput> {
-    let canonical = derive_title_canonical(input)?;
+/// Run Group C (Title) normalisation for one image.
+///
+/// Cases 1, 2 are deterministic (primary or derivative wins).
+/// Case 3 fires the AI title-generation path when all targets are
+/// empty and `description_canonical` is non-empty AND an AI client is
+/// supplied. Without an AI client this case is a no-op.
+pub async fn normalise_title(
+    input: &TitleInput,
+    ai: Option<&dyn NormaliseAiClient>,
+) -> TitleOutcome {
+    let mut ai_fired = false;
+    let mut ai_error: Option<String> = None;
+
+    let canonical_opt = derive_title_canonical(input);
+    let canonical = match canonical_opt {
+        Some(c) => c,
+        None => {
+            // Case 3: try AI title generation from description.
+            match (ai, build_title_gen_prompt(input)) {
+                (Some(client), Some(prompt)) => {
+                    match client.generate_title(prompt).await {
+                        Ok(generated) => {
+                            ai_fired = true;
+                            let n = normalise_title_text(&generated);
+                            if n.is_empty() {
+                                return TitleOutcome { ai_fired, ai_error, ..Default::default() };
+                            }
+                            n
+                        }
+                        Err(e) => {
+                            ai_error = Some(e);
+                            return TitleOutcome { ai_fired, ai_error, ..Default::default() };
+                        }
+                    }
+                }
+                _ => {
+                    return TitleOutcome::default();
+                }
+            }
+        }
+    };
+
     if title_is_normalised(input, &canonical) {
-        return None;
+        return TitleOutcome { ai_fired, ai_error, ..Default::default() };
     }
     let object = truncate_at_word(&canonical, IPTC_OBJECT_NAME_LIMIT);
     let mut edits = HashMap::new();
-    edits.insert(
-        "XMP-dc:Title".to_string(),
-        DraftEdit {
-            value: Some(Variant::String(canonical.clone())),
-            intent: EditIntent::Set,
-            display: None,
-        },
-    );
-    edits.insert(
-        "IPTC:ObjectName".to_string(),
-        DraftEdit {
-            value: Some(Variant::String(object)),
-            intent: EditIntent::Set,
-            display: None,
-        },
-    );
-    Some(GroupOutput { edits })
+    if input.title.as_deref() != Some(canonical.as_str()) {
+        edits.insert(
+            "XMP-dc:Title".to_string(),
+            DraftEdit {
+                value: Some(Variant::String(canonical.clone())),
+                intent: EditIntent::Set,
+                display: None,
+            },
+        );
+    }
+    if input.object_name.as_deref() != Some(object.as_str()) {
+        edits.insert(
+            "IPTC:ObjectName".to_string(),
+            DraftEdit {
+                value: Some(Variant::String(object)),
+                intent: EditIntent::Set,
+                display: None,
+            },
+        );
+    }
+    TitleOutcome {
+        output: if edits.is_empty() { None } else { Some(GroupOutput { edits }) },
+        ai_fired,
+        ai_error,
+    }
 }
 
 #[cfg(test)]
@@ -2348,116 +2665,181 @@ mod tests_title {
         }
     }
 
-    #[test]
-    fn primary_wins() {
+    #[tokio::test]
+    async fn primary_wins() {
         let input = TitleInput {
             title: Some("Sunset Over Mont Blanc".into()),
             object_name: Some("Old ObjectName".into()),
-            description_canonical: None,
+            ..Default::default()
         };
-        let out = normalise_title(&input).unwrap();
-        assert_eq!(s(&out, "XMP-dc:Title"), "Sunset Over Mont Blanc");
+        let out = normalise_title(&input, None).await.output.unwrap();
+        // Primary equals canonical → no draft for XMP-dc:Title;
+        // derivative gets the canonical projection.
+        assert!(!out.edits.contains_key("XMP-dc:Title"));
         assert_eq!(s(&out, "IPTC:ObjectName"), "Sunset Over Mont Blanc");
     }
 
-    #[test]
-    fn primary_empty_uses_derivative() {
+    #[tokio::test]
+    async fn primary_empty_uses_derivative() {
         let input = TitleInput {
             title: None,
             object_name: Some("From IPTC".into()),
-            description_canonical: None,
+            ..Default::default()
         };
-        let out = normalise_title(&input).unwrap();
+        let out = normalise_title(&input, None).await.output.unwrap();
         assert_eq!(s(&out, "XMP-dc:Title"), "From IPTC");
     }
 
-    #[test]
-    fn trailing_punctuation_stripped() {
+    #[tokio::test]
+    async fn trailing_punctuation_stripped() {
         let input = TitleInput {
             title: Some("Sunset Over Mont Blanc.".into()),
             ..Default::default()
         };
-        let out = normalise_title(&input).unwrap();
+        let out = normalise_title(&input, None).await.output.unwrap();
         assert_eq!(s(&out, "XMP-dc:Title"), "Sunset Over Mont Blanc");
     }
 
-    #[test]
-    fn trailing_multiple_punctuation_stripped() {
+    #[tokio::test]
+    async fn trailing_multiple_punctuation_stripped() {
         let input = TitleInput {
             title: Some("Wow!?".into()),
             ..Default::default()
         };
-        let out = normalise_title(&input).unwrap();
+        let out = normalise_title(&input, None).await.output.unwrap();
         assert_eq!(s(&out, "XMP-dc:Title"), "Wow");
     }
 
-    #[test]
-    fn whitespace_normalised() {
+    #[tokio::test]
+    async fn whitespace_normalised() {
         let input = TitleInput {
             title: Some("  Lots   of   space  ".into()),
             ..Default::default()
         };
-        let out = normalise_title(&input).unwrap();
+        let out = normalise_title(&input, None).await.output.unwrap();
         assert_eq!(s(&out, "XMP-dc:Title"), "Lots of space");
     }
 
-    #[test]
-    fn capitalisation_preserved() {
+    #[tokio::test]
+    async fn capitalisation_preserved() {
         // "iPhone" must survive — we don't enforce title-case in v1.
         let input = TitleInput {
             title: Some("iPhone in the Snow".into()),
             ..Default::default()
         };
-        let out = normalise_title(&input).unwrap();
-        assert_eq!(s(&out, "XMP-dc:Title"), "iPhone in the Snow");
+        let out = normalise_title(&input, None).await.output.unwrap();
+        // Primary equals canonical → only derivative gets draft.
+        assert_eq!(s(&out, "IPTC:ObjectName"), "iPhone in the Snow");
     }
 
-    #[test]
-    fn all_empty_returns_no_drafts_in_v1_even_with_description() {
-        // Case-3 AI generation is deferred to v2.
+    #[tokio::test]
+    async fn empty_targets_no_ai_returns_no_drafts() {
+        // Case-3 is no-op without an AI client.
         let input = TitleInput {
-            title: None,
-            object_name: None,
             description_canonical: Some("A photo of a cat.".into()),
+            ..Default::default()
         };
-        assert!(normalise_title(&input).is_none());
+        let out = normalise_title(&input, None).await;
+        assert!(out.output.is_none());
+        assert!(!out.ai_fired);
     }
 
-    #[test]
-    fn empty_input_returns_no_drafts() {
-        assert!(normalise_title(&TitleInput::default()).is_none());
+    #[tokio::test]
+    async fn case_3_ai_generates_title_from_description() {
+        struct MockAi;
+        #[async_trait::async_trait]
+        impl NormaliseAiClient for MockAi {
+            async fn merge_description(
+                &self,
+                _: DescriptionMergePrompt,
+            ) -> Result<String, String> {
+                unreachable!()
+            }
+            async fn generate_title(&self, p: TitleGenPrompt) -> Result<String, String> {
+                assert_eq!(p.description, "Climbers descending Mont Blanc at sunset.");
+                assert_eq!(p.keywords, vec!["mountains".to_string()]);
+                Ok("Climbers At Sunset".into())
+            }
+        }
+        let input = TitleInput {
+            description_canonical: Some("Climbers descending Mont Blanc at sunset.".into()),
+            keywords_context: vec!["mountains".into()],
+            ..Default::default()
+        };
+        let out = normalise_title(&input, Some(&MockAi)).await;
+        let g = out.output.unwrap();
+        assert_eq!(s(&g, "XMP-dc:Title"), "Climbers At Sunset");
+        assert!(out.ai_fired);
     }
 
-    #[test]
-    fn iptc_object_name_truncated_at_64_bytes() {
+    #[tokio::test]
+    async fn case_3_ai_error_records_error_and_no_drafts() {
+        struct FailingAi;
+        #[async_trait::async_trait]
+        impl NormaliseAiClient for FailingAi {
+            async fn merge_description(&self, _: DescriptionMergePrompt) -> Result<String, String> {
+                unreachable!()
+            }
+            async fn generate_title(&self, _: TitleGenPrompt) -> Result<String, String> {
+                Err("rate limited".into())
+            }
+        }
+        let input = TitleInput {
+            description_canonical: Some("A photo.".into()),
+            ..Default::default()
+        };
+        let out = normalise_title(&input, Some(&FailingAi)).await;
+        assert!(out.output.is_none());
+        assert_eq!(out.ai_error.as_deref(), Some("rate limited"));
+    }
+
+    #[tokio::test]
+    async fn case_3_no_description_no_ai_call() {
+        struct ShouldNotFireAi;
+        #[async_trait::async_trait]
+        impl NormaliseAiClient for ShouldNotFireAi {
+            async fn merge_description(&self, _: DescriptionMergePrompt) -> Result<String, String> {
+                unreachable!()
+            }
+            async fn generate_title(&self, _: TitleGenPrompt) -> Result<String, String> {
+                panic!("AI should not fire when description is empty")
+            }
+        }
+        let input = TitleInput::default();
+        let out = normalise_title(&input, Some(&ShouldNotFireAi)).await;
+        assert!(out.output.is_none());
+        assert!(!out.ai_fired);
+    }
+
+    #[tokio::test]
+    async fn iptc_object_name_truncated_at_64_bytes() {
         let long = "word ".repeat(20); // 100 bytes
         let trimmed = long.trim_end().to_string();
         let input = TitleInput {
             title: Some(trimmed.clone()),
             ..Default::default()
         };
-        let out = normalise_title(&input).unwrap();
-        // Primary holds the full text.
-        assert_eq!(s(&out, "XMP-dc:Title"), trimmed);
+        let out = normalise_title(&input, None).await.output.unwrap();
         let obj = s(&out, "IPTC:ObjectName");
         assert!(obj.len() <= IPTC_OBJECT_NAME_LIMIT);
         assert!(!obj.ends_with(' '));
         assert!(obj.ends_with("word"));
     }
 
-    #[test]
-    fn idempotent_after_one_pass() {
+    #[tokio::test]
+    async fn idempotent_after_one_pass() {
         let initial = TitleInput {
             title: Some("My Title".into()),
             ..Default::default()
         };
-        let first = normalise_title(&initial).unwrap();
+        let first = normalise_title(&initial, None).await.output.unwrap();
         let post = TitleInput {
-            title: Some(s(&first, "XMP-dc:Title")),
+            title: Some("My Title".into()),
             object_name: Some(s(&first, "IPTC:ObjectName")),
-            description_canonical: None,
+            ..Default::default()
         };
-        assert!(normalise_title(&post).is_none());
+        let second = normalise_title(&post, None).await;
+        assert!(second.output.is_none());
     }
 }
 

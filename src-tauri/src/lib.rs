@@ -1200,7 +1200,10 @@ async fn normalise_metadata_cmd(
         }
         current += 1;
         let rel = item.rel_path.clone();
-        let (edits, stats) = normalise::process_image(item, &enabled_groups);
+        // v2 AI client wiring lands in a follow-up commit; for now no
+        // AI client is supplied — Group B falls back to primary-or-
+        // longest, Group C case-3 is a no-op.
+        let (edits, stats) = normalise::process_image(item, &enabled_groups, None).await;
         summary.accumulate(&stats);
         let all_noop = edits.is_empty();
         if all_noop {
