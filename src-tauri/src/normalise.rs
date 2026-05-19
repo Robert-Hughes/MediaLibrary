@@ -106,9 +106,11 @@ pub struct GroupInputs {
     /// Group G (Location XMP↔IIM mirror sync) sources.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub location: Option<LocationInput>,
+    /// Group H (Dates — H1 Shutter time + H2 Digitised time) sources.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dates: Option<DatesInput>,
     // Future groups land here as they are implemented:
     //   pub description: Option<DescriptionInput>,
-    //   pub dates: Option<DatesInput>,
 }
 
 /// Keywords-group input bundle (plan §1 Group A).
@@ -247,6 +249,69 @@ pub struct LocationInput {
     /// `IPTC:Country-PrimaryLocationCode` (derivative).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub country_code_iptc: Option<String>,
+}
+
+/// Dates-group input bundle (plan §1 Group H, H1 + H2 sub-groups).
+///
+/// H3 (Modify time) is intentionally omitted — exiftool auto-updates
+/// modify timestamps on every write, so normalising them is pointless
+/// and fights the tool.
+///
+/// All string fields hold raw values as exiftool emits them; the
+/// parser accepts both `"YYYY:MM:DD HH:MM:SS"` (EXIF) and
+/// `"YYYY-MM-DDTHH:MM:SS"` (XMP/ISO), with optional sub-second and
+/// timezone offset.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
+pub struct DatesInput {
+    // ── H1: Shutter time ──
+    /// `EXIF:DateTimeOriginal` (primary).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub date_time_original: Option<String>,
+    /// `EXIF:OffsetTimeOriginal` — `"+01:00"` etc.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub offset_time_original: Option<String>,
+    /// `EXIF:SubSecTimeOriginal` — fractional seconds digits, e.g.
+    /// `"123"` meaning `.123`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sub_sec_time_original: Option<String>,
+    /// `XMP-photoshop:DateCreated` — full ISO datetime mirror.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub photoshop_date_created: Option<String>,
+    /// `IPTC:DateCreated` — `"YYYY-MM-DD"` portion of the H1 mirror.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub iptc_date_created: Option<String>,
+    /// `IPTC:TimeCreated` — `"HH:MM:SS[±HH:MM]"` portion of H1 mirror.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub iptc_time_created: Option<String>,
+
+    // ── H2: Digitised time ──
+    /// `EXIF:CreateDate` (primary).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub create_date: Option<String>,
+    /// `EXIF:OffsetTime` — paired with `CreateDate` per EXIF spec.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub offset_time: Option<String>,
+    /// `EXIF:SubSecTimeDigitized` — fractional-seconds digits for H2.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sub_sec_time_digitized: Option<String>,
+    /// `XMP-xmp:CreateDate` — full ISO datetime mirror.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub xmp_create_date: Option<String>,
+    /// `IPTC:DigitalCreationDate` — `"YYYY-MM-DD"` portion of H2 mirror.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub iptc_digital_creation_date: Option<String>,
+    /// `IPTC:DigitalCreationTime` — `"HH:MM:SS[±HH:MM]"` portion of H2.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub iptc_digital_creation_time: Option<String>,
+
+    /// Filename stem — read-only input used by the H1 filename
+    /// fallback when all H1 fields are empty (plan §1 Group H).
+    /// Implementation in a follow-up commit; v1 ignores it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file_stem: Option<String>,
 }
 
 /// One image's payload shipped to `normalise_metadata_cmd`.
@@ -1825,6 +1890,581 @@ mod tests_location {
         let out = normalise_location(&input).output.expect("must normalise to uppercase");
         assert_eq!(s(&out, "XMP-iptcCore:CountryCode"), "GB");
         assert_eq!(s(&out, "IPTC:Country-PrimaryLocationCode"), "GB");
+    }
+}
+
+// ── Group H: Dates (H1 Shutter + H2 Digitised) ─────────────────────────
+//
+// Plan §1 Group H. Two sub-groups, treated independently:
+//
+//   H1 Shutter time   — `EXIF:DateTimeOriginal` is primary; mirrors
+//                       are `XMP-photoshop:DateCreated`,
+//                       `IPTC:DateCreated` + `IPTC:TimeCreated`.
+//   H2 Digitised time — `EXIF:CreateDate` is primary; mirrors are
+//                       `XMP-xmp:CreateDate`,
+//                       `IPTC:DigitalCreationDate` +
+//                       `IPTC:DigitalCreationTime`.
+//
+// H3 (Modify time) is intentionally skipped — exiftool auto-updates
+// modify timestamps on every write.
+//
+// Filename fallback for H1 missing DTO is a separate follow-up commit;
+// this one handles only ISO sync across the existing mirrors.
+//
+// Canonical form: ISO 8601 datetime, optional sub-second precision
+// preserved when any source supplies it, optional timezone offset
+// preserved when any EXIF Offset* tag supplies it. Output is the
+// canonical string for each target.
+
+/// Parsed datetime that drives both projection (to derivatives) and
+/// equality comparison (idempotency). All fields are kept as strings
+/// because we don't need to do arithmetic — only render in canonical
+/// form.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ParsedDateTime {
+    /// "YYYY-MM-DD".
+    date: String,
+    /// "HH:MM:SS".
+    time: String,
+    /// Sub-second digits without leading dot, e.g. "123" → ".123";
+    /// empty when no source had sub-seconds.
+    subsec: String,
+    /// "+HH:MM" / "-HH:MM" / "Z"; empty when no offset known.
+    offset: String,
+}
+
+impl ParsedDateTime {
+    fn to_canonical(&self) -> String {
+        let mut s = String::with_capacity(32);
+        s.push_str(&self.date);
+        s.push('T');
+        s.push_str(&self.time);
+        if !self.subsec.is_empty() {
+            s.push('.');
+            s.push_str(&self.subsec);
+        }
+        s.push_str(&self.offset);
+        s
+    }
+
+    fn iptc_date(&self) -> String {
+        self.date.clone()
+    }
+
+    /// `HH:MM:SS[.subsec][±HH:MM]` for IPTC TimeCreated / DigitalCreationTime.
+    fn iptc_time(&self) -> String {
+        let mut s = String::with_capacity(16);
+        s.push_str(&self.time);
+        if !self.subsec.is_empty() {
+            s.push('.');
+            s.push_str(&self.subsec);
+        }
+        s.push_str(&self.offset);
+        s
+    }
+}
+
+/// Parse a datetime string in any of the common shapes we see:
+///   * `"YYYY:MM:DD HH:MM:SS"`               (EXIF)
+///   * `"YYYY-MM-DD HH:MM:SS"`               (some IPTC tools)
+///   * `"YYYY-MM-DDTHH:MM:SS"`               (XMP / ISO)
+///   * `"YYYY-MM-DDTHH:MM:SS.sss"`           (with sub-seconds)
+///   * `"…[+HH:MM]"` / `"…[-HH:MM]"` / `"…Z"` (with offset)
+fn parse_datetime_str(s: &str, default_offset: &str, default_subsec: &str) -> Option<ParsedDateTime> {
+    let s = s.trim();
+    if s.is_empty() {
+        return None;
+    }
+    let bytes = s.as_bytes();
+    // Need at least YYYY-MM-DD HH:MM:SS shape = 19 chars.
+    if bytes.len() < 19 {
+        return None;
+    }
+    // Extract YYYY, MM, DD with either '-' or ':' as separator.
+    let year = &s[0..4];
+    let m_sep = bytes[4] as char;
+    if m_sep != '-' && m_sep != ':' {
+        return None;
+    }
+    let month = &s[5..7];
+    let d_sep = bytes[7] as char;
+    if d_sep != '-' && d_sep != ':' {
+        return None;
+    }
+    let day = &s[8..10];
+    if !year.chars().all(|c| c.is_ascii_digit())
+        || !month.chars().all(|c| c.is_ascii_digit())
+        || !day.chars().all(|c| c.is_ascii_digit())
+    {
+        return None;
+    }
+    let dt_sep = bytes[10] as char;
+    if dt_sep != ' ' && dt_sep != 'T' {
+        return None;
+    }
+    let hour = &s[11..13];
+    if bytes[13] as char != ':' {
+        return None;
+    }
+    let minute = &s[14..16];
+    if bytes[16] as char != ':' {
+        return None;
+    }
+    let second = &s[17..19];
+    if !hour.chars().all(|c| c.is_ascii_digit())
+        || !minute.chars().all(|c| c.is_ascii_digit())
+        || !second.chars().all(|c| c.is_ascii_digit())
+    {
+        return None;
+    }
+    let mut rest = &s[19..];
+    let mut subsec = String::new();
+    if rest.starts_with('.') {
+        let after_dot = &rest[1..];
+        let digits: String = after_dot.chars().take_while(|c| c.is_ascii_digit()).collect();
+        if digits.is_empty() {
+            return None;
+        }
+        subsec = digits.clone();
+        rest = &rest[1 + digits.len()..];
+    }
+    let offset = if rest.is_empty() {
+        default_offset.to_string()
+    } else if rest == "Z" {
+        "+00:00".to_string()
+    } else if rest.len() == 6 && (rest.starts_with('+') || rest.starts_with('-')) {
+        rest.to_string()
+    } else if rest.len() == 5 && (rest.starts_with('+') || rest.starts_with('-')) {
+        // "+0100" → "+01:00"
+        let mut o = String::with_capacity(6);
+        o.push_str(&rest[..3]);
+        o.push(':');
+        o.push_str(&rest[3..]);
+        o
+    } else {
+        return None;
+    };
+    if subsec.is_empty() && !default_subsec.is_empty() {
+        subsec = default_subsec.to_string();
+    }
+    Some(ParsedDateTime {
+        date: format!("{}-{}-{}", year, month, day),
+        time: format!("{}:{}:{}", hour, minute, second),
+        subsec,
+        offset,
+    })
+}
+
+/// Combine a date string (`YYYY-MM-DD`) and time string
+/// (`HH:MM:SS[.sub][±HH:MM]` or `HH:MM:SS`) into a single
+/// `ParsedDateTime`.
+fn parse_iptc_date_time(date_s: &str, time_s: Option<&str>, default_offset: &str, default_subsec: &str) -> Option<ParsedDateTime> {
+    let date_s = date_s.trim();
+    if date_s.len() < 10 {
+        return None;
+    }
+    // Build a synthetic "YYYY-MM-DDTHH:MM:SS[.sub][±HH:MM]" string and
+    // reuse the main parser.
+    let time_part = time_s.map(str::trim).filter(|s| !s.is_empty()).unwrap_or("00:00:00");
+    let synthetic = format!("{}T{}", &date_s[..10], time_part);
+    parse_datetime_str(&synthetic, default_offset, default_subsec)
+}
+
+/// Outcome of processing one Group H sub-group (H1 or H2).
+#[derive(Debug, Clone)]
+struct DateSubgroupResult {
+    edits: HashMap<String, DraftEdit>,
+    /// True when multiple non-empty sources disagreed and primary won.
+    conflict: bool,
+    /// True when an existing non-empty source could not be parsed.
+    /// Surfaced as a stats counter so the user can investigate without
+    /// the run aborting.
+    unparseable: bool,
+}
+
+impl DateSubgroupResult {
+    fn empty() -> Self {
+        Self { edits: HashMap::new(), conflict: false, unparseable: false }
+    }
+}
+
+/// Plain (key, parser-input) for each H-sub-group source. Centralises
+/// the "this string came from this exiftool tag" mapping so each pass
+/// over a sub-group can recover the original key when reporting
+/// conflicts.
+struct DateSource<'a> {
+    /// Target tag key — `None` for the IPTC split pair (handled
+    /// specially because it spans two tags).
+    primary_key: Option<&'a str>,
+    /// Parsed value, or `None` if absent / empty / unparseable.
+    parsed: Option<ParsedDateTime>,
+}
+
+fn process_date_subgroup(
+    sources: Vec<DateSource<'_>>,
+    iptc_date_key: &str,
+    iptc_time_key: &str,
+    iptc_split: Option<ParsedDateTime>,
+    xmp_target_key: &str,
+    exif_target_key: &str,
+) -> DateSubgroupResult {
+    // Filter to (key, parsed) pairs we actually have.
+    let mut existing: Vec<(&str, ParsedDateTime)> = Vec::new();
+    for src in &sources {
+        if let (Some(k), Some(p)) = (src.primary_key, src.parsed.clone()) {
+            existing.push((k, p));
+        }
+    }
+    let mut conflict = false;
+    let canonical = if existing.is_empty() {
+        if let Some(p) = iptc_split.clone() {
+            p
+        } else {
+            return DateSubgroupResult::empty();
+        }
+    } else {
+        // Primary (first element) wins on conflict.
+        let primary = existing[0].clone();
+        for (_, other) in existing.iter().skip(1) {
+            if other != &primary.1 {
+                conflict = true;
+                break;
+            }
+        }
+        if let Some(p) = iptc_split.clone() {
+            if p != primary.1 {
+                conflict = true;
+            }
+        }
+        primary.1
+    };
+
+    // Build the projection per target. Each target gets a set-value
+    // draft only when its current value differs from the projection.
+    let mut edits = HashMap::new();
+    let canonical_full = canonical.to_canonical();
+    let canonical_date = canonical.iptc_date();
+    let canonical_time = canonical.iptc_time();
+
+    // EXIF target (canonical full ISO string).
+    let mut sources_iter = sources.into_iter();
+    let exif_src = sources_iter.next();
+    // `exif_src` is for the EXIF primary; project canonical to it if
+    // it differs.
+    if exif_src.as_ref().and_then(|s| s.parsed.as_ref()) != Some(&canonical) {
+        edits.insert(
+            exif_target_key.to_string(),
+            DraftEdit {
+                value: Some(Variant::String(canonical_full.clone())),
+                intent: EditIntent::Set,
+                display: None,
+            },
+        );
+    }
+    // XMP target.
+    let xmp_src = sources_iter.next();
+    if xmp_src.as_ref().and_then(|s| s.parsed.as_ref()) != Some(&canonical) {
+        edits.insert(
+            xmp_target_key.to_string(),
+            DraftEdit {
+                value: Some(Variant::String(canonical_full)),
+                intent: EditIntent::Set,
+                display: None,
+            },
+        );
+    }
+    // IPTC split pair.
+    if iptc_split.as_ref() != Some(&canonical) {
+        edits.insert(
+            iptc_date_key.to_string(),
+            DraftEdit {
+                value: Some(Variant::String(canonical_date)),
+                intent: EditIntent::Set,
+                display: None,
+            },
+        );
+        edits.insert(
+            iptc_time_key.to_string(),
+            DraftEdit {
+                value: Some(Variant::String(canonical_time)),
+                intent: EditIntent::Set,
+                display: None,
+            },
+        );
+    }
+
+    DateSubgroupResult { edits, conflict, unparseable: false }
+}
+
+/// Outcome of running Group H on one image.
+#[derive(Debug, Clone, Default)]
+pub struct DatesOutcome {
+    pub output: Option<GroupOutput>,
+    /// Counts H1 and H2 conflicts (primary disagreed with mirrors).
+    pub n_date_conflict: u32,
+    /// Number of source fields that were non-empty but unparseable —
+    /// they are ignored and the user sees the count in stats.
+    pub n_unparseable_inputs: u32,
+}
+
+/// Run Group H (Dates — H1 + H2) normalisation for one image.
+pub fn normalise_dates(input: &DatesInput) -> DatesOutcome {
+    let mut edits: HashMap<String, DraftEdit> = HashMap::new();
+    let mut n_conflict: u32 = 0;
+    let mut n_unparseable: u32 = 0;
+
+    // ── H1: Shutter time ──
+    let default_offset_h1 = input.offset_time_original.as_deref().unwrap_or("").trim().to_string();
+    let default_subsec_h1 = input.sub_sec_time_original.as_deref().unwrap_or("").trim().to_string();
+    let parse = |s: Option<&str>| -> Option<ParsedDateTime> {
+        s.filter(|v| !v.trim().is_empty())
+            .and_then(|v| parse_datetime_str(v, &default_offset_h1, &default_subsec_h1))
+    };
+    let count_unparseable_if = |s: Option<&str>, parsed: &Option<ParsedDateTime>| -> u32 {
+        match (s, parsed) {
+            (Some(v), None) if !v.trim().is_empty() => 1,
+            _ => 0,
+        }
+    };
+    let exif_parsed = parse(input.date_time_original.as_deref());
+    n_unparseable += count_unparseable_if(input.date_time_original.as_deref(), &exif_parsed);
+    let xmp_parsed = parse(input.photoshop_date_created.as_deref());
+    n_unparseable += count_unparseable_if(input.photoshop_date_created.as_deref(), &xmp_parsed);
+    let iptc_split = match (input.iptc_date_created.as_deref(), input.iptc_time_created.as_deref()) {
+        (Some(d), t) if !d.trim().is_empty() => parse_iptc_date_time(d, t, &default_offset_h1, &default_subsec_h1),
+        _ => None,
+    };
+    if input.iptc_date_created.as_deref().map(|s| !s.trim().is_empty()).unwrap_or(false) && iptc_split.is_none() {
+        n_unparseable += 1;
+    }
+    let h1 = process_date_subgroup(
+        vec![
+            DateSource { primary_key: Some("EXIF:DateTimeOriginal"), parsed: exif_parsed },
+            DateSource { primary_key: Some("XMP-photoshop:DateCreated"), parsed: xmp_parsed },
+        ],
+        "IPTC:DateCreated",
+        "IPTC:TimeCreated",
+        iptc_split,
+        "XMP-photoshop:DateCreated",
+        "EXIF:DateTimeOriginal",
+    );
+    if h1.conflict {
+        n_conflict += 1;
+    }
+    edits.extend(h1.edits);
+
+    // ── H2: Digitised time ──
+    let default_offset_h2 = input.offset_time.as_deref().unwrap_or("").trim().to_string();
+    let default_subsec_h2 = input.sub_sec_time_digitized.as_deref().unwrap_or("").trim().to_string();
+    let parse2 = |s: Option<&str>| -> Option<ParsedDateTime> {
+        s.filter(|v| !v.trim().is_empty())
+            .and_then(|v| parse_datetime_str(v, &default_offset_h2, &default_subsec_h2))
+    };
+    let exif2 = parse2(input.create_date.as_deref());
+    n_unparseable += count_unparseable_if(input.create_date.as_deref(), &exif2);
+    let xmp2 = parse2(input.xmp_create_date.as_deref());
+    n_unparseable += count_unparseable_if(input.xmp_create_date.as_deref(), &xmp2);
+    let iptc2 = match (input.iptc_digital_creation_date.as_deref(), input.iptc_digital_creation_time.as_deref()) {
+        (Some(d), t) if !d.trim().is_empty() => parse_iptc_date_time(d, t, &default_offset_h2, &default_subsec_h2),
+        _ => None,
+    };
+    if input.iptc_digital_creation_date.as_deref().map(|s| !s.trim().is_empty()).unwrap_or(false) && iptc2.is_none() {
+        n_unparseable += 1;
+    }
+    let h2 = process_date_subgroup(
+        vec![
+            DateSource { primary_key: Some("EXIF:CreateDate"), parsed: exif2 },
+            DateSource { primary_key: Some("XMP-xmp:CreateDate"), parsed: xmp2 },
+        ],
+        "IPTC:DigitalCreationDate",
+        "IPTC:DigitalCreationTime",
+        iptc2,
+        "XMP-xmp:CreateDate",
+        "EXIF:CreateDate",
+    );
+    if h2.conflict {
+        n_conflict += 1;
+    }
+    edits.extend(h2.edits);
+
+    DatesOutcome {
+        output: if edits.is_empty() { None } else { Some(GroupOutput { edits }) },
+        n_date_conflict: n_conflict,
+        n_unparseable_inputs: n_unparseable,
+    }
+}
+
+#[cfg(test)]
+mod tests_dates {
+    use super::*;
+
+    fn s(g: &GroupOutput, k: &str) -> String {
+        match &g.edits.get(k).unwrap().value {
+            Some(Variant::String(v)) => v.clone(),
+            other => panic!("expected String for {}, got {:?}", k, other),
+        }
+    }
+
+    #[test]
+    fn parse_exif_style_colon_separator() {
+        let p = parse_datetime_str("2024:06:15 14:30:45", "", "").unwrap();
+        assert_eq!(p.date, "2024-06-15");
+        assert_eq!(p.time, "14:30:45");
+        assert_eq!(p.subsec, "");
+        assert_eq!(p.offset, "");
+        assert_eq!(p.to_canonical(), "2024-06-15T14:30:45");
+    }
+
+    #[test]
+    fn parse_iso_with_offset_and_subsec() {
+        let p = parse_datetime_str("2024-06-15T14:30:45.123+01:00", "", "").unwrap();
+        assert_eq!(p.subsec, "123");
+        assert_eq!(p.offset, "+01:00");
+        assert_eq!(p.to_canonical(), "2024-06-15T14:30:45.123+01:00");
+    }
+
+    #[test]
+    fn parse_iso_with_z_offset() {
+        let p = parse_datetime_str("2024-06-15T14:30:45Z", "", "").unwrap();
+        assert_eq!(p.offset, "+00:00");
+        assert_eq!(p.to_canonical(), "2024-06-15T14:30:45+00:00");
+    }
+
+    #[test]
+    fn parse_picks_up_default_offset_when_input_has_none() {
+        let p = parse_datetime_str("2024-06-15T14:30:45", "+01:00", "").unwrap();
+        assert_eq!(p.offset, "+01:00");
+    }
+
+    #[test]
+    fn parse_picks_up_default_subsec_when_input_has_none() {
+        let p = parse_datetime_str("2024-06-15T14:30:45", "", "123").unwrap();
+        assert_eq!(p.subsec, "123");
+    }
+
+    #[test]
+    fn parse_garbage_returns_none() {
+        assert!(parse_datetime_str("not a date", "", "").is_none());
+        assert!(parse_datetime_str("2024", "", "").is_none());
+    }
+
+    #[test]
+    fn h1_exif_only_propagates_to_xmp_and_iptc_split() {
+        let input = DatesInput {
+            date_time_original: Some("2024:06:15 14:30:45".into()),
+            ..Default::default()
+        };
+        let out = normalise_dates(&input).output.unwrap();
+        // EXIF source matches canonical → no draft for EXIF target.
+        assert!(out.edits.get("EXIF:DateTimeOriginal").is_none());
+        assert_eq!(s(&out, "XMP-photoshop:DateCreated"), "2024-06-15T14:30:45");
+        assert_eq!(s(&out, "IPTC:DateCreated"), "2024-06-15");
+        assert_eq!(s(&out, "IPTC:TimeCreated"), "14:30:45");
+    }
+
+    #[test]
+    fn h1_with_offset_and_subsec_round_trip() {
+        let input = DatesInput {
+            date_time_original: Some("2024:06:15 14:30:45".into()),
+            offset_time_original: Some("+01:00".into()),
+            sub_sec_time_original: Some("123".into()),
+            ..Default::default()
+        };
+        let out = normalise_dates(&input).output.unwrap();
+        assert_eq!(s(&out, "XMP-photoshop:DateCreated"), "2024-06-15T14:30:45.123+01:00");
+        assert_eq!(s(&out, "IPTC:DateCreated"), "2024-06-15");
+        assert_eq!(s(&out, "IPTC:TimeCreated"), "14:30:45.123+01:00");
+    }
+
+    #[test]
+    fn h1_conflict_exif_vs_xmp_primary_wins() {
+        let input = DatesInput {
+            date_time_original: Some("2024:06:15 14:30:45".into()),
+            photoshop_date_created: Some("2024-06-15T15:00:00".into()),
+            ..Default::default()
+        };
+        let out = normalise_dates(&input);
+        let g = out.output.unwrap();
+        // Primary (EXIF) stays untouched; mirror overwritten.
+        assert_eq!(s(&g, "XMP-photoshop:DateCreated"), "2024-06-15T14:30:45");
+        assert_eq!(out.n_date_conflict, 1);
+    }
+
+    #[test]
+    fn h1_and_h2_independent() {
+        // H1 set, H2 absent — only H1 emits drafts.
+        let input = DatesInput {
+            date_time_original: Some("2024:06:15 14:30:45".into()),
+            ..Default::default()
+        };
+        let out = normalise_dates(&input).output.unwrap();
+        assert!(out.edits.contains_key("XMP-photoshop:DateCreated"));
+        assert!(!out.edits.contains_key("XMP-xmp:CreateDate"));
+        assert!(!out.edits.contains_key("EXIF:CreateDate"));
+    }
+
+    #[test]
+    fn h2_exif_only_propagates() {
+        let input = DatesInput {
+            create_date: Some("2024-06-15T14:30:45".into()),
+            ..Default::default()
+        };
+        let out = normalise_dates(&input).output.unwrap();
+        assert_eq!(s(&out, "XMP-xmp:CreateDate"), "2024-06-15T14:30:45");
+        assert_eq!(s(&out, "IPTC:DigitalCreationDate"), "2024-06-15");
+        assert_eq!(s(&out, "IPTC:DigitalCreationTime"), "14:30:45");
+    }
+
+    #[test]
+    fn unparseable_input_is_counted_not_aborted() {
+        let input = DatesInput {
+            date_time_original: Some("garbage".into()),
+            ..Default::default()
+        };
+        let out = normalise_dates(&input);
+        assert!(out.output.is_none());
+        assert_eq!(out.n_unparseable_inputs, 1);
+    }
+
+    #[test]
+    fn all_empty_returns_no_drafts() {
+        let out = normalise_dates(&DatesInput::default());
+        assert!(out.output.is_none());
+        assert_eq!(out.n_date_conflict, 0);
+        assert_eq!(out.n_unparseable_inputs, 0);
+    }
+
+    #[test]
+    fn idempotent_after_one_pass() {
+        let initial = DatesInput {
+            date_time_original: Some("2024:06:15 14:30:45".into()),
+            offset_time_original: Some("+01:00".into()),
+            ..Default::default()
+        };
+        let first = normalise_dates(&initial).output.unwrap();
+        // Build post-apply state.
+        let post = DatesInput {
+            date_time_original: Some("2024-06-15T14:30:45+01:00".into()),
+            offset_time_original: Some("+01:00".into()),
+            photoshop_date_created: Some(s(&first, "XMP-photoshop:DateCreated")),
+            iptc_date_created: Some(s(&first, "IPTC:DateCreated")),
+            iptc_time_created: Some(s(&first, "IPTC:TimeCreated")),
+            ..Default::default()
+        };
+        let second = normalise_dates(&post);
+        assert!(second.output.is_none(), "expected idempotent, got {:?}", second.output);
+    }
+
+    #[test]
+    fn iptc_split_alone_drives_canonical() {
+        let input = DatesInput {
+            iptc_date_created: Some("2024-06-15".into()),
+            iptc_time_created: Some("14:30:45".into()),
+            ..Default::default()
+        };
+        let out = normalise_dates(&input).output.unwrap();
+        assert_eq!(s(&out, "EXIF:DateTimeOriginal"), "2024-06-15T14:30:45");
+        assert_eq!(s(&out, "XMP-photoshop:DateCreated"), "2024-06-15T14:30:45");
     }
 }
 
