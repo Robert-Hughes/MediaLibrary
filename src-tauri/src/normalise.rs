@@ -110,8 +110,9 @@ pub struct GroupInputs {
     /// Group H (Dates — H1 Shutter time + H2 Digitised time) sources.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dates: Option<DatesInput>,
-    // Future groups land here as they are implemented:
-    //   pub description: Option<DescriptionInput>,
+    /// Group B (Description) sources.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<DescriptionInput>,
 }
 
 /// Keywords-group input bundle (plan §1 Group A).
@@ -310,9 +311,81 @@ pub struct DatesInput {
 
     /// Filename stem — read-only input used by the H1 filename
     /// fallback when all H1 fields are empty (plan §1 Group H).
-    /// Implementation in a follow-up commit; v1 ignores it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub file_stem: Option<String>,
+}
+
+/// Description-group input bundle (plan §1 Group B).
+///
+/// Per plan, three target fields share a canonical paragraph; three
+/// read-only inputs from the AI Describe feature contribute context,
+/// plus location, keywords, and date context from other groups
+/// (resolved post-pass-1 in the dispatcher). `EXIF:UserComment` is
+/// explicitly excluded — semantically "user note", not caption.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
+pub struct DescriptionInput {
+    /// `XMP-dc:Description` (LangAlt x-default, primary target).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// `EXIF:ImageDescription` (ASCII string, derivative target).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_description: Option<String>,
+    /// `IPTC:Caption-Abstract` (string, 2000-char IIM limit;
+    /// derivative target).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub caption_abstract: Option<String>,
+
+    /// Whether the file declares `IPTC:CodedCharacterSet` as UTF-8
+    /// (`ESC % G`). Controls whether `caption_abstract` is written as
+    /// UTF-8 or ASCII-folded.
+    #[serde(default)]
+    pub iptc_charset_is_utf8: bool,
+
+    // ── Read-only AI inputs (XMP-mlib namespace) ──
+    /// `XMP-mlib:AIDescription` — feeds the AI merge context.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ai_description: Option<String>,
+    /// `XMP-mlib:AIInterpretation`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ai_interpretation: Option<String>,
+    /// `XMP-mlib:AIOcrText` — Bag of strings, read-only.
+    #[serde(default)]
+    pub ai_ocr_text: Vec<String>,
+    /// `XMP-mlib:AIObjects` — Bag of strings, read-only.
+    #[serde(default)]
+    pub ai_objects: Vec<String>,
+
+    // ── Cross-group read-only inputs (populated by dispatcher) ──
+    /// Group F (Location) canonical strings from this image.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location_context: Option<LocationContext>,
+    /// Group A (Keywords) canonical leaves from this image (after
+    /// pass-1 normalisation).
+    #[serde(default)]
+    pub keywords_context: Vec<String>,
+    /// Group H (Dates) canonical H1 shutter-time string from this
+    /// image (after pass-1 normalisation).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub date_context: Option<String>,
+}
+
+/// Subset of the Location group surfaced to Group B for AI context.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
+pub struct LocationContext {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub city: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub country: Option<String>,
 }
 
 /// One image's payload shipped to `normalise_metadata_cmd`.
@@ -671,6 +744,525 @@ mod tests_dispatcher {
         assert_eq!(summary.n_dto_from_filename_total, 1);
         assert_eq!(summary.n_dto_from_filename_date_only_total, 1);
         assert_eq!(summary.n_unparseable_date_inputs_total, 2);
+    }
+}
+
+// ── Group B: Description ───────────────────────────────────────────────
+//
+// Plan §1 Group B. Canonical = single paragraph, sentence-cased,
+// factual tone, UTF-8 in the LangAlt primary. Derivatives adapt:
+//   * `EXIF:ImageDescription` is ASCII-folded.
+//   * `IPTC:Caption-Abstract` is truncated at 2000 bytes at a word
+//     boundary; encoding depends on whether the file declares UTF-8
+//     via `IPTC:CodedCharacterSet`.
+//
+// Conflict policy (plan §1):
+//   1. All target sources empty → no drafts.
+//   2. Exactly one target source non-empty → normalise + project.
+//   3. Multiple target sources non-empty AND equal after normalise →
+//      write the normalised form.
+//   4. Multiple target sources non-empty AND distinct → **AI merge**
+//      (case 5 in earlier plan numbering; here case 4 to match the
+//      revised policy). Falls through to "best deterministic guess"
+//      when no AI client is available — prefer the primary
+//      `XMP-dc:Description` value or, if absent, the longest source.
+
+pub const DESCRIPTION_TARGET_TAGS: &[&str] = &[
+    "XMP-dc:Description",
+    "EXIF:ImageDescription",
+    "IPTC:Caption-Abstract",
+];
+
+const IPTC_CAPTION_ABSTRACT_LIMIT: usize = 2000;
+
+/// Normalise a description string — collapse internal whitespace, trim
+/// ends, leave casing alone (the AI prompt enforces sentence case in
+/// case 4; we don't fight user-provided text in cases 2/3).
+fn normalise_description_text(s: &str) -> String {
+    normalise_copyright_text(s)
+}
+
+/// ASCII-fold for `EXIF:ImageDescription`. Strip diacritics, replace
+/// common smart-quotes / dashes with ASCII equivalents, drop
+/// anything outside the printable ASCII range.
+fn ascii_fold(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        let replacement: &str = match c {
+            '“' | '”' | '„' | '‟' => "\"",
+            '‘' | '’' | '‚' | '‛' => "'",
+            '–' | '—' => "--",
+            '…' => "...",
+            '«' | '»' => "\"",
+            // Common accented chars — strip to base. Sufficient for
+            // the EXIF ASCII spec which fails open on UTF-8 anyway.
+            'á' | 'à' | 'â' | 'ä' | 'ã' | 'å' => "a",
+            'Á' | 'À' | 'Â' | 'Ä' | 'Ã' | 'Å' => "A",
+            'é' | 'è' | 'ê' | 'ë' => "e",
+            'É' | 'È' | 'Ê' | 'Ë' => "E",
+            'í' | 'ì' | 'î' | 'ï' => "i",
+            'Í' | 'Ì' | 'Î' | 'Ï' => "I",
+            'ó' | 'ò' | 'ô' | 'ö' | 'õ' => "o",
+            'Ó' | 'Ò' | 'Ô' | 'Ö' | 'Õ' => "O",
+            'ú' | 'ù' | 'û' | 'ü' => "u",
+            'Ú' | 'Ù' | 'Û' | 'Ü' => "U",
+            'ñ' => "n",
+            'Ñ' => "N",
+            'ç' => "c",
+            'Ç' => "C",
+            'ß' => "ss",
+            _ if c.is_ascii() => {
+                out.push(c);
+                continue;
+            }
+            _ => "", // drop anything else
+        };
+        out.push_str(replacement);
+    }
+    out
+}
+
+/// Build the IPTC Caption-Abstract projection.
+fn project_caption_abstract(canonical: &str, charset_is_utf8: bool) -> String {
+    let body = if charset_is_utf8 {
+        canonical.to_string()
+    } else {
+        ascii_fold(canonical)
+    };
+    truncate_at_word(&body, IPTC_CAPTION_ABSTRACT_LIMIT)
+}
+
+/// Best deterministic guess at a canonical Description when sources
+/// disagree and no AI is available. Used by case-4 fallback.
+fn fallback_canonical(sources: &[(&str, String)]) -> String {
+    // Prefer the primary `XMP-dc:Description` value when present.
+    for (key, value) in sources {
+        if *key == "XMP-dc:Description" && !value.is_empty() {
+            return value.clone();
+        }
+    }
+    // Otherwise pick the longest non-empty source — most likely to be
+    // the most complete description.
+    sources
+        .iter()
+        .filter(|(_, v)| !v.is_empty())
+        .max_by_key(|(_, v)| v.len())
+        .map(|(_, v)| v.clone())
+        .unwrap_or_default()
+}
+
+/// AI-call inputs passed to the Description merge prompt builder.
+/// Surfaced separately so tests can inspect the prompt without a real
+/// HTTP client.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub struct DescriptionMergePrompt {
+    pub description_sources: std::collections::BTreeMap<String, String>,
+    pub ai_context: std::collections::BTreeMap<String, serde_json::Value>,
+    pub location: serde_json::Value,
+    pub keywords: Vec<String>,
+    pub date: Option<String>,
+}
+
+/// Build the prompt body sent to the AI merge call. Pure function so
+/// tests can pin the wire shape.
+pub fn build_description_merge_prompt(input: &DescriptionInput) -> DescriptionMergePrompt {
+    let mut description_sources = std::collections::BTreeMap::new();
+    if let Some(s) = input.description.as_deref().filter(|s| !s.trim().is_empty()) {
+        description_sources.insert("XMP-dc:Description".into(), s.trim().to_string());
+    }
+    if let Some(s) = input.image_description.as_deref().filter(|s| !s.trim().is_empty()) {
+        description_sources.insert("EXIF:ImageDescription".into(), s.trim().to_string());
+    }
+    if let Some(s) = input.caption_abstract.as_deref().filter(|s| !s.trim().is_empty()) {
+        description_sources.insert("IPTC:Caption-Abstract".into(), s.trim().to_string());
+    }
+
+    let mut ai_context = std::collections::BTreeMap::new();
+    if let Some(s) = input.ai_description.as_deref().filter(|s| !s.trim().is_empty()) {
+        ai_context.insert(
+            "XMP-mlib:AIDescription".into(),
+            serde_json::Value::String(s.trim().to_string()),
+        );
+    }
+    if let Some(s) = input.ai_interpretation.as_deref().filter(|s| !s.trim().is_empty()) {
+        ai_context.insert(
+            "XMP-mlib:AIInterpretation".into(),
+            serde_json::Value::String(s.trim().to_string()),
+        );
+    }
+    if !input.ai_ocr_text.is_empty() {
+        ai_context.insert(
+            "XMP-mlib:AIOcrText".into(),
+            serde_json::Value::Array(
+                input.ai_ocr_text.iter().map(|s| serde_json::Value::String(s.clone())).collect(),
+            ),
+        );
+    }
+    if !input.ai_objects.is_empty() {
+        ai_context.insert(
+            "XMP-mlib:AIObjects".into(),
+            serde_json::Value::Array(
+                input.ai_objects.iter().map(|s| serde_json::Value::String(s.clone())).collect(),
+            ),
+        );
+    }
+
+    let location = match &input.location_context {
+        Some(lc) => {
+            let mut m = serde_json::Map::new();
+            if let Some(s) = lc.location.as_deref().filter(|s| !s.trim().is_empty()) {
+                m.insert("location".into(), serde_json::Value::String(s.into()));
+            }
+            if let Some(s) = lc.city.as_deref().filter(|s| !s.trim().is_empty()) {
+                m.insert("city".into(), serde_json::Value::String(s.into()));
+            }
+            if let Some(s) = lc.state.as_deref().filter(|s| !s.trim().is_empty()) {
+                m.insert("state".into(), serde_json::Value::String(s.into()));
+            }
+            if let Some(s) = lc.country.as_deref().filter(|s| !s.trim().is_empty()) {
+                m.insert("country".into(), serde_json::Value::String(s.into()));
+            }
+            serde_json::Value::Object(m)
+        }
+        None => serde_json::Value::Null,
+    };
+
+    DescriptionMergePrompt {
+        description_sources,
+        ai_context,
+        location,
+        keywords: input.keywords_context.clone(),
+        date: input.date_context.clone(),
+    }
+}
+
+/// Trait that an injected AI client implements for Group B (and Group
+/// C). Tests substitute a mock; production wires
+/// `OpenAiNormaliseClient` (see `openai_normalise.rs`).
+#[async_trait::async_trait]
+pub trait NormaliseAiClient: Send + Sync {
+    /// Returns the canonical merged description. Errors are surfaced
+    /// to the caller and turned into per-image failure rows.
+    async fn merge_description(&self, prompt: DescriptionMergePrompt) -> Result<String, String>;
+
+    /// Generate a short title from a description + context. Case-3
+    /// Title AI path.
+    async fn generate_title(&self, prompt: TitleGenPrompt) -> Result<String, String>;
+}
+
+/// Title-generation prompt body.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub struct TitleGenPrompt {
+    pub description: String,
+    pub location: serde_json::Value,
+    pub keywords: Vec<String>,
+}
+
+/// Outcome of Group B normalisation. Tracks whether the AI fired so
+/// stats / audit log can count.
+#[derive(Debug, Clone, Default)]
+pub struct DescriptionOutcome {
+    pub output: Option<GroupOutput>,
+    pub ai_fired: bool,
+    pub ai_error: Option<String>,
+}
+
+/// Run Group B (Description) normalisation. Async because case-4 may
+/// call the injected AI client.
+pub async fn normalise_description(
+    input: &DescriptionInput,
+    ai: Option<&dyn NormaliseAiClient>,
+) -> DescriptionOutcome {
+    let primary = normalise_description_text(input.description.as_deref().unwrap_or(""));
+    let image_desc = normalise_description_text(input.image_description.as_deref().unwrap_or(""));
+    let caption = normalise_description_text(input.caption_abstract.as_deref().unwrap_or(""));
+
+    let target_sources: Vec<(&str, String)> = vec![
+        ("XMP-dc:Description", primary),
+        ("EXIF:ImageDescription", image_desc),
+        ("IPTC:Caption-Abstract", caption),
+    ];
+    let non_empty: Vec<(&str, String)> = target_sources
+        .iter()
+        .filter(|(_, v)| !v.is_empty())
+        .cloned()
+        .collect();
+
+    // Case 1: all-empty → no drafts.
+    if non_empty.is_empty() {
+        return DescriptionOutcome::default();
+    }
+
+    // Cases 2 and 3 — single source OR multiple equal-after-normalise.
+    let distinct: std::collections::BTreeSet<&str> =
+        non_empty.iter().map(|(_, v)| v.as_str()).collect();
+    let (canonical, ai_fired, ai_error) = if distinct.len() == 1 {
+        (non_empty[0].1.clone(), false, None)
+    } else {
+        // Case 4: AI merge when sources distinct.
+        let prompt = build_description_merge_prompt(input);
+        match ai {
+            Some(client) => match client.merge_description(prompt).await {
+                Ok(merged) => (normalise_description_text(&merged), true, None),
+                Err(e) => (fallback_canonical(&target_sources), false, Some(e)),
+            },
+            None => (fallback_canonical(&target_sources), false, None),
+        }
+    };
+
+    if canonical.is_empty() {
+        return DescriptionOutcome { ai_fired, ai_error, ..Default::default() };
+    }
+
+    let projection_image = ascii_fold(&canonical);
+    let projection_caption = project_caption_abstract(&canonical, input.iptc_charset_is_utf8);
+
+    let mut edits: HashMap<String, DraftEdit> = HashMap::new();
+    if input.description.as_deref() != Some(canonical.as_str()) {
+        edits.insert(
+            "XMP-dc:Description".to_string(),
+            DraftEdit {
+                value: Some(Variant::String(canonical.clone())),
+                intent: EditIntent::Set,
+                display: None,
+            },
+        );
+    }
+    if input.image_description.as_deref() != Some(projection_image.as_str()) {
+        edits.insert(
+            "EXIF:ImageDescription".to_string(),
+            DraftEdit {
+                value: Some(Variant::String(projection_image)),
+                intent: EditIntent::Set,
+                display: None,
+            },
+        );
+    }
+    if input.caption_abstract.as_deref() != Some(projection_caption.as_str()) {
+        edits.insert(
+            "IPTC:Caption-Abstract".to_string(),
+            DraftEdit {
+                value: Some(Variant::String(projection_caption)),
+                intent: EditIntent::Set,
+                display: None,
+            },
+        );
+    }
+
+    DescriptionOutcome {
+        output: if edits.is_empty() { None } else { Some(GroupOutput { edits }) },
+        ai_fired,
+        ai_error,
+    }
+}
+
+#[cfg(test)]
+mod tests_description {
+    use super::*;
+
+    fn s(g: &GroupOutput, k: &str) -> String {
+        match &g.edits.get(k).unwrap().value {
+            Some(Variant::String(v)) => v.clone(),
+            other => panic!("expected String for {}, got {:?}", k, other),
+        }
+    }
+
+    #[tokio::test]
+    async fn all_empty_returns_no_drafts() {
+        let out = normalise_description(&DescriptionInput::default(), None).await;
+        assert!(out.output.is_none());
+        assert!(!out.ai_fired);
+    }
+
+    #[tokio::test]
+    async fn single_source_propagates_to_all_targets() {
+        let input = DescriptionInput {
+            description: Some("A sunset on the bay.".into()),
+            ..Default::default()
+        };
+        let out = normalise_description(&input, None).await;
+        let g = out.output.unwrap();
+        assert_eq!(s(&g, "EXIF:ImageDescription"), "A sunset on the bay.");
+        assert_eq!(s(&g, "IPTC:Caption-Abstract"), "A sunset on the bay.");
+    }
+
+    #[tokio::test]
+    async fn whitespace_normalisation_triggers_drafts() {
+        let input = DescriptionInput {
+            description: Some("  A   sunset  ".into()),
+            ..Default::default()
+        };
+        let out = normalise_description(&input, None).await;
+        let g = out.output.unwrap();
+        assert_eq!(s(&g, "XMP-dc:Description"), "A sunset");
+    }
+
+    #[tokio::test]
+    async fn equal_after_normalise_propagates() {
+        let input = DescriptionInput {
+            description: Some("A sunset.".into()),
+            image_description: Some("A sunset.".into()),
+            caption_abstract: Some("A sunset.".into()),
+            ..Default::default()
+        };
+        let out = normalise_description(&input, None).await;
+        // Already in sync — idempotency check below ensures no drafts.
+        assert!(out.output.is_none());
+        assert!(!out.ai_fired);
+    }
+
+    #[tokio::test]
+    async fn ascii_fold_for_image_description() {
+        let input = DescriptionInput {
+            description: Some("André Müller’s café".into()),
+            ..Default::default()
+        };
+        let out = normalise_description(&input, None).await;
+        let g = out.output.unwrap();
+        // EXIF:ImageDescription ASCII-folded.
+        assert_eq!(s(&g, "EXIF:ImageDescription"), "Andre Muller's cafe");
+        // XMP-dc:Description equals the input already — no draft for
+        // it; the canonical is the input.
+        assert!(!g.edits.contains_key("XMP-dc:Description"));
+    }
+
+    #[tokio::test]
+    async fn caption_abstract_truncated_at_2000_bytes() {
+        let long = "word ".repeat(500); // ~2500 bytes
+        let trimmed = long.trim_end().to_string();
+        let input = DescriptionInput {
+            description: Some(trimmed.clone()),
+            iptc_charset_is_utf8: true,
+            ..Default::default()
+        };
+        let out = normalise_description(&input, None).await;
+        let g = out.output.unwrap();
+        let cap = s(&g, "IPTC:Caption-Abstract");
+        assert!(cap.len() <= IPTC_CAPTION_ABSTRACT_LIMIT);
+        assert!(!cap.ends_with(' '));
+        assert!(cap.ends_with("word"));
+    }
+
+    #[tokio::test]
+    async fn distinct_sources_with_no_ai_use_primary_fallback() {
+        let input = DescriptionInput {
+            description: Some("Primary version.".into()),
+            image_description: Some("Different version.".into()),
+            ..Default::default()
+        };
+        let out = normalise_description(&input, None).await;
+        let g = out.output.unwrap();
+        // Plan §1: when AI is unavailable, fall back to primary
+        // (XMP-dc:Description) value rather than aborting. The XMP
+        // target equals the input so no draft for it; the other
+        // targets adopt the canonical.
+        assert!(!g.edits.contains_key("XMP-dc:Description"));
+        assert_eq!(s(&g, "EXIF:ImageDescription"), "Primary version.");
+        assert!(!out.ai_fired);
+    }
+
+    #[tokio::test]
+    async fn distinct_sources_with_ai_use_merged_canonical() {
+        struct MockAi;
+        #[async_trait::async_trait]
+        impl NormaliseAiClient for MockAi {
+            async fn merge_description(
+                &self,
+                _: DescriptionMergePrompt,
+            ) -> Result<String, String> {
+                Ok("Merged factual description.".into())
+            }
+            async fn generate_title(&self, _: TitleGenPrompt) -> Result<String, String> {
+                unreachable!()
+            }
+        }
+        let input = DescriptionInput {
+            description: Some("Primary.".into()),
+            image_description: Some("Different.".into()),
+            ..Default::default()
+        };
+        let out = normalise_description(&input, Some(&MockAi)).await;
+        let g = out.output.unwrap();
+        assert_eq!(s(&g, "XMP-dc:Description"), "Merged factual description.");
+        assert!(out.ai_fired);
+    }
+
+    #[tokio::test]
+    async fn ai_error_falls_back_to_primary_and_records_error() {
+        struct FailingAi;
+        #[async_trait::async_trait]
+        impl NormaliseAiClient for FailingAi {
+            async fn merge_description(&self, _: DescriptionMergePrompt) -> Result<String, String> {
+                Err("rate limited".into())
+            }
+            async fn generate_title(&self, _: TitleGenPrompt) -> Result<String, String> {
+                unreachable!()
+            }
+        }
+        let input = DescriptionInput {
+            description: Some("Primary.".into()),
+            image_description: Some("Different.".into()),
+            ..Default::default()
+        };
+        let out = normalise_description(&input, Some(&FailingAi)).await;
+        let g = out.output.unwrap();
+        // Primary preserved on disk (no draft for it); derivative
+        // overwritten with the fallback canonical.
+        assert!(!g.edits.contains_key("XMP-dc:Description"));
+        assert_eq!(s(&g, "EXIF:ImageDescription"), "Primary.");
+        assert!(!out.ai_fired);
+        assert_eq!(out.ai_error.as_deref(), Some("rate limited"));
+    }
+
+    #[test]
+    fn merge_prompt_strips_empty_sources_and_includes_ai_context() {
+        let input = DescriptionInput {
+            description: Some("Primary".into()),
+            image_description: Some("".into()),
+            ai_description: Some("AI-generated".into()),
+            ai_ocr_text: vec!["signage".into()],
+            ai_objects: vec!["statue".into()],
+            keywords_context: vec!["statue".into(), "london".into()],
+            date_context: Some("2024-08-12".into()),
+            location_context: Some(LocationContext {
+                city: Some("London".into()),
+                country: Some("UK".into()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let prompt = build_description_merge_prompt(&input);
+        assert!(prompt.description_sources.contains_key("XMP-dc:Description"));
+        assert!(!prompt.description_sources.contains_key("EXIF:ImageDescription"));
+        assert!(prompt.ai_context.contains_key("XMP-mlib:AIDescription"));
+        assert!(prompt.ai_context.contains_key("XMP-mlib:AIOcrText"));
+        assert!(prompt.ai_context.contains_key("XMP-mlib:AIObjects"));
+        assert_eq!(prompt.keywords, vec!["statue".to_string(), "london".to_string()]);
+        assert_eq!(prompt.date.as_deref(), Some("2024-08-12"));
+        assert_eq!(prompt.location["city"], "London");
+        assert_eq!(prompt.location["country"], "UK");
+    }
+
+    #[tokio::test]
+    async fn idempotent_after_one_pass() {
+        let input = DescriptionInput {
+            description: Some("A sunset.".into()),
+            ..Default::default()
+        };
+        let first = normalise_description(&input, None).await.output.unwrap();
+        // Build post-apply state. XMP-dc:Description equalled the
+        // input so no draft fired for it — read back from the input.
+        // The other two targets adopted the canonical from `first`.
+        let post = DescriptionInput {
+            description: Some("A sunset.".into()),
+            image_description: Some(s(&first, "EXIF:ImageDescription")),
+            caption_abstract: Some(s(&first, "IPTC:Caption-Abstract")),
+            ..Default::default()
+        };
+        let second = normalise_description(&post, None).await;
+        assert!(second.output.is_none());
     }
 }
 
