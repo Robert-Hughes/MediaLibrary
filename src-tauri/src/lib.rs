@@ -871,6 +871,16 @@ fn estimate_per_image_cost_cmd(model: String) -> Result<f64, String> {
         .ok_or_else(|| format!("no pricing entry for model {}", model))
 }
 
+/// Ballpark USD cost of normalising one photo's metadata with `model`,
+/// assuming both Group B (description merge) and Group C (title) fire
+/// (worst case). Drives the per-model cost preview in the Settings
+/// dialog's normalise-model picker. Plan §6.
+#[tauri::command]
+fn estimate_per_image_normalise_cost_cmd(model: String) -> Result<f64, String> {
+    openai_normalise::typical_normalise_cost_per_image(&model)
+        .ok_or_else(|| format!("no pricing entry for model {}", model))
+}
+
 // ── AI image-description commands ─────────────────────────────────────────────
 
 #[derive(Clone, Serialize)]
@@ -1566,6 +1576,7 @@ pub fn run() {
             save_settings_cmd,
             list_recommended_models,
             estimate_per_image_cost_cmd,
+            estimate_per_image_normalise_cost_cmd,
             estimate_describe_cost_cmd,
             describe_images_cmd,
             cancel_describe_cmd,

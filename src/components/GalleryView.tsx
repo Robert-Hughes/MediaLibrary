@@ -42,11 +42,13 @@ interface Props {
   onGenerateAiDescription?: (fileRelativePath: string) => void;
   /** Trigger the reverse-geocoding flow for the currently-displayed photo. */
   onGeocode?: (fileRelativePath: string) => void;
+  /** Trigger the metadata-normalisation flow for the currently-displayed photo. */
+  onNormalise?: (fileRelativePath: string) => void;
   /** Reveal the current photo in the host file manager. Index resolved by the parent. */
   onShowInFileExplorer?: (fileRelativePath: string) => void;
 }
 
-export function GalleryView({ photos, currentIndex, folderPath, onClose, onNavigate, loadImage, imageMetadata, draftEdits, typedDraftEdits, onSetDraftTyped, onSetDraftBatch, onDiscardDraft, onDiscardAllEdits, onApplyEdits, onGenerateAiDescription, onGeocode, onShowInFileExplorer }: Props) {
+export function GalleryView({ photos, currentIndex, folderPath, onClose, onNavigate, loadImage, imageMetadata, draftEdits, typedDraftEdits, onSetDraftTyped, onSetDraftBatch, onDiscardDraft, onDiscardAllEdits, onApplyEdits, onGenerateAiDescription, onGeocode, onNormalise, onShowInFileExplorer }: Props) {
   const photo = photos[currentIndex];
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -279,6 +281,7 @@ export function GalleryView({ photos, currentIndex, folderPath, onClose, onNavig
             onApplyEdits={() => onApplyEdits?.(photo.relative_path)}
             onGenerateAiDescription={onGenerateAiDescription ? () => onGenerateAiDescription(photo.relative_path) : undefined}
             onGeocode={onGeocode ? () => onGeocode(photo.relative_path) : undefined}
+            onNormalise={onNormalise ? () => onNormalise(photo.relative_path) : undefined}
             onShowInFileExplorer={onShowInFileExplorer ? () => onShowInFileExplorer(photo.relative_path) : undefined}
           />
         )}

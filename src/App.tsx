@@ -311,6 +311,25 @@ function LoadedView({
           onApplyEdits={(path) => actions.applyDraftEdits(path)}
           onGenerateAiDescription={(relPath) => describe.actions.start(state.folder, [relPath])}
           onGeocode={(relPath) => geocode.actions.start(state.folder, buildGeocodeItems([relPath]))}
+          onNormalise={(relPath) => {
+            const initialGroups: NormaliseGroup[] = [
+              "keywords",
+              "creator",
+              "copyright",
+              "headline",
+              "title",
+              "location",
+              "dates",
+              "description",
+            ];
+            const items = buildNormaliseItems(
+              [relPath],
+              metadataStoreLookup(state.imageMetadata),
+              state.draftEdits,
+              initialGroups,
+            );
+            normalise.actions.start(state.folder, items, initialGroups);
+          }}
           onShowInFileExplorer={(relPath) => {
             const idx = displayPhotos.findIndex((p) => p.relative_path === relPath);
             if (idx >= 0) void onShowInExplorer(idx);

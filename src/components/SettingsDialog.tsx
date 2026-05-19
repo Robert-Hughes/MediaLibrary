@@ -33,6 +33,9 @@ export function SettingsDialog({ onClose }: Props) {
   /** Model id → ballpark per-image cost in USD. Missing entries are
    *  rendered without a cost suffix so an unknown model is still pickable. */
   const [perImageCosts, setPerImageCosts] = useState<Record<string, number>>({});
+  /** Model id → per-photo cost for the metadata-normaliser worst case
+   *  (both Group B and Group C fire). Plan §6. */
+  const [normaliseCosts, setNormaliseCosts] = useState<Record<string, number>>({});
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -64,6 +67,21 @@ export function SettingsDialog({ onClose }: Props) {
           }
         }
         setPerImageCosts(costs);
+
+        // Same allSettled pattern for the normaliser cost preview.
+        const nResults = await Promise.allSettled(
+          ms.map((m) => invoke<number>("estimate_per_image_normalise_cost_cmd", { model: m })
+            .then((cost) => [m, cost] as const))
+        );
+        if (cancelled) return;
+        const nCosts: Record<string, number> = {};
+        for (const r of nResults) {
+          if (r.status === "fulfilled") {
+            const [m, c] = r.value;
+            nCosts[m] = c;
+          }
+        }
+        setNormaliseCosts(nCosts);
       } catch (e) {
         if (!cancelled) setLoadError(String(e));
       }
@@ -138,6 +156,35 @@ export function SettingsDialog({ onClose }: Props) {
                   gpt-4o is the recommended default: names landmarks
                   reliably at moderate cost (≈$0.002 per 1024px image).
                   See docs/IMAGE_ANALYSIS.md for the model-choice rationale.
+                </div>
+              </section>
+
+              <section style={{ marginBottom: 16 }}>
+                <h3 style={{ marginBottom: 6 }}>Metadata normalisation</h3>
+                <label style={{ display: "block", fontSize: 12, marginBottom: 4 }}>
+                  Model (text-only)
+                </label>
+                <select
+                  data-testid="settings-normalise-model-select"
+                  value={settings.normalise_metadata_model}
+                  onChange={(e) =>
+                    persist({ ...settings, normalise_metadata_model: e.target.value })
+                  }
+                  style={{ width: "100%", padding: 6 }}
+                >
+                  {models.map((m) => {
+                    const c = normaliseCosts[m];
+                    const label = c !== undefined
+                      ? `${m} (${formatPerImageCost(c)} per photo when AI fires)`
+                      : m;
+                    return <option key={m} value={m}>{label}</option>;
+                  })}
+                </select>
+                <div style={{ marginTop: 6, fontSize: 11, color: "var(--text-secondary)" }}>
+                  Used by Normalise Metadata when description sources
+                  disagree or a title has to be generated from the
+                  description. Text-only — image bytes are never sent. See
+                  docs/NORMALISE_METADATA_PLAN.md §6.
                 </div>
               </section>
 
