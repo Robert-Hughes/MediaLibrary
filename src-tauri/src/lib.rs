@@ -1068,12 +1068,13 @@ async fn describe_images_cmd(
             Ok(b) => b,
             Err(e) => {
                 log::warn!("[describe] ({}/{}) decode failed for {}: {}", current, total, rel, e);
-                emitter.progress(current, total, rel, "decode", Some(&e), None);
+                let kind = batch_job::BatchFailureKind::Decode;
+                emitter.progress(current, total, rel, kind.as_wire(), Some(&e), None);
                 failed.push(batch_job::BatchFailureRow {
-                    relative_path: rel.clone(), kind: "decode".into(), detail: e.clone(),
+                    relative_path: rel.clone(), kind, detail: e.clone(),
                 });
                 log_errors.push(describe_log::DescribeLogError {
-                    relative_path: rel.clone(), kind: "decode".into(), detail: e,
+                    relative_path: rel.clone(), kind, detail: e,
                 });
                 continue;
             }
@@ -1095,15 +1096,15 @@ async fn describe_images_cmd(
                 succeeded.push(rel.clone());
             }
             Err(e) => {
-                let kind = e.kind().to_string();
+                let kind = e.kind();
                 let detail = e.detail();
                 log::warn!(
                     "[describe] ({}/{}) failed {} kind={} detail={}",
                     current, total, rel, kind, detail
                 );
-                emitter.progress(current, total, rel, &kind, Some(&detail), None);
+                emitter.progress(current, total, rel, kind.as_wire(), Some(&detail), None);
                 failed.push(batch_job::BatchFailureRow {
-                    relative_path: rel.clone(), kind: kind.clone(), detail: detail.clone(),
+                    relative_path: rel.clone(), kind, detail: detail.clone(),
                 });
                 log_errors.push(describe_log::DescribeLogError {
                     relative_path: rel.clone(), kind, detail,

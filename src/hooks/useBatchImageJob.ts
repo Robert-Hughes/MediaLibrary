@@ -29,7 +29,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { DraftEdit } from "../types";
+import type { BatchFailureKind, DraftEdit } from "../types";
 
 export type BatchJobPhase =
   | "estimating"
@@ -39,7 +39,7 @@ export type BatchJobPhase =
 
 export interface BatchJobFailure {
   relativePath: string;
-  kind: string;
+  kind: BatchFailureKind;
   detail: string;
 }
 
@@ -244,7 +244,12 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
                   ...s.failures,
                   {
                     relativePath: p.relativePath,
-                    kind: p.status,
+                    // Backend emits status="ok" on success or a
+                    // BatchFailureKind wire string otherwise. The
+                    // wire type is asserted here rather than carried
+                    // in the event-payload Type to keep the listener
+                    // shape minimal.
+                    kind: p.status as BatchFailureKind,
                     detail: p.error ?? "",
                   },
                 ]

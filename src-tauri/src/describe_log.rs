@@ -31,7 +31,7 @@ pub struct DescribeLogEntry {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DescribeLogError {
     pub relative_path: String,
-    pub kind: String,
+    pub kind: crate::batch_job::BatchFailureKind,
     pub detail: String,
 }
 
@@ -69,7 +69,7 @@ mod tests {
             predicted_cost_usd: 0.0175, actual_cost_usd: 0.018,
             errors: vec![DescribeLogError {
                 relative_path: "x.jpg".into(),
-                kind: "incomplete".into(),
+                kind: crate::batch_job::BatchFailureKind::Incomplete,
                 detail: "max_output_tokens".into(),
             }],
         }

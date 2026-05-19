@@ -354,15 +354,16 @@ pub enum DescribeError {
 }
 
 impl DescribeError {
-    pub fn kind(&self) -> &'static str {
+    pub fn kind(&self) -> crate::batch_job::BatchFailureKind {
+        use crate::batch_job::BatchFailureKind as K;
         match self {
-            DescribeError::Decode(_) => "decode",
-            DescribeError::HttpError { .. } => "http",
-            DescribeError::Network(_) => "network",
-            DescribeError::Incomplete { .. } => "incomplete",
-            DescribeError::Refused { .. } => "refused",
-            DescribeError::BadJson { .. } => "bad_json",
-            DescribeError::UsageParse { .. } => "usage_parse",
+            DescribeError::Decode(_) => K::Decode,
+            DescribeError::HttpError { .. } => K::Http,
+            DescribeError::Network(_) => K::Network,
+            DescribeError::Incomplete { .. } => K::Incomplete,
+            DescribeError::Refused { .. } => K::Refused,
+            DescribeError::BadJson { .. } => K::BadJson,
+            DescribeError::UsageParse { .. } => K::UsageParse,
         }
     }
     pub fn detail(&self) -> String {

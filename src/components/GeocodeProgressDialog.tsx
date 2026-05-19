@@ -18,7 +18,7 @@
  * understands what they're confirming) and the per-source done-panel
  * breakdown.
  */
-import type { GeocodeFailure, GeocodeProgressState, GeocodeSummary } from "../types";
+import type { BatchFailureKind, GeocodeFailure, GeocodeProgressState, GeocodeSummary } from "../types";
 import { BatchJobDialog } from "./BatchJobDialog";
 import { RunningProgressPanel } from "./RunningProgressPanel";
 
@@ -34,7 +34,7 @@ interface Props {
  * AI-description equivalent so the failure-list visual idiom is
  * identical across both flows.
  */
-export function friendlyFailureLabel(kind: string): string {
+export function friendlyFailureLabel(kind: BatchFailureKind): string {
   switch (kind) {
     case "no_gps":
       return "No GPS coordinates";
@@ -50,7 +50,14 @@ export function friendlyFailureLabel(kind: string): string {
       return "Cancelled";
     case "command_failed":
       return "Geocode command failed to start";
-    default:
+    // Describe-only kinds; geocode should never emit them, but the union
+    // is shared so list them for exhaustiveness.
+    case "decode":
+    case "incomplete":
+    case "refused":
+    case "bad_json":
+    case "usage_parse":
+    case "preflight_failed":
       return kind;
   }
 }

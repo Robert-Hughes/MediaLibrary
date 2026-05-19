@@ -18,6 +18,8 @@ export type { ImageMetadata } from "./types/generated/ImageMetadata";
 export type { ApplyEditsResult } from "./types/generated/ApplyEditsResult";
 export type { FailedFile as ApplyEditsFailedFile } from "./types/generated/FailedFile";
 export type { TagOutcome } from "./types/generated/TagOutcome";
+export type { BatchFailureKind } from "./types/generated/BatchFailureKind";
+import type { BatchFailureKind } from "./types/generated/BatchFailureKind";
 
 // ── Thumbnail store ───────────────────────────────────────────────────────────
 
@@ -458,7 +460,7 @@ export interface DescribeEstimate {
 
 export interface DescribeFailure {
   relativePath: string;
-  kind: string;
+  kind: BatchFailureKind;
   detail: string;
 }
 
@@ -530,7 +532,7 @@ export interface GeocodeRequestItem {
 
 export interface GeocodeFailure {
   relativePath: string;
-  kind: string;
+  kind: BatchFailureKind;
   detail: string;
 }
 
