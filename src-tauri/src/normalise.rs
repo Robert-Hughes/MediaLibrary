@@ -91,11 +91,13 @@ pub struct GroupInputs {
     /// or when no relevant fields exist on the image.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub keywords: Option<KeywordsInput>,
+    /// Group E (Creator) sources.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub creator: Option<CreatorInput>,
     // Future groups land here as they are implemented:
     //   pub description: Option<DescriptionInput>,
     //   pub title: Option<TitleInput>,
     //   pub headline: Option<HeadlineInput>,
-    //   pub creator: Option<CreatorInput>,
     //   pub copyright: Option<CopyrightInput>,
     //   pub location: Option<LocationInput>,
     //   pub dates: Option<DatesInput>,
@@ -122,6 +124,24 @@ pub struct KeywordsInput {
     /// `XMP-mlib:AIObjects` — Bag of flat keywords (read-only input).
     #[serde(default)]
     pub ai_objects: Vec<String>,
+}
+
+/// Creator-group input bundle (plan §1 Group E).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
+pub struct CreatorInput {
+    /// `XMP-dc:Creator` — Seq of strings (ordered, primary).
+    #[serde(default)]
+    pub creator: Vec<String>,
+    /// `EXIF:Artist` — single string, semicolon-separated when there
+    /// are multiple names. `None` when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artist: Option<String>,
+    /// `IPTC:By-line` — repeated string.
+    #[serde(default)]
+    pub byline: Vec<String>,
 }
 
 /// One image's payload shipped to `normalise_metadata_cmd`.
@@ -595,6 +615,252 @@ mod tests_keywords {
         assert!(paths.contains(&"travel|france|paris".to_string()));
         assert!(paths.contains(&"people|family|mum".to_string()));
         assert!(paths.contains(&"eiffel-tower".to_string()));
+    }
+}
+
+// ── Group E: Creator ───────────────────────────────────────────────────
+//
+// Plan §1 Group E. Canonical = ordered Seq of names, kept verbatim
+// (no name normalisation). Union of all non-empty sources, dedup
+// case-sensitive, preserve first-seen order.
+
+/// Target tags written by Group E. Coherent-replacement rule (plan §4).
+pub const CREATOR_TARGET_TAGS: &[&str] = &[
+    "XMP-dc:Creator",
+    "EXIF:Artist",
+    "IPTC:By-line",
+];
+
+/// Separator used by `EXIF:Artist` when multiple names are present.
+const ARTIST_SEPARATOR: &str = "; ";
+
+/// Parse `EXIF:Artist` into the list of names it represents.
+fn parse_artist(s: &str) -> Vec<String> {
+    s.split(';')
+        .map(str::trim)
+        .filter(|n| !n.is_empty())
+        .map(|n| n.to_string())
+        .collect()
+}
+
+/// Derive the canonical Group E ordered Seq of names.
+pub fn derive_creator_canonical(input: &CreatorInput) -> Vec<String> {
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut canonical: Vec<String> = Vec::new();
+    // Discovery order: dc:Creator first (the modern primary), then
+    // EXIF:Artist, then IPTC:By-line.
+    let artist_split = input
+        .artist
+        .as_deref()
+        .map(parse_artist)
+        .unwrap_or_default();
+    let sources: [&[String]; 3] = [&input.creator, &artist_split, &input.byline];
+    for src in sources {
+        for raw in src {
+            let trimmed = raw.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            // Case-sensitive dedup per plan: "John Smith" and "john
+            // smith" are different names.
+            if seen.insert(trimmed.to_string()) {
+                canonical.push(trimmed.to_string());
+            }
+        }
+    }
+    canonical
+}
+
+fn creator_is_normalised(input: &CreatorInput, canonical: &[String]) -> bool {
+    // Primary must equal canonical (order included).
+    if input.creator != canonical {
+        return false;
+    }
+    let artist_now = input.artist.as_deref().unwrap_or("");
+    let artist_expected = canonical.join(ARTIST_SEPARATOR);
+    if artist_now != artist_expected {
+        return false;
+    }
+    if input.byline != canonical {
+        return false;
+    }
+    true
+}
+
+/// Run Group E (Creator) normalisation for one image.
+pub fn normalise_creator(input: &CreatorInput) -> Option<GroupOutput> {
+    let canonical = derive_creator_canonical(input);
+    if canonical.is_empty() {
+        return None;
+    }
+    if creator_is_normalised(input, &canonical) {
+        return None;
+    }
+
+    let mut edits: HashMap<String, DraftEdit> = HashMap::new();
+    edits.insert("XMP-dc:Creator".to_string(), bag_edit(&canonical));
+    edits.insert(
+        "EXIF:Artist".to_string(),
+        DraftEdit {
+            value: Some(Variant::String(canonical.join(ARTIST_SEPARATOR))),
+            intent: EditIntent::Set,
+            display: None,
+        },
+    );
+    edits.insert("IPTC:By-line".to_string(), bag_edit(&canonical));
+
+    Some(GroupOutput { edits })
+}
+
+#[cfg(test)]
+mod tests_creator {
+    use super::*;
+
+    fn list(g: &GroupOutput, key: &str) -> Vec<String> {
+        match &g.edits.get(key).unwrap().value {
+            Some(Variant::List(items)) => items
+                .iter()
+                .map(|v| match v {
+                    Variant::String(s) => s.clone(),
+                    _ => panic!("expected String"),
+                })
+                .collect(),
+            other => panic!("expected List for {}, got {:?}", key, other),
+        }
+    }
+
+    fn string(g: &GroupOutput, key: &str) -> String {
+        match &g.edits.get(key).unwrap().value {
+            Some(Variant::String(s)) => s.clone(),
+            other => panic!("expected String for {}, got {:?}", key, other),
+        }
+    }
+
+    #[test]
+    fn union_in_discovery_order() {
+        let input = CreatorInput {
+            creator: vec!["Alice".into()],
+            artist: Some("Bob; Carol".into()),
+            byline: vec!["Carol".into(), "Dave".into()],
+        };
+        let out = normalise_creator(&input).unwrap();
+        // dc:Creator first wins for order; Carol from artist dedups
+        // against byline's Carol; Dave appended last.
+        assert_eq!(
+            list(&out, "XMP-dc:Creator"),
+            vec!["Alice", "Bob", "Carol", "Dave"]
+                .into_iter()
+                .map(String::from)
+                .collect::<Vec<_>>(),
+        );
+        assert_eq!(string(&out, "EXIF:Artist"), "Alice; Bob; Carol; Dave");
+        assert_eq!(
+            list(&out, "IPTC:By-line"),
+            vec!["Alice", "Bob", "Carol", "Dave"]
+                .into_iter()
+                .map(String::from)
+                .collect::<Vec<_>>(),
+        );
+    }
+
+    #[test]
+    fn name_capitalisation_kept_verbatim() {
+        // Plan §1 Group E: "do not 'normalise' name capitalisation or
+        // order; risk of mangling non-English names outweighs benefit."
+        let input = CreatorInput {
+            creator: vec!["JOHN smith".into(), "André Müller".into()],
+            ..Default::default()
+        };
+        let out = normalise_creator(&input).unwrap();
+        assert_eq!(
+            list(&out, "XMP-dc:Creator"),
+            vec!["JOHN smith".to_string(), "André Müller".to_string()],
+        );
+    }
+
+    #[test]
+    fn case_sensitive_dedup() {
+        // "Alice" and "alice" are different names.
+        let input = CreatorInput {
+            creator: vec!["Alice".into(), "alice".into(), "Alice".into()],
+            ..Default::default()
+        };
+        let out = normalise_creator(&input).unwrap();
+        assert_eq!(
+            list(&out, "XMP-dc:Creator"),
+            vec!["Alice".to_string(), "alice".to_string()],
+        );
+    }
+
+    #[test]
+    fn empty_input_returns_no_drafts() {
+        assert!(normalise_creator(&CreatorInput::default()).is_none());
+    }
+
+    #[test]
+    fn whitespace_only_input_returns_no_drafts() {
+        let input = CreatorInput {
+            creator: vec!["   ".into()],
+            artist: Some("  ".into()),
+            byline: vec!["".into()],
+        };
+        assert!(normalise_creator(&input).is_none());
+    }
+
+    #[test]
+    fn idempotent_after_one_pass() {
+        let initial = CreatorInput {
+            artist: Some("Alice; Bob".into()),
+            ..Default::default()
+        };
+        let first = normalise_creator(&initial).unwrap();
+        let canonical = list(&first, "XMP-dc:Creator");
+
+        let post = CreatorInput {
+            creator: canonical.clone(),
+            artist: Some(canonical.join(ARTIST_SEPARATOR)),
+            byline: canonical,
+        };
+        assert!(normalise_creator(&post).is_none());
+    }
+
+    #[test]
+    fn single_source_propagates_to_all_targets() {
+        // Plan §1 conflict policy "Pick a canonical value, then project
+        // to all derivatives". One source non-empty → fill the rest.
+        let input = CreatorInput {
+            creator: vec!["Alice".into()],
+            ..Default::default()
+        };
+        let out = normalise_creator(&input).unwrap();
+        assert_eq!(string(&out, "EXIF:Artist"), "Alice");
+        assert_eq!(list(&out, "IPTC:By-line"), vec!["Alice".to_string()]);
+    }
+
+    #[test]
+    fn artist_with_no_separator_treated_as_single_name() {
+        let input = CreatorInput {
+            artist: Some("Alice Smith".into()),
+            ..Default::default()
+        };
+        let out = normalise_creator(&input).unwrap();
+        assert_eq!(
+            list(&out, "XMP-dc:Creator"),
+            vec!["Alice Smith".to_string()],
+        );
+    }
+
+    #[test]
+    fn artist_split_trims_each_name() {
+        let input = CreatorInput {
+            artist: Some(" Alice ;Bob ; ; Carol ".into()),
+            ..Default::default()
+        };
+        let out = normalise_creator(&input).unwrap();
+        assert_eq!(
+            list(&out, "XMP-dc:Creator"),
+            vec!["Alice".to_string(), "Bob".to_string(), "Carol".to_string()],
+        );
     }
 }
 
