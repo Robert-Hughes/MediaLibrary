@@ -14,6 +14,7 @@ pub mod openai_describe;
 pub mod describe_log;
 pub mod geocode_cache;
 pub mod geocode;
+pub mod normalise;
 use serde::Serialize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
