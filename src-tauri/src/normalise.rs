@@ -103,9 +103,11 @@ pub struct GroupInputs {
     /// Group C (Title) sources.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<TitleInput>,
+    /// Group G (Location XMP↔IIM mirror sync) sources.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<LocationInput>,
     // Future groups land here as they are implemented:
     //   pub description: Option<DescriptionInput>,
-    //   pub location: Option<LocationInput>,
     //   pub dates: Option<DatesInput>,
 }
 
@@ -201,6 +203,50 @@ pub struct TitleInput {
     /// to v2 of the feature; v1 ignores this field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description_canonical: Option<String>,
+}
+
+/// Location-group input bundle (plan §1 Group G).
+///
+/// Group G is five independent XMP↔IIM mirror pairs; the bundle ships
+/// one `Option<String>` per side per pair. Reverse-geocoding fills
+/// these via the existing Reverse Geocode feature; normalising only
+/// brings them into sync.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
+pub struct LocationInput {
+    /// `XMP-iptcCore:Location` (primary).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location_xmp: Option<String>,
+    /// `IPTC:Sub-location` (derivative).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location_iptc: Option<String>,
+    /// `XMP-photoshop:City` (primary).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub city_xmp: Option<String>,
+    /// `IPTC:City` (derivative).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub city_iptc: Option<String>,
+    /// `XMP-photoshop:State` (primary).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state_xmp: Option<String>,
+    /// `IPTC:Province-State` (derivative).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state_iptc: Option<String>,
+    /// `XMP-photoshop:Country` (primary).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub country_xmp: Option<String>,
+    /// `IPTC:Country-PrimaryLocationName` (derivative).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub country_iptc: Option<String>,
+    /// `XMP-iptcCore:CountryCode` (primary, ISO 3166-1 alpha-2,
+    /// uppercased on normalisation).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub country_code_xmp: Option<String>,
+    /// `IPTC:Country-PrimaryLocationCode` (derivative).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub country_code_iptc: Option<String>,
 }
 
 /// One image's payload shipped to `normalise_metadata_cmd`.
@@ -1481,6 +1527,304 @@ mod tests_title {
             description_canonical: None,
         };
         assert!(normalise_title(&post).is_none());
+    }
+}
+
+// ── Group G: Location (XMP ↔ IIM mirror sync) ──────────────────────────
+//
+// Plan §1 Group G. Five XMP↔IIM mirror pairs treated independently.
+// Per-pair policy:
+//   1. Both empty → no drafts.
+//   2. Exactly one non-empty → canonical = that value (uppercased for
+//      CountryCode), project to both fields.
+//   3. Both non-empty AND equal after canonicalisation → write
+//      canonical to both (handles e.g. `gb` vs `GB` for CountryCode).
+//   4. Both non-empty AND distinct after canonicalisation → primary
+//      (XMP side) wins. Stats: `n_location_xmp_iim_conflict`.
+//
+// No AI — never AI-merge place names. No reverse-geocoding here;
+// Group G only mirrors what is already in metadata.
+
+pub const LOCATION_TARGET_TAGS: &[&str] = &[
+    "XMP-iptcCore:Location",
+    "IPTC:Sub-location",
+    "XMP-photoshop:City",
+    "IPTC:City",
+    "XMP-photoshop:State",
+    "IPTC:Province-State",
+    "XMP-photoshop:Country",
+    "IPTC:Country-PrimaryLocationName",
+    "XMP-iptcCore:CountryCode",
+    "IPTC:Country-PrimaryLocationCode",
+];
+
+/// Canonicalise a "verbatim text" location field — trim + collapse
+/// whitespace. Used for all sub-pairs except CountryCode.
+fn canonicalise_location_text(s: &str) -> String {
+    normalise_copyright_text(s)
+}
+
+/// Canonicalise an ISO 3166-1 alpha-2 country code — trim, collapse,
+/// uppercase.
+fn canonicalise_country_code(s: &str) -> String {
+    canonicalise_location_text(s).to_uppercase()
+}
+
+/// Result of processing one XMP↔IIM mirror pair.
+struct PairResult {
+    /// `Some(canonical)` when the pair contributes drafts;
+    /// `None` when the pair is already in sync or both sides empty.
+    canonical: Option<String>,
+    /// True when both sides were non-empty and disagreed after
+    /// canonicalisation — primary won. Surfaced in stats (deferred).
+    conflict: bool,
+}
+
+fn process_pair(
+    xmp: Option<&str>,
+    iptc: Option<&str>,
+    canon: fn(&str) -> String,
+) -> PairResult {
+    let xc = xmp.map(canon).filter(|s| !s.is_empty());
+    let ic = iptc.map(canon).filter(|s| !s.is_empty());
+
+    let (canonical, conflict) = match (xc, ic) {
+        (None, None) => (None, false),
+        (Some(v), None) | (None, Some(v)) => (Some(v), false),
+        (Some(x), Some(i)) if x == i => (Some(x), false),
+        (Some(x), Some(_)) => (Some(x), true), // primary wins
+    };
+    let canonical = canonical.filter(|c| {
+        // Already in sync? Skip emitting drafts.
+        let want = Some(c.as_str());
+        !(xmp == want && iptc == want)
+    });
+    PairResult { canonical, conflict }
+}
+
+/// Outcome of running Group G on one image. The bool flags how many
+/// mirror pairs hit the conflict (case 4) branch — counted into the
+/// per-group stats so the user can see if their manual XMP and IIM
+/// values disagreed.
+#[derive(Debug, Clone, Default)]
+pub struct LocationOutcome {
+    pub output: Option<GroupOutput>,
+    pub n_xmp_iim_conflict: u32,
+}
+
+/// Run Group G (Location) normalisation for one image.
+pub fn normalise_location(input: &LocationInput) -> LocationOutcome {
+    let pairs: [(
+        &str, &str, Option<&str>, Option<&str>, fn(&str) -> String,
+    ); 5] = [
+        (
+            "XMP-iptcCore:Location",
+            "IPTC:Sub-location",
+            input.location_xmp.as_deref(),
+            input.location_iptc.as_deref(),
+            canonicalise_location_text,
+        ),
+        (
+            "XMP-photoshop:City",
+            "IPTC:City",
+            input.city_xmp.as_deref(),
+            input.city_iptc.as_deref(),
+            canonicalise_location_text,
+        ),
+        (
+            "XMP-photoshop:State",
+            "IPTC:Province-State",
+            input.state_xmp.as_deref(),
+            input.state_iptc.as_deref(),
+            canonicalise_location_text,
+        ),
+        (
+            "XMP-photoshop:Country",
+            "IPTC:Country-PrimaryLocationName",
+            input.country_xmp.as_deref(),
+            input.country_iptc.as_deref(),
+            canonicalise_location_text,
+        ),
+        (
+            "XMP-iptcCore:CountryCode",
+            "IPTC:Country-PrimaryLocationCode",
+            input.country_code_xmp.as_deref(),
+            input.country_code_iptc.as_deref(),
+            canonicalise_country_code,
+        ),
+    ];
+
+    let mut edits: HashMap<String, DraftEdit> = HashMap::new();
+    let mut conflicts: u32 = 0;
+    for (xmp_key, iptc_key, xmp, iptc, canon) in pairs {
+        let result = process_pair(xmp, iptc, canon);
+        if result.conflict {
+            conflicts += 1;
+        }
+        if let Some(canonical) = result.canonical {
+            let edit = DraftEdit {
+                value: Some(Variant::String(canonical)),
+                intent: EditIntent::Set,
+                display: None,
+            };
+            edits.insert(xmp_key.to_string(), edit.clone());
+            edits.insert(iptc_key.to_string(), edit);
+        }
+    }
+
+    LocationOutcome {
+        output: if edits.is_empty() { None } else { Some(GroupOutput { edits }) },
+        n_xmp_iim_conflict: conflicts,
+    }
+}
+
+#[cfg(test)]
+mod tests_location {
+    use super::*;
+
+    fn s(g: &GroupOutput, k: &str) -> String {
+        match &g.edits.get(k).unwrap().value {
+            Some(Variant::String(v)) => v.clone(),
+            other => panic!("expected String, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn all_empty_returns_no_drafts() {
+        let out = normalise_location(&LocationInput::default());
+        assert!(out.output.is_none());
+        assert_eq!(out.n_xmp_iim_conflict, 0);
+    }
+
+    #[test]
+    fn xmp_only_copies_to_iim() {
+        let input = LocationInput {
+            city_xmp: Some("Paris".into()),
+            ..Default::default()
+        };
+        let out = normalise_location(&input).output.unwrap();
+        assert_eq!(s(&out, "XMP-photoshop:City"), "Paris");
+        assert_eq!(s(&out, "IPTC:City"), "Paris");
+    }
+
+    #[test]
+    fn iim_only_copies_to_xmp() {
+        let input = LocationInput {
+            city_iptc: Some("Paris".into()),
+            ..Default::default()
+        };
+        let out = normalise_location(&input).output.unwrap();
+        assert_eq!(s(&out, "XMP-photoshop:City"), "Paris");
+        assert_eq!(s(&out, "IPTC:City"), "Paris");
+    }
+
+    #[test]
+    fn both_equal_in_sync_no_drafts_for_that_pair() {
+        let input = LocationInput {
+            city_xmp: Some("Paris".into()),
+            city_iptc: Some("Paris".into()),
+            ..Default::default()
+        };
+        let out = normalise_location(&input);
+        assert!(out.output.is_none());
+        assert_eq!(out.n_xmp_iim_conflict, 0);
+    }
+
+    #[test]
+    fn both_distinct_xmp_wins_and_conflict_counted() {
+        let input = LocationInput {
+            city_xmp: Some("Paris".into()),
+            city_iptc: Some("Berlin".into()),
+            ..Default::default()
+        };
+        let out = normalise_location(&input);
+        let g = out.output.expect("conflict must emit drafts");
+        assert_eq!(s(&g, "XMP-photoshop:City"), "Paris");
+        assert_eq!(s(&g, "IPTC:City"), "Paris");
+        assert_eq!(out.n_xmp_iim_conflict, 1);
+    }
+
+    #[test]
+    fn country_code_uppercased() {
+        let input = LocationInput {
+            country_code_xmp: Some("gb".into()),
+            country_code_iptc: Some("GB".into()),
+            ..Default::default()
+        };
+        let out = normalise_location(&input).output.unwrap();
+        // Equal-after-canonicalisation: both targets get "GB".
+        assert_eq!(s(&out, "XMP-iptcCore:CountryCode"), "GB");
+        assert_eq!(s(&out, "IPTC:Country-PrimaryLocationCode"), "GB");
+    }
+
+    #[test]
+    fn five_pairs_are_independent() {
+        // Different pair-level states on one image:
+        //   Location  — both empty (skip)
+        //   City      — XMP only (copy)
+        //   State     — both equal (skip)
+        //   Country   — distinct (conflict)
+        //   CountryCode — IIM only (copy + uppercase)
+        let input = LocationInput {
+            city_xmp: Some("Paris".into()),
+            state_xmp: Some("Île-de-France".into()),
+            state_iptc: Some("Île-de-France".into()),
+            country_xmp: Some("France".into()),
+            country_iptc: Some("Frankreich".into()),
+            country_code_iptc: Some("fr".into()),
+            ..Default::default()
+        };
+        let out = normalise_location(&input);
+        let g = out.output.unwrap();
+        // Location pair → no drafts.
+        assert!(!g.edits.contains_key("XMP-iptcCore:Location"));
+        assert!(!g.edits.contains_key("IPTC:Sub-location"));
+        // City pair → both drafts.
+        assert_eq!(s(&g, "XMP-photoshop:City"), "Paris");
+        assert_eq!(s(&g, "IPTC:City"), "Paris");
+        // State pair → already in sync, no drafts.
+        assert!(!g.edits.contains_key("XMP-photoshop:State"));
+        // Country pair → XMP wins.
+        assert_eq!(s(&g, "XMP-photoshop:Country"), "France");
+        assert_eq!(s(&g, "IPTC:Country-PrimaryLocationName"), "France");
+        // CountryCode pair → IIM-only, uppercased.
+        assert_eq!(s(&g, "XMP-iptcCore:CountryCode"), "FR");
+        assert_eq!(s(&g, "IPTC:Country-PrimaryLocationCode"), "FR");
+        // One conflict counted (Country pair).
+        assert_eq!(out.n_xmp_iim_conflict, 1);
+    }
+
+    #[test]
+    fn idempotent_after_one_pass() {
+        let initial = LocationInput {
+            city_xmp: Some("Paris".into()),
+            country_code_iptc: Some("fr".into()),
+            ..Default::default()
+        };
+        let first = normalise_location(&initial).output.unwrap();
+        let post = LocationInput {
+            city_xmp: Some(s(&first, "XMP-photoshop:City")),
+            city_iptc: Some(s(&first, "IPTC:City")),
+            country_code_xmp: Some(s(&first, "XMP-iptcCore:CountryCode")),
+            country_code_iptc: Some(s(&first, "IPTC:Country-PrimaryLocationCode")),
+            ..Default::default()
+        };
+        let second = normalise_location(&post);
+        assert!(second.output.is_none());
+        assert_eq!(second.n_xmp_iim_conflict, 0);
+    }
+
+    #[test]
+    fn equal_but_unnormalised_triggers_writes() {
+        // CountryCode: "gb" vs "gb" — equal but not yet uppercased.
+        let input = LocationInput {
+            country_code_xmp: Some("gb".into()),
+            country_code_iptc: Some("gb".into()),
+            ..Default::default()
+        };
+        let out = normalise_location(&input).output.expect("must normalise to uppercase");
+        assert_eq!(s(&out, "XMP-iptcCore:CountryCode"), "GB");
+        assert_eq!(s(&out, "IPTC:Country-PrimaryLocationCode"), "GB");
     }
 }
 
