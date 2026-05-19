@@ -1179,8 +1179,197 @@ fn cancel_describe_cmd(describe_state: State<'_, openai_describe::DescribeState>
 //
 // See `docs/NORMALISE_METADATA_PLAN.md` §8. Run command walks the
 // supplied items through `normalise::process_image`, emits per-item
-// progress events, and accumulates a `NormaliseSummary`. v1 has no AI
-// dispatch and so no estimate phase — see plan §7.
+// progress events, and accumulates a `NormaliseSummary`. §7 estimate
+// phase walks every image (with a capturing AI client that doesn't
+// dispatch) and preflights each fire-able AI prompt through
+// `/responses/input_tokens` for an exact cost preview.
+
+#[derive(Clone, Serialize)]
+struct NormaliseEstimateStartedPayload { total: usize }
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct NormaliseEstimateProgressPayload {
+    current: usize,
+    total: usize,
+    relative_path: String,
+    /// Token total preflighted for this image across any AI calls that
+    /// would fire (Group B + Group C).
+    input_tokens: u32,
+    /// True when this image would invoke Group B (description merge).
+    fires_description_ai: bool,
+    /// True when this image would invoke Group C (title generation).
+    fires_title_ai: bool,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct NormaliseEstimateCompletePayload {
+    n_images_with_ai_b: u32,
+    n_images_with_ai_c: u32,
+    n_images_no_ai: u32,
+    total_input_tokens: u64,
+    predicted_cost_usd: f64,
+    upper_bound_cost_usd: f64,
+    model: String,
+}
+
+#[derive(Clone, Serialize)]
+struct NormaliseEstimateErrorPayload { relative_path: String, message: String }
+
+/// Preflight cost estimation for `normalise_metadata_cmd`. Walks every
+/// image with a `CapturingAiClient` so we know which AI calls would
+/// fire; preflights each captured prompt against `/responses/input_tokens`
+/// for an exact input-token count. Output tokens use the per-prompt
+/// expected and worst-case caps to bracket predicted vs upper-bound
+/// cost. Plan §7.
+#[tauri::command]
+async fn estimate_normalise_cost_cmd(
+    folder_path: String,
+    items: Vec<normalise::NormaliseRequestItem>,
+    enabled_groups: Vec<normalise::NormaliseGroup>,
+    app: AppHandle,
+    normalise_state: State<'_, normalise::NormaliseState>,
+) -> Result<(), String> {
+    let _ = folder_path;
+    let cancel_flag = normalise_state.install();
+
+    let wants_ai = enabled_groups.contains(&normalise::NormaliseGroup::Description)
+        || enabled_groups.contains(&normalise::NormaliseGroup::Title);
+    let total = items.len();
+    log::info!(
+        "[normalise] estimate starting total={} wants_ai={}",
+        total, wants_ai
+    );
+    let _ = app.emit(
+        "normalise_estimate_started",
+        NormaliseEstimateStartedPayload { total },
+    );
+
+    // No AI groups enabled → estimate is trivially zero; jump straight
+    // to the complete event so the frontend transitions to awaiting-
+    // confirm without a preflight round-trip.
+    if !wants_ai {
+        let _ = app.emit("normalise_estimate_complete", NormaliseEstimateCompletePayload {
+            n_images_with_ai_b: 0,
+            n_images_with_ai_c: 0,
+            n_images_no_ai: total as u32,
+            total_input_tokens: 0,
+            predicted_cost_usd: 0.0,
+            upper_bound_cost_usd: 0.0,
+            model: String::new(),
+        });
+        normalise_state.clear();
+        return Ok(());
+    }
+
+    let (client, settings) = make_openai_client(&app).map_err(|e| {
+        // Per plan §13: surface the missing-key case to every image so
+        // the dialog opens in `done` with a clear failure breakdown.
+        let _ = app.emit("normalise_estimate_error", NormaliseEstimateErrorPayload {
+            relative_path: "(batch)".to_string(), message: e.clone(),
+        });
+        normalise_state.clear();
+        e
+    })?;
+    let model = settings.normalise_metadata_model.clone();
+    let pricing = openai_describe::pricing_for(&model)
+        .ok_or_else(|| format!("no pricing entry for model {}", model))?;
+    let normalise_client = openai_normalise::OpenAiNormaliseClient::new(client, model.clone());
+
+    let mut total_input_tokens: u64 = 0;
+    let mut n_images_with_ai_b: u32 = 0;
+    let mut n_images_with_ai_c: u32 = 0;
+    let mut n_images_no_ai: u32 = 0;
+    let mut current = 0usize;
+
+    for item in &items {
+        if cancel_flag.load(Ordering::Relaxed) {
+            normalise_state.clear();
+            return Err("Cancelled by user".into());
+        }
+        current += 1;
+
+        let capturing = normalise::CapturingAiClient::default();
+        let _ = normalise::process_image(
+            item,
+            &enabled_groups,
+            Some(&capturing as &dyn normalise::NormaliseAiClient),
+        )
+        .await;
+
+        let description_prompts = capturing.description_prompts.lock().await.clone();
+        let title_prompts = capturing.title_prompts.lock().await.clone();
+        let fires_description_ai = !description_prompts.is_empty();
+        let fires_title_ai = !title_prompts.is_empty();
+
+        let mut per_image_input_tokens: u32 = 0;
+        for prompt in &description_prompts {
+            let body = normalise_client.description_request_body(prompt);
+            let n = normalise_client.count_input_tokens(&body).await.map_err(|e| {
+                let _ = app.emit("normalise_estimate_error", NormaliseEstimateErrorPayload {
+                    relative_path: item.rel_path.clone(), message: e.clone(),
+                });
+                format!("{}: {}", item.rel_path, e)
+            })?;
+            per_image_input_tokens = per_image_input_tokens.saturating_add(n);
+        }
+        for prompt in &title_prompts {
+            let body = normalise_client.title_request_body(prompt);
+            let n = normalise_client.count_input_tokens(&body).await.map_err(|e| {
+                let _ = app.emit("normalise_estimate_error", NormaliseEstimateErrorPayload {
+                    relative_path: item.rel_path.clone(), message: e.clone(),
+                });
+                format!("{}: {}", item.rel_path, e)
+            })?;
+            per_image_input_tokens = per_image_input_tokens.saturating_add(n);
+        }
+
+        if fires_description_ai { n_images_with_ai_b += 1; }
+        if fires_title_ai { n_images_with_ai_c += 1; }
+        if !fires_description_ai && !fires_title_ai { n_images_no_ai += 1; }
+        total_input_tokens += per_image_input_tokens as u64;
+
+        let _ = app.emit("normalise_estimate_progress", NormaliseEstimateProgressPayload {
+            current, total, relative_path: item.rel_path.clone(),
+            input_tokens: per_image_input_tokens,
+            fires_description_ai, fires_title_ai,
+        });
+    }
+
+    // Predicted = expected-output tokens. Upper bound = max-output tokens.
+    // Output-token-only spread per plan §7 ("predicted vs upper bound
+    // reflects only output-token uncertainty").
+    let expected_out_per_call_b: u32 = 250;
+    let max_out_per_call_b: u32 = openai_normalise::DESCRIPTION_OUTPUT_TOKENS;
+    let expected_out_per_call_c: u32 = 15;
+    let max_out_per_call_c: u32 = openai_normalise::TITLE_OUTPUT_TOKENS;
+    let predicted_out_total =
+        n_images_with_ai_b as u64 * expected_out_per_call_b as u64
+            + n_images_with_ai_c as u64 * expected_out_per_call_c as u64;
+    let upper_out_total =
+        n_images_with_ai_b as u64 * max_out_per_call_b as u64
+            + n_images_with_ai_c as u64 * max_out_per_call_c as u64;
+    let predicted_cost = (total_input_tokens as f64 / 1_000_000.0) * pricing.input_per_1m
+        + (predicted_out_total as f64 / 1_000_000.0) * pricing.output_per_1m;
+    let upper_bound = (total_input_tokens as f64 / 1_000_000.0) * pricing.input_per_1m
+        + (upper_out_total as f64 / 1_000_000.0) * pricing.output_per_1m;
+
+    log::info!(
+        "[normalise] estimate complete b={} c={} no_ai={} input_tokens={} predicted=${:.6} upper=${:.6}",
+        n_images_with_ai_b, n_images_with_ai_c, n_images_no_ai,
+        total_input_tokens, predicted_cost, upper_bound,
+    );
+    let _ = app.emit("normalise_estimate_complete", NormaliseEstimateCompletePayload {
+        n_images_with_ai_b, n_images_with_ai_c, n_images_no_ai,
+        total_input_tokens,
+        predicted_cost_usd: predicted_cost,
+        upper_bound_cost_usd: upper_bound,
+        model,
+    });
+    normalise_state.clear();
+    Ok(())
+}
 
 /// Normalise metadata for a batch of images.
 #[tauri::command]
@@ -1583,7 +1772,8 @@ pub fn run() {
             geocode_images_cmd,
             cancel_geocode_cmd,
             normalise_metadata_cmd,
-            cancel_normalise_cmd
+            cancel_normalise_cmd,
+            estimate_normalise_cost_cmd
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1188,6 +1188,44 @@ pub fn build_description_merge_prompt(input: &DescriptionInput) -> DescriptionMe
     }
 }
 
+/// Captures the prompts that would have fired so the estimate phase
+/// (plan §7) can preflight them against `/responses/input_tokens`
+/// without actually dispatching. Returns deterministic stand-ins from
+/// the trait calls so the dispatcher can still walk Group C with a
+/// plausible description canonical when Group B is in case-4.
+#[derive(Default)]
+pub struct CapturingAiClient {
+    pub description_prompts: tokio::sync::Mutex<Vec<DescriptionMergePrompt>>,
+    pub title_prompts: tokio::sync::Mutex<Vec<TitleGenPrompt>>,
+}
+
+#[async_trait::async_trait]
+impl NormaliseAiClient for CapturingAiClient {
+    async fn merge_description(&self, p: DescriptionMergePrompt) -> Result<String, String> {
+        // Stand-in canonical: first non-empty source. Lets Group C see
+        // a description from this image during the estimate walk.
+        let stand_in = p
+            .description_sources
+            .values()
+            .find(|s| !s.is_empty())
+            .cloned()
+            .unwrap_or_default();
+        self.description_prompts.lock().await.push(p);
+        Ok(stand_in)
+    }
+
+    async fn generate_title(&self, p: TitleGenPrompt) -> Result<String, String> {
+        let stand_in = p
+            .description
+            .split_whitespace()
+            .take(8)
+            .collect::<Vec<_>>()
+            .join(" ");
+        self.title_prompts.lock().await.push(p);
+        Ok(stand_in)
+    }
+}
+
 /// Trait that an injected AI client implements for Group B (and Group
 /// C). Tests substitute a mock; production wires
 /// `OpenAiNormaliseClient` (see `openai_normalise.rs`).

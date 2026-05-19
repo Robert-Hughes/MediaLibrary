@@ -146,6 +146,77 @@ fn extract_structured_text(body: &serde_json::Value) -> Result<String, String> {
         .ok_or_else(|| format!("missing output[0].content[0].text in: {}", body))
 }
 
+impl OpenAiNormaliseClient {
+    /// Build the JSON body for a Group B description-merge request.
+    /// Exposed so the estimate phase can preflight the same body
+    /// against `/responses/input_tokens` without dispatching.
+    pub fn description_request_body(&self, prompt: &DescriptionMergePrompt) -> serde_json::Value {
+        let user_payload = serde_json::to_value(prompt).unwrap_or(serde_json::json!({}));
+        build_request_body(
+            &self.model,
+            DESCRIPTION_SYSTEM_PROMPT,
+            user_payload,
+            description_schema(),
+            "description_merge",
+            DESCRIPTION_OUTPUT_TOKENS,
+        )
+    }
+
+    /// Build the JSON body for a Group C title-generation request.
+    pub fn title_request_body(&self, prompt: &TitleGenPrompt) -> serde_json::Value {
+        let user_payload = serde_json::to_value(prompt).unwrap_or(serde_json::json!({}));
+        build_request_body(
+            &self.model,
+            TITLE_SYSTEM_PROMPT,
+            user_payload,
+            title_schema(),
+            "title_generation",
+            TITLE_OUTPUT_TOKENS,
+        )
+    }
+
+    pub fn model(&self) -> &str {
+        &self.model
+    }
+
+    /// Preflight a built request body against `/responses/input_tokens`.
+    /// Drops the runtime parameters (`temperature`, `top_p`,
+    /// `max_output_tokens`) before posting — these are not accepted by
+    /// the token-count endpoint. Mirrors the shape of
+    /// `openai_describe::count_input_tokens`.
+    pub async fn count_input_tokens(&self, body: &serde_json::Value) -> Result<u32, String> {
+        let mut body = body.clone();
+        if let Some(obj) = body.as_object_mut() {
+            for k in ["temperature", "top_p", "max_output_tokens"] {
+                obj.remove(k);
+            }
+        }
+        let url = format!("{}/responses/input_tokens", self.inner.base_url());
+        let body_str = serde_json::to_string(&body).map_err(|e| e.to_string())?;
+        let resp = self
+            .inner
+            .http()
+            .post(&url)
+            .bearer_auth(self.inner.api_key())
+            .header("content-type", "application/json")
+            .body(body_str)
+            .send()
+            .await
+            .map_err(|e| format!("network error: {}", e))?;
+        let status = resp.status();
+        let text: String = resp.text().await.unwrap_or_default();
+        if !status.is_success() {
+            return Err(format!("HTTP {}: {}", status, text));
+        }
+        let json: serde_json::Value = serde_json::from_str(&text)
+            .map_err(|e| format!("bad JSON ({}): {}", e, text))?;
+        json["input_tokens"]
+            .as_u64()
+            .map(|n| n as u32)
+            .ok_or_else(|| format!("missing input_tokens in: {}", text))
+    }
+}
+
 #[async_trait::async_trait]
 impl NormaliseAiClient for OpenAiNormaliseClient {
     async fn merge_description(
