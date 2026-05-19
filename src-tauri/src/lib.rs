@@ -1164,6 +1164,72 @@ fn cancel_describe_cmd(describe_state: State<'_, openai_describe::DescribeState>
     Ok(())
 }
 
+// ── Metadata-normalisation commands ──────────────────────────────────────────
+//
+// See `docs/NORMALISE_METADATA_PLAN.md` §8. Run command walks the
+// supplied items through `normalise::process_image`, emits per-item
+// progress events, and accumulates a `NormaliseSummary`. v1 has no AI
+// dispatch and so no estimate phase — see plan §7.
+
+/// Normalise metadata for a batch of images.
+#[tauri::command]
+async fn normalise_metadata_cmd(
+    folder_path: String,
+    items: Vec<normalise::NormaliseRequestItem>,
+    enabled_groups: Vec<normalise::NormaliseGroup>,
+    app: AppHandle,
+    normalise_state: State<'_, normalise::NormaliseState>,
+) -> Result<(), String> {
+    let _ = folder_path; // resolution happens client-side
+    let cancel_flag = normalise_state.install();
+    let total = items.len();
+    log::info!("[normalise] starting total={} groups={:?}", total, enabled_groups);
+
+    let emitter = batch_job::BatchProgressEmitter::new(&app, "normalise");
+    emitter.started(total);
+
+    let mut succeeded: Vec<String> = Vec::new();
+    let failed: Vec<batch_job::BatchFailureRow> = Vec::new();
+    let mut summary = normalise::NormaliseSummary::default();
+    let mut current = 0usize;
+
+    for item in &items {
+        if cancel_flag.load(Ordering::Relaxed) {
+            log::info!("[normalise] cancelled at {}/{}", current, total);
+            break;
+        }
+        current += 1;
+        let rel = item.rel_path.clone();
+        let (edits, stats) = normalise::process_image(item, &enabled_groups);
+        summary.accumulate(&stats);
+        let all_noop = edits.is_empty();
+        if all_noop {
+            summary.n_skipped_all_normalised += 1;
+            emitter.progress(current, total, &rel, "ok", None, None);
+        } else {
+            emitter.progress(current, total, &rel, "ok", None, Some(&edits));
+        }
+        succeeded.push(rel);
+    }
+    summary.n_succeeded = succeeded.len() as u32;
+    summary.n_failed = failed.len() as u32;
+
+    log::info!(
+        "[normalise] finished succeeded={} failed={} groups_normalised_total={}",
+        summary.n_succeeded, summary.n_failed, summary.n_groups_normalised_total,
+    );
+
+    normalise_state.clear();
+    emitter.complete(&succeeded, &failed, &summary);
+    Ok(())
+}
+
+#[tauri::command]
+fn cancel_normalise_cmd(normalise_state: State<'_, normalise::NormaliseState>) -> Result<(), String> {
+    normalise_state.signal_cancel();
+    Ok(())
+}
+
 // ── Reverse-geocoding commands ────────────────────────────────────────────────
 
 /// One image's GPS, supplied by the frontend so the front end owns the
@@ -1421,6 +1487,7 @@ pub fn run() {
         .manage(ApplyEditsState::new())
         .manage(openai_describe::DescribeState::default())
         .manage(geocode::GeocodeState::default())
+        .manage(normalise::NormaliseState::default())
         .invoke_handler(tauri::generate_handler![
             log_to_console,
             get_cli_folder,
@@ -1447,7 +1514,9 @@ pub fn run() {
             describe_images_cmd,
             cancel_describe_cmd,
             geocode_images_cmd,
-            cancel_geocode_cmd
+            cancel_geocode_cmd,
+            normalise_metadata_cmd,
+            cancel_normalise_cmd
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
