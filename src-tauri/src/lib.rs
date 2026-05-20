@@ -1434,7 +1434,17 @@ async fn normalise_metadata_cmd(
         // Plan §6: append one audit-log row per AI call (success or
         // failure). Audit failures are logged-and-swallowed — they
         // should not abort the user's batch.
-        let needs_conflict_rows = stats.n_location_xmp_iim_conflict > 0 || stats.n_date_conflict > 0;
+        let loc_conflicts = stats
+            .per_group
+            .get(&normalise::NormaliseGroup::Location)
+            .map(|s| s.n_location_xmp_iim_conflict)
+            .unwrap_or(0);
+        let date_conflicts = stats
+            .per_group
+            .get(&normalise::NormaliseGroup::Dates)
+            .map(|s| s.n_date_conflict)
+            .unwrap_or(0);
+        let needs_conflict_rows = loc_conflicts > 0 || date_conflicts > 0;
         if !ai_calls.is_empty() || needs_conflict_rows {
             if let Ok(app_dir) = app_data_dir(&app) {
                 let log_path = app_dir.join("normalise_audit.jsonl");
@@ -1443,7 +1453,7 @@ async fn normalise_metadata_cmd(
                     .unwrap_or_default();
                 let pricing = openai_describe::pricing_for(&model_name);
                 // Conflict-counter rows (user-requested archaeology).
-                if stats.n_location_xmp_iim_conflict > 0 {
+                if loc_conflicts > 0 {
                     let entry = normalise::NormaliseAuditEntry {
                         ts: now.clone(),
                         model: String::new(),
@@ -1454,13 +1464,13 @@ async fn normalise_metadata_cmd(
                         cost_usd: 0.0,
                         error: format!(
                             "{} pair(s) XMP↔IIM diverged; primary won",
-                            stats.n_location_xmp_iim_conflict,
+                            loc_conflicts,
                         ),
                         relative_path: rel.clone(),
                     };
                     let _ = batch_audit_log::append(&log_path, &entry);
                 }
-                if stats.n_date_conflict > 0 {
+                if date_conflicts > 0 {
                     let entry = normalise::NormaliseAuditEntry {
                         ts: now.clone(),
                         model: String::new(),
@@ -1471,7 +1481,7 @@ async fn normalise_metadata_cmd(
                         cost_usd: 0.0,
                         error: format!(
                             "{} date sub-group(s) diverged; primary won",
-                            stats.n_date_conflict,
+                            date_conflicts,
                         ),
                         relative_path: rel.clone(),
                     };
@@ -1495,9 +1505,28 @@ async fn normalise_metadata_cmd(
                         error: call.error.clone().unwrap_or_default(),
                         relative_path: rel.clone(),
                     };
+                    // Plan §10: roll each AI call's cost into the
+                    // whole-batch totals so the done panel can show
+                    // `aiCostTotalUsd` / `aiCallsTotal`.
+                    summary.record_ai_call(cost);
                     if let Err(e) = batch_audit_log::append(&log_path, &entry) {
                         log::warn!("[normalise] audit-log append failed for {}: {}", rel, e);
                     }
+                }
+            } else {
+                // No app-data dir: still record cost into the summary
+                // so the done panel doesn't lose the AI-cost total.
+                let model_name = ai_client.as_ref().map(|c| c.model().to_string())
+                    .unwrap_or_default();
+                let pricing = openai_describe::pricing_for(&model_name);
+                for call in &ai_calls {
+                    let cost = pricing
+                        .map(|p| {
+                            (call.usage.input_tokens as f64 / 1_000_000.0) * p.input_per_1m
+                                + (call.usage.output_tokens as f64 / 1_000_000.0) * p.output_per_1m
+                        })
+                        .unwrap_or(0.0);
+                    summary.record_ai_call(cost);
                 }
             }
         }
@@ -1541,9 +1570,15 @@ async fn normalise_metadata_cmd(
     summary.n_succeeded = succeeded.len() as u32;
     summary.n_failed = failed.len() as u32;
 
+    let groups_normalised_total: u32 = summary
+        .per_group
+        .values()
+        .map(|s| s.n_normalised_deterministic + s.n_normalised_ai)
+        .sum();
     log::info!(
-        "[normalise] finished succeeded={} failed={} groups_normalised_total={}",
-        summary.n_succeeded, summary.n_failed, summary.n_groups_normalised_total,
+        "[normalise] finished succeeded={} failed={} groups_normalised_total={} ai_calls={} ai_cost=${:.6}",
+        summary.n_succeeded, summary.n_failed, groups_normalised_total,
+        summary.ai_calls_total, summary.ai_cost_total_usd,
     );
 
     normalise_state.clear();

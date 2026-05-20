@@ -32,7 +32,7 @@ use crate::scanner::Variant;
 /// The eight semantic groups the user can toggle on/off in the confirm
 /// dialog. See plan §1 for the definition of each group, its target /
 /// derivative fields, and conflict policy.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
@@ -509,35 +509,76 @@ impl NormaliseState {
 // loop. It walks the enabled groups in pass order (plan §2), building
 // up a flat draft-edits map plus a stats struct.
 
+/// Per-group counters tracked for one image. Mirrors plan §10's
+/// `NormaliseSummary.perGroup[group]` shape, but at the per-image
+/// granularity that `NormaliseSummary::accumulate` later sums into
+/// the whole-batch breakdown.
+///
+/// Each `u32` field is 0 or 1 at the per-image scale (a group fires
+/// at most once per image); they grow only after accumulation into
+/// the batch-wide `NormaliseSummary.per_group` map.
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
+pub struct PerGroupStats {
+    /// Idempotency detector reported the group already normalised, or
+    /// every source was empty (plan §4 all-empty rule). No drafts.
+    pub n_noop: u32,
+    /// Group emitted set-value drafts via the deterministic branches.
+    pub n_normalised_deterministic: u32,
+    /// Group emitted set-value drafts via the AI branch (Group B
+    /// case 4; Group C case 3). 0 for all other groups.
+    pub n_normalised_ai: u32,
+    /// Generic conflict counter — incremented whenever the group
+    /// resolved disagreement by preferring the primary source over a
+    /// derivative. Group-specific counters below give the detail.
+    pub n_conflict_primary_won: u32,
+    /// Group G only — XMP↔IIM mirror pair disagreed before
+    /// canonicalisation (summed across the 5 sub-pairs).
+    pub n_location_xmp_iim_conflict: u32,
+    /// Group H only — H1/H2 target source set disagreed after ISO
+    /// normalisation (summed across H1+H2).
+    pub n_date_conflict: u32,
+    /// Group H only — DTO filled from filename regex match.
+    pub n_dto_from_filename: u32,
+    /// Group H only — filename match was date-only (no time portion).
+    pub n_dto_from_filename_date_only: u32,
+    /// Group H only — date input string was non-empty but unparseable.
+    pub n_unparseable_date_inputs: u32,
+    /// Group B / Group C only — AI call returned an error or the key
+    /// was missing.
+    pub n_ai_errors: u32,
+}
+
 /// Per-image stats tracking from one `process_image` call. Aggregated
-/// across the whole batch into `NormaliseSummary`.
+/// across the whole batch into `NormaliseSummary`. Keyed by enum so
+/// the wire format produces stable snake_case group names.
 #[derive(Debug, Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
 pub struct PerImageStats {
-    /// Number of enabled groups that emitted drafts.
-    pub n_groups_normalised: u32,
-    /// Number of enabled groups whose idempotency detector returned
-    /// no-op (already normalised).
-    pub n_groups_noop: u32,
-    /// Per-group conflict counters (Location: XMP↔IIM disagree;
-    /// Dates: H1/H2 primary vs mirror disagree).
-    pub n_location_xmp_iim_conflict: u32,
-    pub n_date_conflict: u32,
-    /// Dates-specific filename-fallback counters.
-    pub n_dto_from_filename: u32,
-    pub n_dto_from_filename_date_only: u32,
-    /// Number of date input fields that were non-empty but
-    /// unparseable.
-    pub n_unparseable_date_inputs: u32,
-    /// True (1) when Group B fired the AI merge for this image.
-    pub n_ai_description_merged: u32,
-    /// True (1) when Group C fired the AI title generation.
-    pub n_ai_title_generated: u32,
-    /// True (1) when an AI call errored on this image (recorded in
-    /// audit log).
-    pub n_ai_errors: u32,
+    /// Per-group counter map. Entry is present only for groups that
+    /// the dispatcher actually visited (i.e. enabled + bundle
+    /// supplied).
+    pub per_group: std::collections::BTreeMap<NormaliseGroup, PerGroupStats>,
+}
+
+impl PerImageStats {
+    /// Mutable entry for a group; inserts a default `PerGroupStats`
+    /// the first time the group is visited on this image.
+    pub fn group(&mut self, g: NormaliseGroup) -> &mut PerGroupStats {
+        self.per_group.entry(g).or_default()
+    }
+
+    /// True when no group emitted any drafts (every visited group was
+    /// a noop). Used by the batch loop to count `n_skipped_all_normalised`.
+    pub fn all_noop(&self) -> bool {
+        self.per_group.values().all(|s| {
+            s.n_normalised_deterministic == 0 && s.n_normalised_ai == 0
+        })
+    }
 }
 
 /// Process one image. Walks the enabled groups in pass order; returns
@@ -569,6 +610,7 @@ pub struct PerImageStats {
 /// Dates captures date context + filename stats, Description / Title
 /// are async + AI) keep bespoke dispatcher blocks.
 fn apply_simple_group<T>(
+    group: NormaliseGroup,
     enabled: bool,
     input: Option<&T>,
     edits: &mut HashMap<String, DraftEdit>,
@@ -578,17 +620,18 @@ fn apply_simple_group<T>(
     if !enabled {
         return;
     }
+    let g = stats.group(group);
     let Some(input) = input else {
-        stats.n_groups_noop += 1;
+        g.n_noop += 1;
         return;
     };
     match run(input) {
         Some(out) => {
             edits.extend(out.edits);
-            stats.n_groups_normalised += 1;
+            g.n_normalised_deterministic += 1;
         }
         None => {
-            stats.n_groups_noop += 1;
+            g.n_noop += 1;
         }
     }
 }
@@ -621,22 +664,24 @@ pub async fn process_image(
     let mut date_context: Option<String> = None;
 
     if is_enabled(NormaliseGroup::Keywords) {
+        let g = stats.group(NormaliseGroup::Keywords);
         if let Some(input) = item.group_inputs.keywords.as_ref() {
             let (paths, leaves) = derive_keywords_canonical(input);
             keywords_leaves = leaves.clone();
             match normalise_keywords_with_canonical(input, &paths, &leaves) {
                 Some(out) => {
                     edits.extend(out.edits);
-                    stats.n_groups_normalised += 1;
+                    g.n_normalised_deterministic += 1;
                 }
-                None => stats.n_groups_noop += 1,
+                None => g.n_noop += 1,
             }
         } else {
-            stats.n_groups_noop += 1;
+            g.n_noop += 1;
         }
     }
 
     apply_simple_group(
+        NormaliseGroup::Creator,
         is_enabled(NormaliseGroup::Creator),
         item.group_inputs.creator.as_ref(),
         &mut edits,
@@ -644,6 +689,7 @@ pub async fn process_image(
         normalise_creator,
     );
     apply_simple_group(
+        NormaliseGroup::Copyright,
         is_enabled(NormaliseGroup::Copyright),
         item.group_inputs.copyright.as_ref(),
         &mut edits,
@@ -651,6 +697,7 @@ pub async fn process_image(
         normalise_copyright,
     );
     apply_simple_group(
+        NormaliseGroup::Headline,
         is_enabled(NormaliseGroup::Headline),
         item.group_inputs.headline.as_ref(),
         &mut edits,
@@ -659,26 +706,31 @@ pub async fn process_image(
     );
 
     if is_enabled(NormaliseGroup::Location) {
+        let g = stats.group(NormaliseGroup::Location);
         if let Some(input) = item.group_inputs.location.as_ref() {
             // Plan §2: Group B / Group C see POST-normalisation
             // location context. Use the same primary-wins canonical
             // logic Group G uses to populate drafts.
             location_context = Some(derive_location_canonical(input));
             let outcome = normalise_location(input);
-            stats.n_location_xmp_iim_conflict = outcome.n_xmp_iim_conflict;
+            g.n_location_xmp_iim_conflict = outcome.n_xmp_iim_conflict;
+            if outcome.n_xmp_iim_conflict > 0 {
+                g.n_conflict_primary_won = 1;
+            }
             match outcome.output {
                 Some(out) => {
                     edits.extend(out.edits);
-                    stats.n_groups_normalised += 1;
+                    g.n_normalised_deterministic += 1;
                 }
-                None => stats.n_groups_noop += 1,
+                None => g.n_noop += 1,
             }
         } else {
-            stats.n_groups_noop += 1;
+            g.n_noop += 1;
         }
     }
 
     if is_enabled(NormaliseGroup::Dates) {
+        let g = stats.group(NormaliseGroup::Dates);
         if let Some(input) = item.group_inputs.dates.as_ref() {
             // Capture date context for pass-2 — use whatever H1 source
             // resolves cleanest (DTO first).
@@ -690,19 +742,22 @@ pub async fn process_image(
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty());
             let outcome = normalise_dates(input);
-            stats.n_date_conflict = outcome.n_date_conflict;
-            stats.n_dto_from_filename = outcome.n_dto_from_filename;
-            stats.n_dto_from_filename_date_only = outcome.n_dto_from_filename_date_only;
-            stats.n_unparseable_date_inputs = outcome.n_unparseable_inputs;
+            g.n_date_conflict = outcome.n_date_conflict;
+            g.n_dto_from_filename = outcome.n_dto_from_filename;
+            g.n_dto_from_filename_date_only = outcome.n_dto_from_filename_date_only;
+            g.n_unparseable_date_inputs = outcome.n_unparseable_inputs;
+            if outcome.n_date_conflict > 0 {
+                g.n_conflict_primary_won = 1;
+            }
             match outcome.output {
                 Some(out) => {
                     edits.extend(out.edits);
-                    stats.n_groups_normalised += 1;
+                    g.n_normalised_deterministic += 1;
                 }
-                None => stats.n_groups_noop += 1,
+                None => g.n_noop += 1,
             }
         } else {
-            stats.n_groups_noop += 1;
+            g.n_noop += 1;
         }
     }
 
@@ -724,7 +779,6 @@ pub async fn process_image(
             }
             let outcome = normalise_description(&augmented, ai).await;
             if outcome.ai_fired {
-                stats.n_ai_description_merged = 1;
                 if let Some(u) = outcome.ai_usage.clone() {
                     ai_calls.push(PerImageAiCall {
                         group: "description",
@@ -734,7 +788,7 @@ pub async fn process_image(
                 }
             }
             if let Some(err) = outcome.ai_error.clone() {
-                stats.n_ai_errors += 1;
+                stats.group(NormaliseGroup::Description).n_ai_errors += 1;
                 ai_calls.push(PerImageAiCall {
                     group: "description",
                     usage: AiCallUsage::default(),
@@ -749,15 +803,21 @@ pub async fn process_image(
             // (1/2/3/4-success) and `None` only for AI failures or
             // all-empty inputs.
             description_canonical = outcome.canonical.clone();
+            let ai_fired = outcome.ai_fired;
+            let g = stats.group(NormaliseGroup::Description);
             match outcome.output {
                 Some(out) => {
                     edits.extend(out.edits);
-                    stats.n_groups_normalised += 1;
+                    if ai_fired {
+                        g.n_normalised_ai += 1;
+                    } else {
+                        g.n_normalised_deterministic += 1;
+                    }
                 }
-                None => stats.n_groups_noop += 1,
+                None => g.n_noop += 1,
             }
         } else {
-            stats.n_groups_noop += 1;
+            stats.group(NormaliseGroup::Description).n_noop += 1;
         }
     }
 
@@ -776,7 +836,6 @@ pub async fn process_image(
             }
             let outcome = normalise_title(&augmented, ai).await;
             if outcome.ai_fired {
-                stats.n_ai_title_generated = 1;
                 if let Some(u) = outcome.ai_usage.clone() {
                     ai_calls.push(PerImageAiCall {
                         group: "title",
@@ -786,7 +845,7 @@ pub async fn process_image(
                 }
             }
             if let Some(err) = outcome.ai_error.clone() {
-                stats.n_ai_errors += 1;
+                stats.group(NormaliseGroup::Title).n_ai_errors += 1;
                 ai_calls.push(PerImageAiCall {
                     group: "title",
                     usage: AiCallUsage::default(),
@@ -796,15 +855,21 @@ pub async fn process_image(
                     first_ai_error = Some(err);
                 }
             }
+            let ai_fired = outcome.ai_fired;
+            let g = stats.group(NormaliseGroup::Title);
             match outcome.output {
                 Some(out) => {
                     edits.extend(out.edits);
-                    stats.n_groups_normalised += 1;
+                    if ai_fired {
+                        g.n_normalised_ai += 1;
+                    } else {
+                        g.n_normalised_deterministic += 1;
+                    }
                 }
-                None => stats.n_groups_noop += 1,
+                None => g.n_noop += 1,
             }
         } else {
-            stats.n_groups_noop += 1;
+            stats.group(NormaliseGroup::Title).n_noop += 1;
         }
     }
 
@@ -812,6 +877,7 @@ pub async fn process_image(
 }
 
 /// Whole-batch summary emitted with the `normalise_complete` event.
+/// Shape matches plan §10.
 #[derive(Debug, Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(test, derive(ts_rs::TS))]
@@ -822,31 +888,44 @@ pub struct NormaliseSummary {
     /// Images for which every enabled group was a no-op
     /// (idempotency). Counted toward `n_succeeded`.
     pub n_skipped_all_normalised: u32,
-    /// Total per-group counters across the batch.
-    pub n_groups_normalised_total: u32,
-    pub n_groups_noop_total: u32,
-    pub n_location_xmp_iim_conflict_total: u32,
-    pub n_date_conflict_total: u32,
-    pub n_dto_from_filename_total: u32,
-    pub n_dto_from_filename_date_only_total: u32,
-    pub n_ai_description_merged_total: u32,
-    pub n_ai_title_generated_total: u32,
-    pub n_ai_errors_total: u32,
-    pub n_unparseable_date_inputs_total: u32,
+    /// Per-group counters summed across every image in the batch.
+    /// Only includes entries for groups that the dispatcher actually
+    /// visited; absent keys mean the group was disabled for every
+    /// image.
+    pub per_group: std::collections::BTreeMap<NormaliseGroup, PerGroupStats>,
+    /// Sum of USD cost across every AI call (description + title)
+    /// emitted by this batch. Driven by the audit-log writer in
+    /// `lib.rs`, which has access to the pricing table.
+    pub ai_cost_total_usd: f64,
+    /// Total successful + failed AI calls across the batch
+    /// (description + title). Matches the number of rows appended to
+    /// the audit log JSONL.
+    pub ai_calls_total: u32,
 }
 
 impl NormaliseSummary {
     pub fn accumulate(&mut self, per_image: &PerImageStats) {
-        self.n_groups_normalised_total += per_image.n_groups_normalised;
-        self.n_groups_noop_total += per_image.n_groups_noop;
-        self.n_location_xmp_iim_conflict_total += per_image.n_location_xmp_iim_conflict;
-        self.n_date_conflict_total += per_image.n_date_conflict;
-        self.n_dto_from_filename_total += per_image.n_dto_from_filename;
-        self.n_dto_from_filename_date_only_total += per_image.n_dto_from_filename_date_only;
-        self.n_unparseable_date_inputs_total += per_image.n_unparseable_date_inputs;
-        self.n_ai_description_merged_total += per_image.n_ai_description_merged;
-        self.n_ai_title_generated_total += per_image.n_ai_title_generated;
-        self.n_ai_errors_total += per_image.n_ai_errors;
+        for (group, src) in &per_image.per_group {
+            let dst = self.per_group.entry(*group).or_default();
+            dst.n_noop += src.n_noop;
+            dst.n_normalised_deterministic += src.n_normalised_deterministic;
+            dst.n_normalised_ai += src.n_normalised_ai;
+            dst.n_conflict_primary_won += src.n_conflict_primary_won;
+            dst.n_location_xmp_iim_conflict += src.n_location_xmp_iim_conflict;
+            dst.n_date_conflict += src.n_date_conflict;
+            dst.n_dto_from_filename += src.n_dto_from_filename;
+            dst.n_dto_from_filename_date_only += src.n_dto_from_filename_date_only;
+            dst.n_unparseable_date_inputs += src.n_unparseable_date_inputs;
+            dst.n_ai_errors += src.n_ai_errors;
+        }
+    }
+
+    /// Record a per-image audit-log row's cost. Called by the
+    /// dispatcher in `lib.rs` for every AI call (success or failure)
+    /// after it has computed the USD cost from the pricing table.
+    pub fn record_ai_call(&mut self, cost_usd: f64) {
+        self.ai_calls_total += 1;
+        self.ai_cost_total_usd += cost_usd;
     }
 }
 
@@ -873,8 +952,12 @@ mod tests_dispatcher {
         let (edits, stats, _err, _calls) = process_image(&item, &[NormaliseGroup::Keywords], None).await;
         assert!(edits.contains_key("XMP-dc:Subject"));
         assert!(!edits.contains_key("XMP-dc:Creator"));
-        assert_eq!(stats.n_groups_normalised, 1);
-        assert_eq!(stats.n_groups_noop, 0);
+        let kw = stats.per_group.get(&NormaliseGroup::Keywords).unwrap();
+        assert_eq!(kw.n_normalised_deterministic, 1);
+        assert_eq!(kw.n_noop, 0);
+        // Creator was disabled — should not appear in the per-group
+        // map at all.
+        assert!(!stats.per_group.contains_key(&NormaliseGroup::Creator));
     }
 
     #[tokio::test]
@@ -898,8 +981,13 @@ mod tests_dispatcher {
             None,
         ).await;
         assert!(edits.is_empty());
-        assert_eq!(stats.n_groups_normalised, 0);
-        assert_eq!(stats.n_groups_noop, 8);
+        assert_eq!(stats.per_group.len(), 8);
+        for (_, g) in &stats.per_group {
+            assert_eq!(g.n_normalised_deterministic, 0);
+            assert_eq!(g.n_normalised_ai, 0);
+            assert_eq!(g.n_noop, 1);
+        }
+        assert!(stats.all_noop());
     }
 
     #[tokio::test]
@@ -990,38 +1078,86 @@ mod tests_dispatcher {
         }
     }
 
+    fn make_per_image(entries: &[(NormaliseGroup, PerGroupStats)]) -> PerImageStats {
+        let mut p = PerImageStats::default();
+        for (g, s) in entries {
+            *p.group(*g) = s.clone();
+        }
+        p
+    }
+
     #[test]
     fn summary_accumulates_per_image_stats() {
         let mut summary = NormaliseSummary::default();
-        summary.accumulate(&PerImageStats {
-            n_groups_normalised: 2,
-            n_groups_noop: 1,
-            n_location_xmp_iim_conflict: 1,
-            n_date_conflict: 0,
-            n_dto_from_filename: 1,
-            n_dto_from_filename_date_only: 1,
-            n_unparseable_date_inputs: 0,
-            n_ai_description_merged: 1,
-            n_ai_title_generated: 0,
-            n_ai_errors: 0,
-        });
-        summary.accumulate(&PerImageStats {
-            n_groups_normalised: 3,
-            n_groups_noop: 0,
-            n_location_xmp_iim_conflict: 0,
-            n_date_conflict: 1,
-            n_dto_from_filename: 0,
-            n_dto_from_filename_date_only: 0,
-            n_unparseable_date_inputs: 2,
-            n_ai_description_merged: 0,
-            n_ai_title_generated: 1,
-            n_ai_errors: 1,
-        });
-        assert_eq!(summary.n_groups_normalised_total, 5);
-        assert_eq!(summary.n_groups_noop_total, 1);
-        assert_eq!(summary.n_ai_description_merged_total, 1);
-        assert_eq!(summary.n_ai_title_generated_total, 1);
-        assert_eq!(summary.n_ai_errors_total, 1);
+        summary.accumulate(&make_per_image(&[
+            (NormaliseGroup::Keywords, PerGroupStats {
+                n_normalised_deterministic: 1,
+                ..Default::default()
+            }),
+            (NormaliseGroup::Location, PerGroupStats {
+                n_normalised_deterministic: 1,
+                n_conflict_primary_won: 1,
+                n_location_xmp_iim_conflict: 1,
+                ..Default::default()
+            }),
+            (NormaliseGroup::Dates, PerGroupStats {
+                n_noop: 1,
+                n_dto_from_filename: 1,
+                n_dto_from_filename_date_only: 1,
+                ..Default::default()
+            }),
+            (NormaliseGroup::Description, PerGroupStats {
+                n_normalised_ai: 1,
+                ..Default::default()
+            }),
+        ]));
+        summary.accumulate(&make_per_image(&[
+            (NormaliseGroup::Keywords, PerGroupStats {
+                n_normalised_deterministic: 1,
+                ..Default::default()
+            }),
+            (NormaliseGroup::Dates, PerGroupStats {
+                n_normalised_deterministic: 1,
+                n_date_conflict: 1,
+                n_conflict_primary_won: 1,
+                n_unparseable_date_inputs: 2,
+                ..Default::default()
+            }),
+            (NormaliseGroup::Title, PerGroupStats {
+                n_normalised_ai: 1,
+                ..Default::default()
+            }),
+            (NormaliseGroup::Description, PerGroupStats {
+                n_ai_errors: 1,
+                ..Default::default()
+            }),
+        ]));
+        let kw = summary.per_group.get(&NormaliseGroup::Keywords).unwrap();
+        assert_eq!(kw.n_normalised_deterministic, 2);
+        let loc = summary.per_group.get(&NormaliseGroup::Location).unwrap();
+        assert_eq!(loc.n_location_xmp_iim_conflict, 1);
+        assert_eq!(loc.n_conflict_primary_won, 1);
+        let dates = summary.per_group.get(&NormaliseGroup::Dates).unwrap();
+        assert_eq!(dates.n_normalised_deterministic, 1);
+        assert_eq!(dates.n_noop, 1);
+        assert_eq!(dates.n_dto_from_filename, 1);
+        assert_eq!(dates.n_date_conflict, 1);
+        assert_eq!(dates.n_unparseable_date_inputs, 2);
+        let desc = summary.per_group.get(&NormaliseGroup::Description).unwrap();
+        assert_eq!(desc.n_normalised_ai, 1);
+        assert_eq!(desc.n_ai_errors, 1);
+        let title = summary.per_group.get(&NormaliseGroup::Title).unwrap();
+        assert_eq!(title.n_normalised_ai, 1);
+    }
+
+    #[test]
+    fn summary_record_ai_call_accumulates_cost_and_count() {
+        let mut summary = NormaliseSummary::default();
+        summary.record_ai_call(0.0001);
+        summary.record_ai_call(0.0002);
+        summary.record_ai_call(0.0);
+        assert_eq!(summary.ai_calls_total, 3);
+        assert!((summary.ai_cost_total_usd - 0.0003).abs() < 1e-9);
     }
 }
 

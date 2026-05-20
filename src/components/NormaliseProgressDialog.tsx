@@ -289,6 +289,24 @@ function AwaitingConfirmPanel({
 }
 
 function SummaryBreakdown({ s }: { s: NormaliseSummary }) {
+  // Group ordering used in the awaiting-confirm checklist; re-used so
+  // the done-panel breakdown reads in the same order users selected
+  // the groups in.
+  const groupOrder: NormaliseGroup[] = V1_GROUPS;
+
+  // Roll up a few totals across all groups for the headline strip so
+  // users see the overall counts before drilling into per-group rows.
+  let totalDeterministic = 0;
+  let totalAi = 0;
+  let totalNoop = 0;
+  const perGroup = s.perGroup ?? {};
+  for (const g of Object.values(perGroup)) {
+    if (!g) continue;
+    totalDeterministic += g.nNormalisedDeterministic;
+    totalAi += g.nNormalisedAi;
+    totalNoop += g.nNoop;
+  }
+
   return (
     <div
       style={{ marginTop: 10, fontSize: 12, color: "var(--text-secondary)" }}
@@ -296,54 +314,68 @@ function SummaryBreakdown({ s }: { s: NormaliseSummary }) {
     >
       <BatchSummaryCountersRow
         counters={[
-          { label: "Groups normalised", value: s.nGroupsNormalisedTotal },
-          { label: "Groups skipped (already normalised)", value: s.nGroupsNoopTotal },
+          { label: "Groups normalised (deterministic)", value: totalDeterministic },
+          { label: "Groups normalised (AI)", value: totalAi, show: totalAi > 0 },
+          { label: "Groups skipped (already normalised)", value: totalNoop },
         ]}
       />
-      <BatchSummaryCountersRow
-        counters={[
-          {
-            label: "Location XMP↔IPTC conflicts",
-            value: s.nLocationXmpIimConflictTotal,
-            show: s.nLocationXmpIimConflictTotal > 0,
-          },
-          {
-            label: "Date conflicts",
-            value: s.nDateConflictTotal,
-            show: s.nDateConflictTotal > 0,
-          },
-          {
-            label: "DTO from filename",
-            value: s.nDtoFromFilenameTotal,
-            show: s.nDtoFromFilenameTotal > 0,
-          },
-          {
-            label: "DTO from filename (date only)",
-            value: s.nDtoFromFilenameDateOnlyTotal,
-            show: s.nDtoFromFilenameDateOnlyTotal > 0,
-          },
-          {
-            label: "Unparseable date inputs",
-            value: s.nUnparseableDateInputsTotal,
-            show: s.nUnparseableDateInputsTotal > 0,
-          },
-          {
-            label: "AI description merges",
-            value: s.nAiDescriptionMergedTotal,
-            show: s.nAiDescriptionMergedTotal > 0,
-          },
-          {
-            label: "AI titles generated",
-            value: s.nAiTitleGeneratedTotal,
-            show: s.nAiTitleGeneratedTotal > 0,
-          },
-          {
-            label: "AI errors",
-            value: s.nAiErrorsTotal,
-            show: s.nAiErrorsTotal > 0,
-          },
-        ]}
-      />
+      {s.aiCallsTotal > 0 && (
+        <BatchSummaryCountersRow
+          counters={[
+            { label: "AI calls", value: s.aiCallsTotal },
+            {
+              label: "AI cost",
+              value: `$${s.aiCostTotalUsd < 0.01 ? s.aiCostTotalUsd.toFixed(4) : s.aiCostTotalUsd.toFixed(2)}`,
+            },
+          ]}
+        />
+      )}
+      <div
+        style={{ marginTop: 10, fontSize: 12 }}
+        data-testid="normalise-per-group-breakdown"
+      >
+        <div style={{ fontWeight: 600, marginBottom: 4 }}>Per group</div>
+        {groupOrder
+          .filter((g) => perGroup[g])
+          .map((g) => {
+            const stats = perGroup[g]!;
+            const counters: Array<{ label: string; value: number; show?: boolean }> = [
+              { label: "normalised", value: stats.nNormalisedDeterministic, show: stats.nNormalisedDeterministic > 0 },
+              { label: "AI normalised", value: stats.nNormalisedAi, show: stats.nNormalisedAi > 0 },
+              { label: "no-op", value: stats.nNoop, show: stats.nNoop > 0 },
+              { label: "primary won", value: stats.nConflictPrimaryWon, show: stats.nConflictPrimaryWon > 0 },
+              { label: "XMP↔IPTC conflicts", value: stats.nLocationXmpIimConflict, show: stats.nLocationXmpIimConflict > 0 },
+              { label: "date conflicts", value: stats.nDateConflict, show: stats.nDateConflict > 0 },
+              { label: "DTO from filename", value: stats.nDtoFromFilename, show: stats.nDtoFromFilename > 0 },
+              { label: "DTO date-only fallback", value: stats.nDtoFromFilenameDateOnly, show: stats.nDtoFromFilenameDateOnly > 0 },
+              { label: "unparseable dates", value: stats.nUnparseableDateInputs, show: stats.nUnparseableDateInputs > 0 },
+              { label: "AI errors", value: stats.nAiErrors, show: stats.nAiErrors > 0 },
+            ];
+            const visible = counters.filter((c) => c.show);
+            return (
+              <div
+                key={g}
+                data-testid={`normalise-group-summary-${g}`}
+                style={{
+                  padding: "4px 0",
+                  borderTop: "1px solid var(--border-subtle, #eee)",
+                }}
+              >
+                <span style={{ fontWeight: 500 }}>{groupLabel(g)}: </span>
+                {visible.length === 0 ? (
+                  <span>no-op</span>
+                ) : (
+                  visible.map((c, i) => (
+                    <span key={c.label}>
+                      {i > 0 ? ", " : ""}
+                      {c.value} {c.label}
+                    </span>
+                  ))
+                )}
+              </div>
+            );
+          })}
+      </div>
     </div>
   );
 }

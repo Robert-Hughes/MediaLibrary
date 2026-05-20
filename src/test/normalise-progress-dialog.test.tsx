@@ -8,7 +8,7 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import { NormaliseProgressDialog } from "../components/NormaliseProgressDialog";
 import type { NormaliseProgressState } from "../hooks/useNormaliseMetadata";
-import type { NormaliseGroup, NormaliseSummary } from "../types";
+import type { NormaliseGroup, NormalisePerGroupStats, NormaliseSummary } from "../types";
 
 const allGroups: NormaliseGroup[] = [
   "keywords",
@@ -199,28 +199,44 @@ describe("NormaliseProgressDialog — done", () => {
       nSucceeded: 0,
       nFailed: 0,
       nSkippedAllNormalised: 0,
-      nGroupsNormalisedTotal: 0,
-      nGroupsNoopTotal: 0,
-      nLocationXmpIimConflictTotal: 0,
-      nDateConflictTotal: 0,
-      nDtoFromFilenameTotal: 0,
-      nDtoFromFilenameDateOnlyTotal: 0,
-      nUnparseableDateInputsTotal: 0,
-      nAiDescriptionMergedTotal: 0,
-      nAiTitleGeneratedTotal: 0,
-      nAiErrorsTotal: 0,
+      perGroup: {},
+      aiCostTotalUsd: 0,
+      aiCallsTotal: 0,
       ...over,
     };
   }
 
-  it("renders 'Completed: K / N images' with summary breakdown", () => {
+  function pg(over: Partial<NormalisePerGroupStats> = {}): NormalisePerGroupStats {
+    return {
+      nNoop: 0,
+      nNormalisedDeterministic: 0,
+      nNormalisedAi: 0,
+      nConflictPrimaryWon: 0,
+      nLocationXmpIimConflict: 0,
+      nDateConflict: 0,
+      nDtoFromFilename: 0,
+      nDtoFromFilenameDateOnly: 0,
+      nUnparseableDateInputs: 0,
+      nAiErrors: 0,
+      ...over,
+    };
+  }
+
+  it("renders 'Completed: K / N images' with per-group summary", () => {
     render(
       <NormaliseProgressDialog
         state={baseState({
           phase: "done",
           total: 3,
           succeeded: ["a.jpg", "b.jpg", "c.jpg"],
-          summary: summary({ nSucceeded: 3, nGroupsNormalisedTotal: 5, nGroupsNoopTotal: 16 }),
+          summary: summary({
+            nSucceeded: 3,
+            perGroup: {
+              keywords: pg({ nNormalisedDeterministic: 2, nNoop: 1 }),
+              creator: pg({ nNoop: 3 }),
+              dates: pg({ nNormalisedDeterministic: 3 }),
+            },
+          }),
         })}
         onConfirm={() => {}}
         onCancel={() => {}}
@@ -231,18 +247,27 @@ describe("NormaliseProgressDialog — done", () => {
     const sumDom = screen.getByTestId("normalise-done-summary");
     expect(sumDom).toHaveTextContent(/3.*\/.*3/);
     const breakdown = screen.getByTestId("normalise-summary-breakdown");
-    expect(breakdown).toHaveTextContent(/Groups normalised: 5/);
-    expect(breakdown).toHaveTextContent(/Groups skipped.*16/);
+    // Aggregate row.
+    expect(breakdown).toHaveTextContent(/Groups normalised \(deterministic\): 5/);
+    expect(breakdown).toHaveTextContent(/Groups skipped.*4/);
+    // Per-group rows for each visited group.
+    expect(screen.getByTestId("normalise-group-summary-keywords")).toHaveTextContent(/2 normalised/);
+    expect(screen.getByTestId("normalise-group-summary-keywords")).toHaveTextContent(/1 no-op/);
+    expect(screen.getByTestId("normalise-group-summary-creator")).toHaveTextContent(/3 no-op/);
+    expect(screen.getByTestId("normalise-group-summary-dates")).toHaveTextContent(/3 normalised/);
   });
 
-  it("hides zero-value counters in the breakdown second row", () => {
+  it("omits per-group rows for groups the dispatcher never visited", () => {
     render(
       <NormaliseProgressDialog
         state={baseState({
           phase: "done",
           total: 1,
           succeeded: ["a.jpg"],
-          summary: summary({ nSucceeded: 1, nGroupsNormalisedTotal: 1 }),
+          summary: summary({
+            nSucceeded: 1,
+            perGroup: { keywords: pg({ nNormalisedDeterministic: 1 }) },
+          }),
         })}
         onConfirm={() => {}}
         onCancel={() => {}}
@@ -250,9 +275,9 @@ describe("NormaliseProgressDialog — done", () => {
         onSetEnabledGroups={() => {}}
       />,
     );
-    const breakdown = screen.getByTestId("normalise-summary-breakdown");
-    expect(breakdown).not.toHaveTextContent(/Date conflicts/);
-    expect(breakdown).not.toHaveTextContent(/DTO from filename/);
+    expect(screen.queryByTestId("normalise-group-summary-creator")).toBeNull();
+    expect(screen.queryByTestId("normalise-group-summary-dates")).toBeNull();
+    expect(screen.getByTestId("normalise-group-summary-keywords")).toBeInTheDocument();
   });
 
   it("surfaces filename-fallback counters when non-zero", () => {
@@ -264,8 +289,40 @@ describe("NormaliseProgressDialog — done", () => {
           succeeded: ["a.jpg", "b.jpg"],
           summary: summary({
             nSucceeded: 2,
-            nDtoFromFilenameTotal: 1,
-            nDtoFromFilenameDateOnlyTotal: 1,
+            perGroup: {
+              dates: pg({
+                nNormalisedDeterministic: 2,
+                nDtoFromFilename: 1,
+                nDtoFromFilenameDateOnly: 1,
+              }),
+            },
+          }),
+        })}
+        onConfirm={() => {}}
+        onCancel={() => {}}
+        onClose={() => {}}
+        onSetEnabledGroups={() => {}}
+      />,
+    );
+    const datesRow = screen.getByTestId("normalise-group-summary-dates");
+    expect(datesRow).toHaveTextContent(/1 DTO from filename/);
+    expect(datesRow).toHaveTextContent(/1 DTO date-only fallback/);
+  });
+
+  it("renders AI calls + cost row when AI fired", () => {
+    render(
+      <NormaliseProgressDialog
+        state={baseState({
+          phase: "done",
+          total: 2,
+          succeeded: ["a.jpg", "b.jpg"],
+          summary: summary({
+            nSucceeded: 2,
+            aiCallsTotal: 3,
+            aiCostTotalUsd: 0.00123,
+            perGroup: {
+              description: pg({ nNormalisedAi: 2 }),
+            },
           }),
         })}
         onConfirm={() => {}}
@@ -275,8 +332,9 @@ describe("NormaliseProgressDialog — done", () => {
       />,
     );
     const breakdown = screen.getByTestId("normalise-summary-breakdown");
-    expect(breakdown).toHaveTextContent(/DTO from filename: 1/);
-    expect(breakdown).toHaveTextContent(/DTO from filename \(date only\): 1/);
+    expect(breakdown).toHaveTextContent(/AI calls: 3/);
+    expect(breakdown).toHaveTextContent(/\$0\.0012/);
+    expect(breakdown).toHaveTextContent(/Groups normalised \(AI\): 2/);
   });
 
   it("renders failure list when failures present", () => {
