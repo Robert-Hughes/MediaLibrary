@@ -729,24 +729,11 @@ pub async fn process_image(
                     first_ai_error = Some(err);
                 }
             }
-            // Capture canonical for pass-3 — from the emitted XMP-dc
-            // draft, falling back to the input if the value already
-            // matched (no draft fired).
-            description_canonical = outcome
-                .output
-                .as_ref()
-                .and_then(|g| g.edits.get("XMP-dc:Description"))
-                .and_then(|d| match &d.value {
-                    Some(Variant::String(s)) => Some(s.clone()),
-                    _ => None,
-                })
-                .or_else(|| {
-                    augmented
-                        .description
-                        .clone()
-                        .map(|s| normalise_description_text(&s))
-                        .filter(|s| !s.is_empty())
-                });
+            // Pass-3 (Title) reads the canonical description directly
+            // from the outcome — populated for every successful case
+            // (1/2/3/4-success) and `None` only for AI failures or
+            // all-empty inputs.
+            description_canonical = outcome.canonical.clone();
             match outcome.output {
                 Some(out) => {
                     edits.extend(out.edits);
@@ -1401,6 +1388,12 @@ pub struct DescriptionOutcome {
     /// Token usage when the AI fired (success or error if usage is
     /// available). Drives the audit-log entry written by the dispatcher.
     pub ai_usage: Option<AiCallUsage>,
+    /// The canonical description string the group resolved on, regardless
+    /// of whether any drafts were emitted. Populated whenever Group B
+    /// reaches a non-empty canonical (cases 2/3/4 success); `None` for
+    /// all-empty case 1 and for AI failures. Surfaced so pass-3 (Title)
+    /// can read the canonical without fishing it out of the edits map.
+    pub canonical: Option<String>,
 }
 
 /// Run Group B (Description) normalisation. Async because case-4 may
@@ -1507,6 +1500,7 @@ pub async fn normalise_description(
         ai_fired,
         ai_error: None,
         ai_usage,
+        canonical: Some(canonical),
     }
 }
 
@@ -1563,6 +1557,24 @@ mod tests_description {
         // Already in sync — idempotency check below ensures no drafts.
         assert!(out.output.is_none());
         assert!(!out.ai_fired);
+        // Canonical is still surfaced so pass-3 can use it.
+        assert_eq!(out.canonical.as_deref(), Some("A sunset."));
+    }
+
+    #[tokio::test]
+    async fn canonical_none_when_all_sources_empty() {
+        let out = normalise_description(&DescriptionInput::default(), None).await;
+        assert!(out.canonical.is_none());
+    }
+
+    #[tokio::test]
+    async fn canonical_populated_for_single_source() {
+        let input = DescriptionInput {
+            description: Some("A misty morning.".into()),
+            ..Default::default()
+        };
+        let out = normalise_description(&input, None).await;
+        assert_eq!(out.canonical.as_deref(), Some("A misty morning."));
     }
 
     #[tokio::test]
