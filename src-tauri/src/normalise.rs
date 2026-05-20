@@ -3763,6 +3763,16 @@ fn parse_filename_for_h1(stem: &str) -> Option<(ParsedDateTime, bool)> {
                 true,
                 false,
             ),
+            // Plan §1 Group H pattern #6: 14-digit compact stem with
+            // NO separator between date and time (e.g. `20240812143000`).
+            // Listed after the separator-required variant so the more
+            // permissive form doesn't swallow stems that have a clean
+            // separator first.
+            (
+                regex::Regex::new(r"(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})").unwrap(),
+                true,
+                false,
+            ),
             (
                 regex::Regex::new(r"(\d{4})-(\d{2})-(\d{2})").unwrap(),
                 false,
@@ -4162,6 +4172,21 @@ mod tests_dates {
         let out = normalise_dates(&input);
         let g = out.output.unwrap();
         assert_eq!(s(&g, "EXIF:DateTimeOriginal"), "2024-06-15T14:30:45");
+    }
+
+    #[test]
+    fn filename_fallback_compact_no_separator() {
+        // Plan §1 Group H pattern #6: 14 digits with no separator between
+        // date and time, e.g. `20240615143045.jpg`.
+        let input = DatesInput {
+            file_stem: Some("20240615143045".into()),
+            ..Default::default()
+        };
+        let out = normalise_dates(&input);
+        let g = out.output.unwrap();
+        assert_eq!(s(&g, "EXIF:DateTimeOriginal"), "2024-06-15T14:30:45");
+        assert_eq!(out.n_dto_from_filename, 1);
+        assert_eq!(out.n_dto_from_filename_date_only, 0);
     }
 
     #[test]
