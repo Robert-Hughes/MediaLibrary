@@ -697,12 +697,27 @@ pub async fn geocode_one(
 
 // ── Cancellation flag ───────────────────────────────────────────────────────
 
-/// Geocode-specific cancellation state. Aliased to the shared
-/// `BatchJobCancelState` (same install/clear/signal pattern as
-/// DescribeState) — but a distinct Tauri-managed instance so
-/// cancelling a geocode batch does not affect a parallel describe
-/// batch, and vice versa.
-pub type GeocodeState = crate::batch_job::BatchJobCancelState;
+/// Geocode-specific cancellation state.
+///
+/// Newtype around `BatchJobCancelState` rather than an alias: Tauri
+/// keys its `State<T>` registry by `TypeId`, so two distinct alias
+/// names for the same struct would collide at startup. A newtype gives
+/// each batch job its own `TypeId` while keeping the shared lifecycle
+/// code.
+#[derive(Default)]
+pub struct GeocodeState(crate::batch_job::BatchJobCancelState);
+
+impl GeocodeState {
+    pub fn install(&self) -> std::sync::Arc<std::sync::atomic::AtomicBool> {
+        self.0.install()
+    }
+    pub fn clear(&self) {
+        self.0.clear();
+    }
+    pub fn signal_cancel(&self) -> bool {
+        self.0.signal_cancel()
+    }
+}
 
 // ── Batch runner ────────────────────────────────────────────────────────────
 //
