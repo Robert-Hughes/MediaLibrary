@@ -622,6 +622,16 @@ fn apply_simple_group<T>(
     }
     let g = stats.group(group);
     let Some(input) = input else {
+        // Group enabled but the frontend shipped no bundle for it.
+        // Currently unreachable — `buildNormaliseItems` always
+        // populates every requested group's bundle — but the
+        // dispatcher tolerates it so a future code path that ships
+        // partial bundles still runs cleanly. Surface it so the
+        // mismatch doesn't silently masquerade as "already normalised".
+        log::warn!(
+            "[normalise] group {} enabled but no input bundle supplied; counting as no-op",
+            group.as_wire(),
+        );
         g.n_noop += 1;
         return;
     };
@@ -693,6 +703,7 @@ pub async fn process_image(
                 None => g.n_noop += 1,
             }
         } else {
+            log::warn!("[normalise] group keywords enabled but no input bundle supplied; counting as no-op");
             g.n_noop += 1;
         }
     }
@@ -742,6 +753,7 @@ pub async fn process_image(
                 None => g.n_noop += 1,
             }
         } else {
+            log::warn!("[normalise] group location enabled but no input bundle supplied; counting as no-op");
             g.n_noop += 1;
         }
     }
@@ -774,6 +786,7 @@ pub async fn process_image(
                 None => g.n_noop += 1,
             }
         } else {
+            log::warn!("[normalise] group dates enabled but no input bundle supplied; counting as no-op");
             g.n_noop += 1;
         }
     }
@@ -834,6 +847,7 @@ pub async fn process_image(
                 None => g.n_noop += 1,
             }
         } else {
+            log::warn!("[normalise] group description enabled but no input bundle supplied; counting as no-op");
             stats.group(NormaliseGroup::Description).n_noop += 1;
         }
     }
@@ -886,6 +900,7 @@ pub async fn process_image(
                 None => g.n_noop += 1,
             }
         } else {
+            log::warn!("[normalise] group title enabled but no input bundle supplied; counting as no-op");
             stats.group(NormaliseGroup::Title).n_noop += 1;
         }
     }
