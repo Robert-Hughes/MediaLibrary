@@ -589,16 +589,13 @@ pub async fn process_image(
         if let Some(input) = item.group_inputs.keywords.as_ref() {
             let (paths, leaves) = derive_keywords_canonical(input);
             keywords_leaves = leaves.clone();
-            match normalise_keywords(input) {
+            match normalise_keywords_with_canonical(input, &paths, &leaves) {
                 Some(out) => {
                     edits.extend(out.edits);
                     stats.n_groups_normalised += 1;
                 }
                 None => stats.n_groups_noop += 1,
             }
-            // `paths` referenced for future debugging; suppress
-            // unused-binding warning without a `let _ =`.
-            let _ = paths;
         } else {
             stats.n_groups_noop += 1;
         }
@@ -1853,15 +1850,21 @@ fn keywords_is_normalised(input: &KeywordsInput, canonical_paths: &[String], can
 
 /// Run Group A (Keywords) normalisation for one image.
 ///
+/// Takes the canonical bag precomputed by `derive_keywords_canonical`
+/// so the dispatcher can capture the leaves for pass-2 context without
+/// re-deriving them.
+///
 /// Returns `None` when the group is a no-op (idempotency detector
 /// reports already-normalised, or all sources empty). Otherwise emits
 /// set-value drafts for every Group A target tag whose existing value
 /// differs from the canonical projection; an all-empty canonical
 /// yields a no-op rather than a flood of remove-tag drafts (plan §4
 /// "all-empty groups").
-pub fn normalise_keywords(input: &KeywordsInput) -> Option<GroupOutput> {
-    let (canonical_paths, canonical_leaves) = derive_keywords_canonical(input);
-
+pub fn normalise_keywords_with_canonical(
+    input: &KeywordsInput,
+    canonical_paths: &[String],
+    canonical_leaves: &[String],
+) -> Option<GroupOutput> {
     // All-empty group → no drafts (plan §4 all-empty rule). Note that
     // *all* sources, including read-only AI inputs, must be empty —
     // otherwise the canonical would have non-empty entries.
@@ -1869,19 +1872,27 @@ pub fn normalise_keywords(input: &KeywordsInput) -> Option<GroupOutput> {
         return None;
     }
 
-    if keywords_is_normalised(input, &canonical_paths, &canonical_leaves) {
+    if keywords_is_normalised(input, canonical_paths, canonical_leaves) {
         return None;
     }
 
     let mut edits: HashMap<String, DraftEdit> = HashMap::new();
     edits.insert(
         "XMP-lr:HierarchicalSubject".to_string(),
-        bag_edit(&canonical_paths),
+        bag_edit(canonical_paths),
     );
-    edits.insert("XMP-dc:Subject".to_string(), bag_edit(&canonical_leaves));
-    edits.insert("IPTC:Keywords".to_string(), bag_edit(&canonical_leaves));
+    edits.insert("XMP-dc:Subject".to_string(), bag_edit(canonical_leaves));
+    edits.insert("IPTC:Keywords".to_string(), bag_edit(canonical_leaves));
 
     Some(GroupOutput { edits })
+}
+
+/// Convenience wrapper that derives the canonical bag internally.
+/// Callers that already have a canonical (e.g. the dispatcher) should
+/// use `normalise_keywords_with_canonical` directly.
+pub fn normalise_keywords(input: &KeywordsInput) -> Option<GroupOutput> {
+    let (canonical_paths, canonical_leaves) = derive_keywords_canonical(input);
+    normalise_keywords_with_canonical(input, &canonical_paths, &canonical_leaves)
 }
 
 /// Build a set-value draft for a Bag-of-Text tag from a list of
