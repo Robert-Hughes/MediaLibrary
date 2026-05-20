@@ -1296,6 +1296,7 @@ async fn estimate_normalise_cost_cmd(
             item,
             &enabled_groups,
             Some(&capturing as &dyn normalise::NormaliseAiClient),
+            Some(&cancel_flag),
         )
         .await;
 
@@ -1427,7 +1428,7 @@ async fn normalise_metadata_cmd(
         let rel = item.rel_path.clone();
         let ai_ref = ai_client.as_ref().map(|c| c as &dyn normalise::NormaliseAiClient);
         let (edits, stats, ai_err, ai_calls) =
-            normalise::process_image(item, &enabled_groups, ai_ref).await;
+            normalise::process_image(item, &enabled_groups, ai_ref, Some(&cancel_flag)).await;
         summary.accumulate(&stats);
         let all_noop = edits.is_empty();
 
