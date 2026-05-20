@@ -558,6 +558,41 @@ pub struct PerImageStats {
 /// third tuple element and the dispatcher surfaces it as a per-image
 /// failure row; non-AI groups for the same image still emit their
 /// drafts.
+/// Shared dispatcher boilerplate for "simple" deterministic groups
+/// (Creator, Copyright, Headline) — those whose `process_image` block
+/// only needs to: skip if disabled, count noop if the bundle is
+/// absent, then merge the group's `GroupOutput` into the running
+/// edits map and bump the appropriate stat counter.
+///
+/// Groups with side effects beyond that pattern (Keywords captures
+/// leaves for pass-2, Location captures context + conflict counter,
+/// Dates captures date context + filename stats, Description / Title
+/// are async + AI) keep bespoke dispatcher blocks.
+fn apply_simple_group<T>(
+    enabled: bool,
+    input: Option<&T>,
+    edits: &mut HashMap<String, DraftEdit>,
+    stats: &mut PerImageStats,
+    run: impl FnOnce(&T) -> Option<GroupOutput>,
+) {
+    if !enabled {
+        return;
+    }
+    let Some(input) = input else {
+        stats.n_groups_noop += 1;
+        return;
+    };
+    match run(input) {
+        Some(out) => {
+            edits.extend(out.edits);
+            stats.n_groups_normalised += 1;
+        }
+        None => {
+            stats.n_groups_noop += 1;
+        }
+    }
+}
+
 pub async fn process_image(
     item: &NormaliseRequestItem,
     enabled: &[NormaliseGroup],
@@ -601,47 +636,27 @@ pub async fn process_image(
         }
     }
 
-    if is_enabled(NormaliseGroup::Creator) {
-        if let Some(input) = item.group_inputs.creator.as_ref() {
-            match normalise_creator(input) {
-                Some(out) => {
-                    edits.extend(out.edits);
-                    stats.n_groups_normalised += 1;
-                }
-                None => stats.n_groups_noop += 1,
-            }
-        } else {
-            stats.n_groups_noop += 1;
-        }
-    }
-
-    if is_enabled(NormaliseGroup::Copyright) {
-        if let Some(input) = item.group_inputs.copyright.as_ref() {
-            match normalise_copyright(input) {
-                Some(out) => {
-                    edits.extend(out.edits);
-                    stats.n_groups_normalised += 1;
-                }
-                None => stats.n_groups_noop += 1,
-            }
-        } else {
-            stats.n_groups_noop += 1;
-        }
-    }
-
-    if is_enabled(NormaliseGroup::Headline) {
-        if let Some(input) = item.group_inputs.headline.as_ref() {
-            match normalise_headline(input) {
-                Some(out) => {
-                    edits.extend(out.edits);
-                    stats.n_groups_normalised += 1;
-                }
-                None => stats.n_groups_noop += 1,
-            }
-        } else {
-            stats.n_groups_noop += 1;
-        }
-    }
+    apply_simple_group(
+        is_enabled(NormaliseGroup::Creator),
+        item.group_inputs.creator.as_ref(),
+        &mut edits,
+        &mut stats,
+        normalise_creator,
+    );
+    apply_simple_group(
+        is_enabled(NormaliseGroup::Copyright),
+        item.group_inputs.copyright.as_ref(),
+        &mut edits,
+        &mut stats,
+        normalise_copyright,
+    );
+    apply_simple_group(
+        is_enabled(NormaliseGroup::Headline),
+        item.group_inputs.headline.as_ref(),
+        &mut edits,
+        &mut stats,
+        normalise_headline,
+    );
 
     if is_enabled(NormaliseGroup::Location) {
         if let Some(input) = item.group_inputs.location.as_ref() {
