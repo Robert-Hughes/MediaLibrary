@@ -8,11 +8,9 @@ Now
 ===
 
 * Normalize metadata!
-  * Review plan in docs
-  * Implement plan
   * Review implementation against plan
   * Manual testing
-
+  * Re-run comparison against Update Metadata Scripts (use existing Claude Code session?) to see how the new feature stacks up. (or use GAP_VS_OLD_SCRIPTS.md)
 
 *** DO NOT WORK ON ANY OF THE BELOW ITEMS ***
 
@@ -23,9 +21,12 @@ Bugs/quirks/tweaks/improvements
   * Why does ComponentsConfiguration show as: [B]ComponentsConfiguration	(S)   Y, Cb, Cr, -      i.e. it has schema datatype bag but value datatype string. This is an unedited property so comes directly from exiftool, how come the datatypes are different
 
 * The app has grown a lot since our last full review. Take a holistic look at everything:
- Review size and responsibilities of files to see if anything has grown too large. Look for potential improvements in app architecture , abstractions or code re-use. Look also for testing gaps or test improvements
+ Review size and responsibilities of files to see if anything has grown too large. Look for potential improvements in app architecture , abstractions or code re-use. Look also for testing gaps or test improvements. Find maintaibability issues, inconsistencies where we handle similar things differently in different parts of the app, behaviour that is surprising for either
+ developers or users.
 
-* Long startup time with blank screen. Could it be loading the tag schema cache?
+* Perf bug: When launching the app there is a multi-second period where you just get a white screen, before the home page appears. There is then a brief
+glimpse of the "loading schema cache" dialog and then the app shows the home screen as normal. I'm wondering if loading the schema cache might be delaying its progress
+dialog appearing. Can you add logging so we know when the schema loading starts & ends and I can see if it coincides with the white screen.
 
 * The warning dialog about overwriting tags (for both AI description and reverse geocode) might be redundant considering there's a dialog that comes up anyway. Maybe move the warning to there
 and make it highly visible?
