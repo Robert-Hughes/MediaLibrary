@@ -16,16 +16,14 @@
 //! wiremock and run a deterministic retry sequence without real network.
 
 use std::path::Path;
-use std::time::Duration;
 
 use base64::Engine;
 use image::io::Reader as ImageReader;
-use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
-use reqwest_retry::{policies::ExponentialBackoff, RetryTransientMiddleware};
 use serde::{Deserialize, Serialize};
 use std::io::Cursor;
 
 use crate::draft_edits::{DraftEdit, EditIntent};
+use crate::openai_http::OpenAiHttp;
 use crate::scanner::Variant;
 
 /// Long-side cap before upload.  See experiment for rationale: server-side
@@ -64,7 +62,8 @@ pub fn estimate_typical_cost_per_image(model: &str) -> Option<f64> {
 /// runs.
 pub const PROMPT_VERSION: &str = "v1";
 
-pub const DEFAULT_BASE_URL: &str = "https://api.openai.com/v1";
+/// Re-exported for callers that still reference the old name.
+pub use crate::openai_http::DEFAULT_BASE_URL;
 
 /// System-level prompt sent in `instructions`.  Adds an explicit cap on OCR
 /// transcription length (see `docs/IMAGE_ANALYSIS.md`) so document-heavy
@@ -197,40 +196,32 @@ impl UsageStats {
 
 // ── Client ───────────────────────────────────────────────────────────────────
 
-/// Thin wrapper around `reqwest_middleware::ClientWithMiddleware` with the
-/// retry policy preconfigured.  Construct once, share across calls.
+/// Vision-call client. Thin wrapper around `OpenAiHttp` (the shared
+/// reqwest_middleware client with retries) plus the describe-specific
+/// behaviour. Cheap to clone.
 #[derive(Clone)]
 pub struct OpenAiClient {
-    base_url: String,
-    api_key: String,
-    client: ClientWithMiddleware,
+    http: OpenAiHttp,
 }
 
 impl OpenAiClient {
-    /// Accessors used by `openai_normalise` so the text-only client
-    /// can reuse the existing reqwest middleware (retry policy,
-    /// timeout) without rebuilding it.
-    pub fn base_url(&self) -> &str { &self.base_url }
-    pub fn api_key(&self) -> &str { &self.api_key }
-    pub fn http(&self) -> &ClientWithMiddleware { &self.client }
-}
+    /// Wrap an existing `OpenAiHttp`. The normaliser flow constructs
+    /// its own client over the same `OpenAiHttp`, so production code
+    /// can share a single retry middleware across both surfaces.
+    pub fn from_http(http: OpenAiHttp) -> Self { Self { http } }
 
-impl OpenAiClient {
-    /// `max_retries` of 3 with exponential backoff is a balance — enough to
-    /// ride out transient 429s without delaying the user beyond ~30s on a
-    /// hard failure.  Tests inject `1` to keep the suite fast.
+    /// Access the underlying HTTP layer. Used by `openai_normalise` to
+    /// build a `OpenAiNormaliseClient` that shares this client's
+    /// retry middleware.
+    pub fn http(&self) -> &OpenAiHttp { &self.http }
+
+    /// Convenience constructor used by `make_openai_client` in `lib.rs`
+    /// and tests. `max_retries` of 3 with exponential backoff is the
+    /// production balance — enough to ride out transient 429s without
+    /// delaying the user beyond ~30s on a hard failure. Tests inject
+    /// `1` to keep the suite fast.
     pub fn new(base_url: impl Into<String>, api_key: impl Into<String>, max_retries: u32) -> Self {
-        let policy = ExponentialBackoff::builder()
-            .retry_bounds(Duration::from_millis(500), Duration::from_secs(8))
-            .build_with_max_retries(max_retries);
-        let inner = reqwest::Client::builder()
-            .timeout(Duration::from_secs(120))
-            .build()
-            .expect("reqwest client construction never fails with default config");
-        let client = ClientBuilder::new(inner)
-            .with(RetryTransientMiddleware::new_with_policy(policy))
-            .build();
-        Self { base_url: base_url.into(), api_key: api_key.into(), client }
+        Self { http: OpenAiHttp::new(base_url, api_key, max_retries) }
     }
 }
 
@@ -322,19 +313,11 @@ pub async fn count_input_tokens(
             obj.remove(k);
         }
     }
-    let url = format!("{}/responses/input_tokens", client.base_url);
-    let body_str = serde_json::to_string(&body).map_err(|e| e.to_string())?;
-    let resp = client
-        .client
-        .post(&url)
-        .bearer_auth(&client.api_key)
-        .header("content-type", "application/json")
-        .body(body_str)
-        .send()
+    let (status, text) = client
+        .http
+        .post_responses_input_tokens(&body)
         .await
-        .map_err(|e| format!("token preflight network error: {}", e))?;
-    let status = resp.status();
-    let text: String = resp.text().await.unwrap_or_default();
+        .map_err(|e| format!("token preflight {}", e))?;
     if !status.is_success() {
         return Err(format!("token preflight HTTP {}: {}", status, text));
     }
@@ -445,21 +428,11 @@ pub async fn describe_one(
     image_bytes: &[u8],
 ) -> Result<(AiOutput, UsageStats), DescribeError> {
     let body = build_request_body(model, image_bytes);
-    let url = format!("{}/responses", client.base_url);
-    let body_str = serde_json::to_string(&body)
-        .map_err(|e| DescribeError::Network(format!("serialize request body: {}", e)))?;
-    let resp = client
-        .client
-        .post(&url)
-        .bearer_auth(&client.api_key)
-        .header("content-type", "application/json")
-        .body(body_str)
-        .send()
+    let (status, text) = client
+        .http
+        .post_responses(&body)
         .await
-        .map_err(|e| DescribeError::Network(e.to_string()))?;
-
-    let status = resp.status();
-    let text: String = resp.text().await.unwrap_or_default();
+        .map_err(DescribeError::Network)?;
     if !status.is_success() {
         return Err(DescribeError::HttpError { status: status.as_u16(), body: text });
     }

@@ -21,6 +21,7 @@ use crate::normalise::{
     AiCallUsage, DescriptionMergePrompt, NormaliseAiClient, TitleGenPrompt,
 };
 use crate::openai_describe::OpenAiClient;
+use crate::openai_http::OpenAiHttp;
 
 /// Version stamp recorded in the audit log per AI call. Bump when
 /// either prompt or schema changes; old log entries retain the prior
@@ -63,13 +64,21 @@ pub fn typical_normalise_cost_per_image(model: &str) -> Option<f64> {
 
 #[derive(Clone)]
 pub struct OpenAiNormaliseClient {
-    inner: OpenAiClient,
+    http: OpenAiHttp,
     model: String,
 }
 
 impl OpenAiNormaliseClient {
+    /// Construct from an `OpenAiClient` so production code shares the
+    /// same retry middleware between describe and normalise.
     pub fn new(inner: OpenAiClient, model: impl Into<String>) -> Self {
-        Self { inner, model: model.into() }
+        Self { http: inner.http().clone(), model: model.into() }
+    }
+
+    /// Construct directly over an `OpenAiHttp`. Used by tests that
+    /// don't need the describe-flow wrapper.
+    pub fn from_http(http: OpenAiHttp, model: impl Into<String>) -> Self {
+        Self { http, model: model.into() }
     }
 }
 
@@ -191,20 +200,7 @@ impl OpenAiNormaliseClient {
                 obj.remove(k);
             }
         }
-        let url = format!("{}/responses/input_tokens", self.inner.base_url());
-        let body_str = serde_json::to_string(&body).map_err(|e| e.to_string())?;
-        let resp = self
-            .inner
-            .http()
-            .post(&url)
-            .bearer_auth(self.inner.api_key())
-            .header("content-type", "application/json")
-            .body(body_str)
-            .send()
-            .await
-            .map_err(|e| format!("network error: {}", e))?;
-        let status = resp.status();
-        let text: String = resp.text().await.unwrap_or_default();
+        let (status, text) = self.http.post_responses_input_tokens(&body).await?;
         if !status.is_success() {
             return Err(format!("HTTP {}: {}", status, text));
         }
@@ -244,7 +240,7 @@ impl NormaliseAiClient for OpenAiNormaliseClient {
             "description_merge",
             DESCRIPTION_OUTPUT_TOKENS,
         );
-        let response = post_responses(&self.inner, &body).await?;
+        let response = post_responses(&self.http, &body).await?;
         let usage = extract_usage(&response);
         let text = extract_structured_text(&response)?;
         let parsed: DescriptionReply = serde_json::from_str(&text)
@@ -266,7 +262,7 @@ impl NormaliseAiClient for OpenAiNormaliseClient {
             "title_generation",
             TITLE_OUTPUT_TOKENS,
         );
-        let response = post_responses(&self.inner, &body).await?;
+        let response = post_responses(&self.http, &body).await?;
         let usage = extract_usage(&response);
         let text = extract_structured_text(&response)?;
         let parsed: TitleReply = serde_json::from_str(&text)
@@ -275,31 +271,14 @@ impl NormaliseAiClient for OpenAiNormaliseClient {
     }
 }
 
-/// POST to `/responses` and return the parsed JSON body. Surfaces HTTP
-/// errors with a status + body excerpt so the caller's audit log can
-/// record the failure mode.
+/// POST to `/responses` via the shared `OpenAiHttp` and return the
+/// parsed JSON body. Surfaces HTTP errors with a status + body
+/// excerpt so `NormaliseAiError::from_client_string` can classify them.
 async fn post_responses(
-    client: &OpenAiClient,
+    http: &OpenAiHttp,
     body: &serde_json::Value,
 ) -> Result<serde_json::Value, String> {
-    // OpenAiClient exposes `base_url` / `api_key` via its private state
-    // — we re-derive the URL from the public constructor convention.
-    // The describe-flow client builder is the only callsite that
-    // constructs `OpenAiClient` today, and it uses the same base URL
-    // we use here. Keep this in sync if that ever changes.
-    let url = format!("{}/responses", client.base_url());
-    let body_str = serde_json::to_string(body).map_err(|e| e.to_string())?;
-    let resp = client
-        .http()
-        .post(&url)
-        .bearer_auth(client.api_key())
-        .header("content-type", "application/json")
-        .body(body_str)
-        .send()
-        .await
-        .map_err(|e| format!("network error: {}", e))?;
-    let status = resp.status();
-    let text = resp.text().await.unwrap_or_default();
+    let (status, text) = http.post_responses(body).await?;
     if !status.is_success() {
         return Err(format!("HTTP {}: {}", status, text));
     }
