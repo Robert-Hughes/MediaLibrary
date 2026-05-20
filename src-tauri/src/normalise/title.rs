@@ -14,8 +14,8 @@
 //! prompt enforces title-case when the generation path fires.
 
 use super::{
-    collapse_whitespace_single_line, truncate_at_word, AiCallUsage, DescriptionMergePrompt,
-    GroupOutput, NormaliseAiClient, NormaliseAiError, TitleGenPrompt, TitleInput,
+    collapse_whitespace_single_line, truncate_at_word, AiCallUsage, GroupOutput,
+    NormaliseAiClient, NormaliseAiError, TitleGenPrompt, TitleInput,
 };
 use crate::draft_edits::{DraftEdit, EditIntent};
 use crate::scanner::Variant;

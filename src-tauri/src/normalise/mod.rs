@@ -23,8 +23,7 @@
 //! generation) are deferred to v2 of the feature.
 
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
-use std::sync::OnceLock;
+use std::collections::HashMap;
 
 use crate::draft_edits::{DraftEdit, EditIntent};
 use crate::scanner::Variant;
