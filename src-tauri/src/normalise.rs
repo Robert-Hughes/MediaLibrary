@@ -1279,6 +1279,141 @@ mod tests_dispatcher {
         assert_eq!(title.n_normalised_ai, 1);
     }
 
+    #[tokio::test]
+    async fn audit_log_roundtrip_for_ai_calls() {
+        // Integration check: a Group B AI success and a Group C AI
+        // failure both produce `PerImageAiCall` entries that write
+        // distinct, parseable JSONL rows when fed through
+        // `batch_audit_log::append`, with cost rolling into the
+        // batch-level summary totals. Mirrors what lib.rs does at
+        // runtime, just without the Tauri command shell.
+        use crate::batch_audit_log;
+        use serde::Deserialize;
+        use std::sync::atomic::AtomicBool;
+        use std::sync::Arc;
+        use tempfile::tempdir;
+
+        struct MixedAi;
+        #[async_trait::async_trait]
+        impl NormaliseAiClient for MixedAi {
+            async fn merge_description(
+                &self,
+                _: DescriptionMergePrompt,
+            ) -> Result<(String, AiCallUsage), String> {
+                Ok((
+                    "Merged factual description.".into(),
+                    AiCallUsage { input_tokens: 800, output_tokens: 250 },
+                ))
+            }
+            async fn generate_title(
+                &self,
+                _: TitleGenPrompt,
+            ) -> Result<(String, AiCallUsage), String> {
+                Err("simulated rate limit".into())
+            }
+        }
+        let cancel = Arc::new(AtomicBool::new(false));
+        let item = NormaliseRequestItem {
+            rel_path: "trip/photo.jpg".into(),
+            group_inputs: GroupInputs {
+                description: Some(DescriptionInput {
+                    description: Some("Version A.".into()),
+                    image_description: Some("Different version B.".into()),
+                    ..Default::default()
+                }),
+                title: Some(TitleInput::default()),
+                ..Default::default()
+            },
+        };
+        let (_edits, stats, _err, ai_calls) = process_image(
+            &item,
+            &[NormaliseGroup::Description, NormaliseGroup::Title],
+            Some(&MixedAi),
+            Some(&cancel),
+        )
+        .await;
+        // Two AI calls were attempted (one ok, one error).
+        assert_eq!(ai_calls.len(), 2);
+        let success = ai_calls.iter().find(|c| c.error.is_none()).expect("description call ok");
+        assert_eq!(success.group, "description");
+        let failure = ai_calls.iter().find(|c| c.error.is_some()).expect("title call err");
+        assert_eq!(failure.group, "title");
+
+        // Write audit rows the way lib.rs does, then read them back
+        // and assert the wire shape matches what users would see in
+        // the JSONL.
+        let dir = tempdir().unwrap();
+        let log_path = dir.path().join("normalise_audit.jsonl");
+        let mut summary = NormaliseSummary::default();
+        // Synthetic pricing — input $0.10/M, output $0.40/M → ~$0.000180 per call.
+        let cost_per_call = |u: &AiCallUsage| {
+            (u.input_tokens as f64 / 1_000_000.0) * 0.10
+                + (u.output_tokens as f64 / 1_000_000.0) * 0.40
+        };
+        for call in &ai_calls {
+            let cost = cost_per_call(&call.usage);
+            let entry = NormaliseAuditEntry {
+                ts: "2026-05-20T12:00:00Z".to_string(),
+                model: "gpt-test".to_string(),
+                prompt_version: "v1".to_string(),
+                group: call.group.to_string(),
+                input_tokens: call.usage.input_tokens,
+                output_tokens: call.usage.output_tokens,
+                cost_usd: cost,
+                error: call.error.clone().unwrap_or_default(),
+                relative_path: item.rel_path.clone(),
+            };
+            batch_audit_log::append(&log_path, &entry).unwrap();
+            summary.record_ai_call(cost);
+        }
+        summary.accumulate(&stats);
+
+        // NormaliseAuditEntry serialises snake_case (matches the
+        // describe audit-log wire shape — the JSONL is read by us
+        // / users grepping, not the frontend).
+        #[derive(Debug, Deserialize)]
+        struct ReadEntry {
+            ts: String,
+            model: String,
+            prompt_version: String,
+            group: String,
+            input_tokens: u32,
+            output_tokens: u32,
+            cost_usd: f64,
+            error: String,
+            relative_path: String,
+        }
+        let log = std::fs::read_to_string(&log_path).unwrap();
+        let lines: Vec<&str> = log.lines().collect();
+        assert_eq!(lines.len(), 2, "two rows written");
+        let parsed: Vec<ReadEntry> = lines
+            .iter()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect();
+        let desc_row = parsed.iter().find(|r| r.group == "description").unwrap();
+        assert_eq!(desc_row.input_tokens, 800);
+        assert_eq!(desc_row.output_tokens, 250);
+        assert_eq!(desc_row.model, "gpt-test");
+        assert_eq!(desc_row.prompt_version, "v1");
+        assert_eq!(desc_row.ts, "2026-05-20T12:00:00Z");
+        assert_eq!(desc_row.relative_path, "trip/photo.jpg");
+        assert!(desc_row.cost_usd > 0.0);
+        assert!(desc_row.error.is_empty());
+        let title_row = parsed.iter().find(|r| r.group == "title").unwrap();
+        assert_eq!(title_row.input_tokens, 0);
+        assert_eq!(title_row.output_tokens, 0);
+        assert_eq!(title_row.cost_usd, 0.0);
+        assert_eq!(title_row.error, "simulated rate limit");
+
+        // Batch-level totals reflect both calls.
+        assert_eq!(summary.ai_calls_total, 2);
+        assert!((summary.ai_cost_total_usd - cost_per_call(&success.usage)).abs() < 1e-9);
+        let desc = summary.per_group.get(&NormaliseGroup::Description).unwrap();
+        assert_eq!(desc.n_normalised_ai, 1);
+        let title = summary.per_group.get(&NormaliseGroup::Title).unwrap();
+        assert_eq!(title.n_ai_errors, 1);
+    }
+
     #[test]
     fn summary_record_ai_call_accumulates_cost_and_count() {
         let mut summary = NormaliseSummary::default();
