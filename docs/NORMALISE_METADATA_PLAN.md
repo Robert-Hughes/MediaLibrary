@@ -342,6 +342,19 @@ empty for a group, that group produces no drafts (not even
 remove-tag drafts). Rationale: nothing to normalise; "delete everything"
 would be surprising.
 
+**Implementation note (v1 / v2).** Every group implemented so far derives
+a scalar / seq / bag canonical that projects either fully across its
+target tags or not at all — there is no partial case where canonical
+exists but some derivatives project to empty. The "field absent from
+canonical → remove-tag draft" branch is therefore unreachable in
+current code and no group emits remove-tag drafts. A forward-compat
+helper (`append_remove_tag_drafts_for_missing_projections` in
+[normalise.rs](../src-tauri/src/normalise.rs)) exists so that a future
+group with a structured canonical (where individual sub-fields can
+independently be empty while others are populated) can satisfy this
+rule without re-deriving it. Call it after the group's set-value
+emission once such a group lands.
+
 ## 5. Idempotency detector
 
 For each (group, image) pair, before computing anything:
