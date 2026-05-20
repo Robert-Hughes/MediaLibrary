@@ -480,8 +480,28 @@ pub fn join_hierarchical_path(components: &[String]) -> String {
     components.join("|")
 }
 
-/// Shared cancel-flag state for the normaliser batch run.
-pub type NormaliseState = crate::batch_job::BatchJobCancelState;
+/// Normaliser cancellation state.
+///
+/// Newtype around `BatchJobCancelState` rather than an alias: Tauri
+/// keys its `State<T>` registry by `TypeId`, so two distinct alias
+/// names for the same struct would collide at startup (the geocode
+/// state is also a `BatchJobCancelState` wrapper). A newtype gives
+/// each batch job its own `TypeId` while keeping the shared lifecycle
+/// code.
+#[derive(Default)]
+pub struct NormaliseState(crate::batch_job::BatchJobCancelState);
+
+impl NormaliseState {
+    pub fn install(&self) -> std::sync::Arc<std::sync::atomic::AtomicBool> {
+        self.0.install()
+    }
+    pub fn clear(&self) {
+        self.0.clear();
+    }
+    pub fn signal_cancel(&self) -> bool {
+        self.0.signal_cancel()
+    }
+}
 
 // ── Dispatcher ─────────────────────────────────────────────────────────
 //
