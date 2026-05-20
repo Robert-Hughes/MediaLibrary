@@ -29,6 +29,22 @@ use std::sync::OnceLock;
 use crate::draft_edits::{DraftEdit, EditIntent};
 use crate::scanner::Variant;
 
+// Per-group implementation modules. The dispatcher (`process_image`)
+// composes these in the pass order documented in plan §2; each
+// submodule owns its target tags constant, canonical derivation,
+// idempotency detector, normaliser, and unit tests for that group.
+mod keywords;
+pub use keywords::{
+    derive_keywords_canonical, normalise_keywords, normalise_keywords_with_canonical,
+    KEYWORDS_TARGET_TAGS,
+};
+
+mod creator;
+pub use creator::{derive_creator_canonical, normalise_creator, CREATOR_TARGET_TAGS};
+
+mod copyright;
+pub use copyright::{normalise_copyright, COPYRIGHT_TARGET_TAGS};
+
 /// The eight semantic groups the user can toggle on/off in the confirm
 /// dialog. See plan §1 for the definition of each group, its target /
 /// derivative fields, and conflict policy.
@@ -478,6 +494,64 @@ pub fn split_hierarchical_path(s: &str) -> Vec<String> {
 /// Join hierarchical-path components into `Parent|Child|Leaf` form.
 pub fn join_hierarchical_path(components: &[String]) -> String {
     components.join("|")
+}
+
+/// Build a set-value draft for a Bag/Seq-of-Text tag from a list of
+/// canonical strings. Shared by Group A (Keywords) and Group E
+/// (Creator).
+pub(crate) fn bag_edit(items: &[String]) -> DraftEdit {
+    let value = Variant::List(items.iter().cloned().map(Variant::String).collect());
+    DraftEdit {
+        value: Some(value),
+        intent: EditIntent::Set,
+        display: None,
+    }
+}
+
+/// Collapse any run of whitespace (including newlines) into a single
+/// space and trim the result. Used as the single-line normaliser by
+/// Group F (Copyright), Group D (Headline) and Group C (Title) — none
+/// alter content beyond whitespace; they layer further rules on top.
+pub(crate) fn collapse_whitespace_single_line(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut last_was_ws = true;
+    for c in s.chars() {
+        if c.is_whitespace() {
+            if !last_was_ws {
+                out.push(' ');
+                last_was_ws = true;
+            }
+        } else {
+            out.push(c);
+            last_was_ws = false;
+        }
+    }
+    if out.ends_with(' ') {
+        out.pop();
+    }
+    out
+}
+
+/// Truncate `s` to at most `limit` bytes at a word boundary when
+/// possible; falls back to a hard char-boundary cut for very long
+/// single-word strings. Shared by Group C (IPTC:ObjectName 64
+/// chars), Group D (IPTC:Headline 256 chars), Group B
+/// (IPTC:Caption-Abstract 2000 chars).
+pub(crate) fn truncate_at_word(s: &str, limit: usize) -> String {
+    if s.len() <= limit {
+        return s.to_string();
+    }
+    // Find the last space at or before `limit`.
+    let mut cut = limit;
+    while cut > 0 && !s.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    let slice = &s[..cut];
+    if let Some(idx) = slice.rfind(' ') {
+        slice[..idx].trim_end().to_string()
+    } else {
+        slice.trim_end().to_string()
+    }
 }
 
 /// Normaliser cancellation state.
@@ -1457,7 +1531,7 @@ const IPTC_CAPTION_ABSTRACT_LIMIT: usize = 2000;
 /// ends, leave casing alone (the AI prompt enforces sentence case in
 /// case 4; we don't fight user-provided text in cases 2/3).
 fn normalise_description_text(s: &str) -> String {
-    normalise_copyright_text(s)
+    collapse_whitespace_single_line(s)
 }
 
 /// ASCII-fold for `EXIF:ImageDescription`. Strip diacritics, replace
@@ -2143,835 +2217,8 @@ mod tests_description {
     }
 }
 
-// ── Group A: Keywords ──────────────────────────────────────────────────
-//
-// Plan §1 Group A. Canonical form: bag of `Parent|Child|Leaf`
-// hierarchical paths, every component lowercase + hyphen-separated.
-// Derived flat fields are sorted unique leaves.
-//
-// Conflict policy: always-union (no AI). Multiple non-empty distinct
-// sources are merged. Flat keywords that already appear as a leaf of
-// some hierarchical path are absorbed; orphan flat keywords are
-// promoted to degenerate single-component paths.
 
-/// Target tags written by Group A. Coherent-replacement rule (plan §4)
-/// means every entry here either gets a set-value draft (canonical
-/// non-empty) or a remove-tag draft (canonical empty). Read-only
-/// input tags (`XMP-mlib:AITags`, `XMP-mlib:AIObjects`) are NOT in
-/// this list and never get drafts.
-pub const KEYWORDS_TARGET_TAGS: &[&str] = &[
-    "XMP-lr:HierarchicalSubject",
-    "XMP-dc:Subject",
-    "IPTC:Keywords",
-];
 
-/// Derive the canonical Group A bag for one image.
-///
-/// Returns `(paths, leaves)` where `paths` is the canonical bag of
-/// `Parent|Child|Leaf` strings and `leaves` is the sorted unique set
-/// of leaf components projected for the flat derivative fields. Both
-/// are post-normalisation.
-///
-/// The union rule (plan §1 Group A, "Derivation — union across all
-/// sources") is:
-///   1. Every path from `hierarchical_subject` (after path-component
-///      normalisation, empties dropped).
-///   2. Every flat keyword in `dc_subject` ∪ `iptc_keywords` ∪
-///      `ai_tags` ∪ `ai_objects` (after normalisation) that is **not
-///      already the leaf of some path from step 1**. Each such orphan
-///      flat keyword is promoted to a degenerate single-component
-///      path.
-///
-/// Dedup is by full normalised path string.
-pub fn derive_keywords_canonical(input: &KeywordsInput) -> (Vec<String>, Vec<String>) {
-    // ── Step 1: normalise hierarchical paths ──
-    let mut paths: Vec<String> = Vec::new();
-    let mut path_set: HashSet<String> = HashSet::new();
-    for raw in &input.hierarchical_subject {
-        let components: Vec<String> = split_hierarchical_path(raw)
-            .into_iter()
-            .map(|c| normalise_keyword(&c))
-            .filter(|c| !c.is_empty())
-            .collect();
-        if components.is_empty() {
-            continue;
-        }
-        let path = join_hierarchical_path(&components);
-        if path_set.insert(path.clone()) {
-            paths.push(path);
-        }
-    }
-
-    // Leaves of the hierarchical paths (for absorbing flat keywords
-    // that match an existing leaf).
-    let mut leaf_set: HashSet<String> = paths
-        .iter()
-        .filter_map(|p| p.rsplit('|').next().map(|s| s.to_string()))
-        .collect();
-
-    // ── Step 2: promote orphan flat keywords ──
-    //
-    // Preserve discovery order across (dc_subject → iptc_keywords →
-    // ai_tags → ai_objects) so the canonical bag has a deterministic
-    // ordering for re-runs. Each orphan promotes to its own path; the
-    // path is then added to `path_set` so a later duplicate is
-    // absorbed.
-    for flat_source in [
-        &input.dc_subject,
-        &input.iptc_keywords,
-        &input.ai_tags,
-        &input.ai_objects,
-    ] {
-        for raw in flat_source.iter() {
-            let leaf = normalise_keyword(raw);
-            if leaf.is_empty() || leaf_set.contains(&leaf) {
-                continue;
-            }
-            if path_set.insert(leaf.clone()) {
-                paths.push(leaf.clone());
-                leaf_set.insert(leaf);
-            }
-        }
-    }
-
-    // Leaves projected for the flat derivative fields: sorted unique.
-    let mut leaves: Vec<String> = paths
-        .iter()
-        .filter_map(|p| p.rsplit('|').next().map(|s| s.to_string()))
-        .collect();
-    leaves.sort();
-    leaves.dedup();
-
-    (paths, leaves)
-}
-
-/// True if the image's keyword fields are already in canonical form
-/// AND in sync with each other — re-running the group would be a
-/// no-op. See plan §5 (idempotency detector).
-fn keywords_is_normalised(input: &KeywordsInput, canonical_paths: &[String], canonical_leaves: &[String]) -> bool {
-    // Every existing hierarchical path must already be in normalised
-    // form *and* the bag must equal the canonical bag — order
-    // included, because the canonical bag's order is the
-    // discovery-order rule above.
-    if input.hierarchical_subject.len() != canonical_paths.len() {
-        return false;
-    }
-    for (existing, canonical) in input.hierarchical_subject.iter().zip(canonical_paths) {
-        if existing != canonical {
-            return false;
-        }
-    }
-
-    // Flat derivative fields must equal the sorted leaves. The
-    // canonical projection is sorted; if the existing field is in a
-    // different order or has duplicates, we consider it not yet
-    // normalised so the run emits a draft to fix it.
-    if input.dc_subject != canonical_leaves {
-        return false;
-    }
-    if input.iptc_keywords != canonical_leaves {
-        return false;
-    }
-    true
-}
-
-/// Run Group A (Keywords) normalisation for one image.
-///
-/// Takes the canonical bag precomputed by `derive_keywords_canonical`
-/// so the dispatcher can capture the leaves for pass-2 context without
-/// re-deriving them.
-///
-/// Returns `None` when the group is a no-op (idempotency detector
-/// reports already-normalised, or all sources empty). Otherwise emits
-/// set-value drafts for every Group A target tag whose existing value
-/// differs from the canonical projection; an all-empty canonical
-/// yields a no-op rather than a flood of remove-tag drafts (plan §4
-/// "all-empty groups").
-pub fn normalise_keywords_with_canonical(
-    input: &KeywordsInput,
-    canonical_paths: &[String],
-    canonical_leaves: &[String],
-) -> Option<GroupOutput> {
-    // All-empty group → no drafts (plan §4 all-empty rule). Note that
-    // *all* sources, including read-only AI inputs, must be empty —
-    // otherwise the canonical would have non-empty entries.
-    if canonical_paths.is_empty() {
-        return None;
-    }
-
-    if keywords_is_normalised(input, canonical_paths, canonical_leaves) {
-        return None;
-    }
-
-    let mut edits: HashMap<String, DraftEdit> = HashMap::new();
-    edits.insert(
-        "XMP-lr:HierarchicalSubject".to_string(),
-        bag_edit(canonical_paths),
-    );
-    edits.insert("XMP-dc:Subject".to_string(), bag_edit(canonical_leaves));
-    edits.insert("IPTC:Keywords".to_string(), bag_edit(canonical_leaves));
-
-    Some(GroupOutput { edits })
-}
-
-/// Convenience wrapper that derives the canonical bag internally.
-/// Callers that already have a canonical (e.g. the dispatcher) should
-/// use `normalise_keywords_with_canonical` directly.
-pub fn normalise_keywords(input: &KeywordsInput) -> Option<GroupOutput> {
-    let (canonical_paths, canonical_leaves) = derive_keywords_canonical(input);
-    normalise_keywords_with_canonical(input, &canonical_paths, &canonical_leaves)
-}
-
-/// Build a set-value draft for a Bag-of-Text tag from a list of
-/// canonical strings.
-fn bag_edit(items: &[String]) -> DraftEdit {
-    let value = Variant::List(items.iter().cloned().map(Variant::String).collect());
-    DraftEdit {
-        value: Some(value),
-        intent: EditIntent::Set,
-        display: None,
-    }
-}
-
-#[cfg(test)]
-mod tests_keywords {
-    use super::*;
-
-    fn paths_of(g: &GroupOutput, key: &str) -> Vec<String> {
-        match &g.edits.get(key).unwrap().value {
-            Some(Variant::List(items)) => items
-                .iter()
-                .map(|v| match v {
-                    Variant::String(s) => s.clone(),
-                    _ => panic!("expected String variant in bag"),
-                })
-                .collect(),
-            other => panic!("expected List variant for {}, got {:?}", key, other),
-        }
-    }
-
-    #[test]
-    fn worked_example_from_plan() {
-        // Plan §1 Group A worked example:
-        //   HierarchicalSubject = [A|B|C, 1|2|3], Keywords = [C, D]
-        //   → canonical paths = [A|B|C, 1|2|3, D]
-        //
-        // Inputs are upper-case here; the normaliser lowercases.
-        let input = KeywordsInput {
-            hierarchical_subject: vec!["A|B|C".into(), "1|2|3".into()],
-            iptc_keywords: vec!["C".into(), "D".into()],
-            ..Default::default()
-        };
-        let out = normalise_keywords(&input).expect("non-empty input → drafts");
-        assert_eq!(
-            paths_of(&out, "XMP-lr:HierarchicalSubject"),
-            vec!["a|b|c".to_string(), "1|2|3".to_string(), "d".to_string()],
-        );
-        // Sorted unique leaves: lex sort over "3" < "c" < "d".
-        assert_eq!(
-            paths_of(&out, "XMP-dc:Subject"),
-            vec!["3".to_string(), "c".to_string(), "d".to_string()],
-        );
-        assert_eq!(
-            paths_of(&out, "IPTC:Keywords"),
-            vec!["3".to_string(), "c".to_string(), "d".to_string()],
-        );
-    }
-
-    #[test]
-    fn flat_keyword_matching_existing_leaf_is_absorbed() {
-        // "C" appears as the leaf of "A|B|C" — must not promote to a
-        // duplicate degenerate path.
-        let input = KeywordsInput {
-            hierarchical_subject: vec!["A|B|C".into()],
-            dc_subject: vec!["C".into()],
-            ..Default::default()
-        };
-        let out = normalise_keywords(&input).unwrap();
-        assert_eq!(
-            paths_of(&out, "XMP-lr:HierarchicalSubject"),
-            vec!["a|b|c".to_string()],
-        );
-        assert_eq!(paths_of(&out, "XMP-dc:Subject"), vec!["c".to_string()]);
-    }
-
-    #[test]
-    fn ai_tags_and_ai_objects_are_unioned_too() {
-        // Plan: read-only inputs `XMP-mlib:AITags` and `XMP-mlib:AIObjects`
-        // feed the union step. They are not written to (read-only) but
-        // their contents end up in the canonical bag via the flat
-        // promotion rule.
-        let input = KeywordsInput {
-            ai_tags: vec!["lion".into()],
-            ai_objects: vec!["statue".into(), "lion".into()],
-            ..Default::default()
-        };
-        let out = normalise_keywords(&input).unwrap();
-        // Discovery order: ai_tags first, then ai_objects with the
-        // "lion" duplicate absorbed.
-        assert_eq!(
-            paths_of(&out, "XMP-lr:HierarchicalSubject"),
-            vec!["lion".to_string(), "statue".to_string()],
-        );
-        // Leaves are sorted.
-        assert_eq!(
-            paths_of(&out, "XMP-dc:Subject"),
-            vec!["lion".to_string(), "statue".to_string()],
-        );
-    }
-
-    #[test]
-    fn capitalisation_and_separators_get_normalised() {
-        let input = KeywordsInput {
-            iptc_keywords: vec!["New_York".into(), "los angeles".into(), "SAN-FRANCISCO".into()],
-            ..Default::default()
-        };
-        let out = normalise_keywords(&input).unwrap();
-        let leaves = paths_of(&out, "XMP-dc:Subject");
-        assert!(leaves.contains(&"new-york".to_string()));
-        assert!(leaves.contains(&"los-angeles".to_string()));
-        assert!(leaves.contains(&"san-francisco".to_string()));
-    }
-
-    #[test]
-    fn duplicate_paths_are_deduped() {
-        let input = KeywordsInput {
-            hierarchical_subject: vec![
-                "Travel|France|Paris".into(),
-                "travel|france|paris".into(),
-                "TRAVEL|FRANCE|PARIS".into(),
-            ],
-            ..Default::default()
-        };
-        let out = normalise_keywords(&input).unwrap();
-        assert_eq!(
-            paths_of(&out, "XMP-lr:HierarchicalSubject"),
-            vec!["travel|france|paris".to_string()],
-        );
-    }
-
-    #[test]
-    fn all_empty_input_returns_no_drafts() {
-        let input = KeywordsInput::default();
-        assert!(normalise_keywords(&input).is_none());
-    }
-
-    #[test]
-    fn all_whitespace_input_returns_no_drafts() {
-        let input = KeywordsInput {
-            hierarchical_subject: vec!["   ".into(), "|".into(), "||".into()],
-            dc_subject: vec!["".into(), "   ".into()],
-            ..Default::default()
-        };
-        assert!(normalise_keywords(&input).is_none());
-    }
-
-    #[test]
-    fn idempotent_after_one_pass() {
-        // First pass.
-        let initial = KeywordsInput {
-            hierarchical_subject: vec!["A|B|C".into()],
-            iptc_keywords: vec!["D".into()],
-            ..Default::default()
-        };
-        let first = normalise_keywords(&initial).unwrap();
-        let new_paths = paths_of(&first, "XMP-lr:HierarchicalSubject");
-        let new_leaves = paths_of(&first, "XMP-dc:Subject");
-
-        // Build "post-apply" state.
-        let post = KeywordsInput {
-            hierarchical_subject: new_paths.clone(),
-            dc_subject: new_leaves.clone(),
-            iptc_keywords: new_leaves.clone(),
-            ..Default::default()
-        };
-
-        // Second pass over the post-apply state must produce no
-        // drafts.
-        assert!(normalise_keywords(&post).is_none());
-    }
-
-    #[test]
-    fn equal_but_unnormalised_triggers_normalisation() {
-        // Plan §5: equal mirrors but not in normal form must still
-        // trigger drafts so the case/separator/etc. is fixed.
-        let input = KeywordsInput {
-            hierarchical_subject: vec!["Tower".into()],
-            dc_subject: vec!["Tower".into()],
-            iptc_keywords: vec!["Tower".into()],
-            ..Default::default()
-        };
-        let out = normalise_keywords(&input).expect("uppercase 'Tower' must normalise");
-        assert_eq!(
-            paths_of(&out, "XMP-lr:HierarchicalSubject"),
-            vec!["tower".to_string()],
-        );
-        assert_eq!(paths_of(&out, "XMP-dc:Subject"), vec!["tower".to_string()]);
-    }
-
-    #[test]
-    fn ai_input_alone_triggers_normalisation() {
-        // The AI inputs ai_tags / ai_objects are read-only inputs but
-        // they still drive the canonical bag — if they are the only
-        // non-empty source, drafts get emitted for the three target
-        // tags so the hierarchy/flat fields land for the user.
-        let input = KeywordsInput {
-            ai_tags: vec!["holiday".into()],
-            ..Default::default()
-        };
-        let out = normalise_keywords(&input).expect("AI-only input must still emit drafts");
-        assert_eq!(
-            paths_of(&out, "XMP-lr:HierarchicalSubject"),
-            vec!["holiday".to_string()],
-        );
-    }
-
-    #[test]
-    fn multi_hierarchy_with_orphan_keyword() {
-        // Several hierarchies on one image. A flat keyword that
-        // matches a leaf of any hierarchy gets absorbed; otherwise it
-        // promotes.
-        let input = KeywordsInput {
-            hierarchical_subject: vec!["Travel|France|Paris".into(), "People|Family|Mum".into()],
-            iptc_keywords: vec!["Mum".into(), "Eiffel-Tower".into()],
-            ..Default::default()
-        };
-        let out = normalise_keywords(&input).unwrap();
-        let paths = paths_of(&out, "XMP-lr:HierarchicalSubject");
-        assert_eq!(paths.len(), 3);
-        assert!(paths.contains(&"travel|france|paris".to_string()));
-        assert!(paths.contains(&"people|family|mum".to_string()));
-        assert!(paths.contains(&"eiffel-tower".to_string()));
-    }
-}
-
-// ── Group E: Creator ───────────────────────────────────────────────────
-//
-// Plan §1 Group E. Canonical = ordered Seq of names, kept verbatim
-// (no name normalisation). Union of all non-empty sources, dedup
-// case-sensitive, preserve first-seen order.
-
-/// Target tags written by Group E. Coherent-replacement rule (plan §4).
-pub const CREATOR_TARGET_TAGS: &[&str] = &[
-    "XMP-dc:Creator",
-    "EXIF:Artist",
-    "IPTC:By-line",
-];
-
-/// Separator used by `EXIF:Artist` when multiple names are present.
-const ARTIST_SEPARATOR: &str = "; ";
-
-/// Parse `EXIF:Artist` into the list of names it represents.
-fn parse_artist(s: &str) -> Vec<String> {
-    s.split(';')
-        .map(str::trim)
-        .filter(|n| !n.is_empty())
-        .map(|n| n.to_string())
-        .collect()
-}
-
-/// Derive the canonical Group E ordered Seq of names.
-pub fn derive_creator_canonical(input: &CreatorInput) -> Vec<String> {
-    let mut seen: HashSet<String> = HashSet::new();
-    let mut canonical: Vec<String> = Vec::new();
-    // Discovery order: dc:Creator first (the modern primary), then
-    // EXIF:Artist, then IPTC:By-line.
-    let artist_split = input
-        .artist
-        .as_deref()
-        .map(parse_artist)
-        .unwrap_or_default();
-    let sources: [&[String]; 3] = [&input.creator, &artist_split, &input.byline];
-    for src in sources {
-        for raw in src {
-            let trimmed = raw.trim();
-            if trimmed.is_empty() {
-                continue;
-            }
-            // Case-sensitive dedup per plan: "John Smith" and "john
-            // smith" are different names.
-            if seen.insert(trimmed.to_string()) {
-                canonical.push(trimmed.to_string());
-            }
-        }
-    }
-    canonical
-}
-
-fn creator_is_normalised(input: &CreatorInput, canonical: &[String]) -> bool {
-    // Primary must equal canonical (order included).
-    if input.creator != canonical {
-        return false;
-    }
-    let artist_now = input.artist.as_deref().unwrap_or("");
-    let artist_expected = canonical.join(ARTIST_SEPARATOR);
-    if artist_now != artist_expected {
-        return false;
-    }
-    if input.byline != canonical {
-        return false;
-    }
-    true
-}
-
-/// Run Group E (Creator) normalisation for one image.
-pub fn normalise_creator(input: &CreatorInput) -> Option<GroupOutput> {
-    let canonical = derive_creator_canonical(input);
-    if canonical.is_empty() {
-        return None;
-    }
-    if creator_is_normalised(input, &canonical) {
-        return None;
-    }
-
-    let mut edits: HashMap<String, DraftEdit> = HashMap::new();
-    edits.insert("XMP-dc:Creator".to_string(), bag_edit(&canonical));
-    edits.insert(
-        "EXIF:Artist".to_string(),
-        DraftEdit {
-            value: Some(Variant::String(canonical.join(ARTIST_SEPARATOR))),
-            intent: EditIntent::Set,
-            display: None,
-        },
-    );
-    edits.insert("IPTC:By-line".to_string(), bag_edit(&canonical));
-
-    Some(GroupOutput { edits })
-}
-
-#[cfg(test)]
-mod tests_creator {
-    use super::*;
-
-    fn list(g: &GroupOutput, key: &str) -> Vec<String> {
-        match &g.edits.get(key).unwrap().value {
-            Some(Variant::List(items)) => items
-                .iter()
-                .map(|v| match v {
-                    Variant::String(s) => s.clone(),
-                    _ => panic!("expected String"),
-                })
-                .collect(),
-            other => panic!("expected List for {}, got {:?}", key, other),
-        }
-    }
-
-    fn string(g: &GroupOutput, key: &str) -> String {
-        match &g.edits.get(key).unwrap().value {
-            Some(Variant::String(s)) => s.clone(),
-            other => panic!("expected String for {}, got {:?}", key, other),
-        }
-    }
-
-    #[test]
-    fn union_in_discovery_order() {
-        let input = CreatorInput {
-            creator: vec!["Alice".into()],
-            artist: Some("Bob; Carol".into()),
-            byline: vec!["Carol".into(), "Dave".into()],
-        };
-        let out = normalise_creator(&input).unwrap();
-        // dc:Creator first wins for order; Carol from artist dedups
-        // against byline's Carol; Dave appended last.
-        assert_eq!(
-            list(&out, "XMP-dc:Creator"),
-            vec!["Alice", "Bob", "Carol", "Dave"]
-                .into_iter()
-                .map(String::from)
-                .collect::<Vec<_>>(),
-        );
-        assert_eq!(string(&out, "EXIF:Artist"), "Alice; Bob; Carol; Dave");
-        assert_eq!(
-            list(&out, "IPTC:By-line"),
-            vec!["Alice", "Bob", "Carol", "Dave"]
-                .into_iter()
-                .map(String::from)
-                .collect::<Vec<_>>(),
-        );
-    }
-
-    #[test]
-    fn name_capitalisation_kept_verbatim() {
-        // Plan §1 Group E: "do not 'normalise' name capitalisation or
-        // order; risk of mangling non-English names outweighs benefit."
-        let input = CreatorInput {
-            creator: vec!["JOHN smith".into(), "André Müller".into()],
-            ..Default::default()
-        };
-        let out = normalise_creator(&input).unwrap();
-        assert_eq!(
-            list(&out, "XMP-dc:Creator"),
-            vec!["JOHN smith".to_string(), "André Müller".to_string()],
-        );
-    }
-
-    #[test]
-    fn case_sensitive_dedup() {
-        // "Alice" and "alice" are different names.
-        let input = CreatorInput {
-            creator: vec!["Alice".into(), "alice".into(), "Alice".into()],
-            ..Default::default()
-        };
-        let out = normalise_creator(&input).unwrap();
-        assert_eq!(
-            list(&out, "XMP-dc:Creator"),
-            vec!["Alice".to_string(), "alice".to_string()],
-        );
-    }
-
-    #[test]
-    fn empty_input_returns_no_drafts() {
-        assert!(normalise_creator(&CreatorInput::default()).is_none());
-    }
-
-    #[test]
-    fn whitespace_only_input_returns_no_drafts() {
-        let input = CreatorInput {
-            creator: vec!["   ".into()],
-            artist: Some("  ".into()),
-            byline: vec!["".into()],
-        };
-        assert!(normalise_creator(&input).is_none());
-    }
-
-    #[test]
-    fn idempotent_after_one_pass() {
-        let initial = CreatorInput {
-            artist: Some("Alice; Bob".into()),
-            ..Default::default()
-        };
-        let first = normalise_creator(&initial).unwrap();
-        let canonical = list(&first, "XMP-dc:Creator");
-
-        let post = CreatorInput {
-            creator: canonical.clone(),
-            artist: Some(canonical.join(ARTIST_SEPARATOR)),
-            byline: canonical,
-        };
-        assert!(normalise_creator(&post).is_none());
-    }
-
-    #[test]
-    fn single_source_propagates_to_all_targets() {
-        // Plan §1 conflict policy "Pick a canonical value, then project
-        // to all derivatives". One source non-empty → fill the rest.
-        let input = CreatorInput {
-            creator: vec!["Alice".into()],
-            ..Default::default()
-        };
-        let out = normalise_creator(&input).unwrap();
-        assert_eq!(string(&out, "EXIF:Artist"), "Alice");
-        assert_eq!(list(&out, "IPTC:By-line"), vec!["Alice".to_string()]);
-    }
-
-    #[test]
-    fn artist_with_no_separator_treated_as_single_name() {
-        let input = CreatorInput {
-            artist: Some("Alice Smith".into()),
-            ..Default::default()
-        };
-        let out = normalise_creator(&input).unwrap();
-        assert_eq!(
-            list(&out, "XMP-dc:Creator"),
-            vec!["Alice Smith".to_string()],
-        );
-    }
-
-    #[test]
-    fn artist_split_trims_each_name() {
-        let input = CreatorInput {
-            artist: Some(" Alice ;Bob ; ; Carol ".into()),
-            ..Default::default()
-        };
-        let out = normalise_creator(&input).unwrap();
-        assert_eq!(
-            list(&out, "XMP-dc:Creator"),
-            vec!["Alice".to_string(), "Bob".to_string(), "Carol".to_string()],
-        );
-    }
-}
-
-// ── Group F: Copyright ─────────────────────────────────────────────────
-//
-// Plan §1 Group F. Canonical = single-line string, leading/trailing
-// whitespace trimmed. No tone/tense normalisation. No AI.
-//
-// Conflict policy: pick a canonical, then project.
-//   1. Primary non-empty → canonical = normalise(primary).
-//   2. Primary empty, ≥1 derivative non-empty → canonical =
-//      normalise(longest non-empty derivative). The only group where
-//      length-based pick is used; copyright notices are typically
-//      appended to, so the longest is usually the most complete.
-//   3. All target empty → no drafts.
-
-pub const COPYRIGHT_TARGET_TAGS: &[&str] = &[
-    "XMP-dc:Rights",
-    "EXIF:Copyright",
-    "IPTC:CopyrightNotice",
-];
-
-fn normalise_copyright_text(s: &str) -> String {
-    // Single-line: collapse any whitespace (including newlines) into a
-    // single space, then trim ends. Preserves all original characters
-    // so authorship year/symbol stays intact.
-    let mut out = String::with_capacity(s.len());
-    let mut last_was_ws = true;
-    for c in s.chars() {
-        if c.is_whitespace() {
-            if !last_was_ws {
-                out.push(' ');
-                last_was_ws = true;
-            }
-        } else {
-            out.push(c);
-            last_was_ws = false;
-        }
-    }
-    if out.ends_with(' ') {
-        out.pop();
-    }
-    out
-}
-
-fn derive_copyright_canonical(input: &CopyrightInput) -> Option<String> {
-    if let Some(primary) = input.rights.as_deref() {
-        let n = normalise_copyright_text(primary);
-        if !n.is_empty() {
-            return Some(n);
-        }
-    }
-    // Primary empty: longest non-empty derivative wins.
-    let derivatives: [&Option<String>; 2] = [&input.exif_copyright, &input.iptc_copyright];
-    let mut best: Option<String> = None;
-    for d in derivatives.iter() {
-        if let Some(v) = d.as_deref() {
-            let n = normalise_copyright_text(v);
-            if n.is_empty() {
-                continue;
-            }
-            if best.as_deref().map(|b| b.len() < n.len()).unwrap_or(true) {
-                best = Some(n);
-            }
-        }
-    }
-    best
-}
-
-fn copyright_is_normalised(input: &CopyrightInput, canonical: &str) -> bool {
-    input.rights.as_deref() == Some(canonical)
-        && input.exif_copyright.as_deref() == Some(canonical)
-        && input.iptc_copyright.as_deref() == Some(canonical)
-}
-
-/// Run Group F (Copyright) normalisation for one image.
-pub fn normalise_copyright(input: &CopyrightInput) -> Option<GroupOutput> {
-    let canonical = derive_copyright_canonical(input)?;
-    if copyright_is_normalised(input, &canonical) {
-        return None;
-    }
-    let edit = DraftEdit {
-        value: Some(Variant::String(canonical.clone())),
-        intent: EditIntent::Set,
-        display: None,
-    };
-    let mut edits = HashMap::new();
-    for tag in COPYRIGHT_TARGET_TAGS {
-        edits.insert((*tag).to_string(), edit.clone());
-    }
-    Some(GroupOutput { edits })
-}
-
-#[cfg(test)]
-mod tests_copyright {
-    use super::*;
-
-    fn s(g: &GroupOutput, k: &str) -> String {
-        match &g.edits.get(k).unwrap().value {
-            Some(Variant::String(v)) => v.clone(),
-            other => panic!("expected String, got {:?}", other),
-        }
-    }
-
-    #[test]
-    fn primary_wins_when_non_empty() {
-        let input = CopyrightInput {
-            rights: Some("© 2025 Acme".into()),
-            exif_copyright: Some("Old EXIF copyright".into()),
-            iptc_copyright: None,
-        };
-        let out = normalise_copyright(&input).unwrap();
-        assert_eq!(s(&out, "XMP-dc:Rights"), "© 2025 Acme");
-        assert_eq!(s(&out, "EXIF:Copyright"), "© 2025 Acme");
-        assert_eq!(s(&out, "IPTC:CopyrightNotice"), "© 2025 Acme");
-    }
-
-    #[test]
-    fn longest_derivative_wins_when_primary_empty() {
-        let input = CopyrightInput {
-            rights: None,
-            exif_copyright: Some("© Acme".into()),
-            iptc_copyright: Some("© 2025 Acme. All rights reserved.".into()),
-        };
-        let out = normalise_copyright(&input).unwrap();
-        let want = "© 2025 Acme. All rights reserved.";
-        assert_eq!(s(&out, "XMP-dc:Rights"), want);
-        assert_eq!(s(&out, "EXIF:Copyright"), want);
-        assert_eq!(s(&out, "IPTC:CopyrightNotice"), want);
-    }
-
-    #[test]
-    fn whitespace_normalised_in_canonical() {
-        let input = CopyrightInput {
-            rights: Some("  ©   2025   Acme \t Corp  ".into()),
-            ..Default::default()
-        };
-        let out = normalise_copyright(&input).unwrap();
-        assert_eq!(s(&out, "XMP-dc:Rights"), "© 2025 Acme Corp");
-    }
-
-    #[test]
-    fn empty_primary_falls_through_to_derivatives() {
-        let input = CopyrightInput {
-            rights: Some("   ".into()),
-            exif_copyright: Some("© 2025".into()),
-            iptc_copyright: None,
-        };
-        let out = normalise_copyright(&input).unwrap();
-        assert_eq!(s(&out, "XMP-dc:Rights"), "© 2025");
-    }
-
-    #[test]
-    fn all_empty_returns_no_drafts() {
-        assert!(normalise_copyright(&CopyrightInput::default()).is_none());
-    }
-
-    #[test]
-    fn idempotent_after_one_pass() {
-        let initial = CopyrightInput {
-            rights: Some("© 2025 Acme".into()),
-            ..Default::default()
-        };
-        let first = normalise_copyright(&initial).unwrap();
-        let c = s(&first, "XMP-dc:Rights");
-        let post = CopyrightInput {
-            rights: Some(c.clone()),
-            exif_copyright: Some(c.clone()),
-            iptc_copyright: Some(c),
-        };
-        assert!(normalise_copyright(&post).is_none());
-    }
-
-    #[test]
-    fn equal_but_unnormalised_triggers_normalisation() {
-        let input = CopyrightInput {
-            rights: Some("  © 2025 Acme  ".into()),
-            exif_copyright: Some("© 2025 Acme".into()),
-            iptc_copyright: Some("© 2025 Acme".into()),
-        };
-        let out = normalise_copyright(&input).expect("trims primary even when derivatives match");
-        assert_eq!(s(&out, "XMP-dc:Rights"), "© 2025 Acme");
-    }
-}
 
 // ── Group D: Headline ──────────────────────────────────────────────────
 //
@@ -2990,27 +2237,7 @@ fn normalise_headline_text(s: &str) -> String {
     // Single-sentence headlines: same whitespace collapse rule as
     // copyright. Reused but kept separate so each group's policy stays
     // legible.
-    normalise_copyright_text(s)
-}
-
-/// Truncate `s` to at most `limit` bytes at a word boundary when
-/// possible; falls back to a hard char-boundary cut for very long
-/// single-word strings.
-fn truncate_at_word(s: &str, limit: usize) -> String {
-    if s.len() <= limit {
-        return s.to_string();
-    }
-    // Find the last space at or before `limit`.
-    let mut cut = limit;
-    while cut > 0 && !s.is_char_boundary(cut) {
-        cut -= 1;
-    }
-    let slice = &s[..cut];
-    if let Some(idx) = slice.rfind(' ') {
-        slice[..idx].trim_end().to_string()
-    } else {
-        slice.trim_end().to_string()
-    }
+    collapse_whitespace_single_line(s)
 }
 
 fn derive_headline_canonical(input: &HeadlineInput) -> Option<String> {
@@ -3168,7 +2395,7 @@ pub const TITLE_TARGET_TAGS: &[&str] = &["XMP-dc:Title", "IPTC:ObjectName"];
 const IPTC_OBJECT_NAME_LIMIT: usize = 64;
 
 fn normalise_title_text(s: &str) -> String {
-    let collapsed = normalise_copyright_text(s);
+    let collapsed = collapse_whitespace_single_line(s);
     // Strip a single run of trailing punctuation chars.
     collapsed
         .trim_end_matches(|c: char| matches!(c, '.' | '!' | '?' | ',' | ':' | ';'))
@@ -3557,7 +2784,7 @@ pub const LOCATION_TARGET_TAGS: &[&str] = &[
 /// Canonicalise a "verbatim text" location field — trim + collapse
 /// whitespace. Used for all sub-pairs except CountryCode.
 fn canonicalise_location_text(s: &str) -> String {
-    normalise_copyright_text(s)
+    collapse_whitespace_single_line(s)
 }
 
 /// Canonicalise an ISO 3166-1 alpha-2 country code — trim, collapse,
