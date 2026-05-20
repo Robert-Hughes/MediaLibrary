@@ -93,8 +93,15 @@ describe("Metadata-normalisation flow", () => {
     mockApiInstance.normaliseSummary = {
       ...mockApiInstance.normaliseSummary,
       nSucceeded: 1,
-      nGroupsNormalisedTotal: 1,
-      nGroupsNoopTotal: 6,
+      perGroup: {
+        keywords: {
+          nNoop: 0, nNormalisedDeterministic: 1, nNormalisedAi: 0,
+          nConflictPrimaryWon: 0, nLocationXmpIimConflict: 0,
+          nDateConflict: 0, nDtoFromFilename: 0,
+          nDtoFromFilenameDateOnly: 0, nUnparseableDateInputs: 0,
+          nAiErrors: 0,
+        },
+      },
     };
 
     await openFolderWithPhoto("test.jpg", {
@@ -134,7 +141,9 @@ describe("Metadata-normalisation flow", () => {
       expect(screen.getByTestId("normalise-done-summary")).toBeInTheDocument();
     });
     expect(screen.getByTestId("normalise-summary-breakdown"))
-      .toHaveTextContent(/Groups normalised: 1/);
+      .toHaveTextContent(/Groups normalised \(deterministic\): 1/);
+    expect(screen.getByTestId("normalise-group-summary-keywords"))
+      .toHaveTextContent(/1 normalised/);
   });
 
   it("confirm button is disabled when no groups are enabled", async () => {

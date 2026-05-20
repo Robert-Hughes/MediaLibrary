@@ -107,13 +107,20 @@ export interface MockTauriApi {
     nSucceeded: number;
     nFailed: number;
     nSkippedAllNormalised: number;
-    nGroupsNormalisedTotal: number;
-    nGroupsNoopTotal: number;
-    nLocationXmpIimConflictTotal: number;
-    nDateConflictTotal: number;
-    nDtoFromFilenameTotal: number;
-    nDtoFromFilenameDateOnlyTotal: number;
-    nUnparseableDateInputsTotal: number;
+    perGroup: Record<string, {
+      nNoop: number;
+      nNormalisedDeterministic: number;
+      nNormalisedAi: number;
+      nConflictPrimaryWon: number;
+      nLocationXmpIimConflict: number;
+      nDateConflict: number;
+      nDtoFromFilename: number;
+      nDtoFromFilenameDateOnly: number;
+      nUnparseableDateInputs: number;
+      nAiErrors: number;
+    }>;
+    aiCostTotalUsd: number;
+    aiCallsTotal: number;
   };
 }
 
@@ -187,10 +194,8 @@ export function createMockTauriApi(): MockTauriApi {
     normaliseSchedule: [],
     normaliseSummary: {
       nSucceeded: 0, nFailed: 0, nSkippedAllNormalised: 0,
-      nGroupsNormalisedTotal: 0, nGroupsNoopTotal: 0,
-      nLocationXmpIimConflictTotal: 0, nDateConflictTotal: 0,
-      nDtoFromFilenameTotal: 0, nDtoFromFilenameDateOnlyTotal: 0,
-      nUnparseableDateInputsTotal: 0,
+      perGroup: {},
+      aiCostTotalUsd: 0, aiCallsTotal: 0,
     },
   };
 

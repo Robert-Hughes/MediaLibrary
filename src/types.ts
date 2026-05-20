@@ -36,6 +36,7 @@ export type { DatesInput } from "./types/generated/DatesInput";
 export type { DescriptionInput } from "./types/generated/DescriptionInput";
 export type { LocationContext } from "./types/generated/LocationContext";
 export type { PerImageStats as NormalisePerImageStats } from "./types/generated/PerImageStats";
+export type { PerGroupStats as NormalisePerGroupStats } from "./types/generated/PerGroupStats";
 export type { NormaliseSummary } from "./types/generated/NormaliseSummary";
 
 // ── Thumbnail store ───────────────────────────────────────────────────────────
