@@ -636,10 +636,20 @@ fn apply_simple_group<T>(
     }
 }
 
+/// Returns `true` if the caller-supplied cancel flag has been
+/// signalled. Defaults to `false` when no flag is supplied (eg.
+/// unit-test calls that don't need to model cancellation).
+fn is_cancelled(cancel: Option<&std::sync::Arc<std::sync::atomic::AtomicBool>>) -> bool {
+    cancel
+        .map(|f| f.load(std::sync::atomic::Ordering::Relaxed))
+        .unwrap_or(false)
+}
+
 pub async fn process_image(
     item: &NormaliseRequestItem,
     enabled: &[NormaliseGroup],
     ai: Option<&dyn NormaliseAiClient>,
+    cancel: Option<&std::sync::Arc<std::sync::atomic::AtomicBool>>,
 ) -> (
     HashMap<String, DraftEdit>,
     PerImageStats,
@@ -651,7 +661,14 @@ pub async fn process_image(
     let mut first_ai_error: Option<NormaliseAiError> = None;
     let mut ai_calls: Vec<PerImageAiCall> = Vec::new();
 
-    let is_enabled = |g: NormaliseGroup| enabled.contains(&g);
+    // Plan §12: cancellation is checked between groups. A flip
+    // mid-group does not abort an in-flight call (the HTTP layer
+    // doesn't support that yet), but the next group's guard will see
+    // it and skip the rest of the image. Groups skipped by
+    // cancellation are NOT recorded as noops — they're silently
+    // absent from `per_group`, distinguishing user-cancel from
+    // already-normalised.
+    let is_enabled = |g: NormaliseGroup| enabled.contains(&g) && !is_cancelled(cancel);
 
     // ── Pass 1: independents ──
     //
@@ -949,7 +966,7 @@ mod tests_dispatcher {
                 ..Default::default()
             },
         };
-        let (edits, stats, _err, _calls) = process_image(&item, &[NormaliseGroup::Keywords], None).await;
+        let (edits, stats, _err, _calls) = process_image(&item, &[NormaliseGroup::Keywords], None, None).await;
         assert!(edits.contains_key("XMP-dc:Subject"));
         assert!(!edits.contains_key("XMP-dc:Creator"));
         let kw = stats.per_group.get(&NormaliseGroup::Keywords).unwrap();
@@ -978,6 +995,7 @@ mod tests_dispatcher {
                 NormaliseGroup::Dates,
                 NormaliseGroup::Description,
             ],
+            None,
             None,
         ).await;
         assert!(edits.is_empty());
@@ -1030,6 +1048,7 @@ mod tests_dispatcher {
             &item,
             &[NormaliseGroup::Keywords, NormaliseGroup::Description],
             Some(&ai),
+            None,
         ).await;
         let captured = ai.captured.lock().await.take().expect("AI must fire on distinct sources");
         assert!(captured.keywords.contains(&"lion".to_string()));
@@ -1067,6 +1086,7 @@ mod tests_dispatcher {
             &item,
             &[NormaliseGroup::Description, NormaliseGroup::Title],
             Some(&ai),
+            None,
         ).await;
         let captured = ai.captured_description.lock().await.take().expect("title AI must fire");
         assert_eq!(captured, "A factual sentence.");
@@ -1076,6 +1096,100 @@ mod tests_dispatcher {
             Some(Variant::String(s)) => assert_eq!(s, "Generated Title"),
             other => panic!("expected String, got {:?}", other),
         }
+    }
+
+    #[tokio::test]
+    async fn cancelled_flag_skips_remaining_groups() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+        // Cancel flag pre-set: every group should be skipped, the
+        // per_group map stays empty (plan §12: cancelled groups are
+        // NOT counted as noops).
+        let cancel = Arc::new(AtomicBool::new(true));
+        let item = NormaliseRequestItem {
+            rel_path: "x.jpg".into(),
+            group_inputs: GroupInputs {
+                keywords: Some(KeywordsInput {
+                    dc_subject: vec!["A".into()],
+                    ..Default::default()
+                }),
+                creator: Some(CreatorInput {
+                    creator: vec!["alice".into()],
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+        };
+        let (edits, stats, _err, _calls) = process_image(
+            &item,
+            &[NormaliseGroup::Keywords, NormaliseGroup::Creator],
+            None,
+            Some(&cancel),
+        ).await;
+        assert!(edits.is_empty());
+        assert!(stats.per_group.is_empty());
+        // Sanity: clearing the flag and rerunning emits drafts.
+        cancel.store(false, Ordering::Relaxed);
+        let (edits, stats, _err, _calls) = process_image(
+            &item,
+            &[NormaliseGroup::Keywords, NormaliseGroup::Creator],
+            None,
+            Some(&cancel),
+        ).await;
+        assert!(!edits.is_empty());
+        assert_eq!(stats.per_group.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn cancellation_mid_image_preserves_earlier_drafts() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+        // Mock AI that flips the cancel flag during the description
+        // merge call. Title (next group) should then be skipped, but
+        // the description drafts from this image survive.
+        struct CancellingAi {
+            cancel: Arc<AtomicBool>,
+        }
+        #[async_trait::async_trait]
+        impl NormaliseAiClient for CancellingAi {
+            async fn merge_description(
+                &self,
+                _: DescriptionMergePrompt,
+            ) -> Result<(String, AiCallUsage), String> {
+                self.cancel.store(true, Ordering::Relaxed);
+                Ok(("Merged version.".into(), AiCallUsage::default()))
+            }
+            async fn generate_title(&self, _: TitleGenPrompt) -> Result<(String, AiCallUsage), String> {
+                panic!("title AI must NOT fire after cancel");
+            }
+        }
+        let cancel = Arc::new(AtomicBool::new(false));
+        let ai = CancellingAi { cancel: cancel.clone() };
+        let item = NormaliseRequestItem {
+            rel_path: "x.jpg".into(),
+            group_inputs: GroupInputs {
+                description: Some(DescriptionInput {
+                    description: Some("Version A.".into()),
+                    image_description: Some("Different version B.".into()),
+                    ..Default::default()
+                }),
+                title: Some(TitleInput::default()),
+                ..Default::default()
+            },
+        };
+        let (edits, stats, _err, _calls) = process_image(
+            &item,
+            &[NormaliseGroup::Description, NormaliseGroup::Title],
+            Some(&ai),
+            Some(&cancel),
+        ).await;
+        // Description drafts survived.
+        assert!(edits.contains_key("XMP-dc:Description"));
+        // Title was skipped — never appears in per_group.
+        assert!(!stats.per_group.contains_key(&NormaliseGroup::Title));
+        // Description recorded an AI-normalised count.
+        let d = stats.per_group.get(&NormaliseGroup::Description).unwrap();
+        assert_eq!(d.n_normalised_ai, 1);
     }
 
     fn make_per_image(entries: &[(NormaliseGroup, PerGroupStats)]) -> PerImageStats {
