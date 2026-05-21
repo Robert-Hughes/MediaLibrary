@@ -244,9 +244,10 @@ function DetailsImageRow({
   return (
     <tr
       key={entry.fullKey}
-      className="details-row"
+      className={readOnly ? "details-row details-row--readonly" : "details-row"}
       data-testid="details-row"
       data-row-key={entry.fullKey}
+      data-readonly={readOnly ? "true" : undefined}
       onContextMenu={onContextMenu}
     >
       <td className="details-key" style={draftValue !== undefined ? { color: "var(--accent-draft)" } : undefined}>
