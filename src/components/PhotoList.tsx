@@ -5,8 +5,11 @@ import type { PhotoInfo, SortConfig, VisibleColumn } from "../types";
 import { ContextMenu } from "./ContextMenu";
 import { PhotoRow } from "./PhotoRow";
 import { ResizeHandle } from "./ResizeHandle";
-import { ask } from "@tauri-apps/plugin-dialog";
 import { nextSortConfig } from "../utils/sorting";
+import { useColumnResize } from "../hooks/useColumnResize";
+import { useColumnReorder, type ColumnDragOver } from "../hooks/useColumnReorder";
+import { useRowSelection } from "../hooks/useRowSelection";
+import { PhotoListContextMenu } from "./PhotoListContextMenu";
 
 interface Props {
   photos: PhotoInfo[];
@@ -46,7 +49,6 @@ interface Props {
   onSelectionCountChange?: (count: number) => void;
 }
 
-const MIN_COL_WIDTH = 40;
 const DEFAULT_PREVIEW_COL_WIDTH = 52;
 const MIN_ROW_HEIGHT = 44;
 const THUMBNAIL_CELL_GUTTER = 8;
@@ -114,7 +116,7 @@ interface HeaderProps {
   visibleColumns: VisibleColumn[];
   sortConfig: SortConfig;
   sortingDisabled?: boolean;
-  dragOver: { col: string; side: "before" | "after" } | null;
+  dragOver: ColumnDragOver | null;
   onColumnContextMenu: (e: React.MouseEvent) => void;
   onColumnClick: (column: string, columnType: "path" | "os" | "image") => void;
   onResizeStart: (e: React.PointerEvent, col: string) => void;
@@ -137,11 +139,6 @@ const KIND_LABELS: Record<VisibleColumn["kind"], string> = {
   os: "OS",
   image: "Image",
 };
-
-function cssPixels(value: string): number {
-  const n = parseFloat(value);
-  return Number.isFinite(n) ? n : 0;
-}
 
 function PhotoListHeader(props: HeaderProps) {
   const {
@@ -231,24 +228,24 @@ export function PhotoList({
   const listRef = useRef<HTMLDivElement>(null);
   const visibleRef = useRef<Set<string>>(new Set());
 
-  // Live column widths during a resize drag (overrides saved widths until pointer up)
-  const [liveWidths, setLiveWidths] = useState<Record<string, number>>({});
-  const resizeDragRef = useRef<{ col: string; startX: number; startWidth: number; pointerId: number } | null>(null);
+  const {
+    effectiveWidths,
+    handleResizeStart, handleResizeMove, handleResizeEnd, handleResetWidth,
+  } = useColumnResize(columnWidths, onColumnWidthChange, listRef);
 
-  // Column drag-and-drop reorder state
-  const colDragRef = useRef<{ col: string } | null>(null);
-  const [dragOver, setDragOver] = useState<{ col: string; side: "before" | "after" } | null>(null);
+  const {
+    dragOver,
+    handleColDragStart, handleColDragOver, handleColDragLeave,
+    handleColDrop, handleColDragEnd, handleWrapperDragOver,
+  } = useColumnReorder(visibleColumns, onColumnsReorder);
 
-  const effectiveWidths = Object.keys(liveWidths).length > 0
-    ? { ...columnWidths, ...liveWidths }
-    : columnWidths;
   const rowHeight = rowHeightForPreview(previewColumnWidth(effectiveWidths));
   const thumbnailHeight = Math.max(0, rowHeight - THUMBNAIL_CELL_GUTTER);
-  
+
   // Use refs for callbacks to avoid re-creating observers when they change
   const onVisibilityChangeRef = useRef(onVisibilityChange);
   onVisibilityChangeRef.current = onVisibilityChange;
-  
+
   const photosRef = useRef(photos);
   photosRef.current = photos;
 
@@ -287,9 +284,9 @@ export function PhotoList({
           newVisible.add(photo.relative_path);
         }
       }
-      
+
       // Check if visibility changed
-      if (newVisible.size !== visibleRef.current.size || 
+      if (newVisible.size !== visibleRef.current.size ||
           ![...newVisible].every(p => visibleRef.current.has(p))) {
         visibleRef.current = newVisible;
         notify();
@@ -334,187 +331,24 @@ export function PhotoList({
     }
   }, [selectedIndex, rowVirtualizer]);
 
-  // Multi-select state. `selectedIndex` from the parent is the anchor; the
-  // internal Set captures additional rows added via Ctrl/Shift-click. Plain
-  // clicks collapse the set back to a single item.
-  const [selectedIndices, setSelectedIndices] = useState<Set<number>>(() =>
-    selectedIndex !== null ? new Set([selectedIndex]) : new Set(),
-  );
-  const anchorRef = useRef<number | null>(selectedIndex);
+  const { selectedIndices, handleRowSelect, handleRowContextMenu } = useRowSelection({
+    photosLength: photos.length,
+    selectedIndex,
+    onSelect,
+    onPhotoOpen,
+    listRef,
+    rowHeight,
+    onSelectionCountChange,
+  });
 
-  // Reset multi-selection when the parent's anchor changes externally
-  // (e.g. keyboard nav, search clearing) so we never display stale highlights.
-  useEffect(() => {
-    if (selectedIndex === null) {
-      setSelectedIndices(new Set());
-      anchorRef.current = null;
-      return;
-    }
-    setSelectedIndices((prev) => (prev.has(selectedIndex) && prev.size > 0 ? prev : new Set([selectedIndex])));
-    if (anchorRef.current === null) anchorRef.current = selectedIndex;
-  }, [selectedIndex]);
-
-  // Notify parent of selection-count changes so it can render a footer or
-  // status pill without having to mirror our internal Set.
-  useEffect(() => {
-    onSelectionCountChange?.(selectedIndices.size);
-  }, [selectedIndices, onSelectionCountChange]);
-
-  // Drop selections that no longer point to valid rows (search filter, etc.).
-  useEffect(() => {
-    setSelectedIndices((prev) => {
-      const trimmed = new Set<number>();
-      for (const i of prev) if (i >= 0 && i < photos.length) trimmed.add(i);
-      return trimmed.size === prev.size ? prev : trimmed;
-    });
-  }, [photos.length]);
-
-  const handleRowSelect = useCallback((index: number, modifiers: { ctrl: boolean; shift: boolean }) => {
-    if (modifiers.shift && anchorRef.current !== null) {
-      const start = Math.min(anchorRef.current, index);
-      const end = Math.max(anchorRef.current, index);
-      const range = new Set<number>();
-      for (let i = start; i <= end; i++) range.add(i);
-      setSelectedIndices(range);
-      onSelect(index);
-      return;
-    }
-    if (modifiers.ctrl) {
-      setSelectedIndices((prev) => {
-        const next = new Set(prev);
-        if (next.has(index)) {
-          next.delete(index);
-        } else {
-          next.add(index);
-        }
-        return next;
-      });
-      anchorRef.current = index;
-      onSelect(index);
-      return;
-    }
-    anchorRef.current = index;
-    setSelectedIndices(new Set([index]));
-    onSelect(index);
-  }, [onSelect]);
+  const [contextMenu, setContextMenu] = useState<{ x: number, y: number, index: number } | null>(null);
+  const [columnContextMenu, setColumnContextMenu] = useState<{ x: number, y: number } | null>(null);
 
   const handleContextMenu = useCallback((e: React.MouseEvent, index: number) => {
     e.preventDefault();
-    // If right-clicking a row that's not already part of the selection,
-    // collapse the selection to that row first — matches OS file-manager
-    // conventions and avoids surprising "this acts on N rows" prompts.
-    setSelectedIndices((prev) => {
-      if (prev.has(index)) return prev;
-      anchorRef.current = index;
-      onSelect(index);
-      return new Set([index]);
-    });
+    handleRowContextMenu(index);
     setContextMenu({ x: e.clientX, y: e.clientY, index });
-  }, [onSelect]);
-
-  // Keyboard navigation: arrow keys move the selection by one, Home/End jump
-  // to the first/last row, Ctrl+A selects every row.  Lives on document so
-  // the list responds even when no specific row currently has focus.  We
-  // skip when the user is typing in an input/textarea/contenteditable and
-  // when any modal dialog (including the gallery overlay) is open — those
-  // own the keyboard for their own scope.
-  const photosLenRef = useRef(photos.length);
-  photosLenRef.current = photos.length;
-  const selectedIndexRef = useRef(selectedIndex);
-  selectedIndexRef.current = selectedIndex;
-  const rowHeightRef = useRef(rowHeight);
-  rowHeightRef.current = rowHeight;
-  const onPhotoOpenRef = useRef(onPhotoOpen);
-  onPhotoOpenRef.current = onPhotoOpen;
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null;
-      if (t) {
-        const tag = t.tagName;
-        if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || t.isContentEditable) return;
-      }
-      // A modal dialog is open — let it handle the key.  Gallery uses the
-      // same overlay class so this covers both.
-      if (document.querySelector(".dialog-overlay, .gallery-overlay")) return;
-      const len = photosLenRef.current;
-      if (len === 0) return;
-      const cur = selectedIndexRef.current;
-
-      const moveTo = (next: number) => {
-        e.preventDefault();
-        const clamped = Math.max(0, Math.min(len - 1, next));
-        if (e.shiftKey) {
-          // Extend range from the existing anchor.  If no anchor yet, treat
-          // the current row (or the destination) as the anchor so the very
-          // first Shift+Arrow gesture still produces a sensible range.
-          if (anchorRef.current === null) {
-            anchorRef.current = cur ?? clamped;
-          }
-          const a = anchorRef.current;
-          const start = Math.min(a, clamped);
-          const end = Math.max(a, clamped);
-          const range = new Set<number>();
-          for (let i = start; i <= end; i++) range.add(i);
-          setSelectedIndices(range);
-          onSelect(clamped);
-          return;
-        }
-        if (e.ctrlKey || e.metaKey) {
-          // Additive: keep existing selection, just add the destination row
-          // and make it the new anchor (matches Ctrl+click semantics).
-          setSelectedIndices((prev) => {
-            const next = new Set(prev);
-            next.add(clamped);
-            return next;
-          });
-          anchorRef.current = clamped;
-          onSelect(clamped);
-          return;
-        }
-        anchorRef.current = clamped;
-        setSelectedIndices(new Set([clamped]));
-        onSelect(clamped);
-      };
-
-      // One page = number of fully-visible rows in the scroll viewport.
-      // Falls back to 10 if the list hasn't measured yet.
-      const pageStep = () => {
-        const h = listRef.current?.clientHeight ?? 0;
-        const rh = rowHeightRef.current || 1;
-        return Math.max(1, Math.floor(h / rh) || 10);
-      };
-
-      if (e.key === "ArrowDown") {
-        moveTo(cur === null ? 0 : cur + 1);
-      } else if (e.key === "ArrowUp") {
-        moveTo(cur === null ? 0 : cur - 1);
-      } else if (e.key === "PageDown") {
-        moveTo(cur === null ? 0 : cur + pageStep());
-      } else if (e.key === "PageUp") {
-        moveTo(cur === null ? 0 : cur - pageStep());
-      } else if (e.key === "Home") {
-        moveTo(0);
-      } else if (e.key === "End") {
-        moveTo(len - 1);
-      } else if (e.key === "Enter") {
-        if (cur !== null && cur >= 0 && cur < len) {
-          e.preventDefault();
-          onPhotoOpenRef.current(cur);
-        }
-      } else if ((e.ctrlKey || e.metaKey) && (e.key === "a" || e.key === "A")) {
-        e.preventDefault();
-        const all = new Set<number>();
-        for (let i = 0; i < len; i++) all.add(i);
-        setSelectedIndices(all);
-        anchorRef.current = 0;
-        // Update the parent's anchor too so subsequent shift/ctrl gestures
-        // and the row-context-menu pickup the right "first selected" row.
-        if (cur === null) onSelect(0);
-      }
-    };
-    document.addEventListener("keydown", handler);
-    return () => document.removeEventListener("keydown", handler);
-  }, [onSelect]);
+  }, [handleRowContextMenu]);
 
   const handleColumnContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -530,172 +364,6 @@ export function PhotoList({
     // loading) they would be unable to click an OS column to escape it.
     onSortChange(nextSortConfig(sortConfig, column, columnType));
   }, [onSortChange, sortConfig]);
-
-  const handleResizeStart = useCallback((e: React.PointerEvent, col: string) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const header = (e.currentTarget as HTMLElement).parentElement;
-    if (!header) return;
-    const startWidth = header.getBoundingClientRect().width;
-    resizeDragRef.current = { col, startX: e.clientX, startWidth, pointerId: e.pointerId };
-    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
-  }, []);
-
-  const handleResizeMove = useCallback((e: React.PointerEvent) => {
-    if (!resizeDragRef.current || resizeDragRef.current.pointerId !== e.pointerId) return;
-    const { col, startX, startWidth } = resizeDragRef.current;
-    const newWidth = Math.max(MIN_COL_WIDTH, startWidth + (e.clientX - startX));
-    setLiveWidths((prev) => ({ ...prev, [col]: newWidth }));
-  }, []);
-
-  const handleResizeEnd = useCallback((e: React.PointerEvent) => {
-    if (!resizeDragRef.current || resizeDragRef.current.pointerId !== e.pointerId) return;
-    const { col } = resizeDragRef.current;
-    resizeDragRef.current = null;
-    setLiveWidths((prev) => {
-      const width = prev[col];
-      if (width !== undefined && onColumnWidthChange) onColumnWidthChange(col, Math.round(width));
-      return {};
-    });
-  }, [onColumnWidthChange]);
-
-  const handleResetWidth = useCallback((col: string) => {
-    if (!onColumnWidthChange) return;
-    const container = listRef.current;
-    if (!container) { onColumnWidthChange(col, 0); return; }
-
-    // Use Range.getBoundingClientRect() to get the intrinsic content width.
-    // Unlike scrollWidth, this reports the actual rendered content extent rather
-    // than the element's layout width, so it works correctly whether the column
-    // is currently too wide or too narrow.
-    const range = document.createRange();
-    let maxWidth = 0;
-    const cells = container.querySelectorAll<HTMLElement>(`[data-col="${col}"]`);
-    // Compute padding once from the first cell — all share the same class.
-    let cellPadding = 0;
-    if (cells.length > 0) {
-      const s = getComputedStyle(cells[0]);
-      cellPadding = cssPixels(s.paddingLeft) + cssPixels(s.paddingRight);
-    }
-    cells.forEach((cell) => {
-      const textSpan = cell.querySelector('.photo-cell-text');
-      const badge = cell.querySelector('.row-draft-badge');
-      let w = 0;
-      if (textSpan || badge) {
-        if (textSpan) {
-          range.selectNodeContents(textSpan);
-          w += range.getBoundingClientRect()?.width ?? 0;
-        }
-        if (badge) {
-          w += badge.getBoundingClientRect().width + 8; // 8px gap
-        }
-      } else {
-        range.selectNodeContents(cell);
-        w = range.getBoundingClientRect()?.width ?? 0;
-      }
-      w += cellPadding;
-      if (w > maxWidth) maxWidth = w;
-    });
-
-    // Header cell: select up to (not including) the ResizeHandle so the handle's
-    // position at the column's right edge doesn't anchor the measurement there.
-    const handle = container.querySelector<HTMLElement>(`[data-testid="resize-handle-${col}"]`);
-    if (handle?.parentElement) {
-      const headerCell = handle.parentElement;
-      const hs = getComputedStyle(headerCell);
-      const headerPadding = cssPixels(hs.paddingLeft) + cssPixels(hs.paddingRight);
-      const headerParts = headerCell.querySelectorAll<HTMLElement>(".grid-header-kind, .grid-header-label");
-      let headerContentWidth = 0;
-      headerParts.forEach((part) => {
-        range.selectNodeContents(part);
-        const w = range.getBoundingClientRect?.().width ?? 0;
-        if (w > headerContentWidth) headerContentWidth = w;
-      });
-      if (headerParts.length === 0) {
-        range.setStart(headerCell, 0);
-        range.setEndBefore(handle);
-        headerContentWidth = range.getBoundingClientRect?.().width ?? 0;
-      }
-      const hw = headerContentWidth + headerPadding;
-      if (hw > maxWidth) maxWidth = hw;
-    }
-
-    // Small breathing-room buffer so content is never right at the edge.
-    const measured = maxWidth > 0 ? maxWidth + 4 : 0;
-    onColumnWidthChange(col, measured);
-  }, [onColumnWidthChange]);
-
-  const handleColDragStart = useCallback((e: React.DragEvent, col: string) => {
-    colDragRef.current = { col };
-    if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
-  }, []);
-
-  /** Returns "before" | "after" based on whether the cursor is in the left or right half of the element. */
-  const dropSide = (e: React.DragEvent): "before" | "after" => {
-    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    return e.clientX < rect.left + rect.width / 2 ? "before" : "after";
-  };
-
-  const handleColDragOver = useCallback((e: React.DragEvent, col: string) => {
-    if (!colDragRef.current) return;
-    e.preventDefault();
-    if (colDragRef.current.col === col) {
-      if (e.dataTransfer) e.dataTransfer.dropEffect = "none";
-      setDragOver(null);
-      return;
-    }
-    if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
-    setDragOver({ col, side: dropSide(e) });
-  }, []);
-
-  // Allow drop anywhere on the wrapper while a column drag is in progress so the
-  // browser shows the "move" cursor over gaps/body instead of the no-entry symbol.
-  const handleWrapperDragOver = useCallback((e: React.DragEvent) => {
-    if (colDragRef.current) e.preventDefault();
-  }, []);
-
-  const handleColDragLeave = useCallback((e: React.DragEvent) => {
-    if (!(e.currentTarget as HTMLElement).contains(e.relatedTarget as Node)) {
-      setDragOver(null);
-    }
-  }, []);
-
-  const handleColDrop = useCallback((e: React.DragEvent, dropCol: string) => {
-    e.preventDefault();
-    const drag = colDragRef.current;
-    colDragRef.current = null;
-    setDragOver(null);
-    if (!drag || drag.col === dropCol) return;
-
-    const side = dropSide(e);
-
-    /**
-     * Compute insertion index after splice(from, 1).
-     * - "before": insert at dropCol's post-removal position
-     * - "after":  insert one past dropCol's post-removal position
-     * When from < to, removing the source shifts dropCol left by 1.
-     */
-    const insertAt = (from: number, to: number) =>
-      side === "before"
-        ? (from < to ? to - 1 : to)
-        : (from < to ? to : to + 1);
-
-    const arr = [...visibleColumns];
-    const from = arr.findIndex((c) => c.key === drag.col);
-    const to = arr.findIndex((c) => c.key === dropCol);
-    if (from === -1 || to === -1) return;
-    const [moved] = arr.splice(from, 1);
-    arr.splice(insertAt(from, to), 0, moved);
-    onColumnsReorder?.(arr);
-  }, [visibleColumns, onColumnsReorder]);
-
-  const handleColDragEnd = useCallback(() => {
-    colDragRef.current = null;
-    setDragOver(null);
-  }, []);
-
-  const [contextMenu, setContextMenu] = useState<{ x: number, y: number, index: number } | null>(null);
-  const [columnContextMenu, setColumnContextMenu] = useState<{ x: number, y: number } | null>(null);
 
   const headerProps: HeaderProps = {
     visibleColumns, sortConfig, sortingDisabled, dragOver,
@@ -803,120 +471,25 @@ export function PhotoList({
         </div>
       </div>
 
-      {contextMenu && (() => {
-        const indices = Array.from(selectedIndices).sort((a, b) => a - b);
-        const effectiveIndices = indices.length > 0 ? indices : [contextMenu.index];
-        const selectedPaths = effectiveIndices
-          .map((i) => photos[i]?.relative_path)
-          .filter((p): p is string => typeof p === "string");
-        const editablePaths = selectedPaths.filter(
-          (p) => draftEdits[p] && Object.keys(draftEdits[p]).length > 0,
-        );
-        const totalEdits = editablePaths.reduce(
-          (sum, p) => sum + Object.keys(draftEdits[p] ?? {}).length,
-          0,
-        );
-        const count = selectedPaths.length;
-        const noun = count === 1 ? "photo" : "photos";
-        const firstIndex = effectiveIndices[0];
-        return (
-          <ContextMenu
-            x={contextMenu.x}
-            y={contextMenu.y}
-            options={[
-              {
-                label: count > 1 ? `View (${photos[firstIndex]?.filename ?? "first"})` : "View",
-                onClick: () => onPhotoOpen(firstIndex),
-              },
-              {
-                label: count > 1
-                  ? `Show in File Explorer (${photos[firstIndex]?.filename ?? "first"})`
-                  : "Show in File Explorer",
-                onClick: () => onShowInExplorer(firstIndex),
-              },
-              ...(onCopyPaths && selectedPaths.length > 0
-                ? [{
-                    label: count > 1 ? `Copy Paths (${count})` : "Copy Path",
-                    onClick: () => onCopyPaths(selectedPaths),
-                  }]
-                : []),
-              ...(onGenerateAiDescription && selectedPaths.length > 0
-                ? [{
-                    label: count > 1
-                      ? `Generate AI Description… (${count} ${noun})`
-                      : "Generate AI Description…",
-                    onClick: () => {
-                      setContextMenu(null);
-                      onGenerateAiDescription(selectedPaths);
-                    },
-                  }]
-                : []),
-              // Reverse-geocode entry. Always visible regardless of GPS
-              // presence — per docs/REVERSE_GEOCODE_PLAN.md §5, the
-              // backend surfaces no_gps as a per-image failure in the
-              // done panel instead of hiding the entry (which would be
-              // more confusing than the silent skip behaviour).
-              ...(onGeocode && selectedPaths.length > 0
-                ? [{
-                    label: count > 1
-                      ? `Reverse Geocode… (${count} ${noun})`
-                      : "Reverse Geocode…",
-                    onClick: () => {
-                      setContextMenu(null);
-                      onGeocode(selectedPaths);
-                    },
-                  }]
-                : []),
-              // Metadata-normalisation entry — always visible when ≥1
-              // photo selected. Per-group toggles live inside the
-              // dialog. See docs/NORMALISE_METADATA_PLAN.md §13.
-              ...(onNormalise && selectedPaths.length > 0
-                ? [{
-                    label: count > 1
-                      ? `Normalise Metadata… (${count} ${noun})`
-                      : "Normalise Metadata…",
-                    onClick: () => {
-                      setContextMenu(null);
-                      onNormalise(selectedPaths);
-                    },
-                  }]
-                : []),
-              ...(editablePaths.length > 0 && onApplyEdits
-                ? [{
-                    label: editablePaths.length > 1
-                      ? `Apply edits… (${editablePaths.length} ${editablePaths.length === 1 ? "photo" : "photos"})`
-                      : "Apply edits…",
-                    onClick: async () => {
-                      const target = editablePaths.length === 1
-                        ? (photos[effectiveIndices.find((i) => photos[i]?.relative_path === editablePaths[0])!]?.filename ?? editablePaths[0])
-                        : `${editablePaths.length} photos`;
-                      const confirmed = await ask(
-                        `Apply ${totalEdits} edit${totalEdits === 1 ? "" : "s"} to ${target}?\n\nThis will permanently modify the original image file${editablePaths.length === 1 ? "" : "s"}. There is no backup.`,
-                        { title: "Apply Edits", kind: "warning" },
-                      );
-                      if (confirmed) { setContextMenu(null); onApplyEdits(editablePaths); }
-                    },
-                  }]
-                : []),
-              ...(editablePaths.length > 0 && onDiscardAllEdits
-                ? [{
-                    label: editablePaths.length > 1
-                      ? `Discard all edits… (${editablePaths.length} ${editablePaths.length === 1 ? "photo" : "photos"})`
-                      : "Discard all edits…",
-                    onClick: async () => {
-                      const confirmed = await ask(
-                        `Are you sure you want to discard ${totalEdits} edit${totalEdits === 1 ? "" : "s"} across ${editablePaths.length} ${editablePaths.length === 1 ? "photo" : "photos"}?`,
-                        { title: "Discard Edits", kind: "warning" },
-                      );
-                      if (confirmed) onDiscardAllEdits(editablePaths);
-                    },
-                  }]
-                : []),
-            ]}
-            onClose={() => setContextMenu(null)}
-          />
-        );
-      })()}
+      {contextMenu && (
+        <PhotoListContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          contextMenuIndex={contextMenu.index}
+          selectedIndices={selectedIndices}
+          photos={photos}
+          draftEdits={draftEdits}
+          onPhotoOpen={onPhotoOpen}
+          onShowInExplorer={onShowInExplorer}
+          onCopyPaths={onCopyPaths}
+          onGenerateAiDescription={onGenerateAiDescription}
+          onGeocode={onGeocode}
+          onNormalise={onNormalise}
+          onApplyEdits={onApplyEdits}
+          onDiscardAllEdits={onDiscardAllEdits}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
 
       {columnContextMenu && onSelectColumns && (
         <ContextMenu
@@ -931,4 +504,3 @@ export function PhotoList({
     </div>
   );
 }
-
