@@ -197,6 +197,15 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
   // Folder + start args remembered for the confirm step.
   const folderRef = useRef<string>("");
   const startArgsRef = useRef<StartArgs | null>(null);
+  // Pending estimate-invoke deferred until the effect has attached all
+  // event listeners. Without this gate the backend can finish (and emit
+  // `${prefix}_estimate_complete`) before `subscribeExtras` registers
+  // its listener, leaving the dialog stuck on the estimating panel.
+  const pendingEstimateRef = useRef<null | (() => void)>(null);
+  // True once the subscription effect has finished attaching listeners.
+  // start() uses this to decide whether to invoke the estimate command
+  // immediately (listeners ready) or defer it (will fire when ready).
+  const listenersReadyRef = useRef(false);
 
   // Subscribe to all events while open. Unsubscribe on close.
   useEffect(() => {
@@ -287,10 +296,21 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
         const extra = await config.subscribeExtras(safeSetState);
         unlisteners.push(...extra);
       }
+
+      // Listeners attached — fire any deferred estimate invoke now.
+      if (mounted) {
+        listenersReadyRef.current = true;
+        if (pendingEstimateRef.current) {
+          const run = pendingEstimateRef.current;
+          pendingEstimateRef.current = null;
+          run();
+        }
+      }
     })();
 
     return () => {
       mounted = false;
+      listenersReadyRef.current = false;
       for (const off of unlisteners) off();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -316,11 +336,16 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
             ? (startArgs as unknown as string[]).filter((x) => typeof x === "string")
             : [],
       });
-      setOpen(true);
       if (config.commands.estimate && config.buildEstimateArgs) {
-        // Fire-and-forget — events drive the state machine.
-        void invoke(config.commands.estimate, config.buildEstimateArgs(folderPath, startArgs))
-          .catch((e: unknown) => {
+        // Defer invoke until the subscription effect has attached all
+        // listeners — otherwise a fast backend (e.g. the no-AI branch
+        // of normalise_estimate_cost_cmd) can emit `_estimate_complete`
+        // before `subscribeExtras` registers its listener and the
+        // dialog stays stuck on the estimating panel.
+        const estimateCmd = config.commands.estimate;
+        const args = config.buildEstimateArgs(folderPath, startArgs);
+        const runEstimate = () => {
+          void invoke(estimateCmd, args).catch((e: unknown) => {
             setState((s) => ({
               ...s,
               phase: "done",
@@ -332,7 +357,14 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
               })),
             }));
           });
+        };
+        if (listenersReadyRef.current) {
+          runEstimate();
+        } else {
+          pendingEstimateRef.current = runEstimate;
+        }
       }
+      setOpen(true);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [config.commands.estimate, config.eventPrefix],
