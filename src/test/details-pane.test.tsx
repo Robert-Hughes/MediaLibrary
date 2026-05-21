@@ -484,7 +484,7 @@ describe("DetailsPane: read-only row context menu", () => {
     fireEvent.contextMenu(row!);
   }
 
-  it("relabels Edit to View and disables Remove for a read-only existing tag", async () => {
+  it("renders no context menu at all for a read-only tag with no pending draft", async () => {
     _setTagInfoCacheEntry("IFD0:Make", {
       group: "IFD0",
       name: "Make",
@@ -506,19 +506,13 @@ describe("DetailsPane: read-only row context menu", () => {
 
     openRowContextMenu();
 
+    // Wait a tick for useTagInfo + effect-driven close to settle.
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "View…" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Edit…" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "View…" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Remove" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Discard edit" })).toBeNull();
     });
-    expect(screen.queryByRole("button", { name: "Edit…" })).toBeNull();
-
-    const removeBtn = screen.getByRole("button", { name: "Remove" });
-    expect(removeBtn).toBeDisabled();
-    expect(removeBtn).toHaveAttribute(
-      "title",
-      "Tag is read-only per ExifTool schema — cannot be removed",
-    );
-
-    fireEvent.click(removeBtn);
     expect(onSetDraftTyped).not.toHaveBeenCalled();
     expect(onDiscardDraft).not.toHaveBeenCalled();
   });
@@ -558,7 +552,7 @@ describe("DetailsPane: read-only row context menu", () => {
     });
   });
 
-  it("clicking View on a read-only tag still opens the editor (Save stays disabled)", async () => {
+  it("shows only Discard edit for a read-only tag that has a pending draft", async () => {
     _setTagInfoCacheEntry("IFD0:Make", {
       group: "IFD0",
       name: "Make",
@@ -571,20 +565,17 @@ describe("DetailsPane: read-only row context menu", () => {
       <DetailsPane
         photo={photo}
         metadata={{ "IFD0:Make": "Canon" }}
+        draftEdits={{ "IFD0:Make": "Nikon" }}
         onSetDraftTyped={vi.fn()}
       />,
     );
 
     openRowContextMenu();
 
-    const viewBtn = await screen.findByRole("button", { name: "View…" });
-    fireEvent.click(viewBtn);
-
-    // The editor dialog opens (text-fallback ValueEditDialog), and its Save
-    // button is disabled per the existing read-only-aware Save logic.
-    const saveBtn = await screen.findByTestId("value-edit-save");
-    expect(saveBtn).toBeDisabled();
-    expect(saveBtn).toHaveAttribute("title", "Tag is read-only per ExifTool schema");
+    await screen.findByRole("button", { name: "Discard edit" });
+    expect(screen.queryByRole("button", { name: "Edit…" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "View…" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Remove" })).toBeNull();
   });
 });
 

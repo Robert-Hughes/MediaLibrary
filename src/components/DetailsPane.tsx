@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { DraftEdit, PhotoInfo, ImageMetadataState, Variant } from "../types";
 import { HighlightedText } from "./HighlightedText";
 import { ContextMenu } from "./ContextMenu";
@@ -268,10 +268,10 @@ function DetailsImageRow({
 /**
  * Right-click menu for a property row. Lives in its own component so it can
  * call `useTagInfo(contextMenu.key)` — schema lookup decides whether to
- * relabel "Edit" → "View" and whether "Remove" should be blocked. Read-only
- * tags can be viewed (the Save button inside the dialog stays disabled) but
- * not removed from the file, since ExifTool refuses delete-writes on
- * read-only tags just like it refuses value-writes.
+ * hide the "Edit…" entry and whether "Remove" should be blocked. Read-only
+ * tags expose no editor entry point from the context menu, and cannot be
+ * removed since ExifTool refuses delete-writes on read-only tags just like
+ * it refuses value-writes.
  */
 function DetailsRowContextMenu({
   contextMenu,
@@ -290,25 +290,32 @@ function DetailsRowContextMenu({
 }) {
   const tag = useTagInfo(contextMenu.key);
   const readOnly = tag !== null && tag !== "loading" && !tag.writable;
+  const options = [
+    ...(readOnly ? [] : [{ label: "Edit…", onClick: onEdit }]),
+    ...(contextMenu.draftValue !== undefined
+      ? [{ label: "Discard edit", onClick: onDiscard }]
+      : []),
+    ...(readOnly
+      ? []
+      : [{
+          label: "Remove",
+          onClick: onRemove,
+          disabled: false,
+          title: undefined as string | undefined,
+        }]),
+  ];
+  // Read-only tag with no draft → no actionable menu items. Bail out via
+  // effect (not inline) so we don't setState during render.
+  const empty = options.length === 0;
+  useEffect(() => {
+    if (empty) onClose();
+  }, [empty, onClose]);
+  if (empty) return null;
   return (
     <ContextMenu
       x={contextMenu.x}
       y={contextMenu.y}
-      options={[
-        {
-          label: readOnly ? "View…" : "Edit…",
-          onClick: onEdit,
-        },
-        ...(contextMenu.draftValue !== undefined
-          ? [{ label: "Discard edit", onClick: onDiscard }]
-          : []),
-        {
-          label: "Remove",
-          onClick: onRemove,
-          disabled: readOnly && existsInOriginal,
-          title: readOnly && existsInOriginal ? READ_ONLY_REMOVE_TOOLTIP : undefined,
-        },
-      ]}
+      options={options}
       onClose={onClose}
     />
   );
