@@ -27,7 +27,7 @@ function stringify(v: unknown): string {
 // (handles %s/%d/%i/%f/%o/%O/%c/%%). Required so React's
 // formatted messages like "Warning: %s\n%s" render correctly when
 // forwarded to the backend log.
-function formatArgs(args: unknown[]): string {
+export function formatArgs(args: unknown[]): string {
   if (args.length === 0) return "";
   const first = args[0];
   if (typeof first !== "string") return args.map(stringify).join(" ");
