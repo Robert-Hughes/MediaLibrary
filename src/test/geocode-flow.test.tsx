@@ -175,9 +175,9 @@ describe("Reverse-geocoding flow", () => {
     });
   });
 
-  it("DetailsPane button asks for confirm before overwriting existing location data", async () => {
-    // The XMP-iptcCore:Location field is one of the §1 target tags;
-    // its presence in metadata should trigger the overwrite warning.
+  it("DetailsPane button surfaces the overwrite notice inside the dialog when existing location data is present", async () => {
+    // The overwrite notice now lives in the dialog's awaiting-confirm
+    // panel, not in a pre-dialog ask().
     const dialogModule = await import("@tauri-apps/plugin-dialog");
     const askMock = (dialogModule as unknown as { ask: ReturnType<typeof vi.fn> }).ask;
     askMock.mockClear();
@@ -187,9 +187,20 @@ describe("Reverse-geocoding flow", () => {
       "XMP-iptcCore:Location": "Existing Place",
     });
     await user.click(screen.getByTestId("details-pane-geocode-btn"));
-    expect(askMock).toHaveBeenCalledWith(
-      expect.stringMatching(/already has location data/i),
-      expect.objectContaining({ title: "Overwrite location data?" }),
-    );
+    expect(askMock).not.toHaveBeenCalled();
+    const notice = await screen.findByTestId("geocode-overwrite-notice");
+    expect(notice).toHaveTextContent(/Overwrite location data\?/);
+    expect(notice).toHaveTextContent(/already has location data/i);
+    expect(notice).toHaveTextContent(/will be cleared/i);
+  });
+
+  it("DetailsPane button shows no overwrite notice when there is no existing location data", async () => {
+    const { user } = await openFolderAndSelectPhoto("test.jpg", {
+      "Composite:GPSLatitude": 51.5,
+      "Composite:GPSLongitude": -0.1,
+    });
+    await user.click(screen.getByTestId("details-pane-geocode-btn"));
+    await screen.findByTestId("geocode-confirm-btn");
+    expect(screen.queryByTestId("geocode-overwrite-notice")).toBeNull();
   });
 });

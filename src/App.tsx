@@ -23,6 +23,12 @@ import type { GeocodeRequestItem, NormaliseGroup } from "./types";
 import { NormaliseProgressDialog } from "./components/NormaliseProgressDialog";
 import { useNormaliseMetadata } from "./hooks/useNormaliseMetadata";
 import {
+  countDescribeOverwrites,
+  countGeocodeOverwrites,
+  countNormaliseOverwrites,
+  type OverwriteCount,
+} from "./utils/countOverwrites";
+import {
   buildNormaliseItems,
   metadataStoreLookup,
 } from "./utils/buildNormaliseItems";
@@ -54,6 +60,9 @@ function LoadedView({
   describe,
   geocode,
   normalise,
+  setDescribeOverwrite,
+  setGeocodeOverwrite,
+  setNormaliseOverwrite,
 }: {
   state: LoadedState;
   actions: MediaLibraryActions;
@@ -63,6 +72,9 @@ function LoadedView({
   describe: ReturnType<typeof useDescribeImages>;
   geocode: ReturnType<typeof useGeocodeImages>;
   normalise: ReturnType<typeof useNormaliseMetadata>;
+  setDescribeOverwrite: (info: OverwriteCount) => void;
+  setGeocodeOverwrite: (info: OverwriteCount) => void;
+  setNormaliseOverwrite: (info: OverwriteCount) => void;
 }) {
   // Subscribe to metadata progress so sorting unblocks once metadata loading
   // completes, not just when the directory walk finishes.  Keeps re-renders
@@ -267,8 +279,18 @@ function LoadedView({
         draftEdits={legacyDraftEdits}
         onDiscardAllEdits={(paths) => actions.discardAllDraftEdits(paths)}
         onApplyEdits={(paths) => actions.applyDraftEdits(paths)}
-        onGenerateAiDescription={(relPaths) => describe.actions.start(state.folder, relPaths)}
-        onGeocode={(relPaths) => geocode.actions.start(state.folder, buildGeocodeItems(relPaths))}
+        onGenerateAiDescription={(relPaths) => {
+          setDescribeOverwrite(
+            countDescribeOverwrites(relPaths, state.imageMetadata, state.draftEdits),
+          );
+          describe.actions.start(state.folder, relPaths);
+        }}
+        onGeocode={(relPaths) => {
+          setGeocodeOverwrite(
+            countGeocodeOverwrites(relPaths, state.imageMetadata, state.draftEdits),
+          );
+          geocode.actions.start(state.folder, buildGeocodeItems(relPaths));
+        }}
         onNormalise={(relPaths) => {
           // Default enabled groups: every v1 group. User can untick
           // individual groups in the confirm dialog.
@@ -287,6 +309,9 @@ function LoadedView({
             metadataStoreLookup(state.imageMetadata),
             state.draftEdits,
             initialGroups,
+          );
+          setNormaliseOverwrite(
+            countNormaliseOverwrites(relPaths, state.imageMetadata, state.draftEdits),
           );
           normalise.actions.start(state.folder, items, initialGroups);
         }}
@@ -309,8 +334,18 @@ function LoadedView({
           onDiscardDraft={actions.discardDraftValue}
           onDiscardAllEdits={actions.discardAllDraftEdits}
           onApplyEdits={(path) => actions.applyDraftEdits(path)}
-          onGenerateAiDescription={(relPath) => describe.actions.start(state.folder, [relPath])}
-          onGeocode={(relPath) => geocode.actions.start(state.folder, buildGeocodeItems([relPath]))}
+          onGenerateAiDescription={(relPath) => {
+            setDescribeOverwrite(
+              countDescribeOverwrites([relPath], state.imageMetadata, state.draftEdits),
+            );
+            describe.actions.start(state.folder, [relPath]);
+          }}
+          onGeocode={(relPath) => {
+            setGeocodeOverwrite(
+              countGeocodeOverwrites([relPath], state.imageMetadata, state.draftEdits),
+            );
+            geocode.actions.start(state.folder, buildGeocodeItems([relPath]));
+          }}
           onNormalise={(relPath) => {
             const initialGroups: NormaliseGroup[] = [
               "keywords",
@@ -327,6 +362,9 @@ function LoadedView({
               metadataStoreLookup(state.imageMetadata),
               state.draftEdits,
               initialGroups,
+            );
+            setNormaliseOverwrite(
+              countNormaliseOverwrites([relPath], state.imageMetadata, state.draftEdits),
             );
             normalise.actions.start(state.folder, items, initialGroups);
           }}
@@ -386,6 +424,14 @@ export default function App() {
   const [schemaReady, setSchemaReady] = useState(false);
   const [schemaError, setSchemaError] = useState<string | null>(null);
   const cliCheckedRef = useRef(false);
+  // Overwrite counts computed at flow-start time and shown as an inline
+  // notice in each dialog's awaiting-confirm panel. Stored at App level
+  // so the dialogs (which render at App scope) can read them. We never
+  // need to clear these explicitly — the next `start` overwrites them
+  // and the dialog only consults them while it's open.
+  const [describeOverwrite, setDescribeOverwrite] = useState<OverwriteCount | undefined>(undefined);
+  const [geocodeOverwrite, setGeocodeOverwrite] = useState<OverwriteCount | undefined>(undefined);
+  const [normaliseOverwrite, setNormaliseOverwrite] = useState<OverwriteCount | undefined>(undefined);
   // Hand the describe flow a callback that merges backend-produced edits
   // into the same in-memory draft store the editors write to. The hook
   // wires this to the per-image `describe_progress` event so the UI
@@ -553,6 +599,9 @@ export default function App() {
           describe={describe}
           geocode={geocode}
           normalise={normalise}
+          setDescribeOverwrite={setDescribeOverwrite}
+          setGeocodeOverwrite={setGeocodeOverwrite}
+          setNormaliseOverwrite={setNormaliseOverwrite}
         />
       )}
 
@@ -563,6 +612,7 @@ export default function App() {
       {describe.open && (
         <DescribeProgressDialog
           state={describe.state}
+          overwriteInfo={describeOverwrite}
           onConfirm={describe.actions.confirm}
           onCancel={describe.actions.cancel}
           onClose={describe.actions.close}
@@ -572,6 +622,7 @@ export default function App() {
       {geocode.open && (
         <GeocodeProgressDialog
           state={geocode.state}
+          overwriteInfo={geocodeOverwrite}
           onConfirm={geocode.actions.confirm}
           onCancel={geocode.actions.cancel}
           onClose={geocode.actions.close}
@@ -581,6 +632,7 @@ export default function App() {
       {normalise.open && (
         <NormaliseProgressDialog
           state={normalise.state}
+          overwriteInfo={normaliseOverwrite}
           onConfirm={normalise.actions.confirm}
           onCancel={normalise.actions.cancel}
           onClose={normalise.actions.close}

@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react";
 import type { DraftEdit, PhotoInfo, ImageMetadataState, Variant } from "../types";
-import { GEOCODE_TARGET_TAGS, NORMALISE_ALL_TARGET_TAGS } from "../types";
 import { HighlightedText } from "./HighlightedText";
 import { ContextMenu } from "./ContextMenu";
 import { TypedValueEditor } from "./editors/TypedValueEditor";
@@ -20,7 +19,6 @@ const formatVariantImpl = variantToDisplayString;
 import { NewPropertyDialog } from "./NewPropertyDialog";
 import { haystackContainsNormalized, normalizeListSearchQuery } from "../utils/listSearchText";
 import { ask } from "@tauri-apps/plugin-dialog";
-import { buildOverwriteWarning } from "./overwriteWarning";
 
 interface Props {
   photo: PhotoInfo;
@@ -548,34 +546,7 @@ export function DetailsPane({ photo, metadata, draftEdits = {}, typedDraftEdits,
               className="button button--secondary"
               data-testid="details-pane-generate-ai-btn"
               title="Generate an AI description for this image via OpenAI"
-              onClick={async () => {
-                const inMeta = typeof metadata === "object"
-                  && metadata !== null
-                  && "XMP-mlib:AIDescription" in (metadata as Record<string, Variant>);
-                // Prefer the typed draft store when wired through — it's the
-                // source of truth and survives the legacy-map round-trip
-                // dropping files with empty edits.
-                const inDraft = typedDraftEdits
-                  ? "XMP-mlib:AIDescription" in typedDraftEdits
-                  : "XMP-mlib:AIDescription" in draftEdits;
-                const warning = buildOverwriteWarning({
-                  existingCount: inMeta || inDraft ? 1 : 0,
-                  totalCount: 1,
-                  title: "Overwrite AI description?",
-                  subjectSingular: "image",
-                  dataPhrase: "an AI description",
-                  actionSingle:
-                    "Generating a new one will overwrite the existing one.",
-                });
-                if (warning) {
-                  const confirmed = await ask(warning.body, {
-                    title: warning.title,
-                    kind: "warning",
-                  });
-                  if (!confirmed) return;
-                }
-                onGenerateAiDescription();
-              }}
+              onClick={() => onGenerateAiDescription()}
             >
               Generate AI Description…
             </button>
@@ -585,39 +556,7 @@ export function DetailsPane({ photo, metadata, draftEdits = {}, typedDraftEdits,
               className="button button--secondary"
               data-testid="details-pane-geocode-btn"
               title="Reverse-geocode this image's GPS via OpenStreetMap Nominatim"
-              onClick={async () => {
-                // Coherent-replacement warning (plan §5, single-image
-                // variant). Check both on-disk metadata and the typed
-                // draft store for any of the §1 target tags.
-                const metaBag =
-                  typeof metadata === "object" && metadata !== null
-                    ? (metadata as Record<string, Variant>)
-                    : {};
-                const hasExisting = GEOCODE_TARGET_TAGS.some((k) => {
-                  const inMeta = k in metaBag;
-                  const inDraft = typedDraftEdits
-                    ? k in typedDraftEdits
-                    : k in draftEdits;
-                  return inMeta || inDraft;
-                });
-                const warning = buildOverwriteWarning({
-                  existingCount: hasExisting ? 1 : 0,
-                  totalCount: 1,
-                  title: "Overwrite location data?",
-                  subjectSingular: "image",
-                  dataPhrase: "location data",
-                  actionSingle:
-                    "Reverse-geocoding will overwrite all location name fields (City, State, Country, etc. — GPS coordinates are not touched) with drafts; fields the geocoder doesn't return will be cleared.",
-                });
-                if (warning) {
-                  const confirmed = await ask(warning.body, {
-                    title: warning.title,
-                    kind: "warning",
-                  });
-                  if (!confirmed) return;
-                }
-                onGeocode();
-              }}
+              onClick={() => onGeocode()}
             >
               Reverse Geocode…
             </button>
@@ -627,39 +566,7 @@ export function DetailsPane({ photo, metadata, draftEdits = {}, typedDraftEdits,
               className="button button--secondary"
               data-testid="details-pane-normalise-btn"
               title="Normalise metadata: sync canonical fields across XMP / IPTC / EXIF"
-              onClick={async () => {
-                // Plan §13 single-image overwrite-warning. "Already has
-                // data" means any of the §1 target tags (across all
-                // groups) is non-empty in metadata OR drafts.
-                const metaBag =
-                  typeof metadata === "object" && metadata !== null
-                    ? (metadata as Record<string, Variant>)
-                    : {};
-                const hasExisting = NORMALISE_ALL_TARGET_TAGS.some((k) => {
-                  const inMeta = k in metaBag;
-                  const inDraft = typedDraftEdits
-                    ? k in typedDraftEdits
-                    : k in draftEdits;
-                  return inMeta || inDraft;
-                });
-                const warning = buildOverwriteWarning({
-                  existingCount: hasExisting ? 1 : 0,
-                  totalCount: 1,
-                  title: "Overwrite metadata fields?",
-                  subjectSingular: "image",
-                  dataPhrase: "metadata in the groups you have selected",
-                  actionSingle:
-                    "Normalising will overwrite those fields with drafts — fields outside the canonical form will be cleared.",
-                });
-                if (warning) {
-                  const confirmed = await ask(warning.body, {
-                    title: warning.title,
-                    kind: "warning",
-                  });
-                  if (!confirmed) return;
-                }
-                onNormalise();
-              }}
+              onClick={() => onNormalise()}
             >
               Normalise Metadata…
             </button>

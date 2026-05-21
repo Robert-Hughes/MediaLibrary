@@ -16,7 +16,13 @@ import type { NormaliseProgressState } from "../hooks/useNormaliseMetadata";
 import { BatchJobDialog } from "./BatchJobDialog";
 import { BatchSummaryCountersRow } from "./BatchSummaryCountersRow";
 import { RunningProgressPanel } from "./RunningProgressPanel";
+import { OverwriteNotice } from "./OverwriteNotice";
 import { assertExhaustive } from "../utils/assertExhaustive";
+
+export interface NormaliseOverwriteInfo {
+  existingCount: number;
+  totalCount: number;
+}
 
 /**
  * Map normaliser BatchFailureKind values to short labels. Plan §8
@@ -66,6 +72,13 @@ export type { NormaliseProgressState };
 
 interface Props {
   state: NormaliseProgressState;
+  /**
+   * Pre-computed by the caller: how many of the selected images
+   * already carry data in any normalise target group (metadata or
+   * drafts). When `existingCount > 0` the awaiting-confirm panel
+   * surfaces an inline overwrite notice.
+   */
+  overwriteInfo?: NormaliseOverwriteInfo;
   onConfirm: () => void;
   onCancel: () => void;
   onClose: () => void;
@@ -193,11 +206,13 @@ function CostPreview({ estimate }: { estimate: NormaliseEstimate }) {
 
 function AwaitingConfirmPanel({
   state,
+  overwriteInfo,
   onCancel,
   onConfirm,
   onSetEnabledGroups,
 }: {
   state: NormaliseProgressState;
+  overwriteInfo?: NormaliseOverwriteInfo;
   onCancel: () => void;
   onConfirm: () => void;
   onSetEnabledGroups: (groups: NormaliseGroup[]) => void;
@@ -247,17 +262,37 @@ function AwaitingConfirmPanel({
           );
         })}
       </div>
-      <div
-        style={{
-          marginTop: 12,
-          fontSize: 12,
-          color: "var(--accent-error, #d33)",
-        }}
-      >
-        Existing values in any chosen group <strong>will be overwritten</strong>{" "}
-        with drafts — including any unapplied drafts you may already have.
-        Fields outside the canonical form for each group will be cleared.
-      </div>
+      {overwriteInfo ? (
+        <OverwriteNotice
+          testidPrefix="normalise"
+          input={{
+            existingCount: overwriteInfo.existingCount,
+            totalCount: overwriteInfo.totalCount,
+            title: "Overwrite metadata fields?",
+            subjectSingular: "image",
+            subjectPlural: "images",
+            dataPhrase: "metadata in the groups you have selected",
+            actionSingle:
+              "Normalising will overwrite those fields with drafts — fields outside the canonical form will be cleared.",
+            actionPluralAll:
+              "Normalising will overwrite those fields with drafts — fields outside the canonical form will be cleared.",
+            actionPluralPartial:
+              "Normalising will overwrite those fields with drafts for those images — fields outside the canonical form will be cleared.",
+          }}
+        />
+      ) : (
+        <div
+          style={{
+            marginTop: 12,
+            fontSize: 12,
+            color: "var(--accent-error, #d33)",
+          }}
+        >
+          Existing values in any chosen group <strong>will be overwritten</strong>{" "}
+          with drafts — including any unapplied drafts you may already have.
+          Fields outside the canonical form for each group will be cleared.
+        </div>
+      )}
       <div
         style={{
           marginTop: 20,
@@ -382,6 +417,7 @@ function SummaryBreakdown({ s }: { s: NormaliseSummary }) {
 
 export function NormaliseProgressDialog({
   state,
+  overwriteInfo,
   onConfirm,
   onCancel,
   onClose,
@@ -400,6 +436,7 @@ export function NormaliseProgressDialog({
       {state.phase === "awaiting-confirm" && (
         <AwaitingConfirmPanel
           state={state}
+          overwriteInfo={overwriteInfo}
           onCancel={onCancel}
           onConfirm={onConfirm}
           onSetEnabledGroups={onSetEnabledGroups}

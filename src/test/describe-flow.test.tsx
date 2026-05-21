@@ -214,6 +214,38 @@ describe("AI-description flow", () => {
     expect(screen.getByTestId("describe-failure-list")).toHaveTextContent(/max_output_tokens/);
   });
 
+  it("surfaces the overwrite notice inside the dialog when an AI description already exists", async () => {
+    // The notice replaced the old pre-dialog ask() warning. It appears
+    // in the awaiting-confirm panel only when the selection includes
+    // photos whose AIDescription is already set in metadata or drafts.
+    mockApiInstance.settings = { openai_api_key: "sk-test", openai_model: "gpt-4o" };
+    mockApiInstance.describeEstimateComplete = {
+      totalInputTokens: 100, predictedCostUsd: 0.01,
+      upperBoundCostUsd: 0.02, model: "gpt-4o",
+    };
+    const { user, photo } = await openFolderWithPhoto("test.jpg");
+    await act(async () => {
+      mockApiInstance.emitImageMetadataReady(photo.relative_path, {
+        "XMP-mlib:AIDescription": "older description",
+      });
+    });
+    await act(async () => { await new Promise(r => setTimeout(r, 100)); });
+
+    const row = screen.getByTestId("photo-row");
+    await user.dblClick(row);
+    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    await user.click(screen.getByTestId("gallery-info-toggle"));
+    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+
+    await user.click(await screen.findByTestId("details-pane-generate-ai-btn"));
+    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+
+    await screen.findByTestId("describe-confirm-btn");
+    const notice = await screen.findByTestId("describe-overwrite-notice");
+    expect(notice).toHaveTextContent(/Overwrite AI description\?/);
+    expect(notice).toHaveTextContent(/already has an AI description/i);
+  });
+
   it("cancel during awaiting-confirm closes the dialog and signals backend", async () => {
     mockApiInstance.settings = { openai_api_key: "sk-test", openai_model: "gpt-4o" };
     const { user, aiBtn } = await startAiDescription();
