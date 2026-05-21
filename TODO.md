@@ -29,8 +29,6 @@ Bugs/quirks/tweaks/improvements
 glimpse of the "loading schema cache" dialog and then the app shows the home screen as normal. I'm wondering if loading the schema cache might be delaying its progress
 dialog appearing. Can you add logging so we know when the schema loading starts & ends and I can see if it coincides with the white screen.
 
-* IFD1:ThumbnailImage value shows "(Binary data 3965 bytes, use -b option to extract)". Saying "use -b option" is confusing to users of Media Library as they don't interact with exiftool directly
-
 * JFIF:JFIFVersion has schema type Bag (of ints) but has value of number "1.01". The editor then complains that 1.01 isn't a valid integer.
 Also why does the UI even allow you to attempt to modify this field when it's marked as readonly! This might have been a design decision made earlier, so user can override the schema if they want to try to write something anyway?
 
