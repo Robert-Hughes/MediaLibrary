@@ -1,22 +1,18 @@
-const __startupT0 = Date.now();
-(window as unknown as { __startupT0: number }).__startupT0 = __startupT0;
-console.log(`[startup] main.tsx module-eval start wall=${__startupT0}`);
-
 import React from "react";
 import ReactDOM from "react-dom/client";
-import "@fontsource/geist-sans/400.css";
-import "@fontsource/geist-sans/500.css";
-import "@fontsource/geist-sans/600.css";
-import "@fontsource/geist-mono/400.css";
-import "@fontsource/geist-mono/500.css";
+import "@fontsource-variable/geist/wght.css";
 import App from "./App";
 import { setupConsoleLogging } from "./consoleLogger";
 
-console.log(`[startup] imports resolved +${Date.now() - __startupT0}ms`);
-
-// Setup console logging to forward to Rust stdout
+// Setup console logging to forward to Rust stdout — must happen before any
+// log we want to see in the Rust stdout pipe.
 setupConsoleLogging();
 
+const __startupT0 = Date.now();
+const __w = window as unknown as { __startupT0: number; __htmlHeadT?: number; __bodyParsedT?: number; __splashPaintedT?: number };
+__w.__startupT0 = __startupT0;
+console.log(`[startup] main.tsx module-eval start wall=${__startupT0} htmlHead=${__w.__htmlHeadT ?? "?"} bodyParsed=${__w.__bodyParsedT ?? "?"} splashPainted=${__w.__splashPaintedT ?? "?"}`);
+console.log(`[startup] imports resolved +${Date.now() - __startupT0}ms`);
 console.log(`[startup] before createRoot.render +${Date.now() - __startupT0}ms`);
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(

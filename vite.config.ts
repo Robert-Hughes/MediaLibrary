@@ -24,6 +24,20 @@ export default defineConfig(async () => ({
     watch: {
       ignored: ["**/src-tauri/**"],
     },
+    warmup: {
+      clientFiles: ["./src/main.tsx", "./src/App.tsx"],
+    },
+  },
+
+  optimizeDeps: {
+    include: [
+      "react",
+      "react-dom",
+      "react-dom/client",
+      "react/jsx-runtime",
+      "@tauri-apps/api/core",
+      "@tauri-apps/api/event",
+    ],
   },
 
   // Vitest configuration
