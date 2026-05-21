@@ -4,21 +4,20 @@ import { HighlightedText } from "./HighlightedText";
 import { ContextMenu } from "./ContextMenu";
 import { TypedValueEditor } from "./editors/TypedValueEditor";
 import { useTagInfo } from "../hooks/useTagInfo";
-import { READ_ONLY_REMOVE_TOOLTIP } from "./editors/readOnlyMessages";
 import { variantToDisplayString } from "../draft";
 import { DatatypeBadge } from "./DatatypeBadge";
 import { schemaDatatype, variantDatatype, datatypesMatch } from "../utils/datatype";
-
-/**
- * Format a Variant for display.  Single source of truth for the legacy
- * comma-joined / key:value-joined rendering — re-exported as
- * `formatVariant` below so existing tests and call sites keep working
- * during the gradual migration to typed display components.
- */
-const formatVariantImpl = variantToDisplayString;
 import { NewPropertyDialog } from "./NewPropertyDialog";
 import { haystackContainsNormalized, normalizeListSearchQuery } from "../utils/listSearchText";
 import { confirmApplyEdits, confirmDiscardEdits } from "../utils/applyDiscardPrompts";
+
+/**
+ * Format a Variant for display.  Single source of truth for the legacy
+ * comma-joined / key:value-joined rendering.  The raw `Variant` is the
+ * source of truth for editing — never seed an editor from the string
+ * output (that was the source of the keywords-as-CSV corruption bug).
+ */
+const formatVariant = variantToDisplayString;
 
 interface Props {
   photo: PhotoInfo;
@@ -72,16 +71,6 @@ function formatTimestamp(ts: number | null): string {
   if (ts == null) return "—";
   return new Date(ts * 1000).toLocaleString();
 }
-
-/**
- * Recursively format a Variant value for display.  Re-exports
- * `variantToDisplayString` from draft.ts as the single source of truth.
- *
- * Edit-dialog seed values must NOT be derived from this string output,
- * since that was the source of the keywords-as-CSV corruption bug.
- * The raw `Variant` is the source of truth for editing.
- */
-const formatVariant = formatVariantImpl;
 
 /**
  * OS-level metadata entries (always available from the directory walk).
@@ -288,14 +277,12 @@ function DetailsImageRow({
  */
 function DetailsRowContextMenu({
   contextMenu,
-  existsInOriginal,
   onEdit,
   onDiscard,
   onRemove,
   onClose,
 }: {
   contextMenu: { x: number; y: number; key: string; originalValue: string; draftValue?: string | null };
-  existsInOriginal: boolean;
   onEdit: () => void;
   onDiscard: () => void;
   onRemove: () => void;
@@ -590,9 +577,6 @@ export function DetailsPane({ photo, metadata, draftEdits = {}, typedDraftEdits,
       {contextMenu && (
         <DetailsRowContextMenu
           contextMenu={contextMenu}
-          existsInOriginal={
-            metadata !== "loading" && contextMenu.key in (metadata as Record<string, Variant>)
-          }
           onEdit={() => {
             setEditDialog({
               key: contextMenu.key,
