@@ -7,9 +7,9 @@
  * the union of selected rows. Apply/Discard further filter to rows
  * that actually carry drafts.
  */
-import { ask } from "@tauri-apps/plugin-dialog";
 import type { PhotoInfo } from "../types";
 import { ContextMenu } from "./ContextMenu";
+import { confirmApplyEdits, confirmDiscardEdits } from "../utils/applyDiscardPrompts";
 
 interface Props {
   x: number;
@@ -123,10 +123,9 @@ export function PhotoListContextMenu({
                 const target = editablePaths.length === 1
                   ? (photos[effectiveIndices.find((i) => photos[i]?.relative_path === editablePaths[0])!]?.filename ?? editablePaths[0])
                   : `${editablePaths.length} photos`;
-                const confirmed = await ask(
-                  `Apply ${totalEdits} edit${totalEdits === 1 ? "" : "s"} to ${target}?\n\nThis will permanently modify the original image file${editablePaths.length === 1 ? "" : "s"}. There is no backup.`,
-                  { title: "Apply Edits", kind: "warning" },
-                );
+                const confirmed = await confirmApplyEdits({
+                  editCount: totalEdits, target, photoCount: editablePaths.length,
+                });
                 if (confirmed) { onClose(); onApplyEdits(editablePaths); }
               },
             }]
@@ -137,10 +136,11 @@ export function PhotoListContextMenu({
                 ? `Discard all edits… (${editablePaths.length} ${editablePaths.length === 1 ? "photo" : "photos"})`
                 : "Discard all edits…",
               onClick: async () => {
-                const confirmed = await ask(
-                  `Are you sure you want to discard ${totalEdits} edit${totalEdits === 1 ? "" : "s"} across ${editablePaths.length} ${editablePaths.length === 1 ? "photo" : "photos"}?`,
-                  { title: "Discard Edits", kind: "warning" },
-                );
+                const confirmed = await confirmDiscardEdits({
+                  editCount: totalEdits,
+                  scope: `${editablePaths.length} ${editablePaths.length === 1 ? "photo" : "photos"}`,
+                  preposition: "across",
+                });
                 if (confirmed) onDiscardAllEdits(editablePaths);
               },
             }]
