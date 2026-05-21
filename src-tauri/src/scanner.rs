@@ -315,7 +315,21 @@ fn run_exiftool_pass(
 /// Parse one exiftool `-j` array into a map keyed by normalized SourceFile path.
 /// Per-entry isolation: a single bad entry logs and is skipped, leaving the
 /// rest intact.
+///
+/// Binary substitution: exiftool emits literal `"(Binary data N bytes, use -b
+/// option to extract)"` strings for binary tags in `-j` output. Mentioning the
+/// `-b` flag is meaningless to Media Library users (they never invoke exiftool
+/// directly), so any key whose schema kind is `TagKind::Binary` is replaced
+/// with `Variant::String("<binary>")` inline, skipping deserialize of the raw
+/// placeholder.
 fn parse_exiftool_pass_json(json: &str) -> HashMap<String, HashMap<String, Variant>> {
+    parse_exiftool_pass_json_with_registry(json, crate::tag_schema::get_registry().ok())
+}
+
+fn parse_exiftool_pass_json_with_registry(
+    json: &str,
+    registry: Option<&crate::tag_schema::TagRegistry>,
+) -> HashMap<String, HashMap<String, Variant>> {
     let raw_entries: Vec<serde_json::Value> = match serde_json::from_str(json) {
         Ok(v) => v,
         Err(e) => {
@@ -332,18 +346,51 @@ fn parse_exiftool_pass_json(json: &str) -> HashMap<String, HashMap<String, Varia
     for (idx, raw) in raw_entries.into_iter().enumerate() {
         let source = raw.get("SourceFile").and_then(|v| v.as_str()).map(|s| s.to_string());
 
-        let mut map: HashMap<String, Variant> = match serde_json::from_value(raw) {
-            Ok(m) => m,
-            Err(e) => {
+        let obj = match raw {
+            serde_json::Value::Object(o) => o,
+            other => {
                 log::warn!(
-                    "[parse_exiftool] Skipping entry {} ({}): failed to parse as HashMap<String, Variant>: {}",
+                    "[parse_exiftool] Skipping entry {} ({}): expected JSON object, got {:?}",
                     idx,
                     source.as_deref().unwrap_or("<no SourceFile>"),
-                    e
+                    other
                 );
                 continue;
             }
         };
+
+        let mut map: HashMap<String, Variant> = HashMap::with_capacity(obj.len());
+        for (key, val) in obj {
+            // ExifTool's raw placeholder ("(Binary data N bytes, use -b
+            // option to extract)") is confusing in the UI: Media Library
+            // users don't invoke exiftool directly, so the `-b` advice is
+            // noise. Substitute a neutral "<binary>" string so the field
+            // is clearly non-textual without leaking the tool name.
+            //
+            // Primary check is the schema (TagKind::Binary). The regex
+            // fallback catches tags `-listx` does not enumerate — most
+            // notably exiftool's synthetic `File:` group (PreviewImage,
+            // ThumbnailImage, JpgFromRaw, etc.) which is built from file
+            // parsing rather than spec tables.
+            let variant = if is_binary_tag(&key, registry) || is_exiftool_binary_placeholder(&val) {
+                Variant::String("<binary>".to_string())
+            } else {
+                match serde_json::from_value::<Variant>(val) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        log::warn!(
+                            "[parse_exiftool] Entry {} ({}): failed to parse value for key {:?}: {}",
+                            idx,
+                            source.as_deref().unwrap_or("<no SourceFile>"),
+                            key,
+                            e
+                        );
+                        continue;
+                    }
+                }
+            };
+            map.insert(key, variant);
+        }
 
         if let Some(Variant::String(s)) = map.remove("SourceFile") {
             map_by_source.insert(s.replace('\\', "/"), map);
@@ -355,6 +402,30 @@ fn parse_exiftool_pass_json(json: &str) -> HashMap<String, HashMap<String, Varia
     }
 
     map_by_source
+}
+
+fn is_binary_tag(key: &str, registry: Option<&crate::tag_schema::TagRegistry>) -> bool {
+    registry
+        .and_then(|r| r.lookup(key))
+        .map(|info| matches!(info.kind, crate::tag_schema::TagKind::Binary))
+        .unwrap_or(false)
+}
+
+/// Match exiftool's literal binary-placeholder string, exactly as emitted
+/// in `-j` output: `(Binary data N bytes, use -b option to extract)`.
+///
+/// Used as a fallback when the schema does not classify the tag — most
+/// importantly for the synthetic `File:` group, which `-listx` does not
+/// enumerate. The pattern is anchored end-to-end so a free-text tag whose
+/// value happens to contain the phrase will not match unless the entire
+/// value is the placeholder.
+fn is_exiftool_binary_placeholder(val: &serde_json::Value) -> bool {
+    static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let re = RE.get_or_init(|| {
+        regex::Regex::new(r"^\(Binary data \d+ bytes, use -b option to extract\)$")
+            .expect("static regex must compile")
+    });
+    val.as_str().is_some_and(|s| re.is_match(s))
 }
 
 /// Legacy entry point retained for tests: takes JSON for one pass, the input
@@ -792,6 +863,91 @@ mod tests {
         match map.get("D:/a.mov").and_then(|m| m.get("Keys")) {
             Some(Variant::Object(_)) => {}
             other => panic!("expected Object, got {:?}", other),
+        }
+    }
+
+    fn binary_registry() -> crate::tag_schema::TagRegistry {
+        // `from_listx_xml` applies the hand-curated override table at the end,
+        // which inserts `IFD1:ThumbnailImage` as `TagKind::Binary` even when
+        // listx itself didn't enumerate it. Empty taginfo is enough.
+        crate::tag_schema::TagRegistry::from_listx_xml(
+            "<?xml version='1.0' encoding='UTF-8'?><taginfo></taginfo>",
+        )
+        .expect("build empty registry")
+    }
+
+    #[test]
+    fn binary_tag_values_are_replaced_with_placeholder() {
+        let json = r#"[{
+            "SourceFile": "D:/a.jpg",
+            "IFD1:ThumbnailImage": "(Binary data 3965 bytes, use -b option to extract)",
+            "EXIF:Make": "Canon"
+        }]"#;
+        let reg = binary_registry();
+        let map = parse_exiftool_pass_json_with_registry(json, Some(&reg));
+        let entry = map.get("D:/a.jpg").expect("entry present");
+        assert!(
+            matches!(entry.get("IFD1:ThumbnailImage"), Some(Variant::String(s)) if s == "<binary>"),
+            "expected <binary> placeholder, got {:?}",
+            entry.get("IFD1:ThumbnailImage")
+        );
+        // Non-binary tag passes through untouched.
+        assert!(matches!(entry.get("EXIF:Make"), Some(Variant::String(s)) if s == "Canon"));
+    }
+
+    #[test]
+    fn regex_fallback_substitutes_when_schema_misses_tag() {
+        // `File:` is exiftool's synthetic group for container-extracted
+        // binaries (PreviewImage, JpgFromRaw, etc.). `-listx` does not
+        // enumerate it, so the schema cannot classify these — the regex
+        // fallback is the only thing that catches them.
+        let json = r#"[{
+            "SourceFile": "D:/a.jpg",
+            "File:PreviewImage": "(Binary data 105557 bytes, use -b option to extract)"
+        }]"#;
+        let reg = binary_registry();
+        let map = parse_exiftool_pass_json_with_registry(json, Some(&reg));
+        let entry = map.get("D:/a.jpg").expect("entry present");
+        assert!(
+            matches!(entry.get("File:PreviewImage"), Some(Variant::String(s)) if s == "<binary>"),
+            "expected regex fallback to substitute, got {:?}",
+            entry.get("File:PreviewImage")
+        );
+    }
+
+    #[test]
+    fn regex_fallback_works_without_registry() {
+        // No schema available: regex alone must still catch the placeholder.
+        let json = r#"[{
+            "SourceFile": "D:/a.jpg",
+            "IFD1:ThumbnailImage": "(Binary data 3965 bytes, use -b option to extract)"
+        }]"#;
+        let map = parse_exiftool_pass_json_with_registry(json, None);
+        let entry = map.get("D:/a.jpg").expect("entry present");
+        assert!(matches!(
+            entry.get("IFD1:ThumbnailImage"),
+            Some(Variant::String(s)) if s == "<binary>"
+        ));
+    }
+
+    #[test]
+    fn regex_fallback_is_anchored_and_does_not_match_substrings() {
+        // A free-text tag whose value mentions the placeholder phrase but is
+        // not exactly the placeholder must round-trip unchanged. End-anchoring
+        // protects descriptions and other prose fields.
+        let json = r#"[{
+            "SourceFile": "D:/a.jpg",
+            "EXIF:ImageDescription": "Note: the exiftool stub reads \"(Binary data 99 bytes, use -b option to extract)\" in this field."
+        }]"#;
+        let reg = binary_registry();
+        let map = parse_exiftool_pass_json_with_registry(json, Some(&reg));
+        let entry = map.get("D:/a.jpg").expect("entry present");
+        match entry.get("EXIF:ImageDescription") {
+            Some(Variant::String(s)) => {
+                assert!(s.starts_with("Note: the exiftool stub"));
+                assert!(!s.contains("<binary>"));
+            }
+            other => panic!("expected unchanged String, got {:?}", other),
         }
     }
 
