@@ -18,7 +18,7 @@ import { schemaDatatype, variantDatatype, datatypesMatch } from "../utils/dataty
 const formatVariantImpl = variantToDisplayString;
 import { NewPropertyDialog } from "./NewPropertyDialog";
 import { haystackContainsNormalized, normalizeListSearchQuery } from "../utils/listSearchText";
-import { ask } from "@tauri-apps/plugin-dialog";
+import { confirmApplyEdits, confirmDiscardEdits } from "../utils/applyDiscardPrompts";
 
 interface Props {
   photo: PhotoInfo;
@@ -421,11 +421,10 @@ export function DetailsPane({ photo, metadata, draftEdits = {}, typedDraftEdits,
                 className="button button--primary"
                 style={{ padding: "2px 6px", fontSize: "11px", minHeight: "auto", borderRadius: "8px" }}
                 onClick={async () => {
-                  const numEdits = Object.keys(draftEdits).length;
-                  const confirmed = await ask(
-                    `Apply ${numEdits} edit${numEdits === 1 ? "" : "s"} to this photo?\n\nThis will permanently modify the original image file. There is no backup.`,
-                    { title: "Apply Edits", kind: "warning" }
-                  );
+                  const editCount = Object.keys(draftEdits).length;
+                  const confirmed = await confirmApplyEdits({
+                    editCount, target: "this photo", photoCount: 1,
+                  });
                   if (confirmed) onApplyEdits();
                 }}
                 data-testid="details-pane-apply-btn"
@@ -439,8 +438,10 @@ export function DetailsPane({ photo, metadata, draftEdits = {}, typedDraftEdits,
               style={{ padding: "2px 6px", fontSize: "11px", minHeight: "auto", borderRadius: "8px" }}
               onClick={async () => {
                 if (!onDiscardAllEdits) return;
-                const numEdits = Object.keys(draftEdits).length;
-                const confirmed = await ask(`Are you sure you want to discard ${numEdits} edit${numEdits === 1 ? "" : "s"} for this photo?`, { title: "Discard all edits", kind: "warning" });
+                const editCount = Object.keys(draftEdits).length;
+                const confirmed = await confirmDiscardEdits({
+                  editCount, scope: "this photo",
+                });
                 if (confirmed) onDiscardAllEdits();
               }}
               title="Discard all edits for this photo"
