@@ -416,7 +416,14 @@ function LoadedView({
   );
 }
 
+let __appFirstRenderLogged = false;
+
 export default function App() {
+  if (!__appFirstRenderLogged) {
+    __appFirstRenderLogged = true;
+    const t0 = (window as unknown as { __startupT0?: number }).__startupT0 ?? Date.now();
+    console.log(`[startup] App() first render begin +${Date.now() - t0}ms`);
+  }
   const [state, actions] = useMediaLibrary(tauriApi);
   const [showColumnDialog, setShowColumnDialog] = useState(false);
   const [showSettingsDialog, setShowSettingsDialog] = useState(false);
@@ -463,11 +470,25 @@ export default function App() {
     },
   });
 
+  useEffect(() => {
+    const t0 = (window as unknown as { __startupT0?: number }).__startupT0 ?? Date.now();
+    console.log(`[startup] App first commit (post-mount effect) +${Date.now() - t0}ms`);
+    requestAnimationFrame(() => {
+      console.log(`[startup] first rAF after mount +${Date.now() - t0}ms`);
+    });
+  }, []);
+
   // Warm the tag-schema registry before the UI becomes interactive so editors
   // never see a missing-schema flash on first use.
   useEffect(() => {
+    const t0 = (window as unknown as { __startupT0?: number }).__startupT0 ?? Date.now();
+    console.log(`[startup] App useEffect (preload_schema invoke) +${Date.now() - t0}ms`);
+    const callStart = Date.now();
     invoke("preload_schema")
-      .then(() => setSchemaReady(true))
+      .then(() => {
+        console.log(`[startup] preload_schema resolved +${Date.now() - t0}ms (invoke took ${Date.now() - callStart}ms)`);
+        setSchemaReady(true);
+      })
       .catch((err) => {
         console.error("[App] preload_schema failed:", err);
         setSchemaError(typeof err === "string" ? err : err instanceof Error ? err.message : String(err));

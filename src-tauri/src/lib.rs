@@ -20,7 +20,18 @@ pub mod openai_normalise;
 use serde::Serialize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::sync::OnceLock;
+
+static STARTUP_INSTANT: OnceLock<Instant> = OnceLock::new();
+
+fn wall_ms() -> u128 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0)
+}
+
+fn since_startup_ms() -> u128 {
+    STARTUP_INSTANT.get().map(|t| t.elapsed().as_millis()).unwrap_or(0)
+}
 use tauri::{AppHandle, Emitter, Manager, State};
 use work_queue::WorkQueue;
 
@@ -691,7 +702,11 @@ fn get_tag_info(tag: String) -> Result<Option<tag_schema::TagInfo>, String> {
 /// resolves so editors never see a missing-schema flash.
 #[tauri::command]
 fn preload_schema() -> Result<(), String> {
-    tag_schema::get_registry().map(|_| ()).map_err(|e| e.to_string())
+    log::info!("[startup] preload_schema enter +{}ms wall={}ms", since_startup_ms(), wall_ms());
+    let t = Instant::now();
+    let r = tag_schema::get_registry().map(|_| ()).map_err(|e| e.to_string());
+    log::info!("[startup] preload_schema exit took={}ms +{}ms wall={}ms", t.elapsed().as_millis(), since_startup_ms(), wall_ms());
+    r
 }
 
 /// Returns the writable `Group:Name` keys in the schema registry, sorted.
@@ -1841,7 +1856,9 @@ mod tests {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    STARTUP_INSTANT.set(Instant::now()).ok();
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    log::info!("[startup] run() entered wall={}ms", wall_ms());
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
@@ -1884,6 +1901,10 @@ pub fn run() {
             cancel_normalise_cmd,
             estimate_normalise_cost_cmd
         ])
+        .setup(|_app| {
+            log::info!("[startup] tauri setup() callback fired +{}ms wall={}ms", since_startup_ms(), wall_ms());
+            Ok(())
+        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
