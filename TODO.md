@@ -25,7 +25,7 @@ Bugs/quirks/tweaks/improvements
  Review size and responsibilities of files to see if anything has grown too large. Look for potential improvements in app architecture , abstractions or code re-use. Look also for testing gaps or test improvements. Find maintaibability issues, inconsistencies where we handle similar things differently in different parts of the app, behaviour that is surprising for either
  developers or users. Areas of complicated logic or high perplexity.
 
-* Perf bug: When launching the app there is a multi-second period where you just get a white screen, before the home page appears. There is then a brief
+* Perf bug, see STARTUP_PERFORMANCE.md: When launching the app there is a multi-second period where you just get a white screen, before the home page appears. There is then a brief
 glimpse of the "loading schema cache" dialog and then the app shows the home screen as normal. I'm wondering if loading the schema cache might be delaying its progress
 dialog appearing. Can you add logging so we know when the schema loading starts & ends and I can see if it coincides with the white screen.
 
