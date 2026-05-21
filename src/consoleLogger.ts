@@ -1,6 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
 
-// Intercept console methods and forward to Rust for stdout + file logging.
+// Intercept console methods and forward to Rust for stdout + file
+// logging. `console.debug` is deliberately NOT intercepted — hot-path
+// callsites (per-batch flush logs, per-event receipt counters) use it
+// so they stay visible in the browser devtools (when verbose is on)
+// without spamming the on-disk Rust log every batch.
 const originalConsole = {
   log: console.log,
   info: console.info,
