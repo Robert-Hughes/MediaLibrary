@@ -18,19 +18,9 @@ Now
 Bugs/quirks/tweaks/improvements
 =================================
 
-* DATATYPE_MISMATCHES.md
-  * Why does ComponentsConfiguration show as: [B]ComponentsConfiguration	(S)   Y, Cb, Cr, -      i.e. it has schema datatype bag but value datatype string. This is an unedited property so comes directly from exiftool, how come the datatypes are different
-
 * The app has grown a lot since our last full review. Take a holistic look at everything:
  Review size and responsibilities of files to see if anything has grown too large. Look for potential improvements in app architecture , abstractions or code re-use. Look also for testing gaps or test improvements. Find maintaibability issues, inconsistencies where we handle similar things differently in different parts of the app, behaviour that is surprising for either
  developers or users. Areas of complicated logic or high perplexity.
-
-* Perf bug, see STARTUP_PERFORMANCE.md: When launching the app there is a multi-second period where you just get a white screen, before the home page appears. There is then a brief
-glimpse of the "loading schema cache" dialog and then the app shows the home screen as normal. I'm wondering if loading the schema cache might be delaying its progress
-dialog appearing. Can you add logging so we know when the schema loading starts & ends and I can see if it coincides with the white screen.
-
-* JFIF:JFIFVersion has schema type Bag (of ints) but has value of number "1.01". The editor then complains that 1.01 isn't a valid integer.
-Also why does the UI even allow you to attempt to modify this field when it's marked as readonly! This might have been a design decision made earlier, so user can override the schema if they want to try to write something anyway?
 
 Features
 ========
