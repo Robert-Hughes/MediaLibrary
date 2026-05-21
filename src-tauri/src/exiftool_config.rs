@@ -82,6 +82,12 @@ pub fn exiftool_command() -> Command {
     if let Some(path) = config_path() {
         cmd.arg("-config").arg(path);
     }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // CREATE_NO_WINDOW: suppress console window flash on each exiftool spawn.
+        cmd.creation_flags(0x0800_0000);
+    }
     cmd
 }
 
