@@ -12,6 +12,7 @@
  * body frame and Escape handling live there.
  */
 import type { BatchFailureKind, NormaliseEstimate, NormaliseGroup, NormaliseSummary } from "../types";
+import { ALL_NORMALISE_GROUPS } from "../types";
 import type { NormaliseProgressState } from "../hooks/useNormaliseMetadata";
 import { BatchJobDialog } from "./BatchJobDialog";
 import { BatchSummaryCountersRow } from "./BatchSummaryCountersRow";
@@ -100,19 +101,9 @@ function groupLabel(g: NormaliseGroup): string {
   }
 }
 
-/** Groups the user can toggle. Group B (Description) requires an AI
- *  call when sources are distinct — but the deterministic branches
- *  (cases 1–3) still work without an API key, so we expose it always. */
-const V1_GROUPS: NormaliseGroup[] = [
-  "keywords",
-  "creator",
-  "copyright",
-  "headline",
-  "title",
-  "location",
-  "dates",
-  "description",
-];
+/** Groups the user can toggle. Sourced from the single app-wide
+ *  constant so dialog + caller agree on the v1 set + pass order. */
+const V1_GROUPS: readonly NormaliseGroup[] = ALL_NORMALISE_GROUPS;
 
 function phaseTitle(state: NormaliseProgressState): string {
   switch (state.phase) {
@@ -327,7 +318,7 @@ function SummaryBreakdown({ s }: { s: NormaliseSummary }) {
   // Group ordering used in the awaiting-confirm checklist; re-used so
   // the done-panel breakdown reads in the same order users selected
   // the groups in.
-  const groupOrder: NormaliseGroup[] = V1_GROUPS;
+  const groupOrder: readonly NormaliseGroup[] = V1_GROUPS;
 
   // Roll up a few totals across all groups for the headline strip so
   // users see the overall counts before drilling into per-group rows.

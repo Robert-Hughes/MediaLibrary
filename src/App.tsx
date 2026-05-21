@@ -20,7 +20,8 @@ import { useDescribeImages } from "./hooks/useDescribeImages";
 import { GeocodeProgressDialog } from "./components/GeocodeProgressDialog";
 import { useGeocodeImages } from "./hooks/useGeocodeImages";
 import { resolveGps } from "./utils/resolveGps";
-import type { GeocodeRequestItem, NormaliseGroup } from "./types";
+import type { GeocodeRequestItem, DraftEdit } from "./types";
+import { ALL_NORMALISE_GROUPS } from "./types";
 import { NormaliseProgressDialog } from "./components/NormaliseProgressDialog";
 import { useNormaliseMetadata } from "./hooks/useNormaliseMetadata";
 import {
@@ -295,16 +296,7 @@ function LoadedView({
         onNormalise={(relPaths) => {
           // Default enabled groups: every v1 group. User can untick
           // individual groups in the confirm dialog.
-          const initialGroups: NormaliseGroup[] = [
-            "keywords",
-            "creator",
-            "copyright",
-            "headline",
-            "title",
-            "location",
-            "dates",
-            "description",
-          ];
+          const initialGroups = ALL_NORMALISE_GROUPS;
           const items = buildNormaliseItems(
             relPaths,
             metadataStoreLookup(state.imageMetadata),
@@ -314,7 +306,7 @@ function LoadedView({
           setNormaliseOverwrite(
             countNormaliseOverwrites(relPaths, state.imageMetadata, state.draftEdits),
           );
-          normalise.actions.start(state.folder, items, initialGroups);
+          normalise.actions.start(state.folder, items, [...initialGroups]);
         }}
         onCopyPaths={onCopyPaths}
         onSelectionCountChange={setSelectionCount}
@@ -348,16 +340,7 @@ function LoadedView({
             geocode.actions.start(state.folder, buildGeocodeItems([relPath]));
           }}
           onNormalise={(relPath) => {
-            const initialGroups: NormaliseGroup[] = [
-              "keywords",
-              "creator",
-              "copyright",
-              "headline",
-              "title",
-              "location",
-              "dates",
-              "description",
-            ];
+            const initialGroups = ALL_NORMALISE_GROUPS;
             const items = buildNormaliseItems(
               [relPath],
               metadataStoreLookup(state.imageMetadata),
@@ -367,7 +350,7 @@ function LoadedView({
             setNormaliseOverwrite(
               countNormaliseOverwrites([relPath], state.imageMetadata, state.draftEdits),
             );
-            normalise.actions.start(state.folder, items, initialGroups);
+            normalise.actions.start(state.folder, items, [...initialGroups]);
           }}
           onShowInFileExplorer={(relPath) => {
             const idx = displayPhotos.findIndex((p) => p.relative_path === relPath);
@@ -440,36 +423,21 @@ export default function App() {
   const [describeOverwrite, setDescribeOverwrite] = useState<OverwriteCount | undefined>(undefined);
   const [geocodeOverwrite, setGeocodeOverwrite] = useState<OverwriteCount | undefined>(undefined);
   const [normaliseOverwrite, setNormaliseOverwrite] = useState<OverwriteCount | undefined>(undefined);
-  // Hand the describe flow a callback that merges backend-produced edits
-  // into the same in-memory draft store the editors write to. The hook
-  // wires this to the per-image `describe_progress` event so the UI
-  // reflects new AI drafts the instant each image's call returns.
-  const describe = useDescribeImages({
-    onApplyEdits: (relPath, edits) => {
+  // Shared merge-into-drafts callback for every batch image job
+  // (describe, geocode, normalise). Each hook emits per-image typed
+  // edits via this callback; we funnel them through setDraftBatch so
+  // the UI re-renders immediately and the existing persistence
+  // pipeline picks them up.
+  const mergeBatchEdits = useCallback(
+    (relPath: string, edits: Record<string, DraftEdit>) => {
       const entries = Object.entries(edits).map(([key, edit]) => ({ key, edit }));
       if (entries.length > 0) actions.setDraftBatch(relPath, entries);
     },
-  });
-  // Same merge-into-drafts pattern as describe — the geocode loop
-  // emits a Set or Delete edit per target tag, and we feed the whole
-  // batch into setDraftBatch so the user sees the new location group
-  // immediately in the details pane.
-  const geocode = useGeocodeImages({
-    onApplyEdits: (relPath, edits) => {
-      const entries = Object.entries(edits).map(([key, edit]) => ({ key, edit }));
-      if (entries.length > 0) actions.setDraftBatch(relPath, entries);
-    },
-  });
-  // Same merge-into-drafts pattern — the normaliser dispatcher emits
-  // a per-group bundle of drafts per image; we feed it into the same
-  // shared draft store so the details pane reflects the new canonical
-  // values as soon as each image lands.
-  const normalise = useNormaliseMetadata({
-    onApplyEdits: (relPath, edits) => {
-      const entries = Object.entries(edits).map(([key, edit]) => ({ key, edit }));
-      if (entries.length > 0) actions.setDraftBatch(relPath, entries);
-    },
-  });
+    [actions],
+  );
+  const describe = useDescribeImages({ onApplyEdits: mergeBatchEdits });
+  const geocode = useGeocodeImages({ onApplyEdits: mergeBatchEdits });
+  const normalise = useNormaliseMetadata({ onApplyEdits: mergeBatchEdits });
 
   useEffect(() => {
     const t0 = (window as unknown as { __startupT0?: number }).__startupT0 ?? Date.now();
