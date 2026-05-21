@@ -583,6 +583,23 @@ export const NORMALISE_ALL_TARGET_TAGS: readonly string[] = Object.values(
   NORMALISE_TARGET_TAGS_BY_GROUP,
 ).flat();
 
+/**
+ * Every NormaliseGroup the v1 dialog exposes, in the pass order
+ * documented in NORMALISE_METADATA_PLAN.md §2. Used as the default
+ * "all enabled" set when a normalise flow is kicked off, and as the
+ * canonical ordering for the dialog's per-group toggles.
+ */
+export const ALL_NORMALISE_GROUPS: readonly NormaliseGroup[] = [
+  "keywords",
+  "creator",
+  "copyright",
+  "headline",
+  "title",
+  "location",
+  "dates",
+  "description",
+];
+
 export const GEOCODE_TARGET_TAGS: readonly string[] = [
   "XMP-iptcCore:Location",
   "XMP-photoshop:City",

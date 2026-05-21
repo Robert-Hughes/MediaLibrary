@@ -152,6 +152,18 @@ function detailsRowMatchesSearch(label: string, value: string, draftValue: strin
   return haystackContainsNormalized(`${label}\n${value}\n${draftValue ?? ""}\n${fullKey}`, normalizedQuery);
 }
 
+/**
+ * Split a normalized details-search query into the residual text query
+ * and a `has:edits` boolean filter. Returns the bare query (with the
+ * `has:edits` token stripped + trimmed) so the standard substring match
+ * runs against the user's actual search terms.
+ */
+function splitHasEditsFilter(normalizedQuery: string): { query: string; hasEditsFilter: boolean } {
+  const hasEditsFilter = normalizedQuery.includes("has:edits");
+  const query = hasEditsFilter ? normalizedQuery.replace("has:edits", "").trim() : normalizedQuery;
+  return { query, hasEditsFilter };
+}
+
 function DetailsValueCell({
   originalValue,
   draftValue,
@@ -366,11 +378,7 @@ export function DetailsPane({ photo, metadata, draftEdits = {}, typedDraftEdits,
   }, [metadata, draftEdits]);
 
   const filteredOsEntries = useMemo(() => {
-    let query = normalizedDetailsQuery;
-    const hasEditsFilter = query.includes("has:edits");
-    if (hasEditsFilter) {
-      query = query.replace("has:edits", "").trim();
-    }
+    const { query, hasEditsFilter } = splitHasEditsFilter(normalizedDetailsQuery);
     if (!query && !hasEditsFilter) return osEntries;
     return osEntries.filter(([label, value, key]) => {
       if (hasEditsFilter && draftEdits[key] === undefined) return false;
@@ -379,11 +387,7 @@ export function DetailsPane({ photo, metadata, draftEdits = {}, typedDraftEdits,
   }, [osEntries, normalizedDetailsQuery, draftEdits]);
 
   const filteredImageGroups = useMemo(() => {
-    let query = normalizedDetailsQuery;
-    const hasEditsFilter = query.includes("has:edits");
-    if (hasEditsFilter) {
-      query = query.replace("has:edits", "").trim();
-    }
+    const { query, hasEditsFilter } = splitHasEditsFilter(normalizedDetailsQuery);
     if (!query && !hasEditsFilter) return imageGroups;
     return imageGroups
       .map((g) => ({
