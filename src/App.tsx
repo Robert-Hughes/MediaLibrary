@@ -13,6 +13,7 @@ import { ColumnSelectionDialog } from "./components/ColumnSelectionDialog";
 import { ApplyProgressDialog } from "./components/ApplyProgressDialog";
 import { VerifyOutcomeDialog } from "./components/VerifyOutcomeDialog";
 import { ErrorBanner } from "./components/ErrorBanner";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { DescribeProgressDialog } from "./components/DescribeProgressDialog";
 import { useDescribeImages } from "./hooks/useDescribeImages";
@@ -611,19 +612,21 @@ export default function App() {
       )}
 
       {!checkingCli && state.kind === "loaded" && (
-        <LoadedView
-          state={state as LoadedState}
-          actions={actions}
-          showColumnDialog={showColumnDialog}
-          setShowColumnDialog={setShowColumnDialog}
-          onOpenSettings={() => setShowSettingsDialog(true)}
-          describe={describe}
-          geocode={geocode}
-          normalise={normalise}
-          setDescribeOverwrite={setDescribeOverwrite}
-          setGeocodeOverwrite={setGeocodeOverwrite}
-          setNormaliseOverwrite={setNormaliseOverwrite}
-        />
+        <ErrorBoundary name="LoadedView">
+          <LoadedView
+            state={state as LoadedState}
+            actions={actions}
+            showColumnDialog={showColumnDialog}
+            setShowColumnDialog={setShowColumnDialog}
+            onOpenSettings={() => setShowSettingsDialog(true)}
+            describe={describe}
+            geocode={geocode}
+            normalise={normalise}
+            setDescribeOverwrite={setDescribeOverwrite}
+            setGeocodeOverwrite={setGeocodeOverwrite}
+            setNormaliseOverwrite={setNormaliseOverwrite}
+          />
+        </ErrorBoundary>
       )}
 
       {showSettingsDialog && (
