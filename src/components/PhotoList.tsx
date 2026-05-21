@@ -1,13 +1,12 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ThumbnailStore, ImageMetadataStore, GEOCODE_TARGET_TAGS } from "../types";
+import { ThumbnailStore, ImageMetadataStore } from "../types";
 import type { PhotoInfo, SortConfig, VisibleColumn } from "../types";
 import { ContextMenu } from "./ContextMenu";
 import { PhotoRow } from "./PhotoRow";
 import { ResizeHandle } from "./ResizeHandle";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { nextSortConfig } from "../utils/sorting";
-import { buildOverwriteWarning } from "./overwriteWarning";
 
 interface Props {
   photos: PhotoInfo[];
@@ -846,40 +845,7 @@ export function PhotoList({
                     label: count > 1
                       ? `Generate AI Description… (${count} ${noun})`
                       : "Generate AI Description…",
-                    onClick: async () => {
-                      // Mirror the per-photo overwrite warning that lives in
-                      // DetailsPane: count selected photos whose AIDescription
-                      // already exists either on disk or as a draft, and
-                      // confirm before kicking the flow off.
-                      const existing = selectedPaths.filter((p) => {
-                        const meta = imageMetadata.get(p);
-                        const inMeta = typeof meta === "object" && meta !== null
-                          && "XMP-mlib:AIDescription" in (meta as Record<string, unknown>);
-                        const inDraft = "XMP-mlib:AIDescription" in (draftEdits[p] ?? {});
-                        return inMeta || inDraft;
-                      });
-                      const warning = buildOverwriteWarning({
-                        existingCount: existing.length,
-                        totalCount: selectedPaths.length,
-                        title: "Overwrite AI description?",
-                        // PhotoList: only one selection means the
-                        // single-selection branch uses "image" to
-                        // match DetailsPane's button copy.
-                        subjectSingular: "image",
-                        subjectPlural: "photos",
-                        dataPhrase: "an AI description",
-                        actionSingle:
-                          "Generating a new one will overwrite the existing one.",
-                        actionPluralAll:
-                          "Generating new ones will overwrite the existing ones.",
-                      });
-                      if (warning) {
-                        const confirmed = await ask(warning.body, {
-                          title: warning.title,
-                          kind: "warning",
-                        });
-                        if (!confirmed) return;
-                      }
+                    onClick: () => {
                       setContextMenu(null);
                       onGenerateAiDescription(selectedPaths);
                     },
@@ -895,42 +861,7 @@ export function PhotoList({
                     label: count > 1
                       ? `Reverse Geocode… (${count} ${noun})`
                       : "Reverse Geocode…",
-                    onClick: async () => {
-                      // Coherent-replacement rule from the plan §1: any
-                      // §1 target tag already present in metadata OR
-                      // drafts means a confirm + clear cycle is about
-                      // to happen. The warning copy is deliberate —
-                      // "fields the geocoder doesn't return will be
-                      // cleared" is the user's only signal that an
-                      // empty Nominatim response for, say, State will
-                      // delete an existing State value.
-                      const existing = selectedPaths.filter((p) => {
-                        const meta = imageMetadata.get(p);
-                        const metaBag = typeof meta === "object" && meta !== null
-                          ? (meta as Record<string, unknown>) : {};
-                        const drafts = draftEdits[p] ?? {};
-                        return GEOCODE_TARGET_TAGS.some(
-                          (k) => k in metaBag || k in drafts,
-                        );
-                      });
-                      const warning = buildOverwriteWarning({
-                        existingCount: existing.length,
-                        totalCount: selectedPaths.length,
-                        title: "Overwrite location data?",
-                        subjectSingular: "photo",
-                        dataPhrase: "location data",
-                        actionSingle:
-                          "Reverse-geocoding will overwrite all location name fields (City, State, Country, etc. — GPS coordinates are not touched) with drafts; fields the geocoder doesn't return will be cleared.",
-                        actionPluralPartial:
-                          "Reverse-geocoding will overwrite all location name fields (City, State, Country, etc. — GPS coordinates are not touched) with drafts for those photos; fields the geocoder doesn't return will be cleared.",
-                      });
-                      if (warning) {
-                        const confirmed = await ask(warning.body, {
-                          title: warning.title,
-                          kind: "warning",
-                        });
-                        if (!confirmed) return;
-                      }
+                    onClick: () => {
                       setContextMenu(null);
                       onGeocode(selectedPaths);
                     },

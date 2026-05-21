@@ -1,16 +1,13 @@
 /**
  * Shared text builder for the "already has X data, will overwrite with
- * drafts — continue?" warnings that every batch flow shows before kicking
- * off a multi-select run.
+ * drafts" notices that the batch dialogs (Describe, Geocode, Normalise)
+ * show inside their awaiting-confirm panel.
  *
- * Describe and geocode both used to copy-paste the same three-branch
- * conditional (single / all-of-many / some-of-many) with slightly
- * different copy. The new metadata-normaliser feature wants the same
- * shape with again-different copy, so the pattern is extracted here as
- * a pure text builder rather than a React component — callers continue
- * to pass the resulting strings to `ask()` themselves.
- *
- * Plan reference: `docs/NORMALISE_METADATA_PLAN.md` §11 item 2.
+ * Previously the same copy was emitted via `ask()` before opening each
+ * dialog. The pre-dialog warning has been folded into the dialog itself
+ * so the cost estimate and the overwrite notice live side by side. The
+ * builder now produces a body string without a trailing "Continue?" —
+ * the Confirm button below the notice provides that affordance.
  */
 
 export interface OverwriteWarningInput {
@@ -18,14 +15,9 @@ export interface OverwriteWarningInput {
   existingCount: number;
   /** Total number of selected photos. */
   totalCount: number;
-  /** Heading shown in the native confirm dialog. */
+  /** Heading displayed above the notice body. */
   title: string;
-  /**
-   * Singular noun used in the "This {subject}" branch. Existing call
-   * sites use "image" (DetailsPane, single button) and "photo"
-   * (PhotoList, multi-select context-menu). Kept as a parameter so the
-   * extraction doesn't quietly change copy.
-   */
+  /** Singular subject noun (e.g. "image"). */
   subjectSingular: string;
   /** Defaults to `subjectSingular + "s"`. */
   subjectPlural?: string;
@@ -36,8 +28,8 @@ export interface OverwriteWarningInput {
    */
   dataPhrase: string;
   /**
-   * Sentence describing what the action will do, used when exactly one
-   * photo is involved. The builder appends "Continue?" after it.
+   * Sentence describing what the action will do when exactly one photo
+   * is involved.
    */
   actionSingle: string;
   /**
@@ -49,9 +41,7 @@ export interface OverwriteWarningInput {
   /**
    * Action sentence for the "X of N selected ... already have" branch
    * (existingCount < totalCount). Falls back to `actionPluralAll`, then
-   * `actionSingle`. Geocode uses this slot to insert
-   * "...with drafts for those photos..." so the user knows partial
-   * selection is honoured.
+   * `actionSingle`.
    */
   actionPluralPartial?: string;
 }
@@ -62,8 +52,8 @@ export interface OverwriteWarning {
 }
 
 /**
- * Build the title + body for a batch overwrite confirmation. Returns
- * `null` when `existingCount === 0`, signalling no warning is needed.
+ * Build the title + body for an inline overwrite notice. Returns
+ * `null` when `existingCount === 0`, signalling no notice is needed.
  */
 export function buildOverwriteWarning(
   input: OverwriteWarningInput,
@@ -95,11 +85,10 @@ export function buildOverwriteWarning(
     prefix = `All ${totalCount} selected ${subjectPlural} already have ${dataPhrase}.`;
     action = pluralAll;
   } else {
-    // Partial selection: conjugate by `existingCount` (1 → "has", >1 → "have").
     const verb = existingCount === 1 ? "has" : "have";
     prefix = `${existingCount} of ${totalCount} selected ${subjectPlural} already ${verb} ${dataPhrase}.`;
     action = pluralPartial;
   }
 
-  return { title, body: `${prefix} ${action} Continue?` };
+  return { title, body: `${prefix} ${action}` };
 }

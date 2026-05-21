@@ -24,10 +24,23 @@ import type {
 } from "../types";
 import { BatchJobDialog } from "./BatchJobDialog";
 import { RunningProgressPanel } from "./RunningProgressPanel";
+import { OverwriteNotice } from "./OverwriteNotice";
 import { assertExhaustive } from "../utils/assertExhaustive";
+
+export interface DescribeOverwriteInfo {
+  existingCount: number;
+  totalCount: number;
+}
 
 interface Props {
   state: DescribeProgressState;
+  /**
+   * Pre-computed by the caller: how many of the selected images
+   * already carry an AI description (in metadata or drafts). When
+   * `existingCount > 0` the awaiting-confirm panel surfaces an
+   * inline overwrite notice — see plan §"Inline overwrite notice".
+   */
+  overwriteInfo?: DescribeOverwriteInfo;
   onConfirm: () => void;
   onCancel: () => void;
   onClose: () => void;
@@ -147,7 +160,7 @@ function UsageSummary({ s }: { s: DescribeUsageSummary }) {
   );
 }
 
-export function DescribeProgressDialog({ state, onConfirm, onCancel, onClose }: Props) {
+export function DescribeProgressDialog({ state, overwriteInfo, onConfirm, onCancel, onClose }: Props) {
   return (
     <BatchJobDialog
       testidPrefix="describe"
@@ -219,6 +232,23 @@ export function DescribeProgressDialog({ state, onConfirm, onCancel, onClose }: 
             as draft edits under the XMP-mlib namespace and can be
             reviewed before applying.
           </div>
+          {overwriteInfo && (
+            <OverwriteNotice
+              testidPrefix="describe"
+              input={{
+                existingCount: overwriteInfo.existingCount,
+                totalCount: overwriteInfo.totalCount,
+                title: "Overwrite AI description?",
+                subjectSingular: "image",
+                subjectPlural: "images",
+                dataPhrase: "an AI description",
+                actionSingle:
+                  "Generating a new one will overwrite the existing one.",
+                actionPluralAll:
+                  "Generating new ones will overwrite the existing ones.",
+              }}
+            />
+          )}
           <div style={{ marginTop: 20, display: "flex", justifyContent: "flex-end", gap: 8 }}>
             <button
               className="button button--secondary"

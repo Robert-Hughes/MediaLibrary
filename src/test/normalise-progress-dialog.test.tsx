@@ -149,7 +149,7 @@ describe("NormaliseProgressDialog — awaiting-confirm", () => {
     expect(onCancel).toHaveBeenCalledTimes(1);
   });
 
-  it("shows the prominent overwrite warning", () => {
+  it("shows the prominent overwrite warning (fallback when no overwriteInfo provided)", () => {
     const { container } = render(
       <NormaliseProgressDialog
         state={baseState()}
@@ -161,6 +161,37 @@ describe("NormaliseProgressDialog — awaiting-confirm", () => {
     );
     expect(container.textContent).toMatch(/will be overwritten/i);
     expect(container.textContent).toMatch(/will be cleared/i);
+  });
+
+  it("renders the inline overwrite notice when overwriteInfo has existing > 0", () => {
+    render(
+      <NormaliseProgressDialog
+        state={baseState({ total: 3 })}
+        overwriteInfo={{ existingCount: 2, totalCount: 3 }}
+        onConfirm={() => {}}
+        onCancel={() => {}}
+        onClose={() => {}}
+        onSetEnabledGroups={() => {}}
+      />,
+    );
+    const notice = screen.getByTestId("normalise-overwrite-notice");
+    expect(notice).toHaveTextContent(/Overwrite metadata fields\?/);
+    expect(notice).toHaveTextContent(/2 of 3 selected images already have/i);
+    expect(notice).toHaveTextContent(/fields outside the canonical form will be cleared/i);
+  });
+
+  it("renders no overwrite notice when overwriteInfo has existing === 0", () => {
+    render(
+      <NormaliseProgressDialog
+        state={baseState({ total: 3 })}
+        overwriteInfo={{ existingCount: 0, totalCount: 3 }}
+        onConfirm={() => {}}
+        onCancel={() => {}}
+        onClose={() => {}}
+        onSetEnabledGroups={() => {}}
+      />,
+    );
+    expect(screen.queryByTestId("normalise-overwrite-notice")).toBeNull();
   });
 });
 

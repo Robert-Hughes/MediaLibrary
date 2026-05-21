@@ -47,7 +47,7 @@ describe("buildOverwriteWarning", () => {
     });
     expect(w).toEqual({
       title: "Overwrite AI description?",
-      body: "This image already has an AI description. Generating a new one will overwrite the existing one. Continue?",
+      body: "This image already has an AI description. Generating a new one will overwrite the existing one.",
     });
   });
 
@@ -56,7 +56,7 @@ describe("buildOverwriteWarning", () => {
       existingCount: 3, totalCount: 3, ...describeFlow,
     });
     expect(w?.body).toBe(
-      "All 3 selected photos already have an AI description. Generating new ones will overwrite the existing ones. Continue?",
+      "All 3 selected photos already have an AI description. Generating new ones will overwrite the existing ones.",
     );
   });
 
@@ -65,7 +65,7 @@ describe("buildOverwriteWarning", () => {
       existingCount: 2, totalCount: 5, ...describeFlow,
     });
     expect(w?.body).toBe(
-      "2 of 5 selected photos already have an AI description. Generating new ones will overwrite the existing ones. Continue?",
+      "2 of 5 selected photos already have an AI description. Generating new ones will overwrite the existing ones.",
     );
   });
 
@@ -74,8 +74,15 @@ describe("buildOverwriteWarning", () => {
       existingCount: 1, totalCount: 5, ...describeFlow,
     });
     expect(w?.body).toBe(
-      "1 of 5 selected photos already has an AI description. Generating new ones will overwrite the existing ones. Continue?",
+      "1 of 5 selected photos already has an AI description. Generating new ones will overwrite the existing ones.",
     );
+  });
+
+  it("body does not append 'Continue?' (the dialog's Confirm button provides that affordance)", () => {
+    const w = buildOverwriteWarning({
+      existingCount: 1, totalCount: 1, ...describeFlow,
+    });
+    expect(w?.body).not.toMatch(/Continue\?/);
   });
 
   it("falls back to actionSingle when actionPluralAll omitted", () => {

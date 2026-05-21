@@ -277,12 +277,16 @@ describe("DetailsPane component", () => {
 
 // ── Generate-AI overwrite confirmation ──────────────────────────────────────
 
-describe("DetailsPane: Generate-AI overwrite confirmation", () => {
+describe("DetailsPane: Generate-AI button", () => {
+  // The overwrite-warning now lives inside DescribeProgressDialog's
+  // awaiting-confirm panel rather than in a pre-dialog `ask()`. The
+  // button's only job is to invoke the callback — the dialog (driven by
+  // App-level overwriteInfo) takes it from there.
   const photo = makePhoto({ relative_path: "p.jpg", filename: "p.jpg", date_modified: 0, date_created: 0 });
   beforeEach(() => { cleanup(); });
 
-  it("warns when the AI description exists only as a draft (regression)", async () => {
-    const ask = vi.fn().mockResolvedValue(false);
+  it("invokes onGenerateAiDescription directly (no pre-dialog ask)", async () => {
+    const ask = vi.fn();
     vi.doMock("@tauri-apps/plugin-dialog", () => ({ ask }));
     vi.resetModules();
     const { DetailsPane: Fresh } = await import("../components/DetailsPane");
@@ -290,7 +294,6 @@ describe("DetailsPane: Generate-AI overwrite confirmation", () => {
     const typedDraftEdits: Record<string, DraftEdit> = {
       "XMP-mlib:AIDescription": { value: "older description", intent: "Set" },
     };
-
     const user = userEvent.setup();
     render(
       <Fresh
@@ -302,17 +305,13 @@ describe("DetailsPane: Generate-AI overwrite confirmation", () => {
       />,
     );
     await user.click(screen.getByTestId("details-pane-generate-ai-btn"));
-    expect(ask).toHaveBeenCalledTimes(1);
-    // Message no longer hard-codes the word "draft"; refers to "the existing one".
-    expect(ask.mock.calls[0][0]).toMatch(/existing one/i);
-    expect(ask.mock.calls[0][0]).not.toMatch(/draft/i);
-    // User said No → onGenerate must not fire.
-    expect(onGenerate).not.toHaveBeenCalled();
+    expect(ask).not.toHaveBeenCalled();
+    expect(onGenerate).toHaveBeenCalledTimes(1);
     vi.doUnmock("@tauri-apps/plugin-dialog");
   });
 
-  it("does not warn when no AI description exists anywhere", async () => {
-    const ask = vi.fn().mockResolvedValue(true);
+  it("invokes onGenerateAiDescription with no existing description either", async () => {
+    const ask = vi.fn();
     vi.doMock("@tauri-apps/plugin-dialog", () => ({ ask }));
     vi.resetModules();
     const { DetailsPane: Fresh } = await import("../components/DetailsPane");

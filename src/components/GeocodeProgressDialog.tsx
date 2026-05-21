@@ -22,10 +22,23 @@ import type { BatchFailureKind, GeocodeFailure, GeocodeProgressState, GeocodeSum
 import { BatchJobDialog } from "./BatchJobDialog";
 import { BatchSummaryCountersRow } from "./BatchSummaryCountersRow";
 import { RunningProgressPanel } from "./RunningProgressPanel";
+import { OverwriteNotice } from "./OverwriteNotice";
 import { assertExhaustive } from "../utils/assertExhaustive";
+
+export interface GeocodeOverwriteInfo {
+  existingCount: number;
+  totalCount: number;
+}
 
 interface Props {
   state: GeocodeProgressState;
+  /**
+   * Pre-computed by the caller: how many of the selected images
+   * already carry any §1 location target tag (in metadata or drafts).
+   * When `existingCount > 0` the awaiting-confirm panel surfaces an
+   * inline overwrite notice.
+   */
+  overwriteInfo?: GeocodeOverwriteInfo;
   onConfirm: () => void;
   onCancel: () => void;
   onClose: () => void;
@@ -144,10 +157,12 @@ function SummaryBreakdown({ s }: { s: GeocodeSummary }) {
  */
 function AwaitingConfirmPanel({
   state,
+  overwriteInfo,
   onCancel,
   onConfirm,
 }: {
   state: GeocodeProgressState;
+  overwriteInfo?: GeocodeOverwriteInfo;
   onCancel: () => void;
   onConfirm: () => void;
 }) {
@@ -190,6 +205,23 @@ function AwaitingConfirmPanel({
         will be <strong>cleared as drafts</strong> (so the location group stays internally
         consistent). Nothing is written to disk until you apply drafts.
       </div>
+      {overwriteInfo && (
+        <OverwriteNotice
+          testidPrefix="geocode"
+          input={{
+            existingCount: overwriteInfo.existingCount,
+            totalCount: overwriteInfo.totalCount,
+            title: "Overwrite location data?",
+            subjectSingular: "image",
+            subjectPlural: "images",
+            dataPhrase: "location data",
+            actionSingle:
+              "Reverse-geocoding will overwrite all location name fields (City, State, Country, etc. — GPS coordinates are not touched) with drafts; fields the geocoder doesn't return will be cleared.",
+            actionPluralPartial:
+              "Reverse-geocoding will overwrite all location name fields (City, State, Country, etc. — GPS coordinates are not touched) with drafts for those images; fields the geocoder doesn't return will be cleared.",
+          }}
+        />
+      )}
       {nWithoutGps > 0 && (
         <div
           style={{ marginTop: 12, fontSize: 12, color: "var(--accent-error, #d33)" }}
@@ -220,7 +252,7 @@ function AwaitingConfirmPanel({
   );
 }
 
-export function GeocodeProgressDialog({ state, onConfirm, onCancel, onClose }: Props) {
+export function GeocodeProgressDialog({ state, overwriteInfo, onConfirm, onCancel, onClose }: Props) {
   return (
     <BatchJobDialog
       testidPrefix="geocode"
@@ -231,7 +263,12 @@ export function GeocodeProgressDialog({ state, onConfirm, onCancel, onClose }: P
       onClose={onClose}
     >
       {state.phase === "awaiting-confirm" && (
-        <AwaitingConfirmPanel state={state} onCancel={onCancel} onConfirm={onConfirm} />
+        <AwaitingConfirmPanel
+          state={state}
+          overwriteInfo={overwriteInfo}
+          onCancel={onCancel}
+          onConfirm={onConfirm}
+        />
       )}
 
       {state.phase === "running" && (

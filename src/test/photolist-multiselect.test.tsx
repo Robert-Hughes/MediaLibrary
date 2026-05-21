@@ -249,9 +249,9 @@ describe("PhotoList context menu (multi-select)", () => {
     expect(onGenerateAiDescription).toHaveBeenCalledWith(["2.jpg"]);
   });
 
-  it("Generate AI Description warns when any selected photo already has a description on disk", async () => {
+  it("Generate AI Description invokes onGenerateAiDescription directly even when some selected photos already have a description (warning lives in dialog now)", async () => {
     const { ask } = await import("@tauri-apps/plugin-dialog");
-    vi.mocked(ask).mockClear().mockResolvedValueOnce(true);
+    vi.mocked(ask).mockClear();
 
     const thumbnails = new ThumbnailStore();
     const imageMetadata = new ImageMetadataStore();
@@ -260,7 +260,6 @@ describe("PhotoList context menu (multi-select)", () => {
       thumbnails.add(p.relative_path);
       imageMetadata.add(p.relative_path);
     }
-    // Only photo index 2 has an existing AI description on disk.
     imageMetadata.set("2.jpg", { "XMP-mlib:AIDescription": "old text" });
     const onGenerateAiDescription = vi.fn();
     render(
@@ -286,14 +285,13 @@ describe("PhotoList context menu (multi-select)", () => {
     fireEvent.contextMenu(rows()[3]);
     await userEvent.click(await screen.findByRole("button", { name: /Generate AI Description/ }));
 
-    expect(ask).toHaveBeenCalledTimes(1);
-    expect((ask as ReturnType<typeof vi.fn>).mock.calls[0][0]).toMatch(/1 of 3/i);
+    expect(ask).not.toHaveBeenCalled();
     expect(onGenerateAiDescription).toHaveBeenCalledWith(["1.jpg", "2.jpg", "3.jpg"]);
   });
 
-  it("Generate AI Description warns when only-draft AIDescription exists on a selected photo", async () => {
+  it("Generate AI Description fires for draft-only AIDescription without prompting", async () => {
     const { ask } = await import("@tauri-apps/plugin-dialog");
-    vi.mocked(ask).mockClear().mockResolvedValueOnce(false);
+    vi.mocked(ask).mockClear();
 
     const onGenerateAiDescription = vi.fn();
     const draftEdits = { "1.jpg": { "XMP-mlib:AIDescription": "draft text" } };
@@ -302,12 +300,11 @@ describe("PhotoList context menu (multi-select)", () => {
     fireEvent.contextMenu(rows()[1]);
     await userEvent.click(await screen.findByRole("button", { name: /Generate AI Description/ }));
 
-    expect(ask).toHaveBeenCalledTimes(1);
-    // User said no — onGenerateAiDescription must not fire.
-    expect(onGenerateAiDescription).not.toHaveBeenCalled();
+    expect(ask).not.toHaveBeenCalled();
+    expect(onGenerateAiDescription).toHaveBeenCalledWith(["1.jpg"]);
   });
 
-  it("Generate AI Description skips the warning when no selected photo has a description", async () => {
+  it("Generate AI Description fires immediately when no selected photo has a description", async () => {
     const { ask } = await import("@tauri-apps/plugin-dialog");
     vi.mocked(ask).mockClear();
     const { onGenerateAiDescription } = setup();
