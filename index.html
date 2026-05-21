@@ -5,6 +5,9 @@
     <link rel="icon" type="image/svg+xml" href="/logo.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Media Library</title>
+    <script>
+      window.__htmlHeadT = Date.now();
+    </script>
     <style>
       html, body { margin: 0; padding: 0; height: 100%; background: #1e1e1e; color: #ccc; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
       #splash {
@@ -35,6 +38,10 @@
       <div class="title">Media Library</div>
       <div class="sub">Loading…</div>
     </div>
+    <script>
+      window.__bodyParsedT = Date.now();
+      requestAnimationFrame(() => { window.__splashPaintedT = Date.now(); });
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
