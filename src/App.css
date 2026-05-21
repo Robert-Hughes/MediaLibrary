@@ -1183,9 +1183,14 @@ body {
   vertical-align: top;
 }
 
-/* Read-only tags (per schema) get a muted value, matching the key shade. */
+/* Read-only tags (per schema) get a dimmed value so they read as
+   visibly inert against editable rows. */
 .details-value--readonly {
-  color: var(--text-secondary);
+  color: var(--text-dim);
+}
+
+.details-row--readonly .details-key {
+  color: var(--text-dim);
 }
 
 .details-loading,
