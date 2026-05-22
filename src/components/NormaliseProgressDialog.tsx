@@ -367,8 +367,8 @@ function GroupOutcomeTable({
             Group
           </th>
           <th style={headStyle}>No change</th>
-          <th style={headStyle}>Cleanup</th>
-          <th style={headStyle}>AI rewrite</th>
+          <th style={headStyle}>Normalize</th>
+          <th style={headStyle}>Normalize (AI)</th>
           <th style={headStyle}>Conflict</th>
         </tr>
       </thead>
