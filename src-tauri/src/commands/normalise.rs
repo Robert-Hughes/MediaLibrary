@@ -7,6 +7,7 @@
 //! AI client that doesn't dispatch and preflights each fire-able AI
 //! prompt through `/responses/input_tokens` for an exact cost preview.
 
+use std::collections::BTreeMap;
 use std::sync::atomic::Ordering;
 
 use serde::Serialize;
@@ -37,6 +38,31 @@ struct NormaliseEstimateProgressPayload {
     fires_title_ai: bool,
 }
 
+#[derive(Clone, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct PerGroupOutcomeCounts {
+    n_noop: u32,
+    n_normalised_deterministic: u32,
+    n_normalised_ai: u32,
+    n_conflict: u32,
+}
+
+#[derive(Clone, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct EstimateAiTokenBreakdown {
+    description_input_tokens: u64,
+    title_input_tokens: u64,
+    description_call_count: u32,
+    title_call_count: u32,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct EstimatePricing {
+    input_per_1m: f64,
+    output_per_1m: f64,
+}
+
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct NormaliseEstimateCompletePayload {
@@ -47,6 +73,25 @@ struct NormaliseEstimateCompletePayload {
     predicted_cost_usd: f64,
     upper_bound_cost_usd: f64,
     model: String,
+    /// Per-group outcome counts collected by walking every image
+    /// through every group (regardless of user selection). Powers the
+    /// confirm-phase outcome table; selection changes recompute cost
+    /// client-side from `ai_token_breakdown` + `pricing` without
+    /// re-walking.
+    per_group_outcomes: BTreeMap<normalise::NormaliseGroup, PerGroupOutcomeCounts>,
+    /// AI input-token totals split by which AI branch fires. Frontend
+    /// uses this to recompute cost when the user toggles Description /
+    /// Title rows. `None` when the API key is missing (we still walk
+    /// for outcome counts, but cannot preflight).
+    ai_token_breakdown: Option<EstimateAiTokenBreakdown>,
+    /// Pricing constants for the configured model. `None` when no
+    /// preflight ran (no key, or no AI prompts captured).
+    pricing: Option<EstimatePricing>,
+    /// Output-token caps for client-side cost recomputation.
+    expected_out_per_call_b: u32,
+    max_out_per_call_b: u32,
+    expected_out_per_call_c: u32,
+    max_out_per_call_c: u32,
 }
 
 #[derive(Clone, Serialize)]
@@ -67,52 +112,54 @@ pub async fn estimate_normalise_cost_cmd(
     normalise_state: State<'_, normalise::NormaliseState>,
 ) -> Result<(), String> {
     let _ = folder_path;
+    let _ = enabled_groups; // estimate always walks every group; selection is applied client-side
     let cancel_flag = normalise_state.install();
 
-    let wants_ai = enabled_groups.contains(&normalise::NormaliseGroup::Description)
-        || enabled_groups.contains(&normalise::NormaliseGroup::Title);
     let total = items.len();
-    log::info!(
-        "[normalise] estimate starting total={} wants_ai={}",
-        total, wants_ai
-    );
+    log::info!("[normalise] estimate starting total={}", total);
     let _ = app.emit(
         "normalise_estimate_started",
         NormaliseEstimateStartedPayload { total },
     );
 
-    // No AI groups enabled → estimate is trivially zero; jump straight
-    // to the complete event so the frontend transitions to awaiting-
-    // confirm without a preflight round-trip.
-    if !wants_ai {
-        let _ = app.emit("normalise_estimate_complete", NormaliseEstimateCompletePayload {
-            n_images_with_ai_b: 0,
-            n_images_with_ai_c: 0,
-            n_images_no_ai: total as u32,
-            total_input_tokens: 0,
-            predicted_cost_usd: 0.0,
-            upper_bound_cost_usd: 0.0,
-            model: String::new(),
-        });
-        normalise_state.clear();
-        return Ok(());
-    }
+    // Always walk every group so the confirm-phase outcome table has
+    // counts for every row. The user's selection is honoured client-
+    // side: cost is recomputed from `ai_token_breakdown` + `pricing`.
+    let all_groups: Vec<normalise::NormaliseGroup> =
+        normalise::NormaliseGroup::ALL.to_vec();
 
-    let (client, settings) = make_openai_client(&app).map_err(|e| {
-        // Per plan §13: surface the missing-key case to every image so
-        // the dialog opens in `done` with a clear failure breakdown.
-        let _ = app.emit("normalise_estimate_error", NormaliseEstimateErrorPayload {
-            relative_path: "(batch)".to_string(), message: e.clone(),
-        });
-        normalise_state.clear();
-        e
-    })?;
-    let model = settings.normalise_metadata_model.clone();
-    let pricing = openai_describe::pricing_for(&model)
-        .ok_or_else(|| format!("no pricing entry for model {}", model))?;
-    let normalise_client = openai_normalise::OpenAiNormaliseClient::new(client, model.clone());
+    // Preflight client is optional: when no API key is configured we
+    // still walk for outcome counts but emit `ai_token_breakdown=None`
+    // so the frontend renders an "API key required" notice if the user
+    // selects an AI group.
+    let preflight = match make_openai_client(&app) {
+        Ok((client, settings)) => {
+            let model = settings.normalise_metadata_model.clone();
+            match openai_describe::pricing_for(&model) {
+                Some(p) => Some((
+                    openai_normalise::OpenAiNormaliseClient::new(client, model.clone()),
+                    model,
+                    p,
+                )),
+                None => {
+                    log::warn!(
+                        "[normalise] estimate: no pricing entry for model {}; skipping preflight",
+                        model
+                    );
+                    None
+                }
+            }
+        }
+        Err(e) => {
+            log::info!("[normalise] estimate: preflight skipped ({})", e);
+            None
+        }
+    };
 
-    let mut total_input_tokens: u64 = 0;
+    let mut per_group_outcomes: BTreeMap<normalise::NormaliseGroup, PerGroupOutcomeCounts> =
+        BTreeMap::new();
+    let mut description_input_tokens: u64 = 0;
+    let mut title_input_tokens: u64 = 0;
     let mut n_images_with_ai_b: u32 = 0;
     let mut n_images_with_ai_c: u32 = 0;
     let mut n_images_no_ai: u32 = 0;
@@ -126,13 +173,24 @@ pub async fn estimate_normalise_cost_cmd(
         current += 1;
 
         let capturing = normalise::CapturingAiClient::default();
-        let (_e, _s, _err, _calls) = normalise::process_image(
+        let (_e, stats, _err, _calls) = normalise::process_image(
             item,
-            &enabled_groups,
+            &all_groups,
             Some(&capturing as &dyn normalise::NormaliseAiClient),
             Some(&cancel_flag),
         )
         .await;
+
+        // Roll per-image stats into the outcome map. PerGroupStats
+        // counters are 0/1 at the per-image scale; this turns them
+        // into per-batch totals.
+        for (group, gs) in &stats.per_group {
+            let entry = per_group_outcomes.entry(*group).or_default();
+            entry.n_noop += gs.n_noop;
+            entry.n_normalised_deterministic += gs.n_normalised_deterministic;
+            entry.n_normalised_ai += gs.n_normalised_ai;
+            entry.n_conflict += gs.n_conflict_primary_won;
+        }
 
         let description_prompts = capturing.description_prompts.lock().await.clone();
         let title_prompts = capturing.title_prompts.lock().await.clone();
@@ -140,31 +198,34 @@ pub async fn estimate_normalise_cost_cmd(
         let fires_title_ai = !title_prompts.is_empty();
 
         let mut per_image_input_tokens: u32 = 0;
-        for prompt in &description_prompts {
-            let body = normalise_client.description_request_body(prompt);
-            let n = normalise_client.count_input_tokens(&body).await.map_err(|e| {
-                let _ = app.emit("normalise_estimate_error", NormaliseEstimateErrorPayload {
-                    relative_path: item.rel_path.clone(), message: e.clone(),
-                });
-                format!("{}: {}", item.rel_path, e)
-            })?;
-            per_image_input_tokens = per_image_input_tokens.saturating_add(n);
-        }
-        for prompt in &title_prompts {
-            let body = normalise_client.title_request_body(prompt);
-            let n = normalise_client.count_input_tokens(&body).await.map_err(|e| {
-                let _ = app.emit("normalise_estimate_error", NormaliseEstimateErrorPayload {
-                    relative_path: item.rel_path.clone(), message: e.clone(),
-                });
-                format!("{}: {}", item.rel_path, e)
-            })?;
-            per_image_input_tokens = per_image_input_tokens.saturating_add(n);
+        if let Some((normalise_client, _, _)) = preflight.as_ref() {
+            for prompt in &description_prompts {
+                let body = normalise_client.description_request_body(prompt);
+                let n = normalise_client.count_input_tokens(&body).await.map_err(|e| {
+                    let _ = app.emit("normalise_estimate_error", NormaliseEstimateErrorPayload {
+                        relative_path: item.rel_path.clone(), message: e.clone(),
+                    });
+                    format!("{}: {}", item.rel_path, e)
+                })?;
+                description_input_tokens += n as u64;
+                per_image_input_tokens = per_image_input_tokens.saturating_add(n);
+            }
+            for prompt in &title_prompts {
+                let body = normalise_client.title_request_body(prompt);
+                let n = normalise_client.count_input_tokens(&body).await.map_err(|e| {
+                    let _ = app.emit("normalise_estimate_error", NormaliseEstimateErrorPayload {
+                        relative_path: item.rel_path.clone(), message: e.clone(),
+                    });
+                    format!("{}: {}", item.rel_path, e)
+                })?;
+                title_input_tokens += n as u64;
+                per_image_input_tokens = per_image_input_tokens.saturating_add(n);
+            }
         }
 
         if fires_description_ai { n_images_with_ai_b += 1; }
         if fires_title_ai { n_images_with_ai_c += 1; }
         if !fires_description_ai && !fires_title_ai { n_images_no_ai += 1; }
-        total_input_tokens += per_image_input_tokens as u64;
 
         let _ = app.emit("normalise_estimate_progress", NormaliseEstimateProgressPayload {
             current, total, relative_path: item.rel_path.clone(),
@@ -180,16 +241,36 @@ pub async fn estimate_normalise_cost_cmd(
     let max_out_per_call_b: u32 = openai_normalise::DESCRIPTION_OUTPUT_TOKENS;
     let expected_out_per_call_c: u32 = 15;
     let max_out_per_call_c: u32 = openai_normalise::TITLE_OUTPUT_TOKENS;
-    let predicted_out_total =
-        n_images_with_ai_b as u64 * expected_out_per_call_b as u64
-            + n_images_with_ai_c as u64 * expected_out_per_call_c as u64;
-    let upper_out_total =
-        n_images_with_ai_b as u64 * max_out_per_call_b as u64
-            + n_images_with_ai_c as u64 * max_out_per_call_c as u64;
-    let predicted_cost = (total_input_tokens as f64 / 1_000_000.0) * pricing.input_per_1m
-        + (predicted_out_total as f64 / 1_000_000.0) * pricing.output_per_1m;
-    let upper_bound = (total_input_tokens as f64 / 1_000_000.0) * pricing.input_per_1m
-        + (upper_out_total as f64 / 1_000_000.0) * pricing.output_per_1m;
+
+    let total_input_tokens = description_input_tokens + title_input_tokens;
+    let (predicted_cost, upper_bound, model_out, pricing_out, breakdown_out) =
+        if let Some((_, model, pricing)) = preflight.as_ref() {
+            let predicted_out_total = n_images_with_ai_b as u64 * expected_out_per_call_b as u64
+                + n_images_with_ai_c as u64 * expected_out_per_call_c as u64;
+            let upper_out_total = n_images_with_ai_b as u64 * max_out_per_call_b as u64
+                + n_images_with_ai_c as u64 * max_out_per_call_c as u64;
+            let predicted = (total_input_tokens as f64 / 1_000_000.0) * pricing.input_per_1m
+                + (predicted_out_total as f64 / 1_000_000.0) * pricing.output_per_1m;
+            let upper = (total_input_tokens as f64 / 1_000_000.0) * pricing.input_per_1m
+                + (upper_out_total as f64 / 1_000_000.0) * pricing.output_per_1m;
+            (
+                predicted,
+                upper,
+                model.clone(),
+                Some(EstimatePricing {
+                    input_per_1m: pricing.input_per_1m,
+                    output_per_1m: pricing.output_per_1m,
+                }),
+                Some(EstimateAiTokenBreakdown {
+                    description_input_tokens,
+                    title_input_tokens,
+                    description_call_count: n_images_with_ai_b,
+                    title_call_count: n_images_with_ai_c,
+                }),
+            )
+        } else {
+            (0.0, 0.0, String::new(), None, None)
+        };
 
     log::info!(
         "[normalise] estimate complete b={} c={} no_ai={} input_tokens={} predicted=${:.6} upper=${:.6}",
@@ -201,7 +282,14 @@ pub async fn estimate_normalise_cost_cmd(
         total_input_tokens,
         predicted_cost_usd: predicted_cost,
         upper_bound_cost_usd: upper_bound,
-        model,
+        model: model_out,
+        per_group_outcomes,
+        ai_token_breakdown: breakdown_out,
+        pricing: pricing_out,
+        expected_out_per_call_b,
+        max_out_per_call_b,
+        expected_out_per_call_c,
+        max_out_per_call_c,
     });
     normalise_state.clear();
     Ok(())

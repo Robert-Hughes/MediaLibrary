@@ -8,7 +8,13 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import { NormaliseProgressDialog } from "../components/NormaliseProgressDialog";
 import type { NormaliseProgressState } from "../hooks/useNormaliseMetadata";
-import type { NormaliseGroup, NormalisePerGroupStats, NormaliseSummary } from "../types";
+import type {
+  NormaliseEstimate,
+  NormaliseGroup,
+  NormaliseGroupOutcomeCounts,
+  NormalisePerGroupStats,
+  NormaliseSummary,
+} from "../types";
 
 const allGroups: NormaliseGroup[] = [
   "keywords",
@@ -21,6 +27,47 @@ const allGroups: NormaliseGroup[] = [
   "description",
 ];
 
+/**
+ * Build an estimate where every group has at least one non-noop
+ * outcome so the per-group rows are enabled by default. Tests that
+ * need a specific outcome distribution pass `perGroupOutcomes` to
+ * override.
+ */
+function mockEstimate(over: Partial<NormaliseEstimate> = {}): NormaliseEstimate {
+  const allActive: NormaliseGroupOutcomeCounts = {
+    nNoop: 0,
+    nNormalisedDeterministic: 1,
+    nNormalisedAi: 0,
+    nConflict: 0,
+  };
+  return {
+    nImagesWithAiB: 0,
+    nImagesWithAiC: 0,
+    nImagesNoAi: 1,
+    totalInputTokens: 0,
+    predictedCostUsd: 0,
+    upperBoundCostUsd: 0,
+    model: "",
+    perGroupOutcomes: {
+      keywords: { ...allActive },
+      creator: { ...allActive },
+      copyright: { ...allActive },
+      headline: { ...allActive },
+      title: { ...allActive, nNormalisedAi: 1, nNormalisedDeterministic: 0 },
+      location: { ...allActive },
+      dates: { ...allActive },
+      description: { ...allActive, nNormalisedAi: 1, nNormalisedDeterministic: 0 },
+    },
+    aiTokenBreakdown: null,
+    pricing: null,
+    expectedOutPerCallB: 250,
+    maxOutPerCallB: 400,
+    expectedOutPerCallC: 15,
+    maxOutPerCallC: 30,
+    ...over,
+  };
+}
+
 function baseState(over: Partial<NormaliseProgressState> = {}): NormaliseProgressState {
   return {
     phase: "awaiting-confirm",
@@ -31,7 +78,7 @@ function baseState(over: Partial<NormaliseProgressState> = {}): NormaliseProgres
     failures: [],
     succeeded: [],
     summary: null,
-    estimate: null,
+    estimate: mockEstimate(),
     estimateError: null,
     items: [],
     enabledGroups: [...allGroups],
@@ -178,6 +225,173 @@ describe("NormaliseProgressDialog — awaiting-confirm", () => {
     expect(notice).toHaveTextContent(/Overwrite metadata fields\?/);
     expect(notice).toHaveTextContent(/2 of 3 selected images already have/i);
     expect(notice).toHaveTextContent(/fields outside the canonical form will be cleared/i);
+  });
+
+  it("renders outcome table with cells from estimate.perGroupOutcomes", () => {
+    const est = mockEstimate({
+      perGroupOutcomes: {
+        keywords: {
+          nNoop: 5,
+          nNormalisedDeterministic: 3,
+          nNormalisedAi: 0,
+          nConflict: 0,
+        },
+        dates: {
+          nNoop: 6,
+          nNormalisedDeterministic: 1,
+          nNormalisedAi: 0,
+          nConflict: 1,
+        },
+        description: {
+          nNoop: 2,
+          nNormalisedDeterministic: 0,
+          nNormalisedAi: 6,
+          nConflict: 0,
+        },
+      },
+    });
+    render(
+      <NormaliseProgressDialog
+        state={baseState({ total: 8, estimate: est })}
+        onConfirm={() => {}}
+        onCancel={() => {}}
+        onClose={() => {}}
+        onSetEnabledGroups={() => {}}
+      />,
+    );
+    expect(screen.getByTestId("normalise-group-keywords-noop")).toHaveTextContent("5");
+    expect(screen.getByTestId("normalise-group-keywords-deterministic")).toHaveTextContent("3");
+    expect(screen.getByTestId("normalise-group-keywords-ai")).toHaveTextContent("—");
+    expect(screen.getByTestId("normalise-group-description-ai")).toHaveTextContent("6");
+    expect(screen.getByTestId("normalise-group-dates-conflict")).toHaveTextContent("1");
+  });
+
+  it("conflict cell is red when non-zero", () => {
+    const est = mockEstimate({
+      perGroupOutcomes: {
+        location: {
+          nNoop: 0,
+          nNormalisedDeterministic: 2,
+          nNormalisedAi: 0,
+          nConflict: 2,
+        },
+      },
+    });
+    render(
+      <NormaliseProgressDialog
+        state={baseState({ estimate: est })}
+        onConfirm={() => {}}
+        onCancel={() => {}}
+        onClose={() => {}}
+        onSetEnabledGroups={() => {}}
+      />,
+    );
+    const cell = screen.getByTestId("normalise-group-location-conflict");
+    expect(cell).toHaveStyle({ color: "var(--accent-error, #d33)" });
+  });
+
+  it("auto-disables rows where every image is a no-op", () => {
+    const est = mockEstimate({
+      perGroupOutcomes: {
+        keywords: {
+          nNoop: 10,
+          nNormalisedDeterministic: 0,
+          nNormalisedAi: 0,
+          nConflict: 0,
+        },
+      },
+    });
+    render(
+      <NormaliseProgressDialog
+        state={baseState({ total: 10, estimate: est })}
+        onConfirm={() => {}}
+        onCancel={() => {}}
+        onClose={() => {}}
+        onSetEnabledGroups={() => {}}
+      />,
+    );
+    const cb = screen.getByTestId(
+      "normalise-group-keywords-checkbox",
+    ) as HTMLInputElement;
+    expect(cb.disabled).toBe(true);
+    expect(cb.checked).toBe(false);
+  });
+
+  it("cost preview adapts to selection — toggling description off removes its cost", () => {
+    const est = mockEstimate({
+      nImagesWithAiB: 4,
+      nImagesWithAiC: 0,
+      aiTokenBreakdown: {
+        descriptionInputTokens: 4000,
+        titleInputTokens: 0,
+        descriptionCallCount: 4,
+        titleCallCount: 0,
+      },
+      pricing: { inputPer1M: 1.0, outputPer1M: 4.0 },
+      model: "gpt-test",
+    });
+    const { rerender } = render(
+      <NormaliseProgressDialog
+        state={baseState({ enabledGroups: [...allGroups], estimate: est })}
+        onConfirm={() => {}}
+        onCancel={() => {}}
+        onClose={() => {}}
+        onSetEnabledGroups={() => {}}
+      />,
+    );
+    expect(screen.getByTestId("normalise-cost-preview")).toHaveTextContent(
+      /4 description merges/,
+    );
+    rerender(
+      <NormaliseProgressDialog
+        state={baseState({
+          enabledGroups: allGroups.filter((g) => g !== "description"),
+          estimate: est,
+        })}
+        onConfirm={() => {}}
+        onCancel={() => {}}
+        onClose={() => {}}
+        onSetEnabledGroups={() => {}}
+      />,
+    );
+    expect(screen.getByTestId("normalise-cost-preview")).toHaveTextContent(
+      /No AI calls required/,
+    );
+  });
+
+  it("cost preview shows missing-key notice when AI rows selected but no pricing", () => {
+    const est = mockEstimate({
+      nImagesWithAiB: 3,
+      nImagesWithAiC: 0,
+      aiTokenBreakdown: null,
+      pricing: null,
+    });
+    render(
+      <NormaliseProgressDialog
+        state={baseState({ enabledGroups: [...allGroups], estimate: est })}
+        onConfirm={() => {}}
+        onCancel={() => {}}
+        onClose={() => {}}
+        onSetEnabledGroups={() => {}}
+      />,
+    );
+    expect(screen.getByTestId("normalise-cost-preview")).toHaveTextContent(
+      /no OpenAI key is configured/i,
+    );
+  });
+
+  it("description label no longer mentions API key requirement", () => {
+    const { container } = render(
+      <NormaliseProgressDialog
+        state={baseState()}
+        onConfirm={() => {}}
+        onCancel={() => {}}
+        onClose={() => {}}
+        onSetEnabledGroups={() => {}}
+      />,
+    );
+    expect(container.textContent).not.toMatch(/needs OpenAI key/i);
+    expect(container.textContent).not.toMatch(/requires API key/i);
   });
 
   it("renders no overwrite notice when overwriteInfo has existing === 0", () => {

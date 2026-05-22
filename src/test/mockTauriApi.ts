@@ -384,6 +384,13 @@ export function createMockTauriApi(): MockTauriApi {
           predictedCostUsd: 0,
           upperBoundCostUsd: 0,
           model: wantsAi ? "gpt-5.4-nano" : "",
+          perGroupOutcomes: {},
+          aiTokenBreakdown: null,
+          pricing: null,
+          expectedOutPerCallB: 250,
+          maxOutPerCallB: 400,
+          expectedOutPerCallC: 15,
+          maxOutPerCallC: 30,
         });
         return;
       }
