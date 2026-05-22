@@ -12,7 +12,7 @@
  * body frame and Escape handling live there.
  */
 import type { BatchFailureKind, NormaliseEstimate, NormaliseGroup, NormaliseSummary } from "../types";
-import { ALL_NORMALISE_GROUPS } from "../types";
+import { ALL_NORMALISE_GROUPS, NORMALISE_TARGET_TAGS_BY_GROUP } from "../types";
 import type { NormaliseProgressState } from "../hooks/useNormaliseMetadata";
 import { BatchJobDialog } from "./BatchJobDialog";
 import { BatchSummaryCountersRow } from "./BatchSummaryCountersRow";
@@ -94,15 +94,49 @@ function groupLabel(g: NormaliseGroup): string {
     case "copyright": return "Copyright";
     case "headline": return "Headline";
     case "title": return "Title";
-    case "location": return "Location (XMP ↔ IPTC mirror sync)";
-    case "dates": return "Dates (DateTimeOriginal + CreateDate)";
-    case "description":
-      return "Description (AI merge)";
+    case "location": return "Location";
+    case "dates": return "Dates";
+    case "description": return "Description";
   }
 }
 
 /** Groups whose normalisation may invoke an AI call. */
 const AI_GROUPS: ReadonlySet<NormaliseGroup> = new Set(["description", "title"]);
+
+/**
+ * Short paragraph describing what the group does, surfaced as a
+ * tooltip on the group name in the confirm-phase table. Mentions the
+ * AI behaviour only for the groups that can actually invoke a model.
+ */
+function groupBehaviourSummary(g: NormaliseGroup): string {
+  switch (g) {
+    case "keywords":
+      return "Splits hierarchical paths, normalises whitespace and casing, deduplicates, and mirrors the canonical set across all three keyword tags.";
+    case "creator":
+      return "Picks a canonical creator list (primary: XMP-dc:Creator) and writes it back to the three creator tags, splitting EXIF:Artist on semicolons.";
+    case "copyright":
+      return "Picks the canonical copyright string (primary: XMP-dc:Rights) and mirrors it into the EXIF and IPTC copyright tags.";
+    case "headline":
+      return "Trims whitespace, collapses internal spaces, and mirrors XMP-photoshop:Headline into IPTC:Headline (truncated to the 256-character IIM limit).";
+    case "title":
+      return "Mirrors XMP-dc:Title into IPTC:ObjectName (64-char IIM limit). When both are empty and a description is available, calls the AI to generate a short title.";
+    case "location":
+      return "Synchronises the five XMP↔IIM mirror pairs (Sub-location, City, State, Country, CountryCode); XMP side wins on disagreement.";
+    case "dates":
+      return "Normalises EXIF:DateTimeOriginal + EXIF:CreateDate to ISO 8601 and mirrors them into the XMP and IPTC date/time tags. Falls back to parsing the filename when DTO is missing.";
+    case "description":
+      return "Picks a canonical description from the three description tags. When they disagree or only some are populated, calls the AI to merge them into a single coherent caption.";
+  }
+}
+
+/**
+ * Tooltip text shown on hover of the group name: the behaviour summary
+ * followed by the list of metadata fields the group writes.
+ */
+function groupTooltip(g: NormaliseGroup): string {
+  const fields = NORMALISE_TARGET_TAGS_BY_GROUP[g].join(", ");
+  return `${groupBehaviourSummary(g)}\n\nFields: ${fields}`;
+}
 
 /** Groups the user can toggle. Sourced from the single app-wide
  *  constant so dialog + caller agree on the v1 set + pass order. */
@@ -366,7 +400,18 @@ function GroupOutcomeTable({
                     onChange={() => toggle(g)}
                     data-testid={`normalise-group-${g}-checkbox`}
                   />{" "}
-                  {groupLabel(g)}
+                  <span
+                    title={groupTooltip(g)}
+                    style={{
+                      textDecoration: "underline dotted",
+                      textUnderlineOffset: 2,
+                      textDecorationColor: "var(--border-subtle, #bbb)",
+                      cursor: "help",
+                    }}
+                    data-testid={`normalise-group-${g}-label`}
+                  >
+                    {groupLabel(g)}
+                  </span>
                 </label>
               </td>
               <td

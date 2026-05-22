@@ -380,6 +380,29 @@ describe("NormaliseProgressDialog — awaiting-confirm", () => {
     );
   });
 
+  it("group labels are bare (no parenthetical hints) and carry tooltips", () => {
+    render(
+      <NormaliseProgressDialog
+        state={baseState()}
+        onConfirm={() => {}}
+        onCancel={() => {}}
+        onClose={() => {}}
+        onSetEnabledGroups={() => {}}
+      />,
+    );
+    const datesLabel = screen.getByTestId("normalise-group-dates-label");
+    expect(datesLabel).toHaveTextContent(/^Dates$/);
+    expect(datesLabel.getAttribute("title")).toMatch(/EXIF:DateTimeOriginal/);
+    const locLabel = screen.getByTestId("normalise-group-location-label");
+    expect(locLabel).toHaveTextContent(/^Location$/);
+    expect(locLabel.getAttribute("title")).toMatch(/XMP-iptcCore:Location/);
+    const descLabel = screen.getByTestId("normalise-group-description-label");
+    expect(descLabel).toHaveTextContent(/^Description$/);
+    expect(descLabel.getAttribute("title")).toMatch(/AI/);
+    const kwLabel = screen.getByTestId("normalise-group-keywords-label");
+    expect(kwLabel.getAttribute("title")).not.toMatch(/AI/);
+  });
+
   it("description label no longer mentions API key requirement", () => {
     const { container } = render(
       <NormaliseProgressDialog
