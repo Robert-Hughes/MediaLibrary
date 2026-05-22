@@ -45,6 +45,11 @@ struct PerGroupOutcomeCounts {
     n_normalised_deterministic: u32,
     n_normalised_ai: u32,
     n_conflict: u32,
+    /// Count of fields, summed across all images, that currently have
+    /// a non-empty effective value and would be replaced by a
+    /// different value (or removed). For AI-fired groups we don't know
+    /// the eventual value, so we assume "always different".
+    n_overwrites: u32,
 }
 
 #[derive(Clone, Serialize, Default)]
@@ -100,6 +105,172 @@ struct NormaliseEstimateCompletePayload {
 
 #[derive(Clone, Serialize)]
 struct NormaliseEstimateErrorPayload { relative_path: String, message: String }
+
+/// Count fields in `group` whose current effective value (from the
+/// per-image input bundle) is non-empty AND would be replaced by a
+/// different value (or removed entirely) when the group fires. For
+/// AI-fired groups (Description case 4, Title case 3) the eventual
+/// value isn't known, so assume "always different" per spec.
+///
+/// `edits` is the full set of draft edits returned by
+/// `process_image`; tags from different groups don't collide so we
+/// pick out this group's writes by tag name.
+fn count_overwrites_for_group(
+    group: normalise::NormaliseGroup,
+    inputs: &normalise::GroupInputs,
+    edits: &std::collections::HashMap<String, crate::draft_edits::DraftEdit>,
+    fires_description_ai: bool,
+    fires_title_ai: bool,
+) -> u32 {
+    use crate::draft_edits::EditIntent;
+    use crate::scanner::Variant;
+    use normalise::NormaliseGroup as G;
+
+    let assume_ai = match group {
+        G::Description => fires_description_ai,
+        G::Title => fires_title_ai,
+        _ => false,
+    };
+
+    let scalar = |tag: &str, current: Option<&str>| -> u32 {
+        let current = match current.filter(|s| !s.is_empty()) {
+            Some(s) => s,
+            None => return 0,
+        };
+        if assume_ai {
+            return 1;
+        }
+        match edits.get(tag) {
+            None => 0,
+            Some(e) => match e.intent {
+                EditIntent::Delete => 1,
+                EditIntent::Set => match e.value.as_ref() {
+                    Some(Variant::String(s)) if s == current => 0,
+                    None => 0,
+                    _ => 1,
+                },
+                _ => 0,
+            },
+        }
+    };
+
+    let list = |tag: &str, current: &[String]| -> u32 {
+        if current.is_empty() {
+            return 0;
+        }
+        if assume_ai {
+            return 1;
+        }
+        match edits.get(tag) {
+            None => 0,
+            Some(e) => match e.intent {
+                EditIntent::Delete => 1,
+                EditIntent::Set => match e.value.as_ref() {
+                    Some(Variant::List(items)) => {
+                        let same = items.len() == current.len()
+                            && items.iter().zip(current.iter()).all(|(v, c)| {
+                                matches!(v, Variant::String(s) if s == c)
+                            });
+                        if same {
+                            0
+                        } else {
+                            1
+                        }
+                    }
+                    None => 0,
+                    _ => 1,
+                },
+                _ => 0,
+            },
+        }
+    };
+
+    match group {
+        G::Keywords => match &inputs.keywords {
+            None => 0,
+            Some(b) => {
+                list("XMP-lr:HierarchicalSubject", &b.hierarchical_subject)
+                    + list("XMP-dc:Subject", &b.dc_subject)
+                    + list("IPTC:Keywords", &b.iptc_keywords)
+            }
+        },
+        G::Creator => match &inputs.creator {
+            None => 0,
+            Some(b) => {
+                list("XMP-dc:Creator", &b.creator)
+                    + scalar("EXIF:Artist", b.artist.as_deref())
+                    + list("IPTC:By-line", &b.byline)
+            }
+        },
+        G::Copyright => match &inputs.copyright {
+            None => 0,
+            Some(b) => {
+                scalar("XMP-dc:Rights", b.rights.as_deref())
+                    + scalar("EXIF:Copyright", b.exif_copyright.as_deref())
+                    + scalar("IPTC:CopyrightNotice", b.iptc_copyright.as_deref())
+            }
+        },
+        G::Headline => match &inputs.headline {
+            None => 0,
+            Some(b) => {
+                scalar("XMP-photoshop:Headline", b.photoshop_headline.as_deref())
+                    + scalar("IPTC:Headline", b.iptc_headline.as_deref())
+            }
+        },
+        G::Title => match &inputs.title {
+            None => 0,
+            Some(b) => {
+                scalar("XMP-dc:Title", b.title.as_deref())
+                    + scalar("IPTC:ObjectName", b.object_name.as_deref())
+            }
+        },
+        G::Location => match &inputs.location {
+            None => 0,
+            Some(b) => {
+                scalar("XMP-iptcCore:Location", b.location_xmp.as_deref())
+                    + scalar("IPTC:Sub-location", b.location_iptc.as_deref())
+                    + scalar("XMP-photoshop:City", b.city_xmp.as_deref())
+                    + scalar("IPTC:City", b.city_iptc.as_deref())
+                    + scalar("XMP-photoshop:State", b.state_xmp.as_deref())
+                    + scalar("IPTC:Province-State", b.state_iptc.as_deref())
+                    + scalar("XMP-photoshop:Country", b.country_xmp.as_deref())
+                    + scalar("IPTC:Country-PrimaryLocationName", b.country_iptc.as_deref())
+                    + scalar("XMP-iptcCore:CountryCode", b.country_code_xmp.as_deref())
+                    + scalar(
+                        "IPTC:Country-PrimaryLocationCode",
+                        b.country_code_iptc.as_deref(),
+                    )
+            }
+        },
+        G::Dates => match &inputs.dates {
+            None => 0,
+            Some(b) => {
+                scalar("EXIF:DateTimeOriginal", b.date_time_original.as_deref())
+                    + scalar("XMP-photoshop:DateCreated", b.photoshop_date_created.as_deref())
+                    + scalar("IPTC:DateCreated", b.iptc_date_created.as_deref())
+                    + scalar("IPTC:TimeCreated", b.iptc_time_created.as_deref())
+                    + scalar("EXIF:CreateDate", b.create_date.as_deref())
+                    + scalar("XMP-xmp:CreateDate", b.xmp_create_date.as_deref())
+                    + scalar(
+                        "IPTC:DigitalCreationDate",
+                        b.iptc_digital_creation_date.as_deref(),
+                    )
+                    + scalar(
+                        "IPTC:DigitalCreationTime",
+                        b.iptc_digital_creation_time.as_deref(),
+                    )
+            }
+        },
+        G::Description => match &inputs.description {
+            None => 0,
+            Some(b) => {
+                scalar("XMP-dc:Description", b.description.as_deref())
+                    + scalar("EXIF:ImageDescription", b.image_description.as_deref())
+                    + scalar("IPTC:Caption-Abstract", b.caption_abstract.as_deref())
+            }
+        },
+    }
+}
 
 /// Preflight cost estimation for `normalise_metadata_cmd`. Walks every
 /// image with a `CapturingAiClient` so we know which AI calls would
@@ -177,7 +348,7 @@ pub async fn estimate_normalise_cost_cmd(
         current += 1;
 
         let capturing = normalise::CapturingAiClient::default();
-        let (_e, stats, _err, _calls) = normalise::process_image(
+        let (edits, stats, _err, _calls) = normalise::process_image(
             item,
             &all_groups,
             Some(&capturing as &dyn normalise::NormaliseAiClient),
@@ -185,21 +356,34 @@ pub async fn estimate_normalise_cost_cmd(
         )
         .await;
 
+        let description_prompts = capturing.description_prompts.lock().await.clone();
+        let title_prompts = capturing.title_prompts.lock().await.clone();
+        let fires_description_ai = !description_prompts.is_empty();
+        let fires_title_ai = !title_prompts.is_empty();
+
         // Roll per-image stats into the outcome map. PerGroupStats
         // counters are 0/1 at the per-image scale; this turns them
-        // into per-batch totals.
+        // into per-batch totals. Overwrites are computed here by
+        // diffing the emitted drafts against the per-image input
+        // bundle.
         for (group, gs) in &stats.per_group {
             let entry = per_group_outcomes.entry(*group).or_default();
             entry.n_noop += gs.n_noop;
             entry.n_normalised_deterministic += gs.n_normalised_deterministic;
             entry.n_normalised_ai += gs.n_normalised_ai;
             entry.n_conflict += gs.n_conflict_primary_won;
+            // Only count overwrites when the group actually wrote
+            // something (idempotency no-ops skip the comparison).
+            if gs.n_normalised_deterministic + gs.n_normalised_ai > 0 {
+                entry.n_overwrites += count_overwrites_for_group(
+                    *group,
+                    &item.group_inputs,
+                    &edits,
+                    fires_description_ai,
+                    fires_title_ai,
+                );
+            }
         }
-
-        let description_prompts = capturing.description_prompts.lock().await.clone();
-        let title_prompts = capturing.title_prompts.lock().await.clone();
-        let fires_description_ai = !description_prompts.is_empty();
-        let fires_title_ai = !title_prompts.is_empty();
 
         let mut per_image_input_tokens: u32 = 0;
         if let Some((normalise_client, _, _)) = preflight.as_ref() {

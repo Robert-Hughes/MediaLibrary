@@ -27,7 +27,6 @@ import { useNormaliseMetadata } from "./hooks/useNormaliseMetadata";
 import {
   countDescribeOverwrites,
   countGeocodeOverwrites,
-  countNormaliseOverwrites,
   type OverwriteCount,
 } from "./utils/countOverwrites";
 import {
@@ -64,7 +63,6 @@ function LoadedView({
   normalise,
   setDescribeOverwrite,
   setGeocodeOverwrite,
-  setNormaliseOverwrite,
 }: {
   state: LoadedState;
   actions: MediaLibraryActions;
@@ -76,7 +74,6 @@ function LoadedView({
   normalise: ReturnType<typeof useNormaliseMetadata>;
   setDescribeOverwrite: (info: OverwriteCount) => void;
   setGeocodeOverwrite: (info: OverwriteCount) => void;
-  setNormaliseOverwrite: (info: OverwriteCount) => void;
 }) {
   // Subscribe to metadata progress so sorting unblocks once metadata loading
   // completes, not just when the directory walk finishes.  Keeps re-renders
@@ -303,9 +300,6 @@ function LoadedView({
             state.draftEdits,
             initialGroups,
           );
-          setNormaliseOverwrite(
-            countNormaliseOverwrites(relPaths, state.imageMetadata, state.draftEdits),
-          );
           normalise.actions.start(state.folder, items, [...initialGroups]);
         }}
         onCopyPaths={onCopyPaths}
@@ -346,9 +340,6 @@ function LoadedView({
               metadataStoreLookup(state.imageMetadata),
               state.draftEdits,
               initialGroups,
-            );
-            setNormaliseOverwrite(
-              countNormaliseOverwrites([relPath], state.imageMetadata, state.draftEdits),
             );
             normalise.actions.start(state.folder, items, [...initialGroups]);
           }}
@@ -422,7 +413,6 @@ export default function App() {
   // and the dialog only consults them while it's open.
   const [describeOverwrite, setDescribeOverwrite] = useState<OverwriteCount | undefined>(undefined);
   const [geocodeOverwrite, setGeocodeOverwrite] = useState<OverwriteCount | undefined>(undefined);
-  const [normaliseOverwrite, setNormaliseOverwrite] = useState<OverwriteCount | undefined>(undefined);
   // Shared merge-into-drafts callback for every batch image job
   // (describe, geocode, normalise). Each hook emits per-image typed
   // edits via this callback; we funnel them through setDraftBatch so
@@ -592,7 +582,6 @@ export default function App() {
             normalise={normalise}
             setDescribeOverwrite={setDescribeOverwrite}
             setGeocodeOverwrite={setGeocodeOverwrite}
-            setNormaliseOverwrite={setNormaliseOverwrite}
           />
         </ErrorBoundary>
       )}
@@ -624,7 +613,6 @@ export default function App() {
       {normalise.open && (
         <NormaliseProgressDialog
           state={normalise.state}
-          overwriteInfo={normaliseOverwrite}
           onConfirm={normalise.actions.confirm}
           onCancel={normalise.actions.cancel}
           onClose={normalise.actions.close}

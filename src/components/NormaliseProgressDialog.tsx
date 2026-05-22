@@ -17,13 +17,7 @@ import type { NormaliseProgressState } from "../hooks/useNormaliseMetadata";
 import { BatchJobDialog } from "./BatchJobDialog";
 import { BatchSummaryCountersRow } from "./BatchSummaryCountersRow";
 import { RunningProgressPanel } from "./RunningProgressPanel";
-import { OverwriteNotice } from "./OverwriteNotice";
 import { assertExhaustive } from "../utils/assertExhaustive";
-
-export interface NormaliseOverwriteInfo {
-  existingCount: number;
-  totalCount: number;
-}
 
 /**
  * Map normaliser BatchFailureKind values to short labels. Plan §8
@@ -73,13 +67,6 @@ export type { NormaliseProgressState };
 
 interface Props {
   state: NormaliseProgressState;
-  /**
-   * Pre-computed by the caller: how many of the selected images
-   * already carry data in any normalise target group (metadata or
-   * drafts). When `existingCount > 0` the awaiting-confirm panel
-   * surfaces an inline overwrite notice.
-   */
-  overwriteInfo?: NormaliseOverwriteInfo;
   onConfirm: () => void;
   onCancel: () => void;
   onClose: () => void;
@@ -307,6 +294,7 @@ function emptyCounts() {
     nNormalisedDeterministic: 0,
     nNormalisedAi: 0,
     nConflict: 0,
+    nOverwrites: 0,
   };
 }
 
@@ -370,6 +358,12 @@ function GroupOutcomeTable({
           <th style={headStyle}>Normalize</th>
           <th style={headStyle}>Normalize (AI)</th>
           <th style={headStyle}>Conflict</th>
+          <th
+            style={headStyle}
+            title="Number of fields (across all selected images) where the current value would be replaced by a different value or removed. AI groups assume the output will always differ."
+          >
+            Overwrites
+          </th>
         </tr>
       </thead>
       <tbody>
@@ -449,6 +443,19 @@ function GroupOutcomeTable({
               >
                 {renderCount(counts.nConflict)}
               </td>
+              <td
+                style={{
+                  ...cellBase,
+                  color:
+                    counts.nOverwrites > 0
+                      ? "var(--accent-warning, #c70)"
+                      : undefined,
+                  fontWeight: counts.nOverwrites > 0 ? 600 : undefined,
+                }}
+                data-testid={`normalise-group-${g}-overwrites`}
+              >
+                {renderCount(counts.nOverwrites)}
+              </td>
             </tr>
           );
         })}
@@ -456,15 +463,16 @@ function GroupOutcomeTable({
       <tfoot>
         <tr>
           <td
-            colSpan={5}
+            colSpan={6}
             style={{
               padding: "6px 0 0",
               fontSize: 12,
               color: "var(--text-secondary)",
             }}
           >
-            {total} {total === 1 ? "image" : "images"} · counts in each row sum
-            to {total}. Rows with nothing to do are disabled.
+            {total} {total === 1 ? "image" : "images"} · No change + Normalize +
+            Normalize (AI) sum to {total} per row. Overwrites counts individual
+            fields that would change. Rows with nothing to do are disabled.
           </td>
         </tr>
       </tfoot>
@@ -474,13 +482,11 @@ function GroupOutcomeTable({
 
 function AwaitingConfirmPanel({
   state,
-  overwriteInfo,
   onCancel,
   onConfirm,
   onSetEnabledGroups,
 }: {
   state: NormaliseProgressState;
-  overwriteInfo?: NormaliseOverwriteInfo;
   onCancel: () => void;
   onConfirm: () => void;
   onSetEnabledGroups: (groups: NormaliseGroup[]) => void;
@@ -494,7 +500,8 @@ function AwaitingConfirmPanel({
       <div className="dialog-hint" data-testid="normalise-confirm-summary">
         Ready to normalise metadata for {state.total} {word}. Choose which
         groups to normalise — drafts are proposed; nothing is written to
-        disk until you apply them.
+        disk until you apply them. The Overwrites column shows how many
+        existing field values would be replaced.
       </div>
       {state.estimate && (
         <GroupOutcomeTable
@@ -509,37 +516,6 @@ function AwaitingConfirmPanel({
           estimate={state.estimate}
           enabledGroups={state.enabledGroups}
         />
-      )}
-      {overwriteInfo ? (
-        <OverwriteNotice
-          testidPrefix="normalise"
-          input={{
-            existingCount: overwriteInfo.existingCount,
-            totalCount: overwriteInfo.totalCount,
-            title: "Overwrite metadata fields?",
-            subjectSingular: "image",
-            subjectPlural: "images",
-            dataPhrase: "metadata in the groups you have selected",
-            actionSingle:
-              "Normalising will overwrite those fields with drafts — fields outside the canonical form will be cleared.",
-            actionPluralAll:
-              "Normalising will overwrite those fields with drafts — fields outside the canonical form will be cleared.",
-            actionPluralPartial:
-              "Normalising will overwrite those fields with drafts for those images — fields outside the canonical form will be cleared.",
-          }}
-        />
-      ) : (
-        <div
-          style={{
-            marginTop: 12,
-            fontSize: 12,
-            color: "var(--accent-error, #d33)",
-          }}
-        >
-          Existing values in any chosen group <strong>will be overwritten</strong>{" "}
-          with drafts — including any unapplied drafts you may already have.
-          Fields outside the canonical form for each group will be cleared.
-        </div>
       )}
       <div
         style={{
@@ -665,7 +641,6 @@ function SummaryBreakdown({ s }: { s: NormaliseSummary }) {
 
 export function NormaliseProgressDialog({
   state,
-  overwriteInfo,
   onConfirm,
   onCancel,
   onClose,
@@ -684,7 +659,6 @@ export function NormaliseProgressDialog({
       {state.phase === "awaiting-confirm" && (
         <AwaitingConfirmPanel
           state={state}
-          overwriteInfo={overwriteInfo}
           onCancel={onCancel}
           onConfirm={onConfirm}
           onSetEnabledGroups={onSetEnabledGroups}

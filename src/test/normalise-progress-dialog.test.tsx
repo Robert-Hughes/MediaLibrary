@@ -20,11 +20,11 @@ const allGroups: NormaliseGroup[] = [
   "keywords",
   "creator",
   "copyright",
-  "headline",
-  "title",
   "location",
   "dates",
   "description",
+  "title",
+  "headline",
 ];
 
 /**
@@ -39,6 +39,7 @@ function mockEstimate(over: Partial<NormaliseEstimate> = {}): NormaliseEstimate 
     nNormalisedDeterministic: 1,
     nNormalisedAi: 0,
     nConflict: 0,
+    nOverwrites: 0,
   };
   return {
     nImagesWithAiB: 0,
@@ -117,9 +118,9 @@ describe("NormaliseProgressDialog — awaiting-confirm", () => {
     fireEvent.click(screen.getByTestId("normalise-group-keywords-checkbox"));
     expect(onSet).toHaveBeenCalledTimes(1);
     expect(onSet.mock.calls[0][0]).not.toContain("keywords");
-    // Remaining groups preserved in canonical order.
+    // Remaining groups preserved in canonical (execution) order.
     expect(onSet.mock.calls[0][0]).toEqual([
-      "creator", "copyright", "headline", "title", "location", "dates", "description",
+      "creator", "copyright", "location", "dates", "description", "title", "headline",
     ]);
   });
 
@@ -196,37 +197,6 @@ describe("NormaliseProgressDialog — awaiting-confirm", () => {
     expect(onCancel).toHaveBeenCalledTimes(1);
   });
 
-  it("shows the prominent overwrite warning (fallback when no overwriteInfo provided)", () => {
-    const { container } = render(
-      <NormaliseProgressDialog
-        state={baseState()}
-        onConfirm={() => {}}
-        onCancel={() => {}}
-        onClose={() => {}}
-        onSetEnabledGroups={() => {}}
-      />,
-    );
-    expect(container.textContent).toMatch(/will be overwritten/i);
-    expect(container.textContent).toMatch(/will be cleared/i);
-  });
-
-  it("renders the inline overwrite notice when overwriteInfo has existing > 0", () => {
-    render(
-      <NormaliseProgressDialog
-        state={baseState({ total: 3 })}
-        overwriteInfo={{ existingCount: 2, totalCount: 3 }}
-        onConfirm={() => {}}
-        onCancel={() => {}}
-        onClose={() => {}}
-        onSetEnabledGroups={() => {}}
-      />,
-    );
-    const notice = screen.getByTestId("normalise-overwrite-notice");
-    expect(notice).toHaveTextContent(/Overwrite metadata fields\?/);
-    expect(notice).toHaveTextContent(/2 of 3 selected images already have/i);
-    expect(notice).toHaveTextContent(/fields outside the canonical form will be cleared/i);
-  });
-
   it("renders outcome table with cells from estimate.perGroupOutcomes", () => {
     const est = mockEstimate({
       perGroupOutcomes: {
@@ -235,18 +205,21 @@ describe("NormaliseProgressDialog — awaiting-confirm", () => {
           nNormalisedDeterministic: 3,
           nNormalisedAi: 0,
           nConflict: 0,
+          nOverwrites: 0,
         },
         dates: {
           nNoop: 6,
           nNormalisedDeterministic: 1,
           nNormalisedAi: 0,
           nConflict: 1,
+          nOverwrites: 2,
         },
         description: {
           nNoop: 2,
           nNormalisedDeterministic: 0,
           nNormalisedAi: 6,
           nConflict: 0,
+          nOverwrites: 9,
         },
       },
     });
@@ -264,6 +237,33 @@ describe("NormaliseProgressDialog — awaiting-confirm", () => {
     expect(screen.getByTestId("normalise-group-keywords-ai")).toHaveTextContent("—");
     expect(screen.getByTestId("normalise-group-description-ai")).toHaveTextContent("6");
     expect(screen.getByTestId("normalise-group-dates-conflict")).toHaveTextContent("1");
+    expect(screen.getByTestId("normalise-group-dates-overwrites")).toHaveTextContent("2");
+    expect(screen.getByTestId("normalise-group-description-overwrites")).toHaveTextContent("9");
+  });
+
+  it("overwrites cell is bold/warning when non-zero", () => {
+    const est = mockEstimate({
+      perGroupOutcomes: {
+        creator: {
+          nNoop: 0,
+          nNormalisedDeterministic: 5,
+          nNormalisedAi: 0,
+          nConflict: 0,
+          nOverwrites: 3,
+        },
+      },
+    });
+    render(
+      <NormaliseProgressDialog
+        state={baseState({ estimate: est })}
+        onConfirm={() => {}}
+        onCancel={() => {}}
+        onClose={() => {}}
+        onSetEnabledGroups={() => {}}
+      />,
+    );
+    const cell = screen.getByTestId("normalise-group-creator-overwrites");
+    expect(cell).toHaveStyle({ fontWeight: "600" });
   });
 
   it("conflict cell is red when non-zero", () => {
@@ -274,6 +274,7 @@ describe("NormaliseProgressDialog — awaiting-confirm", () => {
           nNormalisedDeterministic: 2,
           nNormalisedAi: 0,
           nConflict: 2,
+          nOverwrites: 0,
         },
       },
     });
@@ -298,6 +299,7 @@ describe("NormaliseProgressDialog — awaiting-confirm", () => {
           nNormalisedDeterministic: 0,
           nNormalisedAi: 0,
           nConflict: 0,
+          nOverwrites: 0,
         },
       },
     });
@@ -417,11 +419,10 @@ describe("NormaliseProgressDialog — awaiting-confirm", () => {
     expect(container.textContent).not.toMatch(/requires API key/i);
   });
 
-  it("renders no overwrite notice when overwriteInfo has existing === 0", () => {
+  it("no longer renders the legacy overwrite-notice panel", () => {
     render(
       <NormaliseProgressDialog
         state={baseState({ total: 3 })}
-        overwriteInfo={{ existingCount: 0, totalCount: 3 }}
         onConfirm={() => {}}
         onCancel={() => {}}
         onClose={() => {}}
