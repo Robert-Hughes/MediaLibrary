@@ -57,9 +57,13 @@ struct EstimateAiTokenBreakdown {
 }
 
 #[derive(Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
 struct EstimatePricing {
+    // Explicit renames: serde's camelCase derivation produces `inputPer1m`
+    // (lowercase 'm') because '1' isn't a letter it can capitalise, which
+    // would silently break the frontend cost recompute.
+    #[serde(rename = "inputPer1M")]
     input_per_1m: f64,
+    #[serde(rename = "outputPer1M")]
     output_per_1m: f64,
 }
 
