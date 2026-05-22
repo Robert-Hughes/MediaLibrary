@@ -7,7 +7,7 @@
  * `ask()`); pulling it into a single place keeps the three flows
  * consistent.
  */
-import { GEOCODE_TARGET_TAGS, NORMALISE_ALL_TARGET_TAGS } from "../types";
+import { GEOCODE_TARGET_TAGS } from "../types";
 import type { DraftEdit, ImageMetadataStore } from "../types";
 
 export interface OverwriteCount {
@@ -56,17 +56,3 @@ export function countGeocodeOverwrites(
   return { existingCount: existing, totalCount: relPaths.length };
 }
 
-export function countNormaliseOverwrites(
-  relPaths: string[],
-  imageMetadata: ImageMetadataStore,
-  draftEdits: Record<string, Record<string, DraftEdit>>,
-): OverwriteCount {
-  let existing = 0;
-  for (const p of relPaths) {
-    const m = metaBag(imageMetadata, p) ?? {};
-    const d = draftEdits[p] ?? {};
-    const hit = NORMALISE_ALL_TARGET_TAGS.some((k) => k in m || k in d);
-    if (hit) existing++;
-  }
-  return { existingCount: existing, totalCount: relPaths.length };
-}

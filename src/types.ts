@@ -488,6 +488,14 @@ export interface NormaliseGroupOutcomeCounts {
   nNormalisedDeterministic: number;
   nNormalisedAi: number;
   nConflict: number;
+  /**
+   * Sum across all images of the count of target fields that have a
+   * non-empty current effective value and would be replaced by a
+   * different value (or removed). For AI-fired groups the eventual
+   * value isn't known up-front, so the count assumes "always
+   * different".
+   */
+  nOverwrites: number;
 }
 
 export interface NormaliseEstimateAiTokenBreakdown {
@@ -626,14 +634,19 @@ export const NORMALISE_ALL_TARGET_TAGS: readonly string[] = Object.values(
  * canonical ordering for the dialog's per-group toggles.
  */
 export const ALL_NORMALISE_GROUPS: readonly NormaliseGroup[] = [
+  // Mirrors NormaliseGroup::ALL in the backend (plan §2 pass order).
+  // Order matters in the UI too — earlier groups can feed later ones
+  // (e.g. Description's canonical feeds Title's AI prompt), so the
+  // confirm-table and post-run summary read top-to-bottom in the same
+  // order the engine actually walks.
   "keywords",
   "creator",
   "copyright",
-  "headline",
-  "title",
   "location",
   "dates",
   "description",
+  "title",
+  "headline",
 ];
 
 export const GEOCODE_TARGET_TAGS: readonly string[] = [
