@@ -70,6 +70,21 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
   const metadataProgressStoreRef    = useRef<MetadataProgressStore>(new MetadataProgressStore());
   const draftEditsStoreRef          = useRef<DraftEditsStore>(new DraftEditsStore());
 
+  // Redundant-draft guard: let DraftEditsStore peek at current
+  // metadata so writes that match the existing value drop silently
+  // (and clear any stale draft for the same tag). One-time wiring;
+  // the store keeps the function as a permanent reference. We re-read
+  // `imageMetadataStoreRef.current` on every call so re-scans that
+  // swap the metadata store don't leave the resolver pointing at the
+  // old instance.
+  useEffect(() => {
+    draftEditsStoreRef.current.setCurrentValueResolver((path, tag) => {
+      const meta = imageMetadataStoreRef.current.get(path);
+      if (meta === "loading") return undefined;
+      return meta[tag];
+    });
+  }, []);
+
   // The scan_id of the most recently started scan. Events with a different
   // scan_id are stale (from a previous scan) and are discarded.
   const activeScanIdRef = useRef<number>(-1);
