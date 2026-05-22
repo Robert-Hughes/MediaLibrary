@@ -282,6 +282,62 @@ export interface DraftEditsChange {
 export type DraftEditsListener = (changes: DraftEditsChange[]) => void;
 
 /**
+ * Outcome of a single `setTag` / `setBatch` write.
+ *
+ * - "written" — value differs from current metadata, draft was added
+ *   or replaced an existing draft.
+ * - "redundant" — Set intent whose value equals current metadata and
+ *   no existing draft was present; nothing changed.
+ * - "cleared" — Set intent whose value equals current metadata, but an
+ *   existing draft was present for this tag; the existing draft was
+ *   removed so the UI no longer shows a confusing same-as-current
+ *   draft.
+ *
+ * Non-Set intents (Delete / ListAdd / ListRemove) always return
+ * "written"; the store can't cheaply compare list-mutation semantics
+ * against current metadata, so those go through unchanged.
+ */
+export type SetDraftOutcome = "written" | "redundant" | "cleared";
+
+/**
+ * Deep structural equality for `Variant` values. Used by the
+ * redundant-draft guard to compare a proposed Set value against the
+ * tag's current effective value. Object keys are compared
+ * order-independently.
+ */
+export function variantEqual(
+  a: Variant | undefined,
+  b: Variant | undefined,
+): boolean {
+  if (a === b) return true;
+  if (a === undefined || b === undefined) return false;
+  if (a === null || b === null) return false;
+  if (typeof a !== typeof b) return false;
+  if (Array.isArray(a)) {
+    if (!Array.isArray(b)) return false;
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+      if (!variantEqual(a[i], b[i])) return false;
+    }
+    return true;
+  }
+  if (Array.isArray(b)) return false;
+  if (typeof a === "object") {
+    const ao = a as { [k: string]: Variant | undefined };
+    const bo = b as { [k: string]: Variant | undefined };
+    const ka = Object.keys(ao);
+    const kb = Object.keys(bo);
+    if (ka.length !== kb.length) return false;
+    for (const k of ka) {
+      if (!(k in bo)) return false;
+      if (!variantEqual(ao[k], bo[k])) return false;
+    }
+    return true;
+  }
+  return false;
+}
+
+/**
  * Single source of truth for draft edits.  All user-initiated mutations funnel
  * through methods on this class so subscribers (React-state sync, persistence,
  * future search-worker index) stay in sync without per-call-site discipline.
@@ -289,10 +345,33 @@ export type DraftEditsListener = (changes: DraftEditsChange[]) => void;
  * `reset()` is silent — used during scan initialization to seed the store from
  * disk.  Every other mutator notifies subscribers exactly once with the list of
  * changed paths (undefined-valued edits = path deleted).
+ *
+ * Redundant-draft guard: when a `currentValueResolver` is registered
+ * (via `setCurrentValueResolver`), `setTag` / `setBatch` compare each
+ * Set-intent value against the tag's current metadata. Same value → no
+ * draft is written (and any existing draft for that tag is removed).
+ * Callers receive a per-key outcome so they can log or aggregate
+ * what was dropped (see `SetDraftOutcome`).
  */
 export class DraftEditsStore {
   private snapshot: DraftEditsByFile = {};
   private listeners = new Set<DraftEditsListener>();
+  private currentValueResolver?: (
+    path: string,
+    tag: string,
+  ) => Variant | undefined;
+
+  /**
+   * Wire up the redundant-draft guard. Pass a function that returns
+   * the tag's current effective metadata value for the given file, or
+   * `undefined` when the file has no value for that tag. Without a
+   * resolver the store behaves as it always did (writes always land).
+   */
+  setCurrentValueResolver(
+    fn: (path: string, tag: string) => Variant | undefined,
+  ) {
+    this.currentValueResolver = fn;
+  }
 
   /** Bulk replace.  Silent — does not fire subscribers. */
   reset(initial: DraftEditsByFile) {
@@ -308,18 +387,65 @@ export class DraftEditsStore {
     return this.snapshot[path];
   }
 
-  setTag(path: string, tag: string, edit: DraftEdit) {
+  /**
+   * Apply one write to the snapshot in-place and return its outcome.
+   * Caller is responsible for notifying subscribers exactly once after
+   * a logical mutation (single setTag, or one setBatch).
+   */
+  private applyOne(
+    path: string,
+    tag: string,
+    edit: DraftEdit,
+  ): SetDraftOutcome {
+    const existingDraft = this.snapshot[path]?.[tag];
+    // Only the Set intent can produce a "value identical to current
+    // metadata" situation worth guarding against. List add / list
+    // remove operate on the current list; Delete is the user
+    // explicitly asking to clear a tag (and we trust them).
+    if (edit.intent === "Set" && this.currentValueResolver) {
+      const current = this.currentValueResolver(path, tag);
+      if (variantEqual(current, edit.value ?? undefined)) {
+        if (existingDraft) {
+          // Existing draft becomes redundant — remove it so the user
+          // doesn't see a "pending change" that wouldn't actually
+          // change anything.
+          const fileEdits = { ...(this.snapshot[path] ?? {}) };
+          delete fileEdits[tag];
+          const next = { ...this.snapshot };
+          if (Object.keys(fileEdits).length === 0) delete next[path];
+          else next[path] = fileEdits;
+          this.snapshot = next;
+          return "cleared";
+        }
+        return "redundant";
+      }
+    }
     const fileEdits = { ...(this.snapshot[path] ?? {}), [tag]: edit };
     this.snapshot = { ...this.snapshot, [path]: fileEdits };
-    this.notify([{ path, edits: fileEdits }]);
+    return "written";
   }
 
-  setBatch(path: string, edits: Array<{ key: string; edit: DraftEdit }>) {
-    if (edits.length === 0) return;
-    const fileEdits = { ...(this.snapshot[path] ?? {}) };
-    for (const { key, edit } of edits) fileEdits[key] = edit;
-    this.snapshot = { ...this.snapshot, [path]: fileEdits };
-    this.notify([{ path, edits: fileEdits }]);
+  setTag(path: string, tag: string, edit: DraftEdit): SetDraftOutcome {
+    const outcome = this.applyOne(path, tag, edit);
+    if (outcome !== "redundant") {
+      this.notify([{ path, edits: this.snapshot[path] }]);
+    }
+    return outcome;
+  }
+
+  setBatch(
+    path: string,
+    edits: Array<{ key: string; edit: DraftEdit }>,
+  ): Array<{ key: string; outcome: SetDraftOutcome }> {
+    if (edits.length === 0) return [];
+    const results: Array<{ key: string; outcome: SetDraftOutcome }> = [];
+    for (const { key, edit } of edits) {
+      results.push({ key, outcome: this.applyOne(path, key, edit) });
+    }
+    if (results.some((r) => r.outcome !== "redundant")) {
+      this.notify([{ path, edits: this.snapshot[path] }]);
+    }
+    return results;
   }
 
   deleteTag(path: string, tag: string) {

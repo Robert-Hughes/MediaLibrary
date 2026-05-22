@@ -211,4 +211,119 @@ describe("DraftEditsStore", () => {
       expect(cb).toHaveBeenCalledTimes(1);
     });
   });
+
+  describe("redundant-draft guard", () => {
+    it("returns 'redundant' and writes nothing when new Set value equals current", () => {
+      const store = new DraftEditsStore();
+      store.setCurrentValueResolver((_p, t) => (t === "A" ? "v" : undefined));
+      const cb = vi.fn();
+      store.subscribe(cb);
+      const outcome = store.setTag("a.jpg", "A", edit("v"));
+      expect(outcome).toBe("redundant");
+      expect(store.getFile("a.jpg")).toBeUndefined();
+      expect(cb).not.toHaveBeenCalled();
+    });
+
+    it("returns 'cleared' and removes the existing draft when new Set value equals current", () => {
+      const store = new DraftEditsStore();
+      store.setCurrentValueResolver((_p, t) => (t === "A" ? "v" : undefined));
+      // Stage a (different-from-current) draft first; resolver returns
+      // "v" so a draft with "different" lands.
+      const writeOutcome = store.setTag("a.jpg", "A", edit("different"));
+      expect(writeOutcome).toBe("written");
+      expect(store.getFile("a.jpg")).toEqual({ A: edit("different") });
+      // Now apply a value that matches current — should clear the draft.
+      const cb = vi.fn();
+      store.subscribe(cb);
+      const outcome = store.setTag("a.jpg", "A", edit("v"));
+      expect(outcome).toBe("cleared");
+      expect(store.getFile("a.jpg")).toBeUndefined();
+      expect(cb).toHaveBeenCalledTimes(1);
+    });
+
+    it("writes through when value differs from current", () => {
+      const store = new DraftEditsStore();
+      store.setCurrentValueResolver(() => "old");
+      expect(store.setTag("a.jpg", "A", edit("new"))).toBe("written");
+      expect(store.getFile("a.jpg")).toEqual({ A: edit("new") });
+    });
+
+    it("writes through when no resolver is registered (back-compat)", () => {
+      const store = new DraftEditsStore();
+      expect(store.setTag("a.jpg", "A", edit("v"))).toBe("written");
+      expect(store.getFile("a.jpg")).toEqual({ A: edit("v") });
+    });
+
+    it("does not suppress Delete intents even when current value is present", () => {
+      const store = new DraftEditsStore();
+      store.setCurrentValueResolver(() => "v");
+      expect(store.setTag("a.jpg", "A", del)).toBe("written");
+      expect(store.getFile("a.jpg")).toEqual({ A: del });
+    });
+
+    it("setBatch returns per-key outcomes and notifies once when any survive", () => {
+      const store = new DraftEditsStore();
+      // current values: A="same", B undefined (absent), C="other"
+      store.setCurrentValueResolver((_p, t) => {
+        if (t === "A") return "same";
+        if (t === "C") return "other";
+        return undefined;
+      });
+      const cb = vi.fn();
+      store.subscribe(cb);
+      const results = store.setBatch("a.jpg", [
+        { key: "A", edit: edit("same") },    // redundant
+        { key: "B", edit: edit("new") },     // written
+        { key: "C", edit: edit("changed") }, // written
+      ]);
+      expect(results).toEqual([
+        { key: "A", outcome: "redundant" },
+        { key: "B", outcome: "written" },
+        { key: "C", outcome: "changed" === "changed" ? "written" : "written" },
+      ]);
+      expect(store.getFile("a.jpg")).toEqual({
+        B: edit("new"),
+        C: edit("changed"),
+      });
+      expect(cb).toHaveBeenCalledTimes(1);
+    });
+
+    it("setBatch with every key redundant fires no notification", () => {
+      const store = new DraftEditsStore();
+      store.setCurrentValueResolver((_p, t) => (t === "A" ? "v" : "w"));
+      const cb = vi.fn();
+      store.subscribe(cb);
+      const results = store.setBatch("a.jpg", [
+        { key: "A", edit: edit("v") },
+        { key: "B", edit: edit("w") },
+      ]);
+      expect(results.every((r) => r.outcome === "redundant")).toBe(true);
+      expect(cb).not.toHaveBeenCalled();
+      expect(store.getFile("a.jpg")).toBeUndefined();
+    });
+
+    it("compares list-valued Variants element-wise", () => {
+      const store = new DraftEditsStore();
+      store.setCurrentValueResolver(() => ["a", "b", "c"]);
+      // Identical list → redundant.
+      expect(
+        store.setTag("p.jpg", "K", { value: ["a", "b", "c"], intent: "Set" }),
+      ).toBe("redundant");
+      // Reordered → written.
+      expect(
+        store.setTag("p.jpg", "K", { value: ["c", "b", "a"], intent: "Set" }),
+      ).toBe("written");
+    });
+
+    it("compares object-valued Variants order-independently", () => {
+      const store = new DraftEditsStore();
+      store.setCurrentValueResolver(() => ({ a: 1, b: 2 }));
+      expect(
+        store.setTag("p.jpg", "K", { value: { b: 2, a: 1 }, intent: "Set" }),
+      ).toBe("redundant");
+      expect(
+        store.setTag("p.jpg", "K", { value: { a: 1, b: 3 }, intent: "Set" }),
+      ).toBe("written");
+    });
+  });
 });
