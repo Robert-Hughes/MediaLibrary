@@ -327,7 +327,6 @@ function GroupOutcomeTable({
     textAlign: "right" as const,
     fontVariantNumeric: "tabular-nums",
   };
-  const dim = { color: "var(--text-secondary)", opacity: 0.5 };
   const headStyle: React.CSSProperties = {
     padding: "4px 8px",
     textAlign: "right" as const,
@@ -336,7 +335,7 @@ function GroupOutcomeTable({
   };
 
   function renderCount(n: number) {
-    return n === 0 ? <span style={dim}>0</span> : <span>{n}</span>;
+    return <span>{n}</span>;
   }
 
   return (
@@ -382,7 +381,6 @@ function GroupOutcomeTable({
               data-testid={`normalise-group-row-${g}`}
               style={{
                 borderBottom: "1px solid var(--border-subtle, #eee)",
-                opacity: disabled ? 0.6 : 1,
               }}
             >
               <td style={{ padding: "4px 8px 4px 0", textAlign: "left" }}>
@@ -427,7 +425,7 @@ function GroupOutcomeTable({
                 {isAiGroup ? (
                   renderCount(counts.nNormalisedAi)
                 ) : (
-                  <span style={dim}>—</span>
+                  <span>—</span>
                 )}
               </td>
               <td
@@ -467,7 +465,6 @@ function GroupOutcomeTable({
             style={{
               padding: "6px 0 0",
               fontSize: 12,
-              color: "var(--text-secondary)",
             }}
           >
             {total} {total === 1 ? "image" : "images"} · No change + Normalize +
