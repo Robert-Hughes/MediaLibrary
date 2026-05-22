@@ -376,6 +376,18 @@ export function createMockTauriApi(): MockTauriApi {
         emit("normalise_estimate_started", { total });
         const wantsAi =
           enabledGroups.includes("description") || enabledGroups.includes("title");
+        // Default outcome map: every group has at least one
+        // "deterministic" outcome so the table rows render enabled and
+        // the auto-prune in `useNormaliseMetadata` doesn't drop them.
+        // Tests that need a specific outcome distribution should stub
+        // `estimate_normalise_cost_cmd` explicitly.
+        const detOutcome = {
+          nNoop: 0,
+          nNormalisedDeterministic: total,
+          nNormalisedAi: 0,
+          nConflict: 0,
+          nOverwrites: 0,
+        };
         emit("normalise_estimate_complete", {
           nImagesWithAiB: 0,
           nImagesWithAiC: 0,
@@ -384,7 +396,16 @@ export function createMockTauriApi(): MockTauriApi {
           predictedCostUsd: 0,
           upperBoundCostUsd: 0,
           model: wantsAi ? "gpt-5.4-nano" : "",
-          perGroupOutcomes: {},
+          perGroupOutcomes: {
+            keywords: { ...detOutcome },
+            creator: { ...detOutcome },
+            copyright: { ...detOutcome },
+            location: { ...detOutcome },
+            dates: { ...detOutcome },
+            description: { ...detOutcome },
+            title: { ...detOutcome },
+            headline: { ...detOutcome },
+          },
           aiTokenBreakdown: null,
           pricing: null,
           expectedOutPerCallB: 250,

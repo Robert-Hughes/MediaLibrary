@@ -160,11 +160,29 @@ export function useNormaliseMetadata(options: UseNormaliseMetadataOptions = {}):
         );
         unlisteners.push(
           await listen<NormaliseEstimate>("normalise_estimate_complete", (e) => {
+            const est = e.payload;
+            // Drop groups that have nothing to do on any image from the
+            // user's selection. The confirm-table renders these rows as
+            // disabled+unchecked, so keeping them in `enabledGroups`
+            // would silently smuggle them to the run cmd and produce a
+            // post-run summary mentioning groups the user thought they
+            // had unticked.
+            const filtered = stash.enabledGroups.filter((g) => {
+              const c = est.perGroupOutcomes[g];
+              if (!c) return false;
+              return (
+                c.nNormalisedDeterministic + c.nNormalisedAi + c.nConflict > 0
+              );
+            });
+            if (filtered.length !== stash.enabledGroups.length) {
+              stash.enabledGroups = filtered;
+              setEnabledGroupsState(filtered);
+            }
             setState((s) => ({
               ...s,
               phase: "awaiting-confirm",
               currentFile: null,
-              estimate: e.payload,
+              estimate: est,
             }));
           }),
         );
