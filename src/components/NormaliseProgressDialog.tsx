@@ -86,7 +86,7 @@ interface Props {
   onSetEnabledGroups: (groups: NormaliseGroup[]) => void;
 }
 
-/** Human-readable group label for the confirm-phase checkbox list. */
+/** Human-readable group label for the confirm-phase table. */
 function groupLabel(g: NormaliseGroup): string {
   switch (g) {
     case "keywords": return "Keywords";
@@ -97,9 +97,12 @@ function groupLabel(g: NormaliseGroup): string {
     case "location": return "Location (XMP ↔ IPTC mirror sync)";
     case "dates": return "Dates (DateTimeOriginal + CreateDate)";
     case "description":
-      return "Description (AI merge — needs OpenAI key)";
+      return "Description (AI merge)";
   }
 }
+
+/** Groups whose normalisation may invoke an AI call. */
+const AI_GROUPS: ReadonlySet<NormaliseGroup> = new Set(["description", "title"]);
 
 /** Groups the user can toggle. Sourced from the single app-wide
  *  constant so dialog + caller agree on the v1 set + pass order. */
@@ -157,8 +160,71 @@ function EstimatingPanel({
   );
 }
 
-function CostPreview({ estimate }: { estimate: NormaliseEstimate }) {
-  const hasAi = estimate.nImagesWithAiB + estimate.nImagesWithAiC > 0;
+/** Result of `computeCostForSelection` — `null` fields mean the
+ *  estimate didn't include a preflight (no API key, or no pricing for
+ *  the configured model). */
+interface SelectionCost {
+  predictedUsd: number | null;
+  upperBoundUsd: number | null;
+  descriptionCalls: number;
+  titleCalls: number;
+  model: string;
+}
+
+/**
+ * Recompute predicted / upper-bound cost for the currently-selected
+ * groups. Pure function of the estimate (which always carries AI
+ * counts for both Description and Title regardless of selection) and
+ * the user's checkbox state.
+ */
+function computeCostForSelection(
+  estimate: NormaliseEstimate,
+  enabledGroups: readonly NormaliseGroup[],
+): SelectionCost {
+  const descEnabled = enabledGroups.includes("description");
+  const titleEnabled = enabledGroups.includes("title");
+  const breakdown = estimate.aiTokenBreakdown;
+  const pricing = estimate.pricing;
+  const descCalls = descEnabled ? estimate.nImagesWithAiB : 0;
+  const titleCalls = titleEnabled ? estimate.nImagesWithAiC : 0;
+  if (!breakdown || !pricing) {
+    return {
+      predictedUsd: null,
+      upperBoundUsd: null,
+      descriptionCalls: descCalls,
+      titleCalls,
+      model: estimate.model,
+    };
+  }
+  const inputTokens =
+    (descEnabled ? breakdown.descriptionInputTokens : 0) +
+    (titleEnabled ? breakdown.titleInputTokens : 0);
+  const predictedOut =
+    descCalls * estimate.expectedOutPerCallB +
+    titleCalls * estimate.expectedOutPerCallC;
+  const upperOut =
+    descCalls * estimate.maxOutPerCallB + titleCalls * estimate.maxOutPerCallC;
+  const inputCost = (inputTokens / 1_000_000) * pricing.inputPer1M;
+  const predicted = inputCost + (predictedOut / 1_000_000) * pricing.outputPer1M;
+  const upper = inputCost + (upperOut / 1_000_000) * pricing.outputPer1M;
+  return {
+    predictedUsd: predicted,
+    upperBoundUsd: upper,
+    descriptionCalls: descCalls,
+    titleCalls,
+    model: estimate.model,
+  };
+}
+
+function CostPreview({
+  estimate,
+  enabledGroups,
+}: {
+  estimate: NormaliseEstimate;
+  enabledGroups: readonly NormaliseGroup[];
+}) {
+  const cost = computeCostForSelection(estimate, enabledGroups);
+  const hasAi = cost.descriptionCalls + cost.titleCalls > 0;
   if (!hasAi) {
     return (
       <div
@@ -169,29 +235,195 @@ function CostPreview({ estimate }: { estimate: NormaliseEstimate }) {
       </div>
     );
   }
+  if (cost.predictedUsd == null || cost.upperBoundUsd == null) {
+    return (
+      <div
+        style={{ marginTop: 10, fontSize: 12, color: "var(--accent-error, #d33)" }}
+        data-testid="normalise-cost-preview"
+      >
+        AI calls required ({cost.descriptionCalls} description merge,{" "}
+        {cost.titleCalls} title gen) but no OpenAI key is configured — open
+        Settings to enter your key before normalising.
+      </div>
+    );
+  }
   return (
     <div
       style={{ marginTop: 10, fontSize: 12, color: "var(--text-secondary)" }}
       data-testid="normalise-cost-preview"
     >
-      AI calls required with model <code>{estimate.model}</code>:
+      AI calls required with model <code>{cost.model}</code>:
       <ul style={{ marginTop: 4, paddingLeft: 18 }}>
-        {estimate.nImagesWithAiB > 0 && (
-          <li>{estimate.nImagesWithAiB} description merges</li>
+        {cost.descriptionCalls > 0 && (
+          <li>{cost.descriptionCalls} description merges</li>
         )}
-        {estimate.nImagesWithAiC > 0 && (
-          <li>{estimate.nImagesWithAiC} title generations</li>
-        )}
-        {estimate.nImagesNoAi > 0 && (
-          <li>{estimate.nImagesNoAi} images run purely deterministically</li>
-        )}
+        {cost.titleCalls > 0 && <li>{cost.titleCalls} title generations</li>}
       </ul>
       <div>
-        <strong>Cost:</strong> {formatCost(estimate.predictedCostUsd)} predicted,
-        up to {formatCost(estimate.upperBoundCostUsd)} worst case (output-token
-        variation only).
+        <strong>Cost:</strong> {formatCost(cost.predictedUsd)} predicted, up to{" "}
+        {formatCost(cost.upperBoundUsd)} worst case (output-token variation only).
       </div>
     </div>
+  );
+}
+
+function emptyCounts() {
+  return {
+    nNoop: 0,
+    nNormalisedDeterministic: 0,
+    nNormalisedAi: 0,
+    nConflict: 0,
+  };
+}
+
+/**
+ * Per-group outcome table. Rows = the 8 normalise groups; columns =
+ * the four outcome buckets. Rows where every image is a no-op are
+ * auto-disabled (and excluded from the selection) since enabling them
+ * would be a no-op anyway. Conflict cell renders red when non-zero.
+ */
+function GroupOutcomeTable({
+  estimate,
+  enabledGroups,
+  onSetEnabledGroups,
+  total,
+}: {
+  estimate: NormaliseEstimate;
+  enabledGroups: readonly NormaliseGroup[];
+  onSetEnabledGroups: (g: NormaliseGroup[]) => void;
+  total: number;
+}) {
+  function toggle(g: NormaliseGroup) {
+    const current = new Set(enabledGroups);
+    if (current.has(g)) current.delete(g);
+    else current.add(g);
+    onSetEnabledGroups(V1_GROUPS.filter((x) => current.has(x)));
+  }
+
+  const cellBase: React.CSSProperties = {
+    padding: "4px 8px",
+    textAlign: "right" as const,
+    fontVariantNumeric: "tabular-nums",
+  };
+  const dim = { color: "var(--text-secondary)", opacity: 0.5 };
+  const headStyle: React.CSSProperties = {
+    padding: "4px 8px",
+    textAlign: "right" as const,
+    fontWeight: 600,
+    borderBottom: "1px solid var(--border-subtle, #ddd)",
+  };
+
+  function renderCount(n: number) {
+    return n === 0 ? <span style={dim}>0</span> : <span>{n}</span>;
+  }
+
+  return (
+    <table
+      style={{
+        marginTop: 12,
+        width: "100%",
+        borderCollapse: "collapse",
+        fontSize: 13,
+      }}
+      data-testid="normalise-group-outcome-table"
+    >
+      <thead>
+        <tr>
+          <th style={{ ...headStyle, textAlign: "left", paddingLeft: 0 }}>
+            Group
+          </th>
+          <th style={headStyle}>No change</th>
+          <th style={headStyle}>Cleanup</th>
+          <th style={headStyle}>AI rewrite</th>
+          <th style={headStyle}>Conflict</th>
+        </tr>
+      </thead>
+      <tbody>
+        {V1_GROUPS.map((g) => {
+          const counts = estimate.perGroupOutcomes[g] ?? emptyCounts();
+          const isAiGroup = AI_GROUPS.has(g);
+          const allNoop =
+            counts.nNormalisedDeterministic === 0 &&
+            counts.nNormalisedAi === 0 &&
+            counts.nConflict === 0;
+          const checked = enabledGroups.includes(g);
+          const disabled = allNoop;
+          return (
+            <tr
+              key={g}
+              data-testid={`normalise-group-row-${g}`}
+              style={{
+                borderBottom: "1px solid var(--border-subtle, #eee)",
+                opacity: disabled ? 0.6 : 1,
+              }}
+            >
+              <td style={{ padding: "4px 8px 4px 0", textAlign: "left" }}>
+                <label style={{ cursor: disabled ? "default" : "pointer" }}>
+                  <input
+                    type="checkbox"
+                    checked={checked && !disabled}
+                    disabled={disabled}
+                    onChange={() => toggle(g)}
+                    data-testid={`normalise-group-${g}-checkbox`}
+                  />{" "}
+                  {groupLabel(g)}
+                </label>
+              </td>
+              <td
+                style={cellBase}
+                data-testid={`normalise-group-${g}-noop`}
+              >
+                {renderCount(counts.nNoop)}
+              </td>
+              <td
+                style={cellBase}
+                data-testid={`normalise-group-${g}-deterministic`}
+              >
+                {renderCount(counts.nNormalisedDeterministic)}
+              </td>
+              <td
+                style={cellBase}
+                data-testid={`normalise-group-${g}-ai`}
+              >
+                {isAiGroup ? (
+                  renderCount(counts.nNormalisedAi)
+                ) : (
+                  <span style={dim}>—</span>
+                )}
+              </td>
+              <td
+                style={{
+                  ...cellBase,
+                  color:
+                    counts.nConflict > 0
+                      ? "var(--accent-error, #d33)"
+                      : undefined,
+                  fontWeight: counts.nConflict > 0 ? 600 : undefined,
+                }}
+                data-testid={`normalise-group-${g}-conflict`}
+              >
+                {renderCount(counts.nConflict)}
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+      <tfoot>
+        <tr>
+          <td
+            colSpan={5}
+            style={{
+              padding: "6px 0 0",
+              fontSize: 12,
+              color: "var(--text-secondary)",
+            }}
+          >
+            {total} {total === 1 ? "image" : "images"} · counts in each row sum
+            to {total}. Rows with nothing to do are disabled.
+          </td>
+        </tr>
+      </tfoot>
+    </table>
   );
 }
 
@@ -210,13 +442,6 @@ function AwaitingConfirmPanel({
 }) {
   const word = state.total === 1 ? "image" : "images";
 
-  function toggle(g: NormaliseGroup) {
-    const current = new Set(state.enabledGroups);
-    if (current.has(g)) current.delete(g);
-    else current.add(g);
-    onSetEnabledGroups(V1_GROUPS.filter((x) => current.has(x)));
-  }
-
   const noneEnabled = state.enabledGroups.length === 0;
 
   return (
@@ -226,33 +451,20 @@ function AwaitingConfirmPanel({
         groups to normalise — drafts are proposed; nothing is written to
         disk until you apply them.
       </div>
-      {state.estimate && <CostPreview estimate={state.estimate} />}
-      <div
-        style={{ marginTop: 12, fontSize: 13 }}
-        data-testid="normalise-group-checklist"
-      >
-        {V1_GROUPS.map((g) => {
-          const checked = state.enabledGroups.includes(g);
-          return (
-            <label
-              key={g}
-              style={{
-                display: "block",
-                padding: "4px 0",
-                cursor: "pointer",
-              }}
-            >
-              <input
-                type="checkbox"
-                checked={checked}
-                onChange={() => toggle(g)}
-                data-testid={`normalise-group-${g}-checkbox`}
-              />{" "}
-              {groupLabel(g)}
-            </label>
-          );
-        })}
-      </div>
+      {state.estimate && (
+        <GroupOutcomeTable
+          estimate={state.estimate}
+          enabledGroups={state.enabledGroups}
+          onSetEnabledGroups={onSetEnabledGroups}
+          total={state.total}
+        />
+      )}
+      {state.estimate && (
+        <CostPreview
+          estimate={state.estimate}
+          enabledGroups={state.enabledGroups}
+        />
+      )}
       {overwriteInfo ? (
         <OverwriteNotice
           testidPrefix="normalise"

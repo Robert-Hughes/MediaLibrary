@@ -477,9 +477,38 @@ export interface DescribeEstimate {
 }
 
 /**
+ * Per-group outcome counts collected during the estimate walk. The
+ * estimate now walks every group regardless of user selection so the
+ * confirm-phase dialog can show a per-group outcome table; the user's
+ * selection is honoured client-side (cost recomputed from
+ * `aiTokenBreakdown` + `pricing`, drafts produced by the run command).
+ */
+export interface NormaliseGroupOutcomeCounts {
+  nNoop: number;
+  nNormalisedDeterministic: number;
+  nNormalisedAi: number;
+  nConflict: number;
+}
+
+export interface NormaliseEstimateAiTokenBreakdown {
+  descriptionInputTokens: number;
+  titleInputTokens: number;
+  descriptionCallCount: number;
+  titleCallCount: number;
+}
+
+export interface NormaliseEstimatePricing {
+  inputPer1M: number;
+  outputPer1M: number;
+}
+
+/**
  * Cost-estimate summary for the metadata-normaliser. Plan §7.
- * `model` is the empty string when no AI groups are enabled (no
- * preflight was performed).
+ *
+ * `model` is the empty string and `pricing` / `aiTokenBreakdown` are
+ * `null` when no preflight ran (missing API key, or no pricing entry
+ * for the configured model). `perGroupOutcomes` is always populated
+ * because the outcome walk never needs the API.
  */
 export interface NormaliseEstimate {
   nImagesWithAiB: number;
@@ -489,6 +518,13 @@ export interface NormaliseEstimate {
   predictedCostUsd: number;
   upperBoundCostUsd: number;
   model: string;
+  perGroupOutcomes: Partial<Record<NormaliseGroup, NormaliseGroupOutcomeCounts>>;
+  aiTokenBreakdown: NormaliseEstimateAiTokenBreakdown | null;
+  pricing: NormaliseEstimatePricing | null;
+  expectedOutPerCallB: number;
+  maxOutPerCallB: number;
+  expectedOutPerCallC: number;
+  maxOutPerCallC: number;
 }
 
 export interface DescribeFailure {
