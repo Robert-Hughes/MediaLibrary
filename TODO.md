@@ -18,9 +18,6 @@ Now
 Bugs/quirks/tweaks/improvements
 =================================
 
-* The app has grown a lot since our last full review. Take a holistic look at everything:
- Review size and responsibilities of files to see if anything has grown too large. Look for potential improvements in app architecture , abstractions or code re-use. Look also for testing gaps or test improvements. Find maintaibability issues, inconsistencies where we handle similar things differently in different parts of the app, behaviour that is surprising for either
- developers or users. Areas of complicated logic or high perplexity.
 
 Features
 ========
@@ -31,11 +28,19 @@ Features
 
 * Feature to fill in missing GPS location based on description/tags (which could itself have been AI-generated from the visual content). Could also be used to fix batches of photos all clustered to the exact same GPS location (e.g. by a coarse previous manual edit). e.g. 2010 london photos, or where incorrect GPS was recorded
 
-* Consider adding FLAC support. Not sure what this would mean.
-
 * Map view, showing locations of all photos/heatmap over the map
 
 * Feature for facial/person recognition?
 
 * Support deletion of photos (make sure all the various in-memory stores are updated)
 * Reload/refresh folder button? (Equivalent to close + open)
+
+* Consider adding FLAC support. Not sure what this would mean.
+  * Exiftool already supports FLAC (and other audio formats), so a lot of stuff should "just work"
+  * Where in the app do we use the word photo/image/picture/jpeg/etc
+  * Basic audio player for the gallery view (no auto-play, no auto-advance to next track on finish, just enough to show the user which track this is)
+  * Column selections probably want to be different - different defaults, remember last-used in separate place
+    * Could auto-detect if this is a "picture" folder or a "audio" folder and make a few tweaks based on that
+  * AI describe, reverse geocode don't apply. But normalize metadata could but might need new groups defining.
+
+* How are videos handled? Can we?

@@ -2,7 +2,10 @@
 //!
 //! Plan §1 Group A. Canonical form: bag of `Parent|Child|Leaf`
 //! hierarchical paths, every component lowercase + hyphen-separated.
-//! Derived flat fields are sorted unique leaves.
+//! Both the hierarchical bag and the derived flat fields are sorted
+//! alphabetically (full path string for the hierarchical bag, leaf
+//! string for the flat fields) so the primary and derivatives stay
+//! visibly consistent and re-runs are byte-stable.
 //!
 //! Conflict policy: always-union (no AI). Multiple non-empty distinct
 //! sources are merged. Flat keywords that already appear as a leaf of
@@ -73,11 +76,10 @@ pub fn derive_keywords_canonical(input: &KeywordsInput) -> (Vec<String>, Vec<Str
 
     // ── Step 2: promote orphan flat keywords ──
     //
-    // Preserve discovery order across (dc_subject → iptc_keywords →
-    // ai_tags → ai_objects) so the canonical bag has a deterministic
-    // ordering for re-runs. Each orphan promotes to its own path; the
-    // path is then added to `path_set` so a later duplicate is
-    // absorbed.
+    // Walk (dc_subject → iptc_keywords → ai_tags → ai_objects) to gather
+    // orphans. Discovery order is unimportant — `paths` is sorted at the
+    // end of derivation — but the fixed walk order keeps the
+    // pre-sort state deterministic for debugging.
     for flat_source in [
         &input.dc_subject,
         &input.iptc_keywords,
@@ -95,6 +97,15 @@ pub fn derive_keywords_canonical(input: &KeywordsInput) -> (Vec<String>, Vec<Str
             }
         }
     }
+
+    // Sort the hierarchical bag alphabetically by full path string.
+    // XMP bag semantics are unordered (readers must not infer meaning
+    // from order), so we are free to pick any canonical order. Sorting
+    // matches Lightroom / Bridge / digiKam conventions, keeps the
+    // hierarchical primary visibly consistent with the sorted flat
+    // derivatives below, and makes re-runs byte-stable regardless of
+    // which source supplied a tag first.
+    paths.sort();
 
     // Leaves projected for the flat derivative fields: sorted unique.
     let mut leaves: Vec<String> = paths
@@ -198,7 +209,7 @@ mod tests {
         let out = normalise_keywords(&input).expect("non-empty input → drafts");
         assert_eq!(
             paths_of(&out, "XMP-lr:HierarchicalSubject"),
-            vec!["a|b|c".to_string(), "1|2|3".to_string(), "d".to_string()],
+            vec!["1|2|3".to_string(), "a|b|c".to_string(), "d".to_string()],
         );
         assert_eq!(
             paths_of(&out, "XMP-dc:Subject"),
@@ -334,6 +345,59 @@ mod tests {
         assert_eq!(
             paths_of(&out, "XMP-lr:HierarchicalSubject"),
             vec!["holiday".to_string()],
+        );
+    }
+
+    #[test]
+    fn hierarchical_bag_is_sorted_alphabetically() {
+        // Sources deliberately supplied out of alphabetical order to
+        // prove the canonical bag is sorted regardless of input order.
+        let input = KeywordsInput {
+            hierarchical_subject: vec!["Zebra".into(), "Apple|Pie".into(), "Middle".into()],
+            iptc_keywords: vec!["banana".into()],
+            ai_tags: vec!["yak".into()],
+            ..Default::default()
+        };
+        let out = normalise_keywords(&input).unwrap();
+        assert_eq!(
+            paths_of(&out, "XMP-lr:HierarchicalSubject"),
+            vec![
+                "apple|pie".to_string(),
+                "banana".to_string(),
+                "middle".to_string(),
+                "yak".to_string(),
+                "zebra".to_string(),
+            ],
+        );
+        // Flat derivatives are leaves of the same sorted bag.
+        assert_eq!(
+            paths_of(&out, "XMP-dc:Subject"),
+            vec![
+                "banana".to_string(),
+                "middle".to_string(),
+                "pie".to_string(),
+                "yak".to_string(),
+                "zebra".to_string(),
+            ],
+        );
+    }
+
+    #[test]
+    fn unsorted_existing_hierarchy_triggers_resort() {
+        // Already-normalised content (lowercase, hyphenated) but in a
+        // non-sorted order should still trigger a draft so the bag
+        // becomes sorted.
+        let input = KeywordsInput {
+            hierarchical_subject: vec!["zebra".into(), "apple".into()],
+            dc_subject: vec!["apple".into(), "zebra".into()],
+            iptc_keywords: vec!["apple".into(), "zebra".into()],
+            ..Default::default()
+        };
+        let out = normalise_keywords(&input)
+            .expect("unsorted hierarchy must redraft into sorted order");
+        assert_eq!(
+            paths_of(&out, "XMP-lr:HierarchicalSubject"),
+            vec!["apple".to_string(), "zebra".to_string()],
         );
     }
 
