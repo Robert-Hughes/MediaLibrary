@@ -39,6 +39,26 @@ dialog. Unchecked groups are skipped.
 **Canonical form.** Bag of hierarchical paths. Each leaf and each path
 component normalised to lowercase, hyphen-separated (e.g. `new-york`, not
 `New_York` or `NewYork`). Whitespace trimmed; empty components dropped.
+The bag itself is sorted alphabetically by full path string (see
+"Ordering" below).
+
+**Ordering.** Both the hierarchical primary (`XMP-lr:HierarchicalSubject`)
+and the flat derivatives (`XMP-dc:Subject`, `IPTC:Keywords`) are sorted
+alphabetically — by full normalised path for the hierarchical bag, by
+leaf for the flats. XMP bag and IIM repeated-string semantics declare
+the field unordered (readers must not infer meaning from order), so we
+are free to pick a canonical order. Alphabetical was chosen because:
+
+1. It matches Lightroom / Bridge / digiKam defaults — most existing
+   libraries already look like this on disk.
+2. It keeps the hierarchical primary visibly consistent with the sorted
+   flat derivatives, which avoids the otherwise-confusing "same set, two
+   different orders" appearance in metadata viewers.
+3. It makes re-runs byte-stable regardless of which source supplied a
+   given tag first, simplifying the idempotency detector.
+4. Relevance-based ordering (the only competing convention, used by stock
+   agencies and AI taggers) requires a confidence score we do not have
+   for user-entered tags or hierarchical paths derived from a union.
 
 **Derivation — union across all sources.**
 
@@ -54,8 +74,9 @@ Dedup is by full normalised path string.
 
 Worked example. `HierarchicalSubject = [A|B|C, 1|2|3]` and
 `Keywords = [C, D]` →
-canonical paths = `[A|B|C, 1|2|3, D]`. `C` is absorbed because it is the
-leaf of `A|B|C`; `D` is promoted because it appears nowhere as a leaf.
+canonical paths (post-normalisation, sorted) = `[1|2|3, a|b|c, d]`. `C`
+is absorbed because it is the leaf of `A|B|C`; `D` is promoted because
+it appears nowhere as a leaf.
 
 Derivative projection:
 
