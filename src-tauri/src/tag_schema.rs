@@ -4,7 +4,8 @@
 //!
 //! The registry is constructed lazily on first access via `get_registry()`.
 //! On the first call per process, the schema is loaded from a disk cache
-//! keyed by exiftool version (`<cache_dir>/MediaLibrary/tag_schema_<ver>.json`).
+//! keyed by exiftool version plus our parser version
+//! (`<cache_dir>/MediaLibrary/tag_schema_p<parser>_<ver>.json`).
 //! On a cache miss — or when the exiftool version has changed since the
 //! last run — `exiftool -listx -lang en` runs, the XML is parsed, and the
 //! result is written to the cache for next time.
@@ -319,7 +320,8 @@ impl TagRegistry {
 
     /// Build with disk-cache fast path.
     ///
-    /// Cache file: `<dirs::cache_dir()>/MediaLibrary/tag_schema_<ver>.json`.
+    /// Cache file:
+    /// `<dirs::cache_dir()>/MediaLibrary/tag_schema_p<parser>_<ver>.json`.
     /// Version comes from `exiftool -ver`; a single subprocess call.  When
     /// the cache file for the current version exists and parses, it is
     /// used directly.  Otherwise we fall back to `build()` and write the
@@ -417,6 +419,11 @@ fn read_exiftool_version() -> Result<String, SchemaError> {
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
+// Bump this when the logic that converts ExifTool `-listx` XML into our
+// `TagKind` model changes in a way that should invalidate existing schema
+// cache files, even if the ExifTool version itself did not change.
+const TAG_SCHEMA_PARSER_VERSION: u32 = 2;
+
 fn cache_path_for(version: &str) -> Option<std::path::PathBuf> {
     let dir = dirs::cache_dir()?;
     // Slashes-or-dots-in-version turn into filename-safe form. exiftool
@@ -431,10 +438,10 @@ fn cache_path_for(version: &str) -> Option<std::path::PathBuf> {
             }
         })
         .collect();
-    Some(
-        dir.join("MediaLibrary")
-            .join(format!("tag_schema_{}.json", safe)),
-    )
+    Some(dir.join("MediaLibrary").join(format!(
+        "tag_schema_p{}_{}.json",
+        TAG_SCHEMA_PARSER_VERSION, safe
+    )))
 }
 
 // Allow TagRegistry to serialize/deserialize for the disk cache.
@@ -1136,9 +1143,10 @@ mod tests {
     #[test]
     fn cache_path_sanitises_version_string() {
         let p = cache_path_for("13.57").unwrap();
-        assert!(p.to_string_lossy().contains("tag_schema_13.57.json"));
+        assert!(p.to_string_lossy().contains("tag_schema_p2_13.57.json"));
         let p2 = cache_path_for("13/57 weird!").unwrap();
         let s = p2.to_string_lossy().into_owned();
+        assert!(s.contains("tag_schema_p2_13_57_weird_.json"));
         assert!(
             !s.contains('/') || s.contains("MediaLibrary"),
             "no stray slashes in version segment"
