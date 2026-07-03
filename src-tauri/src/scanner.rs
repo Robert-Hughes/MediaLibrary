@@ -12,11 +12,14 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use walkdir::WalkDir;
 
-
 // ── ExifTool executable name ──────────────────────────────────────────────────
 
 pub(crate) fn find_exiftool() -> &'static str {
-    if cfg!(target_os = "windows") { "exiftool.exe" } else { "exiftool" }
+    if cfg!(target_os = "windows") {
+        "exiftool.exe"
+    } else {
+        "exiftool"
+    }
 }
 
 /// File extensions recognised as photos.
@@ -109,8 +112,7 @@ pub fn scan_folder<P, E>(
     cancellation_flag: Arc<AtomicBool>,
     mut on_photo: P,
     mut on_error: E,
-)
-where
+) where
     P: FnMut(PhotoInfo),
     E: FnMut(WalkErrorInfo),
 {
@@ -162,7 +164,12 @@ where
             std::thread::sleep(std::time::Duration::from_millis(200));
         }
 
-        on_photo(PhotoInfo { relative_path: rel, filename, date_modified, date_created });
+        on_photo(PhotoInfo {
+            relative_path: rel,
+            filename,
+            date_modified,
+            date_created,
+        });
     }
 }
 
@@ -173,10 +180,14 @@ fn read_os_metadata(path: &Path) -> (Option<i64>, Option<i64>) {
         Err(_) => return (None, None),
     };
     let modified = meta.modified().ok().and_then(|t| {
-        t.duration_since(std::time::UNIX_EPOCH).ok().map(|d| d.as_secs() as i64)
+        t.duration_since(std::time::UNIX_EPOCH)
+            .ok()
+            .map(|d| d.as_secs() as i64)
     });
     let created = meta.created().ok().and_then(|t| {
-        t.duration_since(std::time::UNIX_EPOCH).ok().map(|d| d.as_secs() as i64)
+        t.duration_since(std::time::UNIX_EPOCH)
+            .ok()
+            .map(|d| d.as_secs() as i64)
     });
     (modified, created)
 }
@@ -229,7 +240,11 @@ pub fn read_image_metadata_batch(
         return Ok(Vec::new());
     }
 
-    log::info!("[exiftool] Reading {} files (two-pass), first: {:?}", abs_paths.len(), abs_paths.first());
+    log::info!(
+        "[exiftool] Reading {} files (two-pass), first: {:?}",
+        abs_paths.len(),
+        abs_paths.first()
+    );
 
     // TEMPORARY: simulate slow metadata reading for load testing.
     #[cfg(not(test))]
@@ -245,7 +260,10 @@ pub fn read_image_metadata_batch(
     let raw_map = match run_exiftool_pass(abs_paths, true) {
         Ok(m) => m,
         Err(e) => {
-            log::warn!("[exiftool] Pass B (-n) failed ({}); raw_metadata will be empty for this batch", e);
+            log::warn!(
+                "[exiftool] Pass B (-n) failed ({}); raw_metadata will be empty for this batch",
+                e
+            );
             HashMap::new()
         }
     };
@@ -282,8 +300,10 @@ fn run_exiftool_pass(
         .arg("-G1")
         .arg("-s")
         .arg("-struct")
-        .arg("-charset").arg("filename=utf8")
-        .arg("-charset").arg("utf8")
+        .arg("-charset")
+        .arg("filename=utf8")
+        .arg("-charset")
+        .arg("utf8")
         .arg("--system:all")
         .arg("--composite:all")
         .arg("-j");
@@ -294,14 +314,21 @@ fn run_exiftool_pass(
         cmd.arg(path);
     }
 
-    let output = cmd.output().map_err(|e| format!(
-        "Failed to execute ExifTool: {}. Please ensure ExifTool is installed and accessible.", e
-    ))?;
+    let output = cmd.output().map_err(|e| {
+        format!(
+            "Failed to execute ExifTool: {}. Please ensure ExifTool is installed and accessible.",
+            e
+        )
+    })?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        log::error!("[exiftool] Pass {} failed (status {:?}): {}",
-            if numeric { "B(-n)" } else { "A" }, output.status, stderr);
+        log::error!(
+            "[exiftool] Pass {} failed (status {:?}): {}",
+            if numeric { "B(-n)" } else { "A" },
+            output.status,
+            stderr
+        );
         return Err(format!("ExifTool failed: {}", stderr));
     }
 
@@ -336,7 +363,8 @@ fn parse_exiftool_pass_json_with_registry(
             let preview: String = json.chars().take(200).collect();
             log::error!(
                 "[parse_exiftool] Failed to parse outer ExifTool JSON: {}. First 200 chars: {:?}",
-                e, preview
+                e,
+                preview
             );
             return HashMap::new();
         }
@@ -344,7 +372,10 @@ fn parse_exiftool_pass_json_with_registry(
 
     let mut map_by_source: HashMap<String, HashMap<String, Variant>> = HashMap::new();
     for (idx, raw) in raw_entries.into_iter().enumerate() {
-        let source = raw.get("SourceFile").and_then(|v| v.as_str()).map(|s| s.to_string());
+        let source = raw
+            .get("SourceFile")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
 
         let obj = match raw {
             serde_json::Value::Object(o) => o,
@@ -397,7 +428,10 @@ fn parse_exiftool_pass_json_with_registry(
         } else if let Some(s) = source {
             map_by_source.insert(s.replace('\\', "/"), map);
         } else {
-            log::warn!("[parse_exiftool] Entry {} has no SourceFile; cannot map to a request path", idx);
+            log::warn!(
+                "[parse_exiftool] Entry {} has no SourceFile; cannot map to a request path",
+                idx
+            );
         }
     }
 
@@ -442,7 +476,10 @@ fn parse_exiftool_batch_json(
         let abs_path = &abs_paths[i];
         let normalized_abs = abs_path.to_string_lossy().replace('\\', "/");
         let metadata = map_by_source.remove(&normalized_abs).unwrap_or_else(|| {
-            log::warn!("[parse_exiftool] Warning: No metadata found for path: {}", normalized_abs);
+            log::warn!(
+                "[parse_exiftool] Warning: No metadata found for path: {}",
+                normalized_abs
+            );
             HashMap::new()
         });
         results.push(ImageMetadata {
@@ -455,7 +492,7 @@ fn parse_exiftool_batch_json(
 }
 
 /// Generate a base64-encoded JPEG thumbnail for the image at `path`.
-/// 
+///
 /// Strategy:
 /// 1. Try to extract an embedded EXIF thumbnail. If its largest dimension
 ///    is >= 160 px, use it as-is (fast path, ~10-50 ms).
@@ -467,12 +504,12 @@ pub fn thumbnail_for(path: &Path) -> Option<String> {
     if std::env::var("MEDIA_LIBRARY_SLOW_MODE").is_ok() {
         std::thread::sleep(std::time::Duration::from_millis(1000));
     }
-    
+
     // Try fast path: extract embedded thumbnail from EXIF
     if let Some(thumb) = extract_exif_thumbnail(path) {
         return Some(thumb);
     }
-    
+
     // Fall back to full decode
     full_decode_thumbnail(path)
 }
@@ -484,44 +521,47 @@ pub fn thumbnail_for(path: &Path) -> Option<String> {
 fn extract_exif_thumbnail(path: &Path) -> Option<String> {
     use std::fs::File;
     use std::io::{BufReader, Read};
-    
+
     let file = File::open(path).ok()?;
     let mut reader = BufReader::new(file);
-    
+
     // Parse EXIF data
     let exif_reader = exif::Reader::new();
     let exif = match exif_reader.read_from_container(&mut reader) {
         Ok(e) => e,
         Err(_) => return None,
     };
-    
+
     // Look for thumbnail in EXIF data
     let offset_field = exif.get_field(exif::Tag::JPEGInterchangeFormat, exif::In::THUMBNAIL)?;
-    let length_field = exif.get_field(exif::Tag::JPEGInterchangeFormatLength, exif::In::THUMBNAIL)?;
-    
-    if let (exif::Value::Long(offsets), exif::Value::Long(lengths)) = 
-        (&offset_field.value, &length_field.value) {
+    let length_field =
+        exif.get_field(exif::Tag::JPEGInterchangeFormatLength, exif::In::THUMBNAIL)?;
+
+    if let (exif::Value::Long(offsets), exif::Value::Long(lengths)) =
+        (&offset_field.value, &length_field.value)
+    {
         if let (Some(&offset), Some(&length)) = (offsets.first(), lengths.first()) {
             // Re-open file to read the entire file and find TIFF header
             let mut file = File::open(path).ok()?;
             let mut file_data = Vec::new();
             file.read_to_end(&mut file_data).ok()?;
-            
+
             // Find the TIFF header in the JPEG file
             // JPEG structure: FF D8 (SOI) ... FF E1 XX XX "Exif\0\0" [TIFF header starts here]
             let tiff_offset = find_tiff_offset(&file_data)?;
-            
+
             // The thumbnail offset is relative to the TIFF header
             let absolute_offset = tiff_offset + offset as usize;
-            
+
             if absolute_offset + length as usize > file_data.len() {
                 return None;
             }
-            
+
             let thumbnail_bytes = &file_data[absolute_offset..absolute_offset + length as usize];
-            
+
             // Check if it's a valid JPEG (starts with 0xFF 0xD8)
-            if thumbnail_bytes.len() > 2 && thumbnail_bytes[0] == 0xFF && thumbnail_bytes[1] == 0xD8 {
+            if thumbnail_bytes.len() > 2 && thumbnail_bytes[0] == 0xFF && thumbnail_bytes[1] == 0xD8
+            {
                 // Decode just enough to check dimensions
                 if let Ok(img) = image::load_from_memory(thumbnail_bytes) {
                     let largest = img.width().max(img.height());
@@ -537,7 +577,7 @@ fn extract_exif_thumbnail(path: &Path) -> Option<String> {
             }
         }
     }
-    
+
     None
 }
 
@@ -548,13 +588,14 @@ fn find_tiff_offset(data: &[u8]) -> Option<usize> {
     for i in 0..data.len().saturating_sub(10) {
         if data[i] == 0xFF && data[i + 1] == 0xE1 {
             // Check for "Exif\0\0" identifier
-            if i + 10 < data.len() 
+            if i + 10 < data.len()
                 && data[i + 4] == b'E'
                 && data[i + 5] == b'x'
                 && data[i + 6] == b'i'
                 && data[i + 7] == b'f'
                 && data[i + 8] == 0
-                && data[i + 9] == 0 {
+                && data[i + 9] == 0
+            {
                 // TIFF header starts right after "Exif\0\0"
                 return Some(i + 10);
             }
@@ -567,8 +608,16 @@ fn full_decode_thumbnail(path: &Path) -> Option<String> {
     let img = image::open(path).ok()?;
     let thumb = img.thumbnail(160, 160);
     let mut buf = Vec::new();
-    thumb.write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Jpeg).ok()?;
-    Some(base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &buf))
+    thumb
+        .write_to(
+            &mut std::io::Cursor::new(&mut buf),
+            image::ImageFormat::Jpeg,
+        )
+        .ok()?;
+    Some(base64::Engine::encode(
+        &base64::engine::general_purpose::STANDARD,
+        &buf,
+    ))
 }
 
 #[cfg(test)]
@@ -579,7 +628,12 @@ mod tests {
 
     fn collect(folder: &Path) -> Vec<PhotoInfo> {
         let mut photos = Vec::new();
-        scan_folder(folder, Arc::new(AtomicBool::new(false)), |p| photos.push(p), |_| {});
+        scan_folder(
+            folder,
+            Arc::new(AtomicBool::new(false)),
+            |p| photos.push(p),
+            |_| {},
+        );
         photos.sort_by(|a, b| a.relative_path.cmp(&b.relative_path));
         photos
     }
@@ -601,8 +655,12 @@ mod tests {
     #[test]
     fn all_supported_extensions_are_found() {
         let dir = tempdir().unwrap();
-        let names = ["a.jpg", "b.jpeg", "c.png", "d.gif", "e.bmp", "f.webp", "g.tiff", "h.tif"];
-        for name in &names { fs::write(dir.path().join(name), b"x").unwrap(); }
+        let names = [
+            "a.jpg", "b.jpeg", "c.png", "d.gif", "e.bmp", "f.webp", "g.tiff", "h.tif",
+        ];
+        for name in &names {
+            fs::write(dir.path().join(name), b"x").unwrap();
+        }
         assert_eq!(collect(dir.path()).len(), names.len());
     }
 
@@ -623,7 +681,9 @@ mod tests {
         fs::write(dir.path().join("portrait.png"), b"x").unwrap();
         let photos = collect(dir.path());
         assert_eq!(photos.len(), 2);
-        for p in &photos { assert!(!p.relative_path.starts_with('/')); }
+        for p in &photos {
+            assert!(!p.relative_path.starts_with('/'));
+        }
     }
 
     #[test]
@@ -633,7 +693,12 @@ mod tests {
         fs::write(dir.path().join("b.jpg"), b"x").unwrap();
         fs::write(dir.path().join("c.jpg"), b"x").unwrap();
         let mut count = 0;
-        scan_folder(dir.path(), Arc::new(AtomicBool::new(false)), |_| count += 1, |_| {});
+        scan_folder(
+            dir.path(),
+            Arc::new(AtomicBool::new(false)),
+            |_| count += 1,
+            |_| {},
+        );
         assert_eq!(count, 3);
     }
 
@@ -683,7 +748,7 @@ mod tests {
         assert!(result.is_some());
         assert!(!result.unwrap().is_empty());
     }
-    
+
     #[test]
     fn walk_errors_are_reported_via_on_error_callback() {
         // Walking a path that doesn't exist produces one WalkDir error.
@@ -696,12 +761,15 @@ mod tests {
             |_| {},
             |e| errors.push(e),
         );
-        assert!(!errors.is_empty(), "expected at least one WalkErrorInfo for a missing root");
+        assert!(
+            !errors.is_empty(),
+            "expected at least one WalkErrorInfo for a missing root"
+        );
         assert!(!errors[0].message.is_empty());
     }
 
     #[test]
-    fn happy_path_walk_does_not_invoke_on_error(){
+    fn happy_path_walk_does_not_invoke_on_error() {
         let dir = tempdir().unwrap();
         fs::write(dir.path().join("a.jpg"), b"x").unwrap();
         let mut errors = 0;
@@ -716,8 +784,10 @@ mod tests {
 
     #[test]
     fn parse_exiftool_json_test() {
-        let json = r#"[{"SourceFile": "D:/test.jpg", "Number": 13.5, "String": "Yes", "List": ["A"]}]"#;
-        let parsed: Result<Vec<std::collections::HashMap<String, Variant>>, _> = serde_json::from_str(json);
+        let json =
+            r#"[{"SourceFile": "D:/test.jpg", "Number": 13.5, "String": "Yes", "List": ["A"]}]"#;
+        let parsed: Result<Vec<std::collections::HashMap<String, Variant>>, _> =
+            serde_json::from_str(json);
         assert!(parsed.is_ok(), "Failed to parse json: {:?}", parsed.err());
     }
 
@@ -731,7 +801,11 @@ mod tests {
             {"SourceFile": "D:/b.mov", "Keys": {"creator": "alice", "year": 2024}},
             {"SourceFile": "D:/c.jpg", "Tag": "ok"}
         ]"#;
-        let rel = vec!["a.jpg".to_string(), "b.mov".to_string(), "c.jpg".to_string()];
+        let rel = vec![
+            "a.jpg".to_string(),
+            "b.mov".to_string(),
+            "c.jpg".to_string(),
+        ];
         let abs = vec![
             std::path::PathBuf::from("D:/a.jpg"),
             std::path::PathBuf::from("D:/b.mov"),
@@ -966,7 +1040,9 @@ mod tests {
         // The test image's embedded thumbnail is ~100×68 px, which is below the
         // 160 px threshold.  extract_exif_thumbnail should return None so we
         // fall through to the full-decode path.
-        let workspace_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let workspace_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap();
         let path = workspace_root.join("test_images/real_with_exif.jpg");
 
         if !path.exists() {
@@ -974,11 +1050,17 @@ mod tests {
         }
 
         let result = extract_exif_thumbnail(&path);
-        assert!(result.is_none(), "Embedded thumbnail is < 160 px; should have been rejected");
+        assert!(
+            result.is_none(),
+            "Embedded thumbnail is < 160 px; should have been rejected"
+        );
 
         // thumbnail_for should still succeed via the full-decode fallback
         let thumb = thumbnail_for(&path);
-        assert!(thumb.is_some(), "Expected thumbnail_for to succeed via full decode");
+        assert!(
+            thumb.is_some(),
+            "Expected thumbnail_for to succeed via full decode"
+        );
         assert!(!thumb.unwrap().is_empty());
     }
 
@@ -986,7 +1068,9 @@ mod tests {
     fn exif_thumbnail_large_enough_is_used() {
         // large_with_exif.jpg has a 200×150 embedded thumbnail (≥ 160 px),
         // so extract_exif_thumbnail should return it directly.
-        let workspace_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let workspace_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap();
         let path = workspace_root.join("test_images/large_with_exif.jpg");
 
         if !path.exists() {
@@ -994,7 +1078,10 @@ mod tests {
         }
 
         let result = extract_exif_thumbnail(&path);
-        assert!(result.is_some(), "Expected embedded thumbnail (200×150) to be accepted (≥ 160 px)");
+        assert!(
+            result.is_some(),
+            "Expected embedded thumbnail (200×150) to be accepted (≥ 160 px)"
+        );
         assert!(!result.unwrap().is_empty());
     }
 }

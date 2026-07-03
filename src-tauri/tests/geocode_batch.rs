@@ -20,18 +20,15 @@
 //!     summary counters).
 
 use std::collections::HashMap;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
 
 use medialibrary_tauri_lib::batch_job::{BatchFailureKind, BatchFailureRow};
 use medialibrary_tauri_lib::draft_edits::DraftEdit;
 use medialibrary_tauri_lib::geocode::{
-    self, GeocodeBatchOutcome, GeocodeClient, GeocodeEventSink, GeocodeRequestItem,
-    GeocodeSummary,
+    self, GeocodeBatchOutcome, GeocodeClient, GeocodeEventSink, GeocodeRequestItem, GeocodeSummary,
 };
-use medialibrary_tauri_lib::geocode_cache::{
-    CachedResult, GeocodeCacheEntry, GeocodeCacheFile,
-};
+use medialibrary_tauri_lib::geocode_cache::{CachedResult, GeocodeCacheEntry, GeocodeCacheFile};
 
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
@@ -93,7 +90,10 @@ impl RecordingSink {
 
 impl GeocodeEventSink for RecordingSink {
     fn started(&self, total: usize) {
-        self.events.lock().unwrap().push(SinkEvent::Started { total });
+        self.events
+            .lock()
+            .unwrap()
+            .push(SinkEvent::Started { total });
     }
 
     fn progress(
@@ -115,12 +115,7 @@ impl GeocodeEventSink for RecordingSink {
         });
     }
 
-    fn complete(
-        &self,
-        succeeded: &[String],
-        failed: &[BatchFailureRow],
-        summary: &GeocodeSummary,
-    ) {
+    fn complete(&self, succeeded: &[String], failed: &[BatchFailureRow], summary: &GeocodeSummary) {
         self.events.lock().unwrap().push(SinkEvent::Complete {
             succeeded: succeeded.to_vec(),
             failed: failed.to_vec(),
@@ -201,8 +196,7 @@ async fn happy_path_accounting_routes_each_source_to_its_summary_counter() {
         })))
         .mount(&server)
         .await;
-    let client =
-        GeocodeClient::with_bases(server.uri(), "http://unused.invalid".into());
+    let client = GeocodeClient::with_bases(server.uri(), "http://unused.invalid".into());
 
     // Cache pre-seeded for the (51.5, -0.1) coords — the third item's
     // (52.0, -1.0) will miss and hit the mock server.
@@ -216,15 +210,8 @@ async fn happy_path_accounting_routes_each_source_to_its_summary_counter() {
     let cancel = AtomicBool::new(false);
     let sink = RecordingSink::default();
 
-    let outcome: GeocodeBatchOutcome = geocode::run_geocode_batch(
-        &items,
-        &client,
-        &mut cache,
-        &cancel,
-        &sink,
-        |_| Ok(()),
-    )
-    .await;
+    let outcome: GeocodeBatchOutcome =
+        geocode::run_geocode_batch(&items, &client, &mut cache, &cancel, &sink, |_| Ok(())).await;
 
     assert_eq!(outcome.summary.n_no_gps, 1);
     assert_eq!(outcome.summary.n_succeeded_from_cache, 1);
@@ -239,7 +226,10 @@ async fn happy_path_accounting_routes_each_source_to_its_summary_counter() {
     // order. Cheap assertion that the runner doesn't accidentally
     // skip or duplicate boundary events.
     let events = sink.events();
-    assert!(matches!(events.first(), Some(SinkEvent::Started { total: 3 })));
+    assert!(matches!(
+        events.first(),
+        Some(SinkEvent::Started { total: 3 })
+    ));
     assert!(matches!(events.last(), Some(SinkEvent::Complete { .. })));
     assert_eq!(sink.progress_events().len(), 3);
 }
@@ -337,7 +327,12 @@ async fn cancel_between_nominatim_and_overpass_emits_cancelled_progress_and_skip
     // appending to `failed` silently.
     let progress = sink.progress_events();
     assert_eq!(progress.len(), 1);
-    if let SinkEvent::Progress { status, relative_path, .. } = &progress[0] {
+    if let SinkEvent::Progress {
+        status,
+        relative_path,
+        ..
+    } = &progress[0]
+    {
         assert_eq!(status, "cancelled");
         assert_eq!(relative_path, "a.jpg");
     } else {
@@ -358,8 +353,10 @@ async fn cache_io_save_failure_appears_as_synthetic_failure_row() {
     // call is needed for this test — the item is served from the
     // cache.
     let mut cache = cache_with_entry(51.5, -0.1, "Westminster");
-    let client =
-        GeocodeClient::with_bases("http://unused.invalid".into(), "http://unused.invalid".into());
+    let client = GeocodeClient::with_bases(
+        "http://unused.invalid".into(),
+        "http://unused.invalid".into(),
+    );
     let cancel = AtomicBool::new(false);
     let sink = RecordingSink::default();
 
@@ -377,7 +374,10 @@ async fn cache_io_save_failure_appears_as_synthetic_failure_row() {
     assert_eq!(outcome.summary.n_succeeded_from_cache, 1);
 
     // And there's an extra synthetic failure row for the save miss.
-    assert_eq!(outcome.summary.n_failed, 1, "cache_io contributes to n_failed");
+    assert_eq!(
+        outcome.summary.n_failed, 1,
+        "cache_io contributes to n_failed"
+    );
     let cache_io = outcome
         .failed
         .iter()
@@ -391,7 +391,10 @@ async fn cache_io_save_failure_appears_as_synthetic_failure_row() {
     // failure list off that payload, so the row must propagate.
     let events = sink.events();
     let last = events.last().expect("at least the complete event");
-    if let SinkEvent::Complete { failed, summary, .. } = last {
+    if let SinkEvent::Complete {
+        failed, summary, ..
+    } = last
+    {
         assert!(failed.iter().any(|f| f.kind == BatchFailureKind::CacheIo));
         assert_eq!(summary.n_failed, 1);
     } else {

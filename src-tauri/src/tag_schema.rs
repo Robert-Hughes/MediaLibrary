@@ -57,7 +57,10 @@ pub enum TagKind {
     Rational,
     Boolean,
     DateTime,
-    Enum { repr: EnumRepr, options: Vec<EnumOption> },
+    Enum {
+        repr: EnumRepr,
+        options: Vec<EnumOption>,
+    },
     Bag(Box<TagKind>),
     Seq(Box<TagKind>),
     Alt(Box<TagKind>),
@@ -143,7 +146,10 @@ impl TagRegistry {
     /// Used by the autocomplete command: surfacing read-only entries lets
     /// users pick a key that ExifTool will subsequently refuse to set.
     pub fn all_writable(&self) -> impl Iterator<Item = (&str, &TagInfo)> {
-        self.tags.iter().filter(|(_, info)| info.writable).map(|(k, v)| (k.as_str(), v))
+        self.tags
+            .iter()
+            .filter(|(_, info)| info.writable)
+            .map(|(k, v)| (k.as_str(), v))
     }
 
     /// Build from raw `exiftool -listx -lang en` XML output.
@@ -182,7 +188,8 @@ impl TagRegistry {
                                 .unwrap_or_default();
                             let tag_name = attrs.get("name").cloned().unwrap_or_default();
                             let type_attr = attrs.get("type").cloned().unwrap_or_default();
-                            let writable = attrs.get("writable").map(|s| s == "true").unwrap_or(false);
+                            let writable =
+                                attrs.get("writable").map(|s| s == "true").unwrap_or(false);
                             let count = attrs.get("count").and_then(|s| s.parse::<u32>().ok());
                             current_tag = Some(PartialTag {
                                 group: g1,
@@ -383,7 +390,10 @@ impl TagRegistry {
                         e
                     ),
                 },
-                Err(e) => log::warn!("[tag_schema] Cache serialize failed ({}); skipping write", e),
+                Err(e) => log::warn!(
+                    "[tag_schema] Cache serialize failed ({}); skipping write",
+                    e
+                ),
             }
         }
 
@@ -399,7 +409,10 @@ fn read_exiftool_version() -> Result<String, SchemaError> {
         .map_err(|e| SchemaError::ExifToolFailed(e.to_string()))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
-        return Err(SchemaError::ExifToolFailed(format!("exiftool -ver failed: {}", stderr)));
+        return Err(SchemaError::ExifToolFailed(format!(
+            "exiftool -ver failed: {}",
+            stderr
+        )));
     }
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
@@ -410,9 +423,18 @@ fn cache_path_for(version: &str) -> Option<std::path::PathBuf> {
     // versions are like `13.57` — safe — but be defensive.
     let safe: String = version
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
-    Some(dir.join("MediaLibrary").join(format!("tag_schema_{}.json", safe)))
+    Some(
+        dir.join("MediaLibrary")
+            .join(format!("tag_schema_{}.json", safe)),
+    )
 }
 
 // Allow TagRegistry to serialize/deserialize for the disk cache.
@@ -456,7 +478,10 @@ fn collect_attrs(e: &quick_xml::events::BytesStart) -> BTreeMap<String, String> 
     let mut out = BTreeMap::new();
     for attr in e.attributes().flatten() {
         let key = String::from_utf8_lossy(attr.key.as_ref()).into_owned();
-        let val = attr.unescape_value().map(|s| s.into_owned()).unwrap_or_default();
+        let val = attr
+            .unescape_value()
+            .map(|s| s.into_owned())
+            .unwrap_or_default();
         out.insert(key, val);
     }
     out
@@ -489,7 +514,10 @@ fn derive_kind(type_attr: &str, count: Option<u32>, options: &[EnumOption]) -> T
         "?" | "" | "undef" => TagKind::Unknown,
         "float" | "double" | "real" => TagKind::Real,
         s if s.starts_with("rational") => TagKind::Rational,
-        s if s.starts_with("int") => TagKind::Integer { min: None, max: None },
+        s if s.starts_with("int") => TagKind::Integer {
+            min: None,
+            max: None,
+        },
         _ => TagKind::Unknown,
     };
 
@@ -499,7 +527,10 @@ fn derive_kind(type_attr: &str, count: Option<u32>, options: &[EnumOption]) -> T
             TagKind::Integer { .. } => EnumRepr::Integer,
             _ => EnumRepr::String,
         };
-        let kind = TagKind::Enum { repr, options: options.to_vec() };
+        let kind = TagKind::Enum {
+            repr,
+            options: options.to_vec(),
+        };
         return wrap_count(kind, count);
     }
 
@@ -552,16 +583,21 @@ fn apply_overrides(tags: &mut BTreeMap<String, TagInfo>) {
         // XMP Dublin Core
         ("XMP-dc:Subject", || TagKind::Bag(Box::new(TagKind::Text))),
         ("XMP-dc:Creator", || TagKind::Seq(Box::new(TagKind::Text))),
-        ("XMP-dc:Contributor", || TagKind::Bag(Box::new(TagKind::Text))),
+        ("XMP-dc:Contributor", || {
+            TagKind::Bag(Box::new(TagKind::Text))
+        }),
         ("XMP-dc:Publisher", || TagKind::Bag(Box::new(TagKind::Text))),
         ("XMP-dc:Language", || TagKind::Bag(Box::new(TagKind::Text))),
         ("XMP-dc:Relation", || TagKind::Bag(Box::new(TagKind::Text))),
         ("XMP-dc:Type", || TagKind::Bag(Box::new(TagKind::Text))),
         // Lightroom / IPTC Extension
-        ("XMP-lr:HierarchicalSubject", || TagKind::Bag(Box::new(TagKind::Text))),
+        ("XMP-lr:HierarchicalSubject", || {
+            TagKind::Bag(Box::new(TagKind::Text))
+        }),
         // XMP rights
-        ("XMP-xmpRights:Owner", || TagKind::Bag(Box::new(TagKind::Text))),
-
+        ("XMP-xmpRights:Owner", || {
+            TagKind::Bag(Box::new(TagKind::Text))
+        }),
         // ── IPTC IIM repeatable strings ────────────────────────────────
         // The IIM ApplicationRecord defines a small set of DataSets that
         // may appear more than once in the IIM stream (`List => 1` in
@@ -577,15 +613,26 @@ fn apply_overrides(tags: &mut BTreeMap<String, TagInfo>) {
         // spec is frozen and the table is short — keep it in lockstep
         // with `Image::ExifTool::IPTC`'s `List` flags. See the comment on
         // `wrap_count` for why we cannot infer this from `count`.
-        ("IPTC:SubjectReference",        || TagKind::Bag(Box::new(TagKind::Text))), // 2:12
-        ("IPTC:SupplementalCategories",  || TagKind::Bag(Box::new(TagKind::Text))), // 2:20
-        ("IPTC:Keywords",                || TagKind::Bag(Box::new(TagKind::Text))), // 2:25
-        ("IPTC:ContentLocationCode",     || TagKind::Bag(Box::new(TagKind::Text))), // 2:26
-        ("IPTC:ContentLocationName",     || TagKind::Bag(Box::new(TagKind::Text))), // 2:27
-        ("IPTC:By-line",                 || TagKind::Bag(Box::new(TagKind::Text))), // 2:80
-        ("IPTC:By-lineTitle",            || TagKind::Bag(Box::new(TagKind::Text))), // 2:85
-        ("IPTC:Writer-Editor",           || TagKind::Bag(Box::new(TagKind::Text))), // 2:122
-
+        ("IPTC:SubjectReference", || {
+            TagKind::Bag(Box::new(TagKind::Text))
+        }), // 2:12
+        ("IPTC:SupplementalCategories", || {
+            TagKind::Bag(Box::new(TagKind::Text))
+        }), // 2:20
+        ("IPTC:Keywords", || TagKind::Bag(Box::new(TagKind::Text))), // 2:25
+        ("IPTC:ContentLocationCode", || {
+            TagKind::Bag(Box::new(TagKind::Text))
+        }), // 2:26
+        ("IPTC:ContentLocationName", || {
+            TagKind::Bag(Box::new(TagKind::Text))
+        }), // 2:27
+        ("IPTC:By-line", || TagKind::Bag(Box::new(TagKind::Text))),  // 2:80
+        ("IPTC:By-lineTitle", || {
+            TagKind::Bag(Box::new(TagKind::Text))
+        }), // 2:85
+        ("IPTC:Writer-Editor", || {
+            TagKind::Bag(Box::new(TagKind::Text))
+        }), // 2:122
         // MWG regions: bag of structs. Inner fields not enumerated here —
         // the editor will treat unknown struct fields as text. Acceptable
         // first cut; Phase 4 can populate `Struct` field maps explicitly.
@@ -602,21 +649,23 @@ fn apply_overrides(tags: &mut BTreeMap<String, TagInfo>) {
         ("XMP-exif:DateTimeOriginal", || TagKind::DateTime),
         ("XMP-exif:DateTimeDigitized", || TagKind::DateTime),
         ("XMP-iptcCore:DateCreated", || TagKind::DateTime),
-
         // ── XMP-mlib namespace (AI-generated metadata) ────────────────
         // Registered with exiftool via the embedded user-defined config
         // (see `exiftool_config.rs`). `-listx` does not enumerate
         // user-defined namespaces, so the entries here are the only place
         // these tags appear in the schema.
-        ("XMP-mlib:AIDescription",    || TagKind::Text),
+        ("XMP-mlib:AIDescription", || TagKind::Text),
         ("XMP-mlib:AIInterpretation", || TagKind::Text),
-        ("XMP-mlib:AITags",           || TagKind::Bag(Box::new(TagKind::Text))),
-        ("XMP-mlib:AIObjects",        || TagKind::Bag(Box::new(TagKind::Text))),
-        ("XMP-mlib:AIOcrText",        || TagKind::Bag(Box::new(TagKind::Text))),
-        ("XMP-mlib:AIModel",          || TagKind::Text),
-        ("XMP-mlib:AIGeneratedAt",    || TagKind::DateTime),
-        ("XMP-mlib:AIPromptVersion",  || TagKind::Text),
-
+        ("XMP-mlib:AITags", || TagKind::Bag(Box::new(TagKind::Text))),
+        ("XMP-mlib:AIObjects", || {
+            TagKind::Bag(Box::new(TagKind::Text))
+        }),
+        ("XMP-mlib:AIOcrText", || {
+            TagKind::Bag(Box::new(TagKind::Text))
+        }),
+        ("XMP-mlib:AIModel", || TagKind::Text),
+        ("XMP-mlib:AIGeneratedAt", || TagKind::DateTime),
+        ("XMP-mlib:AIPromptVersion", || TagKind::Text),
         // ── Unknown-kind cleanups ──────────────────────────────────────
         // `-listx` reports `type='undef'` for a long tail of EXIF tags.
         // That maps to `TagKind::Unknown`, which the UI then treats as
@@ -637,7 +686,6 @@ fn apply_overrides(tags: &mut BTreeMap<String, TagInfo>) {
         ("ExifIFD:ExifVersion", || TagKind::Text),
         ("ExifIFD:FlashpixVersion", || TagKind::Text),
         ("InteropIFD:InteropVersion", || TagKind::Text),
-
         // (2) Binary blobs — writable only via file redirection.  Marking
         //     them Binary makes the UI treat them as read-only and the
         //     writable filter on autocomplete drops them too (Binary +
@@ -919,7 +967,10 @@ mod tests {
         // datetime override editor inert for tags carrying these types.
         assert!(matches!(derive_kind("date", None, &[]), TagKind::DateTime));
         assert!(matches!(derive_kind("date+", None, &[]), TagKind::DateTime));
-        assert!(matches!(derive_kind("datetime", None, &[]), TagKind::DateTime));
+        assert!(matches!(
+            derive_kind("datetime", None, &[]),
+            TagKind::DateTime
+        ));
     }
 
     #[test]
@@ -929,10 +980,17 @@ mod tests {
         // common XMP datetime tags so editors / verifier / write_args all
         // treat them as DateTime.
         let r = fixture_registry();
-        let t = r.lookup("XMP-xmp:CreateDate").expect("override should add the tag");
-        assert!(matches!(t.kind, TagKind::DateTime),
-            "XMP-xmp:CreateDate should be DateTime, got {:?}", t.kind);
-        let t = r.lookup("XMP-photoshop:DateCreated").expect("override should add");
+        let t = r
+            .lookup("XMP-xmp:CreateDate")
+            .expect("override should add the tag");
+        assert!(
+            matches!(t.kind, TagKind::DateTime),
+            "XMP-xmp:CreateDate should be DateTime, got {:?}",
+            t.kind
+        );
+        let t = r
+            .lookup("XMP-photoshop:DateCreated")
+            .expect("override should add");
         assert!(matches!(t.kind, TagKind::DateTime));
     }
 
@@ -949,15 +1007,20 @@ mod tests {
         // type='undef', which derives to Unknown.  The override table
         // promotes them to Text so the user gets a real string editor.
         let mut tags: BTreeMap<String, TagInfo> = BTreeMap::new();
-        tags.insert("ExifIFD:ExifVersion".to_string(), TagInfo {
-            group: "ExifIFD".to_string(),
-            name: "ExifVersion".to_string(),
-            writable: true,
-            kind: TagKind::Unknown,
-            description: None,
-        });
+        tags.insert(
+            "ExifIFD:ExifVersion".to_string(),
+            TagInfo {
+                group: "ExifIFD".to_string(),
+                name: "ExifVersion".to_string(),
+                writable: true,
+                kind: TagKind::Unknown,
+                description: None,
+            },
+        );
         apply_overrides(&mut tags);
-        let t = tags.get("ExifIFD:ExifVersion").expect("override should keep tag");
+        let t = tags
+            .get("ExifIFD:ExifVersion")
+            .expect("override should keep tag");
         assert!(matches!(t.kind, TagKind::Text));
         assert!(t.writable);
     }
@@ -969,20 +1032,26 @@ mod tests {
         // override marks them Binary AND forces writable=false so the UI
         // treats them as read-only and the autocomplete drops them.
         let mut tags: BTreeMap<String, TagInfo> = BTreeMap::new();
-        tags.insert("ExifIFD:MakerNoteCanon".to_string(), TagInfo {
-            group: "ExifIFD".to_string(),
-            name: "MakerNoteCanon".to_string(),
-            writable: true,
-            kind: TagKind::Unknown,
-            description: None,
-        });
-        tags.insert("IFD0:PreviewImage".to_string(), TagInfo {
-            group: "IFD0".to_string(),
-            name: "PreviewImage".to_string(),
-            writable: true,
-            kind: TagKind::Unknown,
-            description: None,
-        });
+        tags.insert(
+            "ExifIFD:MakerNoteCanon".to_string(),
+            TagInfo {
+                group: "ExifIFD".to_string(),
+                name: "MakerNoteCanon".to_string(),
+                writable: true,
+                kind: TagKind::Unknown,
+                description: None,
+            },
+        );
+        tags.insert(
+            "IFD0:PreviewImage".to_string(),
+            TagInfo {
+                group: "IFD0".to_string(),
+                name: "PreviewImage".to_string(),
+                writable: true,
+                kind: TagKind::Unknown,
+                description: None,
+            },
+        );
         apply_overrides(&mut tags);
         let mk = tags.get("ExifIFD:MakerNoteCanon").unwrap();
         assert!(matches!(mk.kind, TagKind::Binary));
@@ -997,13 +1066,16 @@ mod tests {
         // Defensive: if listx ever reported a Binary-overridden tag as
         // writable=false, the override must NOT flip that to true.
         let mut tags: BTreeMap<String, TagInfo> = BTreeMap::new();
-        tags.insert("ExifIFD:MakerNoteCanon".to_string(), TagInfo {
-            group: "ExifIFD".to_string(),
-            name: "MakerNoteCanon".to_string(),
-            writable: false,
-            kind: TagKind::Unknown,
-            description: None,
-        });
+        tags.insert(
+            "ExifIFD:MakerNoteCanon".to_string(),
+            TagInfo {
+                group: "ExifIFD".to_string(),
+                name: "MakerNoteCanon".to_string(),
+                writable: false,
+                kind: TagKind::Unknown,
+                description: None,
+            },
+        );
         apply_overrides(&mut tags);
         assert!(!tags.get("ExifIFD:MakerNoteCanon").unwrap().writable);
     }
@@ -1032,9 +1104,15 @@ mod tests {
         let json = serde_json::to_string(&original).expect("serialize");
         let restored: TagRegistry = serde_json::from_str(&json).expect("deserialize");
         // Compare via the same lookups we make at runtime.
-        for key in ["IFD0:Orientation", "IPTC:Keywords", "XMP-dc:Subject",
-                    "XMP-dc:Description", "XMP-xmp:Rating", "Foo:BinaryThing",
-                    "XMP-mwg-rs:Regions"] {
+        for key in [
+            "IFD0:Orientation",
+            "IPTC:Keywords",
+            "XMP-dc:Subject",
+            "XMP-dc:Description",
+            "XMP-xmp:Rating",
+            "Foo:BinaryThing",
+            "XMP-mwg-rs:Regions",
+        ] {
             let a = original.lookup(key);
             let b = restored.lookup(key);
             assert_eq!(a, b, "lookup mismatch after roundtrip for {}", key);
@@ -1048,7 +1126,9 @@ mod tests {
         // loading from disk. We test this by forcing a cache build (which may
         // hit disk) and verifying an overridden tag is correct.
         let reg = TagRegistry::build_cached().expect("build_cached failed");
-        let t = reg.lookup("IFD1:ThumbnailImage").expect("should have ThumbnailImage");
+        let t = reg
+            .lookup("IFD1:ThumbnailImage")
+            .expect("should have ThumbnailImage");
         assert!(matches!(t.kind, TagKind::Binary));
         assert!(!t.writable);
     }
@@ -1059,7 +1139,10 @@ mod tests {
         assert!(p.to_string_lossy().contains("tag_schema_13.57.json"));
         let p2 = cache_path_for("13/57 weird!").unwrap();
         let s = p2.to_string_lossy().into_owned();
-        assert!(!s.contains('/') || s.contains("MediaLibrary"), "no stray slashes in version segment");
+        assert!(
+            !s.contains('/') || s.contains("MediaLibrary"),
+            "no stray slashes in version segment"
+        );
         assert!(!s.contains(' '));
         assert!(!s.contains('!'));
     }

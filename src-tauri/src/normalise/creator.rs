@@ -10,11 +10,7 @@ use crate::scanner::Variant;
 use std::collections::{HashMap, HashSet};
 
 /// Target tags written by Group E. Coherent-replacement rule (plan §4).
-pub const CREATOR_TARGET_TAGS: &[&str] = &[
-    "XMP-dc:Creator",
-    "EXIF:Artist",
-    "IPTC:By-line",
-];
+pub const CREATOR_TARGET_TAGS: &[&str] = &["XMP-dc:Creator", "EXIF:Artist", "IPTC:By-line"];
 
 /// Separator used by `EXIF:Artist` when multiple names are present.
 const ARTIST_SEPARATOR: &str = "; ";

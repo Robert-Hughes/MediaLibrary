@@ -74,7 +74,11 @@ impl ParsedDateTime {
 ///   * `"YYYY-MM-DDTHH:MM:SS"`               (XMP / ISO)
 ///   * `"YYYY-MM-DDTHH:MM:SS.sss"`           (with sub-seconds)
 ///   * `"…[+HH:MM]"` / `"…[-HH:MM]"` / `"…Z"` (with offset)
-fn parse_datetime_str(s: &str, default_offset: &str, default_subsec: &str) -> Option<ParsedDateTime> {
+fn parse_datetime_str(
+    s: &str,
+    default_offset: &str,
+    default_subsec: &str,
+) -> Option<ParsedDateTime> {
     let s = s.trim();
     if s.is_empty() {
         return None;
@@ -123,7 +127,10 @@ fn parse_datetime_str(s: &str, default_offset: &str, default_subsec: &str) -> Op
     let mut subsec = String::new();
     if rest.starts_with('.') {
         let after_dot = &rest[1..];
-        let digits: String = after_dot.chars().take_while(|c| c.is_ascii_digit()).collect();
+        let digits: String = after_dot
+            .chars()
+            .take_while(|c| c.is_ascii_digit())
+            .collect();
         if digits.is_empty() {
             return None;
         }
@@ -156,12 +163,20 @@ fn parse_datetime_str(s: &str, default_offset: &str, default_subsec: &str) -> Op
     })
 }
 
-fn parse_iptc_date_time(date_s: &str, time_s: Option<&str>, default_offset: &str, default_subsec: &str) -> Option<ParsedDateTime> {
+fn parse_iptc_date_time(
+    date_s: &str,
+    time_s: Option<&str>,
+    default_offset: &str,
+    default_subsec: &str,
+) -> Option<ParsedDateTime> {
     let date_s = date_s.trim();
     if date_s.len() < 10 {
         return None;
     }
-    let time_part = time_s.map(str::trim).filter(|s| !s.is_empty()).unwrap_or("00:00:00");
+    let time_part = time_s
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("00:00:00");
     let synthetic = format!("{}T{}", &date_s[..10], time_part);
     parse_datetime_str(&synthetic, default_offset, default_subsec)
 }
@@ -184,11 +199,23 @@ fn process_date_subgroup(
 ) -> DateSubgroupResult {
     let mut conflict = false;
     let canonical: ParsedDateTime = if let Some(p) = existing_exif.cloned() {
-        if let Some(o) = existing_xmp { if o != &p { conflict = true; } }
-        if let Some(o) = existing_iptc { if o != &p { conflict = true; } }
+        if let Some(o) = existing_xmp {
+            if o != &p {
+                conflict = true;
+            }
+        }
+        if let Some(o) = existing_iptc {
+            if o != &p {
+                conflict = true;
+            }
+        }
         p
     } else if let Some(p) = existing_xmp.cloned() {
-        if let Some(o) = existing_iptc { if o != &p { conflict = true; } }
+        if let Some(o) = existing_iptc {
+            if o != &p {
+                conflict = true;
+            }
+        }
         p
     } else if let Some(p) = existing_iptc.cloned() {
         p
@@ -336,7 +363,9 @@ fn parse_filename_for_h1(stem: &str) -> Option<(ParsedDateTime, bool)> {
                 (0, 0, 0, false)
             };
             let subsec = if *has_subsec {
-                caps.get(7).map(|m| m.as_str().to_string()).unwrap_or_default()
+                caps.get(7)
+                    .map(|m| m.as_str().to_string())
+                    .unwrap_or_default()
             } else {
                 String::new()
             };
@@ -361,8 +390,18 @@ pub fn normalise_dates(input: &DatesInput) -> DatesOutcome {
     let mut n_from_filename_date_only: u32 = 0;
 
     // ── H1: Shutter time ──
-    let default_offset_h1 = input.offset_time_original.as_deref().unwrap_or("").trim().to_string();
-    let default_subsec_h1 = input.sub_sec_time_original.as_deref().unwrap_or("").trim().to_string();
+    let default_offset_h1 = input
+        .offset_time_original
+        .as_deref()
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let default_subsec_h1 = input
+        .sub_sec_time_original
+        .as_deref()
+        .unwrap_or("")
+        .trim()
+        .to_string();
     let parse = |s: Option<&str>| -> Option<ParsedDateTime> {
         s.filter(|v| !v.trim().is_empty())
             .and_then(|v| parse_datetime_str(v, &default_offset_h1, &default_subsec_h1))
@@ -377,11 +416,22 @@ pub fn normalise_dates(input: &DatesInput) -> DatesOutcome {
     n_unparseable += count_unparseable_if(input.date_time_original.as_deref(), &exif_parsed);
     let xmp_parsed = parse(input.photoshop_date_created.as_deref());
     n_unparseable += count_unparseable_if(input.photoshop_date_created.as_deref(), &xmp_parsed);
-    let iptc_split = match (input.iptc_date_created.as_deref(), input.iptc_time_created.as_deref()) {
-        (Some(d), t) if !d.trim().is_empty() => parse_iptc_date_time(d, t, &default_offset_h1, &default_subsec_h1),
+    let iptc_split = match (
+        input.iptc_date_created.as_deref(),
+        input.iptc_time_created.as_deref(),
+    ) {
+        (Some(d), t) if !d.trim().is_empty() => {
+            parse_iptc_date_time(d, t, &default_offset_h1, &default_subsec_h1)
+        }
         _ => None,
     };
-    if input.iptc_date_created.as_deref().map(|s| !s.trim().is_empty()).unwrap_or(false) && iptc_split.is_none() {
+    if input
+        .iptc_date_created
+        .as_deref()
+        .map(|s| !s.trim().is_empty())
+        .unwrap_or(false)
+        && iptc_split.is_none()
+    {
         n_unparseable += 1;
     }
 
@@ -414,8 +464,18 @@ pub fn normalise_dates(input: &DatesInput) -> DatesOutcome {
     edits.extend(h1.edits);
 
     // ── H2: Digitised time ──
-    let default_offset_h2 = input.offset_time.as_deref().unwrap_or("").trim().to_string();
-    let default_subsec_h2 = input.sub_sec_time_digitized.as_deref().unwrap_or("").trim().to_string();
+    let default_offset_h2 = input
+        .offset_time
+        .as_deref()
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let default_subsec_h2 = input
+        .sub_sec_time_digitized
+        .as_deref()
+        .unwrap_or("")
+        .trim()
+        .to_string();
     let parse2 = |s: Option<&str>| -> Option<ParsedDateTime> {
         s.filter(|v| !v.trim().is_empty())
             .and_then(|v| parse_datetime_str(v, &default_offset_h2, &default_subsec_h2))
@@ -424,11 +484,22 @@ pub fn normalise_dates(input: &DatesInput) -> DatesOutcome {
     n_unparseable += count_unparseable_if(input.create_date.as_deref(), &exif2);
     let xmp2 = parse2(input.xmp_create_date.as_deref());
     n_unparseable += count_unparseable_if(input.xmp_create_date.as_deref(), &xmp2);
-    let iptc2 = match (input.iptc_digital_creation_date.as_deref(), input.iptc_digital_creation_time.as_deref()) {
-        (Some(d), t) if !d.trim().is_empty() => parse_iptc_date_time(d, t, &default_offset_h2, &default_subsec_h2),
+    let iptc2 = match (
+        input.iptc_digital_creation_date.as_deref(),
+        input.iptc_digital_creation_time.as_deref(),
+    ) {
+        (Some(d), t) if !d.trim().is_empty() => {
+            parse_iptc_date_time(d, t, &default_offset_h2, &default_subsec_h2)
+        }
         _ => None,
     };
-    if input.iptc_digital_creation_date.as_deref().map(|s| !s.trim().is_empty()).unwrap_or(false) && iptc2.is_none() {
+    if input
+        .iptc_digital_creation_date
+        .as_deref()
+        .map(|s| !s.trim().is_empty())
+        .unwrap_or(false)
+        && iptc2.is_none()
+    {
         n_unparseable += 1;
     }
     let h2 = process_date_subgroup(
@@ -447,7 +518,11 @@ pub fn normalise_dates(input: &DatesInput) -> DatesOutcome {
     edits.extend(h2.edits);
 
     DatesOutcome {
-        output: if edits.is_empty() { None } else { Some(GroupOutput { edits }) },
+        output: if edits.is_empty() {
+            None
+        } else {
+            Some(GroupOutput { edits })
+        },
         n_date_conflict: n_conflict,
         n_unparseable_inputs: n_unparseable,
         n_dto_from_filename: n_from_filename,
@@ -531,7 +606,10 @@ mod tests {
             ..Default::default()
         };
         let out = normalise_dates(&input).output.unwrap();
-        assert_eq!(s(&out, "XMP-photoshop:DateCreated"), "2024-06-15T14:30:45.123+01:00");
+        assert_eq!(
+            s(&out, "XMP-photoshop:DateCreated"),
+            "2024-06-15T14:30:45.123+01:00"
+        );
         assert_eq!(s(&out, "IPTC:DateCreated"), "2024-06-15");
         assert_eq!(s(&out, "IPTC:TimeCreated"), "14:30:45.123+01:00");
     }
@@ -609,7 +687,11 @@ mod tests {
             ..Default::default()
         };
         let second = normalise_dates(&post);
-        assert!(second.output.is_none(), "expected idempotent, got {:?}", second.output);
+        assert!(
+            second.output.is_none(),
+            "expected idempotent, got {:?}",
+            second.output
+        );
     }
 
     #[test]

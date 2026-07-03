@@ -77,8 +77,7 @@ pub fn haversine_meters(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
     let (lat1r, lat2r) = (lat1 * to_rad, lat2 * to_rad);
     let dlat = (lat2 - lat1) * to_rad;
     let dlon = (lon2 - lon1) * to_rad;
-    let a = (dlat / 2.0).sin().powi(2)
-        + lat1r.cos() * lat2r.cos() * (dlon / 2.0).sin().powi(2);
+    let a = (dlat / 2.0).sin().powi(2) + lat1r.cos() * lat2r.cos() * (dlon / 2.0).sin().powi(2);
     let c = 2.0 * a.sqrt().asin();
     6_371_000.0 * c
 }
@@ -121,8 +120,9 @@ impl GeocodeCacheFile {
     pub fn upsert(&mut self, entry: GeocodeCacheEntry) {
         // Drop any prior near-match so the new entry replaces it
         // rather than accumulating duplicates from repeat geocoding.
-        self.entries
-            .retain(|e| haversine_meters(entry.lat, entry.lon, e.lat, e.lon) >= CACHE_MATCH_RADIUS_M);
+        self.entries.retain(|e| {
+            haversine_meters(entry.lat, entry.lon, e.lat, e.lon) >= CACHE_MATCH_RADIUS_M
+        });
         self.entries.push(entry);
     }
 }
@@ -131,12 +131,10 @@ impl GeocodeCacheFile {
 /// directory, then rename over the destination. A crash mid-write
 /// leaves the previous good copy in place.
 pub fn save(app_data_dir: &Path, file: &GeocodeCacheFile) -> Result<(), String> {
-    fs::create_dir_all(app_data_dir)
-        .map_err(|e| format!("create app_data_dir: {}", e))?;
+    fs::create_dir_all(app_data_dir).map_err(|e| format!("create app_data_dir: {}", e))?;
     let dest = cache_path(app_data_dir);
     let tmp = dest.with_extension("json.tmp");
-    let json = serde_json::to_vec_pretty(file)
-        .map_err(|e| format!("serialize geocache: {}", e))?;
+    let json = serde_json::to_vec_pretty(file).map_err(|e| format!("serialize geocache: {}", e))?;
     fs::write(&tmp, &json).map_err(|e| format!("write {}: {}", tmp.display(), e))?;
     fs::rename(&tmp, &dest)
         .map_err(|e| format!("rename {} -> {}: {}", tmp.display(), dest.display(), e))?;

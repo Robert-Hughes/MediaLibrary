@@ -64,10 +64,16 @@ impl OpenAiHttp {
         let client = ClientBuilder::new(inner)
             .with(RetryTransientMiddleware::new_with_policy(policy))
             .build();
-        Self { base_url: base_url.into(), api_key: api_key.into(), client }
+        Self {
+            base_url: base_url.into(),
+            api_key: api_key.into(),
+            client,
+        }
     }
 
-    pub fn base_url(&self) -> &str { &self.base_url }
+    pub fn base_url(&self) -> &str {
+        &self.base_url
+    }
 
     /// POST a JSON body to `<base_url>/responses` and return the
     /// `(status, response_body_text)` tuple. The caller decides how to

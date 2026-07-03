@@ -40,6 +40,5 @@ pub fn make_openai_client(
 /// matching how scanner.rs walks the tree (forward-slash relative
 /// paths).
 pub fn resolve_rel(folder_path: &str, rel: &str) -> std::path::PathBuf {
-    std::path::PathBuf::from(folder_path)
-        .join(rel.replace('/', std::path::MAIN_SEPARATOR_STR))
+    std::path::PathBuf::from(folder_path).join(rel.replace('/', std::path::MAIN_SEPARATOR_STR))
 }

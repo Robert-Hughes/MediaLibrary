@@ -18,8 +18,7 @@ use std::sync::OnceLock;
 
 use crate::scanner::find_exiftool;
 
-const EMBEDDED_CONFIG: &[u8] =
-    include_bytes!("../resources/mlib.ExifTool_config");
+const EMBEDDED_CONFIG: &[u8] = include_bytes!("../resources/mlib.ExifTool_config");
 
 /// Lazy cache of the materialised config path.  `Some` if we successfully
 /// wrote (or found an up-to-date) config file; `None` if materialisation
@@ -65,7 +64,10 @@ fn materialise_config() -> Result<PathBuf, String> {
     if needs_write {
         std::fs::write(&path, EMBEDDED_CONFIG)
             .map_err(|e| format!("write({}): {}", path.display(), e))?;
-        log::info!("[exiftool_config] Wrote embedded config to {}", path.display());
+        log::info!(
+            "[exiftool_config] Wrote embedded config to {}",
+            path.display()
+        );
     }
     Ok(path)
 }
@@ -102,8 +104,14 @@ mod tests {
         // would be silently broken.  Catch that here.
         let s = std::str::from_utf8(EMBEDDED_CONFIG).expect("config is UTF-8");
         assert!(s.contains("XMP-mlib"), "config must declare XMP-mlib group");
-        assert!(s.contains("AIDescription"), "config must declare AIDescription field");
-        assert!(s.contains("medialibrary.local/ns/"), "namespace URI must be present");
+        assert!(
+            s.contains("AIDescription"),
+            "config must declare AIDescription field"
+        );
+        assert!(
+            s.contains("medialibrary.local/ns/"),
+            "namespace URI must be present"
+        );
     }
 
     #[test]

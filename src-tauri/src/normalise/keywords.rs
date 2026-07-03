@@ -121,7 +121,11 @@ pub fn derive_keywords_canonical(input: &KeywordsInput) -> (Vec<String>, Vec<Str
 /// True if the image's keyword fields are already in canonical form
 /// AND in sync with each other — re-running the group would be a
 /// no-op. See plan §5 (idempotency detector).
-fn keywords_is_normalised(input: &KeywordsInput, canonical_paths: &[String], canonical_leaves: &[String]) -> bool {
+fn keywords_is_normalised(
+    input: &KeywordsInput,
+    canonical_paths: &[String],
+    canonical_leaves: &[String],
+) -> bool {
     if input.hierarchical_subject.len() != canonical_paths.len() {
         return false;
     }
@@ -257,7 +261,11 @@ mod tests {
     #[test]
     fn capitalisation_and_separators_get_normalised() {
         let input = KeywordsInput {
-            iptc_keywords: vec!["New_York".into(), "los angeles".into(), "SAN-FRANCISCO".into()],
+            iptc_keywords: vec![
+                "New_York".into(),
+                "los angeles".into(),
+                "SAN-FRANCISCO".into(),
+            ],
             ..Default::default()
         };
         let out = normalise_keywords(&input).unwrap();
@@ -393,8 +401,8 @@ mod tests {
             iptc_keywords: vec!["apple".into(), "zebra".into()],
             ..Default::default()
         };
-        let out = normalise_keywords(&input)
-            .expect("unsorted hierarchy must redraft into sorted order");
+        let out =
+            normalise_keywords(&input).expect("unsorted hierarchy must redraft into sorted order");
         assert_eq!(
             paths_of(&out, "XMP-lr:HierarchicalSubject"),
             vec!["apple".to_string(), "zebra".to_string()],

@@ -102,10 +102,8 @@ pub fn append_entries(
     }
 
     let timestamp = chrono_like_iso();
-    let outcome_by_tag: std::collections::HashMap<&str, &TagOutcome> = tag_outcomes
-        .iter()
-        .map(|o| (o.tag.as_str(), o))
-        .collect();
+    let outcome_by_tag: std::collections::HashMap<&str, &TagOutcome> =
+        tag_outcomes.iter().map(|o| (o.tag.as_str(), o)).collect();
 
     let empty_argv: Vec<String> = Vec::new();
     for (tag, edit) in edits {
@@ -135,7 +133,9 @@ pub fn append_entries(
         match serde_json::to_string(&entry) {
             Ok(line) => {
                 if writeln!(writer, "{}", line).is_err() {
-                    log::warn!("[apply_log] write error; further entries in this apply will be skipped");
+                    log::warn!(
+                        "[apply_log] write error; further entries in this apply will be skipped"
+                    );
                     return;
                 }
             }
@@ -227,7 +227,11 @@ mod tests {
         let mut edits: HashMap<String, DraftEdit> = HashMap::new();
         edits.insert(
             "XMP-dc:Title".to_string(),
-            DraftEdit { value: Some(Variant::String("Hi".into())), intent: EditIntent::Set, display: None },
+            DraftEdit {
+                value: Some(Variant::String("Hi".into())),
+                intent: EditIntent::Set,
+                display: None,
+            },
         );
 
         let mut argv: HashMap<String, Vec<String>> = HashMap::new();
@@ -239,11 +243,28 @@ mod tests {
 
         let outcomes = vec![outcome("XMP-dc:Title", "Match")];
 
-        append_entries(folder, "a.jpg", &edits, &argv, &before, &before, &after_display, &after_raw, &outcomes, false);
+        append_entries(
+            folder,
+            "a.jpg",
+            &edits,
+            &argv,
+            &before,
+            &before,
+            &after_display,
+            &after_raw,
+            &outcomes,
+            false,
+        );
 
         let contents = std::fs::read_to_string(dir.path().join(LOG_FILE_NAME)).unwrap();
-        assert!(contents.starts_with("// "), "first line should be the header comment");
-        assert!(contents.contains("schema_version=3"), "header should advertise schema version");
+        assert!(
+            contents.starts_with("// "),
+            "first line should be the header comment"
+        );
+        assert!(
+            contents.contains("schema_version=3"),
+            "header should advertise schema version"
+        );
         let lines: Vec<&str> = contents.lines().collect();
         assert_eq!(lines.len(), 2, "expected header + one entry");
         assert!(lines[1].contains("\"XMP-dc:Title\""));
@@ -263,18 +284,29 @@ mod tests {
         let dir = tempdir().unwrap();
         let folder = dir.path().to_str().unwrap();
         let mut edits: HashMap<String, DraftEdit> = HashMap::new();
-        edits.insert("XMP-dc:Title".to_string(),
-            DraftEdit { value: Some(Variant::String("New".into())), intent: EditIntent::Set, display: None });
+        edits.insert(
+            "XMP-dc:Title".to_string(),
+            DraftEdit {
+                value: Some(Variant::String("New".into())),
+                intent: EditIntent::Set,
+                display: None,
+            },
+        );
         let argv = HashMap::new();
-        let before = HashMap::new();   // empty: pre-read failed
+        let before = HashMap::new(); // empty: pre-read failed
         let after = HashMap::new();
         let outcomes = vec![outcome("XMP-dc:Title", "Match")];
 
-        append_entries(folder, "a.jpg", &edits, &argv, &before, &before, &after, &after, &outcomes, true);
+        append_entries(
+            folder, "a.jpg", &edits, &argv, &before, &before, &after, &after, &outcomes, true,
+        );
 
         let contents = std::fs::read_to_string(dir.path().join(LOG_FILE_NAME)).unwrap();
-        assert!(contents.contains("\"before_read_failed\":true"),
-            "flag must surface in entry when pre-read failed: {}", contents);
+        assert!(
+            contents.contains("\"before_read_failed\":true"),
+            "flag must surface in entry when pre-read failed: {}",
+            contents
+        );
     }
 
     #[test]
@@ -285,7 +317,11 @@ mod tests {
         let mut edits: HashMap<String, DraftEdit> = HashMap::new();
         edits.insert(
             "XMP-dc:Title".to_string(),
-            DraftEdit { value: Some(Variant::String("New".into())), intent: EditIntent::Set, display: None },
+            DraftEdit {
+                value: Some(Variant::String("New".into())),
+                intent: EditIntent::Set,
+                display: None,
+            },
         );
         let argv = HashMap::new();
 
@@ -313,8 +349,16 @@ mod tests {
 
         let contents = std::fs::read_to_string(dir.path().join(LOG_FILE_NAME)).unwrap();
         // Both the old and new values should be readable in the entry.
-        assert!(contents.contains("\"Old\""), "before value missing: {}", contents);
-        assert!(contents.contains("\"New\""), "after value missing: {}", contents);
+        assert!(
+            contents.contains("\"Old\""),
+            "before value missing: {}",
+            contents
+        );
+        assert!(
+            contents.contains("\"New\""),
+            "after value missing: {}",
+            contents
+        );
     }
 
     #[test]
@@ -325,7 +369,11 @@ mod tests {
             let mut m = HashMap::new();
             m.insert(
                 "Tag".to_string(),
-                DraftEdit { value: Some(Variant::Integer(1)), intent: EditIntent::Set, display: None },
+                DraftEdit {
+                    value: Some(Variant::Integer(1)),
+                    intent: EditIntent::Set,
+                    display: None,
+                },
             );
             m
         };
@@ -334,8 +382,12 @@ mod tests {
         let after = HashMap::new();
         let outcomes = vec![outcome("Tag", "Match")];
 
-        append_entries(folder, "a.jpg", &edits, &argv, &before, &before, &after, &after, &outcomes, false);
-        append_entries(folder, "b.jpg", &edits, &argv, &before, &before, &after, &after, &outcomes, false);
+        append_entries(
+            folder, "a.jpg", &edits, &argv, &before, &before, &after, &after, &outcomes, false,
+        );
+        append_entries(
+            folder, "b.jpg", &edits, &argv, &before, &before, &after, &after, &outcomes, false,
+        );
 
         let contents = std::fs::read_to_string(dir.path().join(LOG_FILE_NAME)).unwrap();
         let lines: Vec<&str> = contents.lines().collect();

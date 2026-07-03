@@ -377,9 +377,13 @@ mod tests {
         for (variant, wire) in all {
             assert_eq!(variant.as_wire(), wire, "as_wire() for {:?}", variant);
             let serialised = serde_json::to_string(&variant).unwrap();
-            assert_eq!(serialised, format!("\"{}\"", wire), "serialised form for {:?}", variant);
-            let parsed: BatchFailureKind =
-                serde_json::from_str(&serialised).unwrap();
+            assert_eq!(
+                serialised,
+                format!("\"{}\"", wire),
+                "serialised form for {:?}",
+                variant
+            );
+            let parsed: BatchFailureKind = serde_json::from_str(&serialised).unwrap();
             assert_eq!(parsed, variant, "round-trip for {:?}", variant);
         }
     }

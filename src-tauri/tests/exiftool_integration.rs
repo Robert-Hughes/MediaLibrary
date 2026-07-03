@@ -33,7 +33,10 @@ fn fixture_path(name: &str) -> Option<PathBuf> {
     if p.exists() {
         Some(p)
     } else {
-        eprintln!("[integration] Fixture not present, skipping: {}", p.display());
+        eprintln!(
+            "[integration] Fixture not present, skipping: {}",
+            p.display()
+        );
         None
     }
 }
@@ -54,11 +57,8 @@ fn rel_of(folder: &Path, abs: &Path) -> String {
 
 fn read_one(folder: &Path, abs: &Path) -> scanner::ImageMetadata {
     let rel = rel_of(folder, abs);
-    let mut results = scanner::read_image_metadata_batch(
-        &[rel],
-        &[abs.to_path_buf()],
-    )
-    .expect("read_image_metadata_batch ok");
+    let mut results = scanner::read_image_metadata_batch(&[rel], &[abs.to_path_buf()])
+        .expect("read_image_metadata_batch ok");
     results.pop().expect("one result")
 }
 
@@ -66,10 +66,15 @@ fn read_one(folder: &Path, abs: &Path) -> scanner::ImageMetadata {
 
 #[test]
 fn scanner_two_pass_returns_display_and_raw() {
-    let Some(src) = fixture_path("real_with_exif.jpg") else { return };
+    let Some(src) = fixture_path("real_with_exif.jpg") else {
+        return;
+    };
     let (_dir, dst) = copy_to_temp(&src);
     let m = read_one(_dir.path(), &dst);
-    assert!(!m.metadata.is_empty(), "display metadata should be non-empty");
+    assert!(
+        !m.metadata.is_empty(),
+        "display metadata should be non-empty"
+    );
     // Raw may be empty if -n pass produced no output for this file, but the
     // field must exist and parse.  This sanity-checks the new struct shape.
     let _ = m.raw_metadata;
@@ -79,7 +84,9 @@ fn scanner_two_pass_returns_display_and_raw() {
 
 #[test]
 fn apply_text_edit_roundtrip_xmp_description() {
-    let Some(src) = fixture_path("real_with_exif.jpg") else { return };
+    let Some(src) = fixture_path("real_with_exif.jpg") else {
+        return;
+    };
     let (dir, dst) = copy_to_temp(&src);
     let folder = dir.path().to_str().unwrap();
     let rel = rel_of(dir.path(), &dst);
@@ -93,7 +100,11 @@ fn apply_text_edit_roundtrip_xmp_description() {
     drafts.insert(rel.clone(), edits);
 
     let result = apply_edits::apply_draft_edits(folder, &[rel.clone()], &drafts);
-    assert!(result.failed.is_empty(), "expected no failures, got {:?}", result.failed);
+    assert!(
+        result.failed.is_empty(),
+        "expected no failures, got {:?}",
+        result.failed
+    );
     assert_eq!(result.applied, vec![rel.clone()]);
 
     let m = read_one(dir.path(), &dst);
@@ -120,14 +131,19 @@ fn apply_text_edit_roundtrip_xmp_description() {
 
 #[test]
 fn apply_delete_edit_removes_tag() {
-    let Some(src) = fixture_path("real_with_exif.jpg") else { return };
+    let Some(src) = fixture_path("real_with_exif.jpg") else {
+        return;
+    };
     let (dir, dst) = copy_to_temp(&src);
     let folder = dir.path().to_str().unwrap();
     let rel = rel_of(dir.path(), &dst);
 
     // Step 1: set Description so we have something to delete.
     let mut set_edits = std::collections::HashMap::new();
-    set_edits.insert("XMP-dc:Description".to_string(), Some("to-be-deleted".to_string()));
+    set_edits.insert(
+        "XMP-dc:Description".to_string(),
+        Some("to-be-deleted".to_string()),
+    );
     let mut drafts1 = std::collections::HashMap::new();
     drafts1.insert(rel.clone(), set_edits);
     let r1 = apply_edits::apply_draft_edits(folder, &[rel.clone()], &drafts1);
@@ -156,7 +172,9 @@ fn apply_delete_edit_removes_tag() {
 
 #[test]
 fn fixture_keywords_basic_has_two_keywords() {
-    let Some(src) = fixture_path("keywords_basic.jpg") else { return };
+    let Some(src) = fixture_path("keywords_basic.jpg") else {
+        return;
+    };
     let (_dir, dst) = copy_to_temp(&src);
     let m = read_one(_dir.path(), &dst);
     match m.metadata.get("XMP-dc:Subject") {
@@ -164,7 +182,13 @@ fn fixture_keywords_basic_has_two_keywords() {
             assert_eq!(items.len(), 2, "expected two subjects, got {:?}", items);
             let strs: Vec<String> = items
                 .iter()
-                .filter_map(|v| if let Variant::String(s) = v { Some(s.clone()) } else { None })
+                .filter_map(|v| {
+                    if let Variant::String(s) = v {
+                        Some(s.clone())
+                    } else {
+                        None
+                    }
+                })
                 .collect();
             assert!(strs.contains(&"beach".to_string()));
             assert!(strs.contains(&"sunset".to_string()));
@@ -178,7 +202,9 @@ fn fixture_keywords_basic_has_two_keywords() {
 
 #[test]
 fn fixture_orientation_rotate90_pretty_and_raw_match_design() {
-    let Some(src) = fixture_path("orientation_rotate90.jpg") else { return };
+    let Some(src) = fixture_path("orientation_rotate90.jpg") else {
+        return;
+    };
     let (_dir, dst) = copy_to_temp(&src);
     let m = read_one(_dir.path(), &dst);
     // Display: pretty label.
@@ -196,7 +222,9 @@ fn fixture_orientation_rotate90_pretty_and_raw_match_design() {
 
 #[test]
 fn fixture_langalt_description_pretty_and_raw_match_design() {
-    let Some(src) = fixture_path("langalt_description.jpg") else { return };
+    let Some(src) = fixture_path("langalt_description.jpg") else {
+        return;
+    };
     let (_dir, dst) = copy_to_temp(&src);
     let m = read_one(_dir.path(), &dst);
     // The lang-alt rendering under -struct varies: it can be a flat string
@@ -210,14 +238,28 @@ fn fixture_langalt_description_pretty_and_raw_match_design() {
         m.metadata.get("XMP-dc:Description-fr"),
         m.metadata.get("XMP-dc:Description-x-default"),
     );
-    assert!(combined.contains("default text"), "missing x-default: {}", combined);
-    assert!(combined.contains("english text"), "missing en: {}", combined);
-    assert!(combined.contains("texte francais"), "missing fr: {}", combined);
+    assert!(
+        combined.contains("default text"),
+        "missing x-default: {}",
+        combined
+    );
+    assert!(
+        combined.contains("english text"),
+        "missing en: {}",
+        combined
+    );
+    assert!(
+        combined.contains("texte francais"),
+        "missing fr: {}",
+        combined
+    );
 }
 
 #[test]
 fn fixture_rating_5_pretty_and_raw_match_design() {
-    let Some(src) = fixture_path("rating_5.jpg") else { return };
+    let Some(src) = fixture_path("rating_5.jpg") else {
+        return;
+    };
     let (_dir, dst) = copy_to_temp(&src);
     let m = read_one(_dir.path(), &dst);
     // Rating is a real that exiftool prints without PrintConv → "5".
@@ -232,15 +274,21 @@ fn fixture_rating_5_pretty_and_raw_match_design() {
     let raw_ok = matches!(raw, Some(Variant::Integer(5)))
         || matches!(raw, Some(Variant::Float(f)) if (f - 5.0).abs() < 1e-9)
         || matches!(raw, Some(Variant::String(s)) if s == "5");
-    assert!(display_ok || raw_ok,
-        "expected Rating=5 in some form; display={:?}, raw={:?}", display, raw);
+    assert!(
+        display_ok || raw_ok,
+        "expected Rating=5 in some form; display={:?}, raw={:?}",
+        display,
+        raw
+    );
 }
 
 // ── Round-trip: edit a fixture, verify file holds new value ───────────────────
 
 #[test]
 fn roundtrip_set_rating() {
-    let Some(src) = fixture_path("rating_3.jpg") else { return };
+    let Some(src) = fixture_path("rating_3.jpg") else {
+        return;
+    };
     let (dir, dst) = copy_to_temp(&src);
     let folder = dir.path().to_str().unwrap();
     let rel = rel_of(dir.path(), &dst);
@@ -248,7 +296,10 @@ fn roundtrip_set_rating() {
     // Confirm starting state.
     let before = read_one(dir.path(), &dst);
     let starting_rating = before.raw_metadata.get("XMP-xmp:Rating").cloned();
-    assert!(starting_rating.is_some(), "fixture should start with a Rating");
+    assert!(
+        starting_rating.is_some(),
+        "fixture should start with a Rating"
+    );
 
     let mut edits = std::collections::HashMap::new();
     edits.insert("XMP-xmp:Rating".to_string(), Some("5".to_string()));
@@ -264,12 +315,18 @@ fn roundtrip_set_rating() {
     let ok = matches!(raw, Some(Variant::Integer(5)))
         || matches!(raw, Some(Variant::Float(f)) if (f - 5.0).abs() < 1e-6)
         || matches!(display, Some(Variant::String(s)) if s == "5" || s == "5.0");
-    assert!(ok, "Rating not updated; display={:?}, raw={:?}", display, raw);
+    assert!(
+        ok,
+        "Rating not updated; display={:?}, raw={:?}",
+        display, raw
+    );
 }
 
 #[test]
 fn roundtrip_set_orientation_via_numeric_pass() {
-    let Some(src) = fixture_path("orientation_rotate90.jpg") else { return };
+    let Some(src) = fixture_path("orientation_rotate90.jpg") else {
+        return;
+    };
     let (dir, dst) = copy_to_temp(&src);
     let folder = dir.path().to_str().unwrap();
     let rel = rel_of(dir.path(), &dst);
@@ -297,7 +354,9 @@ fn face_regions_round_trip_through_struct_variant() {
     // Confirms the Phase 1 Variant::Object support + Phase 6 -struct flag
     // round-trip a real nested-struct XMP value (XMP-mwg-rs:RegionInfo
     // containing AppliedToDimensions + a list of two Region structs).
-    let Some(src) = fixture_path("face_regions_mwg.jpg") else { return };
+    let Some(src) = fixture_path("face_regions_mwg.jpg") else {
+        return;
+    };
     let (dir, dst) = copy_to_temp(&src);
     let m = read_one(dir.path(), &dst);
 
@@ -347,7 +406,9 @@ fn unicode_filename_does_not_crash_scanner() {
     // UTF-8, so even with the flag the file may not be findable.  We
     // confirm the scanner returns gracefully (Ok with possibly-empty
     // metadata or an Err) rather than panicking.
-    let Some(src) = fixture_path("unicode_paths_漢字.jpg") else { return };
+    let Some(src) = fixture_path("unicode_paths_漢字.jpg") else {
+        return;
+    };
     let (dir, dst) = copy_to_temp(&src);
     let rel = rel_of(dir.path(), &dst);
     let result = scanner::read_image_metadata_batch(&[rel], &[dst]);
@@ -376,8 +437,12 @@ fn unicode_filename_does_not_crash_scanner() {
 fn malformed_truncated_does_not_kill_batch() {
     // Per-entry parse isolation (Phase 0) means a truncated/malformed JPEG
     // mixed into a batch must not drop metadata for the valid files.
-    let Some(good) = fixture_path("keywords_basic.jpg") else { return };
-    let Some(bad) = fixture_path("malformed_truncated.jpg") else { return };
+    let Some(good) = fixture_path("keywords_basic.jpg") else {
+        return;
+    };
+    let Some(bad) = fixture_path("malformed_truncated.jpg") else {
+        return;
+    };
     let (_dir, good_dst) = copy_to_temp(&good);
     let (_dir2, bad_dst) = copy_to_temp(&bad);
 
@@ -389,8 +454,14 @@ fn malformed_truncated_does_not_kill_batch() {
     assert_eq!(results.len(), 2);
 
     // The good file's metadata should be intact.
-    let good_result = results.iter().find(|r| r.relative_path == "good.jpg").unwrap();
-    assert!(!good_result.metadata.is_empty(), "good file must still have metadata");
+    let good_result = results
+        .iter()
+        .find(|r| r.relative_path == "good.jpg")
+        .unwrap();
+    assert!(
+        !good_result.metadata.is_empty(),
+        "good file must still have metadata"
+    );
     // The bad file may have zero or partial metadata, but the call must
     // have returned an entry for it (no per-file failure should propagate
     // as a missing entry).
@@ -405,13 +476,14 @@ fn typed_apply_writes_bag_as_separate_items_end_to_end() {
     // DraftEdit with Variant::List(["alpha", "beta", "gamma"]) for
     // XMP-dc:Subject, run the typed apply path, re-read, and assert the
     // file has THREE separate subjects, not one comma-joined string.
-    let Some(src) = fixture_path("real_with_exif.jpg") else { return };
+    let Some(src) = fixture_path("real_with_exif.jpg") else {
+        return;
+    };
     let (dir, dst) = copy_to_temp(&src);
     let folder = dir.path().to_str().unwrap();
     let rel = rel_of(dir.path(), &dst);
 
-    let mut edits: std::collections::HashMap<String, DraftEdit> =
-        std::collections::HashMap::new();
+    let mut edits: std::collections::HashMap<String, DraftEdit> = std::collections::HashMap::new();
     edits.insert(
         "XMP-dc:Subject".to_string(),
         DraftEdit {
@@ -433,7 +505,13 @@ fn typed_apply_writes_bag_as_separate_items_end_to_end() {
             assert_eq!(items.len(), 3, "expected 3 subjects, got {:?}", items);
             let strs: Vec<String> = items
                 .iter()
-                .filter_map(|v| if let Variant::String(s) = v { Some(s.clone()) } else { None })
+                .filter_map(|v| {
+                    if let Variant::String(s) = v {
+                        Some(s.clone())
+                    } else {
+                        None
+                    }
+                })
                 .collect();
             assert!(strs.contains(&"alpha".to_string()));
             assert!(strs.contains(&"beta".to_string()));
@@ -450,7 +528,9 @@ fn apply_emits_apply_log_jsonl_entry() {
     // After a typed apply the folder should contain a
     // `MediaLibraryApplyLog.jsonl` audit file with one header line plus one
     // line per tag edited.
-    let Some(src) = fixture_path("rating_3.jpg") else { return };
+    let Some(src) = fixture_path("rating_3.jpg") else {
+        return;
+    };
     let (dir, dst) = copy_to_temp(&src);
     let folder = dir.path().to_str().unwrap();
     let rel = rel_of(dir.path(), &dst);
@@ -458,23 +538,36 @@ fn apply_emits_apply_log_jsonl_entry() {
     let mut edits: std::collections::HashMap<String, DraftEdit> = std::collections::HashMap::new();
     edits.insert(
         "XMP-xmp:Rating".to_string(),
-        DraftEdit { value: Some(Variant::Integer(5)), intent: EditIntent::Set },
+        DraftEdit {
+            value: Some(Variant::Integer(5)),
+            intent: EditIntent::Set,
+        },
     );
 
     let outcome = apply_edits::apply_single_file_typed(folder, &rel, &edits);
     assert!(outcome.error.is_none(), "{:?}", outcome.error);
 
     let log_path = dir.path().join("MediaLibraryApplyLog.jsonl");
-    assert!(log_path.exists(), "apply log file should exist after typed apply");
+    assert!(
+        log_path.exists(),
+        "apply log file should exist after typed apply"
+    );
 
     let contents = std::fs::read_to_string(&log_path).unwrap();
     let lines: Vec<&str> = contents.lines().collect();
-    assert!(lines.len() >= 2, "expected header + at least one entry: {:?}", lines);
+    assert!(
+        lines.len() >= 2,
+        "expected header + at least one entry: {:?}",
+        lines
+    );
     assert!(lines[0].starts_with("// "), "first line should be header");
     assert!(lines[1].contains("XMP-xmp:Rating"));
     assert!(lines[1].contains("\"Set\""));
-    assert!(lines[1].contains("\"Match\"") || lines[1].contains("\"Mismatch\"")
-        || lines[1].contains("\"Coerced\""));
+    assert!(
+        lines[1].contains("\"Match\"")
+            || lines[1].contains("\"Mismatch\"")
+            || lines[1].contains("\"Coerced\"")
+    );
 }
 
 // ── Coerced-write detection ──────────────────────────────────────────────────
@@ -485,7 +578,9 @@ fn typed_apply_rating_fractional_coerces_or_rejects_cleanly() {
     // depending on version it may store 3, 4, "3.5", or reject the write.
     // The verifier should either accept the coerced result (matches_variant
     // float-epsilon path) or report a clean mismatch — never panic.
-    let Some(src) = fixture_path("rating_3.jpg") else { return };
+    let Some(src) = fixture_path("rating_3.jpg") else {
+        return;
+    };
     let (dir, dst) = copy_to_temp(&src);
     let folder = dir.path().to_str().unwrap();
     let rel = rel_of(dir.path(), &dst);
@@ -493,16 +588,21 @@ fn typed_apply_rating_fractional_coerces_or_rejects_cleanly() {
     let mut edits: std::collections::HashMap<String, DraftEdit> = std::collections::HashMap::new();
     edits.insert(
         "XMP-xmp:Rating".to_string(),
-        DraftEdit { value: Some(Variant::Float(3.5)), intent: EditIntent::Set },
+        DraftEdit {
+            value: Some(Variant::Float(3.5)),
+            intent: EditIntent::Set,
+        },
     );
 
     let outcome = apply_edits::apply_single_file_typed(folder, &rel, &edits);
     // Coercion either yields a matched float (3.5 → 3.5 in file) or a
     // clean verification-failure message naming the tag.  We just assert
     // it didn't hard-fail.
-    assert!(outcome.fresh_metadata.is_some(),
+    assert!(
+        outcome.fresh_metadata.is_some(),
         "expected fresh_metadata available even on coerced write; error: {:?}",
-        outcome.error);
+        outcome.error
+    );
     println!("[rating coerce] outcome.error = {:?}", outcome.error);
 
     // Re-read should still parse without panic.
@@ -517,7 +617,9 @@ fn typed_apply_list_add_appends_items_to_bag() {
     // Starting from keywords_basic.jpg with ["beach","sunset"], emit a
     // typed DraftEdit with intent=ListAdd value=["vacation"] and confirm
     // the result is the original plus the new item.
-    let Some(src) = fixture_path("keywords_basic.jpg") else { return };
+    let Some(src) = fixture_path("keywords_basic.jpg") else {
+        return;
+    };
     let (dir, dst) = copy_to_temp(&src);
     let folder = dir.path().to_str().unwrap();
     let rel = rel_of(dir.path(), &dst);
@@ -539,11 +641,29 @@ fn typed_apply_list_add_appends_items_to_bag() {
         Some(Variant::List(items)) => {
             let strs: Vec<String> = items
                 .iter()
-                .filter_map(|v| if let Variant::String(s) = v { Some(s.clone()) } else { None })
+                .filter_map(|v| {
+                    if let Variant::String(s) = v {
+                        Some(s.clone())
+                    } else {
+                        None
+                    }
+                })
                 .collect();
-            assert!(strs.contains(&"beach".to_string()), "beach missing from {:?}", strs);
-            assert!(strs.contains(&"sunset".to_string()), "sunset missing from {:?}", strs);
-            assert!(strs.contains(&"vacation".to_string()), "vacation missing from {:?}", strs);
+            assert!(
+                strs.contains(&"beach".to_string()),
+                "beach missing from {:?}",
+                strs
+            );
+            assert!(
+                strs.contains(&"sunset".to_string()),
+                "sunset missing from {:?}",
+                strs
+            );
+            assert!(
+                strs.contains(&"vacation".to_string()),
+                "vacation missing from {:?}",
+                strs
+            );
             assert_eq!(strs.len(), 3, "expected 3 subjects, got {:?}", strs);
         }
         other => panic!("expected Subject as List, got {:?}", other),
@@ -555,7 +675,9 @@ fn typed_apply_list_remove_drops_items_from_bag() {
     // Start from keywords_basic.jpg with ["beach","sunset"], emit a
     // typed DraftEdit with intent=ListRemove value=["beach"], confirm
     // result is ["sunset"].
-    let Some(src) = fixture_path("keywords_basic.jpg") else { return };
+    let Some(src) = fixture_path("keywords_basic.jpg") else {
+        return;
+    };
     let (dir, dst) = copy_to_temp(&src);
     let folder = dir.path().to_str().unwrap();
     let rel = rel_of(dir.path(), &dst);
@@ -577,10 +699,24 @@ fn typed_apply_list_remove_drops_items_from_bag() {
         Some(Variant::List(items)) => {
             let strs: Vec<String> = items
                 .iter()
-                .filter_map(|v| if let Variant::String(s) = v { Some(s.clone()) } else { None })
+                .filter_map(|v| {
+                    if let Variant::String(s) = v {
+                        Some(s.clone())
+                    } else {
+                        None
+                    }
+                })
                 .collect();
-            assert!(!strs.contains(&"beach".to_string()), "beach should be removed: {:?}", strs);
-            assert!(strs.contains(&"sunset".to_string()), "sunset should remain: {:?}", strs);
+            assert!(
+                !strs.contains(&"beach".to_string()),
+                "beach should be removed: {:?}",
+                strs
+            );
+            assert!(
+                strs.contains(&"sunset".to_string()),
+                "sunset should remain: {:?}",
+                strs
+            );
         }
         Some(Variant::String(s)) => {
             // Single-element list may collapse to scalar.
@@ -599,7 +735,9 @@ fn apply_keywords_writes_back_as_separate_items_not_csv() {
     // handles plain XMP-dc:Subject as text (since legacy carries no list
     // shape).  This test will gain teeth in Phase 3b when the frontend
     // carries Variant::List values through to write-back.
-    let Some(src) = fixture_path("real_with_exif.jpg") else { return };
+    let Some(src) = fixture_path("real_with_exif.jpg") else {
+        return;
+    };
     let (dir, dst) = copy_to_temp(&src);
     let folder = dir.path().to_str().unwrap();
     let rel = rel_of(dir.path(), &dst);

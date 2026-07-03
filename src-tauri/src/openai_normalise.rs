@@ -17,9 +17,7 @@
 
 use serde::Deserialize;
 
-use crate::normalise::{
-    AiCallUsage, DescriptionMergePrompt, NormaliseAiClient, TitleGenPrompt,
-};
+use crate::normalise::{AiCallUsage, DescriptionMergePrompt, NormaliseAiClient, TitleGenPrompt};
 use crate::openai_describe::OpenAiClient;
 use crate::openai_http::OpenAiHttp;
 
@@ -72,13 +70,19 @@ impl OpenAiNormaliseClient {
     /// Construct from an `OpenAiClient` so production code shares the
     /// same retry middleware between describe and normalise.
     pub fn new(inner: OpenAiClient, model: impl Into<String>) -> Self {
-        Self { http: inner.http().clone(), model: model.into() }
+        Self {
+            http: inner.http().clone(),
+            model: model.into(),
+        }
     }
 
     /// Construct directly over an `OpenAiHttp`. Used by tests that
     /// don't need the describe-flow wrapper.
     pub fn from_http(http: OpenAiHttp, model: impl Into<String>) -> Self {
-        Self { http, model: model.into() }
+        Self {
+            http,
+            model: model.into(),
+        }
     }
 }
 
@@ -204,8 +208,8 @@ impl OpenAiNormaliseClient {
         if !status.is_success() {
             return Err(format!("HTTP {}: {}", status, text));
         }
-        let json: serde_json::Value = serde_json::from_str(&text)
-            .map_err(|e| format!("bad JSON ({}): {}", e, text))?;
+        let json: serde_json::Value =
+            serde_json::from_str(&text).map_err(|e| format!("bad JSON ({}): {}", e, text))?;
         json["input_tokens"]
             .as_u64()
             .map(|n| n as u32)
@@ -230,8 +234,8 @@ impl NormaliseAiClient for OpenAiNormaliseClient {
         &self,
         prompt: DescriptionMergePrompt,
     ) -> Result<(String, AiCallUsage), String> {
-        let user_payload = serde_json::to_value(&prompt)
-            .map_err(|e| format!("serialise merge prompt: {}", e))?;
+        let user_payload =
+            serde_json::to_value(&prompt).map_err(|e| format!("serialise merge prompt: {}", e))?;
         let body = build_request_body(
             &self.model,
             DESCRIPTION_SYSTEM_PROMPT,
@@ -252,8 +256,8 @@ impl NormaliseAiClient for OpenAiNormaliseClient {
         &self,
         prompt: TitleGenPrompt,
     ) -> Result<(String, AiCallUsage), String> {
-        let user_payload = serde_json::to_value(&prompt)
-            .map_err(|e| format!("serialise title prompt: {}", e))?;
+        let user_payload =
+            serde_json::to_value(&prompt).map_err(|e| format!("serialise title prompt: {}", e))?;
         let body = build_request_body(
             &self.model,
             TITLE_SYSTEM_PROMPT,
@@ -321,10 +325,7 @@ mod tests {
             TITLE_OUTPUT_TOKENS,
         );
         assert_eq!(body["max_output_tokens"], TITLE_OUTPUT_TOKENS);
-        assert_eq!(
-            body["text"]["format"]["schema"]["required"][0],
-            "title"
-        );
+        assert_eq!(body["text"]["format"]["schema"]["required"][0], "title");
     }
 
     #[test]

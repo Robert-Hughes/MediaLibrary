@@ -11,7 +11,7 @@
 
 pub mod shared;
 
-pub mod settings;
 pub mod describe;
-pub mod normalise;
 pub mod geocode;
+pub mod normalise;
+pub mod settings;

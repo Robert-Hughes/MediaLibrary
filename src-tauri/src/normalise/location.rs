@@ -44,11 +44,7 @@ struct PairResult {
     conflict: bool,
 }
 
-fn process_pair(
-    xmp: Option<&str>,
-    iptc: Option<&str>,
-    canon: fn(&str) -> String,
-) -> PairResult {
+fn process_pair(xmp: Option<&str>, iptc: Option<&str>, canon: fn(&str) -> String) -> PairResult {
     let xc = xmp.map(canon).filter(|s| !s.is_empty());
     let ic = iptc.map(canon).filter(|s| !s.is_empty());
 
@@ -62,22 +58,26 @@ fn process_pair(
         let want = Some(c.as_str());
         !(xmp == want && iptc == want)
     });
-    PairResult { canonical, conflict }
+    PairResult {
+        canonical,
+        conflict,
+    }
 }
 
 /// Compute the per-pair canonical values for Group G without producing
 /// drafts. Used by the dispatcher to pass POST-normalisation location
 /// context into Group B / Group C AI prompts.
 pub fn derive_location_canonical(input: &LocationInput) -> LocationContext {
-    let pick = |xmp: Option<&str>, ipt: Option<&str>, canon: fn(&str) -> String| -> Option<String> {
-        let xc = xmp.map(canon).filter(|s| !s.is_empty());
-        let ic = ipt.map(canon).filter(|s| !s.is_empty());
-        match (xc, ic) {
-            (None, None) => None,
-            (Some(v), None) | (None, Some(v)) => Some(v),
-            (Some(x), Some(_)) => Some(x),
-        }
-    };
+    let pick =
+        |xmp: Option<&str>, ipt: Option<&str>, canon: fn(&str) -> String| -> Option<String> {
+            let xc = xmp.map(canon).filter(|s| !s.is_empty());
+            let ic = ipt.map(canon).filter(|s| !s.is_empty());
+            match (xc, ic) {
+                (None, None) => None,
+                (Some(v), None) | (None, Some(v)) => Some(v),
+                (Some(x), Some(_)) => Some(x),
+            }
+        };
     LocationContext {
         location: pick(
             input.location_xmp.as_deref(),
@@ -110,9 +110,7 @@ pub struct LocationOutcome {
 
 /// Run Group G (Location) normalisation for one image.
 pub fn normalise_location(input: &LocationInput) -> LocationOutcome {
-    let pairs: [(
-        &str, &str, Option<&str>, Option<&str>, fn(&str) -> String,
-    ); 5] = [
+    let pairs: [(&str, &str, Option<&str>, Option<&str>, fn(&str) -> String); 5] = [
         (
             "XMP-iptcCore:Location",
             "IPTC:Sub-location",
@@ -169,7 +167,11 @@ pub fn normalise_location(input: &LocationInput) -> LocationOutcome {
     }
 
     LocationOutcome {
-        output: if edits.is_empty() { None } else { Some(GroupOutput { edits }) },
+        output: if edits.is_empty() {
+            None
+        } else {
+            Some(GroupOutput { edits })
+        },
         n_xmp_iim_conflict: conflicts,
     }
 }
@@ -304,7 +306,9 @@ mod tests {
             country_code_iptc: Some("gb".into()),
             ..Default::default()
         };
-        let out = normalise_location(&input).output.expect("must normalise to uppercase");
+        let out = normalise_location(&input)
+            .output
+            .expect("must normalise to uppercase");
         assert_eq!(s(&out, "XMP-iptcCore:CountryCode"), "GB");
         assert_eq!(s(&out, "IPTC:Country-PrimaryLocationCode"), "GB");
     }

@@ -84,14 +84,20 @@ fn build_set(tag: &str, info: Option<&TagInfo>, value: Option<&Variant>) -> Buil
             for item in items {
                 text.push(format!("-{}={}", tag, render_scalar_text(item)));
             }
-            BuiltArgs { numeric: vec![], text }
+            BuiltArgs {
+                numeric: vec![],
+                text,
+            }
         }
         // Bag / Seq with a single non-list value: treat as a single-element
         // list — easier than refusing it and matches user intent ("set the
         // keyword list to just this one item").
         (Some(TagKind::Bag(_)) | Some(TagKind::Seq(_)), Some(v)) => BuiltArgs {
             numeric: vec![],
-            text: vec![format!("-{}=", tag), format!("-{}={}", tag, render_scalar_text(v))],
+            text: vec![
+                format!("-{}=", tag),
+                format!("-{}={}", tag, render_scalar_text(v)),
+            ],
         },
         // LangAlt: emit one -TAG-lang=value per language.  Value must be a
         // Variant::Object whose keys are language codes; `x-default` is
@@ -108,7 +114,10 @@ fn build_set(tag: &str, info: Option<&TagInfo>, value: Option<&Variant>) -> Buil
                     text.push(format!("-{}-x-default={}", tag, render_scalar_text(first)));
                 }
             }
-            BuiltArgs { numeric: vec![], text }
+            BuiltArgs {
+                numeric: vec![],
+                text,
+            }
         }
         (Some(TagKind::LangAlt), Some(v)) => BuiltArgs {
             numeric: vec![],
@@ -122,12 +131,24 @@ fn build_set(tag: &str, info: Option<&TagInfo>, value: Option<&Variant>) -> Buil
             numeric: vec![format!("-{}={}", tag, render_scalar_numeric(v))],
             text: vec![],
         },
-        (Some(TagKind::Enum { repr: EnumRepr::Integer, .. }), Some(v)) => BuiltArgs {
+        (
+            Some(TagKind::Enum {
+                repr: EnumRepr::Integer,
+                ..
+            }),
+            Some(v),
+        ) => BuiltArgs {
             numeric: vec![format!("-{}={}", tag, render_scalar_numeric(v))],
             text: vec![],
         },
         // Enum-string: text group (we send the label/code as-is).
-        (Some(TagKind::Enum { repr: EnumRepr::String, .. }), Some(v)) => BuiltArgs {
+        (
+            Some(TagKind::Enum {
+                repr: EnumRepr::String,
+                ..
+            }),
+            Some(v),
+        ) => BuiltArgs {
             numeric: vec![],
             text: vec![format!("-{}={}", tag, render_scalar_text(v))],
         },
@@ -162,7 +183,12 @@ fn build_set(tag: &str, info: Option<&TagInfo>, value: Option<&Variant>) -> Buil
     }
 }
 
-fn build_list_op(tag: &str, info: Option<&TagInfo>, value: Option<&Variant>, op: &str) -> BuiltArgs {
+fn build_list_op(
+    tag: &str,
+    info: Option<&TagInfo>,
+    value: Option<&Variant>,
+    op: &str,
+) -> BuiltArgs {
     // For non-list tags, ListAdd/ListRemove devolve to Set/Delete to avoid
     // weird argv that exiftool would silently mis-execute.
     let is_list_kind = matches!(
@@ -170,9 +196,16 @@ fn build_list_op(tag: &str, info: Option<&TagInfo>, value: Option<&Variant>, op:
         Some(TagKind::Bag(_)) | Some(TagKind::Seq(_)) | Some(TagKind::Alt(_))
     );
     if !is_list_kind {
-        log::warn!("[write_args] List op {} on non-list tag {} — treating as Set/Delete", op, tag);
+        log::warn!(
+            "[write_args] List op {} on non-list tag {} — treating as Set/Delete",
+            op,
+            tag
+        );
         return match op {
-            "-=" => BuiltArgs { numeric: vec![], text: vec![format!("-{}=", tag)] },
+            "-=" => BuiltArgs {
+                numeric: vec![],
+                text: vec![format!("-{}=", tag)],
+            },
             _ => build_set(tag, info, value),
         };
     }
@@ -187,7 +220,10 @@ fn build_list_op(tag: &str, info: Option<&TagInfo>, value: Option<&Variant>, op:
     for item in items {
         text.push(format!("-{}{}{}", tag, op, render_scalar_text(item)));
     }
-    BuiltArgs { numeric: vec![], text }
+    BuiltArgs {
+        numeric: vec![],
+        text,
+    }
 }
 
 /// Render a `Variant` as a string suitable for a `-TAG=value` argv element,
@@ -195,7 +231,13 @@ fn build_list_op(tag: &str, info: Option<&TagInfo>, value: Option<&Variant>, op:
 fn render_scalar_text(v: &Variant) -> String {
     match v {
         Variant::Null => String::new(),
-        Variant::Bool(b) => if *b { "True".to_string() } else { "False".to_string() },
+        Variant::Bool(b) => {
+            if *b {
+                "True".to_string()
+            } else {
+                "False".to_string()
+            }
+        }
         Variant::Integer(n) => n.to_string(),
         Variant::Float(f) => f.to_string(),
         Variant::String(s) => s.clone(),
@@ -240,7 +282,13 @@ fn render_struct_text(v: &Variant) -> String {
     fn render(v: &Variant) -> String {
         match v {
             Variant::Null => String::new(),
-            Variant::Bool(b) => if *b { "True".to_string() } else { "False".to_string() },
+            Variant::Bool(b) => {
+                if *b {
+                    "True".to_string()
+                } else {
+                    "False".to_string()
+                }
+            }
             Variant::Integer(n) => n.to_string(),
             Variant::Float(f) => f.to_string(),
             Variant::String(s) => escape_scalar(s),
@@ -265,7 +313,13 @@ fn render_struct_text(v: &Variant) -> String {
 /// and floats stay as their natural decimal representation.
 fn render_scalar_numeric(v: &Variant) -> String {
     match v {
-        Variant::Bool(b) => if *b { "1".to_string() } else { "0".to_string() },
+        Variant::Bool(b) => {
+            if *b {
+                "1".to_string()
+            } else {
+                "0".to_string()
+            }
+        }
         Variant::Integer(n) => n.to_string(),
         Variant::Float(f) => f.to_string(),
         Variant::String(s) => s.clone(),
@@ -290,16 +344,32 @@ mod tests {
     }
 
     fn set(v: Variant) -> DraftEdit {
-        DraftEdit { value: Some(v), intent: EditIntent::Set, display: None }
+        DraftEdit {
+            value: Some(v),
+            intent: EditIntent::Set,
+            display: None,
+        }
     }
     fn delete() -> DraftEdit {
-        DraftEdit { value: None, intent: EditIntent::Delete, display: None }
+        DraftEdit {
+            value: None,
+            intent: EditIntent::Delete,
+            display: None,
+        }
     }
     fn list_add(v: Variant) -> DraftEdit {
-        DraftEdit { value: Some(v), intent: EditIntent::ListAdd, display: None }
+        DraftEdit {
+            value: Some(v),
+            intent: EditIntent::ListAdd,
+            display: None,
+        }
     }
     fn list_remove(v: Variant) -> DraftEdit {
-        DraftEdit { value: Some(v), intent: EditIntent::ListRemove, display: None }
+        DraftEdit {
+            value: Some(v),
+            intent: EditIntent::ListRemove,
+            display: None,
+        }
     }
 
     #[test]
@@ -312,7 +382,10 @@ mod tests {
 
     #[test]
     fn set_integer_yields_numeric_arg() {
-        let i = info(TagKind::Integer { min: None, max: None });
+        let i = info(TagKind::Integer {
+            min: None,
+            max: None,
+        });
         let args = build_args("XMP-xmp:Rating", Some(&i), &set(Variant::Integer(5)));
         assert!(args.text.is_empty());
         assert_eq!(args.numeric, vec!["-XMP-xmp:Rating=5"]);
@@ -331,8 +404,14 @@ mod tests {
         let i = info(TagKind::Enum {
             repr: EnumRepr::Integer,
             options: vec![
-                EnumOption { code: "1".into(), label: "Horizontal".into() },
-                EnumOption { code: "6".into(), label: "Rotate 90 CW".into() },
+                EnumOption {
+                    code: "1".into(),
+                    label: "Horizontal".into(),
+                },
+                EnumOption {
+                    code: "6".into(),
+                    label: "Rotate 90 CW".into(),
+                },
             ],
         });
         let args = build_args("IFD0:Orientation", Some(&i), &set(Variant::Integer(6)));
@@ -374,18 +453,23 @@ mod tests {
         );
         assert_eq!(
             args.text,
-            vec!["-XMP-dc:Creator=", "-XMP-dc:Creator=Ada", "-XMP-dc:Creator=Bea"]
+            vec![
+                "-XMP-dc:Creator=",
+                "-XMP-dc:Creator=Ada",
+                "-XMP-dc:Creator=Bea"
+            ]
         );
     }
 
     #[test]
     fn set_bag_with_scalar_treats_as_single_element() {
         let i = info(TagKind::Bag(Box::new(TagKind::Text)));
-        let args = build_args("XMP-dc:Subject", Some(&i), &set(Variant::String("only".into())));
-        assert_eq!(
-            args.text,
-            vec!["-XMP-dc:Subject=", "-XMP-dc:Subject=only"]
+        let args = build_args(
+            "XMP-dc:Subject",
+            Some(&i),
+            &set(Variant::String("only".into())),
         );
+        assert_eq!(args.text, vec!["-XMP-dc:Subject=", "-XMP-dc:Subject=only"]);
     }
 
     #[test]
@@ -397,9 +481,15 @@ mod tests {
         langs.insert("fr".to_string(), Variant::String("Salut".into()));
         let args = build_args("XMP-dc:Description", Some(&i), &set(Variant::Object(langs)));
         // BTreeMap iteration order is alphabetic; assert presence not order.
-        assert!(args.text.iter().any(|a| a == "-XMP-dc:Description-x-default=Hi"));
+        assert!(args
+            .text
+            .iter()
+            .any(|a| a == "-XMP-dc:Description-x-default=Hi"));
         assert!(args.text.iter().any(|a| a == "-XMP-dc:Description-en=Hi"));
-        assert!(args.text.iter().any(|a| a == "-XMP-dc:Description-fr=Salut"));
+        assert!(args
+            .text
+            .iter()
+            .any(|a| a == "-XMP-dc:Description-fr=Salut"));
         assert_eq!(args.text.len(), 3);
     }
 
@@ -409,8 +499,14 @@ mod tests {
         let mut langs = BTreeMap::new();
         langs.insert("en".to_string(), Variant::String("Hello".into()));
         let args = build_args("XMP-dc:Description", Some(&i), &set(Variant::Object(langs)));
-        assert!(args.text.iter().any(|a| a == "-XMP-dc:Description-en=Hello"));
-        assert!(args.text.iter().any(|a| a == "-XMP-dc:Description-x-default=Hello"));
+        assert!(args
+            .text
+            .iter()
+            .any(|a| a == "-XMP-dc:Description-en=Hello"));
+        assert!(args
+            .text
+            .iter()
+            .any(|a| a == "-XMP-dc:Description-x-default=Hello"));
     }
 
     #[test]
@@ -432,10 +528,7 @@ mod tests {
                 Variant::String("b".into()),
             ])),
         );
-        assert_eq!(
-            args.text,
-            vec!["-XMP-dc:Subject+=a", "-XMP-dc:Subject+=b"]
-        );
+        assert_eq!(args.text, vec!["-XMP-dc:Subject+=a", "-XMP-dc:Subject+=b"]);
     }
 
     #[test]
@@ -453,10 +546,18 @@ mod tests {
     fn list_op_on_non_list_tag_degrades_safely() {
         let i = info(TagKind::Text);
         // ListAdd on a Text tag becomes a Set.
-        let args = build_args("XMP-dc:Title", Some(&i), &list_add(Variant::String("hi".into())));
+        let args = build_args(
+            "XMP-dc:Title",
+            Some(&i),
+            &list_add(Variant::String("hi".into())),
+        );
         assert_eq!(args.text, vec!["-XMP-dc:Title=hi"]);
         // ListRemove on a Text tag becomes a Delete.
-        let args = build_args("XMP-dc:Title", Some(&i), &list_remove(Variant::String("hi".into())));
+        let args = build_args(
+            "XMP-dc:Title",
+            Some(&i),
+            &list_remove(Variant::String("hi".into())),
+        );
         assert_eq!(args.text, vec!["-XMP-dc:Title="]);
     }
 
@@ -489,7 +590,11 @@ mod tests {
     #[test]
     fn float_renders_decimal_in_numeric_group() {
         let i = info(TagKind::Real);
-        let args = build_args("Composite:GPSAltitude", Some(&i), &set(Variant::Float(123.45)));
+        let args = build_args(
+            "Composite:GPSAltitude",
+            Some(&i),
+            &set(Variant::Float(123.45)),
+        );
         assert_eq!(args.numeric, vec!["-Composite:GPSAltitude=123.45"]);
     }
 
@@ -503,7 +608,10 @@ mod tests {
             Some(&i),
             &set(Variant::String("2026:05:15 10:30:00".into())),
         );
-        assert_eq!(args.numeric, vec!["-EXIF:DateTimeOriginal=2026:05:15 10:30:00"]);
+        assert_eq!(
+            args.numeric,
+            vec!["-EXIF:DateTimeOriginal=2026:05:15 10:30:00"]
+        );
         assert!(args.text.is_empty());
     }
 
@@ -526,7 +634,11 @@ mod tests {
         // Brace form, not JSON.  Field ordering is alphabetic via BTreeMap.
         assert_eq!(args.text, vec!["-XMP-mwg-rs:Region={Name=John,Type=Face}"]);
         // Critically: should NOT contain JSON quotes.
-        assert!(!args.text[0].contains("\""), "argv must not be JSON: {:?}", args.text);
+        assert!(
+            !args.text[0].contains("\""),
+            "argv must not be JSON: {:?}",
+            args.text
+        );
     }
 
     #[test]
@@ -536,10 +648,13 @@ mod tests {
         area.insert("Y".to_string(), Variant::Float(0.5));
         let mut region = BTreeMap::new();
         region.insert("Area".to_string(), Variant::Object(area));
-        region.insert("Names".to_string(), Variant::List(vec![
-            Variant::String("a".into()),
-            Variant::String("b".into()),
-        ]));
+        region.insert(
+            "Names".to_string(),
+            Variant::List(vec![
+                Variant::String("a".into()),
+                Variant::String("b".into()),
+            ]),
+        );
         let i = info(TagKind::Struct(BTreeMap::new()));
         let args = build_args("X:R", Some(&i), &set(Variant::Object(region)));
         assert_eq!(args.text, vec!["-X:R={Area={X=0.5,Y=0.5},Names=[a,b]}"]);

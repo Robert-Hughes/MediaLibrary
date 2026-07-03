@@ -16,11 +16,8 @@ use crate::draft_edits::{DraftEdit, EditIntent};
 use crate::scanner::Variant;
 use std::collections::HashMap;
 
-pub const COPYRIGHT_TARGET_TAGS: &[&str] = &[
-    "XMP-dc:Rights",
-    "EXIF:Copyright",
-    "IPTC:CopyrightNotice",
-];
+pub const COPYRIGHT_TARGET_TAGS: &[&str] =
+    &["XMP-dc:Rights", "EXIF:Copyright", "IPTC:CopyrightNotice"];
 
 fn derive_copyright_canonical(input: &CopyrightInput) -> Option<String> {
     if let Some(primary) = input.rights.as_deref() {

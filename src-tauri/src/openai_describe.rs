@@ -121,11 +121,31 @@ pub struct ModelPricing {
 /// `None`; the settings module guarantees we never store an unknown id.
 pub fn pricing_for(model: &str) -> Option<ModelPricing> {
     Some(match model {
-        "gpt-4o" => ModelPricing { input_per_1m: 2.50, cached_input_per_1m: 1.25, output_per_1m: 10.00 },
-        "gpt-5.4-nano" => ModelPricing { input_per_1m: 0.20, cached_input_per_1m: 0.02, output_per_1m: 1.25 },
-        "gpt-5.4-mini" => ModelPricing { input_per_1m: 0.75, cached_input_per_1m: 0.075, output_per_1m: 4.50 },
-        "gpt-5.4" => ModelPricing { input_per_1m: 2.50, cached_input_per_1m: 0.25, output_per_1m: 15.00 },
-        "gpt-5.5" => ModelPricing { input_per_1m: 5.00, cached_input_per_1m: 0.50, output_per_1m: 30.00 },
+        "gpt-4o" => ModelPricing {
+            input_per_1m: 2.50,
+            cached_input_per_1m: 1.25,
+            output_per_1m: 10.00,
+        },
+        "gpt-5.4-nano" => ModelPricing {
+            input_per_1m: 0.20,
+            cached_input_per_1m: 0.02,
+            output_per_1m: 1.25,
+        },
+        "gpt-5.4-mini" => ModelPricing {
+            input_per_1m: 0.75,
+            cached_input_per_1m: 0.075,
+            output_per_1m: 4.50,
+        },
+        "gpt-5.4" => ModelPricing {
+            input_per_1m: 2.50,
+            cached_input_per_1m: 0.25,
+            output_per_1m: 15.00,
+        },
+        "gpt-5.5" => ModelPricing {
+            input_per_1m: 5.00,
+            cached_input_per_1m: 0.50,
+            output_per_1m: 30.00,
+        },
         _ => return None,
     })
 }
@@ -159,20 +179,31 @@ impl UsageStats {
     /// `reasoning_tokens` are optional and default to zero (the latter is
     /// only emitted by reasoning models).
     pub fn from_response(response: &serde_json::Value) -> Result<Self, String> {
-        let usage = response.get("usage").ok_or_else(|| {
-            "response.usage missing — cost reporting cannot proceed".to_string()
-        })?;
-        let input_tokens = usage.get("input_tokens").and_then(|v| v.as_u64()).ok_or_else(|| {
-            "usage.input_tokens missing or not a number".to_string()
-        })? as u32;
-        let output_tokens = usage.get("output_tokens").and_then(|v| v.as_u64()).ok_or_else(|| {
-            "usage.output_tokens missing or not a number".to_string()
-        })? as u32;
+        let usage = response
+            .get("usage")
+            .ok_or_else(|| "response.usage missing — cost reporting cannot proceed".to_string())?;
+        let input_tokens = usage
+            .get("input_tokens")
+            .and_then(|v| v.as_u64())
+            .ok_or_else(|| "usage.input_tokens missing or not a number".to_string())?
+            as u32;
+        let output_tokens = usage
+            .get("output_tokens")
+            .and_then(|v| v.as_u64())
+            .ok_or_else(|| "usage.output_tokens missing or not a number".to_string())?
+            as u32;
         let cached_input_tokens = usage["input_tokens_details"]["cached_tokens"]
-            .as_u64().unwrap_or(0) as u32;
+            .as_u64()
+            .unwrap_or(0) as u32;
         let reasoning_tokens = usage["output_tokens_details"]["reasoning_tokens"]
-            .as_u64().unwrap_or(0) as u32;
-        Ok(Self { input_tokens, cached_input_tokens, output_tokens, reasoning_tokens })
+            .as_u64()
+            .unwrap_or(0) as u32;
+        Ok(Self {
+            input_tokens,
+            cached_input_tokens,
+            output_tokens,
+            reasoning_tokens,
+        })
     }
 
     pub fn add(&mut self, other: &UsageStats) {
@@ -189,7 +220,8 @@ impl UsageStats {
         let non_cached = self.input_tokens.saturating_sub(self.cached_input_tokens);
         let input_cost = (non_cached as f64 / 1_000_000.0) * p.input_per_1m;
         let cached_cost = (self.cached_input_tokens as f64 / 1_000_000.0) * p.cached_input_per_1m;
-        let output_cost = ((self.output_tokens + self.reasoning_tokens) as f64 / 1_000_000.0) * p.output_per_1m;
+        let output_cost =
+            ((self.output_tokens + self.reasoning_tokens) as f64 / 1_000_000.0) * p.output_per_1m;
         input_cost + cached_cost + output_cost
     }
 }
@@ -208,12 +240,16 @@ impl OpenAiClient {
     /// Wrap an existing `OpenAiHttp`. The normaliser flow constructs
     /// its own client over the same `OpenAiHttp`, so production code
     /// can share a single retry middleware across both surfaces.
-    pub fn from_http(http: OpenAiHttp) -> Self { Self { http } }
+    pub fn from_http(http: OpenAiHttp) -> Self {
+        Self { http }
+    }
 
     /// Access the underlying HTTP layer. Used by `openai_normalise` to
     /// build a `OpenAiNormaliseClient` that shares this client's
     /// retry middleware.
-    pub fn http(&self) -> &OpenAiHttp { &self.http }
+    pub fn http(&self) -> &OpenAiHttp {
+        &self.http
+    }
 
     /// Convenience constructor used by `make_openai_client` in `lib.rs`
     /// and tests. `max_retries` of 3 with exponential backoff is the
@@ -221,7 +257,9 @@ impl OpenAiClient {
     /// delaying the user beyond ~30s on a hard failure. Tests inject
     /// `1` to keep the suite fast.
     pub fn new(base_url: impl Into<String>, api_key: impl Into<String>, max_retries: u32) -> Self {
-        Self { http: OpenAiHttp::new(base_url, api_key, max_retries) }
+        Self {
+            http: OpenAiHttp::new(base_url, api_key, max_retries),
+        }
     }
 }
 
@@ -243,7 +281,11 @@ pub fn load_and_downscale_image(path: &Path) -> Result<Vec<u8>, String> {
 
     let (w, h) = (img.width(), img.height());
     let resized = if w.max(h) > MAX_IMAGE_DIMENSION {
-        img.resize(MAX_IMAGE_DIMENSION, MAX_IMAGE_DIMENSION, image::imageops::FilterType::Lanczos3)
+        img.resize(
+            MAX_IMAGE_DIMENSION,
+            MAX_IMAGE_DIMENSION,
+            image::imageops::FilterType::Lanczos3,
+        )
     } else {
         img
     };
@@ -252,7 +294,13 @@ pub fn load_and_downscale_image(path: &Path) -> Result<Vec<u8>, String> {
     {
         let mut cursor = Cursor::new(&mut buf);
         let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut cursor, 85);
-        encoder.encode(rgb.as_raw(), rgb.width(), rgb.height(), image::ColorType::Rgb8)
+        encoder
+            .encode(
+                rgb.as_raw(),
+                rgb.width(),
+                rgb.height(),
+                image::ColorType::Rgb8,
+            )
             .map_err(|e| format!("encode jpeg {}: {}", path.display(), e))?;
     }
     Ok(buf)
@@ -333,16 +381,30 @@ pub async fn count_input_tokens(
 #[derive(Debug, Clone)]
 pub enum DescribeError {
     Decode(String),
-    HttpError { status: u16, body: String },
+    HttpError {
+        status: u16,
+        body: String,
+    },
     Network(String),
-    Incomplete { reason: String, raw_text: String },
-    Refused { detail: String },
-    BadJson { detail: String, raw_text: String },
+    Incomplete {
+        reason: String,
+        raw_text: String,
+    },
+    Refused {
+        detail: String,
+    },
+    BadJson {
+        detail: String,
+        raw_text: String,
+    },
     /// `usage` block missing or malformed in an otherwise-successful
     /// response. Surfaced separately from BadJson so the GUI and audit
     /// log can flag a cost-reporting gap without conflating it with the
     /// model returning unparseable content.
-    UsageParse { detail: String, raw_text: String },
+    UsageParse {
+        detail: String,
+        raw_text: String,
+    },
 }
 
 impl DescribeError {
@@ -383,11 +445,15 @@ fn find_refusal(response: &serde_json::Value) -> Option<String> {
         };
         for part in content {
             if let Some(s) = part.get("refusal").and_then(|v| v.as_str()) {
-                if !s.is_empty() { return Some(s.to_string()); }
+                if !s.is_empty() {
+                    return Some(s.to_string());
+                }
             }
             if part.get("type").and_then(|v| v.as_str()) == Some("refusal") {
                 if let Some(s) = part.get("text").and_then(|v| v.as_str()) {
-                    if !s.is_empty() { return Some(s.to_string()); }
+                    if !s.is_empty() {
+                        return Some(s.to_string());
+                    }
                 }
             }
         }
@@ -417,7 +483,9 @@ fn find_output_text(response: &serde_json::Value) -> Option<String> {
     }
     // Fall back to the legacy unconditional index lookup so older mock
     // payloads (and tests) without an explicit `type` field still work.
-    response["output"][0]["content"][0]["text"].as_str().map(str::to_string)
+    response["output"][0]["content"][0]["text"]
+        .as_str()
+        .map(str::to_string)
 }
 
 /// Call `/responses` once for a single image.  Returns parsed structured
@@ -434,10 +502,16 @@ pub async fn describe_one(
         .await
         .map_err(DescribeError::Network)?;
     if !status.is_success() {
-        return Err(DescribeError::HttpError { status: status.as_u16(), body: text });
+        return Err(DescribeError::HttpError {
+            status: status.as_u16(),
+            body: text,
+        });
     }
-    let json: serde_json::Value = serde_json::from_str(&text)
-        .map_err(|e| DescribeError::BadJson { detail: e.to_string(), raw_text: text.clone() })?;
+    let json: serde_json::Value =
+        serde_json::from_str(&text).map_err(|e| DescribeError::BadJson {
+            detail: e.to_string(),
+            raw_text: text.clone(),
+        })?;
 
     // Detect content-moderation refusals. The Responses API surfaces
     // these as a `refusal` content part somewhere inside `output[*].content[*]`
@@ -451,19 +525,28 @@ pub async fn describe_one(
     let status_str = json["status"].as_str().unwrap_or("");
     let raw_text = find_output_text(&json).unwrap_or_default();
     if status_str == "incomplete" {
-        let reason = json["incomplete_details"]["reason"].as_str().unwrap_or("unknown").to_string();
+        let reason = json["incomplete_details"]["reason"]
+            .as_str()
+            .unwrap_or("unknown")
+            .to_string();
         return Err(DescribeError::Incomplete { reason, raw_text });
     }
 
     let usage = UsageStats::from_response(&json).map_err(|detail| {
         log::warn!(
             "[describe] usage parse failed; cost reporting will be incomplete: {} (body: {})",
-            detail, text
+            detail,
+            text
         );
-        DescribeError::UsageParse { detail, raw_text: text.clone() }
+        DescribeError::UsageParse {
+            detail,
+            raw_text: text.clone(),
+        }
     })?;
-    let parsed: AiOutput = serde_json::from_str(&raw_text)
-        .map_err(|e| DescribeError::BadJson { detail: e.to_string(), raw_text: raw_text.clone() })?;
+    let parsed: AiOutput = serde_json::from_str(&raw_text).map_err(|e| DescribeError::BadJson {
+        detail: e.to_string(),
+        raw_text: raw_text.clone(),
+    })?;
     Ok((parsed, usage))
 }
 
@@ -479,20 +562,46 @@ pub fn compose_draft_edits(
     generated_at: chrono::DateTime<chrono::Utc>,
 ) -> std::collections::HashMap<String, DraftEdit> {
     fn text_edit(s: String) -> DraftEdit {
-        DraftEdit { value: Some(Variant::String(s)), intent: EditIntent::Set, display: None }
+        DraftEdit {
+            value: Some(Variant::String(s)),
+            intent: EditIntent::Set,
+            display: None,
+        }
     }
     fn list_edit(items: Vec<String>) -> DraftEdit {
         let vs: Vec<Variant> = items.into_iter().map(Variant::String).collect();
-        DraftEdit { value: Some(Variant::List(vs)), intent: EditIntent::Set, display: None }
+        DraftEdit {
+            value: Some(Variant::List(vs)),
+            intent: EditIntent::Set,
+            display: None,
+        }
     }
     let mut edits = std::collections::HashMap::new();
-    edits.insert("XMP-mlib:AIDescription".to_string(), text_edit(output.description.clone()));
-    edits.insert("XMP-mlib:AIInterpretation".to_string(), text_edit(output.interpretation.clone()));
-    edits.insert("XMP-mlib:AITags".to_string(), list_edit(output.tags.clone()));
-    edits.insert("XMP-mlib:AIObjects".to_string(), list_edit(output.objects.clone()));
-    edits.insert("XMP-mlib:AIOcrText".to_string(), list_edit(output.ocr_text.clone()));
+    edits.insert(
+        "XMP-mlib:AIDescription".to_string(),
+        text_edit(output.description.clone()),
+    );
+    edits.insert(
+        "XMP-mlib:AIInterpretation".to_string(),
+        text_edit(output.interpretation.clone()),
+    );
+    edits.insert(
+        "XMP-mlib:AITags".to_string(),
+        list_edit(output.tags.clone()),
+    );
+    edits.insert(
+        "XMP-mlib:AIObjects".to_string(),
+        list_edit(output.objects.clone()),
+    );
+    edits.insert(
+        "XMP-mlib:AIOcrText".to_string(),
+        list_edit(output.ocr_text.clone()),
+    );
     edits.insert("XMP-mlib:AIModel".to_string(), text_edit(model.to_string()));
-    edits.insert("XMP-mlib:AIPromptVersion".to_string(), text_edit(PROMPT_VERSION.to_string()));
+    edits.insert(
+        "XMP-mlib:AIPromptVersion".to_string(),
+        text_edit(PROMPT_VERSION.to_string()),
+    );
     // ISO-8601 / RFC-3339 with Z; matches the XMP DateTime kind in tag_schema.
     edits.insert(
         "XMP-mlib:AIGeneratedAt".to_string(),
@@ -535,10 +644,13 @@ mod tests {
     fn tiny_png_bytes() -> Vec<u8> {
         // 2x2 red PNG, just enough for `image` crate to decode.
         let mut img = image::RgbImage::new(2, 2);
-        for p in img.pixels_mut() { *p = image::Rgb([255, 0, 0]); }
+        for p in img.pixels_mut() {
+            *p = image::Rgb([255, 0, 0]);
+        }
         let mut buf = Vec::new();
         image::DynamicImage::ImageRgb8(img)
-            .write_to(&mut Cursor::new(&mut buf), image::ImageFormat::Png).unwrap();
+            .write_to(&mut Cursor::new(&mut buf), image::ImageFormat::Png)
+            .unwrap();
         buf
     }
 
@@ -549,7 +661,11 @@ mod tests {
         // if a model is added to RECOMMENDED_MODELS without a pricing row,
         // catch it here rather than at runtime in the cost estimator.
         for &m in crate::settings::RECOMMENDED_MODELS {
-            assert!(pricing_for(m).is_some(), "missing pricing entry for recommended model {}", m);
+            assert!(
+                pricing_for(m).is_some(),
+                "missing pricing entry for recommended model {}",
+                m
+            );
         }
     }
 
@@ -558,7 +674,12 @@ mod tests {
         // 1k input tokens at $2.5/1M + 250 output tokens at $10/1M
         //  = 0.0025 + 0.0025 = 0.005
         let p = pricing_for("gpt-4o").unwrap();
-        let u = UsageStats { input_tokens: 1000, cached_input_tokens: 0, output_tokens: 250, reasoning_tokens: 0 };
+        let u = UsageStats {
+            input_tokens: 1000,
+            cached_input_tokens: 0,
+            output_tokens: 250,
+            reasoning_tokens: 0,
+        };
         let c = u.cost(&p);
         assert!((c - 0.005).abs() < 1e-9, "got {}", c);
     }
@@ -587,7 +708,8 @@ mod tests {
         for &m in crate::settings::RECOMMENDED_MODELS {
             assert!(
                 estimate_typical_cost_per_image(m).is_some(),
-                "missing typical cost for recommended model {}", m
+                "missing typical cost for recommended model {}",
+                m
             );
         }
     }
@@ -596,7 +718,12 @@ mod tests {
     fn cached_tokens_use_cached_rate_for_their_share() {
         // 800 cached + 200 non-cached at gpt-4o ($2.5 + $1.25 cached) plus 0 output.
         let p = pricing_for("gpt-4o").unwrap();
-        let u = UsageStats { input_tokens: 1000, cached_input_tokens: 800, output_tokens: 0, reasoning_tokens: 0 };
+        let u = UsageStats {
+            input_tokens: 1000,
+            cached_input_tokens: 800,
+            output_tokens: 0,
+            reasoning_tokens: 0,
+        };
         let expected = (200.0 / 1e6) * 2.50 + (800.0 / 1e6) * 1.25;
         assert!((u.cost(&p) - expected).abs() < 1e-9);
     }
@@ -611,16 +738,23 @@ mod tests {
             interpretation: "looks calm".into(),
         };
         let ts = chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(
-            chrono::DateTime::parse_from_rfc3339("2024-06-01T12:34:56Z").unwrap().naive_utc(),
+            chrono::DateTime::parse_from_rfc3339("2024-06-01T12:34:56Z")
+                .unwrap()
+                .naive_utc(),
             chrono::Utc,
         );
         let edits = compose_draft_edits("gpt-4o", &out, ts);
 
         // Every expected key is present.
         for k in [
-            "XMP-mlib:AIDescription", "XMP-mlib:AIInterpretation",
-            "XMP-mlib:AITags", "XMP-mlib:AIObjects", "XMP-mlib:AIOcrText",
-            "XMP-mlib:AIModel", "XMP-mlib:AIPromptVersion", "XMP-mlib:AIGeneratedAt",
+            "XMP-mlib:AIDescription",
+            "XMP-mlib:AIInterpretation",
+            "XMP-mlib:AITags",
+            "XMP-mlib:AIObjects",
+            "XMP-mlib:AIOcrText",
+            "XMP-mlib:AIModel",
+            "XMP-mlib:AIPromptVersion",
+            "XMP-mlib:AIGeneratedAt",
         ] {
             assert!(edits.contains_key(k), "missing draft for {}", k);
         }
@@ -662,12 +796,16 @@ mod tests {
                 "output_tokens_details": { "reasoning_tokens": 0 }
             }
         });
-        Mock::given(method("POST")).and(path("/responses"))
+        Mock::given(method("POST"))
+            .and(path("/responses"))
             .respond_with(ResponseTemplate::new(200).set_body_json(body))
-            .mount(&server).await;
+            .mount(&server)
+            .await;
 
         let client = OpenAiClient::new(server.uri(), "k", 1);
-        let (out, usage) = describe_one(&client, "gpt-4o", &tiny_png_bytes()).await.unwrap();
+        let (out, usage) = describe_one(&client, "gpt-4o", &tiny_png_bytes())
+            .await
+            .unwrap();
         assert_eq!(out.description, "d");
         assert_eq!(usage.input_tokens, 1234);
         assert_eq!(usage.output_tokens, 56);
@@ -683,12 +821,16 @@ mod tests {
             "usage": { "input_tokens": 1, "input_tokens_details": {"cached_tokens":0},
                        "output_tokens": 600, "output_tokens_details": {"reasoning_tokens":0} }
         });
-        Mock::given(method("POST")).and(path("/responses"))
+        Mock::given(method("POST"))
+            .and(path("/responses"))
             .respond_with(ResponseTemplate::new(200).set_body_json(body))
-            .mount(&server).await;
+            .mount(&server)
+            .await;
         let client = OpenAiClient::new(server.uri(), "k", 1);
         match describe_one(&client, "gpt-4o", &tiny_png_bytes()).await {
-            Err(DescribeError::Incomplete { reason, .. }) => assert_eq!(reason, "max_output_tokens"),
+            Err(DescribeError::Incomplete { reason, .. }) => {
+                assert_eq!(reason, "max_output_tokens")
+            }
             other => panic!("expected Incomplete, got {:?}", other),
         }
     }
@@ -738,9 +880,11 @@ mod tests {
             "usage": { "input_tokens": 1, "input_tokens_details": {"cached_tokens":0},
                        "output_tokens": 0, "output_tokens_details": {"reasoning_tokens":0} }
         });
-        Mock::given(method("POST")).and(path("/responses"))
+        Mock::given(method("POST"))
+            .and(path("/responses"))
             .respond_with(ResponseTemplate::new(200).set_body_json(body))
-            .mount(&server).await;
+            .mount(&server)
+            .await;
         let client = OpenAiClient::new(server.uri(), "k", 1);
         match describe_one(&client, "gpt-4o", &tiny_png_bytes()).await {
             Err(DescribeError::Refused { detail }) => assert_eq!(detail, "cannot help"),
@@ -760,9 +904,11 @@ mod tests {
                 "text": "{\"description\":\"d\",\"objects\":[],\"tags\":[],\"ocr_text\":[],\"interpretation\":\"\"}" }] }]
             // usage intentionally absent
         });
-        Mock::given(method("POST")).and(path("/responses"))
+        Mock::given(method("POST"))
+            .and(path("/responses"))
             .respond_with(ResponseTemplate::new(200).set_body_json(body))
-            .mount(&server).await;
+            .mount(&server)
+            .await;
         let client = OpenAiClient::new(server.uri(), "k", 1);
         match describe_one(&client, "gpt-4o", &tiny_png_bytes()).await {
             Err(DescribeError::UsageParse { detail, .. }) => {
@@ -803,10 +949,12 @@ mod tests {
         // should ride through the 429 transparently and the caller never sees
         // the failure.
         let server = MockServer::start().await;
-        Mock::given(method("POST")).and(path("/responses"))
+        Mock::given(method("POST"))
+            .and(path("/responses"))
             .respond_with(ResponseTemplate::new(429).set_body_string("rate limited"))
             .up_to_n_times(1)
-            .mount(&server).await;
+            .mount(&server)
+            .await;
         Mock::given(method("POST")).and(path("/responses"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
                 "status": "completed",
@@ -817,7 +965,9 @@ mod tests {
             })))
             .mount(&server).await;
         let client = OpenAiClient::new(server.uri(), "k", 3);
-        let (out, _) = describe_one(&client, "gpt-4o", &tiny_png_bytes()).await.unwrap();
+        let (out, _) = describe_one(&client, "gpt-4o", &tiny_png_bytes())
+            .await
+            .unwrap();
         assert_eq!(out.description, "d");
     }
 
@@ -829,13 +979,17 @@ mod tests {
         // succeeds, which it wouldn't against the real API if we forgot the
         // strip. Here we just assert the server count comes back through.
         let server = MockServer::start().await;
-        Mock::given(method("POST")).and(path("/responses/input_tokens"))
+        Mock::given(method("POST"))
+            .and(path("/responses/input_tokens"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
                 "input_tokens": 4242
             })))
-            .mount(&server).await;
+            .mount(&server)
+            .await;
         let client = OpenAiClient::new(server.uri(), "k", 1);
-        let n = count_input_tokens(&client, "gpt-4o", &tiny_png_bytes()).await.unwrap();
+        let n = count_input_tokens(&client, "gpt-4o", &tiny_png_bytes())
+            .await
+            .unwrap();
         assert_eq!(n, 4242);
     }
 }

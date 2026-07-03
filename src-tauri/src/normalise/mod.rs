@@ -60,8 +60,8 @@ pub use dates::{normalise_dates, DatesOutcome};
 
 mod ai;
 pub use ai::{
-    AiCallUsage, CapturingAiClient, DescriptionMergePrompt, NormaliseAiClient,
-    NormaliseAiError, NormaliseAuditEntry, PerImageAiCall, TitleGenPrompt,
+    AiCallUsage, CapturingAiClient, DescriptionMergePrompt, NormaliseAiClient, NormaliseAiError,
+    NormaliseAuditEntry, PerImageAiCall, TitleGenPrompt,
 };
 
 mod description;
@@ -712,9 +712,9 @@ impl PerImageStats {
     /// True when no group emitted any drafts (every visited group was
     /// a noop). Used by the batch loop to count `n_skipped_all_normalised`.
     pub fn all_noop(&self) -> bool {
-        self.per_group.values().all(|s| {
-            s.n_normalised_deterministic == 0 && s.n_normalised_ai == 0
-        })
+        self.per_group
+            .values()
+            .all(|s| s.n_normalised_deterministic == 0 && s.n_normalised_ai == 0)
     }
 }
 
@@ -792,6 +792,38 @@ fn is_cancelled(cancel: Option<&std::sync::Arc<std::sync::atomic::AtomicBool>>) 
         .unwrap_or(false)
 }
 
+fn derive_date_context(input: &DatesInput) -> Option<String> {
+    input
+        .date_time_original
+        .clone()
+        .or_else(|| input.photoshop_date_created.clone())
+        .or_else(|| input.iptc_date_created.clone())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+fn derive_description_canonical_without_ai(input: &DescriptionInput) -> Option<String> {
+    let target_sources = [
+        input.description.as_deref().unwrap_or(""),
+        input.image_description.as_deref().unwrap_or(""),
+        input.caption_abstract.as_deref().unwrap_or(""),
+    ];
+    let non_empty: Vec<String> = target_sources
+        .iter()
+        .map(|s| collapse_whitespace_single_line(s))
+        .filter(|s| !s.is_empty())
+        .collect();
+    if non_empty.is_empty() {
+        return None;
+    }
+    let distinct: std::collections::BTreeSet<&str> = non_empty.iter().map(String::as_str).collect();
+    if distinct.len() == 1 {
+        Some(non_empty[0].clone())
+    } else {
+        None
+    }
+}
+
 pub async fn process_image(
     item: &NormaliseRequestItem,
     enabled: &[NormaliseGroup],
@@ -815,24 +847,55 @@ pub async fn process_image(
     // cancellation are NOT recorded as noops — they're silently
     // absent from `per_group`, distinguishing user-cancel from
     // already-normalised.
-    let is_enabled = |g: NormaliseGroup| enabled.contains(&g) && !is_cancelled(cancel);
+    let write_enabled = |g: NormaliseGroup| enabled.contains(&g) && !is_cancelled(cancel);
+    let title_writes_enabled = write_enabled(NormaliseGroup::Title);
+    let description_writes_enabled = write_enabled(NormaliseGroup::Description);
+    let keywords_writes_enabled = write_enabled(NormaliseGroup::Keywords);
+    let location_writes_enabled = write_enabled(NormaliseGroup::Location);
+    let dates_writes_enabled = write_enabled(NormaliseGroup::Dates);
 
     // ── Pass 1: independents ──
     //
-    // Capture canonical-ish context as we go for pass 2/3 read-only
-    // inputs. The dispatcher constructs these from already-resolved
-    // input values, not from the drafts (which are downstream of the
-    // canonical and don't yet exist when pass 1 runs).
-    let mut keywords_leaves: Vec<String> = Vec::new();
-    let mut location_context: Option<LocationContext> = None;
-    let mut date_context: Option<String> = None;
+    // Derive read-only dependency context independently from write
+    // execution. Context-only upstream groups must not emit drafts,
+    // stats, AI calls, or done-panel rows.
+    let needs_keywords_context =
+        keywords_writes_enabled || description_writes_enabled || title_writes_enabled;
+    let needs_location_context =
+        location_writes_enabled || description_writes_enabled || title_writes_enabled;
+    let needs_date_context = dates_writes_enabled || description_writes_enabled;
+    let needs_description_context = description_writes_enabled || title_writes_enabled;
 
-    if is_enabled(NormaliseGroup::Keywords) {
+    let (keywords_paths, keywords_leaves) = if needs_keywords_context && !is_cancelled(cancel) {
+        item.group_inputs
+            .keywords
+            .as_ref()
+            .map(derive_keywords_canonical)
+            .unwrap_or_default()
+    } else {
+        (Vec::new(), Vec::new())
+    };
+    let location_context = if needs_location_context && !is_cancelled(cancel) {
+        item.group_inputs
+            .location
+            .as_ref()
+            .map(derive_location_canonical)
+    } else {
+        None
+    };
+    let date_context = if needs_date_context && !is_cancelled(cancel) {
+        item.group_inputs
+            .dates
+            .as_ref()
+            .and_then(derive_date_context)
+    } else {
+        None
+    };
+
+    if write_enabled(NormaliseGroup::Keywords) {
         let g = stats.group(NormaliseGroup::Keywords);
         if let Some(input) = item.group_inputs.keywords.as_ref() {
-            let (paths, leaves) = derive_keywords_canonical(input);
-            keywords_leaves = leaves.clone();
-            match normalise_keywords_with_canonical(input, &paths, &leaves) {
+            match normalise_keywords_with_canonical(input, &keywords_paths, &keywords_leaves) {
                 Some(out) => {
                     edits.extend(out.edits);
                     g.n_normalised_deterministic += 1;
@@ -847,7 +910,7 @@ pub async fn process_image(
 
     apply_simple_group(
         NormaliseGroup::Creator,
-        is_enabled(NormaliseGroup::Creator),
+        write_enabled(NormaliseGroup::Creator),
         item.group_inputs.creator.as_ref(),
         &mut edits,
         &mut stats,
@@ -855,7 +918,7 @@ pub async fn process_image(
     );
     apply_simple_group(
         NormaliseGroup::Copyright,
-        is_enabled(NormaliseGroup::Copyright),
+        write_enabled(NormaliseGroup::Copyright),
         item.group_inputs.copyright.as_ref(),
         &mut edits,
         &mut stats,
@@ -863,20 +926,16 @@ pub async fn process_image(
     );
     apply_simple_group(
         NormaliseGroup::Headline,
-        is_enabled(NormaliseGroup::Headline),
+        write_enabled(NormaliseGroup::Headline),
         item.group_inputs.headline.as_ref(),
         &mut edits,
         &mut stats,
         normalise_headline,
     );
 
-    if is_enabled(NormaliseGroup::Location) {
+    if write_enabled(NormaliseGroup::Location) {
         let g = stats.group(NormaliseGroup::Location);
         if let Some(input) = item.group_inputs.location.as_ref() {
-            // Plan §2: Group B / Group C see POST-normalisation
-            // location context. Use the same primary-wins canonical
-            // logic Group G uses to populate drafts.
-            location_context = Some(derive_location_canonical(input));
             let outcome = normalise_location(input);
             g.n_location_xmp_iim_conflict = outcome.n_xmp_iim_conflict;
             if outcome.n_xmp_iim_conflict > 0 {
@@ -895,18 +954,9 @@ pub async fn process_image(
         }
     }
 
-    if is_enabled(NormaliseGroup::Dates) {
+    if write_enabled(NormaliseGroup::Dates) {
         let g = stats.group(NormaliseGroup::Dates);
         if let Some(input) = item.group_inputs.dates.as_ref() {
-            // Capture date context for pass-2 — use whatever H1 source
-            // resolves cleanest (DTO first).
-            date_context = input
-                .date_time_original
-                .clone()
-                .or_else(|| input.photoshop_date_created.clone())
-                .or_else(|| input.iptc_date_created.clone())
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty());
             let outcome = normalise_dates(input);
             g.n_date_conflict = outcome.n_date_conflict;
             g.n_dto_from_filename = outcome.n_dto_from_filename;
@@ -923,14 +973,24 @@ pub async fn process_image(
                 None => g.n_noop += 1,
             }
         } else {
-            log::warn!("[normalise] group dates enabled but no input bundle supplied; counting as no-op");
+            log::warn!(
+                "[normalise] group dates enabled but no input bundle supplied; counting as no-op"
+            );
             g.n_noop += 1;
         }
     }
 
     // ── Pass 2: Description (reads pass-1 context) ──
-    let mut description_canonical: Option<String> = None;
-    if is_enabled(NormaliseGroup::Description) {
+    let mut description_canonical: Option<String> =
+        if needs_description_context && !description_writes_enabled && !is_cancelled(cancel) {
+            item.group_inputs
+                .description
+                .as_ref()
+                .and_then(derive_description_canonical_without_ai)
+        } else {
+            None
+        };
+    if write_enabled(NormaliseGroup::Description) {
         if let Some(input) = item.group_inputs.description.as_ref() {
             // Augment the caller-supplied bundle with pass-1
             // context. Caller-provided values win when both are set.
@@ -990,7 +1050,7 @@ pub async fn process_image(
     }
 
     // ── Pass 3: Title (reads pass-2 canonical) ──
-    if is_enabled(NormaliseGroup::Title) {
+    if write_enabled(NormaliseGroup::Title) {
         if let Some(input) = item.group_inputs.title.as_ref() {
             let mut augmented = input.clone();
             if augmented.description_canonical.is_none() {
@@ -1037,7 +1097,9 @@ pub async fn process_image(
                 None => g.n_noop += 1,
             }
         } else {
-            log::warn!("[normalise] group title enabled but no input bundle supplied; counting as no-op");
+            log::warn!(
+                "[normalise] group title enabled but no input bundle supplied; counting as no-op"
+            );
             stats.group(NormaliseGroup::Title).n_noop += 1;
         }
     }
@@ -1118,7 +1180,8 @@ mod tests_dispatcher {
                 ..Default::default()
             },
         };
-        let (edits, stats, _err, _calls) = process_image(&item, &[NormaliseGroup::Keywords], None, None).await;
+        let (edits, stats, _err, _calls) =
+            process_image(&item, &[NormaliseGroup::Keywords], None, None).await;
         assert!(edits.contains_key("XMP-dc:Subject"));
         assert!(!edits.contains_key("XMP-dc:Creator"));
         let kw = stats.per_group.get(&NormaliseGroup::Keywords).unwrap();
@@ -1149,7 +1212,8 @@ mod tests_dispatcher {
             ],
             None,
             None,
-        ).await;
+        )
+        .await;
         assert!(edits.is_empty());
         assert_eq!(stats.per_group.len(), 8);
         for (_, g) in &stats.per_group {
@@ -1176,11 +1240,16 @@ mod tests_dispatcher {
                 *self.captured.lock().await = Some(p);
                 Ok(("merged".into(), AiCallUsage::default()))
             }
-            async fn generate_title(&self, _: TitleGenPrompt) -> Result<(String, AiCallUsage), String> {
+            async fn generate_title(
+                &self,
+                _: TitleGenPrompt,
+            ) -> Result<(String, AiCallUsage), String> {
                 unreachable!()
             }
         }
-        let ai = ContextCapturingAi { captured: tokio::sync::Mutex::new(None) };
+        let ai = ContextCapturingAi {
+            captured: tokio::sync::Mutex::new(None),
+        };
         let item = NormaliseRequestItem {
             rel_path: "x.jpg".into(),
             group_inputs: GroupInputs {
@@ -1201,8 +1270,14 @@ mod tests_dispatcher {
             &[NormaliseGroup::Keywords, NormaliseGroup::Description],
             Some(&ai),
             None,
-        ).await;
-        let captured = ai.captured.lock().await.take().expect("AI must fire on distinct sources");
+        )
+        .await;
+        let captured = ai
+            .captured
+            .lock()
+            .await
+            .take()
+            .expect("AI must fire on distinct sources");
         assert!(captured.keywords.contains(&"lion".to_string()));
         assert!(captured.keywords.contains(&"statue".to_string()));
     }
@@ -1214,15 +1289,23 @@ mod tests_dispatcher {
         }
         #[async_trait::async_trait]
         impl NormaliseAiClient for TitleAi {
-            async fn merge_description(&self, _: DescriptionMergePrompt) -> Result<(String, AiCallUsage), String> {
+            async fn merge_description(
+                &self,
+                _: DescriptionMergePrompt,
+            ) -> Result<(String, AiCallUsage), String> {
                 unreachable!()
             }
-            async fn generate_title(&self, p: TitleGenPrompt) -> Result<(String, AiCallUsage), String> {
+            async fn generate_title(
+                &self,
+                p: TitleGenPrompt,
+            ) -> Result<(String, AiCallUsage), String> {
                 *self.captured_description.lock().await = Some(p.description);
                 Ok(("Generated Title".into(), AiCallUsage::default()))
             }
         }
-        let ai = TitleAi { captured_description: tokio::sync::Mutex::new(None) };
+        let ai = TitleAi {
+            captured_description: tokio::sync::Mutex::new(None),
+        };
         let item = NormaliseRequestItem {
             rel_path: "x.jpg".into(),
             group_inputs: GroupInputs {
@@ -1239,8 +1322,14 @@ mod tests_dispatcher {
             &[NormaliseGroup::Description, NormaliseGroup::Title],
             Some(&ai),
             None,
-        ).await;
-        let captured = ai.captured_description.lock().await.take().expect("title AI must fire");
+        )
+        .await;
+        let captured = ai
+            .captured_description
+            .lock()
+            .await
+            .take()
+            .expect("title AI must fire");
         assert_eq!(captured, "A factual sentence.");
         // Generated title became a draft.
         let title_draft = edits.get("XMP-dc:Title").expect("title draft present");
@@ -1248,6 +1337,224 @@ mod tests_dispatcher {
             Some(Variant::String(s)) => assert_eq!(s, "Generated Title"),
             other => panic!("expected String, got {:?}", other),
         }
+    }
+
+    #[tokio::test]
+    async fn title_gets_description_context_when_description_not_write_enabled() {
+        struct TitleAi {
+            calls: tokio::sync::Mutex<Vec<&'static str>>,
+        }
+        #[async_trait::async_trait]
+        impl NormaliseAiClient for TitleAi {
+            async fn merge_description(
+                &self,
+                _: DescriptionMergePrompt,
+            ) -> Result<(String, AiCallUsage), String> {
+                panic!("context-only description must not call AI");
+            }
+            async fn generate_title(
+                &self,
+                p: TitleGenPrompt,
+            ) -> Result<(String, AiCallUsage), String> {
+                assert_eq!(p.description, "A cat sitting on a windowsill.");
+                self.calls.lock().await.push("title");
+                Ok(("Cat On Windowsill".into(), AiCallUsage::default()))
+            }
+        }
+        let ai = TitleAi {
+            calls: tokio::sync::Mutex::new(Vec::new()),
+        };
+        let item = NormaliseRequestItem {
+            rel_path: "x.jpg".into(),
+            group_inputs: GroupInputs {
+                title: Some(TitleInput::default()),
+                description: Some(DescriptionInput {
+                    description: Some("A cat sitting on a windowsill.".into()),
+                    image_description: Some("A cat sitting on a windowsill.".into()),
+                    caption_abstract: Some("A cat sitting on a windowsill.".into()),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+        };
+        let (edits, stats, _err, ai_calls) =
+            process_image(&item, &[NormaliseGroup::Title], Some(&ai), None).await;
+
+        assert_eq!(
+            match &edits.get("XMP-dc:Title").expect("title draft").value {
+                Some(Variant::String(s)) => s.as_str(),
+                other => panic!("expected String, got {:?}", other),
+            },
+            "Cat On Windowsill"
+        );
+        assert_eq!(
+            match &edits
+                .get("IPTC:ObjectName")
+                .expect("object name draft")
+                .value
+            {
+                Some(Variant::String(s)) => s.as_str(),
+                other => panic!("expected String, got {:?}", other),
+            },
+            "Cat On Windowsill"
+        );
+        let title = stats.per_group.get(&NormaliseGroup::Title).unwrap();
+        assert_eq!(title.n_normalised_ai, 1);
+        assert!(!stats.per_group.contains_key(&NormaliseGroup::Description));
+        assert_eq!(ai.calls.lock().await.as_slice(), &["title"]);
+        assert_eq!(ai_calls.len(), 1);
+        assert_eq!(ai_calls[0].group, "title");
+    }
+
+    #[tokio::test]
+    async fn description_gets_context_when_upstream_groups_not_write_enabled() {
+        struct DescriptionAi {
+            calls: tokio::sync::Mutex<Vec<&'static str>>,
+        }
+        #[async_trait::async_trait]
+        impl NormaliseAiClient for DescriptionAi {
+            async fn merge_description(
+                &self,
+                p: DescriptionMergePrompt,
+            ) -> Result<(String, AiCallUsage), String> {
+                assert!(p.keywords.contains(&"cat".to_string()));
+                assert_eq!(
+                    p.location.get("city").and_then(serde_json::Value::as_str),
+                    Some("Cambridge")
+                );
+                assert_eq!(
+                    p.location
+                        .get("country")
+                        .and_then(serde_json::Value::as_str),
+                    Some("United Kingdom")
+                );
+                assert_eq!(p.date.as_deref(), Some("2024:06:15 14:30:45"));
+                self.calls.lock().await.push("description");
+                Ok(("Merged caption.".into(), AiCallUsage::default()))
+            }
+            async fn generate_title(
+                &self,
+                _: TitleGenPrompt,
+            ) -> Result<(String, AiCallUsage), String> {
+                panic!("title AI must not fire");
+            }
+        }
+        let ai = DescriptionAi {
+            calls: tokio::sync::Mutex::new(Vec::new()),
+        };
+        let item = NormaliseRequestItem {
+            rel_path: "x.jpg".into(),
+            group_inputs: GroupInputs {
+                description: Some(DescriptionInput {
+                    description: Some("Old caption.".into()),
+                    image_description: Some("Different caption.".into()),
+                    ..Default::default()
+                }),
+                keywords: Some(KeywordsInput {
+                    hierarchical_subject: vec!["animals|cat".into()],
+                    dc_subject: vec!["cat".into()],
+                    ..Default::default()
+                }),
+                location: Some(LocationInput {
+                    city_xmp: Some("Cambridge".into()),
+                    city_iptc: Some("Cambridge".into()),
+                    country_xmp: Some("United Kingdom".into()),
+                    country_iptc: Some("United Kingdom".into()),
+                    ..Default::default()
+                }),
+                dates: Some(DatesInput {
+                    date_time_original: Some("2024:06:15 14:30:45".into()),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+        };
+        let (edits, stats, _err, ai_calls) =
+            process_image(&item, &[NormaliseGroup::Description], Some(&ai), None).await;
+
+        assert!(edits.contains_key("XMP-dc:Description"));
+        let desc = stats.per_group.get(&NormaliseGroup::Description).unwrap();
+        assert_eq!(desc.n_normalised_ai, 1);
+        assert!(!stats.per_group.contains_key(&NormaliseGroup::Keywords));
+        assert!(!stats.per_group.contains_key(&NormaliseGroup::Location));
+        assert!(!stats.per_group.contains_key(&NormaliseGroup::Dates));
+        assert_eq!(ai.calls.lock().await.as_slice(), &["description"]);
+        assert_eq!(ai_calls.len(), 1);
+        assert_eq!(ai_calls[0].group, "description");
+    }
+
+    #[tokio::test]
+    async fn title_gets_keywords_and_location_context_when_not_write_enabled() {
+        struct TitleContextAi {
+            calls: tokio::sync::Mutex<Vec<&'static str>>,
+        }
+        #[async_trait::async_trait]
+        impl NormaliseAiClient for TitleContextAi {
+            async fn merge_description(
+                &self,
+                _: DescriptionMergePrompt,
+            ) -> Result<(String, AiCallUsage), String> {
+                panic!("context-only description must not call AI");
+            }
+            async fn generate_title(
+                &self,
+                p: TitleGenPrompt,
+            ) -> Result<(String, AiCallUsage), String> {
+                assert_eq!(p.description, "A cat sitting on a windowsill.");
+                assert!(p.keywords.contains(&"cat".to_string()));
+                assert_eq!(
+                    p.location.get("city").and_then(serde_json::Value::as_str),
+                    Some("Cambridge")
+                );
+                assert_eq!(
+                    p.location
+                        .get("country")
+                        .and_then(serde_json::Value::as_str),
+                    Some("United Kingdom")
+                );
+                self.calls.lock().await.push("title");
+                Ok(("Cat On Windowsill".into(), AiCallUsage::default()))
+            }
+        }
+        let ai = TitleContextAi {
+            calls: tokio::sync::Mutex::new(Vec::new()),
+        };
+        let item = NormaliseRequestItem {
+            rel_path: "x.jpg".into(),
+            group_inputs: GroupInputs {
+                title: Some(TitleInput::default()),
+                description: Some(DescriptionInput {
+                    description: Some("A cat sitting on a windowsill.".into()),
+                    image_description: Some("A cat sitting on a windowsill.".into()),
+                    caption_abstract: Some("A cat sitting on a windowsill.".into()),
+                    ..Default::default()
+                }),
+                keywords: Some(KeywordsInput {
+                    hierarchical_subject: vec!["animals|cat".into()],
+                    ..Default::default()
+                }),
+                location: Some(LocationInput {
+                    city_xmp: Some("Cambridge".into()),
+                    city_iptc: Some("Cambridge".into()),
+                    country_xmp: Some("United Kingdom".into()),
+                    country_iptc: Some("United Kingdom".into()),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+        };
+        let (_edits, stats, _err, ai_calls) =
+            process_image(&item, &[NormaliseGroup::Title], Some(&ai), None).await;
+
+        let title = stats.per_group.get(&NormaliseGroup::Title).unwrap();
+        assert_eq!(title.n_normalised_ai, 1);
+        assert_eq!(stats.per_group.len(), 1);
+        assert!(!stats.per_group.contains_key(&NormaliseGroup::Description));
+        assert!(!stats.per_group.contains_key(&NormaliseGroup::Keywords));
+        assert!(!stats.per_group.contains_key(&NormaliseGroup::Location));
+        assert_eq!(ai.calls.lock().await.as_slice(), &["title"]);
+        assert_eq!(ai_calls.len(), 1);
+        assert_eq!(ai_calls[0].group, "title");
     }
 
     #[tokio::test]
@@ -1277,7 +1584,8 @@ mod tests_dispatcher {
             &[NormaliseGroup::Keywords, NormaliseGroup::Creator],
             None,
             Some(&cancel),
-        ).await;
+        )
+        .await;
         assert!(edits.is_empty());
         assert!(stats.per_group.is_empty());
         // Sanity: clearing the flag and rerunning emits drafts.
@@ -1287,7 +1595,8 @@ mod tests_dispatcher {
             &[NormaliseGroup::Keywords, NormaliseGroup::Creator],
             None,
             Some(&cancel),
-        ).await;
+        )
+        .await;
         assert!(!edits.is_empty());
         assert_eq!(stats.per_group.len(), 2);
     }
@@ -1311,12 +1620,17 @@ mod tests_dispatcher {
                 self.cancel.store(true, Ordering::Relaxed);
                 Ok(("Merged version.".into(), AiCallUsage::default()))
             }
-            async fn generate_title(&self, _: TitleGenPrompt) -> Result<(String, AiCallUsage), String> {
+            async fn generate_title(
+                &self,
+                _: TitleGenPrompt,
+            ) -> Result<(String, AiCallUsage), String> {
                 panic!("title AI must NOT fire after cancel");
             }
         }
         let cancel = Arc::new(AtomicBool::new(false));
-        let ai = CancellingAi { cancel: cancel.clone() };
+        let ai = CancellingAi {
+            cancel: cancel.clone(),
+        };
         let item = NormaliseRequestItem {
             rel_path: "x.jpg".into(),
             group_inputs: GroupInputs {
@@ -1334,7 +1648,8 @@ mod tests_dispatcher {
             &[NormaliseGroup::Description, NormaliseGroup::Title],
             Some(&ai),
             Some(&cancel),
-        ).await;
+        )
+        .await;
         // Description drafts survived.
         assert!(edits.contains_key("XMP-dc:Description"));
         // Title was skipped — never appears in per_group.
@@ -1356,47 +1671,71 @@ mod tests_dispatcher {
     fn summary_accumulates_per_image_stats() {
         let mut summary = NormaliseSummary::default();
         summary.accumulate(&make_per_image(&[
-            (NormaliseGroup::Keywords, PerGroupStats {
-                n_normalised_deterministic: 1,
-                ..Default::default()
-            }),
-            (NormaliseGroup::Location, PerGroupStats {
-                n_normalised_deterministic: 1,
-                n_conflict_primary_won: 1,
-                n_location_xmp_iim_conflict: 1,
-                ..Default::default()
-            }),
-            (NormaliseGroup::Dates, PerGroupStats {
-                n_noop: 1,
-                n_dto_from_filename: 1,
-                n_dto_from_filename_date_only: 1,
-                ..Default::default()
-            }),
-            (NormaliseGroup::Description, PerGroupStats {
-                n_normalised_ai: 1,
-                ..Default::default()
-            }),
+            (
+                NormaliseGroup::Keywords,
+                PerGroupStats {
+                    n_normalised_deterministic: 1,
+                    ..Default::default()
+                },
+            ),
+            (
+                NormaliseGroup::Location,
+                PerGroupStats {
+                    n_normalised_deterministic: 1,
+                    n_conflict_primary_won: 1,
+                    n_location_xmp_iim_conflict: 1,
+                    ..Default::default()
+                },
+            ),
+            (
+                NormaliseGroup::Dates,
+                PerGroupStats {
+                    n_noop: 1,
+                    n_dto_from_filename: 1,
+                    n_dto_from_filename_date_only: 1,
+                    ..Default::default()
+                },
+            ),
+            (
+                NormaliseGroup::Description,
+                PerGroupStats {
+                    n_normalised_ai: 1,
+                    ..Default::default()
+                },
+            ),
         ]));
         summary.accumulate(&make_per_image(&[
-            (NormaliseGroup::Keywords, PerGroupStats {
-                n_normalised_deterministic: 1,
-                ..Default::default()
-            }),
-            (NormaliseGroup::Dates, PerGroupStats {
-                n_normalised_deterministic: 1,
-                n_date_conflict: 1,
-                n_conflict_primary_won: 1,
-                n_unparseable_date_inputs: 2,
-                ..Default::default()
-            }),
-            (NormaliseGroup::Title, PerGroupStats {
-                n_normalised_ai: 1,
-                ..Default::default()
-            }),
-            (NormaliseGroup::Description, PerGroupStats {
-                n_ai_errors: 1,
-                ..Default::default()
-            }),
+            (
+                NormaliseGroup::Keywords,
+                PerGroupStats {
+                    n_normalised_deterministic: 1,
+                    ..Default::default()
+                },
+            ),
+            (
+                NormaliseGroup::Dates,
+                PerGroupStats {
+                    n_normalised_deterministic: 1,
+                    n_date_conflict: 1,
+                    n_conflict_primary_won: 1,
+                    n_unparseable_date_inputs: 2,
+                    ..Default::default()
+                },
+            ),
+            (
+                NormaliseGroup::Title,
+                PerGroupStats {
+                    n_normalised_ai: 1,
+                    ..Default::default()
+                },
+            ),
+            (
+                NormaliseGroup::Description,
+                PerGroupStats {
+                    n_ai_errors: 1,
+                    ..Default::default()
+                },
+            ),
         ]));
         let kw = summary.per_group.get(&NormaliseGroup::Keywords).unwrap();
         assert_eq!(kw.n_normalised_deterministic, 2);
@@ -1439,7 +1778,10 @@ mod tests_dispatcher {
             ) -> Result<(String, AiCallUsage), String> {
                 Ok((
                     "Merged factual description.".into(),
-                    AiCallUsage { input_tokens: 800, output_tokens: 250 },
+                    AiCallUsage {
+                        input_tokens: 800,
+                        output_tokens: 250,
+                    },
                 ))
             }
             async fn generate_title(
@@ -1471,9 +1813,15 @@ mod tests_dispatcher {
         .await;
         // Two AI calls were attempted (one ok, one error).
         assert_eq!(ai_calls.len(), 2);
-        let success = ai_calls.iter().find(|c| c.error.is_none()).expect("description call ok");
+        let success = ai_calls
+            .iter()
+            .find(|c| c.error.is_none())
+            .expect("description call ok");
         assert_eq!(success.group, "description");
-        let failure = ai_calls.iter().find(|c| c.error.is_some()).expect("title call err");
+        let failure = ai_calls
+            .iter()
+            .find(|c| c.error.is_some())
+            .expect("title call err");
         assert_eq!(failure.group, "title");
 
         // Write audit rows the way lib.rs does, then read them back
@@ -1561,14 +1909,6 @@ mod tests_dispatcher {
         assert!((summary.ai_cost_total_usd - 0.0003).abs() < 1e-9);
     }
 }
-
-
-
-
-
-
-
-
 
 #[cfg(test)]
 mod tests_shared {

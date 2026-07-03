@@ -9,10 +9,7 @@ use crate::draft_edits::{DraftEdit, EditIntent};
 use crate::scanner::Variant;
 use std::collections::HashMap;
 
-pub const HEADLINE_TARGET_TAGS: &[&str] = &[
-    "XMP-photoshop:Headline",
-    "IPTC:Headline",
-];
+pub const HEADLINE_TARGET_TAGS: &[&str] = &["XMP-photoshop:Headline", "IPTC:Headline"];
 
 const IPTC_HEADLINE_LIMIT: usize = 256;
 
@@ -83,7 +80,10 @@ mod tests {
             iptc_headline: Some("Old IPTC headline".into()),
         };
         let out = normalise_headline(&input).unwrap();
-        assert_eq!(s(&out, "XMP-photoshop:Headline"), "Climbers descend Mont Blanc");
+        assert_eq!(
+            s(&out, "XMP-photoshop:Headline"),
+            "Climbers descend Mont Blanc"
+        );
         assert_eq!(s(&out, "IPTC:Headline"), "Climbers descend Mont Blanc");
     }
 
