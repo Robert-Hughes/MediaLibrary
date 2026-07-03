@@ -21,7 +21,9 @@ use crate::openai_describe;
 use crate::openai_normalise;
 
 #[derive(Clone, Serialize)]
-struct NormaliseEstimateStartedPayload { total: usize }
+struct NormaliseEstimateStartedPayload {
+    total: usize,
+}
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -104,7 +106,10 @@ struct NormaliseEstimateCompletePayload {
 }
 
 #[derive(Clone, Serialize)]
-struct NormaliseEstimateErrorPayload { relative_path: String, message: String }
+struct NormaliseEstimateErrorPayload {
+    relative_path: String,
+    message: String,
+}
 
 /// Count fields in `group` whose current effective value (from the
 /// per-image input bundle) is non-empty AND would be replaced by a
@@ -168,9 +173,10 @@ fn count_overwrites_for_group(
                 EditIntent::Set => match e.value.as_ref() {
                     Some(Variant::List(items)) => {
                         let same = items.len() == current.len()
-                            && items.iter().zip(current.iter()).all(|(v, c)| {
-                                matches!(v, Variant::String(s) if s == c)
-                            });
+                            && items
+                                .iter()
+                                .zip(current.iter())
+                                .all(|(v, c)| matches!(v, Variant::String(s) if s == c));
                         if same {
                             0
                         } else {
@@ -234,7 +240,10 @@ fn count_overwrites_for_group(
                     + scalar("XMP-photoshop:State", b.state_xmp.as_deref())
                     + scalar("IPTC:Province-State", b.state_iptc.as_deref())
                     + scalar("XMP-photoshop:Country", b.country_xmp.as_deref())
-                    + scalar("IPTC:Country-PrimaryLocationName", b.country_iptc.as_deref())
+                    + scalar(
+                        "IPTC:Country-PrimaryLocationName",
+                        b.country_iptc.as_deref(),
+                    )
                     + scalar("XMP-iptcCore:CountryCode", b.country_code_xmp.as_deref())
                     + scalar(
                         "IPTC:Country-PrimaryLocationCode",
@@ -246,7 +255,10 @@ fn count_overwrites_for_group(
             None => 0,
             Some(b) => {
                 scalar("EXIF:DateTimeOriginal", b.date_time_original.as_deref())
-                    + scalar("XMP-photoshop:DateCreated", b.photoshop_date_created.as_deref())
+                    + scalar(
+                        "XMP-photoshop:DateCreated",
+                        b.photoshop_date_created.as_deref(),
+                    )
                     + scalar("IPTC:DateCreated", b.iptc_date_created.as_deref())
                     + scalar("IPTC:TimeCreated", b.iptc_time_created.as_deref())
                     + scalar("EXIF:CreateDate", b.create_date.as_deref())
@@ -300,8 +312,7 @@ pub async fn estimate_normalise_cost_cmd(
     // Always walk every group so the confirm-phase outcome table has
     // counts for every row. The user's selection is honoured client-
     // side: cost is recomputed from `ai_token_breakdown` + `pricing`.
-    let all_groups: Vec<normalise::NormaliseGroup> =
-        normalise::NormaliseGroup::ALL.to_vec();
+    let all_groups: Vec<normalise::NormaliseGroup> = normalise::NormaliseGroup::ALL.to_vec();
 
     // Preflight client is optional: when no API key is configured we
     // still walk for outcome counts but emit `ai_token_breakdown=None`
@@ -389,37 +400,63 @@ pub async fn estimate_normalise_cost_cmd(
         if let Some((normalise_client, _, _)) = preflight.as_ref() {
             for prompt in &description_prompts {
                 let body = normalise_client.description_request_body(prompt);
-                let n = normalise_client.count_input_tokens(&body).await.map_err(|e| {
-                    let _ = app.emit("normalise_estimate_error", NormaliseEstimateErrorPayload {
-                        relative_path: item.rel_path.clone(), message: e.clone(),
-                    });
-                    format!("{}: {}", item.rel_path, e)
-                })?;
+                let n = normalise_client
+                    .count_input_tokens(&body)
+                    .await
+                    .map_err(|e| {
+                        let _ = app.emit(
+                            "normalise_estimate_error",
+                            NormaliseEstimateErrorPayload {
+                                relative_path: item.rel_path.clone(),
+                                message: e.clone(),
+                            },
+                        );
+                        format!("{}: {}", item.rel_path, e)
+                    })?;
                 description_input_tokens += n as u64;
                 per_image_input_tokens = per_image_input_tokens.saturating_add(n);
             }
             for prompt in &title_prompts {
                 let body = normalise_client.title_request_body(prompt);
-                let n = normalise_client.count_input_tokens(&body).await.map_err(|e| {
-                    let _ = app.emit("normalise_estimate_error", NormaliseEstimateErrorPayload {
-                        relative_path: item.rel_path.clone(), message: e.clone(),
-                    });
-                    format!("{}: {}", item.rel_path, e)
-                })?;
+                let n = normalise_client
+                    .count_input_tokens(&body)
+                    .await
+                    .map_err(|e| {
+                        let _ = app.emit(
+                            "normalise_estimate_error",
+                            NormaliseEstimateErrorPayload {
+                                relative_path: item.rel_path.clone(),
+                                message: e.clone(),
+                            },
+                        );
+                        format!("{}: {}", item.rel_path, e)
+                    })?;
                 title_input_tokens += n as u64;
                 per_image_input_tokens = per_image_input_tokens.saturating_add(n);
             }
         }
 
-        if fires_description_ai { n_images_with_ai_b += 1; }
-        if fires_title_ai { n_images_with_ai_c += 1; }
-        if !fires_description_ai && !fires_title_ai { n_images_no_ai += 1; }
+        if fires_description_ai {
+            n_images_with_ai_b += 1;
+        }
+        if fires_title_ai {
+            n_images_with_ai_c += 1;
+        }
+        if !fires_description_ai && !fires_title_ai {
+            n_images_no_ai += 1;
+        }
 
-        let _ = app.emit("normalise_estimate_progress", NormaliseEstimateProgressPayload {
-            current, total, relative_path: item.rel_path.clone(),
-            input_tokens: per_image_input_tokens,
-            fires_description_ai, fires_title_ai,
-        });
+        let _ = app.emit(
+            "normalise_estimate_progress",
+            NormaliseEstimateProgressPayload {
+                current,
+                total,
+                relative_path: item.rel_path.clone(),
+                input_tokens: per_image_input_tokens,
+                fires_description_ai,
+                fires_title_ai,
+            },
+        );
     }
 
     // Predicted = expected-output tokens. Upper bound = max-output tokens.
@@ -465,20 +502,25 @@ pub async fn estimate_normalise_cost_cmd(
         n_images_with_ai_b, n_images_with_ai_c, n_images_no_ai,
         total_input_tokens, predicted_cost, upper_bound,
     );
-    let _ = app.emit("normalise_estimate_complete", NormaliseEstimateCompletePayload {
-        n_images_with_ai_b, n_images_with_ai_c, n_images_no_ai,
-        total_input_tokens,
-        predicted_cost_usd: predicted_cost,
-        upper_bound_cost_usd: upper_bound,
-        model: model_out,
-        per_group_outcomes,
-        ai_token_breakdown: breakdown_out,
-        pricing: pricing_out,
-        expected_out_per_call_b,
-        max_out_per_call_b,
-        expected_out_per_call_c,
-        max_out_per_call_c,
-    });
+    let _ = app.emit(
+        "normalise_estimate_complete",
+        NormaliseEstimateCompletePayload {
+            n_images_with_ai_b,
+            n_images_with_ai_c,
+            n_images_no_ai,
+            total_input_tokens,
+            predicted_cost_usd: predicted_cost,
+            upper_bound_cost_usd: upper_bound,
+            model: model_out,
+            per_group_outcomes,
+            ai_token_breakdown: breakdown_out,
+            pricing: pricing_out,
+            expected_out_per_call_b,
+            max_out_per_call_b,
+            expected_out_per_call_c,
+            max_out_per_call_c,
+        },
+    );
     normalise_state.clear();
     Ok(())
 }
@@ -495,7 +537,11 @@ pub async fn normalise_metadata_cmd(
     let _ = folder_path; // resolution happens client-side
     let cancel_flag = normalise_state.install();
     let total = items.len();
-    log::info!("[normalise] starting total={} groups={:?}", total, enabled_groups);
+    log::info!(
+        "[normalise] starting total={} groups={:?}",
+        total,
+        enabled_groups
+    );
 
     // Plan §1 Group B / Group C require an OpenAI key when their AI
     // branches fire. We construct the client up-front when either group
@@ -536,7 +582,9 @@ pub async fn normalise_metadata_cmd(
         }
         current += 1;
         let rel = item.rel_path.clone();
-        let ai_ref = ai_client.as_ref().map(|c| c as &dyn normalise::NormaliseAiClient);
+        let ai_ref = ai_client
+            .as_ref()
+            .map(|c| c as &dyn normalise::NormaliseAiClient);
         let (edits, stats, ai_err, ai_calls) =
             normalise::process_image(item, &enabled_groups, ai_ref, Some(&cancel_flag)).await;
         summary.accumulate(&stats);
@@ -560,7 +608,9 @@ pub async fn normalise_metadata_cmd(
             if let Ok(app_dir) = app_data_dir(&app) {
                 let log_path = app_dir.join("normalise_audit.jsonl");
                 let now = chrono::Utc::now().to_rfc3339();
-                let model_name = ai_client.as_ref().map(|c| c.model().to_string())
+                let model_name = ai_client
+                    .as_ref()
+                    .map(|c| c.model().to_string())
                     .unwrap_or_default();
                 let pricing = openai_describe::pricing_for(&model_name);
                 // Conflict-counter rows (user-requested archaeology).
@@ -573,10 +623,7 @@ pub async fn normalise_metadata_cmd(
                         input_tokens: 0,
                         output_tokens: 0,
                         cost_usd: 0.0,
-                        error: format!(
-                            "{} pair(s) XMP↔IIM diverged; primary won",
-                            loc_conflicts,
-                        ),
+                        error: format!("{} pair(s) XMP↔IIM diverged; primary won", loc_conflicts,),
                         relative_path: rel.clone(),
                     };
                     let _ = batch_audit_log::append(&log_path, &entry);
@@ -627,7 +674,9 @@ pub async fn normalise_metadata_cmd(
             } else {
                 // No app-data dir: still record cost into the summary
                 // so the done panel doesn't lose the AI-cost total.
-                let model_name = ai_client.as_ref().map(|c| c.model().to_string())
+                let model_name = ai_client
+                    .as_ref()
+                    .map(|c| c.model().to_string())
                     .unwrap_or_default();
                 let pricing = openai_describe::pricing_for(&model_name);
                 for call in &ai_calls {
@@ -649,7 +698,13 @@ pub async fn normalise_metadata_cmd(
             // succeeded edits.
             let detail = err.detail.clone();
             let kind = err.kind;
-            log::warn!("[normalise] ({}/{}) AI failure for {}: {}", current, total, rel, detail);
+            log::warn!(
+                "[normalise] ({}/{}) AI failure for {}: {}",
+                current,
+                total,
+                rel,
+                detail
+            );
             if all_noop {
                 emitter.progress(current, total, &rel, kind.as_wire(), Some(&detail), None);
             } else {

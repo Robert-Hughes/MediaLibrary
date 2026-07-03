@@ -39,8 +39,7 @@ pub fn append<T: Serialize>(path: &Path, entry: &T) -> Result<(), String> {
         .append(true)
         .open(path)
         .map_err(|e| format!("open {}: {}", path.display(), e))?;
-    let json = serde_json::to_string(entry)
-        .map_err(|e| format!("serialize audit entry: {}", e))?;
+    let json = serde_json::to_string(entry).map_err(|e| format!("serialize audit entry: {}", e))?;
     writeln!(f, "{}", json).map_err(|e| format!("write audit line: {}", e))?;
     Ok(())
 }
@@ -61,19 +60,46 @@ mod tests {
     fn append_creates_dir_and_writes_one_jsonl_line() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("nested").join("audit.jsonl");
-        append(&path, &Dummy { name: "first".into(), count: 1 }).unwrap();
+        append(
+            &path,
+            &Dummy {
+                name: "first".into(),
+                count: 1,
+            },
+        )
+        .unwrap();
         let contents = std::fs::read_to_string(&path).unwrap();
         assert_eq!(contents.lines().count(), 1);
         let parsed: Dummy = serde_json::from_str(contents.trim()).unwrap();
-        assert_eq!(parsed, Dummy { name: "first".into(), count: 1 });
+        assert_eq!(
+            parsed,
+            Dummy {
+                name: "first".into(),
+                count: 1
+            }
+        );
     }
 
     #[test]
     fn append_is_additive_not_truncating() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("audit.jsonl");
-        append(&path, &Dummy { name: "a".into(), count: 1 }).unwrap();
-        append(&path, &Dummy { name: "b".into(), count: 2 }).unwrap();
+        append(
+            &path,
+            &Dummy {
+                name: "a".into(),
+                count: 1,
+            },
+        )
+        .unwrap();
+        append(
+            &path,
+            &Dummy {
+                name: "b".into(),
+                count: 2,
+            },
+        )
+        .unwrap();
         let lines: Vec<_> = std::fs::read_to_string(&path)
             .unwrap()
             .lines()

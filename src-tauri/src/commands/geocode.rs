@@ -38,22 +38,18 @@ pub async fn geocode_images_cmd(
         emitter: batch_job::BatchProgressEmitter::new(&app, "geocode"),
     };
 
-    let outcome = geocode::run_geocode_batch(
-        &items,
-        &client,
-        &mut cache,
-        &cancel_flag,
-        &sink,
-        |c| match &app_data {
-            // No app_data_dir → don't try to persist. The batch loop's
-            // typed-draft emissions still landed in the frontend store;
-            // we just can't memoise this batch's results across
-            // restarts.
-            Some(dir) => geocode_cache::save(dir, c),
-            None => Ok(()),
-        },
-    )
-    .await;
+    let outcome =
+        geocode::run_geocode_batch(&items, &client, &mut cache, &cancel_flag, &sink, |c| {
+            match &app_data {
+                // No app_data_dir → don't try to persist. The batch loop's
+                // typed-draft emissions still landed in the frontend store;
+                // we just can't memoise this batch's results across
+                // restarts.
+                Some(dir) => geocode_cache::save(dir, c),
+                None => Ok(()),
+            }
+        })
+        .await;
 
     log::info!(
         "[geocode] finished succeeded={} failed={} no_gps={} from_cache={} from_nominatim={} from_overpass={}",

@@ -18,9 +18,12 @@ fn run_exiftool_write(path: &Path, args: &[String], numeric: bool) -> Result<(),
     }
     cmd.arg(path);
 
-    let output = cmd.output().map_err(|e| format!(
-        "Failed to execute ExifTool: {}. Please ensure ExifTool is installed.", e
-    ))?;
+    let output = cmd.output().map_err(|e| {
+        format!(
+            "Failed to execute ExifTool: {}. Please ensure ExifTool is installed.",
+            e
+        )
+    })?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(format!(
@@ -132,7 +135,12 @@ pub fn apply_single_file(
 ) -> SingleFileOutcome {
     let typed: HashMap<String, crate::draft_edits::DraftEdit> = edits
         .iter()
-        .map(|(k, v)| (k.clone(), crate::draft_edits::DraftEdit::from_legacy_string(v.clone())))
+        .map(|(k, v)| {
+            (
+                k.clone(),
+                crate::draft_edits::DraftEdit::from_legacy_string(v.clone()),
+            )
+        })
         .collect();
     apply_single_file_typed(folder_path, rel_path, &typed)
 }
@@ -152,8 +160,8 @@ pub fn apply_single_file_typed(
         return SingleFileOutcome::hard_failure("No edits to apply".to_string());
     }
 
-    let abs_path = Path::new(folder_path)
-        .join(rel_path.replace('/', std::path::MAIN_SEPARATOR_STR));
+    let abs_path =
+        Path::new(folder_path).join(rel_path.replace('/', std::path::MAIN_SEPARATOR_STR));
 
     for key in edits.keys() {
         if key.contains('\n') || key.contains('\0') {
@@ -178,12 +186,19 @@ pub fn apply_single_file_typed(
             Ok(mut results) => match results.pop() {
                 Some(r) => (r.metadata, r.raw_metadata, false),
                 None => {
-                    log::warn!("[apply_edits] Pre-write read returned no entry for {}", rel_path);
+                    log::warn!(
+                        "[apply_edits] Pre-write read returned no entry for {}",
+                        rel_path
+                    );
                     (HashMap::new(), HashMap::new(), true)
                 }
             },
             Err(e) => {
-                log::warn!("[apply_edits] Pre-write read failed for {}: {}", rel_path, e);
+                log::warn!(
+                    "[apply_edits] Pre-write read failed for {}: {}",
+                    rel_path,
+                    e
+                );
                 (HashMap::new(), HashMap::new(), true)
             }
         };
@@ -208,19 +223,21 @@ pub fn apply_single_file_typed(
 
     log::info!(
         "[apply_edits] Running exiftool for {} (numeric args: {}, text args: {})",
-        rel_path, combined.numeric.len(), combined.text.len()
+        rel_path,
+        combined.numeric.len(),
+        combined.text.len()
     );
 
     // Numeric pass first.  Edits in the text group may reference tags set
     // here for derived-field interactions (rare, but exiftool docs reserve
     // the right).
     if !combined.numeric.is_empty() {
-        if let Err(e) = run_exiftool_write(&abs_path, &combined.numeric, /*numeric=*/true) {
+        if let Err(e) = run_exiftool_write(&abs_path, &combined.numeric, /*numeric=*/ true) {
             return SingleFileOutcome::hard_failure(e);
         }
     }
     if !combined.text.is_empty() {
-        if let Err(e) = run_exiftool_write(&abs_path, &combined.text, /*numeric=*/false) {
+        if let Err(e) = run_exiftool_write(&abs_path, &combined.text, /*numeric=*/ false) {
             return SingleFileOutcome::hard_failure(e);
         }
     }
@@ -231,11 +248,15 @@ pub fn apply_single_file_typed(
         match scanner::read_image_metadata_batch(&[rel_path.to_string()], &[abs_path]) {
             Ok(mut results) => match results.pop() {
                 Some(r) => (r.metadata, r.raw_metadata),
-                None => return SingleFileOutcome::hard_failure(
-                    "Post-write read returned no entry".to_string(),
-                ),
+                None => {
+                    return SingleFileOutcome::hard_failure(
+                        "Post-write read returned no entry".to_string(),
+                    )
+                }
             },
-            Err(e) => return SingleFileOutcome::hard_failure(format!("Post-write read failed: {}", e)),
+            Err(e) => {
+                return SingleFileOutcome::hard_failure(format!("Post-write read failed: {}", e))
+            }
         };
 
     // Verify each edit per its intent + the schema's TagKind.
@@ -245,15 +266,23 @@ pub fn apply_single_file_typed(
     let mut first_mismatch: Option<String> = None;
 
     for (key, edit) in edits {
-        let kind = registry
-            .and_then(|r| r.lookup(key))
-            .map(|i| i.kind.clone());
+        let kind = registry.and_then(|r| r.lookup(key)).map(|i| i.kind.clone());
 
         let (outcome_kind, message) = match edit.intent {
             EditIntent::Delete => verify_delete(key, &fresh_raw, &fresh_display),
-            EditIntent::Set => verify_set(key, edit.value.as_ref(), &fresh_display, &fresh_raw, kind.as_ref()),
-            EditIntent::ListAdd => verify_list_add(key, edit.value.as_ref(), &fresh_display, &fresh_raw),
-            EditIntent::ListRemove => verify_list_remove(key, edit.value.as_ref(), &fresh_display, &fresh_raw),
+            EditIntent::Set => verify_set(
+                key,
+                edit.value.as_ref(),
+                &fresh_display,
+                &fresh_raw,
+                kind.as_ref(),
+            ),
+            EditIntent::ListAdd => {
+                verify_list_add(key, edit.value.as_ref(), &fresh_display, &fresh_raw)
+            }
+            EditIntent::ListRemove => {
+                verify_list_remove(key, edit.value.as_ref(), &fresh_display, &fresh_raw)
+            }
         };
 
         match outcome_kind.as_str() {
@@ -353,18 +382,12 @@ fn verify_set(
             _ => false,
         }
     }
-    if is_empty_value(expected)
-        && is_empty_or_absent(display_v)
-        && is_empty_or_absent(raw_v)
-    {
+    if is_empty_value(expected) && is_empty_or_absent(display_v) && is_empty_or_absent(raw_v) {
         return ("Match".to_string(), None);
     }
 
     if display_v.is_none() && raw_v.is_none() {
-        let reason = format!(
-            "Tag {} absent after write (format may not support it)",
-            key
-        );
+        let reason = format!("Tag {} absent after write (format may not support it)", key);
         return ("MissingPostWrite".to_string(), Some(reason));
     }
 
@@ -501,7 +524,8 @@ fn variant_strict_eq(a: &Variant, b: &Variant) -> bool {
         }
         (Variant::Object(x), Variant::Object(y)) => {
             x.len() == y.len()
-                && x.iter().all(|(k, v)| y.get(k).map_or(false, |v2| variant_strict_eq(v, v2)))
+                && x.iter()
+                    .all(|(k, v)| y.get(k).map_or(false, |v2| variant_strict_eq(v, v2)))
         }
         _ => false,
     }
@@ -541,14 +565,25 @@ fn matches_variant(actual: Option<&Variant>, expected: &Variant, kind: Option<&T
             // (and unknown-kind list tags) are multiset.
             let ordered = matches!(kind, Some(TagKind::Seq(_)));
             if ordered {
-                if a.len() != b.len() { return false; }
-                a.iter().zip(b.iter()).all(|(x, y)| matches_variant(Some(x), y, list_inner))
+                if a.len() != b.len() {
+                    return false;
+                }
+                a.iter()
+                    .zip(b.iter())
+                    .all(|(x, y)| matches_variant(Some(x), y, list_inner))
             } else {
-                if a == b { return true; }
-                if a.len() != b.len() { return false; }
+                if a == b {
+                    return true;
+                }
+                if a.len() != b.len() {
+                    return false;
+                }
                 let mut bb: Vec<&Variant> = b.iter().collect();
                 for item in a {
-                    if let Some(pos) = bb.iter().position(|x| matches_variant(Some(*x), item, list_inner)) {
+                    if let Some(pos) = bb
+                        .iter()
+                        .position(|x| matches_variant(Some(*x), item, list_inner))
+                    {
                         bb.swap_remove(pos);
                     } else {
                         return false;
@@ -562,7 +597,9 @@ fn matches_variant(actual: Option<&Variant>, expected: &Variant, kind: Option<&T
             // field's own kind so nested lists keep ordered/multiset
             // semantics; LangAlt is map-of-lang-code → text so per-value
             // kind is None and falls back to scalar equality.
-            if a.len() != b.len() { return false; }
+            if a.len() != b.len() {
+                return false;
+            }
             let field_kinds: Option<&BTreeMap<String, TagKind>> = match kind {
                 Some(TagKind::Struct(fields)) => Some(fields),
                 _ => None,
@@ -590,14 +627,26 @@ fn matches_variant(actual: Option<&Variant>, expected: &Variant, kind: Option<&T
                 Variant::String(s) => s.clone(),
                 Variant::Integer(n) => n.to_string(),
                 Variant::Float(f) => f.to_string(),
-                Variant::Bool(b) => if *b { "1".to_string() } else { "0".to_string() },
+                Variant::Bool(b) => {
+                    if *b {
+                        "1".to_string()
+                    } else {
+                        "0".to_string()
+                    }
+                }
                 _ => return false,
             };
             let b_s = match expected {
                 Variant::String(s) => s.clone(),
                 Variant::Integer(n) => n.to_string(),
                 Variant::Float(f) => f.to_string(),
-                Variant::Bool(b) => if *b { "1".to_string() } else { "0".to_string() },
+                Variant::Bool(b) => {
+                    if *b {
+                        "1".to_string()
+                    } else {
+                        "0".to_string()
+                    }
+                }
                 _ => return false,
             };
             a_s == b_s
@@ -614,7 +663,11 @@ fn list_contains_all(actual: Option<&Variant>, expected: &Variant) -> bool {
         Some(Variant::List(items)) => items,
         _ => return false,
     };
-    items_expected.iter().all(|e| items_actual.iter().any(|a| matches_variant(Some(a), e, None)))
+    items_expected.iter().all(|e| {
+        items_actual
+            .iter()
+            .any(|a| matches_variant(Some(a), e, None))
+    })
 }
 
 fn list_contains_none(actual: Option<&Variant>, expected: &Variant) -> bool {
@@ -626,7 +679,11 @@ fn list_contains_none(actual: Option<&Variant>, expected: &Variant) -> bool {
         Some(Variant::List(items)) => items,
         _ => return true, // tag absent → nothing to remove from → ok
     };
-    items_expected.iter().all(|e| !items_actual.iter().any(|a| matches_variant(Some(a), e, None)))
+    items_expected.iter().all(|e| {
+        !items_actual
+            .iter()
+            .any(|a| matches_variant(Some(a), e, None))
+    })
 }
 
 /// Is `actual` (a Variant from a fresh re-read) string-equal to the legacy
@@ -713,7 +770,10 @@ pub fn apply_draft_edits(
             }
             Some(reason) => {
                 log::error!("[apply_edits] Failed for {}: {}", rel_path, reason);
-                failed.push(FailedFile { relative_path: rel_path.clone(), reason });
+                failed.push(FailedFile {
+                    relative_path: rel_path.clone(),
+                    reason,
+                });
             }
         }
     }
@@ -731,7 +791,10 @@ mod tests {
 
     fn is_hard_failure(outcome: &SingleFileOutcome, substr: &str) -> bool {
         outcome.fresh_metadata.is_none()
-            && outcome.error.as_deref().map_or(false, |e| e.contains(substr))
+            && outcome
+                .error
+                .as_deref()
+                .map_or(false, |e| e.contains(substr))
     }
 
     // ── matches_string ────────────────────────────────────────────────
@@ -820,10 +883,7 @@ mod tests {
         let paths = vec!["a.jpg".to_string()];
         let mut drafts: HashMap<String, HashMap<String, Option<String>>> = HashMap::new();
         let mut file_edits = HashMap::new();
-        file_edits.insert(
-            "XMP-dc:Description".to_string(),
-            Some("hello".to_string()),
-        );
+        file_edits.insert("XMP-dc:Description".to_string(), Some("hello".to_string()));
         drafts.insert("a.jpg".to_string(), file_edits);
 
         let result = apply_draft_edits(folder, &paths, &drafts);
@@ -873,14 +933,19 @@ mod tests {
         drafts.insert("a.jpg".to_string(), file_edits);
 
         let result = apply_draft_edits(folder, &paths, &drafts);
-        assert!(!result.fresh_metadata.contains_key("a.jpg"),
-            "hard failure (file not found) should not produce fresh metadata");
+        assert!(
+            !result.fresh_metadata.contains_key("a.jpg"),
+            "hard failure (file not found) should not produce fresh metadata"
+        );
     }
 
     // ── verify_set: Match / Coerced / Mismatch / MissingPostWrite (Phase 8.1) ─
 
     fn map(pairs: &[(&str, Variant)]) -> HashMap<String, Variant> {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.clone())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.clone()))
+            .collect()
     }
 
     #[test]
@@ -946,7 +1011,10 @@ mod tests {
             &raw,
             None,
         );
-        assert_eq!(kind, "Match", "empty-string Set + absent post-write must be Match");
+        assert_eq!(
+            kind, "Match",
+            "empty-string Set + absent post-write must be Match"
+        );
         assert!(msg.is_none());
     }
 
@@ -1014,13 +1082,7 @@ mod tests {
         // dropping the tag.  Empty == empty is still a Match.
         let display = map(&[("X", Variant::List(vec![]))]);
         let raw = map(&[("X", Variant::List(vec![]))]);
-        let (outcome, _) = verify_set(
-            "X",
-            Some(&Variant::List(vec![])),
-            &display,
-            &raw,
-            None,
-        );
+        let (outcome, _) = verify_set("X", Some(&Variant::List(vec![])), &display, &raw, None);
         assert_eq!(outcome, "Match");
     }
 
@@ -1030,13 +1092,7 @@ mod tests {
         // still holds items — that's a real write failure.
         let display = map(&[("X", Variant::List(vec![Variant::String("kept".into())]))]);
         let raw = map(&[("X", Variant::List(vec![Variant::String("kept".into())]))]);
-        let (outcome, _) = verify_set(
-            "X",
-            Some(&Variant::List(vec![])),
-            &display,
-            &raw,
-            None,
-        );
+        let (outcome, _) = verify_set("X", Some(&Variant::List(vec![])), &display, &raw, None);
         assert_eq!(outcome, "Mismatch");
     }
 
@@ -1060,28 +1116,50 @@ mod tests {
 
     #[test]
     fn matches_variant_seq_is_order_sensitive() {
-        let a = Variant::List(vec![Variant::String("a".into()), Variant::String("b".into())]);
-        let b = Variant::List(vec![Variant::String("b".into()), Variant::String("a".into())]);
+        let a = Variant::List(vec![
+            Variant::String("a".into()),
+            Variant::String("b".into()),
+        ]);
+        let b = Variant::List(vec![
+            Variant::String("b".into()),
+            Variant::String("a".into()),
+        ]);
         let seq_kind = TagKind::Seq(Box::new(TagKind::Text));
-        assert!(!matches_variant(Some(&a), &b, Some(&seq_kind)),
-            "Seq comparison must be ordered");
+        assert!(
+            !matches_variant(Some(&a), &b, Some(&seq_kind)),
+            "Seq comparison must be ordered"
+        );
     }
 
     #[test]
     fn matches_variant_bag_is_order_insensitive() {
-        let a = Variant::List(vec![Variant::String("a".into()), Variant::String("b".into())]);
-        let b = Variant::List(vec![Variant::String("b".into()), Variant::String("a".into())]);
+        let a = Variant::List(vec![
+            Variant::String("a".into()),
+            Variant::String("b".into()),
+        ]);
+        let b = Variant::List(vec![
+            Variant::String("b".into()),
+            Variant::String("a".into()),
+        ]);
         let bag_kind = TagKind::Bag(Box::new(TagKind::Text));
-        assert!(matches_variant(Some(&a), &b, Some(&bag_kind)),
-            "Bag comparison must be multiset");
+        assert!(
+            matches_variant(Some(&a), &b, Some(&bag_kind)),
+            "Bag comparison must be multiset"
+        );
     }
 
     #[test]
     fn matches_variant_unknown_kind_falls_back_to_multiset() {
         // Most XMP list tags are Bag-shaped; when listx leaves us without a
         // kind, multiset is the safer default than ordered.
-        let a = Variant::List(vec![Variant::String("a".into()), Variant::String("b".into())]);
-        let b = Variant::List(vec![Variant::String("b".into()), Variant::String("a".into())]);
+        let a = Variant::List(vec![
+            Variant::String("a".into()),
+            Variant::String("b".into()),
+        ]);
+        let b = Variant::List(vec![
+            Variant::String("b".into()),
+            Variant::String("a".into()),
+        ]);
         assert!(matches_variant(Some(&a), &b, None));
     }
 
@@ -1154,14 +1232,20 @@ mod tests {
         // exiftool round-trips 0.004 (= 1/250) through a rational form and may
         // re-emit a value differing by a ULP.  Strict equality must allow this
         // so the apply path reports Match, not Coerced.
-        assert!(variant_strict_eq(&Variant::Float(0.004), &Variant::Float(0.004 + 1e-12)));
+        assert!(variant_strict_eq(
+            &Variant::Float(0.004),
+            &Variant::Float(0.004 + 1e-12)
+        ));
     }
 
     #[test]
     fn variant_strict_eq_floats_outside_strict_eps_are_not_equal() {
         // A meaningful divergence still trips Coerced (and the loose check
         // then decides whether it's Coerced or Mismatch).
-        assert!(!variant_strict_eq(&Variant::Float(0.004), &Variant::Float(0.005)));
+        assert!(!variant_strict_eq(
+            &Variant::Float(0.004),
+            &Variant::Float(0.005)
+        ));
     }
 
     // ── matches_variant kind threading (Phase 8 fix-up) ──────────────────────
@@ -1179,8 +1263,10 @@ mod tests {
             Variant::String("a".into()),
         ])]);
         let outer = TagKind::Seq(Box::new(TagKind::Seq(Box::new(TagKind::Text))));
-        assert!(!matches_variant(Some(&a), &b, Some(&outer)),
-            "Seq<Seq<Text>> must stay ordered through recursion");
+        assert!(
+            !matches_variant(Some(&a), &b, Some(&outer)),
+            "Seq<Seq<Text>> must stay ordered through recursion"
+        );
     }
 
     #[test]
@@ -1188,11 +1274,21 @@ mod tests {
         // Struct field `tags` is Seq — so reversing inside that field must
         // not match even though the outer struct compares per-key.
         let mut a_obj: BTreeMap<String, Variant> = BTreeMap::new();
-        a_obj.insert("tags".to_string(),
-            Variant::List(vec![Variant::String("x".into()), Variant::String("y".into())]));
+        a_obj.insert(
+            "tags".to_string(),
+            Variant::List(vec![
+                Variant::String("x".into()),
+                Variant::String("y".into()),
+            ]),
+        );
         let mut b_obj: BTreeMap<String, Variant> = BTreeMap::new();
-        b_obj.insert("tags".to_string(),
-            Variant::List(vec![Variant::String("y".into()), Variant::String("x".into())]));
+        b_obj.insert(
+            "tags".to_string(),
+            Variant::List(vec![
+                Variant::String("y".into()),
+                Variant::String("x".into()),
+            ]),
+        );
         let mut fields: BTreeMap<String, TagKind> = BTreeMap::new();
         fields.insert("tags".to_string(), TagKind::Seq(Box::new(TagKind::Text)));
         let kind = TagKind::Struct(fields);

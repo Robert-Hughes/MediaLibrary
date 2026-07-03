@@ -19,20 +19,24 @@ use std::path::{Path, PathBuf};
 /// `experiments/openai_image_analysis/MODEL_CHOICE.md`. The first entry is
 /// the default for new installs.
 pub const RECOMMENDED_MODELS: &[&str] = &[
-    "gpt-4o",        // default — names landmarks reliably
-    "gpt-5.4-nano",  // cheapest; generic descriptions
-    "gpt-5.4-mini",  // cheap with globally-iconic landmarks
-    "gpt-5.4",       // marginally better prose than 4o
-    "gpt-5.5",       // newest flagship
+    "gpt-4o",       // default — names landmarks reliably
+    "gpt-5.4-nano", // cheapest; generic descriptions
+    "gpt-5.4-mini", // cheap with globally-iconic landmarks
+    "gpt-5.4",      // marginally better prose than 4o
+    "gpt-5.5",      // newest flagship
 ];
 
-pub fn default_model() -> String { RECOMMENDED_MODELS[0].to_string() }
+pub fn default_model() -> String {
+    RECOMMENDED_MODELS[0].to_string()
+}
 
 /// Default text-only model for the metadata-normalisation AI calls
 /// (Group B description merge, Group C case-3 title generation). Per
 /// `docs/NORMALISE_METADATA_PLAN.md` §6, nano is plenty for the
 /// text-only merge / generate tasks.
-pub fn default_normalise_model() -> String { "gpt-5.4-nano".to_string() }
+pub fn default_normalise_model() -> String {
+    "gpt-5.4-nano".to_string()
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[cfg_attr(test, derive(ts_rs::TS))]
@@ -77,17 +81,17 @@ pub fn load_settings(app_data_dir: &Path) -> Result<Settings, String> {
     if !path.exists() {
         return Ok(Settings::default());
     }
-    let bytes = fs::read(&path)
-        .map_err(|e| format!("read {}: {}", path.display(), e))?;
-    let mut parsed: Settings = serde_json::from_slice(&bytes)
-        .map_err(|e| format!("parse {}: {}", path.display(), e))?;
+    let bytes = fs::read(&path).map_err(|e| format!("read {}: {}", path.display(), e))?;
+    let mut parsed: Settings =
+        serde_json::from_slice(&bytes).map_err(|e| format!("parse {}: {}", path.display(), e))?;
     // Guard against a stale settings file pointing at a now-unrecommended
     // model name. Quietly snap to default rather than blowing up later in
     // the cost estimator with "unknown model".
     if !RECOMMENDED_MODELS.contains(&parsed.openai_model.as_str()) {
         log::warn!(
             "[settings] Saved model {:?} not in recommended set; using default {:?}",
-            parsed.openai_model, default_model()
+            parsed.openai_model,
+            default_model()
         );
         parsed.openai_model = default_model();
     }
@@ -102,12 +106,13 @@ pub fn save_settings(app_data_dir: &Path, settings: &Settings) -> Result<(), Str
         .map_err(|e| format!("create_dir_all({}): {}", app_data_dir.display(), e))?;
     let path = settings_file_path(app_data_dir);
     let tmp = path.with_extension("json.tmp");
-    let json = serde_json::to_vec_pretty(settings)
-        .map_err(|e| format!("serialize settings: {}", e))?;
+    let json =
+        serde_json::to_vec_pretty(settings).map_err(|e| format!("serialize settings: {}", e))?;
     {
-        let mut f = fs::File::create(&tmp)
-            .map_err(|e| format!("create {}: {}", tmp.display(), e))?;
-        f.write_all(&json).map_err(|e| format!("write {}: {}", tmp.display(), e))?;
+        let mut f =
+            fs::File::create(&tmp).map_err(|e| format!("create {}: {}", tmp.display(), e))?;
+        f.write_all(&json)
+            .map_err(|e| format!("write {}: {}", tmp.display(), e))?;
         f.sync_all().ok();
     }
     fs::rename(&tmp, &path)
@@ -147,14 +152,24 @@ mod tests {
         // Atomic rename means partial-write corruption is impossible — after
         // a second save we should see the second payload, never a mix.
         let dir = tempdir().unwrap();
-        save_settings(dir.path(), &Settings {
-            openai_api_key: "first".into(), openai_model: default_model(),
-            normalise_metadata_model: default_normalise_model(),
-        }).unwrap();
-        save_settings(dir.path(), &Settings {
-            openai_api_key: "second".into(), openai_model: default_model(),
-            normalise_metadata_model: default_normalise_model(),
-        }).unwrap();
+        save_settings(
+            dir.path(),
+            &Settings {
+                openai_api_key: "first".into(),
+                openai_model: default_model(),
+                normalise_metadata_model: default_normalise_model(),
+            },
+        )
+        .unwrap();
+        save_settings(
+            dir.path(),
+            &Settings {
+                openai_api_key: "second".into(),
+                openai_model: default_model(),
+                normalise_metadata_model: default_normalise_model(),
+            },
+        )
+        .unwrap();
         let loaded = load_settings(dir.path()).unwrap();
         assert_eq!(loaded.openai_api_key, "second");
     }
@@ -169,7 +184,8 @@ mod tests {
         std::fs::write(
             &path,
             br#"{"openai_api_key":"k","openai_model":"some-future-model"}"#,
-        ).unwrap();
+        )
+        .unwrap();
         let loaded = load_settings(dir.path()).unwrap();
         assert_eq!(loaded.openai_model, default_model());
         assert_eq!(loaded.openai_api_key, "k");

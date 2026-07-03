@@ -71,7 +71,11 @@ impl DraftEdit {
     /// Construct from a legacy string edit (`None` → delete, `Some(s)` → set).
     pub fn from_legacy_string(v: Option<String>) -> Self {
         match v {
-            None => DraftEdit { value: None, intent: EditIntent::Delete, display: None },
+            None => DraftEdit {
+                value: None,
+                intent: EditIntent::Delete,
+                display: None,
+            },
             Some(s) => DraftEdit {
                 value: Some(Variant::String(s)),
                 intent: EditIntent::Set,
@@ -137,7 +141,8 @@ struct VersionProbe {
 
 const FILE_NAME: &str = "MediaLibraryDraftEdits.jsonl";
 const V1_BACKUP_NAME: &str = "MediaLibraryDraftEdits.v1.bak.jsonl";
-const HEADER_COMMENT: &str = "// This file stores unapplied metadata draft edits. Lines starting with // are ignored.";
+const HEADER_COMMENT: &str =
+    "// This file stores unapplied metadata draft edits. Lines starting with // are ignored.";
 
 // ── Public legacy-shape API (current callers) ────────────────────────────────
 
@@ -201,28 +206,28 @@ pub fn load_typed_draft_edits(folder_path: &str) -> Result<TypedDraftEdits, Stri
             .unwrap_or(1);
 
         match version {
-            2 => {
-                match serde_json::from_str::<V2Line>(trimmed) {
-                    Ok(parsed) => {
-                        typed.insert(parsed.relative_path, parsed.edits);
-                    }
-                    Err(e) => log::warn!("[draft_edits] Skipping v2 line ({}): {}", e, trimmed),
+            2 => match serde_json::from_str::<V2Line>(trimmed) {
+                Ok(parsed) => {
+                    typed.insert(parsed.relative_path, parsed.edits);
                 }
-            }
-            _ => {
-                match serde_json::from_str::<V1Line>(trimmed) {
-                    Ok(parsed) => {
-                        saw_v1 = true;
-                        let migrated: HashMap<String, DraftEdit> = parsed
-                            .edits
-                            .into_iter()
-                            .map(|(k, v)| (k, DraftEdit::from_legacy_string(v)))
-                            .collect();
-                        typed.insert(parsed.relative_path, migrated);
-                    }
-                    Err(e) => log::warn!("[draft_edits] Skipping unparseable line ({}): {}", e, trimmed),
+                Err(e) => log::warn!("[draft_edits] Skipping v2 line ({}): {}", e, trimmed),
+            },
+            _ => match serde_json::from_str::<V1Line>(trimmed) {
+                Ok(parsed) => {
+                    saw_v1 = true;
+                    let migrated: HashMap<String, DraftEdit> = parsed
+                        .edits
+                        .into_iter()
+                        .map(|(k, v)| (k, DraftEdit::from_legacy_string(v)))
+                        .collect();
+                    typed.insert(parsed.relative_path, migrated);
                 }
-            }
+                Err(e) => log::warn!(
+                    "[draft_edits] Skipping unparseable line ({}): {}",
+                    e,
+                    trimmed
+                ),
+            },
         }
     }
 
@@ -232,9 +237,16 @@ pub fn load_typed_draft_edits(folder_path: &str) -> Result<TypedDraftEdits, Stri
         let backup = Path::new(folder_path).join(V1_BACKUP_NAME);
         if !backup.exists() {
             if let Err(e) = fs::copy(&path, &backup) {
-                log::warn!("[draft_edits] Could not write v1 backup ({}): {}", backup.display(), e);
+                log::warn!(
+                    "[draft_edits] Could not write v1 backup ({}): {}",
+                    backup.display(),
+                    e
+                );
             } else {
-                log::info!("[draft_edits] v1 draft file detected; backup written to {}", backup.display());
+                log::info!(
+                    "[draft_edits] v1 draft file detected; backup written to {}",
+                    backup.display()
+                );
             }
         }
     }
@@ -327,8 +339,10 @@ mod tests {
             "{\"relative_path\":\"a.jpg\",\"edits\":{\"k\":\"v\"}}\n",
         );
         let _ = load_typed_draft_edits(dir.path().to_str().unwrap()).unwrap();
-        assert!(dir.path().join(V1_BACKUP_NAME).exists(),
-            "v1 backup should have been written");
+        assert!(
+            dir.path().join(V1_BACKUP_NAME).exists(),
+            "v1 backup should have been written"
+        );
     }
 
     #[test]
@@ -364,11 +378,19 @@ mod tests {
         );
         edits.insert(
             "Rating".to_string(),
-            DraftEdit { value: Some(Variant::Integer(5)), intent: EditIntent::Set, display: None },
+            DraftEdit {
+                value: Some(Variant::Integer(5)),
+                intent: EditIntent::Set,
+                display: None,
+            },
         );
         edits.insert(
             "ToRemove".to_string(),
-            DraftEdit { value: None, intent: EditIntent::Delete, display: None },
+            DraftEdit {
+                value: None,
+                intent: EditIntent::Delete,
+                display: None,
+            },
         );
         data.insert("a.jpg".to_string(), edits);
 
@@ -391,7 +413,10 @@ mod tests {
         );
         let loaded = load_typed_draft_edits(dir.path().to_str().unwrap()).unwrap();
         assert_eq!(loaded["v1.jpg"]["k"].intent, EditIntent::Set);
-        assert_eq!(loaded["v1.jpg"]["k"].value, Some(Variant::String("v".to_string())));
+        assert_eq!(
+            loaded["v1.jpg"]["k"].value,
+            Some(Variant::String("v".to_string()))
+        );
         assert_eq!(loaded["v2.jpg"]["k"].intent, EditIntent::Set);
         assert_eq!(loaded["v2.jpg"]["k"].value, Some(Variant::Integer(42)));
     }
@@ -474,7 +499,11 @@ mod tests {
         assert_eq!(loaded, data);
         // Sanity: the literal string is in the file.
         let contents = read_file(dir.path(), FILE_NAME);
-        assert!(contents.contains("Rotate 90 CW"), "display field missing from JSONL: {}", contents);
+        assert!(
+            contents.contains("Rotate 90 CW"),
+            "display field missing from JSONL: {}",
+            contents
+        );
     }
 
     #[test]
@@ -487,12 +516,20 @@ mod tests {
         let mut edits = HashMap::new();
         edits.insert(
             "Rating".to_string(),
-            DraftEdit { value: Some(Variant::Integer(5)), intent: EditIntent::Set, display: None },
+            DraftEdit {
+                value: Some(Variant::Integer(5)),
+                intent: EditIntent::Set,
+                display: None,
+            },
         );
         data.insert("a.jpg".to_string(), edits);
         save_typed_draft_edits(dir.path().to_str().unwrap(), &data).unwrap();
         let contents = read_file(dir.path(), FILE_NAME);
-        assert!(!contents.contains("\"display\""), "display key leaked when None: {}", contents);
+        assert!(
+            !contents.contains("\"display\""),
+            "display key leaked when None: {}",
+            contents
+        );
     }
 
     #[test]
@@ -514,7 +551,11 @@ mod tests {
         let mut edits = HashMap::new();
         edits.insert(
             "k".to_string(),
-            DraftEdit { value: Some(Variant::Bool(true)), intent: EditIntent::Set, display: None },
+            DraftEdit {
+                value: Some(Variant::Bool(true)),
+                intent: EditIntent::Set,
+                display: None,
+            },
         );
         data.insert("a.jpg".to_string(), edits);
         save_typed_draft_edits(dir.path().to_str().unwrap(), &data).unwrap();

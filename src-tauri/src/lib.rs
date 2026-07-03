@@ -1,37 +1,43 @@
-pub mod scanner;
-pub mod util;
-pub mod work_queue;
-pub mod draft_edits;
 pub mod apply_edits;
-pub mod tag_schema;
-pub mod write_args;
 pub mod apply_log;
-pub mod exiftool_config;
-pub mod settings;
 pub mod batch_audit_log;
 pub mod batch_job;
-pub mod openai_describe;
+pub mod commands;
 pub mod describe_log;
-pub mod geocode_cache;
+pub mod draft_edits;
+pub mod exiftool_config;
 pub mod geocode;
+pub mod geocode_cache;
 pub mod normalise;
+pub mod openai_describe;
 pub mod openai_http;
 pub mod openai_normalise;
-pub mod commands;
+pub mod scanner;
+pub mod settings;
+pub mod tag_schema;
+pub mod util;
+pub mod work_queue;
+pub mod write_args;
 use serde::Serialize;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::OnceLock;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use std::sync::OnceLock;
 
 static STARTUP_INSTANT: OnceLock<Instant> = OnceLock::new();
 
 fn wall_ms() -> u128 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0)
 }
 
 fn since_startup_ms() -> u128 {
-    STARTUP_INSTANT.get().map(|t| t.elapsed().as_millis()).unwrap_or(0)
+    STARTUP_INSTANT
+        .get()
+        .map(|t| t.elapsed().as_millis())
+        .unwrap_or(0)
 }
 use tauri::{AppHandle, Emitter, Manager, State};
 use work_queue::WorkQueue;
@@ -39,17 +45,17 @@ use work_queue::WorkQueue;
 // ── Shared state ──────────────────────────────────────────────────────────────
 
 pub struct ScanState {
-    running:      Mutex<bool>,
+    running: Mutex<bool>,
     running_cvar: Condvar,
-    cancelled:    Mutex<Option<Arc<AtomicBool>>>,
+    cancelled: Mutex<Option<Arc<AtomicBool>>>,
 }
 
 impl ScanState {
     pub fn new() -> Self {
         Self {
-            running:      Mutex::new(false),
+            running: Mutex::new(false),
             running_cvar: Condvar::new(),
-            cancelled:    Mutex::new(None),
+            cancelled: Mutex::new(None),
         }
     }
 
@@ -71,7 +77,8 @@ impl ScanState {
     /// Returns true if it became false (or was already), false on timeout.
     pub fn wait_until_finished(&self, timeout: Duration) -> bool {
         let running = self.running.lock().unwrap();
-        let (_running, wait_res) = self.running_cvar
+        let (_running, wait_res) = self
+            .running_cvar
             .wait_timeout_while(running, timeout, |r| *r)
             .unwrap();
         !wait_res.timed_out()
@@ -97,21 +104,23 @@ impl ScanState {
 }
 
 impl Default for ScanState {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 /// Holds both the thumbnail and image metadata queues so both can be prioritised.
 /// Cheap to clone: the inner state is shared via `Arc<Mutex<...>>`.
 #[derive(Clone)]
 pub struct ActiveQueues {
-    thumbnails:     Arc<Mutex<Option<Arc<WorkQueue>>>>,
+    thumbnails: Arc<Mutex<Option<Arc<WorkQueue>>>>,
     image_metadata: Arc<Mutex<Option<Arc<WorkQueue>>>>,
 }
 
 impl ActiveQueues {
     pub fn new() -> Self {
         Self {
-            thumbnails:     Arc::new(Mutex::new(None)),
+            thumbnails: Arc::new(Mutex::new(None)),
             image_metadata: Arc::new(Mutex::new(None)),
         }
     }
@@ -148,7 +157,9 @@ impl ActiveQueues {
 }
 
 impl Default for ActiveQueues {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 /// Cancellation flag for an in-flight apply_draft_edits_cmd.  Set by
@@ -160,7 +171,9 @@ pub struct ApplyEditsState {
 
 impl ApplyEditsState {
     pub fn new() -> Self {
-        Self { cancelled: Mutex::new(None) }
+        Self {
+            cancelled: Mutex::new(None),
+        }
     }
 
     pub fn install(&self) -> Arc<AtomicBool> {
@@ -184,7 +197,9 @@ impl ApplyEditsState {
 }
 
 impl Default for ApplyEditsState {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 // ── Event payloads ────────────────────────────────────────────────────────────
@@ -271,8 +286,8 @@ struct ApplyEditsStartedPayload {
 fn log_to_console(level: String, message: String) {
     match level.as_str() {
         "error" => log::error!("[JS] {}", message),
-        "warn"  => log::warn!("[JS] {}", message),
-        _       => log::info!("[JS] {}", message),
+        "warn" => log::warn!("[JS] {}", message),
+        _ => log::info!("[JS] {}", message),
     }
 }
 
@@ -325,18 +340,21 @@ fn start_scan(
     // Hand a cloned ActiveQueues to the worker thread.  The clone shares the
     // same inner Arc<Mutex<...>> slots, so install/clear_if_mine see the live
     // state observed by stop_scan and prioritize_queues.
-    let queues_for_thread  = (*active_queues).clone();
-    let app_clone          = app.clone();
-    let cancel_clone       = cancellation_flag.clone();
+    let queues_for_thread = (*active_queues).clone();
+    let app_clone = app.clone();
+    let cancel_clone = cancellation_flag.clone();
 
     std::thread::spawn(move || {
         let root = std::path::PathBuf::from(&folder_path);
 
         if !root.is_dir() {
-            let _ = app_clone.emit("scan_error", ScanErrorPayload {
-                scan_id,
-                message: format!("{} is not a directory", folder_path),
-            });
+            let _ = app_clone.emit(
+                "scan_error",
+                ScanErrorPayload {
+                    scan_id,
+                    message: format!("{} is not a directory", folder_path),
+                },
+            );
             clear_running(&app_clone);
             return;
         }
@@ -348,14 +366,16 @@ fn start_scan(
             1
         } else {
             std::thread::available_parallelism()
-                .map(|n| n.get()).unwrap_or(4).min(8)
+                .map(|n| n.get())
+                .unwrap_or(4)
+                .min(8)
         };
 
         // We cap metadata workers even more strictly because they spawn processes.
         let metadata_workers = num_workers.min(4);
 
         // Shared queues fed by the walk, drained by worker pools.
-        let thumb_queue          = Arc::new(WorkQueue::new(vec![]));
+        let thumb_queue = Arc::new(WorkQueue::new(vec![]));
         let image_metadata_queue = Arc::new(WorkQueue::new(vec![]));
 
         // Install the queues so prioritize_queues can reach them.
@@ -364,151 +384,196 @@ fn start_scan(
         let root_arc = Arc::new(root.clone());
 
         // ── Phase 2: Image Metadata workers ───────────────────────────────
-        let metadata_handles: Vec<_> = (0..metadata_workers).map(|_| {
-            let queue = image_metadata_queue.clone();
-            let app   = app_clone.clone();
-            let root  = root_arc.clone();
-            let cancelled = cancel_clone.clone();
-            std::thread::spawn(move || {
-                let mut batch_results = Vec::new();
-                let mut last_emit = std::time::Instant::now();
-                let emit_interval = std::time::Duration::from_millis(500);
-                
-                while !cancelled.load(Ordering::Relaxed) {
-                    let rel_paths = match queue.pop_batch_timeout(20, emit_interval) {
-                        crate::work_queue::PopResult::Items(items) => items,
-                        crate::work_queue::PopResult::Timeout => {
-                            if !batch_results.is_empty() {
-                                log::debug!("[metadata] Emitting batch of {} results (timeout flush)", batch_results.len());
-                                let _ = app.emit("image_metadata_ready", ImageMetadataReadyPayload {
+        let metadata_handles: Vec<_> = (0..metadata_workers)
+            .map(|_| {
+                let queue = image_metadata_queue.clone();
+                let app = app_clone.clone();
+                let root = root_arc.clone();
+                let cancelled = cancel_clone.clone();
+                std::thread::spawn(move || {
+                    let mut batch_results = Vec::new();
+                    let mut last_emit = std::time::Instant::now();
+                    let emit_interval = std::time::Duration::from_millis(500);
+
+                    while !cancelled.load(Ordering::Relaxed) {
+                        let rel_paths = match queue.pop_batch_timeout(20, emit_interval) {
+                            crate::work_queue::PopResult::Items(items) => items,
+                            crate::work_queue::PopResult::Timeout => {
+                                if !batch_results.is_empty() {
+                                    log::debug!(
+                                        "[metadata] Emitting batch of {} results (timeout flush)",
+                                        batch_results.len()
+                                    );
+                                    let _ = app.emit(
+                                        "image_metadata_ready",
+                                        ImageMetadataReadyPayload {
+                                            scan_id,
+                                            results: std::mem::take(&mut batch_results),
+                                        },
+                                    );
+                                    last_emit = std::time::Instant::now();
+                                }
+                                continue;
+                            }
+                            crate::work_queue::PopResult::Done => break,
+                        };
+
+                        let abs_paths: Vec<_> = rel_paths
+                            .iter()
+                            .map(|p| root.join(p.replace('/', std::path::MAIN_SEPARATOR_STR)))
+                            .collect();
+
+                        match scanner::read_image_metadata_batch(&rel_paths, &abs_paths) {
+                            Ok(results) => {
+                                log::debug!(
+                                    "[metadata] Read {} results, first has {} fields",
+                                    results.len(),
+                                    results.first().map(|r| r.metadata.len()).unwrap_or(0)
+                                );
+
+                                for info in results {
+                                    batch_results.push(ImageMetadataResult {
+                                        relative_path: info.relative_path,
+                                        metadata: info.metadata,
+                                    });
+                                }
+                            }
+                            Err(error_msg) => {
+                                log::error!("[metadata] Error reading metadata: {}", error_msg);
+
+                                // Emit error to UI
+                                let _ = app.emit(
+                                    "worker_error",
+                                    WorkerErrorPayload {
+                                        scan_id,
+                                        worker_type: "metadata".to_string(),
+                                        error_message: error_msg,
+                                        affected_files: rel_paths.clone(),
+                                    },
+                                );
+
+                                // Send empty metadata for failed files so UI shows "failed" instead of spinner
+                                for rel_path in rel_paths {
+                                    let mut error_metadata = std::collections::HashMap::new();
+                                    error_metadata.insert(
+                                        "_error".to_string(),
+                                        scanner::Variant::String(
+                                            "Failed to load metadata".to_string(),
+                                        ),
+                                    );
+
+                                    batch_results.push(ImageMetadataResult {
+                                        relative_path: rel_path,
+                                        metadata: error_metadata,
+                                    });
+                                }
+                            }
+                        }
+
+                        // Emit batch if enough time has elapsed
+                        if last_emit.elapsed() >= emit_interval && !batch_results.is_empty() {
+                            log::debug!(
+                                "[metadata] Emitting batch of {} results",
+                                batch_results.len()
+                            );
+                            let _ = app.emit(
+                                "image_metadata_ready",
+                                ImageMetadataReadyPayload {
                                     scan_id,
                                     results: std::mem::take(&mut batch_results),
-                                });
-                                last_emit = std::time::Instant::now();
-                            }
-                            continue;
+                                },
+                            );
+                            last_emit = std::time::Instant::now();
                         }
-                        crate::work_queue::PopResult::Done => break,
-                    };
+                    }
 
-                    let abs_paths: Vec<_> = rel_paths.iter().map(|p| {
-                        root.join(p.replace('/', std::path::MAIN_SEPARATOR_STR))
-                    }).collect();
-
-                    match scanner::read_image_metadata_batch(&rel_paths, &abs_paths) {
-                        Ok(results) => {
-                            log::debug!("[metadata] Read {} results, first has {} fields",
-                                results.len(),
-                                results.first().map(|r| r.metadata.len()).unwrap_or(0));
-                            
-                            for info in results {
-                                batch_results.push(ImageMetadataResult {
-                                    relative_path: info.relative_path,
-                                    metadata: info.metadata,
-                                });
-                            }
-                        }
-                        Err(error_msg) => {
-                            log::error!("[metadata] Error reading metadata: {}", error_msg);
-                            
-                            // Emit error to UI
-                            let _ = app.emit("worker_error", WorkerErrorPayload {
+                    // Emit any remaining results
+                    if !batch_results.is_empty() {
+                        log::debug!(
+                            "[metadata] Emitting final batch of {} results",
+                            batch_results.len()
+                        );
+                        let _ = app.emit(
+                            "image_metadata_ready",
+                            ImageMetadataReadyPayload {
                                 scan_id,
-                                worker_type: "metadata".to_string(),
-                                error_message: error_msg,
-                                affected_files: rel_paths.clone(),
-                            });
-                            
-                            // Send empty metadata for failed files so UI shows "failed" instead of spinner
-                            for rel_path in rel_paths {
-                                let mut error_metadata = std::collections::HashMap::new();
-                                error_metadata.insert("_error".to_string(), scanner::Variant::String("Failed to load metadata".to_string()));
-                                
-                                batch_results.push(ImageMetadataResult {
-                                    relative_path: rel_path,
-                                    metadata: error_metadata,
-                                });
-                            }
-                        }
+                                results: batch_results,
+                            },
+                        );
                     }
-                    
-                    // Emit batch if enough time has elapsed
-                    if last_emit.elapsed() >= emit_interval && !batch_results.is_empty() {
-                        log::debug!("[metadata] Emitting batch of {} results", batch_results.len());
-                        let _ = app.emit("image_metadata_ready", ImageMetadataReadyPayload {
-                            scan_id,
-                            results: std::mem::take(&mut batch_results),
-                        });
-                        last_emit = std::time::Instant::now();
-                    }
-                }
-                
-                // Emit any remaining results
-                if !batch_results.is_empty() {
-                    log::debug!("[metadata] Emitting final batch of {} results", batch_results.len());
-                    let _ = app.emit("image_metadata_ready", ImageMetadataReadyPayload {
-                        scan_id,
-                        results: batch_results,
-                    });
-                }
+                })
             })
-        }).collect();
+            .collect();
 
         // ── Phase 3: thumbnail workers ────────────────────────────────────
         // Batch thumbnails by time (emit every 500ms) to keep UI responsive
-        let thumb_handles: Vec<_> = (0..num_workers).map(|_| {
-            let queue = thumb_queue.clone();
-            let app   = app_clone.clone();
-            let root  = root_arc.clone();
-            let cancelled = cancel_clone.clone();
-            std::thread::spawn(move || {
-                let mut batch = Vec::with_capacity(50);
-                let mut last_emit = std::time::Instant::now();
-                let emit_interval = std::time::Duration::from_millis(500);
-                
-                loop {
-                    match queue.pop_timeout(emit_interval) {
-                        crate::work_queue::PopResult::Items(rel_path) => {
-                            if cancelled.load(Ordering::Relaxed) { break; }
-                            
-                            let abs = root.join(rel_path.replace('/', std::path::MAIN_SEPARATOR_STR));
-                            let thumbnail = scanner::thumbnail_for(&abs);
-                            batch.push(ThumbnailResult {
-                                relative_path: rel_path,
-                                thumbnail,
-                            });
-                            
-                            // Emit batch if enough time has elapsed
-                            if last_emit.elapsed() >= emit_interval && !batch.is_empty() {
-                                let _ = app.emit("thumbnail_ready", ThumbnailReadyPayload {
-                                    scan_id,
-                                    results: std::mem::take(&mut batch),
+        let thumb_handles: Vec<_> = (0..num_workers)
+            .map(|_| {
+                let queue = thumb_queue.clone();
+                let app = app_clone.clone();
+                let root = root_arc.clone();
+                let cancelled = cancel_clone.clone();
+                std::thread::spawn(move || {
+                    let mut batch = Vec::with_capacity(50);
+                    let mut last_emit = std::time::Instant::now();
+                    let emit_interval = std::time::Duration::from_millis(500);
+
+                    loop {
+                        match queue.pop_timeout(emit_interval) {
+                            crate::work_queue::PopResult::Items(rel_path) => {
+                                if cancelled.load(Ordering::Relaxed) {
+                                    break;
+                                }
+
+                                let abs =
+                                    root.join(rel_path.replace('/', std::path::MAIN_SEPARATOR_STR));
+                                let thumbnail = scanner::thumbnail_for(&abs);
+                                batch.push(ThumbnailResult {
+                                    relative_path: rel_path,
+                                    thumbnail,
                                 });
-                                last_emit = std::time::Instant::now();
+
+                                // Emit batch if enough time has elapsed
+                                if last_emit.elapsed() >= emit_interval && !batch.is_empty() {
+                                    let _ = app.emit(
+                                        "thumbnail_ready",
+                                        ThumbnailReadyPayload {
+                                            scan_id,
+                                            results: std::mem::take(&mut batch),
+                                        },
+                                    );
+                                    last_emit = std::time::Instant::now();
+                                }
                             }
-                        }
-                        crate::work_queue::PopResult::Timeout => {
-                            if !batch.is_empty() {
-                                let _ = app.emit("thumbnail_ready", ThumbnailReadyPayload {
-                                    scan_id,
-                                    results: std::mem::take(&mut batch),
-                                });
-                                last_emit = std::time::Instant::now();
+                            crate::work_queue::PopResult::Timeout => {
+                                if !batch.is_empty() {
+                                    let _ = app.emit(
+                                        "thumbnail_ready",
+                                        ThumbnailReadyPayload {
+                                            scan_id,
+                                            results: std::mem::take(&mut batch),
+                                        },
+                                    );
+                                    last_emit = std::time::Instant::now();
+                                }
                             }
-                        }
-                        crate::work_queue::PopResult::Done => {
-                            if !batch.is_empty() {
-                                let _ = app.emit("thumbnail_ready", ThumbnailReadyPayload {
-                                    scan_id,
-                                    results: std::mem::take(&mut batch),
-                                });
+                            crate::work_queue::PopResult::Done => {
+                                if !batch.is_empty() {
+                                    let _ = app.emit(
+                                        "thumbnail_ready",
+                                        ThumbnailReadyPayload {
+                                            scan_id,
+                                            results: std::mem::take(&mut batch),
+                                        },
+                                    );
+                                }
+                                break;
                             }
-                            break;
                         }
                     }
-                }
+                })
             })
-        }).collect();
+            .collect();
 
         // ── Phase 1: streaming directory walk ─────────────────────────────
         // Run the directory walk in a separate thread so we can implement
@@ -520,7 +585,7 @@ fn start_scan(
         let cancel_walk = cancel_clone.clone();
         let image_metadata_queue_walk = image_metadata_queue.clone();
         let thumb_queue_walk = thumb_queue.clone();
-        
+
         let app_walk_err = app_clone.clone();
         let walk_handle = std::thread::spawn(move || {
             scanner::scan_folder(
@@ -533,40 +598,46 @@ fn start_scan(
                 },
                 |err| {
                     log::warn!("[walk] error: {} ({:?})", err.message, err.path);
-                    let _ = app_walk_err.emit("worker_error", WorkerErrorPayload {
-                        scan_id,
-                        worker_type: "scanner".to_string(),
-                        error_message: err.message,
-                        affected_files: err.path.into_iter().collect(),
-                    });
+                    let _ = app_walk_err.emit(
+                        "worker_error",
+                        WorkerErrorPayload {
+                            scan_id,
+                            worker_type: "scanner".to_string(),
+                            error_message: err.message,
+                            affected_files: err.path.into_iter().collect(),
+                        },
+                    );
                 },
             );
             walk_complete_clone.store(true, Ordering::Relaxed);
         });
-        
+
         // Flush thread: periodically emit batches even if no new photos arrive
         let photo_queue_flush = photo_queue.clone();
         let app_flush = app_clone.clone();
         let walk_complete_flush = walk_complete.clone();
         let flush_handle = std::thread::spawn(move || {
             let emit_interval = std::time::Duration::from_millis(500);
-            
+
             loop {
                 std::thread::sleep(emit_interval);
-                
+
                 let mut queue = photo_queue_flush.lock().unwrap();
                 if !queue.is_empty() {
                     let batch = std::mem::take(&mut *queue);
                     drop(queue); // Release lock before emitting
-                    
-                    let _ = app_flush.emit("photo_found", PhotoFoundPayload { 
-                        scan_id, 
-                        photos: batch
-                    });
+
+                    let _ = app_flush.emit(
+                        "photo_found",
+                        PhotoFoundPayload {
+                            scan_id,
+                            photos: batch,
+                        },
+                    );
                 } else {
                     drop(queue); // Release lock even if queue is empty
                 }
-                
+
                 // Check if walk is complete
                 if walk_complete_flush.load(Ordering::Relaxed) {
                     // One final flush
@@ -574,16 +645,19 @@ fn start_scan(
                     if !queue.is_empty() {
                         let batch = std::mem::take(&mut *queue);
                         drop(queue);
-                        let _ = app_flush.emit("photo_found", PhotoFoundPayload { 
-                            scan_id, 
-                            photos: batch
-                        });
+                        let _ = app_flush.emit(
+                            "photo_found",
+                            PhotoFoundPayload {
+                                scan_id,
+                                photos: batch,
+                            },
+                        );
                     }
                     break;
                 }
             }
         });
-        
+
         // Wait for walk to complete
         walk_handle.join().unwrap();
         flush_handle.join().unwrap();
@@ -599,8 +673,12 @@ fn start_scan(
         thumb_queue.finish();
 
         // Wait for all workers to finish.
-        for h in metadata_handles { let _ = h.join(); }
-        for h in thumb_handles    { let _ = h.join(); }
+        for h in metadata_handles {
+            let _ = h.join();
+        }
+        for h in thumb_handles {
+            let _ = h.join();
+        }
 
         // Clear the queue slots — but only if a newer scan hasn't already
         // installed its own queues here.  Without this guard, a fast
@@ -618,8 +696,12 @@ fn stop_scan(
     active_queues: State<'_, ActiveQueues>,
 ) -> Result<(), String> {
     scan_state.signal_cancellation();
-    if let Some(q) = active_queues.thumbnails() { q.abort(); }
-    if let Some(q) = active_queues.image_metadata() { q.abort(); }
+    if let Some(q) = active_queues.thumbnails() {
+        q.abort();
+    }
+    if let Some(q) = active_queues.image_metadata() {
+        q.abort();
+    }
     Ok(())
 }
 
@@ -628,8 +710,12 @@ fn prioritize_queues(
     visible_paths: Vec<String>,
     active_queues: State<'_, ActiveQueues>,
 ) -> Result<(), String> {
-    if let Some(q) = active_queues.thumbnails() { q.prioritize(&visible_paths); }
-    if let Some(q) = active_queues.image_metadata() { q.prioritize(&visible_paths); }
+    if let Some(q) = active_queues.thumbnails() {
+        q.prioritize(&visible_paths);
+    }
+    if let Some(q) = active_queues.image_metadata() {
+        q.prioritize(&visible_paths);
+    }
     Ok(())
 }
 
@@ -667,7 +753,7 @@ fn show_in_explorer(folder: String, relative_path: String) -> Result<(), String>
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {
         if let Some(parent) = path.parent() {
-             std::process::Command::new("xdg-open")
+            std::process::Command::new("xdg-open")
                 .arg(parent)
                 .spawn()
                 .map_err(|e| e.to_string())?;
@@ -703,10 +789,21 @@ fn get_tag_info(tag: String) -> Result<Option<tag_schema::TagInfo>, String> {
 /// resolves so editors never see a missing-schema flash.
 #[tauri::command]
 fn preload_schema() -> Result<(), String> {
-    log::info!("[startup] preload_schema enter +{}ms wall={}ms", since_startup_ms(), wall_ms());
+    log::info!(
+        "[startup] preload_schema enter +{}ms wall={}ms",
+        since_startup_ms(),
+        wall_ms()
+    );
     let t = Instant::now();
-    let r = tag_schema::get_registry().map(|_| ()).map_err(|e| e.to_string());
-    log::info!("[startup] preload_schema exit took={}ms +{}ms wall={}ms", t.elapsed().as_millis(), since_startup_ms(), wall_ms());
+    let r = tag_schema::get_registry()
+        .map(|_| ())
+        .map_err(|e| e.to_string());
+    log::info!(
+        "[startup] preload_schema exit took={}ms +{}ms wall={}ms",
+        t.elapsed().as_millis(),
+        since_startup_ms(),
+        wall_ms()
+    );
     r
 }
 
@@ -717,14 +814,14 @@ fn preload_schema() -> Result<(), String> {
 #[tauri::command]
 fn list_schema_tags() -> Result<Vec<String>, String> {
     let registry = tag_schema::get_registry().map_err(|e| e.to_string())?;
-    Ok(registry
-        .all_writable()
-        .map(|(k, _)| k.to_owned())
-        .collect())
+    Ok(registry.all_writable().map(|(k, _)| k.to_owned()).collect())
 }
 
 #[tauri::command]
-fn save_draft_edits(folder_path: String, data: draft_edits::DraftEditsPayload) -> Result<(), String> {
+fn save_draft_edits(
+    folder_path: String,
+    data: draft_edits::DraftEditsPayload,
+) -> Result<(), String> {
     draft_edits::save_draft_edits(&folder_path, data)
 }
 
@@ -734,7 +831,10 @@ fn save_draft_edits(folder_path: String, data: draft_edits::DraftEditsPayload) -
 /// through the legacy string view.  The legacy command stays available
 /// for existing callers and tests.
 #[tauri::command]
-fn save_draft_edits_typed(folder_path: String, data: draft_edits::TypedDraftEdits) -> Result<(), String> {
+fn save_draft_edits_typed(
+    folder_path: String,
+    data: draft_edits::TypedDraftEdits,
+) -> Result<(), String> {
     draft_edits::save_typed_draft_edits(&folder_path, &data)
 }
 
@@ -765,7 +865,8 @@ fn apply_draft_edits_cmd(
     // keywords-CSV corruption.
     let mut all_drafts = draft_edits::load_typed_draft_edits(&folder_path).unwrap_or_default();
 
-    let total = rel_paths.iter()
+    let total = rel_paths
+        .iter()
         .filter(|p| all_drafts.get(p.as_str()).map_or(false, |e| !e.is_empty()))
         .count();
 
@@ -807,20 +908,27 @@ fn apply_draft_edits_cmd(
                     all_drafts.remove(rel_path.as_str());
                 }
                 if let Err(e) = draft_edits::save_typed_draft_edits(&folder_path, &all_drafts) {
-                    log::warn!("[apply_edits] Warning: failed to persist draft removal for {}: {}", rel_path, e);
+                    log::warn!(
+                        "[apply_edits] Warning: failed to persist draft removal for {}: {}",
+                        rel_path,
+                        e
+                    );
                 }
             }
         }
 
-        let _ = app.emit("apply_edits_progress", ApplyEditsProgressPayload {
-            current,
-            total,
-            relative_path: rel_path.clone(),
-            applied: was_applied,
-            error: outcome.error.clone(),
-            fresh_metadata: outcome.fresh_metadata.clone(),
-            tag_outcomes: outcome.outcomes.clone(),
-        });
+        let _ = app.emit(
+            "apply_edits_progress",
+            ApplyEditsProgressPayload {
+                current,
+                total,
+                relative_path: rel_path.clone(),
+                applied: was_applied,
+                error: outcome.error.clone(),
+                fresh_metadata: outcome.fresh_metadata.clone(),
+                tag_outcomes: outcome.outcomes.clone(),
+            },
+        );
 
         if let Some(meta) = outcome.fresh_metadata {
             fresh_metadata.insert(rel_path.clone(), meta);
@@ -836,7 +944,11 @@ fn apply_draft_edits_cmd(
 
     apply_state.clear();
 
-    Ok(apply_edits::ApplyEditsResult { applied, failed, fresh_metadata })
+    Ok(apply_edits::ApplyEditsResult {
+        applied,
+        failed,
+        fresh_metadata,
+    })
 }
 
 /// Request cancellation of an in-flight apply_draft_edits_cmd. The current
@@ -846,7 +958,6 @@ fn cancel_apply_edits(apply_state: State<'_, ApplyEditsState>) -> Result<(), Str
     apply_state.signal_cancel();
     Ok(())
 }
-
 
 fn clear_running(app: &AppHandle) {
     if let Some(state) = app.try_state::<ScanState>() {
@@ -873,8 +984,14 @@ mod tests {
         // running is cleared so a new scan can begin, but the flag is still
         // reachable via stop_scan -> signal_cancellation.
         assert_eq!(*state.running.lock().unwrap(), false);
-        assert!(state.signal_cancellation(), "cancellation flag should still be installed");
-        assert!(flag.load(Ordering::Relaxed), "workers should now see the cancellation");
+        assert!(
+            state.signal_cancellation(),
+            "cancellation flag should still be installed"
+        );
+        assert!(
+            flag.load(Ordering::Relaxed),
+            "workers should now see the cancellation"
+        );
     }
 
     #[test]
@@ -909,8 +1026,10 @@ mod tests {
         let elapsed = start.elapsed();
 
         // Wake-up should be tight — well under the old 50ms polling interval.
-        assert!(elapsed < Duration::from_millis(45),
-            "wait_until_finished took {elapsed:?}, expected immediate wake");
+        assert!(
+            elapsed < Duration::from_millis(45),
+            "wait_until_finished took {elapsed:?}, expected immediate wake"
+        );
         assert!(elapsed >= Duration::from_millis(15));
     }
 
@@ -947,8 +1066,12 @@ mod tests {
         // Scan A's late cleanup must not clobber scan B.
         aq.clear_if_mine(&scan_a_thumbs, &scan_a_metadata);
 
-        let installed_thumbs = aq.thumbnails().expect("scan B's thumb queue must still be installed");
-        let installed_metadata = aq.image_metadata().expect("scan B's metadata queue must still be installed");
+        let installed_thumbs = aq
+            .thumbnails()
+            .expect("scan B's thumb queue must still be installed");
+        let installed_metadata = aq
+            .image_metadata()
+            .expect("scan B's metadata queue must still be installed");
         assert!(Arc::ptr_eq(&installed_thumbs, &scan_b_thumbs));
         assert!(Arc::ptr_eq(&installed_metadata, &scan_b_metadata));
     }
@@ -965,7 +1088,10 @@ mod tests {
 
         aq.clear_if_mine(&mine_thumbs, &mine_metadata);
 
-        assert!(aq.thumbnails().is_none(), "mine_thumbs should have been cleared");
+        assert!(
+            aq.thumbnails().is_none(),
+            "mine_thumbs should have been cleared"
+        );
         let installed = aq.image_metadata().expect("other_metadata must remain");
         assert!(Arc::ptr_eq(&installed, &other_metadata));
     }
@@ -1041,7 +1167,11 @@ pub fn run() {
             commands::normalise::estimate_normalise_cost_cmd
         ])
         .setup(|_app| {
-            log::info!("[startup] tauri setup() callback fired +{}ms wall={}ms", since_startup_ms(), wall_ms());
+            log::info!(
+                "[startup] tauri setup() callback fired +{}ms wall={}ms",
+                since_startup_ms(),
+                wall_ms()
+            );
             Ok(())
         })
         .run(tauri::generate_context!())

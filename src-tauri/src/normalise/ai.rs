@@ -132,10 +132,8 @@ pub trait NormaliseAiClient: Send + Sync {
 
     /// Generate a short title from a description + context. Case-3
     /// Title AI path.
-    async fn generate_title(
-        &self,
-        prompt: TitleGenPrompt,
-    ) -> Result<(String, AiCallUsage), String>;
+    async fn generate_title(&self, prompt: TitleGenPrompt)
+        -> Result<(String, AiCallUsage), String>;
 }
 
 /// Captures the prompts that would have fired so the estimate phase
@@ -165,10 +163,7 @@ impl NormaliseAiClient for CapturingAiClient {
         Ok((stand_in, AiCallUsage::default()))
     }
 
-    async fn generate_title(
-        &self,
-        p: TitleGenPrompt,
-    ) -> Result<(String, AiCallUsage), String> {
+    async fn generate_title(&self, p: TitleGenPrompt) -> Result<(String, AiCallUsage), String> {
         let stand_in = p
             .description
             .split_whitespace()

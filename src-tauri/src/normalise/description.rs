@@ -87,24 +87,44 @@ fn project_caption_abstract(canonical: &str, charset_is_utf8: bool) -> String {
 /// tests can pin the wire shape.
 pub fn build_description_merge_prompt(input: &DescriptionInput) -> DescriptionMergePrompt {
     let mut description_sources = std::collections::BTreeMap::new();
-    if let Some(s) = input.description.as_deref().filter(|s| !s.trim().is_empty()) {
+    if let Some(s) = input
+        .description
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+    {
         description_sources.insert("XMP-dc:Description".into(), s.trim().to_string());
     }
-    if let Some(s) = input.image_description.as_deref().filter(|s| !s.trim().is_empty()) {
+    if let Some(s) = input
+        .image_description
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+    {
         description_sources.insert("EXIF:ImageDescription".into(), s.trim().to_string());
     }
-    if let Some(s) = input.caption_abstract.as_deref().filter(|s| !s.trim().is_empty()) {
+    if let Some(s) = input
+        .caption_abstract
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+    {
         description_sources.insert("IPTC:Caption-Abstract".into(), s.trim().to_string());
     }
 
     let mut ai_context = std::collections::BTreeMap::new();
-    if let Some(s) = input.ai_description.as_deref().filter(|s| !s.trim().is_empty()) {
+    if let Some(s) = input
+        .ai_description
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+    {
         ai_context.insert(
             "XMP-mlib:AIDescription".into(),
             serde_json::Value::String(s.trim().to_string()),
         );
     }
-    if let Some(s) = input.ai_interpretation.as_deref().filter(|s| !s.trim().is_empty()) {
+    if let Some(s) = input
+        .ai_interpretation
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+    {
         ai_context.insert(
             "XMP-mlib:AIInterpretation".into(),
             serde_json::Value::String(s.trim().to_string()),
@@ -114,7 +134,11 @@ pub fn build_description_merge_prompt(input: &DescriptionInput) -> DescriptionMe
         ai_context.insert(
             "XMP-mlib:AIOcrText".into(),
             serde_json::Value::Array(
-                input.ai_ocr_text.iter().map(|s| serde_json::Value::String(s.clone())).collect(),
+                input
+                    .ai_ocr_text
+                    .iter()
+                    .map(|s| serde_json::Value::String(s.clone()))
+                    .collect(),
             ),
         );
     }
@@ -122,7 +146,11 @@ pub fn build_description_merge_prompt(input: &DescriptionInput) -> DescriptionMe
         ai_context.insert(
             "XMP-mlib:AIObjects".into(),
             serde_json::Value::Array(
-                input.ai_objects.iter().map(|s| serde_json::Value::String(s.clone())).collect(),
+                input
+                    .ai_objects
+                    .iter()
+                    .map(|s| serde_json::Value::String(s.clone()))
+                    .collect(),
             ),
         );
     }
@@ -226,7 +254,11 @@ pub async fn normalise_description(
     };
 
     if canonical.is_empty() {
-        return DescriptionOutcome { ai_fired, ai_usage, ..Default::default() };
+        return DescriptionOutcome {
+            ai_fired,
+            ai_usage,
+            ..Default::default()
+        };
     }
 
     let projection_image = ascii_fold(&canonical);
@@ -265,7 +297,11 @@ pub async fn normalise_description(
     }
 
     DescriptionOutcome {
-        output: if edits.is_empty() { None } else { Some(GroupOutput { edits }) },
+        output: if edits.is_empty() {
+            None
+        } else {
+            Some(GroupOutput { edits })
+        },
         ai_fired,
         ai_error: None,
         ai_usage,
@@ -275,8 +311,8 @@ pub async fn normalise_description(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::{LocationContext, TitleGenPrompt};
+    use super::*;
 
     fn s(g: &GroupOutput, k: &str) -> String {
         match &g.edits.get(k).unwrap().value {
@@ -399,7 +435,10 @@ mod tests {
             ) -> Result<(String, AiCallUsage), String> {
                 Ok(("Merged factual description.".into(), AiCallUsage::default()))
             }
-            async fn generate_title(&self, _: TitleGenPrompt) -> Result<(String, AiCallUsage), String> {
+            async fn generate_title(
+                &self,
+                _: TitleGenPrompt,
+            ) -> Result<(String, AiCallUsage), String> {
                 unreachable!()
             }
         }
@@ -419,10 +458,16 @@ mod tests {
         struct FailingAi;
         #[async_trait::async_trait]
         impl NormaliseAiClient for FailingAi {
-            async fn merge_description(&self, _: DescriptionMergePrompt) -> Result<(String, AiCallUsage), String> {
+            async fn merge_description(
+                &self,
+                _: DescriptionMergePrompt,
+            ) -> Result<(String, AiCallUsage), String> {
                 Err("HTTP 429: too many requests".into())
             }
-            async fn generate_title(&self, _: TitleGenPrompt) -> Result<(String, AiCallUsage), String> {
+            async fn generate_title(
+                &self,
+                _: TitleGenPrompt,
+            ) -> Result<(String, AiCallUsage), String> {
                 unreachable!()
             }
         }
@@ -457,12 +502,19 @@ mod tests {
             ..Default::default()
         };
         let prompt = build_description_merge_prompt(&input);
-        assert!(prompt.description_sources.contains_key("XMP-dc:Description"));
-        assert!(!prompt.description_sources.contains_key("EXIF:ImageDescription"));
+        assert!(prompt
+            .description_sources
+            .contains_key("XMP-dc:Description"));
+        assert!(!prompt
+            .description_sources
+            .contains_key("EXIF:ImageDescription"));
         assert!(prompt.ai_context.contains_key("XMP-mlib:AIDescription"));
         assert!(prompt.ai_context.contains_key("XMP-mlib:AIOcrText"));
         assert!(prompt.ai_context.contains_key("XMP-mlib:AIObjects"));
-        assert_eq!(prompt.keywords, vec!["statue".to_string(), "london".to_string()]);
+        assert_eq!(
+            prompt.keywords,
+            vec!["statue".to_string(), "london".to_string()]
+        );
         assert_eq!(prompt.date.as_deref(), Some("2024-08-12"));
         assert_eq!(prompt.location["city"], "London");
         assert_eq!(prompt.location["country"], "UK");

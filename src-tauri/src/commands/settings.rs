@@ -14,10 +14,7 @@ pub fn load_settings_cmd(app: AppHandle) -> Result<settings::Settings, String> {
 }
 
 #[tauri::command]
-pub fn save_settings_cmd(
-    app: AppHandle,
-    settings_data: settings::Settings,
-) -> Result<(), String> {
+pub fn save_settings_cmd(app: AppHandle, settings_data: settings::Settings) -> Result<(), String> {
     let dir = app_data_dir(&app)?;
     settings::save_settings(&dir, &settings_data)
 }
@@ -27,7 +24,10 @@ pub fn save_settings_cmd(
 /// backend's pricing/cost-estimation knowledge.
 #[tauri::command]
 pub fn list_recommended_models() -> Vec<String> {
-    settings::RECOMMENDED_MODELS.iter().map(|s| s.to_string()).collect()
+    settings::RECOMMENDED_MODELS
+        .iter()
+        .map(|s| s.to_string())
+        .collect()
 }
 
 /// Ballpark USD cost of describing a single typical image with `model`.

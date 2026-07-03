@@ -374,21 +374,20 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
     const folder = folderRef.current;
     const startArgs = startArgsRef.current;
     if (startArgs == null) return;
-    setState((s) => {
-      void invoke(config.commands.run, config.buildRunArgs(folder, startArgs)).catch(
-        (e: unknown) => {
-          setState((curr) => ({
-            ...curr,
-            phase: "done",
-            failures: [
-              ...curr.failures,
-              { relativePath: "(batch)", kind: "command_failed", detail: String(e) },
-            ],
-          }));
-        },
-      );
-      return { ...s, phase: "running", current: 0, currentFile: null };
-    });
+    setState((s) => ({ ...s, phase: "running", current: 0, currentFile: null }));
+
+    void invoke(config.commands.run, config.buildRunArgs(folder, startArgs)).catch(
+      (e: unknown) => {
+        setState((curr) => ({
+          ...curr,
+          phase: "done",
+          failures: [
+            ...curr.failures,
+            { relativePath: "(batch)", kind: "command_failed", detail: String(e) },
+          ],
+        }));
+      },
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [config.commands.run]);
 

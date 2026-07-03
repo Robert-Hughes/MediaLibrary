@@ -14,8 +14,8 @@
 //! prompt enforces title-case when the generation path fires.
 
 use super::{
-    collapse_whitespace_single_line, truncate_at_word, AiCallUsage, DescriptionMergePrompt,
-    GroupOutput, NormaliseAiClient, NormaliseAiError, TitleGenPrompt, TitleInput,
+    collapse_whitespace_single_line, truncate_at_word, AiCallUsage, GroupOutput, NormaliseAiClient,
+    NormaliseAiError, TitleGenPrompt, TitleInput,
 };
 use crate::draft_edits::{DraftEdit, EditIntent};
 use crate::scanner::Variant;
@@ -131,7 +131,11 @@ pub async fn normalise_title(
                             ai_usage = Some(usage);
                             let n = normalise_title_text(&generated);
                             if n.is_empty() {
-                                return TitleOutcome { ai_fired, ai_usage, ..Default::default() };
+                                return TitleOutcome {
+                                    ai_fired,
+                                    ai_usage,
+                                    ..Default::default()
+                                };
                             }
                             n
                         }
@@ -148,7 +152,11 @@ pub async fn normalise_title(
     };
 
     if title_is_normalised(input, &canonical) {
-        return TitleOutcome { ai_fired, ai_usage, ..Default::default() };
+        return TitleOutcome {
+            ai_fired,
+            ai_usage,
+            ..Default::default()
+        };
     }
     let object = truncate_at_word(&canonical, IPTC_OBJECT_NAME_LIMIT);
     let mut edits = HashMap::new();
@@ -173,7 +181,11 @@ pub async fn normalise_title(
         );
     }
     TitleOutcome {
-        output: if edits.is_empty() { None } else { Some(GroupOutput { edits }) },
+        output: if edits.is_empty() {
+            None
+        } else {
+            Some(GroupOutput { edits })
+        },
         ai_fired,
         ai_error: None,
         ai_usage,
@@ -183,6 +195,7 @@ pub async fn normalise_title(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::normalise::DescriptionMergePrompt;
 
     fn s(g: &GroupOutput, k: &str) -> String {
         match &g.edits.get(k).unwrap().value {
@@ -278,7 +291,10 @@ mod tests {
             ) -> Result<(String, AiCallUsage), String> {
                 unreachable!()
             }
-            async fn generate_title(&self, p: TitleGenPrompt) -> Result<(String, AiCallUsage), String> {
+            async fn generate_title(
+                &self,
+                p: TitleGenPrompt,
+            ) -> Result<(String, AiCallUsage), String> {
                 assert_eq!(p.description, "Climbers descending Mont Blanc at sunset.");
                 assert_eq!(p.keywords, vec!["mountains".to_string()]);
                 Ok(("Climbers At Sunset".into(), AiCallUsage::default()))
@@ -300,10 +316,16 @@ mod tests {
         struct FailingAi;
         #[async_trait::async_trait]
         impl NormaliseAiClient for FailingAi {
-            async fn merge_description(&self, _: DescriptionMergePrompt) -> Result<(String, AiCallUsage), String> {
+            async fn merge_description(
+                &self,
+                _: DescriptionMergePrompt,
+            ) -> Result<(String, AiCallUsage), String> {
                 unreachable!()
             }
-            async fn generate_title(&self, _: TitleGenPrompt) -> Result<(String, AiCallUsage), String> {
+            async fn generate_title(
+                &self,
+                _: TitleGenPrompt,
+            ) -> Result<(String, AiCallUsage), String> {
                 Err("rate limited".into())
             }
         }
@@ -322,10 +344,16 @@ mod tests {
         struct ShouldNotFireAi;
         #[async_trait::async_trait]
         impl NormaliseAiClient for ShouldNotFireAi {
-            async fn merge_description(&self, _: DescriptionMergePrompt) -> Result<(String, AiCallUsage), String> {
+            async fn merge_description(
+                &self,
+                _: DescriptionMergePrompt,
+            ) -> Result<(String, AiCallUsage), String> {
                 unreachable!()
             }
-            async fn generate_title(&self, _: TitleGenPrompt) -> Result<(String, AiCallUsage), String> {
+            async fn generate_title(
+                &self,
+                _: TitleGenPrompt,
+            ) -> Result<(String, AiCallUsage), String> {
                 panic!("AI should not fire when description is empty")
             }
         }

@@ -29,7 +29,10 @@ impl WorkQueue {
     pub fn new(paths: Vec<String>) -> Self {
         Self {
             inner: Arc::new((
-                Mutex::new(State { queue: VecDeque::from(paths), done: false }),
+                Mutex::new(State {
+                    queue: VecDeque::from(paths),
+                    done: false,
+                }),
                 Condvar::new(),
             )),
         }
@@ -97,7 +100,11 @@ impl WorkQueue {
     }
 
     /// Block until at least one item is available or timeout is reached, then return up to `max` items.
-    pub fn pop_batch_timeout(&self, max: usize, timeout: std::time::Duration) -> PopResult<Vec<String>> {
+    pub fn pop_batch_timeout(
+        &self,
+        max: usize,
+        timeout: std::time::Duration,
+    ) -> PopResult<Vec<String>> {
         let (lock, cvar) = &*self.inner;
         let mut state = lock.lock().unwrap();
         loop {
@@ -419,7 +426,7 @@ mod tests {
         let start = std::time::Instant::now();
         let result = q.pop_timeout(std::time::Duration::from_millis(100));
         let elapsed = start.elapsed();
-        
+
         assert!(matches!(result, PopResult::Timeout));
         assert!(elapsed >= std::time::Duration::from_millis(90)); // Allow some slack
         assert!(elapsed < std::time::Duration::from_millis(200)); // But not too much
@@ -431,7 +438,7 @@ mod tests {
         let start = std::time::Instant::now();
         let result = q.pop_timeout(std::time::Duration::from_millis(100));
         let elapsed = start.elapsed();
-        
+
         assert!(matches!(result, PopResult::Items(_)));
         assert!(elapsed < std::time::Duration::from_millis(50)); // Should be very fast
     }
@@ -439,15 +446,15 @@ mod tests {
     #[test]
     fn pop_batch_timeout_flushes_partial_batch_on_timeout() {
         let q = Arc::new(WorkQueue::new(vec![]));
-        
+
         // Add a few items (less than a typical batch size)
         q.push("a".into());
         q.push("b".into());
         q.push("c".into());
-        
+
         // Request a large batch with timeout
         let result = q.pop_batch_timeout(100, std::time::Duration::from_millis(50));
-        
+
         // Should get the 3 items immediately (not wait for timeout since items are available)
         match result {
             PopResult::Items(items) => {
@@ -464,7 +471,7 @@ mod tests {
         let start = std::time::Instant::now();
         let result = q.pop_batch_timeout(10, std::time::Duration::from_millis(100));
         let elapsed = start.elapsed();
-        
+
         assert!(matches!(result, PopResult::Timeout));
         assert!(elapsed >= std::time::Duration::from_millis(90));
     }
@@ -474,7 +481,7 @@ mod tests {
         // Simulate a worker that processes items and flushes periodically
         let q = Arc::new(WorkQueue::new(vec![]));
         let q_clone = q.clone();
-        
+
         // Spawn a thread that adds items slowly
         let producer = std::thread::spawn(move || {
             std::thread::sleep(std::time::Duration::from_millis(50));
@@ -484,12 +491,12 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(50));
             q_clone.finish();
         });
-        
+
         // Worker pattern: collect items and flush on timeout
         let mut all_items = Vec::new();
         let mut batch = Vec::new();
         let flush_interval = std::time::Duration::from_millis(80);
-        
+
         loop {
             match q.pop_timeout(flush_interval) {
                 PopResult::Items(item) => {
@@ -510,9 +517,9 @@ mod tests {
                 }
             }
         }
-        
+
         producer.join().unwrap();
-        
+
         // Should have received both items
         assert_eq!(all_items.len(), 2);
         assert!(all_items.contains(&"item1".to_string()));

@@ -17,7 +17,9 @@ use crate::describe_log;
 use crate::openai_describe;
 
 #[derive(Clone, Serialize)]
-struct DescribeEstimateStartedPayload { total: usize }
+struct DescribeEstimateStartedPayload {
+    total: usize,
+}
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -39,7 +41,10 @@ struct DescribeEstimateCompletePayload {
 }
 
 #[derive(Clone, Serialize)]
-struct DescribeEstimateErrorPayload { relative_path: String, message: String }
+struct DescribeEstimateErrorPayload {
+    relative_path: String,
+    message: String,
+}
 
 // `describe_retry` event surface deferred: reqwest_retry doesn't expose
 // a per-attempt hook, so retries are visible in logs but not in the UI
@@ -80,9 +85,13 @@ pub async fn estimate_describe_cost_cmd(
     let total = rel_paths.len();
     log::info!(
         "[describe] estimate starting model={} total={}",
-        s.openai_model, total
+        s.openai_model,
+        total
     );
-    let _ = app.emit("describe_estimate_started", DescribeEstimateStartedPayload { total });
+    let _ = app.emit(
+        "describe_estimate_started",
+        DescribeEstimateStartedPayload { total },
+    );
 
     let mut total_input_tokens: u64 = 0;
     let mut current = 0usize;
@@ -93,26 +102,42 @@ pub async fn estimate_describe_cost_cmd(
         }
         current += 1;
         let abs = resolve_rel(&folder_path, rel);
-        let bytes = openai_describe::load_and_downscale_image(&abs)
-            .map_err(|e| {
-                let _ = app.emit("describe_estimate_error",
-                    DescribeEstimateErrorPayload { relative_path: rel.clone(), message: e.clone() });
-                format!("{}: {}", rel, e)
-            })?;
+        let bytes = openai_describe::load_and_downscale_image(&abs).map_err(|e| {
+            let _ = app.emit(
+                "describe_estimate_error",
+                DescribeEstimateErrorPayload {
+                    relative_path: rel.clone(),
+                    message: e.clone(),
+                },
+            );
+            format!("{}: {}", rel, e)
+        })?;
         let n = openai_describe::count_input_tokens(&client, &s.openai_model, &bytes)
             .await
             .map_err(|e| {
-                let _ = app.emit("describe_estimate_error",
-                    DescribeEstimateErrorPayload { relative_path: rel.clone(), message: e.clone() });
+                let _ = app.emit(
+                    "describe_estimate_error",
+                    DescribeEstimateErrorPayload {
+                        relative_path: rel.clone(),
+                        message: e.clone(),
+                    },
+                );
                 format!("{}: {}", rel, e)
             })?;
         total_input_tokens += n as u64;
         let expected_cost = (n as f64 / 1_000_000.0) * pricing.input_per_1m
-            + (openai_describe::EXPECTED_OUTPUT_TOKENS as f64 / 1_000_000.0) * pricing.output_per_1m;
-        let _ = app.emit("describe_estimate_progress", DescribeEstimateProgressPayload {
-            current, total, relative_path: rel.clone(),
-            input_tokens: n, expected_cost_usd: expected_cost,
-        });
+            + (openai_describe::EXPECTED_OUTPUT_TOKENS as f64 / 1_000_000.0)
+                * pricing.output_per_1m;
+        let _ = app.emit(
+            "describe_estimate_progress",
+            DescribeEstimateProgressPayload {
+                current,
+                total,
+                relative_path: rel.clone(),
+                input_tokens: n,
+                expected_cost_usd: expected_cost,
+            },
+        );
     }
 
     let predicted_cost = (total_input_tokens as f64 / 1_000_000.0) * pricing.input_per_1m
@@ -125,10 +150,15 @@ pub async fn estimate_describe_cost_cmd(
         "[describe] estimate complete total_input_tokens={} predicted_cost_usd={:.6} upper_bound_cost_usd={:.6}",
         total_input_tokens, predicted_cost, upper_bound
     );
-    let _ = app.emit("describe_estimate_complete", DescribeEstimateCompletePayload {
-        total_input_tokens, predicted_cost_usd: predicted_cost,
-        upper_bound_cost_usd: upper_bound, model: s.openai_model.clone(),
-    });
+    let _ = app.emit(
+        "describe_estimate_complete",
+        DescribeEstimateCompletePayload {
+            total_input_tokens,
+            predicted_cost_usd: predicted_cost,
+            upper_bound_cost_usd: upper_bound,
+            model: s.openai_model.clone(),
+        },
+    );
     // The cancel flag installed for this estimate run is dropped: the
     // user is now in the awaiting-confirm phase. If they confirm, the
     // `describe_images_cmd` handler will install a fresh flag for the
@@ -165,7 +195,9 @@ pub async fn describe_images_cmd(
     let total = rel_paths.len();
     log::info!(
         "[describe] starting describe model={} prompt_version={} total={}",
-        s.openai_model, openai_describe::PROMPT_VERSION, total
+        s.openai_model,
+        openai_describe::PROMPT_VERSION,
+        total
     );
     let emitter = batch_job::BatchProgressEmitter::new(&app, "describe");
     emitter.started(total);
@@ -191,14 +223,24 @@ pub async fn describe_images_cmd(
         let bytes = match openai_describe::load_and_downscale_image(&abs) {
             Ok(b) => b,
             Err(e) => {
-                log::warn!("[describe] ({}/{}) decode failed for {}: {}", current, total, rel, e);
+                log::warn!(
+                    "[describe] ({}/{}) decode failed for {}: {}",
+                    current,
+                    total,
+                    rel,
+                    e
+                );
                 let kind = batch_job::BatchFailureKind::Decode;
                 emitter.progress(current, total, rel, kind.as_wire(), Some(&e), None);
                 failed.push(batch_job::BatchFailureRow {
-                    relative_path: rel.clone(), kind, detail: e.clone(),
+                    relative_path: rel.clone(),
+                    kind,
+                    detail: e.clone(),
                 });
                 log_errors.push(describe_log::DescribeLogError {
-                    relative_path: rel.clone(), kind, detail: e,
+                    relative_path: rel.clone(),
+                    kind,
+                    detail: e,
                 });
                 continue;
             }
@@ -210,11 +252,18 @@ pub async fn describe_images_cmd(
                 total_input_for_predicted += usage.input_tokens as u64;
 
                 let edits = openai_describe::compose_draft_edits(
-                    &s.openai_model, &output, chrono::Utc::now(),
+                    &s.openai_model,
+                    &output,
+                    chrono::Utc::now(),
                 );
                 log::info!(
                     "[describe] ({}/{}) ok {} input_tokens={} output_tokens={} tags={}",
-                    current, total, rel, usage.input_tokens, usage.output_tokens, edits.len()
+                    current,
+                    total,
+                    rel,
+                    usage.input_tokens,
+                    usage.output_tokens,
+                    edits.len()
                 );
                 emitter.progress(current, total, rel, "ok", None, Some(&edits));
                 succeeded.push(rel.clone());
@@ -224,14 +273,22 @@ pub async fn describe_images_cmd(
                 let detail = e.detail();
                 log::warn!(
                     "[describe] ({}/{}) failed {} kind={} detail={}",
-                    current, total, rel, kind, detail
+                    current,
+                    total,
+                    rel,
+                    kind,
+                    detail
                 );
                 emitter.progress(current, total, rel, kind.as_wire(), Some(&detail), None);
                 failed.push(batch_job::BatchFailureRow {
-                    relative_path: rel.clone(), kind, detail: detail.clone(),
+                    relative_path: rel.clone(),
+                    kind,
+                    detail: detail.clone(),
                 });
                 log_errors.push(describe_log::DescribeLogError {
-                    relative_path: rel.clone(), kind, detail,
+                    relative_path: rel.clone(),
+                    kind,
+                    detail,
                 });
             }
         }
@@ -239,7 +296,10 @@ pub async fn describe_images_cmd(
 
     log::info!(
         "[describe] finished succeeded={} failed={} total_input_tokens={} total_output_tokens={}",
-        succeeded.len(), failed.len(), aggregate.input_tokens, aggregate.output_tokens
+        succeeded.len(),
+        failed.len(),
+        aggregate.input_tokens,
+        aggregate.output_tokens
     );
 
     let predicted = predicted_cost(&pricing, total_input_for_predicted, succeeded.len() as u64);
@@ -256,8 +316,7 @@ pub async fn describe_images_cmd(
     // Audit log — best-effort, never fails the command.
     if let Ok(dir) = app_data_dir(&app) {
         let entry = describe_log::DescribeLogEntry {
-            ts: chrono::Utc::now()
-                .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+            ts: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
             model: s.openai_model.clone(),
             prompt_version: openai_describe::PROMPT_VERSION.to_string(),
             n_images: total,
