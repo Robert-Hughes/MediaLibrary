@@ -4,10 +4,18 @@ interface Props {
   onOpenRecent: (folder: string) => void;
 }
 
-export function WelcomeScreen({ onOpenFolder, recentFolders, onOpenRecent }: Props) {
+export function WelcomeScreen({
+  onOpenFolder,
+  recentFolders,
+  onOpenRecent,
+}: Props) {
   return (
     <div className="welcome-screen" data-testid="welcome-screen">
-      <img src="/logo-color.svg" alt="Media Library Logo" className="welcome-logo" />
+      <img
+        src="/logo-color.svg"
+        alt="Media Library Logo"
+        className="welcome-logo"
+      />
       <h1 className="welcome-title">Media Library</h1>
       <p className="welcome-subtitle">Open a folder to browse your photos</p>
       <button

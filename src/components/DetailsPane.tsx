@@ -1,15 +1,30 @@
 import { useEffect, useMemo, useState } from "react";
-import type { DraftEdit, PhotoInfo, ImageMetadataState, Variant } from "../types";
+import type {
+  DraftEdit,
+  PhotoInfo,
+  ImageMetadataState,
+  Variant,
+} from "../types";
 import { HighlightedText } from "./HighlightedText";
 import { ContextMenu } from "./ContextMenu";
 import { TypedValueEditor } from "./editors/TypedValueEditor";
 import { useTagInfo } from "../hooks/useTagInfo";
 import { variantToDisplayString } from "../draft";
 import { DatatypeBadge } from "./DatatypeBadge";
-import { schemaDatatype, variantDatatype, datatypesMatch } from "../utils/datatype";
+import {
+  schemaDatatype,
+  variantDatatype,
+  datatypesMatch,
+} from "../utils/datatype";
 import { NewPropertyDialog } from "./NewPropertyDialog";
-import { haystackContainsNormalized, normalizeListSearchQuery } from "../utils/listSearchText";
-import { confirmApplyEdits, confirmDiscardEdits } from "../utils/applyDiscardPrompts";
+import {
+  haystackContainsNormalized,
+  normalizeListSearchQuery,
+} from "../utils/listSearchText";
+import {
+  confirmApplyEdits,
+  confirmDiscardEdits,
+} from "../utils/applyDiscardPrompts";
 
 /**
  * Format a Variant for display.  Single source of truth for the legacy
@@ -106,7 +121,9 @@ export interface MetadataGroup {
  * Group image metadata entries by their key prefix, preserving a stable order.
  * Returns groups sorted alphabetically by prefix, with "Other" last.
  */
-function groupImageMetadata(metadata: Record<string, Variant>): MetadataGroup[] {
+function groupImageMetadata(
+  metadata: Record<string, Variant>,
+): MetadataGroup[] {
   const grouped = new Map<string, MetadataEntry[]>();
 
   const sortedKeys = Object.keys(metadata).sort((a, b) => a.localeCompare(b));
@@ -136,9 +153,18 @@ function groupImageMetadata(metadata: Record<string, Variant>): MetadataGroup[] 
   return groups;
 }
 
-function detailsRowMatchesSearch(label: string, value: string, draftValue: string | null | undefined, fullKey: string, normalizedQuery: string): boolean {
+function detailsRowMatchesSearch(
+  label: string,
+  value: string,
+  draftValue: string | null | undefined,
+  fullKey: string,
+  normalizedQuery: string,
+): boolean {
   if (!normalizedQuery) return true;
-  return haystackContainsNormalized(`${label}\n${value}\n${draftValue ?? ""}\n${fullKey}`, normalizedQuery);
+  return haystackContainsNormalized(
+    `${label}\n${value}\n${draftValue ?? ""}\n${fullKey}`,
+    normalizedQuery,
+  );
 }
 
 /**
@@ -147,9 +173,14 @@ function detailsRowMatchesSearch(label: string, value: string, draftValue: strin
  * `has:edits` token stripped + trimmed) so the standard substring match
  * runs against the user's actual search terms.
  */
-function splitHasEditsFilter(normalizedQuery: string): { query: string; hasEditsFilter: boolean } {
+function splitHasEditsFilter(normalizedQuery: string): {
+  query: string;
+  hasEditsFilter: boolean;
+} {
   const hasEditsFilter = normalizedQuery.includes("has:edits");
-  const query = hasEditsFilter ? normalizedQuery.replace("has:edits", "").trim() : normalizedQuery;
+  const query = hasEditsFilter
+    ? normalizedQuery.replace("has:edits", "").trim()
+    : normalizedQuery;
   return { query, hasEditsFilter };
 }
 
@@ -161,16 +192,18 @@ function DetailsValueCell({
   draftBadge,
   readOnly,
 }: {
-  originalValue: string,
-  draftValue?: string | null,
-  searchQuery: string,
-  valueBadge?: { code: string; label: string } | null,
-  draftBadge?: { code: string; label: string } | null,
-  readOnly?: boolean,
+  originalValue: string;
+  draftValue?: string | null;
+  searchQuery: string;
+  valueBadge?: { code: string; label: string } | null;
+  draftBadge?: { code: string; label: string } | null;
+  readOnly?: boolean;
 }) {
   return (
     <td
-      className={readOnly ? "details-value details-value--readonly" : "details-value"}
+      className={
+        readOnly ? "details-value details-value--readonly" : "details-value"
+      }
       title={readOnly ? `${originalValue}\n(read-only)` : originalValue}
       data-readonly={readOnly ? "true" : undefined}
     >
@@ -178,19 +211,44 @@ function DetailsValueCell({
         <>
           {originalValue ? (
             <>
-              {valueBadge ? <DatatypeBadge code={valueBadge.code} label={valueBadge.label} variant="value" /> : null}
-              <s className="draft-original" style={{ opacity: 0.6 }}><HighlightedText text={originalValue} searchQuery={searchQuery} /></s>
-              {" "}
+              {valueBadge ? (
+                <DatatypeBadge
+                  code={valueBadge.code}
+                  label={valueBadge.label}
+                  variant="value"
+                />
+              ) : null}
+              <s className="draft-original" style={{ opacity: 0.6 }}>
+                <HighlightedText
+                  text={originalValue}
+                  searchQuery={searchQuery}
+                />
+              </s>{" "}
             </>
           ) : null}
-          {draftBadge ? <DatatypeBadge code={draftBadge.code} label={draftBadge.label} variant="draft" /> : null}
+          {draftBadge ? (
+            <DatatypeBadge
+              code={draftBadge.code}
+              label={draftBadge.label}
+              variant="draft"
+            />
+          ) : null}
           <strong className="draft-new">
-            <HighlightedText text={draftValue === null ? "—" : draftValue} searchQuery={searchQuery} />
+            <HighlightedText
+              text={draftValue === null ? "—" : draftValue}
+              searchQuery={searchQuery}
+            />
           </strong>
         </>
       ) : (
         <>
-          {valueBadge ? <DatatypeBadge code={valueBadge.code} label={valueBadge.label} variant="value" /> : null}
+          {valueBadge ? (
+            <DatatypeBadge
+              code={valueBadge.code}
+              label={valueBadge.label}
+              variant="value"
+            />
+          ) : null}
           <HighlightedText text={originalValue} searchQuery={searchQuery} />
         </>
       )}
@@ -227,20 +285,20 @@ function DetailsImageRow({
   // the type matches expectations). Without a schema there is no reference
   // type, so always surface the runtime datatype as informational.
   const showValueBadge =
-    valueInfo != null
-    && (schemaInfo == null || !datatypesMatch(valueInfo.code, schemaInfo.code));
+    valueInfo != null &&
+    (schemaInfo == null || !datatypesMatch(valueInfo.code, schemaInfo.code));
 
-  const draftVariant = typedDraft && typedDraft.intent !== "Delete" ? typedDraft.value : undefined;
+  const draftVariant =
+    typedDraft && typedDraft.intent !== "Delete" ? typedDraft.value : undefined;
   const draftInfo = variantDatatype(draftVariant ?? undefined);
   const showDraftBadge =
-    typedDraft != null
-    && typedDraft.intent !== "Delete"
-    && draftInfo != null
-    && (
-      (valueInfo != null && draftInfo.code !== valueInfo.code)
-      || (schemaInfo != null && !datatypesMatch(draftInfo.code, schemaInfo.code))
-      || (schemaInfo == null && valueInfo == null)
-    );
+    typedDraft != null &&
+    typedDraft.intent !== "Delete" &&
+    draftInfo != null &&
+    ((valueInfo != null && draftInfo.code !== valueInfo.code) ||
+      (schemaInfo != null &&
+        !datatypesMatch(draftInfo.code, schemaInfo.code)) ||
+      (schemaInfo == null && valueInfo == null));
 
   return (
     <tr
@@ -251,8 +309,21 @@ function DetailsImageRow({
       data-readonly={readOnly ? "true" : undefined}
       onContextMenu={onContextMenu}
     >
-      <td className="details-key" style={draftValue !== undefined ? { color: "var(--accent-draft)" } : undefined}>
-        {schemaInfo ? <DatatypeBadge code={schemaInfo.code} label={schemaInfo.label} variant="schema" /> : null}
+      <td
+        className="details-key"
+        style={
+          draftValue !== undefined
+            ? { color: "var(--accent-draft)" }
+            : undefined
+        }
+      >
+        {schemaInfo ? (
+          <DatatypeBadge
+            code={schemaInfo.code}
+            label={schemaInfo.label}
+            variant="schema"
+          />
+        ) : null}
         <HighlightedText text={entry.label} searchQuery={searchQuery} />
       </td>
       <DetailsValueCell
@@ -282,7 +353,13 @@ function DetailsRowContextMenu({
   onRemove,
   onClose,
 }: {
-  contextMenu: { x: number; y: number; key: string; originalValue: string; draftValue?: string | null };
+  contextMenu: {
+    x: number;
+    y: number;
+    key: string;
+    originalValue: string;
+    draftValue?: string | null;
+  };
   onEdit: () => void;
   onDiscard: () => void;
   onRemove: () => void;
@@ -297,12 +374,14 @@ function DetailsRowContextMenu({
       : []),
     ...(readOnly
       ? []
-      : [{
-          label: "Remove",
-          onClick: onRemove,
-          disabled: false,
-          title: undefined as string | undefined,
-        }]),
+      : [
+          {
+            label: "Remove",
+            onClick: onRemove,
+            disabled: false,
+            title: undefined as string | undefined,
+          },
+        ]),
   ];
   // Read-only tag with no draft → no actionable menu items. Bail out via
   // effect (not inline) so we don't setState during render.
@@ -321,25 +400,62 @@ function DetailsRowContextMenu({
   );
 }
 
-export function DetailsPane({ photo, metadata, draftEdits = {}, typedDraftEdits, onSetDraftTyped, onSetDraftBatch, onDiscardDraft, onDiscardAllEdits, onApplyEdits, onGenerateAiDescription, onGeocode, onNormalise, onShowInFileExplorer }: Props) {
+export function DetailsPane({
+  photo,
+  metadata,
+  draftEdits = {},
+  typedDraftEdits,
+  onSetDraftTyped,
+  onSetDraftBatch,
+  onDiscardDraft,
+  onDiscardAllEdits,
+  onApplyEdits,
+  onGenerateAiDescription,
+  onGeocode,
+  onNormalise,
+  onShowInFileExplorer,
+}: Props) {
   const [detailsSearch, setDetailsSearch] = useState("");
-  const [contextMenu, setContextMenu] = useState<{ x: number, y: number, key: string, originalValue: string, draftValue?: string | null } | null>(null);
-  const [editDialog, setEditDialog] = useState<{ key: string, initialValue: string } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    key: string;
+    originalValue: string;
+    draftValue?: string | null;
+  } | null>(null);
+  const [editDialog, setEditDialog] = useState<{
+    key: string;
+    initialValue: string;
+  } | null>(null);
   const [showNewPropertyDialog, setShowNewPropertyDialog] = useState(false);
   // Stage 2 of the new-property flow: key picked, now show a TypedValueEditor
   // for that key.  null when no flow is active or we're still on stage 1.
   const [newPropertyKey, setNewPropertyKey] = useState<string | null>(null);
 
-  const handleContextMenu = (e: React.MouseEvent, key: string, originalValue: string, draftValue?: string | null) => {
+  const handleContextMenu = (
+    e: React.MouseEvent,
+    key: string,
+    originalValue: string,
+    draftValue?: string | null,
+  ) => {
     e.preventDefault();
-    setContextMenu({ x: e.clientX, y: e.clientY, key, originalValue, draftValue });
+    setContextMenu({
+      x: e.clientX,
+      y: e.clientY,
+      key,
+      originalValue,
+      draftValue,
+    });
   };
-  const normalizedDetailsQuery = useMemo(() => normalizeListSearchQuery(detailsSearch), [detailsSearch]);
+  const normalizedDetailsQuery = useMemo(
+    () => normalizeListSearchQuery(detailsSearch),
+    [detailsSearch],
+  );
 
   const osEntries = useMemo(() => getOsEntries(photo), [photo]);
   const imageGroups = useMemo(() => {
     if (metadata === "loading") return [];
-    
+
     const combinedMetadata: Record<string, Variant> = { ...metadata };
     if (draftEdits) {
       for (const [key, value] of Object.entries(draftEdits)) {
@@ -365,7 +481,9 @@ export function DetailsPane({ photo, metadata, draftEdits = {}, typedDraftEdits,
   }, [metadata, draftEdits]);
 
   const filteredOsEntries = useMemo(() => {
-    const { query, hasEditsFilter } = splitHasEditsFilter(normalizedDetailsQuery);
+    const { query, hasEditsFilter } = splitHasEditsFilter(
+      normalizedDetailsQuery,
+    );
     if (!query && !hasEditsFilter) return osEntries;
     return osEntries.filter(([label, value, key]) => {
       if (hasEditsFilter && draftEdits[key] === undefined) return false;
@@ -374,14 +492,23 @@ export function DetailsPane({ photo, metadata, draftEdits = {}, typedDraftEdits,
   }, [osEntries, normalizedDetailsQuery, draftEdits]);
 
   const filteredImageGroups = useMemo(() => {
-    const { query, hasEditsFilter } = splitHasEditsFilter(normalizedDetailsQuery);
+    const { query, hasEditsFilter } = splitHasEditsFilter(
+      normalizedDetailsQuery,
+    );
     if (!query && !hasEditsFilter) return imageGroups;
     return imageGroups
       .map((g) => ({
         ...g,
         entries: g.entries.filter((e) => {
-          if (hasEditsFilter && draftEdits[e.fullKey] === undefined) return false;
-          return detailsRowMatchesSearch(e.label, e.value, draftEdits[e.fullKey], e.fullKey, query);
+          if (hasEditsFilter && draftEdits[e.fullKey] === undefined)
+            return false;
+          return detailsRowMatchesSearch(
+            e.label,
+            e.value,
+            draftEdits[e.fullKey],
+            e.fullKey,
+            query,
+          );
         }),
       }))
       .filter((g) => g.entries.length > 0);
@@ -391,26 +518,44 @@ export function DetailsPane({ photo, metadata, draftEdits = {}, typedDraftEdits,
 
   return (
     <div className="details-pane" data-testid="details-pane">
-      <h2 className="details-pane-title" style={{ display: "flex", alignItems: "center" }}>
+      <h2
+        className="details-pane-title"
+        style={{ display: "flex", alignItems: "center" }}
+      >
         Properties
         {Object.keys(draftEdits).length > 0 && (
-          <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "6px" }}>
-            <span 
-              className="row-draft-badge" 
+          <div
+            style={{
+              marginLeft: "auto",
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+            }}
+          >
+            <span
+              className="row-draft-badge"
               style={{ cursor: "pointer", marginLeft: 0 }}
               onClick={() => setDetailsSearch("has:edits")}
               title="Show only edited fields"
             >
-              {Object.keys(draftEdits).length} edit{Object.keys(draftEdits).length === 1 ? "" : "s"}
+              {Object.keys(draftEdits).length} edit
+              {Object.keys(draftEdits).length === 1 ? "" : "s"}
             </span>
             {onApplyEdits && (
               <button
                 className="button button--primary"
-                style={{ padding: "2px 6px", fontSize: "11px", minHeight: "auto", borderRadius: "8px" }}
+                style={{
+                  padding: "2px 6px",
+                  fontSize: "11px",
+                  minHeight: "auto",
+                  borderRadius: "8px",
+                }}
                 onClick={async () => {
                   const editCount = Object.keys(draftEdits).length;
                   const confirmed = await confirmApplyEdits({
-                    editCount, target: "this photo", photoCount: 1,
+                    editCount,
+                    target: "this photo",
+                    photoCount: 1,
                   });
                   if (confirmed) onApplyEdits();
                 }}
@@ -422,12 +567,18 @@ export function DetailsPane({ photo, metadata, draftEdits = {}, typedDraftEdits,
             )}
             <button
               className="button button--secondary"
-              style={{ padding: "2px 6px", fontSize: "11px", minHeight: "auto", borderRadius: "8px" }}
+              style={{
+                padding: "2px 6px",
+                fontSize: "11px",
+                minHeight: "auto",
+                borderRadius: "8px",
+              }}
               onClick={async () => {
                 if (!onDiscardAllEdits) return;
                 const editCount = Object.keys(draftEdits).length;
                 const confirmed = await confirmDiscardEdits({
-                  editCount, scope: "this photo",
+                  editCount,
+                  scope: "this photo",
                 });
                 if (confirmed) onDiscardAllEdits();
               }}
@@ -463,9 +614,23 @@ export function DetailsPane({ photo, metadata, draftEdits = {}, typedDraftEdits,
             <table className="details-table">
               <tbody>
                 {filteredOsEntries.map(([label, value, propKey]) => (
-                  <tr key={label} className="details-row" data-testid="details-row">
-                    <td className="details-key" style={draftEdits[propKey] !== undefined ? { color: "var(--accent-draft)" } : undefined}>
-                      <HighlightedText text={label} searchQuery={detailsSearch} />
+                  <tr
+                    key={label}
+                    className="details-row"
+                    data-testid="details-row"
+                  >
+                    <td
+                      className="details-key"
+                      style={
+                        draftEdits[propKey] !== undefined
+                          ? { color: "var(--accent-draft)" }
+                          : undefined
+                      }
+                    >
+                      <HighlightedText
+                        text={label}
+                        searchQuery={detailsSearch}
+                      />
                     </td>
                     <DetailsValueCell
                       originalValue={value}
@@ -482,14 +647,20 @@ export function DetailsPane({ photo, metadata, draftEdits = {}, typedDraftEdits,
 
         {/* Image Metadata */}
         {metadata === "loading" ? (
-          <section className="details-section" data-testid="details-section-loading">
+          <section
+            className="details-section"
+            data-testid="details-section-loading"
+          >
             <h3 className="details-section-header">Image Metadata</h3>
             <div className="details-loading">Loading metadata…</div>
           </section>
         ) : (
           <>
             {filteredImageGroups.length === 0 ? (
-              <section className="details-section" data-testid="details-section-empty">
+              <section
+                className="details-section"
+                data-testid="details-section-empty"
+              >
                 <h3 className="details-section-header">Image Metadata</h3>
                 <div className="details-empty">No image metadata available</div>
               </section>
@@ -507,11 +678,24 @@ export function DetailsPane({ photo, metadata, draftEdits = {}, typedDraftEdits,
                         <DetailsImageRow
                           key={entry.fullKey}
                           entry={entry}
-                          rawValue={typeof metadata === "object" ? (metadata as Record<string, Variant>)[entry.fullKey] : undefined}
+                          rawValue={
+                            typeof metadata === "object"
+                              ? (metadata as Record<string, Variant>)[
+                                  entry.fullKey
+                                ]
+                              : undefined
+                          }
                           draftValue={draftEdits[entry.fullKey]}
                           typedDraft={typedDraftEdits?.[entry.fullKey]}
                           searchQuery={detailsSearch}
-                          onContextMenu={(e) => handleContextMenu(e, entry.fullKey, entry.value, draftEdits[entry.fullKey])}
+                          onContextMenu={(e) =>
+                            handleContextMenu(
+                              e,
+                              entry.fullKey,
+                              entry.value,
+                              draftEdits[entry.fullKey],
+                            )
+                          }
                         />
                       ))}
                     </tbody>
@@ -580,18 +764,27 @@ export function DetailsPane({ photo, metadata, draftEdits = {}, typedDraftEdits,
           onEdit={() => {
             setEditDialog({
               key: contextMenu.key,
-              initialValue: contextMenu.draftValue !== undefined && contextMenu.draftValue !== null
-                ? contextMenu.draftValue
-                : contextMenu.originalValue,
+              initialValue:
+                contextMenu.draftValue !== undefined &&
+                contextMenu.draftValue !== null
+                  ? contextMenu.draftValue
+                  : contextMenu.originalValue,
             });
             setContextMenu(null);
           }}
-          onDiscard={() => { onDiscardDraft?.(contextMenu.key); setContextMenu(null); }}
+          onDiscard={() => {
+            onDiscardDraft?.(contextMenu.key);
+            setContextMenu(null);
+          }}
           onRemove={() => {
             const existsInOriginal =
-              metadata !== "loading" && contextMenu.key in (metadata as Record<string, Variant>);
+              metadata !== "loading" &&
+              contextMenu.key in (metadata as Record<string, Variant>);
             if (existsInOriginal) {
-              onSetDraftTyped?.(contextMenu.key, { value: null, intent: "Delete" });
+              onSetDraftTyped?.(contextMenu.key, {
+                value: null,
+                intent: "Delete",
+              });
             } else {
               onDiscardDraft?.(contextMenu.key);
             }
@@ -611,11 +804,24 @@ export function DetailsPane({ photo, metadata, draftEdits = {}, typedDraftEdits,
             // every time the row was re-edited.
             const pending = typedDraftEdits?.[editDialog.key];
             if (pending && pending.intent !== "Delete") return pending.value;
-            return metadata !== "loading" ? (metadata[editDialog.key] as Variant | undefined) : undefined;
+            return metadata !== "loading"
+              ? (metadata[editDialog.key] as Variant | undefined)
+              : undefined;
           })()}
-          metadataForFile={metadata !== "loading" ? (metadata as Record<string, Variant>) : undefined}
+          metadataForFile={
+            metadata !== "loading"
+              ? (metadata as Record<string, Variant>)
+              : undefined
+          }
           initialString={editDialog.initialValue}
-          onSaveBatch={onSetDraftBatch ? (edits) => { onSetDraftBatch(edits); setEditDialog(null); } : undefined}
+          onSaveBatch={
+            onSetDraftBatch
+              ? (edits) => {
+                  onSetDraftBatch(edits);
+                  setEditDialog(null);
+                }
+              : undefined
+          }
           onSave={(edit) => {
             onSetDraftTyped?.(editDialog.key, edit);
             setEditDialog(null);
@@ -641,8 +847,19 @@ export function DetailsPane({ photo, metadata, draftEdits = {}, typedDraftEdits,
           propertyKey={newPropertyKey}
           initialVariant={undefined}
           initialString=""
-          metadataForFile={metadata !== "loading" ? (metadata as Record<string, Variant>) : undefined}
-          onSaveBatch={onSetDraftBatch ? (edits) => { onSetDraftBatch(edits); setNewPropertyKey(null); } : undefined}
+          metadataForFile={
+            metadata !== "loading"
+              ? (metadata as Record<string, Variant>)
+              : undefined
+          }
+          onSaveBatch={
+            onSetDraftBatch
+              ? (edits) => {
+                  onSetDraftBatch(edits);
+                  setNewPropertyKey(null);
+                }
+              : undefined
+          }
           onSave={(edit) => {
             onSetDraftTyped?.(newPropertyKey, edit);
             setNewPropertyKey(null);
@@ -655,4 +872,10 @@ export function DetailsPane({ photo, metadata, draftEdits = {}, typedDraftEdits,
 }
 
 // Export for unit testing
-export { groupImageMetadata, formatVariant, formatTimestamp, getOsEntries, extractPrefix };
+export {
+  groupImageMetadata,
+  formatVariant,
+  formatTimestamp,
+  getOsEntries,
+  extractPrefix,
+};

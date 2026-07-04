@@ -15,13 +15,29 @@ type EventHandler = (payload: unknown) => void;
 export interface MockTauriApi {
   api: TauriApi;
   pickFolderResolves: (path: string | null) => void;
-  draftEditsByFolder: Record<string, Record<string, Record<string, string | null>>>;
+  draftEditsByFolder: Record<
+    string,
+    Record<string, Record<string, string | null>>
+  >;
   emitPhotoFound: (photo: PhotoInfo, scanId?: number) => void;
   emitScanComplete: (scanId?: number) => void;
-  emitImageMetadataReady: (relativePath: string, metadata: Record<string, Variant>, scanId?: number) => void;
-  emitThumbnailReady: (relativePath: string, thumbnail: string | null, scanId?: number) => void;
+  emitImageMetadataReady: (
+    relativePath: string,
+    metadata: Record<string, Variant>,
+    scanId?: number,
+  ) => void;
+  emitThumbnailReady: (
+    relativePath: string,
+    thumbnail: string | null,
+    scanId?: number,
+  ) => void;
   emitScanError: (message: string, scanId?: number) => void;
-  emitWorkerError: (workerType: string, errorMessage: string, affectedFiles?: string[], scanId?: number) => void;
+  emitWorkerError: (
+    workerType: string,
+    errorMessage: string,
+    affectedFiles?: string[],
+    scanId?: number,
+  ) => void;
   lastPrioritizedPaths: string[];
   lastWindowTitle: string | null;
   /** All invoke calls recorded in order. */
@@ -57,18 +73,26 @@ export interface MockTauriApi {
   }>;
   /** Override the usage summary emitted by describe_complete. */
   describeUsageSummary: {
-    totalInputTokens: number; totalCachedTokens: number;
-    totalOutputTokens: number; predictedCostUsd: number; actualCostUsd: number;
+    totalInputTokens: number;
+    totalCachedTokens: number;
+    totalOutputTokens: number;
+    predictedCostUsd: number;
+    actualCostUsd: number;
   };
   /** Override the estimate-complete payload. */
   describeEstimateComplete: {
-    totalInputTokens: number; predictedCostUsd: number;
-    upperBoundCostUsd: number; model: string;
+    totalInputTokens: number;
+    predictedCostUsd: number;
+    upperBoundCostUsd: number;
+    model: string;
   };
 
   // ── Reverse-geocoding mock state ─────────────────────────────────────
   /** Records the most recent geocode_images_cmd arguments. */
-  lastGeocodeArgs: { folderPath: string; items: Array<{ relPath: string; lat: number | null; lon: number | null }> } | null;
+  lastGeocodeArgs: {
+    folderPath: string;
+    items: Array<{ relPath: string; lat: number | null; lon: number | null }>;
+  } | null;
   cancelGeocodeCalled: boolean;
   /** Per-rel-path geocode outcome. Order corresponds to items[i]. */
   geocodeSchedule: Array<{
@@ -107,18 +131,21 @@ export interface MockTauriApi {
     nSucceeded: number;
     nFailed: number;
     nSkippedAllNormalised: number;
-    perGroup: Record<string, {
-      nNoop: number;
-      nNormalisedDeterministic: number;
-      nNormalisedAi: number;
-      nConflictPrimaryWon: number;
-      nLocationXmpIimConflict: number;
-      nDateConflict: number;
-      nDtoFromFilename: number;
-      nDtoFromFilenameDateOnly: number;
-      nUnparseableDateInputs: number;
-      nAiErrors: number;
-    }>;
+    perGroup: Record<
+      string,
+      {
+        nNoop: number;
+        nNormalisedDeterministic: number;
+        nNormalisedAi: number;
+        nConflictPrimaryWon: number;
+        nLocationXmpIimConflict: number;
+        nDateConflict: number;
+        nDtoFromFilename: number;
+        nDtoFromFilenameDateOnly: number;
+        nUnparseableDateInputs: number;
+        nAiErrors: number;
+      }
+    >;
     aiCostTotalUsd: number;
     aiCallsTotal: number;
   };
@@ -130,21 +157,37 @@ export function createMockTauriApi(): MockTauriApi {
 
   const mock: MockTauriApi = {
     api: null as unknown as TauriApi,
-    pickFolderResolves: (path) => { nextFolder = path; },
+    pickFolderResolves: (path) => {
+      nextFolder = path;
+    },
     emitPhotoFound: (photo, scanId) =>
-      emit("photo_found", { scan_id: scanId ?? mock.currentScanId, photos: [photo] } satisfies PhotoFoundPayload),
+      emit("photo_found", {
+        scan_id: scanId ?? mock.currentScanId,
+        photos: [photo],
+      } satisfies PhotoFoundPayload),
     emitScanComplete: (scanId) =>
       emit("scan_complete", { scan_id: scanId ?? mock.currentScanId }),
     emitImageMetadataReady: (relative_path, metadata, scanId) =>
-      emit("image_metadata_ready", { scan_id: scanId ?? mock.currentScanId, results: [{ relative_path, metadata }] } satisfies ImageMetadataReadyPayload),
+      emit("image_metadata_ready", {
+        scan_id: scanId ?? mock.currentScanId,
+        results: [{ relative_path, metadata }],
+      } satisfies ImageMetadataReadyPayload),
     emitThumbnailReady: (relative_path, thumbnail, scanId) =>
-      emit("thumbnail_ready", { scan_id: scanId ?? mock.currentScanId, results: [{ relative_path, thumbnail }] } satisfies ThumbnailReadyPayload),
+      emit("thumbnail_ready", {
+        scan_id: scanId ?? mock.currentScanId,
+        results: [{ relative_path, thumbnail }],
+      } satisfies ThumbnailReadyPayload),
     emitScanError: (message, scanId) =>
       emit("scan_error", {
         scan_id: scanId ?? mock.currentScanId,
         message,
       } satisfies ScanErrorPayload),
-    emitWorkerError: (worker_type, error_message, affected_files = [], scanId) =>
+    emitWorkerError: (
+      worker_type,
+      error_message,
+      affected_files = [],
+      scanId,
+    ) =>
       emit("worker_error", {
         scan_id: scanId ?? mock.currentScanId,
         worker_type,
@@ -159,13 +202,19 @@ export function createMockTauriApi(): MockTauriApi {
     applyEditsResult: { applied: [], failed: [], fresh_metadata: {} },
     cancelApplyEditsCalled: false,
     settings: { openai_api_key: "", openai_model: "gpt-4o" },
-    recommendedModels: ["gpt-4o", "gpt-5.4-nano", "gpt-5.4-mini", "gpt-5.4", "gpt-5.5"],
+    recommendedModels: [
+      "gpt-4o",
+      "gpt-5.4-nano",
+      "gpt-5.4-mini",
+      "gpt-5.4",
+      "gpt-5.5",
+    ],
     perImageCosts: {
       "gpt-4o": 0.00525,
       "gpt-5.4-nano": 0.00053,
       "gpt-5.4-mini": 0.00195,
       "gpt-5.4": 0.0065,
-      "gpt-5.5": 0.0130,
+      "gpt-5.5": 0.013,
     },
     lastEstimateArgs: null,
     lastDescribeArgs: null,
@@ -173,11 +222,17 @@ export function createMockTauriApi(): MockTauriApi {
     estimateTokenSchedule: [],
     describeSchedule: [],
     describeUsageSummary: {
-      totalInputTokens: 0, totalCachedTokens: 0, totalOutputTokens: 0,
-      predictedCostUsd: 0, actualCostUsd: 0,
+      totalInputTokens: 0,
+      totalCachedTokens: 0,
+      totalOutputTokens: 0,
+      predictedCostUsd: 0,
+      actualCostUsd: 0,
     },
     describeEstimateComplete: {
-      totalInputTokens: 0, predictedCostUsd: 0, upperBoundCostUsd: 0, model: "gpt-4o",
+      totalInputTokens: 0,
+      predictedCostUsd: 0,
+      upperBoundCostUsd: 0,
+      model: "gpt-4o",
     },
     lastGeocodeArgs: null,
     cancelGeocodeCalled: false,
@@ -193,9 +248,12 @@ export function createMockTauriApi(): MockTauriApi {
     cancelNormaliseCalled: false,
     normaliseSchedule: [],
     normaliseSummary: {
-      nSucceeded: 0, nFailed: 0, nSkippedAllNormalised: 0,
+      nSucceeded: 0,
+      nFailed: 0,
+      nSkippedAllNormalised: 0,
       perGroup: {},
-      aiCostTotalUsd: 0, aiCallsTotal: 0,
+      aiCostTotalUsd: 0,
+      aiCallsTotal: 0,
     },
   };
 
@@ -206,7 +264,7 @@ export function createMockTauriApi(): MockTauriApi {
       if (cmd === "get_cli_folder") return null;
       if (cmd === "start_scan") {
         // The frontend now generates the scanId and passes it in args
-        mock.currentScanId = (args?.scanId as number) ?? (mock.currentScanId + 1);
+        mock.currentScanId = (args?.scanId as number) ?? mock.currentScanId + 1;
         return;
       }
       if (cmd === "stop_scan") {
@@ -248,7 +306,9 @@ export function createMockTauriApi(): MockTauriApi {
         let current = 0;
         for (const path of relPaths) {
           const isApplied = result.applied.includes(path);
-          const failedEntry = result.failed.find((f) => f.relative_path === path);
+          const failedEntry = result.failed.find(
+            (f) => f.relative_path === path,
+          );
           if (!isApplied && !failedEntry) continue;
 
           current += 1;
@@ -299,8 +359,11 @@ export function createMockTauriApi(): MockTauriApi {
         for (let i = 0; i < total; i++) {
           const tokens = mock.estimateTokenSchedule[i] ?? 1000;
           emit("describe_estimate_progress", {
-            current: i + 1, total, relativePath: relPaths[i],
-            inputTokens: tokens, expectedCostUsd: 0.001,
+            current: i + 1,
+            total,
+            relativePath: relPaths[i],
+            inputTokens: tokens,
+            expectedCostUsd: 0.001,
           });
         }
         emit("describe_estimate_complete", mock.describeEstimateComplete);
@@ -314,20 +377,37 @@ export function createMockTauriApi(): MockTauriApi {
         await new Promise((r) => setTimeout(r, 0));
         emit("describe_started", { total });
         const succeeded: string[] = [];
-        const failed: Array<{ relativePath: string; kind: string; detail: string }> = [];
+        const failed: Array<{
+          relativePath: string;
+          kind: string;
+          detail: string;
+        }> = [];
         for (let i = 0; i < total; i++) {
           const rp = relPaths[i];
-          const sched = mock.describeSchedule[i] ?? { relativePath: rp, status: "ok" };
+          const sched = mock.describeSchedule[i] ?? {
+            relativePath: rp,
+            status: "ok",
+          };
           emit("describe_progress", {
-            current: i + 1, total, relativePath: rp,
-            status: sched.status, error: sched.error ?? null,
+            current: i + 1,
+            total,
+            relativePath: rp,
+            status: sched.status,
+            error: sched.error ?? null,
             edits: sched.status === "ok" ? (sched.edits ?? {}) : undefined,
           });
           if (sched.status === "ok") succeeded.push(rp);
-          else failed.push({ relativePath: rp, kind: sched.status, detail: sched.error ?? "" });
+          else
+            failed.push({
+              relativePath: rp,
+              kind: sched.status,
+              detail: sched.error ?? "",
+            });
         }
         emit("describe_complete", {
-          succeeded, failed, usageSummary: mock.describeUsageSummary,
+          succeeded,
+          failed,
+          usageSummary: mock.describeUsageSummary,
         });
         return;
       }
@@ -337,26 +417,48 @@ export function createMockTauriApi(): MockTauriApi {
       }
       if (cmd === "geocode_images_cmd") {
         const folderPath = args?.folderPath as string;
-        const items = (args?.items as Array<{ relPath: string; lat: number | null; lon: number | null }>) ?? [];
+        const items =
+          (args?.items as Array<{
+            relPath: string;
+            lat: number | null;
+            lon: number | null;
+          }>) ?? [];
         mock.lastGeocodeArgs = { folderPath, items };
         const total = items.length;
         await new Promise((r) => setTimeout(r, 0));
         emit("geocode_started", { total });
         const succeeded: string[] = [];
-        const failed: Array<{ relativePath: string; kind: string; detail: string }> = [];
+        const failed: Array<{
+          relativePath: string;
+          kind: string;
+          detail: string;
+        }> = [];
         for (let i = 0; i < total; i++) {
           const rp = items[i].relPath;
-          const sched = mock.geocodeSchedule[i] ?? { relativePath: rp, status: "ok" };
+          const sched = mock.geocodeSchedule[i] ?? {
+            relativePath: rp,
+            status: "ok",
+          };
           emit("geocode_progress", {
-            current: i + 1, total, relativePath: rp,
-            status: sched.status, error: sched.error ?? null,
+            current: i + 1,
+            total,
+            relativePath: rp,
+            status: sched.status,
+            error: sched.error ?? null,
             edits: sched.status === "ok" ? (sched.edits ?? {}) : undefined,
           });
           if (sched.status === "ok") succeeded.push(rp);
-          else failed.push({ relativePath: rp, kind: sched.status, detail: sched.error ?? "" });
+          else
+            failed.push({
+              relativePath: rp,
+              kind: sched.status,
+              detail: sched.error ?? "",
+            });
         }
         emit("geocode_complete", {
-          succeeded, failed, usageSummary: mock.geocodeSummary,
+          succeeded,
+          failed,
+          usageSummary: mock.geocodeSummary,
         });
         return;
       }
@@ -375,7 +477,8 @@ export function createMockTauriApi(): MockTauriApi {
         await new Promise((r) => setTimeout(r, 0));
         emit("normalise_estimate_started", { total });
         const wantsAi =
-          enabledGroups.includes("description") || enabledGroups.includes("title");
+          enabledGroups.includes("description") ||
+          enabledGroups.includes("title");
         // Default outcome map: every group has at least one
         // "deterministic" outcome so the table rows render enabled and
         // the auto-prune in `useNormaliseMetadata` doesn't drop them.
@@ -417,27 +520,48 @@ export function createMockTauriApi(): MockTauriApi {
       }
       if (cmd === "normalise_metadata_cmd") {
         const folderPath = args?.folderPath as string;
-        const items = (args?.items as Array<{ relPath: string; groupInputs: Record<string, unknown> }>) ?? [];
+        const items =
+          (args?.items as Array<{
+            relPath: string;
+            groupInputs: Record<string, unknown>;
+          }>) ?? [];
         const enabledGroups = (args?.enabledGroups as string[]) ?? [];
         mock.lastNormaliseArgs = { folderPath, items, enabledGroups };
         const total = items.length;
         await new Promise((r) => setTimeout(r, 0));
         emit("normalise_started", { total });
         const succeeded: string[] = [];
-        const failed: Array<{ relativePath: string; kind: string; detail: string }> = [];
+        const failed: Array<{
+          relativePath: string;
+          kind: string;
+          detail: string;
+        }> = [];
         for (let i = 0; i < total; i++) {
           const rp = items[i].relPath;
-          const sched = mock.normaliseSchedule[i] ?? { relativePath: rp, status: "ok" };
+          const sched = mock.normaliseSchedule[i] ?? {
+            relativePath: rp,
+            status: "ok",
+          };
           emit("normalise_progress", {
-            current: i + 1, total, relativePath: rp,
-            status: sched.status, error: sched.error ?? null,
+            current: i + 1,
+            total,
+            relativePath: rp,
+            status: sched.status,
+            error: sched.error ?? null,
             edits: sched.status === "ok" ? (sched.edits ?? {}) : undefined,
           });
           if (sched.status === "ok") succeeded.push(rp);
-          else failed.push({ relativePath: rp, kind: sched.status, detail: sched.error ?? "" });
+          else
+            failed.push({
+              relativePath: rp,
+              kind: sched.status,
+              detail: sched.error ?? "",
+            });
         }
         emit("normalise_complete", {
-          succeeded, failed, usageSummary: mock.normaliseSummary,
+          succeeded,
+          failed,
+          usageSummary: mock.normaliseSummary,
         });
         return;
       }
@@ -450,7 +574,9 @@ export function createMockTauriApi(): MockTauriApi {
     listen: async (event, handler) => {
       if (!handlers[event]) handlers[event] = [];
       handlers[event].push(handler);
-      return () => { handlers[event] = handlers[event].filter((h) => h !== handler); };
+      return () => {
+        handlers[event] = handlers[event].filter((h) => h !== handler);
+      };
     },
   };
 

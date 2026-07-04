@@ -45,9 +45,15 @@ describe("decodeFlashCode / encodeFlashFields", () => {
   });
 
   it("encodes red-eye bit", () => {
-    expect(encodeFlashFields({
-      fired: true, returnStatus: 0, mode: 3, noFunction: false, redEye: true,
-    })).toBe(25 | 0b1000000); // 25 + 64 = 89
+    expect(
+      encodeFlashFields({
+        fired: true,
+        returnStatus: 0,
+        mode: 3,
+        noFunction: false,
+        redEye: true,
+      }),
+    ).toBe(25 | 0b1000000); // 25 + 64 = 89
   });
 });
 
@@ -61,8 +67,12 @@ describe("FlashEditor", () => {
         onCancel={() => {}}
       />,
     );
-    expect((screen.getByTestId("flash-editor-fired") as HTMLInputElement).checked).toBe(true);
-    expect((screen.getByTestId("flash-editor-mode") as HTMLSelectElement).value).toBe("3");
+    expect(
+      (screen.getByTestId("flash-editor-fired") as HTMLInputElement).checked,
+    ).toBe(true);
+    expect(
+      (screen.getByTestId("flash-editor-mode") as HTMLSelectElement).value,
+    ).toBe("3");
   });
 
   it("shows the live code preview", () => {
@@ -74,7 +84,9 @@ describe("FlashEditor", () => {
         onCancel={() => {}}
       />,
     );
-    expect(screen.getByTestId("flash-editor-code-preview")).toHaveTextContent("25");
+    expect(screen.getByTestId("flash-editor-code-preview")).toHaveTextContent(
+      "25",
+    );
   });
 
   it("toggling Red-eye updates the code in real time", () => {
@@ -87,7 +99,9 @@ describe("FlashEditor", () => {
       />,
     );
     fireEvent.click(screen.getByTestId("flash-editor-red-eye"));
-    expect(screen.getByTestId("flash-editor-code-preview")).toHaveTextContent("89");
+    expect(screen.getByTestId("flash-editor-code-preview")).toHaveTextContent(
+      "89",
+    );
   });
 
   it("Save emits the recomputed numeric code", () => {
@@ -110,10 +124,14 @@ describe("FlashEditor", () => {
 
 describe("describeFlashCode", () => {
   it("describes fired + auto + red-eye", () => {
-    expect(describeFlashCode(decodeFlashCode(89))).toBe("Fired, Auto, Red-eye reduction");
+    expect(describeFlashCode(decodeFlashCode(89))).toBe(
+      "Fired, Auto, Red-eye reduction",
+    );
   });
   it("collapses to 'No flash function' when that bit is set", () => {
-    expect(describeFlashCode(decodeFlashCode(0b100000))).toBe("No flash function");
+    expect(describeFlashCode(decodeFlashCode(0b100000))).toBe(
+      "No flash function",
+    );
   });
   it("describes did-not-fire when bit 0 is clear", () => {
     expect(describeFlashCode(decodeFlashCode(0))).toBe("Did not fire");

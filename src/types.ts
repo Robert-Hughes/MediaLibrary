@@ -1,8 +1,9 @@
 // ── Generated wire-shape types ────────────────────────────────────────────────
 //
-// These are re-exports of types generated from Rust by ts-rs (see AGENTS.md
-// "Generated types").  Do not hand-edit the originals in
-// `src/types/generated/`; regenerate by running `cargo test` in src-tauri.
+// These are re-exports of types generated from Rust by ts-rs (see
+// docs/GENERATED_TYPES.md). Do not hand-edit the originals in
+// `src/types/generated/`; regenerate with:
+// cargo test --manifest-path src-tauri/Cargo.toml
 
 import type { PhotoInfo } from "./types/generated/PhotoInfo";
 import type { Variant } from "./types/generated/Variant";
@@ -100,7 +101,10 @@ export type ImageMetadataState = "loading" | Record<string, Variant>;
  * Observable store for image-level metadata, keyed by relative_path.
  * Updates only re-render the affected row.
  */
-export type ImageMetadataListener = (path: string, value: ImageMetadataState) => void;
+export type ImageMetadataListener = (
+  path: string,
+  value: ImageMetadataState,
+) => void;
 
 export class ImageMetadataStore {
   private data = new Map<string, ImageMetadataState>();
@@ -246,7 +250,7 @@ export type SortColumnType = "path" | "os" | "image";
 export type SortDirection = "asc" | "desc";
 
 export interface SortKey {
-  column: string;       // Column identifier (e.g. "relative_path", "date_modified", "ExifIFD:DateTimeOriginal")
+  column: string; // Column identifier (e.g. "relative_path", "date_modified", "ExifIFD:DateTimeOriginal")
   columnType: SortColumnType;
   direction: SortDirection;
 }
@@ -260,14 +264,17 @@ export interface SortConfig {
 
 /**
  * Internal storage shape: typed DraftEdit carrying value + intent (see
- * METADATA_FORMATS_DESIGN.md §7).  Components and tests still consume the
+ * docs/METADATA_FORMATS_DESIGN.md §7). Components and tests still consume the
  * legacy `string | null` view; conversion happens in `src/draft.ts`.
  */
 export type DraftEditsByFile = Record<string, Record<string, DraftEdit>>;
 
 /** Legacy display value for components and the Tauri boundary. */
 export type DraftEditsValue = string | null;
-export type LegacyDraftEditsByFile = Record<string, Record<string, DraftEditsValue>>;
+export type LegacyDraftEditsByFile = Record<
+  string,
+  Record<string, DraftEditsValue>
+>;
 
 /**
  * Per-mutation change record passed to DraftEditsStore subscribers.
@@ -547,7 +554,7 @@ export type AppState =
       thumbnails: ThumbnailStore;
       imageMetadata: ImageMetadataStore;
       metadataProgress: MetadataProgressStore;
-      scanning: boolean;                // true while the directory walk is still running
+      scanning: boolean; // true while the directory walk is still running
       galleryIndex: number | null;
       selectedIndex: number | null;
 
@@ -559,7 +566,7 @@ export type AppState =
 
       // Sorting
       sortConfig: SortConfig;
-      metadataVersion: number;          // Incremented when a metadata batch lands; invalidates sort useMemo
+      metadataVersion: number; // Incremented when a metadata batch lands; invalidates sort useMemo
 
       // Worker errors
       workerErrors: WorkerErrorPayload[];
@@ -593,7 +600,8 @@ export interface ApplyEditsInFlight {
 
 // ── AI image-description (see docs/IMAGE_ANALYSIS.md) ──────────────────────────
 
-export type DescribePhase = "estimating" | "awaiting-confirm" | "running" | "done";
+export type DescribePhase =
+  "estimating" | "awaiting-confirm" | "running" | "done";
 
 export interface DescribeEstimate {
   totalInputTokens: number;
@@ -637,7 +645,7 @@ export interface NormaliseEstimatePricing {
 }
 
 /**
- * Cost-estimate summary for the metadata-normaliser. Plan §7.
+ * Cost-estimate summary for the metadata-normaliser.
  *
  * `model` is the empty string and `pricing` / `aiTokenBreakdown` are
  * `null` when no preflight ran (missing API key, or no pricing entry
@@ -652,7 +660,9 @@ export interface NormaliseEstimate {
   predictedCostUsd: number;
   upperBoundCostUsd: number;
   model: string;
-  perGroupOutcomes: Partial<Record<NormaliseGroup, NormaliseGroupOutcomeCounts>>;
+  perGroupOutcomes: Partial<
+    Record<NormaliseGroup, NormaliseGroupOutcomeCounts>
+  >;
   aiTokenBreakdown: NormaliseEstimateAiTokenBreakdown | null;
   pricing: NormaliseEstimatePricing | null;
   expectedOutPerCallB: number;
@@ -717,9 +727,16 @@ export interface DescribeProgressState {
  * drafts triggers the warning. Keep in sync with the `*_TARGET_TAGS`
  * constants in `src-tauri/src/normalise.rs`.
  */
-export const NORMALISE_TARGET_TAGS_BY_GROUP: Record<NormaliseGroup, readonly string[]> = {
+export const NORMALISE_TARGET_TAGS_BY_GROUP: Record<
+  NormaliseGroup,
+  readonly string[]
+> = {
   keywords: ["XMP-lr:HierarchicalSubject", "XMP-dc:Subject", "IPTC:Keywords"],
-  description: ["XMP-dc:Description", "EXIF:ImageDescription", "IPTC:Caption-Abstract"],
+  description: [
+    "XMP-dc:Description",
+    "EXIF:ImageDescription",
+    "IPTC:Caption-Abstract",
+  ],
   title: ["XMP-dc:Title", "IPTC:ObjectName"],
   headline: ["XMP-photoshop:Headline", "IPTC:Headline"],
   creator: ["XMP-dc:Creator", "EXIF:Artist", "IPTC:By-line"],
@@ -755,7 +772,7 @@ export const NORMALISE_ALL_TARGET_TAGS: readonly string[] = Object.values(
 
 /**
  * Every NormaliseGroup the v1 dialog exposes, in the pass order
- * documented in NORMALISE_METADATA_PLAN.md §2. Used as the default
+ * documented in docs/NORMALISE_METADATA_PLAN.md §2. Used as the default
  * "all enabled" set when a normalise flow is kicked off, and as the
  * canonical ordering for the dialog's per-group toggles.
  */

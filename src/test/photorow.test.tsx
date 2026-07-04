@@ -7,13 +7,18 @@ describe("PhotoRow", () => {
   it("renders PhotoList with photos without crashing", () => {
     const thumbnails = new ThumbnailStore();
     const metadata = new ImageMetadataStore();
-    
+
     // add some metadata
     thumbnails.set("1.jpg", "base64string");
     metadata.set("1.jpg", { Model: "Nikon" });
 
     const photos = [
-      { relative_path: "1.jpg", filename: "1.jpg", date_modified: null, date_created: null }
+      {
+        relative_path: "1.jpg",
+        filename: "1.jpg",
+        date_modified: null,
+        date_created: null,
+      },
     ];
 
     render(
@@ -35,7 +40,7 @@ describe("PhotoRow", () => {
         onVisibilityChange={vi.fn()}
         onPhotoOpen={vi.fn()}
         onSelectColumns={vi.fn()}
-      />
+      />,
     );
   });
 
@@ -47,7 +52,14 @@ describe("PhotoRow", () => {
 
     render(
       <PhotoList
-        photos={[{ relative_path: "1.jpg", filename: "1.jpg", date_modified: null, date_created: null }]}
+        photos={[
+          {
+            relative_path: "1.jpg",
+            filename: "1.jpg",
+            date_modified: null,
+            date_created: null,
+          },
+        ]}
         thumbnails={thumbnails}
         imageMetadata={metadata}
         visibleColumns={[]}
@@ -58,7 +70,7 @@ describe("PhotoRow", () => {
         onShowInExplorer={vi.fn()}
         onVisibilityChange={vi.fn()}
         onPhotoOpen={vi.fn()}
-      />
+      />,
     );
 
     expect(document.querySelector(".photo-thumb-img")).not.toBeNull();
@@ -73,7 +85,12 @@ describe("PhotoRow", () => {
     const thumbnails = new ThumbnailStore();
     const metadata = new ImageMetadataStore();
     const photos = [
-      { relative_path: "1.jpg", filename: "1.jpg", date_modified: null, date_created: null },
+      {
+        relative_path: "1.jpg",
+        filename: "1.jpg",
+        date_modified: null,
+        date_created: null,
+      },
     ];
     thumbnails.add("1.jpg");
     metadata.add("1.jpg");
@@ -96,7 +113,7 @@ describe("PhotoRow", () => {
         onVisibilityChange={vi.fn()}
         onPhotoOpen={vi.fn()}
         onSelectColumns={vi.fn()}
-      />
+      />,
     );
 
     const row = screen.getByTestId("photo-row") as HTMLElement;

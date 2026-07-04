@@ -163,7 +163,11 @@ describe("initialItemsFrom", () => {
   });
 
   it("parses comma-joined string (legacy display form)", () => {
-    expect(initialItemsFrom("beach, sunset, vacation")).toEqual(["beach", "sunset", "vacation"]);
+    expect(initialItemsFrom("beach, sunset, vacation")).toEqual([
+      "beach",
+      "sunset",
+      "vacation",
+    ]);
   });
 
   it("returns empty for null/undefined", () => {

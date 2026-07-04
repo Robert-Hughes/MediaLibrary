@@ -33,7 +33,7 @@ describe("Gallery Zoom and Pan", () => {
 
     // Simulate wheel event to zoom in
     fireEvent.wheel(area, { deltaY: -100, clientX: 100, clientY: 100 });
-    
+
     // Scale should be > 1
     const transform = image.style.transform;
     expect(transform).not.toBe("translate(0px, 0px) scale(1)");
@@ -51,7 +51,7 @@ describe("Gallery Zoom and Pan", () => {
 
     // Middle click (button 1)
     fireEvent.mouseDown(area, { button: 1 });
-    
+
     expect(image).toHaveStyle({ transform: "translate(0px, 0px) scale(1)" });
   });
 
@@ -61,14 +61,17 @@ describe("Gallery Zoom and Pan", () => {
     const image = await screen.findByTestId("gallery-image");
 
     // Mock getBoundingClientRect so clampPan works properly
-    area.getBoundingClientRect = vi.fn(() => ({
-      width: 1000,
-      height: 1000,
-      left: 0,
-      top: 0,
-      right: 1000,
-      bottom: 1000,
-    } as DOMRect));
+    area.getBoundingClientRect = vi.fn(
+      () =>
+        ({
+          width: 1000,
+          height: 1000,
+          left: 0,
+          top: 0,
+          right: 1000,
+          bottom: 1000,
+        }) as DOMRect,
+    );
 
     // Zoom in
     fireEvent.wheel(area, { deltaY: -500, clientX: 500, clientY: 500 });
@@ -76,7 +79,7 @@ describe("Gallery Zoom and Pan", () => {
     // Drag
     fireEvent.mouseDown(area, { button: 0, clientX: 500, clientY: 500 });
     fireEvent.mouseMove(area, { clientX: 400, clientY: 400 });
-    
+
     expect(image.style.transform).toMatch(/translate\(-100px, -100px\)/);
 
     fireEvent.mouseUp(area);
@@ -90,7 +93,7 @@ describe("Gallery Zoom and Pan", () => {
     // Drag without zoom
     fireEvent.mouseDown(area, { button: 0, clientX: 500, clientY: 500 });
     fireEvent.mouseMove(area, { clientX: 400, clientY: 400 });
-    
+
     expect(image).toHaveStyle({ transform: "translate(0px, 0px) scale(1)" });
   });
 

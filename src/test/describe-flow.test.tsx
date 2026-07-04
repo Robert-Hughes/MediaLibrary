@@ -6,7 +6,13 @@
  * Tauri-invoke boundary; events are dispatched synchronously by the mock
  * so we can observe state transitions in the order the real backend would.
  */
-import { render, screen, act, waitFor, fireEvent } from "@testing-library/react";
+import {
+  render,
+  screen,
+  act,
+  waitFor,
+  fireEvent,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import App from "../App";
@@ -32,31 +38,53 @@ async function openFolderWithPhoto(rel = "test.jpg") {
   const user = userEvent.setup();
   mockApiInstance.pickFolderResolves("/photos");
   render(<App />);
-  await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 50));
+  });
   await user.click(screen.getByTestId("open-folder-btn"));
-  await act(async () => { mockApiInstance.emitPhotoFound(photo); });
-  await act(async () => { mockApiInstance.emitScanComplete(); });
+  await act(async () => {
+    mockApiInstance.emitPhotoFound(photo);
+  });
+  await act(async () => {
+    mockApiInstance.emitScanComplete();
+  });
   // DetailsPane only renders its action buttons once metadata has loaded.
   // Emit an empty-but-present record so we leave the "loading" state.
-  await act(async () => { mockApiInstance.emitImageMetadataReady(rel, {}); });
-  await act(async () => { await new Promise(r => setTimeout(r, 250)); });
+  await act(async () => {
+    mockApiInstance.emitImageMetadataReady(rel, {});
+  });
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 250));
+  });
   return { user, photo };
 }
 
-beforeEach(() => { mockApiInstance = createMockTauriApi(); });
-afterEach(() => { vi.clearAllMocks(); vi.resetModules(); });
+beforeEach(() => {
+  mockApiInstance = createMockTauriApi();
+});
+afterEach(() => {
+  vi.clearAllMocks();
+  vi.resetModules();
+});
 
 describe("SettingsDialog", () => {
   it("loads stored API key and model on open, and persists edits", async () => {
-    mockApiInstance.settings = { openai_api_key: "sk-existing", openai_model: "gpt-5.4" };
+    mockApiInstance.settings = {
+      openai_api_key: "sk-existing",
+      openai_model: "gpt-5.4",
+    };
     const { user } = await openFolderWithPhoto();
 
     await user.click(screen.getByTestId("menu-bar-settings-btn"));
     const apiKeyInput = await screen.findByTestId("settings-api-key-input");
     // The input is type=password so we assert .value rather than visible text.
-    await waitFor(() => expect((apiKeyInput as HTMLInputElement).value).toBe("sk-existing"));
+    await waitFor(() =>
+      expect((apiKeyInput as HTMLInputElement).value).toBe("sk-existing"),
+    );
 
-    const modelSelect = screen.getByTestId("settings-model-select") as HTMLSelectElement;
+    const modelSelect = screen.getByTestId(
+      "settings-model-select",
+    ) as HTMLSelectElement;
     expect(modelSelect.value).toBe("gpt-5.4");
 
     // Type into the API key input and tab away to commit the save.
@@ -64,12 +92,16 @@ describe("SettingsDialog", () => {
     await user.type(apiKeyInput, "sk-new");
     fireEvent.blur(apiKeyInput);
     // Allow the async save_settings_cmd to settle.
-    await act(async () => { await new Promise(r => setTimeout(r, 10)); });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+    });
     expect(mockApiInstance.settings.openai_api_key).toBe("sk-new");
 
     // Switching the model selector saves immediately on change.
     await user.selectOptions(modelSelect, "gpt-4o");
-    await act(async () => { await new Promise(r => setTimeout(r, 10)); });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+    });
     expect(mockApiInstance.settings.openai_model).toBe("gpt-4o");
   });
 
@@ -84,11 +116,21 @@ describe("SettingsDialog", () => {
     mockApiInstance.recommendedModels = ["gpt-4o", "gpt-5.4-nano"];
     const { user } = await openFolderWithPhoto();
     await user.click(screen.getByTestId("menu-bar-settings-btn"));
-    const select = await screen.findByTestId("settings-model-select") as HTMLSelectElement;
+    const select = (await screen.findByTestId(
+      "settings-model-select",
+    )) as HTMLSelectElement;
     await waitFor(() => {
       const labels = Array.from(select.options).map((o) => o.textContent);
-      expect(labels.some((l) => l && l.includes("gpt-4o") && l.includes("per image"))).toBe(true);
-      expect(labels.some((l) => l && l.includes("gpt-5.4-nano") && /\$0\.000\d/.test(l))).toBe(true);
+      expect(
+        labels.some(
+          (l) => l && l.includes("gpt-4o") && l.includes("per image"),
+        ),
+      ).toBe(true);
+      expect(
+        labels.some(
+          (l) => l && l.includes("gpt-5.4-nano") && /\$0\.000\d/.test(l),
+        ),
+      ).toBe(true);
     });
   });
 
@@ -97,7 +139,9 @@ describe("SettingsDialog", () => {
     const { user } = { user: userEvent.setup() };
     await user.click(screen.getByTestId("menu-bar-settings-btn"));
     await screen.findByTestId("settings-api-key-input");
-    expect(screen.getByText(/uploads selected images to OpenAI/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/uploads selected images to OpenAI/i),
+    ).toBeInTheDocument();
   });
 });
 
@@ -110,47 +154,66 @@ describe("AI-description flow", () => {
     const { user, photo } = await openFolderWithPhoto(rel);
     const row = screen.getByTestId("photo-row");
     await user.dblClick(row);
-    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
     const detailsToggle = screen.getByTestId("gallery-info-toggle");
     await user.click(detailsToggle);
-    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
     const aiBtn = await screen.findByTestId("details-pane-generate-ai-btn");
     return { user, photo, aiBtn };
   }
 
   it("walks through estimating → awaiting-confirm → running → done", async () => {
-    mockApiInstance.settings = { openai_api_key: "sk-test", openai_model: "gpt-4o" };
+    mockApiInstance.settings = {
+      openai_api_key: "sk-test",
+      openai_model: "gpt-4o",
+    };
     mockApiInstance.describeEstimateComplete = {
-      totalInputTokens: 1234, predictedCostUsd: 0.0042,
-      upperBoundCostUsd: 0.0099, model: "gpt-4o",
+      totalInputTokens: 1234,
+      predictedCostUsd: 0.0042,
+      upperBoundCostUsd: 0.0099,
+      model: "gpt-4o",
     };
     mockApiInstance.describeUsageSummary = {
-      totalInputTokens: 1230, totalCachedTokens: 0, totalOutputTokens: 200,
-      predictedCostUsd: 0.0042, actualCostUsd: 0.0050,
+      totalInputTokens: 1230,
+      totalCachedTokens: 0,
+      totalOutputTokens: 200,
+      predictedCostUsd: 0.0042,
+      actualCostUsd: 0.005,
     };
 
     const { user, aiBtn } = await startAiDescription();
     await user.click(aiBtn);
-    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
 
     // Dialog appears, walks straight through estimating (mock emits all
     // events synchronously) and into awaiting-confirm.
     await screen.findByTestId("describe-progress-dialog");
     const confirmBtn = await screen.findByTestId("describe-confirm-btn");
-    expect(screen.getByTestId("describe-confirm-summary")).toHaveTextContent(/gpt-4o/);
+    expect(screen.getByTestId("describe-confirm-summary")).toHaveTextContent(
+      /gpt-4o/,
+    );
 
     await user.click(confirmBtn);
 
     // After confirm, the mock immediately emits started/progress/complete,
     // landing the dialog in the done phase with the usage summary visible.
     await screen.findByTestId("describe-done-summary");
-    expect(screen.getByTestId("describe-usage-summary"))
-      .toHaveTextContent(/Actual:/);
+    expect(screen.getByTestId("describe-usage-summary")).toHaveTextContent(
+      /Actual:/,
+    );
 
     // Close cleans up the dialog.
     await user.click(screen.getByTestId("describe-close-btn"));
     await waitFor(() => {
-      expect(screen.queryByTestId("describe-progress-dialog")).not.toBeInTheDocument();
+      expect(
+        screen.queryByTestId("describe-progress-dialog"),
+      ).not.toBeInTheDocument();
     });
   });
 
@@ -161,7 +224,10 @@ describe("AI-description flow", () => {
     // in the per-image progress event and the hook funnels them through
     // setDraftBatch — proven here by inspecting the mock's draft store
     // after the run.
-    mockApiInstance.settings = { openai_api_key: "sk-test", openai_model: "gpt-4o" };
+    mockApiInstance.settings = {
+      openai_api_key: "sk-test",
+      openai_model: "gpt-4o",
+    };
     mockApiInstance.describeSchedule = [
       {
         relativePath: "test.jpg",
@@ -172,7 +238,10 @@ describe("AI-description flow", () => {
             intent: "Set",
           },
           "XMP-mlib:AITags": {
-            value: { type: "List", value: [{ type: "String", value: "beach" }] },
+            value: {
+              type: "List",
+              value: [{ type: "String", value: "beach" }],
+            },
             intent: "Set",
           },
         },
@@ -181,9 +250,13 @@ describe("AI-description flow", () => {
 
     const { user, aiBtn } = await startAiDescription();
     await user.click(aiBtn);
-    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
     await user.click(await screen.findByTestId("describe-confirm-btn"));
-    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
     await screen.findByTestId("describe-done-summary");
 
     const folderDrafts = mockApiInstance.draftEditsByFolder["/photos"];
@@ -194,34 +267,54 @@ describe("AI-description flow", () => {
   });
 
   it("renders per-image failures in the done panel", async () => {
-    mockApiInstance.settings = { openai_api_key: "sk-test", openai_model: "gpt-4o" };
+    mockApiInstance.settings = {
+      openai_api_key: "sk-test",
+      openai_model: "gpt-4o",
+    };
     mockApiInstance.describeSchedule = [
-      { relativePath: "test.jpg", status: "incomplete", error: "max_output_tokens" },
+      {
+        relativePath: "test.jpg",
+        status: "incomplete",
+        error: "max_output_tokens",
+      },
     ];
 
     const { user, aiBtn } = await startAiDescription();
     await user.click(aiBtn);
-    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
     await user.click(await screen.findByTestId("describe-confirm-btn"));
-    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
 
     await screen.findByTestId("describe-done-summary");
     // Failure list is gated behind a <details> element.
     // Friendly label replaces the raw `incomplete` kind in the visible
     // text; the raw kind and detail remain accessible via the `title`
     // tooltip on the row.
-    expect(screen.getByTestId("describe-failure-list")).toHaveTextContent(/Response was truncated/i);
-    expect(screen.getByTestId("describe-failure-list")).toHaveTextContent(/max_output_tokens/);
+    expect(screen.getByTestId("describe-failure-list")).toHaveTextContent(
+      /Response was truncated/i,
+    );
+    expect(screen.getByTestId("describe-failure-list")).toHaveTextContent(
+      /max_output_tokens/,
+    );
   });
 
   it("surfaces the overwrite notice inside the dialog when an AI description already exists", async () => {
     // The notice replaced the old pre-dialog ask() warning. It appears
     // in the awaiting-confirm panel only when the selection includes
     // photos whose AIDescription is already set in metadata or drafts.
-    mockApiInstance.settings = { openai_api_key: "sk-test", openai_model: "gpt-4o" };
+    mockApiInstance.settings = {
+      openai_api_key: "sk-test",
+      openai_model: "gpt-4o",
+    };
     mockApiInstance.describeEstimateComplete = {
-      totalInputTokens: 100, predictedCostUsd: 0.01,
-      upperBoundCostUsd: 0.02, model: "gpt-4o",
+      totalInputTokens: 100,
+      predictedCostUsd: 0.01,
+      upperBoundCostUsd: 0.02,
+      model: "gpt-4o",
     };
     const { user, photo } = await openFolderWithPhoto("test.jpg");
     await act(async () => {
@@ -229,16 +322,24 @@ describe("AI-description flow", () => {
         "XMP-mlib:AIDescription": "older description",
       });
     });
-    await act(async () => { await new Promise(r => setTimeout(r, 100)); });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 100));
+    });
 
     const row = screen.getByTestId("photo-row");
     await user.dblClick(row);
-    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
     await user.click(screen.getByTestId("gallery-info-toggle"));
-    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
 
     await user.click(await screen.findByTestId("details-pane-generate-ai-btn"));
-    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
 
     await screen.findByTestId("describe-confirm-btn");
     const notice = await screen.findByTestId("describe-overwrite-notice");
@@ -247,28 +348,42 @@ describe("AI-description flow", () => {
   });
 
   it("cancel during awaiting-confirm closes the dialog and signals backend", async () => {
-    mockApiInstance.settings = { openai_api_key: "sk-test", openai_model: "gpt-4o" };
+    mockApiInstance.settings = {
+      openai_api_key: "sk-test",
+      openai_model: "gpt-4o",
+    };
     const { user, aiBtn } = await startAiDescription();
     await user.click(aiBtn);
-    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
     const cancelBtn = await screen.findByTestId("describe-cancel-btn");
     await user.click(cancelBtn);
     expect(mockApiInstance.cancelDescribeCalled).toBe(true);
     await waitFor(() => {
-      expect(screen.queryByTestId("describe-progress-dialog")).not.toBeInTheDocument();
+      expect(
+        screen.queryByTestId("describe-progress-dialog"),
+      ).not.toBeInTheDocument();
     });
   });
 
   it("Escape key in pre-run phase closes the dialog and signals backend", async () => {
-    mockApiInstance.settings = { openai_api_key: "sk-test", openai_model: "gpt-4o" };
+    mockApiInstance.settings = {
+      openai_api_key: "sk-test",
+      openai_model: "gpt-4o",
+    };
     const { user, aiBtn } = await startAiDescription();
     await user.click(aiBtn);
-    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
     await screen.findByTestId("describe-cancel-btn");
     await user.keyboard("{Escape}");
     expect(mockApiInstance.cancelDescribeCalled).toBe(true);
     await waitFor(() => {
-      expect(screen.queryByTestId("describe-progress-dialog")).not.toBeInTheDocument();
+      expect(
+        screen.queryByTestId("describe-progress-dialog"),
+      ).not.toBeInTheDocument();
     });
   });
 });

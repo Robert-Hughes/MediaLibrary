@@ -10,29 +10,29 @@ stresses how each model handles content that isn't really a "photo".
 
 ## Photos
 
-| # | File | Category | Why it's in the set |
-|---|------|----------|---------------------|
-| 1  | `Image0001.jpg` | Portrait (single) | Smiling-face baseline; checks basic subject ID |
-| 2  | `Image0099.jpg` | Couple portrait | Two-subject scene |
-| 3  | `Image0501.jpg` | Selfie | Foreground subject + landmark background (Thames Barrier) |
-| 4  | `Image0036.jpg` | Architecture | St Pancras Renaissance Hotel — landmark recognition test |
-| 5  | `Image0028.jpg` | Train station interior | Indoor + transport + architecture combo |
-| 6  | `Image0066.jpg` | Bridge / river | Wide cityscape with multiple landmarks |
-| 7  | `Image0125.jpg` | Close-up structure | London Eye pods — close-up of a famous object |
-| 8  | `Image0286.jpg` | Flowers | Color, species recognition (tulips) |
-| 9  | `Image0581.jpg` | Beach / sea | Wide natural scene + distant wind turbines (fine detail) |
-| 10 | `Image0381.jpg` | Landscape | Greenwich Park field with Queen's House — recognition + scene |
-| 11 | `Image0118.jpg` | Animals | Pigeons in grass — small-object detection |
-| 12 | `Image0042.jpg` | Statue / monument | "The Meeting Place" — sculpture recognition |
-| 13 | `Image0514.jpg` | Night | Tower of London illuminated — low-light scene |
-| 14 | `Image0047.jpg` | Map / signage | Underground map — heavy OCR test |
-| 15 | `Image0322.jpg` | Museum exhibit | Forth Bridge model in display case — meta-scene (object of object) |
-| 16 | `Image0136.jpg` | Skyline / cityscape | River-and-skyline composition |
-| 17 | `Image0021.jpg` | Motion blur (creative) | Tests handling of intentionally blurry images |
-| 18 | `Image0009.jpg` | Pub / indoor scene | Group of people + objects + indoor lighting |
-| 19 | `Image0686.jpg` | Punting on river | Activity recognition (specific to Cambridge) |
-| 20 | `Image0058.jpg` | Close-up still life | Handbag — fashion-object close-up |
-| 21 | `Screenshot_20260508_112540_Samsung Browser.jpg` (in `2026/`) | Webpage screenshot | Text-heavy phone screenshot — non-photographic content, stresses OCR and the model's handling of UI/document images |
+| #   | File                                                          | Category               | Why it's in the set                                                                                                 |
+| --- | ------------------------------------------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| 1   | `Image0001.jpg`                                               | Portrait (single)      | Smiling-face baseline; checks basic subject ID                                                                      |
+| 2   | `Image0099.jpg`                                               | Couple portrait        | Two-subject scene                                                                                                   |
+| 3   | `Image0501.jpg`                                               | Selfie                 | Foreground subject + landmark background (Thames Barrier)                                                           |
+| 4   | `Image0036.jpg`                                               | Architecture           | St Pancras Renaissance Hotel — landmark recognition test                                                            |
+| 5   | `Image0028.jpg`                                               | Train station interior | Indoor + transport + architecture combo                                                                             |
+| 6   | `Image0066.jpg`                                               | Bridge / river         | Wide cityscape with multiple landmarks                                                                              |
+| 7   | `Image0125.jpg`                                               | Close-up structure     | London Eye pods — close-up of a famous object                                                                       |
+| 8   | `Image0286.jpg`                                               | Flowers                | Color, species recognition (tulips)                                                                                 |
+| 9   | `Image0581.jpg`                                               | Beach / sea            | Wide natural scene + distant wind turbines (fine detail)                                                            |
+| 10  | `Image0381.jpg`                                               | Landscape              | Greenwich Park field with Queen's House — recognition + scene                                                       |
+| 11  | `Image0118.jpg`                                               | Animals                | Pigeons in grass — small-object detection                                                                           |
+| 12  | `Image0042.jpg`                                               | Statue / monument      | "The Meeting Place" — sculpture recognition                                                                         |
+| 13  | `Image0514.jpg`                                               | Night                  | Tower of London illuminated — low-light scene                                                                       |
+| 14  | `Image0047.jpg`                                               | Map / signage          | Underground map — heavy OCR test                                                                                    |
+| 15  | `Image0322.jpg`                                               | Museum exhibit         | Forth Bridge model in display case — meta-scene (object of object)                                                  |
+| 16  | `Image0136.jpg`                                               | Skyline / cityscape    | River-and-skyline composition                                                                                       |
+| 17  | `Image0021.jpg`                                               | Motion blur (creative) | Tests handling of intentionally blurry images                                                                       |
+| 18  | `Image0009.jpg`                                               | Pub / indoor scene     | Group of people + objects + indoor lighting                                                                         |
+| 19  | `Image0686.jpg`                                               | Punting on river       | Activity recognition (specific to Cambridge)                                                                        |
+| 20  | `Image0058.jpg`                                               | Close-up still life    | Handbag — fashion-object close-up                                                                                   |
+| 21  | `Screenshot_20260508_112540_Samsung Browser.jpg` (in `2026/`) | Webpage screenshot     | Text-heavy phone screenshot — non-photographic content, stresses OCR and the model's handling of UI/document images |
 
 ## Running the Test Set
 
@@ -118,7 +118,7 @@ exiftool -Description -Subject -Keywords @IMG
 - **Failure modes on motion blur** (`Image0021.jpg`) — does the model
   confabulate detail or correctly note "blurry"?
 - **Meta-scene handling** on `Image0322.jpg` — does the model recognise this
-  as a *model of a bridge in a museum display case*, or just call it a
+  as a _model of a bridge in a museum display case_, or just call it a
   bridge?
 - **Non-photographic content** on the Samsung Browser screenshot — does the
   model identify it as a screenshot/webpage (correct), describe it as a

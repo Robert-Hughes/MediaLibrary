@@ -12,28 +12,39 @@ describe("selectVisibleNeedingLoad", () => {
     const visible = new Set(["c.jpg", "a.jpg", "b.jpg"]); // insertion order != alphabetic
     const thumbs = makeStore(new Set());
     const metadata = makeStore(new Set());
-    expect(selectVisibleNeedingLoad(visible, thumbs, metadata)).toEqual(["c.jpg", "a.jpg", "b.jpg"]);
+    expect(selectVisibleNeedingLoad(visible, thumbs, metadata)).toEqual([
+      "c.jpg",
+      "a.jpg",
+      "b.jpg",
+    ]);
   });
 
   it("excludes paths that have both thumbnail and metadata loaded", () => {
     const visible = new Set(["a.jpg", "b.jpg", "c.jpg"]);
     const thumbs = makeStore(new Set(["b.jpg"]));
     const metadata = makeStore(new Set(["b.jpg"]));
-    expect(selectVisibleNeedingLoad(visible, thumbs, metadata)).toEqual(["a.jpg", "c.jpg"]);
+    expect(selectVisibleNeedingLoad(visible, thumbs, metadata)).toEqual([
+      "a.jpg",
+      "c.jpg",
+    ]);
   });
 
   it("includes paths missing only metadata", () => {
     const visible = new Set(["a.jpg"]);
     const thumbs = makeStore(new Set(["a.jpg"]));
     const metadata = makeStore(new Set());
-    expect(selectVisibleNeedingLoad(visible, thumbs, metadata)).toEqual(["a.jpg"]);
+    expect(selectVisibleNeedingLoad(visible, thumbs, metadata)).toEqual([
+      "a.jpg",
+    ]);
   });
 
   it("includes paths missing only the thumbnail", () => {
     const visible = new Set(["a.jpg"]);
     const thumbs = makeStore(new Set());
     const metadata = makeStore(new Set(["a.jpg"]));
-    expect(selectVisibleNeedingLoad(visible, thumbs, metadata)).toEqual(["a.jpg"]);
+    expect(selectVisibleNeedingLoad(visible, thumbs, metadata)).toEqual([
+      "a.jpg",
+    ]);
   });
 
   it("only consults stores for visible paths, not for any wider collection", () => {
@@ -64,6 +75,12 @@ describe("selectVisibleNeedingLoad", () => {
   });
 
   it("returns an empty array when nothing is visible", () => {
-    expect(selectVisibleNeedingLoad(new Set(), makeStore(new Set()), makeStore(new Set()))).toEqual([]);
+    expect(
+      selectVisibleNeedingLoad(
+        new Set(),
+        makeStore(new Set()),
+        makeStore(new Set()),
+      ),
+    ).toEqual([]);
   });
 });

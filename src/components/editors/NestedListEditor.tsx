@@ -67,7 +67,8 @@ function shortLabel(v: Variant, idx: number): string {
     const obj = v as Record<string, Variant>;
     for (const key of ["Name", "name", "x-default", "Title", "title"]) {
       const candidate = obj[key];
-      if (typeof candidate === "string" && candidate.trim() !== "") return candidate;
+      if (typeof candidate === "string" && candidate.trim() !== "")
+        return candidate;
     }
   }
   const s = variantToDisplayString(v);
@@ -132,7 +133,9 @@ export function NestedListEditor({
         initialString={variantToDisplayString(value)}
         onSave={(edit: DraftEdit) => {
           const newValue: Variant =
-            edit.intent === "Delete" ? emptyVariantFor(innerKind) : edit.value ?? emptyVariantFor(innerKind);
+            edit.intent === "Delete"
+              ? emptyVariantFor(innerKind)
+              : (edit.value ?? emptyVariantFor(innerKind));
           updateItem(editingIndex, newValue);
           setEditingIndex(null);
         }}
@@ -152,8 +155,11 @@ export function NestedListEditor({
               No items. Add one below.
             </p>
           )}
-          <ul className="nested-list-editor-items" data-testid="nested-list-editor-items"
-              style={{ listStyle: "none", padding: 0, margin: 0 }}>
+          <ul
+            className="nested-list-editor-items"
+            data-testid="nested-list-editor-items"
+            style={{ listStyle: "none", padding: 0, margin: 0 }}
+          >
             {items.map((item, idx) => (
               <li
                 key={idx}
@@ -191,7 +197,13 @@ export function NestedListEditor({
                   </>
                 )}
                 <span
-                  style={{ flex: 1, fontFamily: "monospace", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
+                  style={{
+                    flex: 1,
+                    fontFamily: "monospace",
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
                   data-testid="nested-list-editor-summary"
                   title={shortLabel(item, idx)}
                 >
@@ -230,7 +242,10 @@ export function NestedListEditor({
           )}
         </div>
         <div className="dialog-footer">
-          <button className="dialog-btn dialog-btn-secondary" onClick={onCancel}>
+          <button
+            className="dialog-btn dialog-btn-secondary"
+            onClick={onCancel}
+          >
             Cancel
           </button>
           <button

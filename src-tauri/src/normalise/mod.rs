@@ -1216,7 +1216,7 @@ mod tests_dispatcher {
         .await;
         assert!(edits.is_empty());
         assert_eq!(stats.per_group.len(), 8);
-        for (_, g) in &stats.per_group {
+        for g in stats.per_group.values() {
             assert_eq!(g.n_normalised_deterministic, 0);
             assert_eq!(g.n_normalised_ai, 0);
             assert_eq!(g.n_noop, 1);

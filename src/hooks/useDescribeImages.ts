@@ -49,7 +49,10 @@ export interface UseDescribeImagesOptions {
    * directly to draft_edits.jsonl — means the UI re-renders immediately
    * and there is exactly one writer to the typed-draft store.
    */
-  onApplyEdits?: (relativePath: string, edits: Record<string, DraftEdit>) => void;
+  onApplyEdits?: (
+    relativePath: string,
+    edits: Record<string, DraftEdit>,
+  ) => void;
 }
 
 /**
@@ -83,7 +86,9 @@ export function useDescribeImages(options: UseDescribeImagesOptions = {}): {
 } {
   // Build the adapter config once. `useMemo` is enough — the config has
   // no closed-over state, just constants and pure parsers.
-  const config = useMemo<BatchJobConfig<string[], DescribeEstimate, DescribeUsageSummary>>(
+  const config = useMemo<
+    BatchJobConfig<string[], DescribeEstimate, DescribeUsageSummary>
+  >(
     () => ({
       eventPrefix: "describe",
       commands: {
@@ -113,18 +118,19 @@ export function useDescribeImages(options: UseDescribeImagesOptions = {}): {
           }),
         );
         unlisteners.push(
-          await listen<{ current: number; total: number; relativePath: string }>(
-            "describe_estimate_progress",
-            (e) => {
-              setState((s) => ({
-                ...s,
-                phase: "estimating",
-                current: e.payload.current,
-                total: e.payload.total,
-                currentFile: e.payload.relativePath,
-              }));
-            },
-          ),
+          await listen<{
+            current: number;
+            total: number;
+            relativePath: string;
+          }>("describe_estimate_progress", (e) => {
+            setState((s) => ({
+              ...s,
+              phase: "estimating",
+              current: e.payload.current,
+              total: e.payload.total,
+              currentFile: e.payload.relativePath,
+            }));
+          }),
         );
         unlisteners.push(
           await listen<{ relativePath: string; message: string }>(
@@ -153,7 +159,11 @@ export function useDescribeImages(options: UseDescribeImagesOptions = {}): {
     [],
   );
 
-  const job = useBatchImageJob<string[], DescribeEstimate, DescribeUsageSummary>(config, {
+  const job = useBatchImageJob<
+    string[],
+    DescribeEstimate,
+    DescribeUsageSummary
+  >(config, {
     onApplyEdits: options.onApplyEdits,
   });
 

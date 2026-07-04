@@ -15,25 +15,36 @@ vi.mock("@tauri-apps/api/core", () => ({
   convertFileSrc: (path: string) => `data:image/jpeg;base64,FAKE_${path}`,
 }));
 vi.mock("@tauri-apps/api/event", () => ({
-  listen: (evt: string, handler: any) => mockApiInstance.api.listen(evt, (payload: any) => handler({ payload })),
+  listen: (evt: string, handler: any) =>
+    mockApiInstance.api.listen(evt, (payload: any) => handler({ payload })),
 }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({
   ask: vi.fn().mockResolvedValue(true),
 }));
 
-async function openFolderWithPhoto(photo = makePhoto({ relative_path: "test.jpg" })) {
+async function openFolderWithPhoto(
+  photo = makePhoto({ relative_path: "test.jpg" }),
+) {
   const user = userEvent.setup();
   mockApiInstance.pickFolderResolves("/photos");
   render(<App />);
 
-  await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 50));
+  });
 
   const openBtn = screen.getByTestId("open-folder-btn");
   await user.click(openBtn);
 
-  await act(async () => { mockApiInstance.emitPhotoFound(photo); });
-  await act(async () => { mockApiInstance.emitScanComplete(); });
-  await act(async () => { await new Promise(r => setTimeout(r, 250)); });
+  await act(async () => {
+    mockApiInstance.emitPhotoFound(photo);
+  });
+  await act(async () => {
+    mockApiInstance.emitScanComplete();
+  });
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 250));
+  });
 
   return { user, photo };
 }
@@ -56,7 +67,9 @@ describe("Apply Draft Edits – MenuBar", () => {
 
   it("Apply All Edits button is not visible when there are no drafts", async () => {
     await openFolderWithPhoto();
-    expect(screen.queryByTestId("status-bar-apply-all-btn")).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("status-bar-apply-all-btn"),
+    ).not.toBeInTheDocument();
   });
 
   it("Apply All Edits button appears when there are draft edits", async () => {
@@ -77,7 +90,7 @@ describe("Apply Draft Edits – MenuBar", () => {
 
     expect(ask).toHaveBeenCalledWith(
       expect.stringContaining("permanently modify"),
-      expect.objectContaining({ title: "Apply All Edits" })
+      expect.objectContaining({ title: "Apply All Edits" }),
     );
   });
 
@@ -87,17 +100,23 @@ describe("Apply Draft Edits – MenuBar", () => {
     mockApiInstance.applyEditsResult = {
       applied: [photo.relative_path],
       failed: [],
-      fresh_metadata: { [photo.relative_path]: { "XMP-dc:Description": "Draft value" } },
+      fresh_metadata: {
+        [photo.relative_path]: { "XMP-dc:Description": "Draft value" },
+      },
     };
 
     const { user } = await openFolderWithPhoto(photo);
     expect(screen.getByTestId("status-bar-apply-all-btn")).toBeInTheDocument();
 
     await user.click(screen.getByTestId("status-bar-apply-all-btn"));
-    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
 
     // Button should disappear once drafts are gone
-    expect(screen.queryByTestId("status-bar-apply-all-btn")).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("status-bar-apply-all-btn"),
+    ).not.toBeInTheDocument();
   });
 
   it("apply_draft_edits_cmd is invoked with correct folder and paths", async () => {
@@ -111,9 +130,13 @@ describe("Apply Draft Edits – MenuBar", () => {
 
     const { user } = await openFolderWithPhoto(photo);
     await user.click(screen.getByTestId("status-bar-apply-all-btn"));
-    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
 
-    const applyCall = mockApiInstance.invocations.find(i => i.cmd === "apply_draft_edits_cmd");
+    const applyCall = mockApiInstance.invocations.find(
+      (i) => i.cmd === "apply_draft_edits_cmd",
+    );
     expect(applyCall).toBeDefined();
     expect(applyCall?.args?.folderPath).toBe("/photos");
     expect(applyCall?.args?.relPaths).toContain(photo.relative_path);
@@ -128,9 +151,13 @@ describe("Apply Draft Edits – MenuBar", () => {
     const { user } = await openFolderWithPhoto(photo);
 
     await user.click(screen.getByTestId("status-bar-apply-all-btn"));
-    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
 
-    const applyCall = mockApiInstance.invocations.find(i => i.cmd === "apply_draft_edits_cmd");
+    const applyCall = mockApiInstance.invocations.find(
+      (i) => i.cmd === "apply_draft_edits_cmd",
+    );
     expect(applyCall).toBeUndefined();
     // Drafts still present
     expect(screen.getByTestId("status-bar-apply-all-btn")).toBeInTheDocument();
@@ -180,9 +207,13 @@ describe("Apply Draft Edits – PhotoList context menu", () => {
     const row = screen.getByTestId("photo-row");
     await user.pointer({ target: row, keys: "[MouseRight]" });
     await user.click(screen.getByText("Apply edits…"));
-    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
 
-    const applyCall = mockApiInstance.invocations.find(i => i.cmd === "apply_draft_edits_cmd");
+    const applyCall = mockApiInstance.invocations.find(
+      (i) => i.cmd === "apply_draft_edits_cmd",
+    );
     expect(applyCall?.args?.relPaths).toEqual([photo.relative_path]);
   });
 });
@@ -204,12 +235,16 @@ describe("Apply Draft Edits – DetailsPane (gallery)", () => {
 
     const row = screen.getByTestId("photo-row");
     await user.dblClick(row);
-    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
 
     // Open the details pane
     const toggle = screen.getByTestId("gallery-info-toggle");
     await user.click(toggle);
-    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
 
     return { user, photo };
   }
@@ -228,9 +263,13 @@ describe("Apply Draft Edits – DetailsPane (gallery)", () => {
     };
 
     await user.click(screen.getByTestId("details-pane-apply-btn"));
-    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
 
-    const applyCall = mockApiInstance.invocations.find(i => i.cmd === "apply_draft_edits_cmd");
+    const applyCall = mockApiInstance.invocations.find(
+      (i) => i.cmd === "apply_draft_edits_cmd",
+    );
     expect(applyCall?.args?.relPaths).toEqual([photo.relative_path]);
   });
 
@@ -238,13 +277,19 @@ describe("Apply Draft Edits – DetailsPane (gallery)", () => {
     const { user } = await openFolderWithPhoto();
     const row = screen.getByTestId("photo-row");
     await user.dblClick(row);
-    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
 
     const toggle = screen.getByTestId("gallery-info-toggle");
     await user.click(toggle);
-    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
 
-    expect(screen.queryByTestId("details-pane-apply-btn")).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("details-pane-apply-btn"),
+    ).not.toBeInTheDocument();
   });
 });
 
@@ -269,10 +314,16 @@ describe("Apply Draft Edits – Progress dialog and cancellation", () => {
 
     const { user } = await openFolderWithPhoto(photo);
     await user.click(screen.getByTestId("status-bar-apply-all-btn"));
-    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
 
-    expect(screen.queryByTestId("apply-progress-dialog")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("status-bar-apply-all-btn")).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("apply-progress-dialog"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("status-bar-apply-all-btn"),
+    ).not.toBeInTheDocument();
   });
 
   it("clicking Cancel invokes cancel_apply_edits", async () => {
@@ -294,11 +345,17 @@ describe("Apply Draft Edits – Progress dialog and cancellation", () => {
     // The mock will emit started + zero progress events synchronously, then resolve.
     // To check the cancel button, we test it directly:
     await user.click(screen.getByTestId("status-bar-apply-all-btn"));
-    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
 
     // Since the mock resolves synchronously, the dialog has already closed.
     // The cancel pathway is exercised via a direct test below.
-    expect(mockApiInstance.invocations.some(i => i.cmd === "apply_draft_edits_cmd")).toBe(true);
+    expect(
+      mockApiInstance.invocations.some(
+        (i) => i.cmd === "apply_draft_edits_cmd",
+      ),
+    ).toBe(true);
   });
 
   it("incremental fresh_metadata is merged as events arrive (not at end)", async () => {
@@ -316,10 +373,14 @@ describe("Apply Draft Edits – Progress dialog and cancellation", () => {
 
     const { user } = await openFolderWithPhoto(photo);
     await user.click(screen.getByTestId("status-bar-apply-all-btn"));
-    await act(async () => { await new Promise(r => setTimeout(r, 100)); });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 100));
+    });
 
     // Drafts cleared (event-driven)
-    expect(screen.queryByTestId("status-bar-apply-all-btn")).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("status-bar-apply-all-btn"),
+    ).not.toBeInTheDocument();
   });
 });
 
@@ -338,15 +399,24 @@ describe("Apply Draft Edits – Failure handling", () => {
     await seedDraftEdit(photo);
     mockApiInstance.applyEditsResult = {
       applied: [],
-      failed: [{ relative_path: photo.relative_path, reason: "ExifTool failed: permission denied" }],
+      failed: [
+        {
+          relative_path: photo.relative_path,
+          reason: "ExifTool failed: permission denied",
+        },
+      ],
       fresh_metadata: {},
     };
 
     const { user } = await openFolderWithPhoto(photo);
     await user.click(screen.getByTestId("status-bar-apply-all-btn"));
-    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
 
-    expect(screen.getByText(/ExifTool failed: permission denied/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/ExifTool failed: permission denied/),
+    ).toBeInTheDocument();
   });
 
   it("when apply partially fails, applied drafts removed but failed ones preserved", async () => {
@@ -366,16 +436,28 @@ describe("Apply Draft Edits – Failure handling", () => {
     const user = userEvent.setup();
     mockApiInstance.pickFolderResolves("/photos");
     render(<App />);
-    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
     await user.click(screen.getByTestId("open-folder-btn"));
 
-    await act(async () => { mockApiInstance.emitPhotoFound(photo1); });
-    await act(async () => { mockApiInstance.emitPhotoFound(photo2); });
-    await act(async () => { mockApiInstance.emitScanComplete(); });
-    await act(async () => { await new Promise(r => setTimeout(r, 250)); });
+    await act(async () => {
+      mockApiInstance.emitPhotoFound(photo1);
+    });
+    await act(async () => {
+      mockApiInstance.emitPhotoFound(photo2);
+    });
+    await act(async () => {
+      mockApiInstance.emitScanComplete();
+    });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 250));
+    });
 
     await user.click(screen.getByTestId("status-bar-apply-all-btn"));
-    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
 
     // Error shown for b.jpg
     expect(screen.getByText(/File not found/)).toBeInTheDocument();

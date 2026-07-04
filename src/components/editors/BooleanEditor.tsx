@@ -14,7 +14,14 @@ interface Props {
   readOnly?: boolean;
 }
 
-export function BooleanEditor({ propertyKey, initialValue, onSave, onCancel, headerHint, readOnly }: Props) {
+export function BooleanEditor({
+  propertyKey,
+  initialValue,
+  onSave,
+  onCancel,
+  headerHint,
+  readOnly,
+}: Props) {
   const [value, setValue] = useState<boolean | null>(initialValue);
 
   const handleSave = () => {
@@ -62,7 +69,10 @@ export function BooleanEditor({ propertyKey, initialValue, onSave, onCancel, hea
           </div>
         </div>
         <div className="dialog-footer">
-          <button className="dialog-btn dialog-btn-secondary" onClick={onCancel}>
+          <button
+            className="dialog-btn dialog-btn-secondary"
+            onClick={onCancel}
+          >
             Cancel
           </button>
           <button

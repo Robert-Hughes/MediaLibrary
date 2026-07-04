@@ -32,10 +32,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { BatchFailureKind, DraftEdit } from "../types";
 
 export type BatchJobPhase =
-  | "estimating"
-  | "awaiting-confirm"
-  | "running"
-  | "done";
+  "estimating" | "awaiting-confirm" | "running" | "done";
 
 export interface BatchJobFailure {
   relativePath: string;
@@ -124,9 +121,15 @@ export interface BatchJobConfig<StartArgs, EstimatePayload, SummaryPayload> {
     cancel: string;
   };
   /** Build the args object passed to `invoke(commands.estimate, …)`. */
-  buildEstimateArgs?: (folderPath: string, startArgs: StartArgs) => Record<string, unknown>;
+  buildEstimateArgs?: (
+    folderPath: string,
+    startArgs: StartArgs,
+  ) => Record<string, unknown>;
   /** Build the args object passed to `invoke(commands.run, …)`. */
-  buildRunArgs: (folderPath: string, startArgs: StartArgs) => Record<string, unknown>;
+  buildRunArgs: (
+    folderPath: string,
+    startArgs: StartArgs,
+  ) => Record<string, unknown>;
   /** How many items will be processed — used to populate `total` before the first event arrives. */
   totalItems: (startArgs: StartArgs) => number;
   /**
@@ -153,7 +156,9 @@ export interface BatchJobConfig<StartArgs, EstimatePayload, SummaryPayload> {
    */
   subscribeExtras?: (
     setState: (
-      updater: (s: BatchJobState<EstimatePayload, SummaryPayload>) => BatchJobState<EstimatePayload, SummaryPayload>,
+      updater: (
+        s: BatchJobState<EstimatePayload, SummaryPayload>,
+      ) => BatchJobState<EstimatePayload, SummaryPayload>,
     ) => void,
   ) => Promise<UnlistenFn[]>;
 }
@@ -165,7 +170,10 @@ export interface UseBatchImageJobOptions {
    * the draft store immediately so the UI re-renders without waiting
    * for the batch to finish.
    */
-  onApplyEdits?: (relativePath: string, edits: Record<string, DraftEdit>) => void;
+  onApplyEdits?: (
+    relativePath: string,
+    edits: Record<string, DraftEdit>,
+  ) => void;
 }
 
 /**
@@ -189,7 +197,8 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
   onApplyEditsRef.current = options.onApplyEdits;
 
   const [open, setOpen] = useState(false);
-  const [state, setState] = useState<BatchJobState<EstimatePayload, SummaryPayload>>(initialState);
+  const [state, setState] =
+    useState<BatchJobState<EstimatePayload, SummaryPayload>>(initialState);
   // Track latest phase synchronously so `cancel` can decide whether to
   // close immediately without depending on setState batching order.
   const phaseRef = useRef<BatchJobPhase>("estimating");
@@ -214,12 +223,14 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
     let mounted = true;
 
     const safeSetState = (
-      updater: (s: BatchJobState<EstimatePayload, SummaryPayload>) => BatchJobState<EstimatePayload, SummaryPayload>,
+      updater: (
+        s: BatchJobState<EstimatePayload, SummaryPayload>,
+      ) => BatchJobState<EstimatePayload, SummaryPayload>,
     ) => {
       if (mounted) setState(updater);
     };
 
-    const sub = async <T,>(evt: string, h: (p: T) => void) => {
+    const sub = async <T>(evt: string, h: (p: T) => void) => {
       const off = await listen<T>(evt, (e) => mounted && h(e.payload));
       unlisteners.push(off);
     };
@@ -263,7 +274,8 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
                   },
                 ]
               : s.failures;
-          const succeeded = p.status === "ok" ? [...s.succeeded, p.relativePath] : s.succeeded;
+          const succeeded =
+            p.status === "ok" ? [...s.succeeded, p.relativePath] : s.succeeded;
           return {
             ...s,
             phase: "running",
@@ -331,10 +343,11 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
         ...initialState<EstimatePayload, SummaryPayload>(),
         phase: initialPhase,
         total,
-        relPaths:
-          Array.isArray(startArgs)
-            ? (startArgs as unknown as string[]).filter((x) => typeof x === "string")
-            : [],
+        relPaths: Array.isArray(startArgs)
+          ? (startArgs as unknown as string[]).filter(
+              (x) => typeof x === "string",
+            )
+          : [],
       });
       if (config.commands.estimate && config.buildEstimateArgs) {
         // Defer invoke until the subscription effect has attached all
@@ -374,20 +387,30 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
     const folder = folderRef.current;
     const startArgs = startArgsRef.current;
     if (startArgs == null) return;
-    setState((s) => ({ ...s, phase: "running", current: 0, currentFile: null }));
+    setState((s) => ({
+      ...s,
+      phase: "running",
+      current: 0,
+      currentFile: null,
+    }));
 
-    void invoke(config.commands.run, config.buildRunArgs(folder, startArgs)).catch(
-      (e: unknown) => {
-        setState((curr) => ({
-          ...curr,
-          phase: "done",
-          failures: [
-            ...curr.failures,
-            { relativePath: "(batch)", kind: "command_failed", detail: String(e) },
-          ],
-        }));
-      },
-    );
+    void invoke(
+      config.commands.run,
+      config.buildRunArgs(folder, startArgs),
+    ).catch((e: unknown) => {
+      setState((curr) => ({
+        ...curr,
+        phase: "done",
+        failures: [
+          ...curr.failures,
+          {
+            relativePath: "(batch)",
+            kind: "command_failed",
+            detail: String(e),
+          },
+        ],
+      }));
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [config.commands.run]);
 

@@ -54,9 +54,7 @@ describe("DetailsPane: Reverse Geocode button", () => {
 
   it("renders the button whenever onGeocode is wired (no GPS gate)", () => {
     const onGeocode = vi.fn();
-    render(
-      <DetailsPane photo={photo} metadata={{}} onGeocode={onGeocode} />,
-    );
+    render(<DetailsPane photo={photo} metadata={{}} onGeocode={onGeocode} />);
     expect(screen.getByTestId("details-pane-geocode-btn")).toBeInTheDocument();
   });
 
@@ -71,7 +69,10 @@ describe("DetailsPane: Reverse Geocode button", () => {
     render(
       <DetailsPane
         photo={photo}
-        metadata={{ "Composite:GPSLatitude": 51.5, "Composite:GPSLongitude": -0.1 }}
+        metadata={{
+          "Composite:GPSLatitude": 51.5,
+          "Composite:GPSLongitude": -0.1,
+        }}
         onGeocode={onGeocode}
       />,
     );

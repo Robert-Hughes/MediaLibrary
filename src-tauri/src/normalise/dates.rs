@@ -187,6 +187,7 @@ struct DateSubgroupResult {
     conflict: bool,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn process_date_subgroup(
     existing_exif: Option<&ParsedDateTime>,
     existing_xmp: Option<&ParsedDateTime>,
@@ -591,7 +592,7 @@ mod tests {
             ..Default::default()
         };
         let out = normalise_dates(&input).output.unwrap();
-        assert!(out.edits.get("EXIF:DateTimeOriginal").is_none());
+        assert!(!out.edits.contains_key("EXIF:DateTimeOriginal"));
         assert_eq!(s(&out, "XMP-photoshop:DateCreated"), "2024-06-15T14:30:45");
         assert_eq!(s(&out, "IPTC:DateCreated"), "2024-06-15");
         assert_eq!(s(&out, "IPTC:TimeCreated"), "14:30:45");

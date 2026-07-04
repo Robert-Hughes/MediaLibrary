@@ -28,17 +28,33 @@ export function MenuBar({
   return (
     <div className="menu-bar" data-testid="menu-bar">
       <div className="menu-bar-left">
-        <button className="menu-bar-btn" onClick={onOpenFolder} data-testid="menu-bar-open-btn">
+        <button
+          className="menu-bar-btn"
+          onClick={onOpenFolder}
+          data-testid="menu-bar-open-btn"
+        >
           Open Folder…
         </button>
-        <button className="menu-bar-btn" onClick={onCloseFolder} data-testid="menu-bar-close-btn">
+        <button
+          className="menu-bar-btn"
+          onClick={onCloseFolder}
+          data-testid="menu-bar-close-btn"
+        >
           Close Folder
         </button>
         <div className="menu-bar-divider" />
-        <button className="menu-bar-btn" onClick={onSelectColumns} data-testid="menu-bar-columns-btn">
+        <button
+          className="menu-bar-btn"
+          onClick={onSelectColumns}
+          data-testid="menu-bar-columns-btn"
+        >
           Select Columns…
         </button>
-        <button className="menu-bar-btn" onClick={onOpenSettings} data-testid="menu-bar-settings-btn">
+        <button
+          className="menu-bar-btn"
+          onClick={onOpenSettings}
+          data-testid="menu-bar-settings-btn"
+        >
           Settings…
         </button>
       </div>
@@ -46,7 +62,9 @@ export function MenuBar({
       <div className="menu-bar-right">
         {onSearchQueryChange && (
           <div className="menu-bar-search" data-testid="menu-bar-search">
-            <label className="list-search-label" htmlFor="list-search-input">Search</label>
+            <label className="list-search-label" htmlFor="list-search-input">
+              Search
+            </label>
             <div className="list-search-input-wrap">
               <input
                 id="list-search-input"

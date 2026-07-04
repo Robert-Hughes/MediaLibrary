@@ -76,7 +76,9 @@ describe("PhotoList: Normalise Metadata context-menu entry", () => {
     setup();
     fireEvent.click(rows()[2]);
     fireEvent.contextMenu(rows()[2]);
-    const entry = await screen.findByRole("button", { name: "Normalise Metadata…" });
+    const entry = await screen.findByRole("button", {
+      name: "Normalise Metadata…",
+    });
     expect(entry).toBeInTheDocument();
   });
 
@@ -97,7 +99,9 @@ describe("PhotoList: Normalise Metadata context-menu entry", () => {
     fireEvent.click(rows()[1]);
     fireEvent.click(rows()[3], { ctrlKey: true });
     fireEvent.contextMenu(rows()[3]);
-    const entry = await screen.findByRole("button", { name: /^Normalise Metadata/ });
+    const entry = await screen.findByRole("button", {
+      name: /^Normalise Metadata/,
+    });
     fireEvent.click(entry);
     expect(onNormalise).toHaveBeenCalledTimes(1);
     expect(onNormalise).toHaveBeenCalledWith(["1.jpg", "3.jpg"]);
@@ -136,6 +140,8 @@ describe("PhotoList: Normalise Metadata context-menu entry", () => {
     fireEvent.contextMenu(rows()[0]);
     // Some other entry should still be present so we know the menu opened.
     await screen.findByRole("button", { name: /^View/ });
-    expect(screen.queryByRole("button", { name: /^Normalise Metadata/ })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /^Normalise Metadata/ }),
+    ).toBeNull();
   });
 });

@@ -24,10 +24,10 @@ interface LogEntry {
 }
 
 const OUTCOME_COLOURS: Record<string, string> = {
-  Match: "\x1b[32m",         // green
-  "Delete-Ok": "\x1b[32m",   // green
-  Coerced: "\x1b[33m",       // yellow
-  Mismatch: "\x1b[31m",      // red
+  Match: "\x1b[32m", // green
+  "Delete-Ok": "\x1b[32m", // green
+  Coerced: "\x1b[33m", // yellow
+  Mismatch: "\x1b[31m", // red
   MissingPostWrite: "\x1b[31m",
   "Delete-Lingering": "\x1b[31m",
 };
@@ -78,7 +78,8 @@ function main(): void {
     console.log(`    display  : ${valueRepr(entry.after_display)}`);
     console.log(`    raw      : ${valueRepr(entry.after_raw)}`);
     if (entry.note) console.log(`    note     : ${entry.note}`);
-    if (entry.argv.length > 0) console.log(`    argv     : ${entry.argv.join(" ")}`);
+    if (entry.argv.length > 0)
+      console.log(`    argv     : ${entry.argv.join(" ")}`);
     console.log("");
   }
   console.log(`\n${count} entries read from ${logPath}`);

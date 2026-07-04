@@ -56,7 +56,14 @@ function setup(props: Partial<React.ComponentProps<typeof PhotoList>> = {}) {
       {...props}
     />,
   );
-  return { onSelect, onShowInExplorer, onPhotoOpen, onApplyEdits, onDiscardAllEdits, onGenerateAiDescription };
+  return {
+    onSelect,
+    onShowInExplorer,
+    onPhotoOpen,
+    onApplyEdits,
+    onDiscardAllEdits,
+    onGenerateAiDescription,
+  };
 }
 
 function rows() {
@@ -69,7 +76,13 @@ function rows() {
  * leaves selectedIndex frozen, which is fine for single-key tests but breaks
  * any flow that reads cur after a previous keydown moved it.
  */
-function setupStateful(opts: { initialIndex?: number | null; photoCount?: number; onSelectionCountChange?: (n: number) => void } = {}) {
+function setupStateful(
+  opts: {
+    initialIndex?: number | null;
+    photoCount?: number;
+    onSelectionCountChange?: (n: number) => void;
+  } = {},
+) {
   const thumbnails = new ThumbnailStore();
   const imageMetadata = new ImageMetadataStore();
   const photos = makePhotos(opts.photoCount ?? 5);
@@ -79,7 +92,9 @@ function setupStateful(opts: { initialIndex?: number | null; photoCount?: number
   }
   const onPhotoOpen = vi.fn();
   function Wrapper() {
-    const [selectedIndex, setSelectedIndex] = useState<number | null>(opts.initialIndex ?? null);
+    const [selectedIndex, setSelectedIndex] = useState<number | null>(
+      opts.initialIndex ?? null,
+    );
     return (
       <PhotoList
         photos={photos}
@@ -119,7 +134,9 @@ describe("PhotoList multi-select", () => {
     await user.keyboard("{Control>}");
     await user.click(rows()[3]);
     await user.keyboard("{/Control}");
-    const selected = Array.from(document.querySelectorAll(".photo-row--selected"))
+    const selected = Array.from(
+      document.querySelectorAll(".photo-row--selected"),
+    )
       .map((el) => el.getAttribute("data-index"))
       .sort();
     expect(selected).toEqual(["1", "3"]);
@@ -133,7 +150,9 @@ describe("PhotoList multi-select", () => {
     await user.click(rows()[2]);
     await user.click(rows()[2]);
     await user.keyboard("{/Control}");
-    const selected = Array.from(document.querySelectorAll(".photo-row--selected"))
+    const selected = Array.from(
+      document.querySelectorAll(".photo-row--selected"),
+    )
       .map((el) => el.getAttribute("data-index"))
       .sort();
     expect(selected).toEqual(["1"]);
@@ -146,7 +165,9 @@ describe("PhotoList multi-select", () => {
     await user.keyboard("{Shift>}");
     await user.click(rows()[4]);
     await user.keyboard("{/Shift}");
-    const selected = Array.from(document.querySelectorAll(".photo-row--selected"))
+    const selected = Array.from(
+      document.querySelectorAll(".photo-row--selected"),
+    )
       .map((el) => el.getAttribute("data-index"))
       .sort();
     expect(selected).toEqual(["1", "2", "3", "4"]);
@@ -157,8 +178,9 @@ describe("PhotoList multi-select", () => {
     fireEvent.click(rows()[0]);
     fireEvent.click(rows()[1], { ctrlKey: true });
     fireEvent.contextMenu(rows()[3]);
-    const selected = Array.from(document.querySelectorAll(".photo-row--selected"))
-      .map((el) => el.getAttribute("data-index"));
+    const selected = Array.from(
+      document.querySelectorAll(".photo-row--selected"),
+    ).map((el) => el.getAttribute("data-index"));
     expect(selected).toEqual(["3"]);
   });
 
@@ -167,7 +189,9 @@ describe("PhotoList multi-select", () => {
     fireEvent.click(rows()[0]);
     fireEvent.click(rows()[2], { ctrlKey: true });
     fireEvent.contextMenu(rows()[2]);
-    const selected = Array.from(document.querySelectorAll(".photo-row--selected"))
+    const selected = Array.from(
+      document.querySelectorAll(".photo-row--selected"),
+    )
       .map((el) => el.getAttribute("data-index"))
       .sort();
     expect(selected).toEqual(["0", "2"]);
@@ -192,7 +216,9 @@ describe("PhotoList context menu (multi-select)", () => {
     fireEvent.click(rows()[1]);
     fireEvent.click(rows()[3], { ctrlKey: true });
     fireEvent.contextMenu(rows()[3]);
-    const btn = await screen.findByRole("button", { name: /^Show in File Explorer/ });
+    const btn = await screen.findByRole("button", {
+      name: /^Show in File Explorer/,
+    });
     await userEvent.click(btn);
     expect(onShowInExplorer).toHaveBeenCalledWith(1);
   });
@@ -234,17 +260,25 @@ describe("PhotoList context menu (multi-select)", () => {
     fireEvent.click(rows()[2], { ctrlKey: true });
     fireEvent.click(rows()[4], { ctrlKey: true });
     fireEvent.contextMenu(rows()[4]);
-    const btn = await screen.findByRole("button", { name: /Generate AI Description/ });
+    const btn = await screen.findByRole("button", {
+      name: /Generate AI Description/,
+    });
     await userEvent.click(btn);
     expect(onGenerateAiDescription).toHaveBeenCalledTimes(1);
-    expect(onGenerateAiDescription).toHaveBeenCalledWith(["1.jpg", "2.jpg", "4.jpg"]);
+    expect(onGenerateAiDescription).toHaveBeenCalledWith([
+      "1.jpg",
+      "2.jpg",
+      "4.jpg",
+    ]);
   });
 
   it("Generate AI Description is shown for single selection too", async () => {
     const { onGenerateAiDescription } = setup();
     fireEvent.click(rows()[2]);
     fireEvent.contextMenu(rows()[2]);
-    const btn = await screen.findByRole("button", { name: "Generate AI Description…" });
+    const btn = await screen.findByRole("button", {
+      name: "Generate AI Description…",
+    });
     await userEvent.click(btn);
     expect(onGenerateAiDescription).toHaveBeenCalledWith(["2.jpg"]);
   });
@@ -283,10 +317,16 @@ describe("PhotoList context menu (multi-select)", () => {
     fireEvent.click(rows()[2], { ctrlKey: true });
     fireEvent.click(rows()[3], { ctrlKey: true });
     fireEvent.contextMenu(rows()[3]);
-    await userEvent.click(await screen.findByRole("button", { name: /Generate AI Description/ }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Generate AI Description/ }),
+    );
 
     expect(ask).not.toHaveBeenCalled();
-    expect(onGenerateAiDescription).toHaveBeenCalledWith(["1.jpg", "2.jpg", "3.jpg"]);
+    expect(onGenerateAiDescription).toHaveBeenCalledWith([
+      "1.jpg",
+      "2.jpg",
+      "3.jpg",
+    ]);
   });
 
   it("Generate AI Description fires for draft-only AIDescription without prompting", async () => {
@@ -298,7 +338,9 @@ describe("PhotoList context menu (multi-select)", () => {
     setup({ draftEdits, onGenerateAiDescription });
     fireEvent.click(rows()[1]);
     fireEvent.contextMenu(rows()[1]);
-    await userEvent.click(await screen.findByRole("button", { name: /Generate AI Description/ }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Generate AI Description/ }),
+    );
 
     expect(ask).not.toHaveBeenCalled();
     expect(onGenerateAiDescription).toHaveBeenCalledWith(["1.jpg"]);
@@ -311,7 +353,9 @@ describe("PhotoList context menu (multi-select)", () => {
     fireEvent.click(rows()[1]);
     fireEvent.click(rows()[2], { ctrlKey: true });
     fireEvent.contextMenu(rows()[2]);
-    await userEvent.click(await screen.findByRole("button", { name: /Generate AI Description/ }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Generate AI Description/ }),
+    );
     expect(ask).not.toHaveBeenCalled();
     expect(onGenerateAiDescription).toHaveBeenCalledWith(["1.jpg", "2.jpg"]);
   });
@@ -343,7 +387,9 @@ describe("PhotoList context menu (multi-select)", () => {
     fireEvent.click(rows()[0]);
     fireEvent.click(rows()[2], { ctrlKey: true });
     fireEvent.contextMenu(rows()[2]);
-    const btn = await screen.findByRole("button", { name: /Discard all edits/ });
+    const btn = await screen.findByRole("button", {
+      name: /Discard all edits/,
+    });
     await userEvent.click(btn);
     await new Promise((r) => setTimeout(r, 0));
     expect(onDiscardAllEdits).toHaveBeenCalledTimes(1);
@@ -355,7 +401,9 @@ describe("PhotoList context menu (multi-select)", () => {
     fireEvent.click(rows()[1]);
     fireEvent.contextMenu(rows()[1]);
     expect(screen.queryByRole("button", { name: /Apply edits/ })).toBeNull();
-    expect(screen.queryByRole("button", { name: /Discard all edits/ })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /Discard all edits/ }),
+    ).toBeNull();
   });
 });
 
@@ -440,7 +488,9 @@ describe("PhotoList keyboard navigation", () => {
     setupStateful({ initialIndex: 1 });
     fireEvent.keyDown(document, { key: "ArrowDown", shiftKey: true });
     fireEvent.keyDown(document, { key: "ArrowDown", shiftKey: true });
-    const selected = Array.from(document.querySelectorAll(".photo-row--selected"))
+    const selected = Array.from(
+      document.querySelectorAll(".photo-row--selected"),
+    )
       .map((el) => el.getAttribute("data-index"))
       .sort();
     expect(selected).toEqual(["1", "2", "3"]);
@@ -451,7 +501,9 @@ describe("PhotoList keyboard navigation", () => {
     fireEvent.keyDown(document, { key: "ArrowDown", shiftKey: true });
     fireEvent.keyDown(document, { key: "ArrowDown", shiftKey: true });
     fireEvent.keyDown(document, { key: "ArrowUp", shiftKey: true });
-    const selected = Array.from(document.querySelectorAll(".photo-row--selected"))
+    const selected = Array.from(
+      document.querySelectorAll(".photo-row--selected"),
+    )
       .map((el) => el.getAttribute("data-index"))
       .sort();
     expect(selected).toEqual(["1", "2"]);
@@ -460,7 +512,9 @@ describe("PhotoList keyboard navigation", () => {
   it("Shift+End selects from the anchor to the last row", () => {
     setupStateful({ initialIndex: 2 });
     fireEvent.keyDown(document, { key: "End", shiftKey: true });
-    const selected = Array.from(document.querySelectorAll(".photo-row--selected"))
+    const selected = Array.from(
+      document.querySelectorAll(".photo-row--selected"),
+    )
       .map((el) => el.getAttribute("data-index"))
       .sort();
     expect(selected).toEqual(["2", "3", "4"]);
@@ -470,7 +524,9 @@ describe("PhotoList keyboard navigation", () => {
     setupStateful({ initialIndex: 1 });
     fireEvent.keyDown(document, { key: "ArrowDown", ctrlKey: true });
     fireEvent.keyDown(document, { key: "ArrowDown", ctrlKey: true });
-    const selected = Array.from(document.querySelectorAll(".photo-row--selected"))
+    const selected = Array.from(
+      document.querySelectorAll(".photo-row--selected"),
+    )
       .map((el) => el.getAttribute("data-index"))
       .sort();
     expect(selected).toEqual(["1", "2", "3"]);
@@ -483,7 +539,9 @@ describe("PhotoList keyboard navigation", () => {
     // Anchor is now at 3; Shift+ArrowDown should produce the [3..4] range,
     // collapsing the previous additive picks.
     fireEvent.keyDown(document, { key: "ArrowDown", shiftKey: true });
-    const selected = Array.from(document.querySelectorAll(".photo-row--selected"))
+    const selected = Array.from(
+      document.querySelectorAll(".photo-row--selected"),
+    )
       .map((el) => el.getAttribute("data-index"))
       .sort();
     expect(selected).toEqual(["3", "4"]);

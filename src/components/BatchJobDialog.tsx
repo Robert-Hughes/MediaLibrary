@@ -25,10 +25,7 @@
 import { useEffect, type ReactNode } from "react";
 
 export type BatchJobPhase =
-  | "estimating"
-  | "awaiting-confirm"
-  | "running"
-  | "done";
+  "estimating" | "awaiting-confirm" | "running" | "done";
 
 export interface BatchJobDialogProps {
   /**
@@ -69,7 +66,10 @@ export function BatchJobDialog({
   }, [phase, onCancel, onClose]);
 
   return (
-    <div className="dialog-overlay" data-testid={`${testidPrefix}-progress-dialog`}>
+    <div
+      className="dialog-overlay"
+      data-testid={`${testidPrefix}-progress-dialog`}
+    >
       <div className="dialog-content" style={{ width }}>
         <div className="dialog-header">
           <span className="dialog-title">{title}</span>

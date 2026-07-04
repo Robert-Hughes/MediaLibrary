@@ -53,16 +53,22 @@ export function GpsEditor({
   headerHint,
   readOnly,
 }: Props) {
-  const [latDecimal, setLatDecimal] = useState<string>(initialLatDecimal === null ? "" : String(initialLatDecimal));
+  const [latDecimal, setLatDecimal] = useState<string>(
+    initialLatDecimal === null ? "" : String(initialLatDecimal),
+  );
   const [latRef, setLatRef] = useState<"N" | "S">(initialLatRef);
-  const [lonDecimal, setLonDecimal] = useState<string>(initialLonDecimal === null ? "" : String(initialLonDecimal));
+  const [lonDecimal, setLonDecimal] = useState<string>(
+    initialLonDecimal === null ? "" : String(initialLonDecimal),
+  );
   const [lonRef, setLonRef] = useState<"E" | "W">(initialLonRef);
   const [altMetres, setAltMetres] = useState<string>(
     initialAltitudeMetres === null || initialAltitudeMetres === undefined
       ? ""
       : String(Math.abs(initialAltitudeMetres)),
   );
-  const [altRef, setAltRef] = useState<"above" | "below">(initialAltitudeRef ?? "above");
+  const [altRef, setAltRef] = useState<"above" | "below">(
+    initialAltitudeRef ?? "above",
+  );
   const [error, setError] = useState<string | null>(null);
 
   const handleSave = () => {
@@ -84,13 +90,19 @@ export function GpsEditor({
     if (altTrim !== "") {
       const alt = parseFloat(altTrim);
       if (!Number.isFinite(alt) || alt < 0) {
-        setError("Altitude must be a non-negative number of metres (use above/below for sign).");
+        setError(
+          "Altitude must be a non-negative number of metres (use above/below for sign).",
+        );
         return;
       }
       altitudeEdits = [
         {
           key: group.altitudeKey,
-          edit: { value: alt, intent: "Set", display: `${alt} m ${altRef === "above" ? "Above" : "Below"} Sea Level` },
+          edit: {
+            value: alt,
+            intent: "Set",
+            display: `${alt} m ${altRef === "above" ? "Above" : "Below"} Sea Level`,
+          },
         },
         // exiftool encodes AltitudeRef as 0 (above sea level) or 1 (below).
         {
@@ -104,10 +116,22 @@ export function GpsEditor({
       ];
     }
     onSave([
-      { key: group.latitudeKey, edit: { value: lat, intent: "Set", display: decimalToDms(lat, latRef) } },
-      { key: group.latitudeRefKey, edit: { value: latRef, intent: "Set", display: latRef } },
-      { key: group.longitudeKey, edit: { value: lon, intent: "Set", display: decimalToDms(lon, lonRef) } },
-      { key: group.longitudeRefKey, edit: { value: lonRef, intent: "Set", display: lonRef } },
+      {
+        key: group.latitudeKey,
+        edit: { value: lat, intent: "Set", display: decimalToDms(lat, latRef) },
+      },
+      {
+        key: group.latitudeRefKey,
+        edit: { value: latRef, intent: "Set", display: latRef },
+      },
+      {
+        key: group.longitudeKey,
+        edit: { value: lon, intent: "Set", display: decimalToDms(lon, lonRef) },
+      },
+      {
+        key: group.longitudeRefKey,
+        edit: { value: lonRef, intent: "Set", display: lonRef },
+      },
       ...altitudeEdits,
     ]);
   };
@@ -120,11 +144,13 @@ export function GpsEditor({
         <div className="dialog-body">
           <p className="dialog-hint" data-testid="gps-editor-warning">
             Editing GPS location writes <code>{group.latitudeKey}</code>,{" "}
-            <code>{group.latitudeRefKey}</code>, <code>{group.longitudeKey}</code>,{" "}
+            <code>{group.latitudeRefKey}</code>,{" "}
+            <code>{group.longitudeKey}</code>,{" "}
             <code>{group.longitudeRefKey}</code>
             {", and (when altitude is filled in) "}
-            <code>{group.altitudeKey}</code>{", "}<code>{group.altitudeRefKey}</code>{" "}
-            together.
+            <code>{group.altitudeKey}</code>
+            {", "}
+            <code>{group.altitudeRefKey}</code> together.
           </p>
           <div className="gps-editor-row">
             <label>Latitude:</label>
@@ -207,7 +233,10 @@ export function GpsEditor({
           )}
         </div>
         <div className="dialog-footer">
-          <button className="dialog-btn dialog-btn-secondary" onClick={onCancel}>
+          <button
+            className="dialog-btn dialog-btn-secondary"
+            onClick={onCancel}
+          >
             Cancel
           </button>
           <button
@@ -237,7 +266,10 @@ export const gpsGroupFor = gpsTagGroup;
  * DraftEdit.display field so the pending-change cell shows the same form
  * the user would see in the read view (Pass A pretty output).
  */
-export function decimalToDms(decimal: number, hemisphere: "N" | "S" | "E" | "W"): string {
+export function decimalToDms(
+  decimal: number,
+  hemisphere: "N" | "S" | "E" | "W",
+): string {
   const abs = Math.abs(decimal);
   const deg = Math.floor(abs);
   const minFloat = (abs - deg) * 60;
@@ -254,7 +286,8 @@ export function decimalToDms(decimal: number, hemisphere: "N" | "S" | "E" | "W")
  * sees only the Pass A display path; the conversion handles both.
  */
 export function parseDecimalDegrees(value: unknown): number | null {
-  if (typeof value === "number") return Number.isFinite(value) ? Math.abs(value) : null;
+  if (typeof value === "number")
+    return Number.isFinite(value) ? Math.abs(value) : null;
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   if (!trimmed) return null;
@@ -262,7 +295,9 @@ export function parseDecimalDegrees(value: unknown): number | null {
   const asNum = Number(trimmed);
   if (Number.isFinite(asNum)) return Math.abs(asNum);
   // DMS: `51 deg 30' 26.16" N` (or `S/E/W`).  exiftool's default form.
-  const m = trimmed.match(/^(\d+(?:\.\d+)?)\s*deg\s*(\d+(?:\.\d+)?)'\s*(\d+(?:\.\d+)?)"\s*([NSEW])?/);
+  const m = trimmed.match(
+    /^(\d+(?:\.\d+)?)\s*deg\s*(\d+(?:\.\d+)?)'\s*(\d+(?:\.\d+)?)"\s*([NSEW])?/,
+  );
   if (m) {
     const d = parseFloat(m[1]);
     const min = parseFloat(m[2]);
@@ -276,7 +311,10 @@ export function parseDecimalDegrees(value: unknown): number | null {
  * Best-effort extraction of the hemisphere from a metadata value.  Falls
  * back to "N"/"E" when nothing parseable is found.
  */
-export function parseHemisphere(value: unknown, axis: "lat" | "lon"): "N" | "S" | "E" | "W" {
+export function parseHemisphere(
+  value: unknown,
+  axis: "lat" | "lon",
+): "N" | "S" | "E" | "W" {
   const fallback: "N" | "E" = axis === "lat" ? "N" : "E";
   if (typeof value === "string") {
     const upper = value.trim().toUpperCase();

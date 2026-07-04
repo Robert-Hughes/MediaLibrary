@@ -57,7 +57,15 @@ function isComplex(v: Variant): boolean {
   return Array.isArray(v) || (typeof v === "object" && v !== null);
 }
 
-export function StructEditor({ propertyKey, initialObject, innerEditor, onSave, onCancel, headerHint, readOnly }: Props) {
+export function StructEditor({
+  propertyKey,
+  initialObject,
+  innerEditor,
+  onSave,
+  onCancel,
+  headerHint,
+  readOnly,
+}: Props) {
   const [rows, setRows] = useState<FieldRow[]>(objectToRows(initialObject));
   const [newFieldKey, setNewFieldKey] = useState("");
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
@@ -93,7 +101,8 @@ export function StructEditor({ propertyKey, initialObject, innerEditor, onSave, 
         initialVariant={row.value}
         initialString={variantToDisplayString(row.value)}
         onSave={(edit: DraftEdit) => {
-          const newValue: Variant = edit.intent === "Delete" ? "" : edit.value ?? "";
+          const newValue: Variant =
+            edit.intent === "Delete" ? "" : (edit.value ?? "");
           updateRow(editingIndex, { value: newValue });
           setEditingIndex(null);
         }}
@@ -113,7 +122,11 @@ export function StructEditor({ propertyKey, initialObject, innerEditor, onSave, 
               <p className="dialog-hint">No fields. Add one below.</p>
             )}
             {rows.map((row, idx) => (
-              <div key={idx} className="struct-editor-row" data-testid="struct-editor-row">
+              <div
+                key={idx}
+                className="struct-editor-row"
+                data-testid="struct-editor-row"
+              >
                 <input
                   type="text"
                   className="struct-editor-key"
@@ -124,7 +137,10 @@ export function StructEditor({ propertyKey, initialObject, innerEditor, onSave, 
                 />
                 {isComplex(row.value) ? (
                   <>
-                    <span className="struct-editor-complex-preview" data-testid={`struct-editor-preview-${idx}`}>
+                    <span
+                      className="struct-editor-complex-preview"
+                      data-testid={`struct-editor-preview-${idx}`}
+                    >
                       {variantToDisplayString(row.value).slice(0, 60)}
                     </span>
                     {SubEditor && (
@@ -142,7 +158,11 @@ export function StructEditor({ propertyKey, initialObject, innerEditor, onSave, 
                   <input
                     type="text"
                     className="struct-editor-value"
-                    value={typeof row.value === "string" ? row.value : String(row.value ?? "")}
+                    value={
+                      typeof row.value === "string"
+                        ? row.value
+                        : String(row.value ?? "")
+                    }
                     onChange={(e) => updateRow(idx, { value: e.target.value })}
                     data-testid={`struct-editor-value-${idx}`}
                   />
@@ -184,7 +204,10 @@ export function StructEditor({ propertyKey, initialObject, innerEditor, onSave, 
           </div>
         </div>
         <div className="dialog-footer">
-          <button className="dialog-btn dialog-btn-secondary" onClick={onCancel}>
+          <button
+            className="dialog-btn dialog-btn-secondary"
+            onClick={onCancel}
+          >
             Cancel
           </button>
           <button
@@ -203,7 +226,9 @@ export function StructEditor({ propertyKey, initialObject, innerEditor, onSave, 
 }
 
 /** Best-effort: turn whatever we have into an Object suitable for editing. */
-export function initialObjectFrom(value: Variant | undefined): Record<string, Variant> {
+export function initialObjectFrom(
+  value: Variant | undefined,
+): Record<string, Variant> {
   if (value && typeof value === "object" && !Array.isArray(value)) {
     return value as Record<string, Variant>;
   }

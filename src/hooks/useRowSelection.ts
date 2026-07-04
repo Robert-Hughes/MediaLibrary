@@ -21,8 +21,13 @@ export interface RowSelectionConfig {
 
 export function useRowSelection(cfg: RowSelectionConfig) {
   const {
-    photosLength, selectedIndex, onSelect, onPhotoOpen,
-    listRef, rowHeight, onSelectionCountChange,
+    photosLength,
+    selectedIndex,
+    onSelect,
+    onPhotoOpen,
+    listRef,
+    rowHeight,
+    onSelectionCountChange,
   } = cfg;
 
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(() =>
@@ -39,7 +44,11 @@ export function useRowSelection(cfg: RowSelectionConfig) {
       anchorRef.current = null;
       return;
     }
-    setSelectedIndices((prev) => (prev.has(selectedIndex) && prev.size > 0 ? prev : new Set([selectedIndex])));
+    setSelectedIndices((prev) =>
+      prev.has(selectedIndex) && prev.size > 0
+        ? prev
+        : new Set([selectedIndex]),
+    );
     if (anchorRef.current === null) anchorRef.current = selectedIndex;
   }, [selectedIndex]);
 
@@ -56,31 +65,34 @@ export function useRowSelection(cfg: RowSelectionConfig) {
     });
   }, [photosLength]);
 
-  const handleRowSelect = useCallback((index: number, modifiers: { ctrl: boolean; shift: boolean }) => {
-    if (modifiers.shift && anchorRef.current !== null) {
-      const start = Math.min(anchorRef.current, index);
-      const end = Math.max(anchorRef.current, index);
-      const range = new Set<number>();
-      for (let i = start; i <= end; i++) range.add(i);
-      setSelectedIndices(range);
-      onSelect(index);
-      return;
-    }
-    if (modifiers.ctrl) {
-      setSelectedIndices((prev) => {
-        const next = new Set(prev);
-        if (next.has(index)) next.delete(index);
-        else next.add(index);
-        return next;
-      });
+  const handleRowSelect = useCallback(
+    (index: number, modifiers: { ctrl: boolean; shift: boolean }) => {
+      if (modifiers.shift && anchorRef.current !== null) {
+        const start = Math.min(anchorRef.current, index);
+        const end = Math.max(anchorRef.current, index);
+        const range = new Set<number>();
+        for (let i = start; i <= end; i++) range.add(i);
+        setSelectedIndices(range);
+        onSelect(index);
+        return;
+      }
+      if (modifiers.ctrl) {
+        setSelectedIndices((prev) => {
+          const next = new Set(prev);
+          if (next.has(index)) next.delete(index);
+          else next.add(index);
+          return next;
+        });
+        anchorRef.current = index;
+        onSelect(index);
+        return;
+      }
       anchorRef.current = index;
+      setSelectedIndices(new Set([index]));
       onSelect(index);
-      return;
-    }
-    anchorRef.current = index;
-    setSelectedIndices(new Set([index]));
-    onSelect(index);
-  }, [onSelect]);
+    },
+    [onSelect],
+  );
 
   /**
    * Right-click acts on the row under the cursor: if that row isn't
@@ -89,14 +101,17 @@ export function useRowSelection(cfg: RowSelectionConfig) {
    * rows" prompts). Returns nothing — caller still owns the
    * context-menu open state.
    */
-  const handleRowContextMenu = useCallback((index: number) => {
-    setSelectedIndices((prev) => {
-      if (prev.has(index)) return prev;
-      anchorRef.current = index;
-      onSelect(index);
-      return new Set([index]);
-    });
-  }, [onSelect]);
+  const handleRowContextMenu = useCallback(
+    (index: number) => {
+      setSelectedIndices((prev) => {
+        if (prev.has(index)) return prev;
+        anchorRef.current = index;
+        onSelect(index);
+        return new Set([index]);
+      });
+    },
+    [onSelect],
+  );
 
   // Keyboard nav lives on document. Refs avoid rebinding on every
   // photos/selectedIndex/rowHeight tick.
@@ -114,7 +129,13 @@ export function useRowSelection(cfg: RowSelectionConfig) {
       const t = e.target as HTMLElement | null;
       if (t) {
         const tag = t.tagName;
-        if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || t.isContentEditable) return;
+        if (
+          tag === "INPUT" ||
+          tag === "TEXTAREA" ||
+          tag === "SELECT" ||
+          t.isContentEditable
+        )
+          return;
       }
       // A modal dialog is open — let it handle the key.  Gallery uses
       // the same overlay class so this covers both.

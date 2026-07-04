@@ -7,7 +7,10 @@ import { PhotoRow } from "./PhotoRow";
 import { ResizeHandle } from "./ResizeHandle";
 import { nextSortConfig } from "../utils/sorting";
 import { useColumnResize } from "../hooks/useColumnResize";
-import { useColumnReorder, type ColumnDragOver } from "../hooks/useColumnReorder";
+import {
+  useColumnReorder,
+  type ColumnDragOver,
+} from "../hooks/useColumnReorder";
 import { useRowSelection } from "../hooks/useRowSelection";
 import { PhotoListContextMenu } from "./PhotoListContextMenu";
 
@@ -69,7 +72,10 @@ export function selectVisibleNeedingLoad(
 ): string[] {
   const out: string[] = [];
   for (const path of visible) {
-    if (thumbnails.get(path) === "loading" || imageMetadata.get(path) === "loading") {
+    if (
+      thumbnails.get(path) === "loading" ||
+      imageMetadata.get(path) === "loading"
+    ) {
       out.push(path);
     }
   }
@@ -80,7 +86,8 @@ function buildGridTemplate(
   visibleColumns: VisibleColumn[],
   widths: Record<string, number>,
 ): string {
-  const w = (key: string, def: string) => widths[key] ? `${widths[key]}px` : def;
+  const w = (key: string, def: string) =>
+    widths[key] ? `${widths[key]}px` : def;
   return [
     w("preview", "52px"),
     w("relative_path", "minmax(200px, 2fr)"),
@@ -96,18 +103,36 @@ function previewColumnWidth(widths: Record<string, number>): number {
 
 function rowHeightForPreview(width: number): number {
   const thumbnailWidth = Math.max(0, width - THUMBNAIL_CELL_GUTTER);
-  const thumbnailHeight = Math.round((thumbnailWidth * PREVIEW_ASPECT_HEIGHT) / PREVIEW_ASPECT_WIDTH);
+  const thumbnailHeight = Math.round(
+    (thumbnailWidth * PREVIEW_ASPECT_HEIGHT) / PREVIEW_ASPECT_WIDTH,
+  );
   return Math.max(MIN_ROW_HEIGHT, thumbnailHeight + THUMBNAIL_CELL_GUTTER);
 }
 
-function SortIndicator({ column, sortConfig, disabled }: { column: string; sortConfig: SortConfig; disabled?: boolean }) {
+function SortIndicator({
+  column,
+  sortConfig,
+  disabled,
+}: {
+  column: string;
+  sortConfig: SortConfig;
+  disabled?: boolean;
+}) {
   if (disabled) return null;
   const { primary, secondary } = sortConfig;
   if (primary?.column === column) {
-    return <span className="sort-indicator sort-indicator--primary">{primary.direction === "asc" ? " ▲" : " ▼"}</span>;
+    return (
+      <span className="sort-indicator sort-indicator--primary">
+        {primary.direction === "asc" ? " ▲" : " ▼"}
+      </span>
+    );
   }
   if (secondary?.column === column) {
-    return <span className="sort-indicator sort-indicator--secondary">{secondary.direction === "asc" ? " ▲" : " ▼"}</span>;
+    return (
+      <span className="sort-indicator sort-indicator--secondary">
+        {secondary.direction === "asc" ? " ▲" : " ▼"}
+      </span>
+    );
   }
   return null;
 }
@@ -142,14 +167,26 @@ const KIND_LABELS: Record<VisibleColumn["kind"], string> = {
 
 function PhotoListHeader(props: HeaderProps) {
   const {
-    visibleColumns, sortConfig, sortingDisabled, dragOver,
-    onColumnContextMenu, onColumnClick,
-    onResizeStart, onResizeMove, onResizeEnd, onResetWidth,
-    onColDragStart, onColDragOver, onColDragLeave, onColDrop, onColDragEnd,
+    visibleColumns,
+    sortConfig,
+    sortingDisabled,
+    dragOver,
+    onColumnContextMenu,
+    onColumnClick,
+    onResizeStart,
+    onResizeMove,
+    onResizeEnd,
+    onResetWidth,
+    onColDragStart,
+    onColDragOver,
+    onColDragLeave,
+    onColDrop,
+    onColDragEnd,
   } = props;
 
   const headerClass = (col: string) => {
-    const drop = dragOver?.col === col ? ` grid-header--drop-${dragOver.side}` : "";
+    const drop =
+      dragOver?.col === col ? ` grid-header--drop-${dragOver.side}` : "";
     return `grid-header grid-header--sortable${drop}`;
   };
 
@@ -161,9 +198,18 @@ function PhotoListHeader(props: HeaderProps) {
         className="grid-header grid-header--metadata"
         style={{ gridRow: "1 / 3", gridColumn: 1 }}
       >
-        <span className="grid-header-kind grid-header-kind--empty" aria-hidden="true" />
+        <span
+          className="grid-header-kind grid-header-kind--empty"
+          aria-hidden="true"
+        />
         <span className="grid-header-label">Preview</span>
-        <ResizeHandle col="preview" onResizeStart={onResizeStart} onResizeMove={onResizeMove} onResizeEnd={onResizeEnd} onReset={onResetWidth} />
+        <ResizeHandle
+          col="preview"
+          onResizeStart={onResizeStart}
+          onResizeMove={onResizeMove}
+          onResizeEnd={onResizeEnd}
+          onReset={onResetWidth}
+        />
       </div>
       <div
         className="grid-header grid-header--sortable grid-header--metadata"
@@ -174,13 +220,24 @@ function PhotoListHeader(props: HeaderProps) {
         <span className="grid-header-kind">OS</span>
         <span className="grid-header-label">
           Path
-          <SortIndicator column="relative_path" sortConfig={sortConfig} disabled={sortingDisabled} />
+          <SortIndicator
+            column="relative_path"
+            sortConfig={sortConfig}
+            disabled={sortingDisabled}
+          />
         </span>
-        <ResizeHandle col="relative_path" onResizeStart={onResizeStart} onResizeMove={onResizeMove} onResizeEnd={onResizeEnd} onReset={onResetWidth} />
+        <ResizeHandle
+          col="relative_path"
+          onResizeStart={onResizeStart}
+          onResizeMove={onResizeMove}
+          onResizeEnd={onResizeEnd}
+          onReset={onResetWidth}
+        />
       </div>
 
       {visibleColumns.map((col, i) => {
-        const label = col.kind === "os" ? (OS_COLUMN_LABELS[col.key] ?? col.key) : col.key;
+        const label =
+          col.kind === "os" ? (OS_COLUMN_LABELS[col.key] ?? col.key) : col.key;
         return (
           <div
             key={col.key}
@@ -198,9 +255,19 @@ function PhotoListHeader(props: HeaderProps) {
             <span className="grid-header-kind">{KIND_LABELS[col.kind]}</span>
             <span className="grid-header-label">
               {label}
-              <SortIndicator column={col.key} sortConfig={sortConfig} disabled={sortingDisabled} />
+              <SortIndicator
+                column={col.key}
+                sortConfig={sortConfig}
+                disabled={sortingDisabled}
+              />
             </span>
-            <ResizeHandle col={col.key} onResizeStart={onResizeStart} onResizeMove={onResizeMove} onResizeEnd={onResizeEnd} onReset={onResetWidth} />
+            <ResizeHandle
+              col={col.key}
+              onResizeStart={onResizeStart}
+              onResizeMove={onResizeMove}
+              onResizeEnd={onResizeEnd}
+              onReset={onResetWidth}
+            />
           </div>
         );
       })}
@@ -209,11 +276,22 @@ function PhotoListHeader(props: HeaderProps) {
 }
 
 export function PhotoList({
-  photos, thumbnails, imageMetadata, visibleColumns,
-  columnWidths = {}, onColumnWidthChange,
+  photos,
+  thumbnails,
+  imageMetadata,
+  visibleColumns,
+  columnWidths = {},
+  onColumnWidthChange,
   onColumnsReorder,
-  sortConfig, onSortChange, sortingDisabled,
-  selectedIndex, onSelect, onShowInExplorer, onVisibilityChange, onPhotoOpen, onSelectColumns,
+  sortConfig,
+  onSortChange,
+  sortingDisabled,
+  selectedIndex,
+  onSelect,
+  onShowInExplorer,
+  onVisibilityChange,
+  onPhotoOpen,
+  onSelectColumns,
   searchQuery = "",
   emptySearchMessage = null,
   draftEdits = {},
@@ -230,13 +308,20 @@ export function PhotoList({
 
   const {
     effectiveWidths,
-    handleResizeStart, handleResizeMove, handleResizeEnd, handleResetWidth,
+    handleResizeStart,
+    handleResizeMove,
+    handleResizeEnd,
+    handleResetWidth,
   } = useColumnResize(columnWidths, onColumnWidthChange, listRef);
 
   const {
     dragOver,
-    handleColDragStart, handleColDragOver, handleColDragLeave,
-    handleColDrop, handleColDragEnd, handleWrapperDragOver,
+    handleColDragStart,
+    handleColDragOver,
+    handleColDragLeave,
+    handleColDrop,
+    handleColDragEnd,
+    handleWrapperDragOver,
   } = useColumnReorder(visibleColumns, onColumnsReorder);
 
   const rowHeight = rowHeightForPreview(previewColumnWidth(effectiveWidths));
@@ -269,7 +354,11 @@ export function PhotoList({
   // Track visibility for prioritization
   useEffect(() => {
     const notify = () => {
-      const visibleOrdered = selectVisibleNeedingLoad(visibleRef.current, thumbnails, imageMetadata);
+      const visibleOrdered = selectVisibleNeedingLoad(
+        visibleRef.current,
+        thumbnails,
+        imageMetadata,
+      );
       if (visibleOrdered.length > 0) {
         onVisibilityChangeRef.current(visibleOrdered);
       }
@@ -286,8 +375,10 @@ export function PhotoList({
       }
 
       // Check if visibility changed
-      if (newVisible.size !== visibleRef.current.size ||
-          ![...newVisible].every(p => visibleRef.current.has(p))) {
+      if (
+        newVisible.size !== visibleRef.current.size ||
+        ![...newVisible].every((p) => visibleRef.current.has(p))
+      ) {
         visibleRef.current = newVisible;
         notify();
       }
@@ -314,7 +405,10 @@ export function PhotoList({
     const limit = Math.min(30, photos.length);
     for (let i = 0; i < limit; i++) {
       const path = photos[i].relative_path;
-      if (thumbnails.get(path) === "loading" || imageMetadata.get(path) === "loading") {
+      if (
+        thumbnails.get(path) === "loading" ||
+        imageMetadata.get(path) === "loading"
+      ) {
         initialPaths.push(path);
       }
     }
@@ -331,42 +425,62 @@ export function PhotoList({
     }
   }, [selectedIndex, rowVirtualizer]);
 
-  const { selectedIndices, handleRowSelect, handleRowContextMenu } = useRowSelection({
-    photosLength: photos.length,
-    selectedIndex,
-    onSelect,
-    onPhotoOpen,
-    listRef,
-    rowHeight,
-    onSelectionCountChange,
-  });
+  const { selectedIndices, handleRowSelect, handleRowContextMenu } =
+    useRowSelection({
+      photosLength: photos.length,
+      selectedIndex,
+      onSelect,
+      onPhotoOpen,
+      listRef,
+      rowHeight,
+      onSelectionCountChange,
+    });
 
-  const [contextMenu, setContextMenu] = useState<{ x: number, y: number, index: number } | null>(null);
-  const [columnContextMenu, setColumnContextMenu] = useState<{ x: number, y: number } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    index: number;
+  } | null>(null);
+  const [columnContextMenu, setColumnContextMenu] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
 
-  const handleContextMenu = useCallback((e: React.MouseEvent, index: number) => {
-    e.preventDefault();
-    handleRowContextMenu(index);
-    setContextMenu({ x: e.clientX, y: e.clientY, index });
-  }, [handleRowContextMenu]);
+  const handleContextMenu = useCallback(
+    (e: React.MouseEvent, index: number) => {
+      e.preventDefault();
+      handleRowContextMenu(index);
+      setContextMenu({ x: e.clientX, y: e.clientY, index });
+    },
+    [handleRowContextMenu],
+  );
 
-  const handleColumnContextMenu = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    if (onSelectColumns) {
-      setColumnContextMenu({ x: e.clientX, y: e.clientY });
-    }
-  }, [onSelectColumns]);
+  const handleColumnContextMenu = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      if (onSelectColumns) {
+        setColumnContextMenu({ x: e.clientX, y: e.clientY });
+      }
+    },
+    [onSelectColumns],
+  );
 
-  const handleColumnClick = useCallback((column: string, columnType: "path" | "os" | "image") => {
-    // Clicks are always honoured — sortingDisabled only governs whether the
-    // *resulting* sort applies and is shown.  Without this, once a user lands
-    // in a suspended state (e.g., image-column sort while metadata is still
-    // loading) they would be unable to click an OS column to escape it.
-    onSortChange(nextSortConfig(sortConfig, column, columnType));
-  }, [onSortChange, sortConfig]);
+  const handleColumnClick = useCallback(
+    (column: string, columnType: "path" | "os" | "image") => {
+      // Clicks are always honoured — sortingDisabled only governs whether the
+      // *resulting* sort applies and is shown.  Without this, once a user lands
+      // in a suspended state (e.g., image-column sort while metadata is still
+      // loading) they would be unable to click an OS column to escape it.
+      onSortChange(nextSortConfig(sortConfig, column, columnType));
+    },
+    [onSortChange, sortConfig],
+  );
 
   const headerProps: HeaderProps = {
-    visibleColumns, sortConfig, sortingDisabled, dragOver,
+    visibleColumns,
+    sortConfig,
+    sortingDisabled,
+    dragOver,
     onColumnContextMenu: handleColumnContextMenu,
     onColumnClick: handleColumnClick,
     onResizeStart: handleResizeStart,
@@ -394,17 +508,29 @@ export function PhotoList({
 
   if (photos.length === 0) {
     return (
-      <div className="photo-table-wrapper" ref={listRef} onClick={() => { setContextMenu(null); setColumnContextMenu(null); }} onDragOver={handleWrapperDragOver}>
+      <div
+        className="photo-table-wrapper"
+        ref={listRef}
+        onClick={() => {
+          setContextMenu(null);
+          setColumnContextMenu(null);
+        }}
+        onDragOver={handleWrapperDragOver}
+      >
         <div
           className="photo-grid"
-          data-testid={emptySearchMessage ? "photo-list-search-empty" : "photo-list-empty"}
+          data-testid={
+            emptySearchMessage ? "photo-list-search-empty" : "photo-list-empty"
+          }
           role="grid"
           style={gridStyle}
         >
           <PhotoListHeader {...headerProps} />
           <div
             className="grid-body"
-            data-testid={emptySearchMessage ? "photo-list-search-empty-message" : undefined}
+            data-testid={
+              emptySearchMessage ? "photo-list-search-empty-message" : undefined
+            }
             style={{
               gridColumn: "1 / -1",
               gridRow: 3,
@@ -429,7 +555,15 @@ export function PhotoList({
   const totalSize = rowVirtualizer.getTotalSize();
 
   return (
-    <div className="photo-table-wrapper" ref={listRef} onClick={() => { setContextMenu(null); setColumnContextMenu(null); }} onDragOver={handleWrapperDragOver}>
+    <div
+      className="photo-table-wrapper"
+      ref={listRef}
+      onClick={() => {
+        setContextMenu(null);
+        setColumnContextMenu(null);
+      }}
+      onDragOver={handleWrapperDragOver}
+    >
       <div
         className="photo-grid"
         data-testid="photo-list"
@@ -445,7 +579,7 @@ export function PhotoList({
             gridColumn: `1 / -1`,
             gridRow: 3,
             position: "relative",
-            height: `${totalSize}px`
+            height: `${totalSize}px`,
           }}
         >
           {virtualItems.map((virtualRow) => {
@@ -496,7 +630,13 @@ export function PhotoList({
           x={columnContextMenu.x}
           y={columnContextMenu.y}
           options={[
-            { label: "Select Columns…", onClick: () => { onSelectColumns(); setColumnContextMenu(null); } },
+            {
+              label: "Select Columns…",
+              onClick: () => {
+                onSelectColumns();
+                setColumnContextMenu(null);
+              },
+            },
           ]}
           onClose={() => setColumnContextMenu(null)}
         />

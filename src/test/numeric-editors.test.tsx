@@ -5,7 +5,11 @@ import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { NumericEditor } from "../components/editors/NumericEditor";
 import { BooleanEditor } from "../components/editors/BooleanEditor";
-import { DateTimeEditor, toIsoLocal, toExiftoolFormat } from "../components/editors/DateTimeEditor";
+import {
+  DateTimeEditor,
+  toIsoLocal,
+  toExiftoolFormat,
+} from "../components/editors/DateTimeEditor";
 import { RationalEditor } from "../components/editors/RationalEditor";
 
 beforeEach(() => cleanup());
@@ -25,7 +29,9 @@ describe("NumericEditor", () => {
         onCancel={() => {}}
       />,
     );
-    const input = screen.getByTestId("numeric-editor-input") as HTMLInputElement;
+    const input = screen.getByTestId(
+      "numeric-editor-input",
+    ) as HTMLInputElement;
     await user.clear(input);
     await user.type(input, "5");
     fireEvent.click(screen.getByTestId("numeric-editor-save"));
@@ -44,12 +50,16 @@ describe("NumericEditor", () => {
         onCancel={() => {}}
       />,
     );
-    const input = screen.getByTestId("numeric-editor-input") as HTMLInputElement;
+    const input = screen.getByTestId(
+      "numeric-editor-input",
+    ) as HTMLInputElement;
     await user.clear(input);
     await user.type(input, "3.5");
     fireEvent.click(screen.getByTestId("numeric-editor-save"));
     expect(onSave).not.toHaveBeenCalled();
-    expect(screen.getByTestId("numeric-editor-error")).toHaveTextContent("integer");
+    expect(screen.getByTestId("numeric-editor-error")).toHaveTextContent(
+      "integer",
+    );
   });
 
   it("Integer clamps with bounds error", async () => {
@@ -66,7 +76,9 @@ describe("NumericEditor", () => {
         onCancel={() => {}}
       />,
     );
-    const input = screen.getByTestId("numeric-editor-input") as HTMLInputElement;
+    const input = screen.getByTestId(
+      "numeric-editor-input",
+    ) as HTMLInputElement;
     await user.clear(input);
     await user.type(input, "10");
     fireEvent.click(screen.getByTestId("numeric-editor-save"));
@@ -86,9 +98,14 @@ describe("NumericEditor", () => {
         onCancel={() => {}}
       />,
     );
-    const saveBtn = screen.getByTestId("numeric-editor-save") as HTMLButtonElement;
+    const saveBtn = screen.getByTestId(
+      "numeric-editor-save",
+    ) as HTMLButtonElement;
     expect(saveBtn).toBeDisabled();
-    expect(saveBtn).toHaveAttribute("title", "Tag is read-only per ExifTool schema");
+    expect(saveBtn).toHaveAttribute(
+      "title",
+      "Tag is read-only per ExifTool schema",
+    );
     fireEvent.click(saveBtn);
     expect(onSave).not.toHaveBeenCalled();
   });
@@ -105,7 +122,9 @@ describe("NumericEditor", () => {
         onCancel={() => {}}
       />,
     );
-    const input = screen.getByTestId("numeric-editor-input") as HTMLInputElement;
+    const input = screen.getByTestId(
+      "numeric-editor-input",
+    ) as HTMLInputElement;
     await user.clear(input);
     await user.type(input, "5.6");
     fireEvent.click(screen.getByTestId("numeric-editor-save"));
@@ -117,7 +136,12 @@ describe("BooleanEditor", () => {
   it("Save emits Variant::Bool", () => {
     const onSave = vi.fn();
     render(
-      <BooleanEditor propertyKey="X" initialValue={false} onSave={onSave} onCancel={() => {}} />,
+      <BooleanEditor
+        propertyKey="X"
+        initialValue={false}
+        onSave={onSave}
+        onCancel={() => {}}
+      />,
     );
     fireEvent.click(screen.getByTestId("boolean-editor-true"));
     fireEvent.click(screen.getByTestId("boolean-editor-save"));
@@ -127,7 +151,12 @@ describe("BooleanEditor", () => {
   it("Unset → Delete intent", () => {
     const onSave = vi.fn();
     render(
-      <BooleanEditor propertyKey="X" initialValue={true} onSave={onSave} onCancel={() => {}} />,
+      <BooleanEditor
+        propertyKey="X"
+        initialValue={true}
+        onSave={onSave}
+        onCancel={() => {}}
+      />,
     );
     fireEvent.click(screen.getByTestId("boolean-editor-unset"));
     fireEvent.click(screen.getByTestId("boolean-editor-save"));
@@ -220,7 +249,9 @@ describe("RationalEditor", () => {
       />,
     );
     fireEvent.click(screen.getByTestId("rational-editor-mode-decimal"));
-    const dec = screen.getByTestId("rational-editor-decimal") as HTMLInputElement;
+    const dec = screen.getByTestId(
+      "rational-editor-decimal",
+    ) as HTMLInputElement;
     await user.clear(dec);
     await user.type(dec, "0.004");
     fireEvent.click(screen.getByTestId("rational-editor-save"));

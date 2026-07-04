@@ -3,7 +3,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { StructEditor, initialObjectFrom } from "../components/editors/StructEditor";
+import {
+  StructEditor,
+  initialObjectFrom,
+} from "../components/editors/StructEditor";
 
 beforeEach(() => cleanup());
 
@@ -33,7 +36,10 @@ describe("StructEditor", () => {
     );
     fireEvent.click(screen.getByTestId("struct-editor-save"));
     expect(onSave).toHaveBeenCalledOnce();
-    expect(onSave.mock.calls[0][0]).toEqual({ value: { a: "1", b: "2" }, intent: "Set" });
+    expect(onSave.mock.calls[0][0]).toEqual({
+      value: { a: "1", b: "2" },
+      intent: "Set",
+    });
   });
 
   it("edits a field value inline", async () => {
@@ -47,7 +53,9 @@ describe("StructEditor", () => {
         onCancel={() => {}}
       />,
     );
-    const input = screen.getByTestId("struct-editor-value-0") as HTMLInputElement;
+    const input = screen.getByTestId(
+      "struct-editor-value-0",
+    ) as HTMLInputElement;
     await user.clear(input);
     await user.type(input, "Bob");
     fireEvent.click(screen.getByTestId("struct-editor-save"));
@@ -65,7 +73,9 @@ describe("StructEditor", () => {
         onCancel={() => {}}
       />,
     );
-    const keyInput = screen.getByTestId("struct-editor-new-key") as HTMLInputElement;
+    const keyInput = screen.getByTestId(
+      "struct-editor-new-key",
+    ) as HTMLInputElement;
     await user.click(keyInput);
     await user.type(keyInput, "newField");
     await user.click(screen.getByTestId("struct-editor-add-btn"));
@@ -90,7 +100,9 @@ describe("StructEditor", () => {
   });
 
   it("renders a preview + Edit… button for complex inner values", () => {
-    const inner = vi.fn().mockReturnValue(<div data-testid="mock-inner-editor" />);
+    const inner = vi
+      .fn()
+      .mockReturnValue(<div data-testid="mock-inner-editor" />);
     render(
       <StructEditor
         propertyKey="X"
@@ -108,7 +120,9 @@ describe("StructEditor", () => {
   });
 
   it("recurses into innerEditor when Edit… is clicked on a complex field", () => {
-    const inner = vi.fn().mockReturnValue(<div data-testid="mock-inner-editor" />);
+    const inner = vi
+      .fn()
+      .mockReturnValue(<div data-testid="mock-inner-editor" />);
     render(
       <StructEditor
         propertyKey="X"

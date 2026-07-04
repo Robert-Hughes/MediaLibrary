@@ -24,7 +24,9 @@ describe("DraftEditsStore", () => {
       store.subscribe(cb);
       store.setTag("a.jpg", "X:Y", edit("v"));
       expect(store.getFile("a.jpg")).toEqual({ "X:Y": edit("v") });
-      expect(cb).toHaveBeenCalledWith([{ path: "a.jpg", edits: { "X:Y": edit("v") } }]);
+      expect(cb).toHaveBeenCalledWith([
+        { path: "a.jpg", edits: { "X:Y": edit("v") } },
+      ]);
     });
 
     it("merges with existing tags", () => {
@@ -52,7 +54,10 @@ describe("DraftEditsStore", () => {
         { key: "GPS:Lat", edit: edit("1") },
         { key: "GPS:Lng", edit: edit("2") },
       ]);
-      expect(store.getFile("a.jpg")).toEqual({ "GPS:Lat": edit("1"), "GPS:Lng": edit("2") });
+      expect(store.getFile("a.jpg")).toEqual({
+        "GPS:Lat": edit("1"),
+        "GPS:Lng": edit("2"),
+      });
       expect(cb).toHaveBeenCalledTimes(1);
     });
 
@@ -69,12 +74,17 @@ describe("DraftEditsStore", () => {
   describe("deleteTag", () => {
     it("removes one tag and keeps siblings", () => {
       const store = new DraftEditsStore();
-      store.setBatch("a.jpg", [{ key: "A", edit: edit("1") }, { key: "B", edit: edit("2") }]);
+      store.setBatch("a.jpg", [
+        { key: "A", edit: edit("1") },
+        { key: "B", edit: edit("2") },
+      ]);
       const cb = vi.fn();
       store.subscribe(cb);
       store.deleteTag("a.jpg", "A");
       expect(store.getFile("a.jpg")).toEqual({ B: edit("2") });
-      expect(cb).toHaveBeenCalledWith([{ path: "a.jpg", edits: { B: edit("2") } }]);
+      expect(cb).toHaveBeenCalledWith([
+        { path: "a.jpg", edits: { B: edit("2") } },
+      ]);
     });
 
     it("removes the file entry when last tag goes", () => {
@@ -127,8 +137,13 @@ describe("DraftEditsStore", () => {
       expect(store.getAll()).toEqual({});
       expect(cb).toHaveBeenCalledTimes(1);
       const changes = cb.mock.calls[0][0];
-      expect(changes.map((c: { path: string }) => c.path).sort()).toEqual(["a.jpg", "b.jpg"]);
-      expect(changes.every((c: { edits: unknown }) => c.edits === undefined)).toBe(true);
+      expect(changes.map((c: { path: string }) => c.path).sort()).toEqual([
+        "a.jpg",
+        "b.jpg",
+      ]);
+      expect(
+        changes.every((c: { edits: unknown }) => c.edits === undefined),
+      ).toBe(true);
     });
 
     it("deletePaths no-ops on all-missing", () => {
@@ -272,8 +287,8 @@ describe("DraftEditsStore", () => {
       const cb = vi.fn();
       store.subscribe(cb);
       const results = store.setBatch("a.jpg", [
-        { key: "A", edit: edit("same") },    // redundant
-        { key: "B", edit: edit("new") },     // written
+        { key: "A", edit: edit("same") }, // redundant
+        { key: "B", edit: edit("new") }, // written
         { key: "C", edit: edit("changed") }, // written
       ]);
       expect(results).toEqual([

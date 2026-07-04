@@ -99,7 +99,9 @@ describe("PhotoList: Reverse Geocode context-menu entry", () => {
     setup();
     fireEvent.click(rows()[2]);
     fireEvent.contextMenu(rows()[2]);
-    const entry = await screen.findByRole("button", { name: "Reverse Geocode…" });
+    const entry = await screen.findByRole("button", {
+      name: "Reverse Geocode…",
+    });
     expect(entry).toBeInTheDocument();
   });
 
@@ -109,7 +111,9 @@ describe("PhotoList: Reverse Geocode context-menu entry", () => {
     fireEvent.click(rows()[2], { ctrlKey: true });
     fireEvent.click(rows()[4], { ctrlKey: true });
     fireEvent.contextMenu(rows()[4]);
-    const entry = await screen.findByRole("button", { name: "Reverse Geocode… (3 photos)" });
+    const entry = await screen.findByRole("button", {
+      name: "Reverse Geocode… (3 photos)",
+    });
     expect(entry).toBeInTheDocument();
   });
 
@@ -145,7 +149,9 @@ describe("PhotoList: Reverse Geocode context-menu entry", () => {
     fireEvent.click(rows()[0]);
     fireEvent.contextMenu(rows()[0]);
     await screen.findByRole("button", { name: /^View/ });
-    expect(screen.queryByRole("button", { name: /^Reverse Geocode/ })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /^Reverse Geocode/ }),
+    ).toBeNull();
   });
 
   it("invokes onGeocode with the selected paths without prompting (no location data)", async () => {
@@ -153,7 +159,9 @@ describe("PhotoList: Reverse Geocode context-menu entry", () => {
     fireEvent.click(rows()[1]);
     fireEvent.click(rows()[2], { ctrlKey: true });
     fireEvent.contextMenu(rows()[2]);
-    const entry = await screen.findByRole("button", { name: /^Reverse Geocode/ });
+    const entry = await screen.findByRole("button", {
+      name: /^Reverse Geocode/,
+    });
     await userEvent.click(entry);
     const ask = await getAskMock();
     expect(ask).not.toHaveBeenCalled();
@@ -173,7 +181,9 @@ describe("PhotoList: Reverse Geocode context-menu entry", () => {
     fireEvent.click(rows()[1]);
     fireEvent.click(rows()[2], { ctrlKey: true });
     fireEvent.contextMenu(rows()[2]);
-    const entry = await screen.findByRole("button", { name: /^Reverse Geocode/ });
+    const entry = await screen.findByRole("button", {
+      name: /^Reverse Geocode/,
+    });
     await userEvent.click(entry);
     const ask = await getAskMock();
     expect(ask).not.toHaveBeenCalled();
@@ -188,7 +198,9 @@ describe("PhotoList: Reverse Geocode context-menu entry", () => {
     fireEvent.click(rows()[2], { ctrlKey: true });
     fireEvent.click(rows()[3], { ctrlKey: true });
     fireEvent.contextMenu(rows()[3]);
-    const entry = await screen.findByRole("button", { name: /^Reverse Geocode/ });
+    const entry = await screen.findByRole("button", {
+      name: /^Reverse Geocode/,
+    });
     await userEvent.click(entry);
     const ask = await getAskMock();
     expect(ask).not.toHaveBeenCalled();
@@ -201,7 +213,9 @@ describe("PhotoList: Reverse Geocode context-menu entry", () => {
     });
     fireEvent.click(rows()[0]);
     fireEvent.contextMenu(rows()[0]);
-    const entry = await screen.findByRole("button", { name: "Reverse Geocode…" });
+    const entry = await screen.findByRole("button", {
+      name: "Reverse Geocode…",
+    });
     await userEvent.click(entry);
     const ask = await getAskMock();
     expect(ask).not.toHaveBeenCalled();

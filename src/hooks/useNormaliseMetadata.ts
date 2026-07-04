@@ -46,7 +46,11 @@ export interface NormaliseProgressState {
 }
 
 export interface NormaliseActions {
-  start: (folderPath: string, items: NormaliseRequestItem[], enabledGroups: NormaliseGroup[]) => void;
+  start: (
+    folderPath: string,
+    items: NormaliseRequestItem[],
+    enabledGroups: NormaliseGroup[],
+  ) => void;
   setEnabledGroups: (groups: NormaliseGroup[]) => void;
   confirm: () => void;
   cancel: () => void;
@@ -54,7 +58,10 @@ export interface NormaliseActions {
 }
 
 export interface UseNormaliseMetadataOptions {
-  onApplyEdits?: (relativePath: string, edits: Record<string, DraftEdit>) => void;
+  onApplyEdits?: (
+    relativePath: string,
+    edits: Record<string, DraftEdit>,
+  ) => void;
 }
 
 interface StartArgs {
@@ -83,7 +90,9 @@ function toNormaliseShape(
   };
 }
 
-export function useNormaliseMetadata(options: UseNormaliseMetadataOptions = {}): {
+export function useNormaliseMetadata(
+  options: UseNormaliseMetadataOptions = {},
+): {
   open: boolean;
   state: NormaliseProgressState;
   actions: NormaliseActions;
@@ -94,13 +103,14 @@ export function useNormaliseMetadata(options: UseNormaliseMetadataOptions = {}):
   const stash = useMemo<{
     items: NormaliseRequestItem[];
     enabledGroups: NormaliseGroup[];
-  }>(
-    () => ({ items: [], enabledGroups: [] }),
-    [],
-  );
-  const [enabledGroupsState, setEnabledGroupsState] = useState<NormaliseGroup[]>([]);
+  }>(() => ({ items: [], enabledGroups: [] }), []);
+  const [enabledGroupsState, setEnabledGroupsState] = useState<
+    NormaliseGroup[]
+  >([]);
 
-  const config = useMemo<BatchJobConfig<StartArgs, NormaliseEstimate, NormaliseSummary>>(
+  const config = useMemo<
+    BatchJobConfig<StartArgs, NormaliseEstimate, NormaliseSummary>
+  >(
     () => ({
       eventPrefix: "normalise",
       commands: {
@@ -134,18 +144,19 @@ export function useNormaliseMetadata(options: UseNormaliseMetadataOptions = {}):
           }),
         );
         unlisteners.push(
-          await listen<{ current: number; total: number; relativePath: string }>(
-            "normalise_estimate_progress",
-            (e) => {
-              setState((s) => ({
-                ...s,
-                phase: "estimating",
-                current: e.payload.current,
-                total: e.payload.total,
-                currentFile: e.payload.relativePath,
-              }));
-            },
-          ),
+          await listen<{
+            current: number;
+            total: number;
+            relativePath: string;
+          }>("normalise_estimate_progress", (e) => {
+            setState((s) => ({
+              ...s,
+              phase: "estimating",
+              current: e.payload.current,
+              total: e.payload.total,
+              currentFile: e.payload.relativePath,
+            }));
+          }),
         );
         unlisteners.push(
           await listen<{ relativePath: string; message: string }>(
@@ -159,32 +170,35 @@ export function useNormaliseMetadata(options: UseNormaliseMetadataOptions = {}):
           ),
         );
         unlisteners.push(
-          await listen<NormaliseEstimate>("normalise_estimate_complete", (e) => {
-            const est = e.payload;
-            // Drop groups that have nothing to do on any image from the
-            // user's selection. The confirm-table renders these rows as
-            // disabled+unchecked, so keeping them in `enabledGroups`
-            // would silently smuggle them to the run cmd and produce a
-            // post-run summary mentioning groups the user thought they
-            // had unticked.
-            const filtered = stash.enabledGroups.filter((g) => {
-              const c = est.perGroupOutcomes[g];
-              if (!c) return false;
-              return (
-                c.nNormalisedDeterministic + c.nNormalisedAi + c.nConflict > 0
-              );
-            });
-            if (filtered.length !== stash.enabledGroups.length) {
-              stash.enabledGroups = filtered;
-              setEnabledGroupsState(filtered);
-            }
-            setState((s) => ({
-              ...s,
-              phase: "awaiting-confirm",
-              currentFile: null,
-              estimate: est,
-            }));
-          }),
+          await listen<NormaliseEstimate>(
+            "normalise_estimate_complete",
+            (e) => {
+              const est = e.payload;
+              // Drop groups that have nothing to do on any image from the
+              // user's selection. The confirm-table renders these rows as
+              // disabled+unchecked, so keeping them in `enabledGroups`
+              // would silently smuggle them to the run cmd and produce a
+              // post-run summary mentioning groups the user thought they
+              // had unticked.
+              const filtered = stash.enabledGroups.filter((g) => {
+                const c = est.perGroupOutcomes[g];
+                if (!c) return false;
+                return (
+                  c.nNormalisedDeterministic + c.nNormalisedAi + c.nConflict > 0
+                );
+              });
+              if (filtered.length !== stash.enabledGroups.length) {
+                stash.enabledGroups = filtered;
+                setEnabledGroupsState(filtered);
+              }
+              setState((s) => ({
+                ...s,
+                phase: "awaiting-confirm",
+                currentFile: null,
+                estimate: est,
+              }));
+            },
+          ),
         );
         return unlisteners;
       },
@@ -192,9 +206,12 @@ export function useNormaliseMetadata(options: UseNormaliseMetadataOptions = {}):
     [stash],
   );
 
-  const job = useBatchImageJob<StartArgs, NormaliseEstimate, NormaliseSummary>(config, {
-    onApplyEdits: options.onApplyEdits,
-  });
+  const job = useBatchImageJob<StartArgs, NormaliseEstimate, NormaliseSummary>(
+    config,
+    {
+      onApplyEdits: options.onApplyEdits,
+    },
+  );
 
   const setEnabledGroups = (groups: NormaliseGroup[]) => {
     stash.enabledGroups = groups;
@@ -206,7 +223,10 @@ export function useNormaliseMetadata(options: UseNormaliseMetadataOptions = {}):
       stash.items = items;
       stash.enabledGroups = initialEnabledGroups;
       setEnabledGroupsState(initialEnabledGroups);
-      job.actions.start(folderPath, { items, enabledGroups: initialEnabledGroups });
+      job.actions.start(folderPath, {
+        items,
+        enabledGroups: initialEnabledGroups,
+      });
     },
     setEnabledGroups,
     confirm: job.actions.confirm,

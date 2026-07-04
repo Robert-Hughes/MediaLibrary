@@ -1,6 +1,8 @@
 /* ── Reset & base ─────────────────────────────────────────────────────────── */
 
-*, *::before, *::after {
+*,
+*::before,
+*::after {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
@@ -8,47 +10,56 @@
 
 :root {
   /* Surfaces */
-  --bg:            #fafaf7;
-  --surface:       #ffffff;
-  --surface-alt:   #f4f3ef;
-  --surface-3:     #ebeae5;
-  --row-alt:       #faf9f5;
-  --thumb-bg:      #f4f3ef;
+  --bg: #fafaf7;
+  --surface: #ffffff;
+  --surface-alt: #f4f3ef;
+  --surface-3: #ebeae5;
+  --row-alt: #faf9f5;
+  --thumb-bg: #f4f3ef;
 
   /* Borders */
-  --border:        oklch(0.92 0.005 90);
+  --border: oklch(0.92 0.005 90);
   --border-strong: oklch(0.85 0.005 90);
 
   /* Text */
-  --text-primary:   #14141a;
+  --text-primary: #14141a;
   --text-secondary: #54545e;
-  --text-dim:       #8a8a93;
-  --text-faint:     #b8b8be;
+  --text-dim: #8a8a93;
+  --text-faint: #b8b8be;
 
   /* Accent */
-  --accent:        oklch(0.55 0.13 230);
-  --accent-hover:  oklch(0.62 0.14 230);
-  --accent-press:  oklch(0.45 0.13 230);
-  --accent-soft:   oklch(0.96 0.025 230);
-  --accent-ink:    oklch(0.32 0.12 230);
+  --accent: oklch(0.55 0.13 230);
+  --accent-hover: oklch(0.62 0.14 230);
+  --accent-press: oklch(0.45 0.13 230);
+  --accent-soft: oklch(0.96 0.025 230);
+  --accent-ink: oklch(0.32 0.12 230);
 
   /* Draft / danger / warn */
-  --accent-draft:   oklch(0.66 0.16 60);
-  --draft-soft:     oklch(0.96 0.045 75);
-  --danger:         oklch(0.58 0.18 25);
-  --accent-error:   oklch(0.58 0.18 25);
-  --accent-warning: oklch(0.60 0.14 75);
+  --accent-draft: oklch(0.66 0.16 60);
+  --draft-soft: oklch(0.96 0.045 75);
+  --danger: oklch(0.58 0.18 25);
+  --accent-error: oklch(0.58 0.18 25);
+  --accent-warning: oklch(0.6 0.14 75);
 
   /* Shadows */
   --shadow-sm: 0 1px 2px rgba(20, 20, 26, 0.04);
-  --shadow-md: 0 4px 12px rgba(20, 20, 26, 0.06), 0 2px 4px rgba(20, 20, 26, 0.04);
-  --shadow-lg: 0 20px 50px rgba(20, 20, 26, 0.14), 0 8px 20px rgba(20, 20, 26, 0.08);
+  --shadow-md:
+    0 4px 12px rgba(20, 20, 26, 0.06), 0 2px 4px rgba(20, 20, 26, 0.04);
+  --shadow-lg:
+    0 20px 50px rgba(20, 20, 26, 0.14), 0 8px 20px rgba(20, 20, 26, 0.08);
 
   /* Gallery overlay (theme-aware) */
   --overlay-backdrop: rgba(250, 250, 247, 0.92);
-  --overlay-surface:  rgba(255, 255, 255, 0.98);
+  --overlay-surface: rgba(255, 255, 255, 0.98);
 
-  font-family: "Geist Variable", "Geist", "Geist Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-family:
+    "Geist Variable",
+    "Geist",
+    "Geist Sans",
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    sans-serif;
   font-feature-settings: "ss01", "cv11";
   font-size: 13px;
   color: var(--text-primary);
@@ -56,30 +67,30 @@
 }
 
 [data-theme="dark"] {
-  --bg:            #0e0f12;
-  --surface:       #16181c;
-  --surface-alt:   #1a1c20;
-  --surface-3:     #23262b;
-  --row-alt:       #131418;
-  --thumb-bg:      #252830;
+  --bg: #0e0f12;
+  --surface: #16181c;
+  --surface-alt: #1a1c20;
+  --surface-3: #23262b;
+  --row-alt: #131418;
+  --thumb-bg: #252830;
 
-  --border:        oklch(0.27 0.005 250);
+  --border: oklch(0.27 0.005 250);
   --border-strong: oklch(0.34 0.005 250);
 
-  --text-primary:   #ececef;
+  --text-primary: #ececef;
   --text-secondary: #a4a6ad;
-  --text-dim:       #6e7077;
-  --text-faint:     #494c54;
+  --text-dim: #6e7077;
+  --text-faint: #494c54;
 
-  --accent:        oklch(0.72 0.13 230);
-  --accent-hover:  oklch(0.80 0.13 230);
-  --accent-press:  oklch(0.60 0.13 230);
-  --accent-soft:   oklch(0.28 0.07 230);
-  --accent-ink:    oklch(0.85 0.13 230);
+  --accent: oklch(0.72 0.13 230);
+  --accent-hover: oklch(0.8 0.13 230);
+  --accent-press: oklch(0.6 0.13 230);
+  --accent-soft: oklch(0.28 0.07 230);
+  --accent-ink: oklch(0.85 0.13 230);
 
-  --accent-draft:   oklch(0.75 0.16 60);
-  --draft-soft:     oklch(0.28 0.07 60);
-  --accent-error:   oklch(0.72 0.18 25);
+  --accent-draft: oklch(0.75 0.16 60);
+  --draft-soft: oklch(0.28 0.07 60);
+  --accent-error: oklch(0.72 0.18 25);
   --accent-warning: oklch(0.78 0.14 75);
 
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
@@ -87,7 +98,7 @@
   --shadow-lg: 0 20px 50px rgba(0, 0, 0, 0.55), 0 8px 20px rgba(0, 0, 0, 0.4);
 
   --overlay-backdrop: rgba(14, 15, 18, 0.92);
-  --overlay-surface:  rgba(22, 24, 28, 0.96);
+  --overlay-surface: rgba(22, 24, 28, 0.96);
 }
 
 body {
@@ -173,7 +184,9 @@ body {
   color: var(--text-primary);
   font-size: 13px;
   cursor: pointer;
-  transition: background 0.1s, border-color 0.1s;
+  transition:
+    background 0.1s,
+    border-color 0.1s;
   text-align: left;
 }
 
@@ -209,9 +222,19 @@ body {
   transition: background 0.1s;
 }
 
-.btn-primary:hover, .button.button--primary:hover, .dialog-btn.dialog-btn-primary:hover  { background: var(--accent-hover); }
-.btn-primary:active, .button.button--primary:active, .dialog-btn.dialog-btn-primary:active { background: var(--accent-press); }
-.btn-primary:disabled, .button.button--primary:disabled, .dialog-btn.dialog-btn-primary:disabled {
+.btn-primary:hover,
+.button.button--primary:hover,
+.dialog-btn.dialog-btn-primary:hover {
+  background: var(--accent-hover);
+}
+.btn-primary:active,
+.button.button--primary:active,
+.dialog-btn.dialog-btn-primary:active {
+  background: var(--accent-press);
+}
+.btn-primary:disabled,
+.button.button--primary:disabled,
+.dialog-btn.dialog-btn-primary:disabled {
   background: var(--surface-alt);
   color: var(--text-dim);
   cursor: not-allowed;
@@ -258,7 +281,9 @@ body {
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* All spinners share the same phase via useSpinnerSync, which sets a negative
@@ -307,7 +332,9 @@ body {
   padding: 4px 10px;
   font-size: 13px;
   cursor: pointer;
-  transition: background 0.1s, color 0.1s;
+  transition:
+    background 0.1s,
+    color 0.1s;
 }
 
 .menu-bar-btn:hover {
@@ -437,7 +464,9 @@ body {
 }
 
 @keyframes list-search-spinner-rotate {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* ── Toolbar ──────────────────────────────────────────────────────────────── */
@@ -485,7 +514,9 @@ body {
   padding: 4px 12px;
   font-size: 12px;
   cursor: pointer;
-  transition: color 0.1s, border-color 0.1s;
+  transition:
+    color 0.1s,
+    border-color 0.1s;
 }
 
 .toolbar-btn:hover {
@@ -683,8 +714,12 @@ body {
   grid-column: 1 / -1;
 }
 
-.photo-row--even .grid-cell { background: var(--surface); }
-.photo-row--odd .grid-cell { background: var(--surface-alt); }
+.photo-row--even .grid-cell {
+  background: var(--surface);
+}
+.photo-row--odd .grid-cell {
+  background: var(--surface-alt);
+}
 
 .photo-row--selected .grid-cell {
   background: var(--accent-soft) !important;
@@ -705,7 +740,9 @@ body {
   border-top-color: var(--accent);
 }
 
-.photo-row:hover .grid-cell { background: var(--surface-alt); }
+.photo-row:hover .grid-cell {
+  background: var(--surface-alt);
+}
 
 .photo-thumb {
   width: calc(100% - 8px);
@@ -747,7 +784,8 @@ body {
   border-radius: 50%;
 }
 
-.col-date, .col-camera {
+.col-date,
+.col-camera {
   color: var(--text-secondary);
 }
 
@@ -947,7 +985,9 @@ body {
   z-index: 3;
 }
 
-.gallery-close:hover { color: var(--text-primary); }
+.gallery-close:hover {
+  color: var(--text-primary);
+}
 
 .gallery-nav {
   background: transparent;
@@ -962,8 +1002,13 @@ body {
   user-select: none;
 }
 
-.gallery-nav:hover:not(:disabled) { color: var(--text-primary); }
-.gallery-nav:disabled { opacity: 0.2; cursor: default; }
+.gallery-nav:hover:not(:disabled) {
+  color: var(--text-primary);
+}
+.gallery-nav:disabled {
+  opacity: 0.2;
+  cursor: default;
+}
 
 .gallery-caption {
   position: absolute;
@@ -1006,7 +1051,9 @@ body {
   padding: 4px 8px;
   border-radius: 4px;
   line-height: 1;
-  transition: color 0.15s, background 0.15s;
+  transition:
+    color 0.15s,
+    background 0.15s;
   z-index: 3;
 }
 
@@ -1201,7 +1248,6 @@ body {
   text-align: center;
   font-style: italic;
 }
-
 
 /* ── Context Menu ─────────────────────────────────────────────────────────── */
 
@@ -1710,15 +1756,21 @@ body {
   padding: 8px 16px;
   font-size: 13px;
   cursor: pointer;
-  transition: background 0.1s, border-color 0.1s;
+  transition:
+    background 0.1s,
+    border-color 0.1s;
 }
 
-.btn-secondary:hover, .button.button--secondary:hover, .dialog-btn.dialog-btn-secondary:hover {
+.btn-secondary:hover,
+.button.button--secondary:hover,
+.dialog-btn.dialog-btn-secondary:hover {
   background: var(--surface-alt);
   border-color: var(--text-dim);
 }
 
-.btn-secondary:disabled, .button.button--secondary:disabled, .dialog-btn.dialog-btn-secondary:disabled {
+.btn-secondary:disabled,
+.button.button--secondary:disabled,
+.dialog-btn.dialog-btn-secondary:disabled {
   color: var(--text-dim);
   cursor: not-allowed;
   opacity: 0.65;

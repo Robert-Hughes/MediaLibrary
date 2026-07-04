@@ -586,7 +586,8 @@ fn apply_overrides(tags: &mut BTreeMap<String, TagInfo>) {
     fn writable_for(kind: &TagKind) -> bool {
         !matches!(kind, TagKind::Binary)
     }
-    let overrides: &[(&str, fn() -> TagKind)] = &[
+    type TagKindFactory = fn() -> TagKind;
+    let overrides: &[(&str, TagKindFactory)] = &[
         // XMP Dublin Core
         ("XMP-dc:Subject", || TagKind::Bag(Box::new(TagKind::Text))),
         ("XMP-dc:Creator", || TagKind::Seq(Box::new(TagKind::Text))),

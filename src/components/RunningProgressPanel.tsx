@@ -27,8 +27,15 @@ interface Props {
 }
 
 export function RunningProgressPanel({
-  testidPrefix, current, total, noun, failureCount = 0,
-  currentFile, cancelling, onCancel, footer,
+  testidPrefix,
+  current,
+  total,
+  noun,
+  failureCount = 0,
+  currentFile,
+  cancelling,
+  onCancel,
+  footer,
 }: Props) {
   return (
     <>
@@ -63,7 +70,9 @@ export function RunningProgressPanel({
         {currentFile ?? " "}
       </div>
 
-      <div style={{ marginTop: 20, display: "flex", justifyContent: "flex-end" }}>
+      <div
+        style={{ marginTop: 20, display: "flex", justifyContent: "flex-end" }}
+      >
         <button
           className="button button--secondary"
           onClick={onCancel}

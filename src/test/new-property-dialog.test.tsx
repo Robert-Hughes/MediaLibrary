@@ -5,13 +5,16 @@
 // (DetailsPane) and is exercised by the editor-specific test files.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { fireEvent, render, screen, cleanup, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  cleanup,
+  waitFor,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { NewPropertyDialog } from "../components/NewPropertyDialog";
-import {
-  _clearTagInfoCache,
-  _setTagInfoCacheEntry,
-} from "../hooks/useTagInfo";
+import { _clearTagInfoCache, _setTagInfoCacheEntry } from "../hooks/useTagInfo";
 import {
   _resetSchemaTagNamesCache,
   _setSchemaTagNamesCache,
@@ -54,7 +57,9 @@ describe("NewPropertyDialog", () => {
     const keyInput = screen.getByTestId("new-property-key") as HTMLInputElement;
     fireEvent.change(keyInput, { target: { value: "XMP-dc:NotARealTag" } });
     await waitFor(() => {
-      expect(screen.getByTestId("new-property-schema-unknown")).toBeInTheDocument();
+      expect(
+        screen.getByTestId("new-property-schema-unknown"),
+      ).toBeInTheDocument();
     });
   });
 
@@ -71,7 +76,9 @@ describe("NewPropertyDialog", () => {
       target: { value: "Foo:Readonly" },
     });
     await waitFor(() => {
-      expect(screen.getByTestId("new-property-schema-unwritable")).toBeInTheDocument();
+      expect(
+        screen.getByTestId("new-property-schema-unwritable"),
+      ).toBeInTheDocument();
     });
     expect(screen.getByTestId("new-property-next")).toBeDisabled();
   });
@@ -89,7 +96,9 @@ describe("NewPropertyDialog", () => {
       target: { value: "XMP-dc:Subject" },
     });
     await waitFor(() => {
-      expect(screen.getByTestId("new-property-schema-info")).toBeInTheDocument();
+      expect(
+        screen.getByTestId("new-property-schema-info"),
+      ).toBeInTheDocument();
     });
     const info = screen.getByTestId("new-property-schema-info");
     expect(info).toHaveTextContent("Bag");
@@ -141,7 +150,9 @@ describe("NewPropertyDialog", () => {
     });
     await waitFor(() => {
       const datalist = document.getElementById("schema-tag-names");
-      const values = Array.from(datalist!.querySelectorAll("option")).map((o) => o.getAttribute("value"));
+      const values = Array.from(datalist!.querySelectorAll("option")).map((o) =>
+        o.getAttribute("value"),
+      );
       expect(values).toContain("IFD0:Make");
       expect(values).toContain("XMP-dc:Title");
       // Audio-only groups must not surface on a JPEG.
@@ -158,7 +169,9 @@ describe("NewPropertyDialog", () => {
     render(<NewPropertyDialog onSave={() => {}} onCancel={() => {}} />);
     const datalist = document.getElementById("schema-tag-names");
     expect(datalist).not.toBeNull();
-    const values = Array.from(datalist!.querySelectorAll("option")).map((o) => o.getAttribute("value"));
+    const values = Array.from(datalist!.querySelectorAll("option")).map((o) =>
+      o.getAttribute("value"),
+    );
     expect(values).toEqual(["XMP-dc:Title", "IPTC:Keywords"]);
   });
 
@@ -171,19 +184,19 @@ describe("NewPropertyDialog", () => {
         onSave={() => {}}
         onCancel={() => {}}
         existingKeys={existingKeys}
-      />
+      />,
     );
     fireEvent.change(screen.getByTestId("new-property-key"), {
       target: { value: "XMP-dc:Title" },
     });
     await waitFor(() => {
       expect(
-        screen.getByTestId("new-property-duplicate-warning")
+        screen.getByTestId("new-property-duplicate-warning"),
       ).toBeInTheDocument();
     });
-    expect(screen.getByTestId("new-property-duplicate-warning")).toHaveTextContent(
-      "already exists"
-    );
+    expect(
+      screen.getByTestId("new-property-duplicate-warning"),
+    ).toHaveTextContent("already exists");
   });
 
   it("shows overwrite warning when key matches a draft edit key", async () => {
@@ -193,14 +206,14 @@ describe("NewPropertyDialog", () => {
         onSave={() => {}}
         onCancel={() => {}}
         existingKeys={existingKeys}
-      />
+      />,
     );
     fireEvent.change(screen.getByTestId("new-property-key"), {
       target: { value: "XMP-dc:Creator" },
     });
     await waitFor(() => {
       expect(
-        screen.getByTestId("new-property-duplicate-warning")
+        screen.getByTestId("new-property-duplicate-warning"),
       ).toBeInTheDocument();
     });
   });
@@ -212,14 +225,12 @@ describe("NewPropertyDialog", () => {
         onSave={() => {}}
         onCancel={() => {}}
         existingKeys={existingKeys}
-      />
+      />,
     );
     fireEvent.change(screen.getByTestId("new-property-key"), {
       target: { value: "XMP-dc:Description" },
     });
-    expect(
-      screen.queryByTestId("new-property-duplicate-warning")
-    ).toBeNull();
+    expect(screen.queryByTestId("new-property-duplicate-warning")).toBeNull();
   });
 
   it("does not show overwrite warning when existingKeys not provided", async () => {
@@ -227,9 +238,7 @@ describe("NewPropertyDialog", () => {
     fireEvent.change(screen.getByTestId("new-property-key"), {
       target: { value: "XMP-dc:Title" },
     });
-    expect(
-      screen.queryByTestId("new-property-duplicate-warning")
-    ).toBeNull();
+    expect(screen.queryByTestId("new-property-duplicate-warning")).toBeNull();
   });
 
   it("overwrite warning clears when key changes to non-duplicate", async () => {
@@ -239,20 +248,18 @@ describe("NewPropertyDialog", () => {
         onSave={() => {}}
         onCancel={() => {}}
         existingKeys={existingKeys}
-      />
+      />,
     );
     const keyInput = screen.getByTestId("new-property-key");
     fireEvent.change(keyInput, { target: { value: "XMP-dc:Title" } });
     await waitFor(() => {
       expect(
-        screen.getByTestId("new-property-duplicate-warning")
+        screen.getByTestId("new-property-duplicate-warning"),
       ).toBeInTheDocument();
     });
     fireEvent.change(keyInput, { target: { value: "XMP-dc:Description" } });
     await waitFor(() => {
-      expect(
-        screen.queryByTestId("new-property-duplicate-warning")
-      ).toBeNull();
+      expect(screen.queryByTestId("new-property-duplicate-warning")).toBeNull();
     });
   });
 
@@ -274,7 +281,7 @@ describe("NewPropertyDialog", () => {
         onSave={onSave}
         onCancel={() => {}}
         existingKeys={existingKeys}
-      />
+      />,
     );
     fireEvent.change(screen.getByTestId("new-property-key"), {
       target: { value: "XMP-dc:Title" },
@@ -348,7 +355,9 @@ describe("NewPropertyDialog", () => {
     const keyInput = screen.getByTestId("new-property-key");
     fireEvent.change(keyInput, { target: { value: "Foo:Readonly" } });
     await waitFor(() => {
-      expect(screen.getByTestId("new-property-schema-unwritable")).toBeInTheDocument();
+      expect(
+        screen.getByTestId("new-property-schema-unwritable"),
+      ).toBeInTheDocument();
     });
     fireEvent.keyDown(keyInput, { key: "Enter" });
     expect(onSave).not.toHaveBeenCalled();

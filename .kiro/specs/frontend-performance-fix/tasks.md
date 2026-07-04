@@ -3,7 +3,7 @@
 ## Implementation
 
 - [x] 1.1 Add metadata buffer refs in useMediaLibrary.ts
-- [x] 1.2 Create flushMetadataBatch function 
+- [x] 1.2 Create flushMetadataBatch function
 - [x] 1.3 Modify image_metadata_ready listener for batching
 - [x] 1.4 Add cleanup on scan start and scan complete
 - [x] 1.5 Add thumbnail batching to frontend (buffer + flush function)

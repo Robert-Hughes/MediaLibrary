@@ -8,14 +8,25 @@ const BEFORE = -1;
 const AFTER = 1;
 
 function doDragOver(el: HTMLElement, clientX: number) {
-  fireEvent(el, new MouseEvent("dragover", { bubbles: true, cancelable: true, clientX }));
+  fireEvent(
+    el,
+    new MouseEvent("dragover", { bubbles: true, cancelable: true, clientX }),
+  );
 }
 function doDrop(el: HTMLElement, clientX: number) {
-  fireEvent(el, new MouseEvent("drop", { bubbles: true, cancelable: true, clientX }));
+  fireEvent(
+    el,
+    new MouseEvent("drop", { bubbles: true, cancelable: true, clientX }),
+  );
 }
 
 const mockPhotos: PhotoInfo[] = [
-  { relative_path: "a.jpg", filename: "a.jpg", date_modified: 100, date_created: 100 },
+  {
+    relative_path: "a.jpg",
+    filename: "a.jpg",
+    date_modified: 100,
+    date_created: 100,
+  },
 ];
 
 const defaultSortProps = {
@@ -26,7 +37,10 @@ const defaultSortProps = {
 function makeStores() {
   const thumbnails = new ThumbnailStore();
   const imageMetadata = new ImageMetadataStore();
-  mockPhotos.forEach((p) => { thumbnails.add(p.relative_path); imageMetadata.add(p.relative_path); });
+  mockPhotos.forEach((p) => {
+    thumbnails.add(p.relative_path);
+    imageMetadata.add(p.relative_path);
+  });
   return { thumbnails, imageMetadata };
 }
 
@@ -37,34 +51,64 @@ describe("column header draggable attribute", () => {
   it("image metadata column headers are draggable", () => {
     const { thumbnails, imageMetadata } = makeStores();
     render(
-      <PhotoList photos={mockPhotos} thumbnails={thumbnails} imageMetadata={imageMetadata}
+      <PhotoList
+        photos={mockPhotos}
+        thumbnails={thumbnails}
+        imageMetadata={imageMetadata}
         visibleColumns={[img("IFD0:Model"), img("ExifIFD:DateTimeOriginal")]}
-        {...defaultSortProps} selectedIndex={null} onSelect={() => {}}
-        onShowInExplorer={() => {}} onVisibilityChange={() => {}} onPhotoOpen={() => {}} />
+        {...defaultSortProps}
+        selectedIndex={null}
+        onSelect={() => {}}
+        onShowInExplorer={() => {}}
+        onVisibilityChange={() => {}}
+        onPhotoOpen={() => {}}
+      />,
     );
-    expect(document.querySelectorAll(".grid-header--sortable[draggable]").length).toBeGreaterThan(0);
+    expect(
+      document.querySelectorAll(".grid-header--sortable[draggable]").length,
+    ).toBeGreaterThan(0);
   });
 
   it("OS metadata column headers are draggable", () => {
     const { thumbnails, imageMetadata } = makeStores();
     render(
-      <PhotoList photos={mockPhotos} thumbnails={thumbnails} imageMetadata={imageMetadata}
+      <PhotoList
+        photos={mockPhotos}
+        thumbnails={thumbnails}
+        imageMetadata={imageMetadata}
         visibleColumns={[os("date_modified"), os("date_created")]}
-        {...defaultSortProps} selectedIndex={null} onSelect={() => {}}
-        onShowInExplorer={() => {}} onVisibilityChange={() => {}} onPhotoOpen={() => {}} />
+        {...defaultSortProps}
+        selectedIndex={null}
+        onSelect={() => {}}
+        onShowInExplorer={() => {}}
+        onVisibilityChange={() => {}}
+        onPhotoOpen={() => {}}
+      />,
     );
-    expect(document.querySelectorAll(".grid-header--sortable[draggable]").length).toBe(2);
+    expect(
+      document.querySelectorAll(".grid-header--sortable[draggable]").length,
+    ).toBe(2);
   });
 
   it("path column is NOT draggable", () => {
     const { thumbnails, imageMetadata } = makeStores();
     render(
-      <PhotoList photos={mockPhotos} thumbnails={thumbnails} imageMetadata={imageMetadata}
+      <PhotoList
+        photos={mockPhotos}
+        thumbnails={thumbnails}
+        imageMetadata={imageMetadata}
         visibleColumns={[]}
-        {...defaultSortProps} selectedIndex={null} onSelect={() => {}}
-        onShowInExplorer={() => {}} onVisibilityChange={() => {}} onPhotoOpen={() => {}} />
+        {...defaultSortProps}
+        selectedIndex={null}
+        onSelect={() => {}}
+        onShowInExplorer={() => {}}
+        onVisibilityChange={() => {}}
+        onPhotoOpen={() => {}}
+      />,
     );
-    expect(document.querySelectorAll(".grid-header--sortable[draggable]").length).toBe(0);
+    expect(
+      document.querySelectorAll(".grid-header--sortable[draggable]").length,
+    ).toBe(0);
   });
 });
 
@@ -72,15 +116,30 @@ describe("metadata column reorder insertion", () => {
   function setup(onColumnsReorder = vi.fn()) {
     const { thumbnails, imageMetadata } = makeStores();
     render(
-      <PhotoList photos={mockPhotos} thumbnails={thumbnails} imageMetadata={imageMetadata}
-        visibleColumns={[img("IFD0:Model"), img("ExifIFD:DateTimeOriginal"), img("GPS:GPSLatitude")]}
+      <PhotoList
+        photos={mockPhotos}
+        thumbnails={thumbnails}
+        imageMetadata={imageMetadata}
+        visibleColumns={[
+          img("IFD0:Model"),
+          img("ExifIFD:DateTimeOriginal"),
+          img("GPS:GPSLatitude"),
+        ]}
         onColumnsReorder={onColumnsReorder}
-        {...defaultSortProps} selectedIndex={null} onSelect={() => {}}
-        onShowInExplorer={() => {}} onVisibilityChange={() => {}} onPhotoOpen={() => {}} />
+        {...defaultSortProps}
+        selectedIndex={null}
+        onSelect={() => {}}
+        onShowInExplorer={() => {}}
+        onVisibilityChange={() => {}}
+        onPhotoOpen={() => {}}
+      />,
     );
     const headers = () =>
-      Array.from(document.querySelectorAll(".grid-header--sortable[draggable]")) as HTMLElement[];
-    const get = (text: string) => headers().find((h) => h.textContent?.includes(text))!;
+      Array.from(
+        document.querySelectorAll(".grid-header--sortable[draggable]"),
+      ) as HTMLElement[];
+    const get = (text: string) =>
+      headers().find((h) => h.textContent?.includes(text))!;
     return { onColumnsReorder, get };
   }
 
@@ -90,7 +149,9 @@ describe("metadata column reorder insertion", () => {
     doDragOver(get("GPS:GPSLatitude"), BEFORE);
     doDrop(get("GPS:GPSLatitude"), BEFORE);
     expect(onColumnsReorder).toHaveBeenCalledWith([
-      img("ExifIFD:DateTimeOriginal"), img("IFD0:Model"), img("GPS:GPSLatitude"),
+      img("ExifIFD:DateTimeOriginal"),
+      img("IFD0:Model"),
+      img("GPS:GPSLatitude"),
     ]);
   });
 
@@ -100,7 +161,9 @@ describe("metadata column reorder insertion", () => {
     doDragOver(get("ExifIFD:DateTimeOriginal"), AFTER);
     doDrop(get("ExifIFD:DateTimeOriginal"), AFTER);
     expect(onColumnsReorder).toHaveBeenCalledWith([
-      img("ExifIFD:DateTimeOriginal"), img("IFD0:Model"), img("GPS:GPSLatitude"),
+      img("ExifIFD:DateTimeOriginal"),
+      img("IFD0:Model"),
+      img("GPS:GPSLatitude"),
     ]);
   });
 
@@ -110,7 +173,9 @@ describe("metadata column reorder insertion", () => {
     doDragOver(get("IFD0:Model"), BEFORE);
     doDrop(get("IFD0:Model"), BEFORE);
     expect(onColumnsReorder).toHaveBeenCalledWith([
-      img("GPS:GPSLatitude"), img("IFD0:Model"), img("ExifIFD:DateTimeOriginal"),
+      img("GPS:GPSLatitude"),
+      img("IFD0:Model"),
+      img("ExifIFD:DateTimeOriginal"),
     ]);
   });
 
@@ -120,7 +185,9 @@ describe("metadata column reorder insertion", () => {
     doDragOver(get("ExifIFD:DateTimeOriginal"), AFTER);
     doDrop(get("ExifIFD:DateTimeOriginal"), AFTER);
     expect(onColumnsReorder).toHaveBeenCalledWith([
-      img("IFD0:Model"), img("ExifIFD:DateTimeOriginal"), img("GPS:GPSLatitude"),
+      img("IFD0:Model"),
+      img("ExifIFD:DateTimeOriginal"),
+      img("GPS:GPSLatitude"),
     ]);
   });
 
@@ -137,15 +204,26 @@ describe("OS metadata column reorder insertion", () => {
   function setup(onColumnsReorder = vi.fn()) {
     const { thumbnails, imageMetadata } = makeStores();
     render(
-      <PhotoList photos={mockPhotos} thumbnails={thumbnails} imageMetadata={imageMetadata}
+      <PhotoList
+        photos={mockPhotos}
+        thumbnails={thumbnails}
+        imageMetadata={imageMetadata}
         visibleColumns={[os("date_modified"), os("date_created")]}
         onColumnsReorder={onColumnsReorder}
-        {...defaultSortProps} selectedIndex={null} onSelect={() => {}}
-        onShowInExplorer={() => {}} onVisibilityChange={() => {}} onPhotoOpen={() => {}} />
+        {...defaultSortProps}
+        selectedIndex={null}
+        onSelect={() => {}}
+        onShowInExplorer={() => {}}
+        onVisibilityChange={() => {}}
+        onPhotoOpen={() => {}}
+      />,
     );
     const headers = () =>
-      Array.from(document.querySelectorAll(".grid-header--sortable[draggable]")) as HTMLElement[];
-    const get = (text: string) => headers().find((h) => h.textContent?.includes(text))!;
+      Array.from(
+        document.querySelectorAll(".grid-header--sortable[draggable]"),
+      ) as HTMLElement[];
+    const get = (text: string) =>
+      headers().find((h) => h.textContent?.includes(text))!;
     return { onColumnsReorder, get };
   }
 
@@ -154,7 +232,10 @@ describe("OS metadata column reorder insertion", () => {
     fireEvent.dragStart(get("Created"));
     doDragOver(get("Modified"), BEFORE);
     doDrop(get("Modified"), BEFORE);
-    expect(onColumnsReorder).toHaveBeenCalledWith([os("date_created"), os("date_modified")]);
+    expect(onColumnsReorder).toHaveBeenCalledWith([
+      os("date_created"),
+      os("date_modified"),
+    ]);
   });
 
   it("drag right-to-left, drop on RIGHT half → inserts after target (no-op)", () => {
@@ -162,7 +243,10 @@ describe("OS metadata column reorder insertion", () => {
     fireEvent.dragStart(get("Created"));
     doDragOver(get("Modified"), AFTER);
     doDrop(get("Modified"), AFTER);
-    expect(onColumnsReorder).toHaveBeenCalledWith([os("date_modified"), os("date_created")]);
+    expect(onColumnsReorder).toHaveBeenCalledWith([
+      os("date_modified"),
+      os("date_created"),
+    ]);
   });
 });
 
@@ -170,13 +254,24 @@ describe("metadata column header gridColumn positions follow visibleColumns orde
   function renderWithOrder(visibleColumns: VisibleColumn[]) {
     const { thumbnails, imageMetadata } = makeStores();
     render(
-      <PhotoList photos={mockPhotos} thumbnails={thumbnails} imageMetadata={imageMetadata}
+      <PhotoList
+        photos={mockPhotos}
+        thumbnails={thumbnails}
+        imageMetadata={imageMetadata}
         visibleColumns={visibleColumns}
-        {...defaultSortProps} selectedIndex={null} onSelect={() => {}}
-        onShowInExplorer={() => {}} onVisibilityChange={() => {}} onPhotoOpen={() => {}} />
+        {...defaultSortProps}
+        selectedIndex={null}
+        onSelect={() => {}}
+        onShowInExplorer={() => {}}
+        onVisibilityChange={() => {}}
+        onPhotoOpen={() => {}}
+      />,
     );
-    const headers = Array.from(document.querySelectorAll(".grid-header--sortable[draggable]")) as HTMLElement[];
-    const get = (label: string) => headers.find((h) => h.textContent?.includes(label))!;
+    const headers = Array.from(
+      document.querySelectorAll(".grid-header--sortable[draggable]"),
+    ) as HTMLElement[];
+    const get = (label: string) =>
+      headers.find((h) => h.textContent?.includes(label))!;
     return { get };
   }
 
@@ -214,21 +309,39 @@ describe("cross-kind drop is allowed (unified columns)", () => {
     const onColumnsReorder = vi.fn();
     const { thumbnails, imageMetadata } = makeStores();
     render(
-      <PhotoList photos={mockPhotos} thumbnails={thumbnails} imageMetadata={imageMetadata}
-        visibleColumns={[os("date_modified"), os("date_created"), img("IFD0:Model")]}
+      <PhotoList
+        photos={mockPhotos}
+        thumbnails={thumbnails}
+        imageMetadata={imageMetadata}
+        visibleColumns={[
+          os("date_modified"),
+          os("date_created"),
+          img("IFD0:Model"),
+        ]}
         onColumnsReorder={onColumnsReorder}
-        {...defaultSortProps} selectedIndex={null} onSelect={() => {}}
-        onShowInExplorer={() => {}} onVisibilityChange={() => {}} onPhotoOpen={() => {}} />
+        {...defaultSortProps}
+        selectedIndex={null}
+        onSelect={() => {}}
+        onShowInExplorer={() => {}}
+        onVisibilityChange={() => {}}
+        onPhotoOpen={() => {}}
+      />,
     );
-    const all = Array.from(document.querySelectorAll(".grid-header--sortable[draggable]")) as HTMLElement[];
-    const modifiedHeader = all.find((h) => h.textContent?.includes("Modified"))!;
+    const all = Array.from(
+      document.querySelectorAll(".grid-header--sortable[draggable]"),
+    ) as HTMLElement[];
+    const modifiedHeader = all.find((h) =>
+      h.textContent?.includes("Modified"),
+    )!;
     const modelHeader = all.find((h) => h.textContent?.includes("IFD0:Model"))!;
     fireEvent.dragStart(modifiedHeader);
     doDragOver(modelHeader, BEFORE);
     doDrop(modelHeader, BEFORE);
     // date_modified was at index 0, dropped before IFD0:Model (index 2)
     expect(onColumnsReorder).toHaveBeenCalledWith([
-      os("date_created"), os("date_modified"), img("IFD0:Model"),
+      os("date_created"),
+      os("date_modified"),
+      img("IFD0:Model"),
     ]);
   });
 });
@@ -237,15 +350,26 @@ describe("drag-over drop indicator", () => {
   function setup() {
     const { thumbnails, imageMetadata } = makeStores();
     render(
-      <PhotoList photos={mockPhotos} thumbnails={thumbnails} imageMetadata={imageMetadata}
+      <PhotoList
+        photos={mockPhotos}
+        thumbnails={thumbnails}
+        imageMetadata={imageMetadata}
         visibleColumns={[img("IFD0:Model"), img("ExifIFD:DateTimeOriginal")]}
         onColumnsReorder={() => {}}
-        {...defaultSortProps} selectedIndex={null} onSelect={() => {}}
-        onShowInExplorer={() => {}} onVisibilityChange={() => {}} onPhotoOpen={() => {}} />
+        {...defaultSortProps}
+        selectedIndex={null}
+        onSelect={() => {}}
+        onShowInExplorer={() => {}}
+        onVisibilityChange={() => {}}
+        onPhotoOpen={() => {}}
+      />,
     );
     const headers = () =>
-      Array.from(document.querySelectorAll(".grid-header--sortable[draggable]")) as HTMLElement[];
-    const get = (text: string) => headers().find((h) => h.textContent?.includes(text))!;
+      Array.from(
+        document.querySelectorAll(".grid-header--sortable[draggable]"),
+      ) as HTMLElement[];
+    const get = (text: string) =>
+      headers().find((h) => h.textContent?.includes(text))!;
     return { get };
   }
 
@@ -253,26 +377,54 @@ describe("drag-over drop indicator", () => {
     const { get } = setup();
     fireEvent.dragStart(get("IFD0:Model"));
     doDragOver(get("ExifIFD:DateTimeOriginal"), BEFORE);
-    expect(get("ExifIFD:DateTimeOriginal").classList.contains("grid-header--drop-before")).toBe(true);
-    expect(get("ExifIFD:DateTimeOriginal").classList.contains("grid-header--drop-after")).toBe(false);
+    expect(
+      get("ExifIFD:DateTimeOriginal").classList.contains(
+        "grid-header--drop-before",
+      ),
+    ).toBe(true);
+    expect(
+      get("ExifIFD:DateTimeOriginal").classList.contains(
+        "grid-header--drop-after",
+      ),
+    ).toBe(false);
   });
 
   it("shows drop-after indicator on right half", () => {
     const { get } = setup();
     fireEvent.dragStart(get("IFD0:Model"));
     doDragOver(get("ExifIFD:DateTimeOriginal"), AFTER);
-    expect(get("ExifIFD:DateTimeOriginal").classList.contains("grid-header--drop-after")).toBe(true);
-    expect(get("ExifIFD:DateTimeOriginal").classList.contains("grid-header--drop-before")).toBe(false);
+    expect(
+      get("ExifIFD:DateTimeOriginal").classList.contains(
+        "grid-header--drop-after",
+      ),
+    ).toBe(true);
+    expect(
+      get("ExifIFD:DateTimeOriginal").classList.contains(
+        "grid-header--drop-before",
+      ),
+    ).toBe(false);
   });
 
   it("indicator updates when cursor crosses the midpoint", () => {
     const { get } = setup();
     fireEvent.dragStart(get("IFD0:Model"));
     doDragOver(get("ExifIFD:DateTimeOriginal"), BEFORE);
-    expect(get("ExifIFD:DateTimeOriginal").classList.contains("grid-header--drop-before")).toBe(true);
+    expect(
+      get("ExifIFD:DateTimeOriginal").classList.contains(
+        "grid-header--drop-before",
+      ),
+    ).toBe(true);
     doDragOver(get("ExifIFD:DateTimeOriginal"), AFTER);
-    expect(get("ExifIFD:DateTimeOriginal").classList.contains("grid-header--drop-after")).toBe(true);
-    expect(get("ExifIFD:DateTimeOriginal").classList.contains("grid-header--drop-before")).toBe(false);
+    expect(
+      get("ExifIFD:DateTimeOriginal").classList.contains(
+        "grid-header--drop-after",
+      ),
+    ).toBe(true);
+    expect(
+      get("ExifIFD:DateTimeOriginal").classList.contains(
+        "grid-header--drop-before",
+      ),
+    ).toBe(false);
   });
 
   it("indicator is cleared after drop", () => {
@@ -280,8 +432,16 @@ describe("drag-over drop indicator", () => {
     fireEvent.dragStart(get("IFD0:Model"));
     doDragOver(get("ExifIFD:DateTimeOriginal"), BEFORE);
     doDrop(get("ExifIFD:DateTimeOriginal"), BEFORE);
-    expect(get("ExifIFD:DateTimeOriginal").classList.contains("grid-header--drop-before")).toBe(false);
-    expect(get("ExifIFD:DateTimeOriginal").classList.contains("grid-header--drop-after")).toBe(false);
+    expect(
+      get("ExifIFD:DateTimeOriginal").classList.contains(
+        "grid-header--drop-before",
+      ),
+    ).toBe(false);
+    expect(
+      get("ExifIFD:DateTimeOriginal").classList.contains(
+        "grid-header--drop-after",
+      ),
+    ).toBe(false);
   });
 
   it("indicator is cleared after dragend", () => {
@@ -289,7 +449,11 @@ describe("drag-over drop indicator", () => {
     fireEvent.dragStart(get("IFD0:Model"));
     doDragOver(get("ExifIFD:DateTimeOriginal"), AFTER);
     fireEvent.dragEnd(get("IFD0:Model"));
-    expect(get("ExifIFD:DateTimeOriginal").classList.contains("grid-header--drop-after")).toBe(false);
+    expect(
+      get("ExifIFD:DateTimeOriginal").classList.contains(
+        "grid-header--drop-after",
+      ),
+    ).toBe(false);
   });
 });
 
@@ -297,16 +461,29 @@ describe("combined metadata header interactions", () => {
   function setup(onColumnsReorder = vi.fn(), onSortChange = vi.fn()) {
     const { thumbnails, imageMetadata } = makeStores();
     render(
-      <PhotoList photos={mockPhotos} thumbnails={thumbnails} imageMetadata={imageMetadata}
-        visibleColumns={[os("date_modified"), img("IFD0:Model"), img("ExifIFD:DateTimeOriginal")]}
+      <PhotoList
+        photos={mockPhotos}
+        thumbnails={thumbnails}
+        imageMetadata={imageMetadata}
+        visibleColumns={[
+          os("date_modified"),
+          img("IFD0:Model"),
+          img("ExifIFD:DateTimeOriginal"),
+        ]}
         onColumnsReorder={onColumnsReorder}
         sortConfig={{ primary: null, secondary: null }}
         onSortChange={onSortChange}
-        selectedIndex={null} onSelect={() => {}}
-        onShowInExplorer={() => {}} onVisibilityChange={() => {}} onPhotoOpen={() => {}} />
+        selectedIndex={null}
+        onSelect={() => {}}
+        onShowInExplorer={() => {}}
+        onVisibilityChange={() => {}}
+        onPhotoOpen={() => {}}
+      />,
     );
     const metadataHeaders = () =>
-      Array.from(document.querySelectorAll(".grid-header--metadata[draggable]")) as HTMLElement[];
+      Array.from(
+        document.querySelectorAll(".grid-header--metadata[draggable]"),
+      ) as HTMLElement[];
     const getMetadataAtGridColumn = (gridColumn: string) =>
       metadataHeaders().find((h) => h.style.gridColumn === gridColumn)!;
     return { onColumnsReorder, onSortChange, getMetadataAtGridColumn };
@@ -325,7 +502,9 @@ describe("combined metadata header interactions", () => {
     doDragOver(getMetadataAtGridColumn("5"), BEFORE);
     doDrop(getMetadataAtGridColumn("5"), BEFORE);
     expect(onColumnsReorder).toHaveBeenCalledWith([
-      img("IFD0:Model"), os("date_modified"), img("ExifIFD:DateTimeOriginal"),
+      img("IFD0:Model"),
+      os("date_modified"),
+      img("ExifIFD:DateTimeOriginal"),
     ]);
   });
 
@@ -333,7 +512,11 @@ describe("combined metadata header interactions", () => {
     const { getMetadataAtGridColumn } = setup();
     fireEvent.dragStart(getMetadataAtGridColumn("3"));
     doDragOver(getMetadataAtGridColumn("5"), AFTER);
-    expect(getMetadataAtGridColumn("5").classList.contains("grid-header--drop-after")).toBe(true);
+    expect(
+      getMetadataAtGridColumn("5").classList.contains(
+        "grid-header--drop-after",
+      ),
+    ).toBe(true);
   });
 
   it("clicking a combined header sorts by that column", () => {

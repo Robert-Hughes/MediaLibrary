@@ -37,7 +37,10 @@ export interface UseSearchWorkerResult {
   pending: boolean;
 }
 
-function diffPhotoPaths(prev: PhotoInfo[], next: PhotoInfo[]): {
+function diffPhotoPaths(
+  prev: PhotoInfo[],
+  next: PhotoInfo[],
+): {
   upserts: PhotoInfo[];
   deletions: string[];
 } {
@@ -48,10 +51,10 @@ function diffPhotoPaths(prev: PhotoInfo[], next: PhotoInfo[]): {
     nextPaths.add(p.relative_path);
     const before = prevByPath.get(p.relative_path);
     if (
-      !before
-      || before.filename !== p.filename
-      || before.date_modified !== p.date_modified
-      || before.date_created !== p.date_created
+      !before ||
+      before.filename !== p.filename ||
+      before.date_modified !== p.date_modified ||
+      before.date_created !== p.date_created
     ) {
       upserts.push(p);
     }
@@ -88,8 +91,17 @@ function photoToFields(p: PhotoInfo) {
  * reset — which swaps in a fresh `ImageMetadataStore` — also resets the
  * worker's index.
  */
-export function useSearchWorker(args: UseSearchWorkerArgs): UseSearchWorkerResult {
-  const { photos, imageMetadataStore, draftEditsStore, query, debounceMs = 150, createWorker } = args;
+export function useSearchWorker(
+  args: UseSearchWorkerArgs,
+): UseSearchWorkerResult {
+  const {
+    photos,
+    imageMetadataStore,
+    draftEditsStore,
+    query,
+    debounceMs = 150,
+    createWorker,
+  } = args;
 
   const workerRef = useRef<SearchWorkerLike | null>(null);
   const reqIdRef = useRef(0);
@@ -145,11 +157,16 @@ export function useSearchWorker(args: UseSearchWorkerArgs): UseSearchWorkerResul
     });
     w.postMessage({
       type: "INIT_META",
-      entries: Array.from(imageMetadataStore.entries()).map(([path, meta]) => ({ path, meta })),
+      entries: Array.from(imageMetadataStore.entries()).map(([path, meta]) => ({
+        path,
+        meta,
+      })),
     });
     w.postMessage({
       type: "INIT_DRAFTS",
-      entries: Object.entries(draftEditsStore.getAll()).map(([path, edits]) => ({ path, edits })),
+      entries: Object.entries(draftEditsStore.getAll()).map(
+        ([path, edits]) => ({ path, edits }),
+      ),
     });
     submitNow(queryRef.current);
 
@@ -167,7 +184,6 @@ export function useSearchWorker(args: UseSearchWorkerArgs): UseSearchWorkerResul
       unsubMeta();
       unsubDrafts();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [imageMetadataStore, draftEditsStore]);
 
   // ── Photo list sync + re-submit ─────────────────────────────────────
@@ -177,7 +193,10 @@ export function useSearchWorker(args: UseSearchWorkerArgs): UseSearchWorkerResul
       prevPhotosRef.current = photos;
       return;
     }
-    const { upserts, deletions } = diffPhotoPaths(prevPhotosRef.current, photos);
+    const { upserts, deletions } = diffPhotoPaths(
+      prevPhotosRef.current,
+      photos,
+    );
     prevPhotosRef.current = photos;
     if (upserts.length === 0 && deletions.length === 0) return;
     for (const p of upserts) {
@@ -208,7 +227,6 @@ export function useSearchWorker(args: UseSearchWorkerArgs): UseSearchWorkerResul
         debounceTimerRef.current = null;
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query, debounceMs]);
 
   return { matched, pending };

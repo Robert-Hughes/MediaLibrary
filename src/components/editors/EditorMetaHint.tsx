@@ -23,26 +23,41 @@ import type { TagInfo, TagKind } from "../../types";
  */
 export function describeKind(kind: TagKind): string {
   switch (kind.kind) {
-    case "Text": return "Text";
-    case "LangAlt": return "Language-alternative text (multi-language)";
+    case "Text":
+      return "Text";
+    case "LangAlt":
+      return "Language-alternative text (multi-language)";
     case "Integer": {
       const { min, max } = kind.data;
-      const bounds = (min !== null && min !== undefined) || (max !== null && max !== undefined)
-        ? ` (${min ?? "—"} … ${max ?? "—"})`
-        : "";
+      const bounds =
+        (min !== null && min !== undefined) ||
+        (max !== null && max !== undefined)
+          ? ` (${min ?? "—"} … ${max ?? "—"})`
+          : "";
       return `Integer${bounds}`;
     }
-    case "Real": return "Real number";
-    case "Rational": return "Rational number";
-    case "Boolean": return "Boolean (true/false)";
-    case "DateTime": return "Date/time";
-    case "Enum": return `Enum (${kind.data.options.length} options)`;
-    case "Bag": return `Bag — unordered list of ${describeKind(kind.data).toLowerCase()}`;
-    case "Seq": return `Seq — ordered list of ${describeKind(kind.data).toLowerCase()}`;
-    case "Alt": return `Alt — alternatives of ${describeKind(kind.data).toLowerCase()}`;
-    case "Struct": return "Struct (nested object)";
-    case "Binary": return "Binary (not editable)";
-    case "Unknown": return "Unknown type";
+    case "Real":
+      return "Real number";
+    case "Rational":
+      return "Rational number";
+    case "Boolean":
+      return "Boolean (true/false)";
+    case "DateTime":
+      return "Date/time";
+    case "Enum":
+      return `Enum (${kind.data.options.length} options)`;
+    case "Bag":
+      return `Bag — unordered list of ${describeKind(kind.data).toLowerCase()}`;
+    case "Seq":
+      return `Seq — ordered list of ${describeKind(kind.data).toLowerCase()}`;
+    case "Alt":
+      return `Alt — alternatives of ${describeKind(kind.data).toLowerCase()}`;
+    case "Struct":
+      return "Struct (nested object)";
+    case "Binary":
+      return "Binary (not editable)";
+    case "Unknown":
+      return "Unknown type";
   }
 }
 
@@ -64,7 +79,11 @@ interface Props {
 export function EditorMetaHint({ source }: Props) {
   if (source.kind === "loading") {
     return (
-      <p className="dialog-hint editor-meta-hint" data-testid="editor-meta-hint" data-source="loading">
+      <p
+        className="dialog-hint editor-meta-hint"
+        data-testid="editor-meta-hint"
+        data-source="loading"
+      >
         Looking up schema…
       </p>
     );
@@ -78,8 +97,9 @@ export function EditorMetaHint({ source }: Props) {
         data-source="unknown"
         style={{ color: "var(--accent-warning, #aa6)" }}
       >
-        ⚠ Not in ExifTool's writable schema.
-        {" "}Treated as {source.treatedAs ?? "raw text"} — your edit may be silently rejected by ExifTool.
+        ⚠ Not in ExifTool's writable schema. Treated as{" "}
+        {source.treatedAs ?? "raw text"} — your edit may be silently rejected by
+        ExifTool.
       </p>
     );
   }
@@ -102,7 +122,8 @@ export function EditorMetaHint({ source }: Props) {
   return (
     <p
       className={
-        "dialog-hint editor-meta-hint" + (readOnly ? " editor-meta-hint-warning" : "")
+        "dialog-hint editor-meta-hint" +
+        (readOnly ? " editor-meta-hint-warning" : "")
       }
       data-testid="editor-meta-hint"
       data-source="schema"
@@ -111,12 +132,20 @@ export function EditorMetaHint({ source }: Props) {
     >
       {readOnly ? "⚠ " : null}
       <strong>
-        <code>{tag.group}:{tag.name}</code> — {describeKind(tag.kind)}
+        <code>
+          {tag.group}:{tag.name}
+        </code>{" "}
+        — {describeKind(tag.kind)}
       </strong>
       {" · "}From ExifTool schema
       {readOnly ? " — read-only, saves will be rejected" : ""}
       {override ? ` · ${override}` : ""}
-      {tag.description ? <><br />{tag.description}</> : null}
+      {tag.description ? (
+        <>
+          <br />
+          {tag.description}
+        </>
+      ) : null}
     </p>
   );
 }

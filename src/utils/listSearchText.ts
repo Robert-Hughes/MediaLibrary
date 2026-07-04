@@ -8,7 +8,10 @@ export function listSearchQueryIsActive(query: string): boolean {
 }
 
 /** Case-insensitive haystack contains needle (needle is already normalized lowercased). */
-export function haystackContainsNormalized(haystack: string, normalizedNeedle: string): boolean {
+export function haystackContainsNormalized(
+  haystack: string,
+  normalizedNeedle: string,
+): boolean {
   if (!normalizedNeedle) return true;
   return haystack.toLowerCase().includes(normalizedNeedle);
 }

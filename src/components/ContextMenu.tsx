@@ -17,7 +17,10 @@ export function ContextMenu({ x, y, options, onClose }: Props) {
   // Start where the cursor is, then nudge after layout if the menu would
   // overflow the viewport.  Position update happens in a layout effect
   // so the user never sees a clipped flash before the correction.
-  const [pos, setPos] = useState<{ top: number; left: number }>({ top: y, left: x });
+  const [pos, setPos] = useState<{ top: number; left: number }>({
+    top: y,
+    left: x,
+  });
 
   useLayoutEffect(() => {
     const el = menuRef.current;

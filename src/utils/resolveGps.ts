@@ -41,8 +41,16 @@ const LON_KEYS = [
   "EXIF:GPSLongitude",
   "QuickTime:GPSLongitude",
 ];
-const LAT_REF_KEYS = ["GPS:GPSLatitudeRef", "XMP-exif:GPSLatitudeRef", "EXIF:GPSLatitudeRef"];
-const LON_REF_KEYS = ["GPS:GPSLongitudeRef", "XMP-exif:GPSLongitudeRef", "EXIF:GPSLongitudeRef"];
+const LAT_REF_KEYS = [
+  "GPS:GPSLatitudeRef",
+  "XMP-exif:GPSLatitudeRef",
+  "EXIF:GPSLatitudeRef",
+];
+const LON_REF_KEYS = [
+  "GPS:GPSLongitudeRef",
+  "XMP-exif:GPSLongitudeRef",
+  "EXIF:GPSLongitudeRef",
+];
 
 /** Parse a single Variant into a positive magnitude. Handles number, DMS string, decimal string. */
 function parseMagnitude(v: Variant): number | null {

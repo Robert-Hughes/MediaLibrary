@@ -23,9 +23,20 @@ interface Props {
   readOnly?: boolean;
 }
 
-export function EnumEditor({ propertyKey, repr, options, initialCode, onSave, onCancel, headerHint, readOnly }: Props) {
+export function EnumEditor({
+  propertyKey,
+  repr,
+  options,
+  initialCode,
+  onSave,
+  onCancel,
+  headerHint,
+  readOnly,
+}: Props) {
   const [selected, setSelected] = useState<string>(initialCode);
-  const [customMode, setCustomMode] = useState<boolean>(!options.some((o) => o.code === initialCode));
+  const [customMode, setCustomMode] = useState<boolean>(
+    !options.some((o) => o.code === initialCode),
+  );
   const [customValue, setCustomValue] = useState<string>(initialCode);
 
   useEffect(() => {
@@ -82,7 +93,11 @@ export function EnumEditor({ propertyKey, repr, options, initialCode, onSave, on
                 className="dialog-input"
                 value={customValue}
                 onChange={(e) => setCustomValue(e.target.value)}
-                placeholder={repr === "Integer" ? "Enter a numeric code" : "Enter a string value"}
+                placeholder={
+                  repr === "Integer"
+                    ? "Enter a numeric code"
+                    : "Enter a string value"
+                }
                 data-testid="enum-editor-custom"
               />
               <button
@@ -97,7 +112,10 @@ export function EnumEditor({ propertyKey, repr, options, initialCode, onSave, on
           )}
         </div>
         <div className="dialog-footer">
-          <button className="dialog-btn dialog-btn-secondary" onClick={onCancel}>
+          <button
+            className="dialog-btn dialog-btn-secondary"
+            onClick={onCancel}
+          >
             Cancel
           </button>
           <button
@@ -125,7 +143,12 @@ export function initialCodeFrom(
   // often hands back the pretty label as the variant (no `-n`), so always
   // probe the options table before falling back to the raw string — otherwise
   // EnumEditor opens in Custom mode for in-spec values.
-  if (raw !== undefined && raw !== null && !Array.isArray(raw) && typeof raw !== "object") {
+  if (
+    raw !== undefined &&
+    raw !== null &&
+    !Array.isArray(raw) &&
+    typeof raw !== "object"
+  ) {
     const s = String(raw);
     const byCode = options.find((o) => o.code === s);
     if (byCode) return byCode.code;

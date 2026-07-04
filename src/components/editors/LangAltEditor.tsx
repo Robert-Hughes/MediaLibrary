@@ -21,12 +21,21 @@ interface Props {
   readOnly?: boolean;
 }
 
-export function LangAltEditor({ propertyKey, initialLangs, onSave, onCancel, headerHint, readOnly }: Props) {
+export function LangAltEditor({
+  propertyKey,
+  initialLangs,
+  onSave,
+  onCancel,
+  headerHint,
+  readOnly,
+}: Props) {
   // Always carry an x-default tab.
   const initial: Record<string, string> = { "x-default": "", ...initialLangs };
   const [langs, setLangs] = useState<Record<string, string>>(initial);
   const [activeLang, setActiveLang] = useState<string>(
-    Object.keys(initial).includes("x-default") ? "x-default" : Object.keys(initial)[0] ?? "x-default",
+    Object.keys(initial).includes("x-default")
+      ? "x-default"
+      : (Object.keys(initial)[0] ?? "x-default"),
   );
   const [newLang, setNewLang] = useState<string>("");
 
@@ -66,18 +75,26 @@ export function LangAltEditor({ propertyKey, initialLangs, onSave, onCancel, hea
   };
 
   return (
-    <div className="dialog-overlay" data-testid="langalt-editor-overlay" onKeyDown={handleKeyDown}>
+    <div
+      className="dialog-overlay"
+      data-testid="langalt-editor-overlay"
+      onKeyDown={handleKeyDown}
+    >
       <div className="dialog-content">
         <h3>Edit {propertyKey}</h3>
         {headerHint}
         <div className="dialog-body">
-          <div className="langalt-editor-tabs" data-testid="langalt-editor-tabs">
+          <div
+            className="langalt-editor-tabs"
+            data-testid="langalt-editor-tabs"
+          >
             {Object.keys(langs).map((lang) => (
               <button
                 key={lang}
                 type="button"
                 className={
-                  "langalt-editor-tab" + (lang === activeLang ? " langalt-editor-tab--active" : "")
+                  "langalt-editor-tab" +
+                  (lang === activeLang ? " langalt-editor-tab--active" : "")
                 }
                 onClick={() => setActiveLang(lang)}
                 data-testid={`langalt-editor-tab-${lang}`}
@@ -131,7 +148,10 @@ export function LangAltEditor({ propertyKey, initialLangs, onSave, onCancel, hea
           />
         </div>
         <div className="dialog-footer">
-          <button className="dialog-btn dialog-btn-secondary" onClick={onCancel}>
+          <button
+            className="dialog-btn dialog-btn-secondary"
+            onClick={onCancel}
+          >
             Cancel
           </button>
           <button
@@ -177,7 +197,12 @@ export function initialLangsFrom(
     if (key.startsWith(propertyKey + "-")) {
       const lang = key.slice(propertyKey.length + 1);
       if (typeof value === "string") out[lang] = value;
-      else if (value !== null && value !== undefined && !Array.isArray(value) && typeof value !== "object") {
+      else if (
+        value !== null &&
+        value !== undefined &&
+        !Array.isArray(value) &&
+        typeof value !== "object"
+      ) {
         out[lang] = String(value);
       }
     }

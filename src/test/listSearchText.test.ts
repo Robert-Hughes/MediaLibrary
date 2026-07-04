@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { haystackContainsNormalized, normalizeListSearchQuery, splitForHighlight } from "../utils/listSearchText";
+import {
+  haystackContainsNormalized,
+  normalizeListSearchQuery,
+  splitForHighlight,
+} from "../utils/listSearchText";
 
 describe("normalizeListSearchQuery", () => {
   it("trims and lowercases", () => {
@@ -19,7 +23,9 @@ describe("haystackContainsNormalized", () => {
 
 describe("splitForHighlight", () => {
   it("returns single non-match segment when query empty", () => {
-    expect(splitForHighlight("abc", "")).toEqual([{ text: "abc", match: false }]);
+    expect(splitForHighlight("abc", "")).toEqual([
+      { text: "abc", match: false },
+    ]);
   });
 
   it("marks middle match preserving case", () => {

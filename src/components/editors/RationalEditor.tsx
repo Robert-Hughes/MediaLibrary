@@ -78,12 +78,24 @@ export function decimalToRational(d: number): { num: number; den: number } {
 }
 
 function gcd(a: number, b: number): number {
-  a = Math.abs(a); b = Math.abs(b);
-  while (b !== 0) { const t = b; b = a % b; a = t; }
+  a = Math.abs(a);
+  b = Math.abs(b);
+  while (b !== 0) {
+    const t = b;
+    b = a % b;
+    a = t;
+  }
   return a || 1;
 }
 
-export function RationalEditor({ propertyKey, initialValue, onSave, onCancel, headerHint, readOnly }: Props) {
+export function RationalEditor({
+  propertyKey,
+  initialValue,
+  onSave,
+  onCancel,
+  headerHint,
+  readOnly,
+}: Props) {
   const initial = initialFraction(initialValue);
   const [mode, setMode] = useState<"fraction" | "decimal">("fraction");
   const [num, setNum] = useState<string>(String(initial.num));
@@ -124,12 +136,15 @@ export function RationalEditor({ propertyKey, initialValue, onSave, onCancel, he
     setMode(next);
   };
 
-  const validate = (): { ok: true; variant: Variant } | { ok: false; error: string } => {
+  const validate = ():
+    { ok: true; variant: Variant } | { ok: false; error: string } => {
     if (mode === "fraction") {
       const n = parseInt(num, 10);
       const d = parseInt(den, 10);
-      if (!Number.isFinite(n) || !Number.isInteger(n)) return { ok: false, error: "numerator must be an integer" };
-      if (!Number.isFinite(d) || !Number.isInteger(d)) return { ok: false, error: "denominator must be an integer" };
+      if (!Number.isFinite(n) || !Number.isInteger(n))
+        return { ok: false, error: "numerator must be an integer" };
+      if (!Number.isFinite(d) || !Number.isInteger(d))
+        return { ok: false, error: "denominator must be an integer" };
       if (d === 0) return { ok: false, error: "denominator cannot be zero" };
       return { ok: true, variant: n / d };
     }
@@ -173,8 +188,10 @@ export function RationalEditor({ propertyKey, initialValue, onSave, onCancel, he
   // Live preview of the other shape so the user sees what they'll commit.
   let preview = "";
   if (mode === "fraction") {
-    const n = parseInt(num, 10), d = parseInt(den, 10);
-    if (Number.isFinite(n) && Number.isFinite(d) && d !== 0) preview = `= ${n / d}`;
+    const n = parseInt(num, 10),
+      d = parseInt(den, 10);
+    if (Number.isFinite(n) && Number.isFinite(d) && d !== 0)
+      preview = `= ${n / d}`;
   } else {
     const dec = parseFloat(decimal);
     if (Number.isFinite(dec)) {
@@ -189,14 +206,22 @@ export function RationalEditor({ propertyKey, initialValue, onSave, onCancel, he
         <h3>Edit {propertyKey}</h3>
         {headerHint}
         <div className="dialog-body">
-          <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 8 }}>
+          <div
+            style={{
+              display: "flex",
+              gap: 12,
+              alignItems: "center",
+              marginBottom: 8,
+            }}
+          >
             <label>
               <input
                 type="radio"
                 checked={mode === "fraction"}
                 onChange={() => switchTo("fraction")}
                 data-testid="rational-editor-mode-fraction"
-              />{" "}Fraction
+              />{" "}
+              Fraction
             </label>
             <label>
               <input
@@ -204,7 +229,8 @@ export function RationalEditor({ propertyKey, initialValue, onSave, onCancel, he
                 checked={mode === "decimal"}
                 onChange={() => switchTo("decimal")}
                 data-testid="rational-editor-mode-decimal"
-              />{" "}Decimal
+              />{" "}
+              Decimal
             </label>
           </div>
           {mode === "fraction" ? (
@@ -216,7 +242,10 @@ export function RationalEditor({ propertyKey, initialValue, onSave, onCancel, he
                 step="1"
                 className="dialog-input"
                 value={num}
-                onChange={(e) => { setNum(e.target.value); setError(null); }}
+                onChange={(e) => {
+                  setNum(e.target.value);
+                  setError(null);
+                }}
                 onKeyDown={handleKeyDown}
                 data-testid="rational-editor-num"
                 style={{ width: 120 }}
@@ -229,7 +258,10 @@ export function RationalEditor({ propertyKey, initialValue, onSave, onCancel, he
                 min="1"
                 className="dialog-input"
                 value={den}
-                onChange={(e) => { setDen(e.target.value); setError(null); }}
+                onChange={(e) => {
+                  setDen(e.target.value);
+                  setError(null);
+                }}
                 onKeyDown={handleKeyDown}
                 data-testid="rational-editor-den"
                 style={{ width: 120 }}
@@ -243,19 +275,33 @@ export function RationalEditor({ propertyKey, initialValue, onSave, onCancel, he
               step="any"
               className="dialog-input"
               value={decimal}
-              onChange={(e) => { setDecimal(e.target.value); setError(null); }}
+              onChange={(e) => {
+                setDecimal(e.target.value);
+                setError(null);
+              }}
               onKeyDown={handleKeyDown}
               data-testid="rational-editor-decimal"
               style={{ width: 240 }}
             />
           )}
           {preview && (
-            <p className="dialog-hint" data-testid="rational-editor-preview">{preview}</p>
+            <p className="dialog-hint" data-testid="rational-editor-preview">
+              {preview}
+            </p>
           )}
-          {error && <p className="dialog-error" data-testid="rational-editor-error">{error}</p>}
+          {error && (
+            <p className="dialog-error" data-testid="rational-editor-error">
+              {error}
+            </p>
+          )}
         </div>
         <div className="dialog-footer">
-          <button className="dialog-btn dialog-btn-secondary" onClick={onCancel}>Cancel</button>
+          <button
+            className="dialog-btn dialog-btn-secondary"
+            onClick={onCancel}
+          >
+            Cancel
+          </button>
           <button
             className="dialog-btn dialog-btn-primary"
             onClick={handleSave}

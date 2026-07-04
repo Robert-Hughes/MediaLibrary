@@ -5,10 +5,19 @@ interface Props {
   onCloseFolder: () => void;
 }
 
-export function Toolbar({ folder, photoCount, onOpenFolder, onCloseFolder }: Props) {
+export function Toolbar({
+  folder,
+  photoCount,
+  onOpenFolder,
+  onCloseFolder,
+}: Props) {
   return (
     <div className="toolbar" data-testid="toolbar">
-      <span className="toolbar-folder" data-testid="toolbar-folder" title={folder}>
+      <span
+        className="toolbar-folder"
+        data-testid="toolbar-folder"
+        title={folder}
+      >
         {folder}
       </span>
       <span className="toolbar-spacer" />

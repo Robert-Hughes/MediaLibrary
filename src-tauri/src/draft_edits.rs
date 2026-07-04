@@ -1,6 +1,6 @@
 //! Draft-edit persistence with versioned JSONL schema.
 //!
-//! See `METADATA_FORMATS_DESIGN.md` §7 and `METADATA_FORMATS_PLAN.md` §3.
+//! See `docs/METADATA_FORMATS_DESIGN.md` §7.
 //!
 //! On-disk format is JSONL.  Two schema versions exist:
 //!

@@ -14,15 +14,18 @@ describe("friendlyFailureLabel", () => {
     expect(friendlyFailureLabel("network")).toBe("Network error");
     expect(friendlyFailureLabel("incomplete")).toBe("Response was truncated");
     expect(friendlyFailureLabel("refused")).toBe("Refused by model");
-    expect(friendlyFailureLabel("bad_json")).toBe("Could not parse model response");
+    expect(friendlyFailureLabel("bad_json")).toBe(
+      "Could not parse model response",
+    );
   });
 
   it("calls out the usage_parse case so users know the description landed", () => {
     // Regression: usage_parse is the one kind where the model returned
     // a usable description but cost reporting failed — the label must
     // not look like a hard failure.
-    expect(friendlyFailureLabel("usage_parse"))
-      .toMatch(/Description received but token usage could not be measured/);
+    expect(friendlyFailureLabel("usage_parse")).toMatch(
+      /Description received but token usage could not be measured/,
+    );
   });
 
   // Exhaustiveness is now enforced by the TypeScript `BatchFailureKind`

@@ -6,9 +6,24 @@ const edit = (value: string): DraftEdit => ({ value, intent: "Set" });
 const del: DraftEdit = { value: null, intent: "Delete" };
 
 function seed(idx: SearchIndex) {
-  idx.setPhoto({ relative_path: "a.jpg", filename: "a.jpg", date_modified: 1_700_000_000, date_created: null });
-  idx.setPhoto({ relative_path: "b.jpg", filename: "b.jpg", date_modified: 1_700_000_000, date_created: null });
-  idx.setPhoto({ relative_path: "sub/c.jpg", filename: "c.jpg", date_modified: 1_700_000_000, date_created: null });
+  idx.setPhoto({
+    relative_path: "a.jpg",
+    filename: "a.jpg",
+    date_modified: 1_700_000_000,
+    date_created: null,
+  });
+  idx.setPhoto({
+    relative_path: "b.jpg",
+    filename: "b.jpg",
+    date_modified: 1_700_000_000,
+    date_created: null,
+  });
+  idx.setPhoto({
+    relative_path: "sub/c.jpg",
+    filename: "c.jpg",
+    date_modified: 1_700_000_000,
+    date_created: null,
+  });
 }
 
 function matchedSet(idx: SearchIndex, q: string): Set<string> {
@@ -20,8 +35,12 @@ describe("SearchIndex", () => {
     it("returns all paths for empty query", () => {
       const idx = new SearchIndex();
       seed(idx);
-      expect(matchedSet(idx, "")).toEqual(new Set(["a.jpg", "b.jpg", "sub/c.jpg"]));
-      expect(matchedSet(idx, "   ")).toEqual(new Set(["a.jpg", "b.jpg", "sub/c.jpg"]));
+      expect(matchedSet(idx, "")).toEqual(
+        new Set(["a.jpg", "b.jpg", "sub/c.jpg"]),
+      );
+      expect(matchedSet(idx, "   ")).toEqual(
+        new Set(["a.jpg", "b.jpg", "sub/c.jpg"]),
+      );
     });
 
     it("filters by filename substring (case-insensitive)", () => {
@@ -47,7 +66,10 @@ describe("SearchIndex", () => {
     it("matches via metadata value across nested variants", () => {
       const idx = new SearchIndex();
       seed(idx);
-      idx.setMeta("a.jpg", { "IFD0:Make": "Sony", "Subjects": ["birds", "trees"] });
+      idx.setMeta("a.jpg", {
+        "IFD0:Make": "Sony",
+        Subjects: ["birds", "trees"],
+      });
       expect(matchedSet(idx, "trees")).toEqual(new Set(["a.jpg"]));
     });
 
@@ -78,7 +100,9 @@ describe("SearchIndex", () => {
       const idx = new SearchIndex();
       seed(idx);
       idx.setDrafts("a.jpg", { "X:Y": del });
-      expect(matchedSet(idx, "—")).toEqual(new Set(["a.jpg", "b.jpg", "sub/c.jpg"]));
+      expect(matchedSet(idx, "—")).toEqual(
+        new Set(["a.jpg", "b.jpg", "sub/c.jpg"]),
+      );
       expect(matchedSet(idx, "x:y")).toEqual(new Set(["a.jpg"]));
     });
 
@@ -122,7 +146,9 @@ describe("SearchIndex", () => {
       // narrow first
       idx.query("a.jpg");
       // wider — cache should not be used
-      expect(matchedSet(idx, "")).toEqual(new Set(["a.jpg", "b.jpg", "sub/c.jpg"]));
+      expect(matchedSet(idx, "")).toEqual(
+        new Set(["a.jpg", "b.jpg", "sub/c.jpg"]),
+      );
     });
 
     it("typing extra chars narrows correctly", () => {
@@ -146,11 +172,15 @@ describe("SearchIndex", () => {
       seed(idx);
       idx.setDrafts("a.jpg", { "X:Y": edit("v") });
       // First a plain substring that all match would
-      expect(matchedSet(idx, ".jpg")).toEqual(new Set(["a.jpg", "b.jpg", "sub/c.jpg"]));
+      expect(matchedSet(idx, ".jpg")).toEqual(
+        new Set(["a.jpg", "b.jpg", "sub/c.jpg"]),
+      );
       // Now add filter — must scope to drafts even though prior matched all
       expect(matchedSet(idx, ".jpg has:edits")).toEqual(new Set(["a.jpg"]));
       // Drop filter again — should re-include all
-      expect(matchedSet(idx, ".jpg")).toEqual(new Set(["a.jpg", "b.jpg", "sub/c.jpg"]));
+      expect(matchedSet(idx, ".jpg")).toEqual(
+        new Set(["a.jpg", "b.jpg", "sub/c.jpg"]),
+      );
     });
 
     it("mutation invalidates the cache", () => {
@@ -184,9 +214,19 @@ describe("SearchIndex", () => {
   describe("photo upsert updates haystack", () => {
     it("replacing photo fields re-indexes filename matches", () => {
       const idx = new SearchIndex();
-      idx.setPhoto({ relative_path: "p", filename: "old.jpg", date_modified: null, date_created: null });
+      idx.setPhoto({
+        relative_path: "p",
+        filename: "old.jpg",
+        date_modified: null,
+        date_created: null,
+      });
       expect(matchedSet(idx, "old")).toEqual(new Set(["p"]));
-      idx.setPhoto({ relative_path: "p", filename: "renamed.jpg", date_modified: null, date_created: null });
+      idx.setPhoto({
+        relative_path: "p",
+        filename: "renamed.jpg",
+        date_modified: null,
+        date_created: null,
+      });
       expect(matchedSet(idx, "old")).toEqual(new Set());
       expect(matchedSet(idx, "renamed")).toEqual(new Set(["p"]));
     });

@@ -1,6 +1,6 @@
 # Metadata Formats — Design
 
-Companion document: `METADATA_FORMATS_PLAN.md` (phased implementation).
+Operational metadata-pipeline guidance lives in `docs/METADATA_PIPELINE.md`.
 
 This document describes how MediaLibrary handles image metadata: the types it preserves, how it reads, edits, and writes metadata, and the rationale for the design choices. It is aimed primarily at developers but also useful for advanced users who want to understand what the app actually does to their files.
 
@@ -54,9 +54,7 @@ The frontend mirrors this:
 
 ```ts
 type Variant =
-  | null | boolean | number | string
-  | Variant[]
-  | { [k: string]: Variant };
+  null | boolean | number | string | Variant[] | { [k: string]: Variant };
 ```
 
 Every metadata value, draft edit, and write-back payload uses `Variant`. There is no place in the pipeline where a list becomes a comma-joined string, or where a number becomes a stringified number, except at the deliberate boundary of the exiftool command line itself.
@@ -73,7 +71,7 @@ JSON does not distinguish; exiftool's `-n` output for `Rating` is `5`, for `FNum
 
 ## 3. The tag schema registry
 
-`Variant` describes the shape of a value. It does not describe what shape a value *should* have for a given tag. For that, MediaLibrary builds a registry of tag types at startup.
+`Variant` describes the shape of a value. It does not describe what shape a value _should_ have for a given tag. For that, MediaLibrary builds a registry of tag types at startup.
 
 ### Source: `exiftool -listx`
 
@@ -110,12 +108,14 @@ If a user edits a tag not in the registry (rare camera-specific MakerNotes, cust
 `scanner.rs` runs exiftool twice per scan batch:
 
 **Pass A — pretty:**
+
 ```
 exiftool -a -G1 -s -struct -charset filename=utf8 -charset utf8 \
   --system:all --composite:all -j <paths>
 ```
 
 **Pass B — numeric:**
+
 ```
 exiftool -a -G1 -s -struct -n -charset filename=utf8 -charset utf8 \
   --system:all --composite:all -j <paths>
@@ -134,15 +134,15 @@ exiftool -a -G1 -s -struct -n -charset filename=utf8 -charset utf8 \
 
 ### Why two passes
 
-| Tag | Pass A (default) | Pass B (`-n`) |
-|---|---|---|
-| `Orientation` | `"Rotate 90 CW"` | `6` |
-| `ExposureTime` | `"1/250"` | `0.004` |
-| `FNumber` | `"5.6"` | `5.6` |
-| `GPSLatitude` | `"51 deg 30' 26.16\" N"` | `51.50726667` |
-| `Flash` | `"Off, Did not fire"` | `16` |
-| `FileSize` | `"4.2 MB"` | `4404019` |
-| `Keywords` | `["beach", "sunset"]` | `["beach", "sunset"]` (same — no PrintConv applies) |
+| Tag            | Pass A (default)         | Pass B (`-n`)                                       |
+| -------------- | ------------------------ | --------------------------------------------------- |
+| `Orientation`  | `"Rotate 90 CW"`         | `6`                                                 |
+| `ExposureTime` | `"1/250"`                | `0.004`                                             |
+| `FNumber`      | `"5.6"`                  | `5.6`                                               |
+| `GPSLatitude`  | `"51 deg 30' 26.16\" N"` | `51.50726667`                                       |
+| `Flash`        | `"Off, Did not fire"`    | `16`                                                |
+| `FileSize`     | `"4.2 MB"`               | `4404019`                                           |
+| `Keywords`     | `["beach", "sunset"]`    | `["beach", "sunset"]` (same — no PrintConv applies) |
 
 We want **pass A for display** (matches what every other tool shows) and **pass B for editing and verification** (the actual machine value, unambiguous on write).
 
@@ -167,22 +167,22 @@ The edit dialog is a router on `TagKind` from the registry. Each kind has a dedi
 
 ### Editors by kind
 
-| Kind | Control | Notes |
-|---|---|---|
-| `Text` | text input | |
-| `LangAlt` | language tab strip; per-lang textarea | `x-default` always present and explicit |
-| `Bag<Text>` (Keywords, Subject) | chip editor | individual add/remove; never joined |
-| `Seq<Text>` | chip editor with reorder | order matters |
-| `Integer` | numeric input + bounds | |
-| `Real` | numeric input | |
-| `Rational` (ExposureTime, ShutterSpeedValue) | numerator/denominator pair, or decimal toggle | |
-| `Boolean` | tri-state (true / false / unset) | |
-| `DateTime` | datetime picker | emits `YYYY:MM:DD HH:MM:SS±ZZ:ZZ` |
-| `Enum<Integer>` (Orientation, Flash-base) | dropdown of labels | draft stores code; display shows label |
-| `Enum<String>` (some XMP enums) | dropdown of labels | |
-| `Struct` | nested form | each field recurses |
-| `Unknown` | text input + warning | "schema doesn't describe this tag" |
-| `Binary` | read-only | "not editable in app" |
+| Kind                                         | Control                                       | Notes                                   |
+| -------------------------------------------- | --------------------------------------------- | --------------------------------------- |
+| `Text`                                       | text input                                    |                                         |
+| `LangAlt`                                    | language tab strip; per-lang textarea         | `x-default` always present and explicit |
+| `Bag<Text>` (Keywords, Subject)              | chip editor                                   | individual add/remove; never joined     |
+| `Seq<Text>`                                  | chip editor with reorder                      | order matters                           |
+| `Integer`                                    | numeric input + bounds                        |                                         |
+| `Real`                                       | numeric input                                 |                                         |
+| `Rational` (ExposureTime, ShutterSpeedValue) | numerator/denominator pair, or decimal toggle |                                         |
+| `Boolean`                                    | tri-state (true / false / unset)              |                                         |
+| `DateTime`                                   | datetime picker                               | emits `YYYY:MM:DD HH:MM:SS±ZZ:ZZ`       |
+| `Enum<Integer>` (Orientation, Flash-base)    | dropdown of labels                            | draft stores code; display shows label  |
+| `Enum<String>` (some XMP enums)              | dropdown of labels                            |                                         |
+| `Struct`                                     | nested form                                   | each field recurses                     |
+| `Unknown`                                    | text input + warning                          | "schema doesn't describe this tag"      |
+| `Binary`                                     | read-only                                     | "not editable in app"                   |
 
 ### Recursive composition
 
@@ -253,14 +253,14 @@ Default policy: prefer the numeric `-n` form everywhere it applies — most robu
 
 For each draft edit, the writer builds exiftool argv based on the tag's kind and the edit's intent:
 
-| Intent | Kind | Args |
-|---|---|---|
-| `Set` | `Text` / `Integer` / `Real` / etc. | `-TAG=value` |
-| `Set` | `Bag` / `Seq` | `-TAG=` then `-TAG=item1 -TAG=item2 ...` (explicit clear + repeat) |
-| `Set` | `LangAlt` | `-TAG-lang=value` per language; `x-default` explicit |
-| `ListAdd` | `Bag` / `Seq` | `-TAG+=item` per item |
-| `ListRemove` | `Bag` / `Seq` | `-TAG-=item` per item |
-| `Delete` | any | `-TAG=` |
+| Intent       | Kind                               | Args                                                               |
+| ------------ | ---------------------------------- | ------------------------------------------------------------------ |
+| `Set`        | `Text` / `Integer` / `Real` / etc. | `-TAG=value`                                                       |
+| `Set`        | `Bag` / `Seq`                      | `-TAG=` then `-TAG=item1 -TAG=item2 ...` (explicit clear + repeat) |
+| `Set`        | `LangAlt`                          | `-TAG-lang=value` per language; `x-default` explicit               |
+| `ListAdd`    | `Bag` / `Seq`                      | `-TAG+=item` per item                                              |
+| `ListRemove` | `Bag` / `Seq`                      | `-TAG-=item` per item                                              |
+| `Delete`     | any                                | `-TAG=`                                                            |
 
 The previous implementation joined list values with `", "` and emitted `-TAG=a, b`. exiftool does not split on comma by default; the result was a single-element list containing the joined string. The repeated-arg form is unambiguous and matches exiftool's documented contract.
 

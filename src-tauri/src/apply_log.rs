@@ -10,7 +10,7 @@
 //! a write looks wrong; tools/inspect-apply-log.ts is a small pretty-printer
 //! to be added in a follow-up.
 //!
-//! See `METADATA_FORMATS_DESIGN.md` §6 and `METADATA_FORMATS_PLAN.md` §5.5.
+//! See `docs/METADATA_FORMATS_DESIGN.md` §6.
 
 use crate::apply_edits::TagOutcome;
 use crate::draft_edits::{DraftEdit, EditIntent};
@@ -24,8 +24,8 @@ const LOG_FILE_NAME: &str = "MediaLibraryApplyLog.jsonl";
 /// Schema version embedded in each entry.  Bumps:
 ///  - 2 (Phase 8.8): added `before_display` / `before_raw`.
 ///  - 3 (Phase 8 fix-up): added `before_read_failed` so a `null` before
-///        value can be distinguished from "the pre-write read itself
-///        failed".  v2 readers see the new field as ignorable.
+///    value can be distinguished from "the pre-write read itself failed".
+///    v2 readers see the new field as ignorable.
 const LOG_SCHEMA_VERSION: u32 = 3;
 const HEADER_COMMENT: &str =
     "// Apply-edits audit log. Append-only. Each line is one tag's outcome from one apply. schema_version=3.";
@@ -95,10 +95,8 @@ pub fn append_entries(
     };
     let mut writer = std::io::BufWriter::new(file);
 
-    if needs_header {
-        if writeln!(writer, "{}", HEADER_COMMENT).is_err() {
-            return;
-        }
+    if needs_header && writeln!(writer, "{}", HEADER_COMMENT).is_err() {
+        return;
     }
 
     let timestamp = chrono_like_iso();

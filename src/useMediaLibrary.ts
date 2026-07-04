@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ThumbnailStore, ImageMetadataStore, MetadataProgressStore, DraftEditsStore } from "./types";
+import {
+  ThumbnailStore,
+  ImageMetadataStore,
+  MetadataProgressStore,
+  DraftEditsStore,
+} from "./types";
 import type {
   AppState,
   PhotoFoundPayload,
@@ -22,12 +27,18 @@ import {
   normalizeDraftsFromTauri,
   scheduleBatchedFlush,
 } from "./utils/scanEvents";
-import { mergeVerifyOutcomes, removeVerifyOutcome } from "./utils/verifyOutcomes";
+import {
+  mergeVerifyOutcomes,
+  removeVerifyOutcome,
+} from "./utils/verifyOutcomes";
 import { useRecentFolders } from "./hooks/useRecentFolders";
 
 export interface TauriApi {
   invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
-  listen: (event: string, handler: (payload: unknown) => void) => Promise<() => void>;
+  listen: (
+    event: string,
+    handler: (payload: unknown) => void,
+  ) => Promise<() => void>;
 }
 
 export interface MediaLibraryActions {
@@ -45,30 +56,49 @@ export interface MediaLibraryActions {
   updateColumnWidth: (col: string, width: number) => void;
   resetColumnWidths: () => void;
   dismissError: (index: number) => void;
-  setDraftTyped: (fileRelativePath: string, propertyKey: string, edit: DraftEdit) => void;
-  setDraftBatch: (fileRelativePath: string, edits: Array<{ key: string; edit: DraftEdit }>) => void;
+  setDraftTyped: (
+    fileRelativePath: string,
+    propertyKey: string,
+    edit: DraftEdit,
+  ) => void;
+  setDraftBatch: (
+    fileRelativePath: string,
+    edits: Array<{ key: string; edit: DraftEdit }>,
+  ) => void;
   discardDraftValue: (fileRelativePath: string, propertyKey: string) => void;
   discardAllDraftEdits: (fileRelativePath?: string | string[]) => void;
-  applyDraftEdits: (fileRelativePath?: string | string[]) => Promise<ApplyEditsResult>;
+  applyDraftEdits: (
+    fileRelativePath?: string | string[],
+  ) => Promise<ApplyEditsResult>;
   cancelApplyEdits: () => void;
   /** Phase 8.1: clear a Coerced/Mismatch outcome and drop its draft. */
   acceptVerifyOutcome: (fileRelativePath: string, tag: string) => void;
   /** Phase 8.1: re-stage the draft with the value exiftool actually wrote. */
-  revertVerifyOutcome: (fileRelativePath: string, tag: string, observedRaw: Variant | null) => void;
+  revertVerifyOutcome: (
+    fileRelativePath: string,
+    tag: string,
+    observedRaw: Variant | null,
+  ) => void;
   /** Phase 8.1: dismiss a single pending verify outcome without touching the draft. */
   dismissVerifyOutcome: (fileRelativePath: string, tag: string) => void;
   /** Phase 8.1: dismiss every pending verify outcome without acting on them. */
   dismissAllVerifyOutcomes: () => void;
 }
 
-export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: string[] }, MediaLibraryActions] {
+export function useMediaLibrary(
+  api: TauriApi,
+): [AppState & { recentFolders: string[] }, MediaLibraryActions] {
   const [appState, setAppState] = useState<AppState>({ kind: "idle" });
   const [recentFolders, pushRecentFolder] = useRecentFolders();
 
-  const thumbnailStoreRef           = useRef<ThumbnailStore>(new ThumbnailStore());
-  const imageMetadataStoreRef       = useRef<ImageMetadataStore>(new ImageMetadataStore());
-  const metadataProgressStoreRef    = useRef<MetadataProgressStore>(new MetadataProgressStore());
-  const draftEditsStoreRef          = useRef<DraftEditsStore>(new DraftEditsStore());
+  const thumbnailStoreRef = useRef<ThumbnailStore>(new ThumbnailStore());
+  const imageMetadataStoreRef = useRef<ImageMetadataStore>(
+    new ImageMetadataStore(),
+  );
+  const metadataProgressStoreRef = useRef<MetadataProgressStore>(
+    new MetadataProgressStore(),
+  );
+  const draftEditsStoreRef = useRef<DraftEditsStore>(new DraftEditsStore());
 
   // Redundant-draft guard: let DraftEditsStore peek at current
   // metadata so writes that match the existing value drop silently
@@ -102,63 +132,91 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
   const batchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isFirstFlushRef = useRef<boolean>(true);
 
-  const metadataBufferRef = useRef<{ relative_path: string; metadata: Record<string, Variant> }[]>([]);
-  const metadataBatchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const metadataBufferRef = useRef<
+    { relative_path: string; metadata: Record<string, Variant> }[]
+  >([]);
+  const metadataBatchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const isFirstMetadataFlushRef = useRef<boolean>(true);
 
-  const thumbnailBufferRef = useRef<{ relative_path: string; thumbnail: string | null }[]>([]);
-  const thumbnailBatchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const thumbnailBufferRef = useRef<
+    { relative_path: string; thumbnail: string | null }[]
+  >([]);
+  const thumbnailBatchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const isFirstThumbnailFlushRef = useRef<boolean>(true);
 
-  const startScan = useCallback(async (folder: string) => {
-    // Wait for event listeners to be registered before starting the scan so
-    // photo_found / scan_complete events are never missed.  The latch is a
-    // plain Promise (no setTimeout) so it works correctly with vi.useFakeTimers().
-    await listenersReadyRef.current;
+  const startScan = useCallback(
+    async (folder: string) => {
+      // Wait for event listeners to be registered before starting the scan so
+      // photo_found / scan_complete events are never missed.  The latch is a
+      // plain Promise (no setTimeout) so it works correctly with vi.useFakeTimers().
+      await listenersReadyRef.current;
 
-    // Generate scan_id FIRST, before any cleanup, so we can accept events immediately
-    const scanId = Date.now();
-    console.debug(`[startScan] folder=${folder} scanId=${scanId}`);
+      // Generate scan_id FIRST, before any cleanup, so we can accept events immediately
+      const scanId = Date.now();
+      console.debug(`[startScan] folder=${folder} scanId=${scanId}`);
 
-    // Stop any existing scan before starting a new one.
-    await api.invoke("stop_scan").catch(() => {});
+      // Stop any existing scan before starting a new one.
+      await api.invoke("stop_scan").catch(() => {});
 
-    // Switch to new scan_id immediately — no gap where it's -1
-    activeScanIdRef.current = scanId;
+      // Switch to new scan_id immediately — no gap where it's -1
+      activeScanIdRef.current = scanId;
 
-    // Clear all buffers + timers from any previous scan
-    photoBufferRef.current = [];
-    metadataBufferRef.current = [];
-    thumbnailBufferRef.current = [];
-    isFirstFlushRef.current = true;
-    isFirstMetadataFlushRef.current = true;
-    isFirstThumbnailFlushRef.current = true;
-    for (const t of [batchTimerRef, metadataBatchTimerRef, thumbnailBatchTimerRef]) {
-      if (t.current) { clearTimeout(t.current); t.current = null; }
-    }
+      // Clear all buffers + timers from any previous scan
+      photoBufferRef.current = [];
+      metadataBufferRef.current = [];
+      thumbnailBufferRef.current = [];
+      isFirstFlushRef.current = true;
+      isFirstMetadataFlushRef.current = true;
+      isFirstThumbnailFlushRef.current = true;
+      for (const t of [
+        batchTimerRef,
+        metadataBatchTimerRef,
+        thumbnailBatchTimerRef,
+      ]) {
+        if (t.current) {
+          clearTimeout(t.current);
+          t.current = null;
+        }
+      }
 
-    thumbnailStoreRef.current          = new ThumbnailStore();
-    imageMetadataStoreRef.current      = new ImageMetadataStore();
-    metadataProgressStoreRef.current   = new MetadataProgressStore();
+      thumbnailStoreRef.current = new ThumbnailStore();
+      imageMetadataStoreRef.current = new ImageMetadataStore();
+      metadataProgressStoreRef.current = new MetadataProgressStore();
 
-    try {
-      const raw = await api.invoke("load_draft_edits_typed", { folderPath: folder });
-      // Backwards-compat: a mock or legacy backend may still return the
-      // string-shape map.  Detect and convert per-edit if we see a value
-      // that isn't `{ value, intent }`.
-      draftEditsStoreRef.current.reset(normalizeDraftsFromTauri(raw));
-    } catch (e) {
-      console.error("Failed to load draft edits", e);
-      draftEditsStoreRef.current.reset({});
-    }
+      try {
+        const raw = await api.invoke("load_draft_edits_typed", {
+          folderPath: folder,
+        });
+        // Backwards-compat: a mock or legacy backend may still return the
+        // string-shape map.  Detect and convert per-edit if we see a value
+        // that isn't `{ value, intent }`.
+        draftEditsStoreRef.current.reset(normalizeDraftsFromTauri(raw));
+      } catch (e) {
+        console.error("Failed to load draft edits", e);
+        draftEditsStoreRef.current.reset({});
+      }
 
-    const { visibleColumns, sortConfig, columnWidths } = loadColumnConfig();
-    setAppState({ kind: "loading", folder, visibleColumns, columnWidths, sortConfig });
-    api.invoke("set_window_title", { title: `Media Library — ${folder}` }).catch(() => {});
+      const { visibleColumns, sortConfig, columnWidths } = loadColumnConfig();
+      setAppState({
+        kind: "loading",
+        folder,
+        visibleColumns,
+        columnWidths,
+        sortConfig,
+      });
+      api
+        .invoke("set_window_title", { title: `Media Library — ${folder}` })
+        .catch(() => {});
 
-    await api.invoke("start_scan", { scanId, folderPath: folder });
-    pushRecentFolder(folder);
-  }, [api, pushRecentFolder]);
+      await api.invoke("start_scan", { scanId, folderPath: folder });
+      pushRecentFolder(folder);
+    },
+    [api, pushRecentFolder],
+  );
 
   useEffect(() => {
     const unlisteners: Array<() => void> = [];
@@ -167,7 +225,9 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
     const flushBatch = () => {
       const batch = [...photoBufferRef.current];
       photoBufferRef.current = [];
-      console.debug(`[photo_found] flushing ${batch.length} photos (total buffer was ${batch.length})`);
+      console.debug(
+        `[photo_found] flushing ${batch.length} photos (total buffer was ${batch.length})`,
+      );
 
       setAppState((prev) => {
         if (prev.kind === "idle") return prev;
@@ -230,7 +290,11 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
       // causes the sortedPhotos useMemo to recompute.
       setAppState((prev) => {
         if (prev.kind !== "loaded") return prev;
-        if (!prev.sortConfig.primary || prev.sortConfig.primary.columnType !== "image") return prev;
+        if (
+          !prev.sortConfig.primary ||
+          prev.sortConfig.primary.columnType !== "image"
+        )
+          return prev;
         return { ...prev, metadataVersion: prev.metadataVersion + 1 };
       });
     };
@@ -240,10 +304,14 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
     const flushThumbnailBatch = () => {
       const batch = [...thumbnailBufferRef.current];
       thumbnailBufferRef.current = [];
-      if (batch.length > 0) console.debug(`[thumbnail] flushing ${batch.length} results`);
+      if (batch.length > 0)
+        console.debug(`[thumbnail] flushing ${batch.length} results`);
 
       for (const res of batch) {
-        thumbnailStoreRef.current.set(res.relative_path, res.thumbnail === null ? "failed" : res.thumbnail);
+        thumbnailStoreRef.current.set(
+          res.relative_path,
+          res.thumbnail === null ? "failed" : res.thumbnail,
+        );
       }
       // No React state update needed - useSyncExternalStore handles per-row updates
     };
@@ -251,7 +319,9 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
     const setup = async () => {
       // Create a new pending latch for this setup cycle; startScan awaits it.
       let resolve!: () => void;
-      listenersReadyRef.current = new Promise<void>(r => { resolve = r; });
+      listenersReadyRef.current = new Promise<void>((r) => {
+        resolve = r;
+      });
 
       const unlistenFound = await api.listen("photo_found", (raw) => {
         if (cancelled) return;
@@ -281,8 +351,15 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
         console.debug(`[scan_complete] scan_id=${scan_id}`);
 
         // Clear all batch timers and flush remaining batches
-        for (const t of [batchTimerRef, metadataBatchTimerRef, thumbnailBatchTimerRef]) {
-          if (t.current) { clearTimeout(t.current); t.current = null; }
+        for (const t of [
+          batchTimerRef,
+          metadataBatchTimerRef,
+          thumbnailBatchTimerRef,
+        ]) {
+          if (t.current) {
+            clearTimeout(t.current);
+            t.current = null;
+          }
         }
 
         flushBatch();
@@ -317,21 +394,24 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
         });
       });
 
-      const unlistenMetadata = await api.listen("image_metadata_ready", (raw) => {
-        if (cancelled) return;
-        const { scan_id, results } = raw as ImageMetadataReadyPayload;
-        if (scan_id !== activeScanIdRef.current) return;
-        console.debug(`[metadata] received ${results.length} results`);
+      const unlistenMetadata = await api.listen(
+        "image_metadata_ready",
+        (raw) => {
+          if (cancelled) return;
+          const { scan_id, results } = raw as ImageMetadataReadyPayload;
+          if (scan_id !== activeScanIdRef.current) return;
+          console.debug(`[metadata] received ${results.length} results`);
 
-        metadataBufferRef.current.push(...results);
-        scheduleBatchedFlush(
-          metadataBufferRef.current.length,
-          metadataBatchTimerRef,
-          isFirstMetadataFlushRef,
-          flushMetadataBatch,
-          200,
-        );
-      });
+          metadataBufferRef.current.push(...results);
+          scheduleBatchedFlush(
+            metadataBufferRef.current.length,
+            metadataBatchTimerRef,
+            isFirstMetadataFlushRef,
+            flushMetadataBatch,
+            200,
+          );
+        },
+      );
 
       const unlistenThumbnail = await api.listen("thumbnail_ready", (raw) => {
         if (cancelled) return;
@@ -360,7 +440,10 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
       const unlistenWorkerError = await api.listen("worker_error", (raw) => {
         if (cancelled) return;
         const payload = raw as WorkerErrorPayload;
-        console.error(`Worker error (${payload.worker_type}):`, payload.error_message);
+        console.error(
+          `Worker error (${payload.worker_type}):`,
+          payload.error_message,
+        );
 
         // Add error to the state so UI can display it (capped — see MAX_WORKER_ERRORS)
         setAppState((prev) => {
@@ -373,39 +456,50 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
         });
       });
 
-      const unlistenApplyStarted = await api.listen("apply_edits_started", (raw) => {
-        if (cancelled) return;
-        const payload = raw as ApplyEditsStartedPayload;
-        setAppState((prev) => {
-          if (prev.kind !== "loaded") return prev;
-          return {
-            ...prev,
-            applying: {
-              total: payload.total,
-              current: 0,
-              currentFile: null,
-              failureCount: 0,
-              cancelling: false,
-            },
-          };
-        });
-      });
+      const unlistenApplyStarted = await api.listen(
+        "apply_edits_started",
+        (raw) => {
+          if (cancelled) return;
+          const payload = raw as ApplyEditsStartedPayload;
+          setAppState((prev) => {
+            if (prev.kind !== "loaded") return prev;
+            return {
+              ...prev,
+              applying: {
+                total: payload.total,
+                current: 0,
+                currentFile: null,
+                failureCount: 0,
+                cancelling: false,
+              },
+            };
+          });
+        },
+      );
 
-      const unlistenApplyProgress = await api.listen("apply_edits_progress", (raw) => {
-        if (cancelled) return;
-        const payload = raw as ApplyEditsProgressPayload;
-        handleApplyEditsProgress(
-          payload,
-          draftEditsStoreRef.current,
-          imageMetadataStoreRef.current,
-          setAppState,
-        );
-      });
+      const unlistenApplyProgress = await api.listen(
+        "apply_edits_progress",
+        (raw) => {
+          if (cancelled) return;
+          const payload = raw as ApplyEditsProgressPayload;
+          handleApplyEditsProgress(
+            payload,
+            draftEditsStoreRef.current,
+            imageMetadataStoreRef.current,
+            setAppState,
+          );
+        },
+      );
 
       unlisteners.push(
-        unlistenFound, unlistenComplete, unlistenMetadata,
-        unlistenThumbnail, unlistenError, unlistenWorkerError,
-        unlistenApplyStarted, unlistenApplyProgress,
+        unlistenFound,
+        unlistenComplete,
+        unlistenMetadata,
+        unlistenThumbnail,
+        unlistenError,
+        unlistenWorkerError,
+        unlistenApplyStarted,
+        unlistenApplyProgress,
       );
 
       // All listeners registered — unblock any startScan that was awaiting.
@@ -426,9 +520,12 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
     await startScan(folder);
   }, [api, startScan]);
 
-  const openRecent = useCallback(async (folder: string) => {
-    await startScan(folder);
-  }, [startScan]);
+  const openRecent = useCallback(
+    async (folder: string) => {
+      await startScan(folder);
+    },
+    [startScan],
+  );
 
   const closeFolder = useCallback(() => {
     activeScanIdRef.current = -1;
@@ -436,8 +533,15 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
     // Cancel any pending batch flushes — they would still safely no-op against
     // the idle state, but leaving timers running keeps closures alive past
     // the scan they belong to and adds noise on next render.
-    for (const t of [batchTimerRef, metadataBatchTimerRef, thumbnailBatchTimerRef]) {
-      if (t.current) { clearTimeout(t.current); t.current = null; }
+    for (const t of [
+      batchTimerRef,
+      metadataBatchTimerRef,
+      thumbnailBatchTimerRef,
+    ]) {
+      if (t.current) {
+        clearTimeout(t.current);
+        t.current = null;
+      }
     }
 
     // Drop any buffered events that haven't been flushed yet.
@@ -450,14 +554,17 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
     api.invoke("set_window_title", { title: "Media Library" }).catch(() => {});
   }, [api]);
 
-  const prioritizeQueues = useCallback((visiblePaths: string[]) => {
-    console.debug(`[prioritizeQueues] ${visiblePaths.length} paths`);
-    api.invoke("prioritize_queues", { visiblePaths }).catch(() => {});
-  }, [api]);
+  const prioritizeQueues = useCallback(
+    (visiblePaths: string[]) => {
+      console.debug(`[prioritizeQueues] ${visiblePaths.length} paths`);
+      api.invoke("prioritize_queues", { visiblePaths }).catch(() => {});
+    },
+    [api],
+  );
 
   const selectPhoto = useCallback((index: number | null) => {
     setAppState((prev) =>
-      prev.kind === "loaded" ? { ...prev, selectedIndex: index } : prev
+      prev.kind === "loaded" ? { ...prev, selectedIndex: index } : prev,
     );
   }, []);
 
@@ -478,52 +585,71 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
       });
       const cur = stateRef.current;
       if (cur.kind === "loaded") {
-        api.invoke("save_draft_edits_typed", {
-          folderPath: cur.folder,
-          data: next,
-        }).catch(console.error);
+        api
+          .invoke("save_draft_edits_typed", {
+            folderPath: cur.folder,
+            data: next,
+          })
+          .catch(console.error);
       }
     });
     return unsub;
   }, [api]);
 
-  const showInExplorer = useCallback(async (index: number) => {
-    const current = stateRef.current;
-    if (current.kind !== "loaded") return;
-    const photo = current.photos[index];
-    if (!photo) return;
+  const showInExplorer = useCallback(
+    async (index: number) => {
+      const current = stateRef.current;
+      if (current.kind !== "loaded") return;
+      const photo = current.photos[index];
+      if (!photo) return;
 
-    api.invoke("show_in_explorer", {
-      folder: current.folder,
-      relativePath: photo.relative_path
-    }).catch(() => {});
-  }, [api]);
+      api
+        .invoke("show_in_explorer", {
+          folder: current.folder,
+          relativePath: photo.relative_path,
+        })
+        .catch(() => {});
+    },
+    [api],
+  );
 
   const openGallery = useCallback((index: number) => {
     setAppState((prev) =>
-      prev.kind === "loaded" ? { ...prev, galleryIndex: index, selectedIndex: index } : prev
+      prev.kind === "loaded"
+        ? { ...prev, galleryIndex: index, selectedIndex: index }
+        : prev,
     );
   }, []);
 
   const closeGallery = useCallback(() => {
     setAppState((prev) =>
-      prev.kind === "loaded" ? { ...prev, galleryIndex: null } : prev
+      prev.kind === "loaded" ? { ...prev, galleryIndex: null } : prev,
     );
   }, []);
 
-  const navigateGallery = useCallback((delta: number, options?: { listLength?: number }) => {
-    setAppState((prev) => {
-      if (prev.kind !== "loaded" || prev.galleryIndex === null) return prev;
-      const len = options?.listLength ?? prev.photos.length;
-      const nextIndex = Math.max(0, Math.min(len - 1, prev.galleryIndex + delta));
-      return { ...prev, galleryIndex: nextIndex, selectedIndex: nextIndex };
-    });
-  }, []);
+  const navigateGallery = useCallback(
+    (delta: number, options?: { listLength?: number }) => {
+      setAppState((prev) => {
+        if (prev.kind !== "loaded" || prev.galleryIndex === null) return prev;
+        const len = options?.listLength ?? prev.photos.length;
+        const nextIndex = Math.max(
+          0,
+          Math.min(len - 1, prev.galleryIndex + delta),
+        );
+        return { ...prev, galleryIndex: nextIndex, selectedIndex: nextIndex };
+      });
+    },
+    [],
+  );
 
   const setVisibleColumns = useCallback((columns: VisibleColumn[]) => {
     setAppState((prev) => {
       if (prev.kind !== "loaded") return prev;
-      saveColumnConfig({ visibleColumns: columns, sortConfig: prev.sortConfig, columnWidths: prev.columnWidths });
+      saveColumnConfig({
+        visibleColumns: columns,
+        sortConfig: prev.sortConfig,
+        columnWidths: prev.columnWidths,
+      });
       return { ...prev, visibleColumns: columns };
     });
   }, []);
@@ -531,7 +657,11 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
   const setSortConfig = useCallback((config: SortConfig) => {
     setAppState((prev) => {
       if (prev.kind !== "loaded") return prev;
-      saveColumnConfig({ visibleColumns: prev.visibleColumns, sortConfig: config, columnWidths: prev.columnWidths });
+      saveColumnConfig({
+        visibleColumns: prev.visibleColumns,
+        sortConfig: config,
+        columnWidths: prev.columnWidths,
+      });
       return { ...prev, sortConfig: config };
     });
   }, []);
@@ -539,10 +669,17 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
   const updateColumnWidth = useCallback((col: string, width: number) => {
     setAppState((prev) => {
       if (prev.kind !== "loaded") return prev;
-      const newWidths = width > 0
-        ? { ...prev.columnWidths, [col]: width }
-        : Object.fromEntries(Object.entries(prev.columnWidths).filter(([k]) => k !== col));
-      saveColumnConfig({ visibleColumns: prev.visibleColumns, sortConfig: prev.sortConfig, columnWidths: newWidths });
+      const newWidths =
+        width > 0
+          ? { ...prev.columnWidths, [col]: width }
+          : Object.fromEntries(
+              Object.entries(prev.columnWidths).filter(([k]) => k !== col),
+            );
+      saveColumnConfig({
+        visibleColumns: prev.visibleColumns,
+        sortConfig: prev.sortConfig,
+        columnWidths: newWidths,
+      });
       return { ...prev, columnWidths: newWidths };
     });
   }, []);
@@ -550,7 +687,11 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
   const resetColumnWidths = useCallback(() => {
     setAppState((prev) => {
       if (prev.kind !== "loaded") return prev;
-      saveColumnConfig({ visibleColumns: prev.visibleColumns, sortConfig: prev.sortConfig, columnWidths: {} });
+      saveColumnConfig({
+        visibleColumns: prev.visibleColumns,
+        sortConfig: prev.sortConfig,
+        columnWidths: {},
+      });
       return { ...prev, columnWidths: {} };
     });
   }, []);
@@ -560,44 +701,72 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
    * remove the entry from `verifyOutcomes` AND drop the corresponding draft so
    * the file's "saved" state matches what exiftool actually wrote.
    */
-  const acceptVerifyOutcome = useCallback((fileRelativePath: string, tag: string) => {
-    draftEditsStoreRef.current.deleteTag(fileRelativePath, tag);
-    setAppState((prev) => {
-      if (prev.kind !== "loaded") return prev;
-      const next = removeVerifyOutcome(prev.verifyOutcomes, fileRelativePath, tag);
-      return next === prev.verifyOutcomes ? prev : { ...prev, verifyOutcomes: next };
-    });
-  }, []);
+  const acceptVerifyOutcome = useCallback(
+    (fileRelativePath: string, tag: string) => {
+      draftEditsStoreRef.current.deleteTag(fileRelativePath, tag);
+      setAppState((prev) => {
+        if (prev.kind !== "loaded") return prev;
+        const next = removeVerifyOutcome(
+          prev.verifyOutcomes,
+          fileRelativePath,
+          tag,
+        );
+        return next === prev.verifyOutcomes
+          ? prev
+          : { ...prev, verifyOutcomes: next };
+      });
+    },
+    [],
+  );
 
   /**
    * Phase 8.1 — Revert a Coerced outcome: re-stage the draft with the value
    * exiftool actually wrote (raw view), so the user's next save attempt acts
    * on the file as it now is rather than on the original sent value.
    */
-  const revertVerifyOutcome = useCallback((fileRelativePath: string, tag: string, observedRaw: Variant | null) => {
-    const newEdit: DraftEdit = observedRaw === null
-      ? { value: null, intent: "Delete" }
-      : { value: observedRaw, intent: "Set" };
-    draftEditsStoreRef.current.setTag(fileRelativePath, tag, newEdit);
-    setAppState((prev) => {
-      if (prev.kind !== "loaded") return prev;
-      const next = removeVerifyOutcome(prev.verifyOutcomes, fileRelativePath, tag);
-      return next === prev.verifyOutcomes ? prev : { ...prev, verifyOutcomes: next };
-    });
-  }, []);
+  const revertVerifyOutcome = useCallback(
+    (fileRelativePath: string, tag: string, observedRaw: Variant | null) => {
+      const newEdit: DraftEdit =
+        observedRaw === null
+          ? { value: null, intent: "Delete" }
+          : { value: observedRaw, intent: "Set" };
+      draftEditsStoreRef.current.setTag(fileRelativePath, tag, newEdit);
+      setAppState((prev) => {
+        if (prev.kind !== "loaded") return prev;
+        const next = removeVerifyOutcome(
+          prev.verifyOutcomes,
+          fileRelativePath,
+          tag,
+        );
+        return next === prev.verifyOutcomes
+          ? prev
+          : { ...prev, verifyOutcomes: next };
+      });
+    },
+    [],
+  );
 
   /**
    * Dismiss one pending verify outcome without acting on it.  Draft is
    * untouched — used for Mismatch / MissingPostWrite / DeleteLingering rows
    * where the user has acknowledged the failure and will fix it manually.
    */
-  const dismissVerifyOutcome = useCallback((fileRelativePath: string, tag: string) => {
-    setAppState((prev) => {
-      if (prev.kind !== "loaded") return prev;
-      const next = removeVerifyOutcome(prev.verifyOutcomes, fileRelativePath, tag);
-      return next === prev.verifyOutcomes ? prev : { ...prev, verifyOutcomes: next };
-    });
-  }, []);
+  const dismissVerifyOutcome = useCallback(
+    (fileRelativePath: string, tag: string) => {
+      setAppState((prev) => {
+        if (prev.kind !== "loaded") return prev;
+        const next = removeVerifyOutcome(
+          prev.verifyOutcomes,
+          fileRelativePath,
+          tag,
+        );
+        return next === prev.verifyOutcomes
+          ? prev
+          : { ...prev, verifyOutcomes: next };
+      });
+    },
+    [],
+  );
 
   /**
    * Dismiss every pending verify outcome without acting on them.  Drafts are
@@ -627,26 +796,43 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
    * Longitude / Ref atomically so the on-disk file never has half-updated
    * coords if the user navigates away mid-edit.
    */
-  const setDraftBatch = useCallback((fileRelativePath: string, edits: Array<{ key: string; edit: DraftEdit }>) => {
-    draftEditsStoreRef.current.setBatch(fileRelativePath, edits);
-  }, []);
+  const setDraftBatch = useCallback(
+    (
+      fileRelativePath: string,
+      edits: Array<{ key: string; edit: DraftEdit }>,
+    ) => {
+      draftEditsStoreRef.current.setBatch(fileRelativePath, edits);
+    },
+    [],
+  );
 
-  const setDraftTyped = useCallback((fileRelativePath: string, propertyKey: string, edit: DraftEdit) => {
-    draftEditsStoreRef.current.setTag(fileRelativePath, propertyKey, edit);
-  }, []);
+  const setDraftTyped = useCallback(
+    (fileRelativePath: string, propertyKey: string, edit: DraftEdit) => {
+      draftEditsStoreRef.current.setTag(fileRelativePath, propertyKey, edit);
+    },
+    [],
+  );
 
-  const discardDraftValue = useCallback((fileRelativePath: string, propertyKey: string) => {
-    draftEditsStoreRef.current.deleteTag(fileRelativePath, propertyKey);
-  }, []);
+  const discardDraftValue = useCallback(
+    (fileRelativePath: string, propertyKey: string) => {
+      draftEditsStoreRef.current.deleteTag(fileRelativePath, propertyKey);
+    },
+    [],
+  );
 
-  const discardAllDraftEdits = useCallback((fileRelativePath?: string | string[]) => {
-    if (fileRelativePath === undefined) {
-      draftEditsStoreRef.current.clear();
-    } else {
-      const paths = Array.isArray(fileRelativePath) ? fileRelativePath : [fileRelativePath];
-      draftEditsStoreRef.current.deletePaths(paths);
-    }
-  }, []);
+  const discardAllDraftEdits = useCallback(
+    (fileRelativePath?: string | string[]) => {
+      if (fileRelativePath === undefined) {
+        draftEditsStoreRef.current.clear();
+      } else {
+        const paths = Array.isArray(fileRelativePath)
+          ? fileRelativePath
+          : [fileRelativePath];
+        draftEditsStoreRef.current.deletePaths(paths);
+      }
+    },
+    [],
+  );
 
   /**
    * Apply draft edits. The backend processes files one at a time, emitting
@@ -657,35 +843,42 @@ export function useMediaLibrary(api: TauriApi): [AppState & { recentFolders: str
    * The promise resolves once all files are done (or cancellation took effect).
    * Callers can use the result for a final summary; state is already current.
    */
-  const applyDraftEdits = useCallback(async (fileRelativePath?: string | string[]): Promise<ApplyEditsResult> => {
-    const current = stateRef.current;
-    if (current.kind !== "loaded") {
-      return { applied: [], failed: [], fresh_metadata: {} };
-    }
+  const applyDraftEdits = useCallback(
+    async (fileRelativePath?: string | string[]): Promise<ApplyEditsResult> => {
+      const current = stateRef.current;
+      if (current.kind !== "loaded") {
+        return { applied: [], failed: [], fresh_metadata: {} };
+      }
 
-    let relPaths: string[];
-    if (fileRelativePath === undefined) {
-      relPaths = Object.keys(current.draftEdits ?? {});
-    } else {
-      const requested = Array.isArray(fileRelativePath) ? fileRelativePath : [fileRelativePath];
-      relPaths = requested.filter((p) => current.draftEdits?.[p]);
-    }
+      let relPaths: string[];
+      if (fileRelativePath === undefined) {
+        relPaths = Object.keys(current.draftEdits ?? {});
+      } else {
+        const requested = Array.isArray(fileRelativePath)
+          ? fileRelativePath
+          : [fileRelativePath];
+        relPaths = requested.filter((p) => current.draftEdits?.[p]);
+      }
 
-    if (relPaths.length === 0) {
-      return { applied: [], failed: [], fresh_metadata: {} };
-    }
+      if (relPaths.length === 0) {
+        return { applied: [], failed: [], fresh_metadata: {} };
+      }
 
-    try {
-      const result = (await api.invoke("apply_draft_edits_cmd", {
-        folderPath: current.folder,
-        relPaths,
-      })) as ApplyEditsResult;
-      return result;
-    } finally {
-      // Always clear the in-flight modal regardless of resolution path
-      setAppState((prev) => prev.kind === "loaded" ? { ...prev, applying: null } : prev);
-    }
-  }, [api]);
+      try {
+        const result = (await api.invoke("apply_draft_edits_cmd", {
+          folderPath: current.folder,
+          relPaths,
+        })) as ApplyEditsResult;
+        return result;
+      } finally {
+        // Always clear the in-flight modal regardless of resolution path
+        setAppState((prev) =>
+          prev.kind === "loaded" ? { ...prev, applying: null } : prev,
+        );
+      }
+    },
+    [api],
+  );
 
   const cancelApplyEdits = useCallback(() => {
     api.invoke("cancel_apply_edits").catch(() => {});
@@ -820,12 +1013,14 @@ function handleApplyEditsProgress(
       }
     }
 
-    const applying = prev.applying ? {
-      ...prev.applying,
-      current: payload.current,
-      currentFile: payload.relative_path,
-      failureCount: prev.applying.failureCount + (payload.error ? 1 : 0),
-    } : null;
+    const applying = prev.applying
+      ? {
+          ...prev.applying,
+          current: payload.current,
+          currentFile: payload.relative_path,
+          failureCount: prev.applying.failureCount + (payload.error ? 1 : 0),
+        }
+      : null;
 
     return {
       ...prev,

@@ -32,10 +32,14 @@ export function SettingsDialog({ onClose }: Props) {
   const [models, setModels] = useState<string[]>([]);
   /** Model id → ballpark per-image cost in USD. Missing entries are
    *  rendered without a cost suffix so an unknown model is still pickable. */
-  const [perImageCosts, setPerImageCosts] = useState<Record<string, number>>({});
+  const [perImageCosts, setPerImageCosts] = useState<Record<string, number>>(
+    {},
+  );
   /** Model id → per-photo cost for the metadata-normaliser worst case
    *  (both Group B and Group C fire). Plan §6. */
-  const [normaliseCosts, setNormaliseCosts] = useState<Record<string, number>>({});
+  const [normaliseCosts, setNormaliseCosts] = useState<Record<string, number>>(
+    {},
+  );
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -55,8 +59,11 @@ export function SettingsDialog({ onClose }: Props) {
         // tolerate per-model failures (Promise.allSettled) so one bad
         // entry doesn't blank the dropdown's cost column.
         const results = await Promise.allSettled(
-          ms.map((m) => invoke<number>("estimate_per_image_cost_cmd", { model: m })
-            .then((cost) => [m, cost] as const))
+          ms.map((m) =>
+            invoke<number>("estimate_per_image_cost_cmd", { model: m }).then(
+              (cost) => [m, cost] as const,
+            ),
+          ),
         );
         if (cancelled) return;
         const costs: Record<string, number> = {};
@@ -70,8 +77,11 @@ export function SettingsDialog({ onClose }: Props) {
 
         // Same allSettled pattern for the normaliser cost preview.
         const nResults = await Promise.allSettled(
-          ms.map((m) => invoke<number>("estimate_per_image_normalise_cost_cmd", { model: m })
-            .then((cost) => [m, cost] as const))
+          ms.map((m) =>
+            invoke<number>("estimate_per_image_normalise_cost_cmd", {
+              model: m,
+            }).then((cost) => [m, cost] as const),
+          ),
         );
         if (cancelled) return;
         const nCosts: Record<string, number> = {};
@@ -86,7 +96,9 @@ export function SettingsDialog({ onClose }: Props) {
         if (!cancelled) setLoadError(String(e));
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   async function persist(updated: Settings) {
@@ -115,88 +127,143 @@ export function SettingsDialog({ onClose }: Props) {
             <>
               <section style={{ marginBottom: 16 }}>
                 <h3 style={{ marginBottom: 6 }}>AI image description</h3>
-                <label style={{ display: "block", fontSize: 12, marginBottom: 4 }}>
+                <label
+                  style={{ display: "block", fontSize: 12, marginBottom: 4 }}
+                >
                   OpenAI API key
                 </label>
                 <input
                   type="password"
                   data-testid="settings-api-key-input"
                   value={settings.openai_api_key}
-                  onChange={(e) => setSettings({ ...settings, openai_api_key: e.target.value })}
+                  onChange={(e) =>
+                    setSettings({ ...settings, openai_api_key: e.target.value })
+                  }
                   onBlur={() => persist(settings)}
                   placeholder="sk-…"
                   style={{ width: "100%", padding: 6, fontFamily: "monospace" }}
                 />
-                <div style={{ marginTop: 6, fontSize: 11, color: "var(--text-secondary)" }}>
-                  Stored in plain text in your app data folder. The key is
-                  used only for the AI-description feature. Enabling this
-                  feature uploads selected images to OpenAI for analysis —
-                  don't enter a key here if your images contain content you
-                  cannot send to a third-party service.
+                <div
+                  style={{
+                    marginTop: 6,
+                    fontSize: 11,
+                    color: "var(--text-secondary)",
+                  }}
+                >
+                  Stored in plain text in your app data folder. The key is used
+                  only for the AI-description feature. Enabling this feature
+                  uploads selected images to OpenAI for analysis — don't enter a
+                  key here if your images contain content you cannot send to a
+                  third-party service.
                 </div>
 
-                <label style={{ display: "block", fontSize: 12, marginTop: 12, marginBottom: 4 }}>
+                <label
+                  style={{
+                    display: "block",
+                    fontSize: 12,
+                    marginTop: 12,
+                    marginBottom: 4,
+                  }}
+                >
                   Model
                 </label>
                 <select
                   data-testid="settings-model-select"
                   value={settings.openai_model}
-                  onChange={(e) => persist({ ...settings, openai_model: e.target.value })}
+                  onChange={(e) =>
+                    persist({ ...settings, openai_model: e.target.value })
+                  }
                   style={{ width: "100%", padding: 6 }}
                 >
                   {models.map((m) => {
                     const c = perImageCosts[m];
-                    const label = c !== undefined
-                      ? `${m} (${formatPerImageCost(c)} per image)`
-                      : m;
-                    return <option key={m} value={m}>{label}</option>;
+                    const label =
+                      c !== undefined
+                        ? `${m} (${formatPerImageCost(c)} per image)`
+                        : m;
+                    return (
+                      <option key={m} value={m}>
+                        {label}
+                      </option>
+                    );
                   })}
                 </select>
-                <div style={{ marginTop: 6, fontSize: 11, color: "var(--text-secondary)" }}>
-                  gpt-4o is the recommended default: names landmarks
-                  reliably at moderate cost (≈$0.002 per 1024px image).
-                  See docs/IMAGE_ANALYSIS.md for the model-choice rationale.
+                <div
+                  style={{
+                    marginTop: 6,
+                    fontSize: 11,
+                    color: "var(--text-secondary)",
+                  }}
+                >
+                  gpt-4o is the recommended default: names landmarks reliably at
+                  moderate cost (≈$0.002 per 1024px image). See
+                  docs/IMAGE_ANALYSIS.md for the model-choice rationale.
                 </div>
               </section>
 
               <section style={{ marginBottom: 16 }}>
                 <h3 style={{ marginBottom: 6 }}>Metadata normalisation</h3>
-                <label style={{ display: "block", fontSize: 12, marginBottom: 4 }}>
+                <label
+                  style={{ display: "block", fontSize: 12, marginBottom: 4 }}
+                >
                   Model (text-only)
                 </label>
                 <select
                   data-testid="settings-normalise-model-select"
                   value={settings.normalise_metadata_model}
                   onChange={(e) =>
-                    persist({ ...settings, normalise_metadata_model: e.target.value })
+                    persist({
+                      ...settings,
+                      normalise_metadata_model: e.target.value,
+                    })
                   }
                   style={{ width: "100%", padding: 6 }}
                 >
                   {models.map((m) => {
                     const c = normaliseCosts[m];
-                    const label = c !== undefined
-                      ? `${m} (${formatPerImageCost(c)} per photo when AI fires)`
-                      : m;
-                    return <option key={m} value={m}>{label}</option>;
+                    const label =
+                      c !== undefined
+                        ? `${m} (${formatPerImageCost(c)} per photo when AI fires)`
+                        : m;
+                    return (
+                      <option key={m} value={m}>
+                        {label}
+                      </option>
+                    );
                   })}
                 </select>
-                <div style={{ marginTop: 6, fontSize: 11, color: "var(--text-secondary)" }}>
-                  Used by Normalise Metadata when description sources
-                  disagree or a title has to be generated from the
-                  description. Text-only — image bytes are never sent. See
+                <div
+                  style={{
+                    marginTop: 6,
+                    fontSize: 11,
+                    color: "var(--text-secondary)",
+                  }}
+                >
+                  Used by Normalise Metadata when description sources disagree
+                  or a title has to be generated from the description. Text-only
+                  — image bytes are never sent. See
                   docs/NORMALISE_METADATA_PLAN.md §6.
                 </div>
               </section>
 
               {saveError && (
-                <div data-testid="settings-save-error" style={{ color: "var(--accent-error, #d33)" }}>
+                <div
+                  data-testid="settings-save-error"
+                  style={{ color: "var(--accent-error, #d33)" }}
+                >
                   Save failed: {saveError}
                 </div>
               )}
             </>
           )}
 
-          <div style={{ marginTop: 20, display: "flex", justifyContent: "flex-end" }}>
+          <div
+            style={{
+              marginTop: 20,
+              display: "flex",
+              justifyContent: "flex-end",
+            }}
+          >
             <button
               className="button button--primary"
               data-testid="settings-close-btn"

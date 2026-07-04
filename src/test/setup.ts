@@ -19,7 +19,11 @@ afterEach(() => {
   // click hid the details pane — making the discard-all button absent.
   // Wiping localStorage between tests gives every test the production-
   // default initial UI state.
-  try { localStorage.clear(); } catch { /* jsdom may have torn it down */ }
+  try {
+    localStorage.clear();
+  } catch {
+    /* jsdom may have torn it down */
+  }
 });
 
 // jsdom does not implement IntersectionObserver — provide a no-op stub so
@@ -27,11 +31,12 @@ afterEach(() => {
 // Individual tests that want to assert on observer behaviour can override
 // this with vi.stubGlobal / vi.unstubAllGlobals.
 if (typeof IntersectionObserver === "undefined") {
-  (globalThis as unknown as Record<string, unknown>).IntersectionObserver = class {
-    observe() {}
-    unobserve() {}
-    disconnect() {}
-  };
+  (globalThis as unknown as Record<string, unknown>).IntersectionObserver =
+    class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    };
 }
 
 // jsdom does not implement Web Workers.  The production hook spawns a
@@ -54,35 +59,53 @@ if (typeof Worker === "undefined") {
     postMessage(rawMsg: unknown) {
       const msg = rawMsg as { type: string } & Record<string, unknown>;
       switch (msg.type) {
-        case "CLEAR": this.index.clear(); return;
+        case "CLEAR":
+          this.index.clear();
+          return;
         case "INIT_PHOTOS":
-          for (const p of msg.photos as Parameters<InstanceType<typeof SearchIndex>["setPhoto"]>[0][]) {
+          for (const p of msg.photos as Parameters<
+            InstanceType<typeof SearchIndex>["setPhoto"]
+          >[0][]) {
             this.index.setPhoto(p);
           }
           return;
         case "INIT_META":
-          for (const e of msg.entries as { path: string; meta: Parameters<InstanceType<typeof SearchIndex>["setMeta"]>[1] }[]) {
+          for (const e of msg.entries as {
+            path: string;
+            meta: Parameters<InstanceType<typeof SearchIndex>["setMeta"]>[1];
+          }[]) {
             this.index.setMeta(e.path, e.meta);
           }
           return;
         case "INIT_DRAFTS":
-          for (const e of msg.entries as { path: string; edits: Parameters<InstanceType<typeof SearchIndex>["setDrafts"]>[1] }[]) {
+          for (const e of msg.entries as {
+            path: string;
+            edits: Parameters<InstanceType<typeof SearchIndex>["setDrafts"]>[1];
+          }[]) {
             this.index.setDrafts(e.path, e.edits);
           }
           return;
         case "UPSERT_PHOTO":
-          this.index.setPhoto(msg.photo as Parameters<InstanceType<typeof SearchIndex>["setPhoto"]>[0]);
+          this.index.setPhoto(
+            msg.photo as Parameters<
+              InstanceType<typeof SearchIndex>["setPhoto"]
+            >[0],
+          );
           return;
         case "UPSERT_META":
           this.index.setMeta(
             msg.path as string,
-            msg.meta as Parameters<InstanceType<typeof SearchIndex>["setMeta"]>[1],
+            msg.meta as Parameters<
+              InstanceType<typeof SearchIndex>["setMeta"]
+            >[1],
           );
           return;
         case "UPSERT_DRAFTS":
           this.index.setDrafts(
             msg.path as string,
-            msg.edits as Parameters<InstanceType<typeof SearchIndex>["setDrafts"]>[1],
+            msg.edits as Parameters<
+              InstanceType<typeof SearchIndex>["setDrafts"]
+            >[1],
           );
           return;
         case "DELETE_PATH":
@@ -93,7 +116,12 @@ if (typeof Worker === "undefined") {
           const r = this.index.query(msg.query as string);
           setTimeout(() => {
             this.onmessage?.({
-              data: { type: "RESULT", id, matched: r.matched, hasEditsFilter: r.hasEditsFilter },
+              data: {
+                type: "RESULT",
+                id,
+                matched: r.matched,
+                hasEditsFilter: r.hasEditsFilter,
+              },
             });
           }, 0);
           return;
@@ -106,13 +134,20 @@ if (typeof Worker === "undefined") {
     removeEventListener() {}
   }
 
-  (globalThis as unknown as Record<string, unknown>).Worker = InThreadSearchWorker;
+  (globalThis as unknown as Record<string, unknown>).Worker =
+    InThreadSearchWorker;
 }
 
 // Mock @tanstack/react-virtual to render all items in tests (no virtualization)
 // This allows tests to find all rows without needing to simulate scrolling
 vi.mock("@tanstack/react-virtual", () => ({
-  useVirtualizer: ({ count, estimateSize }: { count: number; estimateSize: () => number }) => {
+  useVirtualizer: ({
+    count,
+    estimateSize,
+  }: {
+    count: number;
+    estimateSize: () => number;
+  }) => {
     const size = estimateSize();
     // Return a mock virtualizer that renders all items
     const items = Array.from({ length: count }, (_, index) => ({
@@ -122,7 +157,7 @@ vi.mock("@tanstack/react-virtual", () => ({
       end: (index + 1) * size,
       key: index,
     }));
-    
+
     return {
       getVirtualItems: () => items,
       getTotalSize: () => count * size,

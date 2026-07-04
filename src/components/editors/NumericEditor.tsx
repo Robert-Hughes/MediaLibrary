@@ -20,7 +20,17 @@ interface Props {
   readOnly?: boolean;
 }
 
-export function NumericEditor({ propertyKey, kind, min, max, initialValue, onSave, onCancel, headerHint, readOnly }: Props) {
+export function NumericEditor({
+  propertyKey,
+  kind,
+  min,
+  max,
+  initialValue,
+  onSave,
+  onCancel,
+  headerHint,
+  readOnly,
+}: Props) {
   const [value, setValue] = useState<string>(initialValue);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -30,7 +40,9 @@ export function NumericEditor({ propertyKey, kind, min, max, initialValue, onSav
     inputRef.current?.select();
   }, []);
 
-  const validate = (s: string): { ok: true; variant: Variant } | { ok: false; error: string } => {
+  const validate = (
+    s: string,
+  ): { ok: true; variant: Variant } | { ok: false; error: string } => {
     const trimmed = s.trim();
     if (trimmed === "") return { ok: false, error: "value is empty" };
     if (kind === "Integer") {
@@ -96,10 +108,17 @@ export function NumericEditor({ propertyKey, kind, min, max, initialValue, onSav
             onKeyDown={handleKeyDown}
             data-testid="numeric-editor-input"
           />
-          {error && <p className="dialog-error" data-testid="numeric-editor-error">{error}</p>}
+          {error && (
+            <p className="dialog-error" data-testid="numeric-editor-error">
+              {error}
+            </p>
+          )}
         </div>
         <div className="dialog-footer">
-          <button className="dialog-btn dialog-btn-secondary" onClick={onCancel}>
+          <button
+            className="dialog-btn dialog-btn-secondary"
+            onClick={onCancel}
+          >
             Cancel
           </button>
           <button

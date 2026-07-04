@@ -7,10 +7,8 @@ describe("buildOverwriteWarning", () => {
     subjectSingular: "image",
     subjectPlural: "photos",
     dataPhrase: "an AI description",
-    actionSingle:
-      "Generating a new one will overwrite the existing one.",
-    actionPluralAll:
-      "Generating new ones will overwrite the existing ones.",
+    actionSingle: "Generating a new one will overwrite the existing one.",
+    actionPluralAll: "Generating new ones will overwrite the existing ones.",
   };
 
   const geocodeFlow = {
@@ -25,25 +23,39 @@ describe("buildOverwriteWarning", () => {
 
   it("returns null when no photos already have data", () => {
     expect(
-      buildOverwriteWarning({ existingCount: 0, totalCount: 4, ...describeFlow }),
+      buildOverwriteWarning({
+        existingCount: 0,
+        totalCount: 4,
+        ...describeFlow,
+      }),
     ).toBeNull();
   });
 
   it("returns null when totalCount is 0 (defensive)", () => {
     expect(
-      buildOverwriteWarning({ existingCount: 0, totalCount: 0, ...describeFlow }),
+      buildOverwriteWarning({
+        existingCount: 0,
+        totalCount: 0,
+        ...describeFlow,
+      }),
     ).toBeNull();
   });
 
   it("returns null when existingCount exceeds totalCount (defensive)", () => {
     expect(
-      buildOverwriteWarning({ existingCount: 5, totalCount: 3, ...describeFlow }),
+      buildOverwriteWarning({
+        existingCount: 5,
+        totalCount: 3,
+        ...describeFlow,
+      }),
     ).toBeNull();
   });
 
   it("single-photo branch uses subjectSingular and actionSingle", () => {
     const w = buildOverwriteWarning({
-      existingCount: 1, totalCount: 1, ...describeFlow,
+      existingCount: 1,
+      totalCount: 1,
+      ...describeFlow,
     });
     expect(w).toEqual({
       title: "Overwrite AI description?",
@@ -53,7 +65,9 @@ describe("buildOverwriteWarning", () => {
 
   it("all-of-many branch uses actionPluralAll", () => {
     const w = buildOverwriteWarning({
-      existingCount: 3, totalCount: 3, ...describeFlow,
+      existingCount: 3,
+      totalCount: 3,
+      ...describeFlow,
     });
     expect(w?.body).toBe(
       "All 3 selected photos already have an AI description. Generating new ones will overwrite the existing ones.",
@@ -62,7 +76,9 @@ describe("buildOverwriteWarning", () => {
 
   it("partial-of-many branch with existing > 1 says 'have'", () => {
     const w = buildOverwriteWarning({
-      existingCount: 2, totalCount: 5, ...describeFlow,
+      existingCount: 2,
+      totalCount: 5,
+      ...describeFlow,
     });
     expect(w?.body).toBe(
       "2 of 5 selected photos already have an AI description. Generating new ones will overwrite the existing ones.",
@@ -71,7 +87,9 @@ describe("buildOverwriteWarning", () => {
 
   it("partial-of-many branch with existing == 1 says 'has'", () => {
     const w = buildOverwriteWarning({
-      existingCount: 1, totalCount: 5, ...describeFlow,
+      existingCount: 1,
+      totalCount: 5,
+      ...describeFlow,
     });
     expect(w?.body).toBe(
       "1 of 5 selected photos already has an AI description. Generating new ones will overwrite the existing ones.",
@@ -80,14 +98,18 @@ describe("buildOverwriteWarning", () => {
 
   it("body does not append 'Continue?' (the dialog's Confirm button provides that affordance)", () => {
     const w = buildOverwriteWarning({
-      existingCount: 1, totalCount: 1, ...describeFlow,
+      existingCount: 1,
+      totalCount: 1,
+      ...describeFlow,
     });
     expect(w?.body).not.toMatch(/Continue\?/);
   });
 
   it("falls back to actionSingle when actionPluralAll omitted", () => {
     const w = buildOverwriteWarning({
-      existingCount: 3, totalCount: 3, ...geocodeFlow,
+      existingCount: 3,
+      totalCount: 3,
+      ...geocodeFlow,
     });
     // No actionPluralAll defined → reuse actionSingle.
     expect(w?.body).toContain(
@@ -98,23 +120,31 @@ describe("buildOverwriteWarning", () => {
 
   it("uses actionPluralPartial in partial branch", () => {
     const w = buildOverwriteWarning({
-      existingCount: 2, totalCount: 5, ...geocodeFlow,
+      existingCount: 2,
+      totalCount: 5,
+      ...geocodeFlow,
     });
     expect(w?.body).toContain("for those photos");
   });
 
   it("defaults subjectPlural to subjectSingular + 's'", () => {
     const w = buildOverwriteWarning({
-      existingCount: 3, totalCount: 3, ...geocodeFlow,
+      existingCount: 3,
+      totalCount: 3,
+      ...geocodeFlow,
     });
     expect(w?.body).toContain("All 3 selected photos already have");
   });
 
   it("preserves caller-supplied subjectPlural", () => {
     const w = buildOverwriteWarning({
-      existingCount: 3, totalCount: 3,
-      title: "T", subjectSingular: "deer", subjectPlural: "deer",
-      dataPhrase: "antlers", actionSingle: "Replacing.",
+      existingCount: 3,
+      totalCount: 3,
+      title: "T",
+      subjectSingular: "deer",
+      subjectPlural: "deer",
+      dataPhrase: "antlers",
+      actionSingle: "Replacing.",
     });
     expect(w?.body).toContain("All 3 selected deer already have antlers");
   });

@@ -26,7 +26,7 @@ describe("ColumnSelectionDialog keyboard shortcuts", () => {
         )}
         onSave={onSave}
         onClose={onClose}
-      />
+      />,
     );
 
     await userEvent.keyboard("{Escape}");
@@ -49,7 +49,7 @@ describe("ColumnSelectionDialog keyboard shortcuts", () => {
         )}
         onSave={onSave}
         onClose={onClose}
-      />
+      />,
     );
 
     await userEvent.keyboard("{Enter}");
@@ -78,7 +78,7 @@ describe("ColumnSelectionDialog keyboard shortcuts", () => {
         )}
         onSave={onSave}
         onClose={onClose}
-      />
+      />,
     );
 
     await userEvent.click(screen.getByText("IFD0:Make"));
@@ -89,12 +89,14 @@ describe("ColumnSelectionDialog keyboard shortcuts", () => {
     expect(onSave).toHaveBeenCalledTimes(1);
     const [savedCols, resetWidths] = onSave.mock.calls[0];
     expect(resetWidths).toBe(false);
-    expect(savedCols).toEqual(expect.arrayContaining([
-      { key: "date_modified", kind: "os" },
-      { key: "date_created", kind: "os" },
-      { key: "IFD0:Model", kind: "image" },
-      { key: "IFD0:Make", kind: "image" },
-    ]));
+    expect(savedCols).toEqual(
+      expect.arrayContaining([
+        { key: "date_modified", kind: "os" },
+        { key: "date_created", kind: "os" },
+        { key: "IFD0:Model", kind: "image" },
+        { key: "IFD0:Make", kind: "image" },
+      ]),
+    );
   });
 
   it("keyboard shortcuts work when dialog has focus", async () => {
@@ -107,7 +109,7 @@ describe("ColumnSelectionDialog keyboard shortcuts", () => {
         visibleColumns={[]}
         onSave={onSave}
         onClose={onClose}
-      />
+      />,
     );
 
     const dialog = screen.getByTestId("column-dialog");

@@ -13,8 +13,12 @@ function Harness({ withDetails }: { withDetails: boolean }) {
     const handler = (e: KeyboardEvent) => {
       if (!(e.ctrlKey || e.metaKey)) return;
       if (e.key !== "f" && e.key !== "F") return;
-      const details = document.getElementById("details-search-input") as HTMLInputElement | null;
-      const list = document.getElementById("list-search-input") as HTMLInputElement | null;
+      const details = document.getElementById(
+        "details-search-input",
+      ) as HTMLInputElement | null;
+      const list = document.getElementById(
+        "list-search-input",
+      ) as HTMLInputElement | null;
       const target = details ?? list;
       if (!target) return;
       e.preventDefault();
@@ -27,7 +31,9 @@ function Harness({ withDetails }: { withDetails: boolean }) {
   return (
     <>
       <input id="list-search-input" data-testid="list-search-input" />
-      {withDetails && <input id="details-search-input" data-testid="details-search-input" />}
+      {withDetails && (
+        <input id="details-search-input" data-testid="details-search-input" />
+      )}
     </>
   );
 }

@@ -37,7 +37,10 @@ function ListSearchHarness({
   const meta = useMemo(() => {
     const m = new ImageMetadataStore();
     allPhotos.forEach((p) => m.add(p.relative_path));
-    m.set("a.jpg", { "Hidden:SecretTag": "unique-xyz-123", "IFD0:Make": "Sony" });
+    m.set("a.jpg", {
+      "Hidden:SecretTag": "unique-xyz-123",
+      "IFD0:Make": "Sony",
+    });
     m.set("b.jpg", { "IFD0:Make": "Canon" });
     m.set("c.jpg", { "IFD0:Make": "Nikon" });
     return m;
@@ -54,7 +57,10 @@ function ListSearchHarness({
   });
 
   const display = useMemo(
-    () => matched === null ? allPhotos : allPhotos.filter((p) => matched.has(p.relative_path)),
+    () =>
+      matched === null
+        ? allPhotos
+        : allPhotos.filter((p) => matched.has(p.relative_path)),
     [allPhotos, matched],
   );
 
@@ -80,7 +86,9 @@ function ListSearchHarness({
         onSelectColumns={() => {}}
         searchQuery={query}
         emptySearchMessage={
-          query.trim() && allPhotos.length > 0 && display.length === 0 ? "No photos match your search." : null
+          query.trim() && allPhotos.length > 0 && display.length === 0
+            ? "No photos match your search."
+            : null
         }
       />
     </>
@@ -112,16 +120,24 @@ describe("List view search", () => {
       expect(screen.getAllByTestId("photo-row")).toHaveLength(1);
     });
     const rows = screen.getAllByTestId("photo-row");
-    const pathCell = within(rows[0].querySelector('[data-testid="photo-path"]') as HTMLElement).getByText(/b\.jpg/i);
+    const pathCell = within(
+      rows[0].querySelector('[data-testid="photo-path"]') as HTMLElement,
+    ).getByText(/b\.jpg/i);
     expect(pathCell.closest("mark")).toHaveClass("search-highlight");
   });
 
   it("keeps a row when only hidden metadata matches and does not highlight the path cell", async () => {
     render(
-      <ListSearchHarness allPhotos={photos} visibleColumns={[imgCol("IFD0:Make")]} />,
+      <ListSearchHarness
+        allPhotos={photos}
+        visibleColumns={[imgCol("IFD0:Make")]}
+      />,
     );
 
-    await userEvent.type(screen.getByTestId("list-search-input"), "unique-xyz-123");
+    await userEvent.type(
+      screen.getByTestId("list-search-input"),
+      "unique-xyz-123",
+    );
 
     await waitFor(() => {
       expect(screen.getAllByTestId("photo-row")).toHaveLength(1);
@@ -129,24 +145,36 @@ describe("List view search", () => {
     const rows = screen.getAllByTestId("photo-row");
     expect(rows[0]).toHaveAttribute("data-path", "a.jpg");
 
-    const path = within(rows[0].querySelector('[data-testid="photo-path"]') as HTMLElement);
+    const path = within(
+      rows[0].querySelector('[data-testid="photo-path"]') as HTMLElement,
+    );
     expect(path.queryAllByRole("mark")).toHaveLength(0);
 
-    const makeCell = rows[0].querySelector('[data-col="IFD0:Make"]') as HTMLElement;
+    const makeCell = rows[0].querySelector(
+      '[data-col="IFD0:Make"]',
+    ) as HTMLElement;
     expect(makeCell).not.toBeNull();
     expect(within(makeCell).queryAllByRole("mark")).toHaveLength(0);
   });
 
   it("shows empty-search message when filter excludes all photos", async () => {
     render(
-      <ListSearchHarness allPhotos={photos} visibleColumns={[{ key: "date_modified", kind: "os" }]} />,
+      <ListSearchHarness
+        allPhotos={photos}
+        visibleColumns={[{ key: "date_modified", kind: "os" }]}
+      />,
     );
 
-    await userEvent.type(screen.getByTestId("list-search-input"), "no-such-match-zzzz");
+    await userEvent.type(
+      screen.getByTestId("list-search-input"),
+      "no-such-match-zzzz",
+    );
 
     await waitFor(() => {
       expect(screen.getByTestId("photo-list-search-empty")).toBeInTheDocument();
     });
-    expect(screen.getByTestId("photo-list-search-empty-message")).toHaveTextContent("No photos match your search.");
+    expect(
+      screen.getByTestId("photo-list-search-empty-message"),
+    ).toHaveTextContent("No photos match your search.");
   });
 });

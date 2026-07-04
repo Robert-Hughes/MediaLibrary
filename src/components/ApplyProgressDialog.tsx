@@ -37,7 +37,13 @@ export function ApplyProgressDialog({ applying, onCancel }: Props) {
             cancelling={applying.cancelling}
             onCancel={onCancel}
             footer={
-              <div style={{ marginTop: 12, fontSize: 11, color: "var(--text-secondary)" }}>
+              <div
+                style={{
+                  marginTop: 12,
+                  fontSize: 11,
+                  color: "var(--text-secondary)",
+                }}
+              >
                 Progress is saved after each file. If cancelled, files already
                 processed remain applied; remaining edits stay as drafts.
               </div>

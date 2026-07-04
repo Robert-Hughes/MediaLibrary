@@ -16,7 +16,8 @@ vi.mock("@tauri-apps/api/core", () => ({
   convertFileSrc: (path: string) => `data:image/jpeg;base64,FAKE_${path}`,
 }));
 vi.mock("@tauri-apps/api/event", () => ({
-  listen: (evt: string, handler: any) => mockApiInstance.api.listen(evt, (payload: any) => handler({ payload })),
+  listen: (evt: string, handler: any) =>
+    mockApiInstance.api.listen(evt, (payload: any) => handler({ payload })),
 }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({
   ask: vi.fn().mockResolvedValue(true),
@@ -49,7 +50,7 @@ describe("Draft Metadata Editing Integration", () => {
 
     // Wait for App to load
     await act(async () => {
-      await new Promise(r => setTimeout(r, 50));
+      await new Promise((r) => setTimeout(r, 50));
     });
 
     // Mock an explicit click to open folder
@@ -69,7 +70,7 @@ describe("Draft Metadata Editing Integration", () => {
 
     // Wait for debounce and state
     await act(async () => {
-      await new Promise(r => setTimeout(r, 250));
+      await new Promise((r) => setTimeout(r, 250));
     });
 
     // Open column dialog and enable IFD0:Make column
@@ -85,7 +86,7 @@ describe("Draft Metadata Editing Integration", () => {
 
     // Double click to open gallery
     await user.dblClick(rows[0]);
-    
+
     // Open info pane
     await user.click(screen.getByTestId("gallery-info-toggle"));
 
@@ -115,7 +116,7 @@ describe("Draft Metadata Editing Integration", () => {
     // Click the draft badge in DetailsPane to filter to has:edits
     const detailsBadge = screen.getByTitle("Show only edited fields");
     await user.click(detailsBadge);
-    
+
     // Details search input should have has:edits
     expect(screen.getByTestId("details-search-input")).toHaveValue("has:edits");
 
@@ -148,7 +149,9 @@ describe("Draft Metadata Editing Integration", () => {
     await user.click(discardAllBtn);
 
     // Details pane should show Canon again, no draft
-    expect(within(screen.getByTestId("details-section-IFD0")).getByTitle("Canon")).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId("details-section-IFD0")).getByTitle("Canon"),
+    ).toBeInTheDocument();
     expect(screen.queryByText("Sony")).toBeNull();
 
     // Close gallery and verify list view
@@ -164,7 +167,7 @@ describe("Draft Metadata Editing Integration", () => {
     mockApiInstance.pickFolderResolves("/photos");
     render(<App />);
     await act(async () => {
-      await new Promise(r => setTimeout(r, 50));
+      await new Promise((r) => setTimeout(r, 50));
     });
 
     await user.click(screen.getByTestId("open-folder-btn"));
@@ -180,7 +183,7 @@ describe("Draft Metadata Editing Integration", () => {
     });
 
     await act(async () => {
-      await new Promise(r => setTimeout(r, 250));
+      await new Promise((r) => setTimeout(r, 250));
     });
 
     // Open gallery + info pane
@@ -192,7 +195,10 @@ describe("Draft Metadata Editing Integration", () => {
     await user.click(screen.getByText("+ Add Property…"));
 
     // Pick the key and advance to stage 2
-    await user.type(screen.getByTestId("new-property-key"), "XMP-dc:Description");
+    await user.type(
+      screen.getByTestId("new-property-key"),
+      "XMP-dc:Description",
+    );
     await user.click(screen.getByTestId("new-property-next"));
 
     // Stage 2: TypedValueEditor for this key (Unknown → ValueEditDialog
@@ -229,7 +235,7 @@ describe("Draft Metadata Editing Integration", () => {
 
     // Wait for App to load
     await act(async () => {
-      await new Promise(r => setTimeout(r, 50));
+      await new Promise((r) => setTimeout(r, 50));
     });
 
     // Open folder
@@ -250,7 +256,7 @@ describe("Draft Metadata Editing Integration", () => {
     });
 
     await act(async () => {
-      await new Promise(r => setTimeout(r, 250));
+      await new Promise((r) => setTimeout(r, 250));
     });
 
     let rows = screen.getAllByTestId("photo-row");
@@ -259,11 +265,13 @@ describe("Draft Metadata Editing Integration", () => {
     // Edit the first photo via gallery
     await user.dblClick(rows[0]);
     await user.click(screen.getByTestId("gallery-info-toggle"));
-    
-    const canonCell = within(screen.getByTestId("details-section-IFD0")).getByTitle("Canon");
+
+    const canonCell = within(
+      screen.getByTestId("details-section-IFD0"),
+    ).getByTitle("Canon");
     await user.pointer({ keys: "[MouseRight]", target: canonCell });
     await user.click(screen.getByText("Edit…"));
-    
+
     const input = screen.getByRole("textbox");
     await user.clear(input);
     await user.type(input, "Sony");
@@ -315,7 +323,7 @@ describe("Draft Metadata Editing Integration", () => {
     mockApiInstance.pickFolderResolves("/photos");
     render(<App />);
     await act(async () => {
-      await new Promise(r => setTimeout(r, 50));
+      await new Promise((r) => setTimeout(r, 50));
     });
 
     await user.click(screen.getByTestId("open-folder-btn"));
@@ -331,18 +339,20 @@ describe("Draft Metadata Editing Integration", () => {
     });
 
     await act(async () => {
-      await new Promise(r => setTimeout(r, 250));
+      await new Promise((r) => setTimeout(r, 250));
     });
 
     // Open gallery and edit value
-    let rows = screen.getAllByTestId("photo-row");
+    const rows = screen.getAllByTestId("photo-row");
     await user.dblClick(rows[0]);
     await user.click(screen.getByTestId("gallery-info-toggle"));
-    
-    const canonCell = within(screen.getByTestId("details-section-IFD0")).getByTitle("Canon");
+
+    const canonCell = within(
+      screen.getByTestId("details-section-IFD0"),
+    ).getByTitle("Canon");
     await user.pointer({ keys: "[MouseRight]", target: canonCell });
     await user.click(screen.getByText("Edit…"));
-    
+
     const input = screen.getByRole("textbox");
     await user.clear(input);
     await user.type(input, "Nikon"); // new draft value
@@ -352,7 +362,7 @@ describe("Draft Metadata Editing Integration", () => {
     const detailsSearch = screen.getByTestId("details-search-input");
     await user.clear(detailsSearch);
     await user.type(detailsSearch, "Nikon");
-    
+
     // We should see IFD0 section
     expect(screen.getByTestId("details-section-IFD0")).toBeInTheDocument();
     expect(screen.queryByTestId("details-section-os")).toBeNull();
@@ -385,7 +395,7 @@ describe("Draft Metadata Editing Integration", () => {
     mockApiInstance.pickFolderResolves("/photos");
     render(<App />);
     await act(async () => {
-      await new Promise(r => setTimeout(r, 50));
+      await new Promise((r) => setTimeout(r, 50));
     });
 
     await user.click(screen.getByTestId("open-folder-btn"));
@@ -404,15 +414,17 @@ describe("Draft Metadata Editing Integration", () => {
     });
 
     await act(async () => {
-      await new Promise(r => setTimeout(r, 250));
+      await new Promise((r) => setTimeout(r, 250));
     });
 
     let rows = screen.getAllByTestId("photo-row");
-    
+
     // Edit first photo
     await user.dblClick(rows[0]);
     await user.click(screen.getByTestId("gallery-info-toggle"));
-    let canonCell = within(screen.getByTestId("details-section-IFD0")).getByTitle("Canon");
+    let canonCell = within(
+      screen.getByTestId("details-section-IFD0"),
+    ).getByTitle("Canon");
     await user.pointer({ keys: "[MouseRight]", target: canonCell });
     await user.click(screen.getByText("Edit…"));
     let input = screen.getByRole("textbox");
@@ -425,7 +437,9 @@ describe("Draft Metadata Editing Integration", () => {
     // detailsVisible across opens, so no second toggle click needed.
     rows = screen.getAllByTestId("photo-row");
     await user.dblClick(rows[1]);
-    canonCell = within(screen.getByTestId("details-section-IFD0")).getByTitle("Canon");
+    canonCell = within(screen.getByTestId("details-section-IFD0")).getByTitle(
+      "Canon",
+    );
     await user.pointer({ keys: "[MouseRight]", target: canonCell });
     await user.click(screen.getByText("Edit…"));
     input = screen.getByRole("textbox");
@@ -435,10 +449,14 @@ describe("Draft Metadata Editing Integration", () => {
     await user.click(screen.getByTestId("gallery-close-btn"));
 
     // Verify header summary shows 2 edits across 2 files
-    expect(screen.getByText(/2 draft edits across 2 files/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/2 draft edits across 2 files/),
+    ).toBeInTheDocument();
 
     // Click global Discard All button
-    const globalDiscardBtn = screen.getByTitle("Discard all edits across all files");
+    const globalDiscardBtn = screen.getByTitle(
+      "Discard all edits across all files",
+    );
     await user.click(globalDiscardBtn);
 
     // Verify edits are gone (no draft badge in header)

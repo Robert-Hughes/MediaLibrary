@@ -21,7 +21,7 @@ describe("ColumnSelectionDialog Select All / Deselect All", () => {
         visibleColumns={[]}
         onSave={() => {}}
         onClose={() => {}}
-      />
+      />,
     );
 
     expect(screen.getByText("Select All")).toBeInTheDocument();
@@ -37,20 +37,26 @@ describe("ColumnSelectionDialog Select All / Deselect All", () => {
         visibleColumns={[]}
         onSave={onSave}
         onClose={() => {}}
-      />
+      />,
     );
 
     await userEvent.click(screen.getByText("Select All"));
 
     const checkboxes = screen.getAllByRole("checkbox") as HTMLInputElement[];
-    checkboxes.forEach(cb => expect(cb.checked).toBe(true));
+    checkboxes.forEach((cb) => expect(cb.checked).toBe(true));
 
     await userEvent.click(screen.getByText("Save Changes"));
     const [saved] = onSave.mock.calls[0];
     const keys = saved.map((c: VisibleColumn) => c.key);
-    expect(keys).toEqual(expect.arrayContaining([
-      "IFD0:Model", "IFD0:Make", "XMP-dc:Subject", "date_modified", "date_created",
-    ]));
+    expect(keys).toEqual(
+      expect.arrayContaining([
+        "IFD0:Model",
+        "IFD0:Make",
+        "XMP-dc:Subject",
+        "date_modified",
+        "date_created",
+      ]),
+    );
   });
 
   it("deselects all columns when Deselect All is clicked", async () => {
@@ -67,13 +73,13 @@ describe("ColumnSelectionDialog Select All / Deselect All", () => {
         )}
         onSave={onSave}
         onClose={() => {}}
-      />
+      />,
     );
 
     await userEvent.click(screen.getByText("Deselect All"));
 
     const checkboxes = screen.getAllByRole("checkbox") as HTMLInputElement[];
-    checkboxes.forEach(cb => expect(cb.checked).toBe(false));
+    checkboxes.forEach((cb) => expect(cb.checked).toBe(false));
 
     await userEvent.click(screen.getByText("Save Changes"));
     expect(onSave).toHaveBeenCalledWith([], false);
@@ -91,7 +97,7 @@ describe("ColumnSelectionDialog Select All / Deselect All", () => {
         )}
         onSave={onSave}
         onClose={() => {}}
-      />
+      />,
     );
 
     await userEvent.click(screen.getByText("IFD0:Make"));
@@ -102,9 +108,15 @@ describe("ColumnSelectionDialog Select All / Deselect All", () => {
 
     const [saved] = onSave.mock.calls[0];
     const keys = saved.map((c: VisibleColumn) => c.key);
-    expect(keys).toEqual(expect.arrayContaining([
-      "IFD0:Model", "IFD0:Make", "XMP-dc:Subject", "date_modified", "date_created",
-    ]));
+    expect(keys).toEqual(
+      expect.arrayContaining([
+        "IFD0:Model",
+        "IFD0:Make",
+        "XMP-dc:Subject",
+        "date_modified",
+        "date_created",
+      ]),
+    );
   });
 
   it("Deselect All works after Select All", async () => {
@@ -116,7 +128,7 @@ describe("ColumnSelectionDialog Select All / Deselect All", () => {
         visibleColumns={[]}
         onSave={onSave}
         onClose={() => {}}
-      />
+      />,
     );
 
     await userEvent.click(screen.getByText("Select All"));
@@ -133,7 +145,7 @@ describe("ColumnSelectionDialog Select All / Deselect All", () => {
         visibleColumns={[]}
         onSave={() => {}}
         onClose={() => {}}
-      />
+      />,
     );
     expect(screen.getByText("Default")).toBeInTheDocument();
   });
@@ -149,7 +161,7 @@ describe("ColumnSelectionDialog Select All / Deselect All", () => {
         )}
         onSave={onSave}
         onClose={() => {}}
-      />
+      />,
     );
 
     await userEvent.click(screen.getByText("Default"));
@@ -170,7 +182,7 @@ describe("ColumnSelectionDialog Select All / Deselect All", () => {
         visibleColumns={cols({ key: "IFD0:Model", kind: "image" })}
         onSave={onSave}
         onClose={() => {}}
-      />
+      />,
     );
 
     await userEvent.click(screen.getByText("Save Changes"));
@@ -189,7 +201,7 @@ describe("ColumnSelectionDialog Select All / Deselect All", () => {
         visibleColumns={cols({ key: "IFD0:Model", kind: "image" })}
         onSave={onSave}
         onClose={() => {}}
-      />
+      />,
     );
 
     await userEvent.click(screen.getByText("Default"));

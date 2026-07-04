@@ -137,12 +137,12 @@ impl ActiveQueues {
     /// nil them out.
     pub fn clear_if_mine(&self, mine_thumbs: &Arc<WorkQueue>, mine_metadata: &Arc<WorkQueue>) {
         let mut t = self.thumbnails.lock().unwrap();
-        if t.as_ref().map_or(false, |q| Arc::ptr_eq(q, mine_thumbs)) {
+        if t.as_ref().is_some_and(|q| Arc::ptr_eq(q, mine_thumbs)) {
             *t = None;
         }
         drop(t);
         let mut m = self.image_metadata.lock().unwrap();
-        if m.as_ref().map_or(false, |q| Arc::ptr_eq(q, mine_metadata)) {
+        if m.as_ref().is_some_and(|q| Arc::ptr_eq(q, mine_metadata)) {
             *m = None;
         }
     }
@@ -867,7 +867,7 @@ fn apply_draft_edits_cmd(
 
     let total = rel_paths
         .iter()
-        .filter(|p| all_drafts.get(p.as_str()).map_or(false, |e| !e.is_empty()))
+        .filter(|p| all_drafts.get(p.as_str()).is_some_and(|e| !e.is_empty()))
         .count();
 
     let _ = app.emit("apply_edits_started", ApplyEditsStartedPayload { total });
@@ -965,6 +965,7 @@ fn clear_running(app: &AppHandle) {
     }
 }
 
+#[allow(clippy::items_after_test_module)]
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -983,7 +984,7 @@ mod tests {
 
         // running is cleared so a new scan can begin, but the flag is still
         // reachable via stop_scan -> signal_cancellation.
-        assert_eq!(*state.running.lock().unwrap(), false);
+        assert!(!(*state.running.lock().unwrap()));
         assert!(
             state.signal_cancellation(),
             "cancellation flag should still be installed"

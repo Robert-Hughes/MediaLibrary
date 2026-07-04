@@ -17,14 +17,16 @@ export function ErrorBanner({ errors, onDismiss }: Props) {
             <div className="error-banner-text">
               <div className="error-banner-title">
                 {error.worker_type === "metadata" && "Metadata Loading Error"}
-                {error.worker_type === "thumbnail" && "Thumbnail Generation Error"}
+                {error.worker_type === "thumbnail" &&
+                  "Thumbnail Generation Error"}
                 {error.worker_type === "scanner" && "Scanning Error"}
               </div>
               <div className="error-banner-message">{error.error_message}</div>
               {error.affected_files.length > 0 && (
                 <div className="error-banner-files">
                   Affected files: {error.affected_files.slice(0, 3).join(", ")}
-                  {error.affected_files.length > 3 && ` and ${error.affected_files.length - 3} more`}
+                  {error.affected_files.length > 3 &&
+                    ` and ${error.affected_files.length - 3} more`}
                 </div>
               )}
             </div>

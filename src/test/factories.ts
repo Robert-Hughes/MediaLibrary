@@ -3,7 +3,10 @@ import type { PhotoInfo, VisibleColumn } from "../types";
 export const osCol = (key: string): VisibleColumn => ({ key, kind: "os" });
 export const imgCol = (key: string): VisibleColumn => ({ key, kind: "image" });
 
-export function makeColumns(items: Array<string | VisibleColumn>, defaultKind: "os" | "image" = "image"): VisibleColumn[] {
+export function makeColumns(
+  items: Array<string | VisibleColumn>,
+  defaultKind: "os" | "image" = "image",
+): VisibleColumn[] {
   return items.map((it) =>
     typeof it === "string" ? { key: it, kind: defaultKind } : it,
   );

@@ -27,31 +27,53 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
   ask: vi.fn().mockResolvedValue(true),
 }));
 
-async function openFolderAndSelectPhoto(rel = "test.jpg", metadata: Record<string, Variant> = {}) {
+async function openFolderAndSelectPhoto(
+  rel = "test.jpg",
+  metadata: Record<string, Variant> = {},
+) {
   const photo = makePhoto({ relative_path: rel });
   const user = userEvent.setup();
   mockApiInstance.pickFolderResolves("/photos");
   render(<App />);
-  await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 50));
+  });
   await user.click(screen.getByTestId("open-folder-btn"));
-  await act(async () => { mockApiInstance.emitPhotoFound(photo); });
-  await act(async () => { mockApiInstance.emitScanComplete(); });
-  await act(async () => { mockApiInstance.emitImageMetadataReady(rel, metadata); });
-  await act(async () => { await new Promise(r => setTimeout(r, 250)); });
+  await act(async () => {
+    mockApiInstance.emitPhotoFound(photo);
+  });
+  await act(async () => {
+    mockApiInstance.emitScanComplete();
+  });
+  await act(async () => {
+    mockApiInstance.emitImageMetadataReady(rel, metadata);
+  });
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 250));
+  });
   // Same flow as the describe tests: double-click the row to open
   // gallery view, then toggle the details pane on so the Reverse
   // Geocode button appears.
   const row = screen.getByTestId("photo-row");
   await user.dblClick(row);
-  await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 50));
+  });
   const detailsToggle = screen.getByTestId("gallery-info-toggle");
   await user.click(detailsToggle);
-  await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 50));
+  });
   return { user, photo };
 }
 
-beforeEach(() => { mockApiInstance = createMockTauriApi(); });
-afterEach(() => { vi.clearAllMocks(); vi.resetModules(); });
+beforeEach(() => {
+  mockApiInstance = createMockTauriApi();
+});
+afterEach(() => {
+  vi.clearAllMocks();
+  vi.resetModules();
+});
 
 describe("Reverse-geocoding flow", () => {
   it("walks straight to awaiting-confirm (no estimate phase) and shows the warning copy", async () => {
@@ -64,32 +86,38 @@ describe("Reverse-geocoding flow", () => {
       "Composite:GPSLongitude": -0.1262,
     });
     await user.click(screen.getByTestId("details-pane-geocode-btn"));
-    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
 
     await screen.findByTestId("geocode-progress-dialog");
     await screen.findByTestId("geocode-confirm-btn");
-    expect(screen.getByTestId("geocode-confirm-summary"))
-      .toHaveTextContent(/Nominatim/);
-    expect(screen.getByTestId("geocode-progress-dialog"))
-      .toHaveTextContent(/will be cleared/i);
+    expect(screen.getByTestId("geocode-confirm-summary")).toHaveTextContent(
+      /Nominatim/,
+    );
+    expect(screen.getByTestId("geocode-progress-dialog")).toHaveTextContent(
+      /will be cleared/i,
+    );
   });
 
   it("sends resolved lat/lon to the backend and merges returned edits into drafts", async () => {
-    mockApiInstance.geocodeSchedule = [{
-      relativePath: "test.jpg",
-      status: "ok",
-      edits: {
-        "XMP-iptcCore:Location": {
-          value: { type: "String", value: "Big Ben" },
-          intent: "Set",
+    mockApiInstance.geocodeSchedule = [
+      {
+        relativePath: "test.jpg",
+        status: "ok",
+        edits: {
+          "XMP-iptcCore:Location": {
+            value: { type: "String", value: "Big Ben" },
+            intent: "Set",
+          },
+          "XMP-photoshop:City": {
+            value: { type: "String", value: "London" },
+            intent: "Set",
+          },
+          "XMP-photoshop:State": { value: null, intent: "Delete" },
         },
-        "XMP-photoshop:City": {
-          value: { type: "String", value: "London" },
-          intent: "Set",
-        },
-        "XMP-photoshop:State": { value: null, intent: "Delete" },
       },
-    }];
+    ];
     mockApiInstance.geocodeSummary = {
       nSucceededFromNominatim: 1,
       nSucceededFromCache: 0,
@@ -103,9 +131,13 @@ describe("Reverse-geocoding flow", () => {
       "Composite:GPSLongitude": -0.1262,
     });
     await user.click(screen.getByTestId("details-pane-geocode-btn"));
-    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
     await user.click(await screen.findByTestId("geocode-confirm-btn"));
-    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
 
     // Backend got the resolved coords.
     expect(mockApiInstance.lastGeocodeArgs?.items[0]).toMatchObject({
@@ -116,8 +148,9 @@ describe("Reverse-geocoding flow", () => {
 
     // Done panel rendered with the per-source breakdown.
     await screen.findByTestId("geocode-done-summary");
-    expect(screen.getByTestId("geocode-summary-breakdown"))
-      .toHaveTextContent(/Nominatim/);
+    expect(screen.getByTestId("geocode-summary-breakdown")).toHaveTextContent(
+      /Nominatim/,
+    );
 
     // Drafts merged into the in-memory store via setDraftBatch.
     const folderDrafts = mockApiInstance.draftEditsByFolder["/photos"];
@@ -134,11 +167,13 @@ describe("Reverse-geocoding flow", () => {
     // backend (mock) emits no_gps for that item. The friendly label
     // must show "No GPS coordinates" so the user understands why it
     // was skipped.
-    mockApiInstance.geocodeSchedule = [{
-      relativePath: "test.jpg",
-      status: "no_gps",
-      error: "no GPS coordinates",
-    }];
+    mockApiInstance.geocodeSchedule = [
+      {
+        relativePath: "test.jpg",
+        status: "no_gps",
+        error: "no GPS coordinates",
+      },
+    ];
     mockApiInstance.geocodeSummary = {
       nSucceededFromNominatim: 0,
       nSucceededFromCache: 0,
@@ -149,16 +184,22 @@ describe("Reverse-geocoding flow", () => {
 
     const { user } = await openFolderAndSelectPhoto("test.jpg", {});
     await user.click(screen.getByTestId("details-pane-geocode-btn"));
-    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
     // Confirm panel reports the missing-GPS warning before run.
-    expect(screen.getByTestId("geocode-no-gps-warning"))
-      .toHaveTextContent(/no GPS coordinates/i);
+    expect(screen.getByTestId("geocode-no-gps-warning")).toHaveTextContent(
+      /no GPS coordinates/i,
+    );
     await user.click(await screen.findByTestId("geocode-confirm-btn"));
-    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
 
     await screen.findByTestId("geocode-done-summary");
-    expect(screen.getByTestId("geocode-failure-list"))
-      .toHaveTextContent(/No GPS coordinates/);
+    expect(screen.getByTestId("geocode-failure-list")).toHaveTextContent(
+      /No GPS coordinates/,
+    );
   });
 
   it("Cancel before confirm closes the dialog and signals backend", async () => {
@@ -167,11 +208,15 @@ describe("Reverse-geocoding flow", () => {
       "Composite:GPSLongitude": -0.1,
     });
     await user.click(screen.getByTestId("details-pane-geocode-btn"));
-    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
     await user.click(await screen.findByTestId("geocode-cancel-btn"));
     expect(mockApiInstance.cancelGeocodeCalled).toBe(true);
     await waitFor(() => {
-      expect(screen.queryByTestId("geocode-progress-dialog")).not.toBeInTheDocument();
+      expect(
+        screen.queryByTestId("geocode-progress-dialog"),
+      ).not.toBeInTheDocument();
     });
   });
 
@@ -179,7 +224,9 @@ describe("Reverse-geocoding flow", () => {
     // The overwrite notice now lives in the dialog's awaiting-confirm
     // panel, not in a pre-dialog ask().
     const dialogModule = await import("@tauri-apps/plugin-dialog");
-    const askMock = (dialogModule as unknown as { ask: ReturnType<typeof vi.fn> }).ask;
+    const askMock = (
+      dialogModule as unknown as { ask: ReturnType<typeof vi.fn> }
+    ).ask;
     askMock.mockClear();
     const { user } = await openFolderAndSelectPhoto("test.jpg", {
       "Composite:GPSLatitude": 51.5,

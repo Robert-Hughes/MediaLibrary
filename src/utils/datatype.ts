@@ -9,27 +9,43 @@ export interface DatatypeInfo {
  * Map a schema {@link TagKind} to a short datatype badge.  Returns `null`
  * when the schema is unknown (caller renders no badge).
  */
-export function schemaDatatype(kind: TagKind | null | undefined): DatatypeInfo | null {
+export function schemaDatatype(
+  kind: TagKind | null | undefined,
+): DatatypeInfo | null {
   if (!kind) return null;
   switch (kind.kind) {
-    case "Text":     return { code: "S",   label: "String" };
-    case "LangAlt":  return { code: "LA",  label: "LangAlt" };
-    case "Integer":  return { code: "I",   label: "Integer" };
-    case "Real":     return { code: "R",   label: "Real" };
-    case "Rational": return { code: "Q",   label: "Rational" };
-    case "Boolean":  return { code: "B",   label: "Boolean" };
-    case "DateTime": return { code: "D",   label: "DateTime" };
-    case "Enum":     return { code: "E",   label: "Enum" };
-    case "Bag":      return { code: "[B]", label: "Bag (unordered list)" };
-    case "Seq":      return { code: "[S]", label: "Seq (ordered list)" };
-    case "Alt":      return { code: "[A]", label: "Alt (alternatives)" };
-    case "Struct":   return { code: "{}",  label: "Struct" };
-    case "Binary":   return { code: "Bin", label: "Binary" };
+    case "Text":
+      return { code: "S", label: "String" };
+    case "LangAlt":
+      return { code: "LA", label: "LangAlt" };
+    case "Integer":
+      return { code: "I", label: "Integer" };
+    case "Real":
+      return { code: "R", label: "Real" };
+    case "Rational":
+      return { code: "Q", label: "Rational" };
+    case "Boolean":
+      return { code: "B", label: "Boolean" };
+    case "DateTime":
+      return { code: "D", label: "DateTime" };
+    case "Enum":
+      return { code: "E", label: "Enum" };
+    case "Bag":
+      return { code: "[B]", label: "Bag (unordered list)" };
+    case "Seq":
+      return { code: "[S]", label: "Seq (ordered list)" };
+    case "Alt":
+      return { code: "[A]", label: "Alt (alternatives)" };
+    case "Struct":
+      return { code: "{}", label: "Struct" };
+    case "Binary":
+      return { code: "Bin", label: "Binary" };
     // `Unknown` means exiftool listed the tag with type `?`/`""`/`undef` —
     // present in the schema but with no committed datatype. Conveys no
     // useful information to the user, so suppress the badge entirely and
     // let the row fall back to the "no schema" rendering path.
-    case "Unknown":  return null;
+    case "Unknown":
+      return null;
   }
 }
 
@@ -54,11 +70,19 @@ export function variantDatatype(v: Variant | undefined): DatatypeInfo | null {
  * match for both `I` and `R`.  Rational (`Q`) is wire-encoded as a
  * `"num/den"` string, so a numeric variant against `Q` is a mismatch.
  */
-export function datatypesMatch(variantCode: string, schemaCode: string): boolean {
+export function datatypesMatch(
+  variantCode: string,
+  schemaCode: string,
+): boolean {
   if (variantCode === schemaCode) return true;
   if (variantCode === "N") return schemaCode === "I" || schemaCode === "R";
   if (variantCode === "S") {
-    return schemaCode === "LA" || schemaCode === "D" || schemaCode === "E" || schemaCode === "Q";
+    return (
+      schemaCode === "LA" ||
+      schemaCode === "D" ||
+      schemaCode === "E" ||
+      schemaCode === "Q"
+    );
   }
   if (variantCode === "L") {
     return schemaCode === "[B]" || schemaCode === "[S]" || schemaCode === "[A]";

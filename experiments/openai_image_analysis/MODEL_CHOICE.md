@@ -10,25 +10,25 @@ Pricing reflects cost to process 10,000 1024x1024 images via the Responses API
 
 ## Excluded Models
 
-| Model | Reason |
-|-------|--------|
-| `gpt-4o-transcribe`, `gpt-4o-mini-transcribe` | Audio transcription models; vision is incidental, not their job. |
-| `gpt-5.3-codex` | Code-tuned variant; no advantage for image description. |
-| `gpt-4o-mini` ($38/10k) | Strictly dominated by `gpt-5.4-mini` ($12/10k) — newer, cheaper, smarter. |
-| `gpt-4.1-mini` ($102/10k) | Severely dominated; mini-tier priced like a flagship (patch-token math). |
-| `gpt-4.1-nano` ($25/10k) | Dominated by `gpt-5.4-mini` ($12/10k). |
-| `gpt-4.1` ($19/10k) | Tied with `gpt-4o` on price; no clear quality edge. |
-| `gpt-5.4-pro`, `gpt-5.5-pro` ($498/10k) | 10–40x cost of flagship for marginal quality on this task. Overkill. |
+| Model                                         | Reason                                                                    |
+| --------------------------------------------- | ------------------------------------------------------------------------- |
+| `gpt-4o-transcribe`, `gpt-4o-mini-transcribe` | Audio transcription models; vision is incidental, not their job.          |
+| `gpt-5.3-codex`                               | Code-tuned variant; no advantage for image description.                   |
+| `gpt-4o-mini` ($38/10k)                       | Strictly dominated by `gpt-5.4-mini` ($12/10k) — newer, cheaper, smarter. |
+| `gpt-4.1-mini` ($102/10k)                     | Severely dominated; mini-tier priced like a flagship (patch-token math).  |
+| `gpt-4.1-nano` ($25/10k)                      | Dominated by `gpt-5.4-mini` ($12/10k).                                    |
+| `gpt-4.1` ($19/10k)                           | Tied with `gpt-4o` on price; no clear quality edge.                       |
+| `gpt-5.4-pro`, `gpt-5.5-pro` ($498/10k)       | 10–40x cost of flagship for marginal quality on this task. Overkill.      |
 
 ## Pareto Frontier
 
-| Tier        | Model            | 10k cost | When to choose                                    |
-|-------------|------------------|----------|---------------------------------------------------|
-| Floor       | `gpt-5.4-nano`   | $5       | Bulk tagging only; tolerates weak OCR/fine objects |
-| Sweet spot  | `gpt-5.4-mini`   | $12      | Solid OCR + cleaner descriptions than nano        |
-| Baseline    | `gpt-4o`         | $19      | **Recommended** — names London landmarks reliably |
-| Premium     | `gpt-5.4`        | $41      | Slightly better prose; marginal landmark gain     |
-| Flagship    | `gpt-5.5`        | $83      | Newest; not tested — assume similar to `gpt-5.4`  |
+| Tier       | Model          | 10k cost | When to choose                                     |
+| ---------- | -------------- | -------- | -------------------------------------------------- |
+| Floor      | `gpt-5.4-nano` | $5       | Bulk tagging only; tolerates weak OCR/fine objects |
+| Sweet spot | `gpt-5.4-mini` | $12      | Solid OCR + cleaner descriptions than nano         |
+| Baseline   | `gpt-4o`       | $19      | **Recommended** — names London landmarks reliably  |
+| Premium    | `gpt-5.4`      | $41      | Slightly better prose; marginal landmark gain      |
+| Flagship   | `gpt-5.5`      | $83      | Newest; not tested — assume similar to `gpt-5.4`   |
 
 ## Test Set Results
 
@@ -41,23 +41,23 @@ difference between "ferris wheel" and "London Eye" in search results.
 
 ✅ = named correctly; ⚠️ = partial / better than generic but no name; ❌ = generic only
 
-| Photo | nano | mini | gpt-4o | gpt-5.4 | opus-4.7 (chat) |
-|-------|------|------|--------|---------|------|
-| 0036 St Pancras Renaissance Hotel | ❌ | ❌ | ✅ | ✅ | ✅ (+ "former Midland Grand Hotel") |
-| 0042 The Meeting Place statue | ❌ | ❌ | ✅ | ✅ | ✅ (+ named sculptor "Paul Day") |
-| 0066 Westminster Bridge / County Hall | ❌ | ❌ | ✅ | ✅ | ✅ (+ "green copper-domed kiosk") |
-| 0125 London Eye | ❌ | ✅ | ✅ | ✅ | ✅ |
-| 0514 Tower of London | ❌ | ❌ | ✅ | ✅ | ✅ |
-| 0136 Hungerford + Golden Jubilee Br | ❌ | ❌ | ✅ | ✅ | ✅ (+ noted "from inside a London Eye capsule") |
-| 0028 St Pancras Station interior | ❌ | ❌ | ❌ | ❌ | ⚠️ (named "King's Cross" + read "EAST COAST" off train) |
-| 0322 Forth Bridge model (Sci. Museum) | ❌ | ❌ | ⚠️ | ❌ | ✅ (Forth Bridge + Science Museum) |
-| 0381 Queen's House / Greenwich Power | ❌ | ❌ | ✅ | ❌ (regression) | ✅✅ (+ Old Royal Naval College, Greenwich Power Station) |
-| 0381 Greenwich Park | ❌ | ❌ | ✅ | ❌ | ✅ |
-| 0581 Scroby Sands Wind Farm | ❌ | ❌ | ❌ | ❌ | ⚠️ (named "offshore wind farm" + UK seaside context) |
-| 0501 Thames Barrier | ❌ | ❌ | ❌ | ❌ | ❌ (all models missed this) |
-| 0686 Punting (Cambridge) | ❌ | ✅ (with prompt fix) | ✅ | ✅ | n/a |
-| 0047 London Underground map | ❌ partial OCR | ✅ | ✅ | ✅ | ✅ (named "King's Cross St Pancras") |
-| Samsung Browser screenshot | n/a | truncated | ✅ ("digital page", full OCR) | n/a | ✅ (named "Issuu document viewer", page indicator, related thumbnails) |
+| Photo                                 | nano           | mini                 | gpt-4o                        | gpt-5.4         | opus-4.7 (chat)                                                        |
+| ------------------------------------- | -------------- | -------------------- | ----------------------------- | --------------- | ---------------------------------------------------------------------- |
+| 0036 St Pancras Renaissance Hotel     | ❌             | ❌                   | ✅                            | ✅              | ✅ (+ "former Midland Grand Hotel")                                    |
+| 0042 The Meeting Place statue         | ❌             | ❌                   | ✅                            | ✅              | ✅ (+ named sculptor "Paul Day")                                       |
+| 0066 Westminster Bridge / County Hall | ❌             | ❌                   | ✅                            | ✅              | ✅ (+ "green copper-domed kiosk")                                      |
+| 0125 London Eye                       | ❌             | ✅                   | ✅                            | ✅              | ✅                                                                     |
+| 0514 Tower of London                  | ❌             | ❌                   | ✅                            | ✅              | ✅                                                                     |
+| 0136 Hungerford + Golden Jubilee Br   | ❌             | ❌                   | ✅                            | ✅              | ✅ (+ noted "from inside a London Eye capsule")                        |
+| 0028 St Pancras Station interior      | ❌             | ❌                   | ❌                            | ❌              | ⚠️ (named "King's Cross" + read "EAST COAST" off train)                |
+| 0322 Forth Bridge model (Sci. Museum) | ❌             | ❌                   | ⚠️                            | ❌              | ✅ (Forth Bridge + Science Museum)                                     |
+| 0381 Queen's House / Greenwich Power  | ❌             | ❌                   | ✅                            | ❌ (regression) | ✅✅ (+ Old Royal Naval College, Greenwich Power Station)              |
+| 0381 Greenwich Park                   | ❌             | ❌                   | ✅                            | ❌              | ✅                                                                     |
+| 0581 Scroby Sands Wind Farm           | ❌             | ❌                   | ❌                            | ❌              | ⚠️ (named "offshore wind farm" + UK seaside context)                   |
+| 0501 Thames Barrier                   | ❌             | ❌                   | ❌                            | ❌              | ❌ (all models missed this)                                            |
+| 0686 Punting (Cambridge)              | ❌             | ✅ (with prompt fix) | ✅                            | ✅              | n/a                                                                    |
+| 0047 London Underground map           | ❌ partial OCR | ✅                   | ✅                            | ✅              | ✅ (named "King's Cross St Pancras")                                   |
+| Samsung Browser screenshot            | n/a            | truncated            | ✅ ("digital page", full OCR) | n/a             | ✅ (named "Issuu document viewer", page indicator, related thumbnails) |
 
 ### Observations
 
@@ -65,7 +65,7 @@ difference between "ferris wheel" and "London Eye" in search results.
   fortress) but never names the landmark, even after a prompt change explicitly
   encouraging it. This is a capability ceiling, not a prompt problem.
 - **mini gains modest ground.** With the prompt-fix run, mini named London Eye
-  and "punting" — the *globally iconic* items. Narrower London landmarks
+  and "punting" — the _globally iconic_ items. Narrower London landmarks
   (Westminster Bridge, Tower of London, St Pancras) still generic.
 - **gpt-4o is the inflection point.** Confidently names St Pancras, Tower of
   London, Westminster Bridge, County Hall, Queen's House, Greenwich Park,
@@ -93,6 +93,7 @@ difference between "ferris wheel" and "London Eye" in search results.
 ### Cost vs Quality Curve
 
 For the test set (21 images), actual cost ranged roughly:
+
 - `gpt-5.4-nano`: $0.011 — generic descriptions, weak landmarks
 - `gpt-5.4-mini`: $0.026 — clean prose, only globally iconic landmarks
 - `gpt-4o`: $0.040 — most London landmarks named, minor preamble leak
@@ -143,7 +144,7 @@ specifics.
 8. **Skip prompt caching for gpt-4o.** Cached input is only 50% off (not the
    ~90% you get on 5.x), and our stable prefix (~500 tokens) is below the
    1024-token cache minimum anyway. Padding instructions to 1024+ tokens
-   would *increase* total cost on gpt-4o. (Caching becomes a clear win only
+   would _increase_ total cost on gpt-4o. (Caching becomes a clear win only
    if switching to a 5.x model for production bulk.)
 9. **Client-side dedup:** perceptual hash (e.g. `imagehash`/`pHash`) before
    sending. Bursts of near-identical shots (camera bursts, multiple takes,
@@ -171,7 +172,7 @@ specifics.
   "Me") tagged in EXIF. Vision models can't bridge appearance ↔ name
   without per-person training data. Likely needs a local face-rec step
   (FaceNet / face_recognition lib) that adds person tags before the
-  description pass — and those names should be passed *into* the prompt so
+  description pass — and those names should be passed _into_ the prompt so
   the model can naturally weave them in.
 - **Existing EXIF descriptions:** the test set already has descriptions; for
   production, decide whether to (a) ignore EXIF and overwrite, (b) skip

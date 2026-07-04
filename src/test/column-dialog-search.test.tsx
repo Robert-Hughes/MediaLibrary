@@ -16,12 +16,12 @@ describe("ColumnSelectionDialog search functionality", () => {
 
   it("renders search input", () => {
     render(
-      <ColumnSelectionDialog 
-        allKeys={allKeys} 
+      <ColumnSelectionDialog
+        allKeys={allKeys}
         visibleColumns={[]}
         onSave={() => {}}
         onClose={() => {}}
-      />
+      />,
     );
 
     const searchInput = screen.getByPlaceholderText("Search columns...");
@@ -30,16 +30,16 @@ describe("ColumnSelectionDialog search functionality", () => {
 
   it("filters columns based on search term", async () => {
     render(
-      <ColumnSelectionDialog 
-        allKeys={allKeys} 
+      <ColumnSelectionDialog
+        allKeys={allKeys}
         visibleColumns={[]}
         onSave={() => {}}
         onClose={() => {}}
-      />
+      />,
     );
 
     const searchInput = screen.getByPlaceholderText("Search columns...");
-    
+
     // Search for "GPS" - should show only GPS columns
     await userEvent.type(searchInput, "GPS");
 
@@ -51,16 +51,16 @@ describe("ColumnSelectionDialog search functionality", () => {
 
   it("search is case insensitive", async () => {
     render(
-      <ColumnSelectionDialog 
-        allKeys={allKeys} 
+      <ColumnSelectionDialog
+        allKeys={allKeys}
         visibleColumns={[]}
         onSave={() => {}}
         onClose={() => {}}
-      />
+      />,
     );
 
     const searchInput = screen.getByPlaceholderText("Search columns...");
-    
+
     // Search for "xmp" in lowercase - should match XMP columns
     await userEvent.type(searchInput, "xmp");
 
@@ -72,35 +72,37 @@ describe("ColumnSelectionDialog search functionality", () => {
 
   it("shows no results message when no columns match", async () => {
     render(
-      <ColumnSelectionDialog 
-        allKeys={allKeys} 
+      <ColumnSelectionDialog
+        allKeys={allKeys}
         visibleColumns={[]}
         onSave={() => {}}
         onClose={() => {}}
-      />
+      />,
     );
 
     const searchInput = screen.getByPlaceholderText("Search columns...");
-    
+
     // Search for something that doesn't exist
     await userEvent.type(searchInput, "nonexistent");
 
-    expect(screen.getByText("No columns match your search.")).toBeInTheDocument();
+    expect(
+      screen.getByText("No columns match your search."),
+    ).toBeInTheDocument();
     expect(screen.queryByText("IFD0:Model")).not.toBeInTheDocument();
   });
 
   it("clears search and shows all columns when search is cleared", async () => {
     render(
-      <ColumnSelectionDialog 
-        allKeys={allKeys} 
+      <ColumnSelectionDialog
+        allKeys={allKeys}
         visibleColumns={[]}
         onSave={() => {}}
         onClose={() => {}}
-      />
+      />,
     );
 
     const searchInput = screen.getByPlaceholderText("Search columns...");
-    
+
     // First search for something specific
     await userEvent.type(searchInput, "GPS");
     expect(screen.queryByText("IFD0:Model")).not.toBeInTheDocument();
@@ -118,16 +120,16 @@ describe("ColumnSelectionDialog search functionality", () => {
     const onSave = vi.fn();
 
     render(
-      <ColumnSelectionDialog 
-        allKeys={allKeys} 
+      <ColumnSelectionDialog
+        allKeys={allKeys}
         visibleColumns={[]}
         onSave={onSave}
         onClose={() => {}}
-      />
+      />,
     );
 
     const searchInput = screen.getByPlaceholderText("Search columns...");
-    
+
     // Search for GPS columns
     await userEvent.type(searchInput, "GPS");
 
@@ -146,16 +148,16 @@ describe("ColumnSelectionDialog search functionality", () => {
 
   it("search works with partial matches", async () => {
     render(
-      <ColumnSelectionDialog 
-        allKeys={allKeys} 
+      <ColumnSelectionDialog
+        allKeys={allKeys}
         visibleColumns={[]}
         onSave={() => {}}
         onClose={() => {}}
-      />
+      />,
     );
 
     const searchInput = screen.getByPlaceholderText("Search columns...");
-    
+
     // Search for "Date" - should match DateTimeOriginal
     await userEvent.type(searchInput, "Date");
 

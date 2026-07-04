@@ -11,7 +11,10 @@
  * `SearchIndex` directly.
  */
 import { SearchIndex } from "../search/searchIndex";
-import type { SearchWorkerInbound, SearchWorkerOutbound } from "./searchWorkerProtocol";
+import type {
+  SearchWorkerInbound,
+  SearchWorkerOutbound,
+} from "./searchWorkerProtocol";
 
 declare const self: DedicatedWorkerGlobalScope;
 
@@ -50,7 +53,12 @@ self.onmessage = (event: MessageEvent<SearchWorkerInbound>) => {
       return;
     case "QUERY": {
       const r = index.query(msg.query);
-      post({ type: "RESULT", id: msg.id, matched: r.matched, hasEditsFilter: r.hasEditsFilter });
+      post({
+        type: "RESULT",
+        id: msg.id,
+        matched: r.matched,
+        hasEditsFilter: r.hasEditsFilter,
+      });
       return;
     }
   }

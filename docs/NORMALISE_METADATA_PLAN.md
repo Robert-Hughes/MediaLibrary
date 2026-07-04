@@ -28,13 +28,13 @@ dialog. Unchecked groups are skipped.
 
 ### Group A — Keywords
 
-| Role | Field | Datatype |
-|---|---|---|
-| Primary | `XMP-lr:HierarchicalSubject` | Bag of `Parent\|Child\|Leaf` paths |
-| Derivative | `XMP-dc:Subject` | Bag of strings (leaves only) |
-| Derivative | `IPTC:Keywords` | Bag of strings (leaves only) |
-| Read-only input | `XMP-mlib:AITags` | Bag of strings |
-| Read-only input | `XMP-mlib:AIObjects` | Bag of strings |
+| Role            | Field                        | Datatype                           |
+| --------------- | ---------------------------- | ---------------------------------- |
+| Primary         | `XMP-lr:HierarchicalSubject` | Bag of `Parent\|Child\|Leaf` paths |
+| Derivative      | `XMP-dc:Subject`             | Bag of strings (leaves only)       |
+| Derivative      | `IPTC:Keywords`              | Bag of strings (leaves only)       |
+| Read-only input | `XMP-mlib:AITags`            | Bag of strings                     |
+| Read-only input | `XMP-mlib:AIObjects`         | Bag of strings                     |
 
 **Canonical form.** Bag of hierarchical paths. Each leaf and each path
 component normalised to lowercase, hyphen-separated (e.g. `new-york`, not
@@ -96,25 +96,26 @@ merged, not resolved.
 
 ### Group B — Description
 
-| Role | Field | Datatype |
-|---|---|---|
-| Primary | `XMP-dc:Description` | LangAlt (`x-default`) |
-| Derivative | `EXIF:ImageDescription` | ASCII string |
-| Derivative | `IPTC:Caption-Abstract` | string (UTF-8 if `IPTC:CodedCharacterSet=ESC % G`, else ASCII), 2000-char IIM limit |
-| Read-only input | `XMP-mlib:AIDescription` | string |
-| Read-only input | `XMP-mlib:AIInterpretation` | string |
-| Read-only input | `XMP-mlib:AIOcrText` | Bag of strings |
-| Read-only input | `XMP-mlib:AIObjects` | Bag of strings |
-| Read-only input | Group F (Location) values | strings |
-| Read-only input | Group A (Keywords) canonical | (post-pass output) |
-| Read-only input | Group G (Dates) canonical | (post-pass output, ISO date) |
-| Excluded | `EXIF:UserComment` | — (user note, not caption) |
+| Role            | Field                        | Datatype                                                                            |
+| --------------- | ---------------------------- | ----------------------------------------------------------------------------------- |
+| Primary         | `XMP-dc:Description`         | LangAlt (`x-default`)                                                               |
+| Derivative      | `EXIF:ImageDescription`      | ASCII string                                                                        |
+| Derivative      | `IPTC:Caption-Abstract`      | string (UTF-8 if `IPTC:CodedCharacterSet=ESC % G`, else ASCII), 2000-char IIM limit |
+| Read-only input | `XMP-mlib:AIDescription`     | string                                                                              |
+| Read-only input | `XMP-mlib:AIInterpretation`  | string                                                                              |
+| Read-only input | `XMP-mlib:AIOcrText`         | Bag of strings                                                                      |
+| Read-only input | `XMP-mlib:AIObjects`         | Bag of strings                                                                      |
+| Read-only input | Group F (Location) values    | strings                                                                             |
+| Read-only input | Group A (Keywords) canonical | (post-pass output)                                                                  |
+| Read-only input | Group G (Dates) canonical    | (post-pass output, ISO date)                                                        |
+| Excluded        | `EXIF:UserComment`           | — (user note, not caption)                                                          |
 
 **Canonical form.** Single paragraph, sentence-cased, factual tone, no
 marketing language, no repetition. UTF-8 in primary; downstream derivatives
 adapt.
 
 **Derivation.**
+
 - `ImageDescription` = ASCII-fold of canonical (strip diacritics, replace
   smart-quotes, em-dash → `--`). EXIF spec is ASCII; do not write non-ASCII.
 - `Caption-Abstract` = canonical truncated to 2000 chars at a word boundary.
@@ -135,12 +136,12 @@ adapt.
 
 ### Group C — Title
 
-| Role | Field | Datatype |
-|---|---|---|
-| Primary | `XMP-dc:Title` | LangAlt (`x-default`) |
-| Derivative | `IPTC:ObjectName` | string, 64-char IIM limit |
-| Read-only input | Group B canonical (post-pass) | string |
-| Read-only input | Group F (Location) values | strings |
+| Role            | Field                         | Datatype                  |
+| --------------- | ----------------------------- | ------------------------- |
+| Primary         | `XMP-dc:Title`                | LangAlt (`x-default`)     |
+| Derivative      | `IPTC:ObjectName`             | string, 64-char IIM limit |
+| Read-only input | Group B canonical (post-pass) | string                    |
+| Read-only input | Group F (Location) values     | strings                   |
 
 **Canonical form.** Short title-case phrase, ≤8 words, no trailing
 punctuation.
@@ -160,10 +161,10 @@ draft where current value differs from the projection).
 
 ### Group D — Headline
 
-| Role | Field | Datatype |
-|---|---|---|
-| Primary | `XMP-photoshop:Headline` | string |
-| Derivative | `IPTC:Headline` | string, 256-char IIM limit |
+| Role       | Field                    | Datatype                   |
+| ---------- | ------------------------ | -------------------------- |
+| Primary    | `XMP-photoshop:Headline` | string                     |
+| Derivative | `IPTC:Headline`          | string, 256-char IIM limit |
 
 **Canonical form.** Single-sentence headline, ≤25 words.
 
@@ -179,11 +180,11 @@ No AI in this group.
 
 ### Group E — Creator
 
-| Role | Field | Datatype |
-|---|---|---|
-| Primary | `XMP-dc:Creator` | Seq of strings (ordered) |
-| Derivative | `EXIF:Artist` | string (semicolon-separated for multiple) |
-| Derivative | `IPTC:By-line` | repeated string |
+| Role       | Field            | Datatype                                  |
+| ---------- | ---------------- | ----------------------------------------- |
+| Primary    | `XMP-dc:Creator` | Seq of strings (ordered)                  |
+| Derivative | `EXIF:Artist`    | string (semicolon-separated for multiple) |
+| Derivative | `IPTC:By-line`   | repeated string                           |
 
 **Canonical form.** Seq of names. Each name kept verbatim — do not
 "normalise" name capitalisation or order; risk of mangling non-English names
@@ -194,11 +195,11 @@ preserve first-seen order. No AI.
 
 ### Group F — Copyright
 
-| Role | Field | Datatype |
-|---|---|---|
-| Primary | `XMP-dc:Rights` | LangAlt (`x-default`) |
-| Derivative | `EXIF:Copyright` | ASCII string |
-| Derivative | `IPTC:CopyrightNotice` | string |
+| Role       | Field                  | Datatype              |
+| ---------- | ---------------------- | --------------------- |
+| Primary    | `XMP-dc:Rights`        | LangAlt (`x-default`) |
+| Derivative | `EXIF:Copyright`       | ASCII string          |
+| Derivative | `IPTC:CopyrightNotice` | string                |
 
 **Canonical form.** Single-line copyright string, leading/trailing whitespace
 trimmed. No tone/tense normalisation. No AI.
@@ -208,7 +209,7 @@ derivatives:
 
 1. Primary non-empty → canonical = `normalise(primary)`.
 2. Primary empty, ≥1 derivative non-empty → canonical = `normalise(longest
-   non-empty derivative)`. (Only group where length-based pick is used;
+non-empty derivative)`. (Only group where length-based pick is used;
    copyright notices are typically appended to, so the longest is usually
    the most complete.)
 3. All target empty → no drafts.
@@ -217,18 +218,18 @@ No AI.
 
 ### Group G — Location (XMP ↔ IIM mirror sync)
 
-| Role | Field | Datatype |
-|---|---|---|
-| Primary | `XMP-iptcCore:Location` | string |
-| Derivative | `IPTC:Sub-location` | string |
-| Primary | `XMP-photoshop:City` | string |
-| Derivative | `IPTC:City` | string |
-| Primary | `XMP-photoshop:State` | string |
-| Derivative | `IPTC:Province-State` | string |
-| Primary | `XMP-photoshop:Country` | string |
-| Derivative | `IPTC:Country-PrimaryLocationName` | string |
-| Primary | `XMP-iptcCore:CountryCode` | string (ISO 3166-1 alpha-2, uppercase) |
-| Derivative | `IPTC:Country-PrimaryLocationCode` | string |
+| Role       | Field                              | Datatype                               |
+| ---------- | ---------------------------------- | -------------------------------------- |
+| Primary    | `XMP-iptcCore:Location`            | string                                 |
+| Derivative | `IPTC:Sub-location`                | string                                 |
+| Primary    | `XMP-photoshop:City`               | string                                 |
+| Derivative | `IPTC:City`                        | string                                 |
+| Primary    | `XMP-photoshop:State`              | string                                 |
+| Derivative | `IPTC:Province-State`              | string                                 |
+| Primary    | `XMP-photoshop:Country`            | string                                 |
+| Derivative | `IPTC:Country-PrimaryLocationName` | string                                 |
+| Primary    | `XMP-iptcCore:CountryCode`         | string (ISO 3166-1 alpha-2, uppercase) |
+| Derivative | `IPTC:Country-PrimaryLocationCode` | string                                 |
 
 Five sub-groups, each a 1:1 XMP↔IIM pair. Treated independently inside the
 group so a divergence in one field doesn't cascade.
@@ -252,11 +253,11 @@ populate location fields from GPS, run the Reverse Geocode feature first.
 
 ### Group H — Dates
 
-| Sub-group | Primary | Mirrors | Semantics |
-|---|---|---|---|
-| H1 Shutter time | `EXIF:DateTimeOriginal` (DTO) | `XMP-photoshop:DateCreated`, `IPTC:DateCreated` + `IPTC:TimeCreated` | Moment shutter fired |
-| H2 Digitised time | `EXIF:CreateDate` | `XMP-xmp:CreateDate`, `IPTC:DigitalCreationDate` + `IPTC:DigitalCreationTime` | Moment digital file created (= DTO for born-digital, scan time for film) |
-| H3 Modify time | (skipped) | — | Auto-updated by exiftool on every write; do not normalise |
+| Sub-group         | Primary                       | Mirrors                                                                       | Semantics                                                                |
+| ----------------- | ----------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| H1 Shutter time   | `EXIF:DateTimeOriginal` (DTO) | `XMP-photoshop:DateCreated`, `IPTC:DateCreated` + `IPTC:TimeCreated`          | Moment shutter fired                                                     |
+| H2 Digitised time | `EXIF:CreateDate`             | `XMP-xmp:CreateDate`, `IPTC:DigitalCreationDate` + `IPTC:DigitalCreationTime` | Moment digital file created (= DTO for born-digital, scan time for film) |
+| H3 Modify time    | (skipped)                     | —                                                                             | Auto-updated by exiftool on every write; do not normalise                |
 
 **Canonical form per sub-group.** ISO 8601 datetime with timezone offset if
 known: `YYYY-MM-DDTHH:MM:SS±HH:MM`. Sub-second precision preserved if any
@@ -268,12 +269,14 @@ H2).
 without offset (do not invent UTC).
 
 **Derivation.**
+
 - IPTC date/time split: `IPTC:DateCreated` = `YYYY-MM-DD`,
   `IPTC:TimeCreated` = `HH:MM:SS±HH:MM` (offset suffix permitted per IIM
   spec).
 - XMP fields: full ISO datetime as-is.
 
 **Conflict policy per sub-group.**
+
 1. All target sources empty AND filename fallback applies (H1 only) →
    propose datetime from filename regex. See below.
 2. Exactly one target source non-empty → propagate to others (after
@@ -283,18 +286,18 @@ without offset (do not invent UTC).
 4. Multiple target sources non-empty AND distinct → primary (EXIF side) wins.
    Recorded in stats as `n_date_conflict`. No AI.
 
-**Filename fallback (H1 only).** Triggered when *all* H1 target fields are
+**Filename fallback (H1 only).** Triggered when _all_ H1 target fields are
 empty. Regex table tried in order:
 
-| Pattern | Source | Notes |
-|---|---|---|
-| `IMG[_-](\d{8})[_-](\d{6})` | iOS / Android camera | YYYYMMDD_HHMMSS |
-| `PXL[_-](\d{8})[_-](\d{6})(\d{3})` | Pixel | Last 3 digits subsec |
-| `VID[_-](\d{8})[_-](\d{6})` | Video filenames | Same datetime |
-| `Screenshot[ _](\d{4})-(\d{2})-(\d{2})(?:[ _](\d{2})[.\-](\d{2})[.\-](\d{2}))?` | iOS/macOS screenshot | Time optional |
-| `(\d{4})-(\d{2})-(\d{2})[ _T](\d{2})[.\-:](\d{2})[.\-:](\d{2})` | Generic ISO-ish | |
-| `(\d{4})(\d{2})(\d{2})[_-]?(\d{2})(\d{2})(\d{2})` | Compact | |
-| `(\d{4})-(\d{2})-(\d{2})` | Date-only | Time defaults to `00:00:00`, flagged |
+| Pattern                                                                         | Source               | Notes                                |
+| ------------------------------------------------------------------------------- | -------------------- | ------------------------------------ |
+| `IMG[_-](\d{8})[_-](\d{6})`                                                     | iOS / Android camera | YYYYMMDD_HHMMSS                      |
+| `PXL[_-](\d{8})[_-](\d{6})(\d{3})`                                              | Pixel                | Last 3 digits subsec                 |
+| `VID[_-](\d{8})[_-](\d{6})`                                                     | Video filenames      | Same datetime                        |
+| `Screenshot[ _](\d{4})-(\d{2})-(\d{2})(?:[ _](\d{2})[.\-](\d{2})[.\-](\d{2}))?` | iOS/macOS screenshot | Time optional                        |
+| `(\d{4})-(\d{2})-(\d{2})[ _T](\d{2})[.\-:](\d{2})[.\-:](\d{2})`                 | Generic ISO-ish      |                                      |
+| `(\d{4})(\d{2})(\d{2})[_-]?(\d{2})(\d{2})(\d{2})`                               | Compact              |                                      |
+| `(\d{4})-(\d{2})-(\d{2})`                                                       | Date-only            | Time defaults to `00:00:00`, flagged |
 
 Matches at any position in the file stem. Sanity bounds: 1900 ≤ year ≤
 (current year + 1).
@@ -327,7 +330,7 @@ pass sees the previous passes' draft outputs via the draft-overlay read
 Whenever a group computes its canonical value or reads context from another
 group, it reads field values with this precedence:
 
-1. Existing draft in the typed draft store (from earlier passes in *this*
+1. Existing draft in the typed draft store (from earlier passes in _this_
    normaliser run, or from prior unrelated user edits).
 2. On-disk metadata.
 
@@ -529,7 +532,7 @@ A `estimate_normalise_cost_cmd` runs before the awaiting-confirm phase
 loops over **every** selected image — same pattern as
 `estimate_describe_cost_cmd` ([lib.rs:945](src-tauri/src/lib.rs)).
 
-**Key property:** the estimate phase performs the *entire* normalisation
+**Key property:** the estimate phase performs the _entire_ normalisation
 walk for each image (idempotency detector, conflict resolution per
 group, projection to derivatives) — only the AI dispatch is skipped.
 When an AI call would fire, the prompt is fully built and sent to
@@ -569,12 +572,13 @@ The dialog awaiting-confirm panel displays:
 
 > Ready to normalise metadata for **N images** using model `<model_name>`.
 >
-> Groups: *(list of checked group names)*.
+> Groups: _(list of checked group names)_.
 >
 > AI calls required:
-> - *K* images need an AI description merge
-> - *J* images need an AI title generation
-> - *M* images run purely deterministically (no AI)
+>
+> - _K_ images need an AI description merge
+> - _J_ images need an AI title generation
+> - _M_ images run purely deterministically (no AI)
 >
 > **Cost:** $X.YZ predicted, up to $X.YZ in the worst case (output-token
 > variation only).
@@ -633,14 +637,14 @@ Reuses `batch_job.rs` from
 
 ### Failure kinds
 
-| Kind | Meaning |
-|---|---|
-| `ai_call_failed` | OpenAI returned non-2xx or invalid JSON |
+| Kind                | Meaning                                    |
+| ------------------- | ------------------------------------------ |
+| `ai_call_failed`    | OpenAI returned non-2xx or invalid JSON    |
 | `ai_schema_invalid` | Response parsed but missing required field |
-| `ai_rate_limited` | 429 from OpenAI |
-| `audit_log_io` | Could not append to JSONL log |
-| `cancelled` | User cancelled mid-image |
-| `internal` | Bug — surfaced with detail string |
+| `ai_rate_limited`   | 429 from OpenAI                            |
+| `audit_log_io`      | Could not append to JSONL log              |
+| `cancelled`         | User cancelled mid-image                   |
+| `internal`          | Bug — surfaced with detail string          |
 
 Per-image AI failures do not abort the batch. The image surfaces in the
 failure list; non-AI groups for that image still write their drafts.
@@ -676,13 +680,13 @@ normalise estimator.
 interface NormaliseSummary {
   nSucceeded: number;
   nFailed: number;
-  nSkippedAllNormalised: number;       // every enabled group already in normal form
+  nSkippedAllNormalised: number; // every enabled group already in normal form
   perGroup: {
     [groupName: string]: {
-      nNoOp: number;                   // group already normalised
+      nNoOp: number; // group already normalised
       nNormalisedDeterministic: number;
-      nNormalisedAI: number;           // only B, C
-      nConflictPrimaryWon: number;     // distinct sources, primary preferred
+      nNormalisedAI: number; // only B, C
+      nConflictPrimaryWon: number; // distinct sources, primary preferred
       nLocationXmpIimConflict?: number;
       nDateConflict?: number;
       nDtoFromFilename?: number;
@@ -739,7 +743,7 @@ metadata or in the typed draft store.
 `DetailsPane`, `PhotoList` context menu, single / some / all phrasings
 identical in structure to the geocode warning. Wording template:
 
-> *N* of *M* selected photos already have metadata in the groups you have
+> _N_ of _M_ selected photos already have metadata in the groups you have
 > selected. Normalising will overwrite those fields with drafts — fields
 > outside the canonical form will be cleared. Continue?
 

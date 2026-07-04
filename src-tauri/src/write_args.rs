@@ -1,6 +1,6 @@
 //! exiftool argv construction for write-back.
 //!
-//! See `METADATA_FORMATS_DESIGN.md` §6 and `METADATA_FORMATS_PLAN.md` §5.
+//! See `docs/METADATA_FORMATS_DESIGN.md` §6.
 //!
 //! This module produces unambiguous exiftool argv from typed `DraftEdit`s and
 //! `TagInfo` schema entries.  It is **pure** — no exiftool subprocess, no

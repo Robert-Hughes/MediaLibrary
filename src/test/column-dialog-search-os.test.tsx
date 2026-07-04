@@ -15,7 +15,7 @@ describe("ColumnSelectionDialog search filters OS metadata fields", () => {
         visibleColumns={[]}
         onSave={() => {}}
         onClose={() => {}}
-      />
+      />,
     );
 
     const searchInput = screen.getByPlaceholderText("Search columns...");
@@ -33,7 +33,7 @@ describe("ColumnSelectionDialog search filters OS metadata fields", () => {
         visibleColumns={[]}
         onSave={() => {}}
         onClose={() => {}}
-      />
+      />,
     );
 
     const searchInput = screen.getByPlaceholderText("Search columns...");
@@ -51,7 +51,7 @@ describe("ColumnSelectionDialog search filters OS metadata fields", () => {
         visibleColumns={[]}
         onSave={() => {}}
         onClose={() => {}}
-      />
+      />,
     );
 
     const searchInput = screen.getByPlaceholderText("Search columns...");
@@ -68,7 +68,7 @@ describe("ColumnSelectionDialog search filters OS metadata fields", () => {
         visibleColumns={[]}
         onSave={() => {}}
         onClose={() => {}}
-      />
+      />,
     );
 
     const searchInput = screen.getByPlaceholderText("Search columns...");
@@ -88,13 +88,15 @@ describe("ColumnSelectionDialog search filters OS metadata fields", () => {
         visibleColumns={[]}
         onSave={() => {}}
         onClose={() => {}}
-      />
+      />,
     );
 
     const searchInput = screen.getByPlaceholderText("Search columns...");
     await userEvent.type(searchInput, "zzznomatch");
 
-    expect(screen.getByText("No columns match your search.")).toBeInTheDocument();
+    expect(
+      screen.getByText("No columns match your search."),
+    ).toBeInTheDocument();
     expect(screen.queryByText("Date Modified")).not.toBeInTheDocument();
     expect(screen.queryByText("OS Metadata")).not.toBeInTheDocument();
   });
@@ -106,13 +108,15 @@ describe("ColumnSelectionDialog search filters OS metadata fields", () => {
         visibleColumns={[]}
         onSave={() => {}}
         onClose={() => {}}
-      />
+      />,
     );
 
     const searchInput = screen.getByPlaceholderText("Search columns...");
     await userEvent.type(searchInput, "modified");
 
-    expect(screen.queryByText("No columns match your search.")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("No columns match your search."),
+    ).not.toBeInTheDocument();
     expect(screen.getByText("Date Modified")).toBeInTheDocument();
   });
 
@@ -123,7 +127,7 @@ describe("ColumnSelectionDialog search filters OS metadata fields", () => {
         visibleColumns={[]}
         onSave={() => {}}
         onClose={() => {}}
-      />
+      />,
     );
 
     const searchInput = screen.getByPlaceholderText("Search columns...");

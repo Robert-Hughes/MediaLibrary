@@ -6,7 +6,12 @@ import { ThumbnailStore, ImageMetadataStore } from "../types";
 import type { PhotoInfo } from "../types";
 
 const mockPhotos: PhotoInfo[] = [
-  { relative_path: "a.jpg", filename: "a.jpg", date_modified: 100, date_created: 100 },
+  {
+    relative_path: "a.jpg",
+    filename: "a.jpg",
+    date_modified: 100,
+    date_created: 100,
+  },
 ];
 
 const defaultSortProps = {
@@ -17,7 +22,10 @@ const defaultSortProps = {
 function makeStores() {
   const thumbnails = new ThumbnailStore();
   const imageMetadata = new ImageMetadataStore();
-  mockPhotos.forEach((p) => { thumbnails.add(p.relative_path); imageMetadata.add(p.relative_path); });
+  mockPhotos.forEach((p) => {
+    thumbnails.add(p.relative_path);
+    imageMetadata.add(p.relative_path);
+  });
   return { thumbnails, imageMetadata };
 }
 
@@ -36,9 +44,11 @@ describe("column resize handles", () => {
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
         onPhotoOpen={() => {}}
-      />
+      />,
     );
-    expect(document.querySelector('[data-testid="resize-handle-preview"]')).not.toBeNull();
+    expect(
+      document.querySelector('[data-testid="resize-handle-preview"]'),
+    ).not.toBeNull();
   });
 
   it("renders a resize handle for the Path column", () => {
@@ -55,9 +65,11 @@ describe("column resize handles", () => {
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
         onPhotoOpen={() => {}}
-      />
+      />,
     );
-    expect(document.querySelector('[data-testid="resize-handle-relative_path"]')).not.toBeNull();
+    expect(
+      document.querySelector('[data-testid="resize-handle-relative_path"]'),
+    ).not.toBeNull();
   });
 
   it("renders resize handles for OS metadata columns", () => {
@@ -77,10 +89,14 @@ describe("column resize handles", () => {
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
         onPhotoOpen={() => {}}
-      />
+      />,
     );
-    expect(document.querySelector('[data-testid="resize-handle-date_modified"]')).not.toBeNull();
-    expect(document.querySelector('[data-testid="resize-handle-date_created"]')).not.toBeNull();
+    expect(
+      document.querySelector('[data-testid="resize-handle-date_modified"]'),
+    ).not.toBeNull();
+    expect(
+      document.querySelector('[data-testid="resize-handle-date_created"]'),
+    ).not.toBeNull();
   });
 
   it("renders resize handle for image metadata columns", () => {
@@ -97,9 +113,11 @@ describe("column resize handles", () => {
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
         onPhotoOpen={() => {}}
-      />
+      />,
     );
-    expect(document.querySelector('[data-testid="resize-handle-IFD0:Model"]')).not.toBeNull();
+    expect(
+      document.querySelector('[data-testid="resize-handle-IFD0:Model"]'),
+    ).not.toBeNull();
   });
 
   it("calls onColumnWidthChange when a resize drag completes", () => {
@@ -119,17 +137,22 @@ describe("column resize handles", () => {
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
         onPhotoOpen={() => {}}
-      />
+      />,
     );
 
-    const handle = document.querySelector('[data-testid="resize-handle-date_modified"]')!;
+    const handle = document.querySelector(
+      '[data-testid="resize-handle-date_modified"]',
+    )!;
 
     // Simulate a drag: pointerdown at x=200, pointermove to x=250 (50px wider), pointerup
     fireEvent.pointerDown(handle, { clientX: 200, pointerId: 1 });
     fireEvent.pointerMove(handle, { clientX: 250, pointerId: 1 });
     fireEvent.pointerUp(handle, { clientX: 250, pointerId: 1 });
 
-    expect(onColumnWidthChange).toHaveBeenCalledWith("date_modified", expect.any(Number));
+    expect(onColumnWidthChange).toHaveBeenCalledWith(
+      "date_modified",
+      expect.any(Number),
+    );
   });
 
   it("calls onColumnWidthChange for preview when its resize drag completes", () => {
@@ -149,11 +172,15 @@ describe("column resize handles", () => {
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
         onPhotoOpen={() => {}}
-      />
+      />,
     );
 
-    const handle = document.querySelector('[data-testid="resize-handle-preview"]')!;
-    vi.spyOn(handle.parentElement!, "getBoundingClientRect").mockReturnValue({ width: 52 } as DOMRect);
+    const handle = document.querySelector(
+      '[data-testid="resize-handle-preview"]',
+    )!;
+    vi.spyOn(handle.parentElement!, "getBoundingClientRect").mockReturnValue({
+      width: 52,
+    } as DOMRect);
     fireEvent.pointerDown(handle, { clientX: 52, pointerId: 1 });
     fireEvent.pointerMove(handle, { clientX: 82, pointerId: 1 });
     fireEvent.pointerUp(handle, { clientX: 82, pointerId: 1 });
@@ -166,25 +193,38 @@ describe("column resize handles", () => {
     const { thumbnails, imageMetadata } = makeStores();
     let selectedRangeNode: Node | null = null;
     const range = {
-      selectNodeContents: vi.fn((node: Node) => { selectedRangeNode = node; }),
-      setStart: vi.fn((node: Node) => { selectedRangeNode = node; }),
+      selectNodeContents: vi.fn((node: Node) => {
+        selectedRangeNode = node;
+      }),
+      setStart: vi.fn((node: Node) => {
+        selectedRangeNode = node;
+      }),
       setEndBefore: vi.fn(),
       getBoundingClientRect: vi.fn(() => {
         const el = selectedRangeNode as HTMLElement | null;
-        if (el?.classList?.contains("grid-header-kind")) return { width: 12 } as DOMRect;
-        if (el?.classList?.contains("grid-header-label")) return { width: 44 } as DOMRect;
-        if (el?.dataset?.col === "date_modified") return { width: 80 } as DOMRect;
+        if (el?.classList?.contains("grid-header-kind"))
+          return { width: 12 } as DOMRect;
+        if (el?.classList?.contains("grid-header-label"))
+          return { width: 44 } as DOMRect;
+        if (el?.dataset?.col === "date_modified")
+          return { width: 80 } as DOMRect;
         return { width: 300 } as DOMRect;
       }),
     } as unknown as Range;
-    const createRangeSpy = vi.spyOn(document, "createRange").mockReturnValue(range);
-    const getComputedStyleSpy = vi.spyOn(window, "getComputedStyle").mockReturnValue({
-      paddingLeft: "8px",
-      paddingRight: "8px",
-    } as CSSStyleDeclaration);
+    const createRangeSpy = vi
+      .spyOn(document, "createRange")
+      .mockReturnValue(range);
+    const getComputedStyleSpy = vi
+      .spyOn(window, "getComputedStyle")
+      .mockReturnValue({
+        paddingLeft: "8px",
+        paddingRight: "8px",
+      } as CSSStyleDeclaration);
 
     function StatefulPhotoList() {
-      const [columnWidths, setColumnWidths] = useState<Record<string, number>>({ date_modified: 300 });
+      const [columnWidths, setColumnWidths] = useState<Record<string, number>>({
+        date_modified: 300,
+      });
       return (
         <PhotoList
           photos={mockPhotos}
@@ -206,19 +246,29 @@ describe("column resize handles", () => {
       );
     }
 
-    render(
-      <StatefulPhotoList />
+    render(<StatefulPhotoList />);
+
+    const handle = document.querySelector(
+      '[data-testid="resize-handle-date_modified"]',
+    )!;
+    fireEvent.dblClick(handle);
+    fireEvent.dblClick(handle);
+
+    expect(onColumnWidthChange).toHaveBeenNthCalledWith(
+      1,
+      "date_modified",
+      100,
     );
-
-    const handle = document.querySelector('[data-testid="resize-handle-date_modified"]')!;
-    fireEvent.dblClick(handle);
-    fireEvent.dblClick(handle);
-
-    expect(onColumnWidthChange).toHaveBeenNthCalledWith(1, "date_modified", 100);
-    expect(onColumnWidthChange).toHaveBeenNthCalledWith(2, "date_modified", 100);
-    expect(range.selectNodeContents).toHaveBeenCalledWith(expect.objectContaining({
-      className: expect.stringContaining("grid-header-label"),
-    }));
+    expect(onColumnWidthChange).toHaveBeenNthCalledWith(
+      2,
+      "date_modified",
+      100,
+    );
+    expect(range.selectNodeContents).toHaveBeenCalledWith(
+      expect.objectContaining({
+        className: expect.stringContaining("grid-header-label"),
+      }),
+    );
 
     createRangeSpy.mockRestore();
     getComputedStyleSpy.mockRestore();
@@ -240,10 +290,12 @@ describe("column resize handles", () => {
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
         onPhotoOpen={() => {}}
-      />
+      />,
     );
 
-    const handle = document.querySelector('[data-testid="resize-handle-date_modified"]')!;
+    const handle = document.querySelector(
+      '[data-testid="resize-handle-date_modified"]',
+    )!;
     fireEvent.click(handle);
 
     expect(onSortChange).not.toHaveBeenCalled();
@@ -264,11 +316,17 @@ describe("column resize handles", () => {
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
         onPhotoOpen={() => {}}
-      />
+      />,
     );
-    expect(document.querySelector('[data-testid="resize-handle-preview"]')).not.toBeNull();
-    expect(document.querySelector('[data-testid="resize-handle-relative_path"]')).not.toBeNull();
-    expect(document.querySelector('[data-testid="resize-handle-date_modified"]')).not.toBeNull();
+    expect(
+      document.querySelector('[data-testid="resize-handle-preview"]'),
+    ).not.toBeNull();
+    expect(
+      document.querySelector('[data-testid="resize-handle-relative_path"]'),
+    ).not.toBeNull();
+    expect(
+      document.querySelector('[data-testid="resize-handle-date_modified"]'),
+    ).not.toBeNull();
   });
 });
 
@@ -289,7 +347,7 @@ describe("buildGridTemplate (via rendered styles)", () => {
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
         onPhotoOpen={() => {}}
-      />
+      />,
     );
     const grid = document.querySelector(".photo-grid") as HTMLElement;
     expect(grid.style.gridTemplateColumns).toContain("84px");
@@ -320,7 +378,7 @@ describe("buildGridTemplate (via rendered styles)", () => {
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
         onPhotoOpen={() => {}}
-      />
+      />,
     );
 
     // CSS custom properties are the authoritative contract between PhotoList
@@ -346,7 +404,7 @@ describe("buildGridTemplate (via rendered styles)", () => {
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
         onPhotoOpen={() => {}}
-      />
+      />,
     );
     const grid = document.querySelector(".photo-grid") as HTMLElement;
     expect(grid.style.gridTemplateColumns).toContain("minmax(");

@@ -152,11 +152,7 @@ pub fn parse_gps(value: &str) -> Option<f64> {
     }
     // DMS form. Strip the unit decorations the way the Python reference
     // script does, then split on whitespace.
-    let cleaned = trimmed
-        .replace("deg", " ")
-        .replace('\'', " ")
-        .replace('"', " ")
-        .replace('°', " ");
+    let cleaned = trimmed.replace("deg", " ").replace(['\'', '"', '°'], " ");
     let parts: Vec<&str> = cleaned.split_whitespace().collect();
     if parts.len() < 4 {
         return None;
@@ -202,16 +198,17 @@ impl AddressFields {
     /// most-specific first.
     pub fn display_name(&self) -> String {
         let mut parts: Vec<&str> = Vec::new();
-        for v in [
+        for s in [
             self.location.as_deref(),
             self.city.as_deref(),
             self.state.as_deref(),
             self.country.as_deref(),
-        ] {
-            if let Some(s) = v {
-                if !s.is_empty() && !parts.contains(&s) {
-                    parts.push(s);
-                }
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if !s.is_empty() && !parts.contains(&s) {
+                parts.push(s);
             }
         }
         parts.join(", ")
@@ -238,7 +235,7 @@ pub fn flatten_address(addr: &serde_json::Value) -> AddressFields {
     // Pick the first non-empty key in priority order. Nominatim's
     // hierarchy varies wildly by place type so we walk a deliberate
     // priority list rather than trusting any single key.
-    fn pick<'a>(addr: &'a serde_json::Value, keys: &[&str]) -> Option<String> {
+    fn pick(addr: &serde_json::Value, keys: &[&str]) -> Option<String> {
         for k in keys {
             if let Some(s) = addr.get(*k).and_then(|v| v.as_str()) {
                 if !s.is_empty() {
@@ -285,7 +282,7 @@ pub fn should_use_overpass_fallback(addr: &serde_json::Value, parsed: &AddressFi
         if addr
             .get(*k)
             .and_then(|v| v.as_str())
-            .map_or(false, |s| !s.is_empty())
+            .is_some_and(|s| !s.is_empty())
         {
             return false;
         }

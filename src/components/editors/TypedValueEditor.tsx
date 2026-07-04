@@ -109,10 +109,19 @@ export function TypedValueEditor({
           <EditorMetaHint
             source={
               tag && tag !== "loading"
-                ? { kind: "schema", tag, override: "Edited via Flash bitfield helper" }
+                ? {
+                    kind: "schema",
+                    tag,
+                    override: "Edited via Flash bitfield helper",
+                  }
                 : tag === "loading"
-                ? { kind: "loading" }
-                : { kind: "synthetic", label: "EXIF Flash", description: "Bitfield packed into an Integer (see EXIF spec)" }
+                  ? { kind: "loading" }
+                  : {
+                      kind: "synthetic",
+                      label: "EXIF Flash",
+                      description:
+                        "Bitfield packed into an Integer (see EXIF spec)",
+                    }
             }
           />
         }
@@ -136,17 +145,33 @@ export function TypedValueEditor({
       initialAltitudeRef = "below";
     }
     const initialAltitudeMetres =
-      typeof altVal === "number" ? altVal
-      : typeof altVal === "string" && altVal.trim() !== "" ? parseFloat(altVal)
-      : null;
+      typeof altVal === "number"
+        ? altVal
+        : typeof altVal === "string" && altVal.trim() !== ""
+          ? parseFloat(altVal)
+          : null;
     return (
       <GpsEditor
         group={gpsGroup}
         initialLatDecimal={parseDecimalDegrees(latVal)}
-        initialLatRef={parseHemisphere(metadataForFile[gpsGroup.latitudeRefKey] ?? latVal, "lat") as "N" | "S"}
+        initialLatRef={
+          parseHemisphere(
+            metadataForFile[gpsGroup.latitudeRefKey] ?? latVal,
+            "lat",
+          ) as "N" | "S"
+        }
         initialLonDecimal={parseDecimalDegrees(lonVal)}
-        initialLonRef={parseHemisphere(metadataForFile[gpsGroup.longitudeRefKey] ?? lonVal, "lon") as "E" | "W"}
-        initialAltitudeMetres={Number.isFinite(initialAltitudeMetres as number) ? (initialAltitudeMetres as number) : null}
+        initialLonRef={
+          parseHemisphere(
+            metadataForFile[gpsGroup.longitudeRefKey] ?? lonVal,
+            "lon",
+          ) as "E" | "W"
+        }
+        initialAltitudeMetres={
+          Number.isFinite(initialAltitudeMetres as number)
+            ? (initialAltitudeMetres as number)
+            : null
+        }
         initialAltitudeRef={initialAltitudeRef}
         onSave={onSaveBatch!}
         onCancel={onCancel}
@@ -156,7 +181,8 @@ export function TypedValueEditor({
             source={{
               kind: "synthetic",
               label: "GPS location",
-              description: "Paired group from ExifTool schema — writes Latitude/Longitude (+ ref) and optional Altitude (+ ref) together",
+              description:
+                "Paired group from ExifTool schema — writes Latitude/Longitude (+ ref) and optional Altitude (+ ref) together",
             }}
           />
         }
@@ -207,8 +233,10 @@ export function TypedValueEditor({
     // Hands off to the recursive NestedListEditor; each item is edited
     // through TypedValueEditor itself, so arbitrary depth works.
     if (
-      (tag.kind.kind === "Bag" || tag.kind.kind === "Seq" || tag.kind.kind === "Alt")
-      && inner === null
+      (tag.kind.kind === "Bag" ||
+        tag.kind.kind === "Seq" ||
+        tag.kind.kind === "Alt") &&
+      inner === null
     ) {
       const items = initialItemsFromVariant(initialVariant);
       return (
@@ -276,13 +304,14 @@ export function TypedValueEditor({
   }
 
   if (tag && tag.kind.kind === "Boolean") {
-    const v = typeof initialVariant === "boolean"
-      ? initialVariant
-      : initialString.toLowerCase() === "true" || initialString === "1"
-      ? true
-      : initialString.toLowerCase() === "false" || initialString === "0"
-      ? false
-      : null;
+    const v =
+      typeof initialVariant === "boolean"
+        ? initialVariant
+        : initialString.toLowerCase() === "true" || initialString === "1"
+          ? true
+          : initialString.toLowerCase() === "false" || initialString === "0"
+            ? false
+            : null;
     return (
       <BooleanEditor
         propertyKey={propertyKey}
@@ -309,7 +338,11 @@ export function TypedValueEditor({
   }
 
   if (tag && tag.kind.kind === "LangAlt") {
-    const initialLangs = initialLangsFrom(initialVariant, metadataForFile ?? {}, propertyKey);
+    const initialLangs = initialLangsFrom(
+      initialVariant,
+      metadataForFile ?? {},
+      propertyKey,
+    );
     if (Object.keys(initialLangs).length === 0 && initialString) {
       initialLangs["x-default"] = initialString;
     }
@@ -349,12 +382,15 @@ export function TypedValueEditor({
           {schemaHint()}
           <div className="dialog-body">
             <p className="dialog-hint" data-testid="binary-editor-message">
-              This tag holds binary data and is not editable in this app.  Use
+              This tag holds binary data and is not editable in this app. Use
               ExifTool directly if you need to write it.
             </p>
           </div>
           <div className="dialog-footer">
-            <button className="dialog-btn dialog-btn-primary" onClick={onCancel}>
+            <button
+              className="dialog-btn dialog-btn-primary"
+              onClick={onCancel}
+            >
               Close
             </button>
           </div>
@@ -367,7 +403,11 @@ export function TypedValueEditor({
   // claims Text — common for tags listx doesn't describe as struct but
   // exiftool's -struct flag has nonetheless delivered as an object.  LangAlt
   // is handled above so we won't intercept Description-style objects here.
-  if (initialVariant && typeof initialVariant === "object" && !Array.isArray(initialVariant)) {
+  if (
+    initialVariant &&
+    typeof initialVariant === "object" &&
+    !Array.isArray(initialVariant)
+  ) {
     return (
       <StructEditor
         propertyKey={propertyKey}
@@ -376,7 +416,9 @@ export function TypedValueEditor({
         onSave={onSave}
         onCancel={onCancel}
         readOnly={readOnly}
-        headerHint={schemaHint("Routing as Struct because the read value is a nested object")}
+        headerHint={schemaHint(
+          "Routing as Struct because the read value is a nested object",
+        )}
       />
     );
   }
@@ -390,8 +432,8 @@ export function TypedValueEditor({
   // for some camera fields) which would never match the YYYY:MM:DD…
   // pattern; the display view is the canonical exiftool date string.
   if (
-    (!tag || tag.kind.kind === "Text" || tag.kind.kind === "Unknown")
-    && isDateTimeNamePattern(propertyKey, initialString)
+    (!tag || tag.kind.kind === "Text" || tag.kind.kind === "Unknown") &&
+    isDateTimeNamePattern(propertyKey, initialString)
   ) {
     return (
       <DateTimeEditor
@@ -400,7 +442,9 @@ export function TypedValueEditor({
         onSave={onSave}
         onCancel={onCancel}
         readOnly={readOnly}
-        headerHint={schemaHint("Upgraded to a date picker because the name and value look like a date")}
+        headerHint={schemaHint(
+          "Upgraded to a date picker because the name and value look like a date",
+        )}
       />
     );
   }
@@ -485,7 +529,10 @@ function UnknownEditor({
           />
         </div>
         <div className="dialog-footer">
-          <button className="dialog-btn dialog-btn-secondary" onClick={onCancel}>
+          <button
+            className="dialog-btn dialog-btn-secondary"
+            onClick={onCancel}
+          >
             Cancel
           </button>
           <button
