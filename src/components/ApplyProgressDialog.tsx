@@ -7,7 +7,7 @@ interface Props {
 }
 
 /**
- * Modal shown while apply_draft_edits_cmd is running.
+ * Modal shown while `apply_metadata_draft_edits_cmd` is running.
  *
  * Blocks the rest of the UI so users can't issue conflicting commands while
  * exiftool is rewriting files.  Updates incrementally from the per-file

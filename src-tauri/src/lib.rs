@@ -163,7 +163,7 @@ impl Default for ActiveQueues {
     }
 }
 
-/// Cancellation flag for an in-flight apply_draft_edits_cmd.  Set by
+/// Cancellation flag for an in-flight metadata apply command. Set by
 /// cancel_apply_edits; checked by the apply loop between files so a cancel
 /// takes effect at the next per-file boundary (never mid-write).
 pub struct ApplyEditsState {
@@ -258,22 +258,6 @@ struct ThumbnailResult {
     thumbnail: Option<String>,
 }
 
-/// Emitted by apply_draft_edits_cmd after each file is processed.
-///
-/// `tag_outcomes` carries the per-tag verification result so the frontend
-/// can surface Coerced (yellow accept-or-revert) and Mismatch entries to the
-/// user without re-querying the backend.
-#[derive(Clone, Serialize)]
-struct ApplyEditsProgressPayload {
-    current: usize,
-    total: usize,
-    relative_path: String,
-    applied: bool,
-    error: Option<String>,
-    fresh_metadata: Option<std::collections::HashMap<String, scanner::Variant>>,
-    tag_outcomes: Vec<apply_edits::TagOutcome>,
-}
-
 #[derive(Clone, Serialize)]
 struct MetadataApplyEditsProgressPayload {
     current: usize,
@@ -285,7 +269,7 @@ struct MetadataApplyEditsProgressPayload {
     tag_outcomes: Vec<apply_edits::MetadataTagOutcome>,
 }
 
-/// Emitted by apply_draft_edits_cmd before the first file is processed,
+/// Emitted by the metadata apply command before the first file is processed,
 /// so the frontend can show the modal with an accurate total upfront.
 #[derive(Clone, Serialize)]
 struct ApplyEditsStartedPayload {
@@ -799,11 +783,6 @@ fn set_window_title(title: String, app: AppHandle) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
-#[tauri::command]
-fn load_draft_edits(folder_path: String) -> Result<draft_edits::DraftEditsPayload, String> {
-    draft_edits::load_draft_edits(&folder_path)
-}
-
 /// Look up schema info for a single tag.  Returns `Ok(None)` when the registry
 /// is built but the tag is unknown; returns `Err` only when the registry
 /// itself could not be built.
@@ -847,32 +826,6 @@ fn list_schema_tags() -> Result<Vec<String>, String> {
 }
 
 #[tauri::command]
-fn save_draft_edits(
-    folder_path: String,
-    data: draft_edits::DraftEditsPayload,
-) -> Result<(), String> {
-    draft_edits::save_draft_edits(&folder_path, data)
-}
-
-/// Typed-shape save (Phase 3b/4).  Frontend editors that carry Variant
-/// values (BagEditor, …) call this instead of `save_draft_edits` so list
-/// and object values round-trip into the v2 JSONL without flattening
-/// through the legacy string view.  The legacy command stays available
-/// for existing callers and tests.
-#[tauri::command]
-fn save_draft_edits_typed(
-    folder_path: String,
-    data: draft_edits::TypedDraftEdits,
-) -> Result<(), String> {
-    draft_edits::save_typed_draft_edits(&folder_path, &data)
-}
-
-#[tauri::command]
-fn load_draft_edits_typed(folder_path: String) -> Result<draft_edits::TypedDraftEdits, String> {
-    draft_edits::load_typed_draft_edits(&folder_path)
-}
-
-#[tauri::command]
 fn save_metadata_draft_edits(
     folder_path: String,
     data: draft_edits::MetadataDraftEdits,
@@ -885,114 +838,6 @@ fn load_metadata_draft_edits(
     folder_path: String,
 ) -> Result<draft_edits::MetadataDraftEdits, String> {
     draft_edits::load_metadata_draft_edits(&folder_path)
-}
-
-/// Apply draft edits for the specified files.
-///
-/// Processes files one at a time so the operation can be cancelled at a clean
-/// boundary and so the on-disk draft store stays in sync as we go (crash safety).
-/// Emits `apply_edits_started` once with the total, and `apply_edits_progress`
-/// after each file with the outcome (including fresh metadata for the UI to
-/// update incrementally).
-#[tauri::command]
-fn apply_draft_edits_cmd(
-    folder_path: String,
-    rel_paths: Vec<String>,
-    app: AppHandle,
-    apply_state: State<'_, ApplyEditsState>,
-) -> Result<apply_edits::ApplyEditsResult, String> {
-    let cancel_flag = apply_state.install();
-
-    // Load typed drafts directly — preserves Variant::List / Object shapes
-    // that the BagEditor and friends produce.  The legacy string view loses
-    // list-ness, so going through it here would re-introduce the
-    // keywords-CSV corruption.
-    let mut all_drafts = draft_edits::load_typed_draft_edits(&folder_path).unwrap_or_default();
-
-    let total = rel_paths
-        .iter()
-        .filter(|p| all_drafts.get(p.as_str()).is_some_and(|e| !e.is_empty()))
-        .count();
-
-    let _ = app.emit("apply_edits_started", ApplyEditsStartedPayload { total });
-
-    let mut applied = Vec::new();
-    let mut failed = Vec::new();
-    let mut fresh_metadata = std::collections::HashMap::new();
-    let mut current = 0usize;
-
-    for rel_path in &rel_paths {
-        if cancel_flag.load(Ordering::Relaxed) {
-            log::info!("[apply_edits] Cancelled at {}/{}", current, total);
-            break;
-        }
-
-        let edits = match all_drafts.get(rel_path.as_str()) {
-            Some(e) if !e.is_empty() => e.clone(),
-            _ => continue,
-        };
-
-        current += 1;
-
-        let outcome = apply_edits::apply_single_file_typed(&folder_path, rel_path, &edits);
-        let was_applied = outcome.error.is_none();
-
-        // Persist incrementally.  Phase 8.1: prune only the per-tag drafts
-        // whose outcomes are conclusively safe to drop (Match / DeleteOk).
-        // Coerced and Mismatch entries stay so the user can accept-or-revert
-        // (Coerced) or fix the underlying problem (Mismatch).  Previously the
-        // whole file's draft map was wiped on success, which hid Coerced from
-        // the user the moment exiftool returned a normalised value.
-        if !outcome.tags_to_clear.is_empty() {
-            if let Some(file_drafts) = all_drafts.get_mut(rel_path.as_str()) {
-                for tag in &outcome.tags_to_clear {
-                    file_drafts.remove(tag);
-                }
-                if file_drafts.is_empty() {
-                    all_drafts.remove(rel_path.as_str());
-                }
-                if let Err(e) = draft_edits::save_typed_draft_edits(&folder_path, &all_drafts) {
-                    log::warn!(
-                        "[apply_edits] Warning: failed to persist draft removal for {}: {}",
-                        rel_path,
-                        e
-                    );
-                }
-            }
-        }
-
-        let _ = app.emit(
-            "apply_edits_progress",
-            ApplyEditsProgressPayload {
-                current,
-                total,
-                relative_path: rel_path.clone(),
-                applied: was_applied,
-                error: outcome.error.clone(),
-                fresh_metadata: outcome.fresh_metadata.clone(),
-                tag_outcomes: outcome.outcomes.clone(),
-            },
-        );
-
-        if let Some(meta) = outcome.fresh_metadata {
-            fresh_metadata.insert(rel_path.clone(), meta);
-        }
-        match outcome.error {
-            None => applied.push(rel_path.clone()),
-            Some(reason) => failed.push(apply_edits::FailedFile {
-                relative_path: rel_path.clone(),
-                reason,
-            }),
-        }
-    }
-
-    apply_state.clear();
-
-    Ok(apply_edits::ApplyEditsResult {
-        applied,
-        failed,
-        fresh_metadata,
-    })
 }
 
 #[tauri::command]
@@ -1089,7 +934,7 @@ fn apply_metadata_draft_edits_cmd(
     })
 }
 
-/// Request cancellation of an in-flight apply_draft_edits_cmd. The current
+/// Request cancellation of an in-flight metadata apply command. The current
 /// file completes (so writes are never torn); subsequent files are skipped.
 #[tauri::command]
 fn cancel_apply_edits(apply_state: State<'_, ApplyEditsState>) -> Result<(), String> {
@@ -1282,13 +1127,8 @@ pub fn run() {
             prioritize_queues,
             show_in_explorer,
             set_window_title,
-            load_draft_edits,
-            save_draft_edits,
-            save_draft_edits_typed,
-            load_draft_edits_typed,
             save_metadata_draft_edits,
             load_metadata_draft_edits,
-            apply_draft_edits_cmd,
             apply_metadata_draft_edits_cmd,
             cancel_apply_edits,
             get_tag_info,

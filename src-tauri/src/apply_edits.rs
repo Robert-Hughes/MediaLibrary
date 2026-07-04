@@ -165,8 +165,8 @@ pub struct MetadataApplyEditsResult {
 ///
 /// Legacy entry: accepts the string-only edit map and wraps each value into
 /// a typed `DraftEdit` via `from_legacy_string`.  Existing callers (the
-/// frontend save → apply_draft_edits_cmd → here pipeline pre-Phase 3b/4)
-/// keep working unchanged; chip editors that produce `Variant::List` use
+/// legacy typed-draft callers can still use this path directly in tests;
+/// chip editors that produce `Variant::List` use
 /// `apply_single_file_typed` directly so list-shape survives write-back.
 pub fn apply_single_file(
     folder_path: &str,
