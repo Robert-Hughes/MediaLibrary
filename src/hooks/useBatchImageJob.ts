@@ -29,7 +29,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { BatchFailureKind, DraftEdit } from "../types";
+import type { BatchFailureKind, DraftEdit, MetadataDraftEdit } from "../types";
 import { normalizeGeneratedDraftEdits } from "../utils/semanticDrafts";
 
 export type BatchJobPhase =
@@ -253,7 +253,7 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
         relativePath: string;
         status: string;
         error: string | null;
-        edits?: unknown;
+        edits?: Record<string, MetadataDraftEdit>;
       }>(`${config.eventPrefix}_progress`, (p) => {
         if (p.status === "ok" && p.edits) {
           onApplyEditsRef.current?.(
