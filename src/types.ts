@@ -634,7 +634,7 @@ export type AppState =
        *  worker hook subscribe directly so they hear about every mutation. */
       draftEditsStore: DraftEditsStore;
 
-      // Apply-edits in-flight state (non-null while apply_draft_edits_cmd is running)
+      // Apply-edits in-flight state (non-null while metadata apply is running)
       applying: ApplyEditsInFlight | null;
 
       /**

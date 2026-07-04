@@ -1,14 +1,9 @@
 // ── Draft-edit helpers (Phase 3b) ─────────────────────────────────────────────
 //
-// The frontend draft layer carries typed `DraftEdit` values internally; see
-// `docs/METADATA_FORMATS_DESIGN.md` §7. These
-// helpers bridge:
-//
-// - The legacy `Record<string, Record<string, string | null>>` Tauri-boundary
-//   shape (load_draft_edits / save_draft_edits / apply_draft_edits_cmd still
-//   send and receive this; the typed-payload Tauri commands are Phase 4 work).
-// - The legacy `string | null` shape that components and tests still pass
-//   around (will migrate to typed editors in Phase 4).
+// The frontend draft layer still carries generated `DraftEdit` values
+// internally while the Tauri persistence/apply boundary uses semantic
+// `MetadataDraftEdit` values. These helpers bridge the remaining legacy UI
+// display shape and the editor-facing generated draft shape.
 //
 // Storage uses the typed shape so when typed editors arrive they have
 // somewhere to write.  Display derives the legacy shape on the fly.
@@ -143,9 +138,8 @@ function pad(value: number, width = 2): string {
 }
 
 /**
- * Convert the typed map into the legacy wire shape used by Tauri commands
- * (`save_draft_edits`, `apply_draft_edits_cmd`) and by existing components
- * that still read `Record<string, Record<string, string | null>>`.
+ * Convert the typed map into the legacy display shape used by existing
+ * components that still read `Record<string, Record<string, string | null>>`.
  *
  * Drafts with no real change (undefined intent) are dropped.
  */

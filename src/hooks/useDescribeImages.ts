@@ -43,7 +43,7 @@ export interface UseDescribeImagesOptions {
    * Invoked for each image whose describe call succeeded, with the typed
    * draft edits the backend produced for it. The caller is responsible
    * for merging these into the in-memory draft store (which then
-   * persists via the existing save_draft_edits_typed pipeline).
+   * persists via the semantic metadata-draft pipeline).
    *
    * Keeping persistence in the caller — rather than the backend writing
    * directly to draft_edits.jsonl — means the UI re-renders immediately
