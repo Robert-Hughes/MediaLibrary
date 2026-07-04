@@ -102,7 +102,9 @@ describe("Apply Draft Edits – MenuBar", () => {
       applied: [photo.relative_path],
       failed: [],
       fresh_metadata: {
-        [photo.relative_path]: { "XMP-dc:Description": "Draft value" },
+        [photo.relative_path]: {
+          "XMP-dc:Description": { kind: "Text", value: "Draft value" },
+        },
       },
     };
 
@@ -120,7 +122,7 @@ describe("Apply Draft Edits – MenuBar", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("apply_draft_edits_cmd is invoked with correct folder and paths", async () => {
+  it("apply_metadata_draft_edits_cmd is invoked with correct folder and paths", async () => {
     const photo = makePhoto({ relative_path: "test.jpg" });
     await seedDraftEdit(photo);
     mockApiInstance.applyEditsResult = {
@@ -136,7 +138,7 @@ describe("Apply Draft Edits – MenuBar", () => {
     });
 
     const applyCall = mockApiInstance.invocations.find(
-      (i) => i.cmd === "apply_draft_edits_cmd",
+      (i) => i.cmd === "apply_metadata_draft_edits_cmd",
     );
     expect(applyCall).toBeDefined();
     expect(applyCall?.args?.folderPath).toBe("/photos");
@@ -157,7 +159,7 @@ describe("Apply Draft Edits – MenuBar", () => {
     });
 
     const applyCall = mockApiInstance.invocations.find(
-      (i) => i.cmd === "apply_draft_edits_cmd",
+      (i) => i.cmd === "apply_metadata_draft_edits_cmd",
     );
     expect(applyCall).toBeUndefined();
     // Drafts still present
@@ -213,7 +215,7 @@ describe("Apply Draft Edits – PhotoList context menu", () => {
     });
 
     const applyCall = mockApiInstance.invocations.find(
-      (i) => i.cmd === "apply_draft_edits_cmd",
+      (i) => i.cmd === "apply_metadata_draft_edits_cmd",
     );
     expect(applyCall?.args?.relPaths).toEqual([photo.relative_path]);
   });
@@ -269,7 +271,7 @@ describe("Apply Draft Edits – DetailsPane (gallery)", () => {
     });
 
     const applyCall = mockApiInstance.invocations.find(
-      (i) => i.cmd === "apply_draft_edits_cmd",
+      (i) => i.cmd === "apply_metadata_draft_edits_cmd",
     );
     expect(applyCall?.args?.relPaths).toEqual([photo.relative_path]);
   });
@@ -354,7 +356,7 @@ describe("Apply Draft Edits – Progress dialog and cancellation", () => {
     // The cancel pathway is exercised via a direct test below.
     expect(
       mockApiInstance.invocations.some(
-        (i) => i.cmd === "apply_draft_edits_cmd",
+        (i) => i.cmd === "apply_metadata_draft_edits_cmd",
       ),
     ).toBe(true);
   });
@@ -368,7 +370,9 @@ describe("Apply Draft Edits – Progress dialog and cancellation", () => {
       applied: [photo.relative_path],
       failed: [],
       fresh_metadata: {
-        [photo.relative_path]: { "XMP-dc:Description": "Applied value" },
+        [photo.relative_path]: {
+          "XMP-dc:Description": { kind: "Text", value: "Applied value" },
+        },
       },
     };
 

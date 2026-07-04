@@ -6,7 +6,9 @@
  * drop a single (path, tag) entry, removing the path key entirely when
  * its list goes empty.
  */
-import type { TagOutcome, TagOutcomeEntry } from "../types";
+import type { MetadataTagOutcome, TagOutcome, TagOutcomeEntry } from "../types";
+
+type AnyTagOutcome = TagOutcome | MetadataTagOutcome;
 
 /**
  * Subset of TagOutcome.kind that requires user attention. Match and
@@ -20,7 +22,7 @@ const INTERESTING_KINDS = new Set([
   "DeleteLingering",
 ]);
 
-export function isInterestingOutcome(o: TagOutcome): boolean {
+export function isInterestingOutcome(o: AnyTagOutcome): boolean {
   return INTERESTING_KINDS.has(o.kind);
 }
 
@@ -35,7 +37,7 @@ export function isInterestingOutcome(o: TagOutcome): boolean {
 export function mergeVerifyOutcomes(
   existing: Record<string, TagOutcomeEntry[]>,
   relativePath: string,
-  fileOutcomes: TagOutcome[],
+  fileOutcomes: AnyTagOutcome[],
 ): Record<string, TagOutcomeEntry[]> {
   const interesting = fileOutcomes.filter(isInterestingOutcome);
   if (interesting.length === 0) return existing;

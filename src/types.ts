@@ -28,6 +28,7 @@ export type { EnumRepr } from "./types/generated/EnumRepr";
 export type { EditIntent } from "./types/generated/EditIntent";
 export type { ImageMetadata } from "./types/generated/ImageMetadata";
 export type { ApplyEditsResult } from "./types/generated/ApplyEditsResult";
+export type { MetadataApplyEditsResult } from "./types/generated/MetadataApplyEditsResult";
 export type { FailedFile as ApplyEditsFailedFile } from "./types/generated/FailedFile";
 export type { TagOutcome } from "./types/generated/TagOutcome";
 export type { BatchFailureKind } from "./types/generated/BatchFailureKind";
@@ -907,10 +908,10 @@ export interface GeocodeProgressState {
 export interface TagOutcomeEntry {
   tag: string;
   kind: string;
-  sent: Variant | null;
-  beforeDisplay: Variant | null;
-  observedDisplay: Variant | null;
-  observedRaw: Variant | null;
+  sent: ImageMetadataEntry | null;
+  beforeDisplay: ImageMetadataEntry | null;
+  observedDisplay: ImageMetadataEntry | null;
+  observedRaw: ImageMetadataEntry | null;
   message: string | null;
 }
 
@@ -956,11 +957,14 @@ export interface ApplyEditsProgressPayload {
   relative_path: string;
   applied: boolean;
   error: string | null;
-  fresh_metadata: Record<string, Variant> | null;
+  fresh_metadata: Record<string, ImageMetadataEntry> | null;
   /**
    * Per-tag verification outcomes (Phase 8.1).  The Rust side prunes
    * Match/DeleteOk drafts on its own; the frontend mirrors those drops
    * locally and accumulates the rest into pendingOutcomes for triage.
    */
-  tag_outcomes: import("./types/generated/TagOutcome").TagOutcome[];
+  tag_outcomes: Array<
+    | import("./types/generated/TagOutcome").TagOutcome
+    | import("./types/generated/MetadataTagOutcome").MetadataTagOutcome
+  >;
 }

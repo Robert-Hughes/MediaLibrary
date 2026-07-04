@@ -13,10 +13,9 @@ import type {
   ScanErrorPayload,
   WorkerErrorPayload,
   PhotoInfo,
-  Variant,
   SortConfig,
   VisibleColumn,
-  ApplyEditsResult,
+  MetadataApplyEditsResult,
   ApplyEditsStartedPayload,
   ApplyEditsProgressPayload,
   ImageMetadataEntry,
@@ -26,13 +25,18 @@ import { loadColumnConfig, saveColumnConfig } from "./utils/columnConfig";
 import {
   MAX_WORKER_ERRORS,
   normalizeMetadataFromTauri,
-  normalizeDraftsFromTauri,
   scheduleBatchedFlush,
 } from "./utils/scanEvents";
 import {
   mergeVerifyOutcomes,
   removeVerifyOutcome,
 } from "./utils/verifyOutcomes";
+import {
+  legacyDraftsToMetadataDrafts,
+  metadataDraftsToLegacyDrafts,
+  metadataEntryToVariant,
+  type MetadataDraftEditsByFile,
+} from "./utils/semanticDrafts";
 import { useRecentFolders } from "./hooks/useRecentFolders";
 
 export interface TauriApi {
@@ -71,7 +75,7 @@ export interface MediaLibraryActions {
   discardAllDraftEdits: (fileRelativePath?: string | string[]) => void;
   applyDraftEdits: (
     fileRelativePath?: string | string[],
-  ) => Promise<ApplyEditsResult>;
+  ) => Promise<MetadataApplyEditsResult>;
   cancelApplyEdits: () => void;
   /** Phase 8.1: clear a Coerced/Mismatch outcome and drop its draft. */
   acceptVerifyOutcome: (fileRelativePath: string, tag: string) => void;
@@ -79,7 +83,7 @@ export interface MediaLibraryActions {
   revertVerifyOutcome: (
     fileRelativePath: string,
     tag: string,
-    observedRaw: Variant | null,
+    observedRaw: ImageMetadataEntry | null,
   ) => void;
   /** Phase 8.1: dismiss a single pending verify outcome without touching the draft. */
   dismissVerifyOutcome: (fileRelativePath: string, tag: string) => void;
@@ -190,13 +194,12 @@ export function useMediaLibrary(
       metadataProgressStoreRef.current = new MetadataProgressStore();
 
       try {
-        const raw = await api.invoke("load_draft_edits_typed", {
+        const raw = await api.invoke("load_metadata_draft_edits", {
           folderPath: folder,
         });
-        // Backwards-compat: a mock or legacy backend may still return the
-        // string-shape map.  Detect and convert per-edit if we see a value
-        // that isn't `{ value, intent }`.
-        draftEditsStoreRef.current.reset(normalizeDraftsFromTauri(raw));
+        draftEditsStoreRef.current.reset(
+          metadataDraftsToLegacyDrafts(raw as MetadataDraftEditsByFile),
+        );
       } catch (e) {
         console.error("Failed to load draft edits", e);
         draftEditsStoreRef.current.reset({});
@@ -496,6 +499,20 @@ export function useMediaLibrary(
         },
       );
 
+      const unlistenMetadataApplyProgress = await api.listen(
+        "apply_metadata_edits_progress",
+        (raw) => {
+          if (cancelled) return;
+          const payload = raw as ApplyEditsProgressPayload;
+          handleApplyEditsProgress(
+            payload,
+            draftEditsStoreRef.current,
+            imageMetadataStoreRef.current,
+            setAppState,
+          );
+        },
+      );
+
       unlisteners.push(
         unlistenFound,
         unlistenComplete,
@@ -505,6 +522,7 @@ export function useMediaLibrary(
         unlistenWorkerError,
         unlistenApplyStarted,
         unlistenApplyProgress,
+        unlistenMetadataApplyProgress,
       );
 
       // All listeners registered — unblock any startScan that was awaiting.
@@ -591,9 +609,9 @@ export function useMediaLibrary(
       const cur = stateRef.current;
       if (cur.kind === "loaded") {
         api
-          .invoke("save_draft_edits_typed", {
+          .invoke("save_metadata_draft_edits", {
             folderPath: cur.folder,
-            data: next,
+            data: legacyDraftsToMetadataDrafts(next),
           })
           .catch(console.error);
       }
@@ -730,11 +748,16 @@ export function useMediaLibrary(
    * on the file as it now is rather than on the original sent value.
    */
   const revertVerifyOutcome = useCallback(
-    (fileRelativePath: string, tag: string, observedRaw: Variant | null) => {
+    (
+      fileRelativePath: string,
+      tag: string,
+      observedRaw: ImageMetadataEntry | null,
+    ) => {
+      const observedVariant = metadataEntryToVariant(observedRaw);
       const newEdit: DraftEdit =
-        observedRaw === null
+        observedVariant === null
           ? { value: null, intent: "Delete" }
-          : { value: observedRaw, intent: "Set" };
+          : { value: observedVariant, intent: "Set" };
       draftEditsStoreRef.current.setTag(fileRelativePath, tag, newEdit);
       setAppState((prev) => {
         if (prev.kind !== "loaded") return prev;
@@ -849,7 +872,9 @@ export function useMediaLibrary(
    * Callers can use the result for a final summary; state is already current.
    */
   const applyDraftEdits = useCallback(
-    async (fileRelativePath?: string | string[]): Promise<ApplyEditsResult> => {
+    async (
+      fileRelativePath?: string | string[],
+    ): Promise<MetadataApplyEditsResult> => {
       const current = stateRef.current;
       if (current.kind !== "loaded") {
         return { applied: [], failed: [], fresh_metadata: {} };
@@ -870,10 +895,10 @@ export function useMediaLibrary(
       }
 
       try {
-        const result = (await api.invoke("apply_draft_edits_cmd", {
+        const result = (await api.invoke("apply_metadata_draft_edits_cmd", {
           folderPath: current.folder,
           relPaths,
-        })) as ApplyEditsResult;
+        })) as MetadataApplyEditsResult;
         return result;
       } finally {
         // Always clear the in-flight modal regardless of resolution path
@@ -969,7 +994,10 @@ function handleApplyEditsProgress(
   // Apply per-file changes incrementally so the UI reflects file/disk
   // state in real time and a crash mid-operation leaves coherent state.
   if (payload.fresh_metadata) {
-    imageMetadataStore.set(payload.relative_path, payload.fresh_metadata);
+    imageMetadataStore.set(
+      payload.relative_path,
+      normalizeMetadataFromTauri(payload.fresh_metadata),
+    );
   }
 
   // Phase 8.1: prune drafts per-tag based on the backend's verification
