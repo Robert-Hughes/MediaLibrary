@@ -13,9 +13,10 @@
 //! No AI — never AI-merge place names. No reverse-geocoding here;
 //! Group G only mirrors what is already in metadata.
 
-use super::{collapse_whitespace_single_line, GroupOutput, LocationContext, LocationInput};
-use crate::draft_edits::{DraftEdit, EditIntent};
-use crate::scanner::Variant;
+use super::{
+    collapse_whitespace_single_line, text_edit, GroupOutput, LocationContext, LocationInput,
+};
+use crate::draft_edits::MetadataDraftEdit;
 use std::collections::HashMap;
 
 pub const LOCATION_TARGET_TAGS: &[&str] = &[
@@ -155,7 +156,7 @@ pub fn normalise_location(input: &LocationInput) -> LocationOutcome {
         ),
     ];
 
-    let mut edits: HashMap<String, DraftEdit> = HashMap::new();
+    let mut edits: HashMap<String, MetadataDraftEdit> = HashMap::new();
     let mut conflicts: u32 = 0;
     for (xmp_key, iptc_key, xmp, iptc, canon) in pairs {
         let result = process_pair(xmp, iptc, canon);
@@ -163,11 +164,7 @@ pub fn normalise_location(input: &LocationInput) -> LocationOutcome {
             conflicts += 1;
         }
         if let Some(canonical) = result.canonical {
-            let edit = DraftEdit {
-                value: Some(Variant::String(canonical)),
-                intent: EditIntent::Set,
-                display: None,
-            };
+            let edit = text_edit(canonical);
             edits.insert(xmp_key.to_string(), edit.clone());
             edits.insert(iptc_key.to_string(), edit);
         }
@@ -186,11 +183,12 @@ pub fn normalise_location(input: &LocationInput) -> LocationOutcome {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::metadata_value::MetadataValue;
 
     fn s(g: &GroupOutput, k: &str) -> String {
         match &g.edits.get(k).unwrap().value {
-            Some(Variant::String(v)) => v.clone(),
-            other => panic!("expected String, got {:?}", other),
+            Some(MetadataValue::Text(v)) => v.clone(),
+            other => panic!("expected text value, got {:?}", other),
         }
     }
 

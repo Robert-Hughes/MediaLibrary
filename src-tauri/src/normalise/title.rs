@@ -14,11 +14,10 @@
 //! prompt enforces title-case when the generation path fires.
 
 use super::{
-    collapse_whitespace_single_line, truncate_at_word, AiCallUsage, GroupOutput, NormaliseAiClient,
-    NormaliseAiError, TitleGenPrompt, TitleInput,
+    collapse_whitespace_single_line, text_edit, truncate_at_word, AiCallUsage, GroupOutput,
+    NormaliseAiClient, NormaliseAiError, TitleGenPrompt, TitleInput,
 };
-use crate::draft_edits::{DraftEdit, EditIntent};
-use crate::scanner::Variant;
+use crate::draft_edits::MetadataDraftEdit;
 use std::collections::HashMap;
 
 pub const TITLE_TARGET_TAGS: &[&str] = &["XMP-dc:Title", "IPTC:ObjectName"];
@@ -159,26 +158,12 @@ pub async fn normalise_title(
         };
     }
     let object = truncate_at_word(&canonical, IPTC_OBJECT_NAME_LIMIT);
-    let mut edits = HashMap::new();
+    let mut edits: HashMap<String, MetadataDraftEdit> = HashMap::new();
     if input.title.as_deref() != Some(canonical.as_str()) {
-        edits.insert(
-            "XMP-dc:Title".to_string(),
-            DraftEdit {
-                value: Some(Variant::String(canonical.clone())),
-                intent: EditIntent::Set,
-                display: None,
-            },
-        );
+        edits.insert("XMP-dc:Title".to_string(), text_edit(canonical.clone()));
     }
     if input.object_name.as_deref() != Some(object.as_str()) {
-        edits.insert(
-            "IPTC:ObjectName".to_string(),
-            DraftEdit {
-                value: Some(Variant::String(object)),
-                intent: EditIntent::Set,
-                display: None,
-            },
-        );
+        edits.insert("IPTC:ObjectName".to_string(), text_edit(object));
     }
     TitleOutcome {
         output: if edits.is_empty() {
@@ -195,12 +180,13 @@ pub async fn normalise_title(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::metadata_value::MetadataValue;
     use crate::normalise::DescriptionMergePrompt;
 
     fn s(g: &GroupOutput, k: &str) -> String {
         match &g.edits.get(k).unwrap().value {
-            Some(Variant::String(v)) => v.clone(),
-            other => panic!("expected String, got {:?}", other),
+            Some(MetadataValue::Text(v)) => v.clone(),
+            other => panic!("expected text value, got {:?}", other),
         }
     }
 

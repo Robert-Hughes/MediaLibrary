@@ -11,9 +11,7 @@
 //!      appended to, so the longest is usually the most complete.
 //!   3. All target empty → no drafts.
 
-use super::{collapse_whitespace_single_line, CopyrightInput, GroupOutput};
-use crate::draft_edits::{DraftEdit, EditIntent};
-use crate::scanner::Variant;
+use super::{collapse_whitespace_single_line, text_edit, CopyrightInput, GroupOutput};
 use std::collections::HashMap;
 
 pub const COPYRIGHT_TARGET_TAGS: &[&str] =
@@ -54,11 +52,7 @@ pub fn normalise_copyright(input: &CopyrightInput) -> Option<GroupOutput> {
     if copyright_is_normalised(input, &canonical) {
         return None;
     }
-    let edit = DraftEdit {
-        value: Some(Variant::String(canonical.clone())),
-        intent: EditIntent::Set,
-        display: None,
-    };
+    let edit = text_edit(canonical.clone());
     let mut edits = HashMap::new();
     for tag in COPYRIGHT_TARGET_TAGS {
         edits.insert((*tag).to_string(), edit.clone());
@@ -69,11 +63,12 @@ pub fn normalise_copyright(input: &CopyrightInput) -> Option<GroupOutput> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::metadata_value::MetadataValue;
 
     fn s(g: &GroupOutput, k: &str) -> String {
         match &g.edits.get(k).unwrap().value {
-            Some(Variant::String(v)) => v.clone(),
-            other => panic!("expected String, got {:?}", other),
+            Some(MetadataValue::Text(v)) => v.clone(),
+            other => panic!("expected text value, got {:?}", other),
         }
     }
 

@@ -4,9 +4,8 @@
 //! (no name normalisation). Union of all non-empty sources, dedup
 //! case-sensitive, preserve first-seen order.
 
-use super::{bag_edit, CreatorInput, GroupOutput};
-use crate::draft_edits::{DraftEdit, EditIntent};
-use crate::scanner::Variant;
+use super::{bag_edit, text_edit, CreatorInput, GroupOutput};
+use crate::draft_edits::MetadataDraftEdit;
 use std::collections::{HashMap, HashSet};
 
 /// Target tags written by Group E. Coherent-replacement rule (plan §4).
@@ -73,15 +72,11 @@ pub fn normalise_creator(input: &CreatorInput) -> Option<GroupOutput> {
         return None;
     }
 
-    let mut edits: HashMap<String, DraftEdit> = HashMap::new();
+    let mut edits: HashMap<String, MetadataDraftEdit> = HashMap::new();
     edits.insert("XMP-dc:Creator".to_string(), bag_edit(&canonical));
     edits.insert(
         "IFD0:Artist".to_string(),
-        DraftEdit {
-            value: Some(Variant::String(canonical.join(ARTIST_SEPARATOR))),
-            intent: EditIntent::Set,
-            display: None,
-        },
+        text_edit(canonical.join(ARTIST_SEPARATOR)),
     );
     edits.insert("IPTC:By-line".to_string(), bag_edit(&canonical));
 
@@ -91,24 +86,25 @@ pub fn normalise_creator(input: &CreatorInput) -> Option<GroupOutput> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::metadata_value::MetadataValue;
 
     fn list(g: &GroupOutput, key: &str) -> Vec<String> {
         match &g.edits.get(key).unwrap().value {
-            Some(Variant::List(items)) => items
+            Some(MetadataValue::List { items, .. }) => items
                 .iter()
                 .map(|v| match v {
-                    Variant::String(s) => s.clone(),
-                    _ => panic!("expected String"),
+                    MetadataValue::Text(s) => s.clone(),
+                    _ => panic!("expected text value"),
                 })
                 .collect(),
-            other => panic!("expected List for {}, got {:?}", key, other),
+            other => panic!("expected list for {}, got {:?}", key, other),
         }
     }
 
     fn string(g: &GroupOutput, key: &str) -> String {
         match &g.edits.get(key).unwrap().value {
-            Some(Variant::String(s)) => s.clone(),
-            other => panic!("expected String for {}, got {:?}", key, other),
+            Some(MetadataValue::Text(s)) => s.clone(),
+            other => panic!("expected text value for {}, got {:?}", key, other),
         }
     }
 

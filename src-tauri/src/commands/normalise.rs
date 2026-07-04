@@ -123,12 +123,12 @@ struct NormaliseEstimateErrorPayload {
 fn count_overwrites_for_group(
     group: normalise::NormaliseGroup,
     inputs: &normalise::GroupInputs,
-    edits: &std::collections::HashMap<String, crate::draft_edits::DraftEdit>,
+    edits: &std::collections::HashMap<String, crate::draft_edits::MetadataDraftEdit>,
     fires_description_ai: bool,
     fires_title_ai: bool,
 ) -> u32 {
     use crate::draft_edits::EditIntent;
-    use crate::scanner::Variant;
+    use crate::metadata_value::MetadataValue;
     use normalise::NormaliseGroup as G;
 
     let assume_ai = match group {
@@ -150,7 +150,7 @@ fn count_overwrites_for_group(
             Some(e) => match e.intent {
                 EditIntent::Delete => 1,
                 EditIntent::Set => match e.value.as_ref() {
-                    Some(Variant::String(s)) if s == current => 0,
+                    Some(MetadataValue::Text(s)) if s == current => 0,
                     None => 0,
                     _ => 1,
                 },
@@ -171,12 +171,12 @@ fn count_overwrites_for_group(
             Some(e) => match e.intent {
                 EditIntent::Delete => 1,
                 EditIntent::Set => match e.value.as_ref() {
-                    Some(Variant::List(items)) => {
+                    Some(MetadataValue::List { items, .. }) => {
                         let same = items.len() == current.len()
                             && items
                                 .iter()
                                 .zip(current.iter())
-                                .all(|(v, c)| matches!(v, Variant::String(s) if s == c));
+                                .all(|(v, c)| matches!(v, MetadataValue::Text(s) if s == c));
                         if same {
                             0
                         } else {
@@ -706,7 +706,7 @@ pub async fn normalise_metadata_cmd(
             if all_noop {
                 emitter.progress(current, total, &rel, kind.as_wire(), Some(&detail), None);
             } else {
-                emitter.progress(
+                emitter.progress_metadata(
                     current,
                     total,
                     &rel,
@@ -727,7 +727,7 @@ pub async fn normalise_metadata_cmd(
             summary.n_skipped_all_normalised += 1;
             emitter.progress(current, total, &rel, "ok", None, None);
         } else {
-            emitter.progress(current, total, &rel, "ok", None, Some(&edits));
+            emitter.progress_metadata(current, total, &rel, "ok", None, Some(&edits));
         }
         succeeded.push(rel);
     }

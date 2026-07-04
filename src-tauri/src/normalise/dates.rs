@@ -17,9 +17,8 @@
 //! preserved when any source supplies it, optional timezone offset
 //! preserved when any EXIF Offset* tag supplies it.
 
-use super::{DatesInput, GroupOutput};
-use crate::draft_edits::{DraftEdit, EditIntent};
-use crate::scanner::Variant;
+use super::{text_edit, DatesInput, GroupOutput};
+use crate::draft_edits::MetadataDraftEdit;
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
@@ -183,7 +182,7 @@ fn parse_iptc_date_time(
 
 #[derive(Debug, Clone, Default)]
 struct DateSubgroupResult {
-    edits: HashMap<String, DraftEdit>,
+    edits: HashMap<String, MetadataDraftEdit>,
     conflict: bool,
 }
 
@@ -234,40 +233,15 @@ fn process_date_subgroup(
     if existing_exif != Some(&canonical) {
         edits.insert(
             exif_target_key.to_string(),
-            DraftEdit {
-                value: Some(Variant::String(canonical_full.clone())),
-                intent: EditIntent::Set,
-                display: None,
-            },
+            text_edit(canonical_full.clone()),
         );
     }
     if existing_xmp != Some(&canonical) {
-        edits.insert(
-            xmp_target_key.to_string(),
-            DraftEdit {
-                value: Some(Variant::String(canonical_full)),
-                intent: EditIntent::Set,
-                display: None,
-            },
-        );
+        edits.insert(xmp_target_key.to_string(), text_edit(canonical_full));
     }
     if existing_iptc != Some(&canonical) {
-        edits.insert(
-            iptc_date_key.to_string(),
-            DraftEdit {
-                value: Some(Variant::String(canonical_date)),
-                intent: EditIntent::Set,
-                display: None,
-            },
-        );
-        edits.insert(
-            iptc_time_key.to_string(),
-            DraftEdit {
-                value: Some(Variant::String(canonical_time)),
-                intent: EditIntent::Set,
-                display: None,
-            },
-        );
+        edits.insert(iptc_date_key.to_string(), text_edit(canonical_date));
+        edits.insert(iptc_time_key.to_string(), text_edit(canonical_time));
     }
 
     DateSubgroupResult { edits, conflict }
@@ -384,7 +358,7 @@ fn parse_filename_for_h1(stem: &str) -> Option<(ParsedDateTime, bool)> {
 
 /// Run Group H (Dates — H1 + H2) normalisation for one image.
 pub fn normalise_dates(input: &DatesInput) -> DatesOutcome {
-    let mut edits: HashMap<String, DraftEdit> = HashMap::new();
+    let mut edits: HashMap<String, MetadataDraftEdit> = HashMap::new();
     let mut n_conflict: u32 = 0;
     let mut n_unparseable: u32 = 0;
     let mut n_from_filename: u32 = 0;
@@ -534,11 +508,12 @@ pub fn normalise_dates(input: &DatesInput) -> DatesOutcome {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::metadata_value::MetadataValue;
 
     fn s(g: &GroupOutput, k: &str) -> String {
         match &g.edits.get(k).unwrap().value {
-            Some(Variant::String(v)) => v.clone(),
-            other => panic!("expected String for {}, got {:?}", k, other),
+            Some(MetadataValue::Text(v)) => v.clone(),
+            other => panic!("expected text value for {}, got {:?}", k, other),
         }
     }
 

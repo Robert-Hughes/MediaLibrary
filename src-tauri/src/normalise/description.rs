@@ -17,11 +17,10 @@
 //!      the AI client is absent or the call errors.
 
 use super::{
-    collapse_whitespace_single_line, truncate_at_word, AiCallUsage, DescriptionInput,
+    collapse_whitespace_single_line, text_edit, truncate_at_word, AiCallUsage, DescriptionInput,
     DescriptionMergePrompt, GroupOutput, NormaliseAiClient, NormaliseAiError,
 };
-use crate::draft_edits::{DraftEdit, EditIntent};
-use crate::scanner::Variant;
+use crate::draft_edits::MetadataDraftEdit;
 use std::collections::HashMap;
 
 pub const DESCRIPTION_TARGET_TAGS: &[&str] = &[
@@ -264,35 +263,23 @@ pub async fn normalise_description(
     let projection_image = ascii_fold(&canonical);
     let projection_caption = project_caption_abstract(&canonical, input.iptc_charset_is_utf8);
 
-    let mut edits: HashMap<String, DraftEdit> = HashMap::new();
+    let mut edits: HashMap<String, MetadataDraftEdit> = HashMap::new();
     if input.description.as_deref() != Some(canonical.as_str()) {
         edits.insert(
             "XMP-dc:Description".to_string(),
-            DraftEdit {
-                value: Some(Variant::String(canonical.clone())),
-                intent: EditIntent::Set,
-                display: None,
-            },
+            text_edit(canonical.clone()),
         );
     }
     if input.image_description.as_deref() != Some(projection_image.as_str()) {
         edits.insert(
             "IFD0:ImageDescription".to_string(),
-            DraftEdit {
-                value: Some(Variant::String(projection_image)),
-                intent: EditIntent::Set,
-                display: None,
-            },
+            text_edit(projection_image),
         );
     }
     if input.caption_abstract.as_deref() != Some(projection_caption.as_str()) {
         edits.insert(
             "IPTC:Caption-Abstract".to_string(),
-            DraftEdit {
-                value: Some(Variant::String(projection_caption)),
-                intent: EditIntent::Set,
-                display: None,
-            },
+            text_edit(projection_caption),
         );
     }
 
@@ -313,11 +300,12 @@ pub async fn normalise_description(
 mod tests {
     use super::super::{LocationContext, TitleGenPrompt};
     use super::*;
+    use crate::metadata_value::MetadataValue;
 
     fn s(g: &GroupOutput, k: &str) -> String {
         match &g.edits.get(k).unwrap().value {
-            Some(Variant::String(v)) => v.clone(),
-            other => panic!("expected String for {}, got {:?}", k, other),
+            Some(MetadataValue::Text(v)) => v.clone(),
+            other => panic!("expected text value for {}, got {:?}", k, other),
         }
     }
 
