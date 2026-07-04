@@ -3,10 +3,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import {
-  StructEditor,
-  initialObjectFrom,
-} from "../components/editors/StructEditor";
+import { StructEditor } from "../components/editors/StructEditor";
+import { initialObjectFrom } from "../components/editors/editorHelpers";
 
 beforeEach(() => cleanup());
 

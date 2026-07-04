@@ -3,13 +3,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { GpsEditor } from "../components/editors/GpsEditor";
 import {
-  GpsEditor,
   gpsGroupFor,
   parseDecimalDegrees,
   parseHemisphere,
   decimalToDms,
-} from "../components/editors/GpsEditor";
+} from "../components/editors/editorHelpers";
 
 const exampleGroup = {
   latitudeKey: "GPS:GPSLatitude",

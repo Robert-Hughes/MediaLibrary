@@ -15,51 +15,8 @@
 // Also exported from here so `NewPropertyDialog` can render the same banner
 // for the "type the key first" flow.
 
-import type { TagInfo, TagKind } from "../../types";
-
-/**
- * Friendly one-line description of what kind of value a tag expects.
- * Mirrors METADATA_FORMATS_DESIGN.md §5 TagKind table.
- */
-export function describeKind(kind: TagKind): string {
-  switch (kind.kind) {
-    case "Text":
-      return "Text";
-    case "LangAlt":
-      return "Language-alternative text (multi-language)";
-    case "Integer": {
-      const { min, max } = kind.data;
-      const bounds =
-        (min !== null && min !== undefined) ||
-        (max !== null && max !== undefined)
-          ? ` (${min ?? "—"} … ${max ?? "—"})`
-          : "";
-      return `Integer${bounds}`;
-    }
-    case "Real":
-      return "Real number";
-    case "Rational":
-      return "Rational number";
-    case "Boolean":
-      return "Boolean (true/false)";
-    case "DateTime":
-      return "Date/time";
-    case "Enum":
-      return `Enum (${kind.data.options.length} options)`;
-    case "Bag":
-      return `Bag — unordered list of ${describeKind(kind.data).toLowerCase()}`;
-    case "Seq":
-      return `Seq — ordered list of ${describeKind(kind.data).toLowerCase()}`;
-    case "Alt":
-      return `Alt — alternatives of ${describeKind(kind.data).toLowerCase()}`;
-    case "Struct":
-      return "Struct (nested object)";
-    case "Binary":
-      return "Binary (not editable)";
-    case "Unknown":
-      return "Unknown type";
-  }
-}
+import type { TagInfo } from "../../types";
+import { describeKind } from "./editorHelpers";
 
 export type EditorMetaSource =
   | { kind: "schema"; tag: TagInfo; override?: string }

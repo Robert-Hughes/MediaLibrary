@@ -5,16 +5,20 @@
  * once without spinning up the full describe-flow harness.
  */
 import { describe, it, expect } from "vitest";
-import { friendlyFailureLabel } from "../components/DescribeProgressDialog";
+import { friendlyDescribeFailureLabel } from "../components/batchHelpers";
 
-describe("friendlyFailureLabel", () => {
+describe("friendlyDescribeFailureLabel", () => {
   it("maps known backend kinds to short human-readable labels", () => {
-    expect(friendlyFailureLabel("decode")).toBe("Could not decode image");
-    expect(friendlyFailureLabel("http")).toBe("API request failed");
-    expect(friendlyFailureLabel("network")).toBe("Network error");
-    expect(friendlyFailureLabel("incomplete")).toBe("Response was truncated");
-    expect(friendlyFailureLabel("refused")).toBe("Refused by model");
-    expect(friendlyFailureLabel("bad_json")).toBe(
+    expect(friendlyDescribeFailureLabel("decode")).toBe(
+      "Could not decode image",
+    );
+    expect(friendlyDescribeFailureLabel("http")).toBe("API request failed");
+    expect(friendlyDescribeFailureLabel("network")).toBe("Network error");
+    expect(friendlyDescribeFailureLabel("incomplete")).toBe(
+      "Response was truncated",
+    );
+    expect(friendlyDescribeFailureLabel("refused")).toBe("Refused by model");
+    expect(friendlyDescribeFailureLabel("bad_json")).toBe(
       "Could not parse model response",
     );
   });
@@ -23,7 +27,7 @@ describe("friendlyFailureLabel", () => {
     // Regression: usage_parse is the one kind where the model returned
     // a usable description but cost reporting failed — the label must
     // not look like a hard failure.
-    expect(friendlyFailureLabel("usage_parse")).toMatch(
+    expect(friendlyDescribeFailureLabel("usage_parse")).toMatch(
       /Description received but token usage could not be measured/,
     );
   });

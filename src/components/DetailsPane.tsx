@@ -9,7 +9,6 @@ import { HighlightedText } from "./HighlightedText";
 import { ContextMenu } from "./ContextMenu";
 import { TypedValueEditor } from "./editors/TypedValueEditor";
 import { useTagInfo } from "../hooks/useTagInfo";
-import { variantToDisplayString } from "../draft";
 import { DatatypeBadge } from "./DatatypeBadge";
 import {
   schemaDatatype,
@@ -18,6 +17,11 @@ import {
 } from "../utils/datatype";
 import { NewPropertyDialog } from "./NewPropertyDialog";
 import {
+  MetadataEntry,
+  groupImageMetadata,
+  getOsEntries,
+} from "../utils/detailsPaneHelpers";
+import {
   haystackContainsNormalized,
   normalizeListSearchQuery,
 } from "../utils/listSearchText";
@@ -25,14 +29,6 @@ import {
   confirmApplyEdits,
   confirmDiscardEdits,
 } from "../utils/applyDiscardPrompts";
-
-/**
- * Format a Variant for display.  Single source of truth for the legacy
- * comma-joined / key:value-joined rendering.  The raw `Variant` is the
- * source of truth for editing — never seed an editor from the string
- * output (that was the source of the keywords-as-CSV corruption bug).
- */
-const formatVariant = variantToDisplayString;
 
 interface Props {
   photo: PhotoInfo;
@@ -79,78 +75,6 @@ interface Props {
    * agnostic about how the photo is addressed.
    */
   onShowInFileExplorer?: () => void;
-}
-
-/** Format an OS timestamp (seconds since epoch, from Rust) into a readable string. */
-function formatTimestamp(ts: number | null): string {
-  if (ts == null) return "—";
-  return new Date(ts * 1000).toLocaleString();
-}
-
-/**
- * OS-level metadata entries (always available from the directory walk).
- */
-function getOsEntries(photo: PhotoInfo): Array<[string, string, string]> {
-  return [
-    ["Filename", photo.filename, "filename"],
-    ["Relative Path", photo.relative_path, "relative_path"],
-    ["Date Modified", formatTimestamp(photo.date_modified), "date_modified"],
-    ["Date Created", formatTimestamp(photo.date_created), "date_created"],
-  ];
-}
-
-/** Group key prefix (e.g. "IFD0" from "IFD0:Make"). Keys without a colon go in "Other". */
-function extractPrefix(key: string): string {
-  const colon = key.indexOf(":");
-  return colon > 0 ? key.slice(0, colon) : "Other";
-}
-
-export interface MetadataEntry {
-  label: string;
-  value: string;
-  /** Original metadata key (e.g. "IFD0:Make"); used for search, not always shown. */
-  fullKey: string;
-}
-
-export interface MetadataGroup {
-  prefix: string;
-  entries: MetadataEntry[];
-}
-
-/**
- * Group image metadata entries by their key prefix, preserving a stable order.
- * Returns groups sorted alphabetically by prefix, with "Other" last.
- */
-function groupImageMetadata(
-  metadata: Record<string, Variant>,
-): MetadataGroup[] {
-  const grouped = new Map<string, MetadataEntry[]>();
-
-  const sortedKeys = Object.keys(metadata).sort((a, b) => a.localeCompare(b));
-
-  for (const key of sortedKeys) {
-    const prefix = extractPrefix(key);
-    if (!grouped.has(prefix)) grouped.set(prefix, []);
-    const label = key.includes(":") ? key.slice(key.indexOf(":") + 1) : key;
-    grouped.get(prefix)!.push({
-      label,
-      value: formatVariant(metadata[key]),
-      fullKey: key,
-    });
-  }
-
-  const groups: MetadataGroup[] = [];
-  const sortedPrefixes = Array.from(grouped.keys()).sort((a, b) => {
-    if (a === "Other") return 1;
-    if (b === "Other") return -1;
-    return a.localeCompare(b);
-  });
-
-  for (const prefix of sortedPrefixes) {
-    groups.push({ prefix, entries: grouped.get(prefix)! });
-  }
-
-  return groups;
 }
 
 function detailsRowMatchesSearch(
@@ -870,12 +794,3 @@ export function DetailsPane({
     </div>
   );
 }
-
-// Export for unit testing
-export {
-  groupImageMetadata,
-  formatVariant,
-  formatTimestamp,
-  getOsEntries,
-  extractPrefix,
-};

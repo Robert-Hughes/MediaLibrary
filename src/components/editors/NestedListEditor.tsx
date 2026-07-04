@@ -262,12 +262,3 @@ export function NestedListEditor({
     </div>
   );
 }
-
-/** Coerce whatever the caller has into a Variant[] suitable for editing. */
-export function initialItemsFromVariant(value: Variant | undefined): Variant[] {
-  if (Array.isArray(value)) return value.slice();
-  if (value === null || value === undefined) return [];
-  // Single non-list value treated as a one-item list (matches verifier's
-  // scalar↔list promotion).
-  return [value];
-}

@@ -3,10 +3,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import {
-  LangAltEditor,
-  initialLangsFrom,
-} from "../components/editors/LangAltEditor";
+import { LangAltEditor } from "../components/editors/LangAltEditor";
+import { initialLangsFrom } from "../components/editors/editorHelpers";
 
 beforeEach(() => cleanup());
 

@@ -24,19 +24,28 @@ import { useState } from "react";
 import { useTagInfo } from "../../hooks/useTagInfo";
 import type { DraftEdit, TagInfo, TagKind, Variant } from "../../types";
 import { ValueEditDialog } from "../ValueEditDialog";
-import { BagEditor, initialItemsFrom, type BagInnerKind } from "./BagEditor";
-import { EnumEditor, initialCodeFrom } from "./EnumEditor";
-import { LangAltEditor, initialLangsFrom } from "./LangAltEditor";
+import { BagEditor, type BagInnerKind } from "./BagEditor";
+import { EnumEditor } from "./EnumEditor";
+import { LangAltEditor } from "./LangAltEditor";
 import { NumericEditor } from "./NumericEditor";
 import { RationalEditor } from "./RationalEditor";
 import { BooleanEditor } from "./BooleanEditor";
 import { DateTimeEditor } from "./DateTimeEditor";
-import { GpsEditor, parseDecimalDegrees, parseHemisphere } from "./GpsEditor";
+import { GpsEditor } from "./GpsEditor";
 import { FlashEditor } from "./FlashEditor";
-import { StructEditor, initialObjectFrom } from "./StructEditor";
+import { StructEditor } from "./StructEditor";
 import { READ_ONLY_TOOLTIP } from "./readOnlyMessages";
-import { NestedListEditor, initialItemsFromVariant } from "./NestedListEditor";
-import { variantToDisplayString } from "../../draft";
+import { NestedListEditor } from "./NestedListEditor";
+import {
+  initialItemsFrom,
+  initialCodeFrom,
+  initialLangsFrom,
+  parseDecimalDegrees,
+  parseHemisphere,
+  initialObjectFrom,
+  initialItemsFromVariant,
+} from "./editorHelpers";
+
 import {
   gpsTagGroup,
   isFlashTag,
@@ -485,9 +494,6 @@ function buildSource(
   if (!tag) return { kind: "unknown" };
   return { kind: "schema", tag, override };
 }
-
-/** Pretty-print a Variant for the "initialString" prop fallback. */
-export const fallbackString = variantToDisplayString;
 
 // Local Unknown-tag editor: same shape as ValueEditDialog but with a banner
 // warning the user the schema doesn't describe this tag.  Phase 8.3.

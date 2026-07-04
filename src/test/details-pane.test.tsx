@@ -18,14 +18,14 @@ import {
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, beforeEach, vi } from "vitest";
+import { DetailsPane } from "../components/DetailsPane";
 import {
-  DetailsPane,
   groupImageMetadata,
   formatVariant,
   formatTimestamp,
   getOsEntries,
   extractPrefix,
-} from "../components/DetailsPane";
+} from "../utils/detailsPaneHelpers";
 import { makePhoto } from "./factories";
 import type { DraftEdit, Variant } from "../types";
 import { _clearTagInfoCache, _setTagInfoCacheEntry } from "../hooks/useTagInfo";

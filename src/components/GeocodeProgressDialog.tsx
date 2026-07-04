@@ -19,7 +19,6 @@
  * breakdown.
  */
 import type {
-  BatchFailureKind,
   GeocodeFailure,
   GeocodeProgressState,
   GeocodeSummary,
@@ -28,7 +27,7 @@ import { BatchJobDialog } from "./BatchJobDialog";
 import { BatchSummaryCountersRow } from "./BatchSummaryCountersRow";
 import { RunningProgressPanel } from "./RunningProgressPanel";
 import { OverwriteNotice } from "./OverwriteNotice";
-import { assertExhaustive } from "../utils/assertExhaustive";
+import { friendlyGeocodeFailureLabel } from "./batchHelpers";
 
 export interface GeocodeOverwriteInfo {
   existingCount: number;
@@ -47,49 +46,6 @@ interface Props {
   onConfirm: () => void;
   onCancel: () => void;
   onClose: () => void;
-}
-
-/**
- * Map the backend's `kind` strings to a short human label. Mirrors the
- * AI-description equivalent so the failure-list visual idiom is
- * identical across both flows.
- */
-export function friendlyFailureLabel(kind: BatchFailureKind): string {
-  switch (kind) {
-    case "no_gps":
-      return "No GPS coordinates";
-    case "nominatim_empty":
-      return "Nominatim returned no usable address";
-    case "http":
-      return "Network request failed";
-    case "network":
-      return "Network error";
-    case "cache_io":
-      return "Could not read or write the geocache file";
-    case "cancelled":
-      return "Cancelled";
-    case "command_failed":
-      return "Geocode command failed to start";
-    // Describe-only kinds; geocode should never emit them, but the union
-    // is shared so list them for exhaustiveness.
-    case "decode":
-    case "incomplete":
-    case "refused":
-    case "bad_json":
-    case "usage_parse":
-    case "preflight_failed":
-      return kind;
-    // Normaliser-only kinds; geocode should never emit them.
-    case "ai_call_failed":
-    case "ai_schema_invalid":
-    case "ai_rate_limited":
-    case "audit_log_io":
-    case "internal":
-    case "ai_key_missing":
-      return kind;
-    default:
-      return assertExhaustive(kind);
-  }
 }
 
 function phaseTitle(state: GeocodeProgressState): string {
@@ -115,7 +71,8 @@ function FailureList({ failures }: { failures: GeocodeFailure[] }) {
       <ul style={{ marginTop: 6, paddingLeft: 18, fontSize: 12 }}>
         {failures.map((f) => (
           <li key={f.relativePath} title={`${f.kind}: ${f.detail}`}>
-            <strong>{f.relativePath}</strong>: {friendlyFailureLabel(f.kind)}
+            <strong>{f.relativePath}</strong>:{" "}
+            {friendlyGeocodeFailureLabel(f.kind)}
             {f.detail && (
               <>
                 {" — "}

@@ -19,6 +19,14 @@
 import { useState } from "react";
 import type { DraftEdit } from "../../types";
 import { READ_ONLY_TOOLTIP } from "./readOnlyMessages";
+import {
+  FlashFields,
+  decodeFlashCode,
+  encodeFlashFields,
+  describeFlashCode,
+  MODE_LABELS,
+  RETURN_LABELS,
+} from "./editorHelpers";
 
 interface Props {
   propertyKey: string;
@@ -28,66 +36,6 @@ interface Props {
   headerHint?: React.ReactNode;
   readOnly?: boolean;
 }
-
-interface FlashFields {
-  fired: boolean;
-  returnStatus: 0 | 2 | 3; // skip 1 (reserved)
-  mode: 0 | 1 | 2 | 3;
-  noFunction: boolean;
-  redEye: boolean;
-}
-
-export function decodeFlashCode(code: number): FlashFields {
-  return {
-    fired: (code & 0b1) !== 0,
-    returnStatus: ((code >> 1) & 0b11) as 0 | 2 | 3,
-    mode: ((code >> 3) & 0b11) as 0 | 1 | 2 | 3,
-    noFunction: (code & 0b100000) !== 0,
-    redEye: (code & 0b1000000) !== 0,
-  };
-}
-
-export function encodeFlashFields(f: FlashFields): number {
-  return (
-    (f.fired ? 1 : 0) |
-    ((f.returnStatus & 0b11) << 1) |
-    ((f.mode & 0b11) << 3) |
-    (f.noFunction ? 0b100000 : 0) |
-    (f.redEye ? 0b1000000 : 0)
-  );
-}
-
-/**
- * Compose a human-readable description from the field bag — used for the
- * DraftEdit.display string so the pending-change cell shows "Flash fired,
- * Auto, Red-eye reduction" instead of a bare integer code.  Roughly mirrors
- * exiftool's PrintConv for the Flash tag.
- */
-export function describeFlashCode(f: FlashFields): string {
-  const parts: string[] = [];
-  if (f.noFunction) {
-    parts.push("No flash function");
-  } else {
-    parts.push(f.fired ? "Fired" : "Did not fire");
-    if (f.mode !== 0) parts.push(MODE_LABELS[f.mode]);
-    if (f.returnStatus !== 0) parts.push(RETURN_LABELS[f.returnStatus]);
-    if (f.redEye) parts.push("Red-eye reduction");
-  }
-  return parts.join(", ");
-}
-
-const MODE_LABELS: Record<number, string> = {
-  0: "Unknown",
-  1: "Compulsory firing",
-  2: "Compulsory suppression",
-  3: "Auto",
-};
-
-const RETURN_LABELS: Record<number, string> = {
-  0: "No return detected",
-  2: "Return not detected",
-  3: "Return detected",
-};
 
 export function FlashEditor({
   propertyKey,
@@ -208,7 +156,3 @@ export function FlashEditor({
     </div>
   );
 }
-
-// Phase 8.2: matcher moved into src/metadata/tag_overrides.ts so all editor
-// overrides live in one file.  Re-exported here for backward compatibility.
-export { isFlashTag } from "../../metadata/tag_overrides";

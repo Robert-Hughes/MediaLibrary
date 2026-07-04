@@ -17,8 +17,9 @@
 
 import { useState } from "react";
 import type { DraftEdit } from "../../types";
-import { gpsTagGroup, type GpsTagGroup } from "../../metadata/tag_overrides";
+import type { GpsTagGroup } from "../../metadata/tag_overrides";
 import { READ_ONLY_TOOLTIP } from "./readOnlyMessages";
+import { decimalToDms } from "./editorHelpers";
 
 // Re-export so existing call sites that imported the type from here keep
 // working.  Phase 8.2 moved the override matcher itself into tag_overrides.ts.
@@ -252,85 +253,4 @@ export function GpsEditor({
       </div>
     </div>
   );
-}
-
-/**
- * Backward-compatible alias for the consolidated `gpsTagGroup`.
- * Kept so older imports (`gpsGroupFor`) still resolve.
- */
-export const gpsGroupFor = gpsTagGroup;
-
-/**
- * Format a decimal-degrees value plus hemisphere as exiftool's canonical
- * DMS display string, e.g. `51 deg 30' 26.16" N`.  Used for the
- * DraftEdit.display field so the pending-change cell shows the same form
- * the user would see in the read view (Pass A pretty output).
- */
-export function decimalToDms(
-  decimal: number,
-  hemisphere: "N" | "S" | "E" | "W",
-): string {
-  const abs = Math.abs(decimal);
-  const deg = Math.floor(abs);
-  const minFloat = (abs - deg) * 60;
-  const min = Math.floor(minFloat);
-  const sec = (minFloat - min) * 60;
-  const secStr = sec.toFixed(2).replace(/\.?0+$/, "");
-  return `${deg} deg ${min}' ${secStr}" ${hemisphere}`;
-}
-
-/**
- * Best-effort extraction of decimal-degrees latitude from a metadata value.
- * exiftool emits either a raw decimal number (Pass B / `-n`) or a
- * DMS-formatted string ("51 deg 30' 26.16\" N").  The frontend currently
- * sees only the Pass A display path; the conversion handles both.
- */
-export function parseDecimalDegrees(value: unknown): number | null {
-  if (typeof value === "number")
-    return Number.isFinite(value) ? Math.abs(value) : null;
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  // Try plain number first.
-  const asNum = Number(trimmed);
-  if (Number.isFinite(asNum)) return Math.abs(asNum);
-  // DMS: `51 deg 30' 26.16" N` (or `S/E/W`).  exiftool's default form.
-  const m = trimmed.match(
-    /^(\d+(?:\.\d+)?)\s*deg\s*(\d+(?:\.\d+)?)'\s*(\d+(?:\.\d+)?)"\s*([NSEW])?/,
-  );
-  if (m) {
-    const d = parseFloat(m[1]);
-    const min = parseFloat(m[2]);
-    const sec = parseFloat(m[3]);
-    return d + min / 60 + sec / 3600;
-  }
-  return null;
-}
-
-/**
- * Best-effort extraction of the hemisphere from a metadata value.  Falls
- * back to "N"/"E" when nothing parseable is found.
- */
-export function parseHemisphere(
-  value: unknown,
-  axis: "lat" | "lon",
-): "N" | "S" | "E" | "W" {
-  const fallback: "N" | "E" = axis === "lat" ? "N" : "E";
-  if (typeof value === "string") {
-    const upper = value.trim().toUpperCase();
-    if (axis === "lat" && (upper === "N" || upper === "S")) return upper;
-    if (axis === "lon" && (upper === "E" || upper === "W")) return upper;
-    // Look for trailing N/S/E/W in a DMS string.
-    const m = value.trim().match(/([NSEW])\s*$/i);
-    if (m) {
-      const ch = m[1].toUpperCase() as "N" | "S" | "E" | "W";
-      if (axis === "lat" && (ch === "N" || ch === "S")) return ch;
-      if (axis === "lon" && (ch === "E" || ch === "W")) return ch;
-    }
-  }
-  if (typeof value === "number") {
-    if (axis === "lat") return value < 0 ? "S" : "N";
-    return value < 0 ? "W" : "E";
-  }
-  return fallback;
 }

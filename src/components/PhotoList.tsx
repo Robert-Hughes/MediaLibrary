@@ -13,6 +13,7 @@ import {
 } from "../hooks/useColumnReorder";
 import { useRowSelection } from "../hooks/useRowSelection";
 import { PhotoListContextMenu } from "./PhotoListContextMenu";
+import { selectVisibleNeedingLoad } from "../utils/photoListHelpers";
 
 interface Props {
   photos: PhotoInfo[];
@@ -57,30 +58,6 @@ const MIN_ROW_HEIGHT = 44;
 const THUMBNAIL_CELL_GUTTER = 8;
 const PREVIEW_ASPECT_HEIGHT = 3;
 const PREVIEW_ASPECT_WIDTH = 4;
-
-/**
- * Return the visible paths that still need a thumbnail or metadata load,
- * in the iteration order of `visible` (which matches display top-to-bottom).
- *
- * Iterates `visible` directly — O(V), not O(total photos) — so a 30-row
- * scroll on a 10k-photo library doesn't scan the full list.
- */
-export function selectVisibleNeedingLoad(
-  visible: Iterable<string>,
-  thumbnails: { get: (path: string) => unknown },
-  imageMetadata: { get: (path: string) => unknown },
-): string[] {
-  const out: string[] = [];
-  for (const path of visible) {
-    if (
-      thumbnails.get(path) === "loading" ||
-      imageMetadata.get(path) === "loading"
-    ) {
-      out.push(path);
-    }
-  }
-  return out;
-}
 
 function buildGridTemplate(
   visibleColumns: VisibleColumn[],

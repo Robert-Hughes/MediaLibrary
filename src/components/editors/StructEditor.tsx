@@ -224,13 +224,3 @@ export function StructEditor({
     </div>
   );
 }
-
-/** Best-effort: turn whatever we have into an Object suitable for editing. */
-export function initialObjectFrom(
-  value: Variant | undefined,
-): Record<string, Variant> {
-  if (value && typeof value === "object" && !Array.isArray(value)) {
-    return value as Record<string, Variant>;
-  }
-  return {};
-}

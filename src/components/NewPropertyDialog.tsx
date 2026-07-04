@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useMemo } from "react";
 import { useTagInfo } from "../hooks/useTagInfo";
 import { useSchemaTagNames } from "../hooks/useSchemaTagNames";
-import { describeKind } from "./editors/EditorMetaHint";
+import { describeKind } from "./editors/editorHelpers";
 import { filterTagsByFilename } from "../utils/tagGroupApplicability";
 
 interface Props {

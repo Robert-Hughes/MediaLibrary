@@ -12,7 +12,6 @@
  * body frame and Escape handling live there.
  */
 import type {
-  BatchFailureKind,
   NormaliseEstimate,
   NormaliseGroup,
   NormaliseSummary,
@@ -22,51 +21,7 @@ import type { NormaliseProgressState } from "../hooks/useNormaliseMetadata";
 import { BatchJobDialog } from "./BatchJobDialog";
 import { BatchSummaryCountersRow } from "./BatchSummaryCountersRow";
 import { RunningProgressPanel } from "./RunningProgressPanel";
-import { assertExhaustive } from "../utils/assertExhaustive";
-
-/**
- * Map normaliser BatchFailureKind values to short labels. Plan §8
- * failure kinds are the AI-flavoured ones; non-AI groups never fail in
- * v2 so the deterministic kinds are listed for exhaustiveness only.
- */
-export function friendlyNormaliseFailureLabel(kind: BatchFailureKind): string {
-  switch (kind) {
-    case "ai_call_failed":
-      return "AI request failed";
-    case "ai_schema_invalid":
-      return "AI response did not match expected schema";
-    case "ai_rate_limited":
-      return "AI request rate-limited";
-    case "audit_log_io":
-      return "Could not write audit log";
-    case "internal":
-      return "Internal error";
-    case "ai_key_missing":
-      return "OpenAI API key not configured";
-    case "cancelled":
-      return "Cancelled";
-    case "command_failed":
-      return "Normalise command failed to start";
-    case "preflight_failed":
-      return "Cost estimate failed before any image was processed";
-    case "http":
-      return "API request failed";
-    case "network":
-      return "Network error";
-    // Kinds that belong to other batch jobs; listed for exhaustiveness.
-    case "decode":
-    case "incomplete":
-    case "refused":
-    case "bad_json":
-    case "usage_parse":
-    case "no_gps":
-    case "nominatim_empty":
-    case "cache_io":
-      return kind;
-    default:
-      return assertExhaustive(kind);
-  }
-}
+import { friendlyNormaliseFailureLabel } from "./batchHelpers";
 
 export type { NormaliseProgressState };
 

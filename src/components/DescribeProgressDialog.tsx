@@ -17,7 +17,6 @@
  * `RunningProgressPanel` (also shared with the apply-edits dialog).
  */
 import type {
-  BatchFailureKind,
   DescribeFailure,
   DescribeProgressState,
   DescribeUsageSummary,
@@ -25,7 +24,7 @@ import type {
 import { BatchJobDialog } from "./BatchJobDialog";
 import { RunningProgressPanel } from "./RunningProgressPanel";
 import { OverwriteNotice } from "./OverwriteNotice";
-import { assertExhaustive } from "../utils/assertExhaustive";
+import { friendlyDescribeFailureLabel } from "./batchHelpers";
 
 export interface DescribeOverwriteInfo {
   existingCount: number;
@@ -44,59 +43,6 @@ interface Props {
   onConfirm: () => void;
   onCancel: () => void;
   onClose: () => void;
-}
-
-/**
- * Map the backend's `status` / failure `kind` strings to a short
- * human-readable label. Kept here so the dialog is the only place that
- * cares about display copy — the backend wires use the raw kinds for
- * telemetry. Unknown kinds fall through as the raw value so a new
- * failure mode is still legible while we add a proper label.
- */
-export function friendlyFailureLabel(kind: BatchFailureKind): string {
-  switch (kind) {
-    case "decode":
-      return "Could not decode image";
-    case "http":
-      return "API request failed";
-    case "network":
-      return "Network error";
-    case "incomplete":
-      return "Response was truncated";
-    case "refused":
-      return "Refused by model";
-    case "bad_json":
-      return "Could not parse model response";
-    case "usage_parse":
-      return "Description received but token usage could not be measured";
-    case "preflight_failed":
-      return "Preflight failed before any image was processed";
-    case "command_failed":
-      return "Describe command failed to start";
-    case "cancelled":
-      return "Cancelled";
-    // Reverse-geocode-only kinds; describe should never emit them, but
-    // the union is shared so list them for exhaustiveness.
-    case "no_gps":
-    case "nominatim_empty":
-    case "cache_io":
-      return kind;
-    // Normaliser-only kinds; describe should never emit them.
-    case "ai_call_failed":
-      return "AI request failed";
-    case "ai_schema_invalid":
-      return "AI response did not match expected schema";
-    case "ai_rate_limited":
-      return "AI request rate-limited";
-    case "audit_log_io":
-      return "Could not write audit log";
-    case "internal":
-      return "Internal error";
-    case "ai_key_missing":
-      return "OpenAI API key not configured";
-    default:
-      return assertExhaustive(kind);
-  }
 }
 
 function formatCost(usd: number): string {
@@ -142,7 +88,8 @@ function FailureList({ failures }: { failures: DescribeFailure[] }) {
       <ul style={{ marginTop: 6, paddingLeft: 18, fontSize: 12 }}>
         {failures.map((f) => (
           <li key={f.relativePath} title={`${f.kind}: ${f.detail}`}>
-            <strong>{f.relativePath}</strong>: {friendlyFailureLabel(f.kind)}
+            <strong>{f.relativePath}</strong>:{" "}
+            {friendlyDescribeFailureLabel(f.kind)}
             {f.detail && (
               <>
                 {" "}

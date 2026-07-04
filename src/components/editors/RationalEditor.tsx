@@ -55,7 +55,7 @@ function initialFraction(s: string): { num: number; den: number } {
 /** Convert a decimal to a reduced rational using a 1e6 denominator cap.
  *  Sufficient for shutter speeds and similar EXIF rationals; not arbitrary
  *  precision.  Returns (n, 1) for integers. */
-export function decimalToRational(d: number): { num: number; den: number } {
+function decimalToRational(d: number): { num: number; den: number } {
   if (!Number.isFinite(d)) return { num: 0, den: 1 };
   if (Number.isInteger(d)) return { num: d, den: 1 };
   const sign = d < 0 ? -1 : 1;

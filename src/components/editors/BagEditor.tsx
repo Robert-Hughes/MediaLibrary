@@ -245,27 +245,3 @@ export function BagEditor({
     </div>
   );
 }
-
-/**
- * Best-effort initial-items extraction from whatever the caller has on hand:
- * a Variant value, the legacy comma-joined display string, or undefined.
- */
-export function initialItemsFrom(
-  value: Variant | string | null | undefined,
-): string[] {
-  if (value === null || value === undefined) return [];
-  if (Array.isArray(value)) {
-    return value
-      .map((v) => (typeof v === "string" ? v : String(v)))
-      .filter((s) => s.length > 0);
-  }
-  if (typeof value === "string") {
-    return value
-      .split(",")
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0);
-  }
-  // bool/number/object: not list-shaped; treat as a single chip if non-empty.
-  const s = String(value);
-  return s ? [s] : [];
-}
