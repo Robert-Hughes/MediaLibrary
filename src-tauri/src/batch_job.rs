@@ -249,42 +249,6 @@ impl<'a> BatchProgressEmitter<'a> {
             .emit(&format!("{}_started", self.prefix), Payload { total });
     }
 
-    /// Emit `${prefix}_progress` for one item.
-    ///
-    /// `status` is `"ok"` on success or the failure `kind` string
-    /// otherwise. When successful and edits are produced, pass them in
-    /// `edits` so the frontend can merge into its draft store
-    /// immediately — same pattern as the AI-description flow.
-    pub fn progress(
-        &self,
-        current: usize,
-        total: usize,
-        relative_path: &str,
-        status: &str,
-        error: Option<&str>,
-        edits: Option<&std::collections::HashMap<String, crate::draft_edits::DraftEdit>>,
-    ) {
-        let semantic_edits = edits.map(|edits| {
-            edits
-                .iter()
-                .map(|(key, edit)| {
-                    (
-                        key.clone(),
-                        crate::draft_edits::MetadataDraftEdit::from_legacy_draft(edit),
-                    )
-                })
-                .collect::<std::collections::HashMap<_, _>>()
-        });
-        self.progress_metadata(
-            current,
-            total,
-            relative_path,
-            status,
-            error,
-            semantic_edits.as_ref(),
-        );
-    }
-
     /// Emit `${prefix}_progress` with semantic draft edits.
     pub fn progress_metadata(
         &self,

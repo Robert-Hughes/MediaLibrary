@@ -230,7 +230,7 @@ pub async fn describe_images_cmd(
                     e
                 );
                 let kind = batch_job::BatchFailureKind::Decode;
-                emitter.progress(current, total, rel, kind.as_wire(), Some(&e), None);
+                emitter.progress_metadata(current, total, rel, kind.as_wire(), Some(&e), None);
                 failed.push(batch_job::BatchFailureRow {
                     relative_path: rel.clone(),
                     kind,
@@ -278,7 +278,7 @@ pub async fn describe_images_cmd(
                     kind,
                     detail
                 );
-                emitter.progress(current, total, rel, kind.as_wire(), Some(&detail), None);
+                emitter.progress_metadata(current, total, rel, kind.as_wire(), Some(&detail), None);
                 failed.push(batch_job::BatchFailureRow {
                     relative_path: rel.clone(),
                     kind,
