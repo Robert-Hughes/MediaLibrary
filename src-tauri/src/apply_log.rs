@@ -12,8 +12,9 @@
 //!
 //! See `docs/METADATA_FORMATS_DESIGN.md` §6.
 
-use crate::apply_edits::TagOutcome;
-use crate::draft_edits::{DraftEdit, EditIntent};
+use crate::apply_edits::{MetadataTagOutcome, TagOutcome};
+use crate::draft_edits::{DraftEdit, EditIntent, MetadataDraftEdit};
+use crate::metadata_value::MetadataValue;
 use crate::scanner::Variant;
 use serde::Serialize;
 use std::fs::OpenOptions;
@@ -27,8 +28,9 @@ const LOG_FILE_NAME: &str = "MediaLibraryApplyLog.jsonl";
 ///    value can be distinguished from "the pre-write read itself failed".
 ///    v2 readers see the new field as ignorable.
 const LOG_SCHEMA_VERSION: u32 = 3;
+const SEMANTIC_LOG_SCHEMA_VERSION: u32 = 4;
 const HEADER_COMMENT: &str =
-    "// Apply-edits audit log. Append-only. Each line is one tag's outcome from one apply. schema_version=3.";
+    "// Apply-edits audit log. Append-only. Each line is one tag's outcome from one apply. schema_version=3/4.";
 
 #[derive(Serialize)]
 struct ApplyLogEntry<'a> {
@@ -59,6 +61,33 @@ struct ApplyLogEntry<'a> {
     /// One of: "Match", "Coerced", "Mismatch", "MissingPostWrite", "DeleteOk",
     /// "DeleteLingering", "Hard-Failure-Before-Write".  Free-text so we can
     /// grow new outcomes without a schema migration.
+    outcome: &'a str,
+    /// Free-text error message when outcome is not Match.
+    note: Option<&'a str>,
+}
+
+#[derive(Serialize)]
+struct MetadataApplyLogEntry<'a> {
+    schema_version: u32,
+    timestamp: String,
+    relative_path: &'a str,
+    tag: &'a str,
+    intent: &'a EditIntent,
+    /// The intended semantic value sent to exiftool.
+    intended_value: &'a Option<MetadataValue>,
+    /// argv we passed to exiftool for this tag.
+    argv: &'a [String],
+    /// The file's semantic value before our write (display / PrintConv view).
+    before_display: Option<&'a MetadataValue>,
+    /// The file's semantic value before our write (raw / -n view).
+    before_raw: Option<&'a MetadataValue>,
+    /// True when the pre-write metadata read failed and before-fields are not authoritative.
+    before_read_failed: bool,
+    /// What the file holds after the write (display / PrintConv view).
+    after_display: Option<&'a MetadataValue>,
+    /// What the file holds after the write (raw / -n view).
+    after_raw: Option<&'a MetadataValue>,
+    /// One of the verification outcome strings.
     outcome: &'a str,
     /// Free-text error message when outcome is not Match.
     note: Option<&'a str>,
@@ -113,6 +142,78 @@ pub fn append_entries(
 
         let entry = ApplyLogEntry {
             schema_version: LOG_SCHEMA_VERSION,
+            timestamp: timestamp.clone(),
+            relative_path,
+            tag,
+            intent: &edit.intent,
+            intended_value: &edit.value,
+            argv,
+            before_display: before_display.get(tag),
+            before_raw: before_raw.get(tag),
+            before_read_failed,
+            after_display: after_display.get(tag),
+            after_raw: after_raw.get(tag),
+            outcome,
+            note,
+        };
+
+        match serde_json::to_string(&entry) {
+            Ok(line) => {
+                if writeln!(writer, "{}", line).is_err() {
+                    log::warn!(
+                        "[apply_log] write error; further entries in this apply will be skipped"
+                    );
+                    return;
+                }
+            }
+            Err(e) => log::warn!("[apply_log] serialise error for tag {}: {}", tag, e),
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn append_metadata_entries(
+    folder_path: &str,
+    relative_path: &str,
+    edits: &std::collections::HashMap<String, MetadataDraftEdit>,
+    argv_by_tag: &std::collections::HashMap<String, Vec<String>>,
+    before_display: &std::collections::HashMap<String, MetadataValue>,
+    before_raw: &std::collections::HashMap<String, MetadataValue>,
+    after_display: &std::collections::HashMap<String, MetadataValue>,
+    after_raw: &std::collections::HashMap<String, MetadataValue>,
+    tag_outcomes: &[MetadataTagOutcome],
+    before_read_failed: bool,
+) {
+    let path = Path::new(folder_path).join(LOG_FILE_NAME);
+    let needs_header = !path.exists();
+
+    let file = match OpenOptions::new().create(true).append(true).open(&path) {
+        Ok(f) => f,
+        Err(e) => {
+            log::warn!("[apply_log] Could not open {}: {}", path.display(), e);
+            return;
+        }
+    };
+    let mut writer = std::io::BufWriter::new(file);
+
+    if needs_header && writeln!(writer, "{}", HEADER_COMMENT).is_err() {
+        return;
+    }
+
+    let timestamp = chrono_like_iso();
+    let outcome_by_tag: std::collections::HashMap<&str, &MetadataTagOutcome> =
+        tag_outcomes.iter().map(|o| (o.tag.as_str(), o)).collect();
+
+    let empty_argv: Vec<String> = Vec::new();
+    for (tag, edit) in edits {
+        let argv = argv_by_tag.get(tag).unwrap_or(&empty_argv);
+        let (outcome, note) = match outcome_by_tag.get(tag.as_str()) {
+            Some(o) => (o.kind.as_str(), o.message.as_deref()),
+            None => ("Match", None),
+        };
+
+        let entry = MetadataApplyLogEntry {
+            schema_version: SEMANTIC_LOG_SCHEMA_VERSION,
             timestamp: timestamp.clone(),
             relative_path,
             tag,
@@ -207,6 +308,18 @@ mod tests {
 
     fn outcome(tag: &str, kind: &str) -> TagOutcome {
         TagOutcome {
+            tag: tag.to_string(),
+            kind: kind.to_string(),
+            sent: None,
+            before_display: None,
+            observed_display: None,
+            observed_raw: None,
+            message: None,
+        }
+    }
+
+    fn metadata_outcome(tag: &str, kind: &str) -> MetadataTagOutcome {
+        MetadataTagOutcome {
             tag: tag.to_string(),
             kind: kind.to_string(),
             sent: None,
@@ -357,6 +470,77 @@ mod tests {
             "after value missing: {}",
             contents
         );
+    }
+
+    #[test]
+    fn append_metadata_entries_records_semantic_values() {
+        let dir = tempdir().unwrap();
+        let folder = dir.path().to_str().unwrap();
+
+        let mut edits: HashMap<String, MetadataDraftEdit> = HashMap::new();
+        edits.insert(
+            "IPTC:TimeCreated".to_string(),
+            MetadataDraftEdit {
+                value: Some(MetadataValue::Time(crate::metadata_value::TimeValue {
+                    hour: 10,
+                    minute: 56,
+                    second: 5,
+                    subsecond: None,
+                    offset: None,
+                })),
+                intent: EditIntent::Set,
+                display: None,
+            },
+        );
+
+        let mut argv: HashMap<String, Vec<String>> = HashMap::new();
+        argv.insert(
+            "IPTC:TimeCreated".to_string(),
+            vec!["-IPTC:TimeCreated=10:56:05".into()],
+        );
+
+        let mut before: HashMap<String, MetadataValue> = HashMap::new();
+        before.insert(
+            "IPTC:TimeCreated".to_string(),
+            MetadataValue::Text("old".into()),
+        );
+        let mut after: HashMap<String, MetadataValue> = HashMap::new();
+        after.insert(
+            "IPTC:TimeCreated".to_string(),
+            MetadataValue::Time(crate::metadata_value::TimeValue {
+                hour: 10,
+                minute: 56,
+                second: 5,
+                subsecond: None,
+                offset: None,
+            }),
+        );
+
+        append_metadata_entries(
+            folder,
+            "a.jpg",
+            &edits,
+            &argv,
+            &before,
+            &before,
+            &after,
+            &after,
+            &[metadata_outcome("IPTC:TimeCreated", "Match")],
+            false,
+        );
+
+        let contents = std::fs::read_to_string(dir.path().join(LOG_FILE_NAME)).unwrap();
+        let lines: Vec<&str> = contents.lines().collect();
+        assert_eq!(lines.len(), 2, "expected header + one semantic entry");
+        let entry: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
+        assert_eq!(entry["schema_version"], 4);
+        assert_eq!(entry["intended_value"]["kind"], "Time");
+        assert_eq!(
+            entry["intended_value"]["value"]["offset"],
+            serde_json::Value::Null
+        );
+        assert_eq!(entry["after_display"]["kind"], "Time");
+        assert_eq!(entry["argv"][0], "-IPTC:TimeCreated=10:56:05");
     }
 
     #[test]

@@ -405,28 +405,35 @@ pub fn apply_single_file_metadata(
 
     let registry = crate::tag_schema::get_registry().ok();
 
-    let before_display = match scanner::read_image_metadata_batch(
+    let (before_display, before_raw, before_read_failed) = match scanner::read_image_metadata_batch(
         &[rel_path.to_string()],
         std::slice::from_ref(&abs_path),
     ) {
-        Ok(mut results) => results.pop().map(|r| r.metadata_values).unwrap_or_default(),
+        Ok(mut results) => match results.pop() {
+            Some(r) => (r.metadata_values, r.raw_metadata_values, false),
+            None => (HashMap::new(), HashMap::new(), false),
+        },
         Err(e) => {
             log::warn!(
                 "[apply_edits] Semantic pre-write read failed for {}: {}",
                 rel_path,
                 e
             );
-            HashMap::new()
+            (HashMap::new(), HashMap::new(), true)
         }
     };
 
     let mut combined = crate::write_args::BuiltArgs::default();
+    let mut argv_by_tag: HashMap<String, Vec<String>> = HashMap::new();
     for (key, edit) in edits {
         let info = registry.and_then(|r| r.lookup(key));
         let args = match crate::write_args::build_metadata_args(key, info, edit) {
             Ok(args) => args,
             Err(e) => return MetadataSingleFileOutcome::hard_failure(e),
         };
+        let mut tag_argv = args.numeric.clone();
+        tag_argv.extend(args.text.clone());
+        argv_by_tag.insert(key.clone(), tag_argv);
         combined.extend(args);
     }
 
@@ -518,6 +525,19 @@ pub fn apply_single_file_metadata(
             message,
         });
     }
+
+    crate::apply_log::append_metadata_entries(
+        folder_path,
+        rel_path,
+        edits,
+        &argv_by_tag,
+        &before_display,
+        &before_raw,
+        &fresh_display,
+        &fresh_raw,
+        &tag_outcomes,
+        before_read_failed,
+    );
 
     MetadataSingleFileOutcome {
         fresh_metadata: Some(fresh_display),
