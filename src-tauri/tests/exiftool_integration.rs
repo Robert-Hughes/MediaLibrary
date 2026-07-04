@@ -99,7 +99,7 @@ fn apply_text_edit_roundtrip_xmp_description() {
     let mut drafts = std::collections::HashMap::new();
     drafts.insert(rel.clone(), edits);
 
-    let result = apply_edits::apply_draft_edits(folder, &[rel.clone()], &drafts);
+    let result = apply_edits::apply_draft_edits(folder, std::slice::from_ref(&rel), &drafts);
     assert!(
         result.failed.is_empty(),
         "expected no failures, got {:?}",
@@ -146,7 +146,7 @@ fn apply_delete_edit_removes_tag() {
     );
     let mut drafts1 = std::collections::HashMap::new();
     drafts1.insert(rel.clone(), set_edits);
-    let r1 = apply_edits::apply_draft_edits(folder, &[rel.clone()], &drafts1);
+    let r1 = apply_edits::apply_draft_edits(folder, std::slice::from_ref(&rel), &drafts1);
     assert!(r1.failed.is_empty());
 
     // Step 2: delete it.
@@ -154,7 +154,7 @@ fn apply_delete_edit_removes_tag() {
     del_edits.insert("XMP-dc:Description".to_string(), None);
     let mut drafts2 = std::collections::HashMap::new();
     drafts2.insert(rel.clone(), del_edits);
-    let r2 = apply_edits::apply_draft_edits(folder, &[rel.clone()], &drafts2);
+    let r2 = apply_edits::apply_draft_edits(folder, std::slice::from_ref(&rel), &drafts2);
     assert!(r2.failed.is_empty(), "delete failed: {:?}", r2.failed);
 
     // Step 3: re-read; Description should be absent or empty.
@@ -306,7 +306,7 @@ fn roundtrip_set_rating() {
     let mut drafts = std::collections::HashMap::new();
     drafts.insert(rel.clone(), edits);
 
-    let result = apply_edits::apply_draft_edits(folder, &[rel.clone()], &drafts);
+    let result = apply_edits::apply_draft_edits(folder, std::slice::from_ref(&rel), &drafts);
     assert!(result.failed.is_empty(), "failed: {:?}", result.failed);
 
     let after = read_one(dir.path(), &dst);
@@ -337,7 +337,7 @@ fn roundtrip_set_orientation_via_numeric_pass() {
     let mut drafts = std::collections::HashMap::new();
     drafts.insert(rel.clone(), edits);
 
-    let result = apply_edits::apply_draft_edits(folder, &[rel.clone()], &drafts);
+    let result = apply_edits::apply_draft_edits(folder, std::slice::from_ref(&rel), &drafts);
     assert!(result.failed.is_empty(), "failed: {:?}", result.failed);
 
     let after = read_one(dir.path(), &dst);
@@ -493,6 +493,7 @@ fn typed_apply_writes_bag_as_separate_items_end_to_end() {
                 Variant::String("gamma".into()),
             ])),
             intent: EditIntent::Set,
+            display: None,
         },
     );
 
@@ -541,6 +542,7 @@ fn apply_emits_apply_log_jsonl_entry() {
         DraftEdit {
             value: Some(Variant::Integer(5)),
             intent: EditIntent::Set,
+            display: None,
         },
     );
 
@@ -591,6 +593,7 @@ fn typed_apply_rating_fractional_coerces_or_rejects_cleanly() {
         DraftEdit {
             value: Some(Variant::Float(3.5)),
             intent: EditIntent::Set,
+            display: None,
         },
     );
 
@@ -630,6 +633,7 @@ fn typed_apply_list_add_appends_items_to_bag() {
         DraftEdit {
             value: Some(Variant::List(vec![Variant::String("vacation".into())])),
             intent: EditIntent::ListAdd,
+            display: None,
         },
     );
 
@@ -688,6 +692,7 @@ fn typed_apply_list_remove_drops_items_from_bag() {
         DraftEdit {
             value: Some(Variant::List(vec![Variant::String("beach".into())])),
             intent: EditIntent::ListRemove,
+            display: None,
         },
     );
 
@@ -747,7 +752,7 @@ fn apply_keywords_writes_back_as_separate_items_not_csv() {
     edits.insert("XMP-dc:Subject".to_string(), Some("just-one".to_string()));
     let mut drafts = std::collections::HashMap::new();
     drafts.insert(rel.clone(), edits);
-    let result = apply_edits::apply_draft_edits(folder, &[rel.clone()], &drafts);
+    let result = apply_edits::apply_draft_edits(folder, std::slice::from_ref(&rel), &drafts);
     assert!(result.failed.is_empty(), "{:?}", result.failed);
 
     let m = read_one(dir.path(), &dst);

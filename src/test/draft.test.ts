@@ -28,7 +28,11 @@ describe("displayStringOf", () => {
   });
 
   it("falls back to variant stringification when display is null", () => {
-    const d: DraftEdit = { value: 6, intent: "Set", display: null as unknown as string };
+    const d: DraftEdit = {
+      value: 6,
+      intent: "Set",
+      display: null as unknown as string,
+    };
     expect(displayStringOf(d)).toBe("6");
   });
 
@@ -46,7 +50,11 @@ describe("mapTypedToLegacy", () => {
   it("uses display string at the Tauri boundary when present", () => {
     const typed = {
       "a.jpg": {
-        "EXIF:Orientation": { value: 6, intent: "Set", display: "Rotate 90 CW" } as DraftEdit,
+        "EXIF:Orientation": {
+          value: 6,
+          intent: "Set",
+          display: "Rotate 90 CW",
+        } as DraftEdit,
       },
     };
     expect(mapTypedToLegacy(typed)).toEqual({
@@ -64,7 +72,11 @@ describe("mapTypedToLegacy", () => {
   it("emits null for Delete intent and ignores any display value", () => {
     const typed = {
       "a.jpg": {
-        Tag: { value: null, intent: "Delete", display: "should-not-show" } as DraftEdit,
+        Tag: {
+          value: null,
+          intent: "Delete",
+          display: "should-not-show",
+        } as DraftEdit,
       },
     };
     expect(mapTypedToLegacy(typed)).toEqual({ "a.jpg": { Tag: null } });
@@ -74,7 +86,11 @@ describe("mapTypedToLegacy", () => {
 describe("deriveLegacyFileEdits", () => {
   it("prefers display per key", () => {
     const file = {
-      "EXIF:Orientation": { value: 6, intent: "Set", display: "Rotate 90 CW" } as DraftEdit,
+      "EXIF:Orientation": {
+        value: 6,
+        intent: "Set",
+        display: "Rotate 90 CW",
+      } as DraftEdit,
       Rating: { value: 5, intent: "Set" } as DraftEdit,
       Old: { value: null, intent: "Delete" } as DraftEdit,
     };

@@ -11,18 +11,18 @@ Drafts are proposed for the conventional Lightroom / Photoshop / IPTC location
 fields. These are the same fields written by every mainstream tagger
 (Lightroom, Bridge, Photo Mechanic, digiKam, ExifTool's `-Country` shortcut).
 
-| Tag | Source from Nominatim address | Notes |
-|---|---|---|
-| `XMP-iptcCore:Location` | `building` ∪ `tourism` ∪ `amenity` ∪ `leisure` ∪ `historic` ∪ `shop`, else `road` | "Sub-location" / specific named place. Falls back to road if no named POI. Overpass result, when used, populates this field. |
-| `XMP-photoshop:City` | `city` ∪ `town` ∪ `village` ∪ `hamlet` ∪ `suburb` | |
-| `XMP-photoshop:State` | `state` | |
-| `XMP-photoshop:Country` | `country` | |
-| `XMP-iptcCore:CountryCode` | `country_code` (uppercased — ISO 3166-1 alpha-2) | |
-| `IPTC:Sub-location` | mirror of `XMP-iptcCore:Location` | Legacy IPTC IIM mirror. |
-| `IPTC:City` | mirror of `XMP-photoshop:City` | |
-| `IPTC:Province-State` | mirror of `XMP-photoshop:State` | |
-| `IPTC:Country-PrimaryLocationName` | mirror of `XMP-photoshop:Country` | |
-| `IPTC:Country-PrimaryLocationCode` | mirror of `XMP-iptcCore:CountryCode` | |
+| Tag                                | Source from Nominatim address                                                     | Notes                                                                                                                        |
+| ---------------------------------- | --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `XMP-iptcCore:Location`            | `building` ∪ `tourism` ∪ `amenity` ∪ `leisure` ∪ `historic` ∪ `shop`, else `road` | "Sub-location" / specific named place. Falls back to road if no named POI. Overpass result, when used, populates this field. |
+| `XMP-photoshop:City`               | `city` ∪ `town` ∪ `village` ∪ `hamlet` ∪ `suburb`                                 |                                                                                                                              |
+| `XMP-photoshop:State`              | `state`                                                                           |                                                                                                                              |
+| `XMP-photoshop:Country`            | `country`                                                                         |                                                                                                                              |
+| `XMP-iptcCore:CountryCode`         | `country_code` (uppercased — ISO 3166-1 alpha-2)                                  |                                                                                                                              |
+| `IPTC:Sub-location`                | mirror of `XMP-iptcCore:Location`                                                 | Legacy IPTC IIM mirror.                                                                                                      |
+| `IPTC:City`                        | mirror of `XMP-photoshop:City`                                                    |                                                                                                                              |
+| `IPTC:Province-State`              | mirror of `XMP-photoshop:State`                                                   |                                                                                                                              |
+| `IPTC:Country-PrimaryLocationName` | mirror of `XMP-photoshop:Country`                                                 |                                                                                                                              |
+| `IPTC:Country-PrimaryLocationCode` | mirror of `XMP-iptcCore:CountryCode`                                              |                                                                                                                              |
 
 Rationale for IPTC IIM mirroring: it's the convention enforced by most apps
 (IPTC fields are stored in two parallel places — XMP and legacy IIM — and tools
@@ -158,10 +158,13 @@ perspective.
     {
       "version": 1,
       "entries": [
-        { "lat": 51.5001530, "lon": -0.1262361,
+        {
+          "lat": 51.500153,
+          "lon": -0.1262361,
           "queried_at": "2026-05-17T12:34:56Z",
           "source": "nominatim",
-          "result": { /* AddressFields + display_name */ } }
+          "result": {/* AddressFields + display_name */}
+        }
       ]
     }
     ```
@@ -234,7 +237,7 @@ perspective.
 > **Existing GPS values will not be modified.** No file is changed on disk
 > until you apply drafts.
 >
-> *(If any selected images lack GPS:)* X of N selected images have no GPS
+> _(If any selected images lack GPS:)_ X of N selected images have no GPS
 > coordinates and will be skipped.
 
 Buttons: `Cancel` / `Confirm and geocode`.
@@ -264,7 +267,7 @@ results already returned."
 interface GeocodeSummary {
   nSucceededFromNominatim: number;
   nSucceededFromCache: number;
-  nSucceededFromOverpass: number;   // = "nominatim+overpass" — Overpass alone is not a primary mode
+  nSucceededFromOverpass: number; // = "nominatim+overpass" — Overpass alone is not a primary mode
   nNoGps: number;
   nFailed: number;
 }

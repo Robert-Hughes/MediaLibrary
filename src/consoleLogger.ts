@@ -18,7 +18,11 @@ function stringify(v: unknown): string {
   if (typeof v === "string") return v;
   if (v instanceof Error) return v.stack ?? `${v.name}: ${v.message}`;
   if (typeof v === "object") {
-    try { return JSON.stringify(v); } catch { return String(v); }
+    try {
+      return JSON.stringify(v);
+    } catch {
+      return String(v);
+    }
   }
   return String(v);
 }
@@ -34,7 +38,10 @@ export function formatArgs(args: unknown[]): string {
   let i = 1;
   const out = first.replace(/%[sdifoOc%]/g, (m) => {
     if (m === "%%") return "%";
-    if (m === "%c") { i++; return ""; }
+    if (m === "%c") {
+      i++;
+      return "";
+    }
     if (i >= args.length) return m;
     const v = args[i++];
     if (m === "%d" || m === "%i") return String(parseInt(String(v), 10));
@@ -46,10 +53,14 @@ export function formatArgs(args: unknown[]): string {
 }
 
 export function setupConsoleLogging() {
-  const make = (level: "log" | "info" | "warn" | "error") => (...args: unknown[]) => {
-    originalConsole[level](...(args as any[]));
-    invoke("log_to_console", { level, message: formatArgs(args) }).catch(() => {});
-  };
+  const make =
+    (level: "log" | "info" | "warn" | "error") =>
+    (...args: unknown[]) => {
+      originalConsole[level](...(args as any[]));
+      invoke("log_to_console", { level, message: formatArgs(args) }).catch(
+        () => {},
+      );
+    };
 
   console.log = make("log");
   console.info = make("info");

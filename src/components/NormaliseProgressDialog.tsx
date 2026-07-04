@@ -11,7 +11,12 @@
  * Thin wrapper around `BatchJobDialog` — the overlay, header, dialog
  * body frame and Escape handling live there.
  */
-import type { BatchFailureKind, NormaliseEstimate, NormaliseGroup, NormaliseSummary } from "../types";
+import type {
+  BatchFailureKind,
+  NormaliseEstimate,
+  NormaliseGroup,
+  NormaliseSummary,
+} from "../types";
 import { ALL_NORMALISE_GROUPS, NORMALISE_TARGET_TAGS_BY_GROUP } from "../types";
 import type { NormaliseProgressState } from "../hooks/useNormaliseMetadata";
 import { BatchJobDialog } from "./BatchJobDialog";
@@ -76,19 +81,30 @@ interface Props {
 /** Human-readable group label for the confirm-phase table. */
 function groupLabel(g: NormaliseGroup): string {
   switch (g) {
-    case "keywords": return "Keywords";
-    case "creator": return "Creator";
-    case "copyright": return "Copyright";
-    case "headline": return "Headline";
-    case "title": return "Title";
-    case "location": return "Location";
-    case "dates": return "Dates";
-    case "description": return "Description";
+    case "keywords":
+      return "Keywords";
+    case "creator":
+      return "Creator";
+    case "copyright":
+      return "Copyright";
+    case "headline":
+      return "Headline";
+    case "title":
+      return "Title";
+    case "location":
+      return "Location";
+    case "dates":
+      return "Dates";
+    case "description":
+      return "Description";
   }
 }
 
 /** Groups whose normalisation may invoke an AI call. */
-const AI_GROUPS: ReadonlySet<NormaliseGroup> = new Set(["description", "title"]);
+const AI_GROUPS: ReadonlySet<NormaliseGroup> = new Set([
+  "description",
+  "title",
+]);
 
 /**
  * Short paragraph describing what the group does, surfaced as a
@@ -171,7 +187,11 @@ function EstimatingPanel({
       />
       {state.estimateError && (
         <div
-          style={{ marginTop: 8, color: "var(--accent-error, #d33)", fontSize: 12 }}
+          style={{
+            marginTop: 8,
+            color: "var(--accent-error, #d33)",
+            fontSize: 12,
+          }}
           data-testid="normalise-estimate-error"
         >
           {state.estimateError}
@@ -226,7 +246,8 @@ function computeCostForSelection(
   const upperOut =
     descCalls * estimate.maxOutPerCallB + titleCalls * estimate.maxOutPerCallC;
   const inputCost = (inputTokens / 1_000_000) * pricing.inputPer1M;
-  const predicted = inputCost + (predictedOut / 1_000_000) * pricing.outputPer1M;
+  const predicted =
+    inputCost + (predictedOut / 1_000_000) * pricing.outputPer1M;
   const upper = inputCost + (upperOut / 1_000_000) * pricing.outputPer1M;
   return {
     predictedUsd: predicted,
@@ -259,7 +280,11 @@ function CostPreview({
   if (cost.predictedUsd == null || cost.upperBoundUsd == null) {
     return (
       <div
-        style={{ marginTop: 10, fontSize: 12, color: "var(--accent-error, #d33)" }}
+        style={{
+          marginTop: 10,
+          fontSize: 12,
+          color: "var(--accent-error, #d33)",
+        }}
         data-testid="normalise-cost-preview"
       >
         AI calls required ({cost.descriptionCalls} description merge,{" "}
@@ -282,7 +307,8 @@ function CostPreview({
       </ul>
       <div>
         <strong>Cost:</strong> {formatCost(cost.predictedUsd)} predicted, up to{" "}
-        {formatCost(cost.upperBoundUsd)} worst case (output-token variation only).
+        {formatCost(cost.upperBoundUsd)} worst case (output-token variation
+        only).
       </div>
     </div>
   );
@@ -406,10 +432,7 @@ function GroupOutcomeTable({
                   </span>
                 </label>
               </td>
-              <td
-                style={cellBase}
-                data-testid={`normalise-group-${g}-noop`}
-              >
+              <td style={cellBase} data-testid={`normalise-group-${g}-noop`}>
                 {renderCount(counts.nNoop)}
               </td>
               <td
@@ -418,15 +441,8 @@ function GroupOutcomeTable({
               >
                 {renderCount(counts.nNormalisedDeterministic)}
               </td>
-              <td
-                style={cellBase}
-                data-testid={`normalise-group-${g}-ai`}
-              >
-                {isAiGroup ? (
-                  renderCount(counts.nNormalisedAi)
-                ) : (
-                  <span>—</span>
-                )}
+              <td style={cellBase} data-testid={`normalise-group-${g}-ai`}>
+                {isAiGroup ? renderCount(counts.nNormalisedAi) : <span>—</span>}
               </td>
               <td
                 style={{
@@ -496,9 +512,9 @@ function AwaitingConfirmPanel({
     <>
       <div className="dialog-hint" data-testid="normalise-confirm-summary">
         Ready to normalise metadata for {state.total} {word}. Choose which
-        groups to normalise — drafts are proposed; nothing is written to
-        disk until you apply them. The Overwrites column shows how many
-        existing field values would be replaced.
+        groups to normalise — drafts are proposed; nothing is written to disk
+        until you apply them. The Overwrites column shows how many existing
+        field values would be replaced.
       </div>
       {state.estimate && (
         <GroupOutcomeTable
@@ -570,8 +586,15 @@ function SummaryBreakdown({ s }: { s: NormaliseSummary }) {
     >
       <BatchSummaryCountersRow
         counters={[
-          { label: "Groups normalised (deterministic)", value: totalDeterministic },
-          { label: "Groups normalised (AI)", value: totalAi, show: totalAi > 0 },
+          {
+            label: "Groups normalised (deterministic)",
+            value: totalDeterministic,
+          },
+          {
+            label: "Groups normalised (AI)",
+            value: totalAi,
+            show: totalAi > 0,
+          },
           { label: "Groups skipped (already normalised)", value: totalNoop },
         ]}
       />
@@ -595,17 +618,57 @@ function SummaryBreakdown({ s }: { s: NormaliseSummary }) {
           .filter((g) => perGroup[g])
           .map((g) => {
             const stats = perGroup[g]!;
-            const counters: Array<{ label: string; value: number; show?: boolean }> = [
-              { label: "normalised", value: stats.nNormalisedDeterministic, show: stats.nNormalisedDeterministic > 0 },
-              { label: "AI normalised", value: stats.nNormalisedAi, show: stats.nNormalisedAi > 0 },
+            const counters: Array<{
+              label: string;
+              value: number;
+              show?: boolean;
+            }> = [
+              {
+                label: "normalised",
+                value: stats.nNormalisedDeterministic,
+                show: stats.nNormalisedDeterministic > 0,
+              },
+              {
+                label: "AI normalised",
+                value: stats.nNormalisedAi,
+                show: stats.nNormalisedAi > 0,
+              },
               { label: "no-op", value: stats.nNoop, show: stats.nNoop > 0 },
-              { label: "primary won", value: stats.nConflictPrimaryWon, show: stats.nConflictPrimaryWon > 0 },
-              { label: "XMP↔IPTC conflicts", value: stats.nLocationXmpIimConflict, show: stats.nLocationXmpIimConflict > 0 },
-              { label: "date conflicts", value: stats.nDateConflict, show: stats.nDateConflict > 0 },
-              { label: "DTO from filename", value: stats.nDtoFromFilename, show: stats.nDtoFromFilename > 0 },
-              { label: "DTO date-only fallback", value: stats.nDtoFromFilenameDateOnly, show: stats.nDtoFromFilenameDateOnly > 0 },
-              { label: "unparseable dates", value: stats.nUnparseableDateInputs, show: stats.nUnparseableDateInputs > 0 },
-              { label: "AI errors", value: stats.nAiErrors, show: stats.nAiErrors > 0 },
+              {
+                label: "primary won",
+                value: stats.nConflictPrimaryWon,
+                show: stats.nConflictPrimaryWon > 0,
+              },
+              {
+                label: "XMP↔IPTC conflicts",
+                value: stats.nLocationXmpIimConflict,
+                show: stats.nLocationXmpIimConflict > 0,
+              },
+              {
+                label: "date conflicts",
+                value: stats.nDateConflict,
+                show: stats.nDateConflict > 0,
+              },
+              {
+                label: "DTO from filename",
+                value: stats.nDtoFromFilename,
+                show: stats.nDtoFromFilename > 0,
+              },
+              {
+                label: "DTO date-only fallback",
+                value: stats.nDtoFromFilenameDateOnly,
+                show: stats.nDtoFromFilenameDateOnly > 0,
+              },
+              {
+                label: "unparseable dates",
+                value: stats.nUnparseableDateInputs,
+                show: stats.nUnparseableDateInputs > 0,
+              },
+              {
+                label: "AI errors",
+                value: stats.nAiErrors,
+                show: stats.nAiErrors > 0,
+              },
             ];
             const visible = counters.filter((c) => c.show);
             return (
@@ -652,7 +715,9 @@ export function NormaliseProgressDialog({
       onCancel={onCancel}
       onClose={onClose}
     >
-      {state.phase === "estimating" && <EstimatingPanel state={state} onCancel={onCancel} />}
+      {state.phase === "estimating" && (
+        <EstimatingPanel state={state} onCancel={onCancel} />
+      )}
       {state.phase === "awaiting-confirm" && (
         <AwaitingConfirmPanel
           state={state}
@@ -679,13 +744,14 @@ export function NormaliseProgressDialog({
             Completed: <strong>{state.succeeded.length}</strong> /{" "}
             <strong>{state.total}</strong>{" "}
             {state.total === 1 ? "image" : "images"}
-            {state.summary != null && state.summary.nSkippedAllNormalised > 0 && (
-              <>
-                {" — "}
-                <strong>{state.summary.nSkippedAllNormalised}</strong> already
-                normalised (no changes)
-              </>
-            )}
+            {state.summary != null &&
+              state.summary.nSkippedAllNormalised > 0 && (
+                <>
+                  {" — "}
+                  <strong>{state.summary.nSkippedAllNormalised}</strong> already
+                  normalised (no changes)
+                </>
+              )}
           </div>
           {state.summary && <SummaryBreakdown s={state.summary} />}
           {state.failures.length > 0 && (
@@ -694,18 +760,24 @@ export function NormaliseProgressDialog({
               data-testid="normalise-failure-list"
             >
               <summary
-                style={{ cursor: "pointer", color: "var(--accent-error, #d33)" }}
+                style={{
+                  cursor: "pointer",
+                  color: "var(--accent-error, #d33)",
+                }}
               >
                 {state.failures.length} failed
               </summary>
               <ul style={{ marginTop: 6, paddingLeft: 18, fontSize: 12 }}>
                 {state.failures.map((f) => (
                   <li key={f.relativePath} title={`${f.kind}: ${f.detail}`}>
-                    <strong>{f.relativePath}</strong>: {friendlyNormaliseFailureLabel(f.kind)}
+                    <strong>{f.relativePath}</strong>:{" "}
+                    {friendlyNormaliseFailureLabel(f.kind)}
                     {f.detail && (
                       <>
                         {" — "}
-                        <span style={{ color: "var(--text-secondary)" }}>{f.detail}</span>
+                        <span style={{ color: "var(--text-secondary)" }}>
+                          {f.detail}
+                        </span>
                       </>
                     )}
                   </li>

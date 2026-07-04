@@ -16,7 +16,14 @@ interface Props {
   readOnly?: boolean;
 }
 
-export function DateTimeEditor({ propertyKey, initialValue, onSave, onCancel, headerHint, readOnly }: Props) {
+export function DateTimeEditor({
+  propertyKey,
+  initialValue,
+  onSave,
+  onCancel,
+  headerHint,
+  readOnly,
+}: Props) {
   const [value, setValue] = useState<string>(toIsoLocal(initialValue));
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -56,10 +63,17 @@ export function DateTimeEditor({ propertyKey, initialValue, onSave, onCancel, he
           <p className="dialog-hint">
             Saved as <code>YYYY:MM:DD HH:MM:SS</code> in the file.
           </p>
-          {error && <p className="dialog-error" data-testid="datetime-editor-error">{error}</p>}
+          {error && (
+            <p className="dialog-error" data-testid="datetime-editor-error">
+              {error}
+            </p>
+          )}
         </div>
         <div className="dialog-footer">
-          <button className="dialog-btn dialog-btn-secondary" onClick={onCancel}>
+          <button
+            className="dialog-btn dialog-btn-secondary"
+            onClick={onCancel}
+          >
             Cancel
           </button>
           <button

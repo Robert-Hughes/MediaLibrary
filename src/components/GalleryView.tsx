@@ -33,8 +33,15 @@ interface Props {
   imageMetadata?: ImageMetadataStore;
   draftEdits?: Record<string, string | null>;
   typedDraftEdits?: Record<string, import("../types").DraftEdit>;
-  onSetDraftTyped?: (fileRelativePath: string, key: string, edit: import("../types").DraftEdit) => void;
-  onSetDraftBatch?: (fileRelativePath: string, edits: Array<{ key: string; edit: import("../types").DraftEdit }>) => void;
+  onSetDraftTyped?: (
+    fileRelativePath: string,
+    key: string,
+    edit: import("../types").DraftEdit,
+  ) => void;
+  onSetDraftBatch?: (
+    fileRelativePath: string,
+    edits: Array<{ key: string; edit: import("../types").DraftEdit }>,
+  ) => void;
   onDiscardDraft?: (fileRelativePath: string, key: string) => void;
   onDiscardAllEdits?: (fileRelativePath: string) => void;
   onApplyEdits?: (fileRelativePath: string) => void;
@@ -48,12 +55,34 @@ interface Props {
   onShowInFileExplorer?: (fileRelativePath: string) => void;
 }
 
-export function GalleryView({ photos, currentIndex, folderPath, onClose, onNavigate, loadImage, imageMetadata, draftEdits, typedDraftEdits, onSetDraftTyped, onSetDraftBatch, onDiscardDraft, onDiscardAllEdits, onApplyEdits, onGenerateAiDescription, onGeocode, onNormalise, onShowInFileExplorer }: Props) {
+export function GalleryView({
+  photos,
+  currentIndex,
+  folderPath,
+  onClose,
+  onNavigate,
+  loadImage,
+  imageMetadata,
+  draftEdits,
+  typedDraftEdits,
+  onSetDraftTyped,
+  onSetDraftBatch,
+  onDiscardDraft,
+  onDiscardAllEdits,
+  onApplyEdits,
+  onGenerateAiDescription,
+  onGeocode,
+  onNormalise,
+  onShowInFileExplorer,
+}: Props) {
   const photo = photos[currentIndex];
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [detailsVisible, setDetailsVisibleState] = useState<boolean>(loadDetailsVisible);
-  const setDetailsVisible = (update: boolean | ((prev: boolean) => boolean)) => {
+  const [detailsVisible, setDetailsVisibleState] =
+    useState<boolean>(loadDetailsVisible);
+  const setDetailsVisible = (
+    update: boolean | ((prev: boolean) => boolean),
+  ) => {
     setDetailsVisibleState((prev) => {
       const next = typeof update === "function" ? update(prev) : update;
       saveDetailsVisible(next);
@@ -76,7 +105,8 @@ export function GalleryView({ photos, currentIndex, folderPath, onClose, onNavig
 
   // Subscribe to this photo's metadata reactively via useSyncExternalStore.
   const metadataState = useSyncExternalStore(
-    (cb) => imageMetadata?.subscribe(photo?.relative_path ?? "", cb) ?? (() => {}),
+    (cb) =>
+      imageMetadata?.subscribe(photo?.relative_path ?? "", cb) ?? (() => {}),
     () => imageMetadata?.get(photo?.relative_path ?? "") ?? "loading",
   );
 
@@ -101,12 +131,23 @@ export function GalleryView({ photos, currentIndex, folderPath, onClose, onNavig
         return;
       }
       const target = e.target as HTMLElement | null;
-      if (target?.closest?.("input, textarea, select, [contenteditable='true']")) {
+      if (
+        target?.closest?.("input, textarea, select, [contenteditable='true']")
+      ) {
         return;
       }
-      if (e.key === "ArrowLeft")  { e.preventDefault(); onNavigate(-1); }
-      if (e.key === "ArrowRight") { e.preventDefault(); onNavigate(1); }
-      if (e.key === "i" || e.key === "I") { e.preventDefault(); setDetailsVisible((v) => !v); }
+      if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        onNavigate(-1);
+      }
+      if (e.key === "ArrowRight") {
+        e.preventDefault();
+        onNavigate(1);
+      }
+      if (e.key === "i" || e.key === "I") {
+        e.preventDefault();
+        setDetailsVisible((v) => !v);
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -114,7 +155,7 @@ export function GalleryView({ photos, currentIndex, folderPath, onClose, onNavig
 
   const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
     if (!imageSrc) return;
-    
+
     const zoomFactor = Math.pow(2, e.deltaY * -0.002);
     let newScale = scale * zoomFactor;
     newScale = Math.max(1, Math.min(newScale, 50));
@@ -133,12 +174,12 @@ export function GalleryView({ photos, currentIndex, folderPath, onClose, onNavig
       const py = e.clientY - centerY;
 
       const scaleRatio = newScale / scale;
-      let newX = px - (px - pan.x) * scaleRatio;
-      let newY = py - (py - pan.y) * scaleRatio;
+      const newX = px - (px - pan.x) * scaleRatio;
+      const newY = py - (py - pan.y) * scaleRatio;
 
-      const maxPanX = (rect.width * newScale) * 0.45;
-      const maxPanY = (rect.height * newScale) * 0.45;
-      
+      const maxPanX = rect.width * newScale * 0.45;
+      const maxPanY = rect.height * newScale * 0.45;
+
       setPan({
         x: Math.max(-maxPanX, Math.min(newX, maxPanX)),
         y: Math.max(-maxPanY, Math.min(newY, maxPanY)),
@@ -163,9 +204,9 @@ export function GalleryView({ photos, currentIndex, folderPath, onClose, onNavig
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!isDragging || !areaRef.current) return;
     const rect = areaRef.current.getBoundingClientRect();
-    const maxPanX = (rect.width * scale) * 0.45;
-    const maxPanY = (rect.height * scale) * 0.45;
-    
+    const maxPanX = rect.width * scale * 0.45;
+    const maxPanY = rect.height * scale * 0.45;
+
     const newX = e.clientX - dragStart.x;
     const newY = e.clientY - dragStart.y;
 
@@ -225,8 +266,8 @@ export function GalleryView({ photos, currentIndex, folderPath, onClose, onNavig
           ‹
         </button>
 
-        <div 
-          className="gallery-image-area" 
+        <div
+          className="gallery-image-area"
           data-testid="gallery-image-area"
           ref={areaRef}
           onWheel={handleWheel}
@@ -234,10 +275,14 @@ export function GalleryView({ photos, currentIndex, folderPath, onClose, onNavig
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUpOrLeave}
           onMouseLeave={handleMouseUpOrLeave}
-          style={{ overflow: 'hidden' }}
+          style={{ overflow: "hidden" }}
         >
           {loading ? (
-            <div style={spinStyle} className="gallery-spinner" data-testid="gallery-spinner" />
+            <div
+              style={spinStyle}
+              className="gallery-spinner"
+              data-testid="gallery-spinner"
+            />
           ) : imageSrc ? (
             <img
               src={imageSrc}
@@ -246,8 +291,9 @@ export function GalleryView({ photos, currentIndex, folderPath, onClose, onNavig
               data-testid="gallery-image"
               style={{
                 transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})`,
-                transition: isDragging ? 'none' : 'transform 0.1s ease-out',
-                cursor: scale > 1 ? (isDragging ? 'grabbing' : 'grab') : 'default'
+                transition: isDragging ? "none" : "transform 0.1s ease-out",
+                cursor:
+                  scale > 1 ? (isDragging ? "grabbing" : "grab") : "default",
               }}
               draggable={false}
             />
@@ -269,20 +315,36 @@ export function GalleryView({ photos, currentIndex, folderPath, onClose, onNavig
         </button>
 
         {detailsVisible && (
-          <DetailsPane 
-            photo={photo} 
-            metadata={metadataState} 
+          <DetailsPane
+            photo={photo}
+            metadata={metadataState}
             draftEdits={draftEdits}
             typedDraftEdits={typedDraftEdits}
-            onSetDraftTyped={(key, edit) => onSetDraftTyped?.(photo.relative_path, key, edit)}
-            onSetDraftBatch={(edits) => onSetDraftBatch?.(photo.relative_path, edits)}
+            onSetDraftTyped={(key, edit) =>
+              onSetDraftTyped?.(photo.relative_path, key, edit)
+            }
+            onSetDraftBatch={(edits) =>
+              onSetDraftBatch?.(photo.relative_path, edits)
+            }
             onDiscardDraft={(key) => onDiscardDraft?.(photo.relative_path, key)}
             onDiscardAllEdits={() => onDiscardAllEdits?.(photo.relative_path)}
             onApplyEdits={() => onApplyEdits?.(photo.relative_path)}
-            onGenerateAiDescription={onGenerateAiDescription ? () => onGenerateAiDescription(photo.relative_path) : undefined}
-            onGeocode={onGeocode ? () => onGeocode(photo.relative_path) : undefined}
-            onNormalise={onNormalise ? () => onNormalise(photo.relative_path) : undefined}
-            onShowInFileExplorer={onShowInFileExplorer ? () => onShowInFileExplorer(photo.relative_path) : undefined}
+            onGenerateAiDescription={
+              onGenerateAiDescription
+                ? () => onGenerateAiDescription(photo.relative_path)
+                : undefined
+            }
+            onGeocode={
+              onGeocode ? () => onGeocode(photo.relative_path) : undefined
+            }
+            onNormalise={
+              onNormalise ? () => onNormalise(photo.relative_path) : undefined
+            }
+            onShowInFileExplorer={
+              onShowInFileExplorer
+                ? () => onShowInFileExplorer(photo.relative_path)
+                : undefined
+            }
           />
         )}
 

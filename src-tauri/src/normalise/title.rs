@@ -28,7 +28,7 @@ const IPTC_OBJECT_NAME_LIMIT: usize = 64;
 fn normalise_title_text(s: &str) -> String {
     let collapsed = collapse_whitespace_single_line(s);
     collapsed
-        .trim_end_matches(|c: char| matches!(c, '.' | '!' | '?' | ',' | ':' | ';'))
+        .trim_end_matches(['.', '!', '?', ',', ':', ';'])
         .trim_end()
         .to_string()
 }

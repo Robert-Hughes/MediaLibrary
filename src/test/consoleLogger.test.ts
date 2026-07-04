@@ -45,8 +45,9 @@ describe("consoleLogger.formatArgs", () => {
   });
 
   it("consumes %c (CSS) without rendering, advancing arg pointer", () => {
-    expect(formatArgs(["%cstyled %s", "color:red", "tail"]))
-      .toBe("styled tail");
+    expect(formatArgs(["%cstyled %s", "color:red", "tail"])).toBe(
+      "styled tail",
+    );
   });
 
   it("renders %% as a literal percent", () => {
@@ -54,13 +55,15 @@ describe("consoleLogger.formatArgs", () => {
   });
 
   it("handles multiple specifiers in order", () => {
-    expect(formatArgs(["%s=%d (%s)", "answer", 42, "to life"]))
-      .toBe("answer=42 (to life)");
+    expect(formatArgs(["%s=%d (%s)", "answer", 42, "to life"])).toBe(
+      "answer=42 (to life)",
+    );
   });
 
   it("appends extra args beyond the format string with a separator", () => {
-    expect(formatArgs(["msg=%s", "hello", "extra1", "extra2"]))
-      .toBe("msg=hello extra1 extra2");
+    expect(formatArgs(["msg=%s", "hello", "extra1", "extra2"])).toBe(
+      "msg=hello extra1 extra2",
+    );
   });
 
   it("leaves a specifier intact when there is no matching arg", () => {
@@ -70,8 +73,9 @@ describe("consoleLogger.formatArgs", () => {
   it("renders the React-warning shape correctly", () => {
     // The motivating use case: React emits "Warning: %s\n%s" — both
     // %s slots must be filled rather than printed literally.
-    expect(formatArgs(["Warning: %s\n%s", "deprecation", "stack"]))
-      .toBe("Warning: deprecation\nstack");
+    expect(formatArgs(["Warning: %s\n%s", "deprecation", "stack"])).toBe(
+      "Warning: deprecation\nstack",
+    );
   });
 
   it("stringifies Error instances via stack or name/message", () => {

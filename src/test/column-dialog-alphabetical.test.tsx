@@ -12,12 +12,12 @@ describe("ColumnSelectionDialog alphabetical sorting", () => {
     ];
 
     const { container } = render(
-      <ColumnSelectionDialog 
-        allKeys={allKeys} 
+      <ColumnSelectionDialog
+        allKeys={allKeys}
         visibleColumns={[]}
         onSave={() => {}}
         onClose={() => {}}
-      />
+      />,
     );
 
     // Check that each field appears in the document
@@ -30,17 +30,17 @@ describe("ColumnSelectionDialog alphabetical sorting", () => {
     // Get all column items and check their order
     const columnItems = container.querySelectorAll(".column-item");
     const imageMetadataItems = Array.from(columnItems).slice(2); // Skip the first 2 OS metadata items
-    const labelTexts = imageMetadataItems.map(item => 
-      item.querySelector('.column-label')?.textContent
+    const labelTexts = imageMetadataItems.map(
+      (item) => item.querySelector(".column-label")?.textContent,
     );
 
     // Should be in alphabetical order
     const expectedOrder = [
       "EXIF:DateTimeOriginal",
-      "GPS:GPSLatitude", 
+      "GPS:GPSLatitude",
       "IFD0:Make",
       "IFD0:Model",
-      "XMP-dc:Subject"
+      "XMP-dc:Subject",
     ];
 
     expect(labelTexts).toEqual(expectedOrder);
@@ -54,26 +54,26 @@ describe("ColumnSelectionDialog alphabetical sorting", () => {
     ];
 
     const { container } = render(
-      <ColumnSelectionDialog 
-        allKeys={allKeys} 
+      <ColumnSelectionDialog
+        allKeys={allKeys}
         visibleColumns={[]}
         onSave={() => {}}
         onClose={() => {}}
-      />
+      />,
     );
 
     // Get all the field labels in order they appear
     const columnItems = container.querySelectorAll(".column-item");
     const imageMetadataItems = Array.from(columnItems).slice(2); // Skip OS metadata items
-    const labelTexts = imageMetadataItems.map(item => 
-      item.querySelector('.column-label')?.textContent
+    const labelTexts = imageMetadataItems.map(
+      (item) => item.querySelector(".column-label")?.textContent,
     );
 
     // Should be in alphabetical order, not by count
     expect(labelTexts).toEqual([
       "A-First:Field",
-      "M-Middle:Field", 
-      "Z-Last:Field"
+      "M-Middle:Field",
+      "Z-Last:Field",
     ]);
   });
 
@@ -86,26 +86,26 @@ describe("ColumnSelectionDialog alphabetical sorting", () => {
     ];
 
     const { container } = render(
-      <ColumnSelectionDialog 
-        allKeys={allKeys} 
+      <ColumnSelectionDialog
+        allKeys={allKeys}
         visibleColumns={[]}
         onSave={() => {}}
         onClose={() => {}}
-      />
+      />,
     );
 
     const columnItems = container.querySelectorAll(".column-item");
     const imageMetadataItems = Array.from(columnItems).slice(2); // Skip OS metadata items
-    const labelTexts = imageMetadataItems.map(item => 
-      item.querySelector('.column-label')?.textContent
+    const labelTexts = imageMetadataItems.map(
+      (item) => item.querySelector(".column-label")?.textContent,
     );
 
     // Should be sorted case-insensitively
     expect(labelTexts).toEqual([
       "EXIF:DateTimeOriginal",
       "gps:GPSLatitude",
-      "IFD0:Model", 
-      "xmp-dc:Subject"
+      "IFD0:Model",
+      "xmp-dc:Subject",
     ]);
   });
 });

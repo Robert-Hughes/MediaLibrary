@@ -23,7 +23,9 @@ describe("App schema preloading", () => {
     let resolvePreload!: () => void;
     mockInvoke.mockImplementation((cmd: string) => {
       if (cmd === "preload_schema") {
-        return new Promise<void>((res) => { resolvePreload = res; });
+        return new Promise<void>((res) => {
+          resolvePreload = res;
+        });
       }
       return Promise.resolve(null);
     });
@@ -34,7 +36,9 @@ describe("App schema preloading", () => {
 
     resolvePreload();
     await waitFor(() => {
-      expect(screen.queryByTestId("schema-loading-dialog")).not.toBeInTheDocument();
+      expect(
+        screen.queryByTestId("schema-loading-dialog"),
+      ).not.toBeInTheDocument();
     });
   });
 
@@ -51,16 +55,21 @@ describe("App schema preloading", () => {
     render(<App />);
 
     await waitFor(() => {
-      expect(screen.queryByTestId("schema-loading-dialog")).not.toBeInTheDocument();
+      expect(
+        screen.queryByTestId("schema-loading-dialog"),
+      ).not.toBeInTheDocument();
     });
   });
 
   it("shows schema error dialog with PATH guidance when preload_schema fails", async () => {
     const { invoke } = await import("@tauri-apps/api/core");
     const mockInvoke = vi.mocked(invoke);
-    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
 
-    const backendError = "exiftool not found: No such file or directory (os error 2)";
+    const backendError =
+      "exiftool not found: No such file or directory (os error 2)";
     mockInvoke.mockImplementation((cmd: string) => {
       if (cmd === "preload_schema") return Promise.reject(backendError);
       if (cmd === "get_cli_folder") return Promise.resolve(null);
@@ -71,12 +80,16 @@ describe("App schema preloading", () => {
 
     // Loading dialog goes away, error dialog appears.
     await waitFor(() => {
-      expect(screen.queryByTestId("schema-loading-dialog")).not.toBeInTheDocument();
+      expect(
+        screen.queryByTestId("schema-loading-dialog"),
+      ).not.toBeInTheDocument();
       expect(screen.getByTestId("schema-error-dialog")).toBeInTheDocument();
     });
 
     // Surfaces the actual backend error message to the user.
-    expect(screen.getByTestId("schema-error-message")).toHaveTextContent(backendError);
+    expect(screen.getByTestId("schema-error-message")).toHaveTextContent(
+      backendError,
+    );
 
     // Tells the user to put exiftool on PATH (no mention of settings).
     const dialog = screen.getByTestId("schema-error-dialog");
@@ -101,7 +114,7 @@ describe("App CLI folder argument", () => {
   it("opens folder from CLI argument on mount", async () => {
     const { invoke } = await import("@tauri-apps/api/core");
     const mockInvoke = vi.mocked(invoke);
-    
+
     // Mock get_cli_folder to return a folder path
     mockInvoke.mockImplementation((cmd: string) => {
       if (cmd === "get_cli_folder") {
@@ -126,7 +139,7 @@ describe("App CLI folder argument", () => {
         "start_scan",
         expect.objectContaining({
           folderPath: "D:\\Photos\\2024",
-        })
+        }),
       );
     });
 
@@ -140,7 +153,7 @@ describe("App CLI folder argument", () => {
   it("shows welcome screen when no CLI argument provided", async () => {
     const { invoke } = await import("@tauri-apps/api/core");
     const mockInvoke = vi.mocked(invoke);
-    
+
     // Mock get_cli_folder to return null (no CLI argument)
     mockInvoke.mockImplementation((cmd: string) => {
       if (cmd === "get_cli_folder") {
@@ -165,15 +178,17 @@ describe("App CLI folder argument", () => {
     // Should NOT call start_scan
     expect(mockInvoke).not.toHaveBeenCalledWith(
       "start_scan",
-      expect.anything()
+      expect.anything(),
     );
   });
 
   it("handles CLI folder error gracefully", async () => {
     const { invoke } = await import("@tauri-apps/api/core");
     const mockInvoke = vi.mocked(invoke);
-    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
-    
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+
     // Mock get_cli_folder to throw an error
     mockInvoke.mockImplementation((cmd: string) => {
       if (cmd === "get_cli_folder") {
@@ -188,7 +203,7 @@ describe("App CLI folder argument", () => {
     await waitFor(() => {
       expect(consoleError).toHaveBeenCalledWith(
         "[App] Failed to get CLI folder:",
-        expect.any(Error)
+        expect.any(Error),
       );
     });
 
@@ -203,7 +218,7 @@ describe("App CLI folder argument", () => {
   it("only processes CLI argument once", async () => {
     const { invoke } = await import("@tauri-apps/api/core");
     const mockInvoke = vi.mocked(invoke);
-    
+
     mockInvoke.mockImplementation((cmd: string) => {
       if (cmd === "get_cli_folder") {
         return Promise.resolve("D:\\Photos\\2024");
@@ -222,18 +237,18 @@ describe("App CLI folder argument", () => {
     });
 
     const initialCallCount = mockInvoke.mock.calls.filter(
-      call => call[0] === "get_cli_folder"
+      (call) => call[0] === "get_cli_folder",
     ).length;
 
     // Force a re-render
     rerender(<App />);
 
     // Wait a bit to ensure no additional calls
-    await new Promise(resolve => setTimeout(resolve, 100));
+    await new Promise((resolve) => setTimeout(resolve, 100));
 
     // Should not call get_cli_folder again
     const finalCallCount = mockInvoke.mock.calls.filter(
-      call => call[0] === "get_cli_folder"
+      (call) => call[0] === "get_cli_folder",
     ).length;
 
     expect(finalCallCount).toBe(initialCallCount);

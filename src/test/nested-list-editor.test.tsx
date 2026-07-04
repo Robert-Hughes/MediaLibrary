@@ -22,7 +22,10 @@ beforeEach(() => cleanup());
 // Stub inner editor that records the propertyKey/initialVariant it was
 // asked to edit and immediately commits a sentinel edited Object.  Real
 // router is exercised in the integration test at the bottom.
-function stubInnerEditor(record: { lastPropertyKey?: string; lastInitial?: Variant }) {
+function stubInnerEditor(record: {
+  lastPropertyKey?: string;
+  lastInitial?: Variant;
+}) {
   return function Stub(props: InnerEditorProps) {
     record.lastPropertyKey = props.propertyKey;
     record.lastInitial = props.initialVariant;
@@ -30,10 +33,12 @@ function stubInnerEditor(record: { lastPropertyKey?: string; lastInitial?: Varia
       <div data-testid="stub-inner-editor">
         <button
           data-testid="stub-inner-save"
-          onClick={() => props.onSave({
-            value: { Name: "Edited", Type: "Face" } as Variant,
-            intent: "Set",
-          } as DraftEdit)}
+          onClick={() =>
+            props.onSave({
+              value: { Name: "Edited", Type: "Face" } as Variant,
+              intent: "Set",
+            } as DraftEdit)
+          }
         >
           Save inner
         </button>
@@ -106,10 +111,7 @@ describe("NestedListEditor", () => {
       <NestedListEditor
         propertyKey="XMP-mwg-rs:Regions"
         kind={BAG_OF_STRUCT}
-        initialItems={[
-          { Name: "Alice" },
-          { Name: "Bob" },
-        ]}
+        initialItems={[{ Name: "Alice" }, { Name: "Bob" }]}
         innerEditor={stubInnerEditor(record)}
         onSave={() => {}}
         onCancel={() => {}}
@@ -128,9 +130,7 @@ describe("NestedListEditor", () => {
       <NestedListEditor
         propertyKey="XMP-mwg-rs:Regions"
         kind={BAG_OF_STRUCT}
-        initialItems={[
-          { Name: "Original" },
-        ]}
+        initialItems={[{ Name: "Original" }]}
         innerEditor={stubInnerEditor({})}
         onSave={onSave}
         onCancel={() => {}}
@@ -170,10 +170,7 @@ describe("NestedListEditor", () => {
       <NestedListEditor
         propertyKey="XMP-mwg-rs:Regions"
         kind={BAG_OF_STRUCT}
-        initialItems={[
-          { Name: "Alice" },
-          { Name: "Bob" },
-        ]}
+        initialItems={[{ Name: "Alice" }, { Name: "Bob" }]}
         innerEditor={stubInnerEditor({})}
         onSave={onSave}
         onCancel={() => {}}
@@ -206,10 +203,7 @@ describe("NestedListEditor", () => {
       <NestedListEditor
         propertyKey="X:OrderedRegions"
         kind={SEQ_OF_STRUCT}
-        initialItems={[
-          { Name: "Alice" },
-          { Name: "Bob" },
-        ]}
+        initialItems={[{ Name: "Alice" }, { Name: "Bob" }]}
         innerEditor={stubInnerEditor({})}
         onSave={onSave}
         onCancel={() => {}}

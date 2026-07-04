@@ -18,7 +18,12 @@
  * understands what they're confirming) and the per-source done-panel
  * breakdown.
  */
-import type { BatchFailureKind, GeocodeFailure, GeocodeProgressState, GeocodeSummary } from "../types";
+import type {
+  BatchFailureKind,
+  GeocodeFailure,
+  GeocodeProgressState,
+  GeocodeSummary,
+} from "../types";
 import { BatchJobDialog } from "./BatchJobDialog";
 import { BatchSummaryCountersRow } from "./BatchSummaryCountersRow";
 import { RunningProgressPanel } from "./RunningProgressPanel";
@@ -102,7 +107,9 @@ function FailureList({ failures }: { failures: GeocodeFailure[] }) {
   if (failures.length === 0) return null;
   return (
     <details style={{ marginTop: 12 }} data-testid="geocode-failure-list">
-      <summary style={{ cursor: "pointer", color: "var(--accent-error, #d33)" }}>
+      <summary
+        style={{ cursor: "pointer", color: "var(--accent-error, #d33)" }}
+      >
         {failures.length} failed
       </summary>
       <ul style={{ marginTop: 6, paddingLeft: 18, fontSize: 12 }}>
@@ -112,7 +119,9 @@ function FailureList({ failures }: { failures: GeocodeFailure[] }) {
             {f.detail && (
               <>
                 {" — "}
-                <span style={{ color: "var(--text-secondary)" }}>{f.detail}</span>
+                <span style={{ color: "var(--text-secondary)" }}>
+                  {f.detail}
+                </span>
               </>
             )}
           </li>
@@ -166,44 +175,56 @@ function AwaitingConfirmPanel({
   onCancel: () => void;
   onConfirm: () => void;
 }) {
-  const nWithoutGps = state.items.filter((i) => i.lat == null || i.lon == null).length;
+  const nWithoutGps = state.items.filter(
+    (i) => i.lat == null || i.lon == null,
+  ).length;
   const word = state.total === 1 ? "image" : "images";
   return (
     <>
       <div className="dialog-hint" data-testid="geocode-confirm-summary">
-        Ready to reverse-geocode {state.total} {word} using OpenStreetMap Nominatim, with Overpass
-        fallback for named buildings and POIs.
+        Ready to reverse-geocode {state.total} {word} using OpenStreetMap
+        Nominatim, with Overpass fallback for named buildings and POIs.
       </div>
-      <div style={{ marginTop: 12, fontSize: 12, color: "var(--text-secondary)" }}>
+      <div
+        style={{ marginTop: 12, fontSize: 12, color: "var(--text-secondary)" }}
+      >
         The <strong>GPS coordinates</strong> of each image will be sent to{" "}
         <code>nominatim.openstreetmap.org</code> and (when needed){" "}
-        <code>overpass-api.de</code>. The images themselves are <strong>not</strong> uploaded.
-        There is no cost.
+        <code>overpass-api.de</code>. The images themselves are{" "}
+        <strong>not</strong> uploaded. There is no cost.
       </div>
       <div style={{ marginTop: 12, fontSize: 12 }}>
-        The following draft tags will be proposed per image, where data is available:
+        The following draft tags will be proposed per image, where data is
+        available:
         <ul style={{ marginTop: 6, paddingLeft: 18, lineHeight: 1.5 }}>
           <li>
-            <code>XMP-iptcCore:Location</code> and <code>IPTC:Sub-location</code>
+            <code>XMP-iptcCore:Location</code> and{" "}
+            <code>IPTC:Sub-location</code>
           </li>
           <li>
             <code>XMP-photoshop:City</code> and <code>IPTC:City</code>
           </li>
           <li>
-            <code>XMP-photoshop:State</code> and <code>IPTC:Province-State</code>
+            <code>XMP-photoshop:State</code> and{" "}
+            <code>IPTC:Province-State</code>
           </li>
           <li>
-            <code>XMP-photoshop:Country</code> and <code>IPTC:Country-PrimaryLocationName</code>
+            <code>XMP-photoshop:Country</code> and{" "}
+            <code>IPTC:Country-PrimaryLocationName</code>
           </li>
           <li>
-            <code>XMP-iptcCore:CountryCode</code> and <code>IPTC:Country-PrimaryLocationCode</code>
+            <code>XMP-iptcCore:CountryCode</code> and{" "}
+            <code>IPTC:Country-PrimaryLocationCode</code>
           </li>
         </ul>
       </div>
-      <div style={{ marginTop: 12, fontSize: 12, color: "var(--text-secondary)" }}>
-        Existing GPS values are <strong>not</strong> modified. Fields the geocoder doesn't return
-        will be <strong>cleared as drafts</strong> (so the location group stays internally
-        consistent). Nothing is written to disk until you apply drafts.
+      <div
+        style={{ marginTop: 12, fontSize: 12, color: "var(--text-secondary)" }}
+      >
+        Existing GPS values are <strong>not</strong> modified. Fields the
+        geocoder doesn't return will be <strong>cleared as drafts</strong> (so
+        the location group stays internally consistent). Nothing is written to
+        disk until you apply drafts.
       </div>
       {overwriteInfo && (
         <OverwriteNotice
@@ -224,14 +245,25 @@ function AwaitingConfirmPanel({
       )}
       {nWithoutGps > 0 && (
         <div
-          style={{ marginTop: 12, fontSize: 12, color: "var(--accent-error, #d33)" }}
+          style={{
+            marginTop: 12,
+            fontSize: 12,
+            color: "var(--accent-error, #d33)",
+          }}
           data-testid="geocode-no-gps-warning"
         >
-          {nWithoutGps} of {state.total} selected {word} have no GPS coordinates and will be
-          skipped.
+          {nWithoutGps} of {state.total} selected {word} have no GPS coordinates
+          and will be skipped.
         </div>
       )}
-      <div style={{ marginTop: 20, display: "flex", justifyContent: "flex-end", gap: 8 }}>
+      <div
+        style={{
+          marginTop: 20,
+          display: "flex",
+          justifyContent: "flex-end",
+          gap: 8,
+        }}
+      >
         <button
           className="button button--secondary"
           onClick={onCancel}
@@ -252,7 +284,13 @@ function AwaitingConfirmPanel({
   );
 }
 
-export function GeocodeProgressDialog({ state, overwriteInfo, onConfirm, onCancel, onClose }: Props) {
+export function GeocodeProgressDialog({
+  state,
+  overwriteInfo,
+  onConfirm,
+  onCancel,
+  onClose,
+}: Props) {
   return (
     <BatchJobDialog
       testidPrefix="geocode"
@@ -282,9 +320,15 @@ export function GeocodeProgressDialog({ state, overwriteInfo, onConfirm, onCance
           cancelling={state.cancelling}
           onCancel={onCancel}
           footer={
-            <div style={{ marginTop: 12, fontSize: 11, color: "var(--text-secondary)" }}>
-              Each result lands in drafts as soon as it arrives. Cancelling preserves results
-              already returned.
+            <div
+              style={{
+                marginTop: 12,
+                fontSize: 11,
+                color: "var(--text-secondary)",
+              }}
+            >
+              Each result lands in drafts as soon as it arrives. Cancelling
+              preserves results already returned.
             </div>
           }
         />
@@ -295,14 +339,22 @@ export function GeocodeProgressDialog({ state, overwriteInfo, onConfirm, onCance
           <div className="dialog-hint" data-testid="geocode-done-summary">
             Completed: {state.succeeded.length}/{state.total} succeeded
             {state.failures.length > 0 && (
-              <span style={{ marginLeft: 8, color: "var(--accent-error, #d33)" }}>
+              <span
+                style={{ marginLeft: 8, color: "var(--accent-error, #d33)" }}
+              >
                 , {state.failures.length} failed
               </span>
             )}
           </div>
           {state.summary && <SummaryBreakdown s={state.summary} />}
           <FailureList failures={state.failures} />
-          <div style={{ marginTop: 20, display: "flex", justifyContent: "flex-end" }}>
+          <div
+            style={{
+              marginTop: 20,
+              display: "flex",
+              justifyContent: "flex-end",
+            }}
+          >
             <button
               className="button button--primary"
               onClick={onClose}

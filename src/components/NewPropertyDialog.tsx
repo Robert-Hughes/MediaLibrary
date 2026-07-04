@@ -19,7 +19,12 @@ interface Props {
   filename?: string;
 }
 
-export function NewPropertyDialog({ onSave, onCancel, existingKeys, filename }: Props) {
+export function NewPropertyDialog({
+  onSave,
+  onCancel,
+  existingKeys,
+  filename,
+}: Props) {
   const [key, setKey] = useState("");
   const keyInputRef = useRef<HTMLInputElement>(null);
 
@@ -42,7 +47,8 @@ export function NewPropertyDialog({ onSave, onCancel, existingKeys, filename }: 
     keyInputRef.current?.focus();
   }, []);
 
-  const unwritable = tagInfo !== "loading" && tagInfo !== null && !tagInfo.writable;
+  const unwritable =
+    tagInfo !== "loading" && tagInfo !== null && !tagInfo.writable;
   const disabled = !key || unwritable;
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -62,27 +68,46 @@ export function NewPropertyDialog({ onSave, onCancel, existingKeys, filename }: 
           data-testid="new-property-schema-unknown"
           style={{ color: "var(--accent-warning, #aa6)" }}
         >
-          ⚠ <code>{lookupKey}</code> is not in ExifTool&apos;s writable schema.
-          {" "}The edit will be sent as raw text and may be silently rejected by ExifTool.
+          ⚠ <code>{lookupKey}</code> is not in ExifTool&apos;s writable schema.{" "}
+          The edit will be sent as raw text and may be silently rejected by
+          ExifTool.
         </p>
       );
     } else if (!tagInfo.writable) {
       schemaLine = (
-        <p className="dialog-error editor-meta-hint" data-testid="new-property-schema-unwritable">
+        <p
+          className="dialog-error editor-meta-hint"
+          data-testid="new-property-schema-unwritable"
+        >
           <strong>
-            <code>{tagInfo.group}:{tagInfo.name}</code> — {describeKind(tagInfo.kind)}
+            <code>
+              {tagInfo.group}:{tagInfo.name}
+            </code>{" "}
+            — {describeKind(tagInfo.kind)}
           </strong>
-          {" · "}From ExifTool schema (read-only) — ExifTool will refuse to write this value.
+          {" · "}From ExifTool schema (read-only) — ExifTool will refuse to
+          write this value.
         </p>
       );
     } else {
       schemaLine = (
-        <p className="dialog-hint editor-meta-hint" data-testid="new-property-schema-info">
+        <p
+          className="dialog-hint editor-meta-hint"
+          data-testid="new-property-schema-info"
+        >
           <strong>
-            <code>{tagInfo.group}:{tagInfo.name}</code> — {describeKind(tagInfo.kind)}
+            <code>
+              {tagInfo.group}:{tagInfo.name}
+            </code>{" "}
+            — {describeKind(tagInfo.kind)}
           </strong>
           {" · "}From ExifTool schema
-          {tagInfo.description ? <><br />{tagInfo.description}</> : null}
+          {tagInfo.description ? (
+            <>
+              <br />
+              {tagInfo.description}
+            </>
+          ) : null}
         </p>
       );
     }
@@ -94,9 +119,19 @@ export function NewPropertyDialog({ onSave, onCancel, existingKeys, filename }: 
     <div className="dialog-overlay">
       <div className="dialog-content">
         <h3>Add New Property</h3>
-        <div className="dialog-body" style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+        <div
+          className="dialog-body"
+          style={{ display: "flex", flexDirection: "column", gap: "10px" }}
+        >
           <div>
-            <label style={{ display: "block", marginBottom: "4px", fontSize: "12px", opacity: 0.8 }}>
+            <label
+              style={{
+                display: "block",
+                marginBottom: "4px",
+                fontSize: "12px",
+                opacity: 0.8,
+              }}
+            >
               Key (e.g. XMP-dc:Description)
             </label>
             <input
@@ -122,15 +157,18 @@ export function NewPropertyDialog({ onSave, onCancel, existingKeys, filename }: 
                 data-testid="new-property-duplicate-warning"
                 style={{ color: "var(--accent-warning, #aa6)" }}
               >
-                ⚠ <code>{key}</code> already exists in this image&apos;s metadata.
-                {" "}Saving will overwrite the existing value.
+                ⚠ <code>{key}</code> already exists in this image&apos;s
+                metadata. Saving will overwrite the existing value.
               </p>
             )}
             {schemaLine}
           </div>
         </div>
         <div className="dialog-footer">
-          <button className="dialog-btn dialog-btn-secondary" onClick={onCancel}>
+          <button
+            className="dialog-btn dialog-btn-secondary"
+            onClick={onCancel}
+          >
             Cancel
           </button>
           <button

@@ -36,7 +36,9 @@ export function useSchemaTagNames(): State {
     }
     const cb = () => setTick((n) => n + 1);
     subscribers.add(cb);
-    return () => { subscribers.delete(cb); };
+    return () => {
+      subscribers.delete(cb);
+    };
   }, []);
 
   return cached;

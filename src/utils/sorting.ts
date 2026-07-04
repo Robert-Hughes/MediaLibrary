@@ -9,7 +9,12 @@ function getVariantAsString(v: Variant | undefined): string {
   return "";
 }
 
-function compareByKey(a: PhotoInfo, b: PhotoInfo, key: SortKey, imageMetadata: ImageMetadataStore): number {
+function compareByKey(
+  a: PhotoInfo,
+  b: PhotoInfo,
+  key: SortKey,
+  imageMetadata: ImageMetadataStore,
+): number {
   let valA: string | number | null;
   let valB: string | number | null;
 
@@ -41,7 +46,10 @@ function compareByKey(a: PhotoInfo, b: PhotoInfo, key: SortKey, imageMetadata: I
   if (typeof valA === "number" && typeof valB === "number") {
     cmp = valA - valB;
   } else {
-    cmp = String(valA).localeCompare(String(valB), undefined, { numeric: true, sensitivity: "base" });
+    cmp = String(valA).localeCompare(String(valB), undefined, {
+      numeric: true,
+      sensitivity: "base",
+    });
   }
 
   return key.direction === "asc" ? cmp : -cmp;
@@ -92,13 +100,20 @@ export function shouldSuspendSorting(
 }
 
 /** Returns the next SortConfig when a column header is clicked. */
-export function nextSortConfig(current: SortConfig, column: string, columnType: SortKey["columnType"]): SortConfig {
+export function nextSortConfig(
+  current: SortConfig,
+  column: string,
+  columnType: SortKey["columnType"],
+): SortConfig {
   const { primary } = current;
 
   if (primary && primary.column === column) {
     // Toggle direction on the current primary column
     return {
-      primary: { ...primary, direction: primary.direction === "asc" ? "desc" : "asc" },
+      primary: {
+        ...primary,
+        direction: primary.direction === "asc" ? "desc" : "asc",
+      },
       secondary: current.secondary,
     };
   }

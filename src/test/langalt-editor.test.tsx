@@ -3,7 +3,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { LangAltEditor, initialLangsFrom } from "../components/editors/LangAltEditor";
+import {
+  LangAltEditor,
+  initialLangsFrom,
+} from "../components/editors/LangAltEditor";
 
 beforeEach(() => cleanup());
 
@@ -17,7 +20,9 @@ describe("LangAltEditor", () => {
         onCancel={() => {}}
       />,
     );
-    expect(screen.getByTestId("langalt-editor-tab-x-default")).toBeInTheDocument();
+    expect(
+      screen.getByTestId("langalt-editor-tab-x-default"),
+    ).toBeInTheDocument();
   });
 
   it("emits an Object Variant keyed by language on Save", async () => {
@@ -35,7 +40,11 @@ describe("LangAltEditor", () => {
     expect(onSave).toHaveBeenCalledOnce();
     const edit = onSave.mock.calls[0][0];
     expect(edit.intent).toBe("Set");
-    expect(edit.value).toEqual({ "x-default": "hello", en: "hello", fr: "bonjour" });
+    expect(edit.value).toEqual({
+      "x-default": "hello",
+      en: "hello",
+      fr: "bonjour",
+    });
   });
 
   it("switches active tab on click", () => {
@@ -47,9 +56,15 @@ describe("LangAltEditor", () => {
         onCancel={() => {}}
       />,
     );
-    expect((screen.getByTestId("langalt-editor-textarea") as HTMLTextAreaElement).value).toBe("a");
+    expect(
+      (screen.getByTestId("langalt-editor-textarea") as HTMLTextAreaElement)
+        .value,
+    ).toBe("a");
     fireEvent.click(screen.getByTestId("langalt-editor-tab-en"));
-    expect((screen.getByTestId("langalt-editor-textarea") as HTMLTextAreaElement).value).toBe("b");
+    expect(
+      (screen.getByTestId("langalt-editor-textarea") as HTMLTextAreaElement)
+        .value,
+    ).toBe("b");
   });
 
   it("adds a new language tab", async () => {
@@ -62,7 +77,9 @@ describe("LangAltEditor", () => {
         onCancel={() => {}}
       />,
     );
-    const input = screen.getByTestId("langalt-editor-add-input") as HTMLInputElement;
+    const input = screen.getByTestId(
+      "langalt-editor-add-input",
+    ) as HTMLInputElement;
     await user.click(input);
     await user.type(input, "de");
     await user.click(screen.getByTestId("langalt-editor-add-btn"));
@@ -86,7 +103,11 @@ describe("LangAltEditor", () => {
 
 describe("initialLangsFrom", () => {
   it("extracts from a Variant::Object base value", () => {
-    const r = initialLangsFrom({ "x-default": "hi", en: "hi", fr: "salut" }, {}, "XMP-dc:Description");
+    const r = initialLangsFrom(
+      { "x-default": "hi", en: "hi", fr: "salut" },
+      {},
+      "XMP-dc:Description",
+    );
     expect(r).toEqual({ "x-default": "hi", en: "hi", fr: "salut" });
   });
 
@@ -95,7 +116,7 @@ describe("initialLangsFrom", () => {
       "XMP-dc:Description": "default text",
       "XMP-dc:Description-en": "english",
       "XMP-dc:Description-fr": "francais",
-      "OtherTag": "x",
+      OtherTag: "x",
     };
     const r = initialLangsFrom("default text", meta, "XMP-dc:Description");
     expect(r).toEqual({

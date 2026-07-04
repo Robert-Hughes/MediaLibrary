@@ -36,7 +36,10 @@ export interface GeocodeActions {
 }
 
 export interface UseGeocodeImagesOptions {
-  onApplyEdits?: (relativePath: string, edits: Record<string, DraftEdit>) => void;
+  onApplyEdits?: (
+    relativePath: string,
+    edits: Record<string, DraftEdit>,
+  ) => void;
 }
 
 /**
@@ -88,7 +91,9 @@ export function useGeocodeImages(options: UseGeocodeImagesOptions = {}): {
     [],
   );
 
-  const config = useMemo<BatchJobConfig<GeocodeRequestItem[], null, GeocodeSummary>>(
+  const config = useMemo<
+    BatchJobConfig<GeocodeRequestItem[], null, GeocodeSummary>
+  >(
     () => ({
       eventPrefix: "geocode",
       commands: {
@@ -103,9 +108,12 @@ export function useGeocodeImages(options: UseGeocodeImagesOptions = {}): {
     [],
   );
 
-  const job = useBatchImageJob<GeocodeRequestItem[], null, GeocodeSummary>(config, {
-    onApplyEdits: options.onApplyEdits,
-  });
+  const job = useBatchImageJob<GeocodeRequestItem[], null, GeocodeSummary>(
+    config,
+    {
+      onApplyEdits: options.onApplyEdits,
+    },
+  );
 
   // Wrap the generic `start` so we can stash the typed items.
   const wrappedActions: GeocodeActions = {

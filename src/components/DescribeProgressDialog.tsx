@@ -55,16 +55,26 @@ interface Props {
  */
 export function friendlyFailureLabel(kind: BatchFailureKind): string {
   switch (kind) {
-    case "decode": return "Could not decode image";
-    case "http": return "API request failed";
-    case "network": return "Network error";
-    case "incomplete": return "Response was truncated";
-    case "refused": return "Refused by model";
-    case "bad_json": return "Could not parse model response";
-    case "usage_parse": return "Description received but token usage could not be measured";
-    case "preflight_failed": return "Preflight failed before any image was processed";
-    case "command_failed": return "Describe command failed to start";
-    case "cancelled": return "Cancelled";
+    case "decode":
+      return "Could not decode image";
+    case "http":
+      return "API request failed";
+    case "network":
+      return "Network error";
+    case "incomplete":
+      return "Response was truncated";
+    case "refused":
+      return "Refused by model";
+    case "bad_json":
+      return "Could not parse model response";
+    case "usage_parse":
+      return "Description received but token usage could not be measured";
+    case "preflight_failed":
+      return "Preflight failed before any image was processed";
+    case "command_failed":
+      return "Describe command failed to start";
+    case "cancelled":
+      return "Cancelled";
     // Reverse-geocode-only kinds; describe should never emit them, but
     // the union is shared so list them for exhaustiveness.
     case "no_gps":
@@ -98,10 +108,14 @@ function formatCost(usd: number): string {
 
 function phaseTitle(state: DescribeProgressState): string {
   switch (state.phase) {
-    case "estimating": return "Estimating cost…";
-    case "awaiting-confirm": return "Confirm AI description";
-    case "running": return state.cancelling ? "Cancelling…" : "Generating descriptions…";
-    case "done": return "Done";
+    case "estimating":
+      return "Estimating cost…";
+    case "awaiting-confirm":
+      return "Confirm AI description";
+    case "running":
+      return state.cancelling ? "Cancelling…" : "Generating descriptions…";
+    case "done":
+      return "Done";
   }
 }
 
@@ -120,14 +134,24 @@ function FailureList({ failures }: { failures: DescribeFailure[] }) {
   if (failures.length === 0) return null;
   return (
     <details style={{ marginTop: 12 }} data-testid="describe-failure-list">
-      <summary style={{ cursor: "pointer", color: "var(--accent-error, #d33)" }}>
+      <summary
+        style={{ cursor: "pointer", color: "var(--accent-error, #d33)" }}
+      >
         {failures.length} failed
       </summary>
       <ul style={{ marginTop: 6, paddingLeft: 18, fontSize: 12 }}>
         {failures.map((f) => (
           <li key={f.relativePath} title={`${f.kind}: ${f.detail}`}>
             <strong>{f.relativePath}</strong>: {friendlyFailureLabel(f.kind)}
-            {f.detail && <> — <span style={{ color: "var(--text-secondary)" }}>{f.detail}</span></>}
+            {f.detail && (
+              <>
+                {" "}
+                —{" "}
+                <span style={{ color: "var(--text-secondary)" }}>
+                  {f.detail}
+                </span>
+              </>
+            )}
           </li>
         ))}
       </ul>
@@ -150,17 +174,32 @@ function UsageSummary({ s }: { s: DescribeUsageSummary }) {
         Output tokens: {s.totalOutputTokens.toLocaleString()}
       </div>
       <div>
-        Predicted: {formatCost(s.predictedCostUsd)}{" · "}
+        Predicted: {formatCost(s.predictedCostUsd)}
+        {" · "}
         Actual: <strong>{formatCost(s.actualCostUsd)}</strong>
         {s.predictedCostUsd > 0 && (
-          <> ({((s.actualCostUsd - s.predictedCostUsd) / s.predictedCostUsd * 100).toFixed(0)}% vs estimate)</>
+          <>
+            {" "}
+            (
+            {(
+              ((s.actualCostUsd - s.predictedCostUsd) / s.predictedCostUsd) *
+              100
+            ).toFixed(0)}
+            % vs estimate)
+          </>
         )}
       </div>
     </div>
   );
 }
 
-export function DescribeProgressDialog({ state, overwriteInfo, onConfirm, onCancel, onClose }: Props) {
+export function DescribeProgressDialog({
+  state,
+  overwriteInfo,
+  onConfirm,
+  onCancel,
+  onClose,
+}: Props) {
   return (
     <BatchJobDialog
       testidPrefix="describe"
@@ -180,8 +219,12 @@ export function DescribeProgressDialog({ state, overwriteInfo, onConfirm, onCanc
           <ProgressBar current={state.current} total={state.total} />
           <div
             style={{
-              marginTop: 12, fontSize: 12, color: "var(--text-secondary)",
-              whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+              marginTop: 12,
+              fontSize: 12,
+              color: "var(--text-secondary)",
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
             }}
             title={state.currentFile ?? ""}
             data-testid="describe-current-file"
@@ -190,13 +233,23 @@ export function DescribeProgressDialog({ state, overwriteInfo, onConfirm, onCanc
           </div>
           {state.estimateError && (
             <div
-              style={{ marginTop: 12, color: "var(--accent-error, #d33)", fontSize: 12 }}
+              style={{
+                marginTop: 12,
+                color: "var(--accent-error, #d33)",
+                fontSize: 12,
+              }}
               data-testid="describe-estimate-error"
             >
               {state.estimateError}
             </div>
           )}
-          <div style={{ marginTop: 20, display: "flex", justifyContent: "flex-end" }}>
+          <div
+            style={{
+              marginTop: 20,
+              display: "flex",
+              justifyContent: "flex-end",
+            }}
+          >
             <button
               className="button button--secondary"
               onClick={onCancel}
@@ -218,19 +271,28 @@ export function DescribeProgressDialog({ state, overwriteInfo, onConfirm, onCanc
           </div>
           <div style={{ marginTop: 12, fontSize: 13 }}>
             <div>
-              Total input tokens: {state.estimate.totalInputTokens.toLocaleString()}
+              Total input tokens:{" "}
+              {state.estimate.totalInputTokens.toLocaleString()}
             </div>
             <div>
-              Estimated cost: <strong>{formatCost(state.estimate.predictedCostUsd)}</strong>
+              Estimated cost:{" "}
+              <strong>{formatCost(state.estimate.predictedCostUsd)}</strong>
             </div>
             <div style={{ color: "var(--text-secondary)" }}>
-              Upper bound (if output hits the token cap): {formatCost(state.estimate.upperBoundCostUsd)}
+              Upper bound (if output hits the token cap):{" "}
+              {formatCost(state.estimate.upperBoundCostUsd)}
             </div>
           </div>
-          <div style={{ marginTop: 12, fontSize: 11, color: "var(--text-secondary)" }}>
-            Each image is uploaded to OpenAI for analysis. Results land
-            as draft edits under the XMP-mlib namespace and can be
-            reviewed before applying.
+          <div
+            style={{
+              marginTop: 12,
+              fontSize: 11,
+              color: "var(--text-secondary)",
+            }}
+          >
+            Each image is uploaded to OpenAI for analysis. Results land as draft
+            edits under the XMP-mlib namespace and can be reviewed before
+            applying.
           </div>
           {overwriteInfo && (
             <OverwriteNotice
@@ -249,7 +311,14 @@ export function DescribeProgressDialog({ state, overwriteInfo, onConfirm, onCanc
               }}
             />
           )}
-          <div style={{ marginTop: 20, display: "flex", justifyContent: "flex-end", gap: 8 }}>
+          <div
+            style={{
+              marginTop: 20,
+              display: "flex",
+              justifyContent: "flex-end",
+              gap: 8,
+            }}
+          >
             <button
               className="button button--secondary"
               onClick={onCancel}
@@ -281,10 +350,16 @@ export function DescribeProgressDialog({ state, overwriteInfo, onConfirm, onCanc
           cancelling={state.cancelling}
           onCancel={onCancel}
           footer={
-            <div style={{ marginTop: 12, fontSize: 11, color: "var(--text-secondary)" }}>
-              Each image's description is added to your drafts as soon
-              as it arrives. If cancelled, descriptions already produced
-              remain in drafts.
+            <div
+              style={{
+                marginTop: 12,
+                fontSize: 11,
+                color: "var(--text-secondary)",
+              }}
+            >
+              Each image's description is added to your drafts as soon as it
+              arrives. If cancelled, descriptions already produced remain in
+              drafts.
             </div>
           }
         />
@@ -296,14 +371,22 @@ export function DescribeProgressDialog({ state, overwriteInfo, onConfirm, onCanc
           <div className="dialog-hint" data-testid="describe-done-summary">
             Completed: {state.succeeded.length}/{state.total} succeeded
             {state.failures.length > 0 && (
-              <span style={{ marginLeft: 8, color: "var(--accent-error, #d33)" }}>
+              <span
+                style={{ marginLeft: 8, color: "var(--accent-error, #d33)" }}
+              >
                 , {state.failures.length} failed
               </span>
             )}
           </div>
           {state.usageSummary && <UsageSummary s={state.usageSummary} />}
           <FailureList failures={state.failures} />
-          <div style={{ marginTop: 20, display: "flex", justifyContent: "flex-end" }}>
+          <div
+            style={{
+              marginTop: 20,
+              display: "flex",
+              justifyContent: "flex-end",
+            }}
+          >
             <button
               className="button button--primary"
               onClick={onClose}

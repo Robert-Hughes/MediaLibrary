@@ -14,11 +14,18 @@ import type { PhotoInfo, Variant } from "../types";
 
 // ── Test helpers ─────────────────────────────────────────────────────────────
 
-const PHOTOS: PhotoInfo[] = makePhotos(["2024/a.jpg", "2024/b.jpg", "2024/c.jpg"]);
+const PHOTOS: PhotoInfo[] = makePhotos([
+  "2024/a.jpg",
+  "2024/b.jpg",
+  "2024/c.jpg",
+]);
 const fakeLoad = async (_path: string) => "data:image/jpeg;base64,FAKE";
 
 /** Create an ImageMetadataStore pre-populated with test metadata. */
-function createPopulatedStore(photos: PhotoInfo[], metadataByPath: Record<string, Record<string, Variant>>): ImageMetadataStore {
+function createPopulatedStore(
+  photos: PhotoInfo[],
+  metadataByPath: Record<string, Record<string, Variant>>,
+): ImageMetadataStore {
   const store = new ImageMetadataStore();
   for (const p of photos) {
     store.add(p.relative_path);
@@ -30,7 +37,9 @@ function createPopulatedStore(photos: PhotoInfo[], metadataByPath: Record<string
 }
 
 /** Render the GalleryView with defaults suitable for integration testing. */
-function renderGallery(overrides: Partial<Parameters<typeof GalleryView>[0]> = {}) {
+function renderGallery(
+  overrides: Partial<Parameters<typeof GalleryView>[0]> = {},
+) {
   const defaults = {
     photos: PHOTOS,
     currentIndex: 0,
@@ -109,10 +118,14 @@ describe("Gallery details pane toggle", () => {
     renderGallery();
 
     const content = screen.getByTestId("gallery-content");
-    expect(content.classList.contains("gallery-content--with-details")).toBe(false);
+    expect(content.classList.contains("gallery-content--with-details")).toBe(
+      false,
+    );
 
     await userEvent.click(screen.getByTestId("gallery-info-toggle"));
-    expect(content.classList.contains("gallery-content--with-details")).toBe(true);
+    expect(content.classList.contains("gallery-content--with-details")).toBe(
+      true,
+    );
   });
 
   it("details pane visibility persists across gallery remounts", async () => {
@@ -204,7 +217,9 @@ describe("Gallery details pane content", () => {
     // XMP-dc group
     const xmpSection = screen.getByTestId("details-section-XMP-dc");
     expect(within(xmpSection).getByText("Subject")).toBeInTheDocument();
-    expect(within(xmpSection).getByText("landscape, sunset")).toBeInTheDocument();
+    expect(
+      within(xmpSection).getByText("landscape, sunset"),
+    ).toBeInTheDocument();
   });
 
   it("shows empty metadata state when metadata is an empty object", async () => {
@@ -238,7 +253,7 @@ describe("Gallery details pane with navigation", () => {
         onNavigate={onNavigate}
         loadImage={fakeLoad}
         imageMetadata={store}
-      />
+      />,
     );
 
     // Open details pane
@@ -255,7 +270,7 @@ describe("Gallery details pane with navigation", () => {
         onNavigate={onNavigate}
         loadImage={fakeLoad}
         imageMetadata={store}
-      />
+      />,
     );
 
     // Details should now show the second photo's metadata
@@ -368,7 +383,9 @@ describe("Gallery details pane with reactive metadata", () => {
 
     // Wait for reactive update
     await waitFor(() => {
-      expect(screen.queryByTestId("details-section-loading")).not.toBeInTheDocument();
+      expect(
+        screen.queryByTestId("details-section-loading"),
+      ).not.toBeInTheDocument();
       expect(screen.getByText("Sony")).toBeInTheDocument();
       expect(screen.getByText("A7R IV")).toBeInTheDocument();
     });

@@ -29,7 +29,9 @@ describe("ThumbnailStore subscriber lifecycle", () => {
 
     // Without the cleanup, an empty Set lingers per path — for a 10k-photo
     // library after the user has scrolled through, this is 10k empty Sets.
-    const internal = (store as unknown as { subscribers: Map<string, Set<unknown>> }).subscribers;
+    const internal = (
+      store as unknown as { subscribers: Map<string, Set<unknown>> }
+    ).subscribers;
     expect(internal.has("a.jpg")).toBe(false);
   });
 
@@ -39,7 +41,9 @@ describe("ThumbnailStore subscriber lifecycle", () => {
     const u1 = store.subscribe("a.jpg", () => {});
     const u2 = store.subscribe("a.jpg", () => {});
     u1();
-    const internal = (store as unknown as { subscribers: Map<string, Set<unknown>> }).subscribers;
+    const internal = (
+      store as unknown as { subscribers: Map<string, Set<unknown>> }
+    ).subscribers;
     expect(internal.has("a.jpg")).toBe(true);
     u2();
     expect(internal.has("a.jpg")).toBe(false);
@@ -52,7 +56,9 @@ describe("ImageMetadataStore subscriber lifecycle", () => {
     store.add("a.jpg");
     const unsubscribe = store.subscribe("a.jpg", () => {});
     unsubscribe();
-    const internal = (store as unknown as { subscribers: Map<string, Set<unknown>> }).subscribers;
+    const internal = (
+      store as unknown as { subscribers: Map<string, Set<unknown>> }
+    ).subscribers;
     expect(internal.has("a.jpg")).toBe(false);
   });
 });

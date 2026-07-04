@@ -17,7 +17,12 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(() => Promise.resolve(null)),
 }));
 
-function tagInfo(group: string, name: string, kind: TagKind, writable = true): TagInfo {
+function tagInfo(
+  group: string,
+  name: string,
+  kind: TagKind,
+  writable = true,
+): TagInfo {
   return { group, name, writable, kind, description: null };
 }
 
@@ -41,25 +46,53 @@ afterEach(() => {
 
 describe("DetailsPane datatype badges", () => {
   it("string schema + string value, no draft → schema only", () => {
-    _setTagInfoCacheEntry("XMP-dc:Description", tagInfo("XMP-dc", "Description", { kind: "Text" }));
-    render(<DetailsPane photo={photo} metadata={{ "XMP-dc:Description": "hi" } as Record<string, Variant>} />);
+    _setTagInfoCacheEntry(
+      "XMP-dc:Description",
+      tagInfo("XMP-dc", "Description", { kind: "Text" }),
+    );
+    render(
+      <DetailsPane
+        photo={photo}
+        metadata={{ "XMP-dc:Description": "hi" } as Record<string, Variant>}
+      />,
+    );
     const row = findRow("XMP-dc:Description");
-    expect(within(row).getByTestId("datatype-badge-schema")).toHaveAttribute("data-code", "S");
+    expect(within(row).getByTestId("datatype-badge-schema")).toHaveAttribute(
+      "data-code",
+      "S",
+    );
     expect(within(row).queryByTestId("datatype-badge-value")).toBeNull();
     expect(within(row).queryByTestId("datatype-badge-draft")).toBeNull();
   });
 
   it("string schema + number value → schema + value", () => {
-    _setTagInfoCacheEntry("XMP-dc:Description", tagInfo("XMP-dc", "Description", { kind: "Text" }));
-    render(<DetailsPane photo={photo} metadata={{ "XMP-dc:Description": 42 } as Record<string, Variant>} />);
+    _setTagInfoCacheEntry(
+      "XMP-dc:Description",
+      tagInfo("XMP-dc", "Description", { kind: "Text" }),
+    );
+    render(
+      <DetailsPane
+        photo={photo}
+        metadata={{ "XMP-dc:Description": 42 } as Record<string, Variant>}
+      />,
+    );
     const row = findRow("XMP-dc:Description");
-    expect(within(row).getByTestId("datatype-badge-schema")).toHaveAttribute("data-code", "S");
-    expect(within(row).getByTestId("datatype-badge-value")).toHaveAttribute("data-code", "N");
+    expect(within(row).getByTestId("datatype-badge-schema")).toHaveAttribute(
+      "data-code",
+      "S",
+    );
+    expect(within(row).getByTestId("datatype-badge-value")).toHaveAttribute(
+      "data-code",
+      "N",
+    );
     expect(within(row).queryByTestId("datatype-badge-draft")).toBeNull();
   });
 
   it("string schema + string value + string draft → schema only", () => {
-    _setTagInfoCacheEntry("XMP-dc:Description", tagInfo("XMP-dc", "Description", { kind: "Text" }));
+    _setTagInfoCacheEntry(
+      "XMP-dc:Description",
+      tagInfo("XMP-dc", "Description", { kind: "Text" }),
+    );
     const typed: Record<string, DraftEdit> = {
       "XMP-dc:Description": { value: "bar", intent: "Set" },
     };
@@ -72,13 +105,18 @@ describe("DetailsPane datatype badges", () => {
       />,
     );
     const row = findRow("XMP-dc:Description");
-    expect(within(row).getByTestId("datatype-badge-schema")).toBeInTheDocument();
+    expect(
+      within(row).getByTestId("datatype-badge-schema"),
+    ).toBeInTheDocument();
     expect(within(row).queryByTestId("datatype-badge-value")).toBeNull();
     expect(within(row).queryByTestId("datatype-badge-draft")).toBeNull();
   });
 
   it("string schema + string value + number draft → schema + draft", () => {
-    _setTagInfoCacheEntry("XMP-dc:Description", tagInfo("XMP-dc", "Description", { kind: "Text" }));
+    _setTagInfoCacheEntry(
+      "XMP-dc:Description",
+      tagInfo("XMP-dc", "Description", { kind: "Text" }),
+    );
     const typed: Record<string, DraftEdit> = {
       "XMP-dc:Description": { value: 42, intent: "Set" },
     };
@@ -91,13 +129,22 @@ describe("DetailsPane datatype badges", () => {
       />,
     );
     const row = findRow("XMP-dc:Description");
-    expect(within(row).getByTestId("datatype-badge-schema")).toHaveAttribute("data-code", "S");
+    expect(within(row).getByTestId("datatype-badge-schema")).toHaveAttribute(
+      "data-code",
+      "S",
+    );
     expect(within(row).queryByTestId("datatype-badge-value")).toBeNull();
-    expect(within(row).getByTestId("datatype-badge-draft")).toHaveAttribute("data-code", "N");
+    expect(within(row).getByTestId("datatype-badge-draft")).toHaveAttribute(
+      "data-code",
+      "N",
+    );
   });
 
   it("string schema + number value + number draft (draft matches value, both ≠ schema) → schema + value + draft", () => {
-    _setTagInfoCacheEntry("XMP-dc:Description", tagInfo("XMP-dc", "Description", { kind: "Text" }));
+    _setTagInfoCacheEntry(
+      "XMP-dc:Description",
+      tagInfo("XMP-dc", "Description", { kind: "Text" }),
+    );
     const typed: Record<string, DraftEdit> = {
       "XMP-dc:Description": { value: 7, intent: "Set" },
     };
@@ -110,31 +157,64 @@ describe("DetailsPane datatype badges", () => {
       />,
     );
     const row = findRow("XMP-dc:Description");
-    expect(within(row).getByTestId("datatype-badge-schema")).toBeInTheDocument();
-    expect(within(row).getByTestId("datatype-badge-value")).toHaveAttribute("data-code", "N");
-    expect(within(row).getByTestId("datatype-badge-draft")).toHaveAttribute("data-code", "N");
+    expect(
+      within(row).getByTestId("datatype-badge-schema"),
+    ).toBeInTheDocument();
+    expect(within(row).getByTestId("datatype-badge-value")).toHaveAttribute(
+      "data-code",
+      "N",
+    );
+    expect(within(row).getByTestId("datatype-badge-draft")).toHaveAttribute(
+      "data-code",
+      "N",
+    );
   });
 
   it("integer schema + numeric value → schema only (N≡I)", () => {
     _setTagInfoCacheEntry(
       "ExifIFD:ISO",
-      tagInfo("ExifIFD", "ISO", { kind: "Integer", data: { min: null, max: null } }),
+      tagInfo("ExifIFD", "ISO", {
+        kind: "Integer",
+        data: { min: null, max: null },
+      }),
     );
-    render(<DetailsPane photo={photo} metadata={{ "ExifIFD:ISO": 100 } as Record<string, Variant>} />);
+    render(
+      <DetailsPane
+        photo={photo}
+        metadata={{ "ExifIFD:ISO": 100 } as Record<string, Variant>}
+      />,
+    );
     const row = findRow("ExifIFD:ISO");
-    expect(within(row).getByTestId("datatype-badge-schema")).toHaveAttribute("data-code", "I");
+    expect(within(row).getByTestId("datatype-badge-schema")).toHaveAttribute(
+      "data-code",
+      "I",
+    );
     expect(within(row).queryByTestId("datatype-badge-value")).toBeNull();
   });
 
   it("integer schema + string value → schema + value", () => {
     _setTagInfoCacheEntry(
       "ExifIFD:ISO",
-      tagInfo("ExifIFD", "ISO", { kind: "Integer", data: { min: null, max: null } }),
+      tagInfo("ExifIFD", "ISO", {
+        kind: "Integer",
+        data: { min: null, max: null },
+      }),
     );
-    render(<DetailsPane photo={photo} metadata={{ "ExifIFD:ISO": "100" } as Record<string, Variant>} />);
+    render(
+      <DetailsPane
+        photo={photo}
+        metadata={{ "ExifIFD:ISO": "100" } as Record<string, Variant>}
+      />,
+    );
     const row = findRow("ExifIFD:ISO");
-    expect(within(row).getByTestId("datatype-badge-schema")).toHaveAttribute("data-code", "I");
-    expect(within(row).getByTestId("datatype-badge-value")).toHaveAttribute("data-code", "S");
+    expect(within(row).getByTestId("datatype-badge-schema")).toHaveAttribute(
+      "data-code",
+      "I",
+    );
+    expect(within(row).getByTestId("datatype-badge-value")).toHaveAttribute(
+      "data-code",
+      "S",
+    );
   });
 
   it("bag schema + list value → schema only", () => {
@@ -142,9 +222,17 @@ describe("DetailsPane datatype badges", () => {
       "XMP-dc:Subject",
       tagInfo("XMP-dc", "Subject", { kind: "Bag", data: { kind: "Text" } }),
     );
-    render(<DetailsPane photo={photo} metadata={{ "XMP-dc:Subject": ["a", "b"] } as Record<string, Variant>} />);
+    render(
+      <DetailsPane
+        photo={photo}
+        metadata={{ "XMP-dc:Subject": ["a", "b"] } as Record<string, Variant>}
+      />,
+    );
     const row = findRow("XMP-dc:Subject");
-    expect(within(row).getByTestId("datatype-badge-schema")).toHaveAttribute("data-code", "[B]");
+    expect(within(row).getByTestId("datatype-badge-schema")).toHaveAttribute(
+      "data-code",
+      "[B]",
+    );
     expect(within(row).queryByTestId("datatype-badge-value")).toBeNull();
   });
 
@@ -153,10 +241,21 @@ describe("DetailsPane datatype badges", () => {
       "XMP-dc:Subject",
       tagInfo("XMP-dc", "Subject", { kind: "Bag", data: { kind: "Text" } }),
     );
-    render(<DetailsPane photo={photo} metadata={{ "XMP-dc:Subject": "a" } as Record<string, Variant>} />);
+    render(
+      <DetailsPane
+        photo={photo}
+        metadata={{ "XMP-dc:Subject": "a" } as Record<string, Variant>}
+      />,
+    );
     const row = findRow("XMP-dc:Subject");
-    expect(within(row).getByTestId("datatype-badge-schema")).toHaveAttribute("data-code", "[B]");
-    expect(within(row).getByTestId("datatype-badge-value")).toHaveAttribute("data-code", "S");
+    expect(within(row).getByTestId("datatype-badge-schema")).toHaveAttribute(
+      "data-code",
+      "[B]",
+    );
+    expect(within(row).getByTestId("datatype-badge-value")).toHaveAttribute(
+      "data-code",
+      "S",
+    );
   });
 
   it("bag schema + list value + string draft → schema + draft", () => {
@@ -176,17 +275,31 @@ describe("DetailsPane datatype badges", () => {
       />,
     );
     const row = findRow("XMP-dc:Subject");
-    expect(within(row).getByTestId("datatype-badge-schema")).toHaveAttribute("data-code", "[B]");
+    expect(within(row).getByTestId("datatype-badge-schema")).toHaveAttribute(
+      "data-code",
+      "[B]",
+    );
     expect(within(row).queryByTestId("datatype-badge-value")).toBeNull();
-    expect(within(row).getByTestId("datatype-badge-draft")).toHaveAttribute("data-code", "S");
+    expect(within(row).getByTestId("datatype-badge-draft")).toHaveAttribute(
+      "data-code",
+      "S",
+    );
   });
 
   it("unknown tag → no schema badge but value badge still shown (informational)", () => {
     _setTagInfoCacheEntry("Made-Up:Thing", null);
-    render(<DetailsPane photo={photo} metadata={{ "Made-Up:Thing": "x" } as Record<string, Variant>} />);
+    render(
+      <DetailsPane
+        photo={photo}
+        metadata={{ "Made-Up:Thing": "x" } as Record<string, Variant>}
+      />,
+    );
     const row = findRow("Made-Up:Thing");
     expect(within(row).queryByTestId("datatype-badge-schema")).toBeNull();
-    expect(within(row).getByTestId("datatype-badge-value")).toHaveAttribute("data-code", "S");
+    expect(within(row).getByTestId("datatype-badge-value")).toHaveAttribute(
+      "data-code",
+      "S",
+    );
     expect(within(row).queryByTestId("datatype-badge-draft")).toBeNull();
   });
 
@@ -205,7 +318,10 @@ describe("DetailsPane datatype badges", () => {
     );
     const row = findRow("Made-Up:Thing");
     expect(within(row).queryByTestId("datatype-badge-schema")).toBeNull();
-    expect(within(row).getByTestId("datatype-badge-value")).toHaveAttribute("data-code", "S");
+    expect(within(row).getByTestId("datatype-badge-value")).toHaveAttribute(
+      "data-code",
+      "S",
+    );
     expect(within(row).queryByTestId("datatype-badge-draft")).toBeNull();
   });
 
@@ -224,8 +340,14 @@ describe("DetailsPane datatype badges", () => {
     );
     const row = findRow("Made-Up:Thing");
     expect(within(row).queryByTestId("datatype-badge-schema")).toBeNull();
-    expect(within(row).getByTestId("datatype-badge-value")).toHaveAttribute("data-code", "S");
-    expect(within(row).getByTestId("datatype-badge-draft")).toHaveAttribute("data-code", "N");
+    expect(within(row).getByTestId("datatype-badge-value")).toHaveAttribute(
+      "data-code",
+      "S",
+    );
+    expect(within(row).getByTestId("datatype-badge-draft")).toHaveAttribute(
+      "data-code",
+      "N",
+    );
   });
 
   it("unknown tag, draft-only property → draft badge shown", () => {
@@ -244,11 +366,17 @@ describe("DetailsPane datatype badges", () => {
     const row = findRow("Made-Up:Thing");
     expect(within(row).queryByTestId("datatype-badge-schema")).toBeNull();
     expect(within(row).queryByTestId("datatype-badge-value")).toBeNull();
-    expect(within(row).getByTestId("datatype-badge-draft")).toHaveAttribute("data-code", "S");
+    expect(within(row).getByTestId("datatype-badge-draft")).toHaveAttribute(
+      "data-code",
+      "S",
+    );
   });
 
   it("delete-intent draft on string schema → schema only (delete suppressed)", () => {
-    _setTagInfoCacheEntry("XMP-dc:Description", tagInfo("XMP-dc", "Description", { kind: "Text" }));
+    _setTagInfoCacheEntry(
+      "XMP-dc:Description",
+      tagInfo("XMP-dc", "Description", { kind: "Text" }),
+    );
     const typed: Record<string, DraftEdit> = {
       "XMP-dc:Description": { value: null, intent: "Delete" },
     };
@@ -261,13 +389,18 @@ describe("DetailsPane datatype badges", () => {
       />,
     );
     const row = findRow("XMP-dc:Description");
-    expect(within(row).getByTestId("datatype-badge-schema")).toBeInTheDocument();
+    expect(
+      within(row).getByTestId("datatype-badge-schema"),
+    ).toBeInTheDocument();
     expect(within(row).queryByTestId("datatype-badge-value")).toBeNull();
     expect(within(row).queryByTestId("datatype-badge-draft")).toBeNull();
   });
 
   it("draft-only property with matching schema draft → schema only", () => {
-    _setTagInfoCacheEntry("XMP-dc:Description", tagInfo("XMP-dc", "Description", { kind: "Text" }));
+    _setTagInfoCacheEntry(
+      "XMP-dc:Description",
+      tagInfo("XMP-dc", "Description", { kind: "Text" }),
+    );
     const typed: Record<string, DraftEdit> = {
       "XMP-dc:Description": { value: "new", intent: "Set" },
     };
@@ -280,21 +413,37 @@ describe("DetailsPane datatype badges", () => {
       />,
     );
     const row = findRow("XMP-dc:Description");
-    expect(within(row).getByTestId("datatype-badge-schema")).toBeInTheDocument();
+    expect(
+      within(row).getByTestId("datatype-badge-schema"),
+    ).toBeInTheDocument();
     expect(within(row).queryByTestId("datatype-badge-value")).toBeNull();
     expect(within(row).queryByTestId("datatype-badge-draft")).toBeNull();
   });
 
   it("boolean schema + boolean value → schema only", () => {
-    _setTagInfoCacheEntry("XMP-x:Flag", tagInfo("XMP-x", "Flag", { kind: "Boolean" }));
-    render(<DetailsPane photo={photo} metadata={{ "XMP-x:Flag": true } as Record<string, Variant>} />);
+    _setTagInfoCacheEntry(
+      "XMP-x:Flag",
+      tagInfo("XMP-x", "Flag", { kind: "Boolean" }),
+    );
+    render(
+      <DetailsPane
+        photo={photo}
+        metadata={{ "XMP-x:Flag": true } as Record<string, Variant>}
+      />,
+    );
     const row = findRow("XMP-x:Flag");
-    expect(within(row).getByTestId("datatype-badge-schema")).toHaveAttribute("data-code", "B");
+    expect(within(row).getByTestId("datatype-badge-schema")).toHaveAttribute(
+      "data-code",
+      "B",
+    );
     expect(within(row).queryByTestId("datatype-badge-value")).toBeNull();
   });
 
   it("real schema + numeric value + string draft → schema + draft", () => {
-    _setTagInfoCacheEntry("XMP-x:Aperture", tagInfo("XMP-x", "Aperture", { kind: "Real" }));
+    _setTagInfoCacheEntry(
+      "XMP-x:Aperture",
+      tagInfo("XMP-x", "Aperture", { kind: "Real" }),
+    );
     const typed: Record<string, DraftEdit> = {
       "XMP-x:Aperture": { value: "1.5", intent: "Set" },
     };
@@ -307,9 +456,15 @@ describe("DetailsPane datatype badges", () => {
       />,
     );
     const row = findRow("XMP-x:Aperture");
-    expect(within(row).getByTestId("datatype-badge-schema")).toHaveAttribute("data-code", "R");
+    expect(within(row).getByTestId("datatype-badge-schema")).toHaveAttribute(
+      "data-code",
+      "R",
+    );
     expect(within(row).queryByTestId("datatype-badge-value")).toBeNull();
-    expect(within(row).getByTestId("datatype-badge-draft")).toHaveAttribute("data-code", "S");
+    expect(within(row).getByTestId("datatype-badge-draft")).toHaveAttribute(
+      "data-code",
+      "S",
+    );
   });
 
   it("read-only schema → value cell gets details-value--readonly class", () => {
@@ -317,7 +472,12 @@ describe("DetailsPane datatype badges", () => {
       "IFD0:Make",
       tagInfo("IFD0", "Make", { kind: "Text" }, /*writable*/ false),
     );
-    render(<DetailsPane photo={photo} metadata={{ "IFD0:Make": "Canon" } as Record<string, Variant>} />);
+    render(
+      <DetailsPane
+        photo={photo}
+        metadata={{ "IFD0:Make": "Canon" } as Record<string, Variant>}
+      />,
+    );
     const row = findRow("IFD0:Make");
     const cell = row.querySelector("td.details-value") as HTMLElement;
     expect(cell.classList.contains("details-value--readonly")).toBe(true);
@@ -329,7 +489,12 @@ describe("DetailsPane datatype badges", () => {
       "XMP-dc:Description",
       tagInfo("XMP-dc", "Description", { kind: "Text" }, /*writable*/ true),
     );
-    render(<DetailsPane photo={photo} metadata={{ "XMP-dc:Description": "hi" } as Record<string, Variant>} />);
+    render(
+      <DetailsPane
+        photo={photo}
+        metadata={{ "XMP-dc:Description": "hi" } as Record<string, Variant>}
+      />,
+    );
     const row = findRow("XMP-dc:Description");
     const cell = row.querySelector("td.details-value") as HTMLElement;
     expect(cell.classList.contains("details-value--readonly")).toBe(false);
@@ -338,7 +503,12 @@ describe("DetailsPane datatype badges", () => {
 
   it("unknown tag → value cell stays editable-looking (no read-only class)", () => {
     _setTagInfoCacheEntry("Made-Up:Thing", null);
-    render(<DetailsPane photo={photo} metadata={{ "Made-Up:Thing": "x" } as Record<string, Variant>} />);
+    render(
+      <DetailsPane
+        photo={photo}
+        metadata={{ "Made-Up:Thing": "x" } as Record<string, Variant>}
+      />,
+    );
     const row = findRow("Made-Up:Thing");
     const cell = row.querySelector("td.details-value") as HTMLElement;
     expect(cell.classList.contains("details-value--readonly")).toBe(false);
@@ -352,11 +522,22 @@ describe("DetailsPane datatype badges", () => {
   });
 
   it("schema kind Unknown is treated as no-schema (no schema badge, value badge still shown)", () => {
-    _setTagInfoCacheEntry("File:FileType", tagInfo("File", "FileType", { kind: "Unknown" }));
-    render(<DetailsPane photo={photo} metadata={{ "File:FileType": "JPEG" } as Record<string, Variant>} />);
+    _setTagInfoCacheEntry(
+      "File:FileType",
+      tagInfo("File", "FileType", { kind: "Unknown" }),
+    );
+    render(
+      <DetailsPane
+        photo={photo}
+        metadata={{ "File:FileType": "JPEG" } as Record<string, Variant>}
+      />,
+    );
     const row = findRow("File:FileType");
     expect(within(row).queryByTestId("datatype-badge-schema")).toBeNull();
-    expect(within(row).getByTestId("datatype-badge-value")).toHaveAttribute("data-code", "S");
+    expect(within(row).getByTestId("datatype-badge-value")).toHaveAttribute(
+      "data-code",
+      "S",
+    );
   });
 
   it("OS section value cells are always rendered read-only", () => {

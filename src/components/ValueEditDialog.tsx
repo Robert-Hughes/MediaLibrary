@@ -10,7 +10,14 @@ interface Props {
   readOnly?: boolean;
 }
 
-export function ValueEditDialog({ propertyKey, initialValue, onSave, onCancel, headerHint, readOnly }: Props) {
+export function ValueEditDialog({
+  propertyKey,
+  initialValue,
+  onSave,
+  onCancel,
+  headerHint,
+  readOnly,
+}: Props) {
   const [value, setValue] = useState(initialValue);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -44,7 +51,10 @@ export function ValueEditDialog({ propertyKey, initialValue, onSave, onCancel, h
           />
         </div>
         <div className="dialog-footer">
-          <button className="dialog-btn dialog-btn-secondary" onClick={onCancel}>
+          <button
+            className="dialog-btn dialog-btn-secondary"
+            onClick={onCancel}
+          >
             Cancel
           </button>
           <button

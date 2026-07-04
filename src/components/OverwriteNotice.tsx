@@ -5,7 +5,10 @@
  * pre-dialog `ask()` warnings — the cost/preview info and the overwrite
  * notice now live in one place.
  */
-import { buildOverwriteWarning, type OverwriteWarningInput } from "./overwriteWarning";
+import {
+  buildOverwriteWarning,
+  type OverwriteWarningInput,
+} from "./overwriteWarning";
 
 interface Props {
   input: OverwriteWarningInput;

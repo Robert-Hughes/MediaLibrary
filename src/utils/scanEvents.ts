@@ -15,11 +15,20 @@ import type { DraftEdit, DraftEditsByFile } from "../types";
 export function normalizeDraftsFromTauri(raw: unknown): DraftEditsByFile {
   if (!raw || typeof raw !== "object") return {};
   const out: DraftEditsByFile = {};
-  for (const [file, fileEdits] of Object.entries(raw as Record<string, unknown>)) {
+  for (const [file, fileEdits] of Object.entries(
+    raw as Record<string, unknown>,
+  )) {
     if (!fileEdits || typeof fileEdits !== "object") continue;
     const typed: Record<string, DraftEdit> = {};
-    for (const [key, value] of Object.entries(fileEdits as Record<string, unknown>)) {
-      if (value && typeof value === "object" && "intent" in value && "value" in value) {
+    for (const [key, value] of Object.entries(
+      fileEdits as Record<string, unknown>,
+    )) {
+      if (
+        value &&
+        typeof value === "object" &&
+        "intent" in value &&
+        "value" in value
+      ) {
         typed[key] = value as DraftEdit;
       } else if (value === null) {
         typed[key] = { value: null, intent: "Delete" };
@@ -54,7 +63,8 @@ export function scheduleBatchedFlush(
   debounceMs: number,
   flushAtCount = 50,
 ) {
-  const shouldFlushNow = isFirstFlushRef.current || bufferLength >= flushAtCount;
+  const shouldFlushNow =
+    isFirstFlushRef.current || bufferLength >= flushAtCount;
   if (shouldFlushNow) {
     isFirstFlushRef.current = false;
     if (timerRef.current) {

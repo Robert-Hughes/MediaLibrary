@@ -1,12 +1,18 @@
 import { describe, it, expect } from "vitest";
-import { schemaDatatype, variantDatatype, datatypesMatch } from "../utils/datatype";
+import {
+  schemaDatatype,
+  variantDatatype,
+  datatypesMatch,
+} from "../utils/datatype";
 import type { TagKind } from "../types";
 
 describe("schemaDatatype", () => {
   it("maps scalar kinds", () => {
     expect(schemaDatatype({ kind: "Text" })?.code).toBe("S");
     expect(schemaDatatype({ kind: "LangAlt" })?.code).toBe("LA");
-    expect(schemaDatatype({ kind: "Integer", data: { min: null, max: null } })?.code).toBe("I");
+    expect(
+      schemaDatatype({ kind: "Integer", data: { min: null, max: null } })?.code,
+    ).toBe("I");
     expect(schemaDatatype({ kind: "Real" })?.code).toBe("R");
     expect(schemaDatatype({ kind: "Rational" })?.code).toBe("Q");
     expect(schemaDatatype({ kind: "Boolean" })?.code).toBe("B");

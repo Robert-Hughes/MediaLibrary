@@ -7,13 +7,12 @@ import type { Variant } from "./Variant";
  * `kind` is a free-text discriminator so we can grow new outcomes without
  * a schema migration.  Current values:
  *
- * - `"Match"`           — post-write file equals what we sent (exact, type-aware).
- * - `"Coerced"`         — post-write file is equivalent under type-aware
- *                          equality but not byte-identical (e.g. exiftool
- *                          wrote `5/1` for our `5`, or normalised `True`).
- *                          Frontend prompts the user to accept-or-revert.
- * - `"Mismatch"`        — post-write differs both exactly and structurally.
- *                          Draft retained.
+ * - `"Match"` — post-write file equals what we sent (exact, type-aware).
+ * - `"Coerced"` — post-write file is equivalent under type-aware equality
+ *   but not byte-identical (for example, exiftool wrote `5/1` for our `5`,
+ *   or normalised `True`). Frontend prompts the user to accept-or-revert.
+ * - `"Mismatch"` — post-write differs both exactly and structurally. Draft
+ *   retained.
  * - `"MissingPostWrite"` — tag absent after write (likely format rejection).
  * - `"DeleteOk"`        — Delete intent verified absent (or Null).
  * - `"DeleteLingering"`  — Delete intent failed; tag still present.

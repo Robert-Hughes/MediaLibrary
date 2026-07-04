@@ -1,7 +1,7 @@
 // ── Draft-edit helpers (Phase 3b) ─────────────────────────────────────────────
 //
-// The frontend draft layer carries typed `DraftEdit` values internally — see
-// `METADATA_FORMATS_PLAN.md` §3 and `METADATA_FORMATS_DESIGN.md` §7.  These
+// The frontend draft layer carries typed `DraftEdit` values internally; see
+// `docs/METADATA_FORMATS_DESIGN.md` §7. These
 // helpers bridge:
 //
 // - The legacy `Record<string, Record<string, string | null>>` Tauri-boundary
@@ -16,7 +16,10 @@
 import type { DraftEdit, EditIntent, Variant } from "./types";
 
 export type TypedDraftEditsByFile = Record<string, Record<string, DraftEdit>>;
-export type LegacyDraftEditsByFile = Record<string, Record<string, string | null>>;
+export type LegacyDraftEditsByFile = Record<
+  string,
+  Record<string, string | null>
+>;
 
 /**
  * Render the display string for a draft.
@@ -27,7 +30,9 @@ export type LegacyDraftEditsByFile = Record<string, Record<string, string | null
  * - otherwise   the editor-supplied pretty form (`d.display`) when present,
  *               else a generic stringification of the Variant value
  */
-export function displayStringOf(d: DraftEdit | undefined): string | null | undefined {
+export function displayStringOf(
+  d: DraftEdit | undefined,
+): string | null | undefined {
   if (d === undefined) return undefined;
   if (d.intent === "Delete") return null;
   if (d.display !== undefined && d.display !== null) return d.display;
@@ -63,7 +68,9 @@ export function variantToDisplayString(v: Variant | null | undefined): string {
  *
  * Drafts with no real change (undefined intent) are dropped.
  */
-export function mapTypedToLegacy(typed: TypedDraftEditsByFile): LegacyDraftEditsByFile {
+export function mapTypedToLegacy(
+  typed: TypedDraftEditsByFile,
+): LegacyDraftEditsByFile {
   const out: LegacyDraftEditsByFile = {};
   for (const [file, edits] of Object.entries(typed)) {
     const fileOut: Record<string, string | null> = {};
@@ -84,7 +91,9 @@ export function mapTypedToLegacy(typed: TypedDraftEditsByFile): LegacyDraftEdits
 }
 
 /** Convert legacy load result (as returned by Tauri) into typed storage shape. */
-export function mapLegacyToTyped(legacy: LegacyDraftEditsByFile): TypedDraftEditsByFile {
+export function mapLegacyToTyped(
+  legacy: LegacyDraftEditsByFile,
+): TypedDraftEditsByFile {
   const out: TypedDraftEditsByFile = {};
   for (const [file, edits] of Object.entries(legacy ?? {})) {
     const fileOut: Record<string, DraftEdit> = {};

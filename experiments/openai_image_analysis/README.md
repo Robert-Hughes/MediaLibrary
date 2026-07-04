@@ -5,11 +5,13 @@ Rust app for experimenting with OpenAI's Responses API, specifically for combini
 ## Setup
 
 1. Copy `.env.example` to `.env`:
+
    ```
    cp .env.example .env
    ```
 
 2. Add your OpenAI API key to `.env`:
+
    ```
    OPENAI_API_KEY=sk-...
    ```
@@ -28,6 +30,7 @@ Edit `main.rs` to configure:
 - **Images**: Add paths to the `sample_images` vector (relative to project root or absolute paths)
 
 The app will:
+
 1. List available models from your account
 2. Show the text-only request structure
 3. If images are configured, send a combined text+image request and print the response

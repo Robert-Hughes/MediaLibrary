@@ -57,6 +57,7 @@ wiremock = "0.6"
 [features]
 default = []
 # Integration tier: tests that exec real exiftool against image fixtures
-# in `test_images/`.  Run via `cargo test --features integration`. See
-# AGENTS.md for the tier policy.
+# in `test_images/`. Run from the repo root with:
+# `cargo test --manifest-path src-tauri/Cargo.toml --features integration`.
+# See AGENTS.md for the tier policy.
 integration = []

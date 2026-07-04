@@ -49,7 +49,7 @@ function draftsChunk(edits: Record<string, DraftEdit> | undefined): string {
   const parts: string[] = [];
   for (const [key, d] of Object.entries(edits)) {
     const display = displayStringOf(d);
-    parts.push(key, display === null ? "—" : display ?? "");
+    parts.push(key, display === null ? "—" : (display ?? ""));
   }
   return parts.join("\n");
 }
@@ -141,9 +141,9 @@ export class SearchIndex {
     // candidate set to the prior matches.  `has:edits` flips the filter
     // semantic so we don't reuse a cache produced with the opposite flag.
     const canNarrow =
-      this.priorQuery !== null
-      && q.length >= this.priorQuery.norm.length
-      && q.startsWith(this.priorQuery.norm);
+      this.priorQuery !== null &&
+      q.length >= this.priorQuery.norm.length &&
+      q.startsWith(this.priorQuery.norm);
 
     const candidates: Iterable<string> = canNarrow
       ? this.priorQuery!.matched

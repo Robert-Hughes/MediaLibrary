@@ -55,7 +55,19 @@ describe("mergeVerifyOutcomes", () => {
   });
 
   it("returns the same reference when the outcome list is empty", () => {
-    const before = { "a.jpg": [{ tag: "x", kind: "Coerced", sent: null, beforeDisplay: null, observedDisplay: null, observedRaw: null, message: null } as TagOutcomeEntry] };
+    const before = {
+      "a.jpg": [
+        {
+          tag: "x",
+          kind: "Coerced",
+          sent: null,
+          beforeDisplay: null,
+          observedDisplay: null,
+          observedRaw: null,
+          message: null,
+        } as TagOutcomeEntry,
+      ],
+    };
     const after = mergeVerifyOutcomes(before, "a.jpg", []);
     expect(after).toBe(before);
   });
@@ -85,10 +97,20 @@ describe("mergeVerifyOutcomes", () => {
   it("appends to existing per-file list", () => {
     const before: Record<string, TagOutcomeEntry[]> = {
       "a.jpg": [
-        { tag: "old", kind: "Coerced", sent: null, beforeDisplay: null, observedDisplay: null, observedRaw: null, message: null },
+        {
+          tag: "old",
+          kind: "Coerced",
+          sent: null,
+          beforeDisplay: null,
+          observedDisplay: null,
+          observedRaw: null,
+          message: null,
+        },
       ],
     };
-    const after = mergeVerifyOutcomes(before, "a.jpg", [outcome("new", "Mismatch")]);
+    const after = mergeVerifyOutcomes(before, "a.jpg", [
+      outcome("new", "Mismatch"),
+    ]);
     expect(after["a.jpg"]).toHaveLength(2);
     expect(after["a.jpg"][0].tag).toBe("old");
     expect(after["a.jpg"][1].tag).toBe("new");
@@ -97,7 +119,15 @@ describe("mergeVerifyOutcomes", () => {
   it("replaces an existing entry for the same tag (latest verdict wins)", () => {
     const before: Record<string, TagOutcomeEntry[]> = {
       "a.jpg": [
-        { tag: "t", kind: "Coerced", sent: null, beforeDisplay: null, observedDisplay: null, observedRaw: null, message: "first attempt" },
+        {
+          tag: "t",
+          kind: "Coerced",
+          sent: null,
+          beforeDisplay: null,
+          observedDisplay: null,
+          observedRaw: null,
+          message: "first attempt",
+        },
       ],
     };
     const after = mergeVerifyOutcomes(before, "a.jpg", [
@@ -111,7 +141,15 @@ describe("mergeVerifyOutcomes", () => {
   it("does not mutate the input map", () => {
     const before: Record<string, TagOutcomeEntry[]> = {
       "x.jpg": [
-        { tag: "x", kind: "Coerced", sent: null, beforeDisplay: null, observedDisplay: null, observedRaw: null, message: null },
+        {
+          tag: "x",
+          kind: "Coerced",
+          sent: null,
+          beforeDisplay: null,
+          observedDisplay: null,
+          observedRaw: null,
+          message: null,
+        },
       ],
     };
     const snapshot = JSON.stringify(before);
@@ -129,7 +167,15 @@ describe("removeVerifyOutcome", () => {
   it("returns the same reference when the tag is not in the file's list", () => {
     const before: Record<string, TagOutcomeEntry[]> = {
       "a.jpg": [
-        { tag: "other", kind: "Coerced", sent: null, beforeDisplay: null, observedDisplay: null, observedRaw: null, message: null },
+        {
+          tag: "other",
+          kind: "Coerced",
+          sent: null,
+          beforeDisplay: null,
+          observedDisplay: null,
+          observedRaw: null,
+          message: null,
+        },
       ],
     };
     expect(removeVerifyOutcome(before, "a.jpg", "missing")).toBe(before);
@@ -138,8 +184,24 @@ describe("removeVerifyOutcome", () => {
   it("removes a single matching tag and keeps the path key", () => {
     const before: Record<string, TagOutcomeEntry[]> = {
       "a.jpg": [
-        { tag: "t1", kind: "Coerced", sent: null, beforeDisplay: null, observedDisplay: null, observedRaw: null, message: null },
-        { tag: "t2", kind: "Mismatch", sent: null, beforeDisplay: null, observedDisplay: null, observedRaw: null, message: null },
+        {
+          tag: "t1",
+          kind: "Coerced",
+          sent: null,
+          beforeDisplay: null,
+          observedDisplay: null,
+          observedRaw: null,
+          message: null,
+        },
+        {
+          tag: "t2",
+          kind: "Mismatch",
+          sent: null,
+          beforeDisplay: null,
+          observedDisplay: null,
+          observedRaw: null,
+          message: null,
+        },
       ],
     };
     const after = removeVerifyOutcome(before, "a.jpg", "t1");
@@ -150,7 +212,15 @@ describe("removeVerifyOutcome", () => {
   it("removes the path key when the list becomes empty", () => {
     const before: Record<string, TagOutcomeEntry[]> = {
       "a.jpg": [
-        { tag: "only", kind: "Coerced", sent: null, beforeDisplay: null, observedDisplay: null, observedRaw: null, message: null },
+        {
+          tag: "only",
+          kind: "Coerced",
+          sent: null,
+          beforeDisplay: null,
+          observedDisplay: null,
+          observedRaw: null,
+          message: null,
+        },
       ],
     };
     const after = removeVerifyOutcome(before, "a.jpg", "only");
@@ -161,7 +231,15 @@ describe("removeVerifyOutcome", () => {
   it("does not mutate the input map", () => {
     const before: Record<string, TagOutcomeEntry[]> = {
       "a.jpg": [
-        { tag: "t", kind: "Coerced", sent: null, beforeDisplay: null, observedDisplay: null, observedRaw: null, message: null },
+        {
+          tag: "t",
+          kind: "Coerced",
+          sent: null,
+          beforeDisplay: null,
+          observedDisplay: null,
+          observedRaw: null,
+          message: null,
+        },
       ],
     };
     const snapshot = JSON.stringify(before);

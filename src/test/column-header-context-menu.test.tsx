@@ -29,7 +29,7 @@ describe("PhotoList column header context menu", () => {
     metadataStore = new ImageMetadataStore();
     onSelectColumnsMock = vi.fn();
 
-    mockPhotos.forEach(photo => {
+    mockPhotos.forEach((photo) => {
       thumbnailStore.add(photo.relative_path);
       metadataStore.add(photo.relative_path);
     });
@@ -53,7 +53,7 @@ describe("PhotoList column header context menu", () => {
         onVisibilityChange={() => {}}
         onPhotoOpen={() => {}}
         onSelectColumns={onSelectColumnsMock}
-      />
+      />,
     );
 
     // Right-click on the Path column header
@@ -82,7 +82,7 @@ describe("PhotoList column header context menu", () => {
         onVisibilityChange={() => {}}
         onPhotoOpen={() => {}}
         onSelectColumns={onSelectColumnsMock}
-      />
+      />,
     );
 
     // Right-click on the Modified column header
@@ -115,7 +115,7 @@ describe("PhotoList column header context menu", () => {
         onVisibilityChange={() => {}}
         onPhotoOpen={() => {}}
         onSelectColumns={onSelectColumnsMock}
-      />
+      />,
     );
 
     // Right-click on an image metadata column header
@@ -150,7 +150,7 @@ describe("PhotoList column header context menu", () => {
         onVisibilityChange={() => {}}
         onPhotoOpen={() => {}}
         // No onSelectColumns provided
-      />
+      />,
     );
 
     // Right-click on the Path column header

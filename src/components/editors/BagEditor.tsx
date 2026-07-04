@@ -68,7 +68,16 @@ function chipToVariant(s: string, kind: BagInnerKind): Variant | null {
   }
 }
 
-export function BagEditor({ propertyKey, initialItems, ordered = false, innerKind = "Text", onSave, onCancel, headerHint, readOnly }: Props) {
+export function BagEditor({
+  propertyKey,
+  initialItems,
+  ordered = false,
+  innerKind = "Text",
+  onSave,
+  onCancel,
+  headerHint,
+  readOnly,
+}: Props) {
   const [items, setItems] = useState<string[]>(initialItems);
   const [draftItem, setDraftItem] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -147,7 +156,11 @@ export function BagEditor({ propertyKey, initialItems, ordered = false, innerKin
         <div className="dialog-body">
           <div className="bag-editor-chips" data-testid="bag-editor-chips">
             {items.map((item, idx) => (
-              <span key={`${item}-${idx}`} className="bag-editor-chip" data-testid="bag-editor-chip">
+              <span
+                key={`${item}-${idx}`}
+                className="bag-editor-chip"
+                data-testid="bag-editor-chip"
+              >
                 {ordered && (
                   <>
                     <button
@@ -198,14 +211,24 @@ export function BagEditor({ propertyKey, initialItems, ordered = false, innerKin
             />
           </div>
           <p className="dialog-hint">
-            Press Enter or comma to add an item. Backspace on an empty input removes the last item.
+            Press Enter or comma to add an item. Backspace on an empty input
+            removes the last item.
             {ordered && " Order matters — use ↑ / ↓ to reorder."}
-            {innerKind !== "Text" && innerKind !== "Unknown" && ` Each chip will be parsed as ${innerKind}.`}
+            {innerKind !== "Text" &&
+              innerKind !== "Unknown" &&
+              ` Each chip will be parsed as ${innerKind}.`}
           </p>
-          {error && <p className="dialog-error" data-testid="bag-editor-error">{error}</p>}
+          {error && (
+            <p className="dialog-error" data-testid="bag-editor-error">
+              {error}
+            </p>
+          )}
         </div>
         <div className="dialog-footer">
-          <button className="dialog-btn dialog-btn-secondary" onClick={onCancel}>
+          <button
+            className="dialog-btn dialog-btn-secondary"
+            onClick={onCancel}
+          >
             Cancel
           </button>
           <button
@@ -227,7 +250,9 @@ export function BagEditor({ propertyKey, initialItems, ordered = false, innerKin
  * Best-effort initial-items extraction from whatever the caller has on hand:
  * a Variant value, the legacy comma-joined display string, or undefined.
  */
-export function initialItemsFrom(value: Variant | string | null | undefined): string[] {
+export function initialItemsFrom(
+  value: Variant | string | null | undefined,
+): string[] {
   if (value === null || value === undefined) return [];
   if (Array.isArray(value)) {
     return value

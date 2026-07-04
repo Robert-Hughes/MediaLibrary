@@ -33,46 +33,72 @@ describe("loadColumnConfig", () => {
     ];
     saveColumnConfig({
       visibleColumns: cols,
-      sortConfig: { primary: { column: "IFD0:Model", columnType: "image", direction: "asc" }, secondary: null },
+      sortConfig: {
+        primary: {
+          column: "IFD0:Model",
+          columnType: "image",
+          direction: "asc",
+        },
+        secondary: null,
+      },
       columnWidths: { relative_path: 300, "IFD0:Model": 180 },
     });
     const config = loadColumnConfig();
     expect(config.visibleColumns).toEqual(cols);
-    expect(config.sortConfig.primary).toEqual({ column: "IFD0:Model", columnType: "image", direction: "asc" });
-    expect(config.columnWidths).toEqual({ relative_path: 300, "IFD0:Model": 180 });
+    expect(config.sortConfig.primary).toEqual({
+      column: "IFD0:Model",
+      columnType: "image",
+      direction: "asc",
+    });
+    expect(config.columnWidths).toEqual({
+      relative_path: 300,
+      "IFD0:Model": 180,
+    });
   });
 
   it("falls back to defaults when stored visibleColumns is not the new shape", () => {
-    localStorage.setItem(COLUMN_CONFIG_KEY, JSON.stringify({
-      visibleColumns: ["ExifIFD:DateTimeOriginal"],
-      visibleOSColumns: ["date_modified"],
-      sortConfig: null,
-      columnWidths: {},
-    }));
+    localStorage.setItem(
+      COLUMN_CONFIG_KEY,
+      JSON.stringify({
+        visibleColumns: ["ExifIFD:DateTimeOriginal"],
+        visibleOSColumns: ["date_modified"],
+        sortConfig: null,
+        columnWidths: {},
+      }),
+    );
     const config = loadColumnConfig();
     expect(config.visibleColumns).toEqual(DEFAULT_VISIBLE_COLUMNS);
   });
 
   it("falls back to defaults when stored value is not an array", () => {
-    localStorage.setItem(COLUMN_CONFIG_KEY, JSON.stringify({ visibleColumns: "not-an-array" }));
+    localStorage.setItem(
+      COLUMN_CONFIG_KEY,
+      JSON.stringify({ visibleColumns: "not-an-array" }),
+    );
     expect(loadColumnConfig().visibleColumns).toEqual(DEFAULT_VISIBLE_COLUMNS);
   });
 
   it("falls back to default sortConfig when stored value is malformed", () => {
-    localStorage.setItem(COLUMN_CONFIG_KEY, JSON.stringify({
-      visibleColumns: [],
-      sortConfig: { primary: { column: 123 } },
-      columnWidths: {},
-    }));
+    localStorage.setItem(
+      COLUMN_CONFIG_KEY,
+      JSON.stringify({
+        visibleColumns: [],
+        sortConfig: { primary: { column: 123 } },
+        columnWidths: {},
+      }),
+    );
     expect(loadColumnConfig().sortConfig).toEqual(DEFAULT_SORT_CONFIG);
   });
 
   it("falls back to empty columnWidths when stored value contains non-numbers", () => {
-    localStorage.setItem(COLUMN_CONFIG_KEY, JSON.stringify({
-      visibleColumns: [],
-      sortConfig: null,
-      columnWidths: { path: "wide" },
-    }));
+    localStorage.setItem(
+      COLUMN_CONFIG_KEY,
+      JSON.stringify({
+        visibleColumns: [],
+        sortConfig: null,
+        columnWidths: { path: "wide" },
+      }),
+    );
     expect(loadColumnConfig().columnWidths).toEqual({});
   });
 
@@ -80,12 +106,22 @@ describe("loadColumnConfig", () => {
     saveColumnConfig({
       visibleColumns: [],
       sortConfig: {
-        primary: { column: "date_modified", columnType: "os", direction: "desc" },
-        secondary: { column: "relative_path", columnType: "path", direction: "asc" },
+        primary: {
+          column: "date_modified",
+          columnType: "os",
+          direction: "desc",
+        },
+        secondary: {
+          column: "relative_path",
+          columnType: "path",
+          direction: "asc",
+        },
       },
       columnWidths: NO_WIDTHS,
     });
-    expect(loadColumnConfig().sortConfig.secondary?.column).toBe("relative_path");
+    expect(loadColumnConfig().sortConfig.secondary?.column).toBe(
+      "relative_path",
+    );
   });
 
   it("returns defaults when localStorage contains invalid JSON", () => {
@@ -97,12 +133,19 @@ describe("loadColumnConfig", () => {
   });
 
   it("accepts an empty array for visible columns (user hides all columns)", () => {
-    saveColumnConfig({ visibleColumns: [], sortConfig: DEFAULT_SORT_CONFIG, columnWidths: NO_WIDTHS });
+    saveColumnConfig({
+      visibleColumns: [],
+      sortConfig: DEFAULT_SORT_CONFIG,
+      columnWidths: NO_WIDTHS,
+    });
     expect(loadColumnConfig().visibleColumns).toEqual([]);
   });
 
   it("falls back to empty columnWidths when columnWidths is missing from stored value", () => {
-    localStorage.setItem(COLUMN_CONFIG_KEY, JSON.stringify({ visibleColumns: [], sortConfig: null }));
+    localStorage.setItem(
+      COLUMN_CONFIG_KEY,
+      JSON.stringify({ visibleColumns: [], sortConfig: null }),
+    );
     expect(loadColumnConfig().columnWidths).toEqual({});
   });
 });

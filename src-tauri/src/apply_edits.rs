@@ -48,13 +48,12 @@ pub struct FailedFile {
 /// `kind` is a free-text discriminator so we can grow new outcomes without
 /// a schema migration.  Current values:
 ///
-/// - `"Match"`           — post-write file equals what we sent (exact, type-aware).
-/// - `"Coerced"`         — post-write file is equivalent under type-aware
-///                          equality but not byte-identical (e.g. exiftool
-///                          wrote `5/1` for our `5`, or normalised `True`).
-///                          Frontend prompts the user to accept-or-revert.
-/// - `"Mismatch"`        — post-write differs both exactly and structurally.
-///                          Draft retained.
+/// - `"Match"` — post-write file equals what we sent (exact, type-aware).
+/// - `"Coerced"` — post-write file is equivalent under type-aware equality
+///   but not byte-identical (for example, exiftool wrote `5/1` for our `5`,
+///   or normalised `True`). Frontend prompts the user to accept-or-revert.
+/// - `"Mismatch"` — post-write differs both exactly and structurally. Draft
+///   retained.
 /// - `"MissingPostWrite"` — tag absent after write (likely format rejection).
 /// - `"DeleteOk"`        — Delete intent verified absent (or Null).
 /// - `"DeleteLingering"`  — Delete intent failed; tag still present.
@@ -181,27 +180,29 @@ pub fn apply_single_file_typed(
     // with empty before-views; the failure is propagated to the apply-log
     // entry as `before_read_failed=true` so a `null` before-value can be
     // distinguished from "tag was genuinely absent".
-    let (before_display, before_raw, before_read_failed) =
-        match scanner::read_image_metadata_batch(&[rel_path.to_string()], &[abs_path.clone()]) {
-            Ok(mut results) => match results.pop() {
-                Some(r) => (r.metadata, r.raw_metadata, false),
-                None => {
-                    log::warn!(
-                        "[apply_edits] Pre-write read returned no entry for {}",
-                        rel_path
-                    );
-                    (HashMap::new(), HashMap::new(), true)
-                }
-            },
-            Err(e) => {
+    let (before_display, before_raw, before_read_failed) = match scanner::read_image_metadata_batch(
+        &[rel_path.to_string()],
+        std::slice::from_ref(&abs_path),
+    ) {
+        Ok(mut results) => match results.pop() {
+            Some(r) => (r.metadata, r.raw_metadata, false),
+            None => {
                 log::warn!(
-                    "[apply_edits] Pre-write read failed for {}: {}",
-                    rel_path,
-                    e
+                    "[apply_edits] Pre-write read returned no entry for {}",
+                    rel_path
                 );
                 (HashMap::new(), HashMap::new(), true)
             }
-        };
+        },
+        Err(e) => {
+            log::warn!(
+                "[apply_edits] Pre-write read failed for {}: {}",
+                rel_path,
+                e
+            );
+            (HashMap::new(), HashMap::new(), true)
+        }
+    };
 
     let mut combined = crate::write_args::BuiltArgs::default();
     // Keep per-tag argv for the apply log.
@@ -338,10 +339,10 @@ pub fn apply_single_file_typed(
 /// Verify a `Set` intent by comparing the post-write file to what we sent.
 ///
 /// Distinguishes three success-shaped outcomes:
-/// - `"Match"`   — exact equality (kind-aware) on either view.
+/// - `"Match"` — exact equality (kind-aware) on either view.
 /// - `"Coerced"` — equivalent under type-aware equality (multiset / epsilon
-///                 / per-lang / promote-scalar-to-list / cross-type stringify)
-///                 but not byte-identical.  User must accept or revert.
+///   / per-lang / promote-scalar-to-list / cross-type stringify) but not
+///   byte-identical. User must accept or revert.
 /// - `"Mismatch"` / `"MissingPostWrite"` — see TagOutcome doc.
 fn verify_set(
     key: &str,
@@ -392,8 +393,8 @@ fn verify_set(
     }
 
     // Strict (exact) compare first — picks up the Match case.
-    let display_strict = display_v.map_or(false, |v| variant_strict_eq(v, expected));
-    let raw_strict = raw_v.map_or(false, |v| variant_strict_eq(v, expected));
+    let display_strict = display_v.is_some_and(|v| variant_strict_eq(v, expected));
+    let raw_strict = raw_v.is_some_and(|v| variant_strict_eq(v, expected));
     if display_strict || raw_strict {
         return ("Match".to_string(), None);
     }
@@ -525,7 +526,7 @@ fn variant_strict_eq(a: &Variant, b: &Variant) -> bool {
         (Variant::Object(x), Variant::Object(y)) => {
             x.len() == y.len()
                 && x.iter()
-                    .all(|(k, v)| y.get(k).map_or(false, |v2| variant_strict_eq(v, v2)))
+                    .all(|(k, v)| y.get(k).is_some_and(|v2| variant_strict_eq(v, v2)))
         }
         _ => false,
     }
@@ -605,7 +606,7 @@ fn matches_variant(actual: Option<&Variant>, expected: &Variant, kind: Option<&T
                 _ => None,
             };
             a.iter().all(|(k, v)| {
-                b.get(k).map_or(false, |v2| {
+                b.get(k).is_some_and(|v2| {
                     let inner = field_kinds.and_then(|f| f.get(k));
                     matches_variant(Some(v), v2, inner)
                 })
@@ -706,8 +707,8 @@ fn matches_string(actual: Option<&Variant>, expected: &str) -> bool {
             }
         }
         Some(Variant::Bool(b)) => {
-            matches!(expected, "1" | "True" | "true") == *b
-                || matches!(expected, "0" | "False" | "false") == !*b
+            (matches!(expected, "1" | "True" | "true") && *b)
+                || (matches!(expected, "0" | "False" | "false") && !*b)
         }
         Some(Variant::Null) => expected.is_empty(),
         Some(Variant::List(items)) => {
@@ -791,10 +792,7 @@ mod tests {
 
     fn is_hard_failure(outcome: &SingleFileOutcome, substr: &str) -> bool {
         outcome.fresh_metadata.is_none()
-            && outcome
-                .error
-                .as_deref()
-                .map_or(false, |e| e.contains(substr))
+            && outcome.error.as_deref().is_some_and(|e| e.contains(substr))
     }
 
     // ── matches_string ────────────────────────────────────────────────

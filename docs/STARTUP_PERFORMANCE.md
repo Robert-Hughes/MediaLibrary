@@ -27,24 +27,24 @@ Frontend ([src/main.tsx](../src/main.tsx), [src/App.tsx](../src/App.tsx), [index
 - `window.__startupT0` — top of `main.tsx` module-eval (after `setupConsoleLogging` so the log actually reaches Rust).
 - Logs in `App()` first render, post-mount effect (= first commit), first rAF after mount, `preload_schema` invoke / resolve.
 
-> **Gotcha:** the first `console.log` in `main.tsx` must come *after* `setupConsoleLogging()` is called. We initially logged before it, and those lines silently vanished from Rust stdout because `console.log` had not yet been wrapped to forward to the backend.
+> **Gotcha:** the first `console.log` in `main.tsx` must come _after_ `setupConsoleLogging()` is called. We initially logged before it, and those lines silently vanished from Rust stdout because `console.log` had not yet been wrapped to forward to the backend.
 
 ## Measured timeline (dev, cold start)
 
 Anchored to `run()` entry = 0 ms.
 
-| t (ms) | event | gap | meaning |
-|---|---|---|---|
-| 0 | `run()` entered | | Rust process started. |
-| ~450 | tauri `setup()` callback fired | +450 | Tauri builder initialised, about to spawn webview. |
-| ~4400 | `__htmlHeadT` (HTML head parsed) | **+3950** | **WebView2 process spawn + HTTP request to Vite for index.html.** Pure white screen. |
-| ~4400 | `__bodyParsedT` | +0 | Body is tiny — instant. |
-| ~4400 | `__splashPaintedT` (rAF) | +0 | **Splash visible.** |
-| ~5600 | `main.tsx` module-eval starts | **+1200** | **Vite serves the module graph** (React, App, components, fontsource CSS, …). Splash still visible. |
-| ~5630 | `App()` first render | +30 | Cheap. |
-| ~5670 | First commit / first paint of React tree | +40 | Splash gets replaced by the real "Loading schema…" dialog. |
-| ~5670 | `preload_schema` invoke fires | | |
-| ~6070 | `preload_schema` resolves | +400 | Cache hit on `tag_schema_<ver>.json`. Dialog dismisses. |
+| t (ms) | event                                    | gap       | meaning                                                                                             |
+| ------ | ---------------------------------------- | --------- | --------------------------------------------------------------------------------------------------- |
+| 0      | `run()` entered                          |           | Rust process started.                                                                               |
+| ~450   | tauri `setup()` callback fired           | +450      | Tauri builder initialised, about to spawn webview.                                                  |
+| ~4400  | `__htmlHeadT` (HTML head parsed)         | **+3950** | **WebView2 process spawn + HTTP request to Vite for index.html.** Pure white screen.                |
+| ~4400  | `__bodyParsedT`                          | +0        | Body is tiny — instant.                                                                             |
+| ~4400  | `__splashPaintedT` (rAF)                 | +0        | **Splash visible.**                                                                                 |
+| ~5600  | `main.tsx` module-eval starts            | **+1200** | **Vite serves the module graph** (React, App, components, fontsource CSS, …). Splash still visible. |
+| ~5630  | `App()` first render                     | +30       | Cheap.                                                                                              |
+| ~5670  | First commit / first paint of React tree | +40       | Splash gets replaced by the real "Loading schema…" dialog.                                          |
+| ~5670  | `preload_schema` invoke fires            |           |                                                                                                     |
+| ~6070  | `preload_schema` resolves                | +400      | Cache hit on `tag_schema_<ver>.json`. Dialog dismisses.                                             |
 
 Numbers vary ±300 ms run-to-run; structure is stable.
 
@@ -57,7 +57,7 @@ Significantly faster — the webview still has to spawn but does not wait for Vi
 Two reasons it appears to cause the flash:
 
 1. `preload_schema` is the only **named** thing happening at startup, so it's the natural suspect.
-2. The "Loading schema…" dialog *does* render briefly — but only because `schemaReady` defaults to `false` at [App.tsx](../src/App.tsx)'s first render, so the dialog appears the instant React commits, then disappears ~400 ms later when the cache load resolves.
+2. The "Loading schema…" dialog _does_ render briefly — but only because `schemaReady` defaults to `false` at [App.tsx](../src/App.tsx)'s first render, so the dialog appears the instant React commits, then disappears ~400 ms later when the cache load resolves.
 
 Crucially, `preload_schema` runs in a Tauri worker thread (sync `#[tauri::command]`), so it does **not** block React's first render. The dialog flash is a symptom of the long pre-render window, not the cause.
 
@@ -130,7 +130,7 @@ In rough order of expected impact on the 1.2 s splash-visible window:
 
 ## What we can't fix
 
-The ~2–3 s of "WebView2 cold spawn" on Windows is a kernel-level process creation cost. Tauri controls neither the spawn timing nor the navigation. The inline splash is the right mitigation: nothing we do shrinks the white window itself, but the splash makes the *perceived* delay shorter because content appears the instant the webview can render.
+The ~2–3 s of "WebView2 cold spawn" on Windows is a kernel-level process creation cost. Tauri controls neither the spawn timing nor the navigation. The inline splash is the right mitigation: nothing we do shrinks the white window itself, but the splash makes the _perceived_ delay shorter because content appears the instant the webview can render.
 
 ## Logs left in place
 

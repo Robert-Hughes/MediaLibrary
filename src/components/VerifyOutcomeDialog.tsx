@@ -25,8 +25,14 @@ interface Props {
 const KIND_BADGE: Record<string, { label: string; cls: string }> = {
   Coerced: { label: "Normalised", cls: "verify-badge verify-badge-coerced" },
   Mismatch: { label: "Mismatch", cls: "verify-badge verify-badge-mismatch" },
-  MissingPostWrite: { label: "Not written", cls: "verify-badge verify-badge-mismatch" },
-  DeleteLingering: { label: "Still present", cls: "verify-badge verify-badge-mismatch" },
+  MissingPostWrite: {
+    label: "Not written",
+    cls: "verify-badge verify-badge-mismatch",
+  },
+  DeleteLingering: {
+    label: "Still present",
+    cls: "verify-badge verify-badge-mismatch",
+  },
 };
 
 export function VerifyOutcomeDialog({
@@ -43,50 +49,103 @@ export function VerifyOutcomeDialog({
 
   return (
     <div className="dialog-overlay" data-testid="verify-outcome-dialog">
-      <div className="dialog-content" style={{ width: 640, maxHeight: "80vh", overflowY: "auto" }}>
+      <div
+        className="dialog-content"
+        style={{ width: 640, maxHeight: "80vh", overflowY: "auto" }}
+      >
         <div className="dialog-header">
-          <span className="dialog-title">Apply finished — {totalRows} tag{totalRows === 1 ? "" : "s"} need attention</span>
+          <span className="dialog-title">
+            Apply finished — {totalRows} tag{totalRows === 1 ? "" : "s"} need
+            attention
+          </span>
         </div>
         <div className="dialog-body">
           <p className="dialog-hint">
             ExifTool either normalised your value, rejected the write, or could
-            not remove the tag.  Choose what to do for each entry.
+            not remove the tag. Choose what to do for each entry.
           </p>
           {fileEntries.map(([file, list]) => (
             <div key={file} style={{ marginTop: 12 }}>
-              <div style={{ fontWeight: 600, marginBottom: 4 }} data-testid={`verify-outcome-file-${file}`}>
+              <div
+                style={{ fontWeight: 600, marginBottom: 4 }}
+                data-testid={`verify-outcome-file-${file}`}
+              >
                 {file}
               </div>
-              <table className="verify-outcome-table" style={{ width: "100%", borderCollapse: "collapse" }}>
+              <table
+                className="verify-outcome-table"
+                style={{ width: "100%", borderCollapse: "collapse" }}
+              >
                 <thead>
                   <tr>
-                    <th style={{ textAlign: "left", padding: "4px 6px" }}>Tag</th>
-                    <th style={{ textAlign: "left", padding: "4px 6px" }}>Sent</th>
-                    <th style={{ textAlign: "left", padding: "4px 6px" }}>File now holds</th>
-                    <th style={{ textAlign: "left", padding: "4px 6px" }}>Status</th>
-                    <th style={{ textAlign: "right", padding: "4px 6px" }}>Action</th>
+                    <th style={{ textAlign: "left", padding: "4px 6px" }}>
+                      Tag
+                    </th>
+                    <th style={{ textAlign: "left", padding: "4px 6px" }}>
+                      Sent
+                    </th>
+                    <th style={{ textAlign: "left", padding: "4px 6px" }}>
+                      File now holds
+                    </th>
+                    <th style={{ textAlign: "left", padding: "4px 6px" }}>
+                      Status
+                    </th>
+                    <th style={{ textAlign: "right", padding: "4px 6px" }}>
+                      Action
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
                   {list.map((entry) => {
-                    const badge = KIND_BADGE[entry.kind] ?? { label: entry.kind, cls: "verify-badge" };
-                    const observedForRevert = entry.observedRaw ?? entry.observedDisplay ?? null;
+                    const badge = KIND_BADGE[entry.kind] ?? {
+                      label: entry.kind,
+                      cls: "verify-badge",
+                    };
+                    const observedForRevert =
+                      entry.observedRaw ?? entry.observedDisplay ?? null;
                     return (
-                      <tr key={entry.tag} data-testid={`verify-outcome-row-${file}-${entry.tag}`}>
-                        <td style={{ padding: "4px 6px", fontFamily: "monospace" }}>{entry.tag}</td>
-                        <td style={{ padding: "4px 6px" }}>{variantToDisplayString(entry.sent)}</td>
-                        <td style={{ padding: "4px 6px" }}>
-                          {variantToDisplayString(entry.observedDisplay ?? entry.observedRaw)}
+                      <tr
+                        key={entry.tag}
+                        data-testid={`verify-outcome-row-${file}-${entry.tag}`}
+                      >
+                        <td
+                          style={{
+                            padding: "4px 6px",
+                            fontFamily: "monospace",
+                          }}
+                        >
+                          {entry.tag}
                         </td>
                         <td style={{ padding: "4px 6px" }}>
-                          <span className={badge.cls} title={entry.message ?? ""}>{badge.label}</span>
+                          {variantToDisplayString(entry.sent)}
                         </td>
-                        <td style={{ padding: "4px 6px", textAlign: "right", whiteSpace: "nowrap" }}>
+                        <td style={{ padding: "4px 6px" }}>
+                          {variantToDisplayString(
+                            entry.observedDisplay ?? entry.observedRaw,
+                          )}
+                        </td>
+                        <td style={{ padding: "4px 6px" }}>
+                          <span
+                            className={badge.cls}
+                            title={entry.message ?? ""}
+                          >
+                            {badge.label}
+                          </span>
+                        </td>
+                        <td
+                          style={{
+                            padding: "4px 6px",
+                            textAlign: "right",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
                           {entry.kind === "Coerced" ? (
                             <>
                               <button
                                 className="dialog-btn dialog-btn-secondary"
-                                onClick={() => onRevert(file, entry.tag, observedForRevert)}
+                                onClick={() =>
+                                  onRevert(file, entry.tag, observedForRevert)
+                                }
                                 data-testid={`verify-outcome-revert-${file}-${entry.tag}`}
                                 title="Re-stage the draft with the value the file now holds"
                               >

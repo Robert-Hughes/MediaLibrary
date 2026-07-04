@@ -18,7 +18,10 @@ export const DEFAULT_VISIBLE_COLUMNS: VisibleColumn[] = [
 
 export const OS_COLUMN_KEYS = ["date_modified", "date_created"] as const;
 
-export const DEFAULT_SORT_CONFIG: SortConfig = { primary: null, secondary: null };
+export const DEFAULT_SORT_CONFIG: SortConfig = {
+  primary: null,
+  secondary: null,
+};
 
 export interface ColumnConfig {
   visibleColumns: VisibleColumn[];
@@ -41,7 +44,9 @@ function isValidSortKey(v: unknown): v is SortKey {
   const k = v as Record<string, unknown>;
   return (
     typeof k.column === "string" &&
-    (k.columnType === "path" || k.columnType === "os" || k.columnType === "image") &&
+    (k.columnType === "path" ||
+      k.columnType === "os" ||
+      k.columnType === "image") &&
     (k.direction === "asc" || k.direction === "desc")
   );
 }
@@ -57,7 +62,9 @@ function isValidSortConfig(v: unknown): v is SortConfig {
 
 function isValidColumnWidths(v: unknown): v is Record<string, number> {
   if (!v || typeof v !== "object" || Array.isArray(v)) return false;
-  return Object.values(v as Record<string, unknown>).every((n) => typeof n === "number" && n >= 0);
+  return Object.values(v as Record<string, unknown>).every(
+    (n) => typeof n === "number" && n >= 0,
+  );
 }
 
 function defaultConfig(): ColumnConfig {
@@ -80,8 +87,12 @@ export function loadColumnConfig(): ColumnConfig {
     }
     return {
       visibleColumns: parsed.visibleColumns,
-      sortConfig: isValidSortConfig(parsed.sortConfig) ? parsed.sortConfig : DEFAULT_SORT_CONFIG,
-      columnWidths: isValidColumnWidths(parsed.columnWidths) ? parsed.columnWidths : {},
+      sortConfig: isValidSortConfig(parsed.sortConfig)
+        ? parsed.sortConfig
+        : DEFAULT_SORT_CONFIG,
+      columnWidths: isValidColumnWidths(parsed.columnWidths)
+        ? parsed.columnWidths
+        : {},
     };
   } catch {
     return defaultConfig();

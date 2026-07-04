@@ -55,14 +55,23 @@ export function StatusBar({
 
         {scanning && (
           <span className="status-bar-item" data-testid="status-bar-scanning">
-            <span style={spinStyle} className="status-bar-spinner" aria-hidden="true" />
+            <span
+              style={spinStyle}
+              className="status-bar-spinner"
+              aria-hidden="true"
+            />
             <span>Discovering files…</span>
           </span>
         )}
 
         {metadataLoading && (
           <span className="status-bar-item" data-testid="status-bar-metadata">
-            <span style={spinStyle} className="status-bar-spinner" data-testid="status-bar-metadata-spinner" aria-hidden="true" />
+            <span
+              style={spinStyle}
+              className="status-bar-spinner"
+              data-testid="status-bar-metadata-spinner"
+              aria-hidden="true"
+            />
             <span data-testid="status-bar-metadata-label">
               Loading metadata… ({metadataLoaded} of {metadataTotal})
             </span>
@@ -82,7 +91,9 @@ export function StatusBar({
             className="status-bar-draft-summary"
             onClick={onClickDraftSummary}
             style={{ cursor: onClickDraftSummary ? "pointer" : "default" }}
-            title={onClickDraftSummary ? "Show only photos with edits" : undefined}
+            title={
+              onClickDraftSummary ? "Show only photos with edits" : undefined
+            }
             data-testid="status-bar-draft-summary"
           >
             {`${draftEditsSummary.edits} draft edit${draftEditsSummary.edits === 1 ? "" : "s"} across ${draftEditsSummary.files} file${draftEditsSummary.files === 1 ? "" : "s"}`}

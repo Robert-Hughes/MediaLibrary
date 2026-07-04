@@ -23,8 +23,12 @@ Add a buffer for metadata events similar to the photo_found batching:
 
 ```typescript
 // Add to existing refs
-const metadataBufferRef = useRef<{ relative_path: string; metadata: Record<string, Variant> }[]>([]);
-const metadataBatchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+const metadataBufferRef = useRef<
+  { relative_path: string; metadata: Record<string, Variant> }[]
+>([]);
+const metadataBatchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+  null,
+);
 const isFirstMetadataFlushRef = useRef<boolean>(true);
 ```
 
@@ -34,13 +38,13 @@ Modify the `image_metadata_ready` listener to batch events:
 const unlistenMetadata = await api.listen("image_metadata_ready", (raw) => {
   const { scan_id, results } = raw as ImageMetadataReadyPayload;
   if (scan_id !== activeScanIdRef.current) return;
-  
+
   // Buffer metadata instead of processing immediately
   metadataBufferRef.current.push(...results);
-  
-  const shouldFlushNow = isFirstMetadataFlushRef.current || 
-                         metadataBufferRef.current.length >= 50;
-  
+
+  const shouldFlushNow =
+    isFirstMetadataFlushRef.current || metadataBufferRef.current.length >= 50;
+
   if (shouldFlushNow) {
     isFirstMetadataFlushRef.current = false;
     flushMetadataBatch();
@@ -59,23 +63,26 @@ const unlistenMetadata = await api.listen("image_metadata_ready", (raw) => {
 const flushMetadataBatch = () => {
   const batch = [...metadataBufferRef.current];
   metadataBufferRef.current = [];
-  
+
   for (const res of batch) {
     imageMetadataStoreRef.current.set(res.relative_path, res.metadata);
     imageMetadataReceivedRef.current += 1;
   }
-  
+
   // Only update state if scanning
   setAppState((prev) => {
     if (prev.kind !== "loaded") return prev;
-    
-    const newRemaining = Math.max(0, prev.photos.length - imageMetadataReceivedRef.current);
-    
+
+    const newRemaining = Math.max(
+      0,
+      prev.photos.length - imageMetadataReceivedRef.current,
+    );
+
     // Skip update if remaining count unchanged
     if (prev.imageMetadataRemaining === newRemaining && batch.length > 0) {
       return prev;
     }
-    
+
     return {
       ...prev,
       imageMetadataRemaining: newRemaining,

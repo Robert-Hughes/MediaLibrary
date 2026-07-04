@@ -33,17 +33,21 @@ describe("normalizeDraftsFromTauri", () => {
   });
 
   it("converts null legacy values to Delete intent", () => {
-    expect(normalizeDraftsFromTauri({
-      "a.jpg": { "XMP-dc:Title": null },
-    })).toEqual({
+    expect(
+      normalizeDraftsFromTauri({
+        "a.jpg": { "XMP-dc:Title": null },
+      }),
+    ).toEqual({
       "a.jpg": { "XMP-dc:Title": { value: null, intent: "Delete" } },
     });
   });
 
   it("converts string legacy values to Set intent", () => {
-    expect(normalizeDraftsFromTauri({
-      "a.jpg": { "XMP-dc:Title": "Beach" },
-    })).toEqual({
+    expect(
+      normalizeDraftsFromTauri({
+        "a.jpg": { "XMP-dc:Title": "Beach" },
+      }),
+    ).toEqual({
       "a.jpg": { "XMP-dc:Title": { value: "Beach", intent: "Set" } },
     });
   });
@@ -64,11 +68,13 @@ describe("normalizeDraftsFromTauri", () => {
   });
 
   it("skips files whose value is not an object", () => {
-    expect(normalizeDraftsFromTauri({
-      "good.jpg": { tag: "v" },
-      "bad.jpg": null,
-      "other.jpg": "scalar",
-    })).toEqual({
+    expect(
+      normalizeDraftsFromTauri({
+        "good.jpg": { tag: "v" },
+        "bad.jpg": null,
+        "other.jpg": "scalar",
+      }),
+    ).toEqual({
       "good.jpg": { tag: { value: "v", intent: "Set" } },
     });
   });

@@ -349,14 +349,12 @@ pub async fn estimate_normalise_cost_cmd(
     let mut n_images_with_ai_b: u32 = 0;
     let mut n_images_with_ai_c: u32 = 0;
     let mut n_images_no_ai: u32 = 0;
-    let mut current = 0usize;
-
-    for item in &items {
+    for (index, item) in items.iter().enumerate() {
         if cancel_flag.load(Ordering::Relaxed) {
             normalise_state.clear();
             return Err("Cancelled by user".into());
         }
-        current += 1;
+        let current = index + 1;
 
         let capturing = normalise::CapturingAiClient::default();
         let (edits, stats, _err, _calls) = normalise::process_image(

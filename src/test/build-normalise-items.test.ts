@@ -38,7 +38,13 @@ describe("resolveTag", () => {
 });
 
 const ALL_GROUPS: NormaliseGroup[] = [
-  "keywords", "creator", "copyright", "headline", "title", "location", "dates",
+  "keywords",
+  "creator",
+  "copyright",
+  "headline",
+  "title",
+  "location",
+  "dates",
 ];
 
 describe("buildNormaliseItemForPhoto — keywords", () => {
@@ -50,7 +56,9 @@ describe("buildNormaliseItemForPhoto — keywords", () => {
       "XMP-mlib:AITags": ["lion"],
       "XMP-mlib:AIObjects": ["statue"],
     };
-    const item = buildNormaliseItemForPhoto("x.jpg", m, undefined, ["keywords"]);
+    const item = buildNormaliseItemForPhoto("x.jpg", m, undefined, [
+      "keywords",
+    ]);
     expect(item.groupInputs.keywords).toEqual({
       hierarchicalSubject: ["A|B|C"],
       dcSubject: ["C", "D"],
@@ -62,7 +70,9 @@ describe("buildNormaliseItemForPhoto — keywords", () => {
 
   it("uses draft list when present", () => {
     const m: Record<string, Variant> = { "XMP-dc:Subject": ["meta"] };
-    const d: Record<string, DraftEdit> = { "XMP-dc:Subject": set(["draft1", "draft2"]) };
+    const d: Record<string, DraftEdit> = {
+      "XMP-dc:Subject": set(["draft1", "draft2"]),
+    };
     const item = buildNormaliseItemForPhoto("x.jpg", m, d, ["keywords"]);
     expect(item.groupInputs.keywords?.dcSubject).toEqual(["draft1", "draft2"]);
   });
@@ -78,7 +88,9 @@ describe("buildNormaliseItemForPhoto — keywords", () => {
     // Exiftool sometimes emits a single-entry Bag as a scalar string;
     // the resolver must accept this and treat it as ["x"].
     const m: Record<string, Variant> = { "XMP-dc:Subject": "lone-keyword" };
-    const item = buildNormaliseItemForPhoto("x.jpg", m, undefined, ["keywords"]);
+    const item = buildNormaliseItemForPhoto("x.jpg", m, undefined, [
+      "keywords",
+    ]);
     expect(item.groupInputs.keywords?.dcSubject).toEqual(["lone-keyword"]);
   });
 });
@@ -105,7 +117,9 @@ describe("buildNormaliseItemForPhoto — disabled groups stay null", () => {
       "XMP-dc:Subject": ["a"],
       "XMP-dc:Creator": ["alice"],
     };
-    const item = buildNormaliseItemForPhoto("x.jpg", m, undefined, ["keywords"]);
+    const item = buildNormaliseItemForPhoto("x.jpg", m, undefined, [
+      "keywords",
+    ]);
     expect(item.groupInputs.keywords).not.toBeNull();
     expect(item.groupInputs.creator).toBeNull();
     expect(item.groupInputs.copyright).toBeNull();
@@ -118,7 +132,9 @@ describe("buildNormaliseItemForPhoto — location", () => {
       "XMP-photoshop:City": "Paris",
       "IPTC:Country-PrimaryLocationCode": "FR",
     };
-    const item = buildNormaliseItemForPhoto("x.jpg", m, undefined, ["location"]);
+    const item = buildNormaliseItemForPhoto("x.jpg", m, undefined, [
+      "location",
+    ]);
     expect(item.groupInputs.location).toEqual({
       locationXmp: null,
       locationIptc: null,
@@ -172,7 +188,9 @@ describe("buildNormaliseItemForPhoto — dates", () => {
       "EXIF:CreateDate": "2024:06:15 14:30:45",
     };
     const item = buildNormaliseItemForPhoto("x.jpg", m, undefined, ["dates"]);
-    expect(item.groupInputs.dates?.dateTimeOriginal).toBe("2024:06:15 14:30:45");
+    expect(item.groupInputs.dates?.dateTimeOriginal).toBe(
+      "2024:06:15 14:30:45",
+    );
     expect(item.groupInputs.dates?.offsetTimeOriginal).toBe("+01:00");
     expect(item.groupInputs.dates?.createDate).toBe("2024:06:15 14:30:45");
   });

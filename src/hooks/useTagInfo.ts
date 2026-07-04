@@ -36,7 +36,9 @@ async function fetchTagInfo(key: string): Promise<void> {
   cache.set(key, "loading");
   notify(key);
   try {
-    const result = (await invoke("get_tag_info", { tag: key })) as TagInfo | null;
+    const result = (await invoke("get_tag_info", {
+      tag: key,
+    })) as TagInfo | null;
     cache.set(key, result);
   } catch (e) {
     console.error(`[useTagInfo] get_tag_info(${key}) failed:`, e);

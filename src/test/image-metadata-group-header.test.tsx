@@ -40,14 +40,17 @@ describe("PhotoList per-column kind labels", () => {
         photos={mockPhotos}
         thumbnails={thumbnails}
         imageMetadata={imageMetadata}
-        visibleColumns={[osCol("date_modified"), imgCol("ExifIFD:DateTimeOriginal")]}
+        visibleColumns={[
+          osCol("date_modified"),
+          imgCol("ExifIFD:DateTimeOriginal"),
+        ]}
         selectedIndex={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
         {...defaultSortProps}
         onPhotoOpen={() => {}}
-      />
+      />,
     );
     expect(screen.getByText("Image")).toBeInTheDocument();
     expect(screen.getAllByText("OS")).toHaveLength(2);
@@ -67,7 +70,7 @@ describe("PhotoList per-column kind labels", () => {
         onVisibilityChange={() => {}}
         {...defaultSortProps}
         onPhotoOpen={() => {}}
-      />
+      />,
     );
     expect(screen.queryByText("Image")).not.toBeInTheDocument();
   });
@@ -87,7 +90,7 @@ describe("PhotoList per-column kind labels", () => {
         onVisibilityChange={() => {}}
         {...defaultSortProps}
         onPhotoOpen={() => {}}
-      />
+      />,
     );
     expect(screen.queryByText("Image")).not.toBeInTheDocument();
     expect(screen.getAllByText("OS")).toHaveLength(1);
@@ -107,18 +110,26 @@ describe("PhotoList per-column kind labels", () => {
         onVisibilityChange={() => {}}
         {...defaultSortProps}
         onPhotoOpen={() => {}}
-      />
+      />,
     );
 
-    const previewHeader = screen.getByText("Preview").closest(".grid-header") as HTMLElement;
-    const pathHeader = screen.getByText("Path").closest(".grid-header") as HTMLElement;
+    const previewHeader = screen
+      .getByText("Preview")
+      .closest(".grid-header") as HTMLElement;
+    const pathHeader = screen
+      .getByText("Path")
+      .closest(".grid-header") as HTMLElement;
 
     expect(previewHeader).toHaveClass("grid-header--metadata");
     expect(pathHeader).toHaveClass("grid-header--metadata");
     expect(previewHeader.style.gridRow).toBe("1 / 3");
     expect(pathHeader.style.gridRow).toBe("1 / 3");
-    expect(pathHeader.querySelector(".grid-header-kind")?.textContent).toBe("OS");
-    expect(previewHeader.querySelector(".grid-header-kind--empty")).toBeInTheDocument();
+    expect(pathHeader.querySelector(".grid-header-kind")?.textContent).toBe(
+      "OS",
+    );
+    expect(
+      previewHeader.querySelector(".grid-header-kind--empty"),
+    ).toBeInTheDocument();
   });
 
   it("renders one 'Image' label per image column when multiple image columns are enabled", () => {
@@ -128,14 +139,17 @@ describe("PhotoList per-column kind labels", () => {
         photos={mockPhotos}
         thumbnails={thumbnails}
         imageMetadata={imageMetadata}
-        visibleColumns={[imgCol("ExifIFD:DateTimeOriginal"), imgCol("IFD0:Model")]}
+        visibleColumns={[
+          imgCol("ExifIFD:DateTimeOriginal"),
+          imgCol("IFD0:Model"),
+        ]}
         selectedIndex={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
         {...defaultSortProps}
         onPhotoOpen={() => {}}
-      />
+      />,
     );
     expect(screen.getAllByText("Image")).toHaveLength(2);
   });
@@ -150,7 +164,10 @@ describe("PhotoList kind-label context menu", () => {
         photos={mockPhotos}
         thumbnails={thumbnails}
         imageMetadata={imageMetadata}
-        visibleColumns={[osCol("date_modified"), imgCol("ExifIFD:DateTimeOriginal")]}
+        visibleColumns={[
+          osCol("date_modified"),
+          imgCol("ExifIFD:DateTimeOriginal"),
+        ]}
         selectedIndex={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
@@ -158,7 +175,7 @@ describe("PhotoList kind-label context menu", () => {
         {...defaultSortProps}
         onPhotoOpen={() => {}}
         onSelectColumns={onSelectColumns}
-      />
+      />,
     );
 
     const osKindLabels = screen.getAllByText("OS");
@@ -182,10 +199,13 @@ describe("PhotoList kind-label context menu", () => {
         {...defaultSortProps}
         onPhotoOpen={() => {}}
         onSelectColumns={onSelectColumns}
-      />
+      />,
     );
 
-    await userEvent.pointer({ keys: "[MouseRight]", target: screen.getByText("Image") });
+    await userEvent.pointer({
+      keys: "[MouseRight]",
+      target: screen.getByText("Image"),
+    });
     expect(screen.getByText("Select Columns…")).toBeInTheDocument();
   });
 
@@ -197,7 +217,10 @@ describe("PhotoList kind-label context menu", () => {
         photos={mockPhotos}
         thumbnails={thumbnails}
         imageMetadata={imageMetadata}
-        visibleColumns={[osCol("date_modified"), imgCol("ExifIFD:DateTimeOriginal")]}
+        visibleColumns={[
+          osCol("date_modified"),
+          imgCol("ExifIFD:DateTimeOriginal"),
+        ]}
         selectedIndex={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
@@ -205,7 +228,7 @@ describe("PhotoList kind-label context menu", () => {
         {...defaultSortProps}
         onPhotoOpen={() => {}}
         onSelectColumns={onSelectColumns}
-      />
+      />,
     );
 
     const osKindLabels = screen.getAllByText("OS");

@@ -13,9 +13,11 @@ interface Props {
  */
 export function DatatypeBadge({ code, label, variant }: Props) {
   const titleTag =
-    variant === "schema" ? "Schema datatype"
-    : variant === "value" ? "Current value datatype"
-    : "Draft value datatype";
+    variant === "schema"
+      ? "Schema datatype"
+      : variant === "value"
+        ? "Current value datatype"
+        : "Draft value datatype";
   return (
     <span
       className={`datatype-badge datatype-badge--${variant}`}

@@ -89,10 +89,22 @@ const RETURN_LABELS: Record<number, string> = {
   3: "Return detected",
 };
 
-export function FlashEditor({ propertyKey, initialCode, onSave, onCancel, headerHint, readOnly }: Props) {
-  const [fields, setFields] = useState<FlashFields>(decodeFlashCode(initialCode));
+export function FlashEditor({
+  propertyKey,
+  initialCode,
+  onSave,
+  onCancel,
+  headerHint,
+  readOnly,
+}: Props) {
+  const [fields, setFields] = useState<FlashFields>(
+    decodeFlashCode(initialCode),
+  );
 
-  const update = <K extends keyof FlashFields>(key: K, value: FlashFields[K]) => {
+  const update = <K extends keyof FlashFields>(
+    key: K,
+    value: FlashFields[K],
+  ) => {
     setFields({ ...fields, [key]: value });
   };
 
@@ -123,11 +135,15 @@ export function FlashEditor({ propertyKey, initialCode, onSave, onCancel, header
               <span>Mode:</span>
               <select
                 value={fields.mode}
-                onChange={(e) => update("mode", Number(e.target.value) as 0 | 1 | 2 | 3)}
+                onChange={(e) =>
+                  update("mode", Number(e.target.value) as 0 | 1 | 2 | 3)
+                }
                 data-testid="flash-editor-mode"
               >
                 {Object.entries(MODE_LABELS).map(([code, label]) => (
-                  <option key={code} value={code}>{label}</option>
+                  <option key={code} value={code}>
+                    {label}
+                  </option>
                 ))}
               </select>
             </label>
@@ -135,11 +151,15 @@ export function FlashEditor({ propertyKey, initialCode, onSave, onCancel, header
               <span>Return:</span>
               <select
                 value={fields.returnStatus}
-                onChange={(e) => update("returnStatus", Number(e.target.value) as 0 | 2 | 3)}
+                onChange={(e) =>
+                  update("returnStatus", Number(e.target.value) as 0 | 2 | 3)
+                }
                 data-testid="flash-editor-return"
               >
                 {Object.entries(RETURN_LABELS).map(([code, label]) => (
-                  <option key={code} value={code}>{label}</option>
+                  <option key={code} value={code}>
+                    {label}
+                  </option>
                 ))}
               </select>
             </label>
@@ -163,11 +183,15 @@ export function FlashEditor({ propertyKey, initialCode, onSave, onCancel, header
             </label>
           </div>
           <p className="dialog-hint" data-testid="flash-editor-code-preview">
-            Code: <code>{code}</code> (binary <code>{code.toString(2).padStart(7, "0")}</code>)
+            Code: <code>{code}</code> (binary{" "}
+            <code>{code.toString(2).padStart(7, "0")}</code>)
           </p>
         </div>
         <div className="dialog-footer">
-          <button className="dialog-btn dialog-btn-secondary" onClick={onCancel}>
+          <button
+            className="dialog-btn dialog-btn-secondary"
+            onClick={onCancel}
+          >
             Cancel
           </button>
           <button

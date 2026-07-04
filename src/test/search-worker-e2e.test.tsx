@@ -20,7 +20,10 @@ let mockApiInstance: ReturnType<typeof createMockTauriApi>;
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: (cmd: string, args: unknown) =>
-    mockApiInstance.api.invoke(cmd, args as Record<string, unknown> | undefined),
+    mockApiInstance.api.invoke(
+      cmd,
+      args as Record<string, unknown> | undefined,
+    ),
   convertFileSrc: (path: string) => `data:image/jpeg;base64,FAKE_${path}`,
 }));
 vi.mock("@tauri-apps/api/event", () => ({
@@ -35,7 +38,9 @@ async function openFolderWithThreePhotos() {
   const user = userEvent.setup();
   mockApiInstance.pickFolderResolves("/photos");
   render(<App />);
-  await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 50));
+  });
   await user.click(screen.getByTestId("open-folder-btn"));
 
   const photos = [
@@ -47,12 +52,19 @@ async function openFolderWithThreePhotos() {
     for (const p of photos) mockApiInstance.emitPhotoFound(p);
   });
   await act(async () => {
-    mockApiInstance.emitImageMetadataReady("alpha.jpg", { "IFD0:Make": "Canon" });
+    mockApiInstance.emitImageMetadataReady("alpha.jpg", {
+      "IFD0:Make": "Canon",
+    });
     mockApiInstance.emitImageMetadataReady("beta.jpg", { "IFD0:Make": "Sony" });
-    mockApiInstance.emitImageMetadataReady("gamma.jpg", { "IFD0:Make": "Nikon", "Hidden:Tag": "ultraspecific-tag-value" });
+    mockApiInstance.emitImageMetadataReady("gamma.jpg", {
+      "IFD0:Make": "Nikon",
+      "Hidden:Tag": "ultraspecific-tag-value",
+    });
   });
   // Let the photo_found and image_metadata_ready batches flush.
-  await act(async () => { await new Promise((r) => setTimeout(r, 300)); });
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 300));
+  });
 
   return { user, photos };
 }
@@ -87,7 +99,10 @@ describe("Off-thread list search (end-to-end)", () => {
       expect(screen.getAllByTestId("photo-row")).toHaveLength(3);
     });
 
-    await user.type(screen.getByTestId("list-search-input"), "ultraspecific-tag-value");
+    await user.type(
+      screen.getByTestId("list-search-input"),
+      "ultraspecific-tag-value",
+    );
     await waitFor(() => {
       const rows = screen.getAllByTestId("photo-row");
       expect(rows).toHaveLength(1);
@@ -101,7 +116,10 @@ describe("Off-thread list search (end-to-end)", () => {
       expect(screen.getAllByTestId("photo-row")).toHaveLength(3);
     });
 
-    await user.type(screen.getByTestId("list-search-input"), "definitely-no-such-thing");
+    await user.type(
+      screen.getByTestId("list-search-input"),
+      "definitely-no-such-thing",
+    );
     await waitFor(() => {
       expect(screen.getByTestId("photo-list-search-empty")).toBeInTheDocument();
     });
@@ -122,9 +140,13 @@ describe("Off-thread list search (end-to-end)", () => {
     // A new photo whose filename matches the active query streams in.
     await act(async () => {
       mockApiInstance.emitPhotoFound(makePhoto({ relative_path: "delta.jpg" }));
-      mockApiInstance.emitImageMetadataReady("delta.jpg", { "IFD0:Make": "Fuji" });
+      mockApiInstance.emitImageMetadataReady("delta.jpg", {
+        "IFD0:Make": "Fuji",
+      });
     });
-    await act(async () => { await new Promise((r) => setTimeout(r, 300)); });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 300));
+    });
 
     await waitFor(() => {
       const rows = screen.getAllByTestId("photo-row");
@@ -140,7 +162,10 @@ describe("Off-thread list search (end-to-end)", () => {
     });
 
     // Filter on a token only present in metadata that hasn't arrived yet.
-    await user.type(screen.getByTestId("list-search-input"), "uniquemetatoken-late-arrival");
+    await user.type(
+      screen.getByTestId("list-search-input"),
+      "uniquemetatoken-late-arrival",
+    );
     await waitFor(() => {
       expect(screen.queryAllByTestId("photo-row")).toHaveLength(0);
     });
@@ -152,7 +177,9 @@ describe("Off-thread list search (end-to-end)", () => {
         "Hidden:Tag": "uniquemetatoken-late-arrival",
       });
     });
-    await act(async () => { await new Promise((r) => setTimeout(r, 300)); });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 300));
+    });
 
     await waitFor(() => {
       const rows = screen.getAllByTestId("photo-row");

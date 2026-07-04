@@ -110,7 +110,14 @@ pub struct LocationOutcome {
 
 /// Run Group G (Location) normalisation for one image.
 pub fn normalise_location(input: &LocationInput) -> LocationOutcome {
-    let pairs: [(&str, &str, Option<&str>, Option<&str>, fn(&str) -> String); 5] = [
+    type LocationPair<'a> = (
+        &'a str,
+        &'a str,
+        Option<&'a str>,
+        Option<&'a str>,
+        fn(&str) -> String,
+    );
+    let pairs: [LocationPair<'_>; 5] = [
         (
             "XMP-iptcCore:Location",
             "IPTC:Sub-location",

@@ -8,7 +8,14 @@
  * - Empty metadata state display
  * - Utility function correctness (grouping, formatting)
  */
-import { render, screen, within, fireEvent, cleanup, waitFor } from "@testing-library/react";
+import {
+  render,
+  screen,
+  within,
+  fireEvent,
+  cleanup,
+  waitFor,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
@@ -111,7 +118,9 @@ describe("groupImageMetadata", () => {
 
     const exifGroup = groups.find((g) => g.prefix === "ExifIFD");
     expect(exifGroup).toBeDefined();
-    expect(exifGroup!.entries).toEqual([{ label: "ISO", value: "100", fullKey: "ExifIFD:ISO" }]);
+    expect(exifGroup!.entries).toEqual([
+      { label: "ISO", value: "100", fullKey: "ExifIFD:ISO" },
+    ]);
 
     const ifdGroup = groups.find((g) => g.prefix === "IFD0");
     expect(ifdGroup).toBeDefined();
@@ -123,7 +132,11 @@ describe("groupImageMetadata", () => {
     const xmpGroup = groups.find((g) => g.prefix === "XMP-dc");
     expect(xmpGroup).toBeDefined();
     expect(xmpGroup!.entries).toEqual([
-      { label: "Subject", value: "landscape, nature", fullKey: "XMP-dc:Subject" },
+      {
+        label: "Subject",
+        value: "landscape, nature",
+        fullKey: "XMP-dc:Subject",
+      },
     ]);
   });
 
@@ -179,7 +192,9 @@ describe("DetailsPane component", () => {
     expect(within(osSection).getByText("Filename")).toBeInTheDocument();
     expect(within(osSection).getByText("beach.jpg")).toBeInTheDocument();
     expect(within(osSection).getByText("Relative Path")).toBeInTheDocument();
-    expect(within(osSection).getByText("2024/vacation/beach.jpg")).toBeInTheDocument();
+    expect(
+      within(osSection).getByText("2024/vacation/beach.jpg"),
+    ).toBeInTheDocument();
   });
 
   it('shows a loading state when metadata is "loading"', () => {
@@ -187,7 +202,9 @@ describe("DetailsPane component", () => {
 
     const loadingSection = screen.getByTestId("details-section-loading");
     expect(loadingSection).toBeInTheDocument();
-    expect(within(loadingSection).getByText("Loading metadata…")).toBeInTheDocument();
+    expect(
+      within(loadingSection).getByText("Loading metadata…"),
+    ).toBeInTheDocument();
   });
 
   it("shows empty state when metadata has no keys", () => {
@@ -195,7 +212,9 @@ describe("DetailsPane component", () => {
 
     const emptySection = screen.getByTestId("details-section-empty");
     expect(emptySection).toBeInTheDocument();
-    expect(within(emptySection).getByText("No image metadata available")).toBeInTheDocument();
+    expect(
+      within(emptySection).getByText("No image metadata available"),
+    ).toBeInTheDocument();
   });
 
   it("renders grouped image metadata sections", () => {
@@ -225,7 +244,9 @@ describe("DetailsPane component", () => {
     const xmpSection = screen.getByTestId("details-section-XMP-dc");
     expect(xmpSection).toBeInTheDocument();
     expect(within(xmpSection).getByText("Subject")).toBeInTheDocument();
-    expect(within(xmpSection).getByText("landscape, nature")).toBeInTheDocument();
+    expect(
+      within(xmpSection).getByText("landscape, nature"),
+    ).toBeInTheDocument();
   });
 
   it("has the Properties title", () => {
@@ -250,18 +271,16 @@ describe("DetailsPane component", () => {
 
     // Both action buttons live in the sticky footer.
     expect(within(footer).getByText("+ Add Property…")).toBeInTheDocument();
-    expect(within(footer).getByTestId("details-pane-generate-ai-btn")).toBeInTheDocument();
+    expect(
+      within(footer).getByTestId("details-pane-generate-ai-btn"),
+    ).toBeInTheDocument();
   });
 
   it("renders a Show in File Explorer button when the callback is wired, and fires it on click", async () => {
     const onShow = vi.fn();
     const user = userEvent.setup();
     render(
-      <DetailsPane
-        photo={photo}
-        metadata={{}}
-        onShowInFileExplorer={onShow}
-      />,
+      <DetailsPane photo={photo} metadata={{}} onShowInFileExplorer={onShow} />,
     );
     const btn = screen.getByTestId("details-pane-show-in-explorer-btn");
     expect(btn).toBeInTheDocument();
@@ -271,7 +290,9 @@ describe("DetailsPane component", () => {
 
   it("omits the Show in File Explorer button when no callback is wired", () => {
     render(<DetailsPane photo={photo} metadata={{}} />);
-    expect(screen.queryByTestId("details-pane-show-in-explorer-btn")).toBeNull();
+    expect(
+      screen.queryByTestId("details-pane-show-in-explorer-btn"),
+    ).toBeNull();
   });
 });
 
@@ -282,8 +303,15 @@ describe("DetailsPane: Generate-AI button", () => {
   // awaiting-confirm panel rather than in a pre-dialog `ask()`. The
   // button's only job is to invoke the callback — the dialog (driven by
   // App-level overwriteInfo) takes it from there.
-  const photo = makePhoto({ relative_path: "p.jpg", filename: "p.jpg", date_modified: 0, date_created: 0 });
-  beforeEach(() => { cleanup(); });
+  const photo = makePhoto({
+    relative_path: "p.jpg",
+    filename: "p.jpg",
+    date_modified: 0,
+    date_created: 0,
+  });
+  beforeEach(() => {
+    cleanup();
+  });
 
   it("invokes onGenerateAiDescription directly (no pre-dialog ask)", async () => {
     const ask = vi.fn();
@@ -385,7 +413,10 @@ describe("DetailsPane: Add-Property two-step flow", () => {
     await user.click(screen.getByTestId("bag-editor-save"));
 
     expect(onSetDraftTyped).toHaveBeenCalledTimes(1);
-    const [keyArg, editArg] = onSetDraftTyped.mock.calls[0] as [string, DraftEdit];
+    const [keyArg, editArg] = onSetDraftTyped.mock.calls[0] as [
+      string,
+      DraftEdit,
+    ];
     expect(keyArg).toBe("XMP-dc:Subject");
     expect(editArg.intent).toBe("Set");
     expect(editArg.value).toEqual(["landscape"]);
@@ -477,9 +508,9 @@ describe("DetailsPane: read-only row context menu", () => {
   });
 
   function openRowContextMenu() {
-    const row = screen.getAllByTestId("details-row").find((r) =>
-      within(r).queryByText("Make") !== null,
-    );
+    const row = screen
+      .getAllByTestId("details-row")
+      .find((r) => within(r).queryByText("Make") !== null);
     expect(row).toBeDefined();
     fireEvent.contextMenu(row!);
   }
@@ -595,9 +626,9 @@ describe("DetailsPane: Edit reopens with pending draft as the seed", () => {
   });
 
   function openRowEdit(rowLabel: string) {
-    const row = screen.getAllByTestId("details-row").find((r) =>
-      within(r).queryByText(rowLabel) !== null,
-    );
+    const row = screen
+      .getAllByTestId("details-row")
+      .find((r) => within(r).queryByText(rowLabel) !== null);
     expect(row).toBeDefined();
     fireEvent.contextMenu(row!);
     fireEvent.click(screen.getByRole("button", { name: "Edit…" }));
@@ -640,7 +671,9 @@ describe("DetailsPane: Edit reopens with pending draft as the seed", () => {
 
     // Editor must open in dropdown mode (not Custom) and have the draft
     // selection (8) pre-selected — not the on-disk value (1).
-    const select = await screen.findByTestId("enum-editor-select") as HTMLSelectElement;
+    const select = (await screen.findByTestId(
+      "enum-editor-select",
+    )) as HTMLSelectElement;
     expect(select.value).toBe("8");
   });
 
@@ -670,7 +703,9 @@ describe("DetailsPane: Edit reopens with pending draft as the seed", () => {
     openRowEdit("Rating");
 
     // The visible numeric input must be seeded with the draft "4", not "2".
-    const input = await screen.findByTestId("numeric-editor-input") as HTMLInputElement;
+    const input = (await screen.findByTestId(
+      "numeric-editor-input",
+    )) as HTMLInputElement;
     expect(input.value).toBe("4");
   });
 });

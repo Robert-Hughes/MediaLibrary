@@ -26,7 +26,9 @@ describe("EnumEditor", () => {
         onCancel={() => {}}
       />,
     );
-    const select = screen.getByTestId("enum-editor-select") as HTMLSelectElement;
+    const select = screen.getByTestId(
+      "enum-editor-select",
+    ) as HTMLSelectElement;
     expect(select.value).toBe("6");
     // 4 options + Custom…
     expect(select.querySelectorAll("option")).toHaveLength(5);
@@ -44,7 +46,9 @@ describe("EnumEditor", () => {
         onCancel={() => {}}
       />,
     );
-    const select = screen.getByTestId("enum-editor-select") as HTMLSelectElement;
+    const select = screen.getByTestId(
+      "enum-editor-select",
+    ) as HTMLSelectElement;
     fireEvent.change(select, { target: { value: "3" } });
     fireEvent.click(screen.getByTestId("enum-editor-save"));
     expect(onSave).toHaveBeenCalledOnce();
@@ -67,7 +71,9 @@ describe("EnumEditor", () => {
         onCancel={() => {}}
       />,
     );
-    const customInput = screen.getByTestId("enum-editor-custom") as HTMLInputElement;
+    const customInput = screen.getByTestId(
+      "enum-editor-custom",
+    ) as HTMLInputElement;
     await user.clear(customInput);
     await user.type(customInput, "11");
     fireEvent.click(screen.getByTestId("enum-editor-save"));
@@ -80,13 +86,18 @@ describe("EnumEditor", () => {
       <EnumEditor
         propertyKey="X"
         repr="String"
-        options={[{ code: "yes", label: "Yes" }, { code: "no", label: "No" }]}
+        options={[
+          { code: "yes", label: "Yes" },
+          { code: "no", label: "No" },
+        ]}
         initialCode="yes"
         onSave={onSave}
         onCancel={() => {}}
       />,
     );
-    const select = screen.getByTestId("enum-editor-select") as HTMLSelectElement;
+    const select = screen.getByTestId(
+      "enum-editor-select",
+    ) as HTMLSelectElement;
     fireEvent.change(select, { target: { value: "no" } });
     fireEvent.click(screen.getByTestId("enum-editor-save"));
     expect(onSave.mock.calls[0][0].display).toBe("No");
@@ -98,13 +109,18 @@ describe("EnumEditor", () => {
       <EnumEditor
         propertyKey="X"
         repr="String"
-        options={[{ code: "yes", label: "Yes" }, { code: "no", label: "No" }]}
+        options={[
+          { code: "yes", label: "Yes" },
+          { code: "no", label: "No" },
+        ]}
         initialCode="yes"
         onSave={onSave}
         onCancel={() => {}}
       />,
     );
-    const select = screen.getByTestId("enum-editor-select") as HTMLSelectElement;
+    const select = screen.getByTestId(
+      "enum-editor-select",
+    ) as HTMLSelectElement;
     fireEvent.change(select, { target: { value: "no" } });
     fireEvent.click(screen.getByTestId("enum-editor-save"));
     expect(onSave.mock.calls[0][0].value).toBe("no");
@@ -121,7 +137,9 @@ describe("EnumEditor", () => {
         onCancel={() => {}}
       />,
     );
-    const select = screen.getByTestId("enum-editor-select") as HTMLSelectElement;
+    const select = screen.getByTestId(
+      "enum-editor-select",
+    ) as HTMLSelectElement;
     fireEvent.change(select, { target: { value: "__custom__" } });
     expect(screen.queryByTestId("enum-editor-select")).toBeNull();
     expect(screen.getByTestId("enum-editor-custom")).toBeInTheDocument();
@@ -140,7 +158,9 @@ describe("EnumEditor", () => {
         onCancel={() => {}}
       />,
     );
-    const customInput = screen.getByTestId("enum-editor-custom") as HTMLInputElement;
+    const customInput = screen.getByTestId(
+      "enum-editor-custom",
+    ) as HTMLInputElement;
     expect(customInput.value).toBe("9");
     await user.clear(customInput);
     await user.type(customInput, "11");
@@ -155,13 +175,17 @@ describe("initialCodeFrom", () => {
   });
 
   it("falls back to label→code lookup", () => {
-    expect(initialCodeFrom(undefined, "Rotate 90 CW", orientationOptions)).toBe("6");
+    expect(initialCodeFrom(undefined, "Rotate 90 CW", orientationOptions)).toBe(
+      "6",
+    );
   });
 
   it("resolves a raw value that is actually a display label to its code", () => {
     // exiftool without -n returns the pretty label as the variant.  Must
     // still land us on the enum dropdown, not Custom mode.
-    expect(initialCodeFrom("Rotate 90 CW", undefined, orientationOptions)).toBe("6");
+    expect(initialCodeFrom("Rotate 90 CW", undefined, orientationOptions)).toBe(
+      "6",
+    );
   });
 
   it("resolves a numeric raw code string to its option code", () => {
@@ -169,7 +193,9 @@ describe("initialCodeFrom", () => {
   });
 
   it("returns the display value when no schema match", () => {
-    expect(initialCodeFrom(undefined, "Custom-thing", orientationOptions)).toBe("Custom-thing");
+    expect(initialCodeFrom(undefined, "Custom-thing", orientationOptions)).toBe(
+      "Custom-thing",
+    );
   });
 
   it("returns first option code as last resort", () => {

@@ -94,13 +94,12 @@ pub async fn estimate_describe_cost_cmd(
     );
 
     let mut total_input_tokens: u64 = 0;
-    let mut current = 0usize;
-    for rel in &rel_paths {
+    for (index, rel) in rel_paths.iter().enumerate() {
         if cancel_flag.load(Ordering::Relaxed) {
             describe_state.clear();
             return Err("Cancelled by user".into());
         }
-        current += 1;
+        let current = index + 1;
         let abs = resolve_rel(&folder_path, rel);
         let bytes = openai_describe::load_and_downscale_image(&abs).map_err(|e| {
             let _ = app.emit(

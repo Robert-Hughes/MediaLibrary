@@ -6,13 +6,21 @@ import type { PhotoInfo, VisibleColumn } from "../types";
 
 const photos: PhotoInfo[] = [
   // distinct timestamps so the rendered cells differ
-  { relative_path: "a.jpg", filename: "a.jpg", date_modified: 1700000000, date_created: 1500000000 },
+  {
+    relative_path: "a.jpg",
+    filename: "a.jpg",
+    date_modified: 1700000000,
+    date_created: 1500000000,
+  },
 ];
 
 function makeStores() {
   const thumbnails = new ThumbnailStore();
   const imageMetadata = new ImageMetadataStore();
-  photos.forEach((p) => { thumbnails.add(p.relative_path); imageMetadata.add(p.relative_path); });
+  photos.forEach((p) => {
+    thumbnails.add(p.relative_path);
+    imageMetadata.add(p.relative_path);
+  });
   return { thumbnails, imageMetadata };
 }
 
@@ -31,7 +39,7 @@ function renderWith(visibleColumns: VisibleColumn[]) {
       onShowInExplorer={() => {}}
       onVisibilityChange={() => {}}
       onPhotoOpen={() => {}}
-    />
+    />,
   );
 }
 
@@ -43,7 +51,10 @@ describe("OS metadata column swap regression", () => {
     ]);
     const modifiedCell = screen.getByTestId("photo-date-modified");
     const createdCell = screen.getByTestId("photo-date-created");
-    expect(modifiedCell.compareDocumentPosition(createdCell) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(
+      modifiedCell.compareDocumentPosition(createdCell) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 
   it("renders cells in the same order as headers when created comes first (regression)", () => {
@@ -55,6 +66,9 @@ describe("OS metadata column swap regression", () => {
     ]);
     const modifiedCell = screen.getByTestId("photo-date-modified");
     const createdCell = screen.getByTestId("photo-date-created");
-    expect(createdCell.compareDocumentPosition(modifiedCell) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(
+      createdCell.compareDocumentPosition(modifiedCell) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 });

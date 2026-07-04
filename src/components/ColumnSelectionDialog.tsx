@@ -32,7 +32,8 @@ function mergeSelection(
   const keptKeys = new Set(kept.map((c) => c.key));
   const additions: VisibleColumn[] = [];
   for (const key of OS_COLUMN_KEYS) {
-    if (selectedOS.has(key) && !keptKeys.has(key)) additions.push({ key, kind: "os" });
+    if (selectedOS.has(key) && !keptKeys.has(key))
+      additions.push({ key, kind: "os" });
   }
   for (const key of selectedImage) {
     if (!keptKeys.has(key)) additions.push({ key, kind: "image" });
@@ -40,9 +41,18 @@ function mergeSelection(
   return [...kept, ...additions];
 }
 
-export function ColumnSelectionDialog({ allKeys, visibleColumns, onSave, onClose }: Props) {
-  const initialOS = new Set(visibleColumns.filter((c) => c.kind === "os").map((c) => c.key));
-  const initialImage = new Set(visibleColumns.filter((c) => c.kind === "image").map((c) => c.key));
+export function ColumnSelectionDialog({
+  allKeys,
+  visibleColumns,
+  onSave,
+  onClose,
+}: Props) {
+  const initialOS = new Set(
+    visibleColumns.filter((c) => c.kind === "os").map((c) => c.key),
+  );
+  const initialImage = new Set(
+    visibleColumns.filter((c) => c.kind === "image").map((c) => c.key),
+  );
   const [selectedOS, setSelectedOS] = useState<Set<string>>(initialOS);
   const [selected, setSelected] = useState<Set<string>>(initialImage);
   // Order basis for the saved array: usually mirrors the prop, but the
@@ -92,8 +102,20 @@ export function ColumnSelectionDialog({ allKeys, visibleColumns, onSave, onClose
   };
 
   const resetToDefaults = () => {
-    setSelected(new Set(DEFAULT_VISIBLE_COLUMNS.filter((c) => c.kind === "image").map((c) => c.key)));
-    setSelectedOS(new Set(DEFAULT_VISIBLE_COLUMNS.filter((c) => c.kind === "os").map((c) => c.key)));
+    setSelected(
+      new Set(
+        DEFAULT_VISIBLE_COLUMNS.filter((c) => c.kind === "image").map(
+          (c) => c.key,
+        ),
+      ),
+    );
+    setSelectedOS(
+      new Set(
+        DEFAULT_VISIBLE_COLUMNS.filter((c) => c.kind === "os").map(
+          (c) => c.key,
+        ),
+      ),
+    );
     setOrderBasis(DEFAULT_VISIBLE_COLUMNS);
     setResetWidths(true);
   };
@@ -106,25 +128,48 @@ export function ColumnSelectionDialog({ allKeys, visibleColumns, onSave, onClose
     key.toLowerCase().includes(lowerSearch),
   );
 
-  const filteredOSColumns = OS_OPTIONS.filter(({ key, label }) =>
-    key.toLowerCase().includes(lowerSearch) || label.toLowerCase().includes(lowerSearch),
+  const filteredOSColumns = OS_OPTIONS.filter(
+    ({ key, label }) =>
+      key.toLowerCase().includes(lowerSearch) ||
+      label.toLowerCase().includes(lowerSearch),
   );
 
   return (
-    <div className="dialog-overlay" onClick={onClose} data-testid="column-dialog-overlay">
-      <div className="dialog-content column-dialog" onClick={(e) => e.stopPropagation()} data-testid="column-dialog">
+    <div
+      className="dialog-overlay"
+      onClick={onClose}
+      data-testid="column-dialog-overlay"
+    >
+      <div
+        className="dialog-content column-dialog"
+        onClick={(e) => e.stopPropagation()}
+        data-testid="column-dialog"
+      >
         <div className="dialog-header">
           <h2 className="dialog-title">Select Columns</h2>
-          <button className="dialog-close-btn" onClick={onClose}>&times;</button>
+          <button className="dialog-close-btn" onClick={onClose}>
+            &times;
+          </button>
         </div>
 
         <div className="dialog-body column-list-area">
-          <p className="dialog-hint">Choose which columns to display in the photo list.</p>
+          <p className="dialog-hint">
+            Choose which columns to display in the photo list.
+          </p>
 
           <div className="column-actions">
-            <button className="btn-secondary btn-small" onClick={selectAll}>Select All</button>
-            <button className="btn-secondary btn-small" onClick={deselectAll}>Deselect All</button>
-            <button className="btn-secondary btn-small" onClick={resetToDefaults}>Default</button>
+            <button className="btn-secondary btn-small" onClick={selectAll}>
+              Select All
+            </button>
+            <button className="btn-secondary btn-small" onClick={deselectAll}>
+              Deselect All
+            </button>
+            <button
+              className="btn-secondary btn-small"
+              onClick={resetToDefaults}
+            >
+              Default
+            </button>
           </div>
 
           <div className="column-search">
@@ -171,18 +216,29 @@ export function ColumnSelectionDialog({ allKeys, visibleColumns, onSave, onClose
                   <span className="column-count">({count} files)</span>
                 </label>
               ))}
-              {filteredKeys.length === 0 && filteredOSColumns.length === 0 && searchTerm && (
-                <div className="no-results">No columns match your search.</div>
-              )}
+              {filteredKeys.length === 0 &&
+                filteredOSColumns.length === 0 &&
+                searchTerm && (
+                  <div className="no-results">
+                    No columns match your search.
+                  </div>
+                )}
             </div>
           </div>
         </div>
 
         <div className="dialog-footer">
-          <button className="btn-secondary" onClick={onClose}>Cancel</button>
+          <button className="btn-secondary" onClick={onClose}>
+            Cancel
+          </button>
           <button
             className="btn-primary"
-            onClick={() => onSave(mergeSelection(orderBasis, selectedOS, selected), resetWidths)}
+            onClick={() =>
+              onSave(
+                mergeSelection(orderBasis, selectedOS, selected),
+                resetWidths,
+              )
+            }
           >
             Save Changes
           </button>

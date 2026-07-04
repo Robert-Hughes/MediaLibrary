@@ -139,6 +139,7 @@ our app dir.
 ### Tag schema overrides
 
 Add `XMP-mlib:*` entries to `tag_schema.rs` overrides table so:
+
 - `AITags`, `AIObjects`, `AIOcrText` → `Bag(Text)`
 - `AIDescription`, `AIInterpretation`, `AIModel`, `AIPromptVersion` → `Text`
 - `AIGeneratedAt` → `DateTime`
@@ -203,16 +204,16 @@ as `failed_api` with a clear reason; user can rerun.
 
 ### Failure modes & handling
 
-| Mode | Detection | Behaviour |
-|---|---|---|
-| Image decode fails | `image` crate error pre-call | Skip image, mark failed, continue batch |
-| `/responses/input_tokens` errors | non-2xx during preflight | Abort whole run (hard fail, no fallback) |
-| 429 / 5xx during describe | reqwest-retry layer | Auto-retry (≤3) w/ exp-backoff; emit `describe_retry` |
-| Retries exhausted | error returned to handler | Mark image failed, continue batch |
-| Content-moderation refusal | `response.error` or refusal field | Mark failed with refusal text, continue batch |
-| `status=="incomplete"` | response field | Mark failed (do not auto-retry); surface raw text in error |
-| Unparseable JSON (after `strict`) | `serde_json::from_str` err | Mark failed; surface raw text |
-| User cancel | flag check between images | Stop loop; preserve drafts written so far |
+| Mode                              | Detection                         | Behaviour                                                  |
+| --------------------------------- | --------------------------------- | ---------------------------------------------------------- |
+| Image decode fails                | `image` crate error pre-call      | Skip image, mark failed, continue batch                    |
+| `/responses/input_tokens` errors  | non-2xx during preflight          | Abort whole run (hard fail, no fallback)                   |
+| 429 / 5xx during describe         | reqwest-retry layer               | Auto-retry (≤3) w/ exp-backoff; emit `describe_retry`      |
+| Retries exhausted                 | error returned to handler         | Mark image failed, continue batch                          |
+| Content-moderation refusal        | `response.error` or refusal field | Mark failed with refusal text, continue batch              |
+| `status=="incomplete"`            | response field                    | Mark failed (do not auto-retry); surface raw text in error |
+| Unparseable JSON (after `strict`) | `serde_json::from_str` err        | Mark failed; surface raw text                              |
+| User cancel                       | flag check between images         | Stop loop; preserve drafts written so far                  |
 
 All failures aggregated into `describe_complete.failed`, shown in the
 result phase of the dialog.

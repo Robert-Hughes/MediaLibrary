@@ -7,13 +7,18 @@ describe("PhotoList", () => {
   it("renders without crashing", () => {
     const thumbnails = new ThumbnailStore();
     const metadata = new ImageMetadataStore();
-    
+
     const photos = [
-      { relative_path: "1.jpg", filename: "1.jpg", date_modified: null, date_created: null }
+      {
+        relative_path: "1.jpg",
+        filename: "1.jpg",
+        date_modified: null,
+        date_created: null,
+      },
     ];
 
     render(
-      <PhotoList 
+      <PhotoList
         photos={photos}
         thumbnails={thumbnails}
         imageMetadata={metadata}
@@ -31,7 +36,7 @@ describe("PhotoList", () => {
         onVisibilityChange={vi.fn()}
         onPhotoOpen={vi.fn()}
         onSelectColumns={vi.fn()}
-      />
+      />,
     );
   });
 });

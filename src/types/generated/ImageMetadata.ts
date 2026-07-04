@@ -6,16 +6,15 @@ import type { Variant } from "./Variant";
  *
  * Two views of the same file, captured in one scan cycle (see `read_image_metadata_batch`):
  *
- * - `metadata`     — exiftool's pretty values (e.g. `Orientation = "Rotate 90 CW"`,
- *                    `ExposureTime = "1/250"`, `GPSLatitude = "51 deg 30' 26.16\" N"`).
- *                    What the UI displays in the details pane and column cells.
+ * - `metadata` — exiftool's pretty values (e.g. `Orientation = "Rotate 90 CW"`,
+ *   `ExposureTime = "1/250"`, `GPSLatitude = "51 deg 30' 26.16\" N"`).
+ *   What the UI displays in the details pane and column cells.
  * - `raw_metadata` — exiftool with `-n` (no PrintConv) for the same tags
- *                    (`Orientation = 6`, `ExposureTime = 0.004`, `GPSLatitude = 51.50726667`).
- *                    Used by editors for unambiguous binding and by the
- *                    verifier for type-aware equality after write-back.
- *                    Empty until Phase 4/5 consumers wire it in; populated
- *                    by the scanner unconditionally so the data is there
- *                    when those consumers arrive.
+ *   (`Orientation = 6`, `ExposureTime = 0.004`, `GPSLatitude = 51.50726667`).
+ *   Used by editors for unambiguous binding and by the verifier for type-aware
+ *   equality after write-back. Empty until Phase 4/5 consumers wire it in;
+ *   populated by the scanner unconditionally so the data is there when those
+ *   consumers arrive.
  *
  * Both are populated atomically — no half-loaded state. See
  * METADATA_FORMATS_DESIGN.md §4 for the full rationale.

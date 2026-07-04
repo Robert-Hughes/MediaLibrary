@@ -22,7 +22,7 @@ describe("ColumnSelectionDialog OS Metadata", () => {
         )}
         onSave={() => {}}
         onClose={() => {}}
-      />
+      />,
     );
 
     expect(screen.getByText("OS Metadata")).toBeInTheDocument();
@@ -41,12 +41,18 @@ describe("ColumnSelectionDialog OS Metadata", () => {
         )}
         onSave={() => {}}
         onClose={() => {}}
-      />
+      />,
     );
 
     const checkboxes = screen.getAllByRole("checkbox") as HTMLInputElement[];
-    expect(checkboxes.find(c => c.nextSibling?.textContent === "Date Modified")?.checked).toBe(true);
-    expect(checkboxes.find(c => c.nextSibling?.textContent === "Date Created")?.checked).toBe(true);
+    expect(
+      checkboxes.find((c) => c.nextSibling?.textContent === "Date Modified")
+        ?.checked,
+    ).toBe(true);
+    expect(
+      checkboxes.find((c) => c.nextSibling?.textContent === "Date Created")
+        ?.checked,
+    ).toBe(true);
   });
 
   it("shows OS columns as unchecked when they are not visible", () => {
@@ -56,12 +62,18 @@ describe("ColumnSelectionDialog OS Metadata", () => {
         visibleColumns={[]}
         onSave={() => {}}
         onClose={() => {}}
-      />
+      />,
     );
 
     const checkboxes = screen.getAllByRole("checkbox") as HTMLInputElement[];
-    expect(checkboxes.find(c => c.nextSibling?.textContent === "Date Modified")?.checked).toBe(false);
-    expect(checkboxes.find(c => c.nextSibling?.textContent === "Date Created")?.checked).toBe(false);
+    expect(
+      checkboxes.find((c) => c.nextSibling?.textContent === "Date Modified")
+        ?.checked,
+    ).toBe(false);
+    expect(
+      checkboxes.find((c) => c.nextSibling?.textContent === "Date Created")
+        ?.checked,
+    ).toBe(false);
   });
 
   it("calls onSave with updated OS column selection", async () => {
@@ -75,7 +87,7 @@ describe("ColumnSelectionDialog OS Metadata", () => {
         )}
         onSave={onSave}
         onClose={() => {}}
-      />
+      />,
     );
 
     await userEvent.click(screen.getByText("Date Created"));
@@ -83,7 +95,9 @@ describe("ColumnSelectionDialog OS Metadata", () => {
 
     const [saved] = onSave.mock.calls[0];
     const keys = (saved as VisibleColumn[]).map((c) => c.key);
-    expect(keys).toEqual(expect.arrayContaining(["date_modified", "date_created", "IFD0:Model"]));
+    expect(keys).toEqual(
+      expect.arrayContaining(["date_modified", "date_created", "IFD0:Model"]),
+    );
   });
 
   it("calls onSave with updated OS column deselection", async () => {
@@ -98,7 +112,7 @@ describe("ColumnSelectionDialog OS Metadata", () => {
         )}
         onSave={onSave}
         onClose={() => {}}
-      />
+      />,
     );
 
     await userEvent.click(screen.getByText("Date Modified"));

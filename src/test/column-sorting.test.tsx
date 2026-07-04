@@ -4,7 +4,11 @@ import { describe, it, expect, vi } from "vitest";
 import { PhotoList } from "../components/PhotoList";
 import { ThumbnailStore, ImageMetadataStore } from "../types";
 import type { PhotoInfo, SortConfig } from "../types";
-import { sortPhotos, nextSortConfig, shouldSuspendSorting } from "../utils/sorting";
+import {
+  sortPhotos,
+  nextSortConfig,
+  shouldSuspendSorting,
+} from "../utils/sorting";
 import { makePhoto } from "./factories";
 
 // ── shouldSuspendSorting ──────────────────────────────────────────────────────
@@ -68,7 +72,11 @@ describe("nextSortConfig", () => {
 
   it("clicking a new column sets it as primary asc with no secondary", () => {
     const result = nextSortConfig(noSort, "date_modified", "os");
-    expect(result.primary).toEqual({ column: "date_modified", columnType: "os", direction: "asc" });
+    expect(result.primary).toEqual({
+      column: "date_modified",
+      columnType: "os",
+      direction: "asc",
+    });
     expect(result.secondary).toBeNull();
   });
 
@@ -97,8 +105,16 @@ describe("nextSortConfig", () => {
       secondary: null,
     };
     const result = nextSortConfig(current, "relative_path", "path");
-    expect(result.primary).toEqual({ column: "relative_path", columnType: "path", direction: "asc" });
-    expect(result.secondary).toEqual({ column: "date_modified", columnType: "os", direction: "desc" });
+    expect(result.primary).toEqual({
+      column: "relative_path",
+      columnType: "path",
+      direction: "asc",
+    });
+    expect(result.secondary).toEqual({
+      column: "date_modified",
+      columnType: "os",
+      direction: "desc",
+    });
   });
 
   it("clicking a third column replaces secondary with old primary", () => {
@@ -122,7 +138,7 @@ describe("sortPhotos", () => {
     ];
     const noSort: SortConfig = { primary: null, secondary: null };
     const result = sortPhotos(photos, noSort, imageMetadata);
-    expect(result.map(p => p.relative_path)).toEqual(["b.jpg", "a.jpg"]);
+    expect(result.map((p) => p.relative_path)).toEqual(["b.jpg", "a.jpg"]);
   });
 
   it("sorts by path ascending", () => {
@@ -132,11 +148,19 @@ describe("sortPhotos", () => {
       makePhoto({ relative_path: "b.jpg" }),
     ];
     const sort: SortConfig = {
-      primary: { column: "relative_path", columnType: "path", direction: "asc" },
+      primary: {
+        column: "relative_path",
+        columnType: "path",
+        direction: "asc",
+      },
       secondary: null,
     };
     const result = sortPhotos(photos, sort, imageMetadata);
-    expect(result.map(p => p.relative_path)).toEqual(["a.jpg", "b.jpg", "c.jpg"]);
+    expect(result.map((p) => p.relative_path)).toEqual([
+      "a.jpg",
+      "b.jpg",
+      "c.jpg",
+    ]);
   });
 
   it("sorts by path descending", () => {
@@ -146,11 +170,19 @@ describe("sortPhotos", () => {
       makePhoto({ relative_path: "b.jpg" }),
     ];
     const sort: SortConfig = {
-      primary: { column: "relative_path", columnType: "path", direction: "desc" },
+      primary: {
+        column: "relative_path",
+        columnType: "path",
+        direction: "desc",
+      },
       secondary: null,
     };
     const result = sortPhotos(photos, sort, imageMetadata);
-    expect(result.map(p => p.relative_path)).toEqual(["c.jpg", "b.jpg", "a.jpg"]);
+    expect(result.map((p) => p.relative_path)).toEqual([
+      "c.jpg",
+      "b.jpg",
+      "a.jpg",
+    ]);
   });
 
   it("sorts by OS date_modified ascending, nulls last", () => {
@@ -164,13 +196,19 @@ describe("sortPhotos", () => {
       secondary: null,
     };
     const result = sortPhotos(photos, sort, imageMetadata);
-    expect(result.map(p => p.relative_path)).toEqual(["b.jpg", "a.jpg", "c.jpg"]);
+    expect(result.map((p) => p.relative_path)).toEqual([
+      "b.jpg",
+      "a.jpg",
+      "c.jpg",
+    ]);
   });
 
   it("sorts by image metadata value ascending, missing values last", () => {
     const store = new ImageMetadataStore();
-    store.add("b.jpg"); store.set("b.jpg", { "IFD0:Model": "Canon" });
-    store.add("a.jpg"); store.set("a.jpg", { "IFD0:Model": "Nikon" });
+    store.add("b.jpg");
+    store.set("b.jpg", { "IFD0:Model": "Canon" });
+    store.add("a.jpg");
+    store.set("a.jpg", { "IFD0:Model": "Nikon" });
     store.add("c.jpg"); // still loading → sorts to end
     const photos = [
       makePhoto({ relative_path: "b.jpg" }),
@@ -182,13 +220,25 @@ describe("sortPhotos", () => {
       secondary: null,
     };
     const result = sortPhotos(photos, sort, store);
-    expect(result.map(p => p.relative_path)).toEqual(["b.jpg", "a.jpg", "c.jpg"]);
+    expect(result.map((p) => p.relative_path)).toEqual([
+      "b.jpg",
+      "a.jpg",
+      "c.jpg",
+    ]);
   });
 
   it("uses secondary sort to break ties in primary sort", () => {
     const photos = [
-      makePhoto({ relative_path: "b.jpg", date_modified: 100, date_created: 2 }),
-      makePhoto({ relative_path: "a.jpg", date_modified: 100, date_created: 1 }),
+      makePhoto({
+        relative_path: "b.jpg",
+        date_modified: 100,
+        date_created: 2,
+      }),
+      makePhoto({
+        relative_path: "a.jpg",
+        date_modified: 100,
+        date_created: 1,
+      }),
       makePhoto({ relative_path: "c.jpg", date_modified: 50, date_created: 3 }),
     ];
     const sort: SortConfig = {
@@ -197,7 +247,11 @@ describe("sortPhotos", () => {
     };
     const result = sortPhotos(photos, sort, imageMetadata);
     // c first (date_modified=50), then a (date_modified=100, date_created=1), then b
-    expect(result.map(p => p.relative_path)).toEqual(["c.jpg", "a.jpg", "b.jpg"]);
+    expect(result.map((p) => p.relative_path)).toEqual([
+      "c.jpg",
+      "a.jpg",
+      "b.jpg",
+    ]);
   });
 
   it("does not mutate the original array", () => {
@@ -207,7 +261,11 @@ describe("sortPhotos", () => {
     ];
     const original = [...photos];
     const sort: SortConfig = {
-      primary: { column: "relative_path", columnType: "path", direction: "asc" },
+      primary: {
+        column: "relative_path",
+        columnType: "path",
+        direction: "asc",
+      },
       secondary: null,
     };
     sortPhotos(photos, sort, imageMetadata);
@@ -218,14 +276,27 @@ describe("sortPhotos", () => {
 // ── PhotoList sort indicator UI tests ─────────────────────────────────────────
 
 const mockPhotos: PhotoInfo[] = [
-  { relative_path: "b.jpg", filename: "b.jpg", date_modified: 200, date_created: 200 },
-  { relative_path: "a.jpg", filename: "a.jpg", date_modified: 100, date_created: 100 },
+  {
+    relative_path: "b.jpg",
+    filename: "b.jpg",
+    date_modified: 200,
+    date_created: 200,
+  },
+  {
+    relative_path: "a.jpg",
+    filename: "a.jpg",
+    date_modified: 100,
+    date_created: 100,
+  },
 ];
 
 function makeSortStores() {
   const thumbnails = new ThumbnailStore();
   const imageMetadata = new ImageMetadataStore();
-  mockPhotos.forEach(p => { thumbnails.add(p.relative_path); imageMetadata.add(p.relative_path); });
+  mockPhotos.forEach((p) => {
+    thumbnails.add(p.relative_path);
+    imageMetadata.add(p.relative_path);
+  });
   return { thumbnails, imageMetadata };
 }
 
@@ -245,7 +316,7 @@ describe("PhotoList sort indicator", () => {
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
         onPhotoOpen={() => {}}
-      />
+      />,
     );
     expect(document.querySelector(".sort-indicator")).toBeNull();
   });
@@ -258,14 +329,21 @@ describe("PhotoList sort indicator", () => {
         thumbnails={thumbnails}
         imageMetadata={imageMetadata}
         visibleColumns={[{ key: "date_modified", kind: "os" }]}
-        sortConfig={{ primary: { column: "date_modified", columnType: "os", direction: "asc" }, secondary: null }}
+        sortConfig={{
+          primary: {
+            column: "date_modified",
+            columnType: "os",
+            direction: "asc",
+          },
+          secondary: null,
+        }}
         onSortChange={() => {}}
         selectedIndex={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
         onPhotoOpen={() => {}}
-      />
+      />,
     );
     const indicator = document.querySelector(".sort-indicator--primary");
     expect(indicator).not.toBeNull();
@@ -280,16 +358,25 @@ describe("PhotoList sort indicator", () => {
         thumbnails={thumbnails}
         imageMetadata={imageMetadata}
         visibleColumns={[{ key: "date_modified", kind: "os" }]}
-        sortConfig={{ primary: { column: "date_modified", columnType: "os", direction: "desc" }, secondary: null }}
+        sortConfig={{
+          primary: {
+            column: "date_modified",
+            columnType: "os",
+            direction: "desc",
+          },
+          secondary: null,
+        }}
         onSortChange={() => {}}
         selectedIndex={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
         onPhotoOpen={() => {}}
-      />
+      />,
     );
-    expect(document.querySelector(".sort-indicator--primary")?.textContent).toContain("▼");
+    expect(
+      document.querySelector(".sort-indicator--primary")?.textContent,
+    ).toContain("▼");
   });
 
   it("calls onSortChange with ascending sort when a column header is clicked", async () => {
@@ -308,7 +395,7 @@ describe("PhotoList sort indicator", () => {
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
         onPhotoOpen={() => {}}
-      />
+      />,
     );
     await userEvent.click(screen.getByText("Modified"));
     expect(onSortChange).toHaveBeenCalledWith({
@@ -326,14 +413,21 @@ describe("PhotoList sort indicator", () => {
         thumbnails={thumbnails}
         imageMetadata={imageMetadata}
         visibleColumns={[{ key: "date_modified", kind: "os" }]}
-        sortConfig={{ primary: { column: "date_modified", columnType: "os", direction: "asc" }, secondary: null }}
+        sortConfig={{
+          primary: {
+            column: "date_modified",
+            columnType: "os",
+            direction: "asc",
+          },
+          secondary: null,
+        }}
         onSortChange={onSortChange}
         selectedIndex={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
         onPhotoOpen={() => {}}
-      />
+      />,
     );
     await userEvent.click(screen.getByText("Modified"));
     expect(onSortChange).toHaveBeenCalledWith({
@@ -354,8 +448,16 @@ describe("PhotoList sort indicator", () => {
           { key: "date_created", kind: "os" },
         ]}
         sortConfig={{
-          primary: { column: "date_modified", columnType: "os", direction: "asc" },
-          secondary: { column: "date_created", columnType: "os", direction: "desc" },
+          primary: {
+            column: "date_modified",
+            columnType: "os",
+            direction: "asc",
+          },
+          secondary: {
+            column: "date_created",
+            columnType: "os",
+            direction: "desc",
+          },
         }}
         onSortChange={() => {}}
         selectedIndex={null}
@@ -363,10 +465,14 @@ describe("PhotoList sort indicator", () => {
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
         onPhotoOpen={() => {}}
-      />
+      />,
     );
-    expect(document.querySelector(".sort-indicator--primary")?.textContent).toContain("▲");
-    expect(document.querySelector(".sort-indicator--secondary")?.textContent).toContain("▼");
+    expect(
+      document.querySelector(".sort-indicator--primary")?.textContent,
+    ).toContain("▲");
+    expect(
+      document.querySelector(".sort-indicator--secondary")?.textContent,
+    ).toContain("▼");
   });
 });
 
@@ -392,7 +498,7 @@ describe("PhotoList sortingDisabled", () => {
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
         onPhotoOpen={() => {}}
-      />
+      />,
     );
     expect(document.querySelector(".sort-indicator--primary")).toBeNull();
     expect(document.querySelector(".sort-indicator--secondary")).toBeNull();
@@ -417,7 +523,9 @@ describe("PhotoList sortingDisabled", () => {
     expect(document.querySelector(".sort-indicator--primary")).toBeNull();
 
     rerender(<PhotoList {...props} sortingDisabled={false} />);
-    expect(document.querySelector(".sort-indicator--primary")?.textContent).toContain("▲");
+    expect(
+      document.querySelector(".sort-indicator--primary")?.textContent,
+    ).toContain("▲");
   });
 
   it("still honours header clicks while sortingDisabled (so users can change the sort)", async () => {
@@ -448,12 +556,16 @@ describe("PhotoList sortingDisabled", () => {
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
         onPhotoOpen={() => {}}
-      />
+      />,
     );
     await userEvent.click(screen.getByText("Modified"));
     expect(onSortChange).toHaveBeenCalledWith({
       primary: { column: "date_modified", columnType: "os", direction: "asc" },
-      secondary: { column: "IFD0:Model", columnType: "image", direction: "asc" },
+      secondary: {
+        column: "IFD0:Model",
+        columnType: "image",
+        direction: "asc",
+      },
     });
   });
 });

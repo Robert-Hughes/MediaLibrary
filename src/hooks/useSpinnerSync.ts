@@ -18,7 +18,10 @@ import { useState } from "react";
  */
 export function useSpinnerSync(): React.CSSProperties {
   const [animationDelay] = useState<string>(() => {
-    const t = typeof document !== "undefined" ? Number(document.timeline?.currentTime ?? 0) : 0;
+    const t =
+      typeof document !== "undefined"
+        ? Number(document.timeline?.currentTime ?? 0)
+        : 0;
     return `${-t}ms`;
   });
   return { animationDelay };

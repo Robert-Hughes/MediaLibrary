@@ -14,7 +14,7 @@ user edit involved. The most visible example is `ExifIFD:ComponentsConfiguration
 ```
 
 Same thing for XMP-dc:Title:
-LA Title	Big waggle! {} x-default: Big waggle!
+LA Title Big waggle! {} x-default: Big waggle!
 
 Schema says **Bag** (`[B]`); runtime variant is a **String** (`(S)`).
 
@@ -67,15 +67,15 @@ From a full `exiftool -listx -lang en` dump:
 Selected writable examples that exhibit the same schema-vs-value badge
 disagreement:
 
-| Tag                                  | listx type   | count | Reality from `exiftool -j`                  |
-| ------------------------------------ | ------------ | ----- | ------------------------------------------- |
-| `ExifIFD:ComponentsConfiguration`    | undef        | 4     | one PrintConv string `"Y, Cb, Cr, -"`       |
-| `ExifIFD:LensSerialNumber`           | undef        | 5     | one string                                  |
-| `Composite:VideoCodec`               | undef        | 4     | one string                                  |
-| `IPTC:RasterizedCaption`             | undef        | 7360  | one base64-ish string                       |
-| `IPTC:ObjectPreviewData`             | undef        | 256000| one base64-ish string                       |
-| `GPS:GPSVersionID`                   | int8u        | 4     | `"2.3.0.0"` (single dotted-quad string)     |
-| `GPS:GPSLatitude` / `GPSLongitude`*  | rational     | 3     | one decimal/DMS string after PrintConv       |
+| Tag                                 | listx type | count  | Reality from `exiftool -j`              |
+| ----------------------------------- | ---------- | ------ | --------------------------------------- |
+| `ExifIFD:ComponentsConfiguration`   | undef      | 4      | one PrintConv string `"Y, Cb, Cr, -"`   |
+| `ExifIFD:LensSerialNumber`          | undef      | 5      | one string                              |
+| `Composite:VideoCodec`              | undef      | 4      | one string                              |
+| `IPTC:RasterizedCaption`            | undef      | 7360   | one base64-ish string                   |
+| `IPTC:ObjectPreviewData`            | undef      | 256000 | one base64-ish string                   |
+| `GPS:GPSVersionID`                  | int8u      | 4      | `"2.3.0.0"` (single dotted-quad string) |
+| `GPS:GPSLatitude` / `GPSLongitude`* | rational   | 3      | one decimal/DMS string after PrintConv  |
 
 (*) GPS coordinates are an extra wrinkle: the `Composite:GPS*` aliases are
 typed `Real` and come back as plain numbers, but the underlying

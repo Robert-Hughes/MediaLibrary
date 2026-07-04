@@ -11,12 +11,21 @@ const defaultSortProps = {
 };
 
 describe("PhotoList prioritization optimization", () => {
-  const mockPhotos: PhotoInfo[] = makePhotos(["photo1.jpg", "photo2.jpg", "photo3.jpg"])
-    .map((p) => ({ ...p, date_modified: 1640995200, date_created: 1640995200 }));
+  const mockPhotos: PhotoInfo[] = makePhotos([
+    "photo1.jpg",
+    "photo2.jpg",
+    "photo3.jpg",
+  ]).map((p) => ({
+    ...p,
+    date_modified: 1640995200,
+    date_created: 1640995200,
+  }));
 
   let thumbnailStore: ThumbnailStore;
   let metadataStore: ImageMetadataStore;
-  let onVisibilityChangeMock: ReturnType<typeof vi.fn<(paths: string[]) => void>>;
+  let onVisibilityChangeMock: ReturnType<
+    typeof vi.fn<(paths: string[]) => void>
+  >;
 
   beforeEach(() => {
     thumbnailStore = new ThumbnailStore();
@@ -24,7 +33,7 @@ describe("PhotoList prioritization optimization", () => {
     onVisibilityChangeMock = vi.fn<(paths: string[]) => void>();
 
     // Add all photos to stores (they start in "loading" state)
-    mockPhotos.forEach(photo => {
+    mockPhotos.forEach((photo) => {
       thumbnailStore.add(photo.relative_path);
       metadataStore.add(photo.relative_path);
     });
@@ -48,19 +57,21 @@ describe("PhotoList prioritization optimization", () => {
         onVisibilityChange={onVisibilityChangeMock}
         onPhotoOpen={() => {}}
         onSelectColumns={() => {}}
-      />
+      />,
     );
 
     // Should call onVisibilityChange with all photos since none are loaded
     expect(onVisibilityChangeMock).toHaveBeenCalledWith(
-      expect.arrayContaining(["photo1.jpg", "photo2.jpg", "photo3.jpg"])
+      expect.arrayContaining(["photo1.jpg", "photo2.jpg", "photo3.jpg"]),
     );
   });
 
   it("should not prioritize photos that are fully loaded", () => {
     // Mark first photo as fully loaded (both thumbnail and metadata)
     thumbnailStore.set("photo1.jpg", "base64thumbnaildata");
-    metadataStore.set("photo1.jpg", { "ExifIFD:DateTimeOriginal": "2022:01:01 12:00:00" });
+    metadataStore.set("photo1.jpg", {
+      "ExifIFD:DateTimeOriginal": "2022:01:01 12:00:00",
+    });
 
     render(
       <PhotoList
@@ -79,15 +90,15 @@ describe("PhotoList prioritization optimization", () => {
         onVisibilityChange={onVisibilityChangeMock}
         onPhotoOpen={() => {}}
         onSelectColumns={() => {}}
-      />
+      />,
     );
 
     // Should only call with photos 2 and 3, not photo 1 which is fully loaded
     expect(onVisibilityChangeMock).toHaveBeenCalledWith(
-      expect.arrayContaining(["photo2.jpg", "photo3.jpg"])
+      expect.arrayContaining(["photo2.jpg", "photo3.jpg"]),
     );
     expect(onVisibilityChangeMock).not.toHaveBeenCalledWith(
-      expect.arrayContaining(["photo1.jpg"])
+      expect.arrayContaining(["photo1.jpg"]),
     );
   });
 
@@ -113,12 +124,12 @@ describe("PhotoList prioritization optimization", () => {
         onVisibilityChange={onVisibilityChangeMock}
         onPhotoOpen={() => {}}
         onSelectColumns={() => {}}
-      />
+      />,
     );
 
     // Should call with all photos since photo1 still needs metadata
     expect(onVisibilityChangeMock).toHaveBeenCalledWith(
-      expect.arrayContaining(["photo1.jpg", "photo2.jpg", "photo3.jpg"])
+      expect.arrayContaining(["photo1.jpg", "photo2.jpg", "photo3.jpg"]),
     );
   });
 
@@ -144,7 +155,7 @@ describe("PhotoList prioritization optimization", () => {
         onVisibilityChange={onVisibilityChangeMock}
         onPhotoOpen={() => {}}
         onSelectColumns={() => {}}
-      />
+      />,
     );
 
     // The most recent call should contain photo1, photo2, photo3 in that order.
@@ -157,7 +168,9 @@ describe("PhotoList prioritization optimization", () => {
   it("preserves display order when some photos have already loaded", () => {
     // Loaded photos drop out, but the remaining ones stay in display order.
     thumbnailStore.set("photo2.jpg", "data");
-    metadataStore.set("photo2.jpg", { "ExifIFD:DateTimeOriginal": "2022:01:01 12:00:00" });
+    metadataStore.set("photo2.jpg", {
+      "ExifIFD:DateTimeOriginal": "2022:01:01 12:00:00",
+    });
 
     render(
       <PhotoList
@@ -176,7 +189,7 @@ describe("PhotoList prioritization optimization", () => {
         onVisibilityChange={onVisibilityChangeMock}
         onPhotoOpen={() => {}}
         onSelectColumns={() => {}}
-      />
+      />,
     );
 
     const calls = onVisibilityChangeMock.mock.calls;
@@ -186,7 +199,9 @@ describe("PhotoList prioritization optimization", () => {
 
   it("should prioritize photos with only metadata loaded but missing thumbnail", () => {
     // Mark first photo as having metadata but no thumbnail
-    metadataStore.set("photo1.jpg", { "ExifIFD:DateTimeOriginal": "2022:01:01 12:00:00" });
+    metadataStore.set("photo1.jpg", {
+      "ExifIFD:DateTimeOriginal": "2022:01:01 12:00:00",
+    });
     // thumbnail still in "loading" state
 
     render(
@@ -206,19 +221,21 @@ describe("PhotoList prioritization optimization", () => {
         onVisibilityChange={onVisibilityChangeMock}
         onPhotoOpen={() => {}}
         onSelectColumns={() => {}}
-      />
+      />,
     );
 
     // Should call with all photos since photo1 still needs thumbnail
     expect(onVisibilityChangeMock).toHaveBeenCalledWith(
-      expect.arrayContaining(["photo1.jpg", "photo2.jpg", "photo3.jpg"])
+      expect.arrayContaining(["photo1.jpg", "photo2.jpg", "photo3.jpg"]),
     );
   });
 
   it("should not prioritize failed thumbnails if metadata is loaded", () => {
     // Mark first photo as having failed thumbnail but loaded metadata
     thumbnailStore.set("photo1.jpg", "failed");
-    metadataStore.set("photo1.jpg", { "ExifIFD:DateTimeOriginal": "2022:01:01 12:00:00" });
+    metadataStore.set("photo1.jpg", {
+      "ExifIFD:DateTimeOriginal": "2022:01:01 12:00:00",
+    });
 
     render(
       <PhotoList
@@ -237,13 +254,13 @@ describe("PhotoList prioritization optimization", () => {
         onVisibilityChange={onVisibilityChangeMock}
         onPhotoOpen={() => {}}
         onSelectColumns={() => {}}
-      />
+      />,
     );
 
     // Should only call with photos 2 and 3, not photo 1 which has failed thumbnail
     // (we don't want to keep retrying failed thumbnails)
     expect(onVisibilityChangeMock).toHaveBeenCalledWith(
-      expect.arrayContaining(["photo2.jpg", "photo3.jpg"])
+      expect.arrayContaining(["photo2.jpg", "photo3.jpg"]),
     );
     // The call should not include photo1.jpg since it's not in loading state
     const calls = onVisibilityChangeMock.mock.calls;
@@ -253,10 +270,17 @@ describe("PhotoList prioritization optimization", () => {
 });
 
 describe("initial-kickstart prioritization fires once per scan", () => {
-  function makeProps(photos: PhotoInfo[], onVisibilityChange: (paths: string[]) => void, stores?: { thumbnails: ThumbnailStore; metadata: ImageMetadataStore }) {
+  function makeProps(
+    photos: PhotoInfo[],
+    onVisibilityChange: (paths: string[]) => void,
+    stores?: { thumbnails: ThumbnailStore; metadata: ImageMetadataStore },
+  ) {
     const thumbs = stores?.thumbnails ?? new ThumbnailStore();
     const metadata = stores?.metadata ?? new ImageMetadataStore();
-    photos.forEach((p) => { thumbs.add(p.relative_path); metadata.add(p.relative_path); });
+    photos.forEach((p) => {
+      thumbs.add(p.relative_path);
+      metadata.add(p.relative_path);
+    });
     return {
       thumbs,
       metadata,
@@ -290,7 +314,9 @@ describe("initial-kickstart prioritization fires once per scan", () => {
     // renders — if the latch fails, we'd see the kickstart call signature
     // appear again in the post-rerender calls.
     const onVis = vi.fn();
-    const photos50 = makePhotos(Array.from({ length: 50 }, (_, i) => `p${i}.jpg`));
+    const photos50 = makePhotos(
+      Array.from({ length: 50 }, (_, i) => `p${i}.jpg`),
+    );
     const { thumbs, metadata, element } = makeProps(photos50, onVis);
     const { rerender } = render(element);
 
@@ -299,26 +325,42 @@ describe("initial-kickstart prioritization fires once per scan", () => {
     // The kickstart call shape: exactly the first 30 paths in order.
     const kickstartCalls = onVis.mock.calls.filter(([arg]) => {
       const a = arg as string[];
-      return a.length === firstThirty.length && a.every((v, i) => v === firstThirty[i]);
+      return (
+        a.length === firstThirty.length &&
+        a.every((v, i) => v === firstThirty[i])
+      );
     });
     expect(kickstartCalls).toHaveLength(1);
 
     // Re-render with more photos using the SAME stores (= same scan).
-    const photos200 = makePhotos(Array.from({ length: 200 }, (_, i) => `p${i}.jpg`));
-    photos200.forEach((p) => { thumbs.add(p.relative_path); metadata.add(p.relative_path); });
-    const { element: nextEl } = makeProps(photos200, onVis, { thumbnails: thumbs, metadata });
+    const photos200 = makePhotos(
+      Array.from({ length: 200 }, (_, i) => `p${i}.jpg`),
+    );
+    photos200.forEach((p) => {
+      thumbs.add(p.relative_path);
+      metadata.add(p.relative_path);
+    });
+    const { element: nextEl } = makeProps(photos200, onVis, {
+      thumbnails: thumbs,
+      metadata,
+    });
     rerender(nextEl);
 
     const kickstartCallsAfter = onVis.mock.calls.filter(([arg]) => {
       const a = arg as string[];
-      return a.length === firstThirty.length && a.every((v, i) => v === firstThirty[i]);
+      return (
+        a.length === firstThirty.length &&
+        a.every((v, i) => v === firstThirty[i])
+      );
     });
     expect(kickstartCallsAfter).toHaveLength(1);
   });
 
   it("fires the kickstart again when stores are replaced (= new scan)", () => {
     const onVis = vi.fn();
-    const photos = makePhotos(Array.from({ length: 50 }, (_, i) => `p${i}.jpg`));
+    const photos = makePhotos(
+      Array.from({ length: 50 }, (_, i) => `p${i}.jpg`),
+    );
     const first = makeProps(photos, onVis);
     const { rerender } = render(first.element);
 

@@ -1,7 +1,18 @@
-import { useState, useEffect, useRef, useMemo, useSyncExternalStore, useCallback } from "react";
+import {
+  useState,
+  useEffect,
+  useRef,
+  useMemo,
+  useSyncExternalStore,
+  useCallback,
+} from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { useMediaLibrary, type TauriApi, type MediaLibraryActions } from "./useMediaLibrary";
+import {
+  useMediaLibrary,
+  type TauriApi,
+  type MediaLibraryActions,
+} from "./useMediaLibrary";
 import { ThumbnailStore, ImageMetadataStore } from "./types";
 import type { AppState } from "./types";
 import { WelcomeScreen } from "./components/WelcomeScreen";
@@ -45,12 +56,17 @@ const tauriApi: TauriApi = {
 };
 
 async function loadImage(path: string): Promise<string | null> {
-  try { return convertFileSrc(path); }
-  catch { return null; }
+  try {
+    return convertFileSrc(path);
+  } catch {
+    return null;
+  }
 }
 
 // Separated component so useMemo can depend on loaded state without conditional hooks.
-type LoadedState = Extract<AppState, { kind: "loaded" }> & { recentFolders: string[] };
+type LoadedState = Extract<AppState, { kind: "loaded" }> & {
+  recentFolders: string[];
+};
 
 function LoadedView({
   state,
@@ -85,19 +101,30 @@ function LoadedView({
     metadataProgress.getSnapshot().bind(metadataProgress),
   );
 
-  const sortingDisabled = shouldSuspendSorting(state.scanning, state.sortConfig, metadataRemaining);
+  const sortingDisabled = shouldSuspendSorting(
+    state.scanning,
+    state.sortConfig,
+    metadataRemaining,
+  );
 
   // We show photos in arrival order whenever sorting is suspended — both
   // during the directory walk and (for image-metadata sorts) while ExifTool
   // is still streaming results.  Without this gate, an active image-column
   // sort would re-run on every metadata batch (~50–125 full sorts per scan).
   const sortedPhotos = useMemo(
-    () => sortingDisabled
-      ? state.photos
-      : sortPhotos(state.photos, state.sortConfig, state.imageMetadata),
+    () =>
+      sortingDisabled
+        ? state.photos
+        : sortPhotos(state.photos, state.sortConfig, state.imageMetadata),
     // metadataVersion is the invalidation signal for image-metadata sorts
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state.photos, state.sortConfig, state.metadataVersion, state.imageMetadata, sortingDisabled],
+    [
+      state.photos,
+      state.sortConfig,
+      state.metadataVersion,
+      state.imageMetadata,
+      sortingDisabled,
+    ],
   );
 
   const [listSearchQuery, setListSearchQuery] = useState("");
@@ -116,8 +143,12 @@ function LoadedView({
     const handler = (e: KeyboardEvent) => {
       if (!(e.ctrlKey || e.metaKey)) return;
       if (e.key !== "f" && e.key !== "F") return;
-      const details = document.getElementById("details-search-input") as HTMLInputElement | null;
-      const list = document.getElementById("list-search-input") as HTMLInputElement | null;
+      const details = document.getElementById(
+        "details-search-input",
+      ) as HTMLInputElement | null;
+      const list = document.getElementById(
+        "list-search-input",
+      ) as HTMLInputElement | null;
       const target = details ?? list;
       if (!target) return;
       e.preventDefault();
@@ -158,7 +189,10 @@ function LoadedView({
     if (state.selectedIndex !== null && state.selectedIndex >= len) {
       actions.selectPhoto(null);
     }
-    if (state.galleryIndex !== null && (len === 0 || state.galleryIndex >= len)) {
+    if (
+      state.galleryIndex !== null &&
+      (len === 0 || state.galleryIndex >= len)
+    ) {
       actions.closeGallery();
     }
   }, [displayPhotos.length, state.selectedIndex, state.galleryIndex, actions]);
@@ -246,7 +280,10 @@ function LoadedView({
 
   return (
     <>
-      <ErrorBanner errors={state.workerErrors} onDismiss={actions.dismissError} />
+      <ErrorBanner
+        errors={state.workerErrors}
+        onDismiss={actions.dismissError}
+      />
       <MenuBar
         onOpenFolder={actions.openFolder}
         onCloseFolder={actions.closeFolder}
@@ -280,13 +317,21 @@ function LoadedView({
         onApplyEdits={(paths) => actions.applyDraftEdits(paths)}
         onGenerateAiDescription={(relPaths) => {
           setDescribeOverwrite(
-            countDescribeOverwrites(relPaths, state.imageMetadata, state.draftEdits),
+            countDescribeOverwrites(
+              relPaths,
+              state.imageMetadata,
+              state.draftEdits,
+            ),
           );
           describe.actions.start(state.folder, relPaths);
         }}
         onGeocode={(relPaths) => {
           setGeocodeOverwrite(
-            countGeocodeOverwrites(relPaths, state.imageMetadata, state.draftEdits),
+            countGeocodeOverwrites(
+              relPaths,
+              state.imageMetadata,
+              state.draftEdits,
+            ),
           );
           geocode.actions.start(state.folder, buildGeocodeItems(relPaths));
         }}
@@ -314,8 +359,12 @@ function LoadedView({
           onNavigate={onGalleryNavigate}
           loadImage={loadImage}
           imageMetadata={state.imageMetadata}
-          draftEdits={legacyDraftEdits[displayPhotos[state.galleryIndex].relative_path]}
-          typedDraftEdits={state.draftEdits[displayPhotos[state.galleryIndex].relative_path]}
+          draftEdits={
+            legacyDraftEdits[displayPhotos[state.galleryIndex].relative_path]
+          }
+          typedDraftEdits={
+            state.draftEdits[displayPhotos[state.galleryIndex].relative_path]
+          }
           onSetDraftTyped={actions.setDraftTyped}
           onSetDraftBatch={actions.setDraftBatch}
           onDiscardDraft={actions.discardDraftValue}
@@ -323,13 +372,21 @@ function LoadedView({
           onApplyEdits={(path) => actions.applyDraftEdits(path)}
           onGenerateAiDescription={(relPath) => {
             setDescribeOverwrite(
-              countDescribeOverwrites([relPath], state.imageMetadata, state.draftEdits),
+              countDescribeOverwrites(
+                [relPath],
+                state.imageMetadata,
+                state.draftEdits,
+              ),
             );
             describe.actions.start(state.folder, [relPath]);
           }}
           onGeocode={(relPath) => {
             setGeocodeOverwrite(
-              countGeocodeOverwrites([relPath], state.imageMetadata, state.draftEdits),
+              countGeocodeOverwrites(
+                [relPath],
+                state.imageMetadata,
+                state.draftEdits,
+              ),
             );
             geocode.actions.start(state.folder, buildGeocodeItems([relPath]));
           }}
@@ -344,14 +401,18 @@ function LoadedView({
             normalise.actions.start(state.folder, items, [...initialGroups]);
           }}
           onShowInFileExplorer={(relPath) => {
-            const idx = displayPhotos.findIndex((p) => p.relative_path === relPath);
+            const idx = displayPhotos.findIndex(
+              (p) => p.relative_path === relPath,
+            );
             if (idx >= 0) void onShowInExplorer(idx);
           }}
         />
       )}
       {showColumnDialog && (
         <ColumnSelectionDialog
-          allKeys={Array.from(state.imageMetadata.getKeyFrequency().entries()).map(([key, count]) => ({ key, count }))}
+          allKeys={Array.from(
+            state.imageMetadata.getKeyFrequency().entries(),
+          ).map(([key, count]) => ({ key, count }))}
           visibleColumns={state.visibleColumns}
           onSave={(cols, resetWidths) => {
             actions.setVisibleColumns(cols);
@@ -367,15 +428,16 @@ function LoadedView({
           onCancel={actions.cancelApplyEdits}
         />
       )}
-      {!state.applying && Object.keys(state.verifyOutcomes ?? {}).length > 0 && (
-        <VerifyOutcomeDialog
-          outcomes={state.verifyOutcomes}
-          onAccept={actions.acceptVerifyOutcome}
-          onRevert={actions.revertVerifyOutcome}
-          onDismiss={actions.dismissVerifyOutcome}
-          onDismissAll={actions.dismissAllVerifyOutcomes}
-        />
-      )}
+      {!state.applying &&
+        Object.keys(state.verifyOutcomes ?? {}).length > 0 && (
+          <VerifyOutcomeDialog
+            outcomes={state.verifyOutcomes}
+            onAccept={actions.acceptVerifyOutcome}
+            onRevert={actions.revertVerifyOutcome}
+            onDismiss={actions.dismissVerifyOutcome}
+            onDismissAll={actions.dismissAllVerifyOutcomes}
+          />
+        )}
       <StatusBar
         photoCount={displayPhotos.length}
         photoCountTotal={listSearchActive ? sortedPhotos.length : undefined}
@@ -396,13 +458,16 @@ let __appFirstRenderLogged = false;
 export default function App() {
   if (!__appFirstRenderLogged) {
     __appFirstRenderLogged = true;
-    const t0 = (window as unknown as { __startupT0?: number }).__startupT0 ?? Date.now();
+    const t0 =
+      (window as unknown as { __startupT0?: number }).__startupT0 ?? Date.now();
     console.log(`[startup] App() first render begin +${Date.now() - t0}ms`);
   }
   const [state, actions] = useMediaLibrary(tauriApi);
   const [showColumnDialog, setShowColumnDialog] = useState(false);
   const [showSettingsDialog, setShowSettingsDialog] = useState(false);
-  const [cliFolder, setCliFolder] = useState<string | null | undefined>(undefined);
+  const [cliFolder, setCliFolder] = useState<string | null | undefined>(
+    undefined,
+  );
   const [schemaReady, setSchemaReady] = useState(false);
   const [schemaError, setSchemaError] = useState<string | null>(null);
   const cliCheckedRef = useRef(false);
@@ -411,8 +476,12 @@ export default function App() {
   // so the dialogs (which render at App scope) can read them. We never
   // need to clear these explicitly — the next `start` overwrites them
   // and the dialog only consults them while it's open.
-  const [describeOverwrite, setDescribeOverwrite] = useState<OverwriteCount | undefined>(undefined);
-  const [geocodeOverwrite, setGeocodeOverwrite] = useState<OverwriteCount | undefined>(undefined);
+  const [describeOverwrite, setDescribeOverwrite] = useState<
+    OverwriteCount | undefined
+  >(undefined);
+  const [geocodeOverwrite, setGeocodeOverwrite] = useState<
+    OverwriteCount | undefined
+  >(undefined);
   // Shared merge-into-drafts callback for every batch image job
   // (describe, geocode, normalise). Each hook emits per-image typed
   // edits via this callback; we funnel them through setDraftBatch so
@@ -420,7 +489,10 @@ export default function App() {
   // pipeline picks them up.
   const mergeBatchEdits = useCallback(
     (relPath: string, edits: Record<string, DraftEdit>) => {
-      const entries = Object.entries(edits).map(([key, edit]) => ({ key, edit }));
+      const entries = Object.entries(edits).map(([key, edit]) => ({
+        key,
+        edit,
+      }));
       if (entries.length > 0) actions.setDraftBatch(relPath, entries);
     },
     [actions],
@@ -430,8 +502,11 @@ export default function App() {
   const normalise = useNormaliseMetadata({ onApplyEdits: mergeBatchEdits });
 
   useEffect(() => {
-    const t0 = (window as unknown as { __startupT0?: number }).__startupT0 ?? Date.now();
-    console.log(`[startup] App first commit (post-mount effect) +${Date.now() - t0}ms`);
+    const t0 =
+      (window as unknown as { __startupT0?: number }).__startupT0 ?? Date.now();
+    console.log(
+      `[startup] App first commit (post-mount effect) +${Date.now() - t0}ms`,
+    );
     requestAnimationFrame(() => {
       console.log(`[startup] first rAF after mount +${Date.now() - t0}ms`);
     });
@@ -440,19 +515,30 @@ export default function App() {
   // Warm the tag-schema registry before the UI becomes interactive so editors
   // never see a missing-schema flash on first use.
   useEffect(() => {
-    const t0 = (window as unknown as { __startupT0?: number }).__startupT0 ?? Date.now();
-    console.log(`[startup] App useEffect (preload_schema invoke) +${Date.now() - t0}ms`);
+    const t0 =
+      (window as unknown as { __startupT0?: number }).__startupT0 ?? Date.now();
+    console.log(
+      `[startup] App useEffect (preload_schema invoke) +${Date.now() - t0}ms`,
+    );
     const callStart = Date.now();
     invoke("preload_schema")
       .then(() => {
-        console.log(`[startup] preload_schema resolved +${Date.now() - t0}ms (invoke took ${Date.now() - callStart}ms)`);
+        console.log(
+          `[startup] preload_schema resolved +${Date.now() - t0}ms (invoke took ${Date.now() - callStart}ms)`,
+        );
         setSchemaReady(true);
       })
       .catch((err) => {
         console.error("[App] preload_schema failed:", err);
-        setSchemaError(typeof err === "string" ? err : err instanceof Error ? err.message : String(err));
+        setSchemaError(
+          typeof err === "string"
+            ? err
+            : err instanceof Error
+              ? err.message
+              : String(err),
+        );
       });
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   // Check for CLI folder argument on mount (before first render)
   useEffect(() => {

@@ -33,7 +33,9 @@ const allGroups: NormaliseGroup[] = [
  * need a specific outcome distribution pass `perGroupOutcomes` to
  * override.
  */
-function mockEstimate(over: Partial<NormaliseEstimate> = {}): NormaliseEstimate {
+function mockEstimate(
+  over: Partial<NormaliseEstimate> = {},
+): NormaliseEstimate {
   const allActive: NormaliseGroupOutcomeCounts = {
     nNoop: 0,
     nNormalisedDeterministic: 1,
@@ -57,7 +59,11 @@ function mockEstimate(over: Partial<NormaliseEstimate> = {}): NormaliseEstimate 
       title: { ...allActive, nNormalisedAi: 1, nNormalisedDeterministic: 0 },
       location: { ...allActive },
       dates: { ...allActive },
-      description: { ...allActive, nNormalisedAi: 1, nNormalisedDeterministic: 0 },
+      description: {
+        ...allActive,
+        nNormalisedAi: 1,
+        nNormalisedDeterministic: 0,
+      },
     },
     aiTokenBreakdown: null,
     pricing: null,
@@ -69,7 +75,9 @@ function mockEstimate(over: Partial<NormaliseEstimate> = {}): NormaliseEstimate 
   };
 }
 
-function baseState(over: Partial<NormaliseProgressState> = {}): NormaliseProgressState {
+function baseState(
+  over: Partial<NormaliseProgressState> = {},
+): NormaliseProgressState {
   return {
     phase: "awaiting-confirm",
     total: 1,
@@ -99,7 +107,9 @@ describe("NormaliseProgressDialog — awaiting-confirm", () => {
       />,
     );
     for (const g of allGroups) {
-      const cb = screen.getByTestId(`normalise-group-${g}-checkbox`) as HTMLInputElement;
+      const cb = screen.getByTestId(
+        `normalise-group-${g}-checkbox`,
+      ) as HTMLInputElement;
       expect(cb.checked).toBe(true);
     }
   });
@@ -120,7 +130,13 @@ describe("NormaliseProgressDialog — awaiting-confirm", () => {
     expect(onSet.mock.calls[0][0]).not.toContain("keywords");
     // Remaining groups preserved in canonical (execution) order.
     expect(onSet.mock.calls[0][0]).toEqual([
-      "creator", "copyright", "location", "dates", "description", "title", "headline",
+      "creator",
+      "copyright",
+      "location",
+      "dates",
+      "description",
+      "title",
+      "headline",
     ]);
   });
 
@@ -136,7 +152,11 @@ describe("NormaliseProgressDialog — awaiting-confirm", () => {
       />,
     );
     fireEvent.click(screen.getByTestId("normalise-group-keywords-checkbox"));
-    expect(onSet.mock.calls[0][0]).toEqual(["keywords", "creator", "copyright"]);
+    expect(onSet.mock.calls[0][0]).toEqual([
+      "keywords",
+      "creator",
+      "copyright",
+    ]);
   });
 
   it("confirm button is disabled when no groups are enabled", () => {
@@ -149,7 +169,9 @@ describe("NormaliseProgressDialog — awaiting-confirm", () => {
         onSetEnabledGroups={() => {}}
       />,
     );
-    const btn = screen.getByTestId("normalise-confirm-btn") as HTMLButtonElement;
+    const btn = screen.getByTestId(
+      "normalise-confirm-btn",
+    ) as HTMLButtonElement;
     expect(btn.disabled).toBe(true);
   });
 
@@ -163,7 +185,9 @@ describe("NormaliseProgressDialog — awaiting-confirm", () => {
         onSetEnabledGroups={() => {}}
       />,
     );
-    const btn = screen.getByTestId("normalise-confirm-btn") as HTMLButtonElement;
+    const btn = screen.getByTestId(
+      "normalise-confirm-btn",
+    ) as HTMLButtonElement;
     expect(btn.disabled).toBe(false);
   });
 
@@ -232,13 +256,27 @@ describe("NormaliseProgressDialog — awaiting-confirm", () => {
         onSetEnabledGroups={() => {}}
       />,
     );
-    expect(screen.getByTestId("normalise-group-keywords-noop")).toHaveTextContent("5");
-    expect(screen.getByTestId("normalise-group-keywords-deterministic")).toHaveTextContent("3");
-    expect(screen.getByTestId("normalise-group-keywords-ai")).toHaveTextContent("—");
-    expect(screen.getByTestId("normalise-group-description-ai")).toHaveTextContent("6");
-    expect(screen.getByTestId("normalise-group-dates-conflict")).toHaveTextContent("1");
-    expect(screen.getByTestId("normalise-group-dates-overwrites")).toHaveTextContent("2");
-    expect(screen.getByTestId("normalise-group-description-overwrites")).toHaveTextContent("9");
+    expect(
+      screen.getByTestId("normalise-group-keywords-noop"),
+    ).toHaveTextContent("5");
+    expect(
+      screen.getByTestId("normalise-group-keywords-deterministic"),
+    ).toHaveTextContent("3");
+    expect(screen.getByTestId("normalise-group-keywords-ai")).toHaveTextContent(
+      "—",
+    );
+    expect(
+      screen.getByTestId("normalise-group-description-ai"),
+    ).toHaveTextContent("6");
+    expect(
+      screen.getByTestId("normalise-group-dates-conflict"),
+    ).toHaveTextContent("1");
+    expect(
+      screen.getByTestId("normalise-group-dates-overwrites"),
+    ).toHaveTextContent("2");
+    expect(
+      screen.getByTestId("normalise-group-description-overwrites"),
+    ).toHaveTextContent("9");
   });
 
   it("overwrites cell is bold/warning when non-zero", () => {
@@ -437,7 +475,12 @@ describe("NormaliseProgressDialog — running", () => {
   it("renders progress bar with current / total", () => {
     render(
       <NormaliseProgressDialog
-        state={baseState({ phase: "running", current: 2, total: 5, currentFile: "x.jpg" })}
+        state={baseState({
+          phase: "running",
+          current: 2,
+          total: 5,
+          currentFile: "x.jpg",
+        })}
         onConfirm={() => {}}
         onCancel={() => {}}
         onClose={() => {}}
@@ -475,7 +518,9 @@ describe("NormaliseProgressDialog — done", () => {
     };
   }
 
-  function pg(over: Partial<NormalisePerGroupStats> = {}): NormalisePerGroupStats {
+  function pg(
+    over: Partial<NormalisePerGroupStats> = {},
+  ): NormalisePerGroupStats {
     return {
       nNoop: 0,
       nNormalisedDeterministic: 0,
@@ -517,13 +562,23 @@ describe("NormaliseProgressDialog — done", () => {
     expect(sumDom).toHaveTextContent(/3.*\/.*3/);
     const breakdown = screen.getByTestId("normalise-summary-breakdown");
     // Aggregate row.
-    expect(breakdown).toHaveTextContent(/Groups normalised \(deterministic\): 5/);
+    expect(breakdown).toHaveTextContent(
+      /Groups normalised \(deterministic\): 5/,
+    );
     expect(breakdown).toHaveTextContent(/Groups skipped.*4/);
     // Per-group rows for each visited group.
-    expect(screen.getByTestId("normalise-group-summary-keywords")).toHaveTextContent(/2 normalised/);
-    expect(screen.getByTestId("normalise-group-summary-keywords")).toHaveTextContent(/1 no-op/);
-    expect(screen.getByTestId("normalise-group-summary-creator")).toHaveTextContent(/3 no-op/);
-    expect(screen.getByTestId("normalise-group-summary-dates")).toHaveTextContent(/3 normalised/);
+    expect(
+      screen.getByTestId("normalise-group-summary-keywords"),
+    ).toHaveTextContent(/2 normalised/);
+    expect(
+      screen.getByTestId("normalise-group-summary-keywords"),
+    ).toHaveTextContent(/1 no-op/);
+    expect(
+      screen.getByTestId("normalise-group-summary-creator"),
+    ).toHaveTextContent(/3 no-op/);
+    expect(
+      screen.getByTestId("normalise-group-summary-dates"),
+    ).toHaveTextContent(/3 normalised/);
   });
 
   it("omits per-group rows for groups the dispatcher never visited", () => {
@@ -546,7 +601,9 @@ describe("NormaliseProgressDialog — done", () => {
     );
     expect(screen.queryByTestId("normalise-group-summary-creator")).toBeNull();
     expect(screen.queryByTestId("normalise-group-summary-dates")).toBeNull();
-    expect(screen.getByTestId("normalise-group-summary-keywords")).toBeInTheDocument();
+    expect(
+      screen.getByTestId("normalise-group-summary-keywords"),
+    ).toBeInTheDocument();
   });
 
   it("surfaces filename-fallback counters when non-zero", () => {
@@ -624,7 +681,9 @@ describe("NormaliseProgressDialog — done", () => {
         onSetEnabledGroups={() => {}}
       />,
     );
-    expect(screen.getByTestId("normalise-failure-list")).toHaveTextContent(/b\.jpg/);
+    expect(screen.getByTestId("normalise-failure-list")).toHaveTextContent(
+      /b\.jpg/,
+    );
   });
 
   it("Close button fires onClose", () => {

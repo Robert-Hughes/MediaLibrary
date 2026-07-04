@@ -57,34 +57,35 @@ export function useColumnReorder(
     }
   }, []);
 
-  const handleColDrop = useCallback((e: React.DragEvent, dropCol: string) => {
-    e.preventDefault();
-    const drag = colDragRef.current;
-    colDragRef.current = null;
-    setDragOver(null);
-    if (!drag || drag.col === dropCol) return;
+  const handleColDrop = useCallback(
+    (e: React.DragEvent, dropCol: string) => {
+      e.preventDefault();
+      const drag = colDragRef.current;
+      colDragRef.current = null;
+      setDragOver(null);
+      if (!drag || drag.col === dropCol) return;
 
-    const side = dropSide(e);
+      const side = dropSide(e);
 
-    /**
-     * Compute insertion index after splice(from, 1).
-     * - "before": insert at dropCol's post-removal position
-     * - "after":  insert one past dropCol's post-removal position
-     * When from < to, removing the source shifts dropCol left by 1.
-     */
-    const insertAt = (from: number, to: number) =>
-      side === "before"
-        ? (from < to ? to - 1 : to)
-        : (from < to ? to : to + 1);
+      /**
+       * Compute insertion index after splice(from, 1).
+       * - "before": insert at dropCol's post-removal position
+       * - "after":  insert one past dropCol's post-removal position
+       * When from < to, removing the source shifts dropCol left by 1.
+       */
+      const insertAt = (from: number, to: number) =>
+        side === "before" ? (from < to ? to - 1 : to) : from < to ? to : to + 1;
 
-    const arr = [...visibleColumns];
-    const from = arr.findIndex((c) => c.key === drag.col);
-    const to = arr.findIndex((c) => c.key === dropCol);
-    if (from === -1 || to === -1) return;
-    const [moved] = arr.splice(from, 1);
-    arr.splice(insertAt(from, to), 0, moved);
-    onColumnsReorder?.(arr);
-  }, [visibleColumns, onColumnsReorder]);
+      const arr = [...visibleColumns];
+      const from = arr.findIndex((c) => c.key === drag.col);
+      const to = arr.findIndex((c) => c.key === dropCol);
+      if (from === -1 || to === -1) return;
+      const [moved] = arr.splice(from, 1);
+      arr.splice(insertAt(from, to), 0, moved);
+      onColumnsReorder?.(arr);
+    },
+    [visibleColumns, onColumnsReorder],
+  );
 
   const handleColDragEnd = useCallback(() => {
     colDragRef.current = null;

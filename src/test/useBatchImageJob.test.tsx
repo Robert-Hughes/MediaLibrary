@@ -16,14 +16,15 @@
  * before `subscribeExtras` has been called.
  */
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
+import type { Mock } from "vitest";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import {
   useBatchImageJob,
   type BatchJobConfig,
 } from "../hooks/useBatchImageJob";
 
-let invokeMock: ReturnType<typeof vi.fn>;
-let listenMock: ReturnType<typeof vi.fn>;
+let invokeMock: Mock<(...args: unknown[]) => Promise<unknown>>;
+let listenMock: Mock<(...args: unknown[]) => Promise<() => void>>;
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: (...args: unknown[]) => invokeMock(...args),
@@ -32,15 +33,27 @@ vi.mock("@tauri-apps/api/event", () => ({
   listen: (...args: unknown[]) => listenMock(...args),
 }));
 
-interface EstimatePayload { totalInputTokens: number }
-interface SummaryPayload { actualCostUsd: number }
+interface EstimatePayload {
+  totalInputTokens: number;
+}
+interface SummaryPayload {
+  actualCostUsd: number;
+}
 
 function makeConfig(
-  subscribeExtras: BatchJobConfig<string[], EstimatePayload, SummaryPayload>["subscribeExtras"],
+  subscribeExtras: BatchJobConfig<
+    string[],
+    EstimatePayload,
+    SummaryPayload
+  >["subscribeExtras"],
 ): BatchJobConfig<string[], EstimatePayload, SummaryPayload> {
   return {
     eventPrefix: "test",
-    commands: { estimate: "estimate_cmd", run: "run_cmd", cancel: "cancel_cmd" },
+    commands: {
+      estimate: "estimate_cmd",
+      run: "run_cmd",
+      cancel: "cancel_cmd",
+    },
     buildEstimateArgs: (folderPath, relPaths) => ({ folderPath, relPaths }),
     buildRunArgs: (folderPath, relPaths) => ({ folderPath, relPaths }),
     totalItems: (relPaths) => relPaths.length,
@@ -57,14 +70,18 @@ beforeEach(() => {
   listenMock = vi.fn().mockResolvedValue(() => {});
 });
 
-afterEach(() => { vi.clearAllMocks(); });
+afterEach(() => {
+  vi.clearAllMocks();
+});
 
 describe("useBatchImageJob deferred estimate latch", () => {
   it("does NOT invoke the estimate command until subscribeExtras has attached its listener", async () => {
     // Block subscribeExtras on a promise we control; the hook must not
     // call invoke() until we resolve it.
     let releaseSubscribe!: () => void;
-    const subscribePromise = new Promise<void>((r) => { releaseSubscribe = r; });
+    const subscribePromise = new Promise<void>((r) => {
+      releaseSubscribe = r;
+    });
     const subscribeExtras = vi.fn(async () => {
       await subscribePromise;
       return [];
@@ -77,19 +94,26 @@ describe("useBatchImageJob deferred estimate latch", () => {
     );
 
     // Kick off the flow.
-    act(() => { result.current.actions.start("/folder", ["a.jpg"]); });
+    act(() => {
+      result.current.actions.start("/folder", ["a.jpg"]);
+    });
 
     // Let the subscription effect register the universal listeners
     // (started/progress/complete). Even after that, the estimate
     // invoke must still be deferred because subscribeExtras hasn't
     // finished.
-    await act(async () => { await new Promise(r => setTimeout(r, 0)); });
-    expect(invokeMock).not.toHaveBeenCalledWith("estimate_cmd", expect.anything());
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(invokeMock).not.toHaveBeenCalledWith(
+      "estimate_cmd",
+      expect.anything(),
+    );
 
     // Release subscribeExtras → listeners ready → pending invoke fires.
     await act(async () => {
       releaseSubscribe();
-      await new Promise(r => setTimeout(r, 0));
+      await new Promise((r) => setTimeout(r, 0));
     });
     await waitFor(() => {
       expect(invokeMock).toHaveBeenCalledWith("estimate_cmd", {
@@ -109,8 +133,12 @@ describe("useBatchImageJob deferred estimate latch", () => {
       ),
     );
 
-    act(() => { result.current.actions.start("/f", ["b.jpg"]); });
-    await act(async () => { await new Promise(r => setTimeout(r, 0)); });
+    act(() => {
+      result.current.actions.start("/f", ["b.jpg"]);
+    });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
 
     await waitFor(() => {
       expect(invokeMock).toHaveBeenCalledWith("estimate_cmd", {
@@ -136,8 +164,12 @@ describe("useBatchImageJob deferred estimate latch", () => {
       useBatchImageJob<string[], EstimatePayload, SummaryPayload>(config),
     );
 
-    act(() => { result.current.actions.start("/f", ["c.jpg", "d.jpg"]); });
-    await act(async () => { await new Promise(r => setTimeout(r, 0)); });
+    act(() => {
+      result.current.actions.start("/f", ["c.jpg", "d.jpg"]);
+    });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
 
     expect(result.current.state.phase).toBe("awaiting-confirm");
     expect(result.current.state.total).toBe(2);

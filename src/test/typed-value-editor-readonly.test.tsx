@@ -6,12 +6,15 @@
 // is rendered in warning style with the "read-only" explainer text.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { fireEvent, render, screen, cleanup, waitFor } from "@testing-library/react";
-import { TypedValueEditor } from "../components/editors/TypedValueEditor";
 import {
-  _clearTagInfoCache,
-  _setTagInfoCacheEntry,
-} from "../hooks/useTagInfo";
+  fireEvent,
+  render,
+  screen,
+  cleanup,
+  waitFor,
+} from "@testing-library/react";
+import { TypedValueEditor } from "../components/editors/TypedValueEditor";
+import { _clearTagInfoCache, _setTagInfoCacheEntry } from "../hooks/useTagInfo";
 
 // useTagInfo calls Tauri's invoke under the hood for any uncached key.
 // We seed the cache for the keys the tests care about.
@@ -52,7 +55,10 @@ describe("TypedValueEditor read-only enforcement", () => {
     // (Tag routes through the legacy text fallback because kind=Text.)
     const dialog = screen.getByRole("button", { name: /save/i });
     expect(dialog).toBeDisabled();
-    expect(dialog).toHaveAttribute("title", "Tag is read-only per ExifTool schema");
+    expect(dialog).toHaveAttribute(
+      "title",
+      "Tag is read-only per ExifTool schema",
+    );
     fireEvent.click(dialog);
     expect(onSave).not.toHaveBeenCalled();
   });
@@ -74,8 +80,10 @@ describe("TypedValueEditor read-only enforcement", () => {
       />,
     );
     await waitFor(() => {
-      expect(screen.getByTestId("editor-meta-hint"))
-        .toHaveAttribute("data-readonly", "false");
+      expect(screen.getByTestId("editor-meta-hint")).toHaveAttribute(
+        "data-readonly",
+        "false",
+      );
     });
     const save = screen.getByRole("button", { name: /save/i });
     expect(save).not.toBeDisabled();
@@ -99,7 +107,9 @@ describe("TypedValueEditor read-only enforcement", () => {
       />,
     );
     await waitFor(() => {
-      const save = screen.getByTestId("numeric-editor-save") as HTMLButtonElement;
+      const save = screen.getByTestId(
+        "numeric-editor-save",
+      ) as HTMLButtonElement;
       expect(save).toBeDisabled();
     });
   });

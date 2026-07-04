@@ -1,4 +1,7 @@
-import { normalizeListSearchQuery, splitForHighlight } from "../utils/listSearchText";
+import {
+  normalizeListSearchQuery,
+  splitForHighlight,
+} from "../utils/listSearchText";
 
 interface Props {
   text: string;

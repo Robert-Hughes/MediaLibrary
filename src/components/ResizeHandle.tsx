@@ -6,7 +6,13 @@ interface ResizeHandleProps {
   onReset: (col: string) => void;
 }
 
-export function ResizeHandle({ col, onResizeStart, onResizeMove, onResizeEnd, onReset }: ResizeHandleProps) {
+export function ResizeHandle({
+  col,
+  onResizeStart,
+  onResizeMove,
+  onResizeEnd,
+  onReset,
+}: ResizeHandleProps) {
   return (
     <div
       className="resize-handle"
@@ -17,7 +23,10 @@ export function ResizeHandle({ col, onResizeStart, onResizeMove, onResizeEnd, on
       onPointerUp={onResizeEnd}
       onPointerCancel={onResizeEnd}
       onClick={(e) => e.stopPropagation()}
-      onDoubleClick={(e) => { e.stopPropagation(); onReset(col); }}
+      onDoubleClick={(e) => {
+        e.stopPropagation();
+        onReset(col);
+      }}
     />
   );
 }
