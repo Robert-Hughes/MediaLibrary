@@ -32,6 +32,8 @@ export function schemaDatatype(
       return { code: "T", label: "Time" };
     case "DateTime":
       return { code: "DT", label: "DateTime" };
+    case "TimeOffset":
+      return { code: "TZ", label: "Time offset" };
     case "Enum":
       return { code: "E", label: "Enum" };
     case "Bag":
@@ -86,6 +88,7 @@ export function datatypesMatch(
       schemaCode === "D" ||
       schemaCode === "T" ||
       schemaCode === "DT" ||
+      schemaCode === "TZ" ||
       schemaCode === "E" ||
       schemaCode === "Q"
     );

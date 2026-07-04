@@ -8,6 +8,7 @@ pub mod draft_edits;
 pub mod exiftool_config;
 pub mod geocode;
 pub mod geocode_cache;
+pub mod metadata_value;
 pub mod normalise;
 pub mod openai_describe;
 pub mod openai_http;

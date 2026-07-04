@@ -14,6 +14,9 @@
 //! on numeric tags being already set (rare but possible for derived fields).
 
 use crate::draft_edits::{DraftEdit, EditIntent};
+use crate::metadata_value::{
+    DateTimeValue, DateValue, MetadataValue, OffsetSign, TimeValue, UtcOffsetValue,
+};
 use crate::scanner::Variant;
 use crate::tag_schema::{EnumRepr, TagInfo, TagKind};
 
@@ -151,6 +154,10 @@ fn build_set(tag: &str, info: Option<&TagInfo>, value: Option<&Variant>) -> Buil
         ) => BuiltArgs {
             numeric: vec![],
             text: vec![format!("-{}={}", tag, render_scalar_text(v))],
+        },
+        (Some(TagKind::TimeOffset), Some(v)) => BuiltArgs {
+            numeric: vec![format!("-{}={}", tag, render_scalar_numeric(v))],
+            text: vec![],
         },
         // Temporal values: numeric group.  Per design §6, temporal literals
         // "where we send raw" belong with the -n invocation; exiftool accepts
@@ -383,7 +390,7 @@ fn normalise_iptc_time(s: &str) -> String {
         return format!("{}{}:{}", time, &rest[..3], &rest[3..]);
     }
     if rest.is_empty() {
-        return format!("{}{}", time, local_offset_now());
+        return time.to_string();
     }
     s.to_string()
 }
@@ -414,13 +421,67 @@ fn normalise_exif_datetime(s: &str) -> String {
     }
 }
 
-fn local_offset_now() -> String {
-    let offset = chrono::Local::now().offset().local_minus_utc();
-    let sign = if offset < 0 { '-' } else { '+' };
-    let abs = offset.abs();
-    let hours = abs / 3600;
-    let minutes = (abs % 3600) / 60;
-    format!("{}{:02}:{:02}", sign, hours, minutes)
+pub fn render_metadata_value_for_write(
+    value: &MetadataValue,
+    kind: Option<&TagKind>,
+) -> Result<String, String> {
+    match value {
+        MetadataValue::Null => Ok(String::new()),
+        MetadataValue::Text(s) => Ok(normalise_storage_string_for_kind(s, kind)),
+        MetadataValue::Bool(b) => Ok(if *b { "1".into() } else { "0".into() }),
+        MetadataValue::Integer(n) => Ok(n.to_string()),
+        MetadataValue::Real(f) => Ok(f.to_string()),
+        MetadataValue::Rational(r) => Ok(format!("{}/{}", r.numerator, r.denominator)),
+        MetadataValue::Date(d) => Ok(render_date(d)),
+        MetadataValue::Time(t) => Ok(render_time(t)),
+        MetadataValue::DateTime(dt) => Ok(render_datetime(dt)),
+        MetadataValue::TimeOffset(offset) => Ok(render_offset(offset)),
+        MetadataValue::LangAlt(_) => {
+            Err("lang-alt values require per-language write args".to_string())
+        }
+        MetadataValue::List { .. } => Err("list values require repeated write args".to_string()),
+        MetadataValue::Struct(_) => Err("struct values require struct write rendering".to_string()),
+        MetadataValue::Binary => Err("binary metadata is not writable".to_string()),
+        MetadataValue::Unknown { reason, .. } => Err(format!(
+            "unknown metadata value is not writable{}",
+            reason
+                .as_ref()
+                .map(|r| format!(": {r}"))
+                .unwrap_or_default()
+        )),
+    }
+}
+
+fn render_date(date: &DateValue) -> String {
+    format!("{:04}:{:02}:{:02}", date.year, date.month, date.day)
+}
+
+fn render_time(time: &TimeValue) -> String {
+    let mut out = format!("{:02}:{:02}:{:02}", time.hour, time.minute, time.second);
+    if let Some(subsecond) = &time.subsecond {
+        out.push('.');
+        out.push_str(subsecond);
+    }
+    if let Some(offset) = &time.offset {
+        out.push_str(&render_offset(offset));
+    }
+    out
+}
+
+fn render_datetime(datetime: &DateTimeValue) -> String {
+    format!(
+        "{} {}",
+        render_date(&datetime.date),
+        render_time(&datetime.time)
+    )
+}
+
+fn render_offset(offset: &UtcOffsetValue) -> String {
+    let sign = match offset.sign {
+        OffsetSign::Plus => '+',
+        OffsetSign::Minus => '-',
+    };
+    format!("{}{:02}:{:02}", sign, offset.hours, offset.minutes)
 }
 
 #[cfg(test)]
@@ -727,18 +788,64 @@ mod tests {
     }
 
     #[test]
-    fn iptc_time_without_offset_adds_local_offset() {
+    fn iptc_time_without_offset_stays_offsetless() {
         let i = info_named("IPTC", "TimeCreated", TagKind::Time);
         let args = build_args(
             "IPTC:TimeCreated",
             Some(&i),
             &set(Variant::String("10:30:00".into())),
         );
-        assert_eq!(
-            args.numeric,
-            vec![format!("-IPTC:TimeCreated=10:30:00{}", local_offset_now())]
-        );
+        assert_eq!(args.numeric, vec!["-IPTC:TimeCreated=10:30:00"]);
         assert!(args.text.is_empty());
+    }
+
+    #[test]
+    fn metadata_time_without_offset_renders_without_offset() {
+        let value = MetadataValue::Time(TimeValue {
+            hour: 10,
+            minute: 56,
+            second: 5,
+            subsecond: None,
+            offset: None,
+        });
+        assert_eq!(
+            render_metadata_value_for_write(&value, Some(&TagKind::Time)).unwrap(),
+            "10:56:05"
+        );
+    }
+
+    #[test]
+    fn metadata_time_with_offset_preserves_offset() {
+        let value = MetadataValue::Time(TimeValue {
+            hour: 10,
+            minute: 56,
+            second: 5,
+            subsecond: None,
+            offset: Some(UtcOffsetValue {
+                sign: OffsetSign::Plus,
+                hours: 1,
+                minutes: 0,
+            }),
+        });
+        assert_eq!(
+            render_metadata_value_for_write(&value, Some(&TagKind::Time)).unwrap(),
+            "10:56:05+01:00"
+        );
+    }
+
+    #[test]
+    fn metadata_writer_uses_no_current_local_time_for_offsetless_time() {
+        let value = MetadataValue::Time(TimeValue {
+            hour: 10,
+            minute: 56,
+            second: 5,
+            subsecond: None,
+            offset: None,
+        });
+        let rendered = render_metadata_value_for_write(&value, Some(&TagKind::Time)).unwrap();
+        assert!(!rendered.contains('+'));
+        assert!(!rendered[8..].contains('-'));
+        assert_eq!(rendered, "10:56:05");
     }
 
     #[test]
