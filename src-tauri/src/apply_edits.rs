@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 
+use crate::metadata_value::{ListKind, MetadataValue};
 use crate::scanner::{self, Variant};
 use crate::tag_schema::TagKind;
 
@@ -750,6 +751,230 @@ fn describe(display: Option<&Variant>, raw: Option<&Variant>) -> String {
     }
 }
 
+fn verify_metadata_set(
+    key: &str,
+    expected: Option<&MetadataValue>,
+    fresh_display: &HashMap<String, MetadataValue>,
+    fresh_raw: &HashMap<String, MetadataValue>,
+    kind: Option<&TagKind>,
+) -> (String, Option<String>) {
+    let expected = match expected {
+        Some(v) => v,
+        None => return ("Match".to_string(), None),
+    };
+
+    let display_v = fresh_display.get(key);
+    let raw_v = fresh_raw.get(key);
+
+    if metadata_empty_value(expected)
+        && metadata_empty_or_absent(display_v)
+        && metadata_empty_or_absent(raw_v)
+    {
+        return ("Match".to_string(), None);
+    }
+
+    if display_v.is_none() && raw_v.is_none() {
+        return (
+            "MissingPostWrite".to_string(),
+            Some(format!(
+                "Tag {} absent after write (format may not support it)",
+                key
+            )),
+        );
+    }
+
+    if display_v.is_some_and(|v| metadata_strict_eq(v, expected))
+        || raw_v.is_some_and(|v| metadata_strict_eq(v, expected))
+    {
+        return ("Match".to_string(), None);
+    }
+
+    if display_v.is_some_and(metadata_unparsed) || raw_v.is_some_and(metadata_unparsed) {
+        return (
+            "UnparsedPostWrite".to_string(),
+            Some(format!(
+                "Post-write value for {} could not be parsed semantically",
+                key
+            )),
+        );
+    }
+
+    if matches_metadata_value(display_v, expected, kind)
+        || matches_metadata_value(raw_v, expected, kind)
+    {
+        return (
+            "Coerced".to_string(),
+            Some(format!(
+                "exiftool normalised {}: sent {:?}, file holds display={:?}, raw={:?}",
+                key, expected, display_v, raw_v
+            )),
+        );
+    }
+
+    (
+        "Mismatch".to_string(),
+        Some(format!(
+            "Verification failed for {}: expected {:?}, got display={:?}, raw={:?}",
+            key, expected, display_v, raw_v
+        )),
+    )
+}
+
+fn metadata_unparsed(value: &MetadataValue) -> bool {
+    matches!(value, MetadataValue::Unknown { .. })
+}
+
+fn metadata_empty_value(value: &MetadataValue) -> bool {
+    matches!(value, MetadataValue::Null)
+        || matches!(value, MetadataValue::Text(s) if s.is_empty())
+        || matches!(value, MetadataValue::List { items, .. } if items.is_empty())
+}
+
+fn metadata_empty_or_absent(value: Option<&MetadataValue>) -> bool {
+    match value {
+        None => true,
+        Some(value) => metadata_empty_value(value),
+    }
+}
+
+fn metadata_strict_eq(a: &MetadataValue, b: &MetadataValue) -> bool {
+    match (a, b) {
+        (MetadataValue::Null, MetadataValue::Null) => true,
+        (MetadataValue::Text(a), MetadataValue::Text(b)) => a == b,
+        (MetadataValue::Bool(a), MetadataValue::Bool(b)) => a == b,
+        (MetadataValue::Integer(a), MetadataValue::Integer(b)) => a == b,
+        (MetadataValue::Real(a), MetadataValue::Real(b)) => (a - b).abs() < STRICT_FLOAT_EPS,
+        (MetadataValue::Rational(a), MetadataValue::Rational(b)) => {
+            (a.numerator as i128) * (b.denominator as i128)
+                == (b.numerator as i128) * (a.denominator as i128)
+        }
+        (MetadataValue::Date(a), MetadataValue::Date(b)) => a == b,
+        (MetadataValue::Time(a), MetadataValue::Time(b)) => a == b,
+        (MetadataValue::DateTime(a), MetadataValue::DateTime(b)) => a == b,
+        (MetadataValue::TimeOffset(a), MetadataValue::TimeOffset(b)) => a == b,
+        (MetadataValue::LangAlt(a), MetadataValue::LangAlt(b)) => a == b,
+        (
+            MetadataValue::List {
+                list_kind: ak,
+                items: a,
+            },
+            MetadataValue::List {
+                list_kind: bk,
+                items: b,
+            },
+        ) => {
+            ak == bk && a.len() == b.len() && a.iter().zip(b).all(|(a, b)| metadata_strict_eq(a, b))
+        }
+        (MetadataValue::Struct(a), MetadataValue::Struct(b)) => {
+            a.len() == b.len()
+                && a.iter()
+                    .all(|(key, av)| b.get(key).is_some_and(|bv| metadata_strict_eq(av, bv)))
+        }
+        (MetadataValue::Binary, MetadataValue::Binary) => true,
+        (
+            MetadataValue::Unknown {
+                expected: ae,
+                raw: ar,
+                reason: _,
+            },
+            MetadataValue::Unknown {
+                expected: be,
+                raw: br,
+                reason: _,
+            },
+        ) => ae == be && ar == br,
+        _ => false,
+    }
+}
+
+fn matches_metadata_value(
+    actual: Option<&MetadataValue>,
+    expected: &MetadataValue,
+    kind: Option<&TagKind>,
+) -> bool {
+    let Some(actual) = actual else {
+        return matches!(expected, MetadataValue::Null);
+    };
+
+    if metadata_strict_eq(actual, expected) {
+        return true;
+    }
+
+    match (actual, expected) {
+        (MetadataValue::Integer(a), MetadataValue::Real(b)) => (*a as f64 - *b).abs() < 1e-6,
+        (MetadataValue::Real(a), MetadataValue::Integer(b)) => (*a - *b as f64).abs() < 1e-6,
+        (MetadataValue::Real(a), MetadataValue::Real(b)) => (a - b).abs() < 1e-6,
+        (MetadataValue::Rational(a), MetadataValue::Rational(b)) => {
+            (a.numerator as i128) * (b.denominator as i128)
+                == (b.numerator as i128) * (a.denominator as i128)
+        }
+        (
+            MetadataValue::List {
+                list_kind,
+                items: actual_items,
+            },
+            MetadataValue::List {
+                items: expected_items,
+                ..
+            },
+        ) => metadata_lists_match(actual_items, expected_items, list_kind, kind),
+        (MetadataValue::Struct(actual), MetadataValue::Struct(expected)) => {
+            expected.iter().all(|(key, ev)| {
+                actual.get(key).is_some_and(|av| {
+                    matches_metadata_value(Some(av), ev, struct_field_kind(kind, key))
+                })
+            })
+        }
+        (MetadataValue::Unknown { raw: ar, .. }, MetadataValue::Unknown { raw: er, .. }) => {
+            ar == er
+        }
+        _ => false,
+    }
+}
+
+fn metadata_lists_match(
+    actual: &[MetadataValue],
+    expected: &[MetadataValue],
+    list_kind: &ListKind,
+    kind: Option<&TagKind>,
+) -> bool {
+    let inner_kind = match kind {
+        Some(TagKind::Bag(inner) | TagKind::Seq(inner) | TagKind::Alt(inner)) => {
+            Some(inner.as_ref())
+        }
+        _ => None,
+    };
+    match list_kind {
+        ListKind::Seq => {
+            actual.len() == expected.len()
+                && actual
+                    .iter()
+                    .zip(expected)
+                    .all(|(a, e)| matches_metadata_value(Some(a), e, inner_kind))
+        }
+        ListKind::Bag | ListKind::Alt | ListKind::Unknown => {
+            let mut used = vec![false; actual.len()];
+            'expected: for e in expected {
+                for (idx, a) in actual.iter().enumerate() {
+                    if !used[idx] && matches_metadata_value(Some(a), e, inner_kind) {
+                        used[idx] = true;
+                        continue 'expected;
+                    }
+                }
+                return false;
+            }
+            true
+        }
+    }
+}
+
+fn struct_field_kind<'a>(kind: Option<&'a TagKind>, key: &str) -> Option<&'a TagKind> {
+    match kind {
+        Some(TagKind::Struct(fields)) => fields.get(key),
+        _ => None,
+    }
+}
+
 /// Apply draft edits for the given relative paths, using the provided drafts map.
 /// Per-file: each file is processed independently so one failure does not block others.
 pub fn apply_draft_edits(
@@ -803,6 +1028,7 @@ pub fn apply_draft_edits(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::metadata_value::{DateValue, OffsetSign, RationalValue, TimeValue, UtcOffsetValue};
 
     fn is_hard_failure(outcome: &SingleFileOutcome, substr: &str) -> bool {
         outcome.fresh_metadata.is_none()
@@ -1346,5 +1572,188 @@ mod tests {
         assert_eq!("Mismatch", "Mismatch");
         assert_eq!("DeleteLingering", "DeleteLingering");
         assert_eq!("MissingPostWrite", "MissingPostWrite");
+    }
+
+    fn metadata_map(pairs: &[(&str, MetadataValue)]) -> HashMap<String, MetadataValue> {
+        pairs
+            .iter()
+            .map(|(key, value)| (key.to_string(), value.clone()))
+            .collect()
+    }
+
+    #[test]
+    fn verify_metadata_set_distinguishes_match_coerced_mismatch_missing_and_unparsed() {
+        let display = metadata_map(&[("X", MetadataValue::Integer(5))]);
+        let raw = metadata_map(&[("X", MetadataValue::Integer(5))]);
+        let (kind, _) =
+            verify_metadata_set("X", Some(&MetadataValue::Integer(5)), &display, &raw, None);
+        assert_eq!(kind, "Match");
+
+        let raw = metadata_map(&[("X", MetadataValue::Real(5.0))]);
+        let (kind, _) = verify_metadata_set(
+            "X",
+            Some(&MetadataValue::Integer(5)),
+            &HashMap::new(),
+            &raw,
+            None,
+        );
+        assert_eq!(kind, "Coerced");
+
+        let raw = metadata_map(&[("X", MetadataValue::Text("other".into()))]);
+        let (kind, _) = verify_metadata_set(
+            "X",
+            Some(&MetadataValue::Integer(5)),
+            &HashMap::new(),
+            &raw,
+            None,
+        );
+        assert_eq!(kind, "Mismatch");
+
+        let (kind, _) = verify_metadata_set(
+            "X",
+            Some(&MetadataValue::Integer(5)),
+            &HashMap::new(),
+            &HashMap::new(),
+            None,
+        );
+        assert_eq!(kind, "MissingPostWrite");
+
+        let raw = metadata_map(&[(
+            "X",
+            MetadataValue::Unknown {
+                expected: Some(TagKind::Integer {
+                    min: None,
+                    max: None,
+                }),
+                raw: serde_json::json!("bad"),
+                reason: Some("bad integer".into()),
+            },
+        )]);
+        let (kind, _) = verify_metadata_set(
+            "X",
+            Some(&MetadataValue::Integer(5)),
+            &HashMap::new(),
+            &raw,
+            None,
+        );
+        assert_eq!(kind, "UnparsedPostWrite");
+    }
+
+    #[test]
+    fn verify_metadata_rational_equivalence_uses_cross_multiply() {
+        let raw = metadata_map(&[(
+            "EXIF:ExposureTime",
+            MetadataValue::Rational(RationalValue {
+                numerator: 2,
+                denominator: 500,
+            }),
+        )]);
+        let expected = MetadataValue::Rational(RationalValue {
+            numerator: 1,
+            denominator: 250,
+        });
+        let (kind, _) = verify_metadata_set(
+            "EXIF:ExposureTime",
+            Some(&expected),
+            &HashMap::new(),
+            &raw,
+            Some(&TagKind::Rational),
+        );
+        assert_eq!(kind, "Match");
+    }
+
+    #[test]
+    fn verify_metadata_bag_ignores_order_but_seq_respects_order() {
+        let actual = MetadataValue::List {
+            list_kind: ListKind::Bag,
+            items: vec![
+                MetadataValue::Text("b".into()),
+                MetadataValue::Text("a".into()),
+            ],
+        };
+        let expected = MetadataValue::List {
+            list_kind: ListKind::Bag,
+            items: vec![
+                MetadataValue::Text("a".into()),
+                MetadataValue::Text("b".into()),
+            ],
+        };
+        assert!(matches_metadata_value(
+            Some(&actual),
+            &expected,
+            Some(&TagKind::Bag(Box::new(TagKind::Text)))
+        ));
+
+        let actual = MetadataValue::List {
+            list_kind: ListKind::Seq,
+            items: vec![
+                MetadataValue::Text("b".into()),
+                MetadataValue::Text("a".into()),
+            ],
+        };
+        let expected = MetadataValue::List {
+            list_kind: ListKind::Seq,
+            items: vec![
+                MetadataValue::Text("a".into()),
+                MetadataValue::Text("b".into()),
+            ],
+        };
+        assert!(!matches_metadata_value(
+            Some(&actual),
+            &expected,
+            Some(&TagKind::Seq(Box::new(TagKind::Text)))
+        ));
+    }
+
+    #[test]
+    fn verify_metadata_time_offset_presence_is_not_globally_equal() {
+        let offsetless = MetadataValue::Time(TimeValue {
+            hour: 10,
+            minute: 56,
+            second: 5,
+            subsecond: None,
+            offset: None,
+        });
+        let offset = MetadataValue::Time(TimeValue {
+            hour: 10,
+            minute: 56,
+            second: 5,
+            subsecond: None,
+            offset: Some(UtcOffsetValue {
+                sign: OffsetSign::Plus,
+                hours: 1,
+                minutes: 0,
+            }),
+        });
+        assert!(!matches_metadata_value(
+            Some(&offset),
+            &offsetless,
+            Some(&TagKind::Time)
+        ));
+    }
+
+    #[test]
+    fn verify_metadata_date_values_match_exactly() {
+        let raw = metadata_map(&[(
+            "IPTC:DateCreated",
+            MetadataValue::Date(DateValue {
+                year: 2026,
+                month: 7,
+                day: 4,
+            }),
+        )]);
+        let expected = MetadataValue::Date(DateValue {
+            year: 2026,
+            month: 7,
+            day: 4,
+        });
+        let (kind, _) = verify_metadata_set(
+            "IPTC:DateCreated",
+            Some(&expected),
+            &HashMap::new(),
+            &raw,
+            Some(&TagKind::Date),
+        );
+        assert_eq!(kind, "Match");
     }
 }
