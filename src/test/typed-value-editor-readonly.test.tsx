@@ -150,4 +150,66 @@ describe("TypedValueEditor temporal routing", () => {
       );
     });
   });
+
+  it("keeps a date-like Text tag in the text editor", async () => {
+    _setTagInfoCacheEntry("XMP-custom:DateishText", {
+      group: "XMP-custom",
+      name: "DateishText",
+      writable: true,
+      kind: { kind: "Text" },
+      description: null,
+    });
+    render(
+      <TypedValueEditor
+        propertyKey="XMP-custom:DateishText"
+        initialString="2026:05:15 10:30:00"
+        onSave={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("value-edit-input")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("datetime-editor-input")).toBeNull();
+  });
+
+  it("keeps a date-like Unknown tag in the unknown text editor", async () => {
+    _setTagInfoCacheEntry("XMP-custom:UnknownDate", {
+      group: "XMP-custom",
+      name: "UnknownDate",
+      writable: true,
+      kind: { kind: "Unknown" },
+      description: null,
+    });
+    render(
+      <TypedValueEditor
+        propertyKey="XMP-custom:UnknownDate"
+        initialString="2026:05:15 10:30:00"
+        onSave={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("unknown-editor-input")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("datetime-editor-input")).toBeNull();
+  });
+
+  it("keeps a missing-schema date-like tag in the text fallback", async () => {
+    render(
+      <TypedValueEditor
+        propertyKey="XMP-custom:MissingDate"
+        initialString="2026:05:15 10:30:00"
+        onSave={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("value-edit-input")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("datetime-editor-input")).toBeNull();
+  });
 });

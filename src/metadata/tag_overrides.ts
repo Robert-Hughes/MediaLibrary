@@ -2,13 +2,12 @@
 // METADATA_FORMATS_DESIGN.md §5 ("Special-case overrides").
 //
 // `exiftool -listx` describes most tags well enough for the schema-driven
-// router in TypedValueEditor, but a small set of tags need name-based or
-// pattern-based redirects:
+// router in TypedValueEditor, but a small set of editor behaviors need
+// frontend routing because they combine multiple tags or reinterpret a packed
+// value:
 //
 //   - GPS coordinates       — composite editor with paired Latitude/Ref…
 //   - Flash bitfield        — checkbox-per-bit editor
-//   - Date-named string tags — listx says `string`; the value matches the
-//                               exiftool date pattern, so route to DateTimeEditor.
 //
 // Adding a new override means adding one entry here and (if a new editor)
 // importing it in TypedValueEditor.tsx.  No editor file should grow its own
@@ -52,33 +51,4 @@ export function gpsTagGroup(key: string): GpsTagGroup | null {
  */
 export function isFlashTag(key: string): boolean {
   return /^[\w-]+:Flash$/.test(key);
-}
-
-/**
- * Phase 8.5 — promote string-typed tags whose name and value both look like
- * a date/time to the DateTime editor.
- *
- * `exiftool -listx` returns `type='string'` for several date-bearing tags
- * because XMP doesn't constrain them at the schema level.  When the tag
- * name matches a date keyword AND the current value matches the exiftool
- * canonical date form, the user gets a real date picker instead of a free-
- * form text input.  The check is deliberately conservative: a string value
- * that doesn't match the pattern leaves the editor as plain text so we
- * never block a user typing a partial value.
- *
- * Date keywords: `Date`, `Time`, `When`, `Created`, `Modified`.  Pattern
- * mirrors exiftool's `YYYY:MM:DD HH:MM:SS[.s][±HH:MM]` (date-only and
- * time-only forms also accepted).
- */
-const DATE_NAME_RX = /(Date|Time|When|Created|Modified)/i;
-const DATE_VALUE_RX =
-  /^\d{4}:\d{2}:\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})?)?$/;
-
-export function isDateTimeNamePattern(key: string, value: unknown): boolean {
-  if (typeof value !== "string" || value.trim() === "") return false;
-  // Match the part after the group prefix so `XMP-xmp:CreateDate` lights up
-  // on `CreateDate`.  Falls back to the full key if no `:` present.
-  const namePart = key.includes(":") ? key.split(":").slice(-1)[0] : key;
-  if (!DATE_NAME_RX.test(namePart)) return false;
-  return DATE_VALUE_RX.test(value.trim());
 }

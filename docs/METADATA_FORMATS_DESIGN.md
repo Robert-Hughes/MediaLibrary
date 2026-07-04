@@ -190,17 +190,18 @@ The edit dialog is a router on `TagKind` from the registry. Each kind has a dedi
 
 The editor router is generic over `TagKind`. Each kind's editor delegates back to the router for any inner kind. That means arbitrary nesting works without special cases: a `Bag<Struct>` renders as a chip-list of expandable sub-forms, a `Seq<LangAlt>` as an ordered list of language-tab strips, a `Struct` whose field is itself a `Bag<Text>` as a sub-form containing a chip editor. No depth limit. Face-region markup (`XMP-mwg-rs:Regions`, a Bag of structs with per-face name/area sub-fields) works through the same router as a flat string tag.
 
-Temporal metadata is intentionally split into three first-class schema kinds. `Date` represents date-only values, `Time` represents time-only values, and `DateTime` represents full timestamps. This keeps the UI faithful to the underlying storage: a tag that only stores an IPTC IIM date should not ask the user for a time, and a tag that only stores an IPTC IIM time should not ask for a calendar date.
+Temporal metadata is intentionally split into three first-class schema kinds. `Date` represents date-only values, `Time` represents time-only values, and `DateTime` represents full timestamps. This keeps the UI faithful to the underlying storage: a tag that only stores an IPTC IIM date should not ask the user for a time, and a tag that only stores an IPTC IIM time should not ask for a calendar date. Temporal editor selection comes only from `TagInfo.kind`; the frontend does not infer temporal meaning from a tag name or the current value.
 
 ### Special-case overrides
 
-A small set of tags exiftool's `-listx` describes too thinly to drive a good editor. These have hardcoded overrides:
+A small set of editor behaviors cannot sensibly live in the static tag schema because they combine multiple tags or reinterpret a packed value. These have frontend routing overrides:
 
 - **GPS coordinates**: `GPS*Latitude`, `GPS*Longitude`, `GPS*Altitude` get a DMS / decimal composite editor. App owns the conversion math — fixed, not version-dependent.
 - **`Flash`**: bitfield editor with checkboxes per bit (fired / return-detected / red-eye / function), plus mode sub-enum. Bit layout hardcoded per exiftool documentation. Computed code preview shown.
-- **Datetimes** where listx returns `string`: name-matched (`*Date*`, `*Time*`) and value-pattern-matched, then upgraded to datetime editor.
 
-The override list lives in one file (`src/metadata/tag_overrides.ts`). Adding a new override is a single-file change.
+The frontend override list lives in one file (`src/metadata/tag_overrides.ts`). Adding a new frontend override is a single-file change.
+
+Known temporal tags that `-listx` reports as `string` are promoted in the backend schema override table in `src-tauri/src/tag_schema.rs`, for example common XMP create/modify/metadata timestamp fields. Those tags then flow through the same schema-driven badge, editor, write-back, and verification paths as every other `DateTime` tag.
 
 #### GPS paired tags
 

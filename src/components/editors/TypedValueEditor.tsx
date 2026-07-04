@@ -1,13 +1,13 @@
 // Schema-aware editor router.
 //
 // Picks an editor component based on the tag's TagKind plus a small set of
-// name- and pattern-based overrides centralised in
+// explicit editor overrides centralised in
 // `src/metadata/tag_overrides.ts`.  See METADATA_FORMATS_DESIGN.md §5 for
 // the full table.
 //
 // Lookup precedence (Phase 8):
 //
-//   1. Override matchers (Flash, GPS, date-name pattern).  These win even
+//   1. Override matchers (Flash, GPS).  These win even
 //      against the schema kind because the override editor is materially
 //      better than what the schema would produce.
 //   2. Schema TagKind.  Drives the regular editor table.
@@ -46,11 +46,7 @@ import {
   initialItemsFromVariant,
 } from "./editorHelpers";
 
-import {
-  gpsTagGroup,
-  isFlashTag,
-  isDateTimeNamePattern,
-} from "../../metadata/tag_overrides";
+import { gpsTagGroup, isFlashTag } from "../../metadata/tag_overrides";
 import { EditorMetaHint, type EditorMetaSource } from "./EditorMetaHint";
 
 interface Props {
@@ -439,32 +435,6 @@ export function TypedValueEditor({
         readOnly={readOnly}
         headerHint={schemaHint(
           "Routing as Struct because the read value is a nested object",
-        )}
-      />
-    );
-  }
-
-  // ── Phase 8.5: date-name pattern upgrade. ─────────────────────────────
-  // Tag is Text per schema, but its name and value both look like a date —
-  // give the user a real date picker instead of a free-form text box.
-  //
-  // Use `initialString` (display view) rather than `initialVariant` (raw).
-  // raw_metadata for date tags is often a number (e.g. exiftool's -n form
-  // for some camera fields) which would never match the YYYY:MM:DD…
-  // pattern; the display view is the canonical exiftool date string.
-  if (
-    (!tag || tag.kind.kind === "Text" || tag.kind.kind === "Unknown") &&
-    isDateTimeNamePattern(propertyKey, initialString)
-  ) {
-    return (
-      <DateTimeEditor
-        propertyKey={propertyKey}
-        initialValue={initialString}
-        onSave={onSave}
-        onCancel={onCancel}
-        readOnly={readOnly}
-        headerHint={schemaHint(
-          "Upgraded to a date picker because the name and value look like a date",
         )}
       />
     );

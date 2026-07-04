@@ -424,7 +424,7 @@ fn read_exiftool_version() -> Result<String, SchemaError> {
 // Bump this when the logic that converts ExifTool `-listx` XML into our
 // `TagKind` model changes in a way that should invalidate existing schema
 // cache files, even if the ExifTool version itself did not change.
-const TAG_SCHEMA_PARSER_VERSION: u32 = 3;
+const TAG_SCHEMA_PARSER_VERSION: u32 = 4;
 
 fn cache_path_for(version: &str) -> Option<std::path::PathBuf> {
     let dir = dirs::cache_dir()?;
@@ -992,6 +992,11 @@ mod tests {
     }
 
     #[test]
+    fn schema_parser_cache_version_is_current() {
+        assert_eq!(TAG_SCHEMA_PARSER_VERSION, 4);
+    }
+
+    #[test]
     fn modify_date_is_datetime() {
         let r = fixture_registry();
         let t = r.lookup("IFD0:ModifyDate").unwrap();
@@ -1195,10 +1200,10 @@ mod tests {
     #[test]
     fn cache_path_sanitises_version_string() {
         let p = cache_path_for("13.57").unwrap();
-        assert!(p.to_string_lossy().contains("tag_schema_p3_13.57.json"));
+        assert!(p.to_string_lossy().contains("tag_schema_p4_13.57.json"));
         let p2 = cache_path_for("13/57 weird!").unwrap();
         let s = p2.to_string_lossy().into_owned();
-        assert!(s.contains("tag_schema_p3_13_57_weird_.json"));
+        assert!(s.contains("tag_schema_p4_13_57_weird_.json"));
         assert!(
             !s.contains('/') || s.contains("MediaLibrary"),
             "no stray slashes in version segment"
