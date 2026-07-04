@@ -6,7 +6,7 @@ describe("ColumnSelectionDialog alphabetical sorting", () => {
     const allKeys = [
       { key: "XMP-dc:Subject", count: 5 },
       { key: "IFD0:Model", count: 10 }, // Higher count but should come after A-M
-      { key: "EXIF:DateTimeOriginal", count: 15 }, // Highest count but should come first alphabetically
+      { key: "ExifIFD:DateTimeOriginal", count: 15 }, // Highest count but should come first alphabetically
       { key: "GPS:GPSLatitude", count: 3 },
       { key: "IFD0:Make", count: 8 },
     ];
@@ -21,7 +21,7 @@ describe("ColumnSelectionDialog alphabetical sorting", () => {
     );
 
     // Check that each field appears in the document
-    expect(screen.getByText("EXIF:DateTimeOriginal")).toBeInTheDocument();
+    expect(screen.getByText("ExifIFD:DateTimeOriginal")).toBeInTheDocument();
     expect(screen.getByText("GPS:GPSLatitude")).toBeInTheDocument();
     expect(screen.getByText("IFD0:Make")).toBeInTheDocument();
     expect(screen.getByText("IFD0:Model")).toBeInTheDocument();
@@ -36,7 +36,7 @@ describe("ColumnSelectionDialog alphabetical sorting", () => {
 
     // Should be in alphabetical order
     const expectedOrder = [
-      "EXIF:DateTimeOriginal",
+      "ExifIFD:DateTimeOriginal",
       "GPS:GPSLatitude",
       "IFD0:Make",
       "IFD0:Model",
@@ -81,7 +81,7 @@ describe("ColumnSelectionDialog alphabetical sorting", () => {
     const allKeys = [
       { key: "xmp-dc:Subject", count: 5 },
       { key: "IFD0:Model", count: 10 },
-      { key: "EXIF:DateTimeOriginal", count: 15 },
+      { key: "ExifIFD:DateTimeOriginal", count: 15 },
       { key: "gps:GPSLatitude", count: 3 },
     ];
 
@@ -102,7 +102,7 @@ describe("ColumnSelectionDialog alphabetical sorting", () => {
 
     // Should be sorted case-insensitively
     expect(labelTexts).toEqual([
-      "EXIF:DateTimeOriginal",
+      "ExifIFD:DateTimeOriginal",
       "gps:GPSLatitude",
       "IFD0:Model",
       "xmp-dc:Subject",

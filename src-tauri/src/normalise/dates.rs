@@ -2,10 +2,10 @@
 //!
 //! Plan §1 Group H. Two sub-groups, treated independently:
 //!
-//!   H1 Shutter time   — `EXIF:DateTimeOriginal` is primary; mirrors
+//!   H1 Shutter time   — `ExifIFD:DateTimeOriginal` is primary; mirrors
 //!                       are `XMP-photoshop:DateCreated`,
 //!                       `IPTC:DateCreated` + `IPTC:TimeCreated`.
-//!   H2 Digitised time — `EXIF:CreateDate` is primary; mirrors are
+//!   H2 Digitised time — `ExifIFD:CreateDate` is primary; mirrors are
 //!                       `XMP-xmp:CreateDate`,
 //!                       `IPTC:DigitalCreationDate` +
 //!                       `IPTC:DigitalCreationTime`.
@@ -282,7 +282,7 @@ pub struct DatesOutcome {
     pub n_dto_from_filename_date_only: u32,
 }
 
-/// Filename-regex fallback for missing H1 (`EXIF:DateTimeOriginal`).
+/// Filename-regex fallback for missing H1 (`ExifIFD:DateTimeOriginal`).
 /// Returns `(ParsedDateTime, date_only_flag)` on a match.
 fn parse_filename_for_h1(stem: &str) -> Option<(ParsedDateTime, bool)> {
     static PATTERNS: OnceLock<Vec<(regex::Regex, bool, bool)>> = OnceLock::new();
@@ -454,7 +454,7 @@ pub fn normalise_dates(input: &DatesInput) -> DatesOutcome {
         xmp_parsed.as_ref(),
         iptc_split.as_ref(),
         canonical_override.as_ref(),
-        "EXIF:DateTimeOriginal",
+        "ExifIFD:DateTimeOriginal",
         "XMP-photoshop:DateCreated",
         "IPTC:DateCreated",
         "IPTC:TimeCreated",
@@ -508,7 +508,7 @@ pub fn normalise_dates(input: &DatesInput) -> DatesOutcome {
         xmp2.as_ref(),
         iptc2.as_ref(),
         None,
-        "EXIF:CreateDate",
+        "ExifIFD:CreateDate",
         "XMP-xmp:CreateDate",
         "IPTC:DigitalCreationDate",
         "IPTC:DigitalCreationTime",
@@ -592,7 +592,7 @@ mod tests {
             ..Default::default()
         };
         let out = normalise_dates(&input).output.unwrap();
-        assert!(!out.edits.contains_key("EXIF:DateTimeOriginal"));
+        assert!(!out.edits.contains_key("ExifIFD:DateTimeOriginal"));
         assert_eq!(s(&out, "XMP-photoshop:DateCreated"), "2024-06-15T14:30:45");
         assert_eq!(s(&out, "IPTC:DateCreated"), "2024-06-15");
         assert_eq!(s(&out, "IPTC:TimeCreated"), "14:30:45");
@@ -637,7 +637,7 @@ mod tests {
         let out = normalise_dates(&input).output.unwrap();
         assert!(out.edits.contains_key("XMP-photoshop:DateCreated"));
         assert!(!out.edits.contains_key("XMP-xmp:CreateDate"));
-        assert!(!out.edits.contains_key("EXIF:CreateDate"));
+        assert!(!out.edits.contains_key("ExifIFD:CreateDate"));
     }
 
     #[test]
@@ -703,7 +703,7 @@ mod tests {
         };
         let out = normalise_dates(&input);
         let g = out.output.expect("filename fallback must emit drafts");
-        assert_eq!(s(&g, "EXIF:DateTimeOriginal"), "2024-06-15T14:30:45.123");
+        assert_eq!(s(&g, "ExifIFD:DateTimeOriginal"), "2024-06-15T14:30:45.123");
         assert_eq!(out.n_dto_from_filename, 1);
         assert_eq!(out.n_dto_from_filename_date_only, 0);
     }
@@ -716,7 +716,7 @@ mod tests {
         };
         let out = normalise_dates(&input);
         let g = out.output.unwrap();
-        assert_eq!(s(&g, "EXIF:DateTimeOriginal"), "2024-06-15T14:30:45");
+        assert_eq!(s(&g, "ExifIFD:DateTimeOriginal"), "2024-06-15T14:30:45");
     }
 
     #[test]
@@ -727,7 +727,7 @@ mod tests {
         };
         let out = normalise_dates(&input);
         let g = out.output.unwrap();
-        assert_eq!(s(&g, "EXIF:DateTimeOriginal"), "2024-06-15T00:00:00");
+        assert_eq!(s(&g, "ExifIFD:DateTimeOriginal"), "2024-06-15T00:00:00");
         assert_eq!(out.n_dto_from_filename, 1);
         assert_eq!(out.n_dto_from_filename_date_only, 1);
     }
@@ -740,7 +740,7 @@ mod tests {
         };
         let out = normalise_dates(&input);
         let g = out.output.unwrap();
-        assert_eq!(s(&g, "EXIF:DateTimeOriginal"), "2024-06-15T14:30:45");
+        assert_eq!(s(&g, "ExifIFD:DateTimeOriginal"), "2024-06-15T14:30:45");
         assert_eq!(out.n_dto_from_filename_date_only, 0);
     }
 
@@ -752,7 +752,7 @@ mod tests {
         };
         let out = normalise_dates(&input);
         let g = out.output.unwrap();
-        assert_eq!(s(&g, "EXIF:DateTimeOriginal"), "2024-06-15T14:30:45");
+        assert_eq!(s(&g, "ExifIFD:DateTimeOriginal"), "2024-06-15T14:30:45");
     }
 
     #[test]
@@ -763,7 +763,7 @@ mod tests {
         };
         let out = normalise_dates(&input);
         let g = out.output.unwrap();
-        assert_eq!(s(&g, "EXIF:DateTimeOriginal"), "2024-06-15T14:30:45");
+        assert_eq!(s(&g, "ExifIFD:DateTimeOriginal"), "2024-06-15T14:30:45");
     }
 
     #[test]
@@ -774,7 +774,7 @@ mod tests {
         };
         let out = normalise_dates(&input);
         let g = out.output.unwrap();
-        assert_eq!(s(&g, "EXIF:DateTimeOriginal"), "2024-06-15T14:30:45");
+        assert_eq!(s(&g, "ExifIFD:DateTimeOriginal"), "2024-06-15T14:30:45");
         assert_eq!(out.n_dto_from_filename, 1);
         assert_eq!(out.n_dto_from_filename_date_only, 0);
     }
@@ -832,7 +832,7 @@ mod tests {
             ..Default::default()
         };
         let out = normalise_dates(&input).output.unwrap();
-        assert_eq!(s(&out, "EXIF:DateTimeOriginal"), "2024-06-15T14:30:45");
+        assert_eq!(s(&out, "ExifIFD:DateTimeOriginal"), "2024-06-15T14:30:45");
         assert_eq!(s(&out, "XMP-photoshop:DateCreated"), "2024-06-15T14:30:45");
     }
 }

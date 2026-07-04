@@ -99,7 +99,7 @@ merged, not resolved.
 | Role            | Field                        | Datatype                                                                            |
 | --------------- | ---------------------------- | ----------------------------------------------------------------------------------- |
 | Primary         | `XMP-dc:Description`         | LangAlt (`x-default`)                                                               |
-| Derivative      | `EXIF:ImageDescription`      | ASCII string                                                                        |
+| Derivative      | `IFD0:ImageDescription`      | ASCII string                                                                        |
 | Derivative      | `IPTC:Caption-Abstract`      | string (UTF-8 if `IPTC:CodedCharacterSet=ESC % G`, else ASCII), 2000-char IIM limit |
 | Read-only input | `XMP-mlib:AIDescription`     | string                                                                              |
 | Read-only input | `XMP-mlib:AIInterpretation`  | string                                                                              |
@@ -183,7 +183,7 @@ No AI in this group.
 | Role       | Field            | Datatype                                  |
 | ---------- | ---------------- | ----------------------------------------- |
 | Primary    | `XMP-dc:Creator` | Seq of strings (ordered)                  |
-| Derivative | `EXIF:Artist`    | string (semicolon-separated for multiple) |
+| Derivative | `IFD0:Artist`    | string (semicolon-separated for multiple) |
 | Derivative | `IPTC:By-line`   | repeated string                           |
 
 **Canonical form.** Seq of names. Each name kept verbatim — do not
@@ -198,7 +198,7 @@ preserve first-seen order. No AI.
 | Role       | Field                  | Datatype              |
 | ---------- | ---------------------- | --------------------- |
 | Primary    | `XMP-dc:Rights`        | LangAlt (`x-default`) |
-| Derivative | `EXIF:Copyright`       | ASCII string          |
+| Derivative | `IFD0:Copyright`       | ASCII string          |
 | Derivative | `IPTC:CopyrightNotice` | string                |
 
 **Canonical form.** Single-line copyright string, leading/trailing whitespace
@@ -253,19 +253,19 @@ populate location fields from GPS, run the Reverse Geocode feature first.
 
 ### Group H — Dates
 
-| Sub-group         | Primary                       | Mirrors                                                                       | Semantics                                                                |
-| ----------------- | ----------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| H1 Shutter time   | `EXIF:DateTimeOriginal` (DTO) | `XMP-photoshop:DateCreated`, `IPTC:DateCreated` + `IPTC:TimeCreated`          | Moment shutter fired                                                     |
-| H2 Digitised time | `EXIF:CreateDate`             | `XMP-xmp:CreateDate`, `IPTC:DigitalCreationDate` + `IPTC:DigitalCreationTime` | Moment digital file created (= DTO for born-digital, scan time for film) |
-| H3 Modify time    | (skipped)                     | —                                                                             | Auto-updated by exiftool on every write; do not normalise                |
+| Sub-group         | Primary                          | Mirrors                                                                       | Semantics                                                                |
+| ----------------- | -------------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| H1 Shutter time   | `ExifIFD:DateTimeOriginal` (DTO) | `XMP-photoshop:DateCreated`, `IPTC:DateCreated` + `IPTC:TimeCreated`          | Moment shutter fired                                                     |
+| H2 Digitised time | `ExifIFD:CreateDate`             | `XMP-xmp:CreateDate`, `IPTC:DigitalCreationDate` + `IPTC:DigitalCreationTime` | Moment digital file created (= DTO for born-digital, scan time for film) |
+| H3 Modify time    | (skipped)                        | —                                                                             | Auto-updated by exiftool on every write; do not normalise                |
 
 **Canonical form per sub-group.** ISO 8601 datetime with timezone offset if
 known: `YYYY-MM-DDTHH:MM:SS±HH:MM`. Sub-second precision preserved if any
-source has it (`EXIF:SubSecTimeOriginal` for H1, `SubSecTimeDigitized` for
+source has it (`ExifIFD:SubSecTimeOriginal` for H1, `SubSecTimeDigitized` for
 H2).
 
-**Timezone.** Offset taken from `EXIF:OffsetTimeOriginal` (H1) /
-`EXIF:OffsetTime` (H2) when present. If absent, write the datetime portion
+**Timezone.** Offset taken from `ExifIFD:OffsetTimeOriginal` (H1) /
+`ExifIFD:OffsetTime` (H2) when present. If absent, write the datetime portion
 without offset (do not invent UTC).
 
 **Derivation.**
@@ -468,7 +468,7 @@ User message (JSON):
 {
   "description_sources": {
     "XMP-dc:Description": "...",
-    "EXIF:ImageDescription": "...",
+    "IFD0:ImageDescription": "...",
     "IPTC:Caption-Abstract": "..."
   },
   "ai_context": {

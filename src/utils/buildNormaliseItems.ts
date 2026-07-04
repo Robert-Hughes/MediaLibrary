@@ -161,7 +161,7 @@ export function buildNormaliseItemForPhoto(
   if (groupSet.has("creator")) {
     groupInputs.creator = {
       creator: list(metadata, drafts, "XMP-dc:Creator"),
-      artist: scalar(metadata, drafts, "EXIF:Artist") ?? null,
+      artist: scalar(metadata, drafts, "IFD0:Artist") ?? null,
       byline: list(metadata, drafts, "IPTC:By-line"),
     };
   }
@@ -169,7 +169,7 @@ export function buildNormaliseItemForPhoto(
   if (groupSet.has("copyright")) {
     groupInputs.copyright = {
       rights: scalar(metadata, drafts, "XMP-dc:Rights") ?? null,
-      exifCopyright: scalar(metadata, drafts, "EXIF:Copyright") ?? null,
+      exifCopyright: scalar(metadata, drafts, "IFD0:Copyright") ?? null,
       iptcCopyright: scalar(metadata, drafts, "IPTC:CopyrightNotice") ?? null,
     };
   }
@@ -216,7 +216,7 @@ export function buildNormaliseItemForPhoto(
     groupInputs.description = {
       description: scalar(metadata, drafts, "XMP-dc:Description") ?? null,
       imageDescription:
-        scalar(metadata, drafts, "EXIF:ImageDescription") ?? null,
+        scalar(metadata, drafts, "IFD0:ImageDescription") ?? null,
       captionAbstract:
         scalar(metadata, drafts, "IPTC:Caption-Abstract") ?? null,
       iptcCharsetIsUtf8:
@@ -238,19 +238,19 @@ export function buildNormaliseItemForPhoto(
   if (groupSet.has("dates")) {
     groupInputs.dates = {
       dateTimeOriginal:
-        scalar(metadata, drafts, "EXIF:DateTimeOriginal") ?? null,
+        scalar(metadata, drafts, "ExifIFD:DateTimeOriginal") ?? null,
       offsetTimeOriginal:
-        scalar(metadata, drafts, "EXIF:OffsetTimeOriginal") ?? null,
+        scalar(metadata, drafts, "ExifIFD:OffsetTimeOriginal") ?? null,
       subSecTimeOriginal:
-        scalar(metadata, drafts, "EXIF:SubSecTimeOriginal") ?? null,
+        scalar(metadata, drafts, "ExifIFD:SubSecTimeOriginal") ?? null,
       photoshopDateCreated:
         scalar(metadata, drafts, "XMP-photoshop:DateCreated") ?? null,
       iptcDateCreated: scalar(metadata, drafts, "IPTC:DateCreated") ?? null,
       iptcTimeCreated: scalar(metadata, drafts, "IPTC:TimeCreated") ?? null,
-      createDate: scalar(metadata, drafts, "EXIF:CreateDate") ?? null,
-      offsetTime: scalar(metadata, drafts, "EXIF:OffsetTime") ?? null,
+      createDate: scalar(metadata, drafts, "ExifIFD:CreateDate") ?? null,
+      offsetTime: scalar(metadata, drafts, "ExifIFD:OffsetTime") ?? null,
       subSecTimeDigitized:
-        scalar(metadata, drafts, "EXIF:SubSecTimeDigitized") ?? null,
+        scalar(metadata, drafts, "ExifIFD:SubSecTimeDigitized") ?? null,
       xmpCreateDate: scalar(metadata, drafts, "XMP-xmp:CreateDate") ?? null,
       iptcDigitalCreationDate:
         scalar(metadata, drafts, "IPTC:DigitalCreationDate") ?? null,

@@ -10,12 +10,12 @@ use crate::scanner::Variant;
 use std::collections::{HashMap, HashSet};
 
 /// Target tags written by Group E. Coherent-replacement rule (plan §4).
-pub const CREATOR_TARGET_TAGS: &[&str] = &["XMP-dc:Creator", "EXIF:Artist", "IPTC:By-line"];
+pub const CREATOR_TARGET_TAGS: &[&str] = &["XMP-dc:Creator", "IFD0:Artist", "IPTC:By-line"];
 
-/// Separator used by `EXIF:Artist` when multiple names are present.
+/// Separator used by `IFD0:Artist` when multiple names are present.
 const ARTIST_SEPARATOR: &str = "; ";
 
-/// Parse `EXIF:Artist` into the list of names it represents.
+/// Parse `IFD0:Artist` into the list of names it represents.
 fn parse_artist(s: &str) -> Vec<String> {
     s.split(';')
         .map(str::trim)
@@ -76,7 +76,7 @@ pub fn normalise_creator(input: &CreatorInput) -> Option<GroupOutput> {
     let mut edits: HashMap<String, DraftEdit> = HashMap::new();
     edits.insert("XMP-dc:Creator".to_string(), bag_edit(&canonical));
     edits.insert(
-        "EXIF:Artist".to_string(),
+        "IFD0:Artist".to_string(),
         DraftEdit {
             value: Some(Variant::String(canonical.join(ARTIST_SEPARATOR))),
             intent: EditIntent::Set,
@@ -127,7 +127,7 @@ mod tests {
                 .map(String::from)
                 .collect::<Vec<_>>(),
         );
-        assert_eq!(string(&out, "EXIF:Artist"), "Alice; Bob; Carol; Dave");
+        assert_eq!(string(&out, "IFD0:Artist"), "Alice; Bob; Carol; Dave");
         assert_eq!(
             list(&out, "IPTC:By-line"),
             vec!["Alice", "Bob", "Carol", "Dave"]
@@ -202,7 +202,7 @@ mod tests {
             ..Default::default()
         };
         let out = normalise_creator(&input).unwrap();
-        assert_eq!(string(&out, "EXIF:Artist"), "Alice");
+        assert_eq!(string(&out, "IFD0:Artist"), "Alice");
         assert_eq!(list(&out, "IPTC:By-line"), vec!["Alice".to_string()]);
     }
 

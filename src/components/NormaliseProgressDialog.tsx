@@ -116,7 +116,7 @@ function groupBehaviourSummary(g: NormaliseGroup): string {
     case "keywords":
       return "Splits hierarchical paths, normalises whitespace and casing, deduplicates, and mirrors the canonical set across all three keyword tags.";
     case "creator":
-      return "Picks a canonical creator list (primary: XMP-dc:Creator) and writes it back to the three creator tags, splitting EXIF:Artist on semicolons.";
+      return "Picks a canonical creator list (primary: XMP-dc:Creator) and writes it back to the three creator tags, splitting IFD0:Artist on semicolons.";
     case "copyright":
       return "Picks the canonical copyright string (primary: XMP-dc:Rights) and mirrors it into the EXIF and IPTC copyright tags.";
     case "headline":
@@ -126,7 +126,7 @@ function groupBehaviourSummary(g: NormaliseGroup): string {
     case "location":
       return "Synchronises the five XMP↔IIM mirror pairs (Sub-location, City, State, Country, CountryCode); XMP side wins on disagreement.";
     case "dates":
-      return "Normalises EXIF:DateTimeOriginal + EXIF:CreateDate to ISO 8601 and mirrors them into the XMP and IPTC date/time tags. Falls back to parsing the filename when DTO is missing.";
+      return "Normalises ExifIFD:DateTimeOriginal + ExifIFD:CreateDate to ISO 8601 and mirrors them into the XMP and IPTC date/time tags. Falls back to parsing the filename when DTO is missing.";
     case "description":
       return "Picks a canonical description from the three description tags. When they disagree or only some are populated, calls the AI to merge them into a single coherent caption.";
   }

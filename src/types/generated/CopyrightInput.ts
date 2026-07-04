@@ -9,7 +9,7 @@ export type CopyrightInput = {
  */
 rights: string | null, 
 /**
- * `EXIF:Copyright` (ASCII string).
+ * `IFD0:Copyright` (ASCII string).
  */
 exifCopyright: string | null, 
 /**

@@ -169,7 +169,7 @@ describe("DateTimeEditor", () => {
     const onSave = vi.fn();
     render(
       <DateTimeEditor
-        propertyKey="EXIF:DateTimeOriginal"
+        propertyKey="ExifIFD:DateTimeOriginal"
         initialValue="2024:01:15 14:30:00"
         onSave={onSave}
         onCancel={() => {}}

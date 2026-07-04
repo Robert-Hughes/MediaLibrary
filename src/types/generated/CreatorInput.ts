@@ -9,7 +9,7 @@ export type CreatorInput = {
  */
 creator: Array<string>, 
 /**
- * `EXIF:Artist` — single string, semicolon-separated when there
+ * `IFD0:Artist` — single string, semicolon-separated when there
  * are multiple names. `None` when absent.
  */
 artist: string | null, 

@@ -15,7 +15,7 @@
 
 use crate::draft_edits::{DraftEdit, EditIntent};
 use crate::scanner::Variant;
-use crate::tag_schema::{EnumRepr, TagInfo, TagKind};
+use crate::tag_schema::{DateWireShape, EnumRepr, TagInfo, TagKind};
 
 /// Output of `build_args` for one draft edit.
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -158,8 +158,12 @@ fn build_set(tag: &str, info: Option<&TagInfo>, value: Option<&Variant>) -> Buil
         // PrintConv-parse a localised string back into the field.  This
         // matches the worked example in design §5 and avoids surprises when
         // the system locale would otherwise reformat the string.
-        (Some(TagKind::DateTime), Some(v)) => BuiltArgs {
-            numeric: vec![format!("-{}={}", tag, render_scalar_text(v))],
+        (Some(TagKind::DateTime { shape }), Some(v)) => BuiltArgs {
+            numeric: vec![format!(
+                "-{}={}",
+                tag,
+                render_datetime_for_shape(v, Some(*shape))
+            )],
             text: vec![],
         },
         // Struct: emit using exiftool's -struct serialization, NOT JSON.
@@ -178,7 +182,11 @@ fn build_set(tag: &str, info: Option<&TagInfo>, value: Option<&Variant>) -> Buil
         // Unknown / Text / Alt / fallback (no schema): text group.
         (_, Some(v)) => BuiltArgs {
             numeric: vec![],
-            text: vec![format!("-{}={}", tag, render_scalar_text(v))],
+            text: vec![format!(
+                "-{}={}",
+                tag,
+                render_datetime_for_shape(v, date_wire_shape(info))
+            )],
         },
     }
 }
@@ -327,6 +335,110 @@ fn render_scalar_numeric(v: &Variant) -> String {
     }
 }
 
+fn render_datetime_for_shape(v: &Variant, shape: Option<DateWireShape>) -> String {
+    normalise_storage_variant_for_shape(v, shape)
+}
+
+pub(crate) fn normalise_storage_variant_for_shape(
+    value: &Variant,
+    shape: Option<DateWireShape>,
+) -> String {
+    let text = render_scalar_text(value);
+    normalise_storage_string_for_shape(&text, shape)
+}
+
+fn normalise_storage_string_for_shape(value: &str, shape: Option<DateWireShape>) -> String {
+    match shape {
+        Some(DateWireShape::DateOnly) => normalise_iptc_date(value),
+        Some(DateWireShape::TimeOnly) => normalise_iptc_time(value),
+        Some(DateWireShape::FullDateTime) => normalise_exif_datetime(value),
+        None => value.to_string(),
+    }
+}
+
+pub(crate) fn date_wire_shape(info: Option<&TagInfo>) -> Option<DateWireShape> {
+    match info.map(|i| &i.kind) {
+        Some(TagKind::DateTime { shape }) => Some(*shape),
+        _ => None,
+    }
+}
+
+fn normalise_iptc_date(s: &str) -> String {
+    let s = s.trim();
+    if s.len() >= 10
+        && s[0..4].chars().all(|c| c.is_ascii_digit())
+        && s[5..7].chars().all(|c| c.is_ascii_digit())
+        && s[8..10].chars().all(|c| c.is_ascii_digit())
+        && (&s[4..5] == "-" || &s[4..5] == ":")
+        && (&s[7..8] == "-" || &s[7..8] == ":")
+    {
+        return format!("{}:{}:{}", &s[0..4], &s[5..7], &s[8..10]);
+    }
+    s.to_string()
+}
+
+fn normalise_iptc_time(s: &str) -> String {
+    let s = s.trim();
+    if s.len() < 8 {
+        return s.to_string();
+    }
+    let time = &s[..8];
+    if !time[0..2].chars().all(|c| c.is_ascii_digit())
+        || &time[2..3] != ":"
+        || !time[3..5].chars().all(|c| c.is_ascii_digit())
+        || &time[5..6] != ":"
+        || !time[6..8].chars().all(|c| c.is_ascii_digit())
+    {
+        return s.to_string();
+    }
+    let rest = &s[8..];
+    if rest.len() == 6 && (rest.starts_with('+') || rest.starts_with('-')) {
+        return s.to_string();
+    }
+    if rest.len() == 5 && (rest.starts_with('+') || rest.starts_with('-')) {
+        return format!("{}{}:{}", time, &rest[..3], &rest[3..]);
+    }
+    if rest.is_empty() {
+        return format!("{}{}", time, local_offset_now());
+    }
+    s.to_string()
+}
+
+fn normalise_exif_datetime(s: &str) -> String {
+    let s = s.trim();
+    if s.len() < 19 {
+        return s.to_string();
+    }
+    let date = normalise_iptc_date(s);
+    if date.len() != 10 {
+        return s.to_string();
+    }
+    let sep = &s[10..11];
+    if sep != "T" && sep != " " {
+        return s.to_string();
+    }
+    let time = &s[11..19];
+    if time[0..2].chars().all(|c| c.is_ascii_digit())
+        && &time[2..3] == ":"
+        && time[3..5].chars().all(|c| c.is_ascii_digit())
+        && &time[5..6] == ":"
+        && time[6..8].chars().all(|c| c.is_ascii_digit())
+    {
+        format!("{} {}", date, time)
+    } else {
+        s.to_string()
+    }
+}
+
+fn local_offset_now() -> String {
+    let offset = chrono::Local::now().offset().local_minus_utc();
+    let sign = if offset < 0 { '-' } else { '+' };
+    let abs = offset.abs();
+    let hours = abs / 3600;
+    let minutes = (abs % 3600) / 60;
+    format!("{}{:02}:{:02}", sign, hours, minutes)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -334,9 +446,13 @@ mod tests {
     use std::collections::BTreeMap;
 
     fn info(kind: TagKind) -> TagInfo {
+        info_named("X", "Y", kind)
+    }
+
+    fn info_named(group: &str, name: &str, kind: TagKind) -> TagInfo {
         TagInfo {
-            group: "X".to_string(),
-            name: "Y".to_string(),
+            group: group.to_string(),
+            name: name.to_string(),
             writable: true,
             kind,
             description: None,
@@ -602,15 +718,55 @@ mod tests {
     fn datetime_uses_numeric_group() {
         // Phase 8.7: design §6 puts DateTime in the -n group so the literal
         // YYYY:MM:DD HH:MM:SS±ZZ:ZZ form bypasses PrintConv re-parsing.
-        let i = info(TagKind::DateTime);
+        let i = info(TagKind::DateTime {
+            shape: DateWireShape::FullDateTime,
+        });
         let args = build_args(
-            "EXIF:DateTimeOriginal",
+            "ExifIFD:DateTimeOriginal",
             Some(&i),
-            &set(Variant::String("2026:05:15 10:30:00".into())),
+            &set(Variant::String("2026-05-15T10:30:00".into())),
         );
         assert_eq!(
             args.numeric,
-            vec!["-EXIF:DateTimeOriginal=2026:05:15 10:30:00"]
+            vec!["-ExifIFD:DateTimeOriginal=2026:05:15 10:30:00"]
+        );
+        assert!(args.text.is_empty());
+    }
+
+    #[test]
+    fn iptc_date_renders_storage_format() {
+        let i = info_named(
+            "IPTC",
+            "DateCreated",
+            TagKind::DateTime {
+                shape: DateWireShape::DateOnly,
+            },
+        );
+        let args = build_args(
+            "IPTC:DateCreated",
+            Some(&i),
+            &set(Variant::String("2026-05-15".into())),
+        );
+        assert_eq!(args.numeric, vec!["-IPTC:DateCreated=2026:05:15"]);
+    }
+
+    #[test]
+    fn iptc_time_without_offset_adds_local_offset() {
+        let i = info_named(
+            "IPTC",
+            "TimeCreated",
+            TagKind::DateTime {
+                shape: DateWireShape::TimeOnly,
+            },
+        );
+        let args = build_args(
+            "IPTC:TimeCreated",
+            Some(&i),
+            &set(Variant::String("10:30:00".into())),
+        );
+        assert_eq!(
+            args.numeric,
+            vec![format!("-IPTC:TimeCreated=10:30:00{}", local_offset_now())]
         );
         assert!(args.text.is_empty());
     }
