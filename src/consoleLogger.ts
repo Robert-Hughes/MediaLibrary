@@ -56,7 +56,7 @@ export function setupConsoleLogging() {
   const make =
     (level: "log" | "info" | "warn" | "error") =>
     (...args: unknown[]) => {
-      originalConsole[level](...(args as any[]));
+      originalConsole[level](...args);
       invoke("log_to_console", { level, message: formatArgs(args) }).catch(
         () => {},
       );
