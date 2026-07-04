@@ -16,11 +16,8 @@ import {
   datatypesMatch,
 } from "../utils/datatype";
 import { NewPropertyDialog } from "./NewPropertyDialog";
-import {
-  MetadataEntry,
-  groupImageMetadata,
-  getOsEntries,
-} from "../utils/detailsPaneHelpers";
+import type { MetadataEntry } from "../utils/detailsPaneHelpers";
+import { groupImageMetadata, getOsEntries } from "../utils/detailsPaneHelpers";
 import {
   haystackContainsNormalized,
   normalizeListSearchQuery,
