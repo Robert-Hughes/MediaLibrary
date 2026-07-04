@@ -188,7 +188,7 @@ pub struct CreatorInput {
     /// `XMP-dc:Creator` — Seq of strings (ordered, primary).
     #[serde(default)]
     pub creator: Vec<String>,
-    /// `EXIF:Artist` — single string, semicolon-separated when there
+    /// `IFD0:Artist` — single string, semicolon-separated when there
     /// are multiple names. `None` when absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub artist: Option<String>,
@@ -206,7 +206,7 @@ pub struct CopyrightInput {
     /// `XMP-dc:Rights` (LangAlt x-default, primary).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rights: Option<String>,
-    /// `EXIF:Copyright` (ASCII string).
+    /// `IFD0:Copyright` (ASCII string).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exif_copyright: Option<String>,
     /// `IPTC:CopyrightNotice`.
@@ -316,13 +316,13 @@ pub struct LocationInput {
 #[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
 pub struct DatesInput {
     // ── H1: Shutter time ──
-    /// `EXIF:DateTimeOriginal` (primary).
+    /// `ExifIFD:DateTimeOriginal` (primary).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub date_time_original: Option<String>,
-    /// `EXIF:OffsetTimeOriginal` — `"+01:00"` etc.
+    /// `ExifIFD:OffsetTimeOriginal` — `"+01:00"` etc.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub offset_time_original: Option<String>,
-    /// `EXIF:SubSecTimeOriginal` — fractional seconds digits, e.g.
+    /// `ExifIFD:SubSecTimeOriginal` — fractional seconds digits, e.g.
     /// `"123"` meaning `.123`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sub_sec_time_original: Option<String>,
@@ -337,13 +337,13 @@ pub struct DatesInput {
     pub iptc_time_created: Option<String>,
 
     // ── H2: Digitised time ──
-    /// `EXIF:CreateDate` (primary).
+    /// `ExifIFD:CreateDate` (primary).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub create_date: Option<String>,
-    /// `EXIF:OffsetTime` — paired with `CreateDate` per EXIF spec.
+    /// `ExifIFD:OffsetTime` — paired with `CreateDate` per EXIF spec.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub offset_time: Option<String>,
-    /// `EXIF:SubSecTimeDigitized` — fractional-seconds digits for H2.
+    /// `ExifIFD:SubSecTimeDigitized` — fractional-seconds digits for H2.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sub_sec_time_digitized: Option<String>,
     /// `XMP-xmp:CreateDate` — full ISO datetime mirror.
@@ -377,7 +377,7 @@ pub struct DescriptionInput {
     /// `XMP-dc:Description` (LangAlt x-default, primary target).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-    /// `EXIF:ImageDescription` (ASCII string, derivative target).
+    /// `IFD0:ImageDescription` (ASCII string, derivative target).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub image_description: Option<String>,
     /// `IPTC:Caption-Abstract` (string, 2000-char IIM limit;

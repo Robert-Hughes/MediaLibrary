@@ -99,7 +99,7 @@ describe("buildNormaliseItemForPhoto — creator", () => {
   it("packs Seq creator + scalar artist + Seq byline", () => {
     const m: Record<string, Variant> = {
       "XMP-dc:Creator": ["Alice", "Bob"],
-      "EXIF:Artist": "Alice; Bob",
+      "IFD0:Artist": "Alice; Bob",
       "IPTC:By-line": ["Alice"],
     };
     const item = buildNormaliseItemForPhoto("x.jpg", m, undefined, ["creator"]);
@@ -183,9 +183,9 @@ describe("buildNormaliseItemForPhoto — dates", () => {
 
   it("packs all H1 + H2 source fields", () => {
     const m: Record<string, Variant> = {
-      "EXIF:DateTimeOriginal": "2024:06:15 14:30:45",
-      "EXIF:OffsetTimeOriginal": "+01:00",
-      "EXIF:CreateDate": "2024:06:15 14:30:45",
+      "ExifIFD:DateTimeOriginal": "2024:06:15 14:30:45",
+      "ExifIFD:OffsetTimeOriginal": "+01:00",
+      "ExifIFD:CreateDate": "2024:06:15 14:30:45",
     };
     const item = buildNormaliseItemForPhoto("x.jpg", m, undefined, ["dates"]);
     expect(item.groupInputs.dates?.dateTimeOriginal).toBe(

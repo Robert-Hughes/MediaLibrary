@@ -432,7 +432,9 @@ describe("NormaliseProgressDialog — awaiting-confirm", () => {
     );
     const datesLabel = screen.getByTestId("normalise-group-dates-label");
     expect(datesLabel).toHaveTextContent(/^Dates$/);
-    expect(datesLabel.getAttribute("title")).toMatch(/EXIF:DateTimeOriginal/);
+    expect(datesLabel.getAttribute("title")).toMatch(
+      /ExifIFD:DateTimeOriginal/,
+    );
     const locLabel = screen.getByTestId("normalise-group-location-label");
     expect(locLabel).toHaveTextContent(/^Location$/);
     expect(locLabel.getAttribute("title")).toMatch(/XMP-iptcCore:Location/);

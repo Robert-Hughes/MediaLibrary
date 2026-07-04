@@ -17,7 +17,7 @@ use crate::scanner::Variant;
 use std::collections::HashMap;
 
 pub const COPYRIGHT_TARGET_TAGS: &[&str] =
-    &["XMP-dc:Rights", "EXIF:Copyright", "IPTC:CopyrightNotice"];
+    &["XMP-dc:Rights", "IFD0:Copyright", "IPTC:CopyrightNotice"];
 
 fn derive_copyright_canonical(input: &CopyrightInput) -> Option<String> {
     if let Some(primary) = input.rights.as_deref() {
@@ -86,7 +86,7 @@ mod tests {
         };
         let out = normalise_copyright(&input).unwrap();
         assert_eq!(s(&out, "XMP-dc:Rights"), "© 2025 Acme");
-        assert_eq!(s(&out, "EXIF:Copyright"), "© 2025 Acme");
+        assert_eq!(s(&out, "IFD0:Copyright"), "© 2025 Acme");
         assert_eq!(s(&out, "IPTC:CopyrightNotice"), "© 2025 Acme");
     }
 
@@ -100,7 +100,7 @@ mod tests {
         let out = normalise_copyright(&input).unwrap();
         let want = "© 2025 Acme. All rights reserved.";
         assert_eq!(s(&out, "XMP-dc:Rights"), want);
-        assert_eq!(s(&out, "EXIF:Copyright"), want);
+        assert_eq!(s(&out, "IFD0:Copyright"), want);
         assert_eq!(s(&out, "IPTC:CopyrightNotice"), want);
     }
 

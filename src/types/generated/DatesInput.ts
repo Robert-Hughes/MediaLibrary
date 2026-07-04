@@ -14,15 +14,15 @@
  */
 export type DatesInput = { 
 /**
- * `EXIF:DateTimeOriginal` (primary).
+ * `ExifIFD:DateTimeOriginal` (primary).
  */
 dateTimeOriginal: string | null, 
 /**
- * `EXIF:OffsetTimeOriginal` — `"+01:00"` etc.
+ * `ExifIFD:OffsetTimeOriginal` — `"+01:00"` etc.
  */
 offsetTimeOriginal: string | null, 
 /**
- * `EXIF:SubSecTimeOriginal` — fractional seconds digits, e.g.
+ * `ExifIFD:SubSecTimeOriginal` — fractional seconds digits, e.g.
  * `"123"` meaning `.123`.
  */
 subSecTimeOriginal: string | null, 
@@ -39,15 +39,15 @@ iptcDateCreated: string | null,
  */
 iptcTimeCreated: string | null, 
 /**
- * `EXIF:CreateDate` (primary).
+ * `ExifIFD:CreateDate` (primary).
  */
 createDate: string | null, 
 /**
- * `EXIF:OffsetTime` — paired with `CreateDate` per EXIF spec.
+ * `ExifIFD:OffsetTime` — paired with `CreateDate` per EXIF spec.
  */
 offsetTime: string | null, 
 /**
- * `EXIF:SubSecTimeDigitized` — fractional-seconds digits for H2.
+ * `ExifIFD:SubSecTimeDigitized` — fractional-seconds digits for H2.
  */
 subSecTimeDigitized: string | null, 
 /**

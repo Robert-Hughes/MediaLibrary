@@ -16,7 +16,12 @@ describe("schemaDatatype", () => {
     expect(schemaDatatype({ kind: "Real" })?.code).toBe("R");
     expect(schemaDatatype({ kind: "Rational" })?.code).toBe("Q");
     expect(schemaDatatype({ kind: "Boolean" })?.code).toBe("B");
-    expect(schemaDatatype({ kind: "DateTime" })?.code).toBe("D");
+    expect(
+      schemaDatatype({
+        kind: "DateTime",
+        data: { shape: "FullDateTime" },
+      })?.code,
+    ).toBe("D");
     expect(schemaDatatype({ kind: "Binary" })?.code).toBe("Bin");
   });
 

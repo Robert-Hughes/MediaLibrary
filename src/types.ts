@@ -12,6 +12,7 @@ import type { DraftEdit } from "./types/generated/DraftEdit";
 export type { PhotoInfo, Variant, DraftEdit };
 export type { TagInfo } from "./types/generated/TagInfo";
 export type { TagKind } from "./types/generated/TagKind";
+export type { DateWireShape } from "./types/generated/DateWireShape";
 export type { EnumOption } from "./types/generated/EnumOption";
 export type { EnumRepr } from "./types/generated/EnumRepr";
 export type { EditIntent } from "./types/generated/EditIntent";
@@ -734,13 +735,13 @@ export const NORMALISE_TARGET_TAGS_BY_GROUP: Record<
   keywords: ["XMP-lr:HierarchicalSubject", "XMP-dc:Subject", "IPTC:Keywords"],
   description: [
     "XMP-dc:Description",
-    "EXIF:ImageDescription",
+    "IFD0:ImageDescription",
     "IPTC:Caption-Abstract",
   ],
   title: ["XMP-dc:Title", "IPTC:ObjectName"],
   headline: ["XMP-photoshop:Headline", "IPTC:Headline"],
-  creator: ["XMP-dc:Creator", "EXIF:Artist", "IPTC:By-line"],
-  copyright: ["XMP-dc:Rights", "EXIF:Copyright", "IPTC:CopyrightNotice"],
+  creator: ["XMP-dc:Creator", "IFD0:Artist", "IPTC:By-line"],
+  copyright: ["XMP-dc:Rights", "IFD0:Copyright", "IPTC:CopyrightNotice"],
   location: [
     "XMP-iptcCore:Location",
     "IPTC:Sub-location",
@@ -754,11 +755,11 @@ export const NORMALISE_TARGET_TAGS_BY_GROUP: Record<
     "IPTC:Country-PrimaryLocationCode",
   ],
   dates: [
-    "EXIF:DateTimeOriginal",
+    "ExifIFD:DateTimeOriginal",
     "XMP-photoshop:DateCreated",
     "IPTC:DateCreated",
     "IPTC:TimeCreated",
-    "EXIF:CreateDate",
+    "ExifIFD:CreateDate",
     "XMP-xmp:CreateDate",
     "IPTC:DigitalCreationDate",
     "IPTC:DigitalCreationTime",

@@ -204,7 +204,7 @@ fn count_overwrites_for_group(
             None => 0,
             Some(b) => {
                 list("XMP-dc:Creator", &b.creator)
-                    + scalar("EXIF:Artist", b.artist.as_deref())
+                    + scalar("IFD0:Artist", b.artist.as_deref())
                     + list("IPTC:By-line", &b.byline)
             }
         },
@@ -212,7 +212,7 @@ fn count_overwrites_for_group(
             None => 0,
             Some(b) => {
                 scalar("XMP-dc:Rights", b.rights.as_deref())
-                    + scalar("EXIF:Copyright", b.exif_copyright.as_deref())
+                    + scalar("IFD0:Copyright", b.exif_copyright.as_deref())
                     + scalar("IPTC:CopyrightNotice", b.iptc_copyright.as_deref())
             }
         },
@@ -254,14 +254,14 @@ fn count_overwrites_for_group(
         G::Dates => match &inputs.dates {
             None => 0,
             Some(b) => {
-                scalar("EXIF:DateTimeOriginal", b.date_time_original.as_deref())
+                scalar("ExifIFD:DateTimeOriginal", b.date_time_original.as_deref())
                     + scalar(
                         "XMP-photoshop:DateCreated",
                         b.photoshop_date_created.as_deref(),
                     )
                     + scalar("IPTC:DateCreated", b.iptc_date_created.as_deref())
                     + scalar("IPTC:TimeCreated", b.iptc_time_created.as_deref())
-                    + scalar("EXIF:CreateDate", b.create_date.as_deref())
+                    + scalar("ExifIFD:CreateDate", b.create_date.as_deref())
                     + scalar("XMP-xmp:CreateDate", b.xmp_create_date.as_deref())
                     + scalar(
                         "IPTC:DigitalCreationDate",
@@ -277,7 +277,7 @@ fn count_overwrites_for_group(
             None => 0,
             Some(b) => {
                 scalar("XMP-dc:Description", b.description.as_deref())
-                    + scalar("EXIF:ImageDescription", b.image_description.as_deref())
+                    + scalar("IFD0:ImageDescription", b.image_description.as_deref())
                     + scalar("IPTC:Caption-Abstract", b.caption_abstract.as_deref())
             }
         },

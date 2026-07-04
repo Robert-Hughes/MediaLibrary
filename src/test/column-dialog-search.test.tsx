@@ -5,7 +5,7 @@ import { ColumnSelectionDialog } from "../components/ColumnSelectionDialog";
 
 describe("ColumnSelectionDialog search functionality", () => {
   const allKeys = [
-    { key: "EXIF:DateTimeOriginal", count: 15 },
+    { key: "ExifIFD:DateTimeOriginal", count: 15 },
     { key: "IFD0:Model", count: 10 },
     { key: "IFD0:Make", count: 8 },
     { key: "XMP-dc:Subject", count: 5 },
@@ -46,7 +46,9 @@ describe("ColumnSelectionDialog search functionality", () => {
     expect(screen.getByText("GPS:GPSLatitude")).toBeInTheDocument();
     expect(screen.getByText("GPS:GPSLongitude")).toBeInTheDocument();
     expect(screen.queryByText("IFD0:Model")).not.toBeInTheDocument();
-    expect(screen.queryByText("EXIF:DateTimeOriginal")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("ExifIFD:DateTimeOriginal"),
+    ).not.toBeInTheDocument();
   });
 
   it("search is case insensitive", async () => {
@@ -112,7 +114,7 @@ describe("ColumnSelectionDialog search functionality", () => {
 
     // All columns should be visible again
     expect(screen.getByText("IFD0:Model")).toBeInTheDocument();
-    expect(screen.getByText("EXIF:DateTimeOriginal")).toBeInTheDocument();
+    expect(screen.getByText("ExifIFD:DateTimeOriginal")).toBeInTheDocument();
     expect(screen.getByText("GPS:GPSLatitude")).toBeInTheDocument();
   });
 
@@ -161,7 +163,7 @@ describe("ColumnSelectionDialog search functionality", () => {
     // Search for "Date" - should match DateTimeOriginal
     await userEvent.type(searchInput, "Date");
 
-    expect(screen.getByText("EXIF:DateTimeOriginal")).toBeInTheDocument();
+    expect(screen.getByText("ExifIFD:DateTimeOriginal")).toBeInTheDocument();
     expect(screen.queryByText("IFD0:Model")).not.toBeInTheDocument();
   });
 });

@@ -2,7 +2,7 @@
 //!
 //! Plan §1 Group B. Canonical = single paragraph, sentence-cased,
 //! factual tone, UTF-8 in the LangAlt primary. Derivatives adapt:
-//!   * `EXIF:ImageDescription` is ASCII-folded.
+//!   * `IFD0:ImageDescription` is ASCII-folded.
 //!   * `IPTC:Caption-Abstract` is truncated at 2000 bytes at a word
 //!     boundary; encoding depends on whether the file declares UTF-8
 //!     via `IPTC:CodedCharacterSet`.
@@ -26,7 +26,7 @@ use std::collections::HashMap;
 
 pub const DESCRIPTION_TARGET_TAGS: &[&str] = &[
     "XMP-dc:Description",
-    "EXIF:ImageDescription",
+    "IFD0:ImageDescription",
     "IPTC:Caption-Abstract",
 ];
 
@@ -36,7 +36,7 @@ fn normalise_description_text(s: &str) -> String {
     collapse_whitespace_single_line(s)
 }
 
-/// ASCII-fold for `EXIF:ImageDescription`. Strip diacritics, replace
+/// ASCII-fold for `IFD0:ImageDescription`. Strip diacritics, replace
 /// common smart-quotes / dashes with ASCII equivalents, drop
 /// anything outside the printable ASCII range.
 fn ascii_fold(s: &str) -> String {
@@ -99,7 +99,7 @@ pub fn build_description_merge_prompt(input: &DescriptionInput) -> DescriptionMe
         .as_deref()
         .filter(|s| !s.trim().is_empty())
     {
-        description_sources.insert("EXIF:ImageDescription".into(), s.trim().to_string());
+        description_sources.insert("IFD0:ImageDescription".into(), s.trim().to_string());
     }
     if let Some(s) = input
         .caption_abstract
@@ -211,7 +211,7 @@ pub async fn normalise_description(
 
     let target_sources: Vec<(&str, String)> = vec![
         ("XMP-dc:Description", primary),
-        ("EXIF:ImageDescription", image_desc),
+        ("IFD0:ImageDescription", image_desc),
         ("IPTC:Caption-Abstract", caption),
     ];
     let non_empty: Vec<(&str, String)> = target_sources
@@ -277,7 +277,7 @@ pub async fn normalise_description(
     }
     if input.image_description.as_deref() != Some(projection_image.as_str()) {
         edits.insert(
-            "EXIF:ImageDescription".to_string(),
+            "IFD0:ImageDescription".to_string(),
             DraftEdit {
                 value: Some(Variant::String(projection_image)),
                 intent: EditIntent::Set,
@@ -336,7 +336,7 @@ mod tests {
         };
         let out = normalise_description(&input, None).await;
         let g = out.output.unwrap();
-        assert_eq!(s(&g, "EXIF:ImageDescription"), "A sunset on the bay.");
+        assert_eq!(s(&g, "IFD0:ImageDescription"), "A sunset on the bay.");
         assert_eq!(s(&g, "IPTC:Caption-Abstract"), "A sunset on the bay.");
     }
 
@@ -389,7 +389,7 @@ mod tests {
         };
         let out = normalise_description(&input, None).await;
         let g = out.output.unwrap();
-        assert_eq!(s(&g, "EXIF:ImageDescription"), "Andre Muller's cafe");
+        assert_eq!(s(&g, "IFD0:ImageDescription"), "Andre Muller's cafe");
         assert!(!g.edits.contains_key("XMP-dc:Description"));
     }
 
@@ -507,7 +507,7 @@ mod tests {
             .contains_key("XMP-dc:Description"));
         assert!(!prompt
             .description_sources
-            .contains_key("EXIF:ImageDescription"));
+            .contains_key("IFD0:ImageDescription"));
         assert!(prompt.ai_context.contains_key("XMP-mlib:AIDescription"));
         assert!(prompt.ai_context.contains_key("XMP-mlib:AIOcrText"));
         assert!(prompt.ai_context.contains_key("XMP-mlib:AIObjects"));
@@ -529,7 +529,7 @@ mod tests {
         let first = normalise_description(&input, None).await.output.unwrap();
         let post = DescriptionInput {
             description: Some("A sunset.".into()),
-            image_description: Some(s(&first, "EXIF:ImageDescription")),
+            image_description: Some(s(&first, "IFD0:ImageDescription")),
             caption_abstract: Some(s(&first, "IPTC:Caption-Abstract")),
             ..Default::default()
         };

@@ -4,7 +4,7 @@ import { ColumnSelectionDialog } from "../components/ColumnSelectionDialog";
 
 describe("ColumnSelectionDialog search filters OS metadata fields", () => {
   const allKeys = [
-    { key: "EXIF:DateTimeOriginal", count: 15 },
+    { key: "ExifIFD:DateTimeOriginal", count: 15 },
     { key: "IFD0:Model", count: 10 },
   ];
 
@@ -74,7 +74,7 @@ describe("ColumnSelectionDialog search filters OS metadata fields", () => {
     const searchInput = screen.getByPlaceholderText("Search columns...");
     await userEvent.type(searchInput, "EXIF");
 
-    expect(screen.getByText("EXIF:DateTimeOriginal")).toBeInTheDocument();
+    expect(screen.getByText("ExifIFD:DateTimeOriginal")).toBeInTheDocument();
     expect(screen.queryByText("Date Modified")).not.toBeInTheDocument();
     expect(screen.queryByText("Date Created")).not.toBeInTheDocument();
     // Section header should also be gone

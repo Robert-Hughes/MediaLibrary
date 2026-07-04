@@ -16,7 +16,7 @@ export type DescriptionInput = {
  */
 description: string | null, 
 /**
- * `EXIF:ImageDescription` (ASCII string, derivative target).
+ * `IFD0:ImageDescription` (ASCII string, derivative target).
  */
 imageDescription: string | null, 
 /**
