@@ -25,6 +25,7 @@
 //! `from_legacy` / `to_legacy` for the boundary conversions.  The frontend
 //! migrates to the typed shape in a follow-up phase.
 
+use crate::metadata_value::MetadataValue;
 use crate::scanner::Variant;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -116,6 +117,23 @@ fn variant_to_display(v: Option<&Variant>) -> String {
 
 pub type TypedDraftEdits = HashMap<String, HashMap<String, DraftEdit>>;
 
+// ── v3 semantic model ────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
+pub struct MetadataDraftEdit {
+    pub value: Option<MetadataValue>,
+    pub intent: EditIntent,
+    /// Optional pretty-printed label for UI display only. The persisted value
+    /// remains semantic and must not round-trip through this string.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub display: Option<String>,
+}
+
+pub type MetadataDraftEdits = HashMap<String, HashMap<String, MetadataDraftEdit>>;
+
 // ── On-disk schemas ──────────────────────────────────────────────────────────
 
 #[derive(Serialize, Deserialize)]
@@ -129,6 +147,13 @@ struct V2Line {
     schema_version: u32,
     relative_path: String,
     edits: HashMap<String, DraftEdit>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct V3Line {
+    schema_version: u32,
+    relative_path: String,
+    edits: HashMap<String, MetadataDraftEdit>,
 }
 
 #[derive(Deserialize)]
@@ -282,9 +307,81 @@ pub fn save_typed_draft_edits(folder_path: &str, data: &TypedDraftEdits) -> Resu
     Ok(())
 }
 
+pub fn load_metadata_draft_edits(folder_path: &str) -> Result<MetadataDraftEdits, String> {
+    let path = Path::new(folder_path).join(FILE_NAME);
+    let mut typed: MetadataDraftEdits = HashMap::new();
+
+    if !path.exists() {
+        return Ok(typed);
+    }
+
+    let file = File::open(&path).map_err(|e| e.to_string())?;
+    let reader = BufReader::new(file);
+
+    for line_result in reader.lines() {
+        let line = line_result.map_err(|e| e.to_string())?;
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with("//") {
+            continue;
+        }
+
+        let version = serde_json::from_str::<VersionProbe>(trimmed)
+            .ok()
+            .and_then(|p| p.schema_version)
+            .unwrap_or(1);
+
+        match version {
+            3 => {
+                let parsed = serde_json::from_str::<V3Line>(trimmed)
+                    .map_err(|e| format!("Invalid v3 draft line: {e}"))?;
+                typed.insert(parsed.relative_path, parsed.edits);
+            }
+            other => {
+                return Err(format!(
+                    "Unsupported draft schema_version {other}; recreate draft edits in the current app"
+                ));
+            }
+        }
+    }
+
+    Ok(typed)
+}
+
+pub fn save_metadata_draft_edits(
+    folder_path: &str,
+    data: &MetadataDraftEdits,
+) -> Result<(), String> {
+    let path = Path::new(folder_path).join(FILE_NAME);
+
+    let mut file = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(&path)
+        .map_err(|e| e.to_string())?;
+
+    writeln!(file, "{}", HEADER_COMMENT).map_err(|e| e.to_string())?;
+
+    for (relative_path, edits) in data {
+        if edits.is_empty() {
+            continue;
+        }
+        let line = V3Line {
+            schema_version: 3,
+            relative_path: relative_path.clone(),
+            edits: edits.clone(),
+        };
+        let json_line = serde_json::to_string(&line).map_err(|e| e.to_string())?;
+        writeln!(file, "{}", json_line).map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::metadata_value::{DateValue, MetadataValue, TimeValue};
     use tempfile::tempdir;
 
     fn write_file(folder: &Path, name: &str, contents: &str) {
@@ -563,5 +660,73 @@ mod tests {
         save_typed_draft_edits(dir.path().to_str().unwrap(), &loaded1).unwrap();
         let loaded2 = load_typed_draft_edits(dir.path().to_str().unwrap()).unwrap();
         assert_eq!(loaded1, loaded2);
+    }
+
+    #[test]
+    fn v3_semantic_draft_roundtrip_stores_metadata_value() {
+        let dir = tempdir().unwrap();
+        let mut data: MetadataDraftEdits = HashMap::new();
+        let mut edits = HashMap::new();
+        edits.insert(
+            "IPTC:TimeCreated".to_string(),
+            MetadataDraftEdit {
+                value: Some(MetadataValue::Time(TimeValue {
+                    hour: 10,
+                    minute: 56,
+                    second: 5,
+                    subsecond: None,
+                    offset: None,
+                })),
+                intent: EditIntent::Set,
+                display: Some("10:56:05".to_string()),
+            },
+        );
+        edits.insert(
+            "IPTC:DateCreated".to_string(),
+            MetadataDraftEdit {
+                value: Some(MetadataValue::Date(DateValue {
+                    year: 2026,
+                    month: 7,
+                    day: 4,
+                })),
+                intent: EditIntent::Set,
+                display: None,
+            },
+        );
+        data.insert("a.jpg".to_string(), edits);
+
+        save_metadata_draft_edits(dir.path().to_str().unwrap(), &data).unwrap();
+        let contents = read_file(dir.path(), FILE_NAME);
+        assert!(contents.contains("\"schema_version\":3"), "{contents}");
+        assert!(contents.contains("\"kind\":\"Time\""), "{contents}");
+        assert!(contents.contains("\"kind\":\"Date\""), "{contents}");
+
+        let loaded = load_metadata_draft_edits(dir.path().to_str().unwrap()).unwrap();
+        assert_eq!(loaded, data);
+    }
+
+    #[test]
+    fn v3_loader_rejects_v2_without_migration() {
+        let dir = tempdir().unwrap();
+        write_file(
+            dir.path(),
+            FILE_NAME,
+            "{\"schema_version\":2,\"relative_path\":\"a.jpg\",\"edits\":{\"k\":{\"value\":\"v\",\"intent\":\"Set\"}}}\n",
+        );
+        let err = load_metadata_draft_edits(dir.path().to_str().unwrap()).unwrap_err();
+        assert!(err.contains("Unsupported draft schema_version 2"), "{err}");
+        assert!(err.contains("recreate draft edits"), "{err}");
+    }
+
+    #[test]
+    fn v3_loader_rejects_v1_without_migration() {
+        let dir = tempdir().unwrap();
+        write_file(
+            dir.path(),
+            FILE_NAME,
+            "{\"relative_path\":\"a.jpg\",\"edits\":{\"k\":\"v\"}}\n",
+        );
+        let err = load_metadata_draft_edits(dir.path().to_str().unwrap()).unwrap_err();
+        assert!(err.contains("Unsupported draft schema_version 1"), "{err}");
     }
 }
