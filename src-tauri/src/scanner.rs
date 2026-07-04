@@ -12,6 +12,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use walkdir::WalkDir;
 
+use crate::metadata_value::{parse_metadata_value, MetadataValue};
+
 // ── ExifTool executable name ──────────────────────────────────────────────────
 
 pub(crate) fn find_exiftool() -> &'static str {
@@ -97,6 +99,8 @@ pub struct ImageMetadata {
     pub relative_path: String,
     pub metadata: HashMap<String, Variant>,
     pub raw_metadata: HashMap<String, Variant>,
+    pub metadata_values: HashMap<String, MetadataValue>,
+    pub raw_metadata_values: HashMap<String, MetadataValue>,
 }
 
 /// Walk `folder` and call `on_photo` for each image file found.
@@ -252,11 +256,11 @@ pub fn read_image_metadata_batch(
     }
 
     // Pass A: pretty values (no -n).
-    let display_map = run_exiftool_pass(abs_paths, false)?;
+    let display_json_map = run_exiftool_pass(abs_paths, false)?;
 
     // Pass B: raw values (-n).  A failure here is non-fatal; we degrade
     // to empty raw_metadata.
-    let raw_map = match run_exiftool_pass(abs_paths, true) {
+    let raw_json_map = match run_exiftool_pass(abs_paths, true) {
         Ok(m) => m,
         Err(e) => {
             log::warn!(
@@ -269,13 +273,20 @@ pub fn read_image_metadata_batch(
 
     // Merge by source path.
     let mut results = Vec::with_capacity(rel_paths.len());
-    let mut display = display_map;
-    let mut raw = raw_map;
+    let mut display_json = display_json_map;
+    let mut raw_json = raw_json_map;
+    let registry = crate::tag_schema::get_registry().ok();
     for (i, rel_path) in rel_paths.iter().enumerate() {
         let abs_path = &abs_paths[i];
         let key = abs_path.to_string_lossy().replace('\\', "/");
-        let metadata = display.remove(&key).unwrap_or_default();
-        let raw_metadata = raw.remove(&key).unwrap_or_default();
+        let display_values = display_json.remove(&key).unwrap_or_default();
+        let raw_values = raw_json.remove(&key).unwrap_or_default();
+        let metadata = legacy_variants_from_json(&display_values, registry);
+        let raw_metadata = legacy_variants_from_json(&raw_values, registry);
+        let metadata_values =
+            semantic_values_from_json(&display_values, &raw_values, registry, false);
+        let raw_metadata_values =
+            semantic_values_from_json(&raw_values, &display_values, registry, true);
         if metadata.is_empty() {
             log::warn!("[parse_exiftool] Warning: no display metadata for {}", key);
         }
@@ -283,6 +294,8 @@ pub fn read_image_metadata_batch(
             relative_path: rel_path.clone(),
             metadata,
             raw_metadata,
+            metadata_values,
+            raw_metadata_values,
         });
     }
     Ok(results)
@@ -293,7 +306,7 @@ pub fn read_image_metadata_batch(
 fn run_exiftool_pass(
     paths: &[std::path::PathBuf],
     numeric: bool,
-) -> Result<HashMap<String, HashMap<String, Variant>>, String> {
+) -> Result<HashMap<String, HashMap<String, serde_json::Value>>, String> {
     let mut cmd = crate::exiftool_config::exiftool_command();
     cmd.arg("-a")
         .arg("-G1")
@@ -335,7 +348,7 @@ fn run_exiftool_pass(
     if json.trim().is_empty() {
         return Ok(HashMap::new());
     }
-    Ok(parse_exiftool_pass_json(&json))
+    Ok(parse_exiftool_pass_json_raw(&json))
 }
 
 /// Parse one exiftool `-j` array into a map keyed by normalized SourceFile path.
@@ -348,14 +361,14 @@ fn run_exiftool_pass(
 /// directly), so any key whose schema kind is `TagKind::Binary` is replaced
 /// with `Variant::String("<binary>")` inline, skipping deserialize of the raw
 /// placeholder.
-fn parse_exiftool_pass_json(json: &str) -> HashMap<String, HashMap<String, Variant>> {
-    parse_exiftool_pass_json_with_registry(json, crate::tag_schema::get_registry().ok())
+fn parse_exiftool_pass_json_raw(json: &str) -> HashMap<String, HashMap<String, serde_json::Value>> {
+    parse_exiftool_pass_json_raw_with_registry(json, crate::tag_schema::get_registry().ok())
 }
 
-fn parse_exiftool_pass_json_with_registry(
+fn parse_exiftool_pass_json_raw_with_registry(
     json: &str,
     registry: Option<&crate::tag_schema::TagRegistry>,
-) -> HashMap<String, HashMap<String, Variant>> {
+) -> HashMap<String, HashMap<String, serde_json::Value>> {
     let raw_entries: Vec<serde_json::Value> = match serde_json::from_str(json) {
         Ok(v) => v,
         Err(e) => {
@@ -369,7 +382,7 @@ fn parse_exiftool_pass_json_with_registry(
         }
     };
 
-    let mut map_by_source: HashMap<String, HashMap<String, Variant>> = HashMap::new();
+    let mut map_by_source: HashMap<String, HashMap<String, serde_json::Value>> = HashMap::new();
     for (idx, raw) in raw_entries.into_iter().enumerate() {
         let source = raw
             .get("SourceFile")
@@ -389,7 +402,7 @@ fn parse_exiftool_pass_json_with_registry(
             }
         };
 
-        let mut map: HashMap<String, Variant> = HashMap::with_capacity(obj.len());
+        let mut map: HashMap<String, serde_json::Value> = HashMap::with_capacity(obj.len());
         for (key, val) in obj {
             // ExifTool's raw placeholder ("(Binary data N bytes, use -b
             // option to extract)") is confusing in the UI: Media Library
@@ -402,27 +415,18 @@ fn parse_exiftool_pass_json_with_registry(
             // notably exiftool's synthetic `File:` group (PreviewImage,
             // ThumbnailImage, JpgFromRaw, etc.) which is built from file
             // parsing rather than spec tables.
-            let variant = if is_binary_tag(&key, registry) || is_exiftool_binary_placeholder(&val) {
-                Variant::String("<binary>".to_string())
+            let value = if is_binary_tag(&key, registry) || is_exiftool_binary_placeholder(&val) {
+                serde_json::Value::String("<binary>".to_string())
             } else {
-                match serde_json::from_value::<Variant>(val) {
-                    Ok(v) => v,
-                    Err(e) => {
-                        log::warn!(
-                            "[parse_exiftool] Entry {} ({}): failed to parse value for key {:?}: {}",
-                            idx,
-                            source.as_deref().unwrap_or("<no SourceFile>"),
-                            key,
-                            e
-                        );
-                        continue;
-                    }
-                }
+                val
             };
-            map.insert(key, variant);
+            map.insert(key, value);
         }
 
-        if let Some(Variant::String(s)) = map.remove("SourceFile") {
+        if let Some(s) = map.remove("SourceFile").and_then(|v| match v {
+            serde_json::Value::String(s) => Some(s),
+            _ => None,
+        }) {
             map_by_source.insert(s.replace('\\', "/"), map);
         } else if let Some(s) = source {
             map_by_source.insert(s.replace('\\', "/"), map);
@@ -435,6 +439,72 @@ fn parse_exiftool_pass_json_with_registry(
     }
 
     map_by_source
+}
+
+fn parse_exiftool_pass_json(json: &str) -> HashMap<String, HashMap<String, Variant>> {
+    let registry = crate::tag_schema::get_registry().ok();
+    parse_exiftool_pass_json_raw_with_registry(json, registry)
+        .into_iter()
+        .map(|(source, values)| (source, legacy_variants_from_json(&values, registry)))
+        .collect()
+}
+
+fn parse_exiftool_pass_json_with_registry(
+    json: &str,
+    registry: Option<&crate::tag_schema::TagRegistry>,
+) -> HashMap<String, HashMap<String, Variant>> {
+    parse_exiftool_pass_json_raw_with_registry(json, registry)
+        .into_iter()
+        .map(|(source, values)| (source, legacy_variants_from_json(&values, registry)))
+        .collect()
+}
+
+fn legacy_variants_from_json(
+    values: &HashMap<String, serde_json::Value>,
+    registry: Option<&crate::tag_schema::TagRegistry>,
+) -> HashMap<String, Variant> {
+    values
+        .iter()
+        .filter_map(|(key, value)| {
+            let variant = if is_binary_tag(key, registry) {
+                Variant::String("<binary>".to_string())
+            } else {
+                match serde_json::from_value::<Variant>(value.clone()) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        log::warn!(
+                            "[parse_exiftool] failed to parse legacy Variant for key {:?}: {}",
+                            key,
+                            e
+                        );
+                        return None;
+                    }
+                }
+            };
+            Some((key.clone(), variant))
+        })
+        .collect()
+}
+
+fn semantic_values_from_json(
+    primary: &HashMap<String, serde_json::Value>,
+    paired: &HashMap<String, serde_json::Value>,
+    registry: Option<&crate::tag_schema::TagRegistry>,
+    primary_is_raw: bool,
+) -> HashMap<String, MetadataValue> {
+    primary
+        .iter()
+        .map(|(key, raw)| {
+            let info = registry.and_then(|r| r.lookup(key));
+            let display = paired.get(key);
+            let value = if primary_is_raw {
+                parse_metadata_value(key, info.map(|i| &i.kind), raw, display)
+            } else {
+                parse_metadata_value(key, info.map(|i| &i.kind), raw, Some(raw))
+            };
+            (key.clone(), value)
+        })
+        .collect()
 }
 
 fn is_binary_tag(key: &str, registry: Option<&crate::tag_schema::TagRegistry>) -> bool {
@@ -469,22 +539,28 @@ fn parse_exiftool_batch_json(
     rel_paths: &[String],
     abs_paths: &[std::path::PathBuf],
 ) -> Vec<ImageMetadata> {
-    let mut map_by_source = parse_exiftool_pass_json(json);
+    let registry = crate::tag_schema::get_registry().ok();
+    let mut map_by_source = parse_exiftool_pass_json_raw_with_registry(json, registry);
     let mut results = Vec::with_capacity(rel_paths.len());
     for (i, rel_path) in rel_paths.iter().enumerate() {
         let abs_path = &abs_paths[i];
         let normalized_abs = abs_path.to_string_lossy().replace('\\', "/");
-        let metadata = map_by_source.remove(&normalized_abs).unwrap_or_else(|| {
+        let display_values = map_by_source.remove(&normalized_abs).unwrap_or_else(|| {
             log::warn!(
                 "[parse_exiftool] Warning: No metadata found for path: {}",
                 normalized_abs
             );
             HashMap::new()
         });
+        let metadata = legacy_variants_from_json(&display_values, registry);
+        let metadata_values =
+            semantic_values_from_json(&display_values, &HashMap::new(), registry, false);
         results.push(ImageMetadata {
             relative_path: rel_path.clone(),
             metadata,
             raw_metadata: HashMap::new(),
+            metadata_values,
+            raw_metadata_values: HashMap::new(),
         });
     }
     results
@@ -937,6 +1013,42 @@ mod tests {
             Some(Variant::Object(_)) => {}
             other => panic!("expected Object, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn parse_pass_json_raw_keeps_exiftool_boundary_as_json() {
+        let json = r#"[{"SourceFile":"D:/a.jpg","Int":5,"Real":1.5,"Obj":{"x":true}}]"#;
+        let map = parse_exiftool_pass_json_raw(json);
+        let entry = map.get("D:/a.jpg").expect("entry");
+        assert_eq!(entry.get("Int"), Some(&serde_json::json!(5)));
+        assert_eq!(entry.get("Real"), Some(&serde_json::json!(1.5)));
+        assert_eq!(entry.get("Obj"), Some(&serde_json::json!({"x": true})));
+    }
+
+    #[test]
+    fn parse_batch_populates_transitional_semantic_maps() {
+        let json = r#"[{
+            "SourceFile": "D:/a.jpg",
+            "IPTC:TimeCreated": "10:56:05",
+            "ExifIFD:OffsetTimeOriginal": "+01:00",
+            "MadeUp:Thing": 5
+        }]"#;
+        let rel = vec!["a.jpg".to_string()];
+        let abs = vec![std::path::PathBuf::from("D:/a.jpg")];
+        let results = parse_exiftool_batch_json(json, &rel, &abs);
+        let image = &results[0];
+        assert!(matches!(
+            image.metadata_values.get("IPTC:TimeCreated"),
+            Some(MetadataValue::Time(t)) if t.offset.is_none()
+        ));
+        assert!(matches!(
+            image.metadata_values.get("ExifIFD:OffsetTimeOriginal"),
+            Some(MetadataValue::TimeOffset(_))
+        ));
+        assert!(matches!(
+            image.metadata_values.get("MadeUp:Thing"),
+            Some(MetadataValue::Unknown { expected: None, raw, .. }) if raw == &serde_json::json!(5)
+        ));
     }
 
     fn binary_registry() -> crate::tag_schema::TagRegistry {
