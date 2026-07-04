@@ -13,7 +13,7 @@
 //! global to an invocation.  Numeric runs first; text-group edits can depend
 //! on numeric tags being already set (rare but possible for derived fields).
 
-use crate::draft_edits::{DraftEdit, EditIntent};
+use crate::draft_edits::{DraftEdit, EditIntent, MetadataDraftEdit};
 use crate::metadata_value::{
     DateTimeValue, DateValue, MetadataValue, OffsetSign, TimeValue, UtcOffsetValue,
 };
@@ -64,6 +64,26 @@ pub fn build_args(tag: &str, info: Option<&TagInfo>, edit: &DraftEdit) -> BuiltA
         EditIntent::Set => build_set(tag, info, edit.value.as_ref()),
         EditIntent::ListAdd => build_list_op(tag, info, edit.value.as_ref(), "+="),
         EditIntent::ListRemove => build_list_op(tag, info, edit.value.as_ref(), "-="),
+    }
+}
+
+pub fn build_metadata_args(
+    tag: &str,
+    info: Option<&TagInfo>,
+    edit: &MetadataDraftEdit,
+) -> Result<BuiltArgs, String> {
+    if tag.is_empty() || tag.contains('\n') || tag.contains('\0') {
+        return Ok(BuiltArgs::default());
+    }
+
+    match edit.intent {
+        EditIntent::Delete => Ok(BuiltArgs {
+            numeric: vec![],
+            text: vec![format!("-{}=", tag)],
+        }),
+        EditIntent::Set => build_metadata_set(tag, info, edit.value.as_ref()),
+        EditIntent::ListAdd => build_metadata_list_op(tag, info, edit.value.as_ref(), "+="),
+        EditIntent::ListRemove => build_metadata_list_op(tag, info, edit.value.as_ref(), "-="),
     }
 }
 
@@ -190,6 +210,183 @@ fn build_set(tag: &str, info: Option<&TagInfo>, value: Option<&Variant>) -> Buil
             text: vec![format!("-{}={}", tag, render_scalar_text(v))],
         },
     }
+}
+
+fn build_metadata_set(
+    tag: &str,
+    info: Option<&TagInfo>,
+    value: Option<&MetadataValue>,
+) -> Result<BuiltArgs, String> {
+    let kind = info.map(|i| &i.kind);
+    match (kind, value) {
+        (_, None) | (_, Some(MetadataValue::Null)) => Ok(BuiltArgs {
+            numeric: vec![],
+            text: vec![format!("-{}=", tag)],
+        }),
+        (_, Some(MetadataValue::Binary)) => Err(format!("{tag} is binary and is not writable")),
+        (_, Some(MetadataValue::Unknown { reason, .. })) => Err(format!(
+            "{tag} is unparsed and cannot be written{}",
+            reason
+                .as_ref()
+                .map(|r| format!(": {r}"))
+                .unwrap_or_default()
+        )),
+        (Some(TagKind::LangAlt), Some(MetadataValue::LangAlt(langs))) => {
+            let mut text = Vec::with_capacity(langs.len());
+            for (lang, value) in langs {
+                text.push(format!("-{}-{}={}", tag, lang, value));
+            }
+            if !langs.contains_key("x-default") {
+                if let Some(first) = langs.values().next() {
+                    text.push(format!("-{}-x-default={}", tag, first));
+                }
+            }
+            Ok(BuiltArgs {
+                numeric: vec![],
+                text,
+            })
+        }
+        (Some(TagKind::Bag(inner) | TagKind::Seq(inner) | TagKind::Alt(inner)), Some(value)) => {
+            build_metadata_list_set(tag, inner, value)
+        }
+        (Some(TagKind::Struct(_)), Some(MetadataValue::Struct(map))) => Ok(BuiltArgs {
+            numeric: vec![],
+            text: vec![format!("-{}={}", tag, render_metadata_struct(map)?)],
+        }),
+        (Some(TagKind::Binary), _) => Err(format!("{tag} is binary and is not writable")),
+        (
+            Some(
+                kind @ (TagKind::Integer { .. }
+                | TagKind::Real
+                | TagKind::Rational
+                | TagKind::Boolean
+                | TagKind::TimeOffset),
+            ),
+            Some(value),
+        ) => Ok(BuiltArgs {
+            numeric: vec![format!(
+                "-{}={}",
+                tag,
+                render_metadata_scalar_numeric(value, Some(kind))?
+            )],
+            text: vec![],
+        }),
+        (
+            Some(TagKind::Enum {
+                repr: EnumRepr::Integer,
+                ..
+            }),
+            Some(value),
+        ) => Ok(BuiltArgs {
+            numeric: vec![format!(
+                "-{}={}",
+                tag,
+                render_metadata_scalar_numeric(value, kind)?
+            )],
+            text: vec![],
+        }),
+        (Some(kind @ (TagKind::Date | TagKind::Time | TagKind::DateTime)), Some(value)) => {
+            Ok(BuiltArgs {
+                numeric: vec![format!(
+                    "-{}={}",
+                    tag,
+                    render_metadata_value_for_write(value, Some(kind))?
+                )],
+                text: vec![],
+            })
+        }
+        (_, Some(MetadataValue::List { .. })) => Err(format!(
+            "{tag} is a list value but schema is not a list kind"
+        )),
+        (_, Some(MetadataValue::Struct(_))) => Err(format!(
+            "{tag} is a struct value but schema is not a struct kind"
+        )),
+        (_, Some(value)) => Ok(BuiltArgs {
+            numeric: vec![],
+            text: vec![format!(
+                "-{}={}",
+                tag,
+                render_metadata_scalar_text(value, kind)?
+            )],
+        }),
+    }
+}
+
+fn build_metadata_list_set(
+    tag: &str,
+    inner: &TagKind,
+    value: &MetadataValue,
+) -> Result<BuiltArgs, String> {
+    let items: Vec<&MetadataValue> = match value {
+        MetadataValue::List { items, .. } => items.iter().collect(),
+        other => vec![other],
+    };
+    let mut args = BuiltArgs {
+        numeric: vec![],
+        text: vec![format!("-{}=", tag)],
+    };
+    let numeric_items = is_numeric_kind(inner);
+    for item in items {
+        if numeric_items {
+            args.numeric.push(format!(
+                "-{}={}",
+                tag,
+                render_metadata_scalar_numeric(item, Some(inner))?
+            ));
+        } else {
+            args.text.push(format!(
+                "-{}={}",
+                tag,
+                render_metadata_scalar_text(item, Some(inner))?
+            ));
+        }
+    }
+    Ok(args)
+}
+
+fn build_metadata_list_op(
+    tag: &str,
+    info: Option<&TagInfo>,
+    value: Option<&MetadataValue>,
+    op: &str,
+) -> Result<BuiltArgs, String> {
+    let Some(kind) = info.map(|i| &i.kind) else {
+        return match op {
+            "-=" => Ok(BuiltArgs {
+                numeric: vec![],
+                text: vec![format!("-{}=", tag)],
+            }),
+            _ => build_metadata_set(tag, info, value),
+        };
+    };
+    let inner = match kind {
+        TagKind::Bag(inner) | TagKind::Seq(inner) | TagKind::Alt(inner) => inner,
+        _ => {
+            return match op {
+                "-=" => Ok(BuiltArgs {
+                    numeric: vec![],
+                    text: vec![format!("-{}=", tag)],
+                }),
+                _ => build_metadata_set(tag, info, value),
+            }
+        }
+    };
+
+    let items: Vec<&MetadataValue> = match value {
+        Some(MetadataValue::List { items, .. }) => items.iter().collect(),
+        Some(v) => vec![v],
+        None => vec![],
+    };
+    let mut args = BuiltArgs::default();
+    for item in items {
+        args.text.push(format!(
+            "-{}{}{}",
+            tag,
+            op,
+            render_metadata_scalar_text(item, Some(inner))?
+        ));
+    }
+    Ok(args)
 }
 
 fn build_list_op(
@@ -452,6 +649,94 @@ pub fn render_metadata_value_for_write(
     }
 }
 
+fn render_metadata_scalar_text(
+    value: &MetadataValue,
+    kind: Option<&TagKind>,
+) -> Result<String, String> {
+    match value {
+        MetadataValue::Bool(b) => Ok(if *b { "True".into() } else { "False".into() }),
+        MetadataValue::List { .. } => Err("nested list cannot be rendered as scalar text".into()),
+        MetadataValue::Struct(map) => render_metadata_struct(map),
+        other => render_metadata_value_for_write(other, kind),
+    }
+}
+
+fn render_metadata_scalar_numeric(
+    value: &MetadataValue,
+    kind: Option<&TagKind>,
+) -> Result<String, String> {
+    match value {
+        MetadataValue::Bool(b) => Ok(if *b { "1".into() } else { "0".into() }),
+        MetadataValue::Text(s) => Ok(normalise_storage_string_for_kind(s, kind)),
+        other => render_metadata_value_for_write(other, kind),
+    }
+}
+
+fn render_metadata_struct(
+    map: &std::collections::BTreeMap<String, MetadataValue>,
+) -> Result<String, String> {
+    fn escape_scalar(s: &str) -> String {
+        let mut out = String::with_capacity(s.len());
+        for c in s.chars() {
+            if matches!(c, ',' | '{' | '}' | '[' | ']' | '=' | '\\') {
+                out.push('\\');
+            }
+            out.push(c);
+        }
+        out
+    }
+    fn render(value: &MetadataValue) -> Result<String, String> {
+        match value {
+            MetadataValue::Null => Ok(String::new()),
+            MetadataValue::Text(s) => Ok(escape_scalar(s)),
+            MetadataValue::Bool(b) => Ok(if *b { "True".into() } else { "False".into() }),
+            MetadataValue::Integer(n) => Ok(n.to_string()),
+            MetadataValue::Real(f) => Ok(f.to_string()),
+            MetadataValue::Rational(r) => Ok(format!("{}/{}", r.numerator, r.denominator)),
+            MetadataValue::Date(d) => Ok(render_date(d)),
+            MetadataValue::Time(t) => Ok(render_time(t)),
+            MetadataValue::DateTime(dt) => Ok(render_datetime(dt)),
+            MetadataValue::TimeOffset(offset) => Ok(render_offset(offset)),
+            MetadataValue::List { items, .. } => {
+                let inner = items
+                    .iter()
+                    .map(render)
+                    .collect::<Result<Vec<_>, _>>()?
+                    .join(",");
+                Ok(format!("[{}]", inner))
+            }
+            MetadataValue::Struct(map) => render_metadata_struct(map),
+            MetadataValue::LangAlt(_) => {
+                Err("lang-alt cannot be nested in struct write syntax".into())
+            }
+            MetadataValue::Binary => Err("binary metadata is not writable".into()),
+            MetadataValue::Unknown { .. } => Err("unknown metadata is not writable".into()),
+        }
+    }
+
+    let inner = map
+        .iter()
+        .map(|(key, value)| Ok(format!("{}={}", escape_scalar(key), render(value)?)))
+        .collect::<Result<Vec<String>, String>>()?
+        .join(",");
+    Ok(format!("{{{}}}", inner))
+}
+
+fn is_numeric_kind(kind: &TagKind) -> bool {
+    matches!(
+        kind,
+        TagKind::Integer { .. }
+            | TagKind::Real
+            | TagKind::Rational
+            | TagKind::Boolean
+            | TagKind::TimeOffset
+            | TagKind::Enum {
+                repr: EnumRepr::Integer,
+                ..
+            }
+    )
+}
+
 fn render_date(date: &DateValue) -> String {
     format!("{:04}:{:02}:{:02}", date.year, date.month, date.day)
 }
@@ -487,6 +772,7 @@ fn render_offset(offset: &UtcOffsetValue) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::metadata_value::ListKind;
     use crate::tag_schema::{EnumOption, EnumRepr};
     use std::collections::BTreeMap;
 
@@ -529,6 +815,13 @@ mod tests {
         DraftEdit {
             value: Some(v),
             intent: EditIntent::ListRemove,
+            display: None,
+        }
+    }
+    fn metadata_set(v: MetadataValue) -> MetadataDraftEdit {
+        MetadataDraftEdit {
+            value: Some(v),
+            intent: EditIntent::Set,
             display: None,
         }
     }
@@ -846,6 +1139,114 @@ mod tests {
         assert!(!rendered.contains('+'));
         assert!(!rendered[8..].contains('-'));
         assert_eq!(rendered, "10:56:05");
+    }
+
+    #[test]
+    fn semantic_writer_never_comma_joins_text_lists() {
+        let i = info(TagKind::Bag(Box::new(TagKind::Text)));
+        let args = build_metadata_args(
+            "XMP-dc:Subject",
+            Some(&i),
+            &metadata_set(MetadataValue::List {
+                list_kind: ListKind::Bag,
+                items: vec![
+                    MetadataValue::Text("beach".into()),
+                    MetadataValue::Text("sunset".into()),
+                ],
+            }),
+        )
+        .unwrap();
+        assert_eq!(
+            args.text,
+            vec![
+                "-XMP-dc:Subject=",
+                "-XMP-dc:Subject=beach",
+                "-XMP-dc:Subject=sunset"
+            ]
+        );
+        assert!(!args.text.iter().any(|arg| arg.contains("beach, sunset")));
+    }
+
+    #[test]
+    fn semantic_writer_handles_alt_lists() {
+        let i = info(TagKind::Alt(Box::new(TagKind::Text)));
+        let args = build_metadata_args(
+            "XMP-dc:Title",
+            Some(&i),
+            &metadata_set(MetadataValue::List {
+                list_kind: ListKind::Alt,
+                items: vec![
+                    MetadataValue::Text("one".into()),
+                    MetadataValue::Text("two".into()),
+                ],
+            }),
+        )
+        .unwrap();
+        assert_eq!(
+            args.text,
+            vec!["-XMP-dc:Title=", "-XMP-dc:Title=one", "-XMP-dc:Title=two"]
+        );
+    }
+
+    #[test]
+    fn semantic_writer_handles_numeric_lists_in_numeric_group() {
+        let i = info(TagKind::Bag(Box::new(TagKind::Integer {
+            min: None,
+            max: None,
+        })));
+        let args = build_metadata_args(
+            "X:Numbers",
+            Some(&i),
+            &metadata_set(MetadataValue::List {
+                list_kind: ListKind::Bag,
+                items: vec![MetadataValue::Integer(1), MetadataValue::Integer(2)],
+            }),
+        )
+        .unwrap();
+        assert_eq!(args.text, vec!["-X:Numbers="]);
+        assert_eq!(args.numeric, vec!["-X:Numbers=1", "-X:Numbers=2"]);
+    }
+
+    #[test]
+    fn semantic_writer_renders_exact_rational() {
+        let i = info(TagKind::Rational);
+        let args = build_metadata_args(
+            "EXIF:ExposureTime",
+            Some(&i),
+            &metadata_set(MetadataValue::Rational(
+                crate::metadata_value::RationalValue {
+                    numerator: 1,
+                    denominator: 250,
+                },
+            )),
+        )
+        .unwrap();
+        assert_eq!(args.numeric, vec!["-EXIF:ExposureTime=1/250"]);
+    }
+
+    #[test]
+    fn semantic_writer_blocks_binary_and_unknown() {
+        let binary = info(TagKind::Binary);
+        let err = build_metadata_args(
+            "File:PreviewImage",
+            Some(&binary),
+            &metadata_set(MetadataValue::Binary),
+        )
+        .unwrap_err();
+        assert!(err.contains("binary"));
+
+        let text = info(TagKind::Text);
+        let err = build_metadata_args(
+            "X:Bad",
+            Some(&text),
+            &metadata_set(MetadataValue::Unknown {
+                expected: Some(TagKind::Text),
+                raw: serde_json::json!({"bad": true}),
+                reason: Some("malformed".into()),
+            }),
+        )
+        .unwrap_err();
+        assert!(err.contains("unparsed"));
     }
 
     #[test]
