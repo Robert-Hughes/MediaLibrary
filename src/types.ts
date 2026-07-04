@@ -10,6 +10,16 @@ import type { Variant } from "./types/generated/Variant";
 import type { DraftEdit } from "./types/generated/DraftEdit";
 
 export type { PhotoInfo, Variant, DraftEdit };
+export type { MetadataValue } from "./types/generated/MetadataValue";
+export type { MetadataDraftEdit } from "./types/generated/MetadataDraftEdit";
+export type { MetadataTagOutcome } from "./types/generated/MetadataTagOutcome";
+export type { DateValue } from "./types/generated/DateValue";
+export type { TimeValue } from "./types/generated/TimeValue";
+export type { DateTimeValue } from "./types/generated/DateTimeValue";
+export type { UtcOffsetValue } from "./types/generated/UtcOffsetValue";
+export type { OffsetSign } from "./types/generated/OffsetSign";
+export type { ListKind } from "./types/generated/ListKind";
+export type { RationalValue } from "./types/generated/RationalValue";
 export type { TagInfo } from "./types/generated/TagInfo";
 export type { TagKind } from "./types/generated/TagKind";
 export type { EnumOption } from "./types/generated/EnumOption";

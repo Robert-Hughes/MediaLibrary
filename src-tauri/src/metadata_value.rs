@@ -41,7 +41,9 @@ pub enum MetadataValue {
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
 pub struct RationalValue {
+    #[cfg_attr(test, ts(type = "number"))]
     pub numerator: i64,
+    #[cfg_attr(test, ts(type = "number"))]
     pub denominator: i64,
 }
 
