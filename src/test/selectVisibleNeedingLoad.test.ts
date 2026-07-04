@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { selectVisibleNeedingLoad } from "../components/PhotoList";
+import { selectVisibleNeedingLoad } from "../utils/photoListHelpers";
 
 function makeStore(loaded: Set<string>) {
   return {

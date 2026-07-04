@@ -7,7 +7,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { BagEditor, initialItemsFrom } from "../components/editors/BagEditor";
+import { BagEditor } from "../components/editors/BagEditor";
+import { initialItemsFrom } from "../components/editors/editorHelpers";
 import type { DraftEdit } from "../types";
 
 beforeEach(() => cleanup());

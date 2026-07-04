@@ -6,6 +6,7 @@
 import { useState, useEffect, useRef } from "react";
 import type { DraftEdit } from "../../types";
 import { READ_ONLY_TOOLTIP } from "./readOnlyMessages";
+import { toIsoLocal, toExiftoolFormat } from "./editorHelpers";
 
 interface Props {
   propertyKey: string;
@@ -89,31 +90,4 @@ export function DateTimeEditor({
       </div>
     </div>
   );
-}
-
-/**
- * Convert exiftool's `YYYY:MM:DD HH:MM:SS[±ZZ:ZZ]` (or partial forms) into
- * the HTML datetime-local input value `YYYY-MM-DDTHH:MM:SS`.  Loses tz on
- * display; that's a known cost of using the standard input.
- */
-export function toIsoLocal(s: string): string {
-  if (!s) return "";
-  // YYYY:MM:DD HH:MM:SS[.frac][±ZZ:ZZ]
-  const m = s.match(/^(\d{4}):(\d{2}):(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/);
-  if (!m) return "";
-  const [, y, mo, d, h, mi, se] = m;
-  return `${y}-${mo}-${d}T${h}:${mi}:${se ?? "00"}`;
-}
-
-/**
- * Convert the HTML datetime-local input string to exiftool's canonical
- * format.  Returns `null` for invalid input.
- */
-export function toExiftoolFormat(s: string): string | null {
-  if (!s) return null;
-  // Input: YYYY-MM-DDTHH:MM[:SS]
-  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/);
-  if (!m) return null;
-  const [, y, mo, d, h, mi, se] = m;
-  return `${y}:${mo}:${d} ${h}:${mi}:${se ?? "00"}`;
 }

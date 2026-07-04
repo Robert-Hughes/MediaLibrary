@@ -10,10 +10,8 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
-import {
-  NestedListEditor,
-  initialItemsFromVariant,
-} from "../components/editors/NestedListEditor";
+import { NestedListEditor } from "../components/editors/NestedListEditor";
+import { initialItemsFromVariant } from "../components/editors/editorHelpers";
 import type { DraftEdit, TagKind, Variant } from "../types";
 import type { InnerEditorProps } from "../components/editors/StructEditor";
 

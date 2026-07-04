@@ -2,13 +2,13 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { FlashEditor } from "../components/editors/FlashEditor";
 import {
-  FlashEditor,
   decodeFlashCode,
   encodeFlashFields,
   describeFlashCode,
-  isFlashTag,
-} from "../components/editors/FlashEditor";
+} from "../components/editors/editorHelpers";
+import { isFlashTag } from "../metadata/tag_overrides";
 
 beforeEach(() => cleanup());
 

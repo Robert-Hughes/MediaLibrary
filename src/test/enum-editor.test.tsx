@@ -3,7 +3,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { EnumEditor, initialCodeFrom } from "../components/editors/EnumEditor";
+import { EnumEditor } from "../components/editors/EnumEditor";
+import { initialCodeFrom } from "../components/editors/editorHelpers";
 
 beforeEach(() => cleanup());
 

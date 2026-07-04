@@ -5,11 +5,11 @@ import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { NumericEditor } from "../components/editors/NumericEditor";
 import { BooleanEditor } from "../components/editors/BooleanEditor";
+import { DateTimeEditor } from "../components/editors/DateTimeEditor";
 import {
-  DateTimeEditor,
   toIsoLocal,
   toExiftoolFormat,
-} from "../components/editors/DateTimeEditor";
+} from "../components/editors/editorHelpers";
 import { RationalEditor } from "../components/editors/RationalEditor";
 
 beforeEach(() => cleanup());

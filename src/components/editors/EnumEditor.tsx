@@ -132,36 +132,3 @@ export function EnumEditor({
     </div>
   );
 }
-
-/** Extract the current code (raw or pretty label) from whatever we have. */
-export function initialCodeFrom(
-  raw: Variant | undefined,
-  display: Variant | undefined,
-  options: EnumOption[],
-): string {
-  // Prefer the raw value when it matches a known code or label.  ExifTool
-  // often hands back the pretty label as the variant (no `-n`), so always
-  // probe the options table before falling back to the raw string — otherwise
-  // EnumEditor opens in Custom mode for in-spec values.
-  if (
-    raw !== undefined &&
-    raw !== null &&
-    !Array.isArray(raw) &&
-    typeof raw !== "object"
-  ) {
-    const s = String(raw);
-    const byCode = options.find((o) => o.code === s);
-    if (byCode) return byCode.code;
-    const byLabel = options.find((o) => o.label === s);
-    if (byLabel) return byLabel.code;
-    return s;
-  }
-  // Look up the display label in the options table.
-  if (typeof display === "string") {
-    const match = options.find((o) => o.label === display);
-    if (match) return match.code;
-    return display;
-  }
-  if (typeof display === "number") return String(display);
-  return options[0]?.code ?? "";
-}
