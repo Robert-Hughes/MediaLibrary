@@ -1004,21 +1004,12 @@ function handleApplyEditsProgress(
   // outcomes.  Match and DeleteOk are conclusively safe to drop; the
   // rest stay so the user can act on them via VerifyOutcomeDialog.
   //
-  // Backwards compatibility: when the payload omits `tag_outcomes`
-  // (older backend builds, mocked tests), fall back to the previous
-  // semantic of "drop the entire file's drafts on success".  Live
-  // backend always emits the array so production gets the
-  // per-tag-clearing behaviour.
-  const fileOutcomes = payload.tag_outcomes ?? [];
-  if (fileOutcomes.length === 0 && payload.applied) {
-    draftStore.deletePath(payload.relative_path);
-  } else if (fileOutcomes.length > 0) {
-    const tagsToPrune = fileOutcomes
-      .filter((o) => o.kind === "Match" || o.kind === "DeleteOk")
-      .map((o) => o.tag);
-    if (tagsToPrune.length > 0) {
-      draftStore.pruneTags(payload.relative_path, tagsToPrune);
-    }
+  const fileOutcomes = payload.tag_outcomes;
+  const tagsToPrune = fileOutcomes
+    .filter((o) => o.kind === "Match" || o.kind === "DeleteOk")
+    .map((o) => o.tag);
+  if (tagsToPrune.length > 0) {
+    draftStore.pruneTags(payload.relative_path, tagsToPrune);
   }
 
   setAppState((prev) => {

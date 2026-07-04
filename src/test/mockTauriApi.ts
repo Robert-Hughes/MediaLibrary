@@ -8,6 +8,7 @@ import type {
   WorkerErrorPayload,
   ImageMetadataEntry,
   MetadataApplyEditsResult,
+  MetadataTagOutcome,
   DraftEditsByFile,
   LegacyDraftEditsByFile,
 } from "../types";
@@ -322,6 +323,7 @@ export function createMockTauriApi(): MockTauriApi {
       ) {
         const result = mock.applyEditsResult;
         const relPaths = (args?.relPaths as string[]) ?? [];
+        const folder = args?.folderPath as string;
         const total = result.applied.length + result.failed.length;
         const progressEvent =
           cmd === "apply_metadata_draft_edits_cmd"
@@ -347,6 +349,9 @@ export function createMockTauriApi(): MockTauriApi {
             applied: isApplied,
             error: failedEntry ? failedEntry.reason : null,
             fresh_metadata: result.fresh_metadata[path] ?? null,
+            tag_outcomes: isApplied
+              ? mockTagOutcomesForPath(mock, folder, path)
+              : [],
           });
         }
 
@@ -614,6 +619,27 @@ export function createMockTauriApi(): MockTauriApi {
 
   mock.api = api;
   return mock;
+}
+
+function mockTagOutcomesForPath(
+  mock: MockTauriApi,
+  folder: string,
+  path: string,
+): MetadataTagOutcome[] {
+  const stored = mock.draftEditsByFolder[folder];
+  if (!stored) return [];
+  const semanticDrafts = looksLikeMetadataDrafts(stored)
+    ? stored
+    : legacyDraftsToMetadataDrafts(normalizeDraftsFromTauri(stored));
+  return Object.keys(semanticDrafts[path] ?? {}).map((tag) => ({
+    tag,
+    kind: "Match",
+    sent: null,
+    before_display: null,
+    observed_display: null,
+    observed_raw: null,
+    message: null,
+  }));
 }
 
 function looksLikeMetadataDrafts(
