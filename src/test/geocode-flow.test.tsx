@@ -108,11 +108,11 @@ describe("Reverse-geocoding flow", () => {
         status: "ok",
         edits: {
           "XMP-iptcCore:Location": {
-            value: { type: "String", value: "Big Ben" },
+            value: { kind: "Text", value: "Big Ben" },
             intent: "Set",
           },
           "XMP-photoshop:City": {
-            value: { type: "String", value: "London" },
+            value: { kind: "Text", value: "London" },
             intent: "Set",
           },
           "XMP-photoshop:State": { value: null, intent: "Delete" },

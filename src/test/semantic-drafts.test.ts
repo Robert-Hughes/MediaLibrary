@@ -4,7 +4,6 @@ import {
   legacyDraftsToMetadataDrafts,
   metadataDraftsToLegacyDrafts,
   metadataEntryToVariant,
-  normalizeGeneratedDraftEdits,
 } from "../utils/semanticDrafts";
 
 describe("semantic draft adapters", () => {
@@ -72,60 +71,5 @@ describe("semantic draft adapters", () => {
         },
       }),
     ).toBeNull();
-  });
-
-  it("normalizes semantic generated batch edits for the current draft store", () => {
-    expect(
-      normalizeGeneratedDraftEdits({
-        "IPTC:TimeCreated": {
-          value: {
-            kind: "Time",
-            value: {
-              hour: 10,
-              minute: 56,
-              second: 5,
-              subsecond: null,
-              offset: null,
-            },
-          },
-          intent: "Set",
-        },
-      }),
-    ).toEqual({
-      "IPTC:TimeCreated": {
-        value: "10:56:05",
-        intent: "Set",
-        display: "10:56:05",
-      },
-    });
-  });
-
-  it("normalizes older wrapped variant batch edits from tests and mocks", () => {
-    expect(
-      normalizeGeneratedDraftEdits({
-        "XMP-mlib:AIDescription": {
-          value: { type: "String", value: "a calm beach scene" },
-          intent: "Set",
-        },
-        "XMP-mlib:AITags": {
-          value: {
-            type: "List",
-            value: [{ type: "String", value: "beach" }],
-          },
-          intent: "Set",
-        },
-      }),
-    ).toEqual({
-      "XMP-mlib:AIDescription": {
-        value: "a calm beach scene",
-        intent: "Set",
-        display: undefined,
-      },
-      "XMP-mlib:AITags": {
-        value: ["beach"],
-        intent: "Set",
-        display: undefined,
-      },
-    });
   });
 });

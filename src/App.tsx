@@ -31,10 +31,11 @@ import { useDescribeImages } from "./hooks/useDescribeImages";
 import { GeocodeProgressDialog } from "./components/GeocodeProgressDialog";
 import { useGeocodeImages } from "./hooks/useGeocodeImages";
 import { resolveGps } from "./utils/resolveGps";
-import type { GeocodeRequestItem, DraftEdit } from "./types";
+import type { GeocodeRequestItem, MetadataDraftEdit } from "./types";
 import { ALL_NORMALISE_GROUPS } from "./types";
 import { NormaliseProgressDialog } from "./components/NormaliseProgressDialog";
 import { useNormaliseMetadata } from "./hooks/useNormaliseMetadata";
+import { metadataDraftToLegacyDraft } from "./utils/semanticDrafts";
 import {
   countDescribeOverwrites,
   countGeocodeOverwrites,
@@ -488,10 +489,10 @@ export default function App() {
   // the UI re-renders immediately and the existing persistence
   // pipeline picks them up.
   const mergeBatchEdits = useCallback(
-    (relPath: string, edits: Record<string, DraftEdit>) => {
+    (relPath: string, edits: Record<string, MetadataDraftEdit>) => {
       const entries = Object.entries(edits).map(([key, edit]) => ({
         key,
-        edit,
+        edit: metadataDraftToLegacyDraft(edit),
       }));
       if (entries.length > 0) actions.setDraftBatch(relPath, entries);
     },
