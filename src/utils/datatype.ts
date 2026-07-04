@@ -26,8 +26,12 @@ export function schemaDatatype(
       return { code: "Q", label: "Rational" };
     case "Boolean":
       return { code: "B", label: "Boolean" };
+    case "Date":
+      return { code: "D", label: "Date" };
+    case "Time":
+      return { code: "T", label: "Time" };
     case "DateTime":
-      return { code: "D", label: "DateTime" };
+      return { code: "DT", label: "DateTime" };
     case "Enum":
       return { code: "E", label: "Enum" };
     case "Bag":
@@ -80,6 +84,8 @@ export function datatypesMatch(
     return (
       schemaCode === "LA" ||
       schemaCode === "D" ||
+      schemaCode === "T" ||
+      schemaCode === "DT" ||
       schemaCode === "E" ||
       schemaCode === "Q"
     );

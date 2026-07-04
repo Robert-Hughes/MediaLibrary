@@ -114,3 +114,40 @@ describe("TypedValueEditor read-only enforcement", () => {
     });
   });
 });
+
+describe("TypedValueEditor temporal routing", () => {
+  it.each([
+    ["IPTC:DateCreated", { kind: "Date" } as const, "date"],
+    ["IPTC:TimeCreated", { kind: "Time" } as const, "time"],
+    ["ExifIFD:DateTimeOriginal", { kind: "DateTime" } as const, "datetime"],
+  ])("routes %s to the %s temporal editor", async (key, kind, mode) => {
+    _setTagInfoCacheEntry(key, {
+      group: key.split(":")[0],
+      name: key.split(":")[1],
+      writable: true,
+      kind,
+      description: null,
+    });
+    render(
+      <TypedValueEditor
+        propertyKey={key}
+        initialString={
+          mode === "date"
+            ? "2026:05:15"
+            : mode === "time"
+              ? "10:30:00+01:00"
+              : "2026:05:15 10:30:00"
+        }
+        onSave={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("datetime-editor-input")).toHaveAttribute(
+        "data-temporal-mode",
+        mode,
+      );
+    });
+  });
+});

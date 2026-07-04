@@ -84,7 +84,7 @@ MediaLibrary runs `exiftool -listx -lang en` lazily on first registry access and
 For each tag (keyed by `Group:Name`, e.g. `XMP-dc:Subject`):
 
 - Is it writable?
-- What is its base type? `Text`, `Integer`, `Real`, `Rational`, `Boolean`, `DateTime`, `LangAlt`, `Struct`, `Binary`.
+- What is its base type? `Text`, `Integer`, `Real`, `Rational`, `Boolean`, `Date`, `Time`, `DateTime`, `LangAlt`, `Struct`, `Binary`.
 - Is it a list? `Bag` (unordered, e.g. Keywords), `Seq` (ordered), `Alt` (alternatives, used by LangAlt).
 - For enums: the list of `(code, label)` pairs.
 - Bounds (min/max) where exiftool publishes them.
@@ -167,26 +167,30 @@ The edit dialog is a router on `TagKind` from the registry. Each kind has a dedi
 
 ### Editors by kind
 
-| Kind                                         | Control                                       | Notes                                   |
-| -------------------------------------------- | --------------------------------------------- | --------------------------------------- |
-| `Text`                                       | text input                                    |                                         |
-| `LangAlt`                                    | language tab strip; per-lang textarea         | `x-default` always present and explicit |
-| `Bag<Text>` (Keywords, Subject)              | chip editor                                   | individual add/remove; never joined     |
-| `Seq<Text>`                                  | chip editor with reorder                      | order matters                           |
-| `Integer`                                    | numeric input + bounds                        |                                         |
-| `Real`                                       | numeric input                                 |                                         |
-| `Rational` (ExposureTime, ShutterSpeedValue) | numerator/denominator pair, or decimal toggle |                                         |
-| `Boolean`                                    | tri-state (true / false / unset)              |                                         |
-| `DateTime`                                   | datetime picker                               | emits `YYYY:MM:DD HH:MM:SS±ZZ:ZZ`       |
-| `Enum<Integer>` (Orientation, Flash-base)    | dropdown of labels                            | draft stores code; display shows label  |
-| `Enum<String>` (some XMP enums)              | dropdown of labels                            |                                         |
-| `Struct`                                     | nested form                                   | each field recurses                     |
-| `Unknown`                                    | text input + warning                          | "schema doesn't describe this tag"      |
-| `Binary`                                     | read-only                                     | "not editable in app"                   |
+| Kind                                         | Control                                       | Notes                                                                   |
+| -------------------------------------------- | --------------------------------------------- | ----------------------------------------------------------------------- |
+| `Text`                                       | text input                                    |                                                                         |
+| `LangAlt`                                    | language tab strip; per-lang textarea         | `x-default` always present and explicit                                 |
+| `Bag<Text>` (Keywords, Subject)              | chip editor                                   | individual add/remove; never joined                                     |
+| `Seq<Text>`                                  | chip editor with reorder                      | order matters                                                           |
+| `Integer`                                    | numeric input + bounds                        |                                                                         |
+| `Real`                                       | numeric input                                 |                                                                         |
+| `Rational` (ExposureTime, ShutterSpeedValue) | numerator/denominator pair, or decimal toggle |                                                                         |
+| `Boolean`                                    | tri-state (true / false / unset)              |                                                                         |
+| `Date`                                       | date picker                                   | emits `YYYY:MM:DD`; for date-only metadata such as IPTC IIM date fields |
+| `Time`                                       | time picker                                   | emits `HH:MM:SS`; for time-only metadata such as IPTC IIM time fields   |
+| `DateTime`                                   | datetime picker                               | emits `YYYY:MM:DD HH:MM:SS±ZZ:ZZ`; for full EXIF/XMP timestamp fields   |
+| `Enum<Integer>` (Orientation, Flash-base)    | dropdown of labels                            | draft stores code; display shows label                                  |
+| `Enum<String>` (some XMP enums)              | dropdown of labels                            |                                                                         |
+| `Struct`                                     | nested form                                   | each field recurses                                                     |
+| `Unknown`                                    | text input + warning                          | "schema doesn't describe this tag"                                      |
+| `Binary`                                     | read-only                                     | "not editable in app"                                                   |
 
 ### Recursive composition
 
 The editor router is generic over `TagKind`. Each kind's editor delegates back to the router for any inner kind. That means arbitrary nesting works without special cases: a `Bag<Struct>` renders as a chip-list of expandable sub-forms, a `Seq<LangAlt>` as an ordered list of language-tab strips, a `Struct` whose field is itself a `Bag<Text>` as a sub-form containing a chip editor. No depth limit. Face-region markup (`XMP-mwg-rs:Regions`, a Bag of structs with per-face name/area sub-fields) works through the same router as a flat string tag.
+
+Temporal metadata is intentionally split into three first-class schema kinds. `Date` represents date-only values, `Time` represents time-only values, and `DateTime` represents full timestamps. This keeps the UI faithful to the underlying storage: a tag that only stores an IPTC IIM date should not ask the user for a time, and a tag that only stores an IPTC IIM time should not ask for a calendar date.
 
 ### Special-case overrides
 

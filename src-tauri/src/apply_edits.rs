@@ -269,7 +269,6 @@ pub fn apply_single_file_typed(
     for (key, edit) in edits {
         let info = registry.and_then(|r| r.lookup(key));
         let kind = info.map(|i| i.kind.clone());
-        let date_shape = crate::write_args::date_wire_shape(info);
 
         let (outcome_kind, message) = match edit.intent {
             EditIntent::Delete => verify_delete(key, &fresh_raw, &fresh_display),
@@ -279,7 +278,6 @@ pub fn apply_single_file_typed(
                 &fresh_display,
                 &fresh_raw,
                 kind.as_ref(),
-                date_shape,
             ),
             EditIntent::ListAdd => {
                 verify_list_add(key, edit.value.as_ref(), &fresh_display, &fresh_raw)
@@ -353,7 +351,6 @@ fn verify_set(
     fresh_display: &HashMap<String, Variant>,
     fresh_raw: &HashMap<String, Variant>,
     kind: Option<&TagKind>,
-    date_shape: Option<crate::tag_schema::DateWireShape>,
 ) -> (String, Option<String>) {
     let expected = match expected {
         Some(v) => v,
@@ -402,8 +399,8 @@ fn verify_set(
     if display_strict || raw_strict {
         return ("Match".to_string(), None);
     }
-    let display_storage = display_v.is_some_and(|v| variant_storage_eq(v, expected, date_shape));
-    let raw_storage = raw_v.is_some_and(|v| variant_storage_eq(v, expected, date_shape));
+    let display_storage = display_v.is_some_and(|v| variant_storage_eq(v, expected, kind));
+    let raw_storage = raw_v.is_some_and(|v| variant_storage_eq(v, expected, kind));
     if display_storage || raw_storage {
         return ("Match".to_string(), None);
     }
@@ -541,14 +538,12 @@ fn variant_strict_eq(a: &Variant, b: &Variant) -> bool {
     }
 }
 
-fn variant_storage_eq(
-    actual: &Variant,
-    expected: &Variant,
-    date_shape: Option<crate::tag_schema::DateWireShape>,
-) -> bool {
-    date_shape.is_some()
-        && crate::write_args::normalise_storage_variant_for_shape(actual, date_shape)
-            == crate::write_args::normalise_storage_variant_for_shape(expected, date_shape)
+fn variant_storage_eq(actual: &Variant, expected: &Variant, kind: Option<&TagKind>) -> bool {
+    matches!(
+        kind,
+        Some(TagKind::Date | TagKind::Time | TagKind::DateTime)
+    ) && crate::write_args::normalise_storage_variant_for_kind(actual, kind)
+        == crate::write_args::normalise_storage_variant_for_kind(expected, kind)
 }
 
 /// Type-aware Variant equality.  Bag is multiset, Seq is ordered (Phase 8.6).
@@ -969,7 +964,7 @@ mod tests {
     fn verify_set_match_when_strict_equal() {
         let display = map(&[("X", Variant::Integer(5))]);
         let raw = map(&[("X", Variant::Integer(5))]);
-        let (kind, _) = verify_set("X", Some(&Variant::Integer(5)), &display, &raw, None, None);
+        let (kind, _) = verify_set("X", Some(&Variant::Integer(5)), &display, &raw, None);
         assert_eq!(kind, "Match");
     }
 
@@ -978,7 +973,7 @@ mod tests {
         // Sent Integer(5); file holds Float(5.0) — loose match, not strict.
         let display = map(&[("X", Variant::Float(5.0))]);
         let raw = map(&[("X", Variant::Float(5.0))]);
-        let (kind, msg) = verify_set("X", Some(&Variant::Integer(5)), &display, &raw, None, None);
+        let (kind, msg) = verify_set("X", Some(&Variant::Integer(5)), &display, &raw, None);
         assert_eq!(kind, "Coerced");
         assert!(msg.unwrap().contains("normalised"));
     }
@@ -988,7 +983,7 @@ mod tests {
         // Sent Bool(true); file holds String("True") — loose match via cross-type.
         let display = map(&[("X", Variant::String("True".into()))]);
         let raw = map(&[("X", Variant::Integer(1))]);
-        let (kind, _) = verify_set("X", Some(&Variant::Bool(true)), &display, &raw, None, None);
+        let (kind, _) = verify_set("X", Some(&Variant::Bool(true)), &display, &raw, None);
         // Raw side strictly matches Bool→Int via cross-type; the Bool/Integer
         // pairing is loose-only, so this is Coerced.
         assert_eq!(kind, "Coerced");
@@ -998,7 +993,7 @@ mod tests {
     fn verify_set_mismatch_when_neither_loose_nor_strict() {
         let display = map(&[("X", Variant::String("totally other".into()))]);
         let raw = map(&[("X", Variant::String("totally other".into()))]);
-        let (kind, _) = verify_set("X", Some(&Variant::Integer(5)), &display, &raw, None, None);
+        let (kind, _) = verify_set("X", Some(&Variant::Integer(5)), &display, &raw, None);
         assert_eq!(kind, "Mismatch");
     }
 
@@ -1006,7 +1001,7 @@ mod tests {
     fn verify_set_missing_post_write_when_tag_absent() {
         let display = HashMap::new();
         let raw = HashMap::new();
-        let (kind, msg) = verify_set("X", Some(&Variant::Integer(5)), &display, &raw, None, None);
+        let (kind, msg) = verify_set("X", Some(&Variant::Integer(5)), &display, &raw, None);
         assert_eq!(kind, "MissingPostWrite");
         assert!(msg.unwrap().contains("absent after write"));
     }
@@ -1023,10 +1018,7 @@ mod tests {
             Some(&Variant::String("2026-05-15T10:30:00".into())),
             &display,
             &raw,
-            Some(&TagKind::DateTime {
-                shape: crate::tag_schema::DateWireShape::FullDateTime,
-            }),
-            Some(crate::tag_schema::DateWireShape::FullDateTime),
+            Some(&TagKind::DateTime),
         );
         assert_eq!(kind, "Match");
         assert!(msg.is_none());
@@ -1048,7 +1040,6 @@ mod tests {
             &display,
             &raw,
             None,
-            None,
         );
         assert_eq!(
             kind, "Match",
@@ -1067,7 +1058,6 @@ mod tests {
             &display,
             &raw,
             None,
-            None,
         );
         assert_eq!(kind, "Match");
     }
@@ -1083,7 +1073,6 @@ mod tests {
             &display,
             &raw,
             None,
-            None,
         );
         assert_eq!(kind, "Match");
     }
@@ -1093,7 +1082,7 @@ mod tests {
         // Variant::Null Set is the typed equivalent of an empty edit.
         let display = HashMap::new();
         let raw = HashMap::new();
-        let (kind, _) = verify_set("X", Some(&Variant::Null), &display, &raw, None, None);
+        let (kind, _) = verify_set("X", Some(&Variant::Null), &display, &raw, None);
         assert_eq!(kind, "Match");
     }
 
@@ -1112,7 +1101,6 @@ mod tests {
             &display,
             &raw,
             Some(&kind_bag),
-            None,
         );
         assert_eq!(outcome, "Match");
         assert!(msg.is_none());
@@ -1124,14 +1112,7 @@ mod tests {
         // dropping the tag.  Empty == empty is still a Match.
         let display = map(&[("X", Variant::List(vec![]))]);
         let raw = map(&[("X", Variant::List(vec![]))]);
-        let (outcome, _) = verify_set(
-            "X",
-            Some(&Variant::List(vec![])),
-            &display,
-            &raw,
-            None,
-            None,
-        );
+        let (outcome, _) = verify_set("X", Some(&Variant::List(vec![])), &display, &raw, None);
         assert_eq!(outcome, "Match");
     }
 
@@ -1141,14 +1122,7 @@ mod tests {
         // still holds items — that's a real write failure.
         let display = map(&[("X", Variant::List(vec![Variant::String("kept".into())]))]);
         let raw = map(&[("X", Variant::List(vec![Variant::String("kept".into())]))]);
-        let (outcome, _) = verify_set(
-            "X",
-            Some(&Variant::List(vec![])),
-            &display,
-            &raw,
-            None,
-            None,
-        );
+        let (outcome, _) = verify_set("X", Some(&Variant::List(vec![])), &display, &raw, None);
         assert_eq!(outcome, "Mismatch");
     }
 
@@ -1163,7 +1137,6 @@ mod tests {
             Some(&Variant::String(String::new())),
             &display,
             &raw,
-            None,
             None,
         );
         assert_eq!(kind, "Mismatch");

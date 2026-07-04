@@ -15,7 +15,7 @@
 
 use crate::draft_edits::{DraftEdit, EditIntent};
 use crate::scanner::Variant;
-use crate::tag_schema::{DateWireShape, EnumRepr, TagInfo, TagKind};
+use crate::tag_schema::{EnumRepr, TagInfo, TagKind};
 
 /// Output of `build_args` for one draft edit.
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -152,17 +152,15 @@ fn build_set(tag: &str, info: Option<&TagInfo>, value: Option<&Variant>) -> Buil
             numeric: vec![],
             text: vec![format!("-{}={}", tag, render_scalar_text(v))],
         },
-        // DateTime: numeric group.  Per design §6, datetimes "where we send
-        // raw" belong with the -n invocation; exiftool accepts the canonical
-        // `YYYY:MM:DD HH:MM:SS±ZZ:ZZ` literal under -n without trying to
-        // PrintConv-parse a localised string back into the field.  This
-        // matches the worked example in design §5 and avoids surprises when
-        // the system locale would otherwise reformat the string.
-        (Some(TagKind::DateTime { shape }), Some(v)) => BuiltArgs {
+        // Temporal values: numeric group.  Per design §6, temporal literals
+        // "where we send raw" belong with the -n invocation; exiftool accepts
+        // canonical storage literals under -n without trying to PrintConv-parse
+        // a localised string back into the field.
+        (Some(kind @ (TagKind::Date | TagKind::Time | TagKind::DateTime)), Some(v)) => BuiltArgs {
             numeric: vec![format!(
                 "-{}={}",
                 tag,
-                render_datetime_for_shape(v, Some(*shape))
+                normalise_storage_variant_for_kind(v, Some(kind))
             )],
             text: vec![],
         },
@@ -182,11 +180,7 @@ fn build_set(tag: &str, info: Option<&TagInfo>, value: Option<&Variant>) -> Buil
         // Unknown / Text / Alt / fallback (no schema): text group.
         (_, Some(v)) => BuiltArgs {
             numeric: vec![],
-            text: vec![format!(
-                "-{}={}",
-                tag,
-                render_datetime_for_shape(v, date_wire_shape(info))
-            )],
+            text: vec![format!("-{}={}", tag, render_scalar_text(v))],
         },
     }
 }
@@ -335,31 +329,21 @@ fn render_scalar_numeric(v: &Variant) -> String {
     }
 }
 
-fn render_datetime_for_shape(v: &Variant, shape: Option<DateWireShape>) -> String {
-    normalise_storage_variant_for_shape(v, shape)
-}
-
-pub(crate) fn normalise_storage_variant_for_shape(
+pub(crate) fn normalise_storage_variant_for_kind(
     value: &Variant,
-    shape: Option<DateWireShape>,
+    kind: Option<&TagKind>,
 ) -> String {
     let text = render_scalar_text(value);
-    normalise_storage_string_for_shape(&text, shape)
+    normalise_storage_string_for_kind(&text, kind)
 }
 
-fn normalise_storage_string_for_shape(value: &str, shape: Option<DateWireShape>) -> String {
-    match shape {
-        Some(DateWireShape::DateOnly) => normalise_iptc_date(value),
-        Some(DateWireShape::TimeOnly) => normalise_iptc_time(value),
-        Some(DateWireShape::FullDateTime) => normalise_exif_datetime(value),
+fn normalise_storage_string_for_kind(value: &str, kind: Option<&TagKind>) -> String {
+    match kind {
+        Some(TagKind::Date) => normalise_iptc_date(value),
+        Some(TagKind::Time) => normalise_iptc_time(value),
+        Some(TagKind::DateTime) => normalise_exif_datetime(value),
         None => value.to_string(),
-    }
-}
-
-pub(crate) fn date_wire_shape(info: Option<&TagInfo>) -> Option<DateWireShape> {
-    match info.map(|i| &i.kind) {
-        Some(TagKind::DateTime { shape }) => Some(*shape),
-        _ => None,
+        Some(_) => value.to_string(),
     }
 }
 
@@ -718,9 +702,7 @@ mod tests {
     fn datetime_uses_numeric_group() {
         // Phase 8.7: design §6 puts DateTime in the -n group so the literal
         // YYYY:MM:DD HH:MM:SS±ZZ:ZZ form bypasses PrintConv re-parsing.
-        let i = info(TagKind::DateTime {
-            shape: DateWireShape::FullDateTime,
-        });
+        let i = info(TagKind::DateTime);
         let args = build_args(
             "ExifIFD:DateTimeOriginal",
             Some(&i),
@@ -735,13 +717,7 @@ mod tests {
 
     #[test]
     fn iptc_date_renders_storage_format() {
-        let i = info_named(
-            "IPTC",
-            "DateCreated",
-            TagKind::DateTime {
-                shape: DateWireShape::DateOnly,
-            },
-        );
+        let i = info_named("IPTC", "DateCreated", TagKind::Date);
         let args = build_args(
             "IPTC:DateCreated",
             Some(&i),
@@ -752,13 +728,7 @@ mod tests {
 
     #[test]
     fn iptc_time_without_offset_adds_local_offset() {
-        let i = info_named(
-            "IPTC",
-            "TimeCreated",
-            TagKind::DateTime {
-                shape: DateWireShape::TimeOnly,
-            },
-        );
+        let i = info_named("IPTC", "TimeCreated", TagKind::Time);
         let args = build_args(
             "IPTC:TimeCreated",
             Some(&i),

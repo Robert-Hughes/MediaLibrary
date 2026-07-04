@@ -333,10 +333,22 @@ export function TypedValueEditor({
     );
   }
 
-  if (tag && tag.kind.kind === "DateTime") {
+  if (
+    tag &&
+    (tag.kind.kind === "Date" ||
+      tag.kind.kind === "Time" ||
+      tag.kind.kind === "DateTime")
+  ) {
     return (
       <DateTimeEditor
         propertyKey={propertyKey}
+        mode={
+          tag.kind.kind === "Date"
+            ? "date"
+            : tag.kind.kind === "Time"
+              ? "time"
+              : "datetime"
+        }
         initialValue={initialString}
         onSave={onSave}
         onCancel={onCancel}

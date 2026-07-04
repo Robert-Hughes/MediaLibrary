@@ -40,6 +40,51 @@ export function initialItemsFromVariant(value: Variant | undefined): Variant[] {
 
 // ── DateTimeEditor Helpers ────────────────────────────────────────────────────
 
+/** Convert `YYYY:MM:DD` or `YYYY-MM-DD` into the HTML date input value. */
+export function toHtmlDate(s: string): string {
+  if (!s) return "";
+  const m = s.trim().match(/^(\d{4})[:-](\d{2})[:-](\d{2})/);
+  if (!m) return "";
+  const [, y, mo, d] = m;
+  return `${y}-${mo}-${d}`;
+}
+
+/** Convert the HTML date input string to IPTC/ExifTool date storage format. */
+export function toExiftoolDate(s: string): string | null {
+  if (!s) return null;
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  const [, y, mo, d] = m;
+  return `${y}:${mo}:${d}`;
+}
+
+/** Convert `HH:MM[:SS][±ZZ[:ZZ]]` into the HTML time input value. */
+export function toHtmlTime(s: string): string {
+  if (!s) return "";
+  const m = s.trim().match(/^(\d{2}):(\d{2})(?::(\d{2}))?/);
+  if (!m) return "";
+  const [, h, mi, se] = m;
+  return `${h}:${mi}:${se ?? "00"}`;
+}
+
+/** Extract an existing time-zone offset from an IPTC time value, if present. */
+export function timeOffset(s: string): string {
+  const m = s.trim().match(/([+-]\d{2}:?\d{2})$/);
+  return m ? m[1] : "";
+}
+
+/**
+ * Convert the HTML time input string to a time-only storage value, preserving
+ * the original offset when one was present.
+ */
+export function toExiftoolTime(s: string, offset = ""): string | null {
+  if (!s) return null;
+  const m = s.match(/^(\d{2}):(\d{2})(?::(\d{2}))?$/);
+  if (!m) return null;
+  const [, h, mi, se] = m;
+  return `${h}:${mi}:${se ?? "00"}${offset}`;
+}
+
 /**
  * Convert exiftool's `YYYY:MM:DD HH:MM:SS[±ZZ:ZZ]` (or partial forms) into
  * the HTML datetime-local input value `YYYY-MM-DDTHH:MM:SS`.  Loses tz on
@@ -47,8 +92,10 @@ export function initialItemsFromVariant(value: Variant | undefined): Variant[] {
  */
 export function toIsoLocal(s: string): string {
   if (!s) return "";
-  // YYYY:MM:DD HH:MM:SS[.frac][±ZZ:ZZ]
-  const m = s.match(/^(\d{4}):(\d{2}):(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/);
+  // YYYY:MM:DD HH:MM:SS[.frac][±ZZ:ZZ] or ISO-like YYYY-MM-DDTHH:MM:SS.
+  const m = s.match(
+    /^(\d{4})[:-](\d{2})[:-](\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/,
+  );
   if (!m) return "";
   const [, y, mo, d, h, mi, se] = m;
   return `${y}-${mo}-${d}T${h}:${mi}:${se ?? "00"}`;
@@ -325,6 +372,10 @@ export function describeKind(kind: TagKind): string {
       return "Rational number";
     case "Boolean":
       return "Boolean (true/false)";
+    case "Date":
+      return "Date";
+    case "Time":
+      return "Time";
     case "DateTime":
       return "Date/time";
     case "Enum":

@@ -12,7 +12,6 @@ import type { DraftEdit } from "./types/generated/DraftEdit";
 export type { PhotoInfo, Variant, DraftEdit };
 export type { TagInfo } from "./types/generated/TagInfo";
 export type { TagKind } from "./types/generated/TagKind";
-export type { DateWireShape } from "./types/generated/DateWireShape";
 export type { EnumOption } from "./types/generated/EnumOption";
 export type { EnumRepr } from "./types/generated/EnumRepr";
 export type { EditIntent } from "./types/generated/EditIntent";
