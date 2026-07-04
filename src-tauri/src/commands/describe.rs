@@ -250,7 +250,7 @@ pub async fn describe_images_cmd(
                 aggregate.add(&usage);
                 total_input_for_predicted += usage.input_tokens as u64;
 
-                let edits = openai_describe::compose_draft_edits(
+                let edits = openai_describe::compose_metadata_draft_edits(
                     &s.openai_model,
                     &output,
                     chrono::Utc::now(),
@@ -264,7 +264,7 @@ pub async fn describe_images_cmd(
                     usage.output_tokens,
                     edits.len()
                 );
-                emitter.progress(current, total, rel, "ok", None, Some(&edits));
+                emitter.progress_metadata(current, total, rel, "ok", None, Some(&edits));
                 succeeded.push(rel.clone());
             }
             Err(e) => {

@@ -22,9 +22,9 @@ use image::io::Reader as ImageReader;
 use serde::{Deserialize, Serialize};
 use std::io::Cursor;
 
-use crate::draft_edits::{DraftEdit, EditIntent};
+use crate::draft_edits::{EditIntent, MetadataDraftEdit};
+use crate::metadata_value::{ListKind, MetadataValue};
 use crate::openai_http::OpenAiHttp;
-use crate::scanner::Variant;
 
 /// Long-side cap before upload.  See experiment for rationale: server-side
 /// downscale is wasted bandwidth otherwise.
@@ -552,26 +552,26 @@ pub async fn describe_one(
 
 // ── Drafts composition ──────────────────────────────────────────────────────
 
-/// Convert an `AiOutput` into the typed-draft edits for one image.  Maps
-/// each field onto its `XMP-mlib:*` tag.  List fields become
-/// `Variant::List(Variant::String(...))` because exiftool's Bag arms
-/// expect array-of-string write input (see write_args.rs).
-pub fn compose_draft_edits(
+/// Convert an `AiOutput` into the semantic draft edits for one image. Maps
+/// each field onto its `XMP-mlib:*` tag.
+pub fn compose_metadata_draft_edits(
     model: &str,
     output: &AiOutput,
     generated_at: chrono::DateTime<chrono::Utc>,
-) -> std::collections::HashMap<String, DraftEdit> {
-    fn text_edit(s: String) -> DraftEdit {
-        DraftEdit {
-            value: Some(Variant::String(s)),
+) -> std::collections::HashMap<String, MetadataDraftEdit> {
+    fn text_edit(s: String) -> MetadataDraftEdit {
+        MetadataDraftEdit {
+            value: Some(MetadataValue::Text(s)),
             intent: EditIntent::Set,
             display: None,
         }
     }
-    fn list_edit(items: Vec<String>) -> DraftEdit {
-        let vs: Vec<Variant> = items.into_iter().map(Variant::String).collect();
-        DraftEdit {
-            value: Some(Variant::List(vs)),
+    fn list_edit(items: Vec<String>) -> MetadataDraftEdit {
+        MetadataDraftEdit {
+            value: Some(MetadataValue::List {
+                list_kind: ListKind::Bag,
+                items: items.into_iter().map(MetadataValue::Text).collect(),
+            }),
             intent: EditIntent::Set,
             display: None,
         }
@@ -729,7 +729,7 @@ mod tests {
     }
 
     #[test]
-    fn compose_draft_edits_maps_every_field_to_mlib_namespace() {
+    fn compose_metadata_draft_edits_maps_every_field_to_mlib_namespace() {
         let out = AiOutput {
             description: "a thing".into(),
             objects: vec!["a".into(), "b".into()],
@@ -743,7 +743,7 @@ mod tests {
                 .naive_utc(),
             chrono::Utc,
         );
-        let edits = compose_draft_edits("gpt-4o", &out, ts);
+        let edits = compose_metadata_draft_edits("gpt-4o", &out, ts);
 
         // Every expected key is present.
         for k in [
@@ -759,22 +759,31 @@ mod tests {
             assert!(edits.contains_key(k), "missing draft for {}", k);
         }
 
-        // Bag tags carry a List variant, not a comma-joined string — the
+        // Bag tags carry a semantic list, not a comma-joined string — the
         // bug history (keywords-CSV corruption) makes this worth asserting.
         match &edits["XMP-mlib:AIObjects"].value {
-            Some(Variant::List(v)) => assert_eq!(v.len(), 2),
-            other => panic!("expected List variant, got {:?}", other),
+            Some(MetadataValue::List { list_kind, items }) => {
+                assert_eq!(*list_kind, ListKind::Bag);
+                assert_eq!(
+                    items,
+                    &vec![
+                        MetadataValue::Text("a".to_string()),
+                        MetadataValue::Text("b".to_string())
+                    ]
+                );
+            }
+            other => panic!("expected semantic list, got {:?}", other),
         }
         match &edits["XMP-mlib:AIDescription"].value {
-            Some(Variant::String(s)) => assert_eq!(s, "a thing"),
-            other => panic!("expected String variant, got {:?}", other),
+            Some(MetadataValue::Text(s)) => assert_eq!(s, "a thing"),
+            other => panic!("expected text value, got {:?}", other),
         }
         match &edits["XMP-mlib:AIGeneratedAt"].value {
-            Some(Variant::String(s)) => {
+            Some(MetadataValue::Text(s)) => {
                 assert!(s.starts_with("2024-06-01T12:34:56"), "got {}", s);
                 assert!(s.ends_with('Z'), "expected Z-suffix UTC, got {}", s);
             }
-            other => panic!("expected String variant, got {:?}", other),
+            other => panic!("expected text value, got {:?}", other),
         }
     }
 

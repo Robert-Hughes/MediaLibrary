@@ -275,6 +275,26 @@ impl<'a> BatchProgressEmitter<'a> {
                 })
                 .collect::<std::collections::HashMap<_, _>>()
         });
+        self.progress_metadata(
+            current,
+            total,
+            relative_path,
+            status,
+            error,
+            semantic_edits.as_ref(),
+        );
+    }
+
+    /// Emit `${prefix}_progress` with semantic draft edits.
+    pub fn progress_metadata(
+        &self,
+        current: usize,
+        total: usize,
+        relative_path: &str,
+        status: &str,
+        error: Option<&str>,
+        edits: Option<&std::collections::HashMap<String, crate::draft_edits::MetadataDraftEdit>>,
+    ) {
         #[derive(Clone, Serialize)]
         #[serde(rename_all = "camelCase")]
         struct Payload<'a> {
@@ -297,7 +317,7 @@ impl<'a> BatchProgressEmitter<'a> {
                 relative_path,
                 status,
                 error,
-                edits: semantic_edits.as_ref(),
+                edits,
             },
         );
     }
