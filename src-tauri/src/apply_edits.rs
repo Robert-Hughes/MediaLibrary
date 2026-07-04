@@ -152,6 +152,15 @@ impl MetadataSingleFileOutcome {
     }
 }
 
+#[derive(Serialize, Debug)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
+pub struct MetadataApplyEditsResult {
+    pub applied: Vec<String>,
+    pub failed: Vec<FailedFile>,
+    pub fresh_metadata: HashMap<String, HashMap<String, MetadataValue>>,
+}
+
 /// Apply draft edits to a single file using exiftool, then re-read and verify.
 ///
 /// Legacy entry: accepts the string-only edit map and wraps each value into
@@ -1324,6 +1333,40 @@ pub fn apply_draft_edits(
     }
 
     ApplyEditsResult {
+        applied,
+        failed,
+        fresh_metadata,
+    }
+}
+
+pub fn apply_metadata_draft_edits(
+    folder_path: &str,
+    rel_paths: &[String],
+    drafts: &HashMap<String, HashMap<String, crate::draft_edits::MetadataDraftEdit>>,
+) -> MetadataApplyEditsResult {
+    let mut applied = Vec::new();
+    let mut failed = Vec::new();
+    let mut fresh_metadata = HashMap::new();
+
+    for rel_path in rel_paths {
+        let edits = match drafts.get(rel_path) {
+            Some(e) if !e.is_empty() => e,
+            _ => continue,
+        };
+        let outcome = apply_single_file_metadata(folder_path, rel_path, edits);
+        if let Some(meta) = outcome.fresh_metadata {
+            fresh_metadata.insert(rel_path.clone(), meta);
+        }
+        match outcome.error {
+            None => applied.push(rel_path.clone()),
+            Some(reason) => failed.push(FailedFile {
+                relative_path: rel_path.clone(),
+                reason,
+            }),
+        }
+    }
+
+    MetadataApplyEditsResult {
         applied,
         failed,
         fresh_metadata,
