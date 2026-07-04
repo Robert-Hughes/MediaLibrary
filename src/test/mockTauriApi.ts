@@ -6,17 +6,22 @@ import type {
   ThumbnailReadyPayload,
   ScanErrorPayload,
   WorkerErrorPayload,
-  Variant,
-  ApplyEditsResult,
+  ImageMetadataEntry,
+  MetadataApplyEditsResult,
   DraftEditsByFile,
   LegacyDraftEditsByFile,
 } from "../types";
+import {
+  legacyDraftsToMetadataDrafts,
+  type MetadataDraftEditsByFile,
+} from "../utils/semanticDrafts";
+import { normalizeDraftsFromTauri } from "../utils/scanEvents";
 
 type EventHandler = (payload: unknown) => void;
 
 type MockDraftEditsByFolder = Record<
   string,
-  DraftEditsByFile | LegacyDraftEditsByFile
+  DraftEditsByFile | LegacyDraftEditsByFile | MetadataDraftEditsByFile
 >;
 
 export interface MockTauriApi {
@@ -27,7 +32,7 @@ export interface MockTauriApi {
   emitScanComplete: (scanId?: number) => void;
   emitImageMetadataReady: (
     relativePath: string,
-    metadata: Record<string, Variant>,
+    metadata: Record<string, ImageMetadataEntry>,
     scanId?: number,
   ) => void;
   emitThumbnailReady: (
@@ -49,7 +54,7 @@ export interface MockTauriApi {
   /** The scan_id returned by the most recent start_scan call. */
   currentScanId: number;
   /** Override apply_draft_edits_cmd result. Default: success with no applied/failed. */
-  applyEditsResult: ApplyEditsResult;
+  applyEditsResult: MetadataApplyEditsResult;
   cancelApplyEditsCalled: boolean;
   /** Stored settings; defaults to empty API key + gpt-4o. */
   settings: { openai_api_key: string; openai_model: string };
@@ -289,10 +294,21 @@ export function createMockTauriApi(): MockTauriApi {
         const folder = args?.folderPath as string;
         return mock.draftEditsByFolder[folder] || {};
       }
-      if (cmd === "save_draft_edits" || cmd === "save_draft_edits_typed") {
+      if (cmd === "load_metadata_draft_edits") {
+        const folder = args?.folderPath as string;
+        const stored = mock.draftEditsByFolder[folder] || {};
+        return looksLikeMetadataDrafts(stored)
+          ? stored
+          : legacyDraftsToMetadataDrafts(normalizeDraftsFromTauri(stored));
+      }
+      if (
+        cmd === "save_draft_edits" ||
+        cmd === "save_draft_edits_typed" ||
+        cmd === "save_metadata_draft_edits"
+      ) {
         const folder = args?.folderPath as string;
         mock.draftEditsByFolder[folder] = args?.data as
-          DraftEditsByFile | LegacyDraftEditsByFile;
+          DraftEditsByFile | LegacyDraftEditsByFile | MetadataDraftEditsByFile;
         return;
       }
       if (cmd === "get_tag_info") {
@@ -300,10 +316,17 @@ export function createMockTauriApi(): MockTauriApi {
         // TypedValueEditor falls through to the legacy text input.
         return null;
       }
-      if (cmd === "apply_draft_edits_cmd") {
+      if (
+        cmd === "apply_draft_edits_cmd" ||
+        cmd === "apply_metadata_draft_edits_cmd"
+      ) {
         const result = mock.applyEditsResult;
         const relPaths = (args?.relPaths as string[]) ?? [];
         const total = result.applied.length + result.failed.length;
+        const progressEvent =
+          cmd === "apply_metadata_draft_edits_cmd"
+            ? "apply_metadata_edits_progress"
+            : "apply_edits_progress";
 
         // Mirror the backend: emit started, then one progress event per file
         emit("apply_edits_started", { total });
@@ -317,7 +340,7 @@ export function createMockTauriApi(): MockTauriApi {
           if (!isApplied && !failedEntry) continue;
 
           current += 1;
-          emit("apply_edits_progress", {
+          emit(progressEvent, {
             current,
             total,
             relative_path: path,
@@ -591,4 +614,34 @@ export function createMockTauriApi(): MockTauriApi {
 
   mock.api = api;
   return mock;
+}
+
+function looksLikeMetadataDrafts(
+  value: unknown,
+): value is MetadataDraftEditsByFile {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  for (const fileEdits of Object.values(value as Record<string, unknown>)) {
+    if (
+      !fileEdits ||
+      typeof fileEdits !== "object" ||
+      Array.isArray(fileEdits)
+    ) {
+      continue;
+    }
+    for (const edit of Object.values(fileEdits as Record<string, unknown>)) {
+      if (!edit || typeof edit !== "object" || Array.isArray(edit)) {
+        return false;
+      }
+      const maybeValue = (edit as { value?: unknown }).value;
+      return (
+        maybeValue === null ||
+        maybeValue === undefined ||
+        (!!maybeValue &&
+          typeof maybeValue === "object" &&
+          !Array.isArray(maybeValue) &&
+          "kind" in maybeValue)
+      );
+    }
+  }
+  return true;
 }

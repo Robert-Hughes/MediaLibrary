@@ -71,7 +71,7 @@ function isMetadataValue(value: unknown): value is MetadataValue {
   );
 }
 
-function variantToMetadataValue(value: Variant): MetadataValue {
+export function variantToMetadataValue(value: Variant): MetadataValue {
   if (value === null) return { kind: "Null" };
   if (typeof value === "string") return { kind: "Text", value };
   if (typeof value === "boolean") return { kind: "Bool", value };
