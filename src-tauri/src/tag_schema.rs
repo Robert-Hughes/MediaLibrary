@@ -60,6 +60,7 @@ pub enum TagKind {
     Date,
     Time,
     DateTime,
+    TimeOffset,
     Enum {
         repr: EnumRepr,
         options: Vec<EnumOption>,
@@ -524,6 +525,14 @@ fn derive_kind_for_tag(
     count: Option<u32>,
     options: &[EnumOption],
 ) -> TagKind {
+    if group == "ExifIFD"
+        && matches!(
+            name,
+            "OffsetTime" | "OffsetTimeOriginal" | "OffsetTimeDigitized"
+        )
+    {
+        return TagKind::TimeOffset;
+    }
     if group == "IPTC" && type_attr == "digits" && count == Some(8) && name.contains("Date") {
         return TagKind::Date;
     }
@@ -681,6 +690,9 @@ fn apply_overrides(tags: &mut BTreeMap<String, TagInfo>) {
         ("XMP-exif:DateTimeOriginal", || TagKind::DateTime),
         ("XMP-exif:DateTimeDigitized", || TagKind::DateTime),
         ("XMP-iptcCore:DateCreated", || TagKind::DateTime),
+        ("ExifIFD:OffsetTime", || TagKind::TimeOffset),
+        ("ExifIFD:OffsetTimeOriginal", || TagKind::TimeOffset),
+        ("ExifIFD:OffsetTimeDigitized", || TagKind::TimeOffset),
         // ── XMP-mlib namespace (AI-generated metadata) ────────────────
         // Registered with exiftool via the embedded user-defined config
         // (see `exiftool_config.rs`). `-listx` does not enumerate
@@ -1035,6 +1047,19 @@ mod tests {
             derive_kind_for_tag("IPTC", "ReleaseTime", "string", Some(11), &[]),
             TagKind::Time
         ));
+    }
+
+    #[test]
+    fn exif_offset_time_tags_are_time_offset() {
+        for name in ["OffsetTime", "OffsetTimeOriginal", "OffsetTimeDigitized"] {
+            assert!(
+                matches!(
+                    derive_kind_for_tag("ExifIFD", name, "string", Some(7), &[]),
+                    TagKind::TimeOffset
+                ),
+                "{name} should derive to TimeOffset"
+            );
+        }
     }
 
     #[test]

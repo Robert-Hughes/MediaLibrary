@@ -378,6 +378,8 @@ export function describeKind(kind: TagKind): string {
       return "Time";
     case "DateTime":
       return "Date/time";
+    case "TimeOffset":
+      return "Time offset";
     case "Enum":
       return `Enum (${kind.data.options.length} options)`;
     case "Bag":
