@@ -264,6 +264,17 @@ impl<'a> BatchProgressEmitter<'a> {
         error: Option<&str>,
         edits: Option<&std::collections::HashMap<String, crate::draft_edits::DraftEdit>>,
     ) {
+        let semantic_edits = edits.map(|edits| {
+            edits
+                .iter()
+                .map(|(key, edit)| {
+                    (
+                        key.clone(),
+                        crate::draft_edits::MetadataDraftEdit::from_legacy_draft(edit),
+                    )
+                })
+                .collect::<std::collections::HashMap<_, _>>()
+        });
         #[derive(Clone, Serialize)]
         #[serde(rename_all = "camelCase")]
         struct Payload<'a> {
@@ -274,7 +285,9 @@ impl<'a> BatchProgressEmitter<'a> {
             #[serde(skip_serializing_if = "Option::is_none")]
             error: Option<&'a str>,
             #[serde(skip_serializing_if = "Option::is_none")]
-            edits: Option<&'a std::collections::HashMap<String, crate::draft_edits::DraftEdit>>,
+            edits: Option<
+                &'a std::collections::HashMap<String, crate::draft_edits::MetadataDraftEdit>,
+            >,
         }
         let _ = self.app.emit(
             &format!("{}_progress", self.prefix),
@@ -284,7 +297,7 @@ impl<'a> BatchProgressEmitter<'a> {
                 relative_path,
                 status,
                 error,
-                edits,
+                edits: semantic_edits.as_ref(),
             },
         );
     }
