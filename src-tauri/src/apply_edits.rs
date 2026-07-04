@@ -121,6 +121,37 @@ impl SingleFileOutcome {
     }
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
+pub struct MetadataTagOutcome {
+    pub tag: String,
+    pub kind: String,
+    pub sent: Option<MetadataValue>,
+    pub before_display: Option<MetadataValue>,
+    pub observed_display: Option<MetadataValue>,
+    pub observed_raw: Option<MetadataValue>,
+    pub message: Option<String>,
+}
+
+pub struct MetadataSingleFileOutcome {
+    pub fresh_metadata: Option<HashMap<String, MetadataValue>>,
+    pub error: Option<String>,
+    pub outcomes: Vec<MetadataTagOutcome>,
+    pub tags_to_clear: Vec<String>,
+}
+
+impl MetadataSingleFileOutcome {
+    fn hard_failure(reason: String) -> Self {
+        Self {
+            fresh_metadata: None,
+            error: Some(reason),
+            outcomes: Vec::new(),
+            tags_to_clear: Vec::new(),
+        }
+    }
+}
+
 /// Apply draft edits to a single file using exiftool, then re-read and verify.
 ///
 /// Legacy entry: accepts the string-only edit map and wraps each value into
@@ -331,6 +362,155 @@ pub fn apply_single_file_typed(
     );
 
     SingleFileOutcome {
+        fresh_metadata: Some(fresh_display),
+        error: first_mismatch,
+        outcomes: tag_outcomes,
+        tags_to_clear,
+    }
+}
+
+pub fn apply_single_file_metadata(
+    folder_path: &str,
+    rel_path: &str,
+    edits: &HashMap<String, crate::draft_edits::MetadataDraftEdit>,
+) -> MetadataSingleFileOutcome {
+    if edits.is_empty() {
+        return MetadataSingleFileOutcome::hard_failure("No edits to apply".to_string());
+    }
+
+    let abs_path =
+        Path::new(folder_path).join(rel_path.replace('/', std::path::MAIN_SEPARATOR_STR));
+
+    for key in edits.keys() {
+        if key.contains('\n') || key.contains('\0') {
+            return MetadataSingleFileOutcome::hard_failure(format!("Invalid tag key: {:?}", key));
+        }
+    }
+
+    if !abs_path.exists() {
+        return MetadataSingleFileOutcome::hard_failure(format!(
+            "File not found: {}",
+            abs_path.display()
+        ));
+    }
+
+    let registry = crate::tag_schema::get_registry().ok();
+
+    let before_display = match scanner::read_image_metadata_batch(
+        &[rel_path.to_string()],
+        std::slice::from_ref(&abs_path),
+    ) {
+        Ok(mut results) => results.pop().map(|r| r.metadata_values).unwrap_or_default(),
+        Err(e) => {
+            log::warn!(
+                "[apply_edits] Semantic pre-write read failed for {}: {}",
+                rel_path,
+                e
+            );
+            HashMap::new()
+        }
+    };
+
+    let mut combined = crate::write_args::BuiltArgs::default();
+    for (key, edit) in edits {
+        let info = registry.and_then(|r| r.lookup(key));
+        let args = match crate::write_args::build_metadata_args(key, info, edit) {
+            Ok(args) => args,
+            Err(e) => return MetadataSingleFileOutcome::hard_failure(e),
+        };
+        combined.extend(args);
+    }
+
+    if combined.is_empty() {
+        return MetadataSingleFileOutcome::hard_failure(
+            "build_metadata_args produced no arguments (all tags rejected?)".to_string(),
+        );
+    }
+
+    if !combined.numeric.is_empty() {
+        if let Err(e) = run_exiftool_write(&abs_path, &combined.numeric, true) {
+            return MetadataSingleFileOutcome::hard_failure(e);
+        }
+    }
+    if !combined.text.is_empty() {
+        if let Err(e) = run_exiftool_write(&abs_path, &combined.text, false) {
+            return MetadataSingleFileOutcome::hard_failure(e);
+        }
+    }
+
+    let (fresh_display, fresh_raw) =
+        match scanner::read_image_metadata_batch(&[rel_path.to_string()], &[abs_path]) {
+            Ok(mut results) => match results.pop() {
+                Some(r) => (r.metadata_values, r.raw_metadata_values),
+                None => {
+                    return MetadataSingleFileOutcome::hard_failure(
+                        "Post-write read returned no entry".to_string(),
+                    )
+                }
+            },
+            Err(e) => {
+                return MetadataSingleFileOutcome::hard_failure(format!(
+                    "Post-write read failed: {}",
+                    e
+                ))
+            }
+        };
+
+    use crate::draft_edits::EditIntent;
+    let mut tag_outcomes = Vec::with_capacity(edits.len());
+    let mut tags_to_clear = Vec::new();
+    let mut first_mismatch = None;
+
+    for (key, edit) in edits {
+        let info = registry.and_then(|r| r.lookup(key));
+        let kind = info.map(|i| i.kind.clone());
+        let (outcome_kind, message) = match edit.intent {
+            EditIntent::Delete => verify_metadata_delete(key, &fresh_raw, &fresh_display),
+            EditIntent::Set => verify_metadata_set(
+                key,
+                edit.value.as_ref(),
+                &fresh_display,
+                &fresh_raw,
+                kind.as_ref(),
+            ),
+            EditIntent::ListAdd => verify_metadata_list_add(
+                key,
+                edit.value.as_ref(),
+                &fresh_display,
+                &fresh_raw,
+                kind.as_ref(),
+            ),
+            EditIntent::ListRemove => verify_metadata_list_remove(
+                key,
+                edit.value.as_ref(),
+                &fresh_display,
+                &fresh_raw,
+                kind.as_ref(),
+            ),
+        };
+
+        match outcome_kind.as_str() {
+            "Match" | "DeleteOk" => tags_to_clear.push(key.clone()),
+            "Coerced" => {}
+            _ => {
+                if first_mismatch.is_none() {
+                    first_mismatch = message.clone();
+                }
+            }
+        }
+
+        tag_outcomes.push(MetadataTagOutcome {
+            tag: key.clone(),
+            kind: outcome_kind,
+            sent: edit.value.clone(),
+            before_display: before_display.get(key).cloned(),
+            observed_display: fresh_display.get(key).cloned(),
+            observed_raw: fresh_raw.get(key).cloned(),
+            message,
+        });
+    }
+
+    MetadataSingleFileOutcome {
         fresh_metadata: Some(fresh_display),
         error: first_mismatch,
         outcomes: tag_outcomes,
@@ -820,6 +1000,124 @@ fn verify_metadata_set(
     )
 }
 
+fn verify_metadata_delete(
+    key: &str,
+    fresh_raw: &HashMap<String, MetadataValue>,
+    fresh_display: &HashMap<String, MetadataValue>,
+) -> (String, Option<String>) {
+    if metadata_empty_or_absent(fresh_raw.get(key))
+        && metadata_empty_or_absent(fresh_display.get(key))
+    {
+        ("DeleteOk".to_string(), None)
+    } else {
+        (
+            "DeleteLingering".to_string(),
+            Some(format!(
+                "Delete verification failed for {}: tag still present (display={:?}, raw={:?})",
+                key,
+                fresh_display.get(key),
+                fresh_raw.get(key)
+            )),
+        )
+    }
+}
+
+fn verify_metadata_list_add(
+    key: &str,
+    expected: Option<&MetadataValue>,
+    fresh_display: &HashMap<String, MetadataValue>,
+    fresh_raw: &HashMap<String, MetadataValue>,
+    kind: Option<&TagKind>,
+) -> (String, Option<String>) {
+    let expected = match expected {
+        Some(v) => v,
+        None => return ("Match".to_string(), None),
+    };
+    if metadata_list_contains_all(fresh_display.get(key), expected, kind)
+        || metadata_list_contains_all(fresh_raw.get(key), expected, kind)
+    {
+        return ("Match".to_string(), None);
+    }
+    (
+        "Mismatch".to_string(),
+        Some(format!(
+            "ListAdd verification failed for {}: items {:?} not all present",
+            key, expected
+        )),
+    )
+}
+
+fn verify_metadata_list_remove(
+    key: &str,
+    expected: Option<&MetadataValue>,
+    fresh_display: &HashMap<String, MetadataValue>,
+    fresh_raw: &HashMap<String, MetadataValue>,
+    kind: Option<&TagKind>,
+) -> (String, Option<String>) {
+    let expected = match expected {
+        Some(v) => v,
+        None => return ("Match".to_string(), None),
+    };
+    if metadata_list_contains_none(fresh_display.get(key), expected, kind)
+        || metadata_list_contains_none(fresh_raw.get(key), expected, kind)
+    {
+        return ("Match".to_string(), None);
+    }
+    (
+        "Mismatch".to_string(),
+        Some(format!(
+            "ListRemove verification failed for {}: items {:?} still present",
+            key, expected
+        )),
+    )
+}
+
+fn metadata_list_contains_all(
+    actual: Option<&MetadataValue>,
+    expected: &MetadataValue,
+    kind: Option<&TagKind>,
+) -> bool {
+    let expected_items: &[MetadataValue] = match expected {
+        MetadataValue::List { items, .. } => items,
+        scalar => return matches_metadata_value(actual, scalar, kind),
+    };
+    let Some(MetadataValue::List {
+        items: actual_items,
+        ..
+    }) = actual
+    else {
+        return false;
+    };
+    expected_items.iter().all(|expected| {
+        actual_items
+            .iter()
+            .any(|actual| matches_metadata_value(Some(actual), expected, list_inner_kind(kind)))
+    })
+}
+
+fn metadata_list_contains_none(
+    actual: Option<&MetadataValue>,
+    expected: &MetadataValue,
+    kind: Option<&TagKind>,
+) -> bool {
+    let expected_items: &[MetadataValue] = match expected {
+        MetadataValue::List { items, .. } => items,
+        scalar => std::slice::from_ref(scalar),
+    };
+    let Some(MetadataValue::List {
+        items: actual_items,
+        ..
+    }) = actual
+    else {
+        return true;
+    };
+    expected_items.iter().all(|expected| {
+        actual_items
+            .iter()
+            .all(|actual| !matches_metadata_value(Some(actual), expected, list_inner_kind(kind)))
+    })
+}
+
 fn metadata_unparsed(value: &MetadataValue) -> bool {
     matches!(value, MetadataValue::Unknown { .. })
 }
@@ -971,6 +1269,13 @@ fn metadata_lists_match(
 fn struct_field_kind<'a>(kind: Option<&'a TagKind>, key: &str) -> Option<&'a TagKind> {
     match kind {
         Some(TagKind::Struct(fields)) => fields.get(key),
+        _ => None,
+    }
+}
+
+fn list_inner_kind(kind: Option<&TagKind>) -> Option<&TagKind> {
+    match kind {
+        Some(TagKind::Bag(inner) | TagKind::Seq(inner) | TagKind::Alt(inner)) => Some(inner),
         _ => None,
     }
 }
@@ -1579,6 +1884,60 @@ mod tests {
             .iter()
             .map(|(key, value)| (key.to_string(), value.clone()))
             .collect()
+    }
+
+    fn metadata_edit(value: MetadataValue) -> crate::draft_edits::MetadataDraftEdit {
+        crate::draft_edits::MetadataDraftEdit {
+            value: Some(value),
+            intent: crate::draft_edits::EditIntent::Set,
+            display: None,
+        }
+    }
+
+    #[test]
+    fn semantic_apply_empty_edits_is_hard_failure() {
+        let outcome = apply_single_file_metadata("/tmp", "photo.jpg", &HashMap::new());
+        assert!(outcome.fresh_metadata.is_none());
+        assert!(outcome.error.unwrap().contains("No edits"));
+    }
+
+    #[test]
+    fn semantic_apply_invalid_key_is_hard_failure() {
+        let mut edits = HashMap::new();
+        edits.insert(
+            "Bad\nKey".to_string(),
+            metadata_edit(MetadataValue::Text("x".into())),
+        );
+        let outcome = apply_single_file_metadata("/tmp", "photo.jpg", &edits);
+        assert!(outcome.fresh_metadata.is_none());
+        assert!(outcome.error.unwrap().contains("Invalid tag key"));
+    }
+
+    #[test]
+    fn semantic_apply_missing_file_is_hard_failure() {
+        let mut edits = HashMap::new();
+        edits.insert(
+            "XMP-dc:Title".to_string(),
+            metadata_edit(MetadataValue::Text("x".into())),
+        );
+        let outcome = apply_single_file_metadata("/tmp", "missing_metadata_semantic.jpg", &edits);
+        assert!(outcome.fresh_metadata.is_none());
+        assert!(outcome.error.unwrap().contains("File not found"));
+    }
+
+    #[test]
+    fn semantic_apply_blocks_binary_before_write() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.jpg");
+        std::fs::write(&path, b"not a real image").unwrap();
+        let mut edits = HashMap::new();
+        edits.insert(
+            "IFD1:ThumbnailImage".to_string(),
+            metadata_edit(MetadataValue::Binary),
+        );
+        let outcome = apply_single_file_metadata(dir.path().to_str().unwrap(), "a.jpg", &edits);
+        assert!(outcome.fresh_metadata.is_none());
+        assert!(outcome.error.unwrap().contains("binary"));
     }
 
     #[test]
