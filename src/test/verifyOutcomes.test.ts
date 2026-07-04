@@ -19,9 +19,12 @@ import {
   mergeVerifyOutcomes,
   removeVerifyOutcome,
 } from "../utils/verifyOutcomes";
-import type { TagOutcome, TagOutcomeEntry } from "../types";
+import type { MetadataTagOutcome, TagOutcomeEntry } from "../types";
 
-function outcome(tag: string, kind: TagOutcome["kind"]): TagOutcome {
+function outcome(
+  tag: string,
+  kind: MetadataTagOutcome["kind"],
+): MetadataTagOutcome {
   return {
     tag,
     kind,
