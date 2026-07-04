@@ -19,8 +19,8 @@
 import { useState } from "react";
 import type { DraftEdit } from "../../types";
 import { READ_ONLY_TOOLTIP } from "./readOnlyMessages";
+import type { FlashFields } from "./editorHelpers";
 import {
-  FlashFields,
   decodeFlashCode,
   encodeFlashFields,
   describeFlashCode,

@@ -8,17 +8,21 @@ import type {
   WorkerErrorPayload,
   Variant,
   ApplyEditsResult,
+  DraftEditsByFile,
+  LegacyDraftEditsByFile,
 } from "../types";
 
 type EventHandler = (payload: unknown) => void;
 
+type MockDraftEditsByFolder = Record<
+  string,
+  DraftEditsByFile | LegacyDraftEditsByFile
+>;
+
 export interface MockTauriApi {
   api: TauriApi;
   pickFolderResolves: (path: string | null) => void;
-  draftEditsByFolder: Record<
-    string,
-    Record<string, Record<string, string | null>>
-  >;
+  draftEditsByFolder: MockDraftEditsByFolder;
   emitPhotoFound: (photo: PhotoInfo, scanId?: number) => void;
   emitScanComplete: (scanId?: number) => void;
   emitImageMetadataReady: (
@@ -287,10 +291,8 @@ export function createMockTauriApi(): MockTauriApi {
       }
       if (cmd === "save_draft_edits" || cmd === "save_draft_edits_typed") {
         const folder = args?.folderPath as string;
-        mock.draftEditsByFolder[folder] = args?.data as Record<
-          string,
-          Record<string, string | null>
-        >;
+        mock.draftEditsByFolder[folder] = args?.data as
+          DraftEditsByFile | LegacyDraftEditsByFile;
         return;
       }
       if (cmd === "get_tag_info") {
