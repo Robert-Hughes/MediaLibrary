@@ -16,12 +16,9 @@ describe("schemaDatatype", () => {
     expect(schemaDatatype({ kind: "Real" })?.code).toBe("R");
     expect(schemaDatatype({ kind: "Rational" })?.code).toBe("Q");
     expect(schemaDatatype({ kind: "Boolean" })?.code).toBe("B");
-    expect(
-      schemaDatatype({
-        kind: "DateTime",
-        data: { shape: "FullDateTime" },
-      })?.code,
-    ).toBe("D");
+    expect(schemaDatatype({ kind: "Date" })?.code).toBe("D");
+    expect(schemaDatatype({ kind: "Time" })?.code).toBe("T");
+    expect(schemaDatatype({ kind: "DateTime" })?.code).toBe("DT");
     expect(schemaDatatype({ kind: "Binary" })?.code).toBe("Bin");
   });
 
@@ -77,6 +74,8 @@ describe("datatypesMatch", () => {
   it("treats string as compatible with string-encoded schemas", () => {
     expect(datatypesMatch("S", "LA")).toBe(true);
     expect(datatypesMatch("S", "D")).toBe(true);
+    expect(datatypesMatch("S", "T")).toBe(true);
+    expect(datatypesMatch("S", "DT")).toBe(true);
     expect(datatypesMatch("S", "E")).toBe(true);
     expect(datatypesMatch("S", "Q")).toBe(true);
     expect(datatypesMatch("S", "I")).toBe(false);

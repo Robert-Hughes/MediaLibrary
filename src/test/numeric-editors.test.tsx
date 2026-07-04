@@ -165,6 +165,40 @@ describe("BooleanEditor", () => {
 });
 
 describe("DateTimeEditor", () => {
+  it("date mode uses a date-only input and saves date storage format", () => {
+    const onSave = vi.fn();
+    render(
+      <DateTimeEditor
+        propertyKey="IPTC:DateCreated"
+        mode="date"
+        initialValue="2024-01-15"
+        onSave={onSave}
+        onCancel={() => {}}
+      />,
+    );
+    const input = screen.getByTestId("datetime-editor-input");
+    expect(input).toHaveAttribute("type", "date");
+    fireEvent.click(screen.getByTestId("datetime-editor-save"));
+    expect(onSave.mock.calls[0][0].value).toBe("2024:01:15");
+  });
+
+  it("time mode uses a time-only input and preserves an existing offset", () => {
+    const onSave = vi.fn();
+    render(
+      <DateTimeEditor
+        propertyKey="IPTC:TimeCreated"
+        mode="time"
+        initialValue="14:30:05+01:00"
+        onSave={onSave}
+        onCancel={() => {}}
+      />,
+    );
+    const input = screen.getByTestId("datetime-editor-input");
+    expect(input).toHaveAttribute("type", "time");
+    fireEvent.click(screen.getByTestId("datetime-editor-save"));
+    expect(onSave.mock.calls[0][0].value).toBe("14:30:05+01:00");
+  });
+
   it("Save emits exiftool-format string", () => {
     const onSave = vi.fn();
     render(
@@ -174,6 +208,10 @@ describe("DateTimeEditor", () => {
         onSave={onSave}
         onCancel={() => {}}
       />,
+    );
+    expect(screen.getByTestId("datetime-editor-input")).toHaveAttribute(
+      "type",
+      "datetime-local",
     );
     fireEvent.click(screen.getByTestId("datetime-editor-save"));
     expect(onSave.mock.calls[0][0].value).toBe("2024:01:15 14:30:00");

@@ -53,6 +53,8 @@ function emptyVariantFor(inner: TagKind): Variant {
       return 0;
     case "Text":
     case "Unknown":
+    case "Date":
+    case "Time":
     case "DateTime":
     default:
       return "";

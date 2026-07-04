@@ -57,9 +57,9 @@ pub enum TagKind {
     Real,
     Rational,
     Boolean,
-    DateTime {
-        shape: DateWireShape,
-    },
+    Date,
+    Time,
+    DateTime,
     Enum {
         repr: EnumRepr,
         options: Vec<EnumOption>,
@@ -70,15 +70,6 @@ pub enum TagKind {
     Struct(BTreeMap<String, TagKind>),
     Binary,
     Unknown,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
-pub enum DateWireShape {
-    FullDateTime,
-    DateOnly,
-    TimeOnly,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -534,14 +525,10 @@ fn derive_kind_for_tag(
     options: &[EnumOption],
 ) -> TagKind {
     if group == "IPTC" && type_attr == "digits" && count == Some(8) && name.contains("Date") {
-        return TagKind::DateTime {
-            shape: DateWireShape::DateOnly,
-        };
+        return TagKind::Date;
     }
     if group == "IPTC" && type_attr == "string" && count == Some(11) && name.contains("Time") {
-        return TagKind::DateTime {
-            shape: DateWireShape::TimeOnly,
-        };
+        return TagKind::Time;
     }
     derive_kind(type_attr, count, options)
 }
@@ -553,9 +540,7 @@ fn derive_kind(type_attr: &str, count: Option<u32>, options: &[EnumOption]) -> T
         "boolean" => TagKind::Boolean,
         // Every date-shaped type exiftool emits: bare `date`, `date+` (one
         // or more dates), and `datetime` (XMP variant).
-        "date" | "date+" | "datetime" => TagKind::DateTime {
-            shape: DateWireShape::FullDateTime,
-        },
+        "date" | "date+" | "datetime" => TagKind::DateTime,
         "struct" => TagKind::Struct(BTreeMap::new()),
         "?" | "" | "undef" => TagKind::Unknown,
         "float" | "double" | "real" => TagKind::Real,
@@ -689,27 +674,13 @@ fn apply_overrides(tags: &mut BTreeMap<String, TagInfo>) {
         // Promoting them here means the DateTime editor lights up, the
         // verifier compares with date-aware semantics, and write_args
         // sends them through the numeric (-n) group per design §6.
-        ("XMP-xmp:CreateDate", || TagKind::DateTime {
-            shape: DateWireShape::FullDateTime,
-        }),
-        ("XMP-xmp:ModifyDate", || TagKind::DateTime {
-            shape: DateWireShape::FullDateTime,
-        }),
-        ("XMP-xmp:MetadataDate", || TagKind::DateTime {
-            shape: DateWireShape::FullDateTime,
-        }),
-        ("XMP-photoshop:DateCreated", || TagKind::DateTime {
-            shape: DateWireShape::FullDateTime,
-        }),
-        ("XMP-exif:DateTimeOriginal", || TagKind::DateTime {
-            shape: DateWireShape::FullDateTime,
-        }),
-        ("XMP-exif:DateTimeDigitized", || TagKind::DateTime {
-            shape: DateWireShape::FullDateTime,
-        }),
-        ("XMP-iptcCore:DateCreated", || TagKind::DateTime {
-            shape: DateWireShape::FullDateTime,
-        }),
+        ("XMP-xmp:CreateDate", || TagKind::DateTime),
+        ("XMP-xmp:ModifyDate", || TagKind::DateTime),
+        ("XMP-xmp:MetadataDate", || TagKind::DateTime),
+        ("XMP-photoshop:DateCreated", || TagKind::DateTime),
+        ("XMP-exif:DateTimeOriginal", || TagKind::DateTime),
+        ("XMP-exif:DateTimeDigitized", || TagKind::DateTime),
+        ("XMP-iptcCore:DateCreated", || TagKind::DateTime),
         // ── XMP-mlib namespace (AI-generated metadata) ────────────────
         // Registered with exiftool via the embedded user-defined config
         // (see `exiftool_config.rs`). `-listx` does not enumerate
@@ -725,9 +696,7 @@ fn apply_overrides(tags: &mut BTreeMap<String, TagInfo>) {
             TagKind::Bag(Box::new(TagKind::Text))
         }),
         ("XMP-mlib:AIModel", || TagKind::Text),
-        ("XMP-mlib:AIGeneratedAt", || TagKind::DateTime {
-            shape: DateWireShape::FullDateTime,
-        }),
+        ("XMP-mlib:AIGeneratedAt", || TagKind::DateTime),
         ("XMP-mlib:AIPromptVersion", || TagKind::Text),
         // ── Unknown-kind cleanups ──────────────────────────────────────
         // `-listx` reports `type='undef'` for a long tail of EXIF tags.
@@ -1026,12 +995,7 @@ mod tests {
     fn modify_date_is_datetime() {
         let r = fixture_registry();
         let t = r.lookup("IFD0:ModifyDate").unwrap();
-        assert!(matches!(
-            t.kind,
-            TagKind::DateTime {
-                shape: DateWireShape::FullDateTime
-            }
-        ));
+        assert!(matches!(t.kind, TagKind::DateTime));
     }
 
     #[test]
@@ -1039,42 +1003,32 @@ mod tests {
         // Phase 8 fix-up: `date+` and `datetime` previously fell through to
         // Unknown, leaving write_args's DateTime → numeric arm and the
         // datetime override editor inert for tags carrying these types.
-        assert!(matches!(
-            derive_kind("date", None, &[]),
-            TagKind::DateTime {
-                shape: DateWireShape::FullDateTime
-            }
-        ));
-        assert!(matches!(
-            derive_kind("date+", None, &[]),
-            TagKind::DateTime {
-                shape: DateWireShape::FullDateTime
-            }
-        ));
+        assert!(matches!(derive_kind("date", None, &[]), TagKind::DateTime));
+        assert!(matches!(derive_kind("date+", None, &[]), TagKind::DateTime));
         assert!(matches!(
             derive_kind("datetime", None, &[]),
-            TagKind::DateTime {
-                shape: DateWireShape::FullDateTime
-            }
+            TagKind::DateTime
         ));
     }
 
     #[test]
-    fn iptc_split_date_time_shapes_are_schema_derived() {
+    fn iptc_split_date_time_kinds_are_schema_derived() {
         let r = fixture_registry();
         let date = r.lookup("IPTC:DateCreated").unwrap();
-        assert!(matches!(
-            date.kind,
-            TagKind::DateTime {
-                shape: DateWireShape::DateOnly
-            }
-        ));
+        assert!(matches!(date.kind, TagKind::Date));
         let time = r.lookup("IPTC:TimeCreated").unwrap();
+        assert!(matches!(time.kind, TagKind::Time));
+    }
+
+    #[test]
+    fn iptc_date_time_storage_shapes_derive_top_level_kinds() {
         assert!(matches!(
-            time.kind,
-            TagKind::DateTime {
-                shape: DateWireShape::TimeOnly
-            }
+            derive_kind_for_tag("IPTC", "ReleaseDate", "digits", Some(8), &[]),
+            TagKind::Date
+        ));
+        assert!(matches!(
+            derive_kind_for_tag("IPTC", "ReleaseTime", "string", Some(11), &[]),
+            TagKind::Time
         ));
     }
 
@@ -1089,24 +1043,14 @@ mod tests {
             .lookup("XMP-xmp:CreateDate")
             .expect("override should add the tag");
         assert!(
-            matches!(
-                t.kind,
-                TagKind::DateTime {
-                    shape: DateWireShape::FullDateTime
-                }
-            ),
+            matches!(t.kind, TagKind::DateTime),
             "XMP-xmp:CreateDate should be DateTime, got {:?}",
             t.kind
         );
         let t = r
             .lookup("XMP-photoshop:DateCreated")
             .expect("override should add");
-        assert!(matches!(
-            t.kind,
-            TagKind::DateTime {
-                shape: DateWireShape::FullDateTime
-            }
-        ));
+        assert!(matches!(t.kind, TagKind::DateTime));
     }
 
     #[test]
