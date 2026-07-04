@@ -33,9 +33,9 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use crate::draft_edits::{DraftEdit, EditIntent};
+use crate::draft_edits::{EditIntent, MetadataDraftEdit};
 use crate::geocode_cache::{CachedResult, GeocodeCacheEntry, GeocodeCacheFile};
-use crate::scanner::Variant;
+use crate::metadata_value::MetadataValue;
 
 // ── Wire types for the geocode_images_cmd Tauri command ─────────────────────
 //
@@ -345,7 +345,9 @@ pub fn geocode_target_tags() -> [&'static str; 10] {
 /// empty `AddressFields`: that case is the `nominatim_empty` failure
 /// and writes no drafts (see file-level doc-comment "All-empty result
 /// is a failure, not a success").
-pub fn compose_geocode_edits(addr: &AddressFields) -> std::collections::HashMap<String, DraftEdit> {
+pub fn compose_geocode_edits(
+    addr: &AddressFields,
+) -> std::collections::HashMap<String, MetadataDraftEdit> {
     debug_assert!(
         addr.has_any_usable(),
         "compose_geocode_edits called on an empty address — callers must \
@@ -353,21 +355,21 @@ pub fn compose_geocode_edits(addr: &AddressFields) -> std::collections::HashMap<
          doc-comment."
     );
 
-    fn set_text(s: &str) -> DraftEdit {
-        DraftEdit {
-            value: Some(Variant::String(s.to_string())),
+    fn set_text(s: &str) -> MetadataDraftEdit {
+        MetadataDraftEdit {
+            value: Some(MetadataValue::Text(s.to_string())),
             intent: EditIntent::Set,
             display: None,
         }
     }
-    fn delete_field() -> DraftEdit {
+    fn delete_field() -> MetadataDraftEdit {
         // Delete-intent on a tag tells the apply pipeline to remove the
         // field rather than write an empty string. Why a remove and not
         // a literal "": downstream tools treat empty string and absent
         // differently, and the user's intent is "this group is now
         // governed by the new geocode" — a clean removal is more
         // honest than smuggling in empty values.
-        DraftEdit {
+        MetadataDraftEdit {
             value: None,
             intent: EditIntent::Delete,
             display: None,
@@ -772,7 +774,7 @@ pub trait GeocodeEventSink {
         relative_path: &str,
         status: &str,
         error: Option<&str>,
-        edits: Option<&std::collections::HashMap<String, DraftEdit>>,
+        edits: Option<&std::collections::HashMap<String, MetadataDraftEdit>>,
     );
     fn complete(
         &self,
@@ -1035,13 +1037,13 @@ mod tests {
             other => panic!("expected Set, got {:?}", other),
         }
         match &edits["XMP-iptcCore:Location"].value {
-            Some(Variant::String(s)) => assert_eq!(s, "Tower of London"),
-            other => panic!("expected String, got {:?}", other),
+            Some(MetadataValue::Text(s)) => assert_eq!(s, "Tower of London"),
+            other => panic!("expected text value, got {:?}", other),
         }
         // IPTC mirror agrees with XMP source of truth.
         match &edits["IPTC:Sub-location"].value {
-            Some(Variant::String(s)) => assert_eq!(s, "Tower of London"),
-            other => panic!("expected String, got {:?}", other),
+            Some(MetadataValue::Text(s)) => assert_eq!(s, "Tower of London"),
+            other => panic!("expected text value, got {:?}", other),
         }
     }
 

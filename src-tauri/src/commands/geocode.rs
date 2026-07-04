@@ -8,7 +8,6 @@ use tauri::{AppHandle, State};
 
 use crate::batch_job;
 use crate::commands::shared::app_data_dir;
-use crate::draft_edits;
 use crate::geocode::{self, GeocodeRequestItem, GeocodeSummary};
 use crate::geocode_cache;
 
@@ -84,10 +83,10 @@ impl<'a> geocode::GeocodeEventSink for TauriGeocodeSink<'a> {
         relative_path: &str,
         status: &str,
         error: Option<&str>,
-        edits: Option<&std::collections::HashMap<String, draft_edits::DraftEdit>>,
+        edits: Option<&std::collections::HashMap<String, crate::draft_edits::MetadataDraftEdit>>,
     ) {
         self.emitter
-            .progress(current, total, relative_path, status, error, edits);
+            .progress_metadata(current, total, relative_path, status, error, edits);
     }
     fn complete(
         &self,
