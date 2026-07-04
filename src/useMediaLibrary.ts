@@ -19,6 +19,7 @@ import type {
   ApplyEditsStartedPayload,
   ApplyEditsProgressPayload,
   ImageMetadataEntry,
+  MetadataValue,
 } from "./types";
 import type { DraftEdit } from "./types";
 import { loadColumnConfig, saveColumnConfig } from "./utils/columnConfig";
@@ -83,7 +84,7 @@ export interface MediaLibraryActions {
   revertVerifyOutcome: (
     fileRelativePath: string,
     tag: string,
-    observedRaw: ImageMetadataEntry | null,
+    observedRaw: MetadataValue | null,
   ) => void;
   /** Phase 8.1: dismiss a single pending verify outcome without touching the draft. */
   dismissVerifyOutcome: (fileRelativePath: string, tag: string) => void;
@@ -751,7 +752,7 @@ export function useMediaLibrary(
     (
       fileRelativePath: string,
       tag: string,
-      observedRaw: ImageMetadataEntry | null,
+      observedRaw: MetadataValue | null,
     ) => {
       const observedVariant = metadataEntryToVariant(observedRaw);
       const newEdit: DraftEdit =

@@ -27,7 +27,6 @@ export type { EnumOption } from "./types/generated/EnumOption";
 export type { EnumRepr } from "./types/generated/EnumRepr";
 export type { EditIntent } from "./types/generated/EditIntent";
 export type { ImageMetadata } from "./types/generated/ImageMetadata";
-export type { ApplyEditsResult } from "./types/generated/ApplyEditsResult";
 export type { MetadataApplyEditsResult } from "./types/generated/MetadataApplyEditsResult";
 export type { FailedFile as ApplyEditsFailedFile } from "./types/generated/FailedFile";
 export type { BatchFailureKind } from "./types/generated/BatchFailureKind";
