@@ -6,19 +6,7 @@ The frontend re-exports generated wire-shape types from `src/types.ts` alongside
 
 ## Generated Types
 
-Current generated/shared types include:
-
-- `Variant`
-- `PhotoInfo`
-- `ImageMetadata`
-- `TagInfo`
-- `TagKind`
-- `EnumOption`
-- `EnumRepr`
-- `DraftEdit`
-- `EditIntent`
-- `ApplyEditsResult`
-- `FailedFile`
+See `src/types.ts` for the currently re-exported generated bindings.
 
 ## Regeneration Workflow
 

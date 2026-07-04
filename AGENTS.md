@@ -38,7 +38,7 @@ cargo test --manifest-path src-tauri/Cargo.toml
 cargo test --manifest-path src-tauri/Cargo.toml --features integration
 ```
 
-The integration tier requires `exiftool` on `PATH` and write access to a temp directory. The minimum supported ExifTool version is pinned in `src-tauri/tests/integration/MIN_EXIFTOOL_VERSION`.
+The integration tier requires `exiftool` on `PATH` and write access to a temp directory.
 
 ## Test Tiers
 
