@@ -12,14 +12,19 @@
  * backend never has to read the typed-draft store — it just trusts
  * the lat/lon it receives in `GeocodeRequestItem`.
  */
-import type { Variant, DraftEdit } from "../types";
+import type {
+  DraftEdit,
+  ImageMetadataEntry,
+  MetadataValue,
+  Variant,
+} from "../types";
 
 /**
  * Flat metadata bag — same shape as the `ImageMetadataStore.get()`
  * payload when present. The store also surfaces `"loading"`, which
  * callers must filter out before calling `resolveGps`.
  */
-type MetadataBag = Record<string, Variant>;
+type MetadataBag = Record<string, ImageMetadataEntry>;
 
 /**
  * GPS tag groups exiftool surfaces. `Composite` is the convenient
@@ -80,6 +85,35 @@ function parseRef(v: Variant): string | null {
   return r === "N" || r === "S" || r === "E" || r === "W" ? r : null;
 }
 
+function isMetadataValue(value: unknown): value is MetadataValue {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    "kind" in value &&
+    typeof (value as { kind?: unknown }).kind === "string"
+  );
+}
+
+function gpsVariantFromMetadataEntry(
+  value: ImageMetadataEntry | undefined,
+): Variant | null {
+  if (value === undefined || value === null) return null;
+  if (!isMetadataValue(value)) return value;
+  switch (value.kind) {
+    case "Text":
+    case "Integer":
+    case "Real":
+      return value.value;
+    case "Rational":
+      return value.value.denominator === 0
+        ? null
+        : value.value.numerator / value.value.denominator;
+    default:
+      return null;
+  }
+}
+
 function extractValue(
   keys: string[],
   drafts: Record<string, DraftEdit> | undefined,
@@ -95,8 +129,8 @@ function extractValue(
     }
   }
   for (const k of keys) {
-    const v = metadata?.[k];
-    if (v !== undefined && v !== null) return v;
+    const v = gpsVariantFromMetadataEntry(metadata?.[k]);
+    if (v !== null) return v;
   }
   return null;
 }

@@ -243,7 +243,7 @@ struct ImageMetadataReadyPayload {
 #[derive(Clone, Serialize)]
 struct ImageMetadataResult {
     relative_path: String,
-    metadata: std::collections::HashMap<String, scanner::Variant>,
+    metadata: std::collections::HashMap<String, metadata_value::MetadataValue>,
 }
 
 #[derive(Clone, Serialize)]
@@ -446,7 +446,7 @@ fn start_scan(
                                 for info in results {
                                     batch_results.push(ImageMetadataResult {
                                         relative_path: info.relative_path,
-                                        metadata: info.metadata,
+                                        metadata: info.metadata_values,
                                     });
                                 }
                             }
@@ -476,7 +476,24 @@ fn start_scan(
 
                                     batch_results.push(ImageMetadataResult {
                                         relative_path: rel_path,
-                                        metadata: error_metadata,
+                                        metadata: error_metadata
+                                            .into_iter()
+                                            .map(|(key, value)| {
+                                                let semantic = match value {
+                                                    scanner::Variant::String(s) => {
+                                                        metadata_value::MetadataValue::Text(s)
+                                                    }
+                                                    _ => metadata_value::MetadataValue::Unknown {
+                                                        expected: None,
+                                                        raw: serde_json::json!(null),
+                                                        reason: Some(
+                                                            "metadata worker error".to_string(),
+                                                        ),
+                                                    },
+                                                };
+                                                (key, semantic)
+                                            })
+                                            .collect(),
                                     });
                                 }
                             }

@@ -1,11 +1,18 @@
-import type { PhotoInfo, SortConfig, SortKey, Variant } from "../types";
+import type {
+  ImageMetadataEntry,
+  PhotoInfo,
+  SortConfig,
+  SortKey,
+} from "../types";
 import type { ImageMetadataStore } from "../types";
+import { variantToDisplayString } from "../draft";
 
-function getVariantAsString(v: Variant | undefined): string {
+function getVariantAsString(v: ImageMetadataEntry | undefined): string {
   if (v === undefined || v === null) return "";
   if (typeof v === "string") return v;
   if (typeof v === "number") return v.toString();
   if (Array.isArray(v)) return v.map(getVariantAsString).join(", ");
+  if (typeof v === "object") return variantToDisplayString(v);
   return "";
 }
 

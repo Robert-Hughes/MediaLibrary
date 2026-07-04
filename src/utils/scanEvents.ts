@@ -4,7 +4,12 @@
  * Kept free of React + Tauri so the hook stays a thin orchestrator and
  * these bits can be unit-tested without a render harness.
  */
-import type { DraftEdit, DraftEditsByFile } from "../types";
+import type {
+  DraftEdit,
+  DraftEditsByFile,
+  MetadataValue,
+  Variant,
+} from "../types";
 
 /**
  * Convert whatever shape the Tauri boundary returned into the canonical
@@ -41,6 +46,64 @@ export function normalizeDraftsFromTauri(raw: unknown): DraftEditsByFile {
     out[file] = typed;
   }
   return out;
+}
+
+export function normalizeMetadataFromTauri(
+  raw: unknown,
+): Record<string, MetadataValue> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const out: Record<string, MetadataValue> = {};
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    out[key] = isMetadataValue(value)
+      ? (value as MetadataValue)
+      : variantToMetadataValue(value as Variant);
+  }
+  return out;
+}
+
+function isMetadataValue(value: unknown): value is MetadataValue {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    "kind" in value &&
+    typeof (value as { kind?: unknown }).kind === "string"
+  );
+}
+
+function variantToMetadataValue(value: Variant): MetadataValue {
+  if (value === null) return { kind: "Null" };
+  if (typeof value === "string") return { kind: "Text", value };
+  if (typeof value === "boolean") return { kind: "Bool", value };
+  if (typeof value === "number") return { kind: "Real", value };
+  if (Array.isArray(value)) {
+    return {
+      kind: "List",
+      value: {
+        list_kind: "Unknown",
+        items: value.map((item) => variantToMetadataValue(item as Variant)),
+      },
+    };
+  }
+  if (typeof value === "object") {
+    return {
+      kind: "Struct",
+      value: Object.fromEntries(
+        Object.entries(value).map(([key, child]) => [
+          key,
+          variantToMetadataValue(child as Variant),
+        ]),
+      ),
+    };
+  }
+  return {
+    kind: "Unknown",
+    value: {
+      expected: null,
+      raw: null,
+      reason: "unsupported metadata payload value",
+    },
+  };
 }
 
 /**

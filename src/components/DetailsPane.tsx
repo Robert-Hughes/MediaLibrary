@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import type {
   DraftEdit,
+  ImageMetadataEntry,
+  MetadataValue,
   PhotoInfo,
   ImageMetadataState,
   Variant,
@@ -105,6 +107,60 @@ function splitHasEditsFilter(normalizedQuery: string): {
   return { query, hasEditsFilter };
 }
 
+function isMetadataValue(value: unknown): value is MetadataValue {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    "kind" in value &&
+    typeof (value as { kind?: unknown }).kind === "string"
+  );
+}
+
+function metadataEntryToEditorVariant(
+  value: ImageMetadataEntry | undefined,
+): Variant | undefined {
+  if (value === undefined) return undefined;
+  if (!isMetadataValue(value)) return value;
+  switch (value.kind) {
+    case "Null":
+      return null;
+    case "Text":
+    case "Bool":
+    case "Integer":
+    case "Real":
+      return value.value;
+    case "Rational":
+      return value.value.denominator === 0
+        ? null
+        : value.value.numerator / value.value.denominator;
+    case "List":
+      return value.value.items.map(
+        (item) => metadataEntryToEditorVariant(item) ?? null,
+      );
+    case "Struct":
+      return Object.fromEntries(
+        Object.entries(value.value).map(([key, item]) => [
+          key,
+          metadataEntryToEditorVariant(item),
+        ]),
+      );
+    default:
+      return undefined;
+  }
+}
+
+function metadataMapToEditorVariants(
+  metadata: Record<string, ImageMetadataEntry>,
+): Record<string, Variant> {
+  return Object.fromEntries(
+    Object.entries(metadata).map(([key, value]) => [
+      key,
+      metadataEntryToEditorVariant(value) ?? null,
+    ]),
+  );
+}
+
 function DetailsValueCell({
   originalValue,
   draftValue,
@@ -191,7 +247,7 @@ function DetailsImageRow({
   onContextMenu,
 }: {
   entry: MetadataEntry;
-  rawValue: Variant | undefined;
+  rawValue: ImageMetadataEntry | undefined;
   draftValue: string | null | undefined;
   typedDraft: DraftEdit | undefined;
   searchQuery: string;
@@ -377,7 +433,9 @@ export function DetailsPane({
   const imageGroups = useMemo(() => {
     if (metadata === "loading") return [];
 
-    const combinedMetadata: Record<string, Variant> = { ...metadata };
+    const combinedMetadata: Record<string, ImageMetadataEntry> = {
+      ...metadata,
+    };
     if (draftEdits) {
       for (const [key, value] of Object.entries(draftEdits)) {
         if (value !== null && !(key in combinedMetadata)) {
@@ -601,9 +659,7 @@ export function DetailsPane({
                           entry={entry}
                           rawValue={
                             typeof metadata === "object"
-                              ? (metadata as Record<string, Variant>)[
-                                  entry.fullKey
-                                ]
+                              ? metadata[entry.fullKey]
                               : undefined
                           }
                           draftValue={draftEdits[entry.fullKey]}
@@ -726,12 +782,12 @@ export function DetailsPane({
             const pending = typedDraftEdits?.[editDialog.key];
             if (pending && pending.intent !== "Delete") return pending.value;
             return metadata !== "loading"
-              ? (metadata[editDialog.key] as Variant | undefined)
+              ? metadataEntryToEditorVariant(metadata[editDialog.key])
               : undefined;
           })()}
           metadataForFile={
             metadata !== "loading"
-              ? (metadata as Record<string, Variant>)
+              ? metadataMapToEditorVariants(metadata)
               : undefined
           }
           initialString={editDialog.initialValue}
@@ -770,7 +826,7 @@ export function DetailsPane({
           initialString=""
           metadataForFile={
             metadata !== "loading"
-              ? (metadata as Record<string, Variant>)
+              ? metadataMapToEditorVariants(metadata)
               : undefined
           }
           onSaveBatch={
