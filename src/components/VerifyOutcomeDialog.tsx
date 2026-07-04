@@ -11,7 +11,7 @@
 // draft is retained, the user must edit it themselves to fix it, and they can
 // dismiss the row from this dialog without changing anything.
 
-import type { ImageMetadataEntry, TagOutcomeEntry } from "../types";
+import type { MetadataValue, TagOutcomeEntry } from "../types";
 import { variantToDisplayString } from "../draft";
 
 interface Props {
@@ -20,7 +20,7 @@ interface Props {
   onRevert: (
     file: string,
     tag: string,
-    observedRaw: ImageMetadataEntry | null,
+    observedRaw: MetadataValue | null,
   ) => void;
   onDismiss: (file: string, tag: string) => void;
   onDismissAll: () => void;
