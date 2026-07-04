@@ -704,7 +704,14 @@ pub async fn normalise_metadata_cmd(
                 detail
             );
             if all_noop {
-                emitter.progress(current, total, &rel, kind.as_wire(), Some(&detail), None);
+                emitter.progress_metadata(
+                    current,
+                    total,
+                    &rel,
+                    kind.as_wire(),
+                    Some(&detail),
+                    None,
+                );
             } else {
                 emitter.progress_metadata(
                     current,
@@ -725,7 +732,7 @@ pub async fn normalise_metadata_cmd(
 
         if all_noop {
             summary.n_skipped_all_normalised += 1;
-            emitter.progress(current, total, &rel, "ok", None, None);
+            emitter.progress_metadata(current, total, &rel, "ok", None, None);
         } else {
             emitter.progress_metadata(current, total, &rel, "ok", None, Some(&edits));
         }
