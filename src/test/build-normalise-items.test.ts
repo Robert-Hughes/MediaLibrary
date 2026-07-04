@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import type { DraftEdit, NormaliseGroup, Variant } from "../types";
+import type {
+  DraftEdit,
+  ImageMetadataEntry,
+  NormaliseGroup,
+  Variant,
+} from "../types";
 import {
   buildNormaliseItemForPhoto,
   buildNormaliseItems,
@@ -30,6 +35,16 @@ describe("resolveTag", () => {
   it("falls through to metadata when no draft", () => {
     const m: Record<string, Variant> = { "XMP-dc:Title": "meta" };
     expect(resolveTag(m, undefined, "XMP-dc:Title")).toBe("meta");
+  });
+
+  it("falls through to semantic metadata when no draft", () => {
+    const m: Record<string, ImageMetadataEntry> = {
+      "XMP-dc:Title": { kind: "Text", value: "meta" },
+    };
+    expect(resolveTag(m, undefined, "XMP-dc:Title")).toEqual({
+      kind: "Text",
+      value: "meta",
+    });
   });
 
   it("returns null when neither side has the tag", () => {
@@ -92,6 +107,28 @@ describe("buildNormaliseItemForPhoto — keywords", () => {
       "keywords",
     ]);
     expect(item.groupInputs.keywords?.dcSubject).toEqual(["lone-keyword"]);
+  });
+
+  it("packs semantic list values from scanner metadata", () => {
+    const m: Record<string, ImageMetadataEntry> = {
+      "XMP-dc:Subject": {
+        kind: "List",
+        value: {
+          list_kind: "Bag",
+          items: [
+            { kind: "Text", value: "semantic-a" },
+            { kind: "Text", value: "semantic-b" },
+          ],
+        },
+      },
+    };
+    const item = buildNormaliseItemForPhoto("x.jpg", m, undefined, [
+      "keywords",
+    ]);
+    expect(item.groupInputs.keywords?.dcSubject).toEqual([
+      "semantic-a",
+      "semantic-b",
+    ]);
   });
 });
 
@@ -193,6 +230,59 @@ describe("buildNormaliseItemForPhoto — dates", () => {
     );
     expect(item.groupInputs.dates?.offsetTimeOriginal).toBe("+01:00");
     expect(item.groupInputs.dates?.createDate).toBe("2024:06:15 14:30:45");
+  });
+
+  it("renders semantic date/time values for date normalisation inputs", () => {
+    const m: Record<string, ImageMetadataEntry> = {
+      "IPTC:DateCreated": {
+        kind: "Date",
+        value: { year: 2024, month: 6, day: 15 },
+      },
+      "IPTC:TimeCreated": {
+        kind: "Time",
+        value: {
+          hour: 14,
+          minute: 30,
+          second: 45,
+          subsecond: null,
+          offset: null,
+        },
+      },
+      "ExifIFD:OffsetTimeOriginal": {
+        kind: "TimeOffset",
+        value: { sign: "Plus", hours: 1, minutes: 0 },
+      },
+    };
+    const item = buildNormaliseItemForPhoto("x.jpg", m, undefined, ["dates"]);
+    expect(item.groupInputs.dates?.iptcDateCreated).toBe("2024:06:15");
+    expect(item.groupInputs.dates?.iptcTimeCreated).toBe("14:30:45");
+    expect(item.groupInputs.dates?.offsetTimeOriginal).toBe("+01:00");
+  });
+});
+
+describe("buildNormaliseItemForPhoto — semantic scalars", () => {
+  it("uses x-default from LangAlt description metadata", () => {
+    const m: Record<string, ImageMetadataEntry> = {
+      "XMP-dc:Description": {
+        kind: "LangAlt",
+        value: { "x-default": "Semantic caption", fr: "Legende" },
+      },
+    };
+    const item = buildNormaliseItemForPhoto("x.jpg", m, undefined, [
+      "description",
+    ]);
+    expect(item.groupInputs.description?.description).toBe("Semantic caption");
+  });
+
+  it("does not flatten Unknown metadata into normalise text inputs", () => {
+    const m: Record<string, ImageMetadataEntry> = {
+      "XMP-dc:Title": {
+        kind: "Unknown",
+        value: { expected: null, raw: "raw-title", reason: "no schema" },
+      },
+    };
+    const item = buildNormaliseItemForPhoto("x.jpg", m, undefined, ["title"]);
+    expect(item.groupInputs.title?.title).toBeNull();
   });
 });
 

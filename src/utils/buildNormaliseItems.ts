@@ -12,11 +12,13 @@
  */
 import type {
   DraftEdit,
+  ImageMetadataEntry,
   ImageMetadataStore,
+  MetadataValue,
   NormaliseGroup,
   NormaliseRequestItem,
-  Variant,
 } from "../types";
+import { metadataValueToDisplayString } from "../draft";
 
 /** Per-file shape of the draft store snapshot. */
 export type DraftEditsByFile = Record<
@@ -24,14 +26,16 @@ export type DraftEditsByFile = Record<
   Record<string, DraftEdit> | undefined
 >;
 
+type EffectiveMetadataEntry = ImageMetadataEntry | null;
+
 /** Read a single tag with draft-overlay precedence. Returns the
- *  effective `Variant` value, or `null` when the tag is deleted-as-
+ *  effective metadata value, or `null` when the tag is deleted-as-
  *  draft OR absent on both sides. */
 export function resolveTag(
-  metadata: Record<string, Variant> | undefined,
+  metadata: Record<string, ImageMetadataEntry> | undefined,
   drafts: Record<string, DraftEdit> | undefined,
   key: string,
-): Variant | null {
+): EffectiveMetadataEntry {
   const draft = drafts?.[key];
   if (draft) {
     if (draft.intent === "Delete") return null;
@@ -44,8 +48,37 @@ export function resolveTag(
   return metadata?.[key] ?? null;
 }
 
-function variantToString(v: Variant | null): string | null {
+function isMetadataValue(value: unknown): value is MetadataValue {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    "kind" in value &&
+    typeof (value as { kind?: unknown }).kind === "string"
+  );
+}
+
+function metadataEntryToString(v: EffectiveMetadataEntry): string | null {
   if (v == null) return null;
+  if (isMetadataValue(v)) {
+    if (v.kind === "LangAlt") {
+      return v.value["x-default"] ?? Object.values(v.value)[0] ?? null;
+    }
+    if (v.kind === "Text") return v.value;
+    if (
+      v.kind === "Bool" ||
+      v.kind === "Integer" ||
+      v.kind === "Real" ||
+      v.kind === "Rational" ||
+      v.kind === "Date" ||
+      v.kind === "Time" ||
+      v.kind === "DateTime" ||
+      v.kind === "TimeOffset"
+    ) {
+      return metadataValueToDisplayString(v);
+    }
+    return null;
+  }
   if (typeof v === "string") return v;
   if (typeof v === "number" || typeof v === "boolean") return String(v);
   // For scalar tags we don't expect lists / objects; null out so the
@@ -53,12 +86,20 @@ function variantToString(v: Variant | null): string | null {
   return null;
 }
 
-function variantToStringList(v: Variant | null): string[] {
+function metadataEntryToStringList(v: EffectiveMetadataEntry): string[] {
   if (v == null) return [];
+  if (isMetadataValue(v) && v.kind === "List") {
+    const out: string[] = [];
+    for (const item of v.value.items) {
+      const s = metadataEntryToString(item);
+      if (s != null && s !== "") out.push(s);
+    }
+    return out;
+  }
   if (Array.isArray(v)) {
     const out: string[] = [];
     for (const item of v) {
-      const s = variantToString(item);
+      const s = metadataEntryToString(item);
       if (s != null && s !== "") out.push(s);
     }
     return out;
@@ -66,14 +107,14 @@ function variantToStringList(v: Variant | null): string[] {
   // Scalar value where a list was expected — promote to single-element
   // list when the value is a non-empty string. Mirrors how exiftool
   // sometimes emits a single-entry Bag as a scalar string.
-  const s = variantToString(v);
+  const s = metadataEntryToString(v);
   return s != null && s !== "" ? [s] : [];
 }
 
 /** Photo data passed into the resolver — kept narrow so callers can
  *  pull either the React `ImageMetadataStore` or a plain object map. */
 export interface PhotoMetadataLookup {
-  get(relPath: string): Record<string, Variant> | undefined;
+  get(relPath: string): Record<string, ImageMetadataEntry> | undefined;
 }
 
 /** Adapt the live `ImageMetadataStore` to the `PhotoMetadataLookup`
@@ -85,7 +126,7 @@ export function metadataStoreLookup(
     get(relPath) {
       const m = store.get(relPath);
       if (typeof m === "object" && m !== null) {
-        return m as Record<string, Variant>;
+        return m;
       }
       return undefined;
     },
@@ -105,22 +146,22 @@ function fileStemOf(relPath: string): string {
  *  `null` (mapped to `undefined` in TS for `serde(skip_if_none)`) when
  *  the tag is absent / deleted / empty. */
 function scalar(
-  metadata: Record<string, Variant> | undefined,
+  metadata: Record<string, ImageMetadataEntry> | undefined,
   drafts: Record<string, DraftEdit> | undefined,
   key: string,
 ): string | undefined {
-  const s = variantToString(resolveTag(metadata, drafts, key));
+  const s = metadataEntryToString(resolveTag(metadata, drafts, key));
   if (s == null) return undefined;
   return s;
 }
 
 /** Helper that resolves a list tag to `Vec<String>`. */
 function list(
-  metadata: Record<string, Variant> | undefined,
+  metadata: Record<string, ImageMetadataEntry> | undefined,
   drafts: Record<string, DraftEdit> | undefined,
   key: string,
 ): string[] {
-  return variantToStringList(resolveTag(metadata, drafts, key));
+  return metadataEntryToStringList(resolveTag(metadata, drafts, key));
 }
 
 /**
@@ -131,7 +172,7 @@ function list(
  */
 export function buildNormaliseItemForPhoto(
   relPath: string,
-  metadata: Record<string, Variant> | undefined,
+  metadata: Record<string, ImageMetadataEntry> | undefined,
   drafts: Record<string, DraftEdit> | undefined,
   enabledGroups: ReadonlyArray<NormaliseGroup>,
 ): NormaliseRequestItem {
