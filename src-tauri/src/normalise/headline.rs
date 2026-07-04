@@ -4,9 +4,9 @@
 //! Plain whitespace-collapse + trim. Derivative IPTC:Headline has a
 //! 256-char IIM limit and is truncated at a word boundary.
 
-use super::{collapse_whitespace_single_line, truncate_at_word, GroupOutput, HeadlineInput};
-use crate::draft_edits::{DraftEdit, EditIntent};
-use crate::scanner::Variant;
+use super::{
+    collapse_whitespace_single_line, text_edit, truncate_at_word, GroupOutput, HeadlineInput,
+};
 use std::collections::HashMap;
 
 pub const HEADLINE_TARGET_TAGS: &[&str] = &["XMP-photoshop:Headline", "IPTC:Headline"];
@@ -45,31 +45,21 @@ pub fn normalise_headline(input: &HeadlineInput) -> Option<GroupOutput> {
     let mut edits = HashMap::new();
     edits.insert(
         "XMP-photoshop:Headline".to_string(),
-        DraftEdit {
-            value: Some(Variant::String(canonical.clone())),
-            intent: EditIntent::Set,
-            display: None,
-        },
+        text_edit(canonical.clone()),
     );
-    edits.insert(
-        "IPTC:Headline".to_string(),
-        DraftEdit {
-            value: Some(Variant::String(iptc)),
-            intent: EditIntent::Set,
-            display: None,
-        },
-    );
+    edits.insert("IPTC:Headline".to_string(), text_edit(iptc));
     Some(GroupOutput { edits })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::metadata_value::MetadataValue;
 
     fn s(g: &GroupOutput, k: &str) -> String {
         match &g.edits.get(k).unwrap().value {
-            Some(Variant::String(v)) => v.clone(),
-            other => panic!("expected String, got {:?}", other),
+            Some(MetadataValue::Text(v)) => v.clone(),
+            other => panic!("expected text value, got {:?}", other),
         }
     }
 

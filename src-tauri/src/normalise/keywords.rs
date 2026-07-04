@@ -16,7 +16,7 @@ use super::{
     bag_edit, join_hierarchical_path, normalise_keyword, split_hierarchical_path, GroupOutput,
     KeywordsInput,
 };
-use crate::draft_edits::DraftEdit;
+use crate::draft_edits::MetadataDraftEdit;
 use std::collections::{HashMap, HashSet};
 
 /// Target tags written by Group A. Coherent-replacement rule (plan §4)
@@ -166,7 +166,7 @@ pub fn normalise_keywords_with_canonical(
     if keywords_is_normalised(input, canonical_paths, canonical_leaves) {
         return None;
     }
-    let mut edits: HashMap<String, DraftEdit> = HashMap::new();
+    let mut edits: HashMap<String, MetadataDraftEdit> = HashMap::new();
     edits.insert(
         "XMP-lr:HierarchicalSubject".to_string(),
         bag_edit(canonical_paths),
@@ -188,18 +188,18 @@ pub fn normalise_keywords(input: &KeywordsInput) -> Option<GroupOutput> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scanner::Variant;
+    use crate::metadata_value::MetadataValue;
 
     fn paths_of(g: &GroupOutput, key: &str) -> Vec<String> {
         match &g.edits.get(key).unwrap().value {
-            Some(Variant::List(items)) => items
+            Some(MetadataValue::List { items, .. }) => items
                 .iter()
                 .map(|v| match v {
-                    Variant::String(s) => s.clone(),
-                    _ => panic!("expected String variant in bag"),
+                    MetadataValue::Text(s) => s.clone(),
+                    _ => panic!("expected text value in bag"),
                 })
                 .collect(),
-            other => panic!("expected List variant for {}, got {:?}", key, other),
+            other => panic!("expected list value for {}, got {:?}", key, other),
         }
     }
 

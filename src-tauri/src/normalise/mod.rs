@@ -25,7 +25,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use crate::draft_edits::{DraftEdit, EditIntent};
+use crate::draft_edits::{EditIntent, MetadataDraftEdit};
+use crate::metadata_value::{ListKind, MetadataValue};
 use crate::scanner::Variant;
 
 // Per-group implementation modules. The dispatcher (`process_image`)
@@ -459,7 +460,7 @@ pub struct NormaliseRequestItem {
 /// projection, remove-tag drafts for fields absent from it.
 #[derive(Debug, Clone, Default)]
 pub struct GroupOutput {
-    pub edits: HashMap<String, DraftEdit>,
+    pub edits: HashMap<String, MetadataDraftEdit>,
 }
 
 impl GroupOutput {
@@ -524,10 +525,23 @@ pub fn join_hierarchical_path(components: &[String]) -> String {
 /// Build a set-value draft for a Bag/Seq-of-Text tag from a list of
 /// canonical strings. Shared by Group A (Keywords) and Group E
 /// (Creator).
-pub(crate) fn bag_edit(items: &[String]) -> DraftEdit {
-    let value = Variant::List(items.iter().cloned().map(Variant::String).collect());
-    DraftEdit {
-        value: Some(value),
+pub(crate) fn text_edit(value: String) -> MetadataDraftEdit {
+    MetadataDraftEdit {
+        value: Some(MetadataValue::Text(value)),
+        intent: EditIntent::Set,
+        display: None,
+    }
+}
+
+/// Build a set-value draft for a Bag/Seq-of-Text tag from a list of
+/// canonical strings. Shared by Group A (Keywords) and Group E
+/// (Creator).
+pub(crate) fn bag_edit(items: &[String]) -> MetadataDraftEdit {
+    MetadataDraftEdit {
+        value: Some(MetadataValue::List {
+            list_kind: ListKind::Bag,
+            items: items.iter().cloned().map(MetadataValue::Text).collect(),
+        }),
         intent: EditIntent::Set,
         display: None,
     }
@@ -569,7 +583,7 @@ pub(crate) fn collapse_whitespace_single_line(s: &str) -> String {
 /// its existing set-value emission to satisfy plan §4 without a second
 /// rewrite.
 pub fn append_remove_tag_drafts_for_missing_projections(
-    edits: &mut HashMap<String, DraftEdit>,
+    edits: &mut HashMap<String, MetadataDraftEdit>,
     group_targets: &[&str],
     projection: &HashMap<&'static str, Variant>,
     current_value_is_non_empty: impl Fn(&str) -> bool,
@@ -586,7 +600,7 @@ pub fn append_remove_tag_drafts_for_missing_projections(
         }
         edits.insert(
             (*tag).to_string(),
-            DraftEdit {
+            MetadataDraftEdit {
                 value: None,
                 intent: EditIntent::Delete,
                 display: None,
@@ -750,7 +764,7 @@ fn apply_simple_group<T>(
     group: NormaliseGroup,
     enabled: bool,
     input: Option<&T>,
-    edits: &mut HashMap<String, DraftEdit>,
+    edits: &mut HashMap<String, MetadataDraftEdit>,
     stats: &mut PerImageStats,
     run: impl FnOnce(&T) -> Option<GroupOutput>,
 ) {
@@ -830,12 +844,12 @@ pub async fn process_image(
     ai: Option<&dyn NormaliseAiClient>,
     cancel: Option<&std::sync::Arc<std::sync::atomic::AtomicBool>>,
 ) -> (
-    HashMap<String, DraftEdit>,
+    HashMap<String, MetadataDraftEdit>,
     PerImageStats,
     Option<NormaliseAiError>,
     Vec<PerImageAiCall>,
 ) {
-    let mut edits: HashMap<String, DraftEdit> = HashMap::new();
+    let mut edits: HashMap<String, MetadataDraftEdit> = HashMap::new();
     let mut stats = PerImageStats::default();
     let mut first_ai_error: Option<NormaliseAiError> = None;
     let mut ai_calls: Vec<PerImageAiCall> = Vec::new();
@@ -1334,8 +1348,8 @@ mod tests_dispatcher {
         // Generated title became a draft.
         let title_draft = edits.get("XMP-dc:Title").expect("title draft present");
         match &title_draft.value {
-            Some(Variant::String(s)) => assert_eq!(s, "Generated Title"),
-            other => panic!("expected String, got {:?}", other),
+            Some(MetadataValue::Text(s)) => assert_eq!(s, "Generated Title"),
+            other => panic!("expected text value, got {:?}", other),
         }
     }
 
@@ -1382,8 +1396,8 @@ mod tests_dispatcher {
 
         assert_eq!(
             match &edits.get("XMP-dc:Title").expect("title draft").value {
-                Some(Variant::String(s)) => s.as_str(),
-                other => panic!("expected String, got {:?}", other),
+                Some(MetadataValue::Text(s)) => s.as_str(),
+                other => panic!("expected text value, got {:?}", other),
             },
             "Cat On Windowsill"
         );
@@ -1393,8 +1407,8 @@ mod tests_dispatcher {
                 .expect("object name draft")
                 .value
             {
-                Some(Variant::String(s)) => s.as_str(),
-                other => panic!("expected String, got {:?}", other),
+                Some(MetadataValue::Text(s)) => s.as_str(),
+                other => panic!("expected text value, got {:?}", other),
             },
             "Cat On Windowsill"
         );
