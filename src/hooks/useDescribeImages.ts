@@ -19,7 +19,7 @@ import type {
   DescribeEstimate,
   DescribeProgressState,
   DescribeUsageSummary,
-  DraftEdit,
+  MetadataDraftEdit,
 } from "../types";
 import {
   useBatchImageJob,
@@ -51,7 +51,7 @@ export interface UseDescribeImagesOptions {
    */
   onApplyEdits?: (
     relativePath: string,
-    edits: Record<string, DraftEdit>,
+    edits: Record<string, MetadataDraftEdit>,
   ) => void;
 }
 

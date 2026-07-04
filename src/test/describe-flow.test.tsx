@@ -235,13 +235,16 @@ describe("AI-description flow", () => {
         status: "ok",
         edits: {
           "XMP-mlib:AIDescription": {
-            value: { type: "String", value: "a calm beach scene" },
+            value: { kind: "Text", value: "a calm beach scene" },
             intent: "Set",
           },
           "XMP-mlib:AITags": {
             value: {
-              type: "List",
-              value: [{ type: "String", value: "beach" }],
+              kind: "List",
+              value: {
+                list_kind: "Bag",
+                items: [{ kind: "Text", value: "beach" }],
+              },
             },
             intent: "Set",
           },
