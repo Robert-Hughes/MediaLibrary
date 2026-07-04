@@ -1,4 +1,4 @@
-import type { TagKind, Variant } from "../types";
+import type { MetadataValue, TagKind, Variant } from "../types";
 
 export interface DatatypeInfo {
   code: string;
@@ -67,6 +67,55 @@ export function variantDatatype(v: Variant | undefined): DatatypeInfo | null {
   if (typeof v === "string") return { code: "S", label: "String" };
   if (Array.isArray(v)) return { code: "L", label: "List" };
   if (typeof v === "object") return { code: "{}", label: "Object" };
+  return null;
+}
+
+export function metadataValueDatatype(
+  v: MetadataValue | undefined,
+): DatatypeInfo | null {
+  if (v === undefined) return null;
+  switch (v.kind) {
+    case "Null":
+      return { code: "∅", label: "Null" };
+    case "Text":
+      return { code: "S", label: "String" };
+    case "Bool":
+      return { code: "B", label: "Boolean" };
+    case "Integer":
+      return { code: "I", label: "Integer" };
+    case "Real":
+      return { code: "R", label: "Real" };
+    case "Rational":
+      return { code: "Q", label: "Rational" };
+    case "Date":
+      return { code: "D", label: "Date" };
+    case "Time":
+      return { code: "T", label: "Time" };
+    case "DateTime":
+      return { code: "DT", label: "DateTime" };
+    case "TimeOffset":
+      return { code: "TZ", label: "Time offset" };
+    case "LangAlt":
+      return { code: "LA", label: "LangAlt" };
+    case "List":
+      switch (v.value.list_kind) {
+        case "Bag":
+          return { code: "[B]", label: "Bag (unordered list)" };
+        case "Seq":
+          return { code: "[S]", label: "Seq (ordered list)" };
+        case "Alt":
+          return { code: "[A]", label: "Alt (alternatives)" };
+        case "Unknown":
+          return { code: "L", label: "List" };
+      }
+      break;
+    case "Struct":
+      return { code: "{}", label: "Struct" };
+    case "Binary":
+      return { code: "Bin", label: "Binary" };
+    case "Unknown":
+      return { code: "?", label: "Unparsed" };
+  }
   return null;
 }
 

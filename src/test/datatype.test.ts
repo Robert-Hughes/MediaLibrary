@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  metadataValueDatatype,
   schemaDatatype,
   variantDatatype,
   datatypesMatch,
@@ -56,6 +57,52 @@ describe("variantDatatype", () => {
 
   it("returns null for undefined", () => {
     expect(variantDatatype(undefined)).toBeNull();
+  });
+});
+
+describe("metadataValueDatatype", () => {
+  it("classifies semantic scalar values distinctly", () => {
+    expect(metadataValueDatatype({ kind: "Integer", value: 5 })?.code).toBe(
+      "I",
+    );
+    expect(metadataValueDatatype({ kind: "Real", value: 5 })?.code).toBe("R");
+    expect(
+      metadataValueDatatype({
+        kind: "Rational",
+        value: { numerator: 1, denominator: 250 },
+      })?.code,
+    ).toBe("Q");
+  });
+
+  it("classifies semantic list kinds distinctly", () => {
+    expect(
+      metadataValueDatatype({
+        kind: "List",
+        value: { list_kind: "Bag", items: [] },
+      })?.code,
+    ).toBe("[B]");
+    expect(
+      metadataValueDatatype({
+        kind: "List",
+        value: { list_kind: "Seq", items: [] },
+      })?.code,
+    ).toBe("[S]");
+    expect(
+      metadataValueDatatype({
+        kind: "List",
+        value: { list_kind: "Alt", items: [] },
+      })?.code,
+    ).toBe("[A]");
+  });
+
+  it("marks binary and unknown values as non-ordinary values", () => {
+    expect(metadataValueDatatype({ kind: "Binary" })?.code).toBe("Bin");
+    expect(
+      metadataValueDatatype({
+        kind: "Unknown",
+        value: { expected: null, raw: "bad", reason: "no schema" },
+      })?.code,
+    ).toBe("?");
   });
 });
 
