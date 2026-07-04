@@ -8,6 +8,7 @@
 import type { PhotoInfo } from "./types/generated/PhotoInfo";
 import type { Variant } from "./types/generated/Variant";
 import type { DraftEdit } from "./types/generated/DraftEdit";
+import type { MetadataValue } from "./types/generated/MetadataValue";
 
 export type { PhotoInfo, Variant, DraftEdit };
 export type { MetadataValue } from "./types/generated/MetadataValue";
@@ -105,7 +106,8 @@ export class ThumbnailStore {
  *  - "loading"                 — metadata read is in progress (show spinner in cells)
  *  - Record<string, Variant>   — metadata has arrived
  */
-export type ImageMetadataState = "loading" | Record<string, Variant>;
+export type ImageMetadataEntry = Variant | MetadataValue;
+export type ImageMetadataState = "loading" | Record<string, ImageMetadataEntry>;
 
 /**
  * Observable store for image-level metadata, keyed by relative_path.
@@ -323,9 +325,11 @@ export type SetDraftOutcome = "written" | "redundant" | "cleared";
  * order-independently.
  */
 export function variantEqual(
-  a: Variant | undefined,
-  b: Variant | undefined,
+  a: ImageMetadataEntry | undefined,
+  b: ImageMetadataEntry | undefined,
 ): boolean {
+  a = metadataEntryToComparableVariant(a);
+  b = metadataEntryToComparableVariant(b);
   if (a === b) return true;
   if (a === undefined || b === undefined) return false;
   if (a === null || b === null) return false;
@@ -354,6 +358,48 @@ export function variantEqual(
   return false;
 }
 
+function metadataEntryToComparableVariant(
+  value: ImageMetadataEntry | undefined,
+): Variant | undefined {
+  if (!isMetadataValue(value)) return value;
+  switch (value.kind) {
+    case "Null":
+      return null;
+    case "Text":
+    case "Bool":
+    case "Integer":
+    case "Real":
+      return value.value;
+    case "Rational":
+      return value.value.denominator === 0
+        ? null
+        : value.value.numerator / value.value.denominator;
+    case "List":
+      return value.value.items.map(
+        (item) => metadataEntryToComparableVariant(item) ?? null,
+      );
+    case "Struct":
+      return Object.fromEntries(
+        Object.entries(value.value).map(([k, v]) => [
+          k,
+          metadataEntryToComparableVariant(v),
+        ]),
+      );
+    default:
+      return JSON.stringify(value);
+  }
+}
+
+function isMetadataValue(value: unknown): value is MetadataValue {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    "kind" in value &&
+    typeof (value as { kind?: unknown }).kind === "string"
+  );
+}
+
 /**
  * Single source of truth for draft edits.  All user-initiated mutations funnel
  * through methods on this class so subscribers (React-state sync, persistence,
@@ -376,7 +422,7 @@ export class DraftEditsStore {
   private currentValueResolver?: (
     path: string,
     tag: string,
-  ) => Variant | undefined;
+  ) => ImageMetadataEntry | undefined;
 
   /**
    * Wire up the redundant-draft guard. Pass a function that returns
@@ -385,7 +431,7 @@ export class DraftEditsStore {
    * resolver the store behaves as it always did (writes always land).
    */
   setCurrentValueResolver(
-    fn: (path: string, tag: string) => Variant | undefined,
+    fn: (path: string, tag: string) => ImageMetadataEntry | undefined,
   ) {
     this.currentValueResolver = fn;
   }
@@ -877,7 +923,10 @@ export interface PhotoFoundPayload {
 
 export interface ImageMetadataReadyPayload {
   scan_id: number;
-  results: { relative_path: string; metadata: Record<string, Variant> }[];
+  results: {
+    relative_path: string;
+    metadata: Record<string, ImageMetadataEntry>;
+  }[];
 }
 
 export interface ThumbnailReadyPayload {

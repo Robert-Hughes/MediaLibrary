@@ -1,4 +1,4 @@
-import type { MetadataValue, TagKind, Variant } from "../types";
+import type { ImageMetadataEntry, MetadataValue, TagKind } from "../types";
 
 export interface DatatypeInfo {
   code: string;
@@ -59,8 +59,11 @@ export function schemaDatatype(
  * Map a runtime {@link Variant} value to its datatype badge.  Returns
  * `null` when there is no value to describe (undefined input).
  */
-export function variantDatatype(v: Variant | undefined): DatatypeInfo | null {
+export function variantDatatype(
+  v: ImageMetadataEntry | undefined,
+): DatatypeInfo | null {
   if (v === undefined) return null;
+  if (isMetadataValue(v)) return metadataValueDatatype(v);
   if (v === null) return { code: "∅", label: "Null" };
   if (typeof v === "boolean") return { code: "B", label: "Boolean" };
   if (typeof v === "number") return { code: "N", label: "Number" };
@@ -68,6 +71,16 @@ export function variantDatatype(v: Variant | undefined): DatatypeInfo | null {
   if (Array.isArray(v)) return { code: "L", label: "List" };
   if (typeof v === "object") return { code: "{}", label: "Object" };
   return null;
+}
+
+function isMetadataValue(value: unknown): value is MetadataValue {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    "kind" in value &&
+    typeof (value as { kind?: unknown }).kind === "string"
+  );
 }
 
 export function metadataValueDatatype(

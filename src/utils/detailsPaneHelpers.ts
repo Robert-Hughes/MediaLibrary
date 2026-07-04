@@ -1,4 +1,4 @@
-import type { PhotoInfo, Variant } from "../types";
+import type { ImageMetadataEntry, PhotoInfo } from "../types";
 import { variantToDisplayString } from "../draft";
 
 export const formatVariant = variantToDisplayString;
@@ -46,7 +46,7 @@ export interface MetadataGroup {
  * Returns groups sorted alphabetically by prefix, with "Other" last.
  */
 export function groupImageMetadata(
-  metadata: Record<string, Variant>,
+  metadata: Record<string, ImageMetadataEntry>,
 ): MetadataGroup[] {
   const grouped = new Map<string, MetadataEntry[]>();
 

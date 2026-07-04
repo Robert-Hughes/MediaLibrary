@@ -1,9 +1,9 @@
 import { memo, useCallback, useSyncExternalStore } from "react";
 import type {
+  ImageMetadataEntry,
   ImageMetadataStore,
   PhotoInfo,
   ThumbnailStore,
-  Variant,
   VisibleColumn,
 } from "../types";
 import { formatPhotoRowDate } from "../utils/photoDate";
@@ -39,7 +39,7 @@ function CellContent({
 
 import { variantToDisplayString } from "../draft";
 
-function formatVariant(v: Variant | undefined): string {
+function formatVariant(v: ImageMetadataEntry | undefined): string {
   if (v === undefined) return "—";
   const s = variantToDisplayString(v);
   return s === "" ? "—" : s;

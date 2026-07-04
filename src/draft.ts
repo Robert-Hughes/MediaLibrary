@@ -13,7 +13,13 @@
 // Storage uses the typed shape so when typed editors arrive they have
 // somewhere to write.  Display derives the legacy shape on the fly.
 
-import type { DraftEdit, EditIntent, MetadataValue, Variant } from "./types";
+import type {
+  DraftEdit,
+  EditIntent,
+  ImageMetadataEntry,
+  MetadataValue,
+  Variant,
+} from "./types";
 
 export type TypedDraftEditsByFile = Record<string, Record<string, DraftEdit>>;
 export type LegacyDraftEditsByFile = Record<
@@ -48,8 +54,11 @@ export function draftFromLegacyString(v: string | null): DraftEdit {
 }
 
 /** Stringify a Variant for the legacy `string | null` display path. */
-export function variantToDisplayString(v: Variant | null | undefined): string {
+export function variantToDisplayString(
+  v: ImageMetadataEntry | null | undefined,
+): string {
   if (v === null || v === undefined) return "";
+  if (isMetadataValue(v)) return metadataValueToDisplayString(v);
   if (Array.isArray(v)) return v.map(variantToDisplayString).join(", ");
   if (typeof v === "object") {
     return Object.entries(v)
@@ -59,6 +68,16 @@ export function variantToDisplayString(v: Variant | null | undefined): string {
   if (typeof v === "boolean") return v ? "true" : "false";
   if (typeof v === "number") return String(v);
   return String(v);
+}
+
+function isMetadataValue(value: unknown): value is MetadataValue {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    "kind" in value &&
+    typeof (value as { kind?: unknown }).kind === "string"
+  );
 }
 
 export function metadataValueToDisplayString(

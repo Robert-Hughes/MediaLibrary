@@ -19,11 +19,13 @@ import type {
   ApplyEditsResult,
   ApplyEditsStartedPayload,
   ApplyEditsProgressPayload,
+  ImageMetadataEntry,
 } from "./types";
 import type { DraftEdit } from "./types";
 import { loadColumnConfig, saveColumnConfig } from "./utils/columnConfig";
 import {
   MAX_WORKER_ERRORS,
+  normalizeMetadataFromTauri,
   normalizeDraftsFromTauri,
   scheduleBatchedFlush,
 } from "./utils/scanEvents";
@@ -133,7 +135,7 @@ export function useMediaLibrary(
   const isFirstFlushRef = useRef<boolean>(true);
 
   const metadataBufferRef = useRef<
-    { relative_path: string; metadata: Record<string, Variant> }[]
+    { relative_path: string; metadata: Record<string, ImageMetadataEntry> }[]
   >([]);
   const metadataBatchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
@@ -280,7 +282,10 @@ export function useMediaLibrary(
       console.debug(`[metadata] flushing ${batch.length} results`);
 
       for (const res of batch) {
-        imageMetadataStoreRef.current.set(res.relative_path, res.metadata);
+        imageMetadataStoreRef.current.set(
+          res.relative_path,
+          normalizeMetadataFromTauri(res.metadata),
+        );
       }
 
       // Update progress store - this triggers updates only in components that subscribe to it
