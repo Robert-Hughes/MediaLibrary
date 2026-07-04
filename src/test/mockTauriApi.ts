@@ -287,7 +287,10 @@ export function createMockTauriApi(): MockTauriApi {
       }
       if (cmd === "save_draft_edits" || cmd === "save_draft_edits_typed") {
         const folder = args?.folderPath as string;
-        mock.draftEditsByFolder[folder] = args?.data as any;
+        mock.draftEditsByFolder[folder] = args?.data as Record<
+          string,
+          Record<string, string | null>
+        >;
         return;
       }
       if (cmd === "get_tag_info") {

@@ -12,12 +12,13 @@ import { _clearTagInfoCache, _setTagInfoCacheEntry } from "../hooks/useTagInfo";
 let mockApiInstance: ReturnType<typeof createMockTauriApi>;
 
 vi.mock("@tauri-apps/api/core", () => ({
-  invoke: (cmd: string, args: any) => mockApiInstance.api.invoke(cmd, args),
+  invoke: (cmd: string, args?: Record<string, unknown>) =>
+    mockApiInstance.api.invoke(cmd, args),
   convertFileSrc: (path: string) => `data:image/jpeg;base64,FAKE_${path}`,
 }));
 vi.mock("@tauri-apps/api/event", () => ({
-  listen: (evt: string, handler: any) =>
-    mockApiInstance.api.listen(evt, (payload: any) => handler({ payload })),
+  listen: (evt: string, handler: (event: { payload: unknown }) => void) =>
+    mockApiInstance.api.listen(evt, (payload: unknown) => handler({ payload })),
 }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({
   ask: vi.fn().mockResolvedValue(true),
