@@ -9,19 +9,12 @@ import type {
   ImageMetadataEntry,
   MetadataApplyEditsResult,
   MetadataTagOutcome,
-  DraftEditsByFile,
-  LegacyDraftEditsByFile,
   MetadataDraftEditsByFile,
 } from "../types";
-import { legacyDraftsToMetadataDrafts } from "../utils/semanticDrafts";
-import { normalizeDraftsFromTauri } from "../utils/scanEvents";
 
 type EventHandler = (payload: unknown) => void;
 
-type MockDraftEditsByFolder = Record<
-  string,
-  DraftEditsByFile | LegacyDraftEditsByFile | MetadataDraftEditsByFile
->;
+type MockDraftEditsByFolder = Record<string, MetadataDraftEditsByFile>;
 
 export interface MockTauriApi {
   api: TauriApi;
@@ -291,15 +284,12 @@ export function createMockTauriApi(): MockTauriApi {
       }
       if (cmd === "load_metadata_draft_edits") {
         const folder = args?.folderPath as string;
-        const stored = mock.draftEditsByFolder[folder] || {};
-        return looksLikeMetadataDrafts(stored)
-          ? stored
-          : legacyDraftsToMetadataDrafts(normalizeDraftsFromTauri(stored));
+        return mock.draftEditsByFolder[folder] || {};
       }
       if (cmd === "save_metadata_draft_edits") {
         const folder = args?.folderPath as string;
-        mock.draftEditsByFolder[folder] = args?.data as
-          DraftEditsByFile | LegacyDraftEditsByFile | MetadataDraftEditsByFile;
+        mock.draftEditsByFolder[folder] =
+          args?.data as MetadataDraftEditsByFile;
         return;
       }
       if (cmd === "get_tag_info") {
@@ -612,10 +602,7 @@ function mockTagOutcomesForPath(
 ): MetadataTagOutcome[] {
   const stored = mock.draftEditsByFolder[folder];
   if (!stored) return [];
-  const semanticDrafts = looksLikeMetadataDrafts(stored)
-    ? stored
-    : legacyDraftsToMetadataDrafts(normalizeDraftsFromTauri(stored));
-  return Object.keys(semanticDrafts[path] ?? {}).map((tag) => ({
+  return Object.keys(stored[path] ?? {}).map((tag) => ({
     tag,
     kind: "Match",
     sent: null,
@@ -624,34 +611,4 @@ function mockTagOutcomesForPath(
     observed_raw: null,
     message: null,
   }));
-}
-
-function looksLikeMetadataDrafts(
-  value: unknown,
-): value is MetadataDraftEditsByFile {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  for (const fileEdits of Object.values(value as Record<string, unknown>)) {
-    if (
-      !fileEdits ||
-      typeof fileEdits !== "object" ||
-      Array.isArray(fileEdits)
-    ) {
-      continue;
-    }
-    for (const edit of Object.values(fileEdits as Record<string, unknown>)) {
-      if (!edit || typeof edit !== "object" || Array.isArray(edit)) {
-        return false;
-      }
-      const maybeValue = (edit as { value?: unknown }).value;
-      return (
-        maybeValue === null ||
-        maybeValue === undefined ||
-        (!!maybeValue &&
-          typeof maybeValue === "object" &&
-          !Array.isArray(maybeValue) &&
-          "kind" in maybeValue)
-      );
-    }
-  }
-  return true;
 }
