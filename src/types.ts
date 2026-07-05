@@ -7,11 +7,10 @@
 
 import type { PhotoInfo } from "./types/generated/PhotoInfo";
 import type { Variant } from "./types/generated/Variant";
-import type { DraftEdit } from "./types/generated/DraftEdit";
 import type { MetadataValue } from "./types/generated/MetadataValue";
 import type { MetadataDraftEdit } from "./types/generated/MetadataDraftEdit";
 
-export type { PhotoInfo, Variant, DraftEdit };
+export type { PhotoInfo, Variant };
 export type { MetadataValue } from "./types/generated/MetadataValue";
 export type { MetadataDraftEdit } from "./types/generated/MetadataDraftEdit";
 export type { MetadataTagOutcome } from "./types/generated/MetadataTagOutcome";
