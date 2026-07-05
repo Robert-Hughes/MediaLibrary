@@ -72,6 +72,11 @@ export interface MediaLibraryActions {
     fileRelativePath: string,
     edits: Array<{ key: string; edit: MetadataDraftEdit }>,
   ) => void;
+  setMetadataDraft: (
+    fileRelativePath: string,
+    propertyKey: string,
+    edit: MetadataDraftEdit,
+  ) => void;
   discardDraftValue: (fileRelativePath: string, propertyKey: string) => void;
   discardAllDraftEdits: (fileRelativePath?: string | string[]) => void;
   applyDraftEdits: (
@@ -828,6 +833,21 @@ export function useMediaLibrary(
     [],
   );
 
+  const setMetadataDraft = useCallback(
+    (
+      fileRelativePath: string,
+      propertyKey: string,
+      edit: MetadataDraftEdit,
+    ) => {
+      draftEditsStoreRef.current.setMetadataTag(
+        fileRelativePath,
+        propertyKey,
+        edit,
+      );
+    },
+    [],
+  );
+
   const setDraftTyped = useCallback(
     (fileRelativePath: string, propertyKey: string, edit: DraftEdit) => {
       draftEditsStoreRef.current.setTag(fileRelativePath, propertyKey, edit);
@@ -931,6 +951,7 @@ export function useMediaLibrary(
       setDraftTyped,
       setDraftBatch,
       setMetadataDraftBatch,
+      setMetadataDraft,
       discardDraftValue,
       discardAllDraftEdits,
       applyDraftEdits,
@@ -958,6 +979,7 @@ export function useMediaLibrary(
       setDraftTyped,
       setDraftBatch,
       setMetadataDraftBatch,
+      setMetadataDraft,
       discardDraftValue,
       discardAllDraftEdits,
       applyDraftEdits,

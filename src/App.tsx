@@ -160,7 +160,7 @@ function LoadedView({
     return () => document.removeEventListener("keydown", handler);
   }, []);
 
-  const typedDraftEdits = useMemo(
+  const legacyTypedDraftEdits = useMemo(
     () => metadataDraftsToLegacyDrafts(state.draftEdits),
     [state.draftEdits],
   );
@@ -168,8 +168,8 @@ function LoadedView({
   // Components and the search filter still consume the legacy `string | null`
   // shape. Derive the legacy view once per draft-state change.
   const legacyDraftEdits = useMemo(
-    () => mapTypedToLegacy(typedDraftEdits),
-    [typedDraftEdits],
+    () => mapTypedToLegacy(legacyTypedDraftEdits),
+    [legacyTypedDraftEdits],
   );
 
   // Off-thread search via Web Worker.  The hook subscribes to the metadata
@@ -368,10 +368,10 @@ function LoadedView({
             legacyDraftEdits[displayPhotos[state.galleryIndex].relative_path]
           }
           typedDraftEdits={
-            typedDraftEdits[displayPhotos[state.galleryIndex].relative_path]
+            state.draftEdits[displayPhotos[state.galleryIndex].relative_path]
           }
-          onSetDraftTyped={actions.setDraftTyped}
-          onSetDraftBatch={actions.setDraftBatch}
+          onSetMetadataDraft={actions.setMetadataDraft}
+          onSetMetadataDraftBatch={actions.setMetadataDraftBatch}
           onDiscardDraft={actions.discardDraftValue}
           onDiscardAllEdits={actions.discardAllDraftEdits}
           onApplyEdits={(path) => actions.applyDraftEdits(path)}

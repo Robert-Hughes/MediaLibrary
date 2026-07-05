@@ -1,7 +1,11 @@
 import { useEffect, useState, useSyncExternalStore, useRef } from "react";
 import { useSpinnerSync } from "../hooks/useSpinnerSync";
 import { DetailsPane } from "./DetailsPane";
-import type { PhotoInfo, ImageMetadataStore } from "../types";
+import type {
+  MetadataDraftEdit,
+  PhotoInfo,
+  ImageMetadataStore,
+} from "../types";
 
 const GALLERY_DETAILS_VISIBLE_KEY = "media_library_gallery_details_visible";
 
@@ -32,15 +36,15 @@ interface Props {
   /** Observable store for image metadata (EXIF, XMP, etc.) */
   imageMetadata?: ImageMetadataStore;
   draftEdits?: Record<string, string | null>;
-  typedDraftEdits?: Record<string, import("../types").DraftEdit>;
-  onSetDraftTyped?: (
+  typedDraftEdits?: Record<string, MetadataDraftEdit>;
+  onSetMetadataDraft?: (
     fileRelativePath: string,
     key: string,
-    edit: import("../types").DraftEdit,
+    edit: MetadataDraftEdit,
   ) => void;
-  onSetDraftBatch?: (
+  onSetMetadataDraftBatch?: (
     fileRelativePath: string,
-    edits: Array<{ key: string; edit: import("../types").DraftEdit }>,
+    edits: Array<{ key: string; edit: MetadataDraftEdit }>,
   ) => void;
   onDiscardDraft?: (fileRelativePath: string, key: string) => void;
   onDiscardAllEdits?: (fileRelativePath: string) => void;
@@ -65,8 +69,8 @@ export function GalleryView({
   imageMetadata,
   draftEdits,
   typedDraftEdits,
-  onSetDraftTyped,
-  onSetDraftBatch,
+  onSetMetadataDraft,
+  onSetMetadataDraftBatch,
   onDiscardDraft,
   onDiscardAllEdits,
   onApplyEdits,
@@ -320,11 +324,11 @@ export function GalleryView({
             metadata={metadataState}
             draftEdits={draftEdits}
             typedDraftEdits={typedDraftEdits}
-            onSetDraftTyped={(key, edit) =>
-              onSetDraftTyped?.(photo.relative_path, key, edit)
+            onSetMetadataDraft={(key, edit) =>
+              onSetMetadataDraft?.(photo.relative_path, key, edit)
             }
-            onSetDraftBatch={(edits) =>
-              onSetDraftBatch?.(photo.relative_path, edits)
+            onSetMetadataDraftBatch={(edits) =>
+              onSetMetadataDraftBatch?.(photo.relative_path, edits)
             }
             onDiscardDraft={(key) => onDiscardDraft?.(photo.relative_path, key)}
             onDiscardAllEdits={() => onDiscardAllEdits?.(photo.relative_path)}
