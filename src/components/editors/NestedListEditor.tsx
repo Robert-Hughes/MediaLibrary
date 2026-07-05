@@ -14,8 +14,15 @@
 // non-scalar lands here.
 
 import { useState } from "react";
-import type { DraftEdit, TagKind, Variant } from "../../types";
+import type {
+  DraftEdit,
+  ListKind,
+  MetadataDraftEdit,
+  TagKind,
+  Variant,
+} from "../../types";
 import { variantToDisplayString } from "../../draft";
+import { variantToMetadataValue } from "../../utils/scanEvents";
 import type { InnerEditorProps } from "./StructEditor";
 import { READ_ONLY_TOOLTIP } from "./readOnlyMessages";
 
@@ -26,7 +33,7 @@ interface Props {
   initialItems: Variant[];
   /** Recursive editor entry — pass `TypedValueEditor`. */
   innerEditor: (props: InnerEditorProps) => React.ReactNode;
-  onSave: (edit: DraftEdit) => void;
+  onSave: (edit: MetadataDraftEdit) => void;
   onCancel: () => void;
   headerHint?: React.ReactNode;
   readOnly?: boolean;
@@ -77,6 +84,12 @@ function shortLabel(v: Variant, idx: number): string {
   return s ? s.slice(0, 80) : `Item ${idx + 1}`;
 }
 
+function listKindOf(kind: TagKind): ListKind {
+  return kind.kind === "Bag" || kind.kind === "Seq" || kind.kind === "Alt"
+    ? kind.kind
+    : "Unknown";
+}
+
 export function NestedListEditor({
   propertyKey,
   kind,
@@ -122,7 +135,16 @@ export function NestedListEditor({
 
   const handleSave = () => {
     if (readOnly) return;
-    onSave({ value: items, intent: "Set" });
+    onSave({
+      value: {
+        kind: "List",
+        value: {
+          list_kind: listKindOf(kind),
+          items: items.map(variantToMetadataValue),
+        },
+      },
+      intent: "Set",
+    });
   };
 
   // ── Sub-editor view ──────────────────────────────────────────────────

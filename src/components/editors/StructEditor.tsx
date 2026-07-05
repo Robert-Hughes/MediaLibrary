@@ -8,11 +8,12 @@
 // generality — Phase 5 refinements can teach the field rows about the
 // schema for known struct types (`mwg-rs:Region` field map).
 //
-// The output is always a `Variant::Object` shape with intent=Set.
+// The output is always a semantic `MetadataValue::Struct` shape with intent=Set.
 
 import { useState } from "react";
-import type { DraftEdit, Variant } from "../../types";
+import type { DraftEdit, MetadataDraftEdit, Variant } from "../../types";
 import { variantToDisplayString } from "../../draft";
+import { variantToMetadataValue } from "../../utils/scanEvents";
 import { READ_ONLY_TOOLTIP } from "./readOnlyMessages";
 
 interface Props {
@@ -20,7 +21,7 @@ interface Props {
   initialObject: Record<string, Variant>;
   /** Recursive editor entry — pass `TypedValueEditor` to support arbitrary nesting. */
   innerEditor?: (props: InnerEditorProps) => React.ReactNode;
-  onSave: (edit: DraftEdit) => void;
+  onSave: (edit: MetadataDraftEdit) => void;
   onCancel: () => void;
   headerHint?: React.ReactNode;
   readOnly?: boolean;
@@ -87,7 +88,10 @@ export function StructEditor({
 
   const handleSave = () => {
     if (readOnly) return;
-    onSave({ value: rowsToObject(rows), intent: "Set" });
+    onSave({
+      value: variantToMetadataValue(rowsToObject(rows)),
+      intent: "Set",
+    });
   };
 
   // Inline sub-editor for complex values.

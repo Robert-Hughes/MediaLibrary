@@ -22,7 +22,7 @@ describe("StructEditor", () => {
     expect(rows).toHaveLength(2);
   });
 
-  it("emits Variant::Object on Save", () => {
+  it("emits MetadataValue::Struct on Save", () => {
     const onSave = vi.fn();
     render(
       <StructEditor
@@ -35,7 +35,13 @@ describe("StructEditor", () => {
     fireEvent.click(screen.getByTestId("struct-editor-save"));
     expect(onSave).toHaveBeenCalledOnce();
     expect(onSave.mock.calls[0][0]).toEqual({
-      value: { a: "1", b: "2" },
+      value: {
+        kind: "Struct",
+        value: {
+          a: { kind: "Text", value: "1" },
+          b: { kind: "Text", value: "2" },
+        },
+      },
       intent: "Set",
     });
   });
@@ -57,7 +63,10 @@ describe("StructEditor", () => {
     await user.clear(input);
     await user.type(input, "Bob");
     fireEvent.click(screen.getByTestId("struct-editor-save"));
-    expect(onSave.mock.calls[0][0].value).toEqual({ Name: "Bob" });
+    expect(onSave.mock.calls[0][0].value).toEqual({
+      kind: "Struct",
+      value: { Name: { kind: "Text", value: "Bob" } },
+    });
   });
 
   it("adds a new field", async () => {
@@ -78,7 +87,13 @@ describe("StructEditor", () => {
     await user.type(keyInput, "newField");
     await user.click(screen.getByTestId("struct-editor-add-btn"));
     fireEvent.click(screen.getByTestId("struct-editor-save"));
-    expect(onSave.mock.calls[0][0].value).toEqual({ a: "1", newField: "" });
+    expect(onSave.mock.calls[0][0].value).toEqual({
+      kind: "Struct",
+      value: {
+        a: { kind: "Text", value: "1" },
+        newField: { kind: "Text", value: "" },
+      },
+    });
   });
 
   it("removes a field via the × button", () => {
@@ -94,7 +109,13 @@ describe("StructEditor", () => {
     const removeBtns = screen.getAllByRole("button", { name: /Remove/ });
     fireEvent.click(removeBtns[1]); // remove "b"
     fireEvent.click(screen.getByTestId("struct-editor-save"));
-    expect(onSave.mock.calls[0][0].value).toEqual({ a: "1", c: "3" });
+    expect(onSave.mock.calls[0][0].value).toEqual({
+      kind: "Struct",
+      value: {
+        a: { kind: "Text", value: "1" },
+        c: { kind: "Text", value: "3" },
+      },
+    });
   });
 
   it("renders a preview + Edit… button for complex inner values", () => {

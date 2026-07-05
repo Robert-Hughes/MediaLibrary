@@ -12,7 +12,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { NestedListEditor } from "../components/editors/NestedListEditor";
 import { initialItemsFromVariant } from "../components/editors/editorHelpers";
-import type { DraftEdit, TagKind, Variant } from "../types";
+import type { DraftEdit, MetadataDraftEdit, TagKind, Variant } from "../types";
 import type { InnerEditorProps } from "../components/editors/StructEditor";
 
 beforeEach(() => cleanup());
@@ -84,7 +84,7 @@ describe("NestedListEditor", () => {
     expect(summaries[1]).toHaveTextContent("Bob");
   });
 
-  it("emits Variant::List of objects on save", () => {
+  it("emits MetadataValue::List of structs on save", () => {
     const onSave = vi.fn();
     render(
       <NestedListEditor
@@ -98,9 +98,20 @@ describe("NestedListEditor", () => {
     );
     fireEvent.click(screen.getByTestId("nested-list-editor-save"));
     expect(onSave).toHaveBeenCalledOnce();
-    const edit = onSave.mock.calls[0][0] as DraftEdit;
+    const edit = onSave.mock.calls[0][0] as MetadataDraftEdit;
     expect(edit.intent).toBe("Set");
-    expect(edit.value).toEqual([{ Name: "Alice" }]);
+    expect(edit.value).toEqual({
+      kind: "List",
+      value: {
+        list_kind: "Bag",
+        items: [
+          {
+            kind: "Struct",
+            value: { Name: { kind: "Text", value: "Alice" } },
+          },
+        ],
+      },
+    });
   });
 
   it("Edit… opens the inner editor for the chosen item", () => {
@@ -137,9 +148,23 @@ describe("NestedListEditor", () => {
     fireEvent.click(screen.getByTestId("nested-list-editor-edit"));
     fireEvent.click(screen.getByTestId("stub-inner-save"));
     fireEvent.click(screen.getByTestId("nested-list-editor-save"));
-    const edit = onSave.mock.calls[0][0] as DraftEdit;
+    const edit = onSave.mock.calls[0][0] as MetadataDraftEdit;
     // The stub commits { Name: "Edited", Type: "Face" }.
-    expect(edit.value).toEqual([{ Name: "Edited", Type: "Face" }]);
+    expect(edit.value).toEqual({
+      kind: "List",
+      value: {
+        list_kind: "Bag",
+        items: [
+          {
+            kind: "Struct",
+            value: {
+              Name: { kind: "Text", value: "Edited" },
+              Type: { kind: "Text", value: "Face" },
+            },
+          },
+        ],
+      },
+    });
   });
 
   it("Add item appends an empty struct and opens the editor for it", () => {
@@ -177,7 +202,18 @@ describe("NestedListEditor", () => {
     const removes = screen.getAllByTestId("nested-list-editor-remove");
     fireEvent.click(removes[0]);
     fireEvent.click(screen.getByTestId("nested-list-editor-save"));
-    expect(onSave.mock.calls[0][0].value).toEqual([{ Name: "Bob" }]);
+    expect(onSave.mock.calls[0][0].value).toEqual({
+      kind: "List",
+      value: {
+        list_kind: "Bag",
+        items: [
+          {
+            kind: "Struct",
+            value: { Name: { kind: "Text", value: "Bob" } },
+          },
+        ],
+      },
+    });
   });
 
   it("Bag does not expose reorder controls", () => {
@@ -211,10 +247,22 @@ describe("NestedListEditor", () => {
     expect(downs).toHaveLength(2);
     fireEvent.click(downs[0]); // move Alice down → Bob, Alice
     fireEvent.click(screen.getByTestId("nested-list-editor-save"));
-    expect(onSave.mock.calls[0][0].value).toEqual([
-      { Name: "Bob" },
-      { Name: "Alice" },
-    ]);
+    expect(onSave.mock.calls[0][0].value).toEqual({
+      kind: "List",
+      value: {
+        list_kind: "Seq",
+        items: [
+          {
+            kind: "Struct",
+            value: { Name: { kind: "Text", value: "Bob" } },
+          },
+          {
+            kind: "Struct",
+            value: { Name: { kind: "Text", value: "Alice" } },
+          },
+        ],
+      },
+    });
   });
 
   it("LangAlt inner seeds a fresh item with x-default empty string", () => {
