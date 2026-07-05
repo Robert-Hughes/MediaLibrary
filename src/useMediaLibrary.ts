@@ -20,6 +20,7 @@ import type {
   ApplyEditsProgressPayload,
   ImageMetadataEntry,
   MetadataDraftEdit,
+  MetadataDraftEditsByFile,
   MetadataValue,
 } from "./types";
 import type { DraftEdit } from "./types";
@@ -33,10 +34,7 @@ import {
   mergeVerifyOutcomes,
   removeVerifyOutcome,
 } from "./utils/verifyOutcomes";
-import {
-  metadataEntryToVariant,
-  type MetadataDraftEditsByFile,
-} from "./utils/semanticDrafts";
+import { metadataEntryToVariant } from "./utils/semanticDrafts";
 import { useRecentFolders } from "./hooks/useRecentFolders";
 
 export interface TauriApi {
