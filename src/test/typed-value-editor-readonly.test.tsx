@@ -36,12 +36,12 @@ describe("TypedValueEditor read-only enforcement", () => {
       kind: { kind: "Text" },
       description: "EXIF spec version, set by the camera firmware",
     });
-    const onSave = vi.fn();
+    const onSaveMetadata = vi.fn();
     render(
       <TypedValueEditor
         propertyKey="EXIF:ExifVersion"
         initialString="0231"
-        onSave={onSave}
+        onSaveMetadata={onSaveMetadata}
         onCancel={() => {}}
       />,
     );
@@ -60,7 +60,7 @@ describe("TypedValueEditor read-only enforcement", () => {
       "Tag is read-only per ExifTool schema",
     );
     fireEvent.click(dialog);
-    expect(onSave).not.toHaveBeenCalled();
+    expect(onSaveMetadata).not.toHaveBeenCalled();
   });
 
   it("leaves Save enabled and the banner non-warning for a writable tag", async () => {
@@ -75,7 +75,7 @@ describe("TypedValueEditor read-only enforcement", () => {
       <TypedValueEditor
         propertyKey="XMP-dc:Title"
         initialString="hello"
-        onSave={() => {}}
+        onSaveMetadata={() => {}}
         onCancel={() => {}}
       />,
     );
@@ -102,7 +102,7 @@ describe("TypedValueEditor read-only enforcement", () => {
         propertyKey="EXIF:Orientation"
         initialString="1"
         initialVariant={1}
-        onSave={() => {}}
+        onSaveMetadata={() => {}}
         onCancel={() => {}}
       />,
     );
@@ -138,7 +138,7 @@ describe("TypedValueEditor temporal routing", () => {
               ? "10:30:00+01:00"
               : "2026:05:15 10:30:00"
         }
-        onSave={() => {}}
+        onSaveMetadata={() => {}}
         onCancel={() => {}}
       />,
     );
@@ -163,7 +163,7 @@ describe("TypedValueEditor temporal routing", () => {
       <TypedValueEditor
         propertyKey="XMP-custom:DateishText"
         initialString="2026:05:15 10:30:00"
-        onSave={() => {}}
+        onSaveMetadata={() => {}}
         onCancel={() => {}}
       />,
     );
@@ -186,7 +186,7 @@ describe("TypedValueEditor temporal routing", () => {
       <TypedValueEditor
         propertyKey="XMP-custom:UnknownDate"
         initialString="2026:05:15 10:30:00"
-        onSave={() => {}}
+        onSaveMetadata={() => {}}
         onCancel={() => {}}
       />,
     );
@@ -202,7 +202,7 @@ describe("TypedValueEditor temporal routing", () => {
       <TypedValueEditor
         propertyKey="XMP-custom:MissingDate"
         initialString="2026:05:15 10:30:00"
-        onSave={() => {}}
+        onSaveMetadata={() => {}}
         onCancel={() => {}}
       />,
     );
@@ -223,14 +223,12 @@ describe("TypedValueEditor semantic save callbacks", () => {
       kind: { kind: "Text" },
       description: null,
     });
-    const onSave = vi.fn();
     const onSaveMetadata = vi.fn();
 
     render(
       <TypedValueEditor
         propertyKey="XMP-dc:Title"
         initialString="old"
-        onSave={onSave}
         onSaveMetadata={onSaveMetadata}
         onCancel={() => {}}
       />,
@@ -240,7 +238,6 @@ describe("TypedValueEditor semantic save callbacks", () => {
     fireEvent.change(input, { target: { value: "new title" } });
     fireEvent.click(screen.getByRole("button", { name: /save/i }));
 
-    expect(onSave).not.toHaveBeenCalled();
     expect(onSaveMetadata).toHaveBeenCalledWith({
       value: { kind: "Text", value: "new title" },
       intent: "Set",

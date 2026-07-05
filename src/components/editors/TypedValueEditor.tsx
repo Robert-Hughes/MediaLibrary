@@ -66,7 +66,7 @@ interface Props {
   initialString: string;
   /** Full metadata for the file (used by LangAltEditor and GpsEditor to gather sibling keys). */
   metadataForFile?: Record<string, Variant>;
-  onSave: (edit: DraftEdit) => void;
+  onSave?: (edit: DraftEdit) => void;
   onSaveMetadata?: (edit: MetadataDraftEdit) => void;
   /** Multi-tag save, used by GpsEditor and any future paired-tag editor. */
   onSaveBatch?: (edits: Array<{ key: string; edit: DraftEdit }>) => void;
@@ -116,14 +116,14 @@ export function TypedValueEditor({
     if (onSaveMetadata) {
       onSaveMetadata(legacyDraftToMetadataDraft(edit));
     } else {
-      onSave(edit);
+      onSave?.(edit);
     }
   };
   const saveMetadataDraft = (edit: MetadataDraftEdit) => {
     if (onSaveMetadata) {
       onSaveMetadata(edit);
     } else {
-      onSave(metadataDraftToLegacyDraft(edit));
+      onSave?.(metadataDraftToLegacyDraft(edit));
     }
   };
   // ── Override 1: Flash bitfield ─────────────────────────────────────────
@@ -139,7 +139,7 @@ export function TypedValueEditor({
         onSave={
           onSaveMetadata
             ? (edit) => onSaveMetadata(edit)
-            : (edit) => onSave(metadataDraftToLegacyDraft(edit))
+            : (edit) => onSave?.(metadataDraftToLegacyDraft(edit))
         }
         onCancel={onCancel}
         readOnly={readOnly}
@@ -275,7 +275,7 @@ export function TypedValueEditor({
           onSave={
             onSaveMetadata
               ? (edit) => onSaveMetadata(edit)
-              : (edit) => onSave(metadataDraftToLegacyDraft(edit))
+              : (edit) => onSave?.(metadataDraftToLegacyDraft(edit))
           }
           onCancel={onCancel}
           headerHint={schemaHint()}
@@ -318,7 +318,7 @@ export function TypedValueEditor({
         onSave={
           onSaveMetadata
             ? (edit) => onSaveMetadata(edit)
-            : (edit) => onSave(metadataDraftToLegacyDraft(edit))
+            : (edit) => onSave?.(metadataDraftToLegacyDraft(edit))
         }
         onCancel={onCancel}
         readOnly={readOnly}
@@ -337,7 +337,7 @@ export function TypedValueEditor({
         onSave={
           onSaveMetadata
             ? (edit) => onSaveMetadata(edit)
-            : (edit) => onSave(metadataDraftToLegacyDraft(edit))
+            : (edit) => onSave?.(metadataDraftToLegacyDraft(edit))
         }
         onCancel={onCancel}
         readOnly={readOnly}
@@ -359,7 +359,7 @@ export function TypedValueEditor({
         onSave={
           onSaveMetadata
             ? (edit) => onSaveMetadata(edit)
-            : (edit) => onSave(metadataDraftToLegacyDraft(edit))
+            : (edit) => onSave?.(metadataDraftToLegacyDraft(edit))
         }
         onCancel={onCancel}
         readOnly={readOnly}
@@ -384,7 +384,7 @@ export function TypedValueEditor({
         onSave={
           onSaveMetadata
             ? (edit) => onSaveMetadata(edit)
-            : (edit) => onSave(metadataDraftToLegacyDraft(edit))
+            : (edit) => onSave?.(metadataDraftToLegacyDraft(edit))
         }
         onCancel={onCancel}
         readOnly={readOnly}
@@ -413,7 +413,7 @@ export function TypedValueEditor({
         onSave={
           onSaveMetadata
             ? (edit) => onSaveMetadata(edit)
-            : (edit) => onSave(metadataDraftToLegacyDraft(edit))
+            : (edit) => onSave?.(metadataDraftToLegacyDraft(edit))
         }
         onCancel={onCancel}
         readOnly={readOnly}
@@ -438,7 +438,7 @@ export function TypedValueEditor({
         onSave={
           onSaveMetadata
             ? (edit) => onSaveMetadata(edit)
-            : (edit) => onSave(metadataDraftToLegacyDraft(edit))
+            : (edit) => onSave?.(metadataDraftToLegacyDraft(edit))
         }
         onCancel={onCancel}
         readOnly={readOnly}
