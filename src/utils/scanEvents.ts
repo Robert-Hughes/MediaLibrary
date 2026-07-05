@@ -4,7 +4,7 @@
  * Kept free of React + Tauri so the hook stays a thin orchestrator and
  * these bits can be unit-tested without a render harness.
  */
-import type { MetadataValue, Variant } from "../types";
+import type { MetadataValue } from "../types";
 
 export function normalizeMetadataFromTauri(
   raw: unknown,
@@ -14,7 +14,7 @@ export function normalizeMetadataFromTauri(
   for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
     out[key] = isMetadataValue(value)
       ? (value as MetadataValue)
-      : variantToMetadataValue(value as Variant);
+      : variantToMetadataValue(value);
   }
   return out;
 }
@@ -29,8 +29,8 @@ function isMetadataValue(value: unknown): value is MetadataValue {
   );
 }
 
-export function variantToMetadataValue(value: Variant): MetadataValue {
-  if (value === null) return { kind: "Null" };
+export function variantToMetadataValue(value: unknown): MetadataValue {
+  if (value === null || value === undefined) return { kind: "Null" };
   if (typeof value === "string") return { kind: "Text", value };
   if (typeof value === "boolean") return { kind: "Bool", value };
   if (typeof value === "number") return { kind: "Real", value };
@@ -39,7 +39,7 @@ export function variantToMetadataValue(value: Variant): MetadataValue {
       kind: "List",
       value: {
         list_kind: "Unknown",
-        items: value.map((item) => variantToMetadataValue(item as Variant)),
+        items: value.map(variantToMetadataValue),
       },
     };
   }
@@ -49,7 +49,7 @@ export function variantToMetadataValue(value: Variant): MetadataValue {
       value: Object.fromEntries(
         Object.entries(value).map(([key, child]) => [
           key,
-          variantToMetadataValue(child as Variant),
+          variantToMetadataValue(child),
         ]),
       ),
     };
@@ -58,7 +58,7 @@ export function variantToMetadataValue(value: Variant): MetadataValue {
     kind: "Unknown",
     value: {
       expected: null,
-      raw: null,
+      raw: value,
       reason: "unsupported metadata payload value",
     },
   };

@@ -10,7 +10,7 @@ import { useMemo, useState } from "react";
 import { describe, it, expect } from "vitest";
 import { PhotoList } from "../components/PhotoList";
 import { DraftEditsStore, ImageMetadataStore, ThumbnailStore } from "../types";
-import { makePhotos, imgCol } from "./factories";
+import { makePhotos, imgCol, mockMetadata } from "./factories";
 import { useSearchWorker, createSearchWorker } from "../hooks/useSearchWorker";
 
 const defaultSortProps = {
@@ -37,12 +37,15 @@ function ListSearchHarness({
   const meta = useMemo(() => {
     const m = new ImageMetadataStore();
     allPhotos.forEach((p) => m.add(p.relative_path));
-    m.set("a.jpg", {
-      "Hidden:SecretTag": "unique-xyz-123",
-      "IFD0:Make": "Sony",
-    });
-    m.set("b.jpg", { "IFD0:Make": "Canon" });
-    m.set("c.jpg", { "IFD0:Make": "Nikon" });
+    m.set(
+      "a.jpg",
+      mockMetadata({
+        "Hidden:SecretTag": "unique-xyz-123",
+        "IFD0:Make": "Sony",
+      }),
+    );
+    m.set("b.jpg", mockMetadata({ "IFD0:Make": "Canon" }));
+    m.set("c.jpg", mockMetadata({ "IFD0:Make": "Nikon" }));
     return m;
   }, [allPhotos]);
   const drafts = useMemo(() => new DraftEditsStore(), []);

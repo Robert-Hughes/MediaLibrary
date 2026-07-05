@@ -19,7 +19,7 @@ export type BagInnerKind = "Text" | "Integer" | "Real" | "Boolean" | "Unknown";
 
 interface Props {
   propertyKey: string;
-  /** Initial chips, parsed from either a Variant::List or a comma-joined string. */
+  /** Initial chips, parsed from either a MetadataValue::List or a comma-joined string. */
   initialItems: string[];
   /**
    * Phase 8.10: when true, the chip list is treated as ordered (Seq).  The
@@ -30,7 +30,7 @@ interface Props {
   ordered?: boolean;
   /**
    * Phase 8 fix-up: TagKind of each chip's value.  Drives parsing on save
-   * so a `Bag<Integer>` round-trips as Variant::Integer rather than via the
+   * so a `Bag<Integer>` round-trips as MetadataValue::Integer rather than via the
    * old string cast.
    */
   innerKind?: BagInnerKind;
@@ -138,9 +138,8 @@ export function BagEditor({
       final = [...final, trimmed];
     }
     // Phase 8 fix-up: parse each chip per innerKind so a Bag<Integer>
-    // round-trips as Variant::Integer rather than via the previous unsound
-    // `s as Variant` cast (which only worked accidentally because Variant
-    // includes string).
+    // round-trips as MetadataValue::Integer rather than via the previous unsound
+    // `s as MetadataValue` cast.
     const parsed: MetadataValue[] = [];
     for (const s of final) {
       const v = chipToMetadataValue(s, innerKind);

@@ -5,7 +5,6 @@ import type {
   MetadataValue,
   PhotoInfo,
   ImageMetadataState,
-  Variant,
 } from "../types";
 import { HighlightedText } from "./HighlightedText";
 import { ContextMenu } from "./ContextMenu";
@@ -406,7 +405,7 @@ export function DetailsPane({
     if (draftEdits) {
       for (const [key, value] of Object.entries(draftEdits)) {
         if (value !== null && !(key in combinedMetadata)) {
-          combinedMetadata[key] = "";
+          combinedMetadata[key] = { kind: "Null" };
         }
       }
     }
@@ -723,7 +722,7 @@ export function DetailsPane({
           onRemove={() => {
             const existsInOriginal =
               metadata !== "loading" &&
-              contextMenu.key in (metadata as Record<string, Variant>);
+              contextMenu.key in (metadata as Record<string, MetadataValue>);
             if (existsInOriginal) {
               onSetMetadataDraft?.(contextMenu.key, {
                 value: null,

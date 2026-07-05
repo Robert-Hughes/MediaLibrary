@@ -9,7 +9,7 @@ import {
   nextSortConfig,
   shouldSuspendSorting,
 } from "../utils/sorting";
-import { makePhoto } from "./factories";
+import { makePhoto, mockMetadata } from "./factories";
 
 // ── shouldSuspendSorting ──────────────────────────────────────────────────────
 
@@ -206,9 +206,9 @@ describe("sortPhotos", () => {
   it("sorts by image metadata value ascending, missing values last", () => {
     const store = new ImageMetadataStore();
     store.add("b.jpg");
-    store.set("b.jpg", { "IFD0:Model": "Canon" });
+    store.set("b.jpg", mockMetadata({ "IFD0:Model": "Canon" }));
     store.add("a.jpg");
-    store.set("a.jpg", { "IFD0:Model": "Nikon" });
+    store.set("a.jpg", mockMetadata({ "IFD0:Model": "Nikon" }));
     store.add("c.jpg"); // still loading → sorts to end
     const photos = [
       makePhoto({ relative_path: "b.jpg" }),

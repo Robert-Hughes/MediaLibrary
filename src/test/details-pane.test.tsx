@@ -26,8 +26,9 @@ import {
   getOsEntries,
   extractPrefix,
 } from "../utils/detailsPaneHelpers";
-import { makePhoto } from "./factories";
-import type { MetadataDraftEdit, Variant } from "../types";
+import { makePhoto, mockMetadata } from "./factories";
+import type { MetadataDraftEdit, ImageMetadataEntry } from "../types";
+import { variantToMetadataValue } from "../utils/scanEvents";
 import { _clearTagInfoCache, _setTagInfoCacheEntry } from "../hooks/useTagInfo";
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -53,19 +54,21 @@ describe("extractPrefix", () => {
 
 describe("formatVariant", () => {
   it("formats a string value", () => {
-    expect(formatVariant("Canon")).toBe("Canon");
+    expect(formatVariant(variantToMetadataValue("Canon"))).toBe("Canon");
   });
 
   it("formats a numeric value", () => {
-    expect(formatVariant(42)).toBe("42");
+    expect(formatVariant(variantToMetadataValue(42))).toBe("42");
   });
 
   it("formats an array value as comma-separated", () => {
-    expect(formatVariant(["landscape", "nature"])).toBe("landscape, nature");
+    expect(formatVariant(variantToMetadataValue(["landscape", "nature"]))).toBe(
+      "landscape, nature",
+    );
   });
 
   it("formats nested arrays", () => {
-    const nested: Variant = [["a", "b"], "c"];
+    const nested = variantToMetadataValue([["a", "b"], "c"]);
     expect(formatVariant(nested)).toBe("a, b, c");
   });
 });
@@ -106,12 +109,12 @@ describe("getOsEntries", () => {
 
 describe("groupImageMetadata", () => {
   it("groups entries by prefix and strips prefixes from labels", () => {
-    const metadata: Record<string, Variant> = {
+    const metadata = mockMetadata({
       "IFD0:Make": "Canon",
       "IFD0:Model": "EOS R5",
       "XMP-dc:Subject": ["landscape", "nature"],
       "ExifIFD:ISO": 100,
-    };
+    });
     const groups = groupImageMetadata(metadata);
 
     expect(groups).toHaveLength(3);
@@ -141,11 +144,11 @@ describe("groupImageMetadata", () => {
   });
 
   it('places keys without a colon in "Other" group at the end', () => {
-    const metadata: Record<string, Variant> = {
+    const metadata = mockMetadata({
       "IFD0:Make": "Canon",
       FileSize: "4.2 MB",
       FileName: "photo.jpg",
-    };
+    });
     const groups = groupImageMetadata(metadata);
 
     expect(groups[groups.length - 1].prefix).toBe("Other");
@@ -156,12 +159,12 @@ describe("groupImageMetadata", () => {
   });
 
   it("sorts groups alphabetically (Other last)", () => {
-    const metadata: Record<string, Variant> = {
+    const metadata = mockMetadata({
       "XMP-dc:Subject": "test",
       "IFD0:Make": "Canon",
       "ExifIFD:ISO": 100,
       NoPrefix: "value",
-    };
+    });
     const groups = groupImageMetadata(metadata);
     const prefixes = groups.map((g) => g.prefix);
     expect(prefixes).toEqual(["ExifIFD", "IFD0", "XMP-dc", "Other"]);
@@ -218,12 +221,12 @@ describe("DetailsPane component", () => {
   });
 
   it("renders grouped image metadata sections", () => {
-    const metadata: Record<string, Variant> = {
+    const metadata = mockMetadata({
       "IFD0:Make": "Canon",
       "IFD0:Model": "EOS R5",
       "ExifIFD:ISO": 100,
       "XMP-dc:Subject": ["landscape", "nature"],
-    };
+    });
 
     render(<DetailsPane photo={photo} metadata={metadata} />);
 
@@ -329,7 +332,7 @@ describe("DetailsPane: Generate-AI button", () => {
     render(
       <Fresh
         photo={photo}
-        metadata={{} as Record<string, Variant>}
+        metadata={{} as Record<string, ImageMetadataEntry>}
         typedDraftEdits={typedDraftEdits}
         draftEdits={{ "XMP-mlib:AIDescription": "older description" }}
         onGenerateAiDescription={onGenerate}
@@ -351,7 +354,7 @@ describe("DetailsPane: Generate-AI button", () => {
     render(
       <Fresh
         photo={photo}
-        metadata={{} as Record<string, Variant>}
+        metadata={{} as Record<string, ImageMetadataEntry>}
         onGenerateAiDescription={onGenerate}
       />,
     );
@@ -538,7 +541,7 @@ describe("DetailsPane: read-only row context menu", () => {
     render(
       <DetailsPane
         photo={photo}
-        metadata={{ "IFD0:Make": "Canon" }}
+        metadata={mockMetadata({ "IFD0:Make": "Canon" })}
         onSetMetadataDraft={onSetMetadataDraft}
         onDiscardDraft={onDiscardDraft}
       />,
@@ -570,7 +573,7 @@ describe("DetailsPane: read-only row context menu", () => {
     render(
       <DetailsPane
         photo={photo}
-        metadata={{ "IFD0:Make": "Canon" }}
+        metadata={mockMetadata({ "IFD0:Make": "Canon" })}
         onSetMetadataDraft={onSetMetadataDraft}
       />,
     );
@@ -604,7 +607,7 @@ describe("DetailsPane: read-only row context menu", () => {
     render(
       <DetailsPane
         photo={photo}
-        metadata={{ "IFD0:Make": "Canon" }}
+        metadata={mockMetadata({ "IFD0:Make": "Canon" })}
         draftEdits={{ "IFD0:Make": "Nikon" }}
         onSetMetadataDraft={vi.fn()}
       />,
@@ -673,7 +676,7 @@ describe("DetailsPane: Edit reopens with pending draft as the seed", () => {
     render(
       <DetailsPane
         photo={photo}
-        metadata={{ "IFD0:Orientation": 1 as Variant }}
+        metadata={mockMetadata({ "IFD0:Orientation": 1 })}
         draftEdits={{ "IFD0:Orientation": "Rotate 270 CW" }}
         typedDraftEdits={typedDraftEdits}
         onSetMetadataDraft={vi.fn()}
@@ -710,7 +713,7 @@ describe("DetailsPane: Edit reopens with pending draft as the seed", () => {
     render(
       <DetailsPane
         photo={photo}
-        metadata={{ "XMP-xmp:Rating": 2 as Variant }}
+        metadata={mockMetadata({ "XMP-xmp:Rating": 2 })}
         draftEdits={{ "XMP-xmp:Rating": "4" }}
         typedDraftEdits={typedDraftEdits}
         onSetMetadataDraft={vi.fn()}

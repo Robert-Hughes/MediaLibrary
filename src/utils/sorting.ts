@@ -9,11 +9,7 @@ import { variantToDisplayString } from "../draft";
 
 function getVariantAsString(v: ImageMetadataEntry | undefined): string {
   if (v === undefined || v === null) return "";
-  if (typeof v === "string") return v;
-  if (typeof v === "number") return v.toString();
-  if (Array.isArray(v)) return v.map(getVariantAsString).join(", ");
-  if (typeof v === "object") return variantToDisplayString(v);
-  return "";
+  return variantToDisplayString(v);
 }
 
 function compareByKey(

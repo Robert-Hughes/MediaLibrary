@@ -1,4 +1,9 @@
-import type { MetadataValue, EnumOption, TagKind } from "../../types";
+import type {
+  MetadataValue,
+  EnumOption,
+  TagKind,
+  UtcOffsetValue,
+} from "../../types";
 import { gpsTagGroup } from "../../metadata/tag_overrides";
 import { metadataValueToDisplayString } from "../../draft";
 
@@ -396,4 +401,37 @@ export function describeKind(kind: TagKind): string {
     case "Unknown":
       return "Unknown type";
   }
+}
+
+/**
+ * Parse a timezone offset string (e.g. "+01:00", "-05:30", "Z") conservatively.
+ * Returns null if the format is invalid.
+ */
+export function parseTimeOffset(s: string): UtcOffsetValue | null {
+  const trimmed = s.trim();
+  if (/^[zZ]$/.test(trimmed)) {
+    return { sign: "Plus", hours: 0, minutes: 0 };
+  }
+  const match = trimmed.match(/^([+-])(\d{2}):?(\d{2})$/);
+  if (!match) return null;
+  const [, sign, hStr, mStr] = match;
+  const hours = parseInt(hStr, 10);
+  const minutes = parseInt(mStr, 10);
+  if (hours < 0 || hours > 14) return null;
+  if (minutes < 0 || minutes > 59) return null;
+  return {
+    sign: sign === "+" ? "Plus" : "Minus",
+    hours,
+    minutes,
+  };
+}
+
+/**
+ * Format a UtcOffsetValue back into the "+HH:MM" format.
+ */
+export function formatTimeOffset(offset: UtcOffsetValue): string {
+  const signStr = offset.sign === "Plus" ? "+" : "-";
+  const hStr = String(offset.hours).padStart(2, "0");
+  const mStr = String(offset.minutes).padStart(2, "0");
+  return `${signStr}${hStr}:${mStr}`;
 }

@@ -11,7 +11,7 @@
 //      against the schema kind because the override editor is materially
 //      better than what the schema would produce.
 //   2. Schema TagKind.  Drives the regular editor table.
-//   3. Variant-shape fallbacks for tags exiftool returns as Object/struct
+//   3. Struct-shape fallbacks for tags exiftool returns as Object/struct
 //      with no schema entry.
 //   4. Plain text input as a last resort.
 //
@@ -20,7 +20,6 @@
 //                tag the schema doesn't describe.
 //   - Binary  — read-only "binary, not editable in app" message.
 
-import { useState } from "react";
 import { useTagInfo } from "../../hooks/useTagInfo";
 import type {
   MetadataDraftEdit,
@@ -39,8 +38,9 @@ import { DateTimeEditor } from "./DateTimeEditor";
 import { GpsEditor } from "./GpsEditor";
 import { FlashEditor } from "./FlashEditor";
 import { StructEditor } from "./StructEditor";
-import { READ_ONLY_TOOLTIP } from "./readOnlyMessages";
 import { NestedListEditor } from "./NestedListEditor";
+import { UnknownEditor } from "./UnknownEditor";
+import { TimeOffsetEditor } from "./TimeOffsetEditor";
 import {
   initialItemsFrom,
   initialCodeFrom,
@@ -309,6 +309,7 @@ export function TypedValueEditor({
     return (
       <RationalEditor
         propertyKey={propertyKey}
+        initialMetadataValue={initialMetadataValue}
         initialValue={initialString}
         onSave={onSaveMetadata}
         onCancel={onCancel}
@@ -373,6 +374,21 @@ export function TypedValueEditor({
               ? "time"
               : "datetime"
         }
+        initialMetadataValue={initialMetadataValue}
+        initialValue={initialString}
+        onSave={onSaveMetadata}
+        onCancel={onCancel}
+        readOnly={readOnly}
+        headerHint={schemaHint()}
+      />
+    );
+  }
+
+  if (tag && tag.kind.kind === "TimeOffset") {
+    return (
+      <TimeOffsetEditor
+        propertyKey={propertyKey}
+        initialMetadataValue={initialMetadataValue}
         initialValue={initialString}
         onSave={onSaveMetadata}
         onCancel={onCancel}
@@ -464,15 +480,17 @@ export function TypedValueEditor({
     );
   }
 
-  // ── Phase 8.3: Unknown — text input plus a warning. ───────────────────
-  if (tag && tag.kind.kind === "Unknown") {
+  // ── Phase 8.3: Unknown — read-only warning dialog. ───────────────────
+  if (
+    (tag && tag.kind.kind === "Unknown") ||
+    (initialMetadataValue && initialMetadataValue.kind === "Unknown")
+  ) {
     return (
       <UnknownEditor
         propertyKey={propertyKey}
-        initialValue={initialString}
-        onSave={saveText}
+        initialMetadataValue={initialMetadataValue}
+        initialString={initialString}
         onCancel={onCancel}
-        readOnly={readOnly}
         headerHint={schemaHint()}
       />
     );
@@ -499,64 +517,4 @@ function buildSource(
   if (tag === "loading") return { kind: "loading" };
   if (!tag) return { kind: "unknown" };
   return { kind: "schema", tag, override };
-}
-
-// Local Unknown-tag editor: same shape as ValueEditDialog but with a banner
-// warning the user the schema doesn't describe this tag.  Phase 8.3.
-function UnknownEditor({
-  propertyKey,
-  initialValue,
-  onSave,
-  onCancel,
-  headerHint,
-  readOnly,
-}: {
-  propertyKey: string;
-  initialValue: string;
-  onSave: (s: string) => void;
-  onCancel: () => void;
-  headerHint?: React.ReactNode;
-  readOnly?: boolean;
-}) {
-  const [value, setValue] = useState(initialValue);
-  const handleKey = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter") {
-      if (!readOnly) onSave(value);
-    } else if (e.key === "Escape") onCancel();
-  };
-  return (
-    <div className="dialog-overlay" data-testid="unknown-editor-overlay">
-      <div className="dialog-content">
-        <h3>Edit {propertyKey}</h3>
-        {headerHint}
-        <div className="dialog-body">
-          <input
-            type="text"
-            className="dialog-input"
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            onKeyDown={handleKey}
-            autoFocus
-            data-testid="unknown-editor-input"
-          />
-        </div>
-        <div className="dialog-footer">
-          <button
-            className="dialog-btn dialog-btn-secondary"
-            onClick={onCancel}
-          >
-            Cancel
-          </button>
-          <button
-            className="dialog-btn dialog-btn-primary"
-            onClick={() => onSave(value)}
-            disabled={readOnly}
-            title={readOnly ? READ_ONLY_TOOLTIP : undefined}
-          >
-            Save
-          </button>
-        </div>
-      </div>
-    </div>
-  );
 }

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { ImageMetadataStore } from "../types";
+import { mockMetadata } from "./factories";
 
 describe("ImageMetadataStore.subscribeAll", () => {
   it("fires on add() with 'loading'", () => {
@@ -25,7 +26,7 @@ describe("ImageMetadataStore.subscribeAll", () => {
     store.add("a.jpg");
     const cb = vi.fn();
     store.subscribeAll(cb);
-    const meta = { "IFD0:Make": "Sony" };
+    const meta = mockMetadata({ "IFD0:Make": "Sony" });
     store.set("a.jpg", meta);
     expect(cb).toHaveBeenCalledWith("a.jpg", meta);
   });
@@ -52,7 +53,7 @@ describe("ImageMetadataStore.subscribeAll", () => {
     store.add("a.jpg");
     store.subscribe("a.jpg", perPath);
     store.subscribeAll(global);
-    store.set("a.jpg", { "X:Y": "z" });
+    store.set("a.jpg", mockMetadata({ "X:Y": "z" }));
     expect(perPath).toHaveBeenCalledTimes(1);
     expect(global).toHaveBeenCalledTimes(1);
   });
@@ -63,10 +64,12 @@ describe("ImageMetadataStore.entries", () => {
     const store = new ImageMetadataStore();
     store.add("a.jpg");
     store.add("b.jpg");
-    store.set("b.jpg", { "X:Y": "1" });
+    store.set("b.jpg", mockMetadata({ "X:Y": "1" }));
     const out = Array.from(store.entries());
     expect(out).toHaveLength(2);
     expect(out.find(([p]) => p === "a.jpg")?.[1]).toBe("loading");
-    expect(out.find(([p]) => p === "b.jpg")?.[1]).toEqual({ "X:Y": "1" });
+    expect(out.find(([p]) => p === "b.jpg")?.[1]).toEqual(
+      mockMetadata({ "X:Y": "1" }),
+    );
   });
 });

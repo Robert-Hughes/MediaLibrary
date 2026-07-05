@@ -10,8 +10,13 @@ import { render, screen, within, cleanup } from "@testing-library/react";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { DetailsPane } from "../components/DetailsPane";
 import { _clearTagInfoCache, _setTagInfoCacheEntry } from "../hooks/useTagInfo";
-import type { MetadataDraftEdit, TagInfo, TagKind, Variant } from "../types";
-import { makePhoto } from "./factories";
+import type {
+  MetadataDraftEdit,
+  TagInfo,
+  TagKind,
+  ImageMetadataEntry,
+} from "../types";
+import { makePhoto, mockMetadata } from "./factories";
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(() => Promise.resolve(null)),
@@ -67,7 +72,7 @@ describe("DetailsPane datatype badges", () => {
     render(
       <DetailsPane
         photo={photo}
-        metadata={{ "XMP-dc:Description": "hi" } as Record<string, Variant>}
+        metadata={mockMetadata({ "XMP-dc:Description": "hi" })}
       />,
     );
     const row = findRow("XMP-dc:Description");
@@ -87,7 +92,9 @@ describe("DetailsPane datatype badges", () => {
     render(
       <DetailsPane
         photo={photo}
-        metadata={{ "XMP-dc:Description": 42 } as Record<string, Variant>}
+        metadata={mockMetadata({
+          "XMP-dc:Description": { kind: "Integer", value: 42 },
+        })}
       />,
     );
     const row = findRow("XMP-dc:Description");
@@ -97,7 +104,7 @@ describe("DetailsPane datatype badges", () => {
     );
     expect(within(row).getByTestId("datatype-badge-value")).toHaveAttribute(
       "data-code",
-      "N",
+      "I",
     );
     expect(within(row).queryByTestId("datatype-badge-draft")).toBeNull();
   });
@@ -113,7 +120,7 @@ describe("DetailsPane datatype badges", () => {
     render(
       <DetailsPane
         photo={photo}
-        metadata={{ "XMP-dc:Description": "foo" } as Record<string, Variant>}
+        metadata={mockMetadata({ "XMP-dc:Description": "foo" })}
         draftEdits={{ "XMP-dc:Description": "bar" }}
         typedDraftEdits={typed}
       />,
@@ -137,7 +144,7 @@ describe("DetailsPane datatype badges", () => {
     render(
       <DetailsPane
         photo={photo}
-        metadata={{ "XMP-dc:Description": "foo" } as Record<string, Variant>}
+        metadata={mockMetadata({ "XMP-dc:Description": "foo" })}
         draftEdits={{ "XMP-dc:Description": "42" }}
         typedDraftEdits={typed}
       />,
@@ -165,7 +172,9 @@ describe("DetailsPane datatype badges", () => {
     render(
       <DetailsPane
         photo={photo}
-        metadata={{ "XMP-dc:Description": 42 } as Record<string, Variant>}
+        metadata={mockMetadata({
+          "XMP-dc:Description": { kind: "Integer", value: 42 },
+        })}
         draftEdits={{ "XMP-dc:Description": "7" }}
         typedDraftEdits={typed}
       />,
@@ -176,7 +185,7 @@ describe("DetailsPane datatype badges", () => {
     ).toBeInTheDocument();
     expect(within(row).getByTestId("datatype-badge-value")).toHaveAttribute(
       "data-code",
-      "N",
+      "I",
     );
     expect(within(row).getByTestId("datatype-badge-draft")).toHaveAttribute(
       "data-code",
@@ -195,7 +204,9 @@ describe("DetailsPane datatype badges", () => {
     render(
       <DetailsPane
         photo={photo}
-        metadata={{ "ExifIFD:ISO": 100 } as Record<string, Variant>}
+        metadata={mockMetadata({
+          "ExifIFD:ISO": { kind: "Integer", value: 100 },
+        })}
       />,
     );
     const row = findRow("ExifIFD:ISO");
@@ -217,7 +228,7 @@ describe("DetailsPane datatype badges", () => {
     render(
       <DetailsPane
         photo={photo}
-        metadata={{ "ExifIFD:ISO": "100" } as Record<string, Variant>}
+        metadata={mockMetadata({ "ExifIFD:ISO": "100" })}
       />,
     );
     const row = findRow("ExifIFD:ISO");
@@ -239,7 +250,7 @@ describe("DetailsPane datatype badges", () => {
     render(
       <DetailsPane
         photo={photo}
-        metadata={{ "XMP-dc:Subject": ["a", "b"] } as Record<string, Variant>}
+        metadata={mockMetadata({ "XMP-dc:Subject": ["a", "b"] })}
       />,
     );
     const row = findRow("XMP-dc:Subject");
@@ -258,7 +269,7 @@ describe("DetailsPane datatype badges", () => {
     render(
       <DetailsPane
         photo={photo}
-        metadata={{ "XMP-dc:Subject": "a" } as Record<string, Variant>}
+        metadata={mockMetadata({ "XMP-dc:Subject": "a" })}
       />,
     );
     const row = findRow("XMP-dc:Subject");
@@ -283,7 +294,7 @@ describe("DetailsPane datatype badges", () => {
     render(
       <DetailsPane
         photo={photo}
-        metadata={{ "XMP-dc:Subject": ["a"] } as Record<string, Variant>}
+        metadata={mockMetadata({ "XMP-dc:Subject": ["a"] })}
         draftEdits={{ "XMP-dc:Subject": "x" }}
         typedDraftEdits={typed}
       />,
@@ -305,7 +316,7 @@ describe("DetailsPane datatype badges", () => {
     render(
       <DetailsPane
         photo={photo}
-        metadata={{ "Made-Up:Thing": "x" } as Record<string, Variant>}
+        metadata={mockMetadata({ "Made-Up:Thing": "x" })}
       />,
     );
     const row = findRow("Made-Up:Thing");
@@ -325,7 +336,7 @@ describe("DetailsPane datatype badges", () => {
     render(
       <DetailsPane
         photo={photo}
-        metadata={{ "Made-Up:Thing": "x" } as Record<string, Variant>}
+        metadata={mockMetadata({ "Made-Up:Thing": "x" })}
         draftEdits={{ "Made-Up:Thing": "y" }}
         typedDraftEdits={typed}
       />,
@@ -347,7 +358,7 @@ describe("DetailsPane datatype badges", () => {
     render(
       <DetailsPane
         photo={photo}
-        metadata={{ "Made-Up:Thing": "x" } as Record<string, Variant>}
+        metadata={mockMetadata({ "Made-Up:Thing": "x" })}
         draftEdits={{ "Made-Up:Thing": "42" }}
         typedDraftEdits={typed}
       />,
@@ -372,7 +383,7 @@ describe("DetailsPane datatype badges", () => {
     render(
       <DetailsPane
         photo={photo}
-        metadata={{} as Record<string, Variant>}
+        metadata={{} as Record<string, ImageMetadataEntry>}
         draftEdits={{ "Made-Up:Thing": "new" }}
         typedDraftEdits={typed}
       />,
@@ -397,7 +408,7 @@ describe("DetailsPane datatype badges", () => {
     render(
       <DetailsPane
         photo={photo}
-        metadata={{ "XMP-dc:Description": "foo" } as Record<string, Variant>}
+        metadata={mockMetadata({ "XMP-dc:Description": "foo" })}
         draftEdits={{ "XMP-dc:Description": null }}
         typedDraftEdits={typed}
       />,
@@ -421,7 +432,7 @@ describe("DetailsPane datatype badges", () => {
     render(
       <DetailsPane
         photo={photo}
-        metadata={{} as Record<string, Variant>}
+        metadata={{} as Record<string, ImageMetadataEntry>}
         draftEdits={{ "XMP-dc:Description": "new" }}
         typedDraftEdits={typed}
       />,
@@ -442,7 +453,7 @@ describe("DetailsPane datatype badges", () => {
     render(
       <DetailsPane
         photo={photo}
-        metadata={{ "XMP-x:Flag": true } as Record<string, Variant>}
+        metadata={mockMetadata({ "XMP-x:Flag": true })}
       />,
     );
     const row = findRow("XMP-x:Flag");
@@ -464,7 +475,7 @@ describe("DetailsPane datatype badges", () => {
     render(
       <DetailsPane
         photo={photo}
-        metadata={{ "XMP-x:Aperture": 1.5 } as Record<string, Variant>}
+        metadata={mockMetadata({ "XMP-x:Aperture": 1.5 })}
         draftEdits={{ "XMP-x:Aperture": "1.5" }}
         typedDraftEdits={typed}
       />,
@@ -489,7 +500,7 @@ describe("DetailsPane datatype badges", () => {
     render(
       <DetailsPane
         photo={photo}
-        metadata={{ "IFD0:Make": "Canon" } as Record<string, Variant>}
+        metadata={mockMetadata({ "IFD0:Make": "Canon" })}
       />,
     );
     const row = findRow("IFD0:Make");
@@ -506,7 +517,7 @@ describe("DetailsPane datatype badges", () => {
     render(
       <DetailsPane
         photo={photo}
-        metadata={{ "XMP-dc:Description": "hi" } as Record<string, Variant>}
+        metadata={mockMetadata({ "XMP-dc:Description": "hi" })}
       />,
     );
     const row = findRow("XMP-dc:Description");
@@ -520,7 +531,7 @@ describe("DetailsPane datatype badges", () => {
     render(
       <DetailsPane
         photo={photo}
-        metadata={{ "Made-Up:Thing": "x" } as Record<string, Variant>}
+        metadata={mockMetadata({ "Made-Up:Thing": "x" })}
       />,
     );
     const row = findRow("Made-Up:Thing");
@@ -543,7 +554,7 @@ describe("DetailsPane datatype badges", () => {
     render(
       <DetailsPane
         photo={photo}
-        metadata={{ "File:FileType": "JPEG" } as Record<string, Variant>}
+        metadata={mockMetadata({ "File:FileType": "JPEG" })}
       />,
     );
     const row = findRow("File:FileType");

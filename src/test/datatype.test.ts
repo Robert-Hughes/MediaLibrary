@@ -43,16 +43,16 @@ describe("schemaDatatype", () => {
 
 describe("variantDatatype", () => {
   it("classifies primitive variants", () => {
-    expect(variantDatatype("hello")?.code).toBe("S");
-    expect(variantDatatype(42)?.code).toBe("N");
-    expect(variantDatatype(3.14)?.code).toBe("N");
-    expect(variantDatatype(true)?.code).toBe("B");
-    expect(variantDatatype(null)?.code).toBe("∅");
+    expect(variantDatatype("hello" as any)?.code).toBe("S");
+    expect(variantDatatype(42 as any)?.code).toBe("N");
+    expect(variantDatatype(3.14 as any)?.code).toBe("N");
+    expect(variantDatatype(true as any)?.code).toBe("B");
+    expect(variantDatatype(null as any)?.code).toBe("∅");
   });
 
   it("classifies containers", () => {
-    expect(variantDatatype(["a"])?.code).toBe("L");
-    expect(variantDatatype({ x: "y" })?.code).toBe("{}");
+    expect(variantDatatype(["a"] as any)?.code).toBe("L");
+    expect(variantDatatype({ x: "y" } as any)?.code).toBe("{}");
   });
 
   it("returns null for undefined", () => {

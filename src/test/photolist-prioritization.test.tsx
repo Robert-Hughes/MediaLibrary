@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { PhotoList } from "../components/PhotoList";
 import { ThumbnailStore, ImageMetadataStore } from "../types";
 import type { PhotoInfo } from "../types";
-import { makePhotos } from "./factories";
+import { makePhotos, mockMetadata } from "./factories";
 
 const defaultSortProps = {
   sortConfig: { primary: null, secondary: null } as const,
@@ -69,9 +69,12 @@ describe("PhotoList prioritization optimization", () => {
   it("should not prioritize photos that are fully loaded", () => {
     // Mark first photo as fully loaded (both thumbnail and metadata)
     thumbnailStore.set("photo1.jpg", "base64thumbnaildata");
-    metadataStore.set("photo1.jpg", {
-      "ExifIFD:DateTimeOriginal": "2022:01:01 12:00:00",
-    });
+    metadataStore.set(
+      "photo1.jpg",
+      mockMetadata({
+        "ExifIFD:DateTimeOriginal": "2022:01:01 12:00:00",
+      }),
+    );
 
     render(
       <PhotoList
@@ -168,9 +171,12 @@ describe("PhotoList prioritization optimization", () => {
   it("preserves display order when some photos have already loaded", () => {
     // Loaded photos drop out, but the remaining ones stay in display order.
     thumbnailStore.set("photo2.jpg", "data");
-    metadataStore.set("photo2.jpg", {
-      "ExifIFD:DateTimeOriginal": "2022:01:01 12:00:00",
-    });
+    metadataStore.set(
+      "photo2.jpg",
+      mockMetadata({
+        "ExifIFD:DateTimeOriginal": "2022:01:01 12:00:00",
+      }),
+    );
 
     render(
       <PhotoList
@@ -199,9 +205,12 @@ describe("PhotoList prioritization optimization", () => {
 
   it("should prioritize photos with only metadata loaded but missing thumbnail", () => {
     // Mark first photo as having metadata but no thumbnail
-    metadataStore.set("photo1.jpg", {
-      "ExifIFD:DateTimeOriginal": "2022:01:01 12:00:00",
-    });
+    metadataStore.set(
+      "photo1.jpg",
+      mockMetadata({
+        "ExifIFD:DateTimeOriginal": "2022:01:01 12:00:00",
+      }),
+    );
     // thumbnail still in "loading" state
 
     render(
@@ -233,9 +242,12 @@ describe("PhotoList prioritization optimization", () => {
   it("should not prioritize failed thumbnails if metadata is loaded", () => {
     // Mark first photo as having failed thumbnail but loaded metadata
     thumbnailStore.set("photo1.jpg", "failed");
-    metadataStore.set("photo1.jpg", {
-      "ExifIFD:DateTimeOriginal": "2022:01:01 12:00:00",
-    });
+    metadataStore.set(
+      "photo1.jpg",
+      mockMetadata({
+        "ExifIFD:DateTimeOriginal": "2022:01:01 12:00:00",
+      }),
+    );
 
     render(
       <PhotoList

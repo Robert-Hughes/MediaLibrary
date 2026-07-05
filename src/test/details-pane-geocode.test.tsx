@@ -18,7 +18,7 @@ import { render, screen, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { DetailsPane } from "../components/DetailsPane";
-import { makePhoto } from "./factories";
+import { makePhoto, mockMetadata } from "./factories";
 import type { MetadataDraftEdit } from "../types";
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({
@@ -69,10 +69,10 @@ describe("DetailsPane: Reverse Geocode button", () => {
     render(
       <DetailsPane
         photo={photo}
-        metadata={{
+        metadata={mockMetadata({
           "Composite:GPSLatitude": 51.5,
           "Composite:GPSLongitude": -0.1,
-        }}
+        })}
         onGeocode={onGeocode}
       />,
     );
@@ -90,7 +90,7 @@ describe("DetailsPane: Reverse Geocode button", () => {
     render(
       <DetailsPane
         photo={photo}
-        metadata={{ "XMP-iptcCore:Location": "Existing Place" }}
+        metadata={mockMetadata({ "XMP-iptcCore:Location": "Existing Place" })}
         onGeocode={onGeocode}
       />,
     );

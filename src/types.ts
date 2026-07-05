@@ -104,9 +104,9 @@ export class ThumbnailStore {
 /**
  * Image metadata state for a single photo (EXIF, etc):
  *  - "loading"                 — metadata read is in progress (show spinner in cells)
- *  - Record<string, Variant>   — metadata has arrived
+ *  - Record<string, MetadataValue> — metadata has arrived
  */
-export type ImageMetadataEntry = Variant | MetadataValue;
+export type ImageMetadataEntry = MetadataValue;
 export type ImageMetadataState = "loading" | Record<string, ImageMetadataEntry>;
 
 /**
@@ -319,8 +319,12 @@ export function variantEqual(
   a: ImageMetadataEntry | undefined,
   b: ImageMetadataEntry | undefined,
 ): boolean {
-  a = metadataEntryToComparableVariant(a);
-  b = metadataEntryToComparableVariant(b);
+  const av = metadataEntryToComparableVariant(a);
+  const bv = metadataEntryToComparableVariant(b);
+  return deepEqual(av, bv);
+}
+
+function deepEqual(a: any, b: any): boolean {
   if (a === b) return true;
   if (a === undefined || b === undefined) return false;
   if (a === null || b === null) return false;
@@ -329,20 +333,17 @@ export function variantEqual(
     if (!Array.isArray(b)) return false;
     if (a.length !== b.length) return false;
     for (let i = 0; i < a.length; i++) {
-      if (!variantEqual(a[i], b[i])) return false;
+      if (!deepEqual(a[i], b[i])) return false;
     }
     return true;
   }
-  if (Array.isArray(b)) return false;
   if (typeof a === "object") {
-    const ao = a as { [k: string]: Variant | undefined };
-    const bo = b as { [k: string]: Variant | undefined };
-    const ka = Object.keys(ao);
-    const kb = Object.keys(bo);
+    const ka = Object.keys(a);
+    const kb = Object.keys(b);
     if (ka.length !== kb.length) return false;
     for (const k of ka) {
-      if (!(k in bo)) return false;
-      if (!variantEqual(ao[k], bo[k])) return false;
+      if (!(k in b)) return false;
+      if (!deepEqual(a[k], b[k])) return false;
     }
     return true;
   }
@@ -351,8 +352,8 @@ export function variantEqual(
 
 function metadataEntryToComparableVariant(
   value: ImageMetadataEntry | undefined,
-): Variant | undefined {
-  if (!isMetadataValue(value)) return value;
+): any {
+  if (!value) return undefined;
   switch (value.kind) {
     case "Null":
       return null;
@@ -379,16 +380,6 @@ function metadataEntryToComparableVariant(
     default:
       return JSON.stringify(value);
   }
-}
-
-function isMetadataValue(value: unknown): value is MetadataValue {
-  return (
-    !!value &&
-    typeof value === "object" &&
-    !Array.isArray(value) &&
-    "kind" in value &&
-    typeof (value as { kind?: unknown }).kind === "string"
-  );
 }
 
 /**

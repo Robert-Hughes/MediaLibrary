@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { DraftEditsStore } from "../types";
 import type { MetadataDraftEdit } from "../types";
+import { variantToMetadataValue } from "../utils/scanEvents";
 
 const edit = (value: string): MetadataDraftEdit => ({
   value: { kind: "Text", value },
@@ -258,7 +259,9 @@ describe("DraftEditsStore", () => {
   describe("redundant-draft guard", () => {
     it("returns 'redundant' and writes nothing when new Set value equals current", () => {
       const store = new DraftEditsStore();
-      store.setCurrentValueResolver((_p, t) => (t === "A" ? "v" : undefined));
+      store.setCurrentValueResolver((_p, t) =>
+        t === "A" ? variantToMetadataValue("v") : undefined,
+      );
       const cb = vi.fn();
       store.subscribe(cb);
       const outcome = store.setMetadataTag("a.jpg", "A", edit("v"));
@@ -269,7 +272,9 @@ describe("DraftEditsStore", () => {
 
     it("returns 'cleared' and removes the existing draft when new Set value equals current", () => {
       const store = new DraftEditsStore();
-      store.setCurrentValueResolver((_p, t) => (t === "A" ? "v" : undefined));
+      store.setCurrentValueResolver((_p, t) =>
+        t === "A" ? variantToMetadataValue("v") : undefined,
+      );
       // Stage a (different-from-current) draft first; resolver returns
       // "v" so a draft with "different" lands.
       const writeOutcome = store.setMetadataTag(
@@ -290,7 +295,7 @@ describe("DraftEditsStore", () => {
 
     it("writes through when value differs from current", () => {
       const store = new DraftEditsStore();
-      store.setCurrentValueResolver(() => "old");
+      store.setCurrentValueResolver(() => variantToMetadataValue("old"));
       expect(store.setMetadataTag("a.jpg", "A", edit("new"))).toBe("written");
       expect(store.getMetadataFile("a.jpg")).toEqual({ A: edit("new") });
     });
@@ -303,7 +308,7 @@ describe("DraftEditsStore", () => {
 
     it("does not suppress Delete intents even when current value is present", () => {
       const store = new DraftEditsStore();
-      store.setCurrentValueResolver(() => "v");
+      store.setCurrentValueResolver(() => variantToMetadataValue("v"));
       expect(store.setMetadataTag("a.jpg", "A", del)).toBe("written");
       expect(store.getMetadataFile("a.jpg")).toEqual({ A: del });
     });
@@ -312,8 +317,8 @@ describe("DraftEditsStore", () => {
       const store = new DraftEditsStore();
       // current values: A="same", B undefined (absent), C="other"
       store.setCurrentValueResolver((_p, t) => {
-        if (t === "A") return "same";
-        if (t === "C") return "other";
+        if (t === "A") return variantToMetadataValue("same");
+        if (t === "C") return variantToMetadataValue("other");
         return undefined;
       });
       const cb = vi.fn();
@@ -337,7 +342,9 @@ describe("DraftEditsStore", () => {
 
     it("setBatch with every key redundant fires no notification", () => {
       const store = new DraftEditsStore();
-      store.setCurrentValueResolver((_p, t) => (t === "A" ? "v" : "w"));
+      store.setCurrentValueResolver((_p, t) =>
+        t === "A" ? variantToMetadataValue("v") : variantToMetadataValue("w"),
+      );
       const cb = vi.fn();
       store.subscribe(cb);
       const results = store.setMetadataBatch("a.jpg", [
@@ -351,7 +358,9 @@ describe("DraftEditsStore", () => {
 
     it("compares list-valued Variants element-wise", () => {
       const store = new DraftEditsStore();
-      store.setCurrentValueResolver(() => ["a", "b", "c"]);
+      store.setCurrentValueResolver(() =>
+        variantToMetadataValue(["a", "b", "c"]),
+      );
       // Identical list → redundant.
       expect(
         store.setMetadataTag("p.jpg", "K", listEdit(["a", "b", "c"])),
@@ -364,7 +373,9 @@ describe("DraftEditsStore", () => {
 
     it("compares object-valued Variants order-independently", () => {
       const store = new DraftEditsStore();
-      store.setCurrentValueResolver(() => ({ a: 1, b: 2 }));
+      store.setCurrentValueResolver(() =>
+        variantToMetadataValue({ a: 1, b: 2 }),
+      );
       expect(
         store.setMetadataTag("p.jpg", "K", structEdit({ b: 2, a: 1 })),
       ).toBe("redundant");
