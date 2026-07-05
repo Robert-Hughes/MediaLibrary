@@ -1,4 +1,4 @@
-﻿import { memo, useCallback, useSyncExternalStore } from "react";
+import { memo, useCallback, useSyncExternalStore } from "react";
 import type {
   ImageMetadataEntry,
   ImageMetadataStore,
@@ -14,6 +14,9 @@ import {
   displayStringOfMetadataDraft,
   variantToDisplayString as metadataValueToDisplayString,
 } from "../draft";
+
+const EMPTY_CELL = "—";
+const ERROR_CELL = "✗";
 
 function CellContent({
   text,
@@ -33,7 +36,7 @@ function CellContent({
         </s>{" "}
         <strong className="draft-new">
           <HighlightedText
-            text={draftValue === null ? "â€”" : draftValue}
+            text={draftValue === null ? EMPTY_CELL : draftValue}
             searchQuery={searchQuery}
           />
         </strong>
@@ -44,9 +47,9 @@ function CellContent({
 }
 
 function formatMetadataValue(v: ImageMetadataEntry | undefined): string {
-  if (v === undefined) return "â€”";
+  if (v === undefined) return EMPTY_CELL;
   const s = metadataValueToDisplayString(v);
-  return s === "" ? "â€”" : s;
+  return s === "" ? EMPTY_CELL : s;
 }
 
 function osValue(photo: PhotoInfo, key: string): number | null {
@@ -134,8 +137,8 @@ export const PhotoRow = memo(function PhotoRow({
   const hasDrafts = Object.keys(draftEdits).length > 0;
   const rowClass = `photo-row ${index % 2 === 0 ? "photo-row--even" : "photo-row--odd"} ${selected ? "photo-row--selected" : ""}`;
 
-  // Index of the first image-metadata cell â€” used to place exactly one spinner
-  // per row while metadata is loading (per-cell spinners were O(rows Ã— cols)).
+  // Index of the first image-metadata cell — used to place exactly one spinner
+  // per row while metadata is loading (per-cell spinners were O(rows × cols)).
   const firstImageIdx = visibleColumns.findIndex((c) => c.kind === "image");
 
   return (
@@ -239,12 +242,12 @@ export const PhotoRow = memo(function PhotoRow({
                 />
               ) : (
                 <span className="cell-loading-placeholder" aria-hidden="true">
-                  â€”
+                  {EMPTY_CELL}
                 </span>
               )
             ) : metadataFailed ? (
               <span className="metadata-error" title="Failed to load metadata">
-                âœ—
+                {ERROR_CELL}
               </span>
             ) : (
               <CellContent

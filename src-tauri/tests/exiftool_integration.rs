@@ -1,4 +1,4 @@
-﻿//! Integration tier: real-exiftool round-trip tests against image fixtures.
+//! Integration tier: real-exiftool round-trip tests against image fixtures.
 //!
 //! Gated behind the `integration` cargo feature so the default `cargo test`
 //! stays fast and offline.  Run with:
@@ -10,7 +10,7 @@
 //! makes a private copy of its fixture in a `tempfile::tempdir()` so the
 //! committed file is never modified.
 //!
-//! Scope: the round-trip promise from `METADATA_FORMATS_DESIGN.md` Â§6 â€” write
+//! Scope: the round-trip promise from `METADATA_FORMATS_DESIGN.md` §6 — write
 //! a typed edit, re-read with the two-pass scanner, assert the file holds
 //! what we asked.  Each fixture-needing test is feature-gated AND
 //! existence-gated (skips with a printed reason if the fixture isn't
@@ -106,7 +106,7 @@ fn metadata_drafts(
     drafts
 }
 
-// â”€â”€ Scanner two-pass smoke test â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Scanner two-pass smoke test ──────────────────────────────────────────────
 
 #[test]
 fn scanner_two_pass_returns_display_and_raw() {
@@ -124,7 +124,7 @@ fn scanner_two_pass_returns_display_and_raw() {
     let _ = m.raw_metadata;
 }
 
-// â”€â”€ apply_edits text round-trip â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── apply_edits text round-trip ──────────────────────────────────────────────
 
 #[test]
 fn apply_text_edit_roundtrip_iptc_city() {
@@ -160,7 +160,7 @@ fn apply_text_edit_roundtrip_iptc_city() {
     }
 }
 
-// â”€â”€ apply_edits delete round-trip â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── apply_edits delete round-trip ────────────────────────────────────────────
 
 #[test]
 fn apply_delete_edit_removes_tag() {
@@ -199,7 +199,7 @@ fn apply_delete_edit_removes_tag() {
     }
 }
 
-// â”€â”€ Fixture-content sanity checks â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Fixture-content sanity checks ────────────────────────────────────────────
 
 #[test]
 fn fixture_keywords_basic_has_two_keywords() {
@@ -293,7 +293,7 @@ fn fixture_rating_5_pretty_and_raw_match_design() {
     };
     let (_dir, dst) = copy_to_temp(&src);
     let m = read_one(_dir.path(), &dst);
-    // Rating is a real that exiftool prints without PrintConv â†’ "5".
+    // Rating is a real that exiftool prints without PrintConv → "5".
     let display = m.metadata.get("XMP-xmp:Rating");
     let raw = m.raw_metadata.get("XMP-xmp:Rating");
     let display_ok = match display {
@@ -313,7 +313,7 @@ fn fixture_rating_5_pretty_and_raw_match_design() {
     );
 }
 
-// â”€â”€ Round-trip: edit a fixture, verify file holds new value â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Round-trip: edit a fixture, verify file holds new value ───────────────────
 
 #[test]
 fn roundtrip_set_rating() {
@@ -384,7 +384,7 @@ fn roundtrip_set_orientation_via_numeric_pass() {
     }
 }
 
-// â”€â”€ Face regions (Bag<Struct>) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Face regions (Bag<Struct>) ───────────────────────────────────────────────
 
 #[test]
 fn face_regions_round_trip_through_struct_variant() {
@@ -433,7 +433,7 @@ fn face_regions_round_trip_through_struct_variant() {
     assert!(names.contains(&"Bob".to_string()), "names: {:?}", names);
 }
 
-// â”€â”€ Unicode filename â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Unicode filename ─────────────────────────────────────────────────────────
 
 #[test]
 fn unicode_filename_does_not_crash_scanner() {
@@ -468,7 +468,7 @@ fn unicode_filename_does_not_crash_scanner() {
     }
 }
 
-// â”€â”€ Malformed JPEG: per-entry parse isolation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Malformed JPEG: per-entry parse isolation ────────────────────────────────
 
 #[test]
 fn malformed_truncated_does_not_kill_batch() {
@@ -505,7 +505,7 @@ fn malformed_truncated_does_not_kill_batch() {
     assert!(results.iter().any(|r| r.relative_path == "bad.jpg"));
 }
 
-// â”€â”€ Semantic apply path: MetadataDraftEdit with Bag<Text> â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Semantic apply path: MetadataDraftEdit with Bag<Text> ────────────────────
 
 #[test]
 fn semantic_apply_writes_bag_as_separate_items_end_to_end() {
@@ -551,7 +551,7 @@ fn semantic_apply_writes_bag_as_separate_items_end_to_end() {
     }
 }
 
-// â”€â”€ Apply log audit file â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Apply log audit file ─────────────────────────────────────────────────────
 
 #[test]
 fn apply_emits_apply_log_jsonl_entry() {
@@ -597,14 +597,14 @@ fn apply_emits_apply_log_jsonl_entry() {
     );
 }
 
-// â”€â”€ Coerced-write detection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Coerced-write detection ──────────────────────────────────────────────────
 
 #[test]
 fn semantic_apply_rating_fractional_coerces_or_rejects_cleanly() {
     // Rating is integer 0-5. Writing 3.5 exercises exiftool's value coercion:
     // depending on version it may store 3, 4, "3.5", or reject the write.
     // The verifier should either accept the coerced result (semantic
-    // float-epsilon path) or report a clean mismatch â€” never panic.
+    // float-epsilon path) or report a clean mismatch — never panic.
     let Some(src) = fixture_path("rating_3.jpg") else {
         return;
     };
@@ -619,7 +619,7 @@ fn semantic_apply_rating_fractional_coerces_or_rejects_cleanly() {
     );
 
     let outcome = apply_edits::apply_single_file_metadata(folder, &rel, &edits);
-    // Coercion either yields a matched float (3.5 â†’ 3.5 in file) or a
+    // Coercion either yields a matched float (3.5 → 3.5 in file) or a
     // clean verification-failure message naming the tag.  We just assert
     // it didn't hard-fail.
     assert!(
@@ -634,7 +634,7 @@ fn semantic_apply_rating_fractional_coerces_or_rejects_cleanly() {
     let _ = m.metadata.get("XMP-xmp:Rating");
 }
 
-// â”€â”€ ListAdd / ListRemove intents â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── ListAdd / ListRemove intents ─────────────────────────────────────────────
 
 #[test]
 fn semantic_apply_list_add_appends_items_to_bag() {
@@ -744,7 +744,7 @@ fn semantic_apply_list_remove_drops_items_from_bag() {
     }
 }
 
-// â”€â”€ Keywords list write-back (the regression-of-record) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Keywords list write-back (the regression-of-record) ──────────────────────
 
 #[test]
 fn apply_keywords_writes_back_as_separate_items_not_csv() {
