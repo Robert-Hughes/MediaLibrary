@@ -27,7 +27,7 @@ import {
   extractPrefix,
 } from "../utils/detailsPaneHelpers";
 import { makePhoto } from "./factories";
-import type { DraftEdit, Variant } from "../types";
+import type { DraftEdit, MetadataDraftEdit, Variant } from "../types";
 import { _clearTagInfoCache, _setTagInfoCacheEntry } from "../hooks/useTagInfo";
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -383,13 +383,13 @@ describe("DetailsPane: Add-Property two-step flow", () => {
       kind: { kind: "Bag", data: { kind: "Text" } },
       description: null,
     });
-    const onSetDraftTyped = vi.fn();
+    const onSetMetadataDraft = vi.fn();
 
     render(
       <DetailsPane
         photo={photo}
         metadata={{}}
-        onSetDraftTyped={onSetDraftTyped}
+        onSetMetadataDraft={onSetMetadataDraft}
       />,
     );
 
@@ -412,14 +412,20 @@ describe("DetailsPane: Add-Property two-step flow", () => {
     fireEvent.keyDown(chipInput, { key: "Enter" });
     await user.click(screen.getByTestId("bag-editor-save"));
 
-    expect(onSetDraftTyped).toHaveBeenCalledTimes(1);
-    const [keyArg, editArg] = onSetDraftTyped.mock.calls[0] as [
+    expect(onSetMetadataDraft).toHaveBeenCalledTimes(1);
+    const [keyArg, editArg] = onSetMetadataDraft.mock.calls[0] as [
       string,
-      DraftEdit,
+      MetadataDraftEdit,
     ];
     expect(keyArg).toBe("XMP-dc:Subject");
     expect(editArg.intent).toBe("Set");
-    expect(editArg.value).toEqual(["landscape"]);
+    expect(editArg.value).toEqual({
+      kind: "List",
+      value: {
+        list_kind: "Unknown",
+        items: [{ kind: "Text", value: "landscape" }],
+      },
+    });
   });
 
   it("stage 2 routes Boolean tags to the Boolean editor (proves kind dispatch is not stringly typed)", async () => {
@@ -431,13 +437,13 @@ describe("DetailsPane: Add-Property two-step flow", () => {
       kind: { kind: "Boolean" },
       description: null,
     });
-    const onSetDraftTyped = vi.fn();
+    const onSetMetadataDraft = vi.fn();
 
     render(
       <DetailsPane
         photo={photo}
         metadata={{}}
-        onSetDraftTyped={onSetDraftTyped}
+        onSetMetadataDraft={onSetMetadataDraft}
       />,
     );
 
@@ -457,7 +463,7 @@ describe("DetailsPane: Add-Property two-step flow", () => {
     expect(radios.length).toBeGreaterThanOrEqual(2);
   });
 
-  it("cancelling stage 2 closes the flow without calling onSetDraftTyped", async () => {
+  it("cancelling stage 2 closes the flow without calling onSetMetadataDraft", async () => {
     const user = userEvent.setup();
     _setTagInfoCacheEntry("XMP-dc:Title", {
       group: "XMP-dc",
@@ -466,13 +472,13 @@ describe("DetailsPane: Add-Property two-step flow", () => {
       kind: { kind: "Text" },
       description: null,
     });
-    const onSetDraftTyped = vi.fn();
+    const onSetMetadataDraft = vi.fn();
 
     render(
       <DetailsPane
         photo={photo}
         metadata={{}}
-        onSetDraftTyped={onSetDraftTyped}
+        onSetMetadataDraft={onSetMetadataDraft}
       />,
     );
 
@@ -487,7 +493,7 @@ describe("DetailsPane: Add-Property two-step flow", () => {
 
     // Stage 2 should be a ValueEditDialog for Text — cancel it.
     await user.click(screen.getByText("Cancel"));
-    expect(onSetDraftTyped).not.toHaveBeenCalled();
+    expect(onSetMetadataDraft).not.toHaveBeenCalled();
     expect(screen.queryByTestId("value-edit-input")).toBeNull();
   });
 });
@@ -523,14 +529,14 @@ describe("DetailsPane: read-only row context menu", () => {
       kind: { kind: "Text" },
       description: null,
     });
-    const onSetDraftTyped = vi.fn();
+    const onSetMetadataDraft = vi.fn();
     const onDiscardDraft = vi.fn();
 
     render(
       <DetailsPane
         photo={photo}
         metadata={{ "IFD0:Make": "Canon" }}
-        onSetDraftTyped={onSetDraftTyped}
+        onSetMetadataDraft={onSetMetadataDraft}
         onDiscardDraft={onDiscardDraft}
       />,
     );
@@ -544,7 +550,7 @@ describe("DetailsPane: read-only row context menu", () => {
       expect(screen.queryByRole("button", { name: "Remove" })).toBeNull();
       expect(screen.queryByRole("button", { name: "Discard edit" })).toBeNull();
     });
-    expect(onSetDraftTyped).not.toHaveBeenCalled();
+    expect(onSetMetadataDraft).not.toHaveBeenCalled();
     expect(onDiscardDraft).not.toHaveBeenCalled();
   });
 
@@ -556,13 +562,13 @@ describe("DetailsPane: read-only row context menu", () => {
       kind: { kind: "Text" },
       description: null,
     });
-    const onSetDraftTyped = vi.fn();
+    const onSetMetadataDraft = vi.fn();
 
     render(
       <DetailsPane
         photo={photo}
         metadata={{ "IFD0:Make": "Canon" }}
-        onSetDraftTyped={onSetDraftTyped}
+        onSetMetadataDraft={onSetMetadataDraft}
       />,
     );
 
@@ -577,7 +583,7 @@ describe("DetailsPane: read-only row context menu", () => {
     expect(removeBtn).not.toBeDisabled();
 
     fireEvent.click(removeBtn);
-    expect(onSetDraftTyped).toHaveBeenCalledWith("IFD0:Make", {
+    expect(onSetMetadataDraft).toHaveBeenCalledWith("IFD0:Make", {
       value: null,
       intent: "Delete",
     });
@@ -597,7 +603,7 @@ describe("DetailsPane: read-only row context menu", () => {
         photo={photo}
         metadata={{ "IFD0:Make": "Canon" }}
         draftEdits={{ "IFD0:Make": "Nikon" }}
-        onSetDraftTyped={vi.fn()}
+        onSetMetadataDraft={vi.fn()}
       />,
     );
 
@@ -663,7 +669,7 @@ describe("DetailsPane: Edit reopens with pending draft as the seed", () => {
         metadata={{ "IFD0:Orientation": 1 as Variant }}
         draftEdits={{ "IFD0:Orientation": "Rotate 270 CW" }}
         typedDraftEdits={typedDraftEdits}
-        onSetDraftTyped={vi.fn()}
+        onSetMetadataDraft={vi.fn()}
       />,
     );
 
@@ -696,7 +702,7 @@ describe("DetailsPane: Edit reopens with pending draft as the seed", () => {
         metadata={{ "XMP-xmp:Rating": 2 as Variant }}
         draftEdits={{ "XMP-xmp:Rating": "4" }}
         typedDraftEdits={typedDraftEdits}
-        onSetDraftTyped={vi.fn()}
+        onSetMetadataDraft={vi.fn()}
       />,
     );
 

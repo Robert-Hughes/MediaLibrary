@@ -29,7 +29,10 @@ import {
   confirmApplyEdits,
   confirmDiscardEdits,
 } from "../utils/applyDiscardPrompts";
-import { metadataDraftToLegacyDraft } from "../utils/semanticDrafts";
+import {
+  legacyDraftToMetadataDraft,
+  metadataDraftToLegacyDraft,
+} from "../utils/semanticDrafts";
 import { displayStringOf, displayStringOfMetadataDraft } from "../draft";
 
 interface Props {
@@ -43,14 +46,10 @@ interface Props {
   typedDraftEdits?: Record<string, MetadataDraftEdit | DraftEdit>;
   /** Semantic setter used by every editor via the local adapter. */
   onSetMetadataDraft?: (key: string, edit: MetadataDraftEdit) => void;
-  /** Transitional legacy setter kept for direct DetailsPane tests. */
-  onSetDraftTyped?: (key: string, edit: DraftEdit) => void;
   /** Batch setter for paired-tag editors (GPS). */
   onSetMetadataDraftBatch?: (
     edits: Array<{ key: string; edit: MetadataDraftEdit }>,
   ) => void;
-  /** Transitional legacy batch setter kept for direct DetailsPane tests. */
-  onSetDraftBatch?: (edits: Array<{ key: string; edit: DraftEdit }>) => void;
   onDiscardDraft?: (key: string) => void;
   onDiscardAllEdits?: () => void;
   onApplyEdits?: () => void;
@@ -425,9 +424,7 @@ export function DetailsPane({
   draftEdits: legacyDraftEdits,
   typedDraftEdits,
   onSetMetadataDraft,
-  onSetDraftTyped,
   onSetMetadataDraftBatch,
-  onSetDraftBatch,
   onDiscardDraft,
   onDiscardAllEdits,
   onApplyEdits,
@@ -553,11 +550,16 @@ export function DetailsPane({
   const showOsSection = !normalizedDetailsQuery || filteredOsEntries.length > 0;
 
   const saveDraft = (key: string, edit: DraftEdit) => {
-    onSetDraftTyped?.(key, edit);
+    onSetMetadataDraft?.(key, legacyDraftToMetadataDraft(edit));
   };
 
   const saveDraftBatch = (edits: Array<{ key: string; edit: DraftEdit }>) => {
-    onSetDraftBatch?.(edits);
+    onSetMetadataDraftBatch?.(
+      edits.map(({ key, edit }) => ({
+        key,
+        edit: legacyDraftToMetadataDraft(edit),
+      })),
+    );
   };
 
   return (
@@ -823,14 +825,10 @@ export function DetailsPane({
               metadata !== "loading" &&
               contextMenu.key in (metadata as Record<string, Variant>);
             if (existsInOriginal) {
-              if (onSetMetadataDraft) {
-                onSetMetadataDraft(contextMenu.key, {
-                  value: null,
-                  intent: "Delete",
-                });
-              } else {
-                saveDraft(contextMenu.key, { value: null, intent: "Delete" });
-              }
+              onSetMetadataDraft?.(contextMenu.key, {
+                value: null,
+                intent: "Delete",
+              });
             } else {
               onDiscardDraft?.(contextMenu.key);
             }
@@ -863,7 +861,7 @@ export function DetailsPane({
           }
           initialString={editDialog.initialValue}
           onSaveBatch={
-            onSetMetadataDraftBatch || onSetDraftBatch
+            onSetMetadataDraftBatch
               ? (edits) => {
                   saveDraftBatch(edits);
                   setEditDialog(null);
@@ -917,7 +915,7 @@ export function DetailsPane({
               : undefined
           }
           onSaveBatch={
-            onSetMetadataDraftBatch || onSetDraftBatch
+            onSetMetadataDraftBatch
               ? (edits) => {
                   saveDraftBatch(edits);
                   setNewPropertyKey(null);
