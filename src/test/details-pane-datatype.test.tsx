@@ -10,7 +10,7 @@ import { render, screen, within, cleanup } from "@testing-library/react";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { DetailsPane } from "../components/DetailsPane";
 import { _clearTagInfoCache, _setTagInfoCacheEntry } from "../hooks/useTagInfo";
-import type { DraftEdit, TagInfo, TagKind, Variant } from "../types";
+import type { MetadataDraftEdit, TagInfo, TagKind, Variant } from "../types";
 import { makePhoto } from "./factories";
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -31,6 +31,20 @@ function findRow(key: string): HTMLElement {
   const match = rows.find((r) => r.getAttribute("data-row-key") === key);
   if (!match) throw new Error(`row for key ${key} not found`);
   return match;
+}
+
+function draft(value: string | number | null): MetadataDraftEdit {
+  if (value === null) return { value: null, intent: "Delete" };
+  if (typeof value === "string") {
+    return { value: { kind: "Text", value }, intent: "Set" };
+  }
+  return {
+    value: {
+      kind: Number.isInteger(value) ? "Integer" : "Real",
+      value,
+    },
+    intent: "Set",
+  };
 }
 
 const photo = makePhoto({ relative_path: "p.jpg", filename: "p.jpg" });
@@ -93,8 +107,8 @@ describe("DetailsPane datatype badges", () => {
       "XMP-dc:Description",
       tagInfo("XMP-dc", "Description", { kind: "Text" }),
     );
-    const typed: Record<string, DraftEdit> = {
-      "XMP-dc:Description": { value: "bar", intent: "Set" },
+    const typed: Record<string, MetadataDraftEdit> = {
+      "XMP-dc:Description": draft("bar"),
     };
     render(
       <DetailsPane
@@ -117,8 +131,8 @@ describe("DetailsPane datatype badges", () => {
       "XMP-dc:Description",
       tagInfo("XMP-dc", "Description", { kind: "Text" }),
     );
-    const typed: Record<string, DraftEdit> = {
-      "XMP-dc:Description": { value: 42, intent: "Set" },
+    const typed: Record<string, MetadataDraftEdit> = {
+      "XMP-dc:Description": draft(42),
     };
     render(
       <DetailsPane
@@ -145,8 +159,8 @@ describe("DetailsPane datatype badges", () => {
       "XMP-dc:Description",
       tagInfo("XMP-dc", "Description", { kind: "Text" }),
     );
-    const typed: Record<string, DraftEdit> = {
-      "XMP-dc:Description": { value: 7, intent: "Set" },
+    const typed: Record<string, MetadataDraftEdit> = {
+      "XMP-dc:Description": draft(7),
     };
     render(
       <DetailsPane
@@ -263,8 +277,8 @@ describe("DetailsPane datatype badges", () => {
       "XMP-dc:Subject",
       tagInfo("XMP-dc", "Subject", { kind: "Bag", data: { kind: "Text" } }),
     );
-    const typed: Record<string, DraftEdit> = {
-      "XMP-dc:Subject": { value: "x", intent: "Set" },
+    const typed: Record<string, MetadataDraftEdit> = {
+      "XMP-dc:Subject": draft("x"),
     };
     render(
       <DetailsPane
@@ -305,8 +319,8 @@ describe("DetailsPane datatype badges", () => {
 
   it("unknown tag + matching-type draft → value badge only", () => {
     _setTagInfoCacheEntry("Made-Up:Thing", null);
-    const typed: Record<string, DraftEdit> = {
-      "Made-Up:Thing": { value: "y", intent: "Set" },
+    const typed: Record<string, MetadataDraftEdit> = {
+      "Made-Up:Thing": draft("y"),
     };
     render(
       <DetailsPane
@@ -327,8 +341,8 @@ describe("DetailsPane datatype badges", () => {
 
   it("unknown tag + diverging draft → value + draft badges", () => {
     _setTagInfoCacheEntry("Made-Up:Thing", null);
-    const typed: Record<string, DraftEdit> = {
-      "Made-Up:Thing": { value: 42, intent: "Set" },
+    const typed: Record<string, MetadataDraftEdit> = {
+      "Made-Up:Thing": draft(42),
     };
     render(
       <DetailsPane
@@ -352,8 +366,8 @@ describe("DetailsPane datatype badges", () => {
 
   it("unknown tag, draft-only property → draft badge shown", () => {
     _setTagInfoCacheEntry("Made-Up:Thing", null);
-    const typed: Record<string, DraftEdit> = {
-      "Made-Up:Thing": { value: "new", intent: "Set" },
+    const typed: Record<string, MetadataDraftEdit> = {
+      "Made-Up:Thing": draft("new"),
     };
     render(
       <DetailsPane
@@ -377,8 +391,8 @@ describe("DetailsPane datatype badges", () => {
       "XMP-dc:Description",
       tagInfo("XMP-dc", "Description", { kind: "Text" }),
     );
-    const typed: Record<string, DraftEdit> = {
-      "XMP-dc:Description": { value: null, intent: "Delete" },
+    const typed: Record<string, MetadataDraftEdit> = {
+      "XMP-dc:Description": draft(null),
     };
     render(
       <DetailsPane
@@ -401,8 +415,8 @@ describe("DetailsPane datatype badges", () => {
       "XMP-dc:Description",
       tagInfo("XMP-dc", "Description", { kind: "Text" }),
     );
-    const typed: Record<string, DraftEdit> = {
-      "XMP-dc:Description": { value: "new", intent: "Set" },
+    const typed: Record<string, MetadataDraftEdit> = {
+      "XMP-dc:Description": draft("new"),
     };
     render(
       <DetailsPane
@@ -444,8 +458,8 @@ describe("DetailsPane datatype badges", () => {
       "XMP-x:Aperture",
       tagInfo("XMP-x", "Aperture", { kind: "Real" }),
     );
-    const typed: Record<string, DraftEdit> = {
-      "XMP-x:Aperture": { value: "1.5", intent: "Set" },
+    const typed: Record<string, MetadataDraftEdit> = {
+      "XMP-x:Aperture": draft("1.5"),
     };
     render(
       <DetailsPane

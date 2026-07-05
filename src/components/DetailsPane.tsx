@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import type {
-  DraftEdit,
   ImageMetadataEntry,
   MetadataDraftEdit,
   MetadataValue,
@@ -30,17 +29,14 @@ import {
   confirmDiscardEdits,
 } from "../utils/applyDiscardPrompts";
 import { metadataDraftToLegacyDraft } from "../utils/semanticDrafts";
-import { displayStringOf, displayStringOfMetadataDraft } from "../draft";
+import { displayStringOfMetadataDraft } from "../draft";
 
 interface Props {
   photo: PhotoInfo;
   metadata: ImageMetadataState;
   draftEdits?: Record<string, string | null>;
-  /**
-   * Semantic view of the same drafts. Editors are still temporarily
-   * DraftEdit-based internally, so this component owns that adapter.
-   */
-  typedDraftEdits?: Record<string, MetadataDraftEdit | DraftEdit>;
+  /** Semantic view of the same drafts. */
+  typedDraftEdits?: Record<string, MetadataDraftEdit>;
   /** Semantic setter used by every editor via the local adapter. */
   onSetMetadataDraft?: (key: string, edit: MetadataDraftEdit) => void;
   /** Batch setter for paired-tag editors (GPS). */
@@ -165,33 +161,11 @@ function metadataMapToEditorVariants(
   );
 }
 
-function isMetadataDraftEdit(
-  edit: MetadataDraftEdit | DraftEdit,
-): edit is MetadataDraftEdit {
-  const value = edit.value;
-  return (
-    value === null ||
-    value === undefined ||
-    (!!value &&
-      typeof value === "object" &&
-      !Array.isArray(value) &&
-      "kind" in value)
-  );
-}
-
-function draftEditToLegacyDraft(
-  edit: MetadataDraftEdit | DraftEdit,
-): DraftEdit {
-  return isMetadataDraftEdit(edit) ? metadataDraftToLegacyDraft(edit) : edit;
-}
-
 function displayStringOfDraft(
-  edit: MetadataDraftEdit | DraftEdit | undefined,
+  edit: MetadataDraftEdit | undefined,
 ): string | null | undefined {
   if (edit === undefined) return undefined;
-  return isMetadataDraftEdit(edit)
-    ? displayStringOfMetadataDraft(edit)
-    : displayStringOf(edit);
+  return displayStringOfMetadataDraft(edit);
 }
 
 function DetailsValueCell({
@@ -282,7 +256,7 @@ function DetailsImageRow({
   entry: MetadataEntry;
   rawValue: ImageMetadataEntry | undefined;
   draftValue: string | null | undefined;
-  typedDraft: MetadataDraftEdit | DraftEdit | undefined;
+  typedDraft: MetadataDraftEdit | undefined;
   searchQuery: string;
   onContextMenu: (e: React.MouseEvent) => void;
 }) {
@@ -299,7 +273,7 @@ function DetailsImageRow({
     (schemaInfo == null || !datatypesMatch(valueInfo.code, schemaInfo.code));
 
   const legacyDraft = typedDraft
-    ? draftEditToLegacyDraft(typedDraft)
+    ? metadataDraftToLegacyDraft(typedDraft)
     : undefined;
   const draftVariant =
     legacyDraft && legacyDraft.intent !== "Delete"
@@ -832,7 +806,7 @@ export function DetailsPane({
             // every time the row was re-edited.
             const pending = typedDraftEdits?.[editDialog.key];
             if (pending && pending.intent !== "Delete") {
-              return draftEditToLegacyDraft(pending).value ?? undefined;
+              return metadataDraftToLegacyDraft(pending).value ?? undefined;
             }
             return metadata !== "loading"
               ? metadataEntryToEditorVariant(metadata[editDialog.key])
