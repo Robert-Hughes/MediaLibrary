@@ -303,7 +303,11 @@ export function TypedValueEditor({
         repr={repr}
         options={options}
         initialCode={code === "" ? initialString : code}
-        onSave={saveDraft}
+        onSave={
+          onSaveMetadata
+            ? (edit) => onSaveMetadata(edit)
+            : (edit) => onSave(metadataDraftToLegacyDraft(edit))
+        }
         onCancel={onCancel}
         readOnly={readOnly}
         headerHint={schemaHint()}
@@ -336,7 +340,11 @@ export function TypedValueEditor({
         min={min}
         max={max}
         initialValue={initialString}
-        onSave={saveDraft}
+        onSave={
+          onSaveMetadata
+            ? (edit) => onSaveMetadata(edit)
+            : (edit) => onSave(metadataDraftToLegacyDraft(edit))
+        }
         onCancel={onCancel}
         readOnly={readOnly}
         headerHint={schemaHint()}

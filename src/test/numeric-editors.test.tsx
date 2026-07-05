@@ -15,7 +15,7 @@ import { RationalEditor } from "../components/editors/RationalEditor";
 beforeEach(() => cleanup());
 
 describe("NumericEditor", () => {
-  it("Integer save emits Variant::Integer", async () => {
+  it("Integer save emits MetadataValue::Integer", async () => {
     const user = userEvent.setup();
     const onSave = vi.fn();
     render(
@@ -35,7 +35,10 @@ describe("NumericEditor", () => {
     await user.clear(input);
     await user.type(input, "5");
     fireEvent.click(screen.getByTestId("numeric-editor-save"));
-    expect(onSave.mock.calls[0][0]).toEqual({ value: 5, intent: "Set" });
+    expect(onSave.mock.calls[0][0]).toEqual({
+      value: { kind: "Integer", value: 5 },
+      intent: "Set",
+    });
   });
 
   it("Integer rejects non-integer input", async () => {
@@ -128,7 +131,10 @@ describe("NumericEditor", () => {
     await user.clear(input);
     await user.type(input, "5.6");
     fireEvent.click(screen.getByTestId("numeric-editor-save"));
-    expect(onSave.mock.calls[0][0].value).toBeCloseTo(5.6, 9);
+    expect(onSave.mock.calls[0][0].value).toEqual({
+      kind: "Real",
+      value: 5.6,
+    });
   });
 });
 

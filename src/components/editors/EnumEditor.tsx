@@ -9,7 +9,7 @@
 // existing value.
 
 import { useEffect, useState } from "react";
-import type { DraftEdit, EnumOption, EnumRepr, Variant } from "../../types";
+import type { EnumOption, EnumRepr, MetadataDraftEdit } from "../../types";
 import { READ_ONLY_TOOLTIP } from "./readOnlyMessages";
 
 interface Props {
@@ -17,7 +17,7 @@ interface Props {
   repr: EnumRepr;
   options: EnumOption[];
   initialCode: string;
-  onSave: (edit: DraftEdit) => void;
+  onSave: (edit: MetadataDraftEdit) => void;
   onCancel: () => void;
   headerHint?: React.ReactNode;
   readOnly?: boolean;
@@ -51,12 +51,15 @@ export function EnumEditor({
     if (readOnly) return;
     const code = customMode ? customValue.trim() : selected;
     if (!code) return;
-    const variant: Variant = repr === "Integer" ? Number(code) : code;
+    const value =
+      repr === "Integer"
+        ? ({ kind: "Integer", value: Number(code) } as const)
+        : ({ kind: "Text", value: code } as const);
     // Pretty form for the orange "pending" cell: schema label when the code
     // is in-spec, raw code otherwise (Custom… or unknown).
     const match = options.find((o) => o.code === code);
     const display = match ? match.label : code;
-    onSave({ value: variant, intent: "Set", display });
+    onSave({ value, intent: "Set", display });
   };
 
   return (

@@ -5,7 +5,7 @@
 // for now; a num/den toggle is a follow-up refinement.
 
 import { useState, useEffect, useRef } from "react";
-import type { DraftEdit, Variant } from "../../types";
+import type { MetadataDraftEdit, MetadataValue } from "../../types";
 import { READ_ONLY_TOOLTIP } from "./readOnlyMessages";
 
 interface Props {
@@ -14,7 +14,7 @@ interface Props {
   min?: number | null;
   max?: number | null;
   initialValue: string;
-  onSave: (edit: DraftEdit) => void;
+  onSave: (edit: MetadataDraftEdit) => void;
   onCancel: () => void;
   headerHint?: React.ReactNode;
   readOnly?: boolean;
@@ -42,7 +42,7 @@ export function NumericEditor({
 
   const validate = (
     s: string,
-  ): { ok: true; variant: Variant } | { ok: false; error: string } => {
+  ): { ok: true; value: MetadataValue } | { ok: false; error: string } => {
     const trimmed = s.trim();
     if (trimmed === "") return { ok: false, error: "value is empty" };
     if (kind === "Integer") {
@@ -56,7 +56,7 @@ export function NumericEditor({
       if (max !== null && max !== undefined && n > max) {
         return { ok: false, error: `must be ≤ ${max}` };
       }
-      return { ok: true, variant: n };
+      return { ok: true, value: { kind: "Integer", value: n } };
     }
     // Real or Rational: accept any finite float.  Rational num/den toggle is
     // a follow-up.
@@ -64,7 +64,7 @@ export function NumericEditor({
     if (!Number.isFinite(n)) {
       return { ok: false, error: "must be a number" };
     }
-    return { ok: true, variant: n };
+    return { ok: true, value: { kind: "Real", value: n } };
   };
 
   const handleSave = () => {
@@ -74,7 +74,7 @@ export function NumericEditor({
       setError(result.error);
       return;
     }
-    onSave({ value: result.variant, intent: "Set" });
+    onSave({ value: result.value, intent: "Set" });
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
