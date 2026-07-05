@@ -31,7 +31,7 @@ Built from `real_with_exif.jpg` via `tools/build-fixture.sh` (run by hand once, 
 
 | File                       | Tag contents                                                                                           | Tests                                                                                                                                                                                                         |
 | -------------------------- | ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `keywords_basic.jpg`       | `XMP-dc:Subject = ["beach","sunset"]`, `IPTC:Keywords = ["beach","sunset"]`                            | Bag<Text> read; will gain teeth for Bag write-back once Phase 3b carries `Variant::List` from the frontend.                                                                                                   |
+| `keywords_basic.jpg`       | `XMP-dc:Subject = ["beach","sunset"]`, `IPTC:Keywords = ["beach","sunset"]`                            | Bag<Text> read and write-back coverage for semantic `MetadataValue::List`.                                                                                                                                    |
 | `orientation_rotate90.jpg` | `IFD0:Orientation = 6` (Rotate 90 CW)                                                                  | Enum<Integer> two-pass read (display = "Rotate 90 CW", raw = 6) and numeric-pass write-back.                                                                                                                  |
 | `rating_5.jpg`             | `XMP-xmp:Rating = 5`                                                                                   | Integer/Real read and write-back.                                                                                                                                                                             |
 | `rating_3.jpg`             | `XMP-xmp:Rating = 3`                                                                                   | Used as the source of the rating round-trip test (set to 5).                                                                                                                                                  |
@@ -47,7 +47,7 @@ Build via `tools/build-fixture.sh` extensions or by hand. Keep generated
 fixtures small and document their expected tag contents here.
 
 - `face_regions_mwg.jpg` — JPEG with `XMP-mwg-rs:Regions` containing two face structs. Struct read + nested object preservation under `-struct`. Building this requires nested-struct argument syntax in exiftool.
-- `nested_keys_quicktime.mov` — QuickTime MOV with `Keys` group. Variant `Object` carrying through without crashing. Requires a real MOV source.
+- `nested_keys_quicktime.mov` — QuickTime MOV with `Keys` group. Semantic struct metadata carrying through without crashing. Requires a real MOV source.
 - `unwritable_in_png.png` — PNG where attempting to write an XMP-mwg-rs tag is expected to be silently dropped by exiftool. Verifier's "missing post-write" outcome.
 
 Format coverage matrix (each format gets at least one Keywords round-trip):

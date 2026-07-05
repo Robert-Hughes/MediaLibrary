@@ -1,4 +1,4 @@
-//! Integration tier: real-exiftool round-trip tests against image fixtures.
+﻿//! Integration tier: real-exiftool round-trip tests against image fixtures.
 //!
 //! Gated behind the `integration` cargo feature so the default `cargo test`
 //! stays fast and offline.  Run with:
@@ -10,7 +10,7 @@
 //! makes a private copy of its fixture in a `tempfile::tempdir()` so the
 //! committed file is never modified.
 //!
-//! Scope: the round-trip promise from `METADATA_FORMATS_DESIGN.md` §6 — write
+//! Scope: the round-trip promise from `METADATA_FORMATS_DESIGN.md` Â§6 â€” write
 //! a typed edit, re-read with the two-pass scanner, assert the file holds
 //! what we asked.  Each fixture-needing test is feature-gated AND
 //! existence-gated (skips with a printed reason if the fixture isn't
@@ -25,7 +25,7 @@ use medialibrary_tauri_lib::{
     apply_edits,
     draft_edits::{EditIntent, MetadataDraftEdit},
     metadata_value::{ListKind, MetadataValue},
-    scanner::{self, Variant},
+    scanner,
 };
 
 fn fixture_path(name: &str) -> Option<PathBuf> {
@@ -106,7 +106,7 @@ fn metadata_drafts(
     drafts
 }
 
-// ── Scanner two-pass smoke test ──────────────────────────────────────────────
+// â”€â”€ Scanner two-pass smoke test â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 #[test]
 fn scanner_two_pass_returns_display_and_raw() {
@@ -124,7 +124,7 @@ fn scanner_two_pass_returns_display_and_raw() {
     let _ = m.raw_metadata;
 }
 
-// ── apply_edits text round-trip ──────────────────────────────────────────────
+// â”€â”€ apply_edits text round-trip â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 #[test]
 fn apply_text_edit_roundtrip_iptc_city() {
@@ -155,12 +155,12 @@ fn apply_text_edit_roundtrip_iptc_city() {
     let m = read_one(dir.path(), &dst);
     let got = m.metadata.get("IPTC:City").cloned();
     match got {
-        Some(Variant::String(s)) => assert_eq!(s, value),
+        Some(MetadataValue::Text(s)) => assert_eq!(s, value),
         other => panic!("expected IPTC City set, got {:?}", other),
     }
 }
 
-// ── apply_edits delete round-trip ────────────────────────────────────────────
+// â”€â”€ apply_edits delete round-trip â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 #[test]
 fn apply_delete_edit_removes_tag() {
@@ -193,13 +193,13 @@ fn apply_delete_edit_removes_tag() {
     let got = m.metadata.get("IPTC:City");
     match got {
         None => {}
-        Some(Variant::String(s)) => assert!(s.is_empty(), "expected empty, got {:?}", s),
-        Some(Variant::Null) => {}
+        Some(MetadataValue::Text(s)) => assert!(s.is_empty(), "expected empty, got {:?}", s),
+        Some(MetadataValue::Null) => {}
         other => panic!("expected delete to clear tag, got {:?}", other),
     }
 }
 
-// ── Fixture-content sanity checks ────────────────────────────────────────────
+// â”€â”€ Fixture-content sanity checks â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 #[test]
 fn fixture_keywords_basic_has_two_keywords() {
@@ -209,12 +209,12 @@ fn fixture_keywords_basic_has_two_keywords() {
     let (_dir, dst) = copy_to_temp(&src);
     let m = read_one(_dir.path(), &dst);
     match m.metadata.get("XMP-dc:Subject") {
-        Some(Variant::List(items)) => {
+        Some(MetadataValue::List { items, .. }) => {
             assert_eq!(items.len(), 2, "expected two subjects, got {:?}", items);
             let strs: Vec<String> = items
                 .iter()
                 .filter_map(|v| {
-                    if let Variant::String(s) = v {
+                    if let MetadataValue::Text(s) = v {
                         Some(s.clone())
                     } else {
                         None
@@ -240,13 +240,13 @@ fn fixture_orientation_rotate90_pretty_and_raw_match_design() {
     let m = read_one(_dir.path(), &dst);
     // Display: pretty label.
     match m.metadata.get("IFD0:Orientation") {
-        Some(Variant::String(s)) => assert_eq!(s, "Rotate 90 CW"),
+        Some(MetadataValue::Text(s)) => assert_eq!(s, "Rotate 90 CW"),
         other => panic!("expected Orientation pretty string, got {:?}", other),
     }
     // Raw: integer 6 (lives in raw_metadata when Pass B ran).
     match m.raw_metadata.get("IFD0:Orientation") {
-        Some(Variant::Integer(n)) => assert_eq!(*n, 6),
-        Some(Variant::String(s)) if s == "6" => {} // some exiftool builds emit "6" as string under -n
+        Some(MetadataValue::Integer(n)) => assert_eq!(*n, 6),
+        Some(MetadataValue::Text(s)) if s == "6" => {} // some exiftool builds emit "6" as string under -n
         other => panic!("expected raw Orientation=6, got {:?}", other),
     }
 }
@@ -293,18 +293,18 @@ fn fixture_rating_5_pretty_and_raw_match_design() {
     };
     let (_dir, dst) = copy_to_temp(&src);
     let m = read_one(_dir.path(), &dst);
-    // Rating is a real that exiftool prints without PrintConv → "5".
+    // Rating is a real that exiftool prints without PrintConv â†’ "5".
     let display = m.metadata.get("XMP-xmp:Rating");
     let raw = m.raw_metadata.get("XMP-xmp:Rating");
     let display_ok = match display {
-        Some(Variant::Integer(5)) => true,
-        Some(Variant::Float(f)) => (f - 5.0).abs() < 1e-9,
-        Some(Variant::String(s)) if s == "5" || s == "5.0" => true,
+        Some(MetadataValue::Integer(5)) => true,
+        Some(MetadataValue::Real(f)) => (f - 5.0).abs() < 1e-9,
+        Some(MetadataValue::Text(s)) if s == "5" || s == "5.0" => true,
         _ => false,
     };
-    let raw_ok = matches!(raw, Some(Variant::Integer(5)))
-        || matches!(raw, Some(Variant::Float(f)) if (f - 5.0).abs() < 1e-9)
-        || matches!(raw, Some(Variant::String(s)) if s == "5");
+    let raw_ok = matches!(raw, Some(MetadataValue::Integer(5)))
+        || matches!(raw, Some(MetadataValue::Real(f)) if (f - 5.0).abs() < 1e-9)
+        || matches!(raw, Some(MetadataValue::Text(s)) if s == "5");
     assert!(
         display_ok || raw_ok,
         "expected Rating=5 in some form; display={:?}, raw={:?}",
@@ -313,7 +313,7 @@ fn fixture_rating_5_pretty_and_raw_match_design() {
     );
 }
 
-// ── Round-trip: edit a fixture, verify file holds new value ───────────────────
+// â”€â”€ Round-trip: edit a fixture, verify file holds new value â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 #[test]
 fn roundtrip_set_rating() {
@@ -346,9 +346,9 @@ fn roundtrip_set_rating() {
     let after = read_one(dir.path(), &dst);
     let raw = after.raw_metadata.get("XMP-xmp:Rating");
     let display = after.metadata.get("XMP-xmp:Rating");
-    let ok = matches!(raw, Some(Variant::Integer(5)))
-        || matches!(raw, Some(Variant::Float(f)) if (f - 5.0).abs() < 1e-6)
-        || matches!(display, Some(Variant::String(s)) if s == "5" || s == "5.0");
+    let ok = matches!(raw, Some(MetadataValue::Integer(5)))
+        || matches!(raw, Some(MetadataValue::Real(f)) if (f - 5.0).abs() < 1e-6)
+        || matches!(display, Some(MetadataValue::Text(s)) if s == "5" || s == "5.0");
     assert!(
         ok,
         "Rating not updated; display={:?}, raw={:?}",
@@ -379,16 +379,16 @@ fn roundtrip_set_orientation_via_numeric_pass() {
 
     let after = read_one(dir.path(), &dst);
     match after.metadata.get("IFD0:Orientation") {
-        Some(Variant::String(s)) => assert_eq!(s, "Rotate 180"),
+        Some(MetadataValue::Text(s)) => assert_eq!(s, "Rotate 180"),
         other => panic!("expected pretty Orientation 'Rotate 180', got {:?}", other),
     }
 }
 
-// ── Face regions (Bag<Struct>) ───────────────────────────────────────────────
+// â”€â”€ Face regions (Bag<Struct>) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 #[test]
 fn face_regions_round_trip_through_struct_variant() {
-    // Confirms the Phase 1 Variant::Object support + Phase 6 -struct flag
+    // Confirms the Phase 1 MetadataValue::Struct support + Phase 6 -struct flag
     // round-trip a real nested-struct XMP value (XMP-mwg-rs:RegionInfo
     // containing AppliedToDimensions + a list of two Region structs).
     let Some(src) = fixture_path("face_regions_mwg.jpg") else {
@@ -399,13 +399,13 @@ fn face_regions_round_trip_through_struct_variant() {
 
     let region_info = m.metadata.get("XMP-mwg-rs:RegionInfo");
     let region_info = match region_info {
-        Some(Variant::Object(map)) => map,
+        Some(MetadataValue::Struct(map)) => map,
         other => panic!("expected RegionInfo as Object, got {:?}", other),
     };
 
     // AppliedToDimensions sub-struct should be present.
     let dims = match region_info.get("AppliedToDimensions") {
-        Some(Variant::Object(d)) => d,
+        Some(MetadataValue::Struct(d)) => d,
         other => panic!("expected AppliedToDimensions as Object, got {:?}", other),
     };
     assert!(dims.contains_key("W"));
@@ -413,7 +413,7 @@ fn face_regions_round_trip_through_struct_variant() {
 
     // RegionList should be a List of two struct entries.
     let list = match region_info.get("RegionList") {
-        Some(Variant::List(items)) => items,
+        Some(MetadataValue::List { items, .. }) => items,
         other => panic!("expected RegionList as List, got {:?}", other),
     };
     assert_eq!(list.len(), 2, "expected 2 regions");
@@ -421,8 +421,8 @@ fn face_regions_round_trip_through_struct_variant() {
     let names: Vec<String> = list
         .iter()
         .filter_map(|item| {
-            if let Variant::Object(region) = item {
-                if let Some(Variant::String(name)) = region.get("Name") {
+            if let MetadataValue::Struct(region) = item {
+                if let Some(MetadataValue::Text(name)) = region.get("Name") {
                     return Some(name.clone());
                 }
             }
@@ -433,17 +433,17 @@ fn face_regions_round_trip_through_struct_variant() {
     assert!(names.contains(&"Bob".to_string()), "names: {:?}", names);
 }
 
-// ── Unicode filename ─────────────────────────────────────────────────────────
+// â”€â”€ Unicode filename â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 #[test]
 fn unicode_filename_does_not_crash_scanner() {
-    // `unicode_paths_漢字.jpg` exercises the -charset filename=utf8 flag.
+    // `unicode_paths_æ¼¢å­—.jpg` exercises the -charset filename=utf8 flag.
     // On Windows exiftool subprocess argument encoding has long-standing
     // quirks: CreateProcess delivers args in the active code page, not
     // UTF-8, so even with the flag the file may not be findable.  We
     // confirm the scanner returns gracefully (Ok with possibly-empty
     // metadata or an Err) rather than panicking.
-    let Some(src) = fixture_path("unicode_paths_漢字.jpg") else {
+    let Some(src) = fixture_path("unicode_paths_æ¼¢å­—.jpg") else {
         return;
     };
     let (dir, dst) = copy_to_temp(&src);
@@ -468,7 +468,7 @@ fn unicode_filename_does_not_crash_scanner() {
     }
 }
 
-// ── Malformed JPEG: per-entry parse isolation ────────────────────────────────
+// â”€â”€ Malformed JPEG: per-entry parse isolation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 #[test]
 fn malformed_truncated_does_not_kill_batch() {
@@ -505,7 +505,7 @@ fn malformed_truncated_does_not_kill_batch() {
     assert!(results.iter().any(|r| r.relative_path == "bad.jpg"));
 }
 
-// ── Semantic apply path: MetadataDraftEdit with Bag<Text> ────────────────────
+// â”€â”€ Semantic apply path: MetadataDraftEdit with Bag<Text> â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 #[test]
 fn semantic_apply_writes_bag_as_separate_items_end_to_end() {
@@ -531,12 +531,12 @@ fn semantic_apply_writes_bag_as_separate_items_end_to_end() {
 
     let m = read_one(dir.path(), &dst);
     match m.metadata.get("XMP-dc:Subject") {
-        Some(Variant::List(items)) => {
+        Some(MetadataValue::List { items, .. }) => {
             assert_eq!(items.len(), 3, "expected 3 subjects, got {:?}", items);
             let strs: Vec<String> = items
                 .iter()
                 .filter_map(|v| {
-                    if let Variant::String(s) = v {
+                    if let MetadataValue::Text(s) = v {
                         Some(s.clone())
                     } else {
                         None
@@ -551,7 +551,7 @@ fn semantic_apply_writes_bag_as_separate_items_end_to_end() {
     }
 }
 
-// ── Apply log audit file ─────────────────────────────────────────────────────
+// â”€â”€ Apply log audit file â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 #[test]
 fn apply_emits_apply_log_jsonl_entry() {
@@ -597,14 +597,14 @@ fn apply_emits_apply_log_jsonl_entry() {
     );
 }
 
-// ── Coerced-write detection ──────────────────────────────────────────────────
+// â”€â”€ Coerced-write detection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 #[test]
 fn semantic_apply_rating_fractional_coerces_or_rejects_cleanly() {
     // Rating is integer 0-5. Writing 3.5 exercises exiftool's value coercion:
     // depending on version it may store 3, 4, "3.5", or reject the write.
-    // The verifier should either accept the coerced result (matches_variant
-    // float-epsilon path) or report a clean mismatch — never panic.
+    // The verifier should either accept the coerced result (semantic
+    // float-epsilon path) or report a clean mismatch â€” never panic.
     let Some(src) = fixture_path("rating_3.jpg") else {
         return;
     };
@@ -619,7 +619,7 @@ fn semantic_apply_rating_fractional_coerces_or_rejects_cleanly() {
     );
 
     let outcome = apply_edits::apply_single_file_metadata(folder, &rel, &edits);
-    // Coercion either yields a matched float (3.5 → 3.5 in file) or a
+    // Coercion either yields a matched float (3.5 â†’ 3.5 in file) or a
     // clean verification-failure message naming the tag.  We just assert
     // it didn't hard-fail.
     assert!(
@@ -634,7 +634,7 @@ fn semantic_apply_rating_fractional_coerces_or_rejects_cleanly() {
     let _ = m.metadata.get("XMP-xmp:Rating");
 }
 
-// ── ListAdd / ListRemove intents ─────────────────────────────────────────────
+// â”€â”€ ListAdd / ListRemove intents â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 #[test]
 fn semantic_apply_list_add_appends_items_to_bag() {
@@ -659,11 +659,11 @@ fn semantic_apply_list_add_appends_items_to_bag() {
 
     let m = read_one(dir.path(), &dst);
     match m.metadata.get("XMP-dc:Subject") {
-        Some(Variant::List(items)) => {
+        Some(MetadataValue::List { items, .. }) => {
             let strs: Vec<String> = items
                 .iter()
                 .filter_map(|v| {
-                    if let Variant::String(s) = v {
+                    if let MetadataValue::Text(s) = v {
                         Some(s.clone())
                     } else {
                         None
@@ -714,11 +714,11 @@ fn semantic_apply_list_remove_drops_items_from_bag() {
 
     let m = read_one(dir.path(), &dst);
     match m.metadata.get("XMP-dc:Subject") {
-        Some(Variant::List(items)) => {
+        Some(MetadataValue::List { items, .. }) => {
             let strs: Vec<String> = items
                 .iter()
                 .filter_map(|v| {
-                    if let Variant::String(s) = v {
+                    if let MetadataValue::Text(s) = v {
                         Some(s.clone())
                     } else {
                         None
@@ -736,7 +736,7 @@ fn semantic_apply_list_remove_drops_items_from_bag() {
                 strs
             );
         }
-        Some(Variant::String(s)) => {
+        Some(MetadataValue::Text(s)) => {
             // Single-element list may collapse to scalar.
             assert_eq!(s, "sunset");
         }
@@ -744,7 +744,7 @@ fn semantic_apply_list_remove_drops_items_from_bag() {
     }
 }
 
-// ── Keywords list write-back (the regression-of-record) ──────────────────────
+// â”€â”€ Keywords list write-back (the regression-of-record) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 #[test]
 fn apply_keywords_writes_back_as_separate_items_not_csv() {
@@ -776,13 +776,13 @@ fn apply_keywords_writes_back_as_separate_items_not_csv() {
 
     let m = read_one(dir.path(), &dst);
     match m.metadata.get("XMP-dc:Subject") {
-        Some(Variant::String(s)) => assert!(s == "alpha" || s == "beta"),
-        Some(Variant::List(items)) => {
+        Some(MetadataValue::Text(s)) => assert!(s == "alpha" || s == "beta"),
+        Some(MetadataValue::List { items, .. }) => {
             assert_eq!(items.len(), 2);
             let strs: Vec<String> = items
                 .iter()
                 .filter_map(|v| {
-                    if let Variant::String(s) = v {
+                    if let MetadataValue::Text(s) = v {
                         Some(s.clone())
                     } else {
                         None

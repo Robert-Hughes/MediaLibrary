@@ -17,8 +17,6 @@ use crate::draft_edits::{EditIntent, MetadataDraftEdit};
 use crate::metadata_value::{
     DateTimeValue, DateValue, MetadataValue, OffsetSign, TimeValue, UtcOffsetValue,
 };
-#[cfg(test)]
-use crate::scanner::Variant;
 use crate::tag_schema::{EnumRepr, TagInfo, TagKind};
 
 /// Output of `build_args` for one draft edit.
@@ -241,43 +239,6 @@ fn build_metadata_list_op(
         ));
     }
     Ok(args)
-}
-
-/// Render a `Variant` as a string suitable for a `-TAG=value` argv element,
-/// using the text-pass (no `-n`) convention.
-#[cfg(test)]
-fn render_scalar_text(v: &Variant) -> String {
-    match v {
-        Variant::Null => String::new(),
-        Variant::Bool(b) => {
-            if *b {
-                "True".to_string()
-            } else {
-                "False".to_string()
-            }
-        }
-        Variant::Integer(n) => n.to_string(),
-        Variant::Float(f) => f.to_string(),
-        Variant::String(s) => s.clone(),
-        // Lists at the leaf of a non-list tag are flattened to a
-        // comma-joined string.  Should never happen for properly typed
-        // edits but be defensive.
-        Variant::List(items) => items
-            .iter()
-            .map(render_scalar_text)
-            .collect::<Vec<_>>()
-            .join(", "),
-        Variant::Object(_) => serde_json::to_string(v).unwrap_or_default(),
-    }
-}
-
-#[cfg(test)]
-pub(crate) fn normalise_storage_variant_for_kind(
-    value: &Variant,
-    kind: Option<&TagKind>,
-) -> String {
-    let text = render_scalar_text(value);
-    normalise_storage_string_for_kind(&text, kind)
 }
 
 fn normalise_storage_string_for_kind(value: &str, kind: Option<&TagKind>) -> String {

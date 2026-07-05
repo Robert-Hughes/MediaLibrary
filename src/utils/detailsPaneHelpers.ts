@@ -1,7 +1,7 @@
 import type { ImageMetadataEntry, PhotoInfo } from "../types";
-import { variantToDisplayString } from "../draft";
+import { variantToDisplayString as metadataValueToDisplayString } from "../draft";
 
-export const formatVariant = variantToDisplayString;
+export const formatMetadataValue = metadataValueToDisplayString;
 
 /** Format an OS timestamp (seconds since epoch, from Rust) into a readable string. */
 export function formatTimestamp(ts: number | null): string {
@@ -58,7 +58,7 @@ export function groupImageMetadata(
     const label = key.includes(":") ? key.slice(key.indexOf(":") + 1) : key;
     grouped.get(prefix)!.push({
       label,
-      value: formatVariant(metadata[key]),
+      value: formatMetadataValue(metadata[key]),
       fullKey: key,
     });
   }

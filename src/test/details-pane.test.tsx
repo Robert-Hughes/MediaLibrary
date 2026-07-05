@@ -1,4 +1,4 @@
-/**
+﻿/**
  * DetailsPane component tests.
  *
  * Tests cover:
@@ -21,21 +21,21 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { DetailsPane } from "../components/DetailsPane";
 import {
   groupImageMetadata,
-  formatVariant,
+  formatMetadataValue,
   formatTimestamp,
   getOsEntries,
   extractPrefix,
 } from "../utils/detailsPaneHelpers";
 import { makePhoto, mockMetadata } from "./factories";
 import type { MetadataDraftEdit, ImageMetadataEntry } from "../types";
-import { variantToMetadataValue } from "../utils/scanEvents";
+import { plainJsonToMetadataValue } from "../utils/scanEvents";
 import { _clearTagInfoCache, _setTagInfoCacheEntry } from "../hooks/useTagInfo";
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(() => Promise.resolve(null)),
 }));
 
-// ── Utility function tests ───────────────────────────────────────────────────
+// â”€â”€ Utility function tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 describe("extractPrefix", () => {
   it("extracts the prefix before the colon", () => {
@@ -52,24 +52,26 @@ describe("extractPrefix", () => {
   });
 });
 
-describe("formatVariant", () => {
+describe("formatMetadataValue", () => {
   it("formats a string value", () => {
-    expect(formatVariant(variantToMetadataValue("Canon"))).toBe("Canon");
-  });
-
-  it("formats a numeric value", () => {
-    expect(formatVariant(variantToMetadataValue(42))).toBe("42");
-  });
-
-  it("formats an array value as comma-separated", () => {
-    expect(formatVariant(variantToMetadataValue(["landscape", "nature"]))).toBe(
-      "landscape, nature",
+    expect(formatMetadataValue(plainJsonToMetadataValue("Canon"))).toBe(
+      "Canon",
     );
   });
 
+  it("formats a numeric value", () => {
+    expect(formatMetadataValue(plainJsonToMetadataValue(42))).toBe("42");
+  });
+
+  it("formats an array value as comma-separated", () => {
+    expect(
+      formatMetadataValue(plainJsonToMetadataValue(["landscape", "nature"])),
+    ).toBe("landscape, nature");
+  });
+
   it("formats nested arrays", () => {
-    const nested = variantToMetadataValue([["a", "b"], "c"]);
-    expect(formatVariant(nested)).toBe("a, b, c");
+    const nested = plainJsonToMetadataValue([["a", "b"], "c"]);
+    expect(formatMetadataValue(nested)).toBe("a, b, c");
   });
 });
 
@@ -175,7 +177,7 @@ describe("groupImageMetadata", () => {
   });
 });
 
-// ── Component rendering tests ────────────────────────────────────────────────
+// â”€â”€ Component rendering tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 describe("DetailsPane component", () => {
   const photo = makePhoto({
@@ -299,12 +301,12 @@ describe("DetailsPane component", () => {
   });
 });
 
-// ── Generate-AI overwrite confirmation ──────────────────────────────────────
+// â”€â”€ Generate-AI overwrite confirmation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 describe("DetailsPane: Generate-AI button", () => {
   // The overwrite-warning now lives inside DescribeProgressDialog's
   // awaiting-confirm panel rather than in a pre-dialog `ask()`. The
-  // button's only job is to invoke the callback — the dialog (driven by
+  // button's only job is to invoke the callback â€” the dialog (driven by
   // App-level overwriteInfo) takes it from there.
   const photo = makePhoto({
     relative_path: "p.jpg",
@@ -365,7 +367,7 @@ describe("DetailsPane: Generate-AI button", () => {
   });
 });
 
-// ── Two-step Add-Property flow ──────────────────────────────────────────────
+// â”€â”€ Two-step Add-Property flow â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 describe("DetailsPane: Add-Property two-step flow", () => {
   const photo = makePhoto({
@@ -463,7 +465,7 @@ describe("DetailsPane: Add-Property two-step flow", () => {
     await user.click(screen.getByTestId("new-property-next"));
 
     expect(screen.queryByTestId("new-property-key")).toBeNull();
-    // BooleanEditor renders true/false radios — assert the dialog is not
+    // BooleanEditor renders true/false radios â€” assert the dialog is not
     // a plain text input by checking for those radio inputs.
     const radios = screen.getAllByRole("radio");
     expect(radios.length).toBeGreaterThanOrEqual(2);
@@ -497,14 +499,14 @@ describe("DetailsPane: Add-Property two-step flow", () => {
     });
     await user.click(screen.getByTestId("new-property-next"));
 
-    // Stage 2 should be a ValueEditDialog for Text — cancel it.
+    // Stage 2 should be a ValueEditDialog for Text â€” cancel it.
     await user.click(screen.getByText("Cancel"));
     expect(onSetMetadataDraft).not.toHaveBeenCalled();
     expect(screen.queryByTestId("value-edit-input")).toBeNull();
   });
 });
 
-// ── Read-only schema handling in the row context menu ─────────────────────
+// â”€â”€ Read-only schema handling in the row context menu â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 describe("DetailsPane: read-only row context menu", () => {
   const photo = makePhoto({
@@ -622,7 +624,7 @@ describe("DetailsPane: read-only row context menu", () => {
   });
 });
 
-// ── Edit dialog seeds from the pending draft, not the on-disk value ─────────
+// â”€â”€ Edit dialog seeds from the pending draft, not the on-disk value â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 describe("DetailsPane: Edit reopens with pending draft as the seed", () => {
   beforeEach(() => {

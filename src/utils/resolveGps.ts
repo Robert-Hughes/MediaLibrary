@@ -1,35 +1,35 @@
-/**
+﻿/**
  * Resolve a photo's effective GPS coordinates from drafts + metadata.
  *
  * The reverse-geocode flow asks the user to confirm sending GPS data
  * to a public endpoint. The lat/lon that ends up in that request must
- * reflect what the user currently *sees* — which means draft edits
+ * reflect what the user currently *sees* â€” which means draft edits
  * take priority over the on-disk metadata, since the user may have
  * fixed a wrong GPS value but not yet applied it. See
- * `docs/REVERSE_GEOCODE_PLAN.md` §2.
+ * `docs/REVERSE_GEOCODE_PLAN.md` Â§2.
  *
  * The frontend (not the backend) owns this precedence rule so the
- * backend never has to read the typed-draft store — it just trusts
+ * backend never has to read the typed-draft store â€” it just trusts
  * the lat/lon it receives in `GeocodeRequestItem`.
  */
 import type {
   ImageMetadataEntry,
   MetadataDraftEdit,
   MetadataValue,
-  Variant,
 } from "../types";
 
 /**
- * Flat metadata bag — same shape as the `ImageMetadataStore.get()`
+ * Flat metadata bag â€” same shape as the `ImageMetadataStore.get()`
  * payload when present. The store also surfaces `"loading"`, which
  * callers must filter out before calling `resolveGps`.
  */
 type MetadataBag = Record<string, ImageMetadataEntry>;
+type GpsScalar = string | number;
 
 /**
  * GPS tag groups exiftool surfaces. `Composite` is the convenient
  * decimal-degrees view; the others are the per-format raw fields.
- * Listed in priority order — Composite preferred because it's already
+ * Listed in priority order â€” Composite preferred because it's already
  * decimal.
  */
 const LAT_KEYS = [
@@ -57,18 +57,18 @@ const LON_REF_KEYS = [
   "EXIF:GPSLongitudeRef",
 ];
 
-/** Parse a single Variant into a positive magnitude. Handles number, DMS string, decimal string. */
-function parseMagnitude(v: Variant): number | null {
+/** Parse a single GPS scalar into a positive magnitude. Handles number, DMS string, decimal string. */
+function parseMagnitude(v: GpsScalar): number | null {
   if (typeof v === "number" && isFinite(v)) return v;
   if (typeof v !== "string") return null;
   const trimmed = v.trim();
   if (trimmed === "") return null;
   const decimal = Number(trimmed);
   if (isFinite(decimal) && !Number.isNaN(decimal)) return decimal;
-  // DMS form, e.g. `"51 deg 30' 0.55\" N"` — mirrors the Rust parser.
+  // DMS form, e.g. `"51 deg 30' 0.55\" N"` â€” mirrors the Rust parser.
   const cleaned = trimmed
     .replace(/deg/gi, " ")
-    .replace(/°/g, " ")
+    .replace(/Â°/g, " ")
     .replace(/'/g, " ")
     .replace(/"/g, " ");
   const parts = cleaned.split(/\s+/).filter(Boolean);
@@ -78,8 +78,9 @@ function parseMagnitude(v: Variant): number | null {
   return d + m / 60 + s / 3600;
 }
 
-/** Extract a hemisphere ref from a Variant ("N"/"S"/"E"/"W"). */
-function parseRef(v: Variant): string | null {
+/** Extract a hemisphere ref from a GPS scalar ("N"/"S"/"E"/"W"). */
+function parseRef(v: GpsScalar | null): string | null {
+  if (v === null) return null;
   if (typeof v !== "string") return null;
   const r = v.trim().toUpperCase().charAt(0);
   return r === "N" || r === "S" || r === "E" || r === "W" ? r : null;
@@ -95,9 +96,9 @@ function isMetadataValue(value: unknown): value is MetadataValue {
   );
 }
 
-function gpsVariantFromMetadataEntry(
+function gpsScalarFromMetadataEntry(
   value: ImageMetadataEntry | undefined,
-): Variant | null {
+): GpsScalar | null {
   if (value === undefined || value === null) return null;
   if (!isMetadataValue(value)) return value;
   switch (value.kind) {
@@ -114,9 +115,9 @@ function gpsVariantFromMetadataEntry(
   }
 }
 
-function gpsVariantFromMetadataValue(
+function gpsScalarFromMetadataValue(
   value: MetadataValue | null,
-): Variant | null {
+): GpsScalar | null {
   if (value === null) return null;
   switch (value.kind) {
     case "Text":
@@ -136,19 +137,19 @@ function extractValue(
   keys: string[],
   drafts: Record<string, MetadataDraftEdit> | undefined,
   metadata: MetadataBag | undefined,
-): Variant | null {
-  // Drafts win whether they are Set or Delete — a Delete-intent draft
+): GpsScalar | null {
+  // Drafts win whether they are Set or Delete â€” a Delete-intent draft
   // means "this field is being removed", so we treat it as no value.
   for (const k of keys) {
     const d = drafts?.[k];
     if (d) {
       if (d.intent === "Delete") return null;
-      const value = gpsVariantFromMetadataValue(d.value);
+      const value = gpsScalarFromMetadataValue(d.value);
       if (value !== null) return value;
     }
   }
   for (const k of keys) {
-    const v = gpsVariantFromMetadataEntry(metadata?.[k]);
+    const v = gpsScalarFromMetadataEntry(metadata?.[k]);
     if (v !== null) return v;
   }
   return null;
@@ -174,7 +175,7 @@ export function resolveGps(
   if (lat == null || lon == null) return { lat: null, lon: null };
   // Composite values are signed already; raw GPS:GPSLatitude is
   // positive magnitude with the sign carried by GPSLatitudeRef. Apply
-  // refs only when the original value was a string (DMS) — Composite
+  // refs only when the original value was a string (DMS) â€” Composite
   // returns a signed number directly.
   if (typeof rawLat === "string") {
     const ref = parseRef(extractValue(LAT_REF_KEYS, drafts, metadata) ?? null);

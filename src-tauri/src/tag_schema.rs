@@ -517,7 +517,7 @@ fn collect_attrs(e: &quick_xml::events::BytesStart) -> BTreeMap<String, String> 
 /// Phase 8 fix-up: `date+` (multiple dates) and `datetime` (XMP-flavoured
 /// alias used by some namespaces) were previously unrecognised and fell
 /// through to `Unknown`, so write_args's DateTime → numeric arm and
-/// matches_variant's DateTime epsilon never fired for them.
+/// metadata verification's DateTime epsilon never fired for them.
 fn derive_kind_for_tag(
     group: &str,
     name: &str,
