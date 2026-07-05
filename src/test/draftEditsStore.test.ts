@@ -1,4 +1,4 @@
-﻿import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { DraftEditsStore } from "../types";
 import type { MetadataDraftEdit, MetadataValue } from "../types";
 
@@ -300,7 +300,7 @@ describe("DraftEditsStore", () => {
       );
       expect(writeOutcome).toBe("written");
       expect(store.getMetadataFile("a.jpg")).toEqual({ A: edit("different") });
-      // Now apply a value that matches current â€” should clear the draft.
+      // Now apply a value that matches current — should clear the draft.
       const cb = vi.fn();
       store.subscribe(cb);
       const outcome = store.setMetadataTag("a.jpg", "A", edit("v"));
@@ -375,11 +375,11 @@ describe("DraftEditsStore", () => {
     it("compares list-valued metadata element-wise", () => {
       const store = new DraftEditsStore();
       store.setCurrentValueResolver(() => listValue(["a", "b", "c"]));
-      // Identical list â†’ redundant.
+      // Identical list → redundant.
       expect(
         store.setMetadataTag("p.jpg", "K", listEdit(["a", "b", "c"])),
       ).toBe("redundant");
-      // Reordered â†’ written.
+      // Reordered → written.
       expect(
         store.setMetadataTag("p.jpg", "K", listEdit(["c", "b", "a"])),
       ).toBe("written");

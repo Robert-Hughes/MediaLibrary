@@ -1,15 +1,15 @@
-﻿/**
+/**
  * Resolve a photo's effective GPS coordinates from drafts + metadata.
  *
  * The reverse-geocode flow asks the user to confirm sending GPS data
  * to a public endpoint. The lat/lon that ends up in that request must
- * reflect what the user currently *sees* â€” which means draft edits
+ * reflect what the user currently *sees* — which means draft edits
  * take priority over the on-disk metadata, since the user may have
  * fixed a wrong GPS value but not yet applied it. See
- * `docs/REVERSE_GEOCODE_PLAN.md` Â§2.
+ * `docs/REVERSE_GEOCODE_PLAN.md` §2.
  *
  * The frontend (not the backend) owns this precedence rule so the
- * backend never has to read the typed-draft store â€” it just trusts
+ * backend never has to read the typed-draft store — it just trusts
  * the lat/lon it receives in `GeocodeRequestItem`.
  */
 import type {
@@ -19,7 +19,7 @@ import type {
 } from "../types";
 
 /**
- * Flat metadata bag â€” same shape as the `ImageMetadataStore.get()`
+ * Flat metadata bag — same shape as the `ImageMetadataStore.get()`
  * payload when present. The store also surfaces `"loading"`, which
  * callers must filter out before calling `resolveGps`.
  */
@@ -29,7 +29,7 @@ type GpsScalar = string | number;
 /**
  * GPS tag groups exiftool surfaces. `Composite` is the convenient
  * decimal-degrees view; the others are the per-format raw fields.
- * Listed in priority order â€” Composite preferred because it's already
+ * Listed in priority order — Composite preferred because it's already
  * decimal.
  */
 const LAT_KEYS = [
@@ -65,10 +65,10 @@ function parseMagnitude(v: GpsScalar): number | null {
   if (trimmed === "") return null;
   const decimal = Number(trimmed);
   if (isFinite(decimal) && !Number.isNaN(decimal)) return decimal;
-  // DMS form, e.g. `"51 deg 30' 0.55\" N"` â€” mirrors the Rust parser.
+  // DMS form, e.g. `"51 deg 30' 0.55\" N"` — mirrors the Rust parser.
   const cleaned = trimmed
     .replace(/deg/gi, " ")
-    .replace(/Â°/g, " ")
+    .replace(/°/g, " ")
     .replace(/'/g, " ")
     .replace(/"/g, " ");
   const parts = cleaned.split(/\s+/).filter(Boolean);
@@ -138,7 +138,7 @@ function extractValue(
   drafts: Record<string, MetadataDraftEdit> | undefined,
   metadata: MetadataBag | undefined,
 ): GpsScalar | null {
-  // Drafts win whether they are Set or Delete â€” a Delete-intent draft
+  // Drafts win whether they are Set or Delete — a Delete-intent draft
   // means "this field is being removed", so we treat it as no value.
   for (const k of keys) {
     const d = drafts?.[k];
@@ -175,7 +175,7 @@ export function resolveGps(
   if (lat == null || lon == null) return { lat: null, lon: null };
   // Composite values are signed already; raw GPS:GPSLatitude is
   // positive magnitude with the sign carried by GPSLatitudeRef. Apply
-  // refs only when the original value was a string (DMS) â€” Composite
+  // refs only when the original value was a string (DMS) — Composite
   // returns a signed number directly.
   if (typeof rawLat === "string") {
     const ref = parseRef(extractValue(LAT_REF_KEYS, drafts, metadata) ?? null);

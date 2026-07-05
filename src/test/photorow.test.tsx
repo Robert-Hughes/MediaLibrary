@@ -124,4 +124,80 @@ describe("PhotoRow", () => {
     const grid = screen.getByTestId("photo-list");
     expect(grid.style.getPropertyValue("--grid-columns")).not.toBe("");
   });
+
+  it("displays em dash — for missing metadata and not mojibake â€”", () => {
+    const thumbnails = new ThumbnailStore();
+    const metadata = new ImageMetadataStore();
+
+    // We add metadata as empty object, so "IFD0:Model" will be missing/undefined.
+    thumbnails.set("1.jpg", "base64string");
+    metadata.set("1.jpg", {});
+
+    const photos = [
+      {
+        relative_path: "1.jpg",
+        filename: "1.jpg",
+        date_modified: null,
+        date_created: null,
+      },
+    ];
+
+    render(
+      <PhotoList
+        photos={photos}
+        thumbnails={thumbnails}
+        imageMetadata={metadata}
+        visibleColumns={[{ key: "IFD0:Model", kind: "image" }]}
+        sortConfig={{ primary: null, secondary: null }}
+        onSortChange={() => {}}
+        selectedIndex={null}
+        onSelect={vi.fn()}
+        onShowInExplorer={vi.fn()}
+        onVisibilityChange={vi.fn()}
+        onPhotoOpen={vi.fn()}
+        onSelectColumns={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByText("—")).not.toBeNull();
+    expect(screen.queryByText("â€”")).toBeNull();
+  });
+
+  it("displays error cell ✗ on metadata failure and not mojibake âœ—", () => {
+    const thumbnails = new ThumbnailStore();
+    const metadata = new ImageMetadataStore();
+
+    // We add metadata as failed by setting _error
+    thumbnails.set("1.jpg", "base64string");
+    metadata.set("1.jpg", { _error: "Failed to load metadata" } as any);
+
+    const photos = [
+      {
+        relative_path: "1.jpg",
+        filename: "1.jpg",
+        date_modified: null,
+        date_created: null,
+      },
+    ];
+
+    render(
+      <PhotoList
+        photos={photos}
+        thumbnails={thumbnails}
+        imageMetadata={metadata}
+        visibleColumns={[{ key: "IFD0:Model", kind: "image" }]}
+        sortConfig={{ primary: null, secondary: null }}
+        onSortChange={() => {}}
+        selectedIndex={null}
+        onSelect={vi.fn()}
+        onShowInExplorer={vi.fn()}
+        onVisibilityChange={vi.fn()}
+        onPhotoOpen={vi.fn()}
+        onSelectColumns={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByText("✗")).not.toBeNull();
+    expect(screen.queryByText("âœ—")).toBeNull();
+  });
 });

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * DetailsPane component tests.
  *
  * Tests cover:
@@ -34,7 +34,7 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(() => Promise.resolve(null)),
 }));
 
-// â”€â”€ Utility function tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Utility function tests ───────────────────────────────────────────────────
 
 describe("extractPrefix", () => {
   it("extracts the prefix before the colon", () => {
@@ -202,7 +202,7 @@ describe("groupImageMetadata", () => {
   });
 });
 
-// â”€â”€ Component rendering tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Component rendering tests ────────────────────────────────────────────────
 
 describe("DetailsPane component", () => {
   const photo = makePhoto({
@@ -326,12 +326,12 @@ describe("DetailsPane component", () => {
   });
 });
 
-// â”€â”€ Generate-AI overwrite confirmation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Generate-AI overwrite confirmation ──────────────────────────────────────
 
 describe("DetailsPane: Generate-AI button", () => {
   // The overwrite-warning now lives inside DescribeProgressDialog's
   // awaiting-confirm panel rather than in a pre-dialog `ask()`. The
-  // button's only job is to invoke the callback â€” the dialog (driven by
+  // button's only job is to invoke the callback — the dialog (driven by
   // App-level overwriteInfo) takes it from there.
   const photo = makePhoto({
     relative_path: "p.jpg",
@@ -392,7 +392,7 @@ describe("DetailsPane: Generate-AI button", () => {
   });
 });
 
-// â”€â”€ Two-step Add-Property flow â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Two-step Add-Property flow ──────────────────────────────────────────────
 
 describe("DetailsPane: Add-Property two-step flow", () => {
   const photo = makePhoto({
@@ -490,7 +490,7 @@ describe("DetailsPane: Add-Property two-step flow", () => {
     await user.click(screen.getByTestId("new-property-next"));
 
     expect(screen.queryByTestId("new-property-key")).toBeNull();
-    // BooleanEditor renders true/false radios â€” assert the dialog is not
+    // BooleanEditor renders true/false radios — assert the dialog is not
     // a plain text input by checking for those radio inputs.
     const radios = screen.getAllByRole("radio");
     expect(radios.length).toBeGreaterThanOrEqual(2);
@@ -524,14 +524,14 @@ describe("DetailsPane: Add-Property two-step flow", () => {
     });
     await user.click(screen.getByTestId("new-property-next"));
 
-    // Stage 2 should be a ValueEditDialog for Text â€” cancel it.
+    // Stage 2 should be a ValueEditDialog for Text — cancel it.
     await user.click(screen.getByText("Cancel"));
     expect(onSetMetadataDraft).not.toHaveBeenCalled();
     expect(screen.queryByTestId("value-edit-input")).toBeNull();
   });
 });
 
-// â”€â”€ Read-only schema handling in the row context menu â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Read-only schema handling in the row context menu ─────────────────────
 
 describe("DetailsPane: read-only row context menu", () => {
   const photo = makePhoto({
@@ -649,7 +649,7 @@ describe("DetailsPane: read-only row context menu", () => {
   });
 });
 
-// â”€â”€ Edit dialog seeds from the pending draft, not the on-disk value â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Edit dialog seeds from the pending draft, not the on-disk value ─────────
 
 describe("DetailsPane: Edit reopens with pending draft as the seed", () => {
   beforeEach(() => {
