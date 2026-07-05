@@ -16,12 +16,6 @@ import type {
   Variant,
 } from "./types";
 
-export type TypedDraftEditsByFile = Record<string, Record<string, DraftEdit>>;
-export type LegacyDraftEditsByFile = Record<
-  string,
-  Record<string, string | null>
->;
-
 /**
  * Render the display string for a draft.
  *
@@ -144,69 +138,4 @@ function renderMetadataOffset(
 
 function pad(value: number, width = 2): string {
   return String(value).padStart(width, "0");
-}
-
-/**
- * Convert the typed map into the legacy display shape used by existing
- * components that still read `Record<string, Record<string, string | null>>`.
- *
- * Drafts with no real change (undefined intent) are dropped.
- */
-export function mapTypedToLegacy(
-  typed: TypedDraftEditsByFile,
-): LegacyDraftEditsByFile {
-  const out: LegacyDraftEditsByFile = {};
-  for (const [file, edits] of Object.entries(typed)) {
-    const fileOut: Record<string, string | null> = {};
-    for (const [key, d] of Object.entries(edits)) {
-      if (d.intent === "Delete") {
-        fileOut[key] = null;
-      } else if (d.display !== undefined && d.display !== null) {
-        fileOut[key] = d.display;
-      } else {
-        fileOut[key] = variantToDisplayString(d.value);
-      }
-    }
-    if (Object.keys(fileOut).length > 0) {
-      out[file] = fileOut;
-    }
-  }
-  return out;
-}
-
-/** Convert legacy load result (as returned by Tauri) into typed storage shape. */
-export function mapLegacyToTyped(
-  legacy: LegacyDraftEditsByFile,
-): TypedDraftEditsByFile {
-  const out: TypedDraftEditsByFile = {};
-  for (const [file, edits] of Object.entries(legacy ?? {})) {
-    const fileOut: Record<string, DraftEdit> = {};
-    for (const [key, v] of Object.entries(edits)) {
-      fileOut[key] = draftFromLegacyString(v);
-    }
-    out[file] = fileOut;
-  }
-  return out;
-}
-
-/**
- * Derive the legacy per-file map of `string | null` values for one file.
- * Used by App.tsx when threading drafts down into components that still
- * consume the legacy shape.
- */
-export function deriveLegacyFileEdits(
-  typedFile: Record<string, DraftEdit> | undefined,
-): Record<string, string | null> {
-  if (!typedFile) return {};
-  const out: Record<string, string | null> = {};
-  for (const [key, d] of Object.entries(typedFile)) {
-    if (d.intent === "Delete") {
-      out[key] = null;
-    } else if (d.display !== undefined && d.display !== null) {
-      out[key] = d.display;
-    } else {
-      out[key] = variantToDisplayString(d.value);
-    }
-  }
-  return out;
 }
