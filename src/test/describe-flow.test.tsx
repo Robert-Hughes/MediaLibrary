@@ -223,7 +223,7 @@ describe("AI-description flow", () => {
     // draft_edits.jsonl directly, so the UI never saw the new edits
     // after a describe run completed. The architecture now ships edits
     // in the per-image progress event and the hook funnels them through
-    // setDraftBatch — proven here by inspecting the mock's draft store
+    // semantic draft batch setter — proven here by inspecting the mock's draft store
     // after the run.
     mockApiInstance.settings = {
       openai_api_key: "sk-test",
