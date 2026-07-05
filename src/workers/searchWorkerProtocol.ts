@@ -3,7 +3,7 @@
  * search worker.  Importing this file is safe from both sides — it contains
  * only `type` / `interface` declarations.
  */
-import type { DraftEdit, ImageMetadataState } from "../types";
+import type { ImageMetadataState, MetadataDraftEdit } from "../types";
 import type { SearchPhotoFields } from "../search/searchIndex";
 
 // ── Main → worker ────────────────────────────────────────────────────────
@@ -17,14 +17,17 @@ export type SearchWorkerInbound =
     }
   | {
       type: "INIT_DRAFTS";
-      entries: Array<{ path: string; edits: Record<string, DraftEdit> }>;
+      entries: Array<{
+        path: string;
+        edits: Record<string, MetadataDraftEdit>;
+      }>;
     }
   | { type: "UPSERT_PHOTO"; photo: SearchPhotoFields }
   | { type: "UPSERT_META"; path: string; meta: ImageMetadataState }
   | {
       type: "UPSERT_DRAFTS";
       path: string;
-      edits: Record<string, DraftEdit> | undefined;
+      edits: Record<string, MetadataDraftEdit> | undefined;
     }
   | { type: "DELETE_PATH"; path: string }
   | { type: "QUERY"; id: number; query: string };

@@ -6,8 +6,8 @@
  * Lives in its own module so it can be unit-tested directly (without a
  * Worker harness) and reused as the body of `src/workers/searchWorker.ts`.
  */
-import type { DraftEdit, ImageMetadataState, Variant } from "../types";
-import { displayStringOf, variantToDisplayString } from "../draft";
+import type { ImageMetadataState, MetadataDraftEdit, Variant } from "../types";
+import { displayStringOfMetadataDraft, variantToDisplayString } from "../draft";
 import { formatPhotoRowDate } from "../utils/photoDate";
 
 export interface SearchPhotoFields {
@@ -44,11 +44,13 @@ function metaChunk(meta: ImageMetadataState | undefined): string {
   return parts.join("\n");
 }
 
-function draftsChunk(edits: Record<string, DraftEdit> | undefined): string {
+function draftsChunk(
+  edits: Record<string, MetadataDraftEdit> | undefined,
+): string {
   if (!edits) return "";
   const parts: string[] = [];
   for (const [key, d] of Object.entries(edits)) {
-    const display = displayStringOf(d);
+    const display = displayStringOfMetadataDraft(d);
     parts.push(key, display === null ? "—" : (display ?? ""));
   }
   return parts.join("\n");
@@ -59,7 +61,7 @@ export class SearchIndex {
   private metaParts = new Map<string, string>();
   private draftParts = new Map<string, string>();
   /** Kept raw so `has:edits` can answer without re-parsing the haystack. */
-  private drafts = new Map<string, Record<string, DraftEdit>>();
+  private drafts = new Map<string, Record<string, MetadataDraftEdit>>();
   /** Pre-lowercased combined haystack, the substring search target. */
   private haystacks = new Map<string, string>();
 
@@ -86,7 +88,10 @@ export class SearchIndex {
     this.rebuild(path);
   }
 
-  setDrafts(path: string, edits: Record<string, DraftEdit> | undefined) {
+  setDrafts(
+    path: string,
+    edits: Record<string, MetadataDraftEdit> | undefined,
+  ) {
     if (edits === undefined || Object.keys(edits).length === 0) {
       this.drafts.delete(path);
       this.draftParts.delete(path);

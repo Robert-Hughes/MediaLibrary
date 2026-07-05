@@ -299,7 +299,7 @@ export type LegacyDraftEditsByFile = Record<
  */
 export interface DraftEditsChange {
   path: string;
-  edits: Record<string, DraftEdit> | undefined;
+  edits: Record<string, MetadataDraftEdit> | undefined;
 }
 
 export type DraftEditsListener = (changes: DraftEditsChange[]) => void;
@@ -648,7 +648,7 @@ export class DraftEditsStore {
   ): SetDraftOutcome {
     const outcome = this.applyOne(path, tag, edit);
     if (outcome !== "redundant") {
-      this.notify([{ path, edits: this.legacyFile(path) }]);
+      this.notify([{ path, edits: this.snapshot[path] }]);
     }
     return outcome;
   }
@@ -676,7 +676,7 @@ export class DraftEditsStore {
       results.push({ key, outcome: this.applyOne(path, key, edit) });
     }
     if (results.some((r) => r.outcome !== "redundant")) {
-      this.notify([{ path, edits: this.legacyFile(path) }]);
+      this.notify([{ path, edits: this.snapshot[path] }]);
     }
     return results;
   }
@@ -694,7 +694,7 @@ export class DraftEditsStore {
     } else {
       next[path] = updated;
       this.snapshot = next;
-      this.notify([{ path, edits: metadataFileToLegacyDraftsLocal(updated) }]);
+      this.notify([{ path, edits: updated }]);
     }
   }
 
@@ -746,7 +746,7 @@ export class DraftEditsStore {
     } else {
       next[path] = updated;
       this.snapshot = next;
-      this.notify([{ path, edits: metadataFileToLegacyDraftsLocal(updated) }]);
+      this.notify([{ path, edits: updated }]);
     }
   }
 
@@ -759,11 +759,6 @@ export class DraftEditsStore {
 
   private notify(changes: DraftEditsChange[]) {
     this.listeners.forEach((cb) => cb(changes));
-  }
-
-  private legacyFile(path: string): Record<string, DraftEdit> | undefined {
-    const file = this.snapshot[path];
-    return file ? metadataFileToLegacyDraftsLocal(file) : undefined;
   }
 }
 
@@ -803,7 +798,7 @@ export type AppState =
       workerErrors: WorkerErrorPayload[];
 
       // Draft Edits
-      draftEdits: DraftEditsByFile;
+      draftEdits: MetadataDraftEditsByFile;
       /** Observable store backing `draftEdits`; consumers like the search-
        *  worker hook subscribe directly so they hear about every mutation. */
       draftEditsStore: DraftEditsStore;

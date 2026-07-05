@@ -1,9 +1,13 @@
 import { describe, it, expect, vi } from "vitest";
 import { DraftEditsStore } from "../types";
-import type { DraftEdit } from "../types";
+import type { DraftEdit, MetadataDraftEdit } from "../types";
 
 const edit = (value: string): DraftEdit => ({ value, intent: "Set" });
 const del: DraftEdit = { value: null, intent: "Delete" };
+const metaEdit = (value: string): MetadataDraftEdit => ({
+  value: { kind: "Text", value },
+  intent: "Set",
+});
 
 describe("DraftEditsStore", () => {
   describe("reset", () => {
@@ -25,7 +29,7 @@ describe("DraftEditsStore", () => {
       store.setTag("a.jpg", "X:Y", edit("v"));
       expect(store.getFile("a.jpg")).toEqual({ "X:Y": edit("v") });
       expect(cb).toHaveBeenCalledWith([
-        { path: "a.jpg", edits: { "X:Y": edit("v") } },
+        { path: "a.jpg", edits: { "X:Y": metaEdit("v") } },
       ]);
     });
 
@@ -83,7 +87,7 @@ describe("DraftEditsStore", () => {
       store.deleteTag("a.jpg", "A");
       expect(store.getFile("a.jpg")).toEqual({ B: edit("2") });
       expect(cb).toHaveBeenCalledWith([
-        { path: "a.jpg", edits: { B: edit("2") } },
+        { path: "a.jpg", edits: { B: metaEdit("2") } },
       ]);
     });
 

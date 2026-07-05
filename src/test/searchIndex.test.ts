@@ -1,9 +1,12 @@
 import { describe, it, expect } from "vitest";
 import { SearchIndex } from "../search/searchIndex";
-import type { DraftEdit } from "../types";
+import type { MetadataDraftEdit } from "../types";
 
-const edit = (value: string): DraftEdit => ({ value, intent: "Set" });
-const del: DraftEdit = { value: null, intent: "Delete" };
+const edit = (value: string): MetadataDraftEdit => ({
+  value: { kind: "Text", value },
+  intent: "Set",
+});
+const del: MetadataDraftEdit = { value: null, intent: "Delete" };
 
 function seed(idx: SearchIndex) {
   idx.setPhoto({

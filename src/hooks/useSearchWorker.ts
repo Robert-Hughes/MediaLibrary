@@ -164,7 +164,7 @@ export function useSearchWorker(
     });
     w.postMessage({
       type: "INIT_DRAFTS",
-      entries: Object.entries(draftEditsStore.getAll()).map(
+      entries: Object.entries(draftEditsStore.getAllMetadata()).map(
         ([path, edits]) => ({ path, edits }),
       ),
     });

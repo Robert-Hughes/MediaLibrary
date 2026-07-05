@@ -40,6 +40,15 @@ export function displayStringOf(
   return variantToDisplayString(d.value);
 }
 
+export function displayStringOfMetadataDraft(
+  d: import("./types").MetadataDraftEdit | undefined,
+): string | null | undefined {
+  if (d === undefined) return undefined;
+  if (d.intent === "Delete") return null;
+  if (d.display !== undefined && d.display !== null) return d.display;
+  return metadataValueToDisplayString(d.value);
+}
+
 /** Wrap a legacy `string | null` edit into the typed shape. */
 export function draftFromLegacyString(v: string | null): DraftEdit {
   if (v === null) {

@@ -35,6 +35,7 @@ import type { GeocodeRequestItem, MetadataDraftEdit } from "./types";
 import { ALL_NORMALISE_GROUPS } from "./types";
 import { NormaliseProgressDialog } from "./components/NormaliseProgressDialog";
 import { useNormaliseMetadata } from "./hooks/useNormaliseMetadata";
+import { metadataDraftsToLegacyDrafts } from "./utils/semanticDrafts";
 import {
   countDescribeOverwrites,
   countGeocodeOverwrites,
@@ -159,12 +160,16 @@ function LoadedView({
     return () => document.removeEventListener("keydown", handler);
   }, []);
 
-  // Components and the search filter still consume the legacy `string | null`
-  // shape; storage in `state.draftEdits` is typed (Phase 3b).  Derive the
-  // legacy view once per draft-state change.
-  const legacyDraftEdits = useMemo(
-    () => mapTypedToLegacy(state.draftEdits),
+  const typedDraftEdits = useMemo(
+    () => metadataDraftsToLegacyDrafts(state.draftEdits),
     [state.draftEdits],
+  );
+
+  // Components and the search filter still consume the legacy `string | null`
+  // shape. Derive the legacy view once per draft-state change.
+  const legacyDraftEdits = useMemo(
+    () => mapTypedToLegacy(typedDraftEdits),
+    [typedDraftEdits],
   );
 
   // Off-thread search via Web Worker.  The hook subscribes to the metadata
@@ -270,12 +275,12 @@ function LoadedView({
       return relPaths.map((relPath) => {
         const meta = state.imageMetadata.get(relPath);
         const metaBag = meta === "loading" ? undefined : meta;
-        const drafts = state.draftEdits[relPath];
+        const drafts = typedDraftEdits[relPath];
         const { lat, lon } = resolveGps(drafts, metaBag);
         return { relPath, lat, lon };
       });
     },
-    [state.imageMetadata, state.draftEdits],
+    [state.imageMetadata, typedDraftEdits],
   );
 
   return (
@@ -320,7 +325,7 @@ function LoadedView({
             countDescribeOverwrites(
               relPaths,
               state.imageMetadata,
-              state.draftEdits,
+              typedDraftEdits,
             ),
           );
           describe.actions.start(state.folder, relPaths);
@@ -330,7 +335,7 @@ function LoadedView({
             countGeocodeOverwrites(
               relPaths,
               state.imageMetadata,
-              state.draftEdits,
+              typedDraftEdits,
             ),
           );
           geocode.actions.start(state.folder, buildGeocodeItems(relPaths));
@@ -342,7 +347,7 @@ function LoadedView({
           const items = buildNormaliseItems(
             relPaths,
             metadataStoreLookup(state.imageMetadata),
-            state.draftEdits,
+            typedDraftEdits,
             initialGroups,
           );
           normalise.actions.start(state.folder, items, [...initialGroups]);
@@ -363,7 +368,7 @@ function LoadedView({
             legacyDraftEdits[displayPhotos[state.galleryIndex].relative_path]
           }
           typedDraftEdits={
-            state.draftEdits[displayPhotos[state.galleryIndex].relative_path]
+            typedDraftEdits[displayPhotos[state.galleryIndex].relative_path]
           }
           onSetDraftTyped={actions.setDraftTyped}
           onSetDraftBatch={actions.setDraftBatch}
@@ -375,7 +380,7 @@ function LoadedView({
               countDescribeOverwrites(
                 [relPath],
                 state.imageMetadata,
-                state.draftEdits,
+                typedDraftEdits,
               ),
             );
             describe.actions.start(state.folder, [relPath]);
@@ -385,7 +390,7 @@ function LoadedView({
               countGeocodeOverwrites(
                 [relPath],
                 state.imageMetadata,
-                state.draftEdits,
+                typedDraftEdits,
               ),
             );
             geocode.actions.start(state.folder, buildGeocodeItems([relPath]));
@@ -395,7 +400,7 @@ function LoadedView({
             const items = buildNormaliseItems(
               [relPath],
               metadataStoreLookup(state.imageMetadata),
-              state.draftEdits,
+              typedDraftEdits,
               initialGroups,
             );
             normalise.actions.start(state.folder, items, [...initialGroups]);
