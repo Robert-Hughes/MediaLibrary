@@ -8,7 +8,7 @@
  * consistent.
  */
 import { GEOCODE_TARGET_TAGS } from "../types";
-import type { DraftEdit, ImageMetadataStore } from "../types";
+import type { ImageMetadataStore, MetadataDraftEdit } from "../types";
 
 export interface OverwriteCount {
   existingCount: number;
@@ -28,7 +28,7 @@ function metaBag(
 export function countDescribeOverwrites(
   relPaths: string[],
   imageMetadata: ImageMetadataStore,
-  draftEdits: Record<string, Record<string, DraftEdit>>,
+  draftEdits: Record<string, Record<string, MetadataDraftEdit>>,
 ): OverwriteCount {
   const key = "XMP-mlib:AIDescription";
   let existing = 0;
@@ -44,7 +44,7 @@ export function countDescribeOverwrites(
 export function countGeocodeOverwrites(
   relPaths: string[],
   imageMetadata: ImageMetadataStore,
-  draftEdits: Record<string, Record<string, DraftEdit>>,
+  draftEdits: Record<string, Record<string, MetadataDraftEdit>>,
 ): OverwriteCount {
   let existing = 0;
   for (const p of relPaths) {

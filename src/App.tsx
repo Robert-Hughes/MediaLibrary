@@ -275,12 +275,12 @@ function LoadedView({
       return relPaths.map((relPath) => {
         const meta = state.imageMetadata.get(relPath);
         const metaBag = meta === "loading" ? undefined : meta;
-        const drafts = typedDraftEdits[relPath];
+        const drafts = state.draftEdits[relPath];
         const { lat, lon } = resolveGps(drafts, metaBag);
         return { relPath, lat, lon };
       });
     },
-    [state.imageMetadata, typedDraftEdits],
+    [state.imageMetadata, state.draftEdits],
   );
 
   return (
@@ -325,7 +325,7 @@ function LoadedView({
             countDescribeOverwrites(
               relPaths,
               state.imageMetadata,
-              typedDraftEdits,
+              state.draftEdits,
             ),
           );
           describe.actions.start(state.folder, relPaths);
@@ -335,7 +335,7 @@ function LoadedView({
             countGeocodeOverwrites(
               relPaths,
               state.imageMetadata,
-              typedDraftEdits,
+              state.draftEdits,
             ),
           );
           geocode.actions.start(state.folder, buildGeocodeItems(relPaths));
@@ -347,7 +347,7 @@ function LoadedView({
           const items = buildNormaliseItems(
             relPaths,
             metadataStoreLookup(state.imageMetadata),
-            typedDraftEdits,
+            state.draftEdits,
             initialGroups,
           );
           normalise.actions.start(state.folder, items, [...initialGroups]);
@@ -380,7 +380,7 @@ function LoadedView({
               countDescribeOverwrites(
                 [relPath],
                 state.imageMetadata,
-                typedDraftEdits,
+                state.draftEdits,
               ),
             );
             describe.actions.start(state.folder, [relPath]);
@@ -390,7 +390,7 @@ function LoadedView({
               countGeocodeOverwrites(
                 [relPath],
                 state.imageMetadata,
-                typedDraftEdits,
+                state.draftEdits,
               ),
             );
             geocode.actions.start(state.folder, buildGeocodeItems([relPath]));
@@ -400,7 +400,7 @@ function LoadedView({
             const items = buildNormaliseItems(
               [relPath],
               metadataStoreLookup(state.imageMetadata),
-              typedDraftEdits,
+              state.draftEdits,
               initialGroups,
             );
             normalise.actions.start(state.folder, items, [...initialGroups]);

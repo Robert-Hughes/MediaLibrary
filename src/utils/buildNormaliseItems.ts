@@ -11,9 +11,9 @@
  * `docs/NORMALISE_METADATA_PLAN.md` §3 / §8 for the rationale.
  */
 import type {
-  DraftEdit,
   ImageMetadataEntry,
   ImageMetadataStore,
+  MetadataDraftEdit,
   MetadataValue,
   NormaliseGroup,
   NormaliseRequestItem,
@@ -23,7 +23,7 @@ import { metadataValueToDisplayString } from "../draft";
 /** Per-file shape of the draft store snapshot. */
 export type DraftEditsByFile = Record<
   string,
-  Record<string, DraftEdit> | undefined
+  Record<string, MetadataDraftEdit> | undefined
 >;
 
 type EffectiveMetadataEntry = ImageMetadataEntry | null;
@@ -33,7 +33,7 @@ type EffectiveMetadataEntry = ImageMetadataEntry | null;
  *  draft OR absent on both sides. */
 export function resolveTag(
   metadata: Record<string, ImageMetadataEntry> | undefined,
-  drafts: Record<string, DraftEdit> | undefined,
+  drafts: Record<string, MetadataDraftEdit> | undefined,
   key: string,
 ): EffectiveMetadataEntry {
   const draft = drafts?.[key];
@@ -147,7 +147,7 @@ function fileStemOf(relPath: string): string {
  *  the tag is absent / deleted / empty. */
 function scalar(
   metadata: Record<string, ImageMetadataEntry> | undefined,
-  drafts: Record<string, DraftEdit> | undefined,
+  drafts: Record<string, MetadataDraftEdit> | undefined,
   key: string,
 ): string | undefined {
   const s = metadataEntryToString(resolveTag(metadata, drafts, key));
@@ -158,7 +158,7 @@ function scalar(
 /** Helper that resolves a list tag to `Vec<String>`. */
 function list(
   metadata: Record<string, ImageMetadataEntry> | undefined,
-  drafts: Record<string, DraftEdit> | undefined,
+  drafts: Record<string, MetadataDraftEdit> | undefined,
   key: string,
 ): string[] {
   return metadataEntryToStringList(resolveTag(metadata, drafts, key));
@@ -173,7 +173,7 @@ function list(
 export function buildNormaliseItemForPhoto(
   relPath: string,
   metadata: Record<string, ImageMetadataEntry> | undefined,
-  drafts: Record<string, DraftEdit> | undefined,
+  drafts: Record<string, MetadataDraftEdit> | undefined,
   enabledGroups: ReadonlyArray<NormaliseGroup>,
 ): NormaliseRequestItem {
   const groupSet = new Set(enabledGroups);

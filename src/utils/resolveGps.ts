@@ -13,8 +13,8 @@
  * the lat/lon it receives in `GeocodeRequestItem`.
  */
 import type {
-  DraftEdit,
   ImageMetadataEntry,
+  MetadataDraftEdit,
   MetadataValue,
   Variant,
 } from "../types";
@@ -114,9 +114,27 @@ function gpsVariantFromMetadataEntry(
   }
 }
 
+function gpsVariantFromMetadataValue(
+  value: MetadataValue | null,
+): Variant | null {
+  if (value === null) return null;
+  switch (value.kind) {
+    case "Text":
+    case "Integer":
+    case "Real":
+      return value.value;
+    case "Rational":
+      return value.value.denominator === 0
+        ? null
+        : value.value.numerator / value.value.denominator;
+    default:
+      return null;
+  }
+}
+
 function extractValue(
   keys: string[],
-  drafts: Record<string, DraftEdit> | undefined,
+  drafts: Record<string, MetadataDraftEdit> | undefined,
   metadata: MetadataBag | undefined,
 ): Variant | null {
   // Drafts win whether they are Set or Delete — a Delete-intent draft
@@ -125,7 +143,8 @@ function extractValue(
     const d = drafts?.[k];
     if (d) {
       if (d.intent === "Delete") return null;
-      if (d.value !== null && d.value !== undefined) return d.value;
+      const value = gpsVariantFromMetadataValue(d.value);
+      if (value !== null) return value;
     }
   }
   for (const k of keys) {
@@ -144,7 +163,7 @@ function extractValue(
  * failing the whole batch.
  */
 export function resolveGps(
-  drafts: Record<string, DraftEdit> | undefined,
+  drafts: Record<string, MetadataDraftEdit> | undefined,
   metadata: MetadataBag | undefined,
 ): { lat: number | null; lon: number | null } {
   const rawLat = extractValue(LAT_KEYS, drafts, metadata);
