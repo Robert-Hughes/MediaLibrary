@@ -35,7 +35,7 @@ describe("EnumEditor", () => {
     expect(select.querySelectorAll("option")).toHaveLength(5);
   });
 
-  it("emits numeric Variant on Save for Integer repr", async () => {
+  it("emits MetadataValue::Integer on Save for Integer repr", async () => {
     const onSave = vi.fn();
     render(
       <EnumEditor
@@ -55,7 +55,7 @@ describe("EnumEditor", () => {
     expect(onSave).toHaveBeenCalledOnce();
     const edit = onSave.mock.calls[0][0];
     expect(edit.intent).toBe("Set");
-    expect(edit.value).toBe(3);
+    expect(edit.value).toEqual({ kind: "Integer", value: 3 });
     expect(edit.display).toBe("Rotate 180");
   });
 
@@ -104,7 +104,7 @@ describe("EnumEditor", () => {
     expect(onSave.mock.calls[0][0].display).toBe("No");
   });
 
-  it("emits string Variant on Save for String repr", () => {
+  it("emits MetadataValue::Text on Save for String repr", () => {
     const onSave = vi.fn();
     render(
       <EnumEditor
@@ -124,7 +124,10 @@ describe("EnumEditor", () => {
     ) as HTMLSelectElement;
     fireEvent.change(select, { target: { value: "no" } });
     fireEvent.click(screen.getByTestId("enum-editor-save"));
-    expect(onSave.mock.calls[0][0].value).toBe("no");
+    expect(onSave.mock.calls[0][0].value).toEqual({
+      kind: "Text",
+      value: "no",
+    });
   });
 
   it("switches to custom input on Custom… selection", () => {
@@ -166,7 +169,10 @@ describe("EnumEditor", () => {
     await user.clear(customInput);
     await user.type(customInput, "11");
     fireEvent.click(screen.getByTestId("enum-editor-save"));
-    expect(onSave.mock.calls[0][0].value).toBe(11);
+    expect(onSave.mock.calls[0][0].value).toEqual({
+      kind: "Integer",
+      value: 11,
+    });
   });
 });
 
