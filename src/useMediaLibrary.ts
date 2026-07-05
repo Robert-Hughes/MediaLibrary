@@ -19,6 +19,7 @@ import type {
   ApplyEditsStartedPayload,
   ApplyEditsProgressPayload,
   ImageMetadataEntry,
+  MetadataDraftEdit,
   MetadataValue,
 } from "./types";
 import type { DraftEdit } from "./types";
@@ -34,6 +35,7 @@ import {
 } from "./utils/verifyOutcomes";
 import {
   legacyDraftsToMetadataDrafts,
+  metadataDraftToLegacyDraft,
   metadataDraftsToLegacyDrafts,
   metadataEntryToVariant,
   type MetadataDraftEditsByFile,
@@ -71,6 +73,10 @@ export interface MediaLibraryActions {
   setDraftBatch: (
     fileRelativePath: string,
     edits: Array<{ key: string; edit: DraftEdit }>,
+  ) => void;
+  setMetadataDraftBatch: (
+    fileRelativePath: string,
+    edits: Array<{ key: string; edit: MetadataDraftEdit }>,
   ) => void;
   discardDraftValue: (fileRelativePath: string, propertyKey: string) => void;
   discardAllDraftEdits: (fileRelativePath?: string | string[]) => void;
@@ -835,6 +841,22 @@ export function useMediaLibrary(
     [],
   );
 
+  const setMetadataDraftBatch = useCallback(
+    (
+      fileRelativePath: string,
+      edits: Array<{ key: string; edit: MetadataDraftEdit }>,
+    ) => {
+      draftEditsStoreRef.current.setBatch(
+        fileRelativePath,
+        edits.map(({ key, edit }) => ({
+          key,
+          edit: metadataDraftToLegacyDraft(edit),
+        })),
+      );
+    },
+    [],
+  );
+
   const setDraftTyped = useCallback(
     (fileRelativePath: string, propertyKey: string, edit: DraftEdit) => {
       draftEditsStoreRef.current.setTag(fileRelativePath, propertyKey, edit);
@@ -937,6 +959,7 @@ export function useMediaLibrary(
       dismissError,
       setDraftTyped,
       setDraftBatch,
+      setMetadataDraftBatch,
       discardDraftValue,
       discardAllDraftEdits,
       applyDraftEdits,
@@ -963,6 +986,7 @@ export function useMediaLibrary(
       dismissError,
       setDraftTyped,
       setDraftBatch,
+      setMetadataDraftBatch,
       discardDraftValue,
       discardAllDraftEdits,
       applyDraftEdits,

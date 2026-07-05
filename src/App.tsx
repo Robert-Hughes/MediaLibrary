@@ -35,7 +35,6 @@ import type { GeocodeRequestItem, MetadataDraftEdit } from "./types";
 import { ALL_NORMALISE_GROUPS } from "./types";
 import { NormaliseProgressDialog } from "./components/NormaliseProgressDialog";
 import { useNormaliseMetadata } from "./hooks/useNormaliseMetadata";
-import { metadataDraftToLegacyDraft } from "./utils/semanticDrafts";
 import {
   countDescribeOverwrites,
   countGeocodeOverwrites,
@@ -485,16 +484,16 @@ export default function App() {
   >(undefined);
   // Shared merge-into-drafts callback for every batch image job
   // (describe, geocode, normalise). Each hook emits per-image typed
-  // edits via this callback; we funnel them through setDraftBatch so
-  // the UI re-renders immediately and the existing persistence
+  // edits via this callback; we funnel them through the media-library
+  // draft action so the UI re-renders immediately and the existing persistence
   // pipeline picks them up.
   const mergeBatchEdits = useCallback(
     (relPath: string, edits: Record<string, MetadataDraftEdit>) => {
       const entries = Object.entries(edits).map(([key, edit]) => ({
         key,
-        edit: metadataDraftToLegacyDraft(edit),
+        edit,
       }));
-      if (entries.length > 0) actions.setDraftBatch(relPath, entries);
+      if (entries.length > 0) actions.setMetadataDraftBatch(relPath, entries);
     },
     [actions],
   );
