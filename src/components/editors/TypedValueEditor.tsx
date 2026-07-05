@@ -423,7 +423,11 @@ export function TypedValueEditor({
       <LangAltEditor
         propertyKey={propertyKey}
         initialLangs={initialLangs}
-        onSave={saveDraft}
+        onSave={
+          onSaveMetadata
+            ? (edit) => onSaveMetadata(edit)
+            : (edit) => onSave(metadataDraftToLegacyDraft(edit))
+        }
         onCancel={onCancel}
         readOnly={readOnly}
         headerHint={schemaHint()}
