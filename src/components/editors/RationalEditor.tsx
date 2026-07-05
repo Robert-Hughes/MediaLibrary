@@ -9,23 +9,18 @@
 // This editor exposes both shapes:
 //
 //   - Fraction mode (default): two integer inputs `num` / `den`, den ≥ 1.
-//                                Save commits Variant::Float(num/den).
-//   - Decimal mode (toggle):   single Real-style input.  Same Float commit.
-//
-// Both modes round-trip through Variant::Float because exiftool's `-n` write
-// path accepts either form for rational tags and stores the canonical
-// rational it derives from the decimal — no information is lost on the
-// fraction → decimal conversion at save time, and on the next read pass A
-// will once again pretty-print the rational form.
+//                                Save commits MetadataValue::Rational.
+//   - Decimal mode (toggle):   single Real-style input, converted to a
+//                                reduced MetadataValue::Rational.
 
 import { useState, useEffect, useRef } from "react";
-import type { DraftEdit, Variant } from "../../types";
+import type { MetadataDraftEdit } from "../../types";
 import { READ_ONLY_TOOLTIP } from "./readOnlyMessages";
 
 interface Props {
   propertyKey: string;
   initialValue: string;
-  onSave: (edit: DraftEdit) => void;
+  onSave: (edit: MetadataDraftEdit) => void;
   onCancel: () => void;
   headerHint?: React.ReactNode;
   readOnly?: boolean;
@@ -137,7 +132,8 @@ export function RationalEditor({
   };
 
   const validate = ():
-    { ok: true; variant: Variant } | { ok: false; error: string } => {
+    | { ok: true; rational: { num: number; den: number } }
+    | { ok: false; error: string } => {
     if (mode === "fraction") {
       const n = parseInt(num, 10);
       const d = parseInt(den, 10);
@@ -146,11 +142,12 @@ export function RationalEditor({
       if (!Number.isFinite(d) || !Number.isInteger(d))
         return { ok: false, error: "denominator must be an integer" };
       if (d === 0) return { ok: false, error: "denominator cannot be zero" };
-      return { ok: true, variant: n / d };
+      const g = gcd(n, d);
+      return { ok: true, rational: { num: n / g, den: d / g } };
     }
     const dec = parseFloat(decimal);
     if (!Number.isFinite(dec)) return { ok: false, error: "must be a number" };
-    return { ok: true, variant: dec };
+    return { ok: true, rational: decimalToRational(dec) };
   };
 
   const handleSave = () => {
@@ -170,10 +167,20 @@ export function RationalEditor({
       const d = parseInt(den, 10);
       display = d === 1 ? String(n) : `${n}/${d}`;
     } else {
-      const r = decimalToRational(result.variant as number);
+      const r = result.rational;
       display = r.den === 1 ? String(r.num) : `${r.num}/${r.den}`;
     }
-    onSave({ value: result.variant, intent: "Set", display });
+    onSave({
+      value: {
+        kind: "Rational",
+        value: {
+          numerator: result.rational.num,
+          denominator: result.rational.den,
+        },
+      },
+      intent: "Set",
+      display,
+    });
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {

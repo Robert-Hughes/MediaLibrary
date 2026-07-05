@@ -322,7 +322,11 @@ export function TypedValueEditor({
       <RationalEditor
         propertyKey={propertyKey}
         initialValue={initialString}
-        onSave={saveDraft}
+        onSave={
+          onSaveMetadata
+            ? (edit) => onSaveMetadata(edit)
+            : (edit) => onSave(metadataDraftToLegacyDraft(edit))
+        }
         onCancel={onCancel}
         readOnly={readOnly}
         headerHint={schemaHint()}
