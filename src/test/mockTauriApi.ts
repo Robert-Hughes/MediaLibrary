@@ -54,7 +54,7 @@ export interface MockTauriApi {
   invocations: Array<{ cmd: string; args?: Record<string, unknown> }>;
   /** The scan_id returned by the most recent start_scan call. */
   currentScanId: number;
-  /** Override apply_draft_edits_cmd result. Default: success with no applied/failed. */
+  /** Override apply_metadata_draft_edits_cmd result. Default: success with no applied/failed. */
   applyEditsResult: MetadataApplyEditsResult;
   cancelApplyEditsCalled: boolean;
   /** Stored settings; defaults to empty API key + gpt-4o. */
@@ -291,10 +291,6 @@ export function createMockTauriApi(): MockTauriApi {
         mock.lastWindowTitle = (args?.title as string) ?? null;
         return;
       }
-      if (cmd === "load_draft_edits" || cmd === "load_draft_edits_typed") {
-        const folder = args?.folderPath as string;
-        return mock.draftEditsByFolder[folder] || {};
-      }
       if (cmd === "load_metadata_draft_edits") {
         const folder = args?.folderPath as string;
         const stored = mock.draftEditsByFolder[folder] || {};
@@ -302,11 +298,7 @@ export function createMockTauriApi(): MockTauriApi {
           ? stored
           : legacyDraftsToMetadataDrafts(normalizeDraftsFromTauri(stored));
       }
-      if (
-        cmd === "save_draft_edits" ||
-        cmd === "save_draft_edits_typed" ||
-        cmd === "save_metadata_draft_edits"
-      ) {
+      if (cmd === "save_metadata_draft_edits") {
         const folder = args?.folderPath as string;
         mock.draftEditsByFolder[folder] = args?.data as
           DraftEditsByFile | LegacyDraftEditsByFile | MetadataDraftEditsByFile;
@@ -317,18 +309,12 @@ export function createMockTauriApi(): MockTauriApi {
         // TypedValueEditor falls through to the legacy text input.
         return null;
       }
-      if (
-        cmd === "apply_draft_edits_cmd" ||
-        cmd === "apply_metadata_draft_edits_cmd"
-      ) {
+      if (cmd === "apply_metadata_draft_edits_cmd") {
         const result = mock.applyEditsResult;
         const relPaths = (args?.relPaths as string[]) ?? [];
         const folder = args?.folderPath as string;
         const total = result.applied.length + result.failed.length;
-        const progressEvent =
-          cmd === "apply_metadata_draft_edits_cmd"
-            ? "apply_metadata_edits_progress"
-            : "apply_edits_progress";
+        const progressEvent = "apply_metadata_edits_progress";
 
         // Mirror the backend: emit started, then one progress event per file
         emit("apply_edits_started", { total });

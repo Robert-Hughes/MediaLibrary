@@ -1,6 +1,6 @@
 /**
  * Unit tests for the verifyOutcomes reducer helpers extracted from
- * useMediaLibrary's apply_edits_progress handler.
+ * useMediaLibrary's apply_metadata_edits_progress handler.
  *
  * `mergeVerifyOutcomes` drives the VerifyOutcomeDialog's table: it
  * accepts the per-file outcome array emitted by the backend and folds

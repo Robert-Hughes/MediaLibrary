@@ -492,20 +492,6 @@ export function useMediaLibrary(
         },
       );
 
-      const unlistenApplyProgress = await api.listen(
-        "apply_edits_progress",
-        (raw) => {
-          if (cancelled) return;
-          const payload = raw as ApplyEditsProgressPayload;
-          handleApplyEditsProgress(
-            payload,
-            draftEditsStoreRef.current,
-            imageMetadataStoreRef.current,
-            setAppState,
-          );
-        },
-      );
-
       const unlistenMetadataApplyProgress = await api.listen(
         "apply_metadata_edits_progress",
         (raw) => {
@@ -528,7 +514,6 @@ export function useMediaLibrary(
         unlistenError,
         unlistenWorkerError,
         unlistenApplyStarted,
-        unlistenApplyProgress,
         unlistenMetadataApplyProgress,
       );
 
@@ -887,8 +872,8 @@ export function useMediaLibrary(
 
   /**
    * Apply draft edits. The backend processes files one at a time, emitting
-   * `apply_edits_started` once and `apply_edits_progress` after each file.
-   * Those events drive incremental state updates (see setup()), so this
+   * `apply_edits_started` once and `apply_metadata_edits_progress` after each
+   * file. Those events drive incremental state updates (see setup()), so this
    * function does not need to apply any state changes from the final result.
    *
    * The promise resolves once all files are done (or cancellation took effect).
@@ -1002,7 +987,7 @@ export function useMediaLibrary(
 }
 
 /**
- * Process one `apply_edits_progress` event: prune drafts per the
+ * Process one `apply_metadata_edits_progress` event: prune drafts per the
  * backend's per-tag verdict, merge interesting outcomes into the
  * verifyOutcomes map, accumulate any per-file error, and bump
  * metadataVersion if fresh metadata landed.

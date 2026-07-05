@@ -2,7 +2,7 @@
  * Pure reducer helpers for the `verifyOutcomes` map.
  *
  * The map shape is `Record<relativePath, TagOutcomeEntry[]>`; mutators
- * either merge a fresh batch from an `apply_edits_progress` payload or
+ * either merge a fresh batch from an `apply_metadata_edits_progress` payload or
  * drop a single (path, tag) entry, removing the path key entirely when
  * its list goes empty.
  */
