@@ -14,15 +14,11 @@
 //! Saving: the semantic API always writes v3.
 
 use crate::metadata_value::MetadataValue;
-use crate::scanner::Variant;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
-
-// ── v2 typed model ───────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "PascalCase")]
@@ -33,41 +29,6 @@ pub enum EditIntent {
     Delete,
     ListAdd,
     ListRemove,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
-pub struct DraftEdit {
-    pub value: Option<Variant>,
-    pub intent: EditIntent,
-    /// Optional pretty-printed form of `value`, computed by the editor that
-    /// produced this draft (enum label, rational fraction, GPS DMS, …).
-    /// When present, the UI prefers this over a generic `String(value)` for
-    /// the "pending change" cell.  Persisted to JSONL so restored drafts
-    /// keep their pretty form across app restarts.  See
-    /// METADATA_FORMATS_DESIGN.md §display-roundtrip.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub display: Option<String>,
-}
-
-impl DraftEdit {
-    /// Construct from a legacy string edit (`None` → delete, `Some(s)` → set).
-    pub fn from_legacy_string(v: Option<String>) -> Self {
-        match v {
-            None => DraftEdit {
-                value: None,
-                intent: EditIntent::Delete,
-                display: None,
-            },
-            Some(s) => DraftEdit {
-                value: Some(Variant::String(s)),
-                intent: EditIntent::Set,
-                display: None,
-            },
-        }
-    }
 }
 
 // ── v3 semantic model ────────────────────────────────────────────────────────
@@ -83,35 +44,6 @@ pub struct MetadataDraftEdit {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(optional))]
     pub display: Option<String>,
-}
-
-impl MetadataDraftEdit {
-    pub fn from_legacy_draft(edit: &DraftEdit) -> Self {
-        MetadataDraftEdit {
-            value: edit.value.as_ref().map(metadata_value_from_variant),
-            intent: edit.intent.clone(),
-            display: edit.display.clone(),
-        }
-    }
-}
-
-fn metadata_value_from_variant(value: &Variant) -> MetadataValue {
-    match value {
-        Variant::Null => MetadataValue::Null,
-        Variant::String(s) => MetadataValue::Text(s.clone()),
-        Variant::Bool(b) => MetadataValue::Bool(*b),
-        Variant::Integer(n) => MetadataValue::Integer(*n),
-        Variant::Float(f) => MetadataValue::Real(*f),
-        Variant::List(items) => MetadataValue::List {
-            list_kind: crate::metadata_value::ListKind::Unknown,
-            items: items.iter().map(metadata_value_from_variant).collect(),
-        },
-        Variant::Object(map) => MetadataValue::Struct(
-            map.iter()
-                .map(|(key, value)| (key.clone(), metadata_value_from_variant(value)))
-                .collect::<BTreeMap<_, _>>(),
-        ),
-    }
 }
 
 pub type MetadataDraftEdits = HashMap<String, HashMap<String, MetadataDraftEdit>>;
@@ -431,52 +363,6 @@ mod tests {
 
         let loaded = load_metadata_draft_edits(dir.path().to_str().unwrap()).unwrap();
         assert_eq!(loaded, data);
-    }
-
-    #[test]
-    fn metadata_draft_from_legacy_preserves_semantic_shape() {
-        let edit = DraftEdit {
-            value: Some(Variant::List(vec![
-                Variant::String("beach".to_string()),
-                Variant::Integer(7),
-            ])),
-            intent: EditIntent::Set,
-            display: Some("beach, 7".to_string()),
-        };
-
-        let converted = MetadataDraftEdit::from_legacy_draft(&edit);
-
-        assert_eq!(converted.intent, EditIntent::Set);
-        assert_eq!(converted.display.as_deref(), Some("beach, 7"));
-        assert_eq!(
-            converted.value,
-            Some(MetadataValue::List {
-                list_kind: crate::metadata_value::ListKind::Unknown,
-                items: vec![
-                    MetadataValue::Text("beach".to_string()),
-                    MetadataValue::Integer(7),
-                ],
-            })
-        );
-    }
-
-    #[test]
-    fn metadata_draft_from_legacy_preserves_nested_structs() {
-        let mut obj = BTreeMap::new();
-        obj.insert("Name".to_string(), Variant::String("Alice".to_string()));
-        obj.insert("Score".to_string(), Variant::Float(1.5));
-        let edit = DraftEdit {
-            value: Some(Variant::Object(obj)),
-            intent: EditIntent::Set,
-            display: None,
-        };
-
-        let converted = MetadataDraftEdit::from_legacy_draft(&edit);
-        let Some(MetadataValue::Struct(fields)) = converted.value else {
-            panic!("expected struct value");
-        };
-        assert_eq!(fields["Name"], MetadataValue::Text("Alice".to_string()));
-        assert_eq!(fields["Score"], MetadataValue::Real(1.5));
     }
 
     #[test]
