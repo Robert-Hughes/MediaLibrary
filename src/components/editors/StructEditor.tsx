@@ -11,15 +11,13 @@
 // The output is always a semantic `MetadataValue::Struct` shape with intent=Set.
 
 import { useState } from "react";
-import type { MetadataDraftEdit, Variant } from "../../types";
-import { variantToDisplayString } from "../../draft";
-import { variantToMetadataValue } from "../../utils/scanEvents";
-import { metadataDraftToLegacyDraft } from "../../utils/semanticDrafts";
+import type { MetadataDraftEdit, MetadataValue } from "../../types";
+import { metadataValueToDisplayString } from "../../draft";
 import { READ_ONLY_TOOLTIP } from "./readOnlyMessages";
 
 interface Props {
   propertyKey: string;
-  initialObject: Record<string, Variant>;
+  initialObject: Record<string, MetadataValue>;
   /** Recursive editor entry — pass `TypedValueEditor` to support arbitrary nesting. */
   innerEditor?: (props: InnerEditorProps) => React.ReactNode;
   onSave: (edit: MetadataDraftEdit) => void;
@@ -30,24 +28,24 @@ interface Props {
 
 export interface InnerEditorProps {
   propertyKey: string;
-  initialVariant?: Variant;
+  initialMetadataValue?: MetadataValue;
   initialString: string;
-  metadataForFile?: Record<string, Variant>;
+  metadataForFile?: Record<string, MetadataValue>;
   onSaveMetadata: (edit: MetadataDraftEdit) => void;
   onCancel: () => void;
 }
 
 interface FieldRow {
   key: string;
-  value: Variant;
+  value: MetadataValue;
 }
 
-function objectToRows(obj: Record<string, Variant>): FieldRow[] {
+function objectToRows(obj: Record<string, MetadataValue>): FieldRow[] {
   return Object.entries(obj).map(([key, value]) => ({ key, value }));
 }
 
-function rowsToObject(rows: FieldRow[]): Record<string, Variant> {
-  const out: Record<string, Variant> = {};
+function rowsToObject(rows: FieldRow[]): Record<string, MetadataValue> {
+  const out: Record<string, MetadataValue> = {};
   for (const r of rows) {
     if (r.key === "") continue;
     out[r.key] = r.value;
@@ -55,8 +53,9 @@ function rowsToObject(rows: FieldRow[]): Record<string, Variant> {
   return out;
 }
 
-function isComplex(v: Variant): boolean {
-  return Array.isArray(v) || (typeof v === "object" && v !== null);
+function isComplex(v: MetadataValue): boolean {
+  // Treat everything other than Text as complex so it gets a dedicated editor popup via "Edit..."
+  return v.kind !== "Text";
 }
 
 export function StructEditor({
@@ -83,14 +82,17 @@ export function StructEditor({
   const addRow = () => {
     const key = newFieldKey.trim();
     if (!key || rows.some((r) => r.key === key)) return;
-    setRows([...rows, { key, value: "" }]);
+    setRows([...rows, { key, value: { kind: "Text", value: "" } }]);
     setNewFieldKey("");
   };
 
   const handleSave = () => {
     if (readOnly) return;
     onSave({
-      value: variantToMetadataValue(rowsToObject(rows)),
+      value: {
+        kind: "Struct",
+        value: rowsToObject(rows),
+      },
       intent: "Set",
     });
   };
@@ -103,12 +105,13 @@ export function StructEditor({
     return (
       <SubEditor
         propertyKey={`${propertyKey}.${row.key}`}
-        initialVariant={row.value}
-        initialString={variantToDisplayString(row.value)}
+        initialMetadataValue={row.value}
+        initialString={metadataValueToDisplayString(row.value)}
         onSaveMetadata={(edit: MetadataDraftEdit) => {
-          const legacyEdit = metadataDraftToLegacyDraft(edit);
-          const newValue: Variant =
-            legacyEdit.intent === "Delete" ? "" : (legacyEdit.value ?? "");
+          const newValue: MetadataValue =
+            edit.intent === "Delete"
+              ? { kind: "Text", value: "" }
+              : (edit.value ?? { kind: "Text", value: "" });
           updateRow(editingIndex, { value: newValue });
           setEditingIndex(null);
         }}
@@ -147,7 +150,7 @@ export function StructEditor({
                       className="struct-editor-complex-preview"
                       data-testid={`struct-editor-preview-${idx}`}
                     >
-                      {variantToDisplayString(row.value).slice(0, 60)}
+                      {metadataValueToDisplayString(row.value).slice(0, 60)}
                     </span>
                     {SubEditor && (
                       <button
@@ -164,12 +167,12 @@ export function StructEditor({
                   <input
                     type="text"
                     className="struct-editor-value"
-                    value={
-                      typeof row.value === "string"
-                        ? row.value
-                        : String(row.value ?? "")
+                    value={row.value.kind === "Text" ? row.value.value : ""}
+                    onChange={(e) =>
+                      updateRow(idx, {
+                        value: { kind: "Text", value: e.target.value },
+                      })
                     }
-                    onChange={(e) => updateRow(idx, { value: e.target.value })}
                     data-testid={`struct-editor-value-${idx}`}
                   />
                 )}

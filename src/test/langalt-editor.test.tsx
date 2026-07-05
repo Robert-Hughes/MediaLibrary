@@ -106,9 +106,9 @@ describe("LangAltEditor", () => {
 });
 
 describe("initialLangsFrom", () => {
-  it("extracts from a Variant::Object base value", () => {
+  it("extracts from a MetadataValue::LangAlt base value", () => {
     const r = initialLangsFrom(
-      { "x-default": "hi", en: "hi", fr: "salut" },
+      { kind: "LangAlt", value: { "x-default": "hi", en: "hi", fr: "salut" } },
       {},
       "XMP-dc:Description",
     );
@@ -117,12 +117,16 @@ describe("initialLangsFrom", () => {
 
   it("gathers sibling -lang keys from the metadata map", () => {
     const meta = {
-      "XMP-dc:Description": "default text",
-      "XMP-dc:Description-en": "english",
-      "XMP-dc:Description-fr": "francais",
-      OtherTag: "x",
+      "XMP-dc:Description": { kind: "Text", value: "default text" } as const,
+      "XMP-dc:Description-en": { kind: "Text", value: "english" } as const,
+      "XMP-dc:Description-fr": { kind: "Text", value: "francais" } as const,
+      OtherTag: { kind: "Text", value: "x" } as const,
     };
-    const r = initialLangsFrom("default text", meta, "XMP-dc:Description");
+    const r = initialLangsFrom(
+      { kind: "Text", value: "default text" },
+      meta,
+      "XMP-dc:Description",
+    );
     expect(r).toEqual({
       "x-default": "default text",
       en: "english",

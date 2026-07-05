@@ -18,11 +18,9 @@ import type {
   ListKind,
   MetadataDraftEdit,
   TagKind,
-  Variant,
+  MetadataValue,
 } from "../../types";
-import { variantToDisplayString } from "../../draft";
-import { variantToMetadataValue } from "../../utils/scanEvents";
-import { metadataDraftToLegacyDraft } from "../../utils/semanticDrafts";
+import { metadataValueToDisplayString } from "../../draft";
 import type { InnerEditorProps } from "./StructEditor";
 import { READ_ONLY_TOOLTIP } from "./readOnlyMessages";
 
@@ -30,7 +28,7 @@ interface Props {
   propertyKey: string;
   /** The Bag/Seq/Alt kind whose inner is non-scalar. */
   kind: TagKind;
-  initialItems: Variant[];
+  initialItems: MetadataValue[];
   /** Recursive editor entry — pass `TypedValueEditor`. */
   innerEditor: (props: InnerEditorProps) => React.ReactNode;
   onSave: (edit: MetadataDraftEdit) => void;
@@ -39,48 +37,81 @@ interface Props {
   readOnly?: boolean;
 }
 
-/** Construct an empty Variant appropriate for `inner` so "Add item" produces
+/** Construct an empty MetadataValue appropriate for `inner` so "Add item" produces
  *  something the recursive sub-editor can populate. */
-function emptyVariantFor(inner: TagKind): Variant {
+function emptyMetadataValueFor(inner: TagKind): MetadataValue {
   switch (inner.kind) {
     case "LangAlt":
       // x-default explicit per design §5 LangAlt rules.
-      return { "x-default": "" };
+      return { kind: "LangAlt", value: { "x-default": "" } };
     case "Struct":
-      return {};
+      return { kind: "Struct", value: {} };
     case "Bag":
     case "Seq":
     case "Alt":
-      return [];
+      return {
+        kind: "List",
+        value: {
+          list_kind:
+            inner.kind === "Bag" || inner.kind === "Seq" || inner.kind === "Alt"
+              ? inner.kind
+              : "Unknown",
+          items: [],
+        },
+      };
     case "Boolean":
-      return false;
+      return { kind: "Bool", value: false };
     case "Integer":
+      return { kind: "Integer", value: 0 };
     case "Real":
+      return { kind: "Real", value: 0 };
     case "Rational":
-      return 0;
+      return { kind: "Rational", value: { numerator: 0, denominator: 1 } };
+    case "Date":
+      return { kind: "Date", value: { year: 0, month: 1, day: 1 } };
+    case "Time":
+      return {
+        kind: "Time",
+        value: { hour: 0, minute: 0, second: 0, subsecond: null, offset: null },
+      };
+    case "DateTime":
+      return {
+        kind: "DateTime",
+        value: {
+          date: { year: 0, month: 1, day: 1 },
+          time: {
+            hour: 0,
+            minute: 0,
+            second: 0,
+            subsecond: null,
+            offset: null,
+          },
+        },
+      };
     case "Text":
     case "Unknown":
-    case "Date":
-    case "Time":
-    case "DateTime":
     default:
-      return "";
+      return { kind: "Text", value: "" };
   }
 }
 
-function shortLabel(v: Variant, idx: number): string {
+function shortLabel(v: MetadataValue, idx: number): string {
   if (v === null || v === undefined) return `Item ${idx + 1}`;
   // Prefer a Name field if it's a struct with one (face regions, IPTC
   // contributor blocks, etc.) — falls back to a generic display string.
-  if (typeof v === "object" && !Array.isArray(v)) {
-    const obj = v as Record<string, Variant>;
+  if (v.kind === "Struct") {
+    const obj = v.value;
     for (const key of ["Name", "name", "x-default", "Title", "title"]) {
       const candidate = obj[key];
-      if (typeof candidate === "string" && candidate.trim() !== "")
-        return candidate;
+      if (
+        candidate &&
+        candidate.kind === "Text" &&
+        candidate.value.trim() !== ""
+      )
+        return candidate.value;
     }
   }
-  const s = variantToDisplayString(v);
+  const s = metadataValueToDisplayString(v);
   return s ? s.slice(0, 80) : `Item ${idx + 1}`;
 }
 
@@ -100,7 +131,7 @@ export function NestedListEditor({
   headerHint,
   readOnly,
 }: Props) {
-  const [items, setItems] = useState<Variant[]>(initialItems);
+  const [items, setItems] = useState<MetadataValue[]>(initialItems);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
 
   const innerKind: TagKind | null =
@@ -109,7 +140,7 @@ export function NestedListEditor({
       : null;
   const ordered = kind.kind === "Seq";
 
-  const updateItem = (idx: number, value: Variant) => {
+  const updateItem = (idx: number, value: MetadataValue) => {
     setItems((prev) => prev.map((it, i) => (i === idx ? value : it)));
   };
 
@@ -128,7 +159,7 @@ export function NestedListEditor({
 
   const addItem = () => {
     if (!innerKind) return;
-    const fresh = emptyVariantFor(innerKind);
+    const fresh = emptyMetadataValueFor(innerKind);
     setItems((prev) => [...prev, fresh]);
     setEditingIndex(items.length); // open the new item for editing immediately
   };
@@ -140,7 +171,7 @@ export function NestedListEditor({
         kind: "List",
         value: {
           list_kind: listKindOf(kind),
-          items: items.map(variantToMetadataValue),
+          items: items,
         },
       },
       intent: "Set",
@@ -153,14 +184,13 @@ export function NestedListEditor({
     return (
       <SubEditor
         propertyKey={`${propertyKey}[${editingIndex}]`}
-        initialVariant={value}
-        initialString={variantToDisplayString(value)}
+        initialMetadataValue={value}
+        initialString={metadataValueToDisplayString(value)}
         onSaveMetadata={(edit: MetadataDraftEdit) => {
-          const legacyEdit = metadataDraftToLegacyDraft(edit);
-          const newValue: Variant =
-            legacyEdit.intent === "Delete"
-              ? emptyVariantFor(innerKind)
-              : (legacyEdit.value ?? emptyVariantFor(innerKind));
+          const newValue: MetadataValue =
+            edit.intent === "Delete"
+              ? emptyMetadataValueFor(innerKind)
+              : (edit.value ?? emptyMetadataValueFor(innerKind));
           updateItem(editingIndex, newValue);
           setEditingIndex(null);
         }}

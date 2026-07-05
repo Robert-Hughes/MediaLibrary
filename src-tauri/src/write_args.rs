@@ -173,17 +173,21 @@ fn build_metadata_list_set(
     };
     let mut args = BuiltArgs {
         numeric: vec![],
-        text: vec![format!("-{}=", tag)],
+        text: vec![],
     };
     let numeric_items = is_numeric_kind(inner);
-    for item in items {
-        if numeric_items {
+    if numeric_items {
+        args.numeric.push(format!("-{}=", tag));
+        for item in items {
             args.numeric.push(format!(
                 "-{}={}",
                 tag,
                 render_metadata_scalar_numeric(item, Some(inner))?
             ));
-        } else {
+        }
+    } else {
+        args.text.push(format!("-{}=", tag));
+        for item in items {
             args.text.push(format!(
                 "-{}={}",
                 tag,
@@ -987,8 +991,11 @@ mod tests {
             }),
         )
         .unwrap();
-        assert_eq!(args.text, vec!["-X:Numbers="]);
-        assert_eq!(args.numeric, vec!["-X:Numbers=1", "-X:Numbers=2"]);
+        assert_eq!(args.text, Vec::<String>::new());
+        assert_eq!(
+            args.numeric,
+            vec!["-X:Numbers=", "-X:Numbers=1", "-X:Numbers=2"]
+        );
     }
 
     #[test]

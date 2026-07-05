@@ -22,7 +22,12 @@
 
 import { useState } from "react";
 import { useTagInfo } from "../../hooks/useTagInfo";
-import type { MetadataDraftEdit, TagInfo, TagKind, Variant } from "../../types";
+import type {
+  MetadataDraftEdit,
+  TagInfo,
+  TagKind,
+  MetadataValue,
+} from "../../types";
 import { ValueEditDialog } from "../ValueEditDialog";
 import { BagEditor, type BagInnerKind } from "./BagEditor";
 import { EnumEditor } from "./EnumEditor";
@@ -43,7 +48,7 @@ import {
   parseDecimalDegrees,
   parseHemisphere,
   initialObjectFrom,
-  initialItemsFromVariant,
+  initialItemsFromMetadataValue,
 } from "./editorHelpers";
 
 import { gpsTagGroup, isFlashTag } from "../../metadata/tag_overrides";
@@ -51,11 +56,9 @@ import { EditorMetaHint, type EditorMetaSource } from "./EditorMetaHint";
 
 interface Props {
   propertyKey: string;
-  /** Current value as a Variant (from raw_metadata or display) or fall back to the legacy string. */
-  initialVariant?: Variant;
+  initialMetadataValue?: MetadataValue;
   initialString: string;
-  /** Full metadata for the file (used by LangAltEditor and GpsEditor to gather sibling keys). */
-  metadataForFile?: Record<string, Variant>;
+  metadataForFile?: Record<string, MetadataValue>;
   onSaveMetadata: (edit: MetadataDraftEdit) => void;
   /** Multi-tag save, used by GpsEditor and any future paired-tag editor. */
   onSaveMetadataBatch?: (
@@ -89,7 +92,7 @@ function bagInnerScalar(kind: TagKind): BagInnerKind | null {
 
 export function TypedValueEditor({
   propertyKey,
-  initialVariant,
+  initialMetadataValue,
   initialString,
   metadataForFile,
   onSaveMetadata,
@@ -104,8 +107,8 @@ export function TypedValueEditor({
   // ── Override 1: Flash bitfield ─────────────────────────────────────────
   if (isFlashTag(propertyKey)) {
     const code =
-      typeof initialVariant === "number"
-        ? Math.trunc(initialVariant)
+      initialMetadataValue && initialMetadataValue.kind === "Integer"
+        ? initialMetadataValue.value
         : Number(initialString) || 0;
     return (
       <FlashEditor
@@ -146,34 +149,52 @@ export function TypedValueEditor({
     const lonVal = metadataForFile[gpsGroup.longitudeKey];
     const altVal = metadataForFile[gpsGroup.altitudeKey];
     const altRefVal = metadataForFile[gpsGroup.altitudeRefKey];
+    const getScalarValue = (val?: MetadataValue): string | number | null => {
+      if (!val) return null;
+      if (val.kind === "Real" || val.kind === "Integer") return val.value;
+      if (val.kind === "Text") return val.value;
+      if (val.kind === "Rational")
+        return val.value.numerator / val.value.denominator;
+      return null;
+    };
+    const latScalar = getScalarValue(latVal);
+    const lonScalar = getScalarValue(lonVal);
+    const altScalar = getScalarValue(altVal);
+    const altRefScalar = getScalarValue(altRefVal);
+
     // exiftool's GPSAltitudeRef is `0` (above) or `1` (below) in raw form;
     // pretty form may render as "Above Sea Level" / "Below Sea Level".
     let initialAltitudeRef: "above" | "below" = "above";
-    if (typeof altRefVal === "number") {
-      initialAltitudeRef = altRefVal === 1 ? "below" : "above";
-    } else if (typeof altRefVal === "string" && /below/i.test(altRefVal)) {
+    if (typeof altRefScalar === "number") {
+      initialAltitudeRef = altRefScalar === 1 ? "below" : "above";
+    } else if (
+      typeof altRefScalar === "string" &&
+      /below/i.test(altRefScalar)
+    ) {
       initialAltitudeRef = "below";
     }
     const initialAltitudeMetres =
-      typeof altVal === "number"
-        ? altVal
-        : typeof altVal === "string" && altVal.trim() !== ""
-          ? parseFloat(altVal)
+      typeof altScalar === "number"
+        ? altScalar
+        : typeof altScalar === "string" && altScalar.trim() !== ""
+          ? parseFloat(altScalar)
           : null;
     return (
       <GpsEditor
         group={gpsGroup}
-        initialLatDecimal={parseDecimalDegrees(latVal)}
+        initialLatDecimal={parseDecimalDegrees(latScalar)}
         initialLatRef={
           parseHemisphere(
-            metadataForFile[gpsGroup.latitudeRefKey] ?? latVal,
+            getScalarValue(metadataForFile[gpsGroup.latitudeRefKey]) ??
+              latScalar,
             "lat",
           ) as "N" | "S"
         }
-        initialLonDecimal={parseDecimalDegrees(lonVal)}
+        initialLonDecimal={parseDecimalDegrees(lonScalar)}
         initialLonRef={
           parseHemisphere(
-            metadataForFile[gpsGroup.longitudeRefKey] ?? lonVal,
+            getScalarValue(metadataForFile[gpsGroup.longitudeRefKey]) ??
+              lonScalar,
             "lon",
           ) as "E" | "W"
         }
@@ -226,7 +247,9 @@ export function TypedValueEditor({
   if (tag) {
     const inner = bagInnerScalar(tag.kind);
     if (inner) {
-      const initialItems = initialItemsFrom(initialVariant ?? initialString);
+      const initialItems = initialItemsFrom(
+        initialMetadataValue ?? initialString,
+      );
       return (
         <BagEditor
           propertyKey={propertyKey}
@@ -248,7 +271,7 @@ export function TypedValueEditor({
         tag.kind.kind === "Alt") &&
       inner === null
     ) {
-      const items = initialItemsFromVariant(initialVariant);
+      const items = initialItemsFromMetadataValue(initialMetadataValue);
       return (
         <NestedListEditor
           propertyKey={propertyKey}
@@ -265,7 +288,7 @@ export function TypedValueEditor({
 
   if (tag && tag.kind.kind === "Enum") {
     const { repr, options } = tag.kind.data;
-    const code = initialCodeFrom(initialVariant, initialString, options);
+    const code = initialCodeFrom(initialMetadataValue, initialString, options);
     return (
       <EnumEditor
         propertyKey={propertyKey}
@@ -315,8 +338,8 @@ export function TypedValueEditor({
 
   if (tag && tag.kind.kind === "Boolean") {
     const v =
-      typeof initialVariant === "boolean"
-        ? initialVariant
+      initialMetadataValue && initialMetadataValue.kind === "Bool"
+        ? initialMetadataValue.value
         : initialString.toLowerCase() === "true" || initialString === "1"
           ? true
           : initialString.toLowerCase() === "false" || initialString === "0"
@@ -361,7 +384,7 @@ export function TypedValueEditor({
 
   if (tag && tag.kind.kind === "LangAlt") {
     const initialLangs = initialLangsFrom(
-      initialVariant,
+      initialMetadataValue,
       metadataForFile ?? {},
       propertyKey,
     );
@@ -381,7 +404,7 @@ export function TypedValueEditor({
   }
 
   if (tag && tag.kind.kind === "Struct") {
-    const initialObject = initialObjectFrom(initialVariant);
+    const initialObject = initialObjectFrom(initialMetadataValue);
     return (
       <StructEditor
         propertyKey={propertyKey}
@@ -421,19 +444,15 @@ export function TypedValueEditor({
     );
   }
 
-  // Also route Variant::Object values that come through tags whose schema
+  // Also route Struct values that come through tags whose schema
   // claims Text — common for tags listx doesn't describe as struct but
   // exiftool's -struct flag has nonetheless delivered as an object.  LangAlt
   // is handled above so we won't intercept Description-style objects here.
-  if (
-    initialVariant &&
-    typeof initialVariant === "object" &&
-    !Array.isArray(initialVariant)
-  ) {
+  if (initialMetadataValue && initialMetadataValue.kind === "Struct") {
     return (
       <StructEditor
         propertyKey={propertyKey}
-        initialObject={initialObjectFrom(initialVariant)}
+        initialObject={initialObjectFrom(initialMetadataValue)}
         innerEditor={TypedValueEditor}
         onSave={onSaveMetadata}
         onCancel={onCancel}

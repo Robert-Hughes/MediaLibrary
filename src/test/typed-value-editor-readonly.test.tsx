@@ -101,7 +101,7 @@ describe("TypedValueEditor read-only enforcement", () => {
       <TypedValueEditor
         propertyKey="EXIF:Orientation"
         initialString="1"
-        initialVariant={1}
+        initialMetadataValue={{ kind: "Integer", value: 1 }}
         onSaveMetadata={() => {}}
         onCancel={() => {}}
       />,

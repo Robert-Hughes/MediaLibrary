@@ -15,6 +15,7 @@ import { DatatypeBadge } from "./DatatypeBadge";
 import {
   schemaDatatype,
   variantDatatype,
+  metadataValueDatatype,
   datatypesMatch,
 } from "../utils/datatype";
 import { NewPropertyDialog } from "./NewPropertyDialog";
@@ -28,7 +29,6 @@ import {
   confirmApplyEdits,
   confirmDiscardEdits,
 } from "../utils/applyDiscardPrompts";
-import { metadataDraftToLegacyDraft } from "../utils/semanticDrafts";
 import { displayStringOfMetadataDraft } from "../draft";
 
 interface Props {
@@ -105,60 +105,6 @@ function splitHasEditsFilter(normalizedQuery: string): {
     ? normalizedQuery.replace("has:edits", "").trim()
     : normalizedQuery;
   return { query, hasEditsFilter };
-}
-
-function isMetadataValue(value: unknown): value is MetadataValue {
-  return (
-    !!value &&
-    typeof value === "object" &&
-    !Array.isArray(value) &&
-    "kind" in value &&
-    typeof (value as { kind?: unknown }).kind === "string"
-  );
-}
-
-function metadataEntryToEditorVariant(
-  value: ImageMetadataEntry | undefined,
-): Variant | undefined {
-  if (value === undefined) return undefined;
-  if (!isMetadataValue(value)) return value;
-  switch (value.kind) {
-    case "Null":
-      return null;
-    case "Text":
-    case "Bool":
-    case "Integer":
-    case "Real":
-      return value.value;
-    case "Rational":
-      return value.value.denominator === 0
-        ? null
-        : value.value.numerator / value.value.denominator;
-    case "List":
-      return value.value.items.map(
-        (item) => metadataEntryToEditorVariant(item) ?? null,
-      );
-    case "Struct":
-      return Object.fromEntries(
-        Object.entries(value.value).map(([key, item]) => [
-          key,
-          metadataEntryToEditorVariant(item),
-        ]),
-      );
-    default:
-      return undefined;
-  }
-}
-
-function metadataMapToEditorVariants(
-  metadata: Record<string, ImageMetadataEntry>,
-): Record<string, Variant> {
-  return Object.fromEntries(
-    Object.entries(metadata).map(([key, value]) => [
-      key,
-      metadataEntryToEditorVariant(value) ?? null,
-    ]),
-  );
 }
 
 function displayStringOfDraft(
@@ -272,14 +218,10 @@ function DetailsImageRow({
     valueInfo != null &&
     (schemaInfo == null || !datatypesMatch(valueInfo.code, schemaInfo.code));
 
-  const legacyDraft = typedDraft
-    ? metadataDraftToLegacyDraft(typedDraft)
-    : undefined;
-  const draftVariant =
-    legacyDraft && legacyDraft.intent !== "Delete"
-      ? legacyDraft.value
-      : undefined;
-  const draftInfo = variantDatatype(draftVariant ?? undefined);
+  const draftInfo =
+    typedDraft && typedDraft.intent !== "Delete"
+      ? metadataValueDatatype(typedDraft.value ?? undefined)
+      : null;
   const showDraftBadge =
     typedDraft != null &&
     typedDraft.intent !== "Delete" &&
@@ -799,22 +741,22 @@ export function DetailsPane({
       {editDialog && (
         <TypedValueEditor
           propertyKey={editDialog.key}
-          initialVariant={(() => {
-            // Prefer the typed draft Variant when one is already pending —
+          initialMetadataValue={(() => {
+            // Prefer the typed draft MetadataValue when one is already pending —
             // otherwise an editor that consults the raw value (notably
             // EnumEditor) would silently revert to the on-disk metadata
             // every time the row was re-edited.
             const pending = typedDraftEdits?.[editDialog.key];
             if (pending && pending.intent !== "Delete") {
-              return metadataDraftToLegacyDraft(pending).value ?? undefined;
+              return pending.value ?? undefined;
             }
             return metadata !== "loading"
-              ? metadataEntryToEditorVariant(metadata[editDialog.key])
+              ? (metadata[editDialog.key] as MetadataValue)
               : undefined;
           })()}
           metadataForFile={
             metadata !== "loading"
-              ? metadataMapToEditorVariants(metadata)
+              ? (metadata as Record<string, MetadataValue>)
               : undefined
           }
           initialString={editDialog.initialValue}
@@ -849,11 +791,11 @@ export function DetailsPane({
       {newPropertyKey !== null && (
         <TypedValueEditor
           propertyKey={newPropertyKey}
-          initialVariant={undefined}
+          initialMetadataValue={undefined}
           initialString=""
           metadataForFile={
             metadata !== "loading"
-              ? metadataMapToEditorVariants(metadata)
+              ? (metadata as Record<string, MetadataValue>)
               : undefined
           }
           onSaveMetadataBatch={

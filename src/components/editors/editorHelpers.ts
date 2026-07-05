@@ -1,20 +1,29 @@
-import type { Variant, EnumOption, TagKind } from "../../types";
+import type { MetadataValue, EnumOption, TagKind } from "../../types";
 import { gpsTagGroup } from "../../metadata/tag_overrides";
+import { metadataValueToDisplayString } from "../../draft";
 
 // ── BagEditor Helpers ────────────────────────────────────────────────────────
 
 /**
  * Best-effort initial-items extraction from whatever the caller has on hand:
- * a Variant value, the legacy comma-joined display string, or undefined.
+ * a MetadataValue value, the legacy comma-joined display string, or undefined.
  */
 export function initialItemsFrom(
-  value: Variant | string | null | undefined,
+  value: MetadataValue | string | null | undefined,
 ): string[] {
   if (value === null || value === undefined) return [];
-  if (Array.isArray(value)) {
-    return value
-      .map((v) => (typeof v === "string" ? v : String(v)))
-      .filter((s) => s.length > 0);
+  if (typeof value === "object" && "kind" in value) {
+    if (value.kind === "List") {
+      return value.value.items
+        .map((item) =>
+          item.kind === "Text"
+            ? item.value
+            : metadataValueToDisplayString(item),
+        )
+        .filter((s) => s.length > 0);
+    }
+    const s = metadataValueToDisplayString(value);
+    return s ? [s] : [];
   }
   if (typeof value === "string") {
     return value
@@ -22,19 +31,19 @@ export function initialItemsFrom(
       .map((s) => s.trim())
       .filter((s) => s.length > 0);
   }
-  // bool/number/object: not list-shaped; treat as a single chip if non-empty.
   const s = String(value);
   return s ? [s] : [];
 }
 
 // ── NestedListEditor Helpers ──────────────────────────────────────────────────
 
-/** Coerce whatever the caller has into a Variant[] suitable for editing. */
-export function initialItemsFromVariant(value: Variant | undefined): Variant[] {
-  if (Array.isArray(value)) return value.slice();
-  if (value === null || value === undefined) return [];
-  // Single non-list value treated as a one-item list (matches verifier's
-  // scalar↔list promotion).
+/** Coerce whatever the caller has into a MetadataValue[] suitable for editing. */
+export function initialItemsFromMetadataValue(
+  value: MetadataValue | undefined,
+): MetadataValue[] {
+  if (!value) return [];
+  if (value.kind === "List") return value.value.items;
+  if (value.kind === "Null") return [];
   return [value];
 }
 
@@ -114,38 +123,34 @@ export function toExiftoolFormat(s: string): string | null {
   return `${y}:${mo}:${d} ${h}:${mi}:${se ?? "00"}`;
 }
 
-// ── EnumEditor Helpers ────────────────────────────────────────────────────────
-
-/** Extract the current code (raw or pretty label) from whatever we have. */
 export function initialCodeFrom(
-  raw: Variant | undefined,
-  display: Variant | undefined,
+  raw: MetadataValue | undefined,
+  display: string | undefined,
   options: EnumOption[],
 ): string {
-  // Prefer the raw value when it matches a known code or label.  ExifTool
-  // often hands back the pretty label as the variant (no `-n`), so always
-  // probe the options table before falling back to the raw string — otherwise
-  // EnumEditor opens in Custom mode for in-spec values.
-  if (
-    raw !== undefined &&
-    raw !== null &&
-    !Array.isArray(raw) &&
-    typeof raw !== "object"
-  ) {
-    const s = String(raw);
-    const byCode = options.find((o) => o.code === s);
-    if (byCode) return byCode.code;
-    const byLabel = options.find((o) => o.label === s);
-    if (byLabel) return byLabel.code;
-    return s;
+  // Prefer the raw value when it matches a known code or label.
+  if (raw) {
+    if (raw.kind === "Integer") {
+      const s = String(raw.value);
+      const byCode = options.find((o) => o.code === s);
+      if (byCode) return byCode.code;
+      return s;
+    }
+    if (raw.kind === "Text") {
+      const s = raw.value;
+      const byCode = options.find((o) => o.code === s);
+      if (byCode) return byCode.code;
+      const byLabel = options.find((o) => o.label === s);
+      if (byLabel) return byLabel.code;
+      return s;
+    }
   }
   // Look up the display label in the options table.
-  if (typeof display === "string") {
+  if (display !== undefined) {
     const match = options.find((o) => o.label === display);
     if (match) return match.code;
     return display;
   }
-  if (typeof display === "number") return String(display);
   return options[0]?.code ?? "";
 }
 
@@ -294,39 +299,31 @@ export function parseHemisphere(
 
 /** Extract initial per-language values from the metadata for this tag. */
 export function initialLangsFrom(
-  baseValue: Variant | undefined,
-  metadataForFile: Record<string, Variant>,
+  baseValue: MetadataValue | undefined,
+  metadataForFile: Record<string, MetadataValue>,
   propertyKey: string,
 ): Record<string, string> {
   const out: Record<string, string> = {};
 
-  // Case A: the value itself is an Object keyed by language (with -struct).
-  if (baseValue && typeof baseValue === "object" && !Array.isArray(baseValue)) {
-    for (const [k, v] of Object.entries(baseValue)) {
-      if (typeof v === "string") out[k] = v;
-      else if (v !== null && v !== undefined) out[k] = String(v);
+  if (baseValue) {
+    if (baseValue.kind === "LangAlt") {
+      const res: Record<string, string> = {};
+      for (const [lang, val] of Object.entries(baseValue.value)) {
+        if (typeof val === "string") res[lang] = val;
+      }
+      return res;
     }
-    return out;
+    if (baseValue.kind === "Text") {
+      out["x-default"] = baseValue.value;
+    }
   }
 
-  // Case B: separate keys per language (`Description`, `Description-en`, …).
-  if (typeof baseValue === "string") {
-    out["x-default"] = baseValue;
-  } else if (typeof baseValue === "number" || typeof baseValue === "boolean") {
-    out["x-default"] = String(baseValue);
-  }
   for (const [key, value] of Object.entries(metadataForFile)) {
     if (key === propertyKey) continue;
     if (key.startsWith(propertyKey + "-")) {
       const lang = key.slice(propertyKey.length + 1);
-      if (typeof value === "string") out[lang] = value;
-      else if (
-        value !== null &&
-        value !== undefined &&
-        !Array.isArray(value) &&
-        typeof value !== "object"
-      ) {
-        out[lang] = String(value);
+      if (value.kind === "Text") {
+        out[lang] = value.value;
       }
     }
   }
@@ -337,10 +334,14 @@ export function initialLangsFrom(
 
 /** Best-effort: turn whatever we have into an Object suitable for editing. */
 export function initialObjectFrom(
-  value: Variant | undefined,
-): Record<string, Variant> {
-  if (value && typeof value === "object" && !Array.isArray(value)) {
-    return value as Record<string, Variant>;
+  value: MetadataValue | undefined,
+): Record<string, MetadataValue> {
+  if (value && value.kind === "Struct") {
+    const res: Record<string, MetadataValue> = {};
+    for (const [key, val] of Object.entries(value.value)) {
+      if (val !== undefined && val !== null) res[key] = val;
+    }
+    return res;
   }
   return {};
 }

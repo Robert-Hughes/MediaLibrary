@@ -150,7 +150,7 @@ describe("DetailsPane datatype badges", () => {
     expect(within(row).queryByTestId("datatype-badge-value")).toBeNull();
     expect(within(row).getByTestId("datatype-badge-draft")).toHaveAttribute(
       "data-code",
-      "N",
+      "I",
     );
   });
 
@@ -180,7 +180,7 @@ describe("DetailsPane datatype badges", () => {
     );
     expect(within(row).getByTestId("datatype-badge-draft")).toHaveAttribute(
       "data-code",
-      "N",
+      "I",
     );
   });
 
@@ -360,7 +360,7 @@ describe("DetailsPane datatype badges", () => {
     );
     expect(within(row).getByTestId("datatype-badge-draft")).toHaveAttribute(
       "data-code",
-      "N",
+      "I",
     );
   });
 
