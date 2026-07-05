@@ -81,8 +81,6 @@ impl DraftEdit {
     }
 }
 
-pub type TypedDraftEdits = HashMap<String, HashMap<String, DraftEdit>>;
-
 // ── v3 semantic model ────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -163,110 +161,6 @@ const FILE_NAME: &str = "MediaLibraryDraftEdits.jsonl";
 const V1_BACKUP_NAME: &str = "MediaLibraryDraftEdits.v1.bak.jsonl";
 const HEADER_COMMENT: &str =
     "// This file stores unapplied metadata draft edits. Lines starting with // are ignored.";
-
-// ── Typed API (Phase 3+) ─────────────────────────────────────────────────────
-
-pub fn load_typed_draft_edits(folder_path: &str) -> Result<TypedDraftEdits, String> {
-    let path = Path::new(folder_path).join(FILE_NAME);
-    let mut typed: TypedDraftEdits = HashMap::new();
-
-    if !path.exists() {
-        return Ok(typed);
-    }
-
-    let file = File::open(&path).map_err(|e| e.to_string())?;
-    let reader = BufReader::new(file);
-
-    let mut saw_v1 = false;
-
-    for line_result in reader.lines() {
-        let line = line_result.map_err(|e| e.to_string())?;
-        let trimmed = line.trim();
-        if trimmed.is_empty() || trimmed.starts_with("//") {
-            continue;
-        }
-
-        let version = serde_json::from_str::<VersionProbe>(trimmed)
-            .ok()
-            .and_then(|p| p.schema_version)
-            .unwrap_or(1);
-
-        match version {
-            2 => match serde_json::from_str::<V2Line>(trimmed) {
-                Ok(parsed) => {
-                    typed.insert(parsed.relative_path, parsed.edits);
-                }
-                Err(e) => log::warn!("[draft_edits] Skipping v2 line ({}): {}", e, trimmed),
-            },
-            _ => match serde_json::from_str::<V1Line>(trimmed) {
-                Ok(parsed) => {
-                    saw_v1 = true;
-                    let migrated: HashMap<String, DraftEdit> = parsed
-                        .edits
-                        .into_iter()
-                        .map(|(k, v)| (k, DraftEdit::from_legacy_string(v)))
-                        .collect();
-                    typed.insert(parsed.relative_path, migrated);
-                }
-                Err(e) => log::warn!(
-                    "[draft_edits] Skipping unparseable line ({}): {}",
-                    e,
-                    trimmed
-                ),
-            },
-        }
-    }
-
-    if saw_v1 {
-        // Migration occurred.  Snapshot the original file once so the user
-        // has a recovery point before the next save rewrites it as v2.
-        let backup = Path::new(folder_path).join(V1_BACKUP_NAME);
-        if !backup.exists() {
-            if let Err(e) = fs::copy(&path, &backup) {
-                log::warn!(
-                    "[draft_edits] Could not write v1 backup ({}): {}",
-                    backup.display(),
-                    e
-                );
-            } else {
-                log::info!(
-                    "[draft_edits] v1 draft file detected; backup written to {}",
-                    backup.display()
-                );
-            }
-        }
-    }
-
-    Ok(typed)
-}
-
-pub fn save_typed_draft_edits(folder_path: &str, data: &TypedDraftEdits) -> Result<(), String> {
-    let path = Path::new(folder_path).join(FILE_NAME);
-
-    let mut file = OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(true)
-        .open(&path)
-        .map_err(|e| e.to_string())?;
-
-    writeln!(file, "{}", HEADER_COMMENT).map_err(|e| e.to_string())?;
-
-    for (relative_path, edits) in data {
-        if edits.is_empty() {
-            continue;
-        }
-        let line = V2Line {
-            schema_version: 2,
-            relative_path: relative_path.clone(),
-            edits: edits.clone(),
-        };
-        let json_line = serde_json::to_string(&line).map_err(|e| e.to_string())?;
-        writeln!(file, "{}", json_line).map_err(|e| e.to_string())?;
-    }
-
-    Ok(())
-}
 
 pub fn load_metadata_draft_edits(folder_path: &str) -> Result<MetadataDraftEdits, String> {
     let path = Path::new(folder_path).join(FILE_NAME);
@@ -399,7 +293,7 @@ mod tests {
     #[test]
     fn load_nonexistent_folder_returns_empty() {
         let dir = tempdir().unwrap();
-        let result = load_typed_draft_edits(dir.path().to_str().unwrap()).unwrap();
+        let result = load_metadata_draft_edits(dir.path().to_str().unwrap()).unwrap();
         assert!(result.is_empty());
     }
 
@@ -411,10 +305,10 @@ mod tests {
             FILE_NAME,
             "// header\n{\"relative_path\":\"a.jpg\",\"edits\":{\"XMP-dc:Description\":\"hello\"}}\n",
         );
-        let result = load_typed_draft_edits(dir.path().to_str().unwrap()).unwrap();
+        let result = load_metadata_draft_edits(dir.path().to_str().unwrap()).unwrap();
         let edit = &result["a.jpg"]["XMP-dc:Description"];
         assert_eq!(edit.intent, EditIntent::Set);
-        assert_eq!(edit.value, Some(Variant::String("hello".to_string())));
+        assert_eq!(edit.value, Some(MetadataValue::Text("hello".to_string())));
     }
 
     #[test]
@@ -425,7 +319,7 @@ mod tests {
             FILE_NAME,
             "{\"relative_path\":\"a.jpg\",\"edits\":{\"XMP-dc:Description\":null}}\n",
         );
-        let result = load_typed_draft_edits(dir.path().to_str().unwrap()).unwrap();
+        let result = load_metadata_draft_edits(dir.path().to_str().unwrap()).unwrap();
         let edit = &result["a.jpg"]["XMP-dc:Description"];
         assert_eq!(edit.intent, EditIntent::Delete);
         assert_eq!(edit.value, None);
@@ -439,7 +333,7 @@ mod tests {
             FILE_NAME,
             "{\"relative_path\":\"a.jpg\",\"edits\":{\"k\":\"v\"}}\n",
         );
-        let _ = load_typed_draft_edits(dir.path().to_str().unwrap()).unwrap();
+        let _ = load_metadata_draft_edits(dir.path().to_str().unwrap()).unwrap();
         assert!(
             dir.path().join(V1_BACKUP_NAME).exists(),
             "v1 backup should have been written"
@@ -456,48 +350,45 @@ mod tests {
             FILE_NAME,
             "{\"relative_path\":\"a.jpg\",\"edits\":{\"k\":\"v\"}}\n",
         );
-        let _ = load_typed_draft_edits(dir.path().to_str().unwrap()).unwrap();
+        let _ = load_metadata_draft_edits(dir.path().to_str().unwrap()).unwrap();
         let backup_contents = read_file(dir.path(), V1_BACKUP_NAME);
         assert_eq!(backup_contents, "existing-backup-do-not-touch");
     }
 
     #[test]
-    fn v2_roundtrip() {
+    fn v2_line_migrates_to_semantic_shape() {
         let dir = tempdir().unwrap();
-        let mut data: TypedDraftEdits = HashMap::new();
-        let mut edits = HashMap::new();
-        edits.insert(
-            "XMP-dc:Subject".to_string(),
-            DraftEdit {
-                value: Some(Variant::List(vec![
-                    Variant::String("beach".to_string()),
-                    Variant::String("sunset".to_string()),
-                ])),
-                intent: EditIntent::Set,
-                display: Some("beach, sunset".to_string()),
-            },
+        write_file(
+            dir.path(),
+            FILE_NAME,
+            concat!(
+                "{\"schema_version\":2,\"relative_path\":\"a.jpg\",\"edits\":",
+                "{\"XMP-dc:Subject\":{\"value\":[\"beach\",\"sunset\"],",
+                "\"intent\":\"Set\",\"display\":\"beach, sunset\"},",
+                "\"Rating\":{\"value\":5,\"intent\":\"Set\"},",
+                "\"ToRemove\":{\"value\":null,\"intent\":\"Delete\"}}}\n",
+            ),
         );
-        edits.insert(
-            "Rating".to_string(),
-            DraftEdit {
-                value: Some(Variant::Integer(5)),
-                intent: EditIntent::Set,
-                display: None,
-            },
+        let loaded = load_metadata_draft_edits(dir.path().to_str().unwrap()).unwrap();
+        assert_eq!(
+            loaded["a.jpg"]["XMP-dc:Subject"].value,
+            Some(MetadataValue::List {
+                list_kind: crate::metadata_value::ListKind::Unknown,
+                items: vec![
+                    MetadataValue::Text("beach".to_string()),
+                    MetadataValue::Text("sunset".to_string()),
+                ],
+            })
         );
-        edits.insert(
-            "ToRemove".to_string(),
-            DraftEdit {
-                value: None,
-                intent: EditIntent::Delete,
-                display: None,
-            },
+        assert_eq!(
+            loaded["a.jpg"]["XMP-dc:Subject"].display.as_deref(),
+            Some("beach, sunset")
         );
-        data.insert("a.jpg".to_string(), edits);
-
-        save_typed_draft_edits(dir.path().to_str().unwrap(), &data).unwrap();
-        let loaded = load_typed_draft_edits(dir.path().to_str().unwrap()).unwrap();
-        assert_eq!(loaded, data);
+        assert_eq!(
+            loaded["a.jpg"]["Rating"].value,
+            Some(MetadataValue::Integer(5))
+        );
+        assert_eq!(loaded["a.jpg"]["ToRemove"].intent, EditIntent::Delete);
     }
 
     #[test]
@@ -512,14 +403,17 @@ mod tests {
                 "{\"k\":{\"value\":42,\"intent\":\"Set\"}}}\n",
             ),
         );
-        let loaded = load_typed_draft_edits(dir.path().to_str().unwrap()).unwrap();
+        let loaded = load_metadata_draft_edits(dir.path().to_str().unwrap()).unwrap();
         assert_eq!(loaded["v1.jpg"]["k"].intent, EditIntent::Set);
         assert_eq!(
             loaded["v1.jpg"]["k"].value,
-            Some(Variant::String("v".to_string()))
+            Some(MetadataValue::Text("v".to_string()))
         );
         assert_eq!(loaded["v2.jpg"]["k"].intent, EditIntent::Set);
-        assert_eq!(loaded["v2.jpg"]["k"].value, Some(Variant::Integer(42)));
+        assert_eq!(
+            loaded["v2.jpg"]["k"].value,
+            Some(MetadataValue::Integer(42))
+        );
     }
 
     #[test]
@@ -534,7 +428,7 @@ mod tests {
                 "{\"relative_path\":\"good2.jpg\",\"edits\":{\"k\":\"v2\"}}\n",
             ),
         );
-        let loaded = load_typed_draft_edits(dir.path().to_str().unwrap()).unwrap();
+        let loaded = load_metadata_draft_edits(dir.path().to_str().unwrap()).unwrap();
         assert_eq!(loaded.len(), 2);
         assert!(loaded.contains_key("good.jpg"));
         assert!(loaded.contains_key("good2.jpg"));
@@ -543,9 +437,9 @@ mod tests {
     #[test]
     fn empty_edits_omitted_from_output() {
         let dir = tempdir().unwrap();
-        let mut data: TypedDraftEdits = HashMap::new();
+        let mut data: MetadataDraftEdits = HashMap::new();
         data.insert("empty.jpg".to_string(), HashMap::new());
-        save_typed_draft_edits(dir.path().to_str().unwrap(), &data).unwrap();
+        save_metadata_draft_edits(dir.path().to_str().unwrap(), &data).unwrap();
         let contents = read_file(dir.path(), FILE_NAME);
         assert!(!contents.contains("empty.jpg"));
     }
@@ -563,26 +457,26 @@ mod tests {
                 "{\"relative_path\":\"a.jpg\",\"edits\":{\"k\":\"v\"}}\n",
             ),
         );
-        let loaded = load_typed_draft_edits(dir.path().to_str().unwrap()).unwrap();
+        let loaded = load_metadata_draft_edits(dir.path().to_str().unwrap()).unwrap();
         assert_eq!(loaded.len(), 1);
     }
 
     #[test]
     fn display_field_is_persisted_and_restored() {
         let dir = tempdir().unwrap();
-        let mut data: TypedDraftEdits = HashMap::new();
+        let mut data: MetadataDraftEdits = HashMap::new();
         let mut edits = HashMap::new();
         edits.insert(
             "EXIF:Orientation".to_string(),
-            DraftEdit {
-                value: Some(Variant::Integer(6)),
+            MetadataDraftEdit {
+                value: Some(MetadataValue::Integer(6)),
                 intent: EditIntent::Set,
                 display: Some("Rotate 90 CW".to_string()),
             },
         );
         data.insert("a.jpg".to_string(), edits);
-        save_typed_draft_edits(dir.path().to_str().unwrap(), &data).unwrap();
-        let loaded = load_typed_draft_edits(dir.path().to_str().unwrap()).unwrap();
+        save_metadata_draft_edits(dir.path().to_str().unwrap(), &data).unwrap();
+        let loaded = load_metadata_draft_edits(dir.path().to_str().unwrap()).unwrap();
         assert_eq!(loaded, data);
         // Sanity: the literal string is in the file.
         let contents = read_file(dir.path(), FILE_NAME);
@@ -599,18 +493,18 @@ mod tests {
         // field — keeps the on-disk shape minimal and v1-style files
         // round-trip without growing.
         let dir = tempdir().unwrap();
-        let mut data: TypedDraftEdits = HashMap::new();
+        let mut data: MetadataDraftEdits = HashMap::new();
         let mut edits = HashMap::new();
         edits.insert(
             "Rating".to_string(),
-            DraftEdit {
-                value: Some(Variant::Integer(5)),
+            MetadataDraftEdit {
+                value: Some(MetadataValue::Integer(5)),
                 intent: EditIntent::Set,
                 display: None,
             },
         );
         data.insert("a.jpg".to_string(), edits);
-        save_typed_draft_edits(dir.path().to_str().unwrap(), &data).unwrap();
+        save_metadata_draft_edits(dir.path().to_str().unwrap(), &data).unwrap();
         let contents = read_file(dir.path(), FILE_NAME);
         assert!(
             !contents.contains("\"display\""),
@@ -627,28 +521,28 @@ mod tests {
             FILE_NAME,
             "{\"relative_path\":\"a.jpg\",\"edits\":{\"k\":\"v\"}}\n",
         );
-        let loaded = load_typed_draft_edits(dir.path().to_str().unwrap()).unwrap();
+        let loaded = load_metadata_draft_edits(dir.path().to_str().unwrap()).unwrap();
         assert_eq!(loaded["a.jpg"]["k"].display, None);
     }
 
     #[test]
-    fn idempotent_v2_load_save_load() {
+    fn idempotent_v3_load_save_load() {
         let dir = tempdir().unwrap();
-        let mut data: TypedDraftEdits = HashMap::new();
+        let mut data: MetadataDraftEdits = HashMap::new();
         let mut edits = HashMap::new();
         edits.insert(
             "k".to_string(),
-            DraftEdit {
-                value: Some(Variant::Bool(true)),
+            MetadataDraftEdit {
+                value: Some(MetadataValue::Bool(true)),
                 intent: EditIntent::Set,
                 display: None,
             },
         );
         data.insert("a.jpg".to_string(), edits);
-        save_typed_draft_edits(dir.path().to_str().unwrap(), &data).unwrap();
-        let loaded1 = load_typed_draft_edits(dir.path().to_str().unwrap()).unwrap();
-        save_typed_draft_edits(dir.path().to_str().unwrap(), &loaded1).unwrap();
-        let loaded2 = load_typed_draft_edits(dir.path().to_str().unwrap()).unwrap();
+        save_metadata_draft_edits(dir.path().to_str().unwrap(), &data).unwrap();
+        let loaded1 = load_metadata_draft_edits(dir.path().to_str().unwrap()).unwrap();
+        save_metadata_draft_edits(dir.path().to_str().unwrap(), &loaded1).unwrap();
+        let loaded2 = load_metadata_draft_edits(dir.path().to_str().unwrap()).unwrap();
         assert_eq!(loaded1, loaded2);
     }
 
