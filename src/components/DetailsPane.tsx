@@ -29,10 +29,7 @@ import {
   confirmApplyEdits,
   confirmDiscardEdits,
 } from "../utils/applyDiscardPrompts";
-import {
-  legacyDraftToMetadataDraft,
-  metadataDraftToLegacyDraft,
-} from "../utils/semanticDrafts";
+import { metadataDraftToLegacyDraft } from "../utils/semanticDrafts";
 
 interface Props {
   photo: PhotoInfo;
@@ -533,24 +530,11 @@ export function DetailsPane({
   const showOsSection = !normalizedDetailsQuery || filteredOsEntries.length > 0;
 
   const saveDraft = (key: string, edit: DraftEdit) => {
-    if (onSetMetadataDraft) {
-      onSetMetadataDraft(key, legacyDraftToMetadataDraft(edit));
-    } else {
-      onSetDraftTyped?.(key, edit);
-    }
+    onSetDraftTyped?.(key, edit);
   };
 
   const saveDraftBatch = (edits: Array<{ key: string; edit: DraftEdit }>) => {
-    if (onSetMetadataDraftBatch) {
-      onSetMetadataDraftBatch(
-        edits.map(({ key, edit }) => ({
-          key,
-          edit: legacyDraftToMetadataDraft(edit),
-        })),
-      );
-    } else {
-      onSetDraftBatch?.(edits);
-    }
+    onSetDraftBatch?.(edits);
   };
 
   return (
@@ -816,7 +800,14 @@ export function DetailsPane({
               metadata !== "loading" &&
               contextMenu.key in (metadata as Record<string, Variant>);
             if (existsInOriginal) {
-              saveDraft(contextMenu.key, { value: null, intent: "Delete" });
+              if (onSetMetadataDraft) {
+                onSetMetadataDraft(contextMenu.key, {
+                  value: null,
+                  intent: "Delete",
+                });
+              } else {
+                saveDraft(contextMenu.key, { value: null, intent: "Delete" });
+              }
             } else {
               onDiscardDraft?.(contextMenu.key);
             }
@@ -856,10 +847,26 @@ export function DetailsPane({
                 }
               : undefined
           }
+          onSaveMetadataBatch={
+            onSetMetadataDraftBatch
+              ? (edits) => {
+                  onSetMetadataDraftBatch(edits);
+                  setEditDialog(null);
+                }
+              : undefined
+          }
           onSave={(edit) => {
             saveDraft(editDialog.key, edit);
             setEditDialog(null);
           }}
+          onSaveMetadata={
+            onSetMetadataDraft
+              ? (edit) => {
+                  onSetMetadataDraft(editDialog.key, edit);
+                  setEditDialog(null);
+                }
+              : undefined
+          }
           onCancel={() => setEditDialog(null)}
         />
       )}
@@ -894,10 +901,26 @@ export function DetailsPane({
                 }
               : undefined
           }
+          onSaveMetadataBatch={
+            onSetMetadataDraftBatch
+              ? (edits) => {
+                  onSetMetadataDraftBatch(edits);
+                  setNewPropertyKey(null);
+                }
+              : undefined
+          }
           onSave={(edit) => {
             saveDraft(newPropertyKey, edit);
             setNewPropertyKey(null);
           }}
+          onSaveMetadata={
+            onSetMetadataDraft
+              ? (edit) => {
+                  onSetMetadataDraft(newPropertyKey, edit);
+                  setNewPropertyKey(null);
+                }
+              : undefined
+          }
           onCancel={() => setNewPropertyKey(null)}
         />
       )}
