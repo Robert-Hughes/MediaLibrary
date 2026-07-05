@@ -42,7 +42,7 @@ describe("GpsEditor", () => {
     expect(warning).toHaveTextContent("GPS:GPSLongitudeRef");
   });
 
-  it("Save emits 4 paired DraftEdits", () => {
+  it("Save emits 4 paired semantic draft edits", () => {
     const onSave = vi.fn();
     render(
       <GpsEditor
@@ -64,19 +64,19 @@ describe("GpsEditor", () => {
     expect(edits).toHaveLength(4);
     const byKey = Object.fromEntries(edits.map((e) => [e.key, e.edit]));
     expect(byKey["GPS:GPSLatitude"]).toMatchObject({
-      value: 51.5,
+      value: { kind: "Real", value: 51.5 },
       intent: "Set",
     });
     expect(byKey["GPS:GPSLatitudeRef"]).toMatchObject({
-      value: "N",
+      value: { kind: "Text", value: "N" },
       intent: "Set",
     });
     expect(byKey["GPS:GPSLongitude"]).toMatchObject({
-      value: 0.13,
+      value: { kind: "Real", value: 0.13 },
       intent: "Set",
     });
     expect(byKey["GPS:GPSLongitudeRef"]).toMatchObject({
-      value: "W",
+      value: { kind: "Text", value: "W" },
       intent: "Set",
     });
     // Pretty-form display for the pending-change cell.
@@ -91,7 +91,7 @@ describe("GpsEditor", () => {
     );
   });
 
-  it("Save emits 6 paired DraftEdits when altitude is filled", async () => {
+  it("Save emits 6 paired semantic draft edits when altitude is filled", async () => {
     const user = userEvent.setup();
     const onSave = vi.fn();
     render(
@@ -117,7 +117,7 @@ describe("GpsEditor", () => {
     expect(edits).toHaveLength(6);
     const byKey = Object.fromEntries(edits.map((e) => [e.key, e.edit]));
     expect(byKey["GPS:GPSAltitude"]).toMatchObject({
-      value: 120.5,
+      value: { kind: "Real", value: 120.5 },
       intent: "Set",
     });
     expect((byKey["GPS:GPSAltitude"] as { display?: string }).display).toBe(
@@ -125,7 +125,7 @@ describe("GpsEditor", () => {
     );
     // exiftool encodes AltitudeRef as 0 (above) or 1 (below).
     expect(byKey["GPS:GPSAltitudeRef"]).toMatchObject({
-      value: 0,
+      value: { kind: "Integer", value: 0 },
       intent: "Set",
     });
     expect((byKey["GPS:GPSAltitudeRef"] as { display?: string }).display).toBe(

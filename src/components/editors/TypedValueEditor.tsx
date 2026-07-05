@@ -119,19 +119,6 @@ export function TypedValueEditor({
       onSave(edit);
     }
   };
-  const saveDraftBatch = (edits: Array<{ key: string; edit: DraftEdit }>) => {
-    if (onSaveMetadataBatch) {
-      onSaveMetadataBatch(
-        edits.map(({ key, edit }) => ({
-          key,
-          edit: legacyDraftToMetadataDraft(edit),
-        })),
-      );
-    } else {
-      onSaveBatch?.(edits);
-    }
-  };
-
   // ── Override 1: Flash bitfield ─────────────────────────────────────────
   if (isFlashTag(propertyKey)) {
     const code =
@@ -214,7 +201,17 @@ export function TypedValueEditor({
             : null
         }
         initialAltitudeRef={initialAltitudeRef}
-        onSave={saveDraftBatch}
+        onSave={
+          onSaveMetadataBatch
+            ? (edits) => onSaveMetadataBatch(edits)
+            : (edits) =>
+                onSaveBatch?.(
+                  edits.map(({ key, edit }) => ({
+                    key,
+                    edit: metadataDraftToLegacyDraft(edit),
+                  })),
+                )
+        }
         onCancel={onCancel}
         readOnly={readOnly}
         headerHint={
