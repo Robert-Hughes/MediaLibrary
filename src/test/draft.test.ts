@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  deriveLegacyFileEdits,
   displayStringOf,
-  mapTypedToLegacy,
   metadataValueToDisplayString,
   variantToDisplayString,
 } from "../draft";
@@ -44,62 +42,6 @@ describe("displayStringOf", () => {
       display: "beach • sunset",
     };
     expect(displayStringOf(d)).toBe("beach • sunset");
-  });
-});
-
-describe("mapTypedToLegacy", () => {
-  it("uses display string at the Tauri boundary when present", () => {
-    const typed = {
-      "a.jpg": {
-        "EXIF:Orientation": {
-          value: 6,
-          intent: "Set",
-          display: "Rotate 90 CW",
-        } as DraftEdit,
-      },
-    };
-    expect(mapTypedToLegacy(typed)).toEqual({
-      "a.jpg": { "EXIF:Orientation": "Rotate 90 CW" },
-    });
-  });
-
-  it("falls back to variantToDisplayString when display absent", () => {
-    const typed = {
-      "a.jpg": { Rating: { value: 5, intent: "Set" } as DraftEdit },
-    };
-    expect(mapTypedToLegacy(typed)).toEqual({ "a.jpg": { Rating: "5" } });
-  });
-
-  it("emits null for Delete intent and ignores any display value", () => {
-    const typed = {
-      "a.jpg": {
-        Tag: {
-          value: null,
-          intent: "Delete",
-          display: "should-not-show",
-        } as DraftEdit,
-      },
-    };
-    expect(mapTypedToLegacy(typed)).toEqual({ "a.jpg": { Tag: null } });
-  });
-});
-
-describe("deriveLegacyFileEdits", () => {
-  it("prefers display per key", () => {
-    const file = {
-      "EXIF:Orientation": {
-        value: 6,
-        intent: "Set",
-        display: "Rotate 90 CW",
-      } as DraftEdit,
-      Rating: { value: 5, intent: "Set" } as DraftEdit,
-      Old: { value: null, intent: "Delete" } as DraftEdit,
-    };
-    expect(deriveLegacyFileEdits(file)).toEqual({
-      "EXIF:Orientation": "Rotate 90 CW",
-      Rating: "5",
-      Old: null,
-    });
   });
 });
 

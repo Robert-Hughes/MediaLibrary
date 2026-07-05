@@ -1,44 +1,35 @@
 import { describe, expect, it } from "vitest";
-import type { DraftEditsByFile, MetadataDraftEdit } from "../types";
+import type { MetadataDraftEdit } from "../types";
 import {
-  legacyDraftsToMetadataDrafts,
-  metadataDraftsToLegacyDrafts,
-  metadataEntryToVariant,
+  legacyDraftToMetadataDraft,
+  metadataDraftToLegacyDraft,
 } from "../utils/semanticDrafts";
 
 describe("semantic draft adapters", () => {
-  it("converts legacy draft variants to semantic v3 draft values", () => {
-    const drafts: DraftEditsByFile = {
-      "a.jpg": {
-        "XMP-dc:Subject": {
-          value: ["one", "two"],
-          intent: "Set",
-          display: "one, two",
+  it("converts legacy draft variants to semantic draft values", () => {
+    expect(
+      legacyDraftToMetadataDraft({
+        value: ["one", "two"],
+        intent: "Set",
+        display: "one, two",
+      }),
+    ).toEqual({
+      value: {
+        kind: "List",
+        value: {
+          list_kind: "Unknown",
+          items: [
+            { kind: "Text", value: "one" },
+            { kind: "Text", value: "two" },
+          ],
         },
       },
-    };
-
-    expect(legacyDraftsToMetadataDrafts(drafts)).toEqual({
-      "a.jpg": {
-        "XMP-dc:Subject": {
-          value: {
-            kind: "List",
-            value: {
-              list_kind: "Unknown",
-              items: [
-                { kind: "Text", value: "one" },
-                { kind: "Text", value: "two" },
-              ],
-            },
-          },
-          intent: "Set",
-          display: "one, two",
-        },
-      },
+      intent: "Set",
+      display: "one, two",
     });
   });
 
-  it("converts semantic v3 draft values back to the current editor shape", () => {
+  it("converts semantic draft values back to the current editor shape", () => {
     const edit: MetadataDraftEdit = {
       value: {
         kind: "Date",
@@ -47,29 +38,10 @@ describe("semantic draft adapters", () => {
       intent: "Set",
     };
 
-    expect(
-      metadataDraftsToLegacyDrafts({ "a.jpg": { "IPTC:DateCreated": edit } }),
-    ).toEqual({
-      "a.jpg": {
-        "IPTC:DateCreated": {
-          value: "2026:07:04",
-          intent: "Set",
-          display: "2026:07:04",
-        },
-      },
+    expect(metadataDraftToLegacyDraft(edit)).toEqual({
+      value: "2026:07:04",
+      intent: "Set",
+      display: "2026:07:04",
     });
-  });
-
-  it("does not turn Unknown semantic values into editable text", () => {
-    expect(
-      metadataEntryToVariant({
-        kind: "Unknown",
-        value: {
-          expected: null,
-          raw: "raw-value",
-          reason: "no schema entry for tag",
-        },
-      }),
-    ).toBeNull();
   });
 });

@@ -1,46 +1,11 @@
 import type {
   DraftEdit,
-  DraftEditsByFile,
-  ImageMetadataEntry,
   MetadataDraftEdit,
-  MetadataDraftEditsByFile,
   MetadataValue,
   Variant,
 } from "../types";
 import { metadataValueToDisplayString } from "../draft";
 import { variantToMetadataValue } from "./scanEvents";
-
-export function legacyDraftsToMetadataDrafts(
-  drafts: DraftEditsByFile,
-): MetadataDraftEditsByFile {
-  return Object.fromEntries(
-    Object.entries(drafts).map(([path, edits]) => [
-      path,
-      Object.fromEntries(
-        Object.entries(edits).map(([tag, edit]) => [
-          tag,
-          legacyDraftToMetadataDraft(edit),
-        ]),
-      ),
-    ]),
-  );
-}
-
-export function metadataDraftsToLegacyDrafts(
-  drafts: MetadataDraftEditsByFile,
-): DraftEditsByFile {
-  return Object.fromEntries(
-    Object.entries(drafts).map(([path, edits]) => [
-      path,
-      Object.fromEntries(
-        Object.entries(edits).map(([tag, edit]) => [
-          tag,
-          metadataDraftToLegacyDraft(edit),
-        ]),
-      ),
-    ]),
-  );
-}
 
 export function legacyDraftToMetadataDraft(edit: DraftEdit): MetadataDraftEdit {
   return {
@@ -62,24 +27,6 @@ export function metadataDraftToLegacyDraft(edit: MetadataDraftEdit): DraftEdit {
     intent: edit.intent,
     display: edit.display ?? metadataValueToDisplayString(edit.value),
   };
-}
-
-export function metadataEntryToVariant(
-  value: ImageMetadataEntry | null | undefined,
-): Variant | null {
-  if (value === null || value === undefined) return null;
-  if (!isMetadataValue(value)) return value;
-  return metadataValueToVariant(value);
-}
-
-function isMetadataValue(value: unknown): value is MetadataValue {
-  return (
-    !!value &&
-    typeof value === "object" &&
-    !Array.isArray(value) &&
-    "kind" in value &&
-    typeof (value as { kind?: unknown }).kind === "string"
-  );
 }
 
 export function metadataValueToVariant(value: MetadataValue): Variant {
