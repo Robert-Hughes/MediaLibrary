@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { PhotoList } from "../components/PhotoList";
 import { ThumbnailStore, ImageMetadataStore } from "../types";
+import type { MetadataDraftEdit } from "../types";
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({
   ask: vi.fn(() => Promise.resolve(true)),
@@ -68,6 +69,10 @@ function setup(props: Partial<React.ComponentProps<typeof PhotoList>> = {}) {
 
 function rows() {
   return screen.getAllByTestId("photo-row");
+}
+
+function textDraft(value: string): MetadataDraftEdit {
+  return { intent: "Set", value: { kind: "Text", value } };
 }
 
 /**
@@ -334,7 +339,9 @@ describe("PhotoList context menu (multi-select)", () => {
     vi.mocked(ask).mockClear();
 
     const onGenerateAiDescription = vi.fn();
-    const draftEdits = { "1.jpg": { "XMP-mlib:AIDescription": "draft text" } };
+    const draftEdits = {
+      "1.jpg": { "XMP-mlib:AIDescription": textDraft("draft text") },
+    };
     setup({ draftEdits, onGenerateAiDescription });
     fireEvent.click(rows()[1]);
     fireEvent.contextMenu(rows()[1]);
@@ -362,8 +369,8 @@ describe("PhotoList context menu (multi-select)", () => {
 
   it("Apply edits passes the array of edited selected paths", async () => {
     const draftEdits = {
-      "1.jpg": { "IFD0:Make": "Canon" },
-      "3.jpg": { "IFD0:Model": "R5" },
+      "1.jpg": { "IFD0:Make": textDraft("Canon") },
+      "3.jpg": { "IFD0:Model": textDraft("R5") },
     };
     const { onApplyEdits } = setup({ draftEdits });
     fireEvent.click(rows()[1]);
@@ -380,8 +387,8 @@ describe("PhotoList context menu (multi-select)", () => {
 
   it("Discard all edits passes the array of edited selected paths", async () => {
     const draftEdits = {
-      "0.jpg": { "IFD0:Make": "Canon" },
-      "2.jpg": { "IFD0:Model": "R5" },
+      "0.jpg": { "IFD0:Make": textDraft("Canon") },
+      "2.jpg": { "IFD0:Model": textDraft("R5") },
     };
     const { onDiscardAllEdits } = setup({ draftEdits });
     fireEvent.click(rows()[0]);

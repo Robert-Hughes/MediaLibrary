@@ -16,7 +16,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { PhotoList } from "../components/PhotoList";
 import { ThumbnailStore, ImageMetadataStore } from "../types";
-import type { Variant } from "../types";
+import type { MetadataDraftEdit, Variant } from "../types";
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({
   ask: vi.fn(() => Promise.resolve(true)),
@@ -33,7 +33,7 @@ async function getAskMock() {
 interface SetupOptions {
   photoCount?: number;
   metadataByPath?: Record<string, Record<string, Variant>>;
-  draftEditsByPath?: Record<string, Record<string, string | null>>;
+  draftEditsByPath?: Record<string, Record<string, MetadataDraftEdit>>;
   onGeocode?: (paths: string[]) => void;
 }
 
@@ -209,7 +209,14 @@ describe("PhotoList: Reverse Geocode context-menu entry", () => {
 
   it("invokes onGeocode directly when a draft-only location tag is present", async () => {
     const { onGeocode } = setup({
-      draftEditsByPath: { "0.jpg": { "XMP-photoshop:State": "Bavaria" } },
+      draftEditsByPath: {
+        "0.jpg": {
+          "XMP-photoshop:State": {
+            intent: "Set",
+            value: { kind: "Text", value: "Bavaria" },
+          },
+        },
+      },
     });
     fireEvent.click(rows()[0]);
     fireEvent.contextMenu(rows()[0]);
