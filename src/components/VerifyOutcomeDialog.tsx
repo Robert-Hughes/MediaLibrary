@@ -1,4 +1,4 @@
-// Phase 8.1 — Surface per-tag verification outcomes that need user attention.
+// Dialog to surface per-tag verification outcomes that need user attention.
 //
 // Mounted while `appState.verifyOutcomes` is non-empty.  Lists every Coerced /
 // Mismatch / MissingPostWrite / DeleteLingering tag from the most recent apply

@@ -1,4 +1,4 @@
-// Phase 8.4 — numerator/denominator editor for Rational tags.
+// Numerator/denominator editor for Rational tags.
 //
 // Rational EXIF tags (ExposureTime, ShutterSpeedValue, FNumber-as-rational,
 // some MakerNotes timing fields) are typically presented as `1/250`.  The

@@ -1,5 +1,4 @@
 // Tri-state Boolean editor: true / false / unset (which Delete-intents the tag).
-// Phase 4 minimum.
 
 import { useState } from "react";
 import type { MetadataDraftEdit } from "../../types";

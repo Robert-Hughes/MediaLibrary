@@ -310,17 +310,17 @@ export type DraftEditsListener = (changes: DraftEditsChange[]) => void;
 export type SetDraftOutcome = "written" | "redundant" | "cleared";
 
 /**
- * Deep structural equality for `Variant` values. Used by the
- * redundant-draft guard to compare a proposed Set value against the
+ * Deep structural equality for semantic `MetadataValue` entries.  Used by
+ * the redundant-draft guard to compare a proposed Set value against the
  * tag's current effective value. Object keys are compared
  * order-independently.
  */
-export function variantEqual(
+export function metadataValueEqual(
   a: ImageMetadataEntry | undefined,
   b: ImageMetadataEntry | undefined,
 ): boolean {
-  const av = metadataEntryToComparableVariant(a);
-  const bv = metadataEntryToComparableVariant(b);
+  const av = metadataEntryToComparableValue(a);
+  const bv = metadataEntryToComparableValue(b);
   return deepEqual(av, bv);
 }
 
@@ -350,7 +350,7 @@ function deepEqual(a: any, b: any): boolean {
   return false;
 }
 
-function metadataEntryToComparableVariant(
+function metadataEntryToComparableValue(
   value: ImageMetadataEntry | undefined,
 ): any {
   if (!value) return undefined;
@@ -368,13 +368,13 @@ function metadataEntryToComparableVariant(
         : value.value.numerator / value.value.denominator;
     case "List":
       return value.value.items.map(
-        (item) => metadataEntryToComparableVariant(item) ?? null,
+        (item) => metadataEntryToComparableValue(item) ?? null,
       );
     case "Struct":
       return Object.fromEntries(
         Object.entries(value.value).map(([k, v]) => [
           k,
-          metadataEntryToComparableVariant(v),
+          metadataEntryToComparableValue(v),
         ]),
       );
     default:
@@ -449,7 +449,7 @@ export class DraftEditsStore {
     // explicitly asking to clear a tag (and we trust them).
     if (edit.intent === "Set" && this.currentValueResolver) {
       const current = this.currentValueResolver(path, tag);
-      if (variantEqual(current, edit.value ?? undefined)) {
+      if (metadataValueEqual(current, edit.value ?? undefined)) {
         if (existingDraft) {
           // Existing draft becomes redundant — remove it so the user
           // doesn't see a "pending change" that wouldn't actually

@@ -1,10 +1,10 @@
 // NestedListEditor unit tests.
 //
 // Regression coverage for METADATA_FORMATS_DESIGN.md §5's
-// "no depth limit" recursive-composition promise.  Pre-Phase 8 the router
-// fell through to the legacy text editor for Bag<Struct> / Bag<LangAlt>,
+// "no depth limit" recursive-composition promise.  Previously the router
+// fell through to the plain text fallback for Bag<Struct> / Bag<LangAlt>,
 // so e.g. XMP-mwg-rs:Regions could not be edited at field granularity.
-// These tests pin the new behaviour: Bag/Seq of non-scalar inner kinds
+// These tests pin the current behaviour: Bag/Seq of non-scalar inner kinds
 // route to NestedListEditor, items can be added/removed/reordered, and
 // each item delegates back to TypedValueEditor for its own kind.
 

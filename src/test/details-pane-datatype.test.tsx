@@ -3,7 +3,7 @@
  *
  * Covers every interesting combination of schema-declared kind, runtime
  * value type, and pending draft type, exercising the
- * schemaDatatype/variantDatatype/datatypesMatch rules through the
+ * schemaDatatype/metadataEntryDatatype/datatypesMatch rules through the
  * rendered DOM.
  */
 import { render, screen, within, cleanup } from "@testing-library/react";

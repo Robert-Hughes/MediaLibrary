@@ -1,8 +1,7 @@
-import { describe, it, expect } from "vitest";
 import {
   metadataValueDatatype,
   schemaDatatype,
-  variantDatatype,
+  metadataEntryDatatype,
   datatypesMatch,
 } from "../utils/datatype";
 import type { TagKind } from "../types";
@@ -41,22 +40,22 @@ describe("schemaDatatype", () => {
   });
 });
 
-describe("variantDatatype", () => {
-  it("classifies primitive variants", () => {
-    expect(variantDatatype("hello" as any)?.code).toBe("S");
-    expect(variantDatatype(42 as any)?.code).toBe("N");
-    expect(variantDatatype(3.14 as any)?.code).toBe("N");
-    expect(variantDatatype(true as any)?.code).toBe("B");
-    expect(variantDatatype(null as any)?.code).toBe("∅");
+describe("metadataEntryDatatype", () => {
+  it("classifies primitive JSON shapes (fallback path)", () => {
+    expect(metadataEntryDatatype("hello" as any)?.code).toBe("S");
+    expect(metadataEntryDatatype(42 as any)?.code).toBe("N");
+    expect(metadataEntryDatatype(3.14 as any)?.code).toBe("N");
+    expect(metadataEntryDatatype(true as any)?.code).toBe("B");
+    expect(metadataEntryDatatype(null as any)?.code).toBe("\u2205");
   });
 
   it("classifies containers", () => {
-    expect(variantDatatype(["a"] as any)?.code).toBe("L");
-    expect(variantDatatype({ x: "y" } as any)?.code).toBe("{}");
+    expect(metadataEntryDatatype(["a"] as any)?.code).toBe("L");
+    expect(metadataEntryDatatype({ x: "y" } as any)?.code).toBe("{}");
   });
 
   it("returns null for undefined", () => {
-    expect(variantDatatype(undefined)).toBeNull();
+    expect(metadataEntryDatatype(undefined)).toBeNull();
   });
 });
 

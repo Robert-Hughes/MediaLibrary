@@ -11,7 +11,7 @@ import { metadataValueToDisplayString } from "../../draft";
 
 /**
  * Best-effort initial-items extraction from whatever the caller has on hand:
- * a MetadataValue value, the legacy comma-joined display string, or undefined.
+ * a MetadataValue value, a plain-string display form, or undefined.
  */
 export function initialItemsFrom(
   value: MetadataValue | string | null | undefined,
@@ -204,7 +204,7 @@ export const RETURN_LABELS: Record<number, string> = {
 
 /**
  * Compose a human-readable description from the field bag — used for the
- * DraftEdit.display string so the pending-change cell shows "Flash fired,
+ * MetadataDraftEdit.display string so the pending-change cell shows "Flash fired,
  * Auto, Red-eye reduction" instead of a bare integer code.  Roughly mirrors
  * exiftool's PrintConv for the Flash tag.
  */
@@ -228,7 +228,7 @@ export const gpsGroupFor = gpsTagGroup;
 /**
  * Format a decimal-degrees value plus hemisphere as exiftool's canonical
  * DMS display string, e.g. `51 deg 30' 26.16" N`.  Used for the
- * DraftEdit.display field so the pending-change cell shows the same form
+ * MetadataDraftEdit.display field so the pending-change cell shows the same form
  * the user would see in the read view (Pass A pretty output).
  */
 export function decimalToDms(

@@ -13,7 +13,7 @@ import { useTagInfo } from "../hooks/useTagInfo";
 import { DatatypeBadge } from "./DatatypeBadge";
 import {
   schemaDatatype,
-  variantDatatype,
+  metadataEntryDatatype,
   metadataValueDatatype,
   datatypesMatch,
 } from "../utils/datatype";
@@ -33,8 +33,13 @@ import { displayStringOfMetadataDraft } from "../draft";
 interface Props {
   photo: PhotoInfo;
   metadata: ImageMetadataState;
+  /**
+   * Display-string view of pending edits, keyed by metadata tag.  Each value
+   * is the human-readable form of the draft (or `null` for a Delete draft).
+   * When absent, the pane derives an equivalent map from `typedDraftEdits`.
+   */
   draftEdits?: Record<string, string | null>;
-  /** Semantic view of the same drafts. */
+  /** Semantic draft edits, keyed by metadata tag. Primary write path. */
   typedDraftEdits?: Record<string, MetadataDraftEdit>;
   /** Semantic setter used by every editor via the local adapter. */
   onSetMetadataDraft?: (key: string, edit: MetadataDraftEdit) => void;
@@ -209,7 +214,7 @@ function DetailsImageRow({
   const schemaInfo = tag && tag !== "loading" ? schemaDatatype(tag.kind) : null;
   const readOnly = tag != null && tag !== "loading" && !tag.writable;
 
-  const valueInfo = variantDatatype(rawValue);
+  const valueInfo = metadataEntryDatatype(rawValue);
   // With a schema, the value badge is a divergence indicator (hidden when
   // the type matches expectations). Without a schema there is no reference
   // type, so always surface the runtime datatype as informational.
@@ -333,7 +338,7 @@ function DetailsRowContextMenu({
 export function DetailsPane({
   photo,
   metadata,
-  draftEdits: legacyDraftEdits,
+  draftEdits: displayDraftEdits,
   typedDraftEdits,
   onSetMetadataDraft,
   onSetMetadataDraftBatch,
@@ -363,7 +368,7 @@ export function DetailsPane({
   const [newPropertyKey, setNewPropertyKey] = useState<string | null>(null);
 
   const draftEdits = useMemo(() => {
-    if (legacyDraftEdits) return legacyDraftEdits;
+    if (displayDraftEdits) return displayDraftEdits;
     if (!typedDraftEdits) return {};
     return Object.fromEntries(
       Object.entries(typedDraftEdits)
@@ -373,7 +378,7 @@ export function DetailsPane({
             entry[1] !== undefined,
         ),
     );
-  }, [legacyDraftEdits, typedDraftEdits]);
+  }, [displayDraftEdits, typedDraftEdits]);
 
   const handleContextMenu = (
     e: React.MouseEvent,

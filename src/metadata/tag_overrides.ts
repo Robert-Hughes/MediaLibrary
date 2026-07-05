@@ -18,7 +18,7 @@ export interface GpsTagGroup {
   latitudeRefKey: string;
   longitudeKey: string;
   longitudeRefKey: string;
-  /** Phase 8 fix-up — GPSAltitude (metres) paired with its 0=above-sea-level / 1=below ref. */
+  /** GPSAltitude (metres) paired with its 0=above-sea-level / 1=below ref. */
   altitudeKey: string;
   altitudeRefKey: string;
 }

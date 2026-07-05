@@ -1,12 +1,12 @@
 // Schema lookup hook with per-session cache.
 //
-// Calls the Tauri `get_tag_info` command (Phase 2 backend) and caches results
-// in a module-level Map keyed by `Group:Name`.  Repeated lookups during a
+// Calls the Tauri `get_tag_info` command and caches results in a
+// module-level Map keyed by `Group:Name`.  Repeated lookups during a
 // session hit the cache.  A failed registry build returns `null`; an unknown
 // tag also returns `null` (caller treats both as "no schema, use text
 // fallback").
 //
-// Phase 4 editors call this to decide which kind-specific control to render.
+// Editors call this to decide which kind-specific control to render.
 
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";

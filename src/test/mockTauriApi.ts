@@ -295,7 +295,7 @@ export function createMockTauriApi(): MockTauriApi {
       }
       if (cmd === "get_tag_info") {
         // Tests don't exercise schema-driven editors; return null so
-        // TypedValueEditor falls through to the legacy text input.
+        // TypedValueEditor falls through to the plain text editor.
         return null;
       }
       if (cmd === "apply_metadata_draft_edits_cmd") {
