@@ -213,3 +213,37 @@ describe("TypedValueEditor temporal routing", () => {
     expect(screen.queryByTestId("datetime-editor-input")).toBeNull();
   });
 });
+
+describe("TypedValueEditor semantic save callbacks", () => {
+  it("converts legacy text-editor output to MetadataDraftEdit", async () => {
+    _setTagInfoCacheEntry("XMP-dc:Title", {
+      group: "XMP-dc",
+      name: "Title",
+      writable: true,
+      kind: { kind: "Text" },
+      description: null,
+    });
+    const onSave = vi.fn();
+    const onSaveMetadata = vi.fn();
+
+    render(
+      <TypedValueEditor
+        propertyKey="XMP-dc:Title"
+        initialString="old"
+        onSave={onSave}
+        onSaveMetadata={onSaveMetadata}
+        onCancel={() => {}}
+      />,
+    );
+
+    const input = await screen.findByTestId("value-edit-input");
+    fireEvent.change(input, { target: { value: "new title" } });
+    fireEvent.click(screen.getByRole("button", { name: /save/i }));
+
+    expect(onSave).not.toHaveBeenCalled();
+    expect(onSaveMetadata).toHaveBeenCalledWith({
+      value: { kind: "Text", value: "new title" },
+      intent: "Set",
+    });
+  });
+});
