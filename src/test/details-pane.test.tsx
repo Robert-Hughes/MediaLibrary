@@ -27,7 +27,7 @@ import {
   extractPrefix,
 } from "../utils/detailsPaneHelpers";
 import { makePhoto } from "./factories";
-import type { DraftEdit, MetadataDraftEdit, Variant } from "../types";
+import type { MetadataDraftEdit, Variant } from "../types";
 import { _clearTagInfoCache, _setTagInfoCacheEntry } from "../hooks/useTagInfo";
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -319,8 +319,11 @@ describe("DetailsPane: Generate-AI button", () => {
     vi.resetModules();
     const { DetailsPane: Fresh } = await import("../components/DetailsPane");
     const onGenerate = vi.fn();
-    const typedDraftEdits: Record<string, DraftEdit> = {
-      "XMP-mlib:AIDescription": { value: "older description", intent: "Set" },
+    const typedDraftEdits: Record<string, MetadataDraftEdit> = {
+      "XMP-mlib:AIDescription": {
+        value: { kind: "Text", value: "older description" },
+        intent: "Set",
+      },
     };
     const user = userEvent.setup();
     render(
@@ -659,8 +662,12 @@ describe("DetailsPane: Edit reopens with pending draft as the seed", () => {
       description: null,
     });
 
-    const typedDraftEdits: Record<string, DraftEdit> = {
-      "IFD0:Orientation": { value: 8, intent: "Set", display: "Rotate 270 CW" },
+    const typedDraftEdits: Record<string, MetadataDraftEdit> = {
+      "IFD0:Orientation": {
+        value: { kind: "Integer", value: 8 },
+        intent: "Set",
+        display: "Rotate 270 CW",
+      },
     };
 
     render(
@@ -692,8 +699,12 @@ describe("DetailsPane: Edit reopens with pending draft as the seed", () => {
       description: null,
     });
 
-    const typedDraftEdits: Record<string, DraftEdit> = {
-      "XMP-xmp:Rating": { value: 4, intent: "Set", display: "4" },
+    const typedDraftEdits: Record<string, MetadataDraftEdit> = {
+      "XMP-xmp:Rating": {
+        value: { kind: "Real", value: 4 },
+        intent: "Set",
+        display: "4",
+      },
     };
 
     render(

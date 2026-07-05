@@ -19,7 +19,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { DetailsPane } from "../components/DetailsPane";
 import { makePhoto } from "./factories";
-import type { DraftEdit } from "../types";
+import type { MetadataDraftEdit } from "../types";
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({
   ask: vi.fn(() => Promise.resolve(true)),
@@ -28,8 +28,8 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(() => Promise.resolve(null)),
 }));
 
-const setDraftEdit = (value: string): DraftEdit => ({
-  value: { type: "String", value },
+const setDraftEdit = (value: string): MetadataDraftEdit => ({
+  value: { kind: "Text", value },
   intent: "Set",
 });
 
