@@ -2,6 +2,8 @@ Current
 =======
 
 * Halfway through migration from "Variant" to "MetadataValue" smenatic representation
+  * â€” mojibake on main view
+  * Many fields showing as "Unparsed"
 * Normalize metadata!
   * Manual testing - check idempotency: running, applying then running again should show no changes necessary
 
