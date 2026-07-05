@@ -1,84 +1,12 @@
 /**
  * Unit tests for the pure helpers behind the scan-event pipeline.
  *
- * `normalizeDraftsFromTauri` is the boundary between the Tauri-shaped
- * raw payload (which may still carry the legacy `string | null` shape
- * during gradual migration) and the typed in-memory store.
- *
  * `scheduleBatchedFlush` decides per call whether to flush a buffered
  * event stream immediately or defer for coalescing — the same shape is
  * shared by the photo / metadata / thumbnail buffers.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import {
-  normalizeDraftsFromTauri,
-  scheduleBatchedFlush,
-} from "../utils/scanEvents";
-
-describe("normalizeDraftsFromTauri", () => {
-  it("returns empty object for non-object input", () => {
-    expect(normalizeDraftsFromTauri(null)).toEqual({});
-    expect(normalizeDraftsFromTauri(undefined)).toEqual({});
-    expect(normalizeDraftsFromTauri("string")).toEqual({});
-    expect(normalizeDraftsFromTauri(42)).toEqual({});
-  });
-
-  it("passes through already-typed edits unchanged", () => {
-    const input = {
-      "a.jpg": { "XMP-dc:Title": { value: "hi", intent: "Set" } },
-    };
-    expect(normalizeDraftsFromTauri(input)).toEqual({
-      "a.jpg": { "XMP-dc:Title": { value: "hi", intent: "Set" } },
-    });
-  });
-
-  it("converts null legacy values to Delete intent", () => {
-    expect(
-      normalizeDraftsFromTauri({
-        "a.jpg": { "XMP-dc:Title": null },
-      }),
-    ).toEqual({
-      "a.jpg": { "XMP-dc:Title": { value: null, intent: "Delete" } },
-    });
-  });
-
-  it("converts string legacy values to Set intent", () => {
-    expect(
-      normalizeDraftsFromTauri({
-        "a.jpg": { "XMP-dc:Title": "Beach" },
-      }),
-    ).toEqual({
-      "a.jpg": { "XMP-dc:Title": { value: "Beach", intent: "Set" } },
-    });
-  });
-
-  it("handles mixed-shape input per-edit", () => {
-    const result = normalizeDraftsFromTauri({
-      "a.jpg": {
-        already_typed: { value: "x", intent: "Set" },
-        legacy_string: "y",
-        legacy_null: null,
-      },
-    });
-    expect(result["a.jpg"]).toEqual({
-      already_typed: { value: "x", intent: "Set" },
-      legacy_string: { value: "y", intent: "Set" },
-      legacy_null: { value: null, intent: "Delete" },
-    });
-  });
-
-  it("skips files whose value is not an object", () => {
-    expect(
-      normalizeDraftsFromTauri({
-        "good.jpg": { tag: "v" },
-        "bad.jpg": null,
-        "other.jpg": "scalar",
-      }),
-    ).toEqual({
-      "good.jpg": { tag: { value: "v", intent: "Set" } },
-    });
-  });
-});
+import { scheduleBatchedFlush } from "../utils/scanEvents";
 
 describe("scheduleBatchedFlush", () => {
   beforeEach(() => vi.useFakeTimers());
