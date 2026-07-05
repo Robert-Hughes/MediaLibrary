@@ -34,7 +34,6 @@ import {
   mergeVerifyOutcomes,
   removeVerifyOutcome,
 } from "./utils/verifyOutcomes";
-import { metadataEntryToVariant } from "./utils/semanticDrafts";
 import { useRecentFolders } from "./hooks/useRecentFolders";
 
 export interface TauriApi {
@@ -740,12 +739,10 @@ export function useMediaLibrary(
       tag: string,
       observedRaw: MetadataValue | null,
     ) => {
-      const observedVariant = metadataEntryToVariant(observedRaw);
-      const newEdit: DraftEdit =
-        observedVariant === null
-          ? { value: null, intent: "Delete" }
-          : { value: observedVariant, intent: "Set" };
-      draftEditsStoreRef.current.setTag(fileRelativePath, tag, newEdit);
+      draftEditsStoreRef.current.setMetadataTag(fileRelativePath, tag, {
+        value: observedRaw,
+        intent: observedRaw === null ? "Delete" : "Set",
+      });
       setAppState((prev) => {
         if (prev.kind !== "loaded") return prev;
         const next = removeVerifyOutcome(
