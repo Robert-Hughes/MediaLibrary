@@ -53,12 +53,14 @@ async function openFolderWithThreePhotos() {
   });
   await act(async () => {
     mockApiInstance.emitImageMetadataReady("alpha.jpg", {
-      "IFD0:Make": "Canon",
+      "IFD0:Make": { kind: "Text", value: "Canon" },
     });
-    mockApiInstance.emitImageMetadataReady("beta.jpg", { "IFD0:Make": "Sony" });
+    mockApiInstance.emitImageMetadataReady("beta.jpg", {
+      "IFD0:Make": { kind: "Text", value: "Sony" },
+    });
     mockApiInstance.emitImageMetadataReady("gamma.jpg", {
-      "IFD0:Make": "Nikon",
-      "Hidden:Tag": "ultraspecific-tag-value",
+      "IFD0:Make": { kind: "Text", value: "Nikon" },
+      "Hidden:Tag": { kind: "Text", value: "ultraspecific-tag-value" },
     });
   });
   // Let the photo_found and image_metadata_ready batches flush.
@@ -141,7 +143,7 @@ describe("Off-thread list search (end-to-end)", () => {
     await act(async () => {
       mockApiInstance.emitPhotoFound(makePhoto({ relative_path: "delta.jpg" }));
       mockApiInstance.emitImageMetadataReady("delta.jpg", {
-        "IFD0:Make": "Fuji",
+        "IFD0:Make": { kind: "Text", value: "Fuji" },
       });
     });
     await act(async () => {
@@ -173,8 +175,11 @@ describe("Off-thread list search (end-to-end)", () => {
     // The matching metadata streams in for one photo.
     await act(async () => {
       mockApiInstance.emitImageMetadataReady("alpha.jpg", {
-        "IFD0:Make": "Canon",
-        "Hidden:Tag": "uniquemetatoken-late-arrival",
+        "IFD0:Make": { kind: "Text", value: "Canon" },
+        "Hidden:Tag": {
+          kind: "Text",
+          value: "uniquemetatoken-late-arrival",
+        },
       });
     });
     await act(async () => {

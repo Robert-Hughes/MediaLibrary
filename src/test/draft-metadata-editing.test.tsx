@@ -64,7 +64,7 @@ describe("Draft Metadata Editing Integration", () => {
     });
 
     // We also need some metadata so we have a column to edit
-    const metadata = { "IFD0:Make": "Canon" };
+    const metadata = { "IFD0:Make": { kind: "Text", value: "Canon" } } as const;
     await act(async () => {
       mockApiInstance.emitImageMetadataReady(photo.relative_path, metadata);
     });
@@ -178,7 +178,7 @@ describe("Draft Metadata Editing Integration", () => {
       mockApiInstance.emitPhotoFound(photo);
     });
 
-    const metadata = { "IFD0:Make": "Canon" };
+    const metadata = { "IFD0:Make": { kind: "Text", value: "Canon" } } as const;
     await act(async () => {
       mockApiInstance.emitImageMetadataReady(photo.relative_path, metadata);
     });
@@ -250,7 +250,7 @@ describe("Draft Metadata Editing Integration", () => {
       mockApiInstance.emitPhotoFound(photo2);
     });
 
-    const metadata = { "IFD0:Make": "Canon" };
+    const metadata = { "IFD0:Make": { kind: "Text", value: "Canon" } } as const;
     await act(async () => {
       mockApiInstance.emitImageMetadataReady(photo1.relative_path, metadata);
       mockApiInstance.emitImageMetadataReady(photo2.relative_path, metadata);
@@ -334,7 +334,7 @@ describe("Draft Metadata Editing Integration", () => {
       mockApiInstance.emitPhotoFound(photo);
     });
 
-    const metadata = { "IFD0:Make": "Canon" };
+    const metadata = { "IFD0:Make": { kind: "Text", value: "Canon" } } as const;
     await act(async () => {
       mockApiInstance.emitImageMetadataReady(photo.relative_path, metadata);
     });
@@ -408,7 +408,7 @@ describe("Draft Metadata Editing Integration", () => {
       mockApiInstance.emitPhotoFound(photo2);
     });
 
-    const metadata = { "IFD0:Make": "Canon" };
+    const metadata = { "IFD0:Make": { kind: "Text", value: "Canon" } } as const;
     await act(async () => {
       mockApiInstance.emitImageMetadataReady(photo1.relative_path, metadata);
       mockApiInstance.emitImageMetadataReady(photo2.relative_path, metadata);

@@ -10,58 +10,124 @@ export function normalizeMetadataFromTauri(
   raw: unknown,
 ): Record<string, MetadataValue> {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+
   const out: Record<string, MetadataValue> = {};
+  let dropped = 0;
+
   for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
-    out[key] = isMetadataValue(value)
-      ? (value as MetadataValue)
-      : plainJsonToMetadataValue(value);
+    if (isMetadataValue(value)) {
+      out[key] = value;
+    } else {
+      dropped += 1;
+    }
   }
+
+  if (dropped > 0) {
+    console.warn(
+      `[metadata] Dropped ${dropped} non-semantic metadata payload value(s)`,
+    );
+  }
+
   return out;
 }
 
 function isMetadataValue(value: unknown): value is MetadataValue {
+  if (!isRecord(value) || typeof value.kind !== "string") return false;
+
+  switch (value.kind) {
+    case "Null":
+    case "Binary":
+      return true;
+    case "Text":
+      return typeof value.value === "string";
+    case "Bool":
+      return typeof value.value === "boolean";
+    case "Integer":
+    case "Real":
+      return typeof value.value === "number" && Number.isFinite(value.value);
+    case "Rational":
+      return (
+        isRecord(value.value) &&
+        typeof value.value.numerator === "number" &&
+        typeof value.value.denominator === "number"
+      );
+    case "Date":
+      return isDateValue(value.value);
+    case "Time":
+      return isTimeValue(value.value);
+    case "DateTime":
+      return (
+        isRecord(value.value) &&
+        isDateValue(value.value.date) &&
+        isTimeValue(value.value.time)
+      );
+    case "TimeOffset":
+      return isUtcOffsetValue(value.value);
+    case "LangAlt":
+      return (
+        isRecord(value.value) &&
+        Object.values(value.value).every((v) => typeof v === "string")
+      );
+    case "List":
+      return (
+        isRecord(value.value) &&
+        isListKind(value.value.list_kind) &&
+        Array.isArray(value.value.items) &&
+        value.value.items.every(isMetadataValue)
+      );
+    case "Struct":
+      return (
+        isRecord(value.value) &&
+        Object.values(value.value).every(isMetadataValue)
+      );
+    case "Unknown":
+      return (
+        isRecord(value.value) &&
+        "raw" in value.value &&
+        (value.value.reason === null || typeof value.value.reason === "string")
+      );
+    default:
+      return false;
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function isDateValue(value: unknown): boolean {
   return (
-    !!value &&
-    typeof value === "object" &&
-    !Array.isArray(value) &&
-    "kind" in value &&
-    typeof (value as { kind?: unknown }).kind === "string"
+    isRecord(value) &&
+    typeof value.year === "number" &&
+    typeof value.month === "number" &&
+    typeof value.day === "number"
   );
 }
 
-export function plainJsonToMetadataValue(value: unknown): MetadataValue {
-  if (value === null || value === undefined) return { kind: "Null" };
-  if (typeof value === "string") return { kind: "Text", value };
-  if (typeof value === "boolean") return { kind: "Bool", value };
-  if (typeof value === "number") return { kind: "Real", value };
-  if (Array.isArray(value)) {
-    return {
-      kind: "List",
-      value: {
-        list_kind: "Unknown",
-        items: value.map(plainJsonToMetadataValue),
-      },
-    };
-  }
-  if (typeof value === "object") {
-    return {
-      kind: "Struct",
-      value: Object.fromEntries(
-        Object.entries(value).map(([key, child]) => [
-          key,
-          plainJsonToMetadataValue(child),
-        ]),
-      ),
-    };
-  }
-  return {
-    kind: "Unknown",
-    value: {
-      expected: null,
-      raw: value,
-      reason: "unsupported metadata payload value",
-    },
-  };
+function isTimeValue(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.hour === "number" &&
+    typeof value.minute === "number" &&
+    typeof value.second === "number" &&
+    (value.subsecond === null || typeof value.subsecond === "string") &&
+    (value.offset === null || isUtcOffsetValue(value.offset))
+  );
+}
+
+function isUtcOffsetValue(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    (value.sign === "Positive" || value.sign === "Negative") &&
+    typeof value.hours === "number" &&
+    typeof value.minutes === "number"
+  );
+}
+
+function isListKind(value: unknown): boolean {
+  return (
+    value === "Bag" || value === "Seq" || value === "Alt" || value === "Unknown"
+  );
 }
 
 /**

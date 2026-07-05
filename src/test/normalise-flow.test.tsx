@@ -25,6 +25,7 @@ import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import App from "../App";
 import { createMockTauriApi } from "./mockTauriApi";
 import { makePhoto } from "./factories";
+import type { MetadataValue } from "../types";
 
 let mockApiInstance: ReturnType<typeof createMockTauriApi>;
 
@@ -43,7 +44,7 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
 
 async function openFolderWithPhoto(
   rel = "test.jpg",
-  metadata: Record<string, any> = {},
+  metadata: Record<string, MetadataValue> = {},
 ) {
   const photo = makePhoto({ relative_path: rel });
   const user = userEvent.setup();
@@ -79,7 +80,16 @@ afterEach(() => {
 describe("Metadata-normalisation flow", () => {
   it("right-clicking a selected photo opens the dialog with per-group checkboxes", async () => {
     await openFolderWithPhoto("test.jpg", {
-      "XMP-dc:Subject": ["A", "B"],
+      "XMP-dc:Subject": {
+        kind: "List",
+        value: {
+          list_kind: "Bag",
+          items: [
+            { kind: "Text", value: "A" },
+            { kind: "Text", value: "B" },
+          ],
+        },
+      },
     });
     const row = screen.getByTestId("photo-row");
     fireEvent.click(row);
@@ -152,7 +162,13 @@ describe("Metadata-normalisation flow", () => {
     };
 
     await openFolderWithPhoto("test.jpg", {
-      "XMP-dc:Subject": ["A"],
+      "XMP-dc:Subject": {
+        kind: "List",
+        value: {
+          list_kind: "Bag",
+          items: [{ kind: "Text", value: "A" }],
+        },
+      },
     });
     const row = screen.getByTestId("photo-row");
     fireEvent.click(row);
@@ -203,7 +219,13 @@ describe("Metadata-normalisation flow", () => {
 
   it("confirm button is disabled when no groups are enabled", async () => {
     await openFolderWithPhoto("test.jpg", {
-      "XMP-dc:Subject": ["A"],
+      "XMP-dc:Subject": {
+        kind: "List",
+        value: {
+          list_kind: "Bag",
+          items: [{ kind: "Text", value: "A" }],
+        },
+      },
     });
     const row = screen.getByTestId("photo-row");
     fireEvent.click(row);

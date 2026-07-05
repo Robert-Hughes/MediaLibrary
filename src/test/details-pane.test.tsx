@@ -28,7 +28,6 @@ import {
 } from "../utils/detailsPaneHelpers";
 import { makePhoto, mockMetadata } from "./factories";
 import type { MetadataDraftEdit, ImageMetadataEntry } from "../types";
-import { plainJsonToMetadataValue } from "../utils/scanEvents";
 import { _clearTagInfoCache, _setTagInfoCacheEntry } from "../hooks/useTagInfo";
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -54,24 +53,50 @@ describe("extractPrefix", () => {
 
 describe("formatMetadataValue", () => {
   it("formats a string value", () => {
-    expect(formatMetadataValue(plainJsonToMetadataValue("Canon"))).toBe(
-      "Canon",
-    );
+    expect(formatMetadataValue({ kind: "Text", value: "Canon" })).toBe("Canon");
   });
 
   it("formats a numeric value", () => {
-    expect(formatMetadataValue(plainJsonToMetadataValue(42))).toBe("42");
+    expect(formatMetadataValue({ kind: "Real", value: 42 })).toBe("42");
   });
 
   it("formats an array value as comma-separated", () => {
     expect(
-      formatMetadataValue(plainJsonToMetadataValue(["landscape", "nature"])),
+      formatMetadataValue({
+        kind: "List",
+        value: {
+          list_kind: "Unknown",
+          items: [
+            { kind: "Text", value: "landscape" },
+            { kind: "Text", value: "nature" },
+          ],
+        },
+      }),
     ).toBe("landscape, nature");
   });
 
   it("formats nested arrays", () => {
-    const nested = plainJsonToMetadataValue([["a", "b"], "c"]);
-    expect(formatMetadataValue(nested)).toBe("a, b, c");
+    expect(
+      formatMetadataValue({
+        kind: "List",
+        value: {
+          list_kind: "Unknown",
+          items: [
+            {
+              kind: "List",
+              value: {
+                list_kind: "Unknown",
+                items: [
+                  { kind: "Text", value: "a" },
+                  { kind: "Text", value: "b" },
+                ],
+              },
+            },
+            { kind: "Text", value: "c" },
+          ],
+        },
+      }),
+    ).toBe("a, b, c");
   });
 });
 

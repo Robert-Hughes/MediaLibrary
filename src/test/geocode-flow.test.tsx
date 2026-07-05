@@ -11,6 +11,7 @@ import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import App from "../App";
 import { createMockTauriApi } from "./mockTauriApi";
 import { makePhoto } from "./factories";
+import type { MetadataValue } from "../types";
 
 let mockApiInstance: ReturnType<typeof createMockTauriApi>;
 
@@ -29,7 +30,7 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
 
 async function openFolderAndSelectPhoto(
   rel = "test.jpg",
-  metadata: Record<string, any> = {},
+  metadata: Record<string, MetadataValue> = {},
 ) {
   const photo = makePhoto({ relative_path: rel });
   const user = userEvent.setup();
@@ -82,8 +83,8 @@ describe("Reverse-geocoding flow", () => {
     // cleared. Pin that copy here so a refactor doesn't quietly drop
     // it.
     const { user } = await openFolderAndSelectPhoto("test.jpg", {
-      "Composite:GPSLatitude": 51.5001,
-      "Composite:GPSLongitude": -0.1262,
+      "Composite:GPSLatitude": { kind: "Real", value: 51.5001 },
+      "Composite:GPSLongitude": { kind: "Real", value: -0.1262 },
     });
     await user.click(screen.getByTestId("details-pane-geocode-btn"));
     await act(async () => {
@@ -127,8 +128,8 @@ describe("Reverse-geocoding flow", () => {
     };
 
     const { user } = await openFolderAndSelectPhoto("test.jpg", {
-      "Composite:GPSLatitude": 51.5001,
-      "Composite:GPSLongitude": -0.1262,
+      "Composite:GPSLatitude": { kind: "Real", value: 51.5001 },
+      "Composite:GPSLongitude": { kind: "Real", value: -0.1262 },
     });
     await user.click(screen.getByTestId("details-pane-geocode-btn"));
     await act(async () => {
@@ -204,8 +205,8 @@ describe("Reverse-geocoding flow", () => {
 
   it("Cancel before confirm closes the dialog and signals backend", async () => {
     const { user } = await openFolderAndSelectPhoto("test.jpg", {
-      "Composite:GPSLatitude": 51.5,
-      "Composite:GPSLongitude": -0.1,
+      "Composite:GPSLatitude": { kind: "Real", value: 51.5 },
+      "Composite:GPSLongitude": { kind: "Real", value: -0.1 },
     });
     await user.click(screen.getByTestId("details-pane-geocode-btn"));
     await act(async () => {
@@ -229,9 +230,9 @@ describe("Reverse-geocoding flow", () => {
     ).ask;
     askMock.mockClear();
     const { user } = await openFolderAndSelectPhoto("test.jpg", {
-      "Composite:GPSLatitude": 51.5,
-      "Composite:GPSLongitude": -0.1,
-      "XMP-iptcCore:Location": "Existing Place",
+      "Composite:GPSLatitude": { kind: "Real", value: 51.5 },
+      "Composite:GPSLongitude": { kind: "Real", value: -0.1 },
+      "XMP-iptcCore:Location": { kind: "Text", value: "Existing Place" },
     });
     await user.click(screen.getByTestId("details-pane-geocode-btn"));
     expect(askMock).not.toHaveBeenCalled();
@@ -243,8 +244,8 @@ describe("Reverse-geocoding flow", () => {
 
   it("DetailsPane button shows no overwrite notice when there is no existing location data", async () => {
     const { user } = await openFolderAndSelectPhoto("test.jpg", {
-      "Composite:GPSLatitude": 51.5,
-      "Composite:GPSLongitude": -0.1,
+      "Composite:GPSLatitude": { kind: "Real", value: 51.5 },
+      "Composite:GPSLongitude": { kind: "Real", value: -0.1 },
     });
     await user.click(screen.getByTestId("details-pane-geocode-btn"));
     await screen.findByTestId("geocode-confirm-btn");

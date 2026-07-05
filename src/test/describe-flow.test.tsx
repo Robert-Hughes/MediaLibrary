@@ -323,7 +323,10 @@ describe("AI-description flow", () => {
     const { user, photo } = await openFolderWithPhoto("test.jpg");
     await act(async () => {
       mockApiInstance.emitImageMetadataReady(photo.relative_path, {
-        "XMP-mlib:AIDescription": "older description",
+        "XMP-mlib:AIDescription": {
+          kind: "Text",
+          value: "older description",
+        },
       });
     });
     await act(async () => {

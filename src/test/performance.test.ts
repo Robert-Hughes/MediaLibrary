@@ -50,9 +50,12 @@ describe("Performance: Large folder handling", () => {
       const photo = state.photos[i];
       act(() => {
         mock.emitImageMetadataReady(photo.relative_path, {
-          "IFD0:Model": "Test Camera",
-          "ExifIFD:DateTimeOriginal": "2024:01:01 12:00:00",
-          "IFD0:Make": "Test Manufacturer",
+          "IFD0:Model": { kind: "Text", value: "Test Camera" },
+          "ExifIFD:DateTimeOriginal": {
+            kind: "Text",
+            value: "2024:01:01 12:00:00",
+          },
+          "IFD0:Make": { kind: "Text", value: "Test Manufacturer" },
         });
       });
       if (i % 50 === 49) {
@@ -141,7 +144,7 @@ describe("Performance: Large folder handling", () => {
     for (let i = 0; i < 100; i++) {
       act(() => {
         mock.emitImageMetadataReady(`photo-${i}.jpg`, {
-          "IFD0:Model": "Camera",
+          "IFD0:Model": { kind: "Text", value: "Camera" },
         });
       });
     }
@@ -237,7 +240,7 @@ describe("Performance: Large folder handling", () => {
     for (let i = 0; i < 25; i++) {
       act(() => {
         mock.emitImageMetadataReady(`photo-${i}.jpg`, {
-          "IFD0:Model": "Camera",
+          "IFD0:Model": { kind: "Text", value: "Camera" },
         });
       });
     }
@@ -268,7 +271,7 @@ describe("Performance: Large folder handling", () => {
     for (let i = 25; i < 100; i++) {
       act(() => {
         mock.emitImageMetadataReady(`photo-${i}.jpg`, {
-          "IFD0:Model": "Camera",
+          "IFD0:Model": { kind: "Text", value: "Camera" },
         });
       });
     }

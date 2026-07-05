@@ -1,7 +1,6 @@
 ﻿import { describe, it, expect, vi } from "vitest";
 import { DraftEditsStore } from "../types";
-import type { MetadataDraftEdit } from "../types";
-import { plainJsonToMetadataValue } from "../utils/scanEvents";
+import type { MetadataDraftEdit, MetadataValue } from "../types";
 
 const edit = (value: string): MetadataDraftEdit => ({
   value: { kind: "Text", value },
@@ -29,6 +28,23 @@ const structEdit = (value: Record<string, number>): MetadataDraftEdit => ({
     ),
   },
   intent: "Set",
+});
+const textValue = (value: string): MetadataValue => ({ kind: "Text", value });
+const listValue = (items: string[]): MetadataValue => ({
+  kind: "List",
+  value: {
+    list_kind: "Unknown",
+    items: items.map(textValue),
+  },
+});
+const structValue = (value: Record<string, number>): MetadataValue => ({
+  kind: "Struct",
+  value: Object.fromEntries(
+    Object.entries(value).map(([key, child]) => [
+      key,
+      { kind: "Integer", value: child },
+    ]),
+  ),
 });
 
 describe("DraftEditsStore", () => {
@@ -260,7 +276,7 @@ describe("DraftEditsStore", () => {
     it("returns 'redundant' and writes nothing when new Set value equals current", () => {
       const store = new DraftEditsStore();
       store.setCurrentValueResolver((_p, t) =>
-        t === "A" ? plainJsonToMetadataValue("v") : undefined,
+        t === "A" ? textValue("v") : undefined,
       );
       const cb = vi.fn();
       store.subscribe(cb);
@@ -273,7 +289,7 @@ describe("DraftEditsStore", () => {
     it("returns 'cleared' and removes the existing draft when new Set value equals current", () => {
       const store = new DraftEditsStore();
       store.setCurrentValueResolver((_p, t) =>
-        t === "A" ? plainJsonToMetadataValue("v") : undefined,
+        t === "A" ? textValue("v") : undefined,
       );
       // Stage a (different-from-current) draft first; resolver returns
       // "v" so a draft with "different" lands.
@@ -295,7 +311,7 @@ describe("DraftEditsStore", () => {
 
     it("writes through when value differs from current", () => {
       const store = new DraftEditsStore();
-      store.setCurrentValueResolver(() => plainJsonToMetadataValue("old"));
+      store.setCurrentValueResolver(() => textValue("old"));
       expect(store.setMetadataTag("a.jpg", "A", edit("new"))).toBe("written");
       expect(store.getMetadataFile("a.jpg")).toEqual({ A: edit("new") });
     });
@@ -308,7 +324,7 @@ describe("DraftEditsStore", () => {
 
     it("does not suppress Delete intents even when current value is present", () => {
       const store = new DraftEditsStore();
-      store.setCurrentValueResolver(() => plainJsonToMetadataValue("v"));
+      store.setCurrentValueResolver(() => textValue("v"));
       expect(store.setMetadataTag("a.jpg", "A", del)).toBe("written");
       expect(store.getMetadataFile("a.jpg")).toEqual({ A: del });
     });
@@ -317,8 +333,8 @@ describe("DraftEditsStore", () => {
       const store = new DraftEditsStore();
       // current values: A="same", B undefined (absent), C="other"
       store.setCurrentValueResolver((_p, t) => {
-        if (t === "A") return plainJsonToMetadataValue("same");
-        if (t === "C") return plainJsonToMetadataValue("other");
+        if (t === "A") return textValue("same");
+        if (t === "C") return textValue("other");
         return undefined;
       });
       const cb = vi.fn();
@@ -343,9 +359,7 @@ describe("DraftEditsStore", () => {
     it("setBatch with every key redundant fires no notification", () => {
       const store = new DraftEditsStore();
       store.setCurrentValueResolver((_p, t) =>
-        t === "A"
-          ? plainJsonToMetadataValue("v")
-          : plainJsonToMetadataValue("w"),
+        t === "A" ? textValue("v") : textValue("w"),
       );
       const cb = vi.fn();
       store.subscribe(cb);
@@ -360,9 +374,7 @@ describe("DraftEditsStore", () => {
 
     it("compares list-valued metadata element-wise", () => {
       const store = new DraftEditsStore();
-      store.setCurrentValueResolver(() =>
-        plainJsonToMetadataValue(["a", "b", "c"]),
-      );
+      store.setCurrentValueResolver(() => listValue(["a", "b", "c"]));
       // Identical list â†’ redundant.
       expect(
         store.setMetadataTag("p.jpg", "K", listEdit(["a", "b", "c"])),
@@ -375,9 +387,7 @@ describe("DraftEditsStore", () => {
 
     it("compares object-valued metadata order-independently", () => {
       const store = new DraftEditsStore();
-      store.setCurrentValueResolver(() =>
-        plainJsonToMetadataValue({ a: 1, b: 2 }),
-      );
+      store.setCurrentValueResolver(() => structValue({ a: 1, b: 2 }));
       expect(
         store.setMetadataTag("p.jpg", "K", structEdit({ b: 2, a: 1 })),
       ).toBe("redundant");
