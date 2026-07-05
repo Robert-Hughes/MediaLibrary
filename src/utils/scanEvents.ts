@@ -4,49 +4,7 @@
  * Kept free of React + Tauri so the hook stays a thin orchestrator and
  * these bits can be unit-tested without a render harness.
  */
-import type {
-  DraftEdit,
-  DraftEditsByFile,
-  MetadataValue,
-  Variant,
-} from "../types";
-
-/**
- * Convert whatever shape the Tauri boundary returned into the canonical
- * typed `DraftEditsByFile`.  Live backend returns typed; tests / older
- * builds may still return the legacy `string | null` shape.  Per-edit
- * detection handles mixed shapes gracefully.
- */
-export function normalizeDraftsFromTauri(raw: unknown): DraftEditsByFile {
-  if (!raw || typeof raw !== "object") return {};
-  const out: DraftEditsByFile = {};
-  for (const [file, fileEdits] of Object.entries(
-    raw as Record<string, unknown>,
-  )) {
-    if (!fileEdits || typeof fileEdits !== "object") continue;
-    const typed: Record<string, DraftEdit> = {};
-    for (const [key, value] of Object.entries(
-      fileEdits as Record<string, unknown>,
-    )) {
-      if (
-        value &&
-        typeof value === "object" &&
-        "intent" in value &&
-        "value" in value
-      ) {
-        typed[key] = value as DraftEdit;
-      } else if (value === null) {
-        typed[key] = { value: null, intent: "Delete" };
-      } else if (typeof value === "string") {
-        typed[key] = { value, intent: "Set" };
-      } else {
-        typed[key] = { value: value as DraftEdit["value"], intent: "Set" };
-      }
-    }
-    out[file] = typed;
-  }
-  return out;
-}
+import type { MetadataValue, Variant } from "../types";
 
 export function normalizeMetadataFromTauri(
   raw: unknown,
