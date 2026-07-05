@@ -115,7 +115,11 @@ describe("useSearchWorker", () => {
     meta.add("a.jpg");
     meta.set("a.jpg", { "X:Y": "z" });
     const drafts = new DraftEditsStore();
-    drafts.reset({ "a.jpg": { "Tag:A": { value: "v", intent: "Set" } } });
+    drafts.resetMetadata({
+      "a.jpg": {
+        "Tag:A": { value: { kind: "Text", value: "v" }, intent: "Set" },
+      },
+    });
     const photos = [makePhoto({ relative_path: "a.jpg" })];
 
     const { fake, result } = setup({
@@ -233,7 +237,10 @@ describe("useSearchWorker", () => {
     await waitFor(() => expect(result.current.matched).toEqual(new Set()));
 
     act(() => {
-      drafts.setTag("a.jpg", "Tag:A", { value: "v", intent: "Set" });
+      drafts.setMetadataTag("a.jpg", "Tag:A", {
+        value: { kind: "Text", value: "v" },
+        intent: "Set",
+      });
     });
     expect(fake.inbound.some((m) => m.type === "UPSERT_DRAFTS")).toBe(true);
     await waitFor(() =>
