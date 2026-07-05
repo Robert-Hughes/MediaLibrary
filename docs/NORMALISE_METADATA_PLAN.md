@@ -26,6 +26,27 @@ Each group has:
 The user enables groups individually via per-group checkboxes in the confirm
 dialog. Unchecked groups are skipped.
 
+### Conflict policy summary
+
+Conflict handling is group-specific. A counted conflict is a user-visible
+stat/warning path, not necessarily a blocker. Description is the only group
+that currently blocks deterministic edits when conflicting target sources need
+AI and the AI call is unavailable or fails.
+
+| Group         | Policy                                                                                                                                                                                                                                                                                                           |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A Keywords    | No conflict concept; union all sources and project canonical bag/leaves.                                                                                                                                                                                                                                         |
+| B Description | Multiple distinct target sources trigger AI merge. If AI is unavailable or fails, return a typed AI failure; do not deterministic-fallback.                                                                                                                                                                      |
+| C Title       | Primary XMP title wins; if empty, derivative IPTC ObjectName wins. AI generation only when targets are empty and description context exists.                                                                                                                                                                     |
+| D Headline    | Primary XMP headline wins; if empty, IPTC headline wins.                                                                                                                                                                                                                                                         |
+| E Creator     | Union names, dedup, preserve first-seen order.                                                                                                                                                                                                                                                                   |
+| F Copyright   | Primary XMP rights wins; if empty, longest derivative wins.                                                                                                                                                                                                                                                      |
+| G Location    | Per XMP/IIM pair, XMP wins on conflict. Conflict is counted, but edits are still emitted.                                                                                                                                                                                                                        |
+| H Dates       | EXIF/XMP/IPTC are compared using Dates normaliser wall-clock semantics. Primary EXIF wins on conflict. Conflict is counted, but edits may still be emitted. Offsetless and offset-bearing values can be considered equivalent only inside Dates normaliser comparison when wall-clock date/time/subsecond match. |
+
+Dates' "primary wins + conflict count" behaviour is intentional and mirrors
+Location; it is not a global "conflict blocks edits" rule.
+
 ### Group A — Keywords
 
 | Role            | Field                        | Datatype                           |

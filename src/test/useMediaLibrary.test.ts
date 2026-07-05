@@ -551,7 +551,11 @@ describe("useMediaLibrary", () => {
 
     const stale = mock.currentScanId - 1;
     act(() => {
-      mock.emitImageMetadataReady("a.jpg", { "IFD0:Model": "Stale" }, stale);
+      mock.emitImageMetadataReady(
+        "a.jpg",
+        { "IFD0:Model": { kind: "Text", value: "Stale" } },
+        stale,
+      );
     });
     act(() => {
       mock.emitThumbnailReady("a.jpg", "stale-data", stale);
@@ -773,7 +777,9 @@ describe("useMediaLibrary", () => {
     let state = result.current[0];
     if (state.kind === "loaded") expect(state.metadataVersion).toBe(0);
     act(() => {
-      mock.emitImageMetadataReady("a.jpg", { "IFD0:Model": "Canon" });
+      mock.emitImageMetadataReady("a.jpg", {
+        "IFD0:Model": { kind: "Text", value: "Canon" },
+      });
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(250);
@@ -799,7 +805,9 @@ describe("useMediaLibrary", () => {
       await vi.advanceTimersByTimeAsync(150);
     });
     act(() => {
-      mock.emitImageMetadataReady("b.jpg", { "IFD0:Model": "Nikon" });
+      mock.emitImageMetadataReady("b.jpg", {
+        "IFD0:Model": { kind: "Text", value: "Nikon" },
+      });
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(250);
@@ -825,7 +833,9 @@ describe("useMediaLibrary", () => {
       await vi.advanceTimersByTimeAsync(150);
     });
     act(() => {
-      mock.emitImageMetadataReady("c.jpg", { "IFD0:Model": "Sony" });
+      mock.emitImageMetadataReady("c.jpg", {
+        "IFD0:Model": { kind: "Text", value: "Sony" },
+      });
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(250);

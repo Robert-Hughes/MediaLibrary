@@ -1,15 +1,64 @@
-/**
- * Unit tests for the pure helpers behind the scan-event pipeline.
- *
- * `scheduleBatchedFlush` decides per call whether to flush a buffered
- * event stream immediately or defer for coalescing — the same shape is
- * shared by the photo / metadata / thumbnail buffers.
- */
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { scheduleBatchedFlush } from "../utils/scanEvents";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  normalizeMetadataFromTauri,
+  scheduleBatchedFlush,
+} from "../utils/scanEvents";
+
+describe("normalizeMetadataFromTauri", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("keeps semantic MetadataValue entries unchanged", () => {
+    const text = { kind: "Text", value: "Canon" } as const;
+    const list = {
+      kind: "List",
+      value: {
+        list_kind: "Bag",
+        items: [{ kind: "Text", value: "landscape" }],
+      },
+    } as const;
+
+    expect(
+      normalizeMetadataFromTauri({
+        "IFD0:Make": text,
+        "XMP-dc:Subject": list,
+      }),
+    ).toEqual({
+      "IFD0:Make": text,
+      "XMP-dc:Subject": list,
+    });
+  });
+
+  it("drops plain JSON values instead of converting them", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    expect(
+      normalizeMetadataFromTauri({
+        "IFD0:Make": "Canon",
+        "ExifIFD:ISO": 100,
+        "XMP-dc:Subject": ["landscape", "nature"],
+        "XMP-custom:Object": { nested: "value" },
+        "XMP-dc:Title": { kind: "Text", value: "Semantic" },
+      }),
+    ).toEqual({
+      "XMP-dc:Title": { kind: "Text", value: "Semantic" },
+    });
+    expect(warn).toHaveBeenCalledOnce();
+    expect(warn).toHaveBeenCalledWith(
+      "[metadata] Dropped 4 non-semantic metadata payload value(s)",
+    );
+  });
+
+  it("returns an empty object for malformed top-level payloads", () => {
+    expect(normalizeMetadataFromTauri(undefined)).toEqual({});
+    expect(normalizeMetadataFromTauri(null)).toEqual({});
+    expect(normalizeMetadataFromTauri("metadata")).toEqual({});
+    expect(normalizeMetadataFromTauri(["not", "a", "record"])).toEqual({});
+  });
+});
 
 describe("scheduleBatchedFlush", () => {
-  beforeEach(() => vi.useFakeTimers());
   afterEach(() => {
     vi.clearAllTimers();
     vi.useRealTimers();
@@ -20,6 +69,7 @@ describe("scheduleBatchedFlush", () => {
   });
 
   it("flushes immediately on the first call (isFirstFlushRef=true)", () => {
+    vi.useFakeTimers();
     const flush = vi.fn();
     const timer = makeTimerRef();
     const first = { current: true };
@@ -30,6 +80,7 @@ describe("scheduleBatchedFlush", () => {
   });
 
   it("flushes immediately when buffer reaches flushAtCount", () => {
+    vi.useFakeTimers();
     const flush = vi.fn();
     const timer = makeTimerRef();
     const first = { current: false };
@@ -39,6 +90,7 @@ describe("scheduleBatchedFlush", () => {
   });
 
   it("defers a small post-first flush via setTimeout", () => {
+    vi.useFakeTimers();
     const flush = vi.fn();
     const timer = makeTimerRef();
     const first = { current: false };
@@ -51,6 +103,7 @@ describe("scheduleBatchedFlush", () => {
   });
 
   it("does not stack timers when called repeatedly during the debounce window", () => {
+    vi.useFakeTimers();
     const flush = vi.fn();
     const timer = makeTimerRef();
     const first = { current: false };
@@ -63,17 +116,15 @@ describe("scheduleBatchedFlush", () => {
   });
 
   it("clears a pending timer when the count-threshold path fires", () => {
+    vi.useFakeTimers();
     const flush = vi.fn();
     const timer = makeTimerRef();
     const first = { current: false };
-    // Pending deferred flush.
     scheduleBatchedFlush(3, timer, first, flush, 100);
     expect(timer.current).not.toBeNull();
-    // Crossing the threshold flushes now and clears the timer.
     scheduleBatchedFlush(50, timer, first, flush, 100, 50);
     expect(flush).toHaveBeenCalledTimes(1);
     expect(timer.current).toBeNull();
-    // The deferred fire-time should NOT trigger a second flush.
     vi.advanceTimersByTime(100);
     expect(flush).toHaveBeenCalledTimes(1);
   });
