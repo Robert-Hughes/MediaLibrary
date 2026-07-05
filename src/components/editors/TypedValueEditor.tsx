@@ -119,6 +119,13 @@ export function TypedValueEditor({
       onSave(edit);
     }
   };
+  const saveMetadataDraft = (edit: MetadataDraftEdit) => {
+    if (onSaveMetadata) {
+      onSaveMetadata(edit);
+    } else {
+      onSave(metadataDraftToLegacyDraft(edit));
+    }
+  };
   // ── Override 1: Flash bitfield ─────────────────────────────────────────
   if (isFlashTag(propertyKey)) {
     const code =
@@ -291,7 +298,7 @@ export function TypedValueEditor({
           kind={tag.kind}
           initialItems={items}
           innerEditor={TypedValueEditor}
-          onSave={saveDraft}
+          onSave={saveMetadataDraft}
           onCancel={onCancel}
           headerHint={schemaHint()}
         />
@@ -447,7 +454,7 @@ export function TypedValueEditor({
         propertyKey={propertyKey}
         initialObject={initialObject}
         innerEditor={TypedValueEditor}
-        onSave={saveDraft}
+        onSave={saveMetadataDraft}
         onCancel={onCancel}
         readOnly={readOnly}
         headerHint={schemaHint()}
@@ -495,7 +502,7 @@ export function TypedValueEditor({
         propertyKey={propertyKey}
         initialObject={initialObjectFrom(initialVariant)}
         innerEditor={TypedValueEditor}
-        onSave={saveDraft}
+        onSave={saveMetadataDraft}
         onCancel={onCancel}
         readOnly={readOnly}
         headerHint={schemaHint(
