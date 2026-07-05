@@ -33,10 +33,6 @@ use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 
-// ── Legacy public API (string-only) ──────────────────────────────────────────
-
-pub type DraftEditsPayload = HashMap<String, HashMap<String, Option<String>>>;
-
 // ── v2 typed model ───────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -82,35 +78,6 @@ impl DraftEdit {
                 display: None,
             },
         }
-    }
-
-    /// Best-effort conversion back to a legacy string edit for the
-    /// transitional Tauri boundary.  Non-string Variants are stringified
-    /// using the same `to_string`-style representation the previous code
-    /// used for non-strings (an explicit information-loss point that the
-    /// frontend migration in a later phase removes).
-    pub fn to_legacy_string(&self) -> Option<String> {
-        match &self.intent {
-            EditIntent::Delete => None,
-            _ => Some(variant_to_display(self.value.as_ref())),
-        }
-    }
-}
-
-fn variant_to_display(v: Option<&Variant>) -> String {
-    match v {
-        None => String::new(),
-        Some(Variant::String(s)) => s.clone(),
-        Some(Variant::Null) => String::new(),
-        Some(Variant::Bool(b)) => b.to_string(),
-        Some(Variant::Integer(n)) => n.to_string(),
-        Some(Variant::Float(f)) => f.to_string(),
-        Some(Variant::List(items)) => items
-            .iter()
-            .map(|i| variant_to_display(Some(i)))
-            .collect::<Vec<_>>()
-            .join(", "),
-        Some(Variant::Object(m)) => serde_json::to_string(m).unwrap_or_default(),
     }
 }
 
@@ -196,40 +163,6 @@ const FILE_NAME: &str = "MediaLibraryDraftEdits.jsonl";
 const V1_BACKUP_NAME: &str = "MediaLibraryDraftEdits.v1.bak.jsonl";
 const HEADER_COMMENT: &str =
     "// This file stores unapplied metadata draft edits. Lines starting with // are ignored.";
-
-// ── Public legacy-shape API (current callers) ────────────────────────────────
-
-pub fn load_draft_edits(folder_path: &str) -> Result<DraftEditsPayload, String> {
-    let typed = load_typed_draft_edits(folder_path)?;
-    Ok(typed
-        .into_iter()
-        .map(|(path, edits)| {
-            (
-                path,
-                edits
-                    .into_iter()
-                    .map(|(k, e)| (k, e.to_legacy_string()))
-                    .collect(),
-            )
-        })
-        .collect())
-}
-
-pub fn save_draft_edits(folder_path: &str, data: DraftEditsPayload) -> Result<(), String> {
-    let typed: TypedDraftEdits = data
-        .into_iter()
-        .map(|(path, edits)| {
-            (
-                path,
-                edits
-                    .into_iter()
-                    .map(|(k, v)| (k, DraftEdit::from_legacy_string(v)))
-                    .collect(),
-            )
-        })
-        .collect();
-    save_typed_draft_edits(folder_path, &typed)
-}
 
 // ── Typed API (Phase 3+) ─────────────────────────────────────────────────────
 
@@ -605,20 +538,6 @@ mod tests {
         assert_eq!(loaded.len(), 2);
         assert!(loaded.contains_key("good.jpg"));
         assert!(loaded.contains_key("good2.jpg"));
-    }
-
-    #[test]
-    fn save_then_load_via_legacy_api() {
-        let dir = tempdir().unwrap();
-        let mut data: DraftEditsPayload = HashMap::new();
-        let mut edits = HashMap::new();
-        edits.insert("XMP-dc:Description".to_string(), Some("hello".to_string()));
-        edits.insert("ToRemove".to_string(), None);
-        data.insert("a.jpg".to_string(), edits);
-
-        save_draft_edits(dir.path().to_str().unwrap(), data.clone()).unwrap();
-        let loaded = load_draft_edits(dir.path().to_str().unwrap()).unwrap();
-        assert_eq!(loaded, data);
     }
 
     #[test]
