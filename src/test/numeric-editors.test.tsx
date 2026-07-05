@@ -299,7 +299,10 @@ describe("RationalEditor", () => {
     fireEvent.click(screen.getByTestId("rational-editor-save"));
     expect(onSave).toHaveBeenCalledOnce();
     expect(onSave.mock.calls[0][0].display).toBe("1/8000");
-    expect(onSave.mock.calls[0][0].value).toBeCloseTo(1 / 8000, 9);
+    expect(onSave.mock.calls[0][0].value).toEqual({
+      kind: "Rational",
+      value: { numerator: 1, denominator: 8000 },
+    });
   });
 
   it("emits integer-form display when denominator is 1", async () => {
@@ -318,6 +321,10 @@ describe("RationalEditor", () => {
     await user.type(num, "3");
     fireEvent.click(screen.getByTestId("rational-editor-save"));
     expect(onSave.mock.calls[0][0].display).toBe("3");
+    expect(onSave.mock.calls[0][0].value).toEqual({
+      kind: "Rational",
+      value: { numerator: 3, denominator: 1 },
+    });
   });
 
   it("emits reduced fraction display in decimal mode", async () => {
@@ -339,6 +346,10 @@ describe("RationalEditor", () => {
     await user.type(dec, "0.004");
     fireEvent.click(screen.getByTestId("rational-editor-save"));
     expect(onSave.mock.calls[0][0].display).toBe("1/250");
+    expect(onSave.mock.calls[0][0].value).toEqual({
+      kind: "Rational",
+      value: { numerator: 1, denominator: 250 },
+    });
   });
 });
 
