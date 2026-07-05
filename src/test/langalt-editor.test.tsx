@@ -23,7 +23,7 @@ describe("LangAltEditor", () => {
     ).toBeInTheDocument();
   });
 
-  it("emits an Object Variant keyed by language on Save", async () => {
+  it("emits MetadataValue::LangAlt keyed by language on Save", async () => {
     const user = userEvent.setup();
     const onSave = vi.fn();
     render(
@@ -39,9 +39,12 @@ describe("LangAltEditor", () => {
     const edit = onSave.mock.calls[0][0];
     expect(edit.intent).toBe("Set");
     expect(edit.value).toEqual({
-      "x-default": "hello",
-      en: "hello",
-      fr: "bonjour",
+      kind: "LangAlt",
+      value: {
+        "x-default": "hello",
+        en: "hello",
+        fr: "bonjour",
+      },
     });
   });
 
@@ -95,7 +98,10 @@ describe("LangAltEditor", () => {
       />,
     );
     fireEvent.click(screen.getByTestId("langalt-editor-save"));
-    expect(onSave.mock.calls[0][0].value).toEqual({ "x-default": "" });
+    expect(onSave.mock.calls[0][0].value).toEqual({
+      kind: "LangAlt",
+      value: { "x-default": "" },
+    });
   });
 });
 

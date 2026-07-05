@@ -4,18 +4,18 @@
 // and zero or more named-language alternatives.  This editor exposes them
 // as a tab strip: one tab per language, each with its own textarea.
 //
-// On save, the draft carries `Variant::Object` keyed by language code, with
-// `x-default` explicit.  Write-back (Phase 5) emits one
+// On save, the draft carries `MetadataValue::LangAlt` keyed by language code,
+// with `x-default` explicit. Write-back emits one
 // `-TAG-lang=value` argv per language.
 
 import { useState } from "react";
-import type { DraftEdit, Variant } from "../../types";
+import type { MetadataDraftEdit } from "../../types";
 import { READ_ONLY_TOOLTIP } from "./readOnlyMessages";
 
 interface Props {
   propertyKey: string;
   initialLangs: Record<string, string>;
-  onSave: (edit: DraftEdit) => void;
+  onSave: (edit: MetadataDraftEdit) => void;
   onCancel: () => void;
   headerHint?: React.ReactNode;
   readOnly?: boolean;
@@ -62,12 +62,12 @@ export function LangAltEditor({
   const handleSave = () => {
     if (readOnly) return;
     // Drop empty entries except x-default (we always emit it).
-    const out: Record<string, Variant> = {};
+    const out: Record<string, string> = {};
     for (const [lang, value] of Object.entries(langs)) {
       if (value.trim() === "" && lang !== "x-default") continue;
       out[lang] = value;
     }
-    onSave({ value: out, intent: "Set" });
+    onSave({ value: { kind: "LangAlt", value: out }, intent: "Set" });
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
