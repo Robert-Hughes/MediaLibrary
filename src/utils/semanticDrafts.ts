@@ -5,18 +5,6 @@ import type {
   Variant,
 } from "../types";
 import { metadataValueToDisplayString } from "../draft";
-import { variantToMetadataValue } from "./scanEvents";
-
-export function legacyDraftToMetadataDraft(edit: DraftEdit): MetadataDraftEdit {
-  return {
-    value:
-      edit.value === null || edit.value === undefined
-        ? null
-        : variantToMetadataValue(edit.value),
-    intent: edit.intent,
-    display: edit.display,
-  };
-}
 
 export function metadataDraftToLegacyDraft(edit: MetadataDraftEdit): DraftEdit {
   return {

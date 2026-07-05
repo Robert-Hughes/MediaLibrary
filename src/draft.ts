@@ -1,38 +1,6 @@
-// ── Draft-edit helpers (Phase 3b) ─────────────────────────────────────────────
-//
-// The frontend draft layer still carries generated `DraftEdit` values
-// internally while the Tauri persistence/apply boundary uses semantic
-// `MetadataDraftEdit` values. These helpers bridge the remaining legacy UI
-// display shape and the editor-facing generated draft shape.
-//
-// Storage uses the typed shape so when typed editors arrive they have
-// somewhere to write.  Display derives the legacy shape on the fly.
+// ── Metadata display helpers ─────────────────────────────────────────────
 
-import type {
-  DraftEdit,
-  EditIntent,
-  ImageMetadataEntry,
-  MetadataValue,
-  Variant,
-} from "./types";
-
-/**
- * Render the display string for a draft.
- *
- * Returns:
- * - `undefined` if no draft exists for the key
- * - `null`      if the draft is a Delete intent (UI shows "—" / strikethrough)
- * - otherwise   the editor-supplied pretty form (`d.display`) when present,
- *               else a generic stringification of the Variant value
- */
-export function displayStringOf(
-  d: DraftEdit | undefined,
-): string | null | undefined {
-  if (d === undefined) return undefined;
-  if (d.intent === "Delete") return null;
-  if (d.display !== undefined && d.display !== null) return d.display;
-  return variantToDisplayString(d.value);
-}
+import type { ImageMetadataEntry, MetadataValue, Variant } from "./types";
 
 export function displayStringOfMetadataDraft(
   d: import("./types").MetadataDraftEdit | undefined,
@@ -41,14 +9,6 @@ export function displayStringOfMetadataDraft(
   if (d.intent === "Delete") return null;
   if (d.display !== undefined && d.display !== null) return d.display;
   return metadataValueToDisplayString(d.value);
-}
-
-/** Wrap a legacy `string | null` edit into the typed shape. */
-export function draftFromLegacyString(v: string | null): DraftEdit {
-  if (v === null) {
-    return { value: null, intent: "Delete" as EditIntent };
-  }
-  return { value: v, intent: "Set" as EditIntent };
 }
 
 /** Stringify a Variant for the legacy `string | null` display path. */

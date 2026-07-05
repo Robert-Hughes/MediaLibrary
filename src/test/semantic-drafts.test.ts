@@ -1,34 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { MetadataDraftEdit } from "../types";
-import {
-  legacyDraftToMetadataDraft,
-  metadataDraftToLegacyDraft,
-} from "../utils/semanticDrafts";
+import { metadataDraftToLegacyDraft } from "../utils/semanticDrafts";
 
 describe("semantic draft adapters", () => {
-  it("converts legacy draft variants to semantic draft values", () => {
-    expect(
-      legacyDraftToMetadataDraft({
-        value: ["one", "two"],
-        intent: "Set",
-        display: "one, two",
-      }),
-    ).toEqual({
-      value: {
-        kind: "List",
-        value: {
-          list_kind: "Unknown",
-          items: [
-            { kind: "Text", value: "one" },
-            { kind: "Text", value: "two" },
-          ],
-        },
-      },
-      intent: "Set",
-      display: "one, two",
-    });
-  });
-
   it("converts semantic draft values back to the current editor shape", () => {
     const edit: MetadataDraftEdit = {
       value: {
