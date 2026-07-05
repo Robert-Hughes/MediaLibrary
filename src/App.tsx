@@ -48,7 +48,7 @@ import {
 import { sortPhotos, shouldSuspendSorting } from "./utils/sorting";
 import { listSearchQueryIsActive } from "./utils/listSearchText";
 import { useSearchWorker, createSearchWorker } from "./hooks/useSearchWorker";
-import { mapTypedToLegacy } from "./draft";
+import { deriveLegacyFileEdits } from "./draft";
 import "./App.css";
 
 const tauriApi: TauriApi = {
@@ -163,13 +163,6 @@ function LoadedView({
   const legacyTypedDraftEdits = useMemo(
     () => metadataDraftsToLegacyDrafts(state.draftEdits),
     [state.draftEdits],
-  );
-
-  // Components and the search filter still consume the legacy `string | null`
-  // shape. Derive the legacy view once per draft-state change.
-  const legacyDraftEdits = useMemo(
-    () => mapTypedToLegacy(legacyTypedDraftEdits),
-    [legacyTypedDraftEdits],
   );
 
   // Off-thread search via Web Worker.  The hook subscribes to the metadata
@@ -317,7 +310,7 @@ function LoadedView({
         onSelectColumns={() => setShowColumnDialog(true)}
         searchQuery={listSearchQuery}
         emptySearchMessage={emptySearchMessage}
-        draftEdits={legacyDraftEdits}
+        draftEdits={state.draftEdits}
         onDiscardAllEdits={(paths) => actions.discardAllDraftEdits(paths)}
         onApplyEdits={(paths) => actions.applyDraftEdits(paths)}
         onGenerateAiDescription={(relPaths) => {
@@ -364,9 +357,11 @@ function LoadedView({
           onNavigate={onGalleryNavigate}
           loadImage={loadImage}
           imageMetadata={state.imageMetadata}
-          draftEdits={
-            legacyDraftEdits[displayPhotos[state.galleryIndex].relative_path]
-          }
+          draftEdits={deriveLegacyFileEdits(
+            legacyTypedDraftEdits[
+              displayPhotos[state.galleryIndex].relative_path
+            ],
+          )}
           typedDraftEdits={
             state.draftEdits[displayPhotos[state.galleryIndex].relative_path]
           }

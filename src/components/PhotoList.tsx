@@ -1,7 +1,12 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ThumbnailStore, ImageMetadataStore } from "../types";
-import type { PhotoInfo, SortConfig, VisibleColumn } from "../types";
+import type {
+  MetadataDraftEdit,
+  PhotoInfo,
+  SortConfig,
+  VisibleColumn,
+} from "../types";
 import { ContextMenu } from "./ContextMenu";
 import { PhotoRow } from "./PhotoRow";
 import { ResizeHandle } from "./ResizeHandle";
@@ -38,7 +43,7 @@ interface Props {
   searchQuery?: string;
   /** Shown in the grid body when `photos` is empty but the folder is not (search had no hits). */
   emptySearchMessage?: string | null;
-  draftEdits?: Record<string, Record<string, string | null>>;
+  draftEdits?: Record<string, Record<string, MetadataDraftEdit>>;
   onDiscardAllEdits?: (fileRelativePaths: string[]) => void;
   onApplyEdits?: (fileRelativePaths: string[]) => void;
   /** Trigger AI-description flow for the given relative paths. */

@@ -2,6 +2,7 @@ import { memo, useCallback, useSyncExternalStore } from "react";
 import type {
   ImageMetadataEntry,
   ImageMetadataStore,
+  MetadataDraftEdit,
   PhotoInfo,
   ThumbnailStore,
   VisibleColumn,
@@ -9,16 +10,18 @@ import type {
 import { formatPhotoRowDate } from "../utils/photoDate";
 import { HighlightedText } from "./HighlightedText";
 import { Spinner } from "./Spinner";
+import { displayStringOfMetadataDraft, variantToDisplayString } from "../draft";
 
 function CellContent({
   text,
-  draftValue,
+  draft,
   searchQuery,
 }: {
   text: string;
-  draftValue?: string | null;
+  draft?: MetadataDraftEdit;
   searchQuery: string;
 }) {
+  const draftValue = displayStringOfMetadataDraft(draft);
   if (draftValue !== undefined) {
     return (
       <>
@@ -36,8 +39,6 @@ function CellContent({
   }
   return <HighlightedText text={text} searchQuery={searchQuery} />;
 }
-
-import { variantToDisplayString } from "../draft";
 
 function formatVariant(v: ImageMetadataEntry | undefined): string {
   if (v === undefined) return "—";
@@ -58,7 +59,7 @@ interface RowProps {
   thumbnails: ThumbnailStore;
   imageMetadata: ImageMetadataStore;
   visibleColumns: VisibleColumn[];
-  draftEdits?: Record<string, string | null>;
+  draftEdits?: Record<string, MetadataDraftEdit>;
   onSelect: (
     index: number,
     modifiers: { ctrl: boolean; shift: boolean },
@@ -182,7 +183,7 @@ export const PhotoRow = memo(function PhotoRow({
           <span className="photo-cell-text">
             <CellContent
               text={photo.relative_path}
-              draftValue={draftEdits["relative_path"]}
+              draft={draftEdits["relative_path"]}
               searchQuery={searchQuery}
             />
           </span>
@@ -214,7 +215,7 @@ export const PhotoRow = memo(function PhotoRow({
             >
               <CellContent
                 text={formatPhotoRowDate(osValue(photo, col.key))}
-                draftValue={draftEdits[col.key]}
+                draft={draftEdits[col.key]}
                 searchQuery={searchQuery}
               />
             </div>
@@ -245,7 +246,7 @@ export const PhotoRow = memo(function PhotoRow({
             ) : (
               <CellContent
                 text={formatVariant(metadata[col.key])}
-                draftValue={draftEdits[col.key]}
+                draft={draftEdits[col.key]}
                 searchQuery={searchQuery}
               />
             )}
