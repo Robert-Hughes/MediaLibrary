@@ -11,7 +11,10 @@ export function displayStringOfMetadataDraft(
   return metadataValueToDisplayString(d.value);
 }
 
-/** Stringify a MetadataValue for the legacy `string | null` display path. */
+/** Stringify a MetadataValue for the `string | null` display path.
+ *  Kept as a named shim so callers that carry display strings can be
+ *  found by grep rather than by tracing every `metadataValueToDisplayString`
+ *  call site. */
 export function variantToDisplayString(
   v: ImageMetadataEntry | null | undefined,
 ): string {

@@ -1,8 +1,7 @@
-// Numeric editor for Integer / Real / Rational tags.
+// Numeric editor for Integer / Real tags.
 //
-// Phase 4 minimum: single numeric input with optional bounds enforcement
-// (Integer min/max from the schema).  Rational tags get the same control
-// for now; a num/den toggle is a follow-up refinement.
+// Single numeric input with optional bounds enforcement (Integer min/max from
+// the schema).  Rational tags have a dedicated num/den editor (RationalEditor).
 
 import { useState, useEffect, useRef } from "react";
 import type { MetadataDraftEdit, MetadataValue } from "../../types";

@@ -5,7 +5,7 @@
 // `src/metadata/tag_overrides.ts`.  See METADATA_FORMATS_DESIGN.md §5 for
 // the full table.
 //
-// Lookup precedence (Phase 8):
+// Lookup precedence:
 //
 //   1. Override matchers (Flash, GPS).  These win even
 //      against the schema kind because the override editor is materially
@@ -13,11 +13,11 @@
 //   2. Schema TagKind.  Drives the regular editor table.
 //   3. Struct-shape fallbacks for tags exiftool returns as Object/struct
 //      with no schema entry.
-//   4. Plain text input as a last resort.
+//   4. Plain text editor as a last resort.
 //
 // Two TagKinds exist purely to satisfy design §5:
-//   - Unknown — render a text input plus a warning the user is editing a
-//                tag the schema doesn't describe.
+//   - Unknown — opens a read-only warning dialog so the user can see the
+//                raw value of a tag the schema doesn't describe.
 //   - Binary  — read-only "binary, not editable in app" message.
 
 import { useTagInfo } from "../../hooks/useTagInfo";
@@ -229,8 +229,8 @@ export function TypedValueEditor({
   );
 
   if (tag === "loading") {
-    // First-call lookup; schema build can take 100-500ms.  Show the legacy
-    // text editor so the user isn't blocked.  Switching to a richer editor
+    // First-call lookup; schema build can take 100-500ms.  Show the plain
+    // text fallback so the user isn't blocked.  Switching to a richer editor
     // mid-typing would lose input, so this is a one-render decision.
     return (
       <ValueEditDialog
@@ -303,7 +303,7 @@ export function TypedValueEditor({
     );
   }
 
-  // Phase 8.4: Rational gets a dedicated num/den editor.  Integer / Real
+  // Rational gets a dedicated num/den editor.  Integer / Real
   // continue to use the single-input NumericEditor.
   if (tag && tag.kind.kind === "Rational") {
     return (
@@ -434,7 +434,7 @@ export function TypedValueEditor({
     );
   }
 
-  // ── Phase 8.3: Binary — read-only with explanation. ───────────────────
+  // ── Binary — read-only with explanation. ────────────────────────────────
   if (tag && tag.kind.kind === "Binary") {
     return (
       <div className="dialog-overlay" data-testid="binary-editor-overlay">
@@ -480,7 +480,7 @@ export function TypedValueEditor({
     );
   }
 
-  // ── Phase 8.3: Unknown — read-only warning dialog. ───────────────────
+  // ── Unknown — read-only warning dialog. ────────────────────────────────
   if (
     (tag && tag.kind.kind === "Unknown") ||
     (initialMetadataValue && initialMetadataValue.kind === "Unknown")
@@ -496,7 +496,7 @@ export function TypedValueEditor({
     );
   }
 
-  // Fallback: legacy text input.
+  // Fallback: plain text editor for Text-kind or unrecognised tags.
   return (
     <ValueEditDialog
       propertyKey={propertyKey}

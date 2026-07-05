@@ -56,10 +56,14 @@ export function schemaDatatype(
 }
 
 /**
- * Map a runtime {@link Variant} value to its datatype badge.  Returns
+ * Map a runtime {@link ImageMetadataEntry} to its datatype badge.  Returns
  * `null` when there is no value to describe (undefined input).
+ *
+ * The function also accepts raw JSON shapes (string / number / boolean /
+ * array / object) for the fallback path where the backend has emitted a
+ * value that was not wrapped in a typed {@link MetadataValue} envelope.
  */
-export function variantDatatype(
+export function metadataEntryDatatype(
   v: ImageMetadataEntry | undefined,
 ): DatatypeInfo | null {
   if (v === undefined) return null;
@@ -133,10 +137,10 @@ export function metadataValueDatatype(
 }
 
 /**
- * Decide whether a runtime variant code is compatible with a schema code.
- * The JS Variant collapses int/real to `number`, so `N` is treated as a
- * match for both `I` and `R`.  Rational (`Q`) is wire-encoded as a
- * `"num/den"` string, so a numeric variant against `Q` is a mismatch.
+ * Decide whether a runtime datatype code is compatible with a schema code.
+ * The fallback JSON path collapses int/real to the `N` (number) code, so
+ * `N` matches both `I` and `R`.  Rational (`Q`) is wire-encoded as a
+ * `"num/den"` string on the legacy path, so `N` vs `Q` is a mismatch.
  */
 export function datatypesMatch(
   variantCode: string,

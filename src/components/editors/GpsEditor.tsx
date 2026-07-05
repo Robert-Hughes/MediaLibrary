@@ -22,7 +22,7 @@ import { READ_ONLY_TOOLTIP } from "./readOnlyMessages";
 import { decimalToDms } from "./editorHelpers";
 
 // Re-export so existing call sites that imported the type from here keep
-// working.  Phase 8.2 moved the override matcher itself into tag_overrides.ts.
+// working.  The override matcher lives in tag_overrides.ts.
 export type { GpsTagGroup };
 
 interface Props {
@@ -31,7 +31,7 @@ interface Props {
   initialLatRef: "N" | "S";
   initialLonDecimal: number | null;
   initialLonRef: "E" | "W";
-  /** Phase 8 fix-up — paired GPSAltitude (metres). Empty string clears the tag. */
+  /** Paired GPSAltitude (metres). Empty string clears the tag. */
   initialAltitudeMetres?: number | null;
   /** "above" → AltitudeRef=0, "below" → AltitudeRef=1. */
   initialAltitudeRef?: "above" | "below";

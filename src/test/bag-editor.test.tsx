@@ -1,7 +1,7 @@
-// BagEditor unit tests (Phase 4 MVP).
+// BagEditor unit tests.
 //
-// Verifies the chip editor closes the keywords-CSV corruption mode at the
-// source: typing two distinct items must emit MetadataValue::List with two
+// Verifies the chip editor prevents comma-corrupted keyword storage:
+// typing two distinct items must emit MetadataValue::List with two
 // elements, never a single comma-joined string.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -196,7 +196,7 @@ describe("initialItemsFrom", () => {
     ).toEqual(["a", "b"]);
   });
 
-  it("parses comma-joined string (legacy display form)", () => {
+  it("parses plain-string display form (comma-separated)", () => {
     expect(initialItemsFrom("beach, sunset, vacation")).toEqual([
       "beach",
       "sunset",

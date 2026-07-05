@@ -52,7 +52,7 @@ describe("TypedValueEditor read-only enforcement", () => {
       expect(hint).toHaveTextContent("read-only");
     });
     // Save button is disabled with the schema-readonly tooltip.
-    // (Tag routes through the legacy text fallback because kind=Text.)
+    // (Tag routes through the plain text fallback because kind=Text.)
     const dialog = screen.getByRole("button", { name: /save/i });
     expect(dialog).toBeDisabled();
     expect(dialog).toHaveAttribute(
@@ -217,7 +217,7 @@ describe("TypedValueEditor temporal routing", () => {
 });
 
 describe("TypedValueEditor semantic save callbacks", () => {
-  it("converts legacy text-editor output to MetadataDraftEdit", async () => {
+  it("plain text editor output is a MetadataDraftEdit", async () => {
     _setTagInfoCacheEntry("XMP-dc:Title", {
       group: "XMP-dc",
       name: "Title",
