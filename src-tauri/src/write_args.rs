@@ -2,7 +2,7 @@
 //!
 //! See `docs/METADATA_FORMATS_DESIGN.md` §6.
 //!
-//! This module produces unambiguous exiftool argv from typed `DraftEdit`s and
+//! This module produces unambiguous exiftool argv from semantic draft edits and
 //! `TagInfo` schema entries.  It is **pure** — no exiftool subprocess, no
 //! filesystem — so it is fully unit-testable and the test matrix can be
 //! exhaustive.
@@ -13,7 +13,7 @@
 //! global to an invocation.  Numeric runs first; text-group edits can depend
 //! on numeric tags being already set (rare but possible for derived fields).
 
-use crate::draft_edits::{DraftEdit, EditIntent, MetadataDraftEdit};
+use crate::draft_edits::{EditIntent, MetadataDraftEdit};
 use crate::metadata_value::{
     DateTimeValue, DateValue, MetadataValue, OffsetSign, TimeValue, UtcOffsetValue,
 };
@@ -41,32 +41,6 @@ impl BuiltArgs {
     }
 }
 
-/// Build exiftool argv for one tag/edit pair.
-///
-/// `tag` is the full `Group:Name` key as it appears in metadata (e.g.
-/// `XMP-dc:Subject`).  `info` is `None` when the tag is not in the registry
-/// — in that case we fall back to a text Set with a single `-TAG=value`.
-pub fn build_args(tag: &str, info: Option<&TagInfo>, edit: &DraftEdit) -> BuiltArgs {
-    // Validate tag name early.  exiftool tag names use alnum + a small set of
-    // punctuation; refuse anything containing arg-list metacharacters that
-    // could confuse exiftool's own parser.
-    if tag.is_empty() || tag.contains('\n') || tag.contains('\0') {
-        return BuiltArgs::default();
-    }
-
-    match edit.intent {
-        EditIntent::Delete => BuiltArgs {
-            // Delete is always `-TAG=` with no value.  Goes in the text group
-            // since it has no value to interpret.
-            numeric: vec![],
-            text: vec![format!("-{}=", tag)],
-        },
-        EditIntent::Set => build_set(tag, info, edit.value.as_ref()),
-        EditIntent::ListAdd => build_list_op(tag, info, edit.value.as_ref(), "+="),
-        EditIntent::ListRemove => build_list_op(tag, info, edit.value.as_ref(), "-="),
-    }
-}
-
 pub fn build_metadata_args(
     tag: &str,
     info: Option<&TagInfo>,
@@ -84,131 +58,6 @@ pub fn build_metadata_args(
         EditIntent::Set => build_metadata_set(tag, info, edit.value.as_ref()),
         EditIntent::ListAdd => build_metadata_list_op(tag, info, edit.value.as_ref(), "+="),
         EditIntent::ListRemove => build_metadata_list_op(tag, info, edit.value.as_ref(), "-="),
-    }
-}
-
-fn build_set(tag: &str, info: Option<&TagInfo>, value: Option<&Variant>) -> BuiltArgs {
-    let kind = info.map(|i| &i.kind);
-    match (kind, value) {
-        // No value: treat as delete.
-        (_, None) | (_, Some(Variant::Null)) => BuiltArgs {
-            numeric: vec![],
-            text: vec![format!("-{}=", tag)],
-        },
-        // Bag / Seq: explicit clear, then one -TAG=item per element.
-        // Empty assignment first is the documented exiftool idiom for
-        // "replace the whole list".
-        (Some(TagKind::Bag(_)) | Some(TagKind::Seq(_)), Some(Variant::List(items))) => {
-            // Lists of text live in the text group; lists of numeric kinds
-            // are rare in exiftool's writable tag set and we currently treat
-            // them as text too (numeric list items are scalar in the wire).
-            let mut text = Vec::with_capacity(items.len() + 1);
-            text.push(format!("-{}=", tag));
-            for item in items {
-                text.push(format!("-{}={}", tag, render_scalar_text(item)));
-            }
-            BuiltArgs {
-                numeric: vec![],
-                text,
-            }
-        }
-        // Bag / Seq with a single non-list value: treat as a single-element
-        // list — easier than refusing it and matches user intent ("set the
-        // keyword list to just this one item").
-        (Some(TagKind::Bag(_)) | Some(TagKind::Seq(_)), Some(v)) => BuiltArgs {
-            numeric: vec![],
-            text: vec![
-                format!("-{}=", tag),
-                format!("-{}={}", tag, render_scalar_text(v)),
-            ],
-        },
-        // LangAlt: emit one -TAG-lang=value per language.  Value must be a
-        // Variant::Object whose keys are language codes; `x-default` is
-        // expected as one of them.  Anything else is best-effort treated as
-        // x-default.
-        (Some(TagKind::LangAlt), Some(Variant::Object(langs))) => {
-            let mut text = Vec::with_capacity(langs.len());
-            for (lang, v) in langs {
-                text.push(format!("-{}-{}={}", tag, lang, render_scalar_text(v)));
-            }
-            // Always include x-default if not explicitly provided.
-            if !langs.contains_key("x-default") {
-                if let Some(first) = langs.values().next() {
-                    text.push(format!("-{}-x-default={}", tag, render_scalar_text(first)));
-                }
-            }
-            BuiltArgs {
-                numeric: vec![],
-                text,
-            }
-        }
-        (Some(TagKind::LangAlt), Some(v)) => BuiltArgs {
-            numeric: vec![],
-            text: vec![format!("-{}-x-default={}", tag, render_scalar_text(v))],
-        },
-        // Numeric / boolean / enum-integer / GPS / rational: -n group.
-        (Some(TagKind::Integer { .. }), Some(v))
-        | (Some(TagKind::Real), Some(v))
-        | (Some(TagKind::Rational), Some(v))
-        | (Some(TagKind::Boolean), Some(v)) => BuiltArgs {
-            numeric: vec![format!("-{}={}", tag, render_scalar_numeric(v))],
-            text: vec![],
-        },
-        (
-            Some(TagKind::Enum {
-                repr: EnumRepr::Integer,
-                ..
-            }),
-            Some(v),
-        ) => BuiltArgs {
-            numeric: vec![format!("-{}={}", tag, render_scalar_numeric(v))],
-            text: vec![],
-        },
-        // Enum-string: text group (we send the label/code as-is).
-        (
-            Some(TagKind::Enum {
-                repr: EnumRepr::String,
-                ..
-            }),
-            Some(v),
-        ) => BuiltArgs {
-            numeric: vec![],
-            text: vec![format!("-{}={}", tag, render_scalar_text(v))],
-        },
-        (Some(TagKind::TimeOffset), Some(v)) => BuiltArgs {
-            numeric: vec![format!("-{}={}", tag, render_scalar_numeric(v))],
-            text: vec![],
-        },
-        // Temporal values: numeric group.  Per design §6, temporal literals
-        // "where we send raw" belong with the -n invocation; exiftool accepts
-        // canonical storage literals under -n without trying to PrintConv-parse
-        // a localised string back into the field.
-        (Some(kind @ (TagKind::Date | TagKind::Time | TagKind::DateTime)), Some(v)) => BuiltArgs {
-            numeric: vec![format!(
-                "-{}={}",
-                tag,
-                normalise_storage_variant_for_kind(v, Some(kind))
-            )],
-            text: vec![],
-        },
-        // Struct: emit using exiftool's -struct serialization, NOT JSON.
-        // exiftool parses struct values as `{field=value,nested={k=v},
-        // list=[a,b]}` with `\` as the escape char for the metacharacters
-        // `,{}[]=\`.  JSON would be silently mis-parsed (every quote
-        // becomes part of the field name) and verification would always
-        // mismatch — see METADATA_FORMATS_DESIGN.md §5 worked example for
-        // mwg-rs:Regions.
-        (Some(TagKind::Struct(_)), Some(v)) => BuiltArgs {
-            numeric: vec![],
-            text: vec![format!("-{}={}", tag, render_struct_text(v))],
-        },
-        // Binary: not writable in this app.  Caller should have rejected.
-        (Some(TagKind::Binary), _) => BuiltArgs::default(),
-        // Unknown / Text / Alt / fallback (no schema): text group.
-        (_, Some(v)) => BuiltArgs {
-            numeric: vec![],
-            text: vec![format!("-{}={}", tag, render_scalar_text(v))],
-        },
     }
 }
 
@@ -389,49 +238,6 @@ fn build_metadata_list_op(
     Ok(args)
 }
 
-fn build_list_op(
-    tag: &str,
-    info: Option<&TagInfo>,
-    value: Option<&Variant>,
-    op: &str,
-) -> BuiltArgs {
-    // For non-list tags, ListAdd/ListRemove devolve to Set/Delete to avoid
-    // weird argv that exiftool would silently mis-execute.
-    let is_list_kind = matches!(
-        info.map(|i| &i.kind),
-        Some(TagKind::Bag(_)) | Some(TagKind::Seq(_)) | Some(TagKind::Alt(_))
-    );
-    if !is_list_kind {
-        log::warn!(
-            "[write_args] List op {} on non-list tag {} — treating as Set/Delete",
-            op,
-            tag
-        );
-        return match op {
-            "-=" => BuiltArgs {
-                numeric: vec![],
-                text: vec![format!("-{}=", tag)],
-            },
-            _ => build_set(tag, info, value),
-        };
-    }
-
-    let items: Vec<&Variant> = match value {
-        Some(Variant::List(xs)) => xs.iter().collect(),
-        Some(v) => vec![v],
-        None => vec![],
-    };
-
-    let mut text = Vec::with_capacity(items.len());
-    for item in items {
-        text.push(format!("-{}{}{}", tag, op, render_scalar_text(item)));
-    }
-    BuiltArgs {
-        numeric: vec![],
-        text,
-    }
-}
-
 /// Render a `Variant` as a string suitable for a `-TAG=value` argv element,
 /// using the text-pass (no `-n`) convention.
 fn render_scalar_text(v: &Variant) -> String {
@@ -456,80 +262,6 @@ fn render_scalar_text(v: &Variant) -> String {
             .collect::<Vec<_>>()
             .join(", "),
         Variant::Object(_) => serde_json::to_string(v).unwrap_or_default(),
-    }
-}
-
-/// Render a `Variant` using exiftool's `-struct` serialization syntax.
-///
-/// Exiftool's struct format (see Image::ExifTool docs, "Structured
-/// Information"):
-///
-/// ```text
-/// {field1=value1,field2={nested=val},listfield=[a,b,c]}
-/// ```
-///
-/// The metacharacters `, { } [ ] = \` are escaped with a leading backslash
-/// inside scalar leaves.  Empty objects become `{}`; empty lists `[]`.
-///
-/// We intentionally do NOT JSON-encode here.  exiftool does not understand
-/// JSON in struct positions, and the round-trip via `-struct` reads is the
-/// authoritative shape.
-fn render_struct_text(v: &Variant) -> String {
-    fn escape_scalar(s: &str) -> String {
-        let mut out = String::with_capacity(s.len());
-        for c in s.chars() {
-            if matches!(c, ',' | '{' | '}' | '[' | ']' | '=' | '\\') {
-                out.push('\\');
-            }
-            out.push(c);
-        }
-        out
-    }
-    fn render(v: &Variant) -> String {
-        match v {
-            Variant::Null => String::new(),
-            Variant::Bool(b) => {
-                if *b {
-                    "True".to_string()
-                } else {
-                    "False".to_string()
-                }
-            }
-            Variant::Integer(n) => n.to_string(),
-            Variant::Float(f) => f.to_string(),
-            Variant::String(s) => escape_scalar(s),
-            Variant::List(items) => {
-                let inner: Vec<String> = items.iter().map(render).collect();
-                format!("[{}]", inner.join(","))
-            }
-            Variant::Object(map) => {
-                let inner: Vec<String> = map
-                    .iter()
-                    .map(|(k, val)| format!("{}={}", escape_scalar(k), render(val)))
-                    .collect();
-                format!("{{{}}}", inner.join(","))
-            }
-        }
-    }
-    render(v)
-}
-
-/// Render a `Variant` for the numeric (`-n`) pass.  Bool becomes `1`/`0` so
-/// exiftool doesn't have to PrintConv-parse "True"/"False" back; integers
-/// and floats stay as their natural decimal representation.
-fn render_scalar_numeric(v: &Variant) -> String {
-    match v {
-        Variant::Bool(b) => {
-            if *b {
-                "1".to_string()
-            } else {
-                "0".to_string()
-            }
-        }
-        Variant::Integer(n) => n.to_string(),
-        Variant::Float(f) => f.to_string(),
-        Variant::String(s) => s.clone(),
-        other => render_scalar_text(other),
     }
 }
 
@@ -790,34 +522,6 @@ mod tests {
         }
     }
 
-    fn set(v: Variant) -> DraftEdit {
-        DraftEdit {
-            value: Some(v),
-            intent: EditIntent::Set,
-            display: None,
-        }
-    }
-    fn delete() -> DraftEdit {
-        DraftEdit {
-            value: None,
-            intent: EditIntent::Delete,
-            display: None,
-        }
-    }
-    fn list_add(v: Variant) -> DraftEdit {
-        DraftEdit {
-            value: Some(v),
-            intent: EditIntent::ListAdd,
-            display: None,
-        }
-    }
-    fn list_remove(v: Variant) -> DraftEdit {
-        DraftEdit {
-            value: Some(v),
-            intent: EditIntent::ListRemove,
-            display: None,
-        }
-    }
     fn metadata_set(v: MetadataValue) -> MetadataDraftEdit {
         MetadataDraftEdit {
             value: Some(v),
@@ -825,11 +529,48 @@ mod tests {
             display: None,
         }
     }
+    fn metadata_delete() -> MetadataDraftEdit {
+        MetadataDraftEdit {
+            value: None,
+            intent: EditIntent::Delete,
+            display: None,
+        }
+    }
+    fn metadata_list_add(v: MetadataValue) -> MetadataDraftEdit {
+        MetadataDraftEdit {
+            value: Some(v),
+            intent: EditIntent::ListAdd,
+            display: None,
+        }
+    }
+    fn metadata_list_remove(v: MetadataValue) -> MetadataDraftEdit {
+        MetadataDraftEdit {
+            value: Some(v),
+            intent: EditIntent::ListRemove,
+            display: None,
+        }
+    }
+    fn text(value: &str) -> MetadataValue {
+        MetadataValue::Text(value.to_string())
+    }
+    fn bag_text(items: &[&str]) -> MetadataValue {
+        MetadataValue::List {
+            list_kind: ListKind::Bag,
+            items: items.iter().map(|item| text(item)).collect(),
+        }
+    }
+    fn seq_text(items: &[&str]) -> MetadataValue {
+        MetadataValue::List {
+            list_kind: ListKind::Seq,
+            items: items.iter().map(|item| text(item)).collect(),
+        }
+    }
 
     #[test]
     fn set_text_yields_single_text_arg() {
         let i = info(TagKind::Text);
-        let args = build_args("XMP-dc:Title", Some(&i), &set(Variant::String("hi".into())));
+        let args =
+            build_metadata_args("XMP-dc:Title", Some(&i), &metadata_set(text("hi"))).unwrap();
         assert!(args.numeric.is_empty());
         assert_eq!(args.text, vec!["-XMP-dc:Title=hi"]);
     }
@@ -840,7 +581,12 @@ mod tests {
             min: None,
             max: None,
         });
-        let args = build_args("XMP-xmp:Rating", Some(&i), &set(Variant::Integer(5)));
+        let args = build_metadata_args(
+            "XMP-xmp:Rating",
+            Some(&i),
+            &metadata_set(MetadataValue::Integer(5)),
+        )
+        .unwrap();
         assert!(args.text.is_empty());
         assert_eq!(args.numeric, vec!["-XMP-xmp:Rating=5"]);
     }
@@ -848,7 +594,12 @@ mod tests {
     #[test]
     fn set_boolean_uses_1_0_in_numeric_group() {
         let i = info(TagKind::Boolean);
-        let args = build_args("XMP-xmpRights:Marked", Some(&i), &set(Variant::Bool(true)));
+        let args = build_metadata_args(
+            "XMP-xmpRights:Marked",
+            Some(&i),
+            &metadata_set(MetadataValue::Bool(true)),
+        )
+        .unwrap();
         assert_eq!(args.numeric, vec!["-XMP-xmpRights:Marked=1"]);
         assert!(args.text.is_empty());
     }
@@ -868,21 +619,24 @@ mod tests {
                 },
             ],
         });
-        let args = build_args("IFD0:Orientation", Some(&i), &set(Variant::Integer(6)));
+        let args = build_metadata_args(
+            "IFD0:Orientation",
+            Some(&i),
+            &metadata_set(MetadataValue::Integer(6)),
+        )
+        .unwrap();
         assert_eq!(args.numeric, vec!["-IFD0:Orientation=6"]);
     }
 
     #[test]
     fn set_bag_emits_clear_then_repeated_args() {
         let i = info(TagKind::Bag(Box::new(TagKind::Text)));
-        let args = build_args(
+        let args = build_metadata_args(
             "XMP-dc:Subject",
             Some(&i),
-            &set(Variant::List(vec![
-                Variant::String("beach".into()),
-                Variant::String("sunset".into()),
-            ])),
-        );
+            &metadata_set(bag_text(&["beach", "sunset"])),
+        )
+        .unwrap();
         assert_eq!(
             args.text,
             vec![
@@ -897,14 +651,12 @@ mod tests {
     #[test]
     fn set_seq_emits_clear_then_ordered_args() {
         let i = info(TagKind::Seq(Box::new(TagKind::Text)));
-        let args = build_args(
+        let args = build_metadata_args(
             "XMP-dc:Creator",
             Some(&i),
-            &set(Variant::List(vec![
-                Variant::String("Ada".into()),
-                Variant::String("Bea".into()),
-            ])),
-        );
+            &metadata_set(seq_text(&["Ada", "Bea"])),
+        )
+        .unwrap();
         assert_eq!(
             args.text,
             vec![
@@ -918,11 +670,8 @@ mod tests {
     #[test]
     fn set_bag_with_scalar_treats_as_single_element() {
         let i = info(TagKind::Bag(Box::new(TagKind::Text)));
-        let args = build_args(
-            "XMP-dc:Subject",
-            Some(&i),
-            &set(Variant::String("only".into())),
-        );
+        let args =
+            build_metadata_args("XMP-dc:Subject", Some(&i), &metadata_set(text("only"))).unwrap();
         assert_eq!(args.text, vec!["-XMP-dc:Subject=", "-XMP-dc:Subject=only"]);
     }
 
@@ -930,10 +679,15 @@ mod tests {
     fn set_langalt_with_object_emits_per_lang_args() {
         let i = info(TagKind::LangAlt);
         let mut langs = BTreeMap::new();
-        langs.insert("x-default".to_string(), Variant::String("Hi".into()));
-        langs.insert("en".to_string(), Variant::String("Hi".into()));
-        langs.insert("fr".to_string(), Variant::String("Salut".into()));
-        let args = build_args("XMP-dc:Description", Some(&i), &set(Variant::Object(langs)));
+        langs.insert("x-default".to_string(), "Hi".to_string());
+        langs.insert("en".to_string(), "Hi".to_string());
+        langs.insert("fr".to_string(), "Salut".to_string());
+        let args = build_metadata_args(
+            "XMP-dc:Description",
+            Some(&i),
+            &metadata_set(MetadataValue::LangAlt(langs)),
+        )
+        .unwrap();
         // BTreeMap iteration order is alphabetic; assert presence not order.
         assert!(args
             .text
@@ -951,8 +705,13 @@ mod tests {
     fn set_langalt_without_xdefault_synthesises_one() {
         let i = info(TagKind::LangAlt);
         let mut langs = BTreeMap::new();
-        langs.insert("en".to_string(), Variant::String("Hello".into()));
-        let args = build_args("XMP-dc:Description", Some(&i), &set(Variant::Object(langs)));
+        langs.insert("en".to_string(), "Hello".to_string());
+        let args = build_metadata_args(
+            "XMP-dc:Description",
+            Some(&i),
+            &metadata_set(MetadataValue::LangAlt(langs)),
+        )
+        .unwrap();
         assert!(args
             .text
             .iter()
@@ -966,7 +725,7 @@ mod tests {
     #[test]
     fn delete_emits_empty_assignment() {
         let i = info(TagKind::Text);
-        let args = build_args("XMP-dc:Title", Some(&i), &delete());
+        let args = build_metadata_args("XMP-dc:Title", Some(&i), &metadata_delete()).unwrap();
         assert_eq!(args.text, vec!["-XMP-dc:Title="]);
         assert!(args.numeric.is_empty());
     }
@@ -974,25 +733,24 @@ mod tests {
     #[test]
     fn listadd_on_bag_emits_plus_equal_per_item() {
         let i = info(TagKind::Bag(Box::new(TagKind::Text)));
-        let args = build_args(
+        let args = build_metadata_args(
             "XMP-dc:Subject",
             Some(&i),
-            &list_add(Variant::List(vec![
-                Variant::String("a".into()),
-                Variant::String("b".into()),
-            ])),
-        );
+            &metadata_list_add(bag_text(&["a", "b"])),
+        )
+        .unwrap();
         assert_eq!(args.text, vec!["-XMP-dc:Subject+=a", "-XMP-dc:Subject+=b"]);
     }
 
     #[test]
     fn listremove_on_bag_emits_minus_equal_per_item() {
         let i = info(TagKind::Bag(Box::new(TagKind::Text)));
-        let args = build_args(
+        let args = build_metadata_args(
             "XMP-dc:Subject",
             Some(&i),
-            &list_remove(Variant::String("old".into())),
-        );
+            &metadata_list_remove(text("old")),
+        )
+        .unwrap();
         assert_eq!(args.text, vec!["-XMP-dc:Subject-=old"]);
     }
 
@@ -1000,55 +758,52 @@ mod tests {
     fn list_op_on_non_list_tag_degrades_safely() {
         let i = info(TagKind::Text);
         // ListAdd on a Text tag becomes a Set.
-        let args = build_args(
-            "XMP-dc:Title",
-            Some(&i),
-            &list_add(Variant::String("hi".into())),
-        );
+        let args =
+            build_metadata_args("XMP-dc:Title", Some(&i), &metadata_list_add(text("hi"))).unwrap();
         assert_eq!(args.text, vec!["-XMP-dc:Title=hi"]);
         // ListRemove on a Text tag becomes a Delete.
-        let args = build_args(
-            "XMP-dc:Title",
-            Some(&i),
-            &list_remove(Variant::String("hi".into())),
-        );
+        let args = build_metadata_args("XMP-dc:Title", Some(&i), &metadata_list_remove(text("hi")))
+            .unwrap();
         assert_eq!(args.text, vec!["-XMP-dc:Title="]);
     }
 
     #[test]
     fn unknown_tag_falls_back_to_text() {
-        let args = build_args(
+        let args = build_metadata_args(
             "MakerNotes:CustomCameraField",
             None,
-            &set(Variant::String("abc".into())),
-        );
+            &metadata_set(text("abc")),
+        )
+        .unwrap();
         assert_eq!(args.text, vec!["-MakerNotes:CustomCameraField=abc"]);
     }
 
     #[test]
     fn binary_tag_yields_no_args() {
         let i = info(TagKind::Binary);
-        let args = build_args("Thumbnail:Bin", Some(&i), &set(Variant::String("x".into())));
-        assert!(args.is_empty());
+        let err =
+            build_metadata_args("Thumbnail:Bin", Some(&i), &metadata_set(text("x"))).unwrap_err();
+        assert!(err.contains("binary"));
     }
 
     #[test]
     fn invalid_tag_name_yields_no_args() {
         let i = info(TagKind::Text);
-        let args = build_args("bad\nname", Some(&i), &set(Variant::String("x".into())));
+        let args = build_metadata_args("bad\nname", Some(&i), &metadata_set(text("x"))).unwrap();
         assert!(args.is_empty());
-        let args = build_args("", Some(&i), &set(Variant::String("x".into())));
+        let args = build_metadata_args("", Some(&i), &metadata_set(text("x"))).unwrap();
         assert!(args.is_empty());
     }
 
     #[test]
     fn float_renders_decimal_in_numeric_group() {
         let i = info(TagKind::Real);
-        let args = build_args(
+        let args = build_metadata_args(
             "Composite:GPSAltitude",
             Some(&i),
-            &set(Variant::Float(123.45)),
-        );
+            &metadata_set(MetadataValue::Real(123.45)),
+        )
+        .unwrap();
         assert_eq!(args.numeric, vec!["-Composite:GPSAltitude=123.45"]);
     }
 
@@ -1057,11 +812,25 @@ mod tests {
         // Phase 8.7: design §6 puts DateTime in the -n group so the literal
         // YYYY:MM:DD HH:MM:SS±ZZ:ZZ form bypasses PrintConv re-parsing.
         let i = info(TagKind::DateTime);
-        let args = build_args(
+        let args = build_metadata_args(
             "ExifIFD:DateTimeOriginal",
             Some(&i),
-            &set(Variant::String("2026-05-15T10:30:00".into())),
-        );
+            &metadata_set(MetadataValue::DateTime(DateTimeValue {
+                date: DateValue {
+                    year: 2026,
+                    month: 5,
+                    day: 15,
+                },
+                time: TimeValue {
+                    hour: 10,
+                    minute: 30,
+                    second: 0,
+                    subsecond: None,
+                    offset: None,
+                },
+            })),
+        )
+        .unwrap();
         assert_eq!(
             args.numeric,
             vec!["-ExifIFD:DateTimeOriginal=2026:05:15 10:30:00"]
@@ -1072,22 +841,34 @@ mod tests {
     #[test]
     fn iptc_date_renders_storage_format() {
         let i = info_named("IPTC", "DateCreated", TagKind::Date);
-        let args = build_args(
+        let args = build_metadata_args(
             "IPTC:DateCreated",
             Some(&i),
-            &set(Variant::String("2026-05-15".into())),
-        );
+            &metadata_set(MetadataValue::Date(DateValue {
+                year: 2026,
+                month: 5,
+                day: 15,
+            })),
+        )
+        .unwrap();
         assert_eq!(args.numeric, vec!["-IPTC:DateCreated=2026:05:15"]);
     }
 
     #[test]
     fn iptc_time_without_offset_stays_offsetless() {
         let i = info_named("IPTC", "TimeCreated", TagKind::Time);
-        let args = build_args(
+        let args = build_metadata_args(
             "IPTC:TimeCreated",
             Some(&i),
-            &set(Variant::String("10:30:00".into())),
-        );
+            &metadata_set(MetadataValue::Time(TimeValue {
+                hour: 10,
+                minute: 30,
+                second: 0,
+                subsecond: None,
+                offset: None,
+            })),
+        )
+        .unwrap();
         assert_eq!(args.numeric, vec!["-IPTC:TimeCreated=10:30:00"]);
         assert!(args.text.is_empty());
     }
@@ -1252,8 +1033,18 @@ mod tests {
     #[test]
     fn rational_uses_numeric_group() {
         let i = info(TagKind::Rational);
-        let args = build_args("EXIF:ExposureTime", Some(&i), &set(Variant::Float(0.004)));
-        assert_eq!(args.numeric, vec!["-EXIF:ExposureTime=0.004"]);
+        let args = build_metadata_args(
+            "EXIF:ExposureTime",
+            Some(&i),
+            &metadata_set(MetadataValue::Rational(
+                crate::metadata_value::RationalValue {
+                    numerator: 1,
+                    denominator: 250,
+                },
+            )),
+        )
+        .unwrap();
+        assert_eq!(args.numeric, vec!["-EXIF:ExposureTime=1/250"]);
     }
 
     // ── Phase 8 fix: struct argv uses exiftool -struct syntax, not JSON ──
@@ -1261,10 +1052,15 @@ mod tests {
     #[test]
     fn struct_render_uses_brace_syntax_not_json() {
         let mut inner = BTreeMap::new();
-        inner.insert("Name".to_string(), Variant::String("John".into()));
-        inner.insert("Type".to_string(), Variant::String("Face".into()));
+        inner.insert("Name".to_string(), text("John"));
+        inner.insert("Type".to_string(), text("Face"));
         let i = info(TagKind::Struct(BTreeMap::new()));
-        let args = build_args("XMP-mwg-rs:Region", Some(&i), &set(Variant::Object(inner)));
+        let args = build_metadata_args(
+            "XMP-mwg-rs:Region",
+            Some(&i),
+            &metadata_set(MetadataValue::Struct(inner)),
+        )
+        .unwrap();
         // Brace form, not JSON.  Field ordering is alphabetic via BTreeMap.
         assert_eq!(args.text, vec!["-XMP-mwg-rs:Region={Name=John,Type=Face}"]);
         // Critically: should NOT contain JSON quotes.
@@ -1278,19 +1074,18 @@ mod tests {
     #[test]
     fn struct_render_handles_nested_object_and_list() {
         let mut area = BTreeMap::new();
-        area.insert("X".to_string(), Variant::Float(0.5));
-        area.insert("Y".to_string(), Variant::Float(0.5));
+        area.insert("X".to_string(), MetadataValue::Real(0.5));
+        area.insert("Y".to_string(), MetadataValue::Real(0.5));
         let mut region = BTreeMap::new();
-        region.insert("Area".to_string(), Variant::Object(area));
-        region.insert(
-            "Names".to_string(),
-            Variant::List(vec![
-                Variant::String("a".into()),
-                Variant::String("b".into()),
-            ]),
-        );
+        region.insert("Area".to_string(), MetadataValue::Struct(area));
+        region.insert("Names".to_string(), bag_text(&["a", "b"]));
         let i = info(TagKind::Struct(BTreeMap::new()));
-        let args = build_args("X:R", Some(&i), &set(Variant::Object(region)));
+        let args = build_metadata_args(
+            "X:R",
+            Some(&i),
+            &metadata_set(MetadataValue::Struct(region)),
+        )
+        .unwrap();
         assert_eq!(args.text, vec!["-X:R={Area={X=0.5,Y=0.5},Names=[a,b]}"]);
     }
 
@@ -1298,16 +1093,22 @@ mod tests {
     fn struct_render_escapes_metacharacters_in_scalars() {
         let mut o = BTreeMap::new();
         // Value containing every metachar exiftool struct parser cares about.
-        o.insert("k".to_string(), Variant::String("a,b{c}d[e]f=g\\h".into()));
+        o.insert("k".to_string(), text("a,b{c}d[e]f=g\\h"));
         let i = info(TagKind::Struct(BTreeMap::new()));
-        let args = build_args("X:S", Some(&i), &set(Variant::Object(o)));
+        let args =
+            build_metadata_args("X:S", Some(&i), &metadata_set(MetadataValue::Struct(o))).unwrap();
         assert_eq!(args.text, vec![r"-X:S={k=a\,b\{c\}d\[e\]f\=g\\h}"]);
     }
 
     #[test]
     fn struct_render_empty_object_and_list() {
         let i = info(TagKind::Struct(BTreeMap::new()));
-        let args = build_args("X:S", Some(&i), &set(Variant::Object(BTreeMap::new())));
+        let args = build_metadata_args(
+            "X:S",
+            Some(&i),
+            &metadata_set(MetadataValue::Struct(BTreeMap::new())),
+        )
+        .unwrap();
         assert_eq!(args.text, vec!["-X:S={}"]);
     }
 
