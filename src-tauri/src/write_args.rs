@@ -17,6 +17,7 @@ use crate::draft_edits::{EditIntent, MetadataDraftEdit};
 use crate::metadata_value::{
     DateTimeValue, DateValue, MetadataValue, OffsetSign, TimeValue, UtcOffsetValue,
 };
+#[cfg(test)]
 use crate::scanner::Variant;
 use crate::tag_schema::{EnumRepr, TagInfo, TagKind};
 
@@ -240,6 +241,7 @@ fn build_metadata_list_op(
 
 /// Render a `Variant` as a string suitable for a `-TAG=value` argv element,
 /// using the text-pass (no `-n`) convention.
+#[cfg(test)]
 fn render_scalar_text(v: &Variant) -> String {
     match v {
         Variant::Null => String::new(),
@@ -265,6 +267,7 @@ fn render_scalar_text(v: &Variant) -> String {
     }
 }
 
+#[cfg(test)]
 pub(crate) fn normalise_storage_variant_for_kind(
     value: &Variant,
     kind: Option<&TagKind>,

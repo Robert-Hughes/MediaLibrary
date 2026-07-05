@@ -2,33 +2,22 @@
 //!
 //! See `docs/METADATA_FORMATS_DESIGN.md` §7.
 //!
-//! On-disk format is JSONL.  Two schema versions exist:
-//!
-//! - **v1**: `{ "relative_path": "...", "edits": { "TAG": "value" | null } }`
-//!   Values are strings only.  `null` means "delete the tag".
-//!
-//! - **v2**: `{ "schema_version": 2, "relative_path": "...", "edits":
-//!   { "TAG": { "value": <Variant | null>, "intent": "Set" | "Delete" |
-//!   "ListAdd" | "ListRemove" } } }`
-//!   Values carry full Variant type and an explicit intent.
+//! On-disk format is JSONL. The supported schema is:
 //!
 //! - **v3**: `{ "schema_version": 3, "relative_path": "...", "edits":
 //!   { "TAG": { "value": <MetadataValue | null>, "intent": "Set" | ... } } }`
 //!   Values carry semantic metadata types.
 //!
-//! Loading: each line is decoded by inspecting `schema_version`. Absence
-//! defaults to v1 (legacy lines). v1/v2 lines migrate into v3 semantic drafts.
+//! Loading rejects older v1/v2 lines with a clear error. Old drafts must be
+//! recreated so semantic values are never reconstructed from display strings.
 //!
-//! Saving: the semantic API always writes v3. If a v1 file is loaded, the
-//! original is first copied to `MediaLibraryDraftEdits.v1.bak.jsonl` so the
-//! user has a recovery point.
+//! Saving: the semantic API always writes v3.
 
 use crate::metadata_value::MetadataValue;
 use crate::scanner::Variant;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::collections::HashMap;
-use std::fs;
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
@@ -130,19 +119,6 @@ pub type MetadataDraftEdits = HashMap<String, HashMap<String, MetadataDraftEdit>
 // ── On-disk schemas ──────────────────────────────────────────────────────────
 
 #[derive(Serialize, Deserialize)]
-struct V1Line {
-    relative_path: String,
-    edits: HashMap<String, Option<String>>,
-}
-
-#[derive(Serialize, Deserialize)]
-struct V2Line {
-    schema_version: u32,
-    relative_path: String,
-    edits: HashMap<String, DraftEdit>,
-}
-
-#[derive(Serialize, Deserialize)]
 struct V3Line {
     schema_version: u32,
     relative_path: String,
@@ -158,7 +134,6 @@ struct VersionProbe {
 // ── File names ───────────────────────────────────────────────────────────────
 
 const FILE_NAME: &str = "MediaLibraryDraftEdits.jsonl";
-const V1_BACKUP_NAME: &str = "MediaLibraryDraftEdits.v1.bak.jsonl";
 const HEADER_COMMENT: &str =
     "// This file stores unapplied metadata draft edits. Lines starting with // are ignored.";
 
@@ -172,9 +147,8 @@ pub fn load_metadata_draft_edits(folder_path: &str) -> Result<MetadataDraftEdits
 
     let file = File::open(&path).map_err(|e| e.to_string())?;
     let reader = BufReader::new(file);
-    let mut saw_v1 = false;
 
-    for line_result in reader.lines() {
+    for (line_no, line_result) in reader.lines().enumerate() {
         let line = line_result.map_err(|e| e.to_string())?;
         let trimmed = line.trim();
         if trimmed.is_empty() || trimmed.starts_with("//") {
@@ -182,62 +156,26 @@ pub fn load_metadata_draft_edits(folder_path: &str) -> Result<MetadataDraftEdits
         }
 
         let version = serde_json::from_str::<VersionProbe>(trimmed)
-            .ok()
-            .and_then(|p| p.schema_version)
-            .unwrap_or(1);
+            .map_err(|e| format!("Invalid draft line {}: {e}", line_no + 1))?
+            .schema_version;
 
         match version {
-            3 => {
+            Some(3) => {
                 let parsed = serde_json::from_str::<V3Line>(trimmed)
-                    .map_err(|e| format!("Invalid v3 draft line: {e}"))?;
+                    .map_err(|e| format!("Invalid v3 draft line {}: {e}", line_no + 1))?;
                 typed.insert(parsed.relative_path, parsed.edits);
             }
-            2 => match serde_json::from_str::<V2Line>(trimmed) {
-                Ok(parsed) => {
-                    typed.insert(
-                        parsed.relative_path,
-                        parsed
-                            .edits
-                            .into_iter()
-                            .map(|(key, edit)| (key, MetadataDraftEdit::from_legacy_draft(&edit)))
-                            .collect(),
-                    );
-                }
-                Err(e) => log::warn!("[draft_edits] Skipping v2 line ({}): {}", e, trimmed),
-            },
-            _ => match serde_json::from_str::<V1Line>(trimmed) {
-                Ok(parsed) => {
-                    saw_v1 = true;
-                    typed.insert(
-                        parsed.relative_path,
-                        parsed
-                            .edits
-                            .into_iter()
-                            .map(|(key, value)| {
-                                let edit = DraftEdit::from_legacy_string(value);
-                                (key, MetadataDraftEdit::from_legacy_draft(&edit))
-                            })
-                            .collect(),
-                    );
-                }
-                Err(e) => log::warn!(
-                    "[draft_edits] Skipping unparseable legacy line ({}): {}",
-                    e,
-                    trimmed
-                ),
-            },
-        }
-    }
-
-    if saw_v1 {
-        let backup = Path::new(folder_path).join(V1_BACKUP_NAME);
-        if !backup.exists() {
-            if let Err(e) = fs::copy(&path, &backup) {
-                log::warn!(
-                    "[draft_edits] Could not write v1 backup ({}): {}",
-                    backup.display(),
-                    e
-                );
+            Some(old) => {
+                return Err(format!(
+                    "Unsupported draft edit schema_version {old} on line {}. Recreate pending draft edits with schema_version 3.",
+                    line_no + 1
+                ));
+            }
+            None => {
+                return Err(format!(
+                    "Unsupported legacy draft edit line {} with no schema_version. Recreate pending draft edits with schema_version 3.",
+                    line_no + 1
+                ));
             }
         }
     }
@@ -280,6 +218,7 @@ pub fn save_metadata_draft_edits(
 mod tests {
     use super::*;
     use crate::metadata_value::{DateValue, MetadataValue, TimeValue};
+    use std::fs;
     use tempfile::tempdir;
 
     fn write_file(folder: &Path, name: &str, contents: &str) {
@@ -298,140 +237,58 @@ mod tests {
     }
 
     #[test]
-    fn v1_string_value_migrates_to_set_intent() {
+    fn legacy_line_without_schema_version_is_rejected() {
         let dir = tempdir().unwrap();
         write_file(
             dir.path(),
             FILE_NAME,
             "// header\n{\"relative_path\":\"a.jpg\",\"edits\":{\"XMP-dc:Description\":\"hello\"}}\n",
         );
-        let result = load_metadata_draft_edits(dir.path().to_str().unwrap()).unwrap();
-        let edit = &result["a.jpg"]["XMP-dc:Description"];
-        assert_eq!(edit.intent, EditIntent::Set);
-        assert_eq!(edit.value, Some(MetadataValue::Text("hello".to_string())));
+        let err = load_metadata_draft_edits(dir.path().to_str().unwrap()).unwrap_err();
+        assert!(err.contains("Unsupported legacy draft edit line"), "{err}");
+        assert!(err.contains("schema_version 3"), "{err}");
     }
 
     #[test]
-    fn v1_null_value_migrates_to_delete_intent() {
+    fn v2_line_is_rejected() {
         let dir = tempdir().unwrap();
         write_file(
             dir.path(),
             FILE_NAME,
-            "{\"relative_path\":\"a.jpg\",\"edits\":{\"XMP-dc:Description\":null}}\n",
+            "{\"schema_version\":2,\"relative_path\":\"a.jpg\",\"edits\":{\"k\":{\"value\":\"v\",\"intent\":\"Set\"}}}\n",
         );
-        let result = load_metadata_draft_edits(dir.path().to_str().unwrap()).unwrap();
-        let edit = &result["a.jpg"]["XMP-dc:Description"];
-        assert_eq!(edit.intent, EditIntent::Delete);
-        assert_eq!(edit.value, None);
-    }
-
-    #[test]
-    fn loading_v1_file_creates_backup() {
-        let dir = tempdir().unwrap();
-        write_file(
-            dir.path(),
-            FILE_NAME,
-            "{\"relative_path\":\"a.jpg\",\"edits\":{\"k\":\"v\"}}\n",
-        );
-        let _ = load_metadata_draft_edits(dir.path().to_str().unwrap()).unwrap();
+        let err = load_metadata_draft_edits(dir.path().to_str().unwrap()).unwrap_err();
         assert!(
-            dir.path().join(V1_BACKUP_NAME).exists(),
-            "v1 backup should have been written"
+            err.contains("Unsupported draft edit schema_version 2"),
+            "{err}"
         );
     }
 
     #[test]
-    fn backup_is_not_overwritten_on_second_load() {
+    fn unknown_schema_version_is_rejected() {
         let dir = tempdir().unwrap();
-        // Pre-existing backup with sentinel content
-        write_file(dir.path(), V1_BACKUP_NAME, "existing-backup-do-not-touch");
         write_file(
             dir.path(),
             FILE_NAME,
-            "{\"relative_path\":\"a.jpg\",\"edits\":{\"k\":\"v\"}}\n",
+            "{\"schema_version\":99,\"relative_path\":\"a.jpg\",\"edits\":{}}\n",
         );
-        let _ = load_metadata_draft_edits(dir.path().to_str().unwrap()).unwrap();
-        let backup_contents = read_file(dir.path(), V1_BACKUP_NAME);
-        assert_eq!(backup_contents, "existing-backup-do-not-touch");
+        let err = load_metadata_draft_edits(dir.path().to_str().unwrap()).unwrap_err();
+        assert!(err.contains("schema_version 99"), "{err}");
     }
 
     #[test]
-    fn v2_line_migrates_to_semantic_shape() {
+    fn corrupt_line_is_rejected() {
         let dir = tempdir().unwrap();
         write_file(
             dir.path(),
             FILE_NAME,
             concat!(
-                "{\"schema_version\":2,\"relative_path\":\"a.jpg\",\"edits\":",
-                "{\"XMP-dc:Subject\":{\"value\":[\"beach\",\"sunset\"],",
-                "\"intent\":\"Set\",\"display\":\"beach, sunset\"},",
-                "\"Rating\":{\"value\":5,\"intent\":\"Set\"},",
-                "\"ToRemove\":{\"value\":null,\"intent\":\"Delete\"}}}\n",
-            ),
-        );
-        let loaded = load_metadata_draft_edits(dir.path().to_str().unwrap()).unwrap();
-        assert_eq!(
-            loaded["a.jpg"]["XMP-dc:Subject"].value,
-            Some(MetadataValue::List {
-                list_kind: crate::metadata_value::ListKind::Unknown,
-                items: vec![
-                    MetadataValue::Text("beach".to_string()),
-                    MetadataValue::Text("sunset".to_string()),
-                ],
-            })
-        );
-        assert_eq!(
-            loaded["a.jpg"]["XMP-dc:Subject"].display.as_deref(),
-            Some("beach, sunset")
-        );
-        assert_eq!(
-            loaded["a.jpg"]["Rating"].value,
-            Some(MetadataValue::Integer(5))
-        );
-        assert_eq!(loaded["a.jpg"]["ToRemove"].intent, EditIntent::Delete);
-    }
-
-    #[test]
-    fn mixed_v1_and_v2_lines_both_load() {
-        let dir = tempdir().unwrap();
-        write_file(
-            dir.path(),
-            FILE_NAME,
-            concat!(
-                "{\"relative_path\":\"v1.jpg\",\"edits\":{\"k\":\"v\"}}\n",
-                "{\"schema_version\":2,\"relative_path\":\"v2.jpg\",\"edits\":",
-                "{\"k\":{\"value\":42,\"intent\":\"Set\"}}}\n",
-            ),
-        );
-        let loaded = load_metadata_draft_edits(dir.path().to_str().unwrap()).unwrap();
-        assert_eq!(loaded["v1.jpg"]["k"].intent, EditIntent::Set);
-        assert_eq!(
-            loaded["v1.jpg"]["k"].value,
-            Some(MetadataValue::Text("v".to_string()))
-        );
-        assert_eq!(loaded["v2.jpg"]["k"].intent, EditIntent::Set);
-        assert_eq!(
-            loaded["v2.jpg"]["k"].value,
-            Some(MetadataValue::Integer(42))
-        );
-    }
-
-    #[test]
-    fn corrupt_line_is_skipped_others_kept() {
-        let dir = tempdir().unwrap();
-        write_file(
-            dir.path(),
-            FILE_NAME,
-            concat!(
-                "{\"relative_path\":\"good.jpg\",\"edits\":{\"k\":\"v\"}}\n",
+                "{\"schema_version\":3,\"relative_path\":\"good.jpg\",\"edits\":{}}\n",
                 "this is not json\n",
-                "{\"relative_path\":\"good2.jpg\",\"edits\":{\"k\":\"v2\"}}\n",
             ),
         );
-        let loaded = load_metadata_draft_edits(dir.path().to_str().unwrap()).unwrap();
-        assert_eq!(loaded.len(), 2);
-        assert!(loaded.contains_key("good.jpg"));
-        assert!(loaded.contains_key("good2.jpg"));
+        let err = load_metadata_draft_edits(dir.path().to_str().unwrap()).unwrap_err();
+        assert!(err.contains("Invalid draft line 2"), "{err}");
     }
 
     #[test]
@@ -454,7 +311,7 @@ mod tests {
                 "// header comment\n",
                 "\n",
                 "// another comment\n",
-                "{\"relative_path\":\"a.jpg\",\"edits\":{\"k\":\"v\"}}\n",
+                "{\"schema_version\":3,\"relative_path\":\"a.jpg\",\"edits\":{}}\n",
             ),
         );
         let loaded = load_metadata_draft_edits(dir.path().to_str().unwrap()).unwrap();
@@ -490,8 +347,7 @@ mod tests {
     #[test]
     fn display_field_omitted_when_none() {
         // Drafts with no display value should not write a `"display":null`
-        // field — keeps the on-disk shape minimal and v1-style files
-        // round-trip without growing.
+        // field — keeps the on-disk v3 shape minimal.
         let dir = tempdir().unwrap();
         let mut data: MetadataDraftEdits = HashMap::new();
         let mut edits = HashMap::new();
@@ -511,18 +367,6 @@ mod tests {
             "display key leaked when None: {}",
             contents
         );
-    }
-
-    #[test]
-    fn legacy_v1_load_has_no_display() {
-        let dir = tempdir().unwrap();
-        write_file(
-            dir.path(),
-            FILE_NAME,
-            "{\"relative_path\":\"a.jpg\",\"edits\":{\"k\":\"v\"}}\n",
-        );
-        let loaded = load_metadata_draft_edits(dir.path().to_str().unwrap()).unwrap();
-        assert_eq!(loaded["a.jpg"]["k"].display, None);
     }
 
     #[test]
@@ -636,64 +480,21 @@ mod tests {
     }
 
     #[test]
-    fn v3_loader_migrates_v2_to_semantic_drafts() {
-        let dir = tempdir().unwrap();
-        write_file(
-            dir.path(),
-            FILE_NAME,
-            "{\"schema_version\":2,\"relative_path\":\"a.jpg\",\"edits\":{\"k\":{\"value\":\"v\",\"intent\":\"Set\"}}}\n",
-        );
-        let loaded = load_metadata_draft_edits(dir.path().to_str().unwrap()).unwrap();
-        assert_eq!(loaded["a.jpg"]["k"].intent, EditIntent::Set);
-        assert_eq!(
-            loaded["a.jpg"]["k"].value,
-            Some(MetadataValue::Text("v".to_string()))
-        );
-    }
-
-    #[test]
-    fn v3_loader_migrates_v1_to_semantic_drafts_and_backs_up() {
-        let dir = tempdir().unwrap();
-        write_file(
-            dir.path(),
-            FILE_NAME,
-            "{\"relative_path\":\"a.jpg\",\"edits\":{\"k\":\"v\"}}\n",
-        );
-        let loaded = load_metadata_draft_edits(dir.path().to_str().unwrap()).unwrap();
-        assert_eq!(loaded["a.jpg"]["k"].intent, EditIntent::Set);
-        assert_eq!(
-            loaded["a.jpg"]["k"].value,
-            Some(MetadataValue::Text("v".to_string()))
-        );
-        assert!(
-            dir.path().join(V1_BACKUP_NAME).exists(),
-            "v1 backup should have been written"
-        );
-    }
-
-    #[test]
-    fn v3_loader_loads_mixed_legacy_and_semantic_lines() {
+    fn v3_loader_rejects_mixed_legacy_and_semantic_lines() {
         let dir = tempdir().unwrap();
         write_file(
             dir.path(),
             FILE_NAME,
             concat!(
                 "{\"relative_path\":\"v1.jpg\",\"edits\":{\"k\":\"v\"}}\n",
-                "{\"schema_version\":2,\"relative_path\":\"v2.jpg\",\"edits\":",
-                "{\"k\":{\"value\":42,\"intent\":\"Set\"}}}\n",
                 "{\"schema_version\":3,\"relative_path\":\"v3.jpg\",\"edits\":",
                 "{\"k\":{\"value\":{\"kind\":\"Bool\",\"value\":true},\"intent\":\"Set\"}}}\n",
             ),
         );
-        let loaded = load_metadata_draft_edits(dir.path().to_str().unwrap()).unwrap();
-        assert_eq!(
-            loaded["v1.jpg"]["k"].value,
-            Some(MetadataValue::Text("v".to_string()))
+        let err = load_metadata_draft_edits(dir.path().to_str().unwrap()).unwrap_err();
+        assert!(
+            err.contains("Unsupported legacy draft edit line 1"),
+            "{err}"
         );
-        assert_eq!(
-            loaded["v2.jpg"]["k"].value,
-            Some(MetadataValue::Integer(42))
-        );
-        assert_eq!(loaded["v3.jpg"]["k"].value, Some(MetadataValue::Bool(true)));
     }
 }
