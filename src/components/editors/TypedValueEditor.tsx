@@ -265,7 +265,11 @@ export function TypedValueEditor({
           initialItems={initialItems}
           ordered={tag.kind.kind === "Seq"}
           innerKind={inner}
-          onSave={saveDraft}
+          onSave={
+            onSaveMetadata
+              ? (edit) => onSaveMetadata(edit)
+              : (edit) => onSave(metadataDraftToLegacyDraft(edit))
+          }
           onCancel={onCancel}
           headerHint={schemaHint()}
         />

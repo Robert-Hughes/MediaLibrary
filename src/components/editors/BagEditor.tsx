@@ -11,7 +11,7 @@
 // maintaining chip-level identity all the way through the save call.
 
 import { useState, useEffect, useRef } from "react";
-import type { DraftEdit, Variant } from "../../types";
+import type { MetadataDraftEdit, MetadataValue } from "../../types";
 import { READ_ONLY_TOOLTIP } from "./readOnlyMessages";
 
 /** Inner kinds this chip editor knows how to round-trip through string form. */
@@ -34,37 +34,42 @@ interface Props {
    * old string cast.
    */
   innerKind?: BagInnerKind;
-  onSave: (edit: DraftEdit) => void;
+  onSave: (edit: MetadataDraftEdit) => void;
   onCancel: () => void;
   headerHint?: React.ReactNode;
   readOnly?: boolean;
 }
 
-/** Convert a chip string to the appropriate Variant scalar.  Returns null
+/** Convert a chip string to the appropriate semantic scalar.  Returns null
  *  when the chip can't be parsed at the requested kind (caller falls back
  *  to keeping it as text and surfaces an error). */
-function chipToVariant(s: string, kind: BagInnerKind): Variant | null {
+function chipToMetadataValue(
+  s: string,
+  kind: BagInnerKind,
+): MetadataValue | null {
   switch (kind) {
     case "Integer": {
       const n = Number(s);
       if (!Number.isFinite(n) || !Number.isInteger(n)) return null;
-      return n;
+      return { kind: "Integer", value: n };
     }
     case "Real": {
       const n = Number(s);
       if (!Number.isFinite(n)) return null;
-      return n;
+      return { kind: "Real", value: n };
     }
     case "Boolean": {
       const lower = s.trim().toLowerCase();
-      if (lower === "true" || lower === "1") return true;
-      if (lower === "false" || lower === "0") return false;
+      if (lower === "true" || lower === "1")
+        return { kind: "Bool", value: true };
+      if (lower === "false" || lower === "0")
+        return { kind: "Bool", value: false };
       return null;
     }
     case "Text":
     case "Unknown":
     default:
-      return s;
+      return { kind: "Text", value: s };
   }
 }
 
@@ -136,16 +141,22 @@ export function BagEditor({
     // round-trips as Variant::Integer rather than via the previous unsound
     // `s as Variant` cast (which only worked accidentally because Variant
     // includes string).
-    const parsed: Variant[] = [];
+    const parsed: MetadataValue[] = [];
     for (const s of final) {
-      const v = chipToVariant(s, innerKind);
+      const v = chipToMetadataValue(s, innerKind);
       if (v === null) {
         setError(`"${s}" is not a valid ${innerKind} value`);
         return;
       }
       parsed.push(v);
     }
-    onSave({ value: parsed, intent: "Set" });
+    onSave({
+      value: {
+        kind: "List",
+        value: { list_kind: ordered ? "Seq" : "Bag", items: parsed },
+      },
+      intent: "Set",
+    });
   };
 
   return (

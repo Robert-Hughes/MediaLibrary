@@ -1,7 +1,7 @@
 // BagEditor unit tests (Phase 4 MVP).
 //
 // Verifies the chip editor closes the keywords-CSV corruption mode at the
-// source: typing two distinct items must emit Variant::List with two
+// source: typing two distinct items must emit MetadataValue::List with two
 // elements, never a single comma-joined string.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -9,7 +9,6 @@ import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { BagEditor } from "../components/editors/BagEditor";
 import { initialItemsFrom } from "../components/editors/editorHelpers";
-import type { DraftEdit } from "../types";
 
 beforeEach(() => cleanup());
 
@@ -29,7 +28,7 @@ describe("BagEditor", () => {
     expect(chips[1]).toHaveTextContent("sunset");
   });
 
-  it("adds an item on Enter and emits typed DraftEdit on Save", async () => {
+  it("adds an item on Enter and emits semantic list draft on Save", async () => {
     const user = userEvent.setup();
     const onSave = vi.fn();
     render(
@@ -46,9 +45,18 @@ describe("BagEditor", () => {
     await user.click(screen.getByTestId("bag-editor-save"));
 
     expect(onSave).toHaveBeenCalledOnce();
-    const edit: DraftEdit = onSave.mock.calls[0][0];
+    const edit = onSave.mock.calls[0][0];
     expect(edit.intent).toBe("Set");
-    expect(edit.value).toEqual(["beach", "sunset"]);
+    expect(edit.value).toEqual({
+      kind: "List",
+      value: {
+        list_kind: "Bag",
+        items: [
+          { kind: "Text", value: "beach" },
+          { kind: "Text", value: "sunset" },
+        ],
+      },
+    });
   });
 
   it("adds an item on comma keypress", async () => {
@@ -66,7 +74,11 @@ describe("BagEditor", () => {
     await user.click(input);
     await user.type(input, "a,b,c");
     await user.click(screen.getByTestId("bag-editor-save"));
-    expect(onSave.mock.calls[0][0].value).toEqual(["a", "b", "c"]);
+    expect(onSave.mock.calls[0][0].value.value.items).toEqual([
+      { kind: "Text", value: "a" },
+      { kind: "Text", value: "b" },
+      { kind: "Text", value: "c" },
+    ]);
   });
 
   it("removes a chip via × button", () => {
@@ -82,7 +94,10 @@ describe("BagEditor", () => {
     const removeBtns = screen.getAllByRole("button", { name: /Remove/ });
     fireEvent.click(removeBtns[1]); // remove "b"
     fireEvent.click(screen.getByTestId("bag-editor-save"));
-    expect(onSave.mock.calls[0][0].value).toEqual(["a", "c"]);
+    expect(onSave.mock.calls[0][0].value.value.items).toEqual([
+      { kind: "Text", value: "a" },
+      { kind: "Text", value: "c" },
+    ]);
   });
 
   it("backspace on empty input removes the last chip", async () => {
@@ -100,7 +115,9 @@ describe("BagEditor", () => {
     await user.click(input);
     await user.keyboard("{Backspace}");
     await user.click(screen.getByTestId("bag-editor-save"));
-    expect(onSave.mock.calls[0][0].value).toEqual(["a"]);
+    expect(onSave.mock.calls[0][0].value.value.items).toEqual([
+      { kind: "Text", value: "a" },
+    ]);
   });
 
   it("does not add duplicate chips", async () => {
@@ -118,7 +135,9 @@ describe("BagEditor", () => {
     await user.click(input);
     await user.type(input, "beach{Enter}");
     await user.click(screen.getByTestId("bag-editor-save"));
-    expect(onSave.mock.calls[0][0].value).toEqual(["beach"]);
+    expect(onSave.mock.calls[0][0].value.value.items).toEqual([
+      { kind: "Text", value: "beach" },
+    ]);
   });
 
   it("folds pending unentered text into the saved list", async () => {
@@ -137,7 +156,10 @@ describe("BagEditor", () => {
     await user.type(input, "sunset");
     // No Enter — click Save directly.
     await user.click(screen.getByTestId("bag-editor-save"));
-    expect(onSave.mock.calls[0][0].value).toEqual(["beach", "sunset"]);
+    expect(onSave.mock.calls[0][0].value.value.items).toEqual([
+      { kind: "Text", value: "beach" },
+      { kind: "Text", value: "sunset" },
+    ]);
   });
 
   it("Escape cancels", async () => {
