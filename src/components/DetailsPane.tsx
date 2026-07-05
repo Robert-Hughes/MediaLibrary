@@ -29,10 +29,7 @@ import {
   confirmApplyEdits,
   confirmDiscardEdits,
 } from "../utils/applyDiscardPrompts";
-import {
-  legacyDraftToMetadataDraft,
-  metadataDraftToLegacyDraft,
-} from "../utils/semanticDrafts";
+import { metadataDraftToLegacyDraft } from "../utils/semanticDrafts";
 import { displayStringOf, displayStringOfMetadataDraft } from "../draft";
 
 interface Props {
@@ -549,19 +546,6 @@ export function DetailsPane({
 
   const showOsSection = !normalizedDetailsQuery || filteredOsEntries.length > 0;
 
-  const saveDraft = (key: string, edit: DraftEdit) => {
-    onSetMetadataDraft?.(key, legacyDraftToMetadataDraft(edit));
-  };
-
-  const saveDraftBatch = (edits: Array<{ key: string; edit: DraftEdit }>) => {
-    onSetMetadataDraftBatch?.(
-      edits.map(({ key, edit }) => ({
-        key,
-        edit: legacyDraftToMetadataDraft(edit),
-      })),
-    );
-  };
-
   return (
     <div className="details-pane" data-testid="details-pane">
       <h2
@@ -860,14 +844,6 @@ export function DetailsPane({
               : undefined
           }
           initialString={editDialog.initialValue}
-          onSaveBatch={
-            onSetMetadataDraftBatch
-              ? (edits) => {
-                  saveDraftBatch(edits);
-                  setEditDialog(null);
-                }
-              : undefined
-          }
           onSaveMetadataBatch={
             onSetMetadataDraftBatch
               ? (edits) => {
@@ -876,10 +852,6 @@ export function DetailsPane({
                 }
               : undefined
           }
-          onSave={(edit) => {
-            saveDraft(editDialog.key, edit);
-            setEditDialog(null);
-          }}
           onSaveMetadata={
             onSetMetadataDraft
               ? (edit) => {
@@ -914,14 +886,6 @@ export function DetailsPane({
               ? metadataMapToEditorVariants(metadata)
               : undefined
           }
-          onSaveBatch={
-            onSetMetadataDraftBatch
-              ? (edits) => {
-                  saveDraftBatch(edits);
-                  setNewPropertyKey(null);
-                }
-              : undefined
-          }
           onSaveMetadataBatch={
             onSetMetadataDraftBatch
               ? (edits) => {
@@ -930,10 +894,6 @@ export function DetailsPane({
                 }
               : undefined
           }
-          onSave={(edit) => {
-            saveDraft(newPropertyKey, edit);
-            setNewPropertyKey(null);
-          }}
           onSaveMetadata={
             onSetMetadataDraft
               ? (edit) => {
