@@ -16,7 +16,8 @@ import userEvent from "@testing-library/user-event";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { PhotoList } from "../components/PhotoList";
 import { ThumbnailStore, ImageMetadataStore } from "../types";
-import type { MetadataDraftEdit, Variant } from "../types";
+import type { MetadataDraftEdit } from "../types";
+import { mockMetadata } from "./factories";
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({
   ask: vi.fn(() => Promise.resolve(true)),
@@ -32,7 +33,7 @@ async function getAskMock() {
 
 interface SetupOptions {
   photoCount?: number;
-  metadataByPath?: Record<string, Record<string, Variant>>;
+  metadataByPath?: Record<string, Record<string, any>>;
   draftEditsByPath?: Record<string, Record<string, MetadataDraftEdit>>;
   onGeocode?: (paths: string[]) => void;
 }
@@ -54,7 +55,7 @@ function setup(opts: SetupOptions = {}) {
   }
   if (opts.metadataByPath) {
     for (const [path, meta] of Object.entries(opts.metadataByPath)) {
-      imageMetadata.set(path, meta);
+      imageMetadata.set(path, mockMetadata(meta));
     }
   }
 

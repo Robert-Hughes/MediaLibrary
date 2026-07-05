@@ -7,7 +7,7 @@ import { PhotoList } from "../components/PhotoList";
 import { ColumnSelectionDialog } from "../components/ColumnSelectionDialog";
 import { ThumbnailStore, ImageMetadataStore } from "../types";
 import type { PhotoInfo } from "../types";
-import { makePhoto, makePhotos } from "./factories";
+import { makePhoto, makePhotos, mockMetadata } from "./factories";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -210,7 +210,10 @@ describe("PhotoList", () => {
     const photos = [makePhoto({ relative_path: "a.jpg" })];
     const { thumbs, imageMetadata } = makeStores(photos);
     act(() => {
-      imageMetadata.set("a.jpg", { "IFD0:Model": "Canon EOS R5" });
+      imageMetadata.set(
+        "a.jpg",
+        mockMetadata({ "IFD0:Model": "Canon EOS R5" }),
+      );
     });
     render(
       <PhotoList

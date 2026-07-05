@@ -1,6 +1,6 @@
 // ── Metadata display helpers ─────────────────────────────────────────────
 
-import type { ImageMetadataEntry, MetadataValue, Variant } from "./types";
+import type { ImageMetadataEntry, MetadataValue } from "./types";
 
 export function displayStringOfMetadataDraft(
   d: import("./types").MetadataDraftEdit | undefined,
@@ -11,31 +11,11 @@ export function displayStringOfMetadataDraft(
   return metadataValueToDisplayString(d.value);
 }
 
-/** Stringify a Variant for the legacy `string | null` display path. */
+/** Stringify a MetadataValue for the legacy `string | null` display path. */
 export function variantToDisplayString(
   v: ImageMetadataEntry | null | undefined,
 ): string {
-  if (v === null || v === undefined) return "";
-  if (isMetadataValue(v)) return metadataValueToDisplayString(v);
-  if (Array.isArray(v)) return v.map(variantToDisplayString).join(", ");
-  if (typeof v === "object") {
-    return Object.entries(v)
-      .map(([k, vv]) => `${k}: ${variantToDisplayString(vv as Variant)}`)
-      .join("; ");
-  }
-  if (typeof v === "boolean") return v ? "true" : "false";
-  if (typeof v === "number") return String(v);
-  return String(v);
-}
-
-function isMetadataValue(value: unknown): value is MetadataValue {
-  return (
-    !!value &&
-    typeof value === "object" &&
-    !Array.isArray(value) &&
-    "kind" in value &&
-    typeof (value as { kind?: unknown }).kind === "string"
-  );
+  return metadataValueToDisplayString(v);
 }
 
 export function metadataValueToDisplayString(

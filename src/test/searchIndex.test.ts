@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { SearchIndex } from "../search/searchIndex";
 import type { MetadataDraftEdit } from "../types";
+import { mockMetadata } from "./factories";
 
 const edit = (value: string): MetadataDraftEdit => ({
   value: { kind: "Text", value },
@@ -61,25 +62,28 @@ describe("SearchIndex", () => {
     it("matches via hidden metadata key", () => {
       const idx = new SearchIndex();
       seed(idx);
-      idx.setMeta("a.jpg", { "Secret:Tag": "hidden-value" });
-      idx.setMeta("b.jpg", { "Secret:Tag": "other" });
+      idx.setMeta("a.jpg", mockMetadata({ "Secret:Tag": "hidden-value" }));
+      idx.setMeta("b.jpg", mockMetadata({ "Secret:Tag": "other" }));
       expect(matchedSet(idx, "hidden-value")).toEqual(new Set(["a.jpg"]));
     });
 
     it("matches via metadata value across nested variants", () => {
       const idx = new SearchIndex();
       seed(idx);
-      idx.setMeta("a.jpg", {
-        "IFD0:Make": "Sony",
-        Subjects: ["birds", "trees"],
-      });
+      idx.setMeta(
+        "a.jpg",
+        mockMetadata({
+          "IFD0:Make": "Sony",
+          Subjects: ["birds", "trees"],
+        }),
+      );
       expect(matchedSet(idx, "trees")).toEqual(new Set(["a.jpg"]));
     });
 
     it("ignores '_error' metadata key", () => {
       const idx = new SearchIndex();
       seed(idx);
-      idx.setMeta("a.jpg", { _error: "exiftool blew up" });
+      idx.setMeta("a.jpg", mockMetadata({ _error: "exiftool blew up" }));
       expect(matchedSet(idx, "exiftool")).toEqual(new Set());
     });
 
@@ -157,8 +161,8 @@ describe("SearchIndex", () => {
     it("typing extra chars narrows correctly", () => {
       const idx = new SearchIndex();
       seed(idx);
-      idx.setMeta("a.jpg", { "IFD0:Make": "Canon" });
-      idx.setMeta("b.jpg", { "IFD0:Make": "Canon EOS R5" });
+      idx.setMeta("a.jpg", mockMetadata({ "IFD0:Make": "Canon" }));
+      idx.setMeta("b.jpg", mockMetadata({ "IFD0:Make": "Canon EOS R5" }));
       expect(matchedSet(idx, "canon")).toEqual(new Set(["a.jpg", "b.jpg"]));
       expect(matchedSet(idx, "canon eos")).toEqual(new Set(["b.jpg"]));
     });
@@ -190,7 +194,7 @@ describe("SearchIndex", () => {
       const idx = new SearchIndex();
       seed(idx);
       expect(matchedSet(idx, "uniquemeta")).toEqual(new Set());
-      idx.setMeta("a.jpg", { "X:Y": "uniquemeta" });
+      idx.setMeta("a.jpg", mockMetadata({ "X:Y": "uniquemeta" }));
       // If cache wasn't invalidated, the prior empty result would be reused.
       expect(matchedSet(idx, "uniquemeta")).toEqual(new Set(["a.jpg"]));
     });

@@ -1,10 +1,10 @@
 import { describe, it, expect } from "vitest";
+import { mockMetadata } from "./factories";
 import type {
   ImageMetadataEntry,
   MetadataDraftEdit,
   MetadataValue,
   NormaliseGroup,
-  Variant,
 } from "../types";
 import {
   buildNormaliseItemForPhoto,
@@ -36,7 +36,7 @@ function del(): MetadataDraftEdit {
 
 describe("resolveTag", () => {
   it("draft Set wins over metadata", () => {
-    const m: Record<string, Variant> = { "XMP-dc:Title": "from-meta" };
+    const m = mockMetadata({ "XMP-dc:Title": "from-meta" });
     const d: Record<string, MetadataDraftEdit> = {
       "XMP-dc:Title": set(text("from-draft")),
     };
@@ -44,20 +44,20 @@ describe("resolveTag", () => {
   });
 
   it("draft Delete masks metadata to null", () => {
-    const m: Record<string, Variant> = { "XMP-dc:Title": "from-meta" };
+    const m = mockMetadata({ "XMP-dc:Title": "from-meta" });
     const d: Record<string, MetadataDraftEdit> = { "XMP-dc:Title": del() };
     expect(resolveTag(m, d, "XMP-dc:Title")).toBeNull();
   });
 
   it("falls through to metadata when no draft", () => {
-    const m: Record<string, Variant> = { "XMP-dc:Title": "meta" };
-    expect(resolveTag(m, undefined, "XMP-dc:Title")).toBe("meta");
+    const m = mockMetadata({ "XMP-dc:Title": "meta" });
+    expect(resolveTag(m, undefined, "XMP-dc:Title")).toEqual(text("meta"));
   });
 
   it("falls through to semantic metadata when no draft", () => {
-    const m: Record<string, ImageMetadataEntry> = {
+    const m = mockMetadata({
       "XMP-dc:Title": { kind: "Text", value: "meta" },
-    };
+    });
     expect(resolveTag(m, undefined, "XMP-dc:Title")).toEqual({
       kind: "Text",
       value: "meta",
@@ -81,13 +81,13 @@ const ALL_GROUPS: NormaliseGroup[] = [
 
 describe("buildNormaliseItemForPhoto — keywords", () => {
   it("packs draft-overlay keyword sources into the bundle", () => {
-    const m: Record<string, Variant> = {
+    const m = mockMetadata({
       "XMP-lr:HierarchicalSubject": ["A|B|C"],
       "XMP-dc:Subject": ["C", "D"],
       "IPTC:Keywords": ["D"],
       "XMP-mlib:AITags": ["lion"],
       "XMP-mlib:AIObjects": ["statue"],
-    };
+    });
     const item = buildNormaliseItemForPhoto("x.jpg", m, undefined, [
       "keywords",
     ]);
@@ -101,7 +101,7 @@ describe("buildNormaliseItemForPhoto — keywords", () => {
   });
 
   it("uses draft list when present", () => {
-    const m: Record<string, Variant> = { "XMP-dc:Subject": ["meta"] };
+    const m = mockMetadata({ "XMP-dc:Subject": ["meta"] });
     const d: Record<string, MetadataDraftEdit> = {
       "XMP-dc:Subject": set(listValue(["draft1", "draft2"])),
     };
@@ -110,7 +110,7 @@ describe("buildNormaliseItemForPhoto — keywords", () => {
   });
 
   it("treats deleted-draft as empty", () => {
-    const m: Record<string, Variant> = { "XMP-dc:Subject": ["meta"] };
+    const m = mockMetadata({ "XMP-dc:Subject": ["meta"] });
     const d: Record<string, MetadataDraftEdit> = { "XMP-dc:Subject": del() };
     const item = buildNormaliseItemForPhoto("x.jpg", m, d, ["keywords"]);
     expect(item.groupInputs.keywords?.dcSubject).toEqual([]);
@@ -119,7 +119,7 @@ describe("buildNormaliseItemForPhoto — keywords", () => {
   it("promotes scalar string to single-entry list (exiftool quirk)", () => {
     // Exiftool sometimes emits a single-entry Bag as a scalar string;
     // the resolver must accept this and treat it as ["x"].
-    const m: Record<string, Variant> = { "XMP-dc:Subject": "lone-keyword" };
+    const m = mockMetadata({ "XMP-dc:Subject": "lone-keyword" });
     const item = buildNormaliseItemForPhoto("x.jpg", m, undefined, [
       "keywords",
     ]);
@@ -127,7 +127,7 @@ describe("buildNormaliseItemForPhoto — keywords", () => {
   });
 
   it("packs semantic list values from scanner metadata", () => {
-    const m: Record<string, ImageMetadataEntry> = {
+    const m = mockMetadata({
       "XMP-dc:Subject": {
         kind: "List",
         value: {
@@ -138,7 +138,7 @@ describe("buildNormaliseItemForPhoto — keywords", () => {
           ],
         },
       },
-    };
+    });
     const item = buildNormaliseItemForPhoto("x.jpg", m, undefined, [
       "keywords",
     ]);
@@ -151,11 +151,11 @@ describe("buildNormaliseItemForPhoto — keywords", () => {
 
 describe("buildNormaliseItemForPhoto — creator", () => {
   it("packs Seq creator + scalar artist + Seq byline", () => {
-    const m: Record<string, Variant> = {
+    const m = mockMetadata({
       "XMP-dc:Creator": ["Alice", "Bob"],
       "IFD0:Artist": "Alice; Bob",
       "IPTC:By-line": ["Alice"],
-    };
+    });
     const item = buildNormaliseItemForPhoto("x.jpg", m, undefined, ["creator"]);
     expect(item.groupInputs.creator).toEqual({
       creator: ["Alice", "Bob"],
@@ -167,10 +167,10 @@ describe("buildNormaliseItemForPhoto — creator", () => {
 
 describe("buildNormaliseItemForPhoto — disabled groups stay null", () => {
   it("only enabled groups get populated", () => {
-    const m: Record<string, Variant> = {
+    const m = mockMetadata({
       "XMP-dc:Subject": ["a"],
       "XMP-dc:Creator": ["alice"],
-    };
+    });
     const item = buildNormaliseItemForPhoto("x.jpg", m, undefined, [
       "keywords",
     ]);
@@ -182,10 +182,10 @@ describe("buildNormaliseItemForPhoto — disabled groups stay null", () => {
 
 describe("buildNormaliseItemForPhoto — location", () => {
   it("packs all five XMP↔IIM pairs", () => {
-    const m: Record<string, Variant> = {
+    const m = mockMetadata({
       "XMP-photoshop:City": "Paris",
       "IPTC:Country-PrimaryLocationCode": "FR",
-    };
+    });
     const item = buildNormaliseItemForPhoto("x.jpg", m, undefined, [
       "location",
     ]);
@@ -236,11 +236,11 @@ describe("buildNormaliseItemForPhoto — dates", () => {
   });
 
   it("packs all H1 + H2 source fields", () => {
-    const m: Record<string, Variant> = {
+    const m = mockMetadata({
       "ExifIFD:DateTimeOriginal": "2024:06:15 14:30:45",
       "ExifIFD:OffsetTimeOriginal": "+01:00",
       "ExifIFD:CreateDate": "2024:06:15 14:30:45",
-    };
+    });
     const item = buildNormaliseItemForPhoto("x.jpg", m, undefined, ["dates"]);
     expect(item.groupInputs.dates?.dateTimeOriginal).toBe(
       "2024:06:15 14:30:45",
@@ -250,7 +250,7 @@ describe("buildNormaliseItemForPhoto — dates", () => {
   });
 
   it("renders semantic date/time values for date normalisation inputs", () => {
-    const m: Record<string, ImageMetadataEntry> = {
+    const m = mockMetadata({
       "IPTC:DateCreated": {
         kind: "Date",
         value: { year: 2024, month: 6, day: 15 },
@@ -269,7 +269,7 @@ describe("buildNormaliseItemForPhoto — dates", () => {
         kind: "TimeOffset",
         value: { sign: "Plus", hours: 1, minutes: 0 },
       },
-    };
+    });
     const item = buildNormaliseItemForPhoto("x.jpg", m, undefined, ["dates"]);
     expect(item.groupInputs.dates?.iptcDateCreated).toBe("2024:06:15");
     expect(item.groupInputs.dates?.iptcTimeCreated).toBe("14:30:45");
@@ -279,12 +279,12 @@ describe("buildNormaliseItemForPhoto — dates", () => {
 
 describe("buildNormaliseItemForPhoto — semantic scalars", () => {
   it("uses x-default from LangAlt description metadata", () => {
-    const m: Record<string, ImageMetadataEntry> = {
+    const m = mockMetadata({
       "XMP-dc:Description": {
         kind: "LangAlt",
         value: { "x-default": "Semantic caption", fr: "Legende" },
       },
-    };
+    });
     const item = buildNormaliseItemForPhoto("x.jpg", m, undefined, [
       "description",
     ]);
@@ -292,12 +292,12 @@ describe("buildNormaliseItemForPhoto — semantic scalars", () => {
   });
 
   it("does not flatten Unknown metadata into normalise text inputs", () => {
-    const m: Record<string, ImageMetadataEntry> = {
+    const m = mockMetadata({
       "XMP-dc:Title": {
         kind: "Unknown",
         value: { expected: null, raw: "raw-title", reason: "no schema" },
       },
-    };
+    });
     const item = buildNormaliseItemForPhoto("x.jpg", m, undefined, ["title"]);
     expect(item.groupInputs.title?.title).toBeNull();
   });
@@ -305,9 +305,9 @@ describe("buildNormaliseItemForPhoto — semantic scalars", () => {
 
 describe("buildNormaliseItems batch", () => {
   it("returns one item per supplied rel path", () => {
-    const md = new Map<string, Record<string, Variant>>();
-    md.set("a.jpg", { "XMP-dc:Subject": ["a-keyword"] });
-    md.set("b.jpg", { "XMP-dc:Subject": ["b-keyword"] });
+    const md = new Map<string, Record<string, ImageMetadataEntry>>();
+    md.set("a.jpg", mockMetadata({ "XMP-dc:Subject": ["a-keyword"] }));
+    md.set("b.jpg", mockMetadata({ "XMP-dc:Subject": ["b-keyword"] }));
     const items = buildNormaliseItems(
       ["a.jpg", "b.jpg"],
       { get: (p) => md.get(p) },
@@ -338,7 +338,7 @@ describe("buildNormaliseItems batch", () => {
   it("draft store is consulted per path", () => {
     const items = buildNormaliseItems(
       ["a.jpg"],
-      { get: () => ({ "XMP-dc:Title": "from-meta" }) },
+      { get: () => mockMetadata({ "XMP-dc:Title": "from-meta" }) },
       { "a.jpg": { "XMP-dc:Title": set(text("from-draft")) } },
       ["title"],
     );

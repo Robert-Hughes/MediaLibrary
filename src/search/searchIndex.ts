@@ -6,7 +6,7 @@
  * Lives in its own module so it can be unit-tested directly (without a
  * Worker harness) and reused as the body of `src/workers/searchWorker.ts`.
  */
-import type { ImageMetadataState, MetadataDraftEdit, Variant } from "../types";
+import type { ImageMetadataState, MetadataDraftEdit } from "../types";
 import { displayStringOfMetadataDraft, variantToDisplayString } from "../draft";
 import { formatPhotoRowDate } from "../utils/photoDate";
 
@@ -39,7 +39,7 @@ function metaChunk(meta: ImageMetadataState | undefined): string {
   const parts: string[] = [];
   for (const [key, value] of Object.entries(meta)) {
     if (key === "_error") continue;
-    parts.push(key, variantToDisplayString(value as Variant));
+    parts.push(key, variantToDisplayString(value));
   }
   return parts.join("\n");
 }

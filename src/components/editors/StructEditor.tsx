@@ -1,14 +1,12 @@
 // Generic struct editor for XMP / EXIF struct values.
 //
-// Phase 4 MVP scope: each top-level field of the struct is editable as a
-// text value.  Nested objects/lists are rendered with a small inline
-// preview and "Edit…" button that opens a recursive sub-dialog handling
-// the inner Variant via the same router.  This is enough to read and
+// Struct rows store `MetadataValue`. Non-text values are edited through
+// recursive semantic editors (by opening a recursive sub-dialog handling
+// the inner `MetadataValue` via the same router). This is enough to read and
 // modify e.g. face-region structs at field granularity without giving up
-// generality — Phase 5 refinements can teach the field rows about the
-// schema for known struct types (`mwg-rs:Region` field map).
+// generality. Saving emits a semantic `MetadataValue::Struct` with intent=Set.
 //
-// The output is always a semantic `MetadataValue::Struct` shape with intent=Set.
+// Future work includes introducing schema-aware struct field kinds.
 
 import { useState } from "react";
 import type { MetadataDraftEdit, MetadataValue } from "../../types";

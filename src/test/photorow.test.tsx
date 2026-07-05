@@ -1,5 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
+import { mockMetadata } from "./factories";
 import { PhotoList } from "../components/PhotoList";
 import { ThumbnailStore, ImageMetadataStore } from "../types";
 
@@ -10,7 +11,7 @@ describe("PhotoRow", () => {
 
     // add some metadata
     thumbnails.set("1.jpg", "base64string");
-    metadata.set("1.jpg", { Model: "Nikon" });
+    metadata.set("1.jpg", mockMetadata({ Model: "Nikon" }));
 
     const photos = [
       {

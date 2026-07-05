@@ -6,7 +6,7 @@ import {
 } from "../hooks/useSearchWorker";
 import { DraftEditsStore, ImageMetadataStore, type PhotoInfo } from "../types";
 import { SearchIndex } from "../search/searchIndex";
-import { makePhoto } from "./factories";
+import { makePhoto, mockMetadata } from "./factories";
 import type {
   SearchWorkerInbound,
   SearchWorkerOutbound,
@@ -113,7 +113,7 @@ describe("useSearchWorker", () => {
   it("posts CLEAR + INIT_* on mount and submits the initial query", async () => {
     const meta = new ImageMetadataStore();
     meta.add("a.jpg");
-    meta.set("a.jpg", { "X:Y": "z" });
+    meta.set("a.jpg", mockMetadata({ "X:Y": "z" }));
     const drafts = new DraftEditsStore();
     drafts.resetMetadata({
       "a.jpg": {
@@ -145,9 +145,9 @@ describe("useSearchWorker", () => {
     const meta = new ImageMetadataStore();
     const drafts = new DraftEditsStore();
     meta.add("a.jpg");
-    meta.set("a.jpg", { "IFD0:Make": "Canon" });
+    meta.set("a.jpg", mockMetadata({ "IFD0:Make": "Canon" }));
     meta.add("b.jpg");
-    meta.set("b.jpg", { "IFD0:Make": "Sony" });
+    meta.set("b.jpg", mockMetadata({ "IFD0:Make": "Sony" }));
     const photos = [
       makePhoto({ relative_path: "a.jpg" }),
       makePhoto({ relative_path: "b.jpg" }),
@@ -215,7 +215,7 @@ describe("useSearchWorker", () => {
     await waitFor(() => expect(result.current.matched).toEqual(new Set()));
 
     act(() => {
-      meta.set("a.jpg", { "X:Y": "uniquemeta-found" });
+      meta.set("a.jpg", mockMetadata({ "X:Y": "uniquemeta-found" }));
     });
     expect(fake.inbound.some((m) => m.type === "UPSERT_META")).toBe(true);
     await waitFor(() =>
@@ -326,7 +326,7 @@ describe("useSearchWorker", () => {
 
     const metaNew = new ImageMetadataStore();
     metaNew.add("a.jpg");
-    metaNew.set("a.jpg", { "X:Y": "newscanmeta" });
+    metaNew.set("a.jpg", mockMetadata({ "X:Y": "newscanmeta" }));
     rerender({
       photos,
       imageMetadataStore: metaNew,
@@ -340,9 +340,12 @@ describe("useSearchWorker", () => {
       fake.inbound.some(
         (m) =>
           m.type === "INIT_META" &&
-          m.entries.some(
-            (e) => (e.meta as Record<string, unknown>)["X:Y"] === "newscanmeta",
-          ),
+          m.entries.some((e) => {
+            const val = (e.meta as Record<string, any>)["X:Y"];
+            return (
+              val && (val === "newscanmeta" || val.value === "newscanmeta")
+            );
+          }),
       ),
     ).toBe(true);
   });

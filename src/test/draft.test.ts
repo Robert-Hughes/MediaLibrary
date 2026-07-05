@@ -2,13 +2,30 @@ import { describe, expect, it } from "vitest";
 import { metadataValueToDisplayString, variantToDisplayString } from "../draft";
 
 describe("variantToDisplayString (regression)", () => {
-  // Sanity coverage so the fallback path keeps formatting lists / objects
-  // the way existing tests expect.
   it("joins arrays with comma-space", () => {
-    expect(variantToDisplayString(["a", "b"])).toBe("a, b");
+    expect(
+      variantToDisplayString({
+        kind: "List",
+        value: {
+          list_kind: "Bag",
+          items: [
+            { kind: "Text", value: "a" },
+            { kind: "Text", value: "b" },
+          ],
+        },
+      }),
+    ).toBe("a, b");
   });
   it("joins object entries", () => {
-    expect(variantToDisplayString({ k: "v", k2: "v2" })).toBe("k: v; k2: v2");
+    expect(
+      variantToDisplayString({
+        kind: "Struct",
+        value: {
+          k: { kind: "Text", value: "v" },
+          k2: { kind: "Text", value: "v2" },
+        },
+      }),
+    ).toBe("k: v; k2: v2");
   });
 });
 

@@ -6,12 +6,11 @@ import type {
   ThumbnailReadyPayload,
   ScanErrorPayload,
   WorkerErrorPayload,
-  ImageMetadataEntry,
   MetadataApplyEditsResult,
   MetadataTagOutcome,
   MetadataDraftEditsByFile,
 } from "../types";
-
+import { normalizeMetadataFromTauri } from "../utils/scanEvents";
 type EventHandler = (payload: unknown) => void;
 
 type MockDraftEditsByFolder = Record<string, MetadataDraftEditsByFile>;
@@ -24,7 +23,7 @@ export interface MockTauriApi {
   emitScanComplete: (scanId?: number) => void;
   emitImageMetadataReady: (
     relativePath: string,
-    metadata: Record<string, ImageMetadataEntry>,
+    metadata: Record<string, any>,
     scanId?: number,
   ) => void;
   emitThumbnailReady: (
@@ -171,7 +170,9 @@ export function createMockTauriApi(): MockTauriApi {
     emitImageMetadataReady: (relative_path, metadata, scanId) =>
       emit("image_metadata_ready", {
         scan_id: scanId ?? mock.currentScanId,
-        results: [{ relative_path, metadata }],
+        results: [
+          { relative_path, metadata: normalizeMetadataFromTauri(metadata) },
+        ],
       } satisfies ImageMetadataReadyPayload),
     emitThumbnailReady: (relative_path, thumbnail, scanId) =>
       emit("thumbnail_ready", {

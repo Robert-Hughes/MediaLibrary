@@ -9,8 +9,8 @@ import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { GalleryView } from "../components/GalleryView";
 import { ImageMetadataStore } from "../types";
-import { makePhotos } from "./factories";
-import type { PhotoInfo, Variant } from "../types";
+import { makePhotos, mockMetadata } from "./factories";
+import type { PhotoInfo } from "../types";
 
 // ── Test helpers ─────────────────────────────────────────────────────────────
 
@@ -24,13 +24,13 @@ const fakeLoad = async (_path: string) => "data:image/jpeg;base64,FAKE";
 /** Create an ImageMetadataStore pre-populated with test metadata. */
 function createPopulatedStore(
   photos: PhotoInfo[],
-  metadataByPath: Record<string, Record<string, Variant>>,
+  metadataByPath: Record<string, Record<string, any>>,
 ): ImageMetadataStore {
   const store = new ImageMetadataStore();
   for (const p of photos) {
     store.add(p.relative_path);
     if (metadataByPath[p.relative_path]) {
-      store.set(p.relative_path, metadataByPath[p.relative_path]);
+      store.set(p.relative_path, mockMetadata(metadataByPath[p.relative_path]));
     }
   }
   return store;
@@ -375,10 +375,13 @@ describe("Gallery details pane with reactive metadata", () => {
 
     // Simulate metadata arriving via store update
     act(() => {
-      store.set("2024/a.jpg", {
-        "IFD0:Make": "Sony",
-        "IFD0:Model": "A7R IV",
-      });
+      store.set(
+        "2024/a.jpg",
+        mockMetadata({
+          "IFD0:Make": "Sony",
+          "IFD0:Model": "A7R IV",
+        }),
+      );
     });
 
     // Wait for reactive update

@@ -192,7 +192,9 @@ describe("TypedValueEditor temporal routing", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByTestId("unknown-editor-input")).toBeInTheDocument();
+      expect(
+        screen.getByTestId("unknown-editor-raw-value"),
+      ).toBeInTheDocument();
     });
     expect(screen.queryByTestId("datetime-editor-input")).toBeNull();
   });

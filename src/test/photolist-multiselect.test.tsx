@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { mockMetadata } from "./factories";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -299,7 +300,10 @@ describe("PhotoList context menu (multi-select)", () => {
       thumbnails.add(p.relative_path);
       imageMetadata.add(p.relative_path);
     }
-    imageMetadata.set("2.jpg", { "XMP-mlib:AIDescription": "old text" });
+    imageMetadata.set(
+      "2.jpg",
+      mockMetadata({ "XMP-mlib:AIDescription": "old text" }),
+    );
     const onGenerateAiDescription = vi.fn();
     render(
       <PhotoList

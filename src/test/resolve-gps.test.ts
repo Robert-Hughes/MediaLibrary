@@ -10,6 +10,7 @@
 import { describe, it, expect } from "vitest";
 import { resolveGps } from "../utils/resolveGps";
 import type { MetadataDraftEdit, MetadataValue } from "../types";
+import { mockMetadata } from "./factories";
 
 function setEdit(value: MetadataValue): MetadataDraftEdit {
   return { value, intent: "Set" };
@@ -28,21 +29,21 @@ describe("resolveGps", () => {
   });
 
   it("reads decimal Composite GPS from metadata", () => {
-    const meta = {
+    const meta = mockMetadata({
       "Composite:GPSLatitude": 51.5001,
       "Composite:GPSLongitude": -0.1262,
-    };
+    });
     expect(resolveGps({}, meta)).toEqual({ lat: 51.5001, lon: -0.1262 });
   });
 
   it("parses DMS strings with refs", () => {
     // Standard EXIF DMS shape that ExifTool emits without -n.
-    const meta = {
+    const meta = mockMetadata({
       "GPS:GPSLatitude": "51 deg 30' 0.55\" N",
       "GPS:GPSLatitudeRef": "N",
       "GPS:GPSLongitude": "0 deg 7' 34.49\" W",
       "GPS:GPSLongitudeRef": "W",
-    };
+    });
     const { lat, lon } = resolveGps({}, meta);
     expect(lat).toBeCloseTo(51.5001527, 5);
     expect(lon).toBeCloseTo(-0.1262472, 5);
@@ -55,10 +56,10 @@ describe("resolveGps", () => {
       "Composite:GPSLatitude": setEdit(real(48.8584)),
       "Composite:GPSLongitude": setEdit(real(2.2945)),
     };
-    const meta = {
+    const meta = mockMetadata({
       "Composite:GPSLatitude": 51.5,
       "Composite:GPSLongitude": -0.12,
-    };
+    });
     expect(resolveGps(drafts, meta)).toEqual({ lat: 48.8584, lon: 2.2945 });
   });
 
@@ -70,10 +71,10 @@ describe("resolveGps", () => {
       "Composite:GPSLatitude": deleteEdit(),
       "Composite:GPSLongitude": deleteEdit(),
     };
-    const meta = {
+    const meta = mockMetadata({
       "Composite:GPSLatitude": 51.5,
       "Composite:GPSLongitude": -0.12,
-    };
+    });
     expect(resolveGps(drafts, meta)).toEqual({ lat: null, lon: null });
   });
 });

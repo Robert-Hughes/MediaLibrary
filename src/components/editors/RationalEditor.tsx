@@ -14,11 +14,12 @@
 //                                reduced MetadataValue::Rational.
 
 import { useState, useEffect, useRef } from "react";
-import type { MetadataDraftEdit } from "../../types";
+import type { MetadataDraftEdit, MetadataValue } from "../../types";
 import { READ_ONLY_TOOLTIP } from "./readOnlyMessages";
 
 interface Props {
   propertyKey: string;
+  initialMetadataValue?: MetadataValue;
   initialValue: string;
   onSave: (edit: MetadataDraftEdit) => void;
   onCancel: () => void;
@@ -85,13 +86,22 @@ function gcd(a: number, b: number): number {
 
 export function RationalEditor({
   propertyKey,
+  initialMetadataValue,
   initialValue,
   onSave,
   onCancel,
   headerHint,
   readOnly,
 }: Props) {
-  const initial = initialFraction(initialValue);
+  const initial = (() => {
+    if (initialMetadataValue && initialMetadataValue.kind === "Rational") {
+      return {
+        num: initialMetadataValue.value.numerator,
+        den: initialMetadataValue.value.denominator,
+      };
+    }
+    return initialFraction(initialValue);
+  })();
   const [mode, setMode] = useState<"fraction" | "decimal">("fraction");
   const [num, setNum] = useState<string>(String(initial.num));
   const [den, setDen] = useState<string>(String(initial.den));
