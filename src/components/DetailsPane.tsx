@@ -826,14 +826,10 @@ export function DetailsPane({
                 }
               : undefined
           }
-          onSaveMetadata={
-            onSetMetadataDraft
-              ? (edit) => {
-                  onSetMetadataDraft(editDialog.key, edit);
-                  setEditDialog(null);
-                }
-              : undefined
-          }
+          onSaveMetadata={(edit) => {
+            onSetMetadataDraft?.(editDialog.key, edit);
+            setEditDialog(null);
+          }}
           onCancel={() => setEditDialog(null)}
         />
       )}
@@ -868,14 +864,10 @@ export function DetailsPane({
                 }
               : undefined
           }
-          onSaveMetadata={
-            onSetMetadataDraft
-              ? (edit) => {
-                  onSetMetadataDraft(newPropertyKey, edit);
-                  setNewPropertyKey(null);
-                }
-              : undefined
-          }
+          onSaveMetadata={(edit) => {
+            onSetMetadataDraft?.(newPropertyKey, edit);
+            setNewPropertyKey(null);
+          }}
           onCancel={() => setNewPropertyKey(null)}
         />
       )}

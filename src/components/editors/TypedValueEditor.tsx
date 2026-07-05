@@ -22,13 +22,7 @@
 
 import { useState } from "react";
 import { useTagInfo } from "../../hooks/useTagInfo";
-import type {
-  DraftEdit,
-  MetadataDraftEdit,
-  TagInfo,
-  TagKind,
-  Variant,
-} from "../../types";
+import type { MetadataDraftEdit, TagInfo, TagKind, Variant } from "../../types";
 import { ValueEditDialog } from "../ValueEditDialog";
 import { BagEditor, type BagInnerKind } from "./BagEditor";
 import { EnumEditor } from "./EnumEditor";
@@ -54,10 +48,6 @@ import {
 
 import { gpsTagGroup, isFlashTag } from "../../metadata/tag_overrides";
 import { EditorMetaHint, type EditorMetaSource } from "./EditorMetaHint";
-import {
-  legacyDraftToMetadataDraft,
-  metadataDraftToLegacyDraft,
-} from "../../utils/semanticDrafts";
 
 interface Props {
   propertyKey: string;
@@ -66,10 +56,8 @@ interface Props {
   initialString: string;
   /** Full metadata for the file (used by LangAltEditor and GpsEditor to gather sibling keys). */
   metadataForFile?: Record<string, Variant>;
-  onSave?: (edit: DraftEdit) => void;
-  onSaveMetadata?: (edit: MetadataDraftEdit) => void;
+  onSaveMetadata: (edit: MetadataDraftEdit) => void;
   /** Multi-tag save, used by GpsEditor and any future paired-tag editor. */
-  onSaveBatch?: (edits: Array<{ key: string; edit: DraftEdit }>) => void;
   onSaveMetadataBatch?: (
     edits: Array<{ key: string; edit: MetadataDraftEdit }>,
   ) => void;
@@ -104,27 +92,14 @@ export function TypedValueEditor({
   initialVariant,
   initialString,
   metadataForFile,
-  onSave,
   onSaveMetadata,
-  onSaveBatch,
   onSaveMetadataBatch,
   onCancel,
 }: Props) {
   const tag = useTagInfo(propertyKey);
   const readOnly = tag !== null && tag !== "loading" && !tag.writable;
-  const saveDraft = (edit: DraftEdit) => {
-    if (onSaveMetadata) {
-      onSaveMetadata(legacyDraftToMetadataDraft(edit));
-    } else {
-      onSave?.(edit);
-    }
-  };
-  const saveMetadataDraft = (edit: MetadataDraftEdit) => {
-    if (onSaveMetadata) {
-      onSaveMetadata(edit);
-    } else {
-      onSave?.(metadataDraftToLegacyDraft(edit));
-    }
+  const saveText = (value: string) => {
+    onSaveMetadata({ value: { kind: "Text", value }, intent: "Set" });
   };
   // ── Override 1: Flash bitfield ─────────────────────────────────────────
   if (isFlashTag(propertyKey)) {
@@ -136,11 +111,7 @@ export function TypedValueEditor({
       <FlashEditor
         propertyKey={propertyKey}
         initialCode={code}
-        onSave={
-          onSaveMetadata
-            ? (edit) => onSaveMetadata(edit)
-            : (edit) => onSave?.(metadataDraftToLegacyDraft(edit))
-        }
+        onSave={onSaveMetadata}
         onCancel={onCancel}
         readOnly={readOnly}
         headerHint={
@@ -168,9 +139,9 @@ export function TypedValueEditor({
   }
 
   // ── Override 2: GPS composite editor (writable only with paired-batch save). ─
-  const gpsGroup =
-    onSaveBatch || onSaveMetadataBatch ? gpsTagGroup(propertyKey) : null;
-  if (gpsGroup && metadataForFile) {
+  const saveMetadataBatch = onSaveMetadataBatch;
+  const gpsGroup = saveMetadataBatch ? gpsTagGroup(propertyKey) : null;
+  if (gpsGroup && metadataForFile && saveMetadataBatch) {
     const latVal = metadataForFile[gpsGroup.latitudeKey];
     const lonVal = metadataForFile[gpsGroup.longitudeKey];
     const altVal = metadataForFile[gpsGroup.altitudeKey];
@@ -212,17 +183,7 @@ export function TypedValueEditor({
             : null
         }
         initialAltitudeRef={initialAltitudeRef}
-        onSave={
-          onSaveMetadataBatch
-            ? (edits) => onSaveMetadataBatch(edits)
-            : (edits) =>
-                onSaveBatch?.(
-                  edits.map(({ key, edit }) => ({
-                    key,
-                    edit: metadataDraftToLegacyDraft(edit),
-                  })),
-                )
-        }
+        onSave={saveMetadataBatch}
         onCancel={onCancel}
         readOnly={readOnly}
         headerHint={
@@ -254,7 +215,7 @@ export function TypedValueEditor({
       <ValueEditDialog
         propertyKey={propertyKey}
         initialValue={initialString}
-        onSave={(s) => saveDraft({ value: s, intent: "Set" })}
+        onSave={saveText}
         onCancel={onCancel}
         readOnly={readOnly}
         headerHint={schemaHint()}
@@ -272,11 +233,7 @@ export function TypedValueEditor({
           initialItems={initialItems}
           ordered={tag.kind.kind === "Seq"}
           innerKind={inner}
-          onSave={
-            onSaveMetadata
-              ? (edit) => onSaveMetadata(edit)
-              : (edit) => onSave?.(metadataDraftToLegacyDraft(edit))
-          }
+          onSave={onSaveMetadata}
           onCancel={onCancel}
           headerHint={schemaHint()}
         />
@@ -298,7 +255,7 @@ export function TypedValueEditor({
           kind={tag.kind}
           initialItems={items}
           innerEditor={TypedValueEditor}
-          onSave={saveMetadataDraft}
+          onSave={onSaveMetadata}
           onCancel={onCancel}
           headerHint={schemaHint()}
         />
@@ -315,11 +272,7 @@ export function TypedValueEditor({
         repr={repr}
         options={options}
         initialCode={code === "" ? initialString : code}
-        onSave={
-          onSaveMetadata
-            ? (edit) => onSaveMetadata(edit)
-            : (edit) => onSave?.(metadataDraftToLegacyDraft(edit))
-        }
+        onSave={onSaveMetadata}
         onCancel={onCancel}
         readOnly={readOnly}
         headerHint={schemaHint()}
@@ -334,11 +287,7 @@ export function TypedValueEditor({
       <RationalEditor
         propertyKey={propertyKey}
         initialValue={initialString}
-        onSave={
-          onSaveMetadata
-            ? (edit) => onSaveMetadata(edit)
-            : (edit) => onSave?.(metadataDraftToLegacyDraft(edit))
-        }
+        onSave={onSaveMetadata}
         onCancel={onCancel}
         readOnly={readOnly}
         headerHint={schemaHint()}
@@ -356,11 +305,7 @@ export function TypedValueEditor({
         min={min}
         max={max}
         initialValue={initialString}
-        onSave={
-          onSaveMetadata
-            ? (edit) => onSaveMetadata(edit)
-            : (edit) => onSave?.(metadataDraftToLegacyDraft(edit))
-        }
+        onSave={onSaveMetadata}
         onCancel={onCancel}
         readOnly={readOnly}
         headerHint={schemaHint()}
@@ -381,11 +326,7 @@ export function TypedValueEditor({
       <BooleanEditor
         propertyKey={propertyKey}
         initialValue={v}
-        onSave={
-          onSaveMetadata
-            ? (edit) => onSaveMetadata(edit)
-            : (edit) => onSave?.(metadataDraftToLegacyDraft(edit))
-        }
+        onSave={onSaveMetadata}
         onCancel={onCancel}
         readOnly={readOnly}
         headerHint={schemaHint()}
@@ -410,11 +351,7 @@ export function TypedValueEditor({
               : "datetime"
         }
         initialValue={initialString}
-        onSave={
-          onSaveMetadata
-            ? (edit) => onSaveMetadata(edit)
-            : (edit) => onSave?.(metadataDraftToLegacyDraft(edit))
-        }
+        onSave={onSaveMetadata}
         onCancel={onCancel}
         readOnly={readOnly}
         headerHint={schemaHint()}
@@ -435,11 +372,7 @@ export function TypedValueEditor({
       <LangAltEditor
         propertyKey={propertyKey}
         initialLangs={initialLangs}
-        onSave={
-          onSaveMetadata
-            ? (edit) => onSaveMetadata(edit)
-            : (edit) => onSave?.(metadataDraftToLegacyDraft(edit))
-        }
+        onSave={onSaveMetadata}
         onCancel={onCancel}
         readOnly={readOnly}
         headerHint={schemaHint()}
@@ -454,7 +387,7 @@ export function TypedValueEditor({
         propertyKey={propertyKey}
         initialObject={initialObject}
         innerEditor={TypedValueEditor}
-        onSave={saveMetadataDraft}
+        onSave={onSaveMetadata}
         onCancel={onCancel}
         readOnly={readOnly}
         headerHint={schemaHint()}
@@ -502,7 +435,7 @@ export function TypedValueEditor({
         propertyKey={propertyKey}
         initialObject={initialObjectFrom(initialVariant)}
         innerEditor={TypedValueEditor}
-        onSave={saveMetadataDraft}
+        onSave={onSaveMetadata}
         onCancel={onCancel}
         readOnly={readOnly}
         headerHint={schemaHint(
@@ -518,7 +451,7 @@ export function TypedValueEditor({
       <UnknownEditor
         propertyKey={propertyKey}
         initialValue={initialString}
-        onSave={(s) => saveDraft({ value: s, intent: "Set" })}
+        onSave={saveText}
         onCancel={onCancel}
         readOnly={readOnly}
         headerHint={schemaHint()}
@@ -531,7 +464,7 @@ export function TypedValueEditor({
     <ValueEditDialog
       propertyKey={propertyKey}
       initialValue={initialString}
-      onSave={(s) => saveDraft({ value: s, intent: "Set" })}
+      onSave={saveText}
       onCancel={onCancel}
       readOnly={readOnly}
       headerHint={schemaHint()}
