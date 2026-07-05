@@ -422,7 +422,7 @@ describe("DetailsPane: Add-Property two-step flow", () => {
     expect(editArg.value).toEqual({
       kind: "List",
       value: {
-        list_kind: "Unknown",
+        list_kind: "Bag",
         items: [{ kind: "Text", value: "landscape" }],
       },
     });
