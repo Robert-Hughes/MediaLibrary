@@ -5,6 +5,7 @@ import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { StructEditor } from "../components/editors/StructEditor";
 import { initialObjectFrom } from "../components/editors/editorHelpers";
+import type { MetadataValue } from "../types";
 
 beforeEach(() => cleanup());
 
@@ -13,7 +14,10 @@ describe("StructEditor", () => {
     render(
       <StructEditor
         propertyKey="XMP-mwg-rs:Region"
-        initialObject={{ Name: "Alice", Type: "Face" }}
+        initialObject={{
+          Name: { kind: "Text", value: "Alice" },
+          Type: { kind: "Text", value: "Face" },
+        }}
         onSave={() => {}}
         onCancel={() => {}}
       />,
@@ -27,7 +31,10 @@ describe("StructEditor", () => {
     render(
       <StructEditor
         propertyKey="X"
-        initialObject={{ a: "1", b: "2" }}
+        initialObject={{
+          a: { kind: "Text", value: "1" },
+          b: { kind: "Text", value: "2" },
+        }}
         onSave={onSave}
         onCancel={() => {}}
       />,
@@ -52,7 +59,7 @@ describe("StructEditor", () => {
     render(
       <StructEditor
         propertyKey="X"
-        initialObject={{ Name: "Alice" }}
+        initialObject={{ Name: { kind: "Text", value: "Alice" } }}
         onSave={onSave}
         onCancel={() => {}}
       />,
@@ -75,7 +82,7 @@ describe("StructEditor", () => {
     render(
       <StructEditor
         propertyKey="X"
-        initialObject={{ a: "1" }}
+        initialObject={{ a: { kind: "Text", value: "1" } }}
         onSave={onSave}
         onCancel={() => {}}
       />,
@@ -101,7 +108,11 @@ describe("StructEditor", () => {
     render(
       <StructEditor
         propertyKey="X"
-        initialObject={{ a: "1", b: "2", c: "3" }}
+        initialObject={{
+          a: { kind: "Text", value: "1" },
+          b: { kind: "Text", value: "2" },
+          c: { kind: "Text", value: "3" },
+        }}
         onSave={onSave}
         onCancel={() => {}}
       />,
@@ -126,8 +137,14 @@ describe("StructEditor", () => {
       <StructEditor
         propertyKey="X"
         initialObject={{
-          Name: "Alice",
-          Nested: { a: "1", b: "2" },
+          Name: { kind: "Text", value: "Alice" },
+          Nested: {
+            kind: "Struct",
+            value: {
+              a: { kind: "Text", value: "1" },
+              b: { kind: "Text", value: "2" },
+            },
+          },
         }}
         innerEditor={inner}
         onSave={() => {}}
@@ -145,7 +162,12 @@ describe("StructEditor", () => {
     render(
       <StructEditor
         propertyKey="X"
-        initialObject={{ Nested: { a: "1" } }}
+        initialObject={{
+          Nested: {
+            kind: "Struct",
+            value: { a: { kind: "Text", value: "1" } },
+          },
+        }}
         innerEditor={inner}
         onSave={() => {}}
         onCancel={() => {}}
@@ -159,14 +181,31 @@ describe("StructEditor", () => {
 
 describe("initialObjectFrom", () => {
   it("passes through an object", () => {
-    expect(initialObjectFrom({ a: "1" })).toEqual({ a: "1" });
+    const structVal: MetadataValue = {
+      kind: "Struct",
+      value: { a: { kind: "Text", value: "1" } },
+    };
+    expect(initialObjectFrom(structVal)).toEqual({
+      a: { kind: "Text", value: "1" },
+    });
   });
 
   it("returns empty for non-object inputs", () => {
     expect(initialObjectFrom(undefined)).toEqual({});
-    expect(initialObjectFrom(null)).toEqual({});
-    expect(initialObjectFrom("a string")).toEqual({});
-    expect(initialObjectFrom(42)).toEqual({});
-    expect(initialObjectFrom(["a", "b"])).toEqual({});
+    expect(initialObjectFrom({ kind: "Null" })).toEqual({});
+    expect(initialObjectFrom({ kind: "Text", value: "a string" })).toEqual({});
+    expect(initialObjectFrom({ kind: "Integer", value: 42 })).toEqual({});
+    expect(
+      initialObjectFrom({
+        kind: "List",
+        value: {
+          list_kind: "Bag",
+          items: [
+            { kind: "Text", value: "a" },
+            { kind: "Text", value: "b" },
+          ],
+        },
+      }),
+    ).toEqual({});
   });
 });

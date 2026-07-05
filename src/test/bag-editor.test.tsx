@@ -181,8 +181,19 @@ describe("BagEditor", () => {
 });
 
 describe("initialItemsFrom", () => {
-  it("returns array for a Variant::List input", () => {
-    expect(initialItemsFrom(["a", "b"])).toEqual(["a", "b"]);
+  it("returns array for a MetadataValue::List input", () => {
+    expect(
+      initialItemsFrom({
+        kind: "List",
+        value: {
+          list_kind: "Bag",
+          items: [
+            { kind: "Text", value: "a" },
+            { kind: "Text", value: "b" },
+          ],
+        },
+      }),
+    ).toEqual(["a", "b"]);
   });
 
   it("parses comma-joined string (legacy display form)", () => {

@@ -11,22 +11,22 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { NestedListEditor } from "../components/editors/NestedListEditor";
-import { initialItemsFromVariant } from "../components/editors/editorHelpers";
-import type { MetadataDraftEdit, TagKind, Variant } from "../types";
+import { initialItemsFromMetadataValue } from "../components/editors/editorHelpers";
+import type { MetadataDraftEdit, TagKind, MetadataValue } from "../types";
 import type { InnerEditorProps } from "../components/editors/StructEditor";
 
 beforeEach(() => cleanup());
 
-// Stub inner editor that records the propertyKey/initialVariant it was
+// Stub inner editor that records the propertyKey/initialMetadataValue it was
 // asked to edit and immediately commits a sentinel edited Object.  Real
 // router is exercised in the integration test at the bottom.
 function stubInnerEditor(record: {
   lastPropertyKey?: string;
-  lastInitial?: Variant;
+  lastInitial?: MetadataValue;
 }) {
   return function Stub(props: InnerEditorProps) {
     record.lastPropertyKey = props.propertyKey;
-    record.lastInitial = props.initialVariant;
+    record.lastInitial = props.initialMetadataValue;
     return (
       <div data-testid="stub-inner-editor">
         <button
@@ -76,8 +76,8 @@ describe("NestedListEditor", () => {
         propertyKey="XMP-mwg-rs:Regions"
         kind={BAG_OF_STRUCT}
         initialItems={[
-          { Name: "Alice", Type: "Face" },
-          { Name: "Bob", Type: "Face" },
+          { kind: "Struct", value: { Name: { kind: "Text", value: "Alice" } } },
+          { kind: "Struct", value: { Name: { kind: "Text", value: "Bob" } } },
         ]}
         innerEditor={stubInnerEditor({})}
         onSave={() => {}}
@@ -96,7 +96,9 @@ describe("NestedListEditor", () => {
       <NestedListEditor
         propertyKey="XMP-mwg-rs:Regions"
         kind={BAG_OF_STRUCT}
-        initialItems={[{ Name: "Alice" }]}
+        initialItems={[
+          { kind: "Struct", value: { Name: { kind: "Text", value: "Alice" } } },
+        ]}
         innerEditor={stubInnerEditor({})}
         onSave={onSave}
         onCancel={() => {}}
@@ -121,12 +123,16 @@ describe("NestedListEditor", () => {
   });
 
   it("Edit… opens the inner editor for the chosen item", () => {
-    const record: { lastPropertyKey?: string; lastInitial?: Variant } = {};
+    const record: { lastPropertyKey?: string; lastInitial?: MetadataValue } =
+      {};
     render(
       <NestedListEditor
         propertyKey="XMP-mwg-rs:Regions"
         kind={BAG_OF_STRUCT}
-        initialItems={[{ Name: "Alice" }, { Name: "Bob" }]}
+        initialItems={[
+          { kind: "Struct", value: { Name: { kind: "Text", value: "Alice" } } },
+          { kind: "Struct", value: { Name: { kind: "Text", value: "Bob" } } },
+        ]}
         innerEditor={stubInnerEditor(record)}
         onSave={() => {}}
         onCancel={() => {}}
@@ -136,7 +142,10 @@ describe("NestedListEditor", () => {
     fireEvent.click(editButtons[1]);
     expect(screen.getByTestId("stub-inner-editor")).toBeInTheDocument();
     expect(record.lastPropertyKey).toBe("XMP-mwg-rs:Regions[1]");
-    expect(record.lastInitial).toEqual({ Name: "Bob" });
+    expect(record.lastInitial).toEqual({
+      kind: "Struct",
+      value: { Name: { kind: "Text", value: "Bob" } },
+    });
   });
 
   it("inner Save commits the edited value back into the list", () => {
@@ -145,7 +154,12 @@ describe("NestedListEditor", () => {
       <NestedListEditor
         propertyKey="XMP-mwg-rs:Regions"
         kind={BAG_OF_STRUCT}
-        initialItems={[{ Name: "Original" }]}
+        initialItems={[
+          {
+            kind: "Struct",
+            value: { Name: { kind: "Text", value: "Original" } },
+          },
+        ]}
         innerEditor={stubInnerEditor({})}
         onSave={onSave}
         onCancel={() => {}}
@@ -174,12 +188,15 @@ describe("NestedListEditor", () => {
   });
 
   it("Add item appends an empty struct and opens the editor for it", () => {
-    const record: { lastPropertyKey?: string; lastInitial?: Variant } = {};
+    const record: { lastPropertyKey?: string; lastInitial?: MetadataValue } =
+      {};
     render(
       <NestedListEditor
         propertyKey="XMP-mwg-rs:Regions"
         kind={BAG_OF_STRUCT}
-        initialItems={[{ Name: "Alice" }]}
+        initialItems={[
+          { kind: "Struct", value: { Name: { kind: "Text", value: "Alice" } } },
+        ]}
         innerEditor={stubInnerEditor(record)}
         onSave={() => {}}
         onCancel={() => {}}
@@ -190,7 +207,7 @@ describe("NestedListEditor", () => {
     expect(screen.getByTestId("stub-inner-editor")).toBeInTheDocument();
     expect(record.lastPropertyKey).toBe("XMP-mwg-rs:Regions[1]");
     // Empty Struct seed.
-    expect(record.lastInitial).toEqual({});
+    expect(record.lastInitial).toEqual({ kind: "Struct", value: {} });
   });
 
   it("Remove drops the chosen item from the saved list", () => {
@@ -199,7 +216,10 @@ describe("NestedListEditor", () => {
       <NestedListEditor
         propertyKey="XMP-mwg-rs:Regions"
         kind={BAG_OF_STRUCT}
-        initialItems={[{ Name: "Alice" }, { Name: "Bob" }]}
+        initialItems={[
+          { kind: "Struct", value: { Name: { kind: "Text", value: "Alice" } } },
+          { kind: "Struct", value: { Name: { kind: "Text", value: "Bob" } } },
+        ]}
         innerEditor={stubInnerEditor({})}
         onSave={onSave}
         onCancel={() => {}}
@@ -227,7 +247,10 @@ describe("NestedListEditor", () => {
       <NestedListEditor
         propertyKey="XMP-mwg-rs:Regions"
         kind={BAG_OF_STRUCT}
-        initialItems={[{ Name: "Alice" }, { Name: "Bob" }]}
+        initialItems={[
+          { kind: "Struct", value: { Name: { kind: "Text", value: "Alice" } } },
+          { kind: "Struct", value: { Name: { kind: "Text", value: "Bob" } } },
+        ]}
         innerEditor={stubInnerEditor({})}
         onSave={() => {}}
         onCancel={() => {}}
@@ -243,7 +266,10 @@ describe("NestedListEditor", () => {
       <NestedListEditor
         propertyKey="X:OrderedRegions"
         kind={SEQ_OF_STRUCT}
-        initialItems={[{ Name: "Alice" }, { Name: "Bob" }]}
+        initialItems={[
+          { kind: "Struct", value: { Name: { kind: "Text", value: "Alice" } } },
+          { kind: "Struct", value: { Name: { kind: "Text", value: "Bob" } } },
+        ]}
         innerEditor={stubInnerEditor({})}
         onSave={onSave}
         onCancel={() => {}}
@@ -272,7 +298,8 @@ describe("NestedListEditor", () => {
   });
 
   it("LangAlt inner seeds a fresh item with x-default empty string", () => {
-    const record: { lastPropertyKey?: string; lastInitial?: Variant } = {};
+    const record: { lastPropertyKey?: string; lastInitial?: MetadataValue } =
+      {};
     render(
       <NestedListEditor
         propertyKey="X:LangAltList"
@@ -284,7 +311,10 @@ describe("NestedListEditor", () => {
       />,
     );
     fireEvent.click(screen.getByTestId("nested-list-editor-add"));
-    expect(record.lastInitial).toEqual({ "x-default": "" });
+    expect(record.lastInitial).toEqual({
+      kind: "LangAlt",
+      value: { "x-default": "" },
+    });
   });
 
   it("empty list shows the empty-state hint", () => {
@@ -302,15 +332,28 @@ describe("NestedListEditor", () => {
   });
 });
 
-describe("initialItemsFromVariant", () => {
-  it("returns array unchanged", () => {
-    expect(initialItemsFromVariant([1, 2] as Variant)).toEqual([1, 2]);
+describe("initialItemsFromMetadataValue", () => {
+  it("returns items from List kind", () => {
+    const listVal: MetadataValue = {
+      kind: "List",
+      value: {
+        list_kind: "Bag",
+        items: [
+          { kind: "Integer", value: 1 },
+          { kind: "Integer", value: 2 },
+        ],
+      },
+    };
+    expect(initialItemsFromMetadataValue(listVal)).toEqual([
+      { kind: "Integer", value: 1 },
+      { kind: "Integer", value: 2 },
+    ]);
   });
   it("treats null/undefined as empty list", () => {
-    expect(initialItemsFromVariant(null as unknown as Variant)).toEqual([]);
-    expect(initialItemsFromVariant(undefined)).toEqual([]);
+    expect(initialItemsFromMetadataValue(undefined)).toEqual([]);
   });
   it("promotes a scalar to a one-item list", () => {
-    expect(initialItemsFromVariant("solo" as Variant)).toEqual(["solo"]);
+    const scalarVal: MetadataValue = { kind: "Text", value: "solo" };
+    expect(initialItemsFromMetadataValue(scalarVal)).toEqual([scalarVal]);
   });
 });
