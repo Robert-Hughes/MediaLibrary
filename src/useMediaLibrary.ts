@@ -34,9 +34,6 @@ import {
   removeVerifyOutcome,
 } from "./utils/verifyOutcomes";
 import {
-  legacyDraftsToMetadataDrafts,
-  metadataDraftToLegacyDraft,
-  metadataDraftsToLegacyDrafts,
   metadataEntryToVariant,
   type MetadataDraftEditsByFile,
 } from "./utils/semanticDrafts";
@@ -204,12 +201,12 @@ export function useMediaLibrary(
         const raw = await api.invoke("load_metadata_draft_edits", {
           folderPath: folder,
         });
-        draftEditsStoreRef.current.reset(
-          metadataDraftsToLegacyDrafts(raw as MetadataDraftEditsByFile),
+        draftEditsStoreRef.current.resetMetadata(
+          raw as MetadataDraftEditsByFile,
         );
       } catch (e) {
         console.error("Failed to load draft edits", e);
-        draftEditsStoreRef.current.reset({});
+        draftEditsStoreRef.current.resetMetadata({});
       }
 
       const { visibleColumns, sortConfig, columnWidths } = loadColumnConfig();
@@ -603,7 +600,7 @@ export function useMediaLibrary(
         api
           .invoke("save_metadata_draft_edits", {
             folderPath: cur.folder,
-            data: legacyDraftsToMetadataDrafts(next),
+            data: store.getAllMetadata(),
           })
           .catch(console.error);
       }
@@ -831,13 +828,7 @@ export function useMediaLibrary(
       fileRelativePath: string,
       edits: Array<{ key: string; edit: MetadataDraftEdit }>,
     ) => {
-      draftEditsStoreRef.current.setBatch(
-        fileRelativePath,
-        edits.map(({ key, edit }) => ({
-          key,
-          edit: metadataDraftToLegacyDraft(edit),
-        })),
-      );
+      draftEditsStoreRef.current.setMetadataBatch(fileRelativePath, edits);
     },
     [],
   );
