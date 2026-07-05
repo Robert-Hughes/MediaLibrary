@@ -35,7 +35,6 @@ import type { GeocodeRequestItem, MetadataDraftEdit } from "./types";
 import { ALL_NORMALISE_GROUPS } from "./types";
 import { NormaliseProgressDialog } from "./components/NormaliseProgressDialog";
 import { useNormaliseMetadata } from "./hooks/useNormaliseMetadata";
-import { metadataDraftsToLegacyDrafts } from "./utils/semanticDrafts";
 import {
   countDescribeOverwrites,
   countGeocodeOverwrites,
@@ -48,7 +47,6 @@ import {
 import { sortPhotos, shouldSuspendSorting } from "./utils/sorting";
 import { listSearchQueryIsActive } from "./utils/listSearchText";
 import { useSearchWorker, createSearchWorker } from "./hooks/useSearchWorker";
-import { deriveLegacyFileEdits } from "./draft";
 import "./App.css";
 
 const tauriApi: TauriApi = {
@@ -159,11 +157,6 @@ function LoadedView({
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
   }, []);
-
-  const legacyTypedDraftEdits = useMemo(
-    () => metadataDraftsToLegacyDrafts(state.draftEdits),
-    [state.draftEdits],
-  );
 
   // Off-thread search via Web Worker.  The hook subscribes to the metadata
   // and draft-edit stores directly, so any mutation (streamed ExifTool
@@ -357,11 +350,6 @@ function LoadedView({
           onNavigate={onGalleryNavigate}
           loadImage={loadImage}
           imageMetadata={state.imageMetadata}
-          draftEdits={deriveLegacyFileEdits(
-            legacyTypedDraftEdits[
-              displayPhotos[state.galleryIndex].relative_path
-            ],
-          )}
           typedDraftEdits={
             state.draftEdits[displayPhotos[state.galleryIndex].relative_path]
           }
