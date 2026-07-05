@@ -11,11 +11,9 @@ import type {
   MetadataTagOutcome,
   DraftEditsByFile,
   LegacyDraftEditsByFile,
+  MetadataDraftEditsByFile,
 } from "../types";
-import {
-  legacyDraftsToMetadataDrafts,
-  type MetadataDraftEditsByFile,
-} from "../utils/semanticDrafts";
+import { legacyDraftsToMetadataDrafts } from "../utils/semanticDrafts";
 import { normalizeDraftsFromTauri } from "../utils/scanEvents";
 
 type EventHandler = (payload: unknown) => void;

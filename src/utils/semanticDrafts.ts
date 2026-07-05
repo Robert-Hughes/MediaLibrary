@@ -3,16 +3,12 @@ import type {
   DraftEditsByFile,
   ImageMetadataEntry,
   MetadataDraftEdit,
+  MetadataDraftEditsByFile,
   MetadataValue,
   Variant,
 } from "../types";
 import { metadataValueToDisplayString } from "../draft";
 import { variantToMetadataValue } from "./scanEvents";
-
-export type MetadataDraftEditsByFile = Record<
-  string,
-  Record<string, MetadataDraftEdit>
->;
 
 export function legacyDraftsToMetadataDrafts(
   drafts: DraftEditsByFile,
