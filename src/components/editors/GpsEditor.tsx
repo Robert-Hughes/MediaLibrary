@@ -10,13 +10,13 @@
 //                        1 = below SL)  — optional
 //
 // The editor presents a single composite UI (decimal degrees by default,
-// with a DMS toggle).  On save it emits one DraftEdit per paired tag via
+// with a DMS toggle).  On save it emits one MetadataDraftEdit per paired tag via
 // the batch callback.  The on-screen warning makes the multi-tag write
 // explicit; per the policy in METADATA_FORMATS_DESIGN.md §5 paired-tags
 // section the draft store keeps them as separate entries.
 
 import { useState } from "react";
-import type { DraftEdit } from "../../types";
+import type { MetadataDraftEdit } from "../../types";
 import type { GpsTagGroup } from "../../metadata/tag_overrides";
 import { READ_ONLY_TOOLTIP } from "./readOnlyMessages";
 import { decimalToDms } from "./editorHelpers";
@@ -35,7 +35,7 @@ interface Props {
   initialAltitudeMetres?: number | null;
   /** "above" → AltitudeRef=0, "below" → AltitudeRef=1. */
   initialAltitudeRef?: "above" | "below";
-  onSave: (edits: Array<{ key: string; edit: DraftEdit }>) => void;
+  onSave: (edits: Array<{ key: string; edit: MetadataDraftEdit }>) => void;
   onCancel: () => void;
   headerHint?: React.ReactNode;
   readOnly?: boolean;
@@ -87,7 +87,7 @@ export function GpsEditor({
     // Altitude is optional. Empty input keeps the existing on-disk altitude
     // untouched by emitting no draft for the altitude pair.
     const altTrim = altMetres.trim();
-    let altitudeEdits: Array<{ key: string; edit: DraftEdit }> = [];
+    let altitudeEdits: Array<{ key: string; edit: MetadataDraftEdit }> = [];
     if (altTrim !== "") {
       const alt = parseFloat(altTrim);
       if (!Number.isFinite(alt) || alt < 0) {
@@ -100,7 +100,7 @@ export function GpsEditor({
         {
           key: group.altitudeKey,
           edit: {
-            value: alt,
+            value: { kind: "Real", value: alt },
             intent: "Set",
             display: `${alt} m ${altRef === "above" ? "Above" : "Below"} Sea Level`,
           },
@@ -109,7 +109,10 @@ export function GpsEditor({
         {
           key: group.altitudeRefKey,
           edit: {
-            value: altRef === "above" ? 0 : 1,
+            value: {
+              kind: "Integer",
+              value: altRef === "above" ? 0 : 1,
+            },
             intent: "Set",
             display: altRef === "above" ? "Above Sea Level" : "Below Sea Level",
           },
@@ -119,19 +122,35 @@ export function GpsEditor({
     onSave([
       {
         key: group.latitudeKey,
-        edit: { value: lat, intent: "Set", display: decimalToDms(lat, latRef) },
+        edit: {
+          value: { kind: "Real", value: lat },
+          intent: "Set",
+          display: decimalToDms(lat, latRef),
+        },
       },
       {
         key: group.latitudeRefKey,
-        edit: { value: latRef, intent: "Set", display: latRef },
+        edit: {
+          value: { kind: "Text", value: latRef },
+          intent: "Set",
+          display: latRef,
+        },
       },
       {
         key: group.longitudeKey,
-        edit: { value: lon, intent: "Set", display: decimalToDms(lon, lonRef) },
+        edit: {
+          value: { kind: "Real", value: lon },
+          intent: "Set",
+          display: decimalToDms(lon, lonRef),
+        },
       },
       {
         key: group.longitudeRefKey,
-        edit: { value: lonRef, intent: "Set", display: lonRef },
+        edit: {
+          value: { kind: "Text", value: lonRef },
+          intent: "Set",
+          display: lonRef,
+        },
       },
       ...altitudeEdits,
     ]);
