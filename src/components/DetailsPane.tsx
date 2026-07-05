@@ -30,6 +30,7 @@ import {
   confirmDiscardEdits,
 } from "../utils/applyDiscardPrompts";
 import { metadataDraftToLegacyDraft } from "../utils/semanticDrafts";
+import { displayStringOf, displayStringOfMetadataDraft } from "../draft";
 
 interface Props {
   photo: PhotoInfo;
@@ -186,6 +187,15 @@ function draftEditToLegacyDraft(
   edit: MetadataDraftEdit | DraftEdit,
 ): DraftEdit {
   return isMetadataDraftEdit(edit) ? metadataDraftToLegacyDraft(edit) : edit;
+}
+
+function displayStringOfDraft(
+  edit: MetadataDraftEdit | DraftEdit | undefined,
+): string | null | undefined {
+  if (edit === undefined) return undefined;
+  return isMetadataDraftEdit(edit)
+    ? displayStringOfMetadataDraft(edit)
+    : displayStringOf(edit);
 }
 
 function DetailsValueCell({
@@ -412,7 +422,7 @@ function DetailsRowContextMenu({
 export function DetailsPane({
   photo,
   metadata,
-  draftEdits = {},
+  draftEdits: legacyDraftEdits,
   typedDraftEdits,
   onSetMetadataDraft,
   onSetDraftTyped,
@@ -442,6 +452,19 @@ export function DetailsPane({
   // Stage 2 of the new-property flow: key picked, now show a TypedValueEditor
   // for that key.  null when no flow is active or we're still on stage 1.
   const [newPropertyKey, setNewPropertyKey] = useState<string | null>(null);
+
+  const draftEdits = useMemo(() => {
+    if (legacyDraftEdits) return legacyDraftEdits;
+    if (!typedDraftEdits) return {};
+    return Object.fromEntries(
+      Object.entries(typedDraftEdits)
+        .map(([key, edit]) => [key, displayStringOfDraft(edit)] as const)
+        .filter(
+          (entry): entry is readonly [string, string | null] =>
+            entry[1] !== undefined,
+        ),
+    );
+  }, [legacyDraftEdits, typedDraftEdits]);
 
   const handleContextMenu = (
     e: React.MouseEvent,

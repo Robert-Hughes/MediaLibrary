@@ -35,7 +35,6 @@ interface Props {
   loadImage?: (path: string) => Promise<string | null>;
   /** Observable store for image metadata (EXIF, XMP, etc.) */
   imageMetadata?: ImageMetadataStore;
-  draftEdits?: Record<string, string | null>;
   typedDraftEdits?: Record<string, MetadataDraftEdit>;
   onSetMetadataDraft?: (
     fileRelativePath: string,
@@ -67,7 +66,6 @@ export function GalleryView({
   onNavigate,
   loadImage,
   imageMetadata,
-  draftEdits,
   typedDraftEdits,
   onSetMetadataDraft,
   onSetMetadataDraftBatch,
@@ -322,7 +320,6 @@ export function GalleryView({
           <DetailsPane
             photo={photo}
             metadata={metadataState}
-            draftEdits={draftEdits}
             typedDraftEdits={typedDraftEdits}
             onSetMetadataDraft={(key, edit) =>
               onSetMetadataDraft?.(photo.relative_path, key, edit)
