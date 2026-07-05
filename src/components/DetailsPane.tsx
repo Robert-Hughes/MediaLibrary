@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type {
   DraftEdit,
   ImageMetadataEntry,
+  MetadataDraftEdit,
   MetadataValue,
   PhotoInfo,
   ImageMetadataState,
@@ -28,20 +29,29 @@ import {
   confirmApplyEdits,
   confirmDiscardEdits,
 } from "../utils/applyDiscardPrompts";
+import {
+  legacyDraftToMetadataDraft,
+  metadataDraftToLegacyDraft,
+} from "../utils/semanticDrafts";
 
 interface Props {
   photo: PhotoInfo;
   metadata: ImageMetadataState;
   draftEdits?: Record<string, string | null>;
   /**
-   * Typed view of the same drafts (key → DraftEdit). Required so the
-   * draft-value datatype badge can inspect the underlying Variant; the
-   * legacy string map flattens that shape.
+   * Semantic view of the same drafts. Editors are still temporarily
+   * DraftEdit-based internally, so this component owns that adapter.
    */
-  typedDraftEdits?: Record<string, DraftEdit>;
-  /** Typed setter used by every editor (Phase 4+). */
+  typedDraftEdits?: Record<string, MetadataDraftEdit | DraftEdit>;
+  /** Semantic setter used by every editor via the local adapter. */
+  onSetMetadataDraft?: (key: string, edit: MetadataDraftEdit) => void;
+  /** Transitional legacy setter kept for direct DetailsPane tests. */
   onSetDraftTyped?: (key: string, edit: DraftEdit) => void;
   /** Batch setter for paired-tag editors (GPS). */
+  onSetMetadataDraftBatch?: (
+    edits: Array<{ key: string; edit: MetadataDraftEdit }>,
+  ) => void;
+  /** Transitional legacy batch setter kept for direct DetailsPane tests. */
   onSetDraftBatch?: (edits: Array<{ key: string; edit: DraftEdit }>) => void;
   onDiscardDraft?: (key: string) => void;
   onDiscardAllEdits?: () => void;
@@ -161,6 +171,26 @@ function metadataMapToEditorVariants(
   );
 }
 
+function isMetadataDraftEdit(
+  edit: MetadataDraftEdit | DraftEdit,
+): edit is MetadataDraftEdit {
+  const value = edit.value;
+  return (
+    value === null ||
+    value === undefined ||
+    (!!value &&
+      typeof value === "object" &&
+      !Array.isArray(value) &&
+      "kind" in value)
+  );
+}
+
+function draftEditToLegacyDraft(
+  edit: MetadataDraftEdit | DraftEdit,
+): DraftEdit {
+  return isMetadataDraftEdit(edit) ? metadataDraftToLegacyDraft(edit) : edit;
+}
+
 function DetailsValueCell({
   originalValue,
   draftValue,
@@ -249,7 +279,7 @@ function DetailsImageRow({
   entry: MetadataEntry;
   rawValue: ImageMetadataEntry | undefined;
   draftValue: string | null | undefined;
-  typedDraft: DraftEdit | undefined;
+  typedDraft: MetadataDraftEdit | DraftEdit | undefined;
   searchQuery: string;
   onContextMenu: (e: React.MouseEvent) => void;
 }) {
@@ -265,8 +295,13 @@ function DetailsImageRow({
     valueInfo != null &&
     (schemaInfo == null || !datatypesMatch(valueInfo.code, schemaInfo.code));
 
+  const legacyDraft = typedDraft
+    ? draftEditToLegacyDraft(typedDraft)
+    : undefined;
   const draftVariant =
-    typedDraft && typedDraft.intent !== "Delete" ? typedDraft.value : undefined;
+    legacyDraft && legacyDraft.intent !== "Delete"
+      ? legacyDraft.value
+      : undefined;
   const draftInfo = variantDatatype(draftVariant ?? undefined);
   const showDraftBadge =
     typedDraft != null &&
@@ -382,7 +417,9 @@ export function DetailsPane({
   metadata,
   draftEdits = {},
   typedDraftEdits,
+  onSetMetadataDraft,
   onSetDraftTyped,
+  onSetMetadataDraftBatch,
   onSetDraftBatch,
   onDiscardDraft,
   onDiscardAllEdits,
@@ -494,6 +531,27 @@ export function DetailsPane({
   }, [imageGroups, normalizedDetailsQuery, draftEdits]);
 
   const showOsSection = !normalizedDetailsQuery || filteredOsEntries.length > 0;
+
+  const saveDraft = (key: string, edit: DraftEdit) => {
+    if (onSetMetadataDraft) {
+      onSetMetadataDraft(key, legacyDraftToMetadataDraft(edit));
+    } else {
+      onSetDraftTyped?.(key, edit);
+    }
+  };
+
+  const saveDraftBatch = (edits: Array<{ key: string; edit: DraftEdit }>) => {
+    if (onSetMetadataDraftBatch) {
+      onSetMetadataDraftBatch(
+        edits.map(({ key, edit }) => ({
+          key,
+          edit: legacyDraftToMetadataDraft(edit),
+        })),
+      );
+    } else {
+      onSetDraftBatch?.(edits);
+    }
+  };
 
   return (
     <div className="details-pane" data-testid="details-pane">
@@ -758,10 +816,7 @@ export function DetailsPane({
               metadata !== "loading" &&
               contextMenu.key in (metadata as Record<string, Variant>);
             if (existsInOriginal) {
-              onSetDraftTyped?.(contextMenu.key, {
-                value: null,
-                intent: "Delete",
-              });
+              saveDraft(contextMenu.key, { value: null, intent: "Delete" });
             } else {
               onDiscardDraft?.(contextMenu.key);
             }
@@ -780,7 +835,9 @@ export function DetailsPane({
             // EnumEditor) would silently revert to the on-disk metadata
             // every time the row was re-edited.
             const pending = typedDraftEdits?.[editDialog.key];
-            if (pending && pending.intent !== "Delete") return pending.value;
+            if (pending && pending.intent !== "Delete") {
+              return draftEditToLegacyDraft(pending).value ?? undefined;
+            }
             return metadata !== "loading"
               ? metadataEntryToEditorVariant(metadata[editDialog.key])
               : undefined;
@@ -792,15 +849,15 @@ export function DetailsPane({
           }
           initialString={editDialog.initialValue}
           onSaveBatch={
-            onSetDraftBatch
+            onSetMetadataDraftBatch || onSetDraftBatch
               ? (edits) => {
-                  onSetDraftBatch(edits);
+                  saveDraftBatch(edits);
                   setEditDialog(null);
                 }
               : undefined
           }
           onSave={(edit) => {
-            onSetDraftTyped?.(editDialog.key, edit);
+            saveDraft(editDialog.key, edit);
             setEditDialog(null);
           }}
           onCancel={() => setEditDialog(null)}
@@ -830,15 +887,15 @@ export function DetailsPane({
               : undefined
           }
           onSaveBatch={
-            onSetDraftBatch
+            onSetMetadataDraftBatch || onSetDraftBatch
               ? (edits) => {
-                  onSetDraftBatch(edits);
+                  saveDraftBatch(edits);
                   setNewPropertyKey(null);
                 }
               : undefined
           }
           onSave={(edit) => {
-            onSetDraftTyped?.(newPropertyKey, edit);
+            saveDraft(newPropertyKey, edit);
             setNewPropertyKey(null);
           }}
           onCancel={() => setNewPropertyKey(null)}
