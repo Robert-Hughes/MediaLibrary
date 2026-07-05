@@ -23,7 +23,6 @@ import type {
   MetadataDraftEditsByFile,
   MetadataValue,
 } from "./types";
-import type { DraftEdit } from "./types";
 import { loadColumnConfig, saveColumnConfig } from "./utils/columnConfig";
 import {
   MAX_WORKER_ERRORS,
@@ -59,15 +58,6 @@ export interface MediaLibraryActions {
   updateColumnWidth: (col: string, width: number) => void;
   resetColumnWidths: () => void;
   dismissError: (index: number) => void;
-  setDraftTyped: (
-    fileRelativePath: string,
-    propertyKey: string,
-    edit: DraftEdit,
-  ) => void;
-  setDraftBatch: (
-    fileRelativePath: string,
-    edits: Array<{ key: string; edit: DraftEdit }>,
-  ) => void;
   setMetadataDraftBatch: (
     fileRelativePath: string,
     edits: Array<{ key: string; edit: MetadataDraftEdit }>,
@@ -807,22 +797,6 @@ export function useMediaLibrary(
     });
   }, []);
 
-  /**
-   * Set many draft entries for one file in a single state update.  Used by
-   * paired-tag editors like GpsEditor that must update Latitude / Ref /
-   * Longitude / Ref atomically so the on-disk file never has half-updated
-   * coords if the user navigates away mid-edit.
-   */
-  const setDraftBatch = useCallback(
-    (
-      fileRelativePath: string,
-      edits: Array<{ key: string; edit: DraftEdit }>,
-    ) => {
-      draftEditsStoreRef.current.setBatch(fileRelativePath, edits);
-    },
-    [],
-  );
-
   const setMetadataDraftBatch = useCallback(
     (
       fileRelativePath: string,
@@ -844,13 +818,6 @@ export function useMediaLibrary(
         propertyKey,
         edit,
       );
-    },
-    [],
-  );
-
-  const setDraftTyped = useCallback(
-    (fileRelativePath: string, propertyKey: string, edit: DraftEdit) => {
-      draftEditsStoreRef.current.setTag(fileRelativePath, propertyKey, edit);
     },
     [],
   );
@@ -948,8 +915,6 @@ export function useMediaLibrary(
       updateColumnWidth,
       resetColumnWidths,
       dismissError,
-      setDraftTyped,
-      setDraftBatch,
       setMetadataDraftBatch,
       setMetadataDraft,
       discardDraftValue,
@@ -976,8 +941,6 @@ export function useMediaLibrary(
       updateColumnWidth,
       resetColumnWidths,
       dismissError,
-      setDraftTyped,
-      setDraftBatch,
       setMetadataDraftBatch,
       setMetadataDraft,
       discardDraftValue,

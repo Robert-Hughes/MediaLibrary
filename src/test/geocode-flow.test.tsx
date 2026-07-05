@@ -153,7 +153,7 @@ describe("Reverse-geocoding flow", () => {
       /Nominatim/,
     );
 
-    // Drafts merged into the in-memory store via setDraftBatch.
+    // Drafts merged into the in-memory store via the semantic batch setter.
     const folderDrafts = mockApiInstance.draftEditsByFolder["/photos"];
     expect(folderDrafts?.["test.jpg"]?.["XMP-iptcCore:Location"]).toBeTruthy();
     expect(folderDrafts?.["test.jpg"]?.["XMP-photoshop:City"]).toBeTruthy();
