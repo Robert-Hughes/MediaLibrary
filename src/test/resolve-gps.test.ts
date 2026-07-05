@@ -9,12 +9,15 @@
  */
 import { describe, it, expect } from "vitest";
 import { resolveGps } from "../utils/resolveGps";
-import type { DraftEdit, Variant } from "../types";
+import type { MetadataDraftEdit, MetadataValue } from "../types";
 
-function setEdit(value: Variant): DraftEdit {
+function setEdit(value: MetadataValue): MetadataDraftEdit {
   return { value, intent: "Set" };
 }
-function deleteEdit(): DraftEdit {
+function real(value: number): MetadataValue {
+  return { kind: "Real", value };
+}
+function deleteEdit(): MetadataDraftEdit {
   return { value: null, intent: "Delete" };
 }
 
@@ -48,9 +51,9 @@ describe("resolveGps", () => {
   it("draft Set value wins over metadata", () => {
     // A user corrected the lat in drafts but the metadata still has the
     // wrong value. The geocoder must see the corrected value.
-    const drafts: Record<string, DraftEdit> = {
-      "Composite:GPSLatitude": setEdit(48.8584),
-      "Composite:GPSLongitude": setEdit(2.2945),
+    const drafts: Record<string, MetadataDraftEdit> = {
+      "Composite:GPSLatitude": setEdit(real(48.8584)),
+      "Composite:GPSLongitude": setEdit(real(2.2945)),
     };
     const meta = {
       "Composite:GPSLatitude": 51.5,
@@ -63,7 +66,7 @@ describe("resolveGps", () => {
     // The user marked the GPS for removal. Even though metadata has a
     // value, the draft-aware view shows it as gone, so the geocoder
     // sees null/null (and the loop will emit no_gps).
-    const drafts: Record<string, DraftEdit> = {
+    const drafts: Record<string, MetadataDraftEdit> = {
       "Composite:GPSLatitude": deleteEdit(),
       "Composite:GPSLongitude": deleteEdit(),
     };

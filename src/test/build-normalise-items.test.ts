@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import type {
-  DraftEdit,
   ImageMetadataEntry,
+  MetadataDraftEdit,
+  MetadataValue,
   NormaliseGroup,
   Variant,
 } from "../types";
@@ -11,24 +12,40 @@ import {
   resolveTag,
 } from "../utils/buildNormaliseItems";
 
-function set(value: Variant): DraftEdit {
+function set(value: MetadataValue): MetadataDraftEdit {
   return { value, intent: "Set" };
 }
 
-function del(): DraftEdit {
+function text(value: string): MetadataValue {
+  return { kind: "Text", value };
+}
+
+function listValue(items: string[]): MetadataValue {
+  return {
+    kind: "List",
+    value: {
+      list_kind: "Bag",
+      items: items.map((value) => text(value)),
+    },
+  };
+}
+
+function del(): MetadataDraftEdit {
   return { value: null, intent: "Delete" };
 }
 
 describe("resolveTag", () => {
   it("draft Set wins over metadata", () => {
     const m: Record<string, Variant> = { "XMP-dc:Title": "from-meta" };
-    const d: Record<string, DraftEdit> = { "XMP-dc:Title": set("from-draft") };
-    expect(resolveTag(m, d, "XMP-dc:Title")).toBe("from-draft");
+    const d: Record<string, MetadataDraftEdit> = {
+      "XMP-dc:Title": set(text("from-draft")),
+    };
+    expect(resolveTag(m, d, "XMP-dc:Title")).toEqual(text("from-draft"));
   });
 
   it("draft Delete masks metadata to null", () => {
     const m: Record<string, Variant> = { "XMP-dc:Title": "from-meta" };
-    const d: Record<string, DraftEdit> = { "XMP-dc:Title": del() };
+    const d: Record<string, MetadataDraftEdit> = { "XMP-dc:Title": del() };
     expect(resolveTag(m, d, "XMP-dc:Title")).toBeNull();
   });
 
@@ -85,8 +102,8 @@ describe("buildNormaliseItemForPhoto — keywords", () => {
 
   it("uses draft list when present", () => {
     const m: Record<string, Variant> = { "XMP-dc:Subject": ["meta"] };
-    const d: Record<string, DraftEdit> = {
-      "XMP-dc:Subject": set(["draft1", "draft2"]),
+    const d: Record<string, MetadataDraftEdit> = {
+      "XMP-dc:Subject": set(listValue(["draft1", "draft2"])),
     };
     const item = buildNormaliseItemForPhoto("x.jpg", m, d, ["keywords"]);
     expect(item.groupInputs.keywords?.dcSubject).toEqual(["draft1", "draft2"]);
@@ -94,7 +111,7 @@ describe("buildNormaliseItemForPhoto — keywords", () => {
 
   it("treats deleted-draft as empty", () => {
     const m: Record<string, Variant> = { "XMP-dc:Subject": ["meta"] };
-    const d: Record<string, DraftEdit> = { "XMP-dc:Subject": del() };
+    const d: Record<string, MetadataDraftEdit> = { "XMP-dc:Subject": del() };
     const item = buildNormaliseItemForPhoto("x.jpg", m, d, ["keywords"]);
     expect(item.groupInputs.keywords?.dcSubject).toEqual([]);
   });
@@ -322,7 +339,7 @@ describe("buildNormaliseItems batch", () => {
     const items = buildNormaliseItems(
       ["a.jpg"],
       { get: () => ({ "XMP-dc:Title": "from-meta" }) },
-      { "a.jpg": { "XMP-dc:Title": set("from-draft") } },
+      { "a.jpg": { "XMP-dc:Title": set(text("from-draft")) } },
       ["title"],
     );
     expect(items[0].groupInputs.title?.title).toBe("from-draft");
