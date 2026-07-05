@@ -9,7 +9,7 @@
 import type { MetadataTagOutcome, TagOutcomeEntry } from "../types";
 
 /**
- * Subset of TagOutcome.kind that requires user attention. Match and
+ * Subset of MetadataTagOutcome.kind that requires user attention. Match and
  * DeleteOk are handled silently by the apply path (draft pruning) and
  * never reach this map.
  */
