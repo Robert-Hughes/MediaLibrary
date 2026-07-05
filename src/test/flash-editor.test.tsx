@@ -104,7 +104,7 @@ describe("FlashEditor", () => {
     );
   });
 
-  it("Save emits the recomputed numeric code", () => {
+  it("Save emits the recomputed semantic integer code", () => {
     const onSave = vi.fn();
     render(
       <FlashEditor
@@ -116,7 +116,10 @@ describe("FlashEditor", () => {
     );
     fireEvent.click(screen.getByTestId("flash-editor-red-eye"));
     fireEvent.click(screen.getByTestId("flash-editor-save"));
-    expect(onSave.mock.calls[0][0]).toMatchObject({ value: 89, intent: "Set" });
+    expect(onSave.mock.calls[0][0]).toMatchObject({
+      value: { kind: "Integer", value: 89 },
+      intent: "Set",
+    });
     expect(onSave.mock.calls[0][0].display).toMatch(/Fired/);
     expect(onSave.mock.calls[0][0].display).toMatch(/Red-eye reduction/);
   });
