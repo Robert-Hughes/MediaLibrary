@@ -260,7 +260,7 @@ export function useMediaLibrary(
             sortConfig: prev.sortConfig,
             metadataVersion: 0,
             workerErrors: [],
-            draftEdits: draftEditsStoreRef.current.getAll(),
+            draftEdits: draftEditsStoreRef.current.getAllMetadata(),
             draftEditsStore: draftEditsStoreRef.current,
             applying: null,
             verifyOutcomes: {},
@@ -394,7 +394,7 @@ export function useMediaLibrary(
               sortConfig: prev.sortConfig,
               metadataVersion: 0,
               workerErrors: [],
-              draftEdits: draftEditsStoreRef.current.getAll(),
+              draftEdits: draftEditsStoreRef.current.getAllMetadata(),
               draftEditsStore: draftEditsStoreRef.current,
               applying: null,
               verifyOutcomes: {},
@@ -587,7 +587,7 @@ export function useMediaLibrary(
   useEffect(() => {
     const store = draftEditsStoreRef.current;
     const unsub = store.subscribe(() => {
-      const next = store.getAll();
+      const next = store.getAllMetadata();
       setAppState((prev) => {
         if (prev.kind !== "loaded") return prev;
         if (prev.draftEdits === next) return prev;
