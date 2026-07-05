@@ -1398,7 +1398,9 @@ mod tests {
     use super::*;
     use crate::metadata_value::{DateValue, OffsetSign, RationalValue, TimeValue, UtcOffsetValue};
 
-    fn is_hard_failure(outcome: &SingleFileOutcome, substr: &str) -> bool {
+    type TestDrafts = HashMap<String, HashMap<String, crate::draft_edits::MetadataDraftEdit>>;
+
+    fn is_hard_failure(outcome: &MetadataSingleFileOutcome, substr: &str) -> bool {
         outcome.fresh_metadata.is_none()
             && outcome.error.as_deref().is_some_and(|e| e.contains(substr))
     }
@@ -1455,31 +1457,40 @@ mod tests {
 
     #[test]
     fn empty_edits_is_hard_failure() {
-        let outcome = apply_single_file("/tmp", "photo.jpg", &HashMap::new());
+        let outcome = apply_single_file_metadata("/tmp", "photo.jpg", &HashMap::new());
         assert!(is_hard_failure(&outcome, "No edits"));
     }
 
     #[test]
     fn missing_file_is_hard_failure() {
         let mut edits = HashMap::new();
-        edits.insert("XMP-dc:Description".to_string(), Some("test".to_string()));
-        let outcome = apply_single_file("/tmp", "nonexistent_photo_xyz_999.jpg", &edits);
+        edits.insert(
+            "XMP-dc:Description".to_string(),
+            metadata_edit(MetadataValue::Text("test".to_string())),
+        );
+        let outcome = apply_single_file_metadata("/tmp", "nonexistent_photo_xyz_999.jpg", &edits);
         assert!(is_hard_failure(&outcome, "not found"));
     }
 
     #[test]
     fn key_with_newline_is_hard_failure() {
         let mut edits = HashMap::new();
-        edits.insert("Bad\nKey".to_string(), Some("test".to_string()));
-        let outcome = apply_single_file("/tmp", "photo.jpg", &edits);
+        edits.insert(
+            "Bad\nKey".to_string(),
+            metadata_edit(MetadataValue::Text("test".to_string())),
+        );
+        let outcome = apply_single_file_metadata("/tmp", "photo.jpg", &edits);
         assert!(is_hard_failure(&outcome, "Invalid tag key"));
     }
 
     #[test]
     fn key_with_null_byte_is_hard_failure() {
         let mut edits = HashMap::new();
-        edits.insert("Bad\0Key".to_string(), Some("test".to_string()));
-        let outcome = apply_single_file("/tmp", "photo.jpg", &edits);
+        edits.insert(
+            "Bad\0Key".to_string(),
+            metadata_edit(MetadataValue::Text("test".to_string())),
+        );
+        let outcome = apply_single_file_metadata("/tmp", "photo.jpg", &edits);
         assert!(is_hard_failure(&outcome, "Invalid tag key"));
     }
 
@@ -1487,12 +1498,15 @@ mod tests {
     fn missing_file_is_reported_in_failed_list() {
         let folder = "/nonexistent_folder_apply_test_xyz";
         let paths = vec!["a.jpg".to_string()];
-        let mut drafts: HashMap<String, HashMap<String, Option<String>>> = HashMap::new();
+        let mut drafts: TestDrafts = HashMap::new();
         let mut file_edits = HashMap::new();
-        file_edits.insert("XMP-dc:Description".to_string(), Some("hello".to_string()));
+        file_edits.insert(
+            "XMP-dc:Description".to_string(),
+            metadata_edit(MetadataValue::Text("hello".to_string())),
+        );
         drafts.insert("a.jpg".to_string(), file_edits);
 
-        let result = apply_draft_edits(folder, &paths, &drafts);
+        let result = apply_metadata_draft_edits(folder, &paths, &drafts);
         assert_eq!(result.applied.len(), 0);
         assert_eq!(result.failed.len(), 1);
         assert_eq!(result.failed[0].relative_path, "a.jpg");
@@ -1503,9 +1517,9 @@ mod tests {
     fn path_with_no_drafts_is_skipped_not_failed() {
         let folder = "/some/folder";
         let paths = vec!["photo_with_no_edits.jpg".to_string()];
-        let drafts: HashMap<String, HashMap<String, Option<String>>> = HashMap::new();
+        let drafts: TestDrafts = HashMap::new();
 
-        let result = apply_draft_edits(folder, &paths, &drafts);
+        let result = apply_metadata_draft_edits(folder, &paths, &drafts);
         assert_eq!(result.applied.len(), 0);
         assert_eq!(result.failed.len(), 0);
     }
@@ -1514,17 +1528,23 @@ mod tests {
     fn multiple_files_tracked_independently() {
         let folder = "/nonexistent_folder_apply_test_xyz";
         let paths = vec!["a.jpg".to_string(), "b.jpg".to_string()];
-        let mut drafts: HashMap<String, HashMap<String, Option<String>>> = HashMap::new();
+        let mut drafts: TestDrafts = HashMap::new();
 
         let mut edits_a = HashMap::new();
-        edits_a.insert("XMP-dc:Description".to_string(), Some("test a".to_string()));
+        edits_a.insert(
+            "XMP-dc:Description".to_string(),
+            metadata_edit(MetadataValue::Text("test a".to_string())),
+        );
         drafts.insert("a.jpg".to_string(), edits_a);
 
         let mut edits_b = HashMap::new();
-        edits_b.insert("XMP-dc:Description".to_string(), Some("test b".to_string()));
+        edits_b.insert(
+            "XMP-dc:Description".to_string(),
+            metadata_edit(MetadataValue::Text("test b".to_string())),
+        );
         drafts.insert("b.jpg".to_string(), edits_b);
 
-        let result = apply_draft_edits(folder, &paths, &drafts);
+        let result = apply_metadata_draft_edits(folder, &paths, &drafts);
         assert_eq!(result.applied.len(), 0);
         assert_eq!(result.failed.len(), 2);
     }
@@ -1533,12 +1553,15 @@ mod tests {
     fn hard_failure_produces_no_fresh_metadata() {
         let folder = "/nonexistent_folder_apply_test_xyz";
         let paths = vec!["a.jpg".to_string()];
-        let mut drafts: HashMap<String, HashMap<String, Option<String>>> = HashMap::new();
+        let mut drafts: TestDrafts = HashMap::new();
         let mut file_edits = HashMap::new();
-        file_edits.insert("XMP-dc:Description".to_string(), Some("hello".to_string()));
+        file_edits.insert(
+            "XMP-dc:Description".to_string(),
+            metadata_edit(MetadataValue::Text("hello".to_string())),
+        );
         drafts.insert("a.jpg".to_string(), file_edits);
 
-        let result = apply_draft_edits(folder, &paths, &drafts);
+        let result = apply_metadata_draft_edits(folder, &paths, &drafts);
         assert!(
             !result.fresh_metadata.contains_key("a.jpg"),
             "hard failure (file not found) should not produce fresh metadata"
