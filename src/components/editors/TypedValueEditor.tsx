@@ -54,7 +54,10 @@ import {
 
 import { gpsTagGroup, isFlashTag } from "../../metadata/tag_overrides";
 import { EditorMetaHint, type EditorMetaSource } from "./EditorMetaHint";
-import { legacyDraftToMetadataDraft } from "../../utils/semanticDrafts";
+import {
+  legacyDraftToMetadataDraft,
+  metadataDraftToLegacyDraft,
+} from "../../utils/semanticDrafts";
 
 interface Props {
   propertyKey: string;
@@ -354,7 +357,11 @@ export function TypedValueEditor({
       <BooleanEditor
         propertyKey={propertyKey}
         initialValue={v}
-        onSave={saveDraft}
+        onSave={
+          onSaveMetadata
+            ? (edit) => onSaveMetadata(edit)
+            : (edit) => onSave(metadataDraftToLegacyDraft(edit))
+        }
         onCancel={onCancel}
         readOnly={readOnly}
         headerHint={schemaHint()}
@@ -379,7 +386,11 @@ export function TypedValueEditor({
               : "datetime"
         }
         initialValue={initialString}
-        onSave={saveDraft}
+        onSave={
+          onSaveMetadata
+            ? (edit) => onSaveMetadata(edit)
+            : (edit) => onSave(metadataDraftToLegacyDraft(edit))
+        }
         onCancel={onCancel}
         readOnly={readOnly}
         headerHint={schemaHint()}
