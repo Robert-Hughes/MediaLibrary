@@ -11,9 +11,10 @@
 // The output is always a semantic `MetadataValue::Struct` shape with intent=Set.
 
 import { useState } from "react";
-import type { DraftEdit, MetadataDraftEdit, Variant } from "../../types";
+import type { MetadataDraftEdit, Variant } from "../../types";
 import { variantToDisplayString } from "../../draft";
 import { variantToMetadataValue } from "../../utils/scanEvents";
+import { metadataDraftToLegacyDraft } from "../../utils/semanticDrafts";
 import { READ_ONLY_TOOLTIP } from "./readOnlyMessages";
 
 interface Props {
@@ -32,7 +33,7 @@ export interface InnerEditorProps {
   initialVariant?: Variant;
   initialString: string;
   metadataForFile?: Record<string, Variant>;
-  onSave: (edit: DraftEdit) => void;
+  onSaveMetadata: (edit: MetadataDraftEdit) => void;
   onCancel: () => void;
 }
 
@@ -104,9 +105,10 @@ export function StructEditor({
         propertyKey={`${propertyKey}.${row.key}`}
         initialVariant={row.value}
         initialString={variantToDisplayString(row.value)}
-        onSave={(edit: DraftEdit) => {
+        onSaveMetadata={(edit: MetadataDraftEdit) => {
+          const legacyEdit = metadataDraftToLegacyDraft(edit);
           const newValue: Variant =
-            edit.intent === "Delete" ? "" : (edit.value ?? "");
+            legacyEdit.intent === "Delete" ? "" : (legacyEdit.value ?? "");
           updateRow(editingIndex, { value: newValue });
           setEditingIndex(null);
         }}

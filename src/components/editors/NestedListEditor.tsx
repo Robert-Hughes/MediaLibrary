@@ -15,7 +15,6 @@
 
 import { useState } from "react";
 import type {
-  DraftEdit,
   ListKind,
   MetadataDraftEdit,
   TagKind,
@@ -23,6 +22,7 @@ import type {
 } from "../../types";
 import { variantToDisplayString } from "../../draft";
 import { variantToMetadataValue } from "../../utils/scanEvents";
+import { metadataDraftToLegacyDraft } from "../../utils/semanticDrafts";
 import type { InnerEditorProps } from "./StructEditor";
 import { READ_ONLY_TOOLTIP } from "./readOnlyMessages";
 
@@ -155,11 +155,12 @@ export function NestedListEditor({
         propertyKey={`${propertyKey}[${editingIndex}]`}
         initialVariant={value}
         initialString={variantToDisplayString(value)}
-        onSave={(edit: DraftEdit) => {
+        onSaveMetadata={(edit: MetadataDraftEdit) => {
+          const legacyEdit = metadataDraftToLegacyDraft(edit);
           const newValue: Variant =
-            edit.intent === "Delete"
+            legacyEdit.intent === "Delete"
               ? emptyVariantFor(innerKind)
-              : (edit.value ?? emptyVariantFor(innerKind));
+              : (legacyEdit.value ?? emptyVariantFor(innerKind));
           updateItem(editingIndex, newValue);
           setEditingIndex(null);
         }}
