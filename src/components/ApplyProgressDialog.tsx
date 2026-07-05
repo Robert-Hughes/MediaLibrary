@@ -11,7 +11,7 @@ interface Props {
  *
  * Blocks the rest of the UI so users can't issue conflicting commands while
  * exiftool is rewriting files.  Updates incrementally from the per-file
- * `apply_edits_progress` events emitted by the backend.
+ * `apply_metadata_edits_progress` events emitted by the backend.
  *
  * The body shares its layout with the running phase of
  * `DescribeProgressDialog` via `RunningProgressPanel` — the testids and
