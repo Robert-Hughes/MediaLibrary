@@ -129,7 +129,11 @@ export function TypedValueEditor({
       <FlashEditor
         propertyKey={propertyKey}
         initialCode={code}
-        onSave={saveDraft}
+        onSave={
+          onSaveMetadata
+            ? (edit) => onSaveMetadata(edit)
+            : (edit) => onSave(metadataDraftToLegacyDraft(edit))
+        }
         onCancel={onCancel}
         readOnly={readOnly}
         headerHint={

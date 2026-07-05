@@ -13,11 +13,11 @@
 // Example: `25 = 0b0011001` = Fired + Mode=Auto. Matches the
 // `flash_bitfield.jpg` fixture.
 //
-// The editor exposes each field separately and emits Variant::Integer with
+// The editor exposes each field separately and emits MetadataValue::Integer with
 // the recomputed code on save.
 
 import { useState } from "react";
-import type { DraftEdit } from "../../types";
+import type { MetadataDraftEdit } from "../../types";
 import { READ_ONLY_TOOLTIP } from "./readOnlyMessages";
 import type { FlashFields } from "./editorHelpers";
 import {
@@ -31,7 +31,7 @@ import {
 interface Props {
   propertyKey: string;
   initialCode: number;
-  onSave: (edit: DraftEdit) => void;
+  onSave: (edit: MetadataDraftEdit) => void;
   onCancel: () => void;
   headerHint?: React.ReactNode;
   readOnly?: boolean;
@@ -60,7 +60,11 @@ export function FlashEditor({
 
   const handleSave = () => {
     if (readOnly) return;
-    onSave({ value: code, intent: "Set", display: describeFlashCode(fields) });
+    onSave({
+      value: { kind: "Integer", value: code },
+      intent: "Set",
+      display: describeFlashCode(fields),
+    });
   };
 
   return (
