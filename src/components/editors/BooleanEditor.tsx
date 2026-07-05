@@ -2,13 +2,13 @@
 // Phase 4 minimum.
 
 import { useState } from "react";
-import type { DraftEdit } from "../../types";
+import type { MetadataDraftEdit } from "../../types";
 import { READ_ONLY_TOOLTIP } from "./readOnlyMessages";
 
 interface Props {
   propertyKey: string;
   initialValue: boolean | null;
-  onSave: (edit: DraftEdit) => void;
+  onSave: (edit: MetadataDraftEdit) => void;
   onCancel: () => void;
   headerHint?: React.ReactNode;
   readOnly?: boolean;
@@ -28,7 +28,7 @@ export function BooleanEditor({
     if (value === null) {
       onSave({ value: null, intent: "Delete" });
     } else {
-      onSave({ value, intent: "Set" });
+      onSave({ value: { kind: "Bool", value }, intent: "Set" });
     }
   };
 

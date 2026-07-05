@@ -1,8 +1,9 @@
 // Temporal editor.  Each schema kind chooses the matching HTML input:
-// date, time, or datetime-local.  Save emits ExifTool storage strings.
+// date, time, or datetime-local. Save stores semantic temporal values and
+// keeps the ExifTool storage string as display text for pending rows.
 
 import { useState, useEffect, useRef } from "react";
-import type { DraftEdit } from "../../types";
+import type { MetadataDraftEdit, MetadataValue } from "../../types";
 import { READ_ONLY_TOOLTIP } from "./readOnlyMessages";
 import {
   timeOffset,
@@ -18,7 +19,7 @@ interface Props {
   propertyKey: string;
   mode?: "date" | "time" | "datetime";
   initialValue: string;
-  onSave: (edit: DraftEdit) => void;
+  onSave: (edit: MetadataDraftEdit) => void;
   onCancel: () => void;
   headerHint?: React.ReactNode;
   readOnly?: boolean;
@@ -64,7 +65,12 @@ export function DateTimeEditor({
       );
       return;
     }
-    onSave({ value: result, intent: "Set" });
+    const semanticValue = metadataValueFromTemporalString(mode, result);
+    if (!semanticValue) {
+      setError("invalid semantic temporal value");
+      return;
+    }
+    onSave({ value: semanticValue, intent: "Set", display: result });
   };
 
   const inputType =
@@ -124,4 +130,72 @@ export function DateTimeEditor({
       </div>
     </div>
   );
+}
+
+function metadataValueFromTemporalString(
+  mode: "date" | "time" | "datetime",
+  value: string,
+): MetadataValue | null {
+  if (mode === "date") return dateValueFromStorage(value);
+  if (mode === "time") return timeValueFromStorage(value);
+  const match = value.match(
+    /^(\d{4}):(\d{2}):(\d{2}) (\d{2}):(\d{2}):(\d{2})$/,
+  );
+  if (!match) return null;
+  const [, year, month, day, hour, minute, second] = match;
+  return {
+    kind: "DateTime",
+    value: {
+      date: {
+        year: Number(year),
+        month: Number(month),
+        day: Number(day),
+      },
+      time: {
+        hour: Number(hour),
+        minute: Number(minute),
+        second: Number(second),
+        subsecond: null,
+        offset: null,
+      },
+    },
+  };
+}
+
+function dateValueFromStorage(value: string): MetadataValue | null {
+  const match = value.match(/^(\d{4}):(\d{2}):(\d{2})$/);
+  if (!match) return null;
+  const [, year, month, day] = match;
+  return {
+    kind: "Date",
+    value: {
+      year: Number(year),
+      month: Number(month),
+      day: Number(day),
+    },
+  };
+}
+
+function timeValueFromStorage(value: string): MetadataValue | null {
+  const match = value.match(
+    /^(\d{2}):(\d{2}):(\d{2})(?:([+-])(\d{2}):?(\d{2}))?$/,
+  );
+  if (!match) return null;
+  const [, hour, minute, second, sign, offsetHours, offsetMinutes] = match;
+  return {
+    kind: "Time",
+    value: {
+      hour: Number(hour),
+      minute: Number(minute),
+      second: Number(second),
+      subsecond: null,
+      offset: sign
+        ? {
+            sign: sign === "+" ? "Plus" : "Minus",
+            hours: Number(offsetHours),
+            minutes: Number(offsetMinutes),
+          }
+        : null,
+    },
+  };
 }

@@ -133,7 +133,7 @@ describe("NumericEditor", () => {
 });
 
 describe("BooleanEditor", () => {
-  it("Save emits Variant::Bool", () => {
+  it("Save emits MetadataValue::Bool", () => {
     const onSave = vi.fn();
     render(
       <BooleanEditor
@@ -145,7 +145,10 @@ describe("BooleanEditor", () => {
     );
     fireEvent.click(screen.getByTestId("boolean-editor-true"));
     fireEvent.click(screen.getByTestId("boolean-editor-save"));
-    expect(onSave.mock.calls[0][0]).toEqual({ value: true, intent: "Set" });
+    expect(onSave.mock.calls[0][0]).toEqual({
+      value: { kind: "Bool", value: true },
+      intent: "Set",
+    });
   });
 
   it("Unset → Delete intent", () => {
@@ -179,7 +182,14 @@ describe("DateTimeEditor", () => {
     const input = screen.getByTestId("datetime-editor-input");
     expect(input).toHaveAttribute("type", "date");
     fireEvent.click(screen.getByTestId("datetime-editor-save"));
-    expect(onSave.mock.calls[0][0].value).toBe("2024:01:15");
+    expect(onSave.mock.calls[0][0]).toEqual({
+      value: {
+        kind: "Date",
+        value: { year: 2024, month: 1, day: 15 },
+      },
+      intent: "Set",
+      display: "2024:01:15",
+    });
   });
 
   it("time mode uses a time-only input and preserves an existing offset", () => {
@@ -196,10 +206,23 @@ describe("DateTimeEditor", () => {
     const input = screen.getByTestId("datetime-editor-input");
     expect(input).toHaveAttribute("type", "time");
     fireEvent.click(screen.getByTestId("datetime-editor-save"));
-    expect(onSave.mock.calls[0][0].value).toBe("14:30:05+01:00");
+    expect(onSave.mock.calls[0][0]).toEqual({
+      value: {
+        kind: "Time",
+        value: {
+          hour: 14,
+          minute: 30,
+          second: 5,
+          subsecond: null,
+          offset: { sign: "Plus", hours: 1, minutes: 0 },
+        },
+      },
+      intent: "Set",
+      display: "14:30:05+01:00",
+    });
   });
 
-  it("Save emits exiftool-format string", () => {
+  it("Save emits semantic DateTime with exiftool display", () => {
     const onSave = vi.fn();
     render(
       <DateTimeEditor
@@ -214,7 +237,23 @@ describe("DateTimeEditor", () => {
       "datetime-local",
     );
     fireEvent.click(screen.getByTestId("datetime-editor-save"));
-    expect(onSave.mock.calls[0][0].value).toBe("2024:01:15 14:30:00");
+    expect(onSave.mock.calls[0][0]).toEqual({
+      value: {
+        kind: "DateTime",
+        value: {
+          date: { year: 2024, month: 1, day: 15 },
+          time: {
+            hour: 14,
+            minute: 30,
+            second: 0,
+            subsecond: null,
+            offset: null,
+          },
+        },
+      },
+      intent: "Set",
+      display: "2024:01:15 14:30:00",
+    });
   });
 
   it("rejects invalid input", () => {
