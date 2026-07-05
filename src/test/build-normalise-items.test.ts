@@ -242,11 +242,18 @@ describe("buildNormaliseItemForPhoto — dates", () => {
       "ExifIFD:CreateDate": "2024:06:15 14:30:45",
     });
     const item = buildNormaliseItemForPhoto("x.jpg", m, undefined, ["dates"]);
-    expect(item.groupInputs.dates?.dateTimeOriginal).toBe(
-      "2024:06:15 14:30:45",
-    );
-    expect(item.groupInputs.dates?.offsetTimeOriginal).toBe("+01:00");
-    expect(item.groupInputs.dates?.createDate).toBe("2024:06:15 14:30:45");
+    expect(item.groupInputs.dates?.dateTimeOriginal).toEqual({
+      kind: "Text",
+      value: "2024:06:15 14:30:45",
+    });
+    expect(item.groupInputs.dates?.offsetTimeOriginal).toEqual({
+      kind: "Text",
+      value: "+01:00",
+    });
+    expect(item.groupInputs.dates?.createDate).toEqual({
+      kind: "Text",
+      value: "2024:06:15 14:30:45",
+    });
   });
 
   it("renders semantic date/time values for date normalisation inputs", () => {
@@ -271,9 +278,24 @@ describe("buildNormaliseItemForPhoto — dates", () => {
       },
     });
     const item = buildNormaliseItemForPhoto("x.jpg", m, undefined, ["dates"]);
-    expect(item.groupInputs.dates?.iptcDateCreated).toBe("2024:06:15");
-    expect(item.groupInputs.dates?.iptcTimeCreated).toBe("14:30:45");
-    expect(item.groupInputs.dates?.offsetTimeOriginal).toBe("+01:00");
+    expect(item.groupInputs.dates?.iptcDateCreated).toEqual({
+      kind: "Date",
+      value: { year: 2024, month: 6, day: 15 },
+    });
+    expect(item.groupInputs.dates?.iptcTimeCreated).toEqual({
+      kind: "Time",
+      value: {
+        hour: 14,
+        minute: 30,
+        second: 45,
+        subsecond: null,
+        offset: null,
+      },
+    });
+    expect(item.groupInputs.dates?.offsetTimeOriginal).toEqual({
+      kind: "TimeOffset",
+      value: { sign: "Plus", hours: 1, minutes: 0 },
+    });
   });
 });
 

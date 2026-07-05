@@ -611,7 +611,7 @@ Reuses `batch_job.rs` from
     - `fn normalise_title(input, description_canonical, ctx, ai_client) -> Result<Option<GroupOutput>, AiError>`
     - …
   - Each returns `None` when `group_is_normalised` shortcuts. `Some(GroupOutput)`
-    carries a `HashMap<String, DraftEdit>` with set-value and remove-tag
+    carries a `HashMap<String, MetadataDraftEdit>` with set-value and remove-tag
     drafts per §4.
   - Code-comment requirement: the coherent-replacement rule, the
     idempotency detector, and the conflict-policy decisions are documented

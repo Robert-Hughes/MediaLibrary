@@ -450,8 +450,8 @@ fn is_exiftool_binary_placeholder(val: &serde_json::Value) -> bool {
     val.as_str().is_some_and(|s| re.is_match(s))
 }
 
-/// Legacy entry point retained for tests: takes JSON for one pass, the input
-/// paths, and returns full `ImageMetadata` (with empty `raw_metadata`).
+/// Test helper: takes JSON for one pass, the input paths, and returns semantic
+/// `ImageMetadata`.
 #[cfg(test)]
 fn parse_exiftool_batch_json(
     json: &str,

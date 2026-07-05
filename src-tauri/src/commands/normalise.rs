@@ -159,6 +159,26 @@ fn count_overwrites_for_group(
         }
     };
 
+    let scalar_value = |tag: &str, current: Option<&MetadataValue>| -> u32 {
+        let current = match current {
+            Some(MetadataValue::Null) | None => return 0,
+            Some(MetadataValue::Text(s)) if s.is_empty() => return 0,
+            Some(v) => v,
+        };
+        match edits.get(tag) {
+            None => 0,
+            Some(e) => match e.intent {
+                EditIntent::Delete => 1,
+                EditIntent::Set => match e.value.as_ref() {
+                    Some(value) if value == current => 0,
+                    None => 0,
+                    _ => 1,
+                },
+                _ => 0,
+            },
+        }
+    };
+
     let list = |tag: &str, current: &[String]| -> u32 {
         if current.is_empty() {
             return 0;
@@ -254,22 +274,22 @@ fn count_overwrites_for_group(
         G::Dates => match &inputs.dates {
             None => 0,
             Some(b) => {
-                scalar("ExifIFD:DateTimeOriginal", b.date_time_original.as_deref())
-                    + scalar(
+                scalar_value("ExifIFD:DateTimeOriginal", b.date_time_original.as_ref())
+                    + scalar_value(
                         "XMP-photoshop:DateCreated",
-                        b.photoshop_date_created.as_deref(),
+                        b.photoshop_date_created.as_ref(),
                     )
-                    + scalar("IPTC:DateCreated", b.iptc_date_created.as_deref())
-                    + scalar("IPTC:TimeCreated", b.iptc_time_created.as_deref())
-                    + scalar("ExifIFD:CreateDate", b.create_date.as_deref())
-                    + scalar("XMP-xmp:CreateDate", b.xmp_create_date.as_deref())
-                    + scalar(
+                    + scalar_value("IPTC:DateCreated", b.iptc_date_created.as_ref())
+                    + scalar_value("IPTC:TimeCreated", b.iptc_time_created.as_ref())
+                    + scalar_value("ExifIFD:CreateDate", b.create_date.as_ref())
+                    + scalar_value("XMP-xmp:CreateDate", b.xmp_create_date.as_ref())
+                    + scalar_value(
                         "IPTC:DigitalCreationDate",
-                        b.iptc_digital_creation_date.as_deref(),
+                        b.iptc_digital_creation_date.as_ref(),
                     )
-                    + scalar(
+                    + scalar_value(
                         "IPTC:DigitalCreationTime",
-                        b.iptc_digital_creation_time.as_deref(),
+                        b.iptc_digital_creation_time.as_ref(),
                     )
             }
         },

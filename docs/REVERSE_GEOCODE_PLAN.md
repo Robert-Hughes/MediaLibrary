@@ -136,7 +136,7 @@ perspective.
     2. Nominatim call. 1 req/s rate limiter.
     3. If quality check fails → Overpass call (`[out:json];node(around:30,LAT,LON)[name][~"^(tourism|amenity|historic|leisure|building|shop)$"~"."];out tags;`); take nearest named feature; merge `name` into `location` field; set `source = NominatimPlusOverpass`.
     4. Insert into cache.
-  - `compose_geocode_edits(result) -> HashMap<String, DraftEdit>` — emits
+  - `compose_geocode_edits(result) -> HashMap<String, MetadataDraftEdit>` — emits
     the tags listed in §1. For every §1 tag: set-value draft if data is
     present, remove-tag draft if not (coherent-replacement rule, see §1).
     Carry a doc-comment summarising the rationale (atomic replacement of
