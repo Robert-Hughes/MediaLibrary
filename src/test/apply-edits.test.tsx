@@ -52,7 +52,12 @@ async function openFolderWithPhoto(
 
 async function seedDraftEdit(photo: ReturnType<typeof makePhoto>) {
   mockApiInstance.draftEditsByFolder["/photos"] = {
-    [photo.relative_path]: { "XMP-dc:Description": "Draft value" },
+    [photo.relative_path]: {
+      "XMP-dc:Description": {
+        value: { kind: "Text", value: "Draft value" },
+        intent: "Set",
+      },
+    },
   };
 }
 
@@ -429,8 +434,18 @@ describe("Apply Draft Edits – Failure handling", () => {
     const photo2 = makePhoto({ relative_path: "b.jpg" });
 
     mockApiInstance.draftEditsByFolder["/photos"] = {
-      "a.jpg": { "XMP-dc:Description": "Draft A" },
-      "b.jpg": { "XMP-dc:Description": "Draft B" },
+      "a.jpg": {
+        "XMP-dc:Description": {
+          value: { kind: "Text", value: "Draft A" },
+          intent: "Set",
+        },
+      },
+      "b.jpg": {
+        "XMP-dc:Description": {
+          value: { kind: "Text", value: "Draft B" },
+          intent: "Set",
+        },
+      },
     };
     mockApiInstance.applyEditsResult = {
       applied: ["a.jpg"],
