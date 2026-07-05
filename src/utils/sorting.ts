@@ -5,11 +5,11 @@ import type {
   SortKey,
 } from "../types";
 import type { ImageMetadataStore } from "../types";
-import { variantToDisplayString } from "../draft";
+import { variantToDisplayString as metadataValueToDisplayString } from "../draft";
 
-function getVariantAsString(v: ImageMetadataEntry | undefined): string {
+function getMetadataValueAsString(v: ImageMetadataEntry | undefined): string {
   if (v === undefined || v === null) return "";
-  return variantToDisplayString(v);
+  return metadataValueToDisplayString(v);
 }
 
 function compareByKey(
@@ -37,8 +37,8 @@ function compareByKey(
     const metaB = imageMetadata.get(b.relative_path);
     const rawA = metaA === "loading" ? undefined : metaA[key.column];
     const rawB = metaB === "loading" ? undefined : metaB[key.column];
-    valA = getVariantAsString(rawA);
-    valB = getVariantAsString(rawB);
+    valA = getMetadataValueAsString(rawA);
+    valB = getMetadataValueAsString(rawB);
     // Empty strings (no value or still loading) sort to the end
     if (valA === "" && valB === "") return 0;
     if (valA === "") return 1;

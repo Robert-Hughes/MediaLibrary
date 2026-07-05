@@ -5,8 +5,8 @@
 ///    callback per file so callers can stream results.
 ///  - `read_image_metadata` — reads metadata for a single file using ExifTool.
 ///  - `thumbnail_for` — generates a thumbnail.
-use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashMap};
+use serde::Serialize;
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -50,32 +50,6 @@ pub struct WalkErrorInfo {
     pub message: String,
 }
 
-/// A value in the image metadata.
-///
-/// Covers every JSON shape that exiftool's `-j` output can produce, plus the
-/// internal shapes we want to round-trip through drafts and write-back.
-///
-/// Order of arms matters for `#[serde(untagged)]`: serde tries each in order
-/// and picks the first that matches.  `Integer` must precede `Float` so `5`
-/// stays an integer rather than becoming `5.0`.  `String` is last among the
-/// scalar arms so numeric-looking JSON strings stay strings.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(untagged)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
-pub enum Variant {
-    Null,
-    Bool(bool),
-    // Tauri serialises i64 as a JSON number which JS parses as `number` (not
-    // `bigint`), so override the ts-rs default of `bigint` here.  Risk is the
-    // usual 2^53 precision ceiling, acceptable for EXIF/XMP integers.
-    Integer(#[cfg_attr(test, ts(type = "number"))] i64),
-    Float(f64),
-    String(String),
-    List(Vec<Variant>),
-    Object(BTreeMap<String, Variant>),
-}
-
 /// Image-level metadata for a single photo, delivered asynchronously after discovery.
 ///
 /// Two views of the same file, captured in one scan cycle (see `read_image_metadata_batch`):
@@ -97,10 +71,8 @@ pub enum Variant {
 #[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
 pub struct ImageMetadata {
     pub relative_path: String,
-    pub metadata: HashMap<String, Variant>,
-    pub raw_metadata: HashMap<String, Variant>,
-    pub metadata_values: HashMap<String, MetadataValue>,
-    pub raw_metadata_values: HashMap<String, MetadataValue>,
+    pub metadata: HashMap<String, MetadataValue>,
+    pub raw_metadata: HashMap<String, MetadataValue>,
 }
 
 /// Walk `folder` and call `on_photo` for each image file found.
@@ -205,9 +177,8 @@ fn read_os_metadata(path: &Path) -> (Option<i64>, Option<i64>) {
 ///  -s                    Short tag names
 ///  -struct               Preserve nested XMP structs as JSON objects (face
 ///                        regions, QuickTime Keys group, etc.) — these now
-///                        round-trip into `Variant::Object` instead of being
-///                        silently dropped.  Safe because the Variant enum
-///                        supports `Object` as of Phase 1.
+///                        parse into `MetadataValue::Struct` instead of being
+///                        silently dropped.
 ///  -charset filename=utf8 Force UTF-8 path handling so non-ASCII filenames
 ///                        work on Windows.
 ///  -charset utf8         Force UTF-8 for tag values.
@@ -281,12 +252,8 @@ pub fn read_image_metadata_batch(
         let key = abs_path.to_string_lossy().replace('\\', "/");
         let display_values = display_json.remove(&key).unwrap_or_default();
         let raw_values = raw_json.remove(&key).unwrap_or_default();
-        let metadata = legacy_variants_from_json(&display_values, registry);
-        let raw_metadata = legacy_variants_from_json(&raw_values, registry);
-        let metadata_values =
-            semantic_values_from_json(&display_values, &raw_values, registry, false);
-        let raw_metadata_values =
-            semantic_values_from_json(&raw_values, &display_values, registry, true);
+        let metadata = semantic_values_from_json(&display_values, &raw_values, registry, false);
+        let raw_metadata = semantic_values_from_json(&raw_values, &display_values, registry, true);
         if metadata.is_empty() {
             log::warn!("[parse_exiftool] Warning: no display metadata for {}", key);
         }
@@ -294,8 +261,6 @@ pub fn read_image_metadata_batch(
             relative_path: rel_path.clone(),
             metadata,
             raw_metadata,
-            metadata_values,
-            raw_metadata_values,
         });
     }
     Ok(results)
@@ -359,8 +324,7 @@ fn run_exiftool_pass(
 /// option to extract)"` strings for binary tags in `-j` output. Mentioning the
 /// `-b` flag is meaningless to Media Library users (they never invoke exiftool
 /// directly), so any key whose schema kind is `TagKind::Binary` is replaced
-/// with `Variant::String("<binary>")` inline, skipping deserialize of the raw
-/// placeholder.
+/// with a neutral `"<binary>"` string before semantic parsing.
 fn parse_exiftool_pass_json_raw(json: &str) -> HashMap<String, HashMap<String, serde_json::Value>> {
     parse_exiftool_pass_json_raw_with_registry(json, crate::tag_schema::get_registry().ok())
 }
@@ -441,53 +405,6 @@ fn parse_exiftool_pass_json_raw_with_registry(
     map_by_source
 }
 
-#[cfg(test)]
-fn parse_exiftool_pass_json(json: &str) -> HashMap<String, HashMap<String, Variant>> {
-    let registry = crate::tag_schema::get_registry().ok();
-    parse_exiftool_pass_json_raw_with_registry(json, registry)
-        .into_iter()
-        .map(|(source, values)| (source, legacy_variants_from_json(&values, registry)))
-        .collect()
-}
-
-#[cfg(test)]
-fn parse_exiftool_pass_json_with_registry(
-    json: &str,
-    registry: Option<&crate::tag_schema::TagRegistry>,
-) -> HashMap<String, HashMap<String, Variant>> {
-    parse_exiftool_pass_json_raw_with_registry(json, registry)
-        .into_iter()
-        .map(|(source, values)| (source, legacy_variants_from_json(&values, registry)))
-        .collect()
-}
-
-fn legacy_variants_from_json(
-    values: &HashMap<String, serde_json::Value>,
-    registry: Option<&crate::tag_schema::TagRegistry>,
-) -> HashMap<String, Variant> {
-    values
-        .iter()
-        .filter_map(|(key, value)| {
-            let variant = if is_binary_tag(key, registry) {
-                Variant::String("<binary>".to_string())
-            } else {
-                match serde_json::from_value::<Variant>(value.clone()) {
-                    Ok(v) => v,
-                    Err(e) => {
-                        log::warn!(
-                            "[parse_exiftool] failed to parse legacy Variant for key {:?}: {}",
-                            key,
-                            e
-                        );
-                        return None;
-                    }
-                }
-            };
-            Some((key.clone(), variant))
-        })
-        .collect()
-}
-
 fn semantic_values_from_json(
     primary: &HashMap<String, serde_json::Value>,
     paired: &HashMap<String, serde_json::Value>,
@@ -554,15 +471,11 @@ fn parse_exiftool_batch_json(
             );
             HashMap::new()
         });
-        let metadata = legacy_variants_from_json(&display_values, registry);
-        let metadata_values =
-            semantic_values_from_json(&display_values, &HashMap::new(), registry, false);
+        let metadata = semantic_values_from_json(&display_values, &HashMap::new(), registry, false);
         results.push(ImageMetadata {
             relative_path: rel_path.clone(),
             metadata,
             raw_metadata: HashMap::new(),
-            metadata_values,
-            raw_metadata_values: HashMap::new(),
         });
     }
     results
@@ -860,19 +773,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_exiftool_json_test() {
-        let json =
-            r#"[{"SourceFile": "D:/test.jpg", "Number": 13.5, "String": "Yes", "List": ["A"]}]"#;
-        let parsed: Result<Vec<std::collections::HashMap<String, Variant>>, _> =
-            serde_json::from_str(json);
-        assert!(parsed.is_ok(), "Failed to parse json: {:?}", parsed.err());
-    }
-
-    #[test]
     fn parse_exiftool_preserves_nested_objects() {
-        // Variant::Object now accepts nested objects (e.g. QuickTime Keys group,
-        // mwg-rs face regions).  Previously this entry would have failed to
-        // deserialize and dropped the whole batch.
         let json = r#"[
             {"SourceFile": "D:/a.jpg", "Tag": "ok"},
             {"SourceFile": "D:/b.mov", "Keys": {"creator": "alice", "year": 2024}},
@@ -892,11 +793,10 @@ mod tests {
         assert_eq!(results.len(), 3);
         let b = results.iter().find(|r| r.relative_path == "b.mov").unwrap();
         match b.metadata.get("Keys") {
-            Some(Variant::Object(m)) => {
-                assert!(matches!(m.get("creator"), Some(Variant::String(s)) if s == "alice"));
-                assert!(matches!(m.get("year"), Some(Variant::Integer(2024))));
+            Some(MetadataValue::Unknown { raw, .. }) => {
+                assert_eq!(raw, &serde_json::json!({"creator": "alice", "year": 2024}));
             }
-            other => panic!("expected Variant::Object for Keys, got {:?}", other),
+            other => panic!("expected unknown raw object for Keys, got {:?}", other),
         }
     }
 
@@ -918,78 +818,14 @@ mod tests {
         assert_eq!(results.len(), 2);
         let a = results.iter().find(|r| r.relative_path == "a.jpg").unwrap();
         let c = results.iter().find(|r| r.relative_path == "c.jpg").unwrap();
-        assert!(matches!(a.metadata.get("Tag"), Some(Variant::String(s)) if s == "ok"));
-        assert!(matches!(c.metadata.get("Tag"), Some(Variant::String(s)) if s == "ok"));
-    }
-
-    #[test]
-    fn variant_integer_takes_precedence_over_float() {
-        let v: Variant = serde_json::from_str("5").unwrap();
-        assert_eq!(v, Variant::Integer(5));
-    }
-
-    #[test]
-    fn variant_float_for_fractional() {
-        let v: Variant = serde_json::from_str("5.6").unwrap();
-        match v {
-            Variant::Float(f) => assert!((f - 5.6).abs() < 1e-9),
-            other => panic!("expected Float, got {:?}", other),
-        }
-    }
-
-    #[test]
-    fn variant_bool_roundtrip() {
-        let v: Variant = serde_json::from_str("true").unwrap();
-        assert_eq!(v, Variant::Bool(true));
-        let s = serde_json::to_string(&Variant::Bool(false)).unwrap();
-        assert_eq!(s, "false");
-    }
-
-    #[test]
-    fn variant_null_roundtrip() {
-        let v: Variant = serde_json::from_str("null").unwrap();
-        assert_eq!(v, Variant::Null);
-        let s = serde_json::to_string(&Variant::Null).unwrap();
-        assert_eq!(s, "null");
-    }
-
-    #[test]
-    fn variant_string_roundtrip() {
-        let v: Variant = serde_json::from_str("\"hello\"").unwrap();
-        assert_eq!(v, Variant::String("hello".to_string()));
-    }
-
-    #[test]
-    fn variant_list_roundtrip() {
-        let v: Variant = serde_json::from_str("[1, \"two\", false]").unwrap();
-        assert_eq!(
-            v,
-            Variant::List(vec![
-                Variant::Integer(1),
-                Variant::String("two".to_string()),
-                Variant::Bool(false),
-            ])
-        );
-    }
-
-    #[test]
-    fn variant_nested_object_roundtrip() {
-        let json = r#"{"name": "alice", "age": 30, "tags": ["a", "b"]}"#;
-        let v: Variant = serde_json::from_str(json).unwrap();
-        match v {
-            Variant::Object(m) => {
-                assert!(matches!(m.get("name"), Some(Variant::String(s)) if s == "alice"));
-                assert!(matches!(m.get("age"), Some(Variant::Integer(30))));
-                assert!(matches!(m.get("tags"), Some(Variant::List(_))));
-            }
-            other => panic!("expected Object, got {:?}", other),
-        }
-    }
-
-    #[test]
-    fn variant_large_integer_preserved_as_integer() {
-        let v: Variant = serde_json::from_str("4404019").unwrap();
-        assert_eq!(v, Variant::Integer(4404019));
+        assert!(matches!(
+            a.metadata.get("Tag"),
+            Some(MetadataValue::Unknown { raw, .. }) if raw == &serde_json::json!("ok")
+        ));
+        assert!(matches!(
+            c.metadata.get("Tag"),
+            Some(MetadataValue::Unknown { raw, .. }) if raw == &serde_json::json!("ok")
+        ));
     }
 
     #[test]
@@ -998,23 +834,27 @@ mod tests {
             {"SourceFile": "D:\\a.jpg", "Tag": "X"},
             {"SourceFile": "D:/b.jpg", "Tag": "Y"}
         ]"#;
-        let map = parse_exiftool_pass_json(json);
+        let map = parse_exiftool_pass_json_raw(json);
         assert_eq!(map.len(), 2);
-        assert!(matches!(map.get("D:/a.jpg").and_then(|m| m.get("Tag")),
-            Some(Variant::String(s)) if s == "X"));
-        assert!(matches!(map.get("D:/b.jpg").and_then(|m| m.get("Tag")),
-            Some(Variant::String(s)) if s == "Y"));
+        assert_eq!(
+            map.get("D:/a.jpg").and_then(|m| m.get("Tag")),
+            Some(&serde_json::json!("X"))
+        );
+        assert_eq!(
+            map.get("D:/b.jpg").and_then(|m| m.get("Tag")),
+            Some(&serde_json::json!("Y"))
+        );
     }
 
     #[test]
     fn parse_pass_json_handles_struct_values() {
         // Pass A typically returns nested Keys / regions structs.
         let json = r#"[{"SourceFile":"D:/a.mov","Keys":{"creator":"alice"}}]"#;
-        let map = parse_exiftool_pass_json(json);
-        match map.get("D:/a.mov").and_then(|m| m.get("Keys")) {
-            Some(Variant::Object(_)) => {}
-            other => panic!("expected Object, got {:?}", other),
-        }
+        let map = parse_exiftool_pass_json_raw(json);
+        assert_eq!(
+            map.get("D:/a.mov").and_then(|m| m.get("Keys")),
+            Some(&serde_json::json!({"creator": "alice"}))
+        );
     }
 
     #[test]
@@ -1040,15 +880,15 @@ mod tests {
         let results = parse_exiftool_batch_json(json, &rel, &abs);
         let image = &results[0];
         assert!(matches!(
-            image.metadata_values.get("IPTC:TimeCreated"),
+            image.metadata.get("IPTC:TimeCreated"),
             Some(MetadataValue::Time(t)) if t.offset.is_none()
         ));
         assert!(matches!(
-            image.metadata_values.get("ExifIFD:OffsetTimeOriginal"),
+            image.metadata.get("ExifIFD:OffsetTimeOriginal"),
             Some(MetadataValue::TimeOffset(_))
         ));
         assert!(matches!(
-            image.metadata_values.get("MadeUp:Thing"),
+            image.metadata.get("MadeUp:Thing"),
             Some(MetadataValue::Unknown { expected: None, raw, .. }) if raw == &serde_json::json!(5)
         ));
     }
@@ -1071,15 +911,14 @@ mod tests {
             "EXIF:Make": "Canon"
         }]"#;
         let reg = binary_registry();
-        let map = parse_exiftool_pass_json_with_registry(json, Some(&reg));
+        let map = parse_exiftool_pass_json_raw_with_registry(json, Some(&reg));
         let entry = map.get("D:/a.jpg").expect("entry present");
-        assert!(
-            matches!(entry.get("IFD1:ThumbnailImage"), Some(Variant::String(s)) if s == "<binary>"),
-            "expected <binary> placeholder, got {:?}",
-            entry.get("IFD1:ThumbnailImage")
+        assert_eq!(
+            entry.get("IFD1:ThumbnailImage"),
+            Some(&serde_json::json!("<binary>"))
         );
         // Non-binary tag passes through untouched.
-        assert!(matches!(entry.get("EXIF:Make"), Some(Variant::String(s)) if s == "Canon"));
+        assert_eq!(entry.get("EXIF:Make"), Some(&serde_json::json!("Canon")));
     }
 
     #[test]
@@ -1093,12 +932,11 @@ mod tests {
             "File:PreviewImage": "(Binary data 105557 bytes, use -b option to extract)"
         }]"#;
         let reg = binary_registry();
-        let map = parse_exiftool_pass_json_with_registry(json, Some(&reg));
+        let map = parse_exiftool_pass_json_raw_with_registry(json, Some(&reg));
         let entry = map.get("D:/a.jpg").expect("entry present");
-        assert!(
-            matches!(entry.get("File:PreviewImage"), Some(Variant::String(s)) if s == "<binary>"),
-            "expected regex fallback to substitute, got {:?}",
-            entry.get("File:PreviewImage")
+        assert_eq!(
+            entry.get("File:PreviewImage"),
+            Some(&serde_json::json!("<binary>"))
         );
     }
 
@@ -1109,12 +947,12 @@ mod tests {
             "SourceFile": "D:/a.jpg",
             "IFD1:ThumbnailImage": "(Binary data 3965 bytes, use -b option to extract)"
         }]"#;
-        let map = parse_exiftool_pass_json_with_registry(json, None);
+        let map = parse_exiftool_pass_json_raw_with_registry(json, None);
         let entry = map.get("D:/a.jpg").expect("entry present");
-        assert!(matches!(
+        assert_eq!(
             entry.get("IFD1:ThumbnailImage"),
-            Some(Variant::String(s)) if s == "<binary>"
-        ));
+            Some(&serde_json::json!("<binary>"))
+        );
     }
 
     #[test]
@@ -1127,10 +965,10 @@ mod tests {
             "EXIF:ImageDescription": "Note: the exiftool stub reads \"(Binary data 99 bytes, use -b option to extract)\" in this field."
         }]"#;
         let reg = binary_registry();
-        let map = parse_exiftool_pass_json_with_registry(json, Some(&reg));
+        let map = parse_exiftool_pass_json_raw_with_registry(json, Some(&reg));
         let entry = map.get("D:/a.jpg").expect("entry present");
         match entry.get("EXIF:ImageDescription") {
-            Some(Variant::String(s)) => {
+            Some(serde_json::Value::String(s)) => {
                 assert!(s.starts_with("Note: the exiftool stub"));
                 assert!(!s.contains("<binary>"));
             }

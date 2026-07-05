@@ -6,11 +6,10 @@
 // cargo test --manifest-path src-tauri/Cargo.toml
 
 import type { PhotoInfo } from "./types/generated/PhotoInfo";
-import type { Variant } from "./types/generated/Variant";
 import type { MetadataValue } from "./types/generated/MetadataValue";
 import type { MetadataDraftEdit } from "./types/generated/MetadataDraftEdit";
 
-export type { PhotoInfo, Variant };
+export type { PhotoInfo };
 export type { MetadataValue } from "./types/generated/MetadataValue";
 export type { MetadataDraftEdit } from "./types/generated/MetadataDraftEdit";
 export type { MetadataTagOutcome } from "./types/generated/MetadataTagOutcome";

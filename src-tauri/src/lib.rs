@@ -430,7 +430,7 @@ fn start_scan(
                                 for info in results {
                                     batch_results.push(ImageMetadataResult {
                                         relative_path: info.relative_path,
-                                        metadata: info.metadata_values,
+                                        metadata: info.metadata,
                                     });
                                 }
                             }
@@ -450,34 +450,16 @@ fn start_scan(
 
                                 // Send empty metadata for failed files so UI shows "failed" instead of spinner
                                 for rel_path in rel_paths {
-                                    let mut error_metadata = std::collections::HashMap::new();
-                                    error_metadata.insert(
-                                        "_error".to_string(),
-                                        scanner::Variant::String(
-                                            "Failed to load metadata".to_string(),
-                                        ),
-                                    );
-
                                     batch_results.push(ImageMetadataResult {
                                         relative_path: rel_path,
-                                        metadata: error_metadata
-                                            .into_iter()
-                                            .map(|(key, value)| {
-                                                let semantic = match value {
-                                                    scanner::Variant::String(s) => {
-                                                        metadata_value::MetadataValue::Text(s)
-                                                    }
-                                                    _ => metadata_value::MetadataValue::Unknown {
-                                                        expected: None,
-                                                        raw: serde_json::json!(null),
-                                                        reason: Some(
-                                                            "metadata worker error".to_string(),
-                                                        ),
-                                                    },
-                                                };
-                                                (key, semantic)
-                                            })
-                                            .collect(),
+                                        metadata: [(
+                                            "_error".to_string(),
+                                            metadata_value::MetadataValue::Text(
+                                                "Failed to load metadata".to_string(),
+                                            ),
+                                        )]
+                                        .into_iter()
+                                        .collect(),
                                     });
                                 }
                             }

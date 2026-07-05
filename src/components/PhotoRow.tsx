@@ -1,4 +1,4 @@
-import { memo, useCallback, useSyncExternalStore } from "react";
+﻿import { memo, useCallback, useSyncExternalStore } from "react";
 import type {
   ImageMetadataEntry,
   ImageMetadataStore,
@@ -10,7 +10,10 @@ import type {
 import { formatPhotoRowDate } from "../utils/photoDate";
 import { HighlightedText } from "./HighlightedText";
 import { Spinner } from "./Spinner";
-import { displayStringOfMetadataDraft, variantToDisplayString } from "../draft";
+import {
+  displayStringOfMetadataDraft,
+  variantToDisplayString as metadataValueToDisplayString,
+} from "../draft";
 
 function CellContent({
   text,
@@ -30,7 +33,7 @@ function CellContent({
         </s>{" "}
         <strong className="draft-new">
           <HighlightedText
-            text={draftValue === null ? "—" : draftValue}
+            text={draftValue === null ? "â€”" : draftValue}
             searchQuery={searchQuery}
           />
         </strong>
@@ -40,10 +43,10 @@ function CellContent({
   return <HighlightedText text={text} searchQuery={searchQuery} />;
 }
 
-function formatVariant(v: ImageMetadataEntry | undefined): string {
-  if (v === undefined) return "—";
-  const s = variantToDisplayString(v);
-  return s === "" ? "—" : s;
+function formatMetadataValue(v: ImageMetadataEntry | undefined): string {
+  if (v === undefined) return "â€”";
+  const s = metadataValueToDisplayString(v);
+  return s === "" ? "â€”" : s;
 }
 
 function osValue(photo: PhotoInfo, key: string): number | null {
@@ -131,8 +134,8 @@ export const PhotoRow = memo(function PhotoRow({
   const hasDrafts = Object.keys(draftEdits).length > 0;
   const rowClass = `photo-row ${index % 2 === 0 ? "photo-row--even" : "photo-row--odd"} ${selected ? "photo-row--selected" : ""}`;
 
-  // Index of the first image-metadata cell — used to place exactly one spinner
-  // per row while metadata is loading (per-cell spinners were O(rows × cols)).
+  // Index of the first image-metadata cell â€” used to place exactly one spinner
+  // per row while metadata is loading (per-cell spinners were O(rows Ã— cols)).
   const firstImageIdx = visibleColumns.findIndex((c) => c.kind === "image");
 
   return (
@@ -236,16 +239,16 @@ export const PhotoRow = memo(function PhotoRow({
                 />
               ) : (
                 <span className="cell-loading-placeholder" aria-hidden="true">
-                  —
+                  â€”
                 </span>
               )
             ) : metadataFailed ? (
               <span className="metadata-error" title="Failed to load metadata">
-                ✗
+                âœ—
               </span>
             ) : (
               <CellContent
-                text={formatVariant(metadata[col.key])}
+                text={formatMetadataValue(metadata[col.key])}
                 draft={draftEdits[col.key]}
                 searchQuery={searchQuery}
               />

@@ -27,7 +27,6 @@ use std::collections::HashMap;
 
 use crate::draft_edits::{EditIntent, MetadataDraftEdit};
 use crate::metadata_value::{ListKind, MetadataValue};
-use crate::scanner::Variant;
 
 // Per-group implementation modules. The dispatcher (`process_image`)
 // composes these in the pass order documented in plan §2; each
@@ -585,7 +584,7 @@ pub(crate) fn collapse_whitespace_single_line(s: &str) -> String {
 pub fn append_remove_tag_drafts_for_missing_projections(
     edits: &mut HashMap<String, MetadataDraftEdit>,
     group_targets: &[&str],
-    projection: &HashMap<&'static str, Variant>,
+    projection: &HashMap<&'static str, MetadataValue>,
     current_value_is_non_empty: impl Fn(&str) -> bool,
 ) {
     for tag in group_targets {

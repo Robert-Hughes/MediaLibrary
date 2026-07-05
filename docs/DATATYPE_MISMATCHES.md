@@ -3,7 +3,7 @@
 When the Details pane renders a row, two datatype badges may appear:
 
 - `[X]` schema badge — derived from `TagInfo.kind` (ExifTool `-listx`).
-- `(Y)` value badge — derived from the actual `Variant` returned by the
+- `(Y)` value badge — derived from the actual `MetadataValue` returned by the
   scanner for this file.
 
 Today these can disagree on tags that come straight from ExifTool, with no
@@ -16,7 +16,7 @@ user edit involved. The most visible example is `ExifIFD:ComponentsConfiguration
 Same thing for XMP-dc:Title:
 LA Title Big waggle! {} x-default: Big waggle!
 
-Schema says **Bag** (`[B]`); runtime variant is a **String** (`(S)`).
+Schema says **Bag** (`[B]`); runtime metadata is **Text** (`(S)`).
 
 ## Why it happens
 
@@ -49,7 +49,7 @@ So the schema kind for this tag is `Bag(Enum(...))` → badge `[B]`.
 
 At scan time, ExifTool's PrintConv collapses the four raw bytes through the
 value table into a single human-readable string `"Y, Cb, Cr, -"`. The
-scanner records that as `Variant::String("Y, Cb, Cr, -")`, so the runtime
+scanner records that as `MetadataValue::Text("Y, Cb, Cr, -")`, so the runtime
 value badge is `(S)`.
 
 In short: the schema documents the **conceptual** shape (a list of four
@@ -125,7 +125,7 @@ where that is genuinely useful (e.g. ComponentsConfiguration's enum table).
 ### B. Structured array scanning (broad)
 
 Re-scan with `-#` + a per-group structured mode so multi-count tags come
-back as arrays, then the variant matches the schema's Bag shape and the
+back as arrays, then the semantic value matches the schema's Bag shape and the
 badges agree without a schema change.
 
 Two sub-options:

@@ -14,7 +14,7 @@ export function normalizeMetadataFromTauri(
   for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
     out[key] = isMetadataValue(value)
       ? (value as MetadataValue)
-      : variantToMetadataValue(value);
+      : plainJsonToMetadataValue(value);
   }
   return out;
 }
@@ -29,7 +29,7 @@ function isMetadataValue(value: unknown): value is MetadataValue {
   );
 }
 
-export function variantToMetadataValue(value: unknown): MetadataValue {
+export function plainJsonToMetadataValue(value: unknown): MetadataValue {
   if (value === null || value === undefined) return { kind: "Null" };
   if (typeof value === "string") return { kind: "Text", value };
   if (typeof value === "boolean") return { kind: "Bool", value };
@@ -39,7 +39,7 @@ export function variantToMetadataValue(value: unknown): MetadataValue {
       kind: "List",
       value: {
         list_kind: "Unknown",
-        items: value.map(variantToMetadataValue),
+        items: value.map(plainJsonToMetadataValue),
       },
     };
   }
@@ -49,7 +49,7 @@ export function variantToMetadataValue(value: unknown): MetadataValue {
       value: Object.fromEntries(
         Object.entries(value).map(([key, child]) => [
           key,
-          variantToMetadataValue(child),
+          plainJsonToMetadataValue(child),
         ]),
       ),
     };
