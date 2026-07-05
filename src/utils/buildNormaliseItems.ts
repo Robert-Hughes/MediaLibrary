@@ -155,6 +155,15 @@ function scalar(
   return s;
 }
 
+function scalarValue(
+  metadata: Record<string, ImageMetadataEntry> | undefined,
+  drafts: Record<string, MetadataDraftEdit> | undefined,
+  key: string,
+): MetadataValue | undefined {
+  const value = resolveTag(metadata, drafts, key);
+  return isMetadataValue(value) ? value : undefined;
+}
+
 /** Helper that resolves a list tag to `Vec<String>`. */
 function list(
   metadata: Record<string, ImageMetadataEntry> | undefined,
@@ -279,24 +288,27 @@ export function buildNormaliseItemForPhoto(
   if (groupSet.has("dates")) {
     groupInputs.dates = {
       dateTimeOriginal:
-        scalar(metadata, drafts, "ExifIFD:DateTimeOriginal") ?? null,
+        scalarValue(metadata, drafts, "ExifIFD:DateTimeOriginal") ?? null,
       offsetTimeOriginal:
-        scalar(metadata, drafts, "ExifIFD:OffsetTimeOriginal") ?? null,
+        scalarValue(metadata, drafts, "ExifIFD:OffsetTimeOriginal") ?? null,
       subSecTimeOriginal:
-        scalar(metadata, drafts, "ExifIFD:SubSecTimeOriginal") ?? null,
+        scalarValue(metadata, drafts, "ExifIFD:SubSecTimeOriginal") ?? null,
       photoshopDateCreated:
-        scalar(metadata, drafts, "XMP-photoshop:DateCreated") ?? null,
-      iptcDateCreated: scalar(metadata, drafts, "IPTC:DateCreated") ?? null,
-      iptcTimeCreated: scalar(metadata, drafts, "IPTC:TimeCreated") ?? null,
-      createDate: scalar(metadata, drafts, "ExifIFD:CreateDate") ?? null,
-      offsetTime: scalar(metadata, drafts, "ExifIFD:OffsetTime") ?? null,
+        scalarValue(metadata, drafts, "XMP-photoshop:DateCreated") ?? null,
+      iptcDateCreated:
+        scalarValue(metadata, drafts, "IPTC:DateCreated") ?? null,
+      iptcTimeCreated:
+        scalarValue(metadata, drafts, "IPTC:TimeCreated") ?? null,
+      createDate: scalarValue(metadata, drafts, "ExifIFD:CreateDate") ?? null,
+      offsetTime: scalarValue(metadata, drafts, "ExifIFD:OffsetTime") ?? null,
       subSecTimeDigitized:
-        scalar(metadata, drafts, "ExifIFD:SubSecTimeDigitized") ?? null,
-      xmpCreateDate: scalar(metadata, drafts, "XMP-xmp:CreateDate") ?? null,
+        scalarValue(metadata, drafts, "ExifIFD:SubSecTimeDigitized") ?? null,
+      xmpCreateDate:
+        scalarValue(metadata, drafts, "XMP-xmp:CreateDate") ?? null,
       iptcDigitalCreationDate:
-        scalar(metadata, drafts, "IPTC:DigitalCreationDate") ?? null,
+        scalarValue(metadata, drafts, "IPTC:DigitalCreationDate") ?? null,
       iptcDigitalCreationTime:
-        scalar(metadata, drafts, "IPTC:DigitalCreationTime") ?? null,
+        scalarValue(metadata, drafts, "IPTC:DigitalCreationTime") ?? null,
       fileStem: fileStemOf(relPath),
     };
   }

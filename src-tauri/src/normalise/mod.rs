@@ -306,10 +306,10 @@ pub struct LocationInput {
 /// modify timestamps on every write, so normalising them is pointless
 /// and fights the tool.
 ///
-/// All string fields hold raw values as exiftool emits them; the
-/// parser accepts both `"YYYY:MM:DD HH:MM:SS"` (EXIF) and
-/// `"YYYY-MM-DDTHH:MM:SS"` (XMP/ISO), with optional sub-second and
-/// timezone offset.
+/// Date/time fields hold semantic `MetadataValue` values as parsed at
+/// scan time. Related EXIF offset tags stay separate `TimeOffset`
+/// values and are considered only by the Dates normaliser's local
+/// comparison/projection policy.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(test, derive(ts_rs::TS))]
@@ -318,43 +318,43 @@ pub struct DatesInput {
     // ── H1: Shutter time ──
     /// `ExifIFD:DateTimeOriginal` (primary).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub date_time_original: Option<String>,
+    pub date_time_original: Option<MetadataValue>,
     /// `ExifIFD:OffsetTimeOriginal` — `"+01:00"` etc.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub offset_time_original: Option<String>,
+    pub offset_time_original: Option<MetadataValue>,
     /// `ExifIFD:SubSecTimeOriginal` — fractional seconds digits, e.g.
     /// `"123"` meaning `.123`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub sub_sec_time_original: Option<String>,
+    pub sub_sec_time_original: Option<MetadataValue>,
     /// `XMP-photoshop:DateCreated` — full ISO datetime mirror.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub photoshop_date_created: Option<String>,
+    pub photoshop_date_created: Option<MetadataValue>,
     /// `IPTC:DateCreated` — `"YYYY-MM-DD"` portion of the H1 mirror.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub iptc_date_created: Option<String>,
+    pub iptc_date_created: Option<MetadataValue>,
     /// `IPTC:TimeCreated` — `"HH:MM:SS[±HH:MM]"` portion of H1 mirror.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub iptc_time_created: Option<String>,
+    pub iptc_time_created: Option<MetadataValue>,
 
     // ── H2: Digitised time ──
     /// `ExifIFD:CreateDate` (primary).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub create_date: Option<String>,
+    pub create_date: Option<MetadataValue>,
     /// `ExifIFD:OffsetTime` — paired with `CreateDate` per EXIF spec.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub offset_time: Option<String>,
+    pub offset_time: Option<MetadataValue>,
     /// `ExifIFD:SubSecTimeDigitized` — fractional-seconds digits for H2.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub sub_sec_time_digitized: Option<String>,
+    pub sub_sec_time_digitized: Option<MetadataValue>,
     /// `XMP-xmp:CreateDate` — full ISO datetime mirror.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub xmp_create_date: Option<String>,
+    pub xmp_create_date: Option<MetadataValue>,
     /// `IPTC:DigitalCreationDate` — `"YYYY-MM-DD"` portion of H2 mirror.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub iptc_digital_creation_date: Option<String>,
+    pub iptc_digital_creation_date: Option<MetadataValue>,
     /// `IPTC:DigitalCreationTime` — `"HH:MM:SS[±HH:MM]"` portion of H2.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub iptc_digital_creation_time: Option<String>,
+    pub iptc_digital_creation_time: Option<MetadataValue>,
 
     /// Filename stem — read-only input used by the H1 filename
     /// fallback when all H1 fields are empty (plan §1 Group H).
@@ -806,13 +806,28 @@ fn is_cancelled(cancel: Option<&std::sync::Arc<std::sync::atomic::AtomicBool>>) 
 }
 
 fn derive_date_context(input: &DatesInput) -> Option<String> {
+    fn date_context(v: &MetadataValue) -> Option<String> {
+        match v {
+            MetadataValue::DateTime(dt) => Some(format!(
+                "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+                dt.date.year,
+                dt.date.month,
+                dt.date.day,
+                dt.time.hour,
+                dt.time.minute,
+                dt.time.second
+            )),
+            MetadataValue::Date(d) => Some(format!("{:04}-{:02}-{:02}", d.year, d.month, d.day)),
+            MetadataValue::Text(s) => Some(s.trim().to_string()).filter(|s| !s.is_empty()),
+            _ => None,
+        }
+    }
     input
         .date_time_original
-        .clone()
-        .or_else(|| input.photoshop_date_created.clone())
-        .or_else(|| input.iptc_date_created.clone())
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
+        .as_ref()
+        .or(input.photoshop_date_created.as_ref())
+        .or(input.iptc_date_created.as_ref())
+        .and_then(date_context)
 }
 
 fn derive_description_canonical_without_ai(input: &DescriptionInput) -> Option<String> {
@@ -1441,7 +1456,7 @@ mod tests_dispatcher {
                         .and_then(serde_json::Value::as_str),
                     Some("United Kingdom")
                 );
-                assert_eq!(p.date.as_deref(), Some("2024:06:15 14:30:45"));
+                assert_eq!(p.date.as_deref(), Some("2024-06-15 14:30:45"));
                 self.calls.lock().await.push("description");
                 Ok(("Merged caption.".into(), AiCallUsage::default()))
             }
@@ -1476,7 +1491,22 @@ mod tests_dispatcher {
                     ..Default::default()
                 }),
                 dates: Some(DatesInput {
-                    date_time_original: Some("2024:06:15 14:30:45".into()),
+                    date_time_original: Some(MetadataValue::DateTime(
+                        crate::metadata_value::DateTimeValue {
+                            date: crate::metadata_value::DateValue {
+                                year: 2024,
+                                month: 6,
+                                day: 15,
+                            },
+                            time: crate::metadata_value::TimeValue {
+                                hour: 14,
+                                minute: 30,
+                                second: 45,
+                                subsecond: None,
+                                offset: None,
+                            },
+                        },
+                    )),
                     ..Default::default()
                 }),
                 ..Default::default()

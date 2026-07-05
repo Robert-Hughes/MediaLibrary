@@ -41,10 +41,9 @@ Metadata lives in two stores:
 - committed metadata: `imageMetadata`, reflecting what is on disk
 - draft edits: `draftEdits`, reflecting pending user edits not yet written
 
-Loaded app state and persistence use semantic `MetadataDraftEdit` values. Some
-frontend editor components still receive a temporary legacy `DraftEdit` adapter;
-new code should pass `MetadataValue`/`MetadataDraftEdit` directly instead of
-adding more legacy conversions.
+Loaded app state, persistence, and editor components use semantic
+`MetadataValue`/`MetadataDraftEdit` values directly. New code should keep
+metadata and drafts on that semantic path.
 
 Every read site should choose one of these patterns.
 
