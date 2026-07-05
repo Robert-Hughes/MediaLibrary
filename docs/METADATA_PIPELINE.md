@@ -26,11 +26,11 @@ See `docs/DATATYPE_MISMATCHES.md` for deferred schema-vs-runtime datatype mismat
 
 ## Empty List Set Means Delete
 
-A draft `Set` on a `Bag` or `Seq` tag with `Variant::List(vec![])`, `Variant::Null`, or an empty string is treated as a tag clear.
+A draft `Set` on a `Bag` or `Seq` tag with `MetadataValue::List { items: vec![], .. }`, `MetadataValue::Null`, or an empty string is treated as a tag clear.
 
 ExifTool's CLI write path clears a list with `-TAG=` and writes values with repeated `-TAG=item` arguments. An empty list produces only the clear argument, so ExifTool removes the property. The read/write path does not distinguish "tag absent" from "present but empty" for this case.
 
-`verify_set` in `src-tauri/src/apply_edits.rs` returns `Match` when an empty-value `Set` leaves the tag absent, null, an empty string, or an empty list after write. Tests such as `verify_set_empty_list_matches_when_tag_absent_post_write` pin this behavior.
+`verify_metadata_set` in `src-tauri/src/apply_edits.rs` returns `Match` when an empty-value `Set` leaves the tag absent, null, an empty string, or an empty list after write. Tests such as `verify_metadata_set_distinguishes_match_coerced_mismatch_missing_and_unparsed` pin this behavior.
 
 Preserving a literal empty RDF `Bag` would require a different write path, such as an XMP template or direct XMP packet edit.
 
@@ -40,6 +40,11 @@ Metadata lives in two stores:
 
 - committed metadata: `imageMetadata`, reflecting what is on disk
 - draft edits: `draftEdits`, reflecting pending user edits not yet written
+
+Loaded app state and persistence use semantic `MetadataDraftEdit` values. Some
+frontend editor components still receive a temporary legacy `DraftEdit` adapter;
+new code should pass `MetadataValue`/`MetadataDraftEdit` directly instead of
+adding more legacy conversions.
 
 Every read site should choose one of these patterns.
 

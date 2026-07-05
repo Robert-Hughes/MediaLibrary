@@ -34,44 +34,71 @@ The new design fixes these by preserving type all the way through.
 
 ---
 
-## 2. The `Variant` type
+## 2. The `MetadataValue` type
 
-A single discriminated union covers every shape metadata can take:
+ExifTool JSON is a boundary format only. The scanner decodes ExifTool output as
+`serde_json::Value`, then parses it into the app's semantic value model:
 
 ```rust
-pub enum Variant {
+#[serde(tag = "kind", content = "value")]
+pub enum MetadataValue {
     Null,
+    Text(String),
     Bool(bool),
     Integer(i64),
-    Float(f64),
-    String(String),
-    List(Vec<Variant>),
-    Object(BTreeMap<String, Variant>),
+    Real(f64),
+    Rational(RationalValue),
+    Date(DateValue),
+    Time(TimeValue),
+    DateTime(DateTimeValue),
+    TimeOffset(UtcOffsetValue),
+    LangAlt(BTreeMap<String, String>),
+    List { list_kind: ListKind, items: Vec<MetadataValue> },
+    Struct(BTreeMap<String, MetadataValue>),
+    Binary,
+    Unknown { expected: Option<TagKind>, raw: serde_json::Value, reason: Option<String> },
 }
 ```
 
 The frontend mirrors this:
 
 ```ts
-type Variant =
-  null | boolean | number | string | Variant[] | { [k: string]: Variant };
+type MetadataValue =
+  | { kind: "Null" }
+  | { kind: "Text"; value: string }
+  | { kind: "Integer"; value: number }
+  | { kind: "Real"; value: number }
+  | { kind: "Rational"; value: RationalValue }
+  | { kind: "List"; value: { list_kind: ListKind; items: MetadataValue[] } }
+  | ...;
 ```
 
-Every metadata value, draft edit, and write-back payload uses `Variant`. There is no place in the pipeline where a list becomes a comma-joined string, or where a number becomes a stringified number, except at the deliberate boundary of the exiftool command line itself.
+Metadata read from files, draft edits, write-back payloads, verification, and
+apply logs use `MetadataValue`. There is no place in normal operation where a
+semantic value round-trips through a display string.
 
-### Why no separate `Object` in older versions
+### Why keep `Variant` temporarily
 
-The previous `Variant` had only `String`, `Number`, `List`. exiftool's `-j` output for nested XMP structs (e.g. `Keys` group on QuickTime, region markup) contains JSON objects. The untagged enum failed to deserialize these, and because the failure was on the whole `Vec<HashMap<String, Variant>>` parse, the entire batch's metadata was discarded. Adding `Object` fixes both the immediate parse failure and the silent-batch-drop failure mode.
+`Variant` still exists as a transitional JSON-shape compatibility type for
+older frontend editor surfaces and legacy generated bindings. It is not the
+semantic model. New backend code should accept `serde_json::Value` at the
+ExifTool boundary and convert into `MetadataValue`; new app logic should not
+add more `Variant` dependencies.
 
-### Why `Integer` and `Float` separately
+### Why `Integer`, `Real`, and `Rational` separately
 
-JSON does not distinguish; exiftool's `-n` output for `Rating` is `5`, for `FNumber` is `5.6`. Preserving the distinction lets us write back the correct form to exiftool (`-n -Rating=5` succeeds; `-n -Rating=5.0` may warn). The frontend's `number` type collapses them, but the schema (next section) tells the writer which form to use.
+ExifTool JSON numbers do not by themselves carry enough meaning. A `Rating`
+integer, an aperture real, and an exact shutter-speed rational need different
+write and verification behavior. `MetadataValue` preserves those distinctions
+explicitly, while `TagKind` describes what each tag expects.
 
 ---
 
 ## 3. The tag schema registry
 
-`Variant` describes the shape of a value. It does not describe what shape a value _should_ have for a given tag. For that, MediaLibrary builds a registry of tag types at startup.
+`MetadataValue` describes the actual value observed or drafted. It does not
+describe what shape a value _should_ have for a given tag. For that,
+MediaLibrary builds a registry of tag types at startup.
 
 ### Source: `exiftool -listx`
 
@@ -223,7 +250,7 @@ The same pattern applies to any future paired-tag editor (the warning text and t
 3. Details pane shows `"Rotate 90 CW"`.
 4. User clicks edit. Registry says `Orientation` is `Enum<Integer>` with options `[(1, "Horizontal (normal)"), ..., (6, "Rotate 90 CW"), ...]`.
 5. Editor renders a dropdown of labels, with `"Rotate 90 CW"` selected.
-6. User picks `"Rotate 180"`. Draft stores `{ value: Variant::Integer(3), intent: Set }`.
+6. User picks `"Rotate 180"`. Draft stores `{ value: MetadataValue::Integer(3), intent: Set, display: "Rotate 180" }`.
 7. On apply, write-back emits `exiftool -n -Orientation=3`.
 8. Re-read pass A shows `"Rotate 180"`. Verify succeeds.
 
@@ -233,8 +260,8 @@ The same pattern applies to any future paired-tag editor (the warning text and t
 2. Details pane shows `"1/250"`.
 3. User clicks edit. Registry says `Rational`, no enum table.
 4. Editor renders numerator/denominator inputs (`1` and `250`) with a decimal toggle.
-5. User changes denominator to `500`. Draft stores `{ value: Variant::Float(0.002), intent: Set }`.
-6. Write-back: `exiftool -n -ExposureTime=0.002`.
+5. User changes denominator to `500`. Draft stores `{ value: MetadataValue::Rational(1/500), intent: Set }`.
+6. Write-back: `exiftool -n -ExposureTime=1/500`.
 7. exiftool writes the rational `1/500` to the file.
 8. Re-read pass A shows `"1/500"`. Verify succeeds.
 
@@ -244,7 +271,7 @@ The same pattern applies to any future paired-tag editor (the warning text and t
 2. Details pane shows chips: [beach] [sunset].
 3. User clicks edit. Registry says `Bag<Text>`.
 4. Editor renders chip editor with `beach` and `sunset`, plus an input to add.
-5. User adds `vacation`, removes `sunset`. Draft stores `{ value: Variant::List([String("beach"), String("vacation")]), intent: Set }`.
+5. User adds `vacation`, removes `sunset`. Draft stores `{ value: MetadataValue::List { list_kind: Bag, items: [Text("beach"), Text("vacation")] }, intent: Set }`.
 6. Write-back: `exiftool -XMP-dc:Subject= -XMP-dc:Subject=beach -XMP-dc:Subject=vacation`. The empty assignment clears the existing list before re-adding; explicit replace, no ambiguity.
 7. Re-read shows `["beach", "vacation"]`. Verify succeeds.
 
@@ -280,7 +307,9 @@ Either group may be empty, in which case its invocation is skipped. Numeric grou
 
 ### Verification
 
-After write, the file is re-read with the scan flags. The new `Variant` is compared to the intended `Variant` using type-aware equality:
+After write, the file is re-read with the scan flags and parsed into
+`MetadataValue`. The observed semantic value is compared to the intended
+`MetadataValue` using kind-aware equality:
 
 - Lists: multiset for `Bag`, ordered for `Seq`.
 - Floats: within type-specific epsilon (rationals tighter than reals).
@@ -309,7 +338,26 @@ MediaLibrary persists draft edits (`MediaLibraryDraftEdits.jsonl`). Read metadat
 - The file is the canonical store. Sidecars introduce sync questions we don't want to answer.
 - exiftool startup amortizes well over batches; scan cost is acceptable.
 
-Draft schema is versioned. Loading a v1 (string-only) draft file triggers a one-time migration: each string value becomes `{ value: Variant::String(s), intent: Set }`; explicit nulls become `intent: Delete`. The v1 file is backed up to `MediaLibraryDraftEdits.v1.bak.jsonl` before rewriting.
+Draft schema is versioned. The supported on-disk draft schema is v3:
+
+```json
+{
+  "schema_version": 3,
+  "relative_path": "photo.jpg",
+  "edits": {
+    "TAG": {
+      "value": { "kind": "Text", "value": "caption" },
+      "intent": "Set",
+      "display": "optional UI label"
+    }
+  }
+}
+```
+
+Older v1/v2 draft files are not loaded or migrated. Loading a legacy line
+returns a clear error telling the user to recreate pending drafts with
+`schema_version` 3. This avoids reconstructing semantic values from legacy
+strings or JSON-shape `Variant` values.
 
 ---
 
@@ -327,7 +375,8 @@ Draft schema is versioned. Loading a v1 (string-only) draft file triggers a one-
 
 ## 9. Glossary
 
-- **Variant** — Discriminated union covering every JSON-shape metadata can take. The internal currency.
+- **MetadataValue** — Discriminated semantic value model used inside the app for read metadata, draft edits, writes, verification, and apply logs.
+- **Variant** — Transitional JSON-shape compatibility type. New code should avoid it except at explicitly legacy frontend surfaces.
 - **TagKind** — The schema's classification of a tag (`Text`, `Bag<Text>`, `Enum<Integer>`, etc.). Drives which editor renders.
 - **PrintConv** — exiftool's mechanism for converting raw machine values to human-readable form. Table-based (we use it) or code-based (we don't reimplement).
 - **`-n`** — exiftool flag suppressing PrintConv. Returns raw values.
