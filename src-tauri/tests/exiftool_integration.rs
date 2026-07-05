@@ -23,7 +23,7 @@ use std::path::{Path, PathBuf};
 
 use medialibrary_tauri_lib::{
     apply_edits,
-    draft_edits::{DraftEdit, EditIntent, MetadataDraftEdit},
+    draft_edits::{EditIntent, MetadataDraftEdit},
     metadata_value::{ListKind, MetadataValue},
     scanner::{self, Variant},
 };
@@ -76,6 +76,24 @@ fn metadata_delete() -> MetadataDraftEdit {
         value: None,
         intent: EditIntent::Delete,
         display: None,
+    }
+}
+
+fn metadata_edit(value: MetadataValue, intent: EditIntent) -> MetadataDraftEdit {
+    MetadataDraftEdit {
+        value: Some(value),
+        intent,
+        display: None,
+    }
+}
+
+fn metadata_bag(items: &[&str]) -> MetadataValue {
+    MetadataValue::List {
+        list_kind: ListKind::Bag,
+        items: items
+            .iter()
+            .map(|item| MetadataValue::Text((*item).to_string()))
+            .collect(),
     }
 }
 
@@ -487,13 +505,13 @@ fn malformed_truncated_does_not_kill_batch() {
     assert!(results.iter().any(|r| r.relative_path == "bad.jpg"));
 }
 
-// ── Typed apply path: typed DraftEdit with Variant::List ─────────────────────
+// ── Semantic apply path: MetadataDraftEdit with Bag<Text> ────────────────────
 
 #[test]
-fn typed_apply_writes_bag_as_separate_items_end_to_end() {
-    // The end-to-end test for the keywords-CSV bug fix.  We send a typed
-    // DraftEdit with Variant::List(["alpha", "beta", "gamma"]) for
-    // XMP-dc:Subject, run the typed apply path, re-read, and assert the
+fn semantic_apply_writes_bag_as_separate_items_end_to_end() {
+    // The end-to-end test for the keywords-CSV bug fix.  We send a semantic
+    // MetadataDraftEdit with Bag<Text>(["alpha", "beta", "gamma"]) for
+    // XMP-dc:Subject, run the semantic apply path, re-read, and assert the
     // file has THREE separate subjects, not one comma-joined string.
     let Some(src) = fixture_path("real_with_exif.jpg") else {
         return;
@@ -502,21 +520,13 @@ fn typed_apply_writes_bag_as_separate_items_end_to_end() {
     let folder = dir.path().to_str().unwrap();
     let rel = rel_of(dir.path(), &dst);
 
-    let mut edits: std::collections::HashMap<String, DraftEdit> = std::collections::HashMap::new();
+    let mut edits = std::collections::HashMap::new();
     edits.insert(
         "XMP-dc:Subject".to_string(),
-        DraftEdit {
-            value: Some(Variant::List(vec![
-                Variant::String("alpha".into()),
-                Variant::String("beta".into()),
-                Variant::String("gamma".into()),
-            ])),
-            intent: EditIntent::Set,
-            display: None,
-        },
+        metadata_set(metadata_bag(&["alpha", "beta", "gamma"])),
     );
 
-    let outcome = apply_edits::apply_single_file_typed(folder, &rel, &edits);
+    let outcome = apply_edits::apply_single_file_metadata(folder, &rel, &edits);
     assert!(outcome.error.is_none(), "apply failed: {:?}", outcome.error);
 
     let m = read_one(dir.path(), &dst);
@@ -545,7 +555,7 @@ fn typed_apply_writes_bag_as_separate_items_end_to_end() {
 
 #[test]
 fn apply_emits_apply_log_jsonl_entry() {
-    // After a typed apply the folder should contain a
+    // After a semantic apply the folder should contain a
     // `MediaLibraryApplyLog.jsonl` audit file with one header line plus one
     // line per tag edited.
     let Some(src) = fixture_path("rating_3.jpg") else {
@@ -555,23 +565,19 @@ fn apply_emits_apply_log_jsonl_entry() {
     let folder = dir.path().to_str().unwrap();
     let rel = rel_of(dir.path(), &dst);
 
-    let mut edits: std::collections::HashMap<String, DraftEdit> = std::collections::HashMap::new();
+    let mut edits = std::collections::HashMap::new();
     edits.insert(
         "XMP-xmp:Rating".to_string(),
-        DraftEdit {
-            value: Some(Variant::Integer(5)),
-            intent: EditIntent::Set,
-            display: None,
-        },
+        metadata_set(MetadataValue::Integer(5)),
     );
 
-    let outcome = apply_edits::apply_single_file_typed(folder, &rel, &edits);
+    let outcome = apply_edits::apply_single_file_metadata(folder, &rel, &edits);
     assert!(outcome.error.is_none(), "{:?}", outcome.error);
 
     let log_path = dir.path().join("MediaLibraryApplyLog.jsonl");
     assert!(
         log_path.exists(),
-        "apply log file should exist after typed apply"
+        "apply log file should exist after semantic apply"
     );
 
     let contents = std::fs::read_to_string(&log_path).unwrap();
@@ -594,7 +600,7 @@ fn apply_emits_apply_log_jsonl_entry() {
 // ── Coerced-write detection ──────────────────────────────────────────────────
 
 #[test]
-fn typed_apply_rating_fractional_coerces_or_rejects_cleanly() {
+fn semantic_apply_rating_fractional_coerces_or_rejects_cleanly() {
     // Rating is integer 0-5. Writing 3.5 exercises exiftool's value coercion:
     // depending on version it may store 3, 4, "3.5", or reject the write.
     // The verifier should either accept the coerced result (matches_variant
@@ -606,17 +612,13 @@ fn typed_apply_rating_fractional_coerces_or_rejects_cleanly() {
     let folder = dir.path().to_str().unwrap();
     let rel = rel_of(dir.path(), &dst);
 
-    let mut edits: std::collections::HashMap<String, DraftEdit> = std::collections::HashMap::new();
+    let mut edits = std::collections::HashMap::new();
     edits.insert(
         "XMP-xmp:Rating".to_string(),
-        DraftEdit {
-            value: Some(Variant::Float(3.5)),
-            intent: EditIntent::Set,
-            display: None,
-        },
+        metadata_set(MetadataValue::Real(3.5)),
     );
 
-    let outcome = apply_edits::apply_single_file_typed(folder, &rel, &edits);
+    let outcome = apply_edits::apply_single_file_metadata(folder, &rel, &edits);
     // Coercion either yields a matched float (3.5 → 3.5 in file) or a
     // clean verification-failure message naming the tag.  We just assert
     // it didn't hard-fail.
@@ -635,9 +637,9 @@ fn typed_apply_rating_fractional_coerces_or_rejects_cleanly() {
 // ── ListAdd / ListRemove intents ─────────────────────────────────────────────
 
 #[test]
-fn typed_apply_list_add_appends_items_to_bag() {
+fn semantic_apply_list_add_appends_items_to_bag() {
     // Starting from keywords_basic.jpg with ["beach","sunset"], emit a
-    // typed DraftEdit with intent=ListAdd value=["vacation"] and confirm
+    // semantic draft edit with intent=ListAdd value=["vacation"] and confirm
     // the result is the original plus the new item.
     let Some(src) = fixture_path("keywords_basic.jpg") else {
         return;
@@ -646,17 +648,13 @@ fn typed_apply_list_add_appends_items_to_bag() {
     let folder = dir.path().to_str().unwrap();
     let rel = rel_of(dir.path(), &dst);
 
-    let mut edits: std::collections::HashMap<String, DraftEdit> = std::collections::HashMap::new();
+    let mut edits = std::collections::HashMap::new();
     edits.insert(
         "XMP-dc:Subject".to_string(),
-        DraftEdit {
-            value: Some(Variant::List(vec![Variant::String("vacation".into())])),
-            intent: EditIntent::ListAdd,
-            display: None,
-        },
+        metadata_edit(metadata_bag(&["vacation"]), EditIntent::ListAdd),
     );
 
-    let outcome = apply_edits::apply_single_file_typed(folder, &rel, &edits);
+    let outcome = apply_edits::apply_single_file_metadata(folder, &rel, &edits);
     assert!(outcome.error.is_none(), "apply failed: {:?}", outcome.error);
 
     let m = read_one(dir.path(), &dst);
@@ -694,9 +692,9 @@ fn typed_apply_list_add_appends_items_to_bag() {
 }
 
 #[test]
-fn typed_apply_list_remove_drops_items_from_bag() {
+fn semantic_apply_list_remove_drops_items_from_bag() {
     // Start from keywords_basic.jpg with ["beach","sunset"], emit a
-    // typed DraftEdit with intent=ListRemove value=["beach"], confirm
+    // semantic draft edit with intent=ListRemove value=["beach"], confirm
     // result is ["sunset"].
     let Some(src) = fixture_path("keywords_basic.jpg") else {
         return;
@@ -705,17 +703,13 @@ fn typed_apply_list_remove_drops_items_from_bag() {
     let folder = dir.path().to_str().unwrap();
     let rel = rel_of(dir.path(), &dst);
 
-    let mut edits: std::collections::HashMap<String, DraftEdit> = std::collections::HashMap::new();
+    let mut edits = std::collections::HashMap::new();
     edits.insert(
         "XMP-dc:Subject".to_string(),
-        DraftEdit {
-            value: Some(Variant::List(vec![Variant::String("beach".into())])),
-            intent: EditIntent::ListRemove,
-            display: None,
-        },
+        metadata_edit(metadata_bag(&["beach"]), EditIntent::ListRemove),
     );
 
-    let outcome = apply_edits::apply_single_file_typed(folder, &rel, &edits);
+    let outcome = apply_edits::apply_single_file_metadata(folder, &rel, &edits);
     assert!(outcome.error.is_none(), "apply failed: {:?}", outcome.error);
 
     let m = read_one(dir.path(), &dst);
