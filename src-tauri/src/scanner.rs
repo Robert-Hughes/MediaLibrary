@@ -441,6 +441,7 @@ fn parse_exiftool_pass_json_raw_with_registry(
     map_by_source
 }
 
+#[cfg(test)]
 fn parse_exiftool_pass_json(json: &str) -> HashMap<String, HashMap<String, Variant>> {
     let registry = crate::tag_schema::get_registry().ok();
     parse_exiftool_pass_json_raw_with_registry(json, registry)
@@ -449,6 +450,7 @@ fn parse_exiftool_pass_json(json: &str) -> HashMap<String, HashMap<String, Varia
         .collect()
 }
 
+#[cfg(test)]
 fn parse_exiftool_pass_json_with_registry(
     json: &str,
     registry: Option<&crate::tag_schema::TagRegistry>,

@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashMap};
+#[cfg(test)]
+use std::collections::BTreeMap;
+use std::collections::HashMap;
 use std::path::Path;
 
 use crate::metadata_value::{ListKind, MetadataValue};
@@ -261,6 +263,7 @@ pub fn apply_single_file_metadata(
 ///   / per-lang / promote-scalar-to-list / cross-type stringify) but not
 ///   byte-identical. User must accept or revert.
 /// - `"Mismatch"` / `"MissingPostWrite"` — see MetadataTagOutcome doc.
+#[cfg(test)]
 fn verify_set(
     key: &str,
     expected: Option<&Variant>,
@@ -343,57 +346,12 @@ fn verify_set(
     ("Mismatch".to_string(), Some(reason))
 }
 
-fn verify_list_add(
-    key: &str,
-    expected: Option<&Variant>,
-    fresh_display: &HashMap<String, Variant>,
-    fresh_raw: &HashMap<String, Variant>,
-) -> (String, Option<String>) {
-    let expected = match expected {
-        Some(v) => v,
-        None => return ("Match".to_string(), None),
-    };
-    if list_contains_all(fresh_display.get(key), expected)
-        || list_contains_all(fresh_raw.get(key), expected)
-    {
-        return ("Match".to_string(), None);
-    }
-    let actual = describe(fresh_display.get(key), fresh_raw.get(key));
-    let reason = format!(
-        "ListAdd verification failed for {}: items {:?} not all present in {}",
-        key, expected, actual
-    );
-    ("Mismatch".to_string(), Some(reason))
-}
-
-fn verify_list_remove(
-    key: &str,
-    expected: Option<&Variant>,
-    fresh_display: &HashMap<String, Variant>,
-    fresh_raw: &HashMap<String, Variant>,
-) -> (String, Option<String>) {
-    let expected = match expected {
-        Some(v) => v,
-        None => return ("Match".to_string(), None),
-    };
-    if list_contains_none(fresh_display.get(key), expected)
-        || list_contains_none(fresh_raw.get(key), expected)
-    {
-        return ("Match".to_string(), None);
-    }
-    let actual = describe(fresh_display.get(key), fresh_raw.get(key));
-    let reason = format!(
-        "ListRemove verification failed for {}: items {:?} still present in {}",
-        key, expected, actual
-    );
-    ("Mismatch".to_string(), Some(reason))
-}
-
 /// Verify a `Delete` intent.  Phase 8.9: typed absence — tag is "gone" iff
 /// it is missing (or `Variant::Null` / empty string) in *both* the display
 /// and raw views.  Earlier versions checked only `fresh_raw`, which let a
 /// silent Pass B failure (`scanner.rs` logs "raw_metadata will be empty for
 /// this batch") report DeleteOk while the display map still held the tag.
+#[cfg(test)]
 fn verify_delete(
     key: &str,
     fresh_raw: &HashMap<String, Variant>,
@@ -435,6 +393,7 @@ fn verify_delete(
 /// as 5.0 stays Match; 0.004 → 1/250 → 0.004000000000000001 stays Match;
 /// 0.5 → 0.6 trips Coerced via the loose check, then Mismatch).
 const STRICT_FLOAT_EPS: f64 = 1e-9;
+#[cfg(test)]
 fn variant_strict_eq(a: &Variant, b: &Variant) -> bool {
     match (a, b) {
         (Variant::Null, Variant::Null) => true,
@@ -454,6 +413,7 @@ fn variant_strict_eq(a: &Variant, b: &Variant) -> bool {
     }
 }
 
+#[cfg(test)]
 fn variant_storage_eq(actual: &Variant, expected: &Variant, kind: Option<&TagKind>) -> bool {
     matches!(
         kind,
@@ -470,6 +430,7 @@ fn variant_storage_eq(actual: &Variant, expected: &Variant, kind: Option<&TagKin
 /// keeps Seq-ordered at the outer level and Bag-multiset at each element,
 /// and a `Bag<Struct>` recurses into the struct's field map for per-field
 /// kind awareness.
+#[cfg(test)]
 fn matches_variant(actual: Option<&Variant>, expected: &Variant, kind: Option<&TagKind>) -> bool {
     let actual = match actual {
         Some(v) => v,
@@ -585,38 +546,6 @@ fn matches_variant(actual: Option<&Variant>, expected: &Variant, kind: Option<&T
     }
 }
 
-fn list_contains_all(actual: Option<&Variant>, expected: &Variant) -> bool {
-    let items_expected: &[Variant] = match expected {
-        Variant::List(items) => items,
-        _ => return false,
-    };
-    let items_actual: &[Variant] = match actual {
-        Some(Variant::List(items)) => items,
-        _ => return false,
-    };
-    items_expected.iter().all(|e| {
-        items_actual
-            .iter()
-            .any(|a| matches_variant(Some(a), e, None))
-    })
-}
-
-fn list_contains_none(actual: Option<&Variant>, expected: &Variant) -> bool {
-    let items_expected: &[Variant] = match expected {
-        Variant::List(items) => items,
-        _ => return false,
-    };
-    let items_actual: &[Variant] = match actual {
-        Some(Variant::List(items)) => items,
-        _ => return true, // tag absent → nothing to remove from → ok
-    };
-    items_expected.iter().all(|e| {
-        !items_actual
-            .iter()
-            .any(|a| matches_variant(Some(a), e, None))
-    })
-}
-
 /// Is `actual` (a Variant from a fresh re-read) string-equal to the legacy
 /// `expected` from the draft store?  String values compare directly; numeric
 /// variants render to their decimal form so `"5"` matches `Variant::Integer(5)`.
@@ -656,6 +585,7 @@ fn matches_string(actual: Option<&Variant>, expected: &str) -> bool {
     }
 }
 
+#[cfg(test)]
 fn describe(display: Option<&Variant>, raw: Option<&Variant>) -> String {
     match (display, raw) {
         (None, None) => "<tag absent in both views>".to_string(),
