@@ -23,7 +23,8 @@ use std::path::{Path, PathBuf};
 
 use medialibrary_tauri_lib::{
     apply_edits,
-    draft_edits::{DraftEdit, EditIntent},
+    draft_edits::{DraftEdit, EditIntent, MetadataDraftEdit},
+    metadata_value::{ListKind, MetadataValue},
     scanner::{self, Variant},
 };
 
@@ -62,6 +63,31 @@ fn read_one(folder: &Path, abs: &Path) -> scanner::ImageMetadata {
     results.pop().expect("one result")
 }
 
+fn metadata_set(value: MetadataValue) -> MetadataDraftEdit {
+    MetadataDraftEdit {
+        value: Some(value),
+        intent: EditIntent::Set,
+        display: None,
+    }
+}
+
+fn metadata_delete() -> MetadataDraftEdit {
+    MetadataDraftEdit {
+        value: None,
+        intent: EditIntent::Delete,
+        display: None,
+    }
+}
+
+fn metadata_drafts(
+    rel: &str,
+    edits: std::collections::HashMap<String, MetadataDraftEdit>,
+) -> std::collections::HashMap<String, std::collections::HashMap<String, MetadataDraftEdit>> {
+    let mut drafts = std::collections::HashMap::new();
+    drafts.insert(rel.to_string(), edits);
+    drafts
+}
+
 // ── Scanner two-pass smoke test ──────────────────────────────────────────────
 
 #[test]
@@ -83,7 +109,7 @@ fn scanner_two_pass_returns_display_and_raw() {
 // ── apply_edits text round-trip ──────────────────────────────────────────────
 
 #[test]
-fn apply_text_edit_roundtrip_xmp_description() {
+fn apply_text_edit_roundtrip_iptc_city() {
     let Some(src) = fixture_path("real_with_exif.jpg") else {
         return;
     };
@@ -91,15 +117,16 @@ fn apply_text_edit_roundtrip_xmp_description() {
     let folder = dir.path().to_str().unwrap();
     let rel = rel_of(dir.path(), &dst);
 
-    let mut edits: std::collections::HashMap<String, Option<String>> =
-        std::collections::HashMap::new();
+    let mut edits = std::collections::HashMap::new();
     let value = format!("integration-test-{}", std::process::id());
-    edits.insert("XMP-dc:Description".to_string(), Some(value.clone()));
+    edits.insert(
+        "IPTC:City".to_string(),
+        metadata_set(MetadataValue::Text(value.clone())),
+    );
 
-    let mut drafts = std::collections::HashMap::new();
-    drafts.insert(rel.clone(), edits);
-
-    let result = apply_edits::apply_draft_edits(folder, std::slice::from_ref(&rel), &drafts);
+    let drafts = metadata_drafts(&rel, edits);
+    let result =
+        apply_edits::apply_metadata_draft_edits(folder, std::slice::from_ref(&rel), &drafts);
     assert!(
         result.failed.is_empty(),
         "expected no failures, got {:?}",
@@ -108,22 +135,10 @@ fn apply_text_edit_roundtrip_xmp_description() {
     assert_eq!(result.applied, vec![rel.clone()]);
 
     let m = read_one(dir.path(), &dst);
-    // Description is lang-alt; pretty form is the x-default string.
-    let got = m.metadata.get("XMP-dc:Description").cloned();
+    let got = m.metadata.get("IPTC:City").cloned();
     match got {
         Some(Variant::String(s)) => assert_eq!(s, value),
-        Some(Variant::Object(langs)) => {
-            // exiftool's `-struct` plus lang-alt can deliver an object map.
-            let xdefault = langs
-                .get("x-default")
-                .or_else(|| langs.values().next())
-                .cloned();
-            match xdefault {
-                Some(Variant::String(s)) => assert_eq!(s, value),
-                other => panic!("expected lang-alt x-default string, got {:?}", other),
-            }
-        }
-        other => panic!("expected Description set, got {:?}", other),
+        other => panic!("expected IPTC City set, got {:?}", other),
     }
 }
 
@@ -138,28 +153,26 @@ fn apply_delete_edit_removes_tag() {
     let folder = dir.path().to_str().unwrap();
     let rel = rel_of(dir.path(), &dst);
 
-    // Step 1: set Description so we have something to delete.
+    // Step 1: set City so we have something to delete.
     let mut set_edits = std::collections::HashMap::new();
     set_edits.insert(
-        "XMP-dc:Description".to_string(),
-        Some("to-be-deleted".to_string()),
+        "IPTC:City".to_string(),
+        metadata_set(MetadataValue::Text("to-be-deleted".to_string())),
     );
-    let mut drafts1 = std::collections::HashMap::new();
-    drafts1.insert(rel.clone(), set_edits);
-    let r1 = apply_edits::apply_draft_edits(folder, std::slice::from_ref(&rel), &drafts1);
+    let drafts1 = metadata_drafts(&rel, set_edits);
+    let r1 = apply_edits::apply_metadata_draft_edits(folder, std::slice::from_ref(&rel), &drafts1);
     assert!(r1.failed.is_empty());
 
     // Step 2: delete it.
     let mut del_edits = std::collections::HashMap::new();
-    del_edits.insert("XMP-dc:Description".to_string(), None);
-    let mut drafts2 = std::collections::HashMap::new();
-    drafts2.insert(rel.clone(), del_edits);
-    let r2 = apply_edits::apply_draft_edits(folder, std::slice::from_ref(&rel), &drafts2);
+    del_edits.insert("IPTC:City".to_string(), metadata_delete());
+    let drafts2 = metadata_drafts(&rel, del_edits);
+    let r2 = apply_edits::apply_metadata_draft_edits(folder, std::slice::from_ref(&rel), &drafts2);
     assert!(r2.failed.is_empty(), "delete failed: {:?}", r2.failed);
 
-    // Step 3: re-read; Description should be absent or empty.
+    // Step 3: re-read; City should be absent or empty.
     let m = read_one(dir.path(), &dst);
-    let got = m.metadata.get("XMP-dc:Description");
+    let got = m.metadata.get("IPTC:City");
     match got {
         None => {}
         Some(Variant::String(s)) => assert!(s.is_empty(), "expected empty, got {:?}", s),
@@ -302,11 +315,14 @@ fn roundtrip_set_rating() {
     );
 
     let mut edits = std::collections::HashMap::new();
-    edits.insert("XMP-xmp:Rating".to_string(), Some("5".to_string()));
-    let mut drafts = std::collections::HashMap::new();
-    drafts.insert(rel.clone(), edits);
+    edits.insert(
+        "XMP-xmp:Rating".to_string(),
+        metadata_set(MetadataValue::Integer(5)),
+    );
 
-    let result = apply_edits::apply_draft_edits(folder, std::slice::from_ref(&rel), &drafts);
+    let drafts = metadata_drafts(&rel, edits);
+    let result =
+        apply_edits::apply_metadata_draft_edits(folder, std::slice::from_ref(&rel), &drafts);
     assert!(result.failed.is_empty(), "failed: {:?}", result.failed);
 
     let after = read_one(dir.path(), &dst);
@@ -333,11 +349,14 @@ fn roundtrip_set_orientation_via_numeric_pass() {
 
     // Change Orientation from 6 (Rotate 90 CW) to 3 (Rotate 180).
     let mut edits = std::collections::HashMap::new();
-    edits.insert("IFD0:Orientation".to_string(), Some("3".to_string()));
-    let mut drafts = std::collections::HashMap::new();
-    drafts.insert(rel.clone(), edits);
+    edits.insert(
+        "IFD0:Orientation".to_string(),
+        metadata_set(MetadataValue::Integer(3)),
+    );
 
-    let result = apply_edits::apply_draft_edits(folder, std::slice::from_ref(&rel), &drafts);
+    let drafts = metadata_drafts(&rel, edits);
+    let result =
+        apply_edits::apply_metadata_draft_edits(folder, std::slice::from_ref(&rel), &drafts);
     assert!(result.failed.is_empty(), "failed: {:?}", result.failed);
 
     let after = read_one(dir.path(), &dst);
@@ -736,10 +755,8 @@ fn typed_apply_list_remove_drops_items_from_bag() {
 #[test]
 fn apply_keywords_writes_back_as_separate_items_not_csv() {
     // The previous code emitted `-Keywords=a, b` and stored one keyword "a, b".
-    // After Phase 5, drafts come in as legacy CSV strings but write_args
-    // handles plain XMP-dc:Subject as text (since legacy carries no list
-    // shape).  This test will gain teeth in Phase 3b when the frontend
-    // carries Variant::List values through to write-back.
+    // Semantic drafts carry list shape to write-back, so exiftool receives
+    // separate Subject arguments.
     let Some(src) = fixture_path("real_with_exif.jpg") else {
         return;
     };
@@ -748,19 +765,38 @@ fn apply_keywords_writes_back_as_separate_items_not_csv() {
     let rel = rel_of(dir.path(), &dst);
 
     let mut edits = std::collections::HashMap::new();
-    // Legacy string draft — at this layer we can only express a single value.
-    edits.insert("XMP-dc:Subject".to_string(), Some("just-one".to_string()));
-    let mut drafts = std::collections::HashMap::new();
-    drafts.insert(rel.clone(), edits);
-    let result = apply_edits::apply_draft_edits(folder, std::slice::from_ref(&rel), &drafts);
+    edits.insert(
+        "XMP-dc:Subject".to_string(),
+        metadata_set(MetadataValue::List {
+            list_kind: ListKind::Bag,
+            items: vec![
+                MetadataValue::Text("alpha".into()),
+                MetadataValue::Text("beta".into()),
+            ],
+        }),
+    );
+    let drafts = metadata_drafts(&rel, edits);
+    let result =
+        apply_edits::apply_metadata_draft_edits(folder, std::slice::from_ref(&rel), &drafts);
     assert!(result.failed.is_empty(), "{:?}", result.failed);
 
     let m = read_one(dir.path(), &dst);
     match m.metadata.get("XMP-dc:Subject") {
-        Some(Variant::String(s)) => assert_eq!(s, "just-one"),
+        Some(Variant::String(s)) => assert!(s == "alpha" || s == "beta"),
         Some(Variant::List(items)) => {
-            assert_eq!(items.len(), 1);
-            assert!(matches!(&items[0], Variant::String(s) if s == "just-one"));
+            assert_eq!(items.len(), 2);
+            let strs: Vec<String> = items
+                .iter()
+                .filter_map(|v| {
+                    if let Variant::String(s) = v {
+                        Some(s.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            assert!(strs.contains(&"alpha".to_string()));
+            assert!(strs.contains(&"beta".to_string()));
         }
         other => panic!("expected Subject set, got {:?}", other),
     }
