@@ -9,6 +9,7 @@ import type { PhotoInfo } from "./types/generated/PhotoInfo";
 import type { Variant } from "./types/generated/Variant";
 import type { DraftEdit } from "./types/generated/DraftEdit";
 import type { MetadataValue } from "./types/generated/MetadataValue";
+import type { MetadataDraftEdit } from "./types/generated/MetadataDraftEdit";
 
 export type { PhotoInfo, Variant, DraftEdit };
 export type { MetadataValue } from "./types/generated/MetadataValue";
@@ -279,6 +280,10 @@ export interface SortConfig {
  * legacy `string | null` view; conversion happens in `src/draft.ts`.
  */
 export type DraftEditsByFile = Record<string, Record<string, DraftEdit>>;
+export type MetadataDraftEditsByFile = Record<
+  string,
+  Record<string, MetadataDraftEdit>
+>;
 
 /** Legacy display value for components and the Tauri boundary. */
 export type DraftEditsValue = string | null;
@@ -399,6 +404,133 @@ function isMetadataValue(value: unknown): value is MetadataValue {
   );
 }
 
+function legacyDraftsToMetadataDraftsLocal(
+  drafts: DraftEditsByFile,
+): MetadataDraftEditsByFile {
+  return Object.fromEntries(
+    Object.entries(drafts).map(([path, edits]) => [
+      path,
+      Object.fromEntries(
+        Object.entries(edits).map(([tag, edit]) => [
+          tag,
+          legacyDraftToMetadataDraftLocal(edit),
+        ]),
+      ),
+    ]),
+  );
+}
+
+function metadataDraftsToLegacyDraftsLocal(
+  drafts: MetadataDraftEditsByFile,
+): DraftEditsByFile {
+  return Object.fromEntries(
+    Object.entries(drafts).map(([path, edits]) => [
+      path,
+      metadataFileToLegacyDraftsLocal(edits),
+    ]),
+  );
+}
+
+function metadataFileToLegacyDraftsLocal(
+  edits: Record<string, MetadataDraftEdit>,
+): Record<string, DraftEdit> {
+  return Object.fromEntries(
+    Object.entries(edits).map(([tag, edit]) => [
+      tag,
+      metadataDraftToLegacyDraftLocal(edit),
+    ]),
+  );
+}
+
+function legacyDraftToMetadataDraftLocal(edit: DraftEdit): MetadataDraftEdit {
+  return {
+    value:
+      edit.value === null || edit.value === undefined
+        ? null
+        : variantToMetadataValueLocal(edit.value),
+    intent: edit.intent,
+    display: edit.display,
+  };
+}
+
+function metadataDraftToLegacyDraftLocal(edit: MetadataDraftEdit): DraftEdit {
+  return {
+    value:
+      edit.value === null || edit.value === undefined
+        ? null
+        : metadataValueToVariantLocal(edit.value),
+    intent: edit.intent,
+    display: edit.display,
+  };
+}
+
+function variantToMetadataValueLocal(value: Variant): MetadataValue {
+  if (value === null) return { kind: "Null" };
+  if (typeof value === "string") return { kind: "Text", value };
+  if (typeof value === "boolean") return { kind: "Bool", value };
+  if (typeof value === "number") {
+    return Number.isInteger(value)
+      ? { kind: "Integer", value }
+      : { kind: "Real", value };
+  }
+  if (Array.isArray(value)) {
+    return {
+      kind: "List",
+      value: {
+        list_kind: "Unknown",
+        items: value.map(variantToMetadataValueLocal),
+      },
+    };
+  }
+  return {
+    kind: "Struct",
+    value: Object.fromEntries(
+      Object.entries(value).map(([key, child]) => [
+        key,
+        variantToMetadataValueLocal((child ?? null) as Variant),
+      ]),
+    ),
+  };
+}
+
+function metadataValueToVariantLocal(value: MetadataValue): Variant {
+  switch (value.kind) {
+    case "Null":
+      return null;
+    case "Text":
+    case "Bool":
+    case "Integer":
+    case "Real":
+      return value.value;
+    case "Rational":
+      return value.value.denominator === 0
+        ? null
+        : value.value.numerator / value.value.denominator;
+    case "Date":
+      return `${String(value.value.year).padStart(4, "0")}:${String(
+        value.value.month,
+      ).padStart(2, "0")}:${String(value.value.day).padStart(2, "0")}`;
+    case "Time":
+    case "DateTime":
+    case "TimeOffset":
+      return JSON.stringify(value.value);
+    case "LangAlt":
+      return { ...value.value };
+    case "List":
+      return value.value.items.map(metadataValueToVariantLocal);
+    case "Struct":
+      return Object.fromEntries(
+        Object.entries(value.value).map(([key, child]) => [
+          key,
+          metadataValueToVariantLocal(child ?? { kind: "Null" }),
+        ]),
+      );
+    case "Binary":
+    case "Unknown":
+      return null;
+  }
+}
+
 /**
  * Single source of truth for draft edits.  All user-initiated mutations funnel
  * through methods on this class so subscribers (React-state sync, persistence,
@@ -416,7 +548,7 @@ function isMetadataValue(value: unknown): value is MetadataValue {
  * what was dropped (see `SetDraftOutcome`).
  */
 export class DraftEditsStore {
-  private snapshot: DraftEditsByFile = {};
+  private snapshot: MetadataDraftEditsByFile = {};
   private listeners = new Set<DraftEditsListener>();
   private currentValueResolver?: (
     path: string,
@@ -437,15 +569,29 @@ export class DraftEditsStore {
 
   /** Bulk replace.  Silent — does not fire subscribers. */
   reset(initial: DraftEditsByFile) {
+    this.snapshot = legacyDraftsToMetadataDraftsLocal(initial);
+  }
+
+  /** Bulk replace with semantic drafts. Silent — does not fire subscribers. */
+  resetMetadata(initial: MetadataDraftEditsByFile) {
     this.snapshot = initial;
   }
 
   /** Returns the current immutable snapshot.  Reference changes on every mutation. */
   getAll(): DraftEditsByFile {
+    return metadataDraftsToLegacyDraftsLocal(this.snapshot);
+  }
+
+  getAllMetadata(): MetadataDraftEditsByFile {
     return this.snapshot;
   }
 
   getFile(path: string): Record<string, DraftEdit> | undefined {
+    const file = this.snapshot[path];
+    return file ? metadataFileToLegacyDraftsLocal(file) : undefined;
+  }
+
+  getMetadataFile(path: string): Record<string, MetadataDraftEdit> | undefined {
     return this.snapshot[path];
   }
 
@@ -457,7 +603,7 @@ export class DraftEditsStore {
   private applyOne(
     path: string,
     tag: string,
-    edit: DraftEdit,
+    edit: MetadataDraftEdit,
   ): SetDraftOutcome {
     const existingDraft = this.snapshot[path]?.[tag];
     // Only the Set intent can produce a "value identical to current
@@ -488,9 +634,21 @@ export class DraftEditsStore {
   }
 
   setTag(path: string, tag: string, edit: DraftEdit): SetDraftOutcome {
+    return this.setMetadataTag(
+      path,
+      tag,
+      legacyDraftToMetadataDraftLocal(edit),
+    );
+  }
+
+  setMetadataTag(
+    path: string,
+    tag: string,
+    edit: MetadataDraftEdit,
+  ): SetDraftOutcome {
     const outcome = this.applyOne(path, tag, edit);
     if (outcome !== "redundant") {
-      this.notify([{ path, edits: this.snapshot[path] }]);
+      this.notify([{ path, edits: this.legacyFile(path) }]);
     }
     return outcome;
   }
@@ -499,13 +657,26 @@ export class DraftEditsStore {
     path: string,
     edits: Array<{ key: string; edit: DraftEdit }>,
   ): Array<{ key: string; outcome: SetDraftOutcome }> {
+    return this.setMetadataBatch(
+      path,
+      edits.map(({ key, edit }) => ({
+        key,
+        edit: legacyDraftToMetadataDraftLocal(edit),
+      })),
+    );
+  }
+
+  setMetadataBatch(
+    path: string,
+    edits: Array<{ key: string; edit: MetadataDraftEdit }>,
+  ): Array<{ key: string; outcome: SetDraftOutcome }> {
     if (edits.length === 0) return [];
     const results: Array<{ key: string; outcome: SetDraftOutcome }> = [];
     for (const { key, edit } of edits) {
       results.push({ key, outcome: this.applyOne(path, key, edit) });
     }
     if (results.some((r) => r.outcome !== "redundant")) {
-      this.notify([{ path, edits: this.snapshot[path] }]);
+      this.notify([{ path, edits: this.legacyFile(path) }]);
     }
     return results;
   }
@@ -523,7 +694,7 @@ export class DraftEditsStore {
     } else {
       next[path] = updated;
       this.snapshot = next;
-      this.notify([{ path, edits: updated }]);
+      this.notify([{ path, edits: metadataFileToLegacyDraftsLocal(updated) }]);
     }
   }
 
@@ -575,7 +746,7 @@ export class DraftEditsStore {
     } else {
       next[path] = updated;
       this.snapshot = next;
-      this.notify([{ path, edits: updated }]);
+      this.notify([{ path, edits: metadataFileToLegacyDraftsLocal(updated) }]);
     }
   }
 
@@ -588,6 +759,11 @@ export class DraftEditsStore {
 
   private notify(changes: DraftEditsChange[]) {
     this.listeners.forEach((cb) => cb(changes));
+  }
+
+  private legacyFile(path: string): Record<string, DraftEdit> | undefined {
+    const file = this.snapshot[path];
+    return file ? metadataFileToLegacyDraftsLocal(file) : undefined;
   }
 }
 
