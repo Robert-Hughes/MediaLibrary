@@ -135,7 +135,11 @@ export function useMediaLibrary(
   const isFirstFlushRef = useRef<boolean>(true);
 
   const metadataBufferRef = useRef<
-    { relative_path: string; metadata: Record<string, ImageMetadataEntry> }[]
+    {
+      relative_path: string;
+      display_metadata: Record<string, ImageMetadataEntry>;
+      metadata: Record<string, ImageMetadataEntry>;
+    }[]
   >([]);
   const metadataBatchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
@@ -283,7 +287,7 @@ export function useMediaLibrary(
       for (const res of batch) {
         imageMetadataStoreRef.current.set(
           res.relative_path,
-          normalizeMetadataFromTauri(res.metadata),
+          normalizeMetadataFromTauri(res.display_metadata),
         );
       }
 

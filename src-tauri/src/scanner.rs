@@ -52,17 +52,15 @@ pub struct WalkErrorInfo {
 
 /// Image-level metadata for a single photo, delivered asynchronously after discovery.
 ///
-/// Two views of the same file, captured in one scan cycle (see `read_image_metadata_batch`):
+/// Two metadata maps for the same file, captured in one scan cycle (see
+/// `read_image_metadata_batch`):
 ///
-/// - `metadata` — exiftool's pretty values (e.g. `Orientation = "Rotate 90 CW"`,
-///   `ExposureTime = "1/250"`, `GPSLatitude = "51 deg 30' 26.16\" N"`).
-///   What the UI displays in the details pane and column cells.
-/// - `raw_metadata` — exiftool with `-n` (no PrintConv) for the same tags
-///   (`Orientation = 6`, `ExposureTime = 0.004`, `GPSLatitude = 51.50726667`).
-///   Used by editors for unambiguous binding and by the verifier for type-aware
-///   equality after write-back. Empty until Phase 4/5 consumers wire it in;
-///   populated by the scanner unconditionally so the data is there when those
-///   consumers arrive.
+/// - `display_metadata` — semantic parse of exiftool's pretty/display values
+///   (e.g. `Orientation = "Rotate 90 CW"`, `ExposureTime = "1/250"`). This is
+///   temporarily exposed for UI compatibility and will be removed once
+///   consumers use canonical metadata plus app-side formatting.
+/// - `metadata` — canonical semantic values built primarily from exiftool `-n`
+///   output, with display output used as a hint/fallback.
 ///
 /// Both are populated atomically — no half-loaded state. See
 /// METADATA_FORMATS_DESIGN.md §4 for the full rationale.
@@ -71,8 +69,8 @@ pub struct WalkErrorInfo {
 #[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
 pub struct ImageMetadata {
     pub relative_path: String,
+    pub display_metadata: HashMap<String, MetadataValue>,
     pub metadata: HashMap<String, MetadataValue>,
-    pub raw_metadata: HashMap<String, MetadataValue>,
 }
 
 /// Walk `folder` and call `on_photo` for each image file found.
@@ -190,9 +188,11 @@ fn read_os_metadata(path: &Path) -> (Option<i64>, Option<i64>) {
 /// per file:
 ///
 /// - Pass A: no `-n`. Pretty values — `Orientation = "Rotate 90 CW"`,
-///   `ExposureTime = "1/250"`. Lands in `metadata`.
+///   `ExposureTime = "1/250"`. Semantically parsed into `display_metadata`
+///   for temporary UI compatibility.
 /// - Pass B: with `-n`. Raw values — `Orientation = 6`,
-///   `ExposureTime = 0.004`. Lands in `raw_metadata`.
+///   `ExposureTime = 0.004`. Combined with display hints to build canonical
+///   `metadata`.
 ///
 /// Both passes use the same flags otherwise, so the second pass is cheap
 /// (exiftool startup dominates; the OS file cache is hot). They run
@@ -201,8 +201,8 @@ fn read_os_metadata(path: &Path) -> (Option<i64>, Option<i64>) {
 /// fails partway we still have something to show.
 ///
 /// Failure of Pass A is a hard error (no display data → nothing to show).
-/// Failure of Pass B is logged and we proceed with empty `raw_metadata`;
-/// editors that need raw values can fall back to parsing the display.
+/// Failure of Pass B is logged and we proceed with canonical `metadata` built
+/// from display fallbacks where possible.
 ///
 /// Returns Ok(results) on Pass A success, Err(error_message) if Pass A
 /// fails to execute.
@@ -229,13 +229,13 @@ pub fn read_image_metadata_batch(
     // Pass A: pretty values (no -n).
     let display_json_map = run_exiftool_pass(abs_paths, false)?;
 
-    // Pass B: raw values (-n).  A failure here is non-fatal; we degrade
-    // to empty raw_metadata.
+    // Pass B: raw values (-n). A failure here is non-fatal; canonical metadata
+    // can still be built from display fallbacks where possible.
     let raw_json_map = match run_exiftool_pass(abs_paths, true) {
         Ok(m) => m,
         Err(e) => {
             log::warn!(
-                "[exiftool] Pass B (-n) failed ({}); raw_metadata will be empty for this batch",
+                "[exiftool] Pass B (-n) failed ({}); canonical metadata will use display fallbacks for this batch",
                 e
             );
             HashMap::new()
@@ -252,19 +252,17 @@ pub fn read_image_metadata_batch(
         let key = abs_path.to_string_lossy().replace('\\', "/");
         let display_values = display_json.remove(&key).unwrap_or_default();
         let raw_values = raw_json.remove(&key).unwrap_or_default();
-        let metadata =
+        let display_metadata =
             semantic_values_from_json(&display_values, &raw_values, registry, rel_path, "display");
-        let raw_metadata =
-            semantic_values_from_json(&raw_values, &display_values, registry, rel_path, "raw");
-        let _canonical_metadata =
+        let metadata =
             canonical_values_from_exiftool_pair(&raw_values, &display_values, registry, rel_path);
-        if metadata.is_empty() {
+        if display_metadata.is_empty() {
             log::warn!("[parse_exiftool] Warning: no display metadata for {}", key);
         }
         results.push(ImageMetadata {
             relative_path: rel_path.clone(),
+            display_metadata,
             metadata,
-            raw_metadata,
         });
     }
     Ok(results)
@@ -582,7 +580,7 @@ fn parse_exiftool_batch_json(
             );
             HashMap::new()
         });
-        let metadata = semantic_values_from_json(
+        let display_metadata = semantic_values_from_json(
             &display_values,
             &HashMap::new(),
             registry,
@@ -591,8 +589,8 @@ fn parse_exiftool_batch_json(
         );
         results.push(ImageMetadata {
             relative_path: rel_path.clone(),
-            metadata,
-            raw_metadata: HashMap::new(),
+            metadata: display_metadata.clone(),
+            display_metadata,
         });
     }
     results

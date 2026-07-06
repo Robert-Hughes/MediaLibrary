@@ -909,6 +909,7 @@ export interface ImageMetadataReadyPayload {
   scan_id: number;
   results: {
     relative_path: string;
+    display_metadata: Record<string, ImageMetadataEntry>;
     metadata: Record<string, ImageMetadataEntry>;
   }[];
 }
