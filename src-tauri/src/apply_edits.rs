@@ -728,6 +728,19 @@ mod tests {
     }
 
     #[test]
+    fn verify_metadata_gps_real_matches_readback_with_float_tolerance() {
+        let metadata = metadata_map(&[("GPS:GPSLatitude", MetadataValue::Real(52.2037391662333))]);
+        let expected = MetadataValue::Real(52.2037391662611);
+        let (kind, _) = verify_metadata_set(
+            "GPS:GPSLatitude",
+            Some(&expected),
+            &metadata,
+            Some(&TagKind::Real),
+        );
+        assert_eq!(kind, "Match");
+    }
+
+    #[test]
     fn verify_metadata_bag_ignores_order_but_seq_respects_order() {
         let actual = MetadataValue::List {
             list_kind: ListKind::Bag,

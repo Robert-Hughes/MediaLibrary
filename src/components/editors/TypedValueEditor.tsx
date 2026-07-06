@@ -45,7 +45,8 @@ import {
   initialItemsFrom,
   initialCodeFrom,
   initialLangsFrom,
-  parseDecimalDegrees,
+  gpsNumberFromMetadataValue,
+  gpsScalarFromMetadataValue,
   parseHemisphere,
   initialObjectFrom,
   initialItemsFromMetadataValue,
@@ -149,18 +150,9 @@ export function TypedValueEditor({
     const lonVal = metadataForFile[gpsGroup.longitudeKey];
     const altVal = metadataForFile[gpsGroup.altitudeKey];
     const altRefVal = metadataForFile[gpsGroup.altitudeRefKey];
-    const getScalarValue = (val?: MetadataValue): string | number | null => {
-      if (!val) return null;
-      if (val.kind === "Real" || val.kind === "Integer") return val.value;
-      if (val.kind === "Text") return val.value;
-      if (val.kind === "Rational")
-        return val.value.numerator / val.value.denominator;
-      return null;
-    };
-    const latScalar = getScalarValue(latVal);
-    const lonScalar = getScalarValue(lonVal);
-    const altScalar = getScalarValue(altVal);
-    const altRefScalar = getScalarValue(altRefVal);
+    const latScalar = gpsScalarFromMetadataValue(latVal);
+    const lonScalar = gpsScalarFromMetadataValue(lonVal);
+    const altRefScalar = gpsScalarFromMetadataValue(altRefVal);
 
     // exiftool's GPSAltitudeRef is `0` (above) or `1` (below) in raw form;
     // pretty form may render as "Above Sea Level" / "Below Sea Level".
@@ -173,28 +165,25 @@ export function TypedValueEditor({
     ) {
       initialAltitudeRef = "below";
     }
-    const initialAltitudeMetres =
-      typeof altScalar === "number"
-        ? altScalar
-        : typeof altScalar === "string" && altScalar.trim() !== ""
-          ? parseFloat(altScalar)
-          : null;
+    const initialAltitudeMetres = gpsNumberFromMetadataValue(altVal);
     return (
       <GpsEditor
         group={gpsGroup}
-        initialLatDecimal={parseDecimalDegrees(latScalar)}
+        initialLatDecimal={gpsNumberFromMetadataValue(latVal)}
         initialLatRef={
           parseHemisphere(
-            getScalarValue(metadataForFile[gpsGroup.latitudeRefKey]) ??
-              latScalar,
+            gpsScalarFromMetadataValue(
+              metadataForFile[gpsGroup.latitudeRefKey],
+            ) ?? latScalar,
             "lat",
           ) as "N" | "S"
         }
-        initialLonDecimal={parseDecimalDegrees(lonScalar)}
+        initialLonDecimal={gpsNumberFromMetadataValue(lonVal)}
         initialLonRef={
           parseHemisphere(
-            getScalarValue(metadataForFile[gpsGroup.longitudeRefKey]) ??
-              lonScalar,
+            gpsScalarFromMetadataValue(
+              metadataForFile[gpsGroup.longitudeRefKey],
+            ) ?? lonScalar,
             "lon",
           ) as "E" | "W"
         }

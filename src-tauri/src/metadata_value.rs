@@ -629,6 +629,32 @@ mod tests {
     }
 
     #[test]
+    fn gps_real_schema_parses_scalar_numbers_as_reals() {
+        assert_eq!(
+            parse_metadata_value(
+                "GPS:GPSLatitude",
+                Some(&TagKind::Real),
+                &json!(52.2037391662611),
+                None
+            ),
+            MetadataValue::Real(52.2037391662611)
+        );
+        assert_eq!(
+            parse_metadata_value(
+                "GPS:GPSLongitude",
+                Some(&TagKind::Real),
+                &json!(0.123724997044444),
+                None
+            ),
+            MetadataValue::Real(0.123724997044444)
+        );
+        assert_eq!(
+            parse_metadata_value("GPS:GPSAltitude", Some(&TagKind::Real), &json!(123.4), None),
+            MetadataValue::Real(123.4)
+        );
+    }
+
+    #[test]
     fn rational_prefers_exact_display_fraction() {
         assert_eq!(
             parse_metadata_value(

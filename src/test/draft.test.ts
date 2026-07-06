@@ -294,6 +294,96 @@ describe("metadataValueToDisplayStringForTag", () => {
     ).toBe("35.5 mm");
   });
 
+  it("formats GPSLatitude Real values as friendly degrees", () => {
+    expect(
+      metadataValueToDisplayStringForTag("GPS:GPSLatitude", {
+        kind: "Real",
+        value: 52.2037391662611,
+      }),
+    ).toBe("52.203739°");
+  });
+
+  it("formats GPSLongitude Real values as friendly degrees", () => {
+    expect(
+      metadataValueToDisplayStringForTag("XMP-exif:GPSLongitude", {
+        kind: "Real",
+        value: 0.123724997044444,
+      }),
+    ).toBe("0.123725°");
+  });
+
+  it("formats GPSAltitude Real values as metres", () => {
+    expect(
+      metadataValueToDisplayStringForTag("GPS:GPSAltitude", {
+        kind: "Real",
+        value: 123.4,
+      }),
+    ).toBe("123.4 m");
+  });
+
+  it("formats GPSLatitude Rational fallback as degrees, not a giant fraction", () => {
+    const display = metadataValueToDisplayStringForTag("GPS:GPSLatitude", {
+      kind: "Rational",
+      value: {
+        numerator: 522037391662611,
+        denominator: 10000000000000,
+      },
+    });
+    expect(display).toBe("52.203739°");
+    expect(display).not.toContain("/");
+  });
+
+  it("formats GPSLatitude one-item List<Rational> fallback as degrees", () => {
+    expect(
+      metadataValueToDisplayStringForTag("GPS:GPSLatitude", {
+        kind: "List",
+        value: {
+          list_kind: "Bag",
+          items: [
+            {
+              kind: "Rational",
+              value: {
+                numerator: 522037391662611,
+                denominator: 10000000000000,
+              },
+            },
+          ],
+        },
+      }),
+    ).toBe("52.203739°");
+  });
+
+  it("formats GPSLatitude three-item DMS List<Rational> fallback as degrees", () => {
+    expect(
+      metadataValueToDisplayStringForTag("GPS:GPSLatitude", {
+        kind: "List",
+        value: {
+          list_kind: "Bag",
+          items: [
+            { kind: "Rational", value: { numerator: 52, denominator: 1 } },
+            { kind: "Rational", value: { numerator: 12, denominator: 1 } },
+            {
+              kind: "Rational",
+              value: { numerator: 1346, denominator: 100 },
+            },
+          ],
+        },
+      }),
+    ).toBe("52.203739°");
+  });
+
+  it("keeps non-GPS Rational formatting unchanged", () => {
+    expect(
+      metadataValueToDisplayStringForTag("Maker:ThreeRationals", {
+        kind: "Rational",
+        value: {
+          numerator: 522037391662611,
+          denominator: 10000000000000,
+        },
+      }),
+    ).toBe("522037391662611/10000000000000");
+  });
+
   it("falls back to generic formatting for unsupported known-tag values", () => {
     expect(
       metadataValueToDisplayStringForTag("ExifIFD:ExposureTime", {

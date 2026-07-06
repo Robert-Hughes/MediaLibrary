@@ -1,9 +1,7 @@
 Current
 =======
 
-* Halfway through migration from "Variant" to "MetadataValue" smenatic representation
-  * â€” mojibake on main view
-  * Many fields showing as "Unparsed"
+* Reverse geocode showing "photos don't have GPS so will be skipped" even though they do!
 * Normalize metadata!
   * Manual testing - check idempotency: running, applying then running again should show no changes necessary
 
