@@ -1,6 +1,6 @@
 // ── Metadata display helpers ─────────────────────────────────────────────
 
-import type { ImageMetadataEntry, MetadataValue } from "./types";
+import type { ImageMetadataEntry, MetadataValue, TagInfo } from "./types";
 
 export function displayStringOfMetadataDraft(
   d: import("./types").MetadataDraftEdit | undefined,
@@ -61,6 +61,44 @@ export function metadataValueToDisplayString(
       return "<binary>";
     case "Unknown":
       return JSON.stringify(v.value.raw);
+  }
+}
+
+export function metadataValueToDisplayStringForTag(
+  _key: string,
+  v: MetadataValue | null | undefined,
+  tagInfo?: TagInfo | null,
+): string {
+  if (tagInfo?.kind.kind !== "Enum") {
+    return metadataValueToDisplayString(v);
+  }
+
+  const code = enumCodeFromMetadataValue(v);
+  if (code === null) {
+    return metadataValueToDisplayString(v);
+  }
+
+  const option = tagInfo.kind.data.options.find((o) => o.code === code);
+  if (!option?.label) {
+    return metadataValueToDisplayString(v);
+  }
+
+  return option.label;
+}
+
+function enumCodeFromMetadataValue(
+  v: MetadataValue | null | undefined,
+): string | null {
+  if (v === null || v === undefined) return null;
+  switch (v.kind) {
+    case "Integer":
+      return String(v.value);
+    case "Text":
+      return v.value;
+    case "Real":
+      return Number.isInteger(v.value) ? String(v.value) : null;
+    default:
+      return null;
   }
 }
 

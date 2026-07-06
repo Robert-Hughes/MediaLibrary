@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { metadataValueToDisplayString, variantToDisplayString } from "../draft";
+import {
+  metadataValueToDisplayString,
+  metadataValueToDisplayStringForTag,
+  variantToDisplayString,
+} from "../draft";
+import type { TagInfo, TagKind } from "../types";
 
 describe("variantToDisplayString (regression)", () => {
   it("joins arrays with comma-space", () => {
@@ -82,5 +87,100 @@ describe("metadataValueToDisplayString", () => {
         },
       }),
     ).toBe('{"malformed":true}');
+  });
+});
+
+describe("metadataValueToDisplayStringForTag", () => {
+  function tagInfo(kind: TagKind): TagInfo {
+    return {
+      group: "IFD0",
+      name: "Orientation",
+      writable: true,
+      kind,
+      description: null,
+    };
+  }
+
+  it("maps enum integer codes to schema labels", () => {
+    expect(
+      metadataValueToDisplayStringForTag(
+        "IFD0:Orientation",
+        { kind: "Integer", value: 6 },
+        tagInfo({
+          kind: "Enum",
+          data: {
+            repr: "Integer",
+            options: [{ code: "6", label: "Rotate 90 CW" }],
+          },
+        }),
+      ),
+    ).toBe("Rotate 90 CW");
+  });
+
+  it("falls back to generic formatting when schema is missing", () => {
+    expect(
+      metadataValueToDisplayStringForTag("IFD0:Orientation", {
+        kind: "Integer",
+        value: 6,
+      }),
+    ).toBe("6");
+  });
+
+  it("falls back to generic formatting when enum option is missing", () => {
+    expect(
+      metadataValueToDisplayStringForTag(
+        "IFD0:Orientation",
+        { kind: "Integer", value: 6 },
+        tagInfo({
+          kind: "Enum",
+          data: {
+            repr: "Integer",
+            options: [{ code: "1", label: "Horizontal (normal)" }],
+          },
+        }),
+      ),
+    ).toBe("6");
+  });
+
+  it("maps text enum codes to schema labels", () => {
+    expect(
+      metadataValueToDisplayStringForTag(
+        "XMP:Mode",
+        { kind: "Text", value: "auto" },
+        tagInfo({
+          kind: "Enum",
+          data: {
+            repr: "String",
+            options: [{ code: "auto", label: "Automatic" }],
+          },
+        }),
+      ),
+    ).toBe("Automatic");
+  });
+
+  it("allows real integer enum codes", () => {
+    expect(
+      metadataValueToDisplayStringForTag(
+        "IFD0:Orientation",
+        { kind: "Real", value: 6 },
+        tagInfo({
+          kind: "Enum",
+          data: {
+            repr: "Integer",
+            options: [{ code: "6", label: "Rotate 90 CW" }],
+          },
+        }),
+      ),
+    ).toBe("Rotate 90 CW");
+  });
+
+  it("falls back to generic formatting for non-enum schema", () => {
+    expect(
+      metadataValueToDisplayStringForTag(
+        "IFD0:Orientation",
+        { kind: "Integer", value: 6 },
+        tagInfo({ kind: "Integer", data: { min: null, max: null } }),
+      ),
+    ).toBe("6");
   });
 });

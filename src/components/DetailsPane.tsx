@@ -28,7 +28,10 @@ import {
   confirmApplyEdits,
   confirmDiscardEdits,
 } from "../utils/applyDiscardPrompts";
-import { displayStringOfMetadataDraft } from "../draft";
+import {
+  displayStringOfMetadataDraft,
+  metadataValueToDisplayStringForTag,
+} from "../draft";
 
 interface Props {
   photo: PhotoInfo;
@@ -208,9 +211,15 @@ function DetailsImageRow({
   draftValue: string | null | undefined;
   typedDraft: MetadataDraftEdit | undefined;
   searchQuery: string;
-  onContextMenu: (e: React.MouseEvent) => void;
+  onContextMenu: (e: React.MouseEvent, originalValue: string) => void;
 }) {
   const tag = useTagInfo(entry.fullKey);
+  const tagInfo = tag !== "loading" ? tag : null;
+  const originalValue = metadataValueToDisplayStringForTag(
+    entry.fullKey,
+    rawValue,
+    tagInfo,
+  );
   const schemaInfo = tag && tag !== "loading" ? schemaDatatype(tag.kind) : null;
   const readOnly = tag != null && tag !== "loading" && !tag.writable;
 
@@ -242,7 +251,7 @@ function DetailsImageRow({
       data-testid="details-row"
       data-row-key={entry.fullKey}
       data-readonly={readOnly ? "true" : undefined}
-      onContextMenu={onContextMenu}
+      onContextMenu={(e) => onContextMenu(e, originalValue)}
     >
       <td
         className="details-key"
@@ -262,7 +271,7 @@ function DetailsImageRow({
         <HighlightedText text={entry.label} searchQuery={searchQuery} />
       </td>
       <DetailsValueCell
-        originalValue={entry.value}
+        originalValue={originalValue}
         draftValue={draftValue}
         searchQuery={searchQuery}
         valueBadge={showValueBadge ? valueInfo : null}
@@ -636,11 +645,11 @@ export function DetailsPane({
                           draftValue={draftEdits[entry.fullKey]}
                           typedDraft={typedDraftEdits?.[entry.fullKey]}
                           searchQuery={detailsSearch}
-                          onContextMenu={(e) =>
+                          onContextMenu={(e, originalValue) =>
                             handleContextMenu(
                               e,
                               entry.fullKey,
-                              entry.value,
+                              originalValue,
                               draftEdits[entry.fullKey],
                             )
                           }
