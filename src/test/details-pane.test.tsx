@@ -279,6 +279,40 @@ describe("DetailsPane component", () => {
     ).toBeInTheDocument();
   });
 
+  it("renders schema-backed enum labels for canonical metadata values", () => {
+    _clearTagInfoCache();
+    _setTagInfoCacheEntry("IFD0:Orientation", {
+      group: "IFD0",
+      name: "Orientation",
+      writable: true,
+      kind: {
+        kind: "Enum",
+        data: {
+          repr: "Integer",
+          options: [{ code: "6", label: "Rotate 90 CW" }],
+        },
+      },
+      description: null,
+    });
+
+    render(
+      <DetailsPane
+        photo={photo}
+        metadata={{
+          "IFD0:Orientation": { kind: "Integer", value: 6 },
+        }}
+      />,
+    );
+
+    const row = screen
+      .getAllByTestId("details-row")
+      .find((r) => within(r).queryByText("Orientation") !== null);
+    expect(row).toBeDefined();
+    expect(within(row!).getByText("Rotate 90 CW")).toBeInTheDocument();
+    expect(within(row!).queryByText("6")).toBeNull();
+    _clearTagInfoCache();
+  });
+
   it("has the Properties title", () => {
     render(<DetailsPane photo={photo} metadata="loading" />);
     expect(screen.getByText("Properties")).toBeInTheDocument();
