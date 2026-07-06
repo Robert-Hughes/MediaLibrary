@@ -93,6 +93,13 @@ function formatKnownPhotoTag(
   key: string,
   v: MetadataValue | null | undefined,
 ): string | null {
+  if (/^[\w-]+:GPSLatitude$/.test(key) || /^[\w-]+:GPSLongitude$/.test(key)) {
+    return formatGpsCoordinate(v);
+  }
+  if (/^[\w-]+:GPSAltitude$/.test(key)) {
+    return formatGpsAltitude(v);
+  }
+
   switch (key) {
     case "ExifIFD:ExposureTime":
     case "Composite:ShutterSpeed":
@@ -141,6 +148,39 @@ function formatFocalLength(v: MetadataValue | null | undefined): string | null {
   const n = numericValue(v);
   if (n === null || n <= 0) return null;
   return `${trimNumber(n, 2)} mm`;
+}
+
+function formatGpsCoordinate(
+  v: MetadataValue | null | undefined,
+): string | null {
+  const n = gpsDecimalValue(v);
+  if (n === null) return null;
+  return `${trimNumber(n, 6)}°`;
+}
+
+function formatGpsAltitude(v: MetadataValue | null | undefined): string | null {
+  const n = gpsDecimalValue(v);
+  if (n === null) return null;
+  return `${trimNumber(n, 2)} m`;
+}
+
+function gpsDecimalValue(v: MetadataValue | null | undefined): number | null {
+  if (v === null || v === undefined) return null;
+  const scalar = numericValue(v);
+  if (scalar !== null) return scalar;
+  if (v.kind !== "List") return null;
+
+  const items = v.value.items;
+  if (items.length === 1) return gpsDecimalValue(items[0]);
+  if (items.length === 3) {
+    const degrees = numericValue(items[0]);
+    const minutes = numericValue(items[1]);
+    const seconds = numericValue(items[2]);
+    if (degrees === null || minutes === null || seconds === null) return null;
+    const sign = degrees < 0 ? -1 : 1;
+    return sign * (Math.abs(degrees) + minutes / 60 + seconds / 3600);
+  }
+  return null;
 }
 
 function numericValue(v: MetadataValue | null | undefined): number | null {

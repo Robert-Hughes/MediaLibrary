@@ -693,6 +693,18 @@ fn apply_overrides(tags: &mut BTreeMap<String, TagInfo>) {
         ("ExifIFD:OffsetTime", || TagKind::TimeOffset),
         ("ExifIFD:OffsetTimeOriginal", || TagKind::TimeOffset),
         ("ExifIFD:OffsetTimeDigitized", || TagKind::TimeOffset),
+        // ExifTool -listx describes EXIF GPSLatitude/GPSLongitude as
+        // rational64u count=3 because the file stores D/M/S rationals.
+        // However the JSON API used by the scanner reports these as scalar
+        // decimal degrees under -n, and ExifTool accepts scalar decimal
+        // degrees on write with -n. Treat them as app-facing Real values;
+        // the EXIF storage detail remains ExifTool's responsibility.
+        ("GPS:GPSLatitude", || TagKind::Real),
+        ("GPS:GPSLongitude", || TagKind::Real),
+        ("GPS:GPSAltitude", || TagKind::Real),
+        ("XMP-exif:GPSLatitude", || TagKind::Real),
+        ("XMP-exif:GPSLongitude", || TagKind::Real),
+        ("XMP-exif:GPSAltitude", || TagKind::Real),
         // ── XMP-mlib namespace (AI-generated metadata) ────────────────
         // Registered with exiftool via the embedded user-defined config
         // (see `exiftool_config.rs`). `-listx` does not enumerate
@@ -869,6 +881,17 @@ mod tests {
  <tag id='2' name='GPSLatitude' type='rational64u' count='3' writable='true'>
   <desc lang='en'>GPS Latitude</desc>
  </tag>
+ <tag id='4' name='GPSLongitude' type='rational64u' count='3' writable='true'>
+  <desc lang='en'>GPS Longitude</desc>
+ </tag>
+ <tag id='6' name='GPSAltitude' type='rational64u' writable='true'>
+  <desc lang='en'>GPS Altitude</desc>
+ </tag>
+</table>
+<table name='EXIF::Other' g0='EXIF' g1='ExifIFD' g2='Image'>
+ <tag id='0x9999' name='ThreeRationals' type='rational64u' count='3' writable='true'>
+  <desc lang='en'>Three Rationals</desc>
+ </tag>
 </table>
 <table name='XMP::dc' g0='XMP' g1='XMP-dc' g2='Other'>
  <tag id='subject' name='Subject' type='string' writable='true' g2='Image'>
@@ -968,15 +991,39 @@ mod tests {
     }
 
     #[test]
-    fn exif_gps_latitude_count_three_yields_bag() {
-        // Counter-test: for non-string EXIF tags, `count` IS the number
-        // of components, and the wrap is correct. GPSLatitude is three
-        // rationals (deg/min/sec), so the schema kind here is
-        // `Bag<Rational>`. This pins the boundary so a future "fix" of
-        // wrap_count can't quietly disable cardinality inference for
-        // numeric kinds.
+    fn exif_gps_coordinates_are_app_facing_reals() {
+        // ExifTool stores latitude/longitude as D/M/S rationals on disk,
+        // but the scanner's JSON interface reports scalar decimal degrees
+        // under -n. The override keeps the app-facing schema aligned with
+        // that interface instead of exposing Bag<Rational> to the UI.
         let r = fixture_registry();
-        let t = r.lookup("GPS:GPSLatitude").unwrap();
+        let lat = r.lookup("GPS:GPSLatitude").unwrap();
+        assert!(
+            matches!(lat.kind, TagKind::Real),
+            "GPSLatitude must be scalar Real, got {:?}",
+            lat.kind
+        );
+        let lon = r.lookup("GPS:GPSLongitude").unwrap();
+        assert!(
+            matches!(lon.kind, TagKind::Real),
+            "GPSLongitude must be scalar Real, got {:?}",
+            lon.kind
+        );
+        let alt = r.lookup("GPS:GPSAltitude").unwrap();
+        assert!(
+            matches!(alt.kind, TagKind::Real),
+            "GPSAltitude must be scalar Real, got {:?}",
+            alt.kind
+        );
+    }
+
+    #[test]
+    fn non_gps_rational_count_three_still_yields_bag() {
+        // Counter-test: for non-string, non-overridden EXIF tags, `count`
+        // IS the number of components, so generic count wrapping remains
+        // correct.
+        let r = fixture_registry();
+        let t = r.lookup("ExifIFD:ThreeRationals").unwrap();
         match &t.kind {
             TagKind::Bag(inner) => assert!(
                 matches!(**inner, TagKind::Rational),

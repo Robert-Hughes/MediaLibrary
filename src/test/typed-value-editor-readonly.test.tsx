@@ -216,6 +216,73 @@ describe("TypedValueEditor temporal routing", () => {
   });
 });
 
+describe("TypedValueEditor GPS routing", () => {
+  it("opens GpsEditor and prefills canonical Real GPS metadata", () => {
+    render(
+      <TypedValueEditor
+        propertyKey="GPS:GPSLatitude"
+        initialString="52 deg 12' 13.46&quot;"
+        metadataForFile={{
+          "GPS:GPSLatitude": { kind: "Real", value: 52.2037391662611 },
+          "GPS:GPSLatitudeRef": { kind: "Text", value: "N" },
+          "GPS:GPSLongitude": { kind: "Real", value: 0.123724997044444 },
+          "GPS:GPSLongitudeRef": { kind: "Text", value: "E" },
+        }}
+        onSaveMetadata={() => {}}
+        onSaveMetadataBatch={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+
+    expect(screen.getByTestId("gps-editor-overlay")).toBeInTheDocument();
+    expect(screen.getByTestId("gps-editor-lat-input")).toHaveValue(
+      52.2037391662611,
+    );
+    expect(screen.getByTestId("gps-editor-lon-input")).toHaveValue(
+      0.123724997044444,
+    );
+    expect(screen.getByTestId("gps-editor-lat-ref")).toHaveValue("N");
+    expect(screen.getByTestId("gps-editor-lon-ref")).toHaveValue("E");
+  });
+
+  it("prefills GpsEditor from stale one-item List<Rational> GPS metadata", () => {
+    render(
+      <TypedValueEditor
+        propertyKey="GPS:GPSLatitude"
+        initialString=""
+        metadataForFile={{
+          "GPS:GPSLatitude": {
+            kind: "List",
+            value: {
+              list_kind: "Bag",
+              items: [
+                {
+                  kind: "Rational",
+                  value: {
+                    numerator: 522037391662611,
+                    denominator: 10000000000000,
+                  },
+                },
+              ],
+            },
+          },
+          "GPS:GPSLatitudeRef": { kind: "Text", value: "N" },
+          "GPS:GPSLongitude": { kind: "Real", value: 0.123724997044444 },
+          "GPS:GPSLongitudeRef": { kind: "Text", value: "E" },
+        }}
+        onSaveMetadata={() => {}}
+        onSaveMetadataBatch={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+
+    expect(screen.getByTestId("gps-editor-overlay")).toBeInTheDocument();
+    expect(screen.getByTestId("gps-editor-lat-input")).toHaveValue(
+      52.2037391662611,
+    );
+  });
+});
+
 describe("TypedValueEditor semantic save callbacks", () => {
   it("plain text editor output is a MetadataDraftEdit", async () => {
     _setTagInfoCacheEntry("XMP-dc:Title", {

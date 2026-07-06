@@ -272,6 +272,53 @@ export function parseDecimalDegrees(value: unknown): number | null {
   return null;
 }
 
+export function gpsScalarFromMetadataValue(
+  value: MetadataValue | undefined,
+): string | number | null {
+  if (!value) return null;
+  switch (value.kind) {
+    case "Real":
+    case "Integer":
+      return value.value;
+    case "Text":
+      return value.value;
+    case "Rational":
+      return value.value.denominator !== 0
+        ? value.value.numerator / value.value.denominator
+        : null;
+    case "List": {
+      const items = value.value.items;
+      if (items.length === 1) return gpsScalarFromMetadataValue(items[0]);
+      if (items.length === 3) {
+        const degrees = gpsNumberFromMetadataValue(items[0]);
+        const minutes = gpsNumberFromMetadataValue(items[1]);
+        const seconds = gpsNumberFromMetadataValue(items[2]);
+        if (degrees === null || minutes === null || seconds === null) {
+          return null;
+        }
+        const sign = degrees < 0 ? -1 : 1;
+        return sign * (Math.abs(degrees) + minutes / 60 + seconds / 3600);
+      }
+      return null;
+    }
+    default:
+      return null;
+  }
+}
+
+export function gpsNumberFromMetadataValue(
+  value: MetadataValue | undefined,
+): number | null {
+  const scalar = gpsScalarFromMetadataValue(value);
+  if (typeof scalar === "number")
+    return Number.isFinite(scalar) ? scalar : null;
+  if (typeof scalar !== "string") return null;
+  const decimal = parseDecimalDegrees(scalar);
+  if (decimal !== null) return decimal;
+  const parsed = parseFloat(scalar);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 /**
  * Best-effort extraction of the hemisphere from a metadata value.  Falls
  * back to "N"/"E" when nothing parseable is found.

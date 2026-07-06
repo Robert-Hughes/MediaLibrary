@@ -776,6 +776,26 @@ mod tests {
     }
 
     #[test]
+    fn gps_reals_render_as_scalar_numeric_args() {
+        for (tag, value, expected) in [
+            (
+                "GPS:GPSLatitude",
+                52.2037391662611,
+                "-GPS:GPSLatitude=52.2037391662611",
+            ),
+            ("GPS:GPSLongitude", 1.236557, "-GPS:GPSLongitude=1.236557"),
+            ("GPS:GPSAltitude", 123.4, "-GPS:GPSAltitude=123.4"),
+        ] {
+            let i = info(TagKind::Real);
+            let args =
+                build_metadata_args(tag, Some(&i), &metadata_set(MetadataValue::Real(value)))
+                    .unwrap();
+            assert_eq!(args.numeric, vec![expected]);
+            assert!(args.text.is_empty());
+        }
+    }
+
+    #[test]
     fn datetime_uses_numeric_group() {
         // Phase 8.7: design §6 puts DateTime in the -n group so the literal
         // YYYY:MM:DD HH:MM:SS±ZZ:ZZ form bypasses PrintConv re-parsing.
