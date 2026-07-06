@@ -437,13 +437,13 @@ fn face_regions_round_trip_through_struct_variant() {
 
 #[test]
 fn unicode_filename_does_not_crash_scanner() {
-    // `unicode_paths_æ¼¢å­—.jpg` exercises the -charset filename=utf8 flag.
+    // `unicode_paths_漢字.jpg` exercises the -charset filename=utf8 flag.
     // On Windows exiftool subprocess argument encoding has long-standing
     // quirks: CreateProcess delivers args in the active code page, not
     // UTF-8, so even with the flag the file may not be findable.  We
     // confirm the scanner returns gracefully (Ok with possibly-empty
     // metadata or an Err) rather than panicking.
-    let Some(src) = fixture_path("unicode_paths_æ¼¢å­—.jpg") else {
+    let Some(src) = fixture_path("unicode_paths_漢字.jpg") else {
         return;
     };
     let (dir, dst) = copy_to_temp(&src);

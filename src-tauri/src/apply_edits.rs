@@ -643,13 +643,6 @@ mod tests {
     use super::*;
     use crate::metadata_value::{DateValue, OffsetSign, RationalValue, TimeValue, UtcOffsetValue};
 
-    type TestDrafts = HashMap<String, HashMap<String, crate::draft_edits::MetadataDraftEdit>>;
-
-    fn is_hard_failure(outcome: &MetadataSingleFileOutcome, substr: &str) -> bool {
-        outcome.fresh_metadata.is_none()
-            && outcome.error.as_deref().is_some_and(|e| e.contains(substr))
-    }
-
     fn metadata_map(pairs: &[(&str, MetadataValue)]) -> HashMap<String, MetadataValue> {
         pairs
             .iter()

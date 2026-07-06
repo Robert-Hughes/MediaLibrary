@@ -425,7 +425,7 @@ fn read_exiftool_version() -> Result<String, SchemaError> {
 // Bump this when the logic that converts ExifTool `-listx` XML into our
 // `TagKind` model changes in a way that should invalidate existing schema
 // cache files, even if the ExifTool version itself did not change.
-const TAG_SCHEMA_PARSER_VERSION: u32 = 4;
+const TAG_SCHEMA_PARSER_VERSION: u32 = 5;
 
 fn cache_path_for(version: &str) -> Option<std::path::PathBuf> {
     let dir = dirs::cache_dir()?;
@@ -730,6 +730,19 @@ fn apply_overrides(tags: &mut BTreeMap<String, TagInfo>) {
         ("ExifIFD:ExifVersion", || TagKind::Text),
         ("ExifIFD:FlashpixVersion", || TagKind::Text),
         ("InteropIFD:InteropVersion", || TagKind::Text),
+        // (1b) Physical byte/undef storage, semantic text. ExifTool may
+        // expose these fields as `int8u` byte arrays or `undef`, but they
+        // are user-facing text fields. XP* tags are Windows Explorer XP
+        // metadata decoded by ExifTool to strings; UserComment is the EXIF
+        // comment field and should use the text editor rather than showing
+        // Unparsed. Keep this targeted so generic int8u/undef tags continue
+        // to parse conservatively.
+        ("IFD0:XPTitle", || TagKind::Text),
+        ("IFD0:XPComment", || TagKind::Text),
+        ("IFD0:XPAuthor", || TagKind::Text),
+        ("IFD0:XPKeywords", || TagKind::Text),
+        ("IFD0:XPSubject", || TagKind::Text),
+        ("ExifIFD:UserComment", || TagKind::Text),
         // (2) Binary blobs — writable only via file redirection.  Marking
         //     them Binary makes the UI treat them as read-only and the
         //     writable filter on autocomplete drops them too (Binary +
@@ -1005,7 +1018,7 @@ mod tests {
 
     #[test]
     fn schema_parser_cache_version_is_current() {
-        assert_eq!(TAG_SCHEMA_PARSER_VERSION, 4);
+        assert_eq!(TAG_SCHEMA_PARSER_VERSION, 5);
     }
 
     #[test]
@@ -1112,6 +1125,66 @@ mod tests {
             .expect("override should keep tag");
         assert!(matches!(t.kind, TagKind::Text));
         assert!(t.writable);
+    }
+
+    #[test]
+    fn xp_keywords_int8u_byte_array_is_text() {
+        let xml = r#"<?xml version='1.0' encoding='UTF-8'?>
+<taginfo>
+<table name='EXIF::Main' g0='EXIF' g1='IFD0' g2='Image'>
+ <tag id='40094' name='XPKeywords' type='int8u' count='128' writable='true'>
+  <desc lang='en'>XP Keywords</desc>
+ </tag>
+</table>
+</taginfo>"#;
+        let r = TagRegistry::from_listx_xml(xml).expect("parse XPKeywords fixture");
+        let t = r.lookup("IFD0:XPKeywords").unwrap();
+        assert!(
+            matches!(t.kind, TagKind::Text),
+            "XPKeywords must be semantic Text, got {:?}",
+            t.kind
+        );
+    }
+
+    #[test]
+    fn all_ifd0_xp_tags_are_text() {
+        let r = TagRegistry::from_listx_xml(
+            "<?xml version='1.0' encoding='UTF-8'?><taginfo></taginfo>",
+        )
+        .expect("parse empty fixture");
+        for key in [
+            "IFD0:XPTitle",
+            "IFD0:XPComment",
+            "IFD0:XPAuthor",
+            "IFD0:XPKeywords",
+            "IFD0:XPSubject",
+        ] {
+            let t = r.lookup(key).unwrap_or_else(|| panic!("{key} missing"));
+            assert!(
+                matches!(t.kind, TagKind::Text),
+                "{key} must be Text, got {:?}",
+                t.kind
+            );
+        }
+    }
+
+    #[test]
+    fn user_comment_undef_is_text() {
+        let xml = r#"<?xml version='1.0' encoding='UTF-8'?>
+<taginfo>
+<table name='EXIF::Exif' g0='EXIF' g1='ExifIFD' g2='Image'>
+ <tag id='37510' name='UserComment' type='undef' writable='true'>
+  <desc lang='en'>User Comment</desc>
+ </tag>
+</table>
+</taginfo>"#;
+        let r = TagRegistry::from_listx_xml(xml).expect("parse UserComment fixture");
+        let t = r.lookup("ExifIFD:UserComment").unwrap();
+        assert!(
+            matches!(t.kind, TagKind::Text),
+            "UserComment must be semantic Text, got {:?}",
+            t.kind
+        );
     }
 
     #[test]
@@ -1225,10 +1298,10 @@ mod tests {
     #[test]
     fn cache_path_sanitises_version_string() {
         let p = cache_path_for("13.57").unwrap();
-        assert!(p.to_string_lossy().contains("tag_schema_p4_13.57.json"));
+        assert!(p.to_string_lossy().contains("tag_schema_p5_13.57.json"));
         let p2 = cache_path_for("13/57 weird!").unwrap();
         let s = p2.to_string_lossy().into_owned();
-        assert!(s.contains("tag_schema_p4_13_57_weird_.json"));
+        assert!(s.contains("tag_schema_p5_13_57_weird_.json"));
         assert!(
             !s.contains('/') || s.contains("MediaLibrary"),
             "no stray slashes in version segment"
