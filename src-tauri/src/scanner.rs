@@ -256,6 +256,8 @@ pub fn read_image_metadata_batch(
             semantic_values_from_json(&display_values, &raw_values, registry, rel_path, "display");
         let raw_metadata =
             semantic_values_from_json(&raw_values, &display_values, registry, rel_path, "raw");
+        let _canonical_metadata =
+            canonical_values_from_exiftool_pair(&raw_values, &display_values, registry, rel_path);
         if metadata.is_empty() {
             log::warn!("[parse_exiftool] Warning: no display metadata for {}", key);
         }
@@ -424,31 +426,66 @@ fn semantic_values_from_json(
             } else {
                 parse_metadata_value(key, info.map(|i| &i.kind), raw, Some(raw))
             };
-            if let MetadataValue::Unknown {
-                expected,
-                reason,
-                ..
-            } = &value
-            {
-                let expected = expected
-                    .as_ref()
-                    .map(tag_kind_summary)
-                    .or_else(|| info.map(|i| tag_kind_summary(&i.kind)))
-                    .unwrap_or_else(|| "<no schema>".to_string());
-                log::warn!(
-                    "[parse_exiftool] Unparsed metadata: file={} tag={} pass={} expected={} raw_type={} raw={} reason={}",
-                    rel_path,
-                    key,
-                    pass_name,
-                    expected,
-                    json_value_kind(raw),
-                    json_preview(raw),
-                    reason.as_deref().unwrap_or("<unknown>")
-                );
-            }
+            warn_unknown_metadata_value(rel_path, key, pass_name, raw, info, &value);
             (key.clone(), value)
         })
         .collect()
+}
+
+fn canonical_values_from_exiftool_pair(
+    raw_values: &HashMap<String, serde_json::Value>,
+    display_values: &HashMap<String, serde_json::Value>,
+    registry: Option<&crate::tag_schema::TagRegistry>,
+    rel_path: &str,
+) -> HashMap<String, MetadataValue> {
+    let mut values = HashMap::with_capacity(raw_values.len().max(display_values.len()));
+
+    for key in raw_values.keys().chain(display_values.keys()) {
+        if values.contains_key(key) {
+            continue;
+        }
+        let primary = raw_values
+            .get(key)
+            .or_else(|| display_values.get(key))
+            .expect("key came from one of the source maps");
+        let display_hint = display_values.get(key);
+        let info = registry.and_then(|r| r.lookup(key));
+        let value = parse_metadata_value(key, info.map(|i| &i.kind), primary, display_hint);
+        warn_unknown_metadata_value(rel_path, key, "canonical", primary, info, &value);
+        values.insert(key.clone(), value);
+    }
+
+    values
+}
+
+fn warn_unknown_metadata_value(
+    rel_path: &str,
+    key: &str,
+    pass_name: &str,
+    raw: &serde_json::Value,
+    info: Option<&crate::tag_schema::TagInfo>,
+    value: &MetadataValue,
+) {
+    if let MetadataValue::Unknown {
+        expected, reason, ..
+    } = value
+    {
+        let expected = expected
+            .as_ref()
+            .map(tag_kind_summary)
+            .or_else(|| info.map(|i| tag_kind_summary(&i.kind)))
+            .unwrap_or_else(|| "<no schema>".to_string());
+        log::warn!(
+            "[parse_exiftool] Unparsed metadata: file={} tag={} pass={} expected={} raw_type={} raw={} reason={}",
+            rel_path,
+            key,
+            pass_name,
+            expected,
+            json_value_kind(raw),
+            json_preview(raw),
+            reason.as_deref().unwrap_or("<unknown>")
+        );
+    }
 }
 
 fn json_value_kind(value: &serde_json::Value) -> &'static str {
@@ -1014,6 +1051,127 @@ mod tests {
             "<?xml version='1.0' encoding='UTF-8'?><taginfo></taginfo>",
         )
         .expect("build empty registry")
+    }
+
+    fn canonical_registry() -> crate::tag_schema::TagRegistry {
+        crate::tag_schema::TagRegistry::from_listx_xml(
+            r#"<?xml version='1.0' encoding='UTF-8'?>
+<taginfo>
+<table name='EXIF::Main' g0='EXIF' g1='EXIF' g2='Image'>
+ <tag id='Make' name='Make' type='string' writable='true'>
+  <desc lang='en'>Make</desc>
+ </tag>
+ <tag id='Model' name='Model' type='string' writable='true'>
+  <desc lang='en'>Model</desc>
+ </tag>
+ <tag id='LensModel' name='LensModel' type='string' writable='true'>
+  <desc lang='en'>Lens Model</desc>
+ </tag>
+ <tag id='ISO' name='ISO' type='int32u' writable='true'>
+  <desc lang='en'>ISO</desc>
+ </tag>
+ <tag id='ExposureTime' name='ExposureTime' type='rational64u' writable='true'>
+  <desc lang='en'>Exposure Time</desc>
+ </tag>
+</table>
+</taginfo>"#,
+        )
+        .expect("build canonical test registry")
+    }
+
+    #[test]
+    fn canonical_prefers_raw_primary_and_uses_display_only_as_hint() {
+        let reg = canonical_registry();
+        let raw = HashMap::from([
+            ("EXIF:Make".to_string(), serde_json::json!("Canon raw")),
+            ("EXIF:ExposureTime".to_string(), serde_json::json!(0.015625)),
+        ]);
+        let display = HashMap::from([
+            ("EXIF:Make".to_string(), serde_json::json!("Canon display")),
+            ("EXIF:ExposureTime".to_string(), serde_json::json!("1/64")),
+        ]);
+
+        let values = canonical_values_from_exiftool_pair(&raw, &display, Some(&reg), "photo.jpg");
+
+        assert_eq!(
+            values.get("EXIF:Make"),
+            Some(&MetadataValue::Text("Canon raw".to_string()))
+        );
+        assert_eq!(
+            values.get("EXIF:ExposureTime"),
+            Some(&MetadataValue::Rational(
+                crate::metadata_value::RationalValue {
+                    numerator: 1,
+                    denominator: 64,
+                }
+            ))
+        );
+    }
+
+    #[test]
+    fn canonical_recovers_exact_rational_from_display_hint() {
+        let reg = canonical_registry();
+        let raw = HashMap::from([("EXIF:ExposureTime".to_string(), serde_json::json!(0.015625))]);
+        let display = HashMap::from([("EXIF:ExposureTime".to_string(), serde_json::json!("1/64"))]);
+
+        let values = canonical_values_from_exiftool_pair(&raw, &display, Some(&reg), "photo.jpg");
+
+        match values.get("EXIF:ExposureTime") {
+            Some(MetadataValue::Rational(r)) => {
+                assert_eq!(r.numerator, 1);
+                assert_eq!(r.denominator, 64);
+            }
+            other => panic!("expected rational 1/64, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn canonical_includes_display_only_fallback_value() {
+        let reg = canonical_registry();
+        let raw = HashMap::new();
+        let display = HashMap::from([("EXIF:Model".to_string(), serde_json::json!("X100V"))]);
+
+        let values = canonical_values_from_exiftool_pair(&raw, &display, Some(&reg), "photo.jpg");
+
+        assert_eq!(
+            values.get("EXIF:Model"),
+            Some(&MetadataValue::Text("X100V".to_string()))
+        );
+    }
+
+    #[test]
+    fn canonical_includes_raw_only_value() {
+        let reg = canonical_registry();
+        let raw = HashMap::from([("EXIF:ISO".to_string(), serde_json::json!(400))]);
+        let display = HashMap::new();
+
+        let values = canonical_values_from_exiftool_pair(&raw, &display, Some(&reg), "photo.jpg");
+
+        assert_eq!(values.get("EXIF:ISO"), Some(&MetadataValue::Integer(400)));
+    }
+
+    #[test]
+    fn canonical_iterates_union_of_raw_and_display_keys() {
+        let reg = canonical_registry();
+        let raw = HashMap::from([
+            ("EXIF:Make".to_string(), serde_json::json!("Raw make")),
+            ("EXIF:ISO".to_string(), serde_json::json!(200)),
+        ]);
+        let display = HashMap::from([
+            ("EXIF:Make".to_string(), serde_json::json!("Display make")),
+            ("EXIF:LensModel".to_string(), serde_json::json!("35mm f/2")),
+        ]);
+
+        let values = canonical_values_from_exiftool_pair(&raw, &display, Some(&reg), "photo.jpg");
+
+        assert_eq!(values.len(), 3);
+        assert!(values.contains_key("EXIF:Make"));
+        assert!(values.contains_key("EXIF:ISO"));
+        assert!(values.contains_key("EXIF:LensModel"));
+        assert_eq!(
+            values.get("EXIF:Make"),
+            Some(&MetadataValue::Text("Raw make".to_string()))
+        );
     }
 
     #[test]
