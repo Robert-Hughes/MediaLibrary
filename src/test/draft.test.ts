@@ -88,6 +88,44 @@ describe("metadataValueToDisplayString", () => {
       }),
     ).toBe('{"malformed":true}');
   });
+
+  describe("LangAlt formatting", () => {
+    it("LangAlt x-default only displays just the value", () => {
+      expect(
+        metadataValueToDisplayString({
+          kind: "LangAlt",
+          value: { "x-default": "Caption" },
+        }),
+      ).toBe("Caption");
+    });
+
+    it("LangAlt single non-default language displays just the value", () => {
+      expect(
+        metadataValueToDisplayString({
+          kind: "LangAlt",
+          value: { en: "Caption" },
+        }),
+      ).toBe("Caption");
+    });
+
+    it("LangAlt multiple languages displays language prefixes", () => {
+      expect(
+        metadataValueToDisplayString({
+          kind: "LangAlt",
+          value: { en: "Caption", fr: "Légende" },
+        }),
+      ).toBe("en: Caption; fr: Légende");
+    });
+
+    it("LangAlt empty map displays empty string", () => {
+      expect(
+        metadataValueToDisplayString({
+          kind: "LangAlt",
+          value: {},
+        }),
+      ).toBe("");
+    });
+  });
 });
 
 describe("metadataValueToDisplayStringForTag", () => {
