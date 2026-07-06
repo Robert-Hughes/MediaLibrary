@@ -226,13 +226,14 @@ pub fn read_image_metadata_batch(
     let mut display_json = display_json_map;
     let mut raw_json = raw_json_map;
     let registry = crate::tag_schema::get_registry().ok();
+    let mut batch_warnings = Vec::new();
     for (i, rel_path) in rel_paths.iter().enumerate() {
         let abs_path = &abs_paths[i];
         let key = abs_path.to_string_lossy().replace('\\', "/");
         let display_values = display_json.remove(&key).unwrap_or_default();
         let raw_values = raw_json.remove(&key).unwrap_or_default();
         let metadata =
-            canonical_values_from_exiftool_pair(&raw_values, &display_values, registry, rel_path);
+            canonical_values_from_exiftool_pair(&raw_values, &display_values, registry, rel_path, Some(&mut batch_warnings));
         if metadata.is_empty() {
             log::warn!(
                 "[parse_exiftool] Warning: no canonical metadata for {}",
@@ -244,6 +245,11 @@ pub fn read_image_metadata_batch(
             metadata,
         });
     }
+
+    if !batch_warnings.is_empty() {
+        log_aggregated_warnings(&batch_warnings);
+    }
+
     Ok(results)
 }
 
@@ -391,11 +397,146 @@ fn parse_exiftool_pass_json_raw_with_registry(
     map_by_source
 }
 
+struct ParseWarning {
+    rel_path: String,
+    tag: String,
+    pass_name: String,
+    expected: String,
+    raw_type: &'static str,
+    raw: serde_json::Value,
+    reason: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum ParseWarningCategory {
+    MissingSchema,
+    UnknownSchemaKind,
+    ParseFailed,
+}
+
+fn classify_warning(reason: &str) -> ParseWarningCategory {
+    if reason == "no schema entry for tag" {
+        ParseWarningCategory::MissingSchema
+    } else if reason == "schema kind is unknown" {
+        ParseWarningCategory::UnknownSchemaKind
+    } else {
+        ParseWarningCategory::ParseFailed
+    }
+}
+
+fn log_single_warning(w: &ParseWarning) {
+    let category = classify_warning(&w.reason);
+    match category {
+        ParseWarningCategory::MissingSchema | ParseWarningCategory::UnknownSchemaKind => {
+            log::warn!(
+                "[parse_exiftool] Schema gap: file={} tag={} pass={} raw_type={} raw={} reason={}",
+                w.rel_path,
+                w.tag,
+                w.pass_name,
+                w.raw_type,
+                json_preview(&w.raw),
+                w.reason
+            );
+        }
+        ParseWarningCategory::ParseFailed => {
+            log::warn!(
+                "[parse_exiftool] Unparsed metadata: file={} tag={} pass={} expected={} raw_type={} raw={} reason={}",
+                w.rel_path,
+                w.tag,
+                w.pass_name,
+                w.expected,
+                w.raw_type,
+                json_preview(&w.raw),
+                w.reason
+            );
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct WarningGroupKey {
+    tag: String,
+    reason: String,
+    expected_summary: String,
+    raw_type: &'static str,
+}
+
+struct WarningGroupValue {
+    count: usize,
+    examples: Vec<String>,
+    raw_preview: Option<String>,
+}
+
+fn log_aggregated_warnings(warnings: &[ParseWarning]) {
+    let mut groups: HashMap<WarningGroupKey, WarningGroupValue> = HashMap::new();
+    for w in warnings {
+        log::debug!(
+            "[parse_exiftool] Unparsed metadata debug: file={} tag={} pass={} expected={} raw_type={} raw={} reason={}",
+            w.rel_path,
+            w.tag,
+            w.pass_name,
+            w.expected,
+            w.raw_type,
+            json_preview(&w.raw),
+            w.reason
+        );
+
+        let key = WarningGroupKey {
+            tag: w.tag.clone(),
+            reason: w.reason.clone(),
+            expected_summary: w.expected.clone(),
+            raw_type: w.raw_type,
+        };
+        let entry = groups.entry(key).or_insert_with(|| WarningGroupValue {
+            count: 0,
+            examples: Vec::new(),
+            raw_preview: None,
+        });
+        entry.count += 1;
+        if entry.examples.len() < 2 && !entry.examples.contains(&w.rel_path) {
+            entry.examples.push(w.rel_path.clone());
+        }
+        if entry.raw_preview.is_none() {
+            entry.raw_preview = Some(json_preview(&w.raw));
+        }
+    }
+
+    for (key, val) in groups {
+        let category = classify_warning(&key.reason);
+        match category {
+            ParseWarningCategory::MissingSchema | ParseWarningCategory::UnknownSchemaKind => {
+                log::warn!(
+                    "[parse_exiftool] Schema gap summary: count={} tag={} raw_type={} reason={} examples={:?} raw_example={}",
+                    val.count,
+                    key.tag,
+                    key.raw_type,
+                    key.reason,
+                    val.examples,
+                    val.raw_preview.as_deref().unwrap_or("")
+                );
+            }
+            ParseWarningCategory::ParseFailed => {
+                log::warn!(
+                    "[parse_exiftool] Unparsed metadata summary: count={} tag={} expected={} raw_type={} reason={} examples={:?} raw_example={}",
+                    val.count,
+                    key.tag,
+                    key.expected_summary,
+                    key.raw_type,
+                    key.reason,
+                    val.examples,
+                    val.raw_preview.as_deref().unwrap_or("")
+                );
+            }
+        }
+    }
+}
+
 fn canonical_values_from_exiftool_pair(
     raw_values: &HashMap<String, serde_json::Value>,
     display_values: &HashMap<String, serde_json::Value>,
     registry: Option<&crate::tag_schema::TagRegistry>,
     rel_path: &str,
+    mut warnings_accumulator: Option<&mut Vec<ParseWarning>>,
 ) -> HashMap<String, MetadataValue> {
     let mut values = HashMap::with_capacity(raw_values.len().max(display_values.len()));
 
@@ -410,7 +551,7 @@ fn canonical_values_from_exiftool_pair(
         let display_hint = display_values.get(key);
         let info = registry.and_then(|r| r.lookup(key));
         let value = parse_metadata_value(key, info.map(|i| &i.kind), primary, display_hint);
-        warn_unknown_metadata_value(rel_path, key, "canonical", primary, info, &value);
+        warn_unknown_metadata_value(rel_path, key, "canonical", primary, info, &value, warnings_accumulator.as_mut().map(|w| &mut **w));
         values.insert(key.clone(), value);
     }
 
@@ -424,26 +565,34 @@ fn warn_unknown_metadata_value(
     raw: &serde_json::Value,
     info: Option<&crate::tag_schema::TagInfo>,
     value: &MetadataValue,
+    warnings_accumulator: Option<&mut Vec<ParseWarning>>,
 ) {
     if let MetadataValue::Unknown {
         expected, reason, ..
     } = value
     {
-        let expected = expected
+        let expected_str = expected
             .as_ref()
             .map(tag_kind_summary)
             .or_else(|| info.map(|i| tag_kind_summary(&i.kind)))
             .unwrap_or_else(|| "<no schema>".to_string());
-        log::warn!(
-            "[parse_exiftool] Unparsed metadata: file={} tag={} pass={} expected={} raw_type={} raw={} reason={}",
-            rel_path,
-            key,
-            pass_name,
-            expected,
-            json_value_kind(raw),
-            json_preview(raw),
-            reason.as_deref().unwrap_or("<unknown>")
-        );
+        let reason_str = reason.as_deref().unwrap_or("<unknown>").to_string();
+
+        let warning = ParseWarning {
+            rel_path: rel_path.to_string(),
+            tag: key.to_string(),
+            pass_name: pass_name.to_string(),
+            expected: expected_str,
+            raw_type: json_value_kind(raw),
+            raw: raw.clone(),
+            reason: reason_str,
+        };
+
+        if let Some(acc) = warnings_accumulator {
+            acc.push(warning);
+        } else {
+            log_single_warning(&warning);
+        }
     }
 }
 
@@ -546,6 +695,7 @@ fn parse_exiftool_batch_json(
             &display_values,
             registry,
             rel_path,
+            None,
         );
         results.push(ImageMetadata {
             relative_path: rel_path.clone(),
@@ -1052,7 +1202,7 @@ mod tests {
             ("EXIF:ExposureTime".to_string(), serde_json::json!("1/64")),
         ]);
 
-        let values = canonical_values_from_exiftool_pair(&raw, &display, Some(&reg), "photo.jpg");
+        let values = canonical_values_from_exiftool_pair(&raw, &display, Some(&reg), "photo.jpg", None);
 
         assert_eq!(
             values.get("EXIF:Make"),
@@ -1075,7 +1225,7 @@ mod tests {
         let raw = HashMap::from([("EXIF:ExposureTime".to_string(), serde_json::json!(0.015625))]);
         let display = HashMap::from([("EXIF:ExposureTime".to_string(), serde_json::json!("1/64"))]);
 
-        let values = canonical_values_from_exiftool_pair(&raw, &display, Some(&reg), "photo.jpg");
+        let values = canonical_values_from_exiftool_pair(&raw, &display, Some(&reg), "photo.jpg", None);
 
         match values.get("EXIF:ExposureTime") {
             Some(MetadataValue::Rational(r)) => {
@@ -1092,7 +1242,7 @@ mod tests {
         let raw = HashMap::new();
         let display = HashMap::from([("EXIF:Model".to_string(), serde_json::json!("X100V"))]);
 
-        let values = canonical_values_from_exiftool_pair(&raw, &display, Some(&reg), "photo.jpg");
+        let values = canonical_values_from_exiftool_pair(&raw, &display, Some(&reg), "photo.jpg", None);
 
         assert_eq!(
             values.get("EXIF:Model"),
@@ -1106,7 +1256,7 @@ mod tests {
         let raw = HashMap::from([("EXIF:ISO".to_string(), serde_json::json!(400))]);
         let display = HashMap::new();
 
-        let values = canonical_values_from_exiftool_pair(&raw, &display, Some(&reg), "photo.jpg");
+        let values = canonical_values_from_exiftool_pair(&raw, &display, Some(&reg), "photo.jpg", None);
 
         assert_eq!(values.get("EXIF:ISO"), Some(&MetadataValue::Integer(400)));
     }
@@ -1123,7 +1273,7 @@ mod tests {
             ("EXIF:LensModel".to_string(), serde_json::json!("35mm f/2")),
         ]);
 
-        let values = canonical_values_from_exiftool_pair(&raw, &display, Some(&reg), "photo.jpg");
+        let values = canonical_values_from_exiftool_pair(&raw, &display, Some(&reg), "photo.jpg", None);
 
         assert_eq!(values.len(), 3);
         assert!(values.contains_key("EXIF:Make"));
@@ -1266,5 +1416,47 @@ mod tests {
             "Expected embedded thumbnail (200×150) to be accepted (≥ 160 px)"
         );
         assert!(!result.unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_warning_classification_and_aggregation() {
+        // Classification
+        assert_eq!(classify_warning("no schema entry for tag"), ParseWarningCategory::MissingSchema);
+        assert_eq!(classify_warning("schema kind is unknown"), ParseWarningCategory::UnknownSchemaKind);
+        assert_eq!(classify_warning("expected JSON integer for integer tag"), ParseWarningCategory::ParseFailed);
+
+        // Aggregation
+        let warnings = vec![
+            ParseWarning {
+                rel_path: "a.jpg".to_string(),
+                tag: "EXIF:SomeTag".to_string(),
+                pass_name: "canonical".to_string(),
+                expected: "Integer".to_string(),
+                raw_type: "string",
+                raw: serde_json::json!("Auto"),
+                reason: "expected integer for integer tag, got string".to_string(),
+            },
+            ParseWarning {
+                rel_path: "b.jpg".to_string(),
+                tag: "EXIF:SomeTag".to_string(),
+                pass_name: "canonical".to_string(),
+                expected: "Integer".to_string(),
+                raw_type: "string",
+                raw: serde_json::json!("Auto"),
+                reason: "expected integer for integer tag, got string".to_string(),
+            },
+            ParseWarning {
+                rel_path: "c.jpg".to_string(),
+                tag: "EXIF:OtherTag".to_string(),
+                pass_name: "canonical".to_string(),
+                expected: "<no schema>".to_string(),
+                raw_type: "string",
+                raw: serde_json::json!("raw"),
+                reason: "no schema entry for tag".to_string(),
+            },
+        ];
+
+        // Let's call log_aggregated_warnings to make sure it doesn't panic
+        log_aggregated_warnings(&warnings);
     }
 }
