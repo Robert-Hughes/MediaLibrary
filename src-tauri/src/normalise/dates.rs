@@ -104,6 +104,7 @@ fn dt_value(date: DateValue, time: TimeValue) -> DateTimeValue {
     DateTimeValue { date, time }
 }
 
+#[cfg(test)]
 fn offset_to_string(offset: &UtcOffsetValue) -> String {
     let sign = match offset.sign {
         OffsetSign::Plus => '+',
@@ -203,13 +204,6 @@ fn parse_datetime_str(s: &str) -> Option<DateTimeValue> {
     let date = parse_date_str(&s[..sep_idx])?;
     let time = parse_time_str(&s[sep_idx + 1..])?;
     Some(dt_value(date, time))
-}
-
-fn text_value(v: &MetadataValue) -> Option<&str> {
-    match v {
-        MetadataValue::Text(s) => Some(s.as_str()),
-        _ => None,
-    }
 }
 
 fn offset_from_value(value: Option<&MetadataValue>) -> Option<UtcOffsetValue> {

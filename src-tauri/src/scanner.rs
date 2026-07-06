@@ -252,8 +252,10 @@ pub fn read_image_metadata_batch(
         let key = abs_path.to_string_lossy().replace('\\', "/");
         let display_values = display_json.remove(&key).unwrap_or_default();
         let raw_values = raw_json.remove(&key).unwrap_or_default();
-        let metadata = semantic_values_from_json(&display_values, &raw_values, registry, false);
-        let raw_metadata = semantic_values_from_json(&raw_values, &display_values, registry, true);
+        let metadata =
+            semantic_values_from_json(&display_values, &raw_values, registry, rel_path, "display");
+        let raw_metadata =
+            semantic_values_from_json(&raw_values, &display_values, registry, rel_path, "raw");
         if metadata.is_empty() {
             log::warn!("[parse_exiftool] Warning: no display metadata for {}", key);
         }
@@ -409,21 +411,93 @@ fn semantic_values_from_json(
     primary: &HashMap<String, serde_json::Value>,
     paired: &HashMap<String, serde_json::Value>,
     registry: Option<&crate::tag_schema::TagRegistry>,
-    primary_is_raw: bool,
+    rel_path: &str,
+    pass_name: &str,
 ) -> HashMap<String, MetadataValue> {
     primary
         .iter()
         .map(|(key, raw)| {
             let info = registry.and_then(|r| r.lookup(key));
             let display = paired.get(key);
-            let value = if primary_is_raw {
+            let value = if pass_name == "raw" {
                 parse_metadata_value(key, info.map(|i| &i.kind), raw, display)
             } else {
                 parse_metadata_value(key, info.map(|i| &i.kind), raw, Some(raw))
             };
+            if let MetadataValue::Unknown {
+                expected,
+                reason,
+                ..
+            } = &value
+            {
+                let expected = expected
+                    .as_ref()
+                    .map(tag_kind_summary)
+                    .or_else(|| info.map(|i| tag_kind_summary(&i.kind)))
+                    .unwrap_or_else(|| "<no schema>".to_string());
+                log::warn!(
+                    "[parse_exiftool] Unparsed metadata: file={} tag={} pass={} expected={} raw_type={} raw={} reason={}",
+                    rel_path,
+                    key,
+                    pass_name,
+                    expected,
+                    json_value_kind(raw),
+                    json_preview(raw),
+                    reason.as_deref().unwrap_or("<unknown>")
+                );
+            }
             (key.clone(), value)
         })
         .collect()
+}
+
+fn json_value_kind(value: &serde_json::Value) -> &'static str {
+    match value {
+        serde_json::Value::Null => "null",
+        serde_json::Value::Bool(_) => "bool",
+        serde_json::Value::Number(n) if n.is_i64() || n.is_u64() => "integer",
+        serde_json::Value::Number(_) => "number",
+        serde_json::Value::String(_) => "string",
+        serde_json::Value::Array(_) => "array",
+        serde_json::Value::Object(_) => "object",
+    }
+}
+
+fn json_preview(value: &serde_json::Value) -> String {
+    const MAX_CHARS: usize = 240;
+    const ELLIPSIS: &str = "...";
+    let raw = serde_json::to_string(value).unwrap_or_else(|_| "<unserializable>".to_string());
+    let mut chars = raw.chars();
+    let preview: String = chars.by_ref().take(MAX_CHARS - ELLIPSIS.len()).collect();
+    if chars.next().is_some() {
+        format!("{preview}{ELLIPSIS}")
+    } else {
+        raw
+    }
+}
+
+fn tag_kind_summary(kind: &crate::tag_schema::TagKind) -> String {
+    use crate::tag_schema::TagKind;
+
+    match kind {
+        TagKind::Text => "Text".to_string(),
+        TagKind::LangAlt => "LangAlt".to_string(),
+        TagKind::Integer { .. } => "Integer".to_string(),
+        TagKind::Real => "Real".to_string(),
+        TagKind::Rational => "Rational".to_string(),
+        TagKind::Boolean => "Boolean".to_string(),
+        TagKind::Date => "Date".to_string(),
+        TagKind::Time => "Time".to_string(),
+        TagKind::DateTime => "DateTime".to_string(),
+        TagKind::TimeOffset => "TimeOffset".to_string(),
+        TagKind::Enum { repr, options } => format!("Enum({repr:?}, {} options)", options.len()),
+        TagKind::Bag(inner) => format!("Bag<{}>", tag_kind_summary(inner)),
+        TagKind::Seq(inner) => format!("Seq<{}>", tag_kind_summary(inner)),
+        TagKind::Alt(inner) => format!("Alt<{}>", tag_kind_summary(inner)),
+        TagKind::Struct(fields) => format!("Struct({} fields)", fields.len()),
+        TagKind::Binary => "Binary".to_string(),
+        TagKind::Unknown => "Unknown".to_string(),
+    }
 }
 
 fn is_binary_tag(key: &str, registry: Option<&crate::tag_schema::TagRegistry>) -> bool {
@@ -471,7 +545,13 @@ fn parse_exiftool_batch_json(
             );
             HashMap::new()
         });
-        let metadata = semantic_values_from_json(&display_values, &HashMap::new(), registry, false);
+        let metadata = semantic_values_from_json(
+            &display_values,
+            &HashMap::new(),
+            registry,
+            rel_path,
+            "display",
+        );
         results.push(ImageMetadata {
             relative_path: rel_path.clone(),
             metadata,
@@ -891,6 +971,39 @@ mod tests {
             image.metadata.get("MadeUp:Thing"),
             Some(MetadataValue::Unknown { expected: None, raw, .. }) if raw == &serde_json::json!(5)
         ));
+    }
+
+    #[test]
+    fn json_preview_is_bounded() {
+        let value = serde_json::json!("x".repeat(400));
+        let preview = json_preview(&value);
+        assert!(
+            preview.chars().count() <= 240,
+            "preview should be capped, got {} chars",
+            preview.chars().count()
+        );
+        assert!(preview.ends_with("..."));
+    }
+
+    #[test]
+    fn json_helpers_summarise_raw_values_safely() {
+        assert_eq!(json_value_kind(&serde_json::json!(null)), "null");
+        assert_eq!(json_value_kind(&serde_json::json!(true)), "bool");
+        assert_eq!(json_value_kind(&serde_json::json!(7)), "integer");
+        assert_eq!(json_value_kind(&serde_json::json!(1.25)), "number");
+        assert_eq!(json_value_kind(&serde_json::json!("line\nbreak")), "string");
+        assert_eq!(json_value_kind(&serde_json::json!([1, 2])), "array");
+        assert_eq!(json_value_kind(&serde_json::json!({"a": 1})), "object");
+        assert_eq!(
+            json_preview(&serde_json::json!("line\nbreak")),
+            r#""line\nbreak""#
+        );
+        assert_eq!(
+            tag_kind_summary(&crate::tag_schema::TagKind::Bag(Box::new(
+                crate::tag_schema::TagKind::Text
+            ))),
+            "Bag<Text>"
+        );
     }
 
     fn binary_registry() -> crate::tag_schema::TagRegistry {
