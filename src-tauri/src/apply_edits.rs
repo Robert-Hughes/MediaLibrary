@@ -228,6 +228,8 @@ pub fn apply_single_file_metadata(
             sent: edit.value.clone(),
             before_display: before_display.get(key).cloned(),
             observed_display: fresh_display.get(key).cloned(),
+            // TODO: This compatibility field now carries canonical metadata;
+            // rename it to observed_canonical in a later wire-shape break.
             observed_raw: fresh_canonical.get(key).cloned(),
             message,
         });
@@ -247,7 +249,7 @@ pub fn apply_single_file_metadata(
     );
 
     MetadataSingleFileOutcome {
-        fresh_metadata: Some(fresh_display),
+        fresh_metadata: Some(fresh_canonical),
         error: first_mismatch,
         outcomes: tag_outcomes,
         tags_to_clear,

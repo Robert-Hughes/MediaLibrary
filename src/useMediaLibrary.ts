@@ -275,8 +275,8 @@ export function useMediaLibrary(
       });
     };
 
-    // Flush metadata batch - updates ImageMetadataStore and MetadataProgressStore
-    // without rebuilding the entire photos array
+    // Flush canonical metadata batch into ImageMetadataStore. Scan events still
+    // carry display_metadata temporarily for compatibility/debugging.
     const flushMetadataBatch = () => {
       const batch = [...metadataBufferRef.current];
       metadataBufferRef.current = [];
@@ -287,7 +287,7 @@ export function useMediaLibrary(
       for (const res of batch) {
         imageMetadataStoreRef.current.set(
           res.relative_path,
-          normalizeMetadataFromTauri(res.display_metadata),
+          normalizeMetadataFromTauri(res.metadata),
         );
       }
 
@@ -976,7 +976,7 @@ function handleApplyEditsProgress(
   imageMetadataStore: ImageMetadataStore,
   setAppState: React.Dispatch<React.SetStateAction<AppState>>,
 ) {
-  // Apply per-file changes incrementally so the UI reflects file/disk
+  // Apply fresh canonical metadata incrementally so the UI reflects file/disk
   // state in real time and a crash mid-operation leaves coherent state.
   if (payload.fresh_metadata) {
     imageMetadataStore.set(

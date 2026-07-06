@@ -379,8 +379,12 @@ fn roundtrip_set_orientation_via_numeric_pass() {
 
     let after = read_one(dir.path(), &dst);
     match after.metadata.get("IFD0:Orientation") {
+        Some(MetadataValue::Integer(n)) => assert_eq!(*n, 3),
+        other => panic!("expected canonical Orientation 3, got {:?}", other),
+    }
+    match after.display_metadata.get("IFD0:Orientation") {
         Some(MetadataValue::Text(s)) => assert_eq!(s, "Rotate 180"),
-        other => panic!("expected pretty Orientation 'Rotate 180', got {:?}", other),
+        other => panic!("expected display Orientation 'Rotate 180', got {:?}", other),
     }
 }
 
