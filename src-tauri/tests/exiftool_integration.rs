@@ -109,19 +109,19 @@ fn metadata_drafts(
 // ── Scanner two-pass smoke test ──────────────────────────────────────────────
 
 #[test]
-fn scanner_two_pass_returns_display_and_raw() {
+fn scanner_two_pass_returns_display_and_canonical() {
     let Some(src) = fixture_path("real_with_exif.jpg") else {
         return;
     };
     let (_dir, dst) = copy_to_temp(&src);
     let m = read_one(_dir.path(), &dst);
     assert!(
-        !m.metadata.is_empty(),
+        !m.display_metadata.is_empty(),
         "display metadata should be non-empty"
     );
-    // Raw may be empty if -n pass produced no output for this file, but the
-    // field must exist and parse.  This sanity-checks the new struct shape.
-    let _ = m.raw_metadata;
+    // Canonical may be empty if the two-pass read produced no usable values,
+    // but the field must exist and parse. This sanity-checks the struct shape.
+    let _ = m.metadata;
 }
 
 // ── apply_edits text round-trip ──────────────────────────────────────────────
@@ -153,7 +153,7 @@ fn apply_text_edit_roundtrip_iptc_city() {
     assert_eq!(result.applied, vec![rel.clone()]);
 
     let m = read_one(dir.path(), &dst);
-    let got = m.metadata.get("IPTC:City").cloned();
+    let got = m.display_metadata.get("IPTC:City").cloned();
     match got {
         Some(MetadataValue::Text(s)) => assert_eq!(s, value),
         other => panic!("expected IPTC City set, got {:?}", other),
@@ -190,7 +190,7 @@ fn apply_delete_edit_removes_tag() {
 
     // Step 3: re-read; City should be absent or empty.
     let m = read_one(dir.path(), &dst);
-    let got = m.metadata.get("IPTC:City");
+    let got = m.display_metadata.get("IPTC:City");
     match got {
         None => {}
         Some(MetadataValue::Text(s)) => assert!(s.is_empty(), "expected empty, got {:?}", s),
@@ -208,7 +208,7 @@ fn fixture_keywords_basic_has_two_keywords() {
     };
     let (_dir, dst) = copy_to_temp(&src);
     let m = read_one(_dir.path(), &dst);
-    match m.metadata.get("XMP-dc:Subject") {
+    match m.display_metadata.get("XMP-dc:Subject") {
         Some(MetadataValue::List { items, .. }) => {
             assert_eq!(items.len(), 2, "expected two subjects, got {:?}", items);
             let strs: Vec<String> = items
@@ -239,12 +239,12 @@ fn fixture_orientation_rotate90_pretty_and_raw_match_design() {
     let (_dir, dst) = copy_to_temp(&src);
     let m = read_one(_dir.path(), &dst);
     // Display: pretty label.
-    match m.metadata.get("IFD0:Orientation") {
+    match m.display_metadata.get("IFD0:Orientation") {
         Some(MetadataValue::Text(s)) => assert_eq!(s, "Rotate 90 CW"),
         other => panic!("expected Orientation pretty string, got {:?}", other),
     }
-    // Raw: integer 6 (lives in raw_metadata when Pass B ran).
-    match m.raw_metadata.get("IFD0:Orientation") {
+    // Canonical: integer 6, primarily from the raw Pass B output.
+    match m.metadata.get("IFD0:Orientation") {
         Some(MetadataValue::Integer(n)) => assert_eq!(*n, 6),
         Some(MetadataValue::Text(s)) if s == "6" => {} // some exiftool builds emit "6" as string under -n
         other => panic!("expected raw Orientation=6, got {:?}", other),
@@ -264,10 +264,10 @@ fn fixture_langalt_description_pretty_and_raw_match_design() {
     // the english/french strings are findable.
     let combined: String = format!(
         "{:?} {:?} {:?} {:?}",
-        m.metadata.get("XMP-dc:Description"),
-        m.metadata.get("XMP-dc:Description-en"),
-        m.metadata.get("XMP-dc:Description-fr"),
-        m.metadata.get("XMP-dc:Description-x-default"),
+        m.display_metadata.get("XMP-dc:Description"),
+        m.display_metadata.get("XMP-dc:Description-en"),
+        m.display_metadata.get("XMP-dc:Description-fr"),
+        m.display_metadata.get("XMP-dc:Description-x-default"),
     );
     assert!(
         combined.contains("default text"),
@@ -294,8 +294,8 @@ fn fixture_rating_5_pretty_and_raw_match_design() {
     let (_dir, dst) = copy_to_temp(&src);
     let m = read_one(_dir.path(), &dst);
     // Rating is a real that exiftool prints without PrintConv → "5".
-    let display = m.metadata.get("XMP-xmp:Rating");
-    let raw = m.raw_metadata.get("XMP-xmp:Rating");
+    let display = m.display_metadata.get("XMP-xmp:Rating");
+    let raw = m.metadata.get("XMP-xmp:Rating");
     let display_ok = match display {
         Some(MetadataValue::Integer(5)) => true,
         Some(MetadataValue::Real(f)) => (f - 5.0).abs() < 1e-9,
@@ -326,7 +326,7 @@ fn roundtrip_set_rating() {
 
     // Confirm starting state.
     let before = read_one(dir.path(), &dst);
-    let starting_rating = before.raw_metadata.get("XMP-xmp:Rating").cloned();
+    let starting_rating = before.metadata.get("XMP-xmp:Rating").cloned();
     assert!(
         starting_rating.is_some(),
         "fixture should start with a Rating"
@@ -344,8 +344,8 @@ fn roundtrip_set_rating() {
     assert!(result.failed.is_empty(), "failed: {:?}", result.failed);
 
     let after = read_one(dir.path(), &dst);
-    let raw = after.raw_metadata.get("XMP-xmp:Rating");
-    let display = after.metadata.get("XMP-xmp:Rating");
+    let raw = after.metadata.get("XMP-xmp:Rating");
+    let display = after.display_metadata.get("XMP-xmp:Rating");
     let ok = matches!(raw, Some(MetadataValue::Integer(5)))
         || matches!(raw, Some(MetadataValue::Real(f)) if (f - 5.0).abs() < 1e-6)
         || matches!(display, Some(MetadataValue::Text(s)) if s == "5" || s == "5.0");

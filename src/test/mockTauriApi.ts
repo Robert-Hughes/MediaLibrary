@@ -23,8 +23,9 @@ export interface MockTauriApi {
   emitScanComplete: (scanId?: number) => void;
   emitImageMetadataReady: (
     relativePath: string,
-    metadata: Record<string, MetadataValue>,
+    displayMetadata: Record<string, MetadataValue>,
     scanId?: number,
+    canonicalMetadata?: Record<string, MetadataValue>,
   ) => void;
   emitThumbnailReady: (
     relativePath: string,
@@ -167,10 +168,15 @@ export function createMockTauriApi(): MockTauriApi {
       } satisfies PhotoFoundPayload),
     emitScanComplete: (scanId) =>
       emit("scan_complete", { scan_id: scanId ?? mock.currentScanId }),
-    emitImageMetadataReady: (relative_path, metadata, scanId) =>
+    emitImageMetadataReady: (
+      relative_path,
+      display_metadata,
+      scanId,
+      metadata = display_metadata,
+    ) =>
       emit("image_metadata_ready", {
         scan_id: scanId ?? mock.currentScanId,
-        results: [{ relative_path, metadata }],
+        results: [{ relative_path, display_metadata, metadata }],
       } satisfies ImageMetadataReadyPayload),
     emitThumbnailReady: (relative_path, thumbnail, scanId) =>
       emit("thumbnail_ready", {

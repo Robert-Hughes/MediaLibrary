@@ -111,23 +111,24 @@ pub fn apply_single_file_metadata(
 
     let registry = crate::tag_schema::get_registry().ok();
 
-    let (before_display, before_raw, before_read_failed) = match scanner::read_image_metadata_batch(
-        &[rel_path.to_string()],
-        std::slice::from_ref(&abs_path),
-    ) {
-        Ok(mut results) => match results.pop() {
-            Some(r) => (r.metadata, r.raw_metadata, false),
-            None => (HashMap::new(), HashMap::new(), false),
-        },
-        Err(e) => {
-            log::warn!(
-                "[apply_edits] Semantic pre-write read failed for {}: {}",
-                rel_path,
-                e
-            );
-            (HashMap::new(), HashMap::new(), true)
-        }
-    };
+    let (before_display, before_canonical, before_read_failed) =
+        match scanner::read_image_metadata_batch(
+            &[rel_path.to_string()],
+            std::slice::from_ref(&abs_path),
+        ) {
+            Ok(mut results) => match results.pop() {
+                Some(r) => (r.display_metadata, r.metadata, false),
+                None => (HashMap::new(), HashMap::new(), false),
+            },
+            Err(e) => {
+                log::warn!(
+                    "[apply_edits] Semantic pre-write read failed for {}: {}",
+                    rel_path,
+                    e
+                );
+                (HashMap::new(), HashMap::new(), true)
+            }
+        };
 
     let mut combined = crate::write_args::BuiltArgs::default();
     let mut argv_by_tag: HashMap<String, Vec<String>> = HashMap::new();
@@ -160,10 +161,10 @@ pub fn apply_single_file_metadata(
         }
     }
 
-    let (fresh_display, fresh_raw) =
+    let (fresh_display, fresh_canonical) =
         match scanner::read_image_metadata_batch(&[rel_path.to_string()], &[abs_path]) {
             Ok(mut results) => match results.pop() {
-                Some(r) => (r.metadata, r.raw_metadata),
+                Some(r) => (r.display_metadata, r.metadata),
                 None => {
                     return MetadataSingleFileOutcome::hard_failure(
                         "Post-write read returned no entry".to_string(),
@@ -187,26 +188,26 @@ pub fn apply_single_file_metadata(
         let info = registry.and_then(|r| r.lookup(key));
         let kind = info.map(|i| i.kind.clone());
         let (outcome_kind, message) = match edit.intent {
-            EditIntent::Delete => verify_metadata_delete(key, &fresh_raw, &fresh_display),
+            EditIntent::Delete => verify_metadata_delete(key, &fresh_canonical, &fresh_display),
             EditIntent::Set => verify_metadata_set(
                 key,
                 edit.value.as_ref(),
                 &fresh_display,
-                &fresh_raw,
+                &fresh_canonical,
                 kind.as_ref(),
             ),
             EditIntent::ListAdd => verify_metadata_list_add(
                 key,
                 edit.value.as_ref(),
                 &fresh_display,
-                &fresh_raw,
+                &fresh_canonical,
                 kind.as_ref(),
             ),
             EditIntent::ListRemove => verify_metadata_list_remove(
                 key,
                 edit.value.as_ref(),
                 &fresh_display,
-                &fresh_raw,
+                &fresh_canonical,
                 kind.as_ref(),
             ),
         };
@@ -227,7 +228,7 @@ pub fn apply_single_file_metadata(
             sent: edit.value.clone(),
             before_display: before_display.get(key).cloned(),
             observed_display: fresh_display.get(key).cloned(),
-            observed_raw: fresh_raw.get(key).cloned(),
+            observed_raw: fresh_canonical.get(key).cloned(),
             message,
         });
     }
@@ -238,9 +239,9 @@ pub fn apply_single_file_metadata(
         edits,
         &argv_by_tag,
         &before_display,
-        &before_raw,
+        &before_canonical,
         &fresh_display,
-        &fresh_raw,
+        &fresh_canonical,
         &tag_outcomes,
         before_read_failed,
     );

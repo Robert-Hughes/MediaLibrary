@@ -243,6 +243,7 @@ struct ImageMetadataReadyPayload {
 #[derive(Clone, Serialize)]
 struct ImageMetadataResult {
     relative_path: String,
+    display_metadata: std::collections::HashMap<String, metadata_value::MetadataValue>,
     metadata: std::collections::HashMap<String, metadata_value::MetadataValue>,
 }
 
@@ -430,6 +431,7 @@ fn start_scan(
                                 for info in results {
                                     batch_results.push(ImageMetadataResult {
                                         relative_path: info.relative_path,
+                                        display_metadata: info.display_metadata,
                                         metadata: info.metadata,
                                     });
                                 }
@@ -450,16 +452,18 @@ fn start_scan(
 
                                 // Send empty metadata for failed files so UI shows "failed" instead of spinner
                                 for rel_path in rel_paths {
+                                    let display_metadata = [(
+                                        "_error".to_string(),
+                                        metadata_value::MetadataValue::Text(
+                                            "Failed to load metadata".to_string(),
+                                        ),
+                                    )]
+                                    .into_iter()
+                                    .collect();
                                     batch_results.push(ImageMetadataResult {
                                         relative_path: rel_path,
-                                        metadata: [(
-                                            "_error".to_string(),
-                                            metadata_value::MetadataValue::Text(
-                                                "Failed to load metadata".to_string(),
-                                            ),
-                                        )]
-                                        .into_iter()
-                                        .collect(),
+                                        display_metadata,
+                                        metadata: std::collections::HashMap::new(),
                                     });
                                 }
                             }
