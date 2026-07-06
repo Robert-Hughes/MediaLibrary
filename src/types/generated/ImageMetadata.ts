@@ -4,17 +4,8 @@ import type { MetadataValue } from "./MetadataValue";
 /**
  * Image-level metadata for a single photo, delivered asynchronously after discovery.
  *
- * Two metadata maps for the same file, captured in one scan cycle (see
- * `read_image_metadata_batch`):
- *
- * - `display_metadata` — semantic parse of exiftool's pretty/display values
- *   (e.g. `Orientation = "Rotate 90 CW"`, `ExposureTime = "1/250"`). This is
- *   temporarily exposed for UI compatibility and will be removed once
- *   consumers use canonical metadata plus app-side formatting.
- * - `metadata` — canonical semantic values built primarily from exiftool `-n`
- *   output, with display output used as a hint/fallback.
- *
- * Both are populated atomically — no half-loaded state. See
- * METADATA_FORMATS_DESIGN.md §4 for the full rationale.
+ * `metadata` is canonical semantic app metadata. ExifTool display/pretty JSON
+ * may be read internally as parsing hints, but it is not exposed as app
+ * metadata.
  */
-export type ImageMetadata = { relative_path: string, display_metadata: { [key in string]?: MetadataValue }, metadata: { [key in string]?: MetadataValue }, };
+export type ImageMetadata = { relative_path: string, metadata: { [key in string]?: MetadataValue }, };

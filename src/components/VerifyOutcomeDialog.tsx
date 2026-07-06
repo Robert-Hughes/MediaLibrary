@@ -5,7 +5,7 @@
 // run, grouped by file.  For Coerced entries the user can:
 //
 //   - Accept  — drop the draft so the "saved" view matches what exiftool wrote.
-//   - Revert  — re-stage the draft with the raw value the file actually holds.
+//   - Revert  — re-stage the draft with the value the file actually holds.
 //
 // Mismatch / MissingPostWrite / DeleteLingering rows are info-only here: the
 // draft is retained, the user must edit it themselves to fix it, and they can
@@ -17,11 +17,7 @@ import { variantToDisplayString } from "../draft";
 interface Props {
   outcomes: Record<string, TagOutcomeEntry[]>;
   onAccept: (file: string, tag: string) => void;
-  onRevert: (
-    file: string,
-    tag: string,
-    observedRaw: MetadataValue | null,
-  ) => void;
+  onRevert: (file: string, tag: string, observed: MetadataValue | null) => void;
   onDismiss: (file: string, tag: string) => void;
   onDismissAll: () => void;
 }
@@ -105,8 +101,7 @@ export function VerifyOutcomeDialog({
                       label: entry.kind,
                       cls: "verify-badge",
                     };
-                    const observedForRevert =
-                      entry.observedRaw ?? entry.observedDisplay ?? null;
+                    const observedForRevert = entry.observed ?? null;
                     return (
                       <tr
                         key={entry.tag}
@@ -124,9 +119,7 @@ export function VerifyOutcomeDialog({
                           {variantToDisplayString(entry.sent)}
                         </td>
                         <td style={{ padding: "4px 6px" }}>
-                          {variantToDisplayString(
-                            entry.observedDisplay ?? entry.observedRaw,
-                          )}
+                          {variantToDisplayString(entry.observed)}
                         </td>
                         <td style={{ padding: "4px 6px" }}>
                           <span

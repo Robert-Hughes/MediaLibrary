@@ -51,9 +51,8 @@ pub struct MetadataTagOutcome {
     pub tag: String,
     pub kind: String,
     pub sent: Option<MetadataValue>,
-    pub before_display: Option<MetadataValue>,
-    pub observed_display: Option<MetadataValue>,
-    pub observed_raw: Option<MetadataValue>,
+    pub before: Option<MetadataValue>,
+    pub observed: Option<MetadataValue>,
     pub message: Option<String>,
 }
 
@@ -111,24 +110,23 @@ pub fn apply_single_file_metadata(
 
     let registry = crate::tag_schema::get_registry().ok();
 
-    let (before_display, before_canonical, before_read_failed) =
-        match scanner::read_image_metadata_batch(
-            &[rel_path.to_string()],
-            std::slice::from_ref(&abs_path),
-        ) {
-            Ok(mut results) => match results.pop() {
-                Some(r) => (r.display_metadata, r.metadata, false),
-                None => (HashMap::new(), HashMap::new(), false),
-            },
-            Err(e) => {
-                log::warn!(
-                    "[apply_edits] Semantic pre-write read failed for {}: {}",
-                    rel_path,
-                    e
-                );
-                (HashMap::new(), HashMap::new(), true)
-            }
-        };
+    let (before_metadata, before_read_failed) = match scanner::read_image_metadata_batch(
+        &[rel_path.to_string()],
+        std::slice::from_ref(&abs_path),
+    ) {
+        Ok(mut results) => match results.pop() {
+            Some(r) => (r.metadata, false),
+            None => (HashMap::new(), false),
+        },
+        Err(e) => {
+            log::warn!(
+                "[apply_edits] Semantic pre-write read failed for {}: {}",
+                rel_path,
+                e
+            );
+            (HashMap::new(), true)
+        }
+    };
 
     let mut combined = crate::write_args::BuiltArgs::default();
     let mut argv_by_tag: HashMap<String, Vec<String>> = HashMap::new();
@@ -161,10 +159,10 @@ pub fn apply_single_file_metadata(
         }
     }
 
-    let (fresh_display, fresh_canonical) =
+    let fresh_metadata =
         match scanner::read_image_metadata_batch(&[rel_path.to_string()], &[abs_path]) {
             Ok(mut results) => match results.pop() {
-                Some(r) => (r.display_metadata, r.metadata),
+                Some(r) => r.metadata,
                 None => {
                     return MetadataSingleFileOutcome::hard_failure(
                         "Post-write read returned no entry".to_string(),
@@ -188,26 +186,17 @@ pub fn apply_single_file_metadata(
         let info = registry.and_then(|r| r.lookup(key));
         let kind = info.map(|i| i.kind.clone());
         let (outcome_kind, message) = match edit.intent {
-            EditIntent::Delete => verify_metadata_delete(key, &fresh_canonical, &fresh_display),
-            EditIntent::Set => verify_metadata_set(
-                key,
-                edit.value.as_ref(),
-                &fresh_display,
-                &fresh_canonical,
-                kind.as_ref(),
-            ),
-            EditIntent::ListAdd => verify_metadata_list_add(
-                key,
-                edit.value.as_ref(),
-                &fresh_display,
-                &fresh_canonical,
-                kind.as_ref(),
-            ),
+            EditIntent::Delete => verify_metadata_delete(key, &fresh_metadata),
+            EditIntent::Set => {
+                verify_metadata_set(key, edit.value.as_ref(), &fresh_metadata, kind.as_ref())
+            }
+            EditIntent::ListAdd => {
+                verify_metadata_list_add(key, edit.value.as_ref(), &fresh_metadata, kind.as_ref())
+            }
             EditIntent::ListRemove => verify_metadata_list_remove(
                 key,
                 edit.value.as_ref(),
-                &fresh_display,
-                &fresh_canonical,
+                &fresh_metadata,
                 kind.as_ref(),
             ),
         };
@@ -226,11 +215,8 @@ pub fn apply_single_file_metadata(
             tag: key.clone(),
             kind: outcome_kind,
             sent: edit.value.clone(),
-            before_display: before_display.get(key).cloned(),
-            observed_display: fresh_display.get(key).cloned(),
-            // TODO: This compatibility field now carries canonical metadata;
-            // rename it to observed_canonical in a later wire-shape break.
-            observed_raw: fresh_canonical.get(key).cloned(),
+            before: before_metadata.get(key).cloned(),
+            observed: fresh_metadata.get(key).cloned(),
             message,
         });
     }
@@ -240,16 +226,14 @@ pub fn apply_single_file_metadata(
         rel_path,
         edits,
         &argv_by_tag,
-        &before_display,
-        &before_canonical,
-        &fresh_display,
-        &fresh_canonical,
+        &before_metadata,
+        &fresh_metadata,
         &tag_outcomes,
         before_read_failed,
     );
 
     MetadataSingleFileOutcome {
-        fresh_metadata: Some(fresh_canonical),
+        fresh_metadata: Some(fresh_metadata),
         error: first_mismatch,
         outcomes: tag_outcomes,
         tags_to_clear,
@@ -259,8 +243,7 @@ pub fn apply_single_file_metadata(
 fn verify_metadata_set(
     key: &str,
     expected: Option<&MetadataValue>,
-    fresh_display: &HashMap<String, MetadataValue>,
-    fresh_raw: &HashMap<String, MetadataValue>,
+    fresh_metadata: &HashMap<String, MetadataValue>,
     kind: Option<&TagKind>,
 ) -> (String, Option<String>) {
     let expected = match expected {
@@ -268,17 +251,13 @@ fn verify_metadata_set(
         None => return ("Match".to_string(), None),
     };
 
-    let display_v = fresh_display.get(key);
-    let raw_v = fresh_raw.get(key);
+    let observed = fresh_metadata.get(key);
 
-    if metadata_empty_value(expected)
-        && metadata_empty_or_absent(display_v)
-        && metadata_empty_or_absent(raw_v)
-    {
+    if metadata_empty_value(expected) && metadata_empty_or_absent(observed) {
         return ("Match".to_string(), None);
     }
 
-    if display_v.is_none() && raw_v.is_none() {
+    if observed.is_none() {
         return (
             "MissingPostWrite".to_string(),
             Some(format!(
@@ -288,13 +267,11 @@ fn verify_metadata_set(
         );
     }
 
-    if display_v.is_some_and(|v| metadata_strict_eq(v, expected))
-        || raw_v.is_some_and(|v| metadata_strict_eq(v, expected))
-    {
+    if observed.is_some_and(|v| metadata_strict_eq(v, expected)) {
         return ("Match".to_string(), None);
     }
 
-    if display_v.is_some_and(metadata_unparsed) || raw_v.is_some_and(metadata_unparsed) {
+    if observed.is_some_and(metadata_unparsed) {
         return (
             "UnparsedPostWrite".to_string(),
             Some(format!(
@@ -304,14 +281,12 @@ fn verify_metadata_set(
         );
     }
 
-    if matches_metadata_value(display_v, expected, kind)
-        || matches_metadata_value(raw_v, expected, kind)
-    {
+    if matches_metadata_value(observed, expected, kind) {
         return (
             "Coerced".to_string(),
             Some(format!(
-                "exiftool normalised {}: sent {:?}, file holds display={:?}, raw={:?}",
-                key, expected, display_v, raw_v
+                "exiftool normalised {}: sent {:?}, file holds {:?}",
+                key, expected, observed
             )),
         );
     }
@@ -319,29 +294,25 @@ fn verify_metadata_set(
     (
         "Mismatch".to_string(),
         Some(format!(
-            "Verification failed for {}: expected {:?}, got display={:?}, raw={:?}",
-            key, expected, display_v, raw_v
+            "Verification failed for {}: expected {:?}, got {:?}",
+            key, expected, observed
         )),
     )
 }
 
 fn verify_metadata_delete(
     key: &str,
-    fresh_raw: &HashMap<String, MetadataValue>,
-    fresh_display: &HashMap<String, MetadataValue>,
+    fresh_metadata: &HashMap<String, MetadataValue>,
 ) -> (String, Option<String>) {
-    if metadata_empty_or_absent(fresh_raw.get(key))
-        && metadata_empty_or_absent(fresh_display.get(key))
-    {
+    if metadata_empty_or_absent(fresh_metadata.get(key)) {
         ("DeleteOk".to_string(), None)
     } else {
         (
             "DeleteLingering".to_string(),
             Some(format!(
-                "Delete verification failed for {}: tag still present (display={:?}, raw={:?})",
+                "Delete verification failed for {}: tag still present ({:?})",
                 key,
-                fresh_display.get(key),
-                fresh_raw.get(key)
+                fresh_metadata.get(key)
             )),
         )
     }
@@ -350,17 +321,14 @@ fn verify_metadata_delete(
 fn verify_metadata_list_add(
     key: &str,
     expected: Option<&MetadataValue>,
-    fresh_display: &HashMap<String, MetadataValue>,
-    fresh_raw: &HashMap<String, MetadataValue>,
+    fresh_metadata: &HashMap<String, MetadataValue>,
     kind: Option<&TagKind>,
 ) -> (String, Option<String>) {
     let expected = match expected {
         Some(v) => v,
         None => return ("Match".to_string(), None),
     };
-    if metadata_list_contains_all(fresh_display.get(key), expected, kind)
-        || metadata_list_contains_all(fresh_raw.get(key), expected, kind)
-    {
+    if metadata_list_contains_all(fresh_metadata.get(key), expected, kind) {
         return ("Match".to_string(), None);
     }
     (
@@ -375,17 +343,14 @@ fn verify_metadata_list_add(
 fn verify_metadata_list_remove(
     key: &str,
     expected: Option<&MetadataValue>,
-    fresh_display: &HashMap<String, MetadataValue>,
-    fresh_raw: &HashMap<String, MetadataValue>,
+    fresh_metadata: &HashMap<String, MetadataValue>,
     kind: Option<&TagKind>,
 ) -> (String, Option<String>) {
     let expected = match expected {
         Some(v) => v,
         None => return ("Match".to_string(), None),
     };
-    if metadata_list_contains_none(fresh_display.get(key), expected, kind)
-        || metadata_list_contains_none(fresh_raw.get(key), expected, kind)
-    {
+    if metadata_list_contains_none(fresh_metadata.get(key), expected, kind) {
         return ("Match".to_string(), None);
     }
     (
@@ -709,42 +674,23 @@ mod tests {
 
     #[test]
     fn verify_metadata_set_distinguishes_match_coerced_mismatch_missing_and_unparsed() {
-        let display = metadata_map(&[("X", MetadataValue::Integer(5))]);
-        let raw = metadata_map(&[("X", MetadataValue::Integer(5))]);
-        let (kind, _) =
-            verify_metadata_set("X", Some(&MetadataValue::Integer(5)), &display, &raw, None);
+        let metadata = metadata_map(&[("X", MetadataValue::Integer(5))]);
+        let (kind, _) = verify_metadata_set("X", Some(&MetadataValue::Integer(5)), &metadata, None);
         assert_eq!(kind, "Match");
 
-        let raw = metadata_map(&[("X", MetadataValue::Real(5.0))]);
-        let (kind, _) = verify_metadata_set(
-            "X",
-            Some(&MetadataValue::Integer(5)),
-            &HashMap::new(),
-            &raw,
-            None,
-        );
+        let metadata = metadata_map(&[("X", MetadataValue::Real(5.0))]);
+        let (kind, _) = verify_metadata_set("X", Some(&MetadataValue::Integer(5)), &metadata, None);
         assert_eq!(kind, "Coerced");
 
-        let raw = metadata_map(&[("X", MetadataValue::Text("other".into()))]);
-        let (kind, _) = verify_metadata_set(
-            "X",
-            Some(&MetadataValue::Integer(5)),
-            &HashMap::new(),
-            &raw,
-            None,
-        );
+        let metadata = metadata_map(&[("X", MetadataValue::Text("other".into()))]);
+        let (kind, _) = verify_metadata_set("X", Some(&MetadataValue::Integer(5)), &metadata, None);
         assert_eq!(kind, "Mismatch");
 
-        let (kind, _) = verify_metadata_set(
-            "X",
-            Some(&MetadataValue::Integer(5)),
-            &HashMap::new(),
-            &HashMap::new(),
-            None,
-        );
+        let (kind, _) =
+            verify_metadata_set("X", Some(&MetadataValue::Integer(5)), &HashMap::new(), None);
         assert_eq!(kind, "MissingPostWrite");
 
-        let raw = metadata_map(&[(
+        let metadata = metadata_map(&[(
             "X",
             MetadataValue::Unknown {
                 expected: Some(TagKind::Integer {
@@ -755,19 +701,13 @@ mod tests {
                 reason: Some("bad integer".into()),
             },
         )]);
-        let (kind, _) = verify_metadata_set(
-            "X",
-            Some(&MetadataValue::Integer(5)),
-            &HashMap::new(),
-            &raw,
-            None,
-        );
+        let (kind, _) = verify_metadata_set("X", Some(&MetadataValue::Integer(5)), &metadata, None);
         assert_eq!(kind, "UnparsedPostWrite");
     }
 
     #[test]
     fn verify_metadata_rational_equivalence_uses_cross_multiply() {
-        let raw = metadata_map(&[(
+        let metadata = metadata_map(&[(
             "EXIF:ExposureTime",
             MetadataValue::Rational(RationalValue {
                 numerator: 2,
@@ -781,8 +721,7 @@ mod tests {
         let (kind, _) = verify_metadata_set(
             "EXIF:ExposureTime",
             Some(&expected),
-            &HashMap::new(),
-            &raw,
+            &metadata,
             Some(&TagKind::Rational),
         );
         assert_eq!(kind, "Match");
@@ -860,7 +799,7 @@ mod tests {
 
     #[test]
     fn verify_metadata_date_values_match_exactly() {
-        let raw = metadata_map(&[(
+        let metadata = metadata_map(&[(
             "IPTC:DateCreated",
             MetadataValue::Date(DateValue {
                 year: 2026,
@@ -876,8 +815,7 @@ mod tests {
         let (kind, _) = verify_metadata_set(
             "IPTC:DateCreated",
             Some(&expected),
-            &HashMap::new(),
-            &raw,
+            &metadata,
             Some(&TagKind::Date),
         );
         assert_eq!(kind, "Match");

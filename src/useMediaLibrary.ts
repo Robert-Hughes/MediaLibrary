@@ -79,7 +79,7 @@ export interface MediaLibraryActions {
   revertVerifyOutcome: (
     fileRelativePath: string,
     tag: string,
-    observedRaw: MetadataValue | null,
+    observed: MetadataValue | null,
   ) => void;
   /** Phase 8.1: dismiss a single pending verify outcome without touching the draft. */
   dismissVerifyOutcome: (fileRelativePath: string, tag: string) => void;
@@ -137,7 +137,6 @@ export function useMediaLibrary(
   const metadataBufferRef = useRef<
     {
       relative_path: string;
-      display_metadata: Record<string, ImageMetadataEntry>;
       metadata: Record<string, ImageMetadataEntry>;
     }[]
   >([]);
@@ -275,8 +274,7 @@ export function useMediaLibrary(
       });
     };
 
-    // Flush canonical metadata batch into ImageMetadataStore. Scan events still
-    // carry display_metadata temporarily for compatibility/debugging.
+    // Flush canonical metadata batch into ImageMetadataStore.
     const flushMetadataBatch = () => {
       const batch = [...metadataBufferRef.current];
       metadataBufferRef.current = [];
@@ -729,18 +727,14 @@ export function useMediaLibrary(
 
   /**
    * Phase 8.1 — Revert a Coerced outcome: re-stage the draft with the value
-   * exiftool actually wrote (raw view), so the user's next save attempt acts
+   * exiftool actually wrote, so the user's next save attempt acts
    * on the file as it now is rather than on the original sent value.
    */
   const revertVerifyOutcome = useCallback(
-    (
-      fileRelativePath: string,
-      tag: string,
-      observedRaw: MetadataValue | null,
-    ) => {
+    (fileRelativePath: string, tag: string, observed: MetadataValue | null) => {
       draftEditsStoreRef.current.setMetadataTag(fileRelativePath, tag, {
-        value: observedRaw,
-        intent: observedRaw === null ? "Delete" : "Set",
+        value: observed,
+        intent: observed === null ? "Delete" : "Set",
       });
       setAppState((prev) => {
         if (prev.kind !== "loaded") return prev;
