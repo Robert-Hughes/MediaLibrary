@@ -12,8 +12,9 @@ import { HighlightedText } from "./HighlightedText";
 import { Spinner } from "./Spinner";
 import {
   displayStringOfMetadataDraft,
-  variantToDisplayString as metadataValueToDisplayString,
+  metadataValueToDisplayStringForTag,
 } from "../draft";
+import { useTagInfo } from "../hooks/useTagInfo";
 
 const EMPTY_CELL = "—";
 const ERROR_CELL = "✗";
@@ -46,10 +47,36 @@ function CellContent({
   return <HighlightedText text={text} searchQuery={searchQuery} />;
 }
 
-function formatMetadataValue(v: ImageMetadataEntry | undefined): string {
+function formatMetadataValue(
+  key: string,
+  v: ImageMetadataEntry | undefined,
+  tagInfo: Exclude<ReturnType<typeof useTagInfo>, "loading">,
+): string {
   if (v === undefined) return EMPTY_CELL;
-  const s = metadataValueToDisplayString(v);
+  const s = metadataValueToDisplayStringForTag(key, v, tagInfo);
   return s === "" ? EMPTY_CELL : s;
+}
+
+function MetadataCellContent({
+  metadataKey,
+  value,
+  draft,
+  searchQuery,
+}: {
+  metadataKey: string;
+  value: ImageMetadataEntry | undefined;
+  draft?: MetadataDraftEdit;
+  searchQuery: string;
+}) {
+  const tag = useTagInfo(metadataKey);
+  const tagInfo = tag !== "loading" ? tag : null;
+  return (
+    <CellContent
+      text={formatMetadataValue(metadataKey, value, tagInfo)}
+      draft={draft}
+      searchQuery={searchQuery}
+    />
+  );
 }
 
 function osValue(photo: PhotoInfo, key: string): number | null {
@@ -250,8 +277,9 @@ export const PhotoRow = memo(function PhotoRow({
                 {ERROR_CELL}
               </span>
             ) : (
-              <CellContent
-                text={formatMetadataValue(metadata[col.key])}
+              <MetadataCellContent
+                metadataKey={col.key}
+                value={metadata[col.key]}
                 draft={draftEdits[col.key]}
                 searchQuery={searchQuery}
               />
