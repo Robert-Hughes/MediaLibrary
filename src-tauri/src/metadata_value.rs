@@ -143,7 +143,11 @@ fn parse_decimal_caps(caps: &regex::Captures) -> Option<RationalValue> {
     if frac_part.is_empty() || frac_part.len() > 15 {
         return None;
     }
-    let int_val = if int_part.is_empty() { 0 } else { int_part.parse::<i64>().ok()? };
+    let int_val = if int_part.is_empty() {
+        0
+    } else {
+        int_part.parse::<i64>().ok()?
+    };
     let frac_val = frac_part.parse::<i64>().ok()?;
     let denominator = 10i64.checked_pow(frac_part.len() as u32)?;
     let numerator = int_val.checked_mul(denominator)?.checked_add(frac_val)?;
@@ -180,9 +184,12 @@ fn parse_known(
             .as_bool()
             .map(MetadataValue::Bool)
             .ok_or_else(|| "expected JSON bool for boolean tag".to_string()),
-        TagKind::Integer { .. } => parse_i64(raw)
-            .map(MetadataValue::Integer)
-            .ok_or_else(|| format!("expected integer for integer tag, got {}", json_type_name(raw))),
+        TagKind::Integer { .. } => parse_i64(raw).map(MetadataValue::Integer).ok_or_else(|| {
+            format!(
+                "expected integer for integer tag, got {}",
+                json_type_name(raw)
+            )
+        }),
         TagKind::Real => parse_f64(raw)
             .map(MetadataValue::Real)
             .ok_or_else(|| "expected JSON number for real tag".to_string()),
@@ -217,12 +224,20 @@ fn parse_known(
             crate::tag_schema::EnumRepr::Integer => parse_i64(raw)
                 .map(MetadataValue::Integer)
                 .or_else(|| raw.as_str().map(|s| MetadataValue::Text(s.to_string())))
-                .ok_or_else(|| format!("expected integer or string enum value, got {}", json_type_name(raw))),
+                .ok_or_else(|| {
+                    format!(
+                        "expected integer or string enum value, got {}",
+                        json_type_name(raw)
+                    )
+                }),
             crate::tag_schema::EnumRepr::String => match raw {
                 serde_json::Value::String(s) => Ok(MetadataValue::Text(s.clone())),
                 serde_json::Value::Number(n) => Ok(MetadataValue::Text(n.to_string())),
                 serde_json::Value::Bool(b) => Ok(MetadataValue::Text(b.to_string())),
-                _ => Err(format!("expected string enum value, got {}", json_type_name(raw))),
+                _ => Err(format!(
+                    "expected string enum value, got {}",
+                    json_type_name(raw)
+                )),
             },
         },
         TagKind::Unknown => Err("schema kind is unknown".to_string()),
@@ -249,7 +264,11 @@ fn parse_i64(v: &serde_json::Value) -> Option<i64> {
             } else if let Some(u) = n.as_u64() {
                 i64::try_from(u).ok()
             } else if let Some(f) = n.as_f64() {
-                if f.is_finite() && f.fract() == 0.0 && f >= (i64::MIN as f64) && f <= (i64::MAX as f64) {
+                if f.is_finite()
+                    && f.fract() == 0.0
+                    && f >= (i64::MIN as f64)
+                    && f <= (i64::MAX as f64)
+                {
                     Some(f as i64)
                 } else {
                     None
@@ -347,9 +366,12 @@ fn parse_lang_alt(raw: &serde_json::Value) -> Result<MetadataValue, String> {
         out.insert("x-default".to_string(), s.to_string());
         return Ok(MetadataValue::LangAlt(out));
     }
-    let obj = raw
-        .as_object()
-        .ok_or_else(|| format!("expected language alternative object or string, got {}", json_type_name(raw)))?;
+    let obj = raw.as_object().ok_or_else(|| {
+        format!(
+            "expected language alternative object or string, got {}",
+            json_type_name(raw)
+        )
+    })?;
     let mut out = BTreeMap::new();
     for (lang, value) in obj {
         let Some(s) = value.as_str() else {
@@ -373,7 +395,10 @@ fn parse_list(
         Ok(MetadataValue::List { list_kind, items })
     } else {
         let item = parse_known(inner, raw, None).map_err(|_| {
-            format!("expected array or scalar list item, got {}", json_type_name(raw))
+            format!(
+                "expected array or scalar list item, got {}",
+                json_type_name(raw)
+            )
         })?;
         Ok(MetadataValue::List {
             list_kind,
@@ -767,25 +792,67 @@ mod tests {
         // 1. Integer tests
         // integer accepts numeric string
         assert_eq!(
-            parse_metadata_value("X", Some(&TagKind::Integer { min: None, max: None }), &json!("6"), None),
+            parse_metadata_value(
+                "X",
+                Some(&TagKind::Integer {
+                    min: None,
+                    max: None
+                }),
+                &json!("6"),
+                None
+            ),
             MetadataValue::Integer(6)
         );
         assert_eq!(
-            parse_metadata_value("X", Some(&TagKind::Integer { min: None, max: None }), &json!("+6"), None),
+            parse_metadata_value(
+                "X",
+                Some(&TagKind::Integer {
+                    min: None,
+                    max: None
+                }),
+                &json!("+6"),
+                None
+            ),
             MetadataValue::Integer(6)
         );
         assert_eq!(
-            parse_metadata_value("X", Some(&TagKind::Integer { min: None, max: None }), &json!("-6"), None),
+            parse_metadata_value(
+                "X",
+                Some(&TagKind::Integer {
+                    min: None,
+                    max: None
+                }),
+                &json!("-6"),
+                None
+            ),
             MetadataValue::Integer(-6)
         );
         // integer accepts integral real
         assert_eq!(
-            parse_metadata_value("X", Some(&TagKind::Integer { min: None, max: None }), &json!(6.0), None),
+            parse_metadata_value(
+                "X",
+                Some(&TagKind::Integer {
+                    min: None,
+                    max: None
+                }),
+                &json!(6.0),
+                None
+            ),
             MetadataValue::Integer(6)
         );
         // integer still returns Unknown for "Auto" with a useful reason
-        let v_auto = parse_metadata_value("X", Some(&TagKind::Integer { min: None, max: None }), &json!("Auto"), None);
-        assert!(matches!(v_auto, MetadataValue::Unknown { reason: Some(ref r), .. } if r == "expected integer for integer tag, got string"));
+        let v_auto = parse_metadata_value(
+            "X",
+            Some(&TagKind::Integer {
+                min: None,
+                max: None,
+            }),
+            &json!("Auto"),
+            None,
+        );
+        assert!(
+            matches!(v_auto, MetadataValue::Unknown { reason: Some(ref r), .. } if r == "expected integer for integer tag, got string")
+        );
 
         // 2. Text tests
         // text accepts numeric scalar
@@ -800,29 +867,60 @@ mod tests {
         );
         // text with object still returns Unknown
         let v_obj = parse_metadata_value("X", Some(&TagKind::Text), &json!({"a": 1}), None);
-        assert!(matches!(v_obj, MetadataValue::Unknown { reason: Some(ref r), .. } if r == "expected text scalar, got object"));
+        assert!(
+            matches!(v_obj, MetadataValue::Unknown { reason: Some(ref r), .. } if r == "expected text scalar, got object")
+        );
 
         // 3. String Enum tests
         // string enum accepts numeric scalar
         assert_eq!(
-            parse_metadata_value("X", Some(&TagKind::Enum { repr: EnumRepr::String, options: Vec::new() }), &json!(1), None),
+            parse_metadata_value(
+                "X",
+                Some(&TagKind::Enum {
+                    repr: EnumRepr::String,
+                    options: Vec::new()
+                }),
+                &json!(1),
+                None
+            ),
             MetadataValue::Text("1".to_string())
         );
         // string enum accepts bool
         assert_eq!(
-            parse_metadata_value("X", Some(&TagKind::Enum { repr: EnumRepr::String, options: Vec::new() }), &json!(true), None),
+            parse_metadata_value(
+                "X",
+                Some(&TagKind::Enum {
+                    repr: EnumRepr::String,
+                    options: Vec::new()
+                }),
+                &json!(true),
+                None
+            ),
             MetadataValue::Text("true".to_string())
         );
         // integer enum with raw string "6" -> Integer(6)
         assert_eq!(
-            parse_metadata_value("X", Some(&TagKind::Enum { repr: EnumRepr::Integer, options: Vec::new() }), &json!("6"), None),
+            parse_metadata_value(
+                "X",
+                Some(&TagKind::Enum {
+                    repr: EnumRepr::Integer,
+                    options: Vec::new()
+                }),
+                &json!("6"),
+                None
+            ),
             MetadataValue::Integer(6)
         );
 
         // 4. List tests
         // Bag<Text> with raw "keyword" -> list with one text item
         assert_eq!(
-            parse_metadata_value("X", Some(&TagKind::Bag(Box::new(TagKind::Text))), &json!("keyword"), None),
+            parse_metadata_value(
+                "X",
+                Some(&TagKind::Bag(Box::new(TagKind::Text))),
+                &json!("keyword"),
+                None
+            ),
             MetadataValue::List {
                 list_kind: ListKind::Bag,
                 items: vec![MetadataValue::Text("keyword".to_string())]
@@ -830,7 +928,12 @@ mod tests {
         );
         // Bag<Text> with raw 123 -> list with one text item "123"
         assert_eq!(
-            parse_metadata_value("X", Some(&TagKind::Bag(Box::new(TagKind::Text))), &json!(123), None),
+            parse_metadata_value(
+                "X",
+                Some(&TagKind::Bag(Box::new(TagKind::Text))),
+                &json!(123),
+                None
+            ),
             MetadataValue::List {
                 list_kind: ListKind::Bag,
                 items: vec![MetadataValue::Text("123".to_string())]
@@ -849,26 +952,46 @@ mod tests {
         // 6. Rational tests
         // rational display "1/250 sec" + raw 0.004 -> Rational(1, 250)
         assert_eq!(
-            parse_metadata_value("X", Some(&TagKind::Rational), &json!(0.004), Some(&json!("1/250 sec"))),
-            MetadataValue::Rational(RationalValue { numerator: 1, denominator: 250 })
+            parse_metadata_value(
+                "X",
+                Some(&TagKind::Rational),
+                &json!(0.004),
+                Some(&json!("1/250 sec"))
+            ),
+            MetadataValue::Rational(RationalValue {
+                numerator: 1,
+                denominator: 250
+            })
         );
         // rational raw 0.004 without display -> Rational(1, 250)
         assert_eq!(
             parse_metadata_value("X", Some(&TagKind::Rational), &json!(0.004), None),
-            MetadataValue::Rational(RationalValue { numerator: 1, denominator: 250 })
+            MetadataValue::Rational(RationalValue {
+                numerator: 1,
+                denominator: 250
+            })
         );
         // rational raw string "2.8" -> Rational(14, 5)
         assert_eq!(
             parse_metadata_value("X", Some(&TagKind::Rational), &json!("2.8"), None),
-            MetadataValue::Rational(RationalValue { numerator: 14, denominator: 5 })
+            MetadataValue::Rational(RationalValue {
+                numerator: 14,
+                denominator: 5
+            })
         );
         // rational raw integer 2 -> Rational(2, 1)
         assert_eq!(
             parse_metadata_value("X", Some(&TagKind::Rational), &json!(2), None),
-            MetadataValue::Rational(RationalValue { numerator: 2, denominator: 1 })
+            MetadataValue::Rational(RationalValue {
+                numerator: 2,
+                denominator: 1
+            })
         );
         // rational invalid string "unknown" still returns Unknown
-        let v_rat_err = parse_metadata_value("X", Some(&TagKind::Rational), &json!("unknown"), None);
-        assert!(matches!(v_rat_err, MetadataValue::Unknown { reason: Some(ref r), .. } if r == "could not recover exact rational numerator/denominator"));
+        let v_rat_err =
+            parse_metadata_value("X", Some(&TagKind::Rational), &json!("unknown"), None);
+        assert!(
+            matches!(v_rat_err, MetadataValue::Unknown { reason: Some(ref r), .. } if r == "could not recover exact rational numerator/denominator")
+        );
     }
 }
