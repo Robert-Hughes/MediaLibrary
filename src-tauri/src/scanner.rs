@@ -174,29 +174,25 @@ fn read_os_metadata(path: &Path) -> (Option<i64>, Option<i64>) {
 ///  --composite:all       Exclude composite (computed) tags
 ///  -j                    JSON output
 ///
-/// Runs **two passes** per batch and merges them into one canonical
+/// Runs **two required passes** per batch and merges them into one canonical
 /// `ImageMetadata` per file:
 ///
 /// - Pass A: no `-n`. Pretty values — `Orientation = "Rotate 90 CW"`,
-///   `ExposureTime = "1/250"`. These raw JSON values are used only to recover
-///   exact rational strings or as fallback hints when raw `-n` omits or
-///   degrades information. They are not app metadata.
+///   `ExposureTime = "1/250"`. These JSON values supply display/pretty parser
+///   hints, especially exact rational strings. ExifTool display/pretty JSON is
+///   not app metadata; it is only parser input.
 /// - Pass B: with `-n`. Raw values — `Orientation = 6`,
-///   `ExposureTime = 0.004`. Combined with display hints to build canonical
-///   `metadata`.
+///   `ExposureTime = 0.004`. This is the primary canonical source.
 ///
 /// Both passes use the same flags otherwise, so the second pass is cheap
 /// (exiftool startup dominates; the OS file cache is hot). They run
 /// sequentially on the same worker — parallelism gains nothing because
-/// startup, not CPU, is the cost. Pass A runs first because if Pass B
-/// fails partway we still have something to show.
+/// startup, not CPU, is the cost.
 ///
-/// Failure of Pass A is a hard error (no display hints → too little to parse).
-/// Failure of Pass B is logged and we proceed with canonical `metadata` built
-/// from display fallbacks where possible.
+/// Both passes are required. If either pass fails, the batch fails and the
+/// frontend receives a metadata worker error for the affected files.
 ///
-/// Returns Ok(results) on Pass A success, Err(error_message) if Pass A
-/// fails to execute.
+/// Returns Ok(results) when both passes succeed, Err(error_message) otherwise.
 pub fn read_image_metadata_batch(
     rel_paths: &[String],
     abs_paths: &[std::path::PathBuf],
@@ -217,21 +213,13 @@ pub fn read_image_metadata_batch(
         std::thread::sleep(std::time::Duration::from_millis(500));
     }
 
-    // Pass A: pretty values (no -n).
-    let display_json_map = run_exiftool_pass(abs_paths, false)?;
+    // Pass A: pretty values (no -n), used only as parser input.
+    let display_json_map = run_exiftool_pass(abs_paths, false)
+        .map_err(|e| format!("ExifTool display pass failed: {}", e))?;
 
-    // Pass B: raw values (-n). A failure here is non-fatal; canonical metadata
-    // can still be built from display fallbacks where possible.
-    let raw_json_map = match run_exiftool_pass(abs_paths, true) {
-        Ok(m) => m,
-        Err(e) => {
-            log::warn!(
-                "[exiftool] Pass B (-n) failed ({}); canonical metadata will use display fallbacks for this batch",
-                e
-            );
-            HashMap::new()
-        }
-    };
+    // Pass B: raw values (-n), the primary canonical source.
+    let raw_json_map = run_exiftool_pass(abs_paths, true)
+        .map_err(|e| format!("ExifTool raw (-n) pass failed: {}", e))?;
 
     // Merge by source path.
     let mut results = Vec::with_capacity(rel_paths.len());
@@ -265,6 +253,11 @@ fn run_exiftool_pass(
     paths: &[std::path::PathBuf],
     numeric: bool,
 ) -> Result<HashMap<String, HashMap<String, serde_json::Value>>, String> {
+    let pass_label = if numeric {
+        "raw (-n) pass"
+    } else {
+        "display pass"
+    };
     let mut cmd = crate::exiftool_config::exiftool_command();
     cmd.arg("-a")
         .arg("-G1")
@@ -286,7 +279,7 @@ fn run_exiftool_pass(
 
     let output = cmd.output().map_err(|e| {
         format!(
-            "Failed to execute ExifTool: {}. Please ensure ExifTool is installed and accessible.",
+            "failed to execute: {}. Please ensure ExifTool is installed and accessible.",
             e
         )
     })?;
@@ -294,12 +287,12 @@ fn run_exiftool_pass(
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         log::error!(
-            "[exiftool] Pass {} failed (status {:?}): {}",
-            if numeric { "B(-n)" } else { "A" },
+            "[exiftool] ExifTool {} failed (status {:?}): {}",
+            pass_label,
             output.status,
             stderr
         );
-        return Err(format!("ExifTool failed: {}", stderr));
+        return Err(format!("status {:?}: {}", output.status, stderr));
     }
 
     let json = String::from_utf8_lossy(&output.stdout);
@@ -793,7 +786,11 @@ mod tests {
         let path = dir.path().join("missing.jpg");
         let results = read_image_metadata_batch(&["missing.jpg".to_string()], &[path]);
         // Should return an error for missing file
-        assert!(results.is_err() || results.unwrap().is_empty());
+        let err = results.expect_err("missing file should fail metadata batch");
+        assert!(
+            err.contains("ExifTool display pass failed"),
+            "unexpected error: {err}"
+        );
     }
 
     #[test]
