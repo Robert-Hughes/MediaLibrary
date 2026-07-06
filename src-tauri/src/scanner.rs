@@ -6,7 +6,7 @@
 ///  - `read_image_metadata` — reads metadata for a single file using ExifTool.
 ///  - `thumbnail_for` — generates a thumbnail.
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -232,8 +232,13 @@ pub fn read_image_metadata_batch(
         let key = abs_path.to_string_lossy().replace('\\', "/");
         let display_values = display_json.remove(&key).unwrap_or_default();
         let raw_values = raw_json.remove(&key).unwrap_or_default();
-        let metadata =
-            canonical_values_from_exiftool_pair(&raw_values, &display_values, registry, rel_path, Some(&mut batch_warnings));
+        let metadata = canonical_values_from_exiftool_pair(
+            &raw_values,
+            &display_values,
+            registry,
+            rel_path,
+            Some(&mut batch_warnings),
+        );
         if metadata.is_empty() {
             log::warn!(
                 "[parse_exiftool] Warning: no canonical metadata for {}",
@@ -453,7 +458,7 @@ fn log_single_warning(w: &ParseWarning) {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 struct WarningGroupKey {
     tag: String,
     reason: String,
@@ -461,26 +466,16 @@ struct WarningGroupKey {
     raw_type: &'static str,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct WarningGroupValue {
     count: usize,
     examples: Vec<String>,
     raw_preview: Option<String>,
 }
 
-fn log_aggregated_warnings(warnings: &[ParseWarning]) {
-    let mut groups: HashMap<WarningGroupKey, WarningGroupValue> = HashMap::new();
+fn group_parse_warnings(warnings: &[ParseWarning]) -> BTreeMap<WarningGroupKey, WarningGroupValue> {
+    let mut groups: BTreeMap<WarningGroupKey, WarningGroupValue> = BTreeMap::new();
     for w in warnings {
-        log::debug!(
-            "[parse_exiftool] Unparsed metadata debug: file={} tag={} pass={} expected={} raw_type={} raw={} reason={}",
-            w.rel_path,
-            w.tag,
-            w.pass_name,
-            w.expected,
-            w.raw_type,
-            json_preview(&w.raw),
-            w.reason
-        );
-
         let key = WarningGroupKey {
             tag: w.tag.clone(),
             reason: w.reason.clone(),
@@ -500,6 +495,24 @@ fn log_aggregated_warnings(warnings: &[ParseWarning]) {
             entry.raw_preview = Some(json_preview(&w.raw));
         }
     }
+    groups
+}
+
+fn log_aggregated_warnings(warnings: &[ParseWarning]) {
+    for w in warnings {
+        log::debug!(
+            "[parse_exiftool] Unparsed metadata debug: file={} tag={} pass={} expected={} raw_type={} raw={} reason={}",
+            w.rel_path,
+            w.tag,
+            w.pass_name,
+            w.expected,
+            w.raw_type,
+            json_preview(&w.raw),
+            w.reason
+        );
+    }
+
+    let groups = group_parse_warnings(warnings);
 
     for (key, val) in groups {
         let category = classify_warning(&key.reason);
@@ -551,7 +564,15 @@ fn canonical_values_from_exiftool_pair(
         let display_hint = display_values.get(key);
         let info = registry.and_then(|r| r.lookup(key));
         let value = parse_metadata_value(key, info.map(|i| &i.kind), primary, display_hint);
-        warn_unknown_metadata_value(rel_path, key, "canonical", primary, info, &value, warnings_accumulator.as_mut().map(|w| &mut **w));
+        warn_unknown_metadata_value(
+            rel_path,
+            key,
+            "canonical",
+            primary,
+            info,
+            &value,
+            warnings_accumulator.as_deref_mut(),
+        );
         values.insert(key.clone(), value);
     }
 
@@ -1202,7 +1223,8 @@ mod tests {
             ("EXIF:ExposureTime".to_string(), serde_json::json!("1/64")),
         ]);
 
-        let values = canonical_values_from_exiftool_pair(&raw, &display, Some(&reg), "photo.jpg", None);
+        let values =
+            canonical_values_from_exiftool_pair(&raw, &display, Some(&reg), "photo.jpg", None);
 
         assert_eq!(
             values.get("EXIF:Make"),
@@ -1225,7 +1247,8 @@ mod tests {
         let raw = HashMap::from([("EXIF:ExposureTime".to_string(), serde_json::json!(0.015625))]);
         let display = HashMap::from([("EXIF:ExposureTime".to_string(), serde_json::json!("1/64"))]);
 
-        let values = canonical_values_from_exiftool_pair(&raw, &display, Some(&reg), "photo.jpg", None);
+        let values =
+            canonical_values_from_exiftool_pair(&raw, &display, Some(&reg), "photo.jpg", None);
 
         match values.get("EXIF:ExposureTime") {
             Some(MetadataValue::Rational(r)) => {
@@ -1242,7 +1265,8 @@ mod tests {
         let raw = HashMap::new();
         let display = HashMap::from([("EXIF:Model".to_string(), serde_json::json!("X100V"))]);
 
-        let values = canonical_values_from_exiftool_pair(&raw, &display, Some(&reg), "photo.jpg", None);
+        let values =
+            canonical_values_from_exiftool_pair(&raw, &display, Some(&reg), "photo.jpg", None);
 
         assert_eq!(
             values.get("EXIF:Model"),
@@ -1256,7 +1280,8 @@ mod tests {
         let raw = HashMap::from([("EXIF:ISO".to_string(), serde_json::json!(400))]);
         let display = HashMap::new();
 
-        let values = canonical_values_from_exiftool_pair(&raw, &display, Some(&reg), "photo.jpg", None);
+        let values =
+            canonical_values_from_exiftool_pair(&raw, &display, Some(&reg), "photo.jpg", None);
 
         assert_eq!(values.get("EXIF:ISO"), Some(&MetadataValue::Integer(400)));
     }
@@ -1273,7 +1298,8 @@ mod tests {
             ("EXIF:LensModel".to_string(), serde_json::json!("35mm f/2")),
         ]);
 
-        let values = canonical_values_from_exiftool_pair(&raw, &display, Some(&reg), "photo.jpg", None);
+        let values =
+            canonical_values_from_exiftool_pair(&raw, &display, Some(&reg), "photo.jpg", None);
 
         assert_eq!(values.len(), 3);
         assert!(values.contains_key("EXIF:Make"));
@@ -1419,13 +1445,27 @@ mod tests {
     }
 
     #[test]
-    fn test_warning_classification_and_aggregation() {
-        // Classification
-        assert_eq!(classify_warning("no schema entry for tag"), ParseWarningCategory::MissingSchema);
-        assert_eq!(classify_warning("schema kind is unknown"), ParseWarningCategory::UnknownSchemaKind);
-        assert_eq!(classify_warning("expected JSON integer for integer tag"), ParseWarningCategory::ParseFailed);
+    fn test_warning_classification() {
+        assert_eq!(
+            classify_warning("no schema entry for tag"),
+            ParseWarningCategory::MissingSchema
+        );
+        assert_eq!(
+            classify_warning("schema kind is unknown"),
+            ParseWarningCategory::UnknownSchemaKind
+        );
+        assert_eq!(
+            classify_warning("expected integer for integer tag, got string"),
+            ParseWarningCategory::ParseFailed
+        );
+        assert_eq!(
+            classify_warning("expected JSON integer for integer tag"),
+            ParseWarningCategory::ParseFailed
+        );
+    }
 
-        // Aggregation
+    #[test]
+    fn test_warning_grouping_exact() {
         let warnings = vec![
             ParseWarning {
                 rel_path: "a.jpg".to_string(),
@@ -1456,7 +1496,162 @@ mod tests {
             },
         ];
 
-        // Let's call log_aggregated_warnings to make sure it doesn't panic
+        let groups = group_parse_warnings(&warnings);
+        assert_eq!(groups.len(), 2);
+
+        // Group 1: EXIF:SomeTag
+        let key1 = WarningGroupKey {
+            tag: "EXIF:SomeTag".to_string(),
+            reason: "expected integer for integer tag, got string".to_string(),
+            expected_summary: "Integer".to_string(),
+            raw_type: "string",
+        };
+        let val1 = groups.get(&key1).expect("SomeTag group present");
+        assert_eq!(val1.count, 2);
+        assert_eq!(
+            val1.examples,
+            vec!["a.jpg".to_string(), "b.jpg".to_string()]
+        );
+        assert_eq!(val1.raw_preview, Some("\"Auto\"".to_string()));
+
+        // Group 2: EXIF:OtherTag
+        let key2 = WarningGroupKey {
+            tag: "EXIF:OtherTag".to_string(),
+            reason: "no schema entry for tag".to_string(),
+            expected_summary: "<no schema>".to_string(),
+            raw_type: "string",
+        };
+        let val2 = groups.get(&key2).expect("OtherTag group present");
+        assert_eq!(val2.count, 1);
+        assert_eq!(
+            classify_warning(&key2.reason),
+            ParseWarningCategory::MissingSchema
+        );
+
+        // Call log_aggregated_warnings to make sure it doesn't panic
         log_aggregated_warnings(&warnings);
+    }
+
+    #[test]
+    fn test_warning_grouping_example_limit() {
+        let warnings = vec![
+            ParseWarning {
+                rel_path: "a.jpg".to_string(),
+                tag: "EXIF:SomeTag".to_string(),
+                pass_name: "canonical".to_string(),
+                expected: "Integer".to_string(),
+                raw_type: "string",
+                raw: serde_json::json!("Auto"),
+                reason: "expected integer for integer tag, got string".to_string(),
+            },
+            ParseWarning {
+                rel_path: "a.jpg".to_string(), // Duplicate path, same group
+                tag: "EXIF:SomeTag".to_string(),
+                pass_name: "canonical".to_string(),
+                expected: "Integer".to_string(),
+                raw_type: "string",
+                raw: serde_json::json!("Auto"),
+                reason: "expected integer for integer tag, got string".to_string(),
+            },
+            ParseWarning {
+                rel_path: "b.jpg".to_string(),
+                tag: "EXIF:SomeTag".to_string(),
+                pass_name: "canonical".to_string(),
+                expected: "Integer".to_string(),
+                raw_type: "string",
+                raw: serde_json::json!("Auto"),
+                reason: "expected integer for integer tag, got string".to_string(),
+            },
+            ParseWarning {
+                rel_path: "c.jpg".to_string(), // Third path, should exceed limit
+                tag: "EXIF:SomeTag".to_string(),
+                pass_name: "canonical".to_string(),
+                expected: "Integer".to_string(),
+                raw_type: "string",
+                raw: serde_json::json!("Auto"),
+                reason: "expected integer for integer tag, got string".to_string(),
+            },
+        ];
+
+        let groups = group_parse_warnings(&warnings);
+        let val = groups.values().next().expect("Exactly one group");
+        assert_eq!(val.count, 4);
+        // Duplicate is not repeated, and limit is 2
+        assert_eq!(val.examples, vec!["a.jpg".to_string(), "b.jpg".to_string()]);
+    }
+
+    #[test]
+    fn test_warning_grouping_separation() {
+        // Different reason
+        let warnings_diff_reason = vec![
+            ParseWarning {
+                rel_path: "a.jpg".to_string(),
+                tag: "EXIF:SomeTag".to_string(),
+                pass_name: "canonical".to_string(),
+                expected: "Integer".to_string(),
+                raw_type: "string",
+                raw: serde_json::json!("Auto"),
+                reason: "reason A".to_string(),
+            },
+            ParseWarning {
+                rel_path: "b.jpg".to_string(),
+                tag: "EXIF:SomeTag".to_string(),
+                pass_name: "canonical".to_string(),
+                expected: "Integer".to_string(),
+                raw_type: "string",
+                raw: serde_json::json!("Auto"),
+                reason: "reason B".to_string(),
+            },
+        ];
+        let groups_diff_reason = group_parse_warnings(&warnings_diff_reason);
+        assert_eq!(groups_diff_reason.len(), 2);
+
+        // Different raw type
+        let warnings_diff_raw_type = vec![
+            ParseWarning {
+                rel_path: "a.jpg".to_string(),
+                tag: "EXIF:SomeTag".to_string(),
+                pass_name: "canonical".to_string(),
+                expected: "Integer".to_string(),
+                raw_type: "string",
+                raw: serde_json::json!("Auto"),
+                reason: "reason A".to_string(),
+            },
+            ParseWarning {
+                rel_path: "b.jpg".to_string(),
+                tag: "EXIF:SomeTag".to_string(),
+                pass_name: "canonical".to_string(),
+                expected: "Integer".to_string(),
+                raw_type: "number",
+                raw: serde_json::json!(123),
+                reason: "reason A".to_string(),
+            },
+        ];
+        let groups_diff_raw_type = group_parse_warnings(&warnings_diff_raw_type);
+        assert_eq!(groups_diff_raw_type.len(), 2);
+
+        // Different tag
+        let warnings_diff_tag = vec![
+            ParseWarning {
+                rel_path: "a.jpg".to_string(),
+                tag: "EXIF:TagA".to_string(),
+                pass_name: "canonical".to_string(),
+                expected: "Integer".to_string(),
+                raw_type: "string",
+                raw: serde_json::json!("Auto"),
+                reason: "reason A".to_string(),
+            },
+            ParseWarning {
+                rel_path: "b.jpg".to_string(),
+                tag: "EXIF:TagB".to_string(),
+                pass_name: "canonical".to_string(),
+                expected: "Integer".to_string(),
+                raw_type: "string",
+                raw: serde_json::json!("Auto"),
+                reason: "reason A".to_string(),
+            },
+        ];
+        let groups_diff_tag = group_parse_warnings(&warnings_diff_tag);
+        assert_eq!(groups_diff_tag.len(), 2);
     }
 }
