@@ -48,9 +48,8 @@ export function mergeVerifyOutcomes(
       tag: o.tag,
       kind: o.kind,
       sent: o.sent,
-      beforeDisplay: o.before_display,
-      observedDisplay: o.observed_display,
-      observedRaw: o.observed_raw,
+      before: o.before,
+      observed: o.observed,
       message: o.message,
     };
     const idx = merged.findIndex((m) => m.tag === o.tag);

@@ -243,7 +243,6 @@ struct ImageMetadataReadyPayload {
 #[derive(Clone, Serialize)]
 struct ImageMetadataResult {
     relative_path: String,
-    display_metadata: std::collections::HashMap<String, metadata_value::MetadataValue>,
     metadata: std::collections::HashMap<String, metadata_value::MetadataValue>,
 }
 
@@ -431,7 +430,6 @@ fn start_scan(
                                 for info in results {
                                     batch_results.push(ImageMetadataResult {
                                         relative_path: info.relative_path,
-                                        display_metadata: info.display_metadata,
                                         metadata: info.metadata,
                                     });
                                 }
@@ -450,9 +448,9 @@ fn start_scan(
                                     },
                                 );
 
-                                // Send empty metadata for failed files so UI shows "failed" instead of spinner
+                                // Send error metadata for failed files so UI shows "failed" instead of spinner
                                 for rel_path in rel_paths {
-                                    let display_metadata = [(
+                                    let metadata = [(
                                         "_error".to_string(),
                                         metadata_value::MetadataValue::Text(
                                             "Failed to load metadata".to_string(),
@@ -462,8 +460,7 @@ fn start_scan(
                                     .collect();
                                     batch_results.push(ImageMetadataResult {
                                         relative_path: rel_path,
-                                        display_metadata,
-                                        metadata: std::collections::HashMap::new(),
+                                        metadata,
                                     });
                                 }
                             }

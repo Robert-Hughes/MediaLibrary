@@ -107,7 +107,7 @@ describe("useMediaLibrary", () => {
     }
   });
 
-  it("stores canonical metadata from image_metadata_ready, not display metadata", async () => {
+  it("stores canonical metadata from image_metadata_ready", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/photos");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
@@ -122,16 +122,9 @@ describe("useMediaLibrary", () => {
     });
 
     act(() => {
-      mock.emitImageMetadataReady(
-        "a.jpg",
-        {
-          "IFD0:Orientation": { kind: "Text", value: "Rotate 90 CW" },
-        },
-        undefined,
-        {
-          "IFD0:Orientation": { kind: "Integer", value: 6 },
-        },
-      );
+      mock.emitImageMetadataReady("a.jpg", {
+        "IFD0:Orientation": { kind: "Integer", value: 6 },
+      });
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(250);

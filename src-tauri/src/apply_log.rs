@@ -22,13 +22,14 @@ use std::path::Path;
 
 const LOG_FILE_NAME: &str = "MediaLibraryApplyLog.jsonl";
 /// Schema version embedded in each entry.  Bumps:
-///  - 2 (Phase 8.8): added `before_display` / `before_raw`.
+///  - 2 (Phase 8.8): added dual pre-write semantic fields.
 ///  - 3 (Phase 8 fix-up): added `before_read_failed` so a `null` before
 ///    value can be distinguished from "the pre-write read itself failed".
 ///    v2 readers see the new field as ignorable.
-const SEMANTIC_LOG_SCHEMA_VERSION: u32 = 4;
+///  - 5: canonical-only metadata values; display/raw semantic fields removed.
+const SEMANTIC_LOG_SCHEMA_VERSION: u32 = 5;
 const HEADER_COMMENT: &str =
-    "// Apply-edits audit log. Append-only. Each line is one tag's outcome from one apply. schema_version=4.";
+    "// Apply-edits audit log. Append-only. Each line is one tag's outcome from one apply. schema_version=5.";
 
 #[derive(Serialize)]
 struct MetadataApplyLogEntry<'a> {
@@ -41,16 +42,12 @@ struct MetadataApplyLogEntry<'a> {
     intended_value: &'a Option<MetadataValue>,
     /// argv we passed to exiftool for this tag.
     argv: &'a [String],
-    /// The file's semantic value before our write (display / PrintConv view).
-    before_display: Option<&'a MetadataValue>,
-    /// The file's semantic value before our write (raw / -n view).
-    before_raw: Option<&'a MetadataValue>,
+    /// The file's canonical semantic value before our write.
+    before: Option<&'a MetadataValue>,
     /// True when the pre-write metadata read failed and before-fields are not authoritative.
     before_read_failed: bool,
-    /// What the file holds after the write (display / PrintConv view).
-    after_display: Option<&'a MetadataValue>,
-    /// What the file holds after the write (raw / -n view).
-    after_raw: Option<&'a MetadataValue>,
+    /// The file's canonical semantic value after the write.
+    observed: Option<&'a MetadataValue>,
     /// One of the verification outcome strings.
     outcome: &'a str,
     /// Free-text error message when outcome is not Match.
@@ -63,10 +60,8 @@ pub fn append_metadata_entries(
     relative_path: &str,
     edits: &std::collections::HashMap<String, MetadataDraftEdit>,
     argv_by_tag: &std::collections::HashMap<String, Vec<String>>,
-    before_display: &std::collections::HashMap<String, MetadataValue>,
-    before_raw: &std::collections::HashMap<String, MetadataValue>,
-    after_display: &std::collections::HashMap<String, MetadataValue>,
-    after_raw: &std::collections::HashMap<String, MetadataValue>,
+    before_metadata: &std::collections::HashMap<String, MetadataValue>,
+    observed_metadata: &std::collections::HashMap<String, MetadataValue>,
     tag_outcomes: &[MetadataTagOutcome],
     before_read_failed: bool,
 ) {
@@ -106,11 +101,9 @@ pub fn append_metadata_entries(
             intent: &edit.intent,
             intended_value: &edit.value,
             argv,
-            before_display: before_display.get(tag),
-            before_raw: before_raw.get(tag),
+            before: before_metadata.get(tag),
             before_read_failed,
-            after_display: after_display.get(tag),
-            after_raw: after_raw.get(tag),
+            observed: observed_metadata.get(tag),
             outcome,
             note,
         };
@@ -197,9 +190,8 @@ mod tests {
             tag: tag.to_string(),
             kind: kind.to_string(),
             sent: None,
-            before_display: None,
-            observed_display: None,
-            observed_raw: None,
+            before: None,
+            observed: None,
             message: None,
         }
     }
@@ -254,8 +246,6 @@ mod tests {
             &edits,
             &argv,
             &before,
-            &before,
-            &after,
             &after,
             &[metadata_outcome("IPTC:TimeCreated", "Match")],
             false,
@@ -265,13 +255,13 @@ mod tests {
         let lines: Vec<&str> = contents.lines().collect();
         assert_eq!(lines.len(), 2, "expected header + one semantic entry");
         let entry: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
-        assert_eq!(entry["schema_version"], 4);
+        assert_eq!(entry["schema_version"], 5);
         assert_eq!(entry["intended_value"]["kind"], "Time");
         assert_eq!(
             entry["intended_value"]["value"]["offset"],
             serde_json::Value::Null
         );
-        assert_eq!(entry["after_display"]["kind"], "Time");
+        assert_eq!(entry["observed"]["kind"], "Time");
         assert_eq!(entry["argv"][0], "-IPTC:TimeCreated=10:56:05");
     }
 
@@ -297,10 +287,10 @@ mod tests {
         let outcomes = vec![metadata_outcome("Tag", "Match")];
 
         append_metadata_entries(
-            folder, "a.jpg", &edits, &argv, &before, &before, &after, &after, &outcomes, false,
+            folder, "a.jpg", &edits, &argv, &before, &after, &outcomes, false,
         );
         append_metadata_entries(
-            folder, "b.jpg", &edits, &argv, &before, &before, &after, &after, &outcomes, false,
+            folder, "b.jpg", &edits, &argv, &before, &after, &outcomes, false,
         );
 
         let contents = std::fs::read_to_string(dir.path().join(LOG_FILE_NAME)).unwrap();

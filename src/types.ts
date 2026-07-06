@@ -892,9 +892,8 @@ export interface TagOutcomeEntry {
   tag: string;
   kind: string;
   sent: MetadataValue | null;
-  beforeDisplay: MetadataValue | null;
-  observedDisplay: MetadataValue | null;
-  observedRaw: MetadataValue | null;
+  before: MetadataValue | null;
+  observed: MetadataValue | null;
   message: string | null;
 }
 
@@ -909,7 +908,6 @@ export interface ImageMetadataReadyPayload {
   scan_id: number;
   results: {
     relative_path: string;
-    display_metadata: Record<string, ImageMetadataEntry>;
     metadata: Record<string, ImageMetadataEntry>;
   }[];
 }
