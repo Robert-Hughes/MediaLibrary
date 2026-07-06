@@ -107,6 +107,44 @@ describe("useMediaLibrary", () => {
     }
   });
 
+  it("stores canonical metadata from image_metadata_ready, not display metadata", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/photos");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => {
+      await result.current[1].openFolder();
+    });
+    act(() => {
+      mock.emitPhotoFound(makePhoto({ relative_path: "a.jpg" }));
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(150);
+    });
+
+    act(() => {
+      mock.emitImageMetadataReady(
+        "a.jpg",
+        {
+          "IFD0:Orientation": { kind: "Text", value: "Rotate 90 CW" },
+        },
+        undefined,
+        {
+          "IFD0:Orientation": { kind: "Integer", value: 6 },
+        },
+      );
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(250);
+    });
+
+    const state = result.current[0];
+    if (state.kind === "loaded") {
+      expect(state.imageMetadata.get("a.jpg")).toEqual({
+        "IFD0:Orientation": { kind: "Integer", value: 6 },
+      });
+    }
+  });
+
   it("navigateGallery increments and decrements", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/photos");
