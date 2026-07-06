@@ -65,25 +65,110 @@ export function metadataValueToDisplayString(
 }
 
 export function metadataValueToDisplayStringForTag(
-  _key: string,
+  key: string,
   v: MetadataValue | null | undefined,
   tagInfo?: TagInfo | null,
 ): string {
-  if (tagInfo?.kind.kind !== "Enum") {
-    return metadataValueToDisplayString(v);
-  }
+  const enumLabel = enumLabelFromSchema(v, tagInfo);
+  if (enumLabel !== null) return enumLabel;
+
+  const tagFormatted = formatKnownPhotoTag(key, v);
+  if (tagFormatted !== null) return tagFormatted;
+
+  return metadataValueToDisplayString(v);
+}
+
+function enumLabelFromSchema(
+  v: MetadataValue | null | undefined,
+  tagInfo?: TagInfo | null,
+): string | null {
+  if (tagInfo?.kind.kind !== "Enum") return null;
 
   const code = enumCodeFromMetadataValue(v);
-  if (code === null) {
-    return metadataValueToDisplayString(v);
-  }
+  if (code === null) return null;
 
   const option = tagInfo.kind.data.options.find((o) => o.code === code);
-  if (!option?.label) {
-    return metadataValueToDisplayString(v);
+  return option?.label ? option.label : null;
+}
+
+function formatKnownPhotoTag(
+  key: string,
+  v: MetadataValue | null | undefined,
+): string | null {
+  switch (key) {
+    case "ExifIFD:ExposureTime":
+    case "Composite:ShutterSpeed":
+      return formatExposureTime(v);
+    case "ExifIFD:FNumber":
+    case "Composite:Aperture":
+      return formatAperture(v);
+    case "ExifIFD:FocalLength":
+    case "Composite:FocalLength":
+    case "Composite:FocalLength35efl":
+      return formatFocalLength(v);
+    default:
+      return null;
+  }
+}
+
+function formatExposureTime(
+  v: MetadataValue | null | undefined,
+): string | null {
+  const rational = rationalParts(v);
+  if (rational !== null) {
+    return `${rational.numerator}/${rational.denominator} s`;
   }
 
-  return option.label;
+  const n = numericValue(v);
+  if (n === null || n <= 0) return null;
+
+  if (n < 1) {
+    const reciprocal = 1 / n;
+    const denominator = Math.round(reciprocal);
+    if (denominator > 0 && Math.abs(reciprocal - denominator) < 0.01) {
+      return `1/${denominator} s`;
+    }
+  }
+
+  return `${trimNumber(n, 3)} s`;
+}
+
+function formatAperture(v: MetadataValue | null | undefined): string | null {
+  const n = numericValue(v);
+  if (n === null || n <= 0) return null;
+  return `f/${trimNumber(n, 3)}`;
+}
+
+function formatFocalLength(v: MetadataValue | null | undefined): string | null {
+  const n = numericValue(v);
+  if (n === null || n <= 0) return null;
+  return `${trimNumber(n, 2)} mm`;
+}
+
+function numericValue(v: MetadataValue | null | undefined): number | null {
+  if (v === null || v === undefined) return null;
+  switch (v.kind) {
+    case "Integer":
+    case "Real":
+      return Number.isFinite(v.value) ? v.value : null;
+    case "Rational":
+      return v.value.denominator !== 0
+        ? v.value.numerator / v.value.denominator
+        : null;
+    default:
+      return null;
+  }
+}
+
+function rationalParts(
+  v: MetadataValue | null | undefined,
+): { numerator: number; denominator: number } | null {
+  if (v?.kind !== "Rational" || v.value.denominator === 0) return null;
+  return v.value;
+}
+
+function trimNumber(value: number, maxDecimals = 2): string {
+  return value.toFixed(maxDecimals).replace(/\.?0+$/, "");
 }
 
 function enumCodeFromMetadataValue(
