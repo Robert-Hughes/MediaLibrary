@@ -48,9 +48,7 @@ export function metadataValueToDisplayString(
     case "TimeOffset":
       return renderMetadataOffset(v.value);
     case "LangAlt":
-      return Object.entries(v.value)
-        .map(([lang, value]) => `${lang}: ${value}`)
-        .join("; ");
+      return renderLangAlt(v.value);
     case "List":
       return v.value.items.map(metadataValueToDisplayString).join(", ");
     case "Struct":
@@ -204,4 +202,16 @@ function renderMetadataOffset(
 
 function pad(value: number, width = 2): string {
   return String(value).padStart(width, "0");
+}
+
+function renderLangAlt(value: { [key in string]?: string }): string {
+  const entries = Object.entries(value) as [string, string][];
+
+  if (entries.length === 0) return "";
+
+  if (entries.length === 1) {
+    return entries[0][1];
+  }
+
+  return entries.map(([lang, text]) => `${lang}: ${text}`).join("; ");
 }
