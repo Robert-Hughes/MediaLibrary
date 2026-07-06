@@ -126,6 +126,15 @@ describe("metadataValueToDisplayStringForTag", () => {
     ).toBe("6");
   });
 
+  it("falls back to generic formatting for unknown integer tags", () => {
+    expect(
+      metadataValueToDisplayStringForTag("MadeUp:Code", {
+        kind: "Integer",
+        value: 6,
+      }),
+    ).toBe("6");
+  });
+
   it("falls back to generic formatting when enum option is missing", () => {
     expect(
       metadataValueToDisplayStringForTag(
@@ -182,5 +191,77 @@ describe("metadataValueToDisplayStringForTag", () => {
         tagInfo({ kind: "Integer", data: { min: null, max: null } }),
       ),
     ).toBe("6");
+  });
+
+  it("formats exposure time rational values with seconds", () => {
+    expect(
+      metadataValueToDisplayStringForTag("ExifIFD:ExposureTime", {
+        kind: "Rational",
+        value: { numerator: 1, denominator: 250 },
+      }),
+    ).toBe("1/250 s");
+  });
+
+  it("formats exposure time real reciprocals with seconds", () => {
+    expect(
+      metadataValueToDisplayStringForTag("ExifIFD:ExposureTime", {
+        kind: "Real",
+        value: 0.004,
+      }),
+    ).toBe("1/250 s");
+  });
+
+  it("formats multi-second exposure time values", () => {
+    expect(
+      metadataValueToDisplayStringForTag("ExifIFD:ExposureTime", {
+        kind: "Real",
+        value: 2,
+      }),
+    ).toBe("2 s");
+  });
+
+  it("formats f-number real values", () => {
+    expect(
+      metadataValueToDisplayStringForTag("ExifIFD:FNumber", {
+        kind: "Real",
+        value: 2.8,
+      }),
+    ).toBe("f/2.8");
+  });
+
+  it("formats f-number rational values", () => {
+    expect(
+      metadataValueToDisplayStringForTag("ExifIFD:FNumber", {
+        kind: "Rational",
+        value: { numerator: 28, denominator: 10 },
+      }),
+    ).toBe("f/2.8");
+  });
+
+  it("formats focal length integer values", () => {
+    expect(
+      metadataValueToDisplayStringForTag("ExifIFD:FocalLength", {
+        kind: "Integer",
+        value: 35,
+      }),
+    ).toBe("35 mm");
+  });
+
+  it("formats focal length rational values", () => {
+    expect(
+      metadataValueToDisplayStringForTag("ExifIFD:FocalLength", {
+        kind: "Rational",
+        value: { numerator: 355, denominator: 10 },
+      }),
+    ).toBe("35.5 mm");
+  });
+
+  it("falls back to generic formatting for unsupported known-tag values", () => {
+    expect(
+      metadataValueToDisplayStringForTag("ExifIFD:ExposureTime", {
+        kind: "Text",
+        value: "fast",
+      }),
+    ).toBe("fast");
   });
 });
