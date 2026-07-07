@@ -23,7 +23,7 @@
 //! generation) are deferred to v2 of the feature.
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use crate::draft_edits::{EditIntent, MetadataDraftEdit};
 use crate::metadata_value::{ListKind, MetadataValue};
@@ -521,12 +521,21 @@ pub fn join_hierarchical_path(components: &[String]) -> String {
     components.join("|")
 }
 
-/// Build a set-value draft for a Bag/Seq-of-Text tag from a list of
-/// canonical strings. Shared by Group A (Keywords) and Group E
-/// (Creator).
+/// Build a set-value draft for a scalar text tag.
 pub(crate) fn text_edit(value: String) -> MetadataDraftEdit {
     MetadataDraftEdit {
         value: Some(MetadataValue::Text(value)),
+        intent: EditIntent::Set,
+        display: None,
+    }
+}
+
+/// Build a set-value draft for a LangAlt primary with x-default text.
+pub(crate) fn lang_alt_edit(value: String) -> MetadataDraftEdit {
+    let mut langs = BTreeMap::new();
+    langs.insert("x-default".to_string(), value);
+    MetadataDraftEdit {
+        value: Some(MetadataValue::LangAlt(langs)),
         intent: EditIntent::Set,
         display: None,
     }
@@ -1362,8 +1371,13 @@ mod tests_dispatcher {
         // Generated title became a draft.
         let title_draft = edits.get("XMP-dc:Title").expect("title draft present");
         match &title_draft.value {
-            Some(MetadataValue::Text(s)) => assert_eq!(s, "Generated Title"),
-            other => panic!("expected text value, got {:?}", other),
+            Some(MetadataValue::LangAlt(langs)) => {
+                assert_eq!(
+                    langs.get("x-default").map(String::as_str),
+                    Some("Generated Title")
+                );
+            }
+            other => panic!("expected lang-alt value, got {:?}", other),
         }
     }
 
@@ -1410,8 +1424,8 @@ mod tests_dispatcher {
 
         assert_eq!(
             match &edits.get("XMP-dc:Title").expect("title draft").value {
-                Some(MetadataValue::Text(s)) => s.as_str(),
-                other => panic!("expected text value, got {:?}", other),
+                Some(MetadataValue::LangAlt(langs)) => langs.get("x-default").unwrap().as_str(),
+                other => panic!("expected lang-alt value, got {:?}", other),
             },
             "Cat On Windowsill"
         );

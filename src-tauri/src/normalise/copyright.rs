@@ -11,7 +11,9 @@
 //!      appended to, so the longest is usually the most complete.
 //!   3. All target empty → no drafts.
 
-use super::{collapse_whitespace_single_line, text_edit, CopyrightInput, GroupOutput};
+use super::{
+    collapse_whitespace_single_line, lang_alt_edit, text_edit, CopyrightInput, GroupOutput,
+};
 use std::collections::HashMap;
 
 pub const COPYRIGHT_TARGET_TAGS: &[&str] =
@@ -52,11 +54,13 @@ pub fn normalise_copyright(input: &CopyrightInput) -> Option<GroupOutput> {
     if copyright_is_normalised(input, &canonical) {
         return None;
     }
-    let edit = text_edit(canonical.clone());
     let mut edits = HashMap::new();
-    for tag in COPYRIGHT_TARGET_TAGS {
-        edits.insert((*tag).to_string(), edit.clone());
-    }
+    edits.insert(
+        "XMP-dc:Rights".to_string(),
+        lang_alt_edit(canonical.clone()),
+    );
+    edits.insert("IFD0:Copyright".to_string(), text_edit(canonical.clone()));
+    edits.insert("IPTC:CopyrightNotice".to_string(), text_edit(canonical));
     Some(GroupOutput { edits })
 }
 
@@ -65,10 +69,17 @@ mod tests {
     use super::*;
     use crate::metadata_value::MetadataValue;
 
-    fn s(g: &GroupOutput, k: &str) -> String {
+    fn text(g: &GroupOutput, k: &str) -> String {
         match &g.edits.get(k).unwrap().value {
             Some(MetadataValue::Text(v)) => v.clone(),
             other => panic!("expected text value, got {:?}", other),
+        }
+    }
+
+    fn lang_alt_x_default(g: &GroupOutput, k: &str) -> String {
+        match &g.edits.get(k).unwrap().value {
+            Some(MetadataValue::LangAlt(v)) => v.get("x-default").unwrap().clone(),
+            other => panic!("expected lang-alt value, got {:?}", other),
         }
     }
 
@@ -80,9 +91,9 @@ mod tests {
             iptc_copyright: None,
         };
         let out = normalise_copyright(&input).unwrap();
-        assert_eq!(s(&out, "XMP-dc:Rights"), "© 2025 Acme");
-        assert_eq!(s(&out, "IFD0:Copyright"), "© 2025 Acme");
-        assert_eq!(s(&out, "IPTC:CopyrightNotice"), "© 2025 Acme");
+        assert_eq!(lang_alt_x_default(&out, "XMP-dc:Rights"), "© 2025 Acme");
+        assert_eq!(text(&out, "IFD0:Copyright"), "© 2025 Acme");
+        assert_eq!(text(&out, "IPTC:CopyrightNotice"), "© 2025 Acme");
     }
 
     #[test]
@@ -94,9 +105,9 @@ mod tests {
         };
         let out = normalise_copyright(&input).unwrap();
         let want = "© 2025 Acme. All rights reserved.";
-        assert_eq!(s(&out, "XMP-dc:Rights"), want);
-        assert_eq!(s(&out, "IFD0:Copyright"), want);
-        assert_eq!(s(&out, "IPTC:CopyrightNotice"), want);
+        assert_eq!(lang_alt_x_default(&out, "XMP-dc:Rights"), want);
+        assert_eq!(text(&out, "IFD0:Copyright"), want);
+        assert_eq!(text(&out, "IPTC:CopyrightNotice"), want);
     }
 
     #[test]
@@ -106,7 +117,10 @@ mod tests {
             ..Default::default()
         };
         let out = normalise_copyright(&input).unwrap();
-        assert_eq!(s(&out, "XMP-dc:Rights"), "© 2025 Acme Corp");
+        assert_eq!(
+            lang_alt_x_default(&out, "XMP-dc:Rights"),
+            "© 2025 Acme Corp"
+        );
     }
 
     #[test]
@@ -117,7 +131,7 @@ mod tests {
             iptc_copyright: None,
         };
         let out = normalise_copyright(&input).unwrap();
-        assert_eq!(s(&out, "XMP-dc:Rights"), "© 2025");
+        assert_eq!(lang_alt_x_default(&out, "XMP-dc:Rights"), "© 2025");
     }
 
     #[test]
@@ -132,7 +146,7 @@ mod tests {
             ..Default::default()
         };
         let first = normalise_copyright(&initial).unwrap();
-        let c = s(&first, "XMP-dc:Rights");
+        let c = lang_alt_x_default(&first, "XMP-dc:Rights");
         let post = CopyrightInput {
             rights: Some(c.clone()),
             exif_copyright: Some(c.clone()),
@@ -149,6 +163,6 @@ mod tests {
             iptc_copyright: Some("© 2025 Acme".into()),
         };
         let out = normalise_copyright(&input).expect("trims primary even when derivatives match");
-        assert_eq!(s(&out, "XMP-dc:Rights"), "© 2025 Acme");
+        assert_eq!(lang_alt_x_default(&out, "XMP-dc:Rights"), "© 2025 Acme");
     }
 }

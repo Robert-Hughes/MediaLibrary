@@ -7,7 +7,10 @@
  * Worker harness) and reused as the body of `src/workers/searchWorker.ts`.
  */
 import type { ImageMetadataState, MetadataDraftEdit } from "../types";
-import { displayStringOfMetadataDraft, variantToDisplayString } from "../draft";
+import {
+  displayStringOfMetadataDraft,
+  metadataEntryToDisplayString,
+} from "../draft";
 import { formatPhotoRowDate } from "../utils/photoDate";
 
 export interface SearchPhotoFields {
@@ -39,7 +42,7 @@ function metaChunk(meta: ImageMetadataState | undefined): string {
   const parts: string[] = [];
   for (const [key, value] of Object.entries(meta)) {
     if (key === "_error") continue;
-    parts.push(key, variantToDisplayString(value));
+    parts.push(key, metadataEntryToDisplayString(value));
   }
   return parts.join("\n");
 }

@@ -2,14 +2,15 @@ import { describe, expect, it } from "vitest";
 import {
   metadataValueToDisplayString,
   metadataValueToDisplayStringForTag,
-  variantToDisplayString,
+  metadataEntryToDisplayString,
+  metadataValueToDiagnosticString,
 } from "../draft";
 import type { TagInfo, TagKind } from "../types";
 
-describe("variantToDisplayString (regression)", () => {
+describe("metadataEntryToDisplayString (regression)", () => {
   it("joins arrays with comma-space", () => {
     expect(
-      variantToDisplayString({
+      metadataEntryToDisplayString({
         kind: "List",
         value: {
           list_kind: "Bag",
@@ -23,7 +24,7 @@ describe("variantToDisplayString (regression)", () => {
   });
   it("joins object entries", () => {
     expect(
-      variantToDisplayString({
+      metadataEntryToDisplayString({
         kind: "Struct",
         value: {
           k: { kind: "Text", value: "v" },
@@ -31,6 +32,50 @@ describe("variantToDisplayString (regression)", () => {
         },
       }),
     ).toBe("k: v; k2: v2");
+  });
+});
+
+describe("metadataValueToDiagnosticString", () => {
+  it("renders canonical type names for values with identical friendly display", () => {
+    expect(
+      metadataValueToDiagnosticString({
+        kind: "Text",
+        value: "Copyright 2008",
+      }),
+    ).toBe('Text("Copyright 2008")');
+    expect(
+      metadataValueToDiagnosticString({
+        kind: "LangAlt",
+        value: { "x-default": "Copyright 2008" },
+      }),
+    ).toBe('LangAlt{x-default: "Copyright 2008"}');
+  });
+
+  it("renders time offsets explicitly", () => {
+    expect(
+      metadataValueToDiagnosticString({
+        kind: "Time",
+        value: {
+          hour: 8,
+          minute: 6,
+          second: 49,
+          subsecond: null,
+          offset: null,
+        },
+      }),
+    ).toBe("Time(08:06:49)");
+    expect(
+      metadataValueToDiagnosticString({
+        kind: "Time",
+        value: {
+          hour: 8,
+          minute: 6,
+          second: 49,
+          subsecond: null,
+          offset: { sign: "Plus", hours: 1, minutes: 0 },
+        },
+      }),
+    ).toBe("Time(08:06:49+01:00)");
   });
 });
 
