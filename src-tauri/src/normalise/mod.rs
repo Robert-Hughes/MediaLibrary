@@ -340,7 +340,10 @@ pub struct DatesInput {
     /// `ExifIFD:CreateDate` (primary).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub create_date: Option<MetadataValue>,
-    /// `ExifIFD:OffsetTime` — paired with `CreateDate` per EXIF spec.
+    /// `ExifIFD:OffsetTimeDigitized` — paired with `CreateDate` per EXIF spec.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub offset_time_digitized: Option<MetadataValue>,
+    /// `ExifIFD:OffsetTime` — modify-time offset; kept for wire compatibility.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub offset_time: Option<MetadataValue>,
     /// `ExifIFD:SubSecTimeDigitized` — fractional-seconds digits for H2.

@@ -240,6 +240,7 @@ describe("buildNormaliseItemForPhoto — dates", () => {
       "ExifIFD:DateTimeOriginal": "2024:06:15 14:30:45",
       "ExifIFD:OffsetTimeOriginal": "+01:00",
       "ExifIFD:CreateDate": "2024:06:15 14:30:45",
+      "ExifIFD:OffsetTimeDigitized": "+02:00",
     });
     const item = buildNormaliseItemForPhoto("x.jpg", m, undefined, ["dates"]);
     expect(item.groupInputs.dates?.dateTimeOriginal).toEqual({
@@ -253,6 +254,10 @@ describe("buildNormaliseItemForPhoto — dates", () => {
     expect(item.groupInputs.dates?.createDate).toEqual({
       kind: "Text",
       value: "2024:06:15 14:30:45",
+    });
+    expect(item.groupInputs.dates?.offsetTimeDigitized).toEqual({
+      kind: "Text",
+      value: "+02:00",
     });
   });
 
