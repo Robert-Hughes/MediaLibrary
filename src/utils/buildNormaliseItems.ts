@@ -300,6 +300,8 @@ export function buildNormaliseItemForPhoto(
       iptcTimeCreated:
         scalarValue(metadata, drafts, "IPTC:TimeCreated") ?? null,
       createDate: scalarValue(metadata, drafts, "ExifIFD:CreateDate") ?? null,
+      offsetTimeDigitized:
+        scalarValue(metadata, drafts, "ExifIFD:OffsetTimeDigitized") ?? null,
       offsetTime: scalarValue(metadata, drafts, "ExifIFD:OffsetTime") ?? null,
       subSecTimeDigitized:
         scalarValue(metadata, drafts, "ExifIFD:SubSecTimeDigitized") ?? null,

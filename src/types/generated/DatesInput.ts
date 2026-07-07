@@ -44,7 +44,11 @@ iptcTimeCreated: MetadataValue | null,
  */
 createDate: MetadataValue | null, 
 /**
- * `ExifIFD:OffsetTime` — paired with `CreateDate` per EXIF spec.
+ * `ExifIFD:OffsetTimeDigitized` — paired with `CreateDate` per EXIF spec.
+ */
+offsetTimeDigitized: MetadataValue | null, 
+/**
+ * `ExifIFD:OffsetTime` — modify-time offset; kept for wire compatibility.
  */
 offsetTime: MetadataValue | null, 
 /**

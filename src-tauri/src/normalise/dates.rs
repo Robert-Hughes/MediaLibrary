@@ -50,14 +50,15 @@ impl ComparableTimestamp {
         self.datetime.date.clone()
     }
 
-    fn time_with_effective_offset(&self) -> TimeValue {
+    fn time_with_iptc_offset(
+        &self,
+        existing_iptc_offset: Option<&UtcOffsetValue>,
+        fallback_offset: Option<&UtcOffsetValue>,
+    ) -> TimeValue {
         let mut time = self.datetime.time.clone();
-        time.offset = self.effective_offset().cloned();
-        time
-    }
-
-    fn time_with_iptc_offset(&self, fallback_offset: Option<&UtcOffsetValue>) -> TimeValue {
-        let mut time = self.time_with_effective_offset();
+        time.offset = existing_iptc_offset
+            .cloned()
+            .or_else(|| self.effective_offset().cloned());
         if time.offset.is_none() {
             // Pragmatic app fallback: when no inline or related EXIF offset is
             // available, write the current PC local offset so IPTC time drafts
@@ -369,7 +370,7 @@ fn process_date_subgroup(
         );
     }
     let existing_iptc_offset = existing_iptc.and_then(ComparableTimestamp::effective_offset);
-    let iptc_time = canonical.time_with_iptc_offset(existing_iptc_offset.or(iptc_fallback_offset));
+    let iptc_time = canonical.time_with_iptc_offset(existing_iptc_offset, iptc_fallback_offset);
     let iptc_matches = existing_iptc.map(|v| {
         v.datetime.date == canonical.datetime.date
             && v.datetime.time.hour == iptc_time.hour
@@ -568,7 +569,7 @@ fn normalise_dates_inner(
     }
     edits.extend(h1.edits);
 
-    let offset_h2 = offset_from_value(input.offset_time.as_ref());
+    let offset_h2 = offset_from_value(input.offset_time_digitized.as_ref());
     let subsec_h2 = subsecond_from_value(input.sub_sec_time_digitized.as_ref());
     let exif_h2 = datetime_from_value(
         input.create_date.as_ref(),
@@ -838,6 +839,58 @@ mod tests {
         assert_eq!(
             display(edit_value(&out, "IPTC:DigitalCreationTime")),
             "14:30:45+01:00"
+        );
+    }
+
+    #[test]
+    fn offset_time_digitized_wins_over_local_fallback_for_digital_creation_time() {
+        let input = DatesInput {
+            create_date: Some(dt(2024, 6, 15, 14, 30, 45, None)),
+            offset_time_digitized: Some(MetadataValue::TimeOffset(off(2))),
+            iptc_digital_creation_date: Some(date(2024, 6, 15)),
+            ..Default::default()
+        };
+        let out = normalise_dates_with_fallback_offset(&input, Some(off(1)))
+            .output
+            .unwrap();
+        assert_eq!(
+            display(edit_value(&out, "IPTC:DigitalCreationTime")),
+            "14:30:45+02:00"
+        );
+    }
+
+    #[test]
+    fn plain_offset_time_is_not_borrowed_for_digital_creation_time() {
+        let input = DatesInput {
+            create_date: Some(dt(2024, 6, 15, 14, 30, 45, None)),
+            offset_time: Some(MetadataValue::TimeOffset(off(2))),
+            iptc_digital_creation_date: Some(date(2024, 6, 15)),
+            ..Default::default()
+        };
+        let out = normalise_dates_with_fallback_offset(&input, Some(off(1)))
+            .output
+            .unwrap();
+        assert_eq!(
+            display(edit_value(&out, "IPTC:DigitalCreationTime")),
+            "14:30:45+01:00"
+        );
+    }
+
+    #[test]
+    fn existing_digital_creation_time_offset_wins_over_offset_time_digitized() {
+        let input = DatesInput {
+            create_date: Some(dt(2024, 6, 15, 14, 30, 45, None)),
+            offset_time_digitized: Some(MetadataValue::TimeOffset(off(2))),
+            iptc_digital_creation_date: Some(date(2024, 6, 15)),
+            iptc_digital_creation_time: Some(time(14, 30, 45, Some(off(3)))),
+            ..Default::default()
+        };
+        let out = normalise_dates_with_fallback_offset(&input, Some(off(1)));
+        let edits = out.output.unwrap().edits;
+        assert!(
+            !edits.contains_key("IPTC:DigitalCreationTime"),
+            "must preserve existing IPTC digital creation offset: {:?}",
+            edits
         );
     }
 
