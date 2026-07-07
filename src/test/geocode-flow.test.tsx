@@ -15,6 +15,10 @@ import type { MetadataValue } from "../types";
 
 let mockApiInstance: ReturnType<typeof createMockTauriApi>;
 
+function singletonList(value: MetadataValue): MetadataValue {
+  return { kind: "List", value: { list_kind: "Bag", items: [value] } };
+}
+
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: (cmd: string, args?: Record<string, unknown>) =>
     mockApiInstance.api.invoke(cmd, args),
@@ -181,9 +185,9 @@ describe("Reverse-geocoding flow", () => {
 
     const { user } = await openFolderAndSelectPhoto("test.jpg", {
       "GPS:GPSLatitude": { kind: "Real", value: 53.983856 },
-      "GPS:GPSLatitudeRef": { kind: "Text", value: "N" },
+      "GPS:GPSLatitudeRef": singletonList({ kind: "Text", value: "N" }),
       "GPS:GPSLongitude": { kind: "Real", value: 1.100918 },
-      "GPS:GPSLongitudeRef": { kind: "Text", value: "W" },
+      "GPS:GPSLongitudeRef": singletonList({ kind: "Text", value: "W" }),
     });
     await user.click(screen.getByTestId("details-pane-geocode-btn"));
     await act(async () => {
