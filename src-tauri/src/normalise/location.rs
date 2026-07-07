@@ -3,10 +3,17 @@
 //! Plan §1 Group G. Five XMP↔IIM mirror pairs treated independently.
 //! Per-pair policy:
 //!   1. Both empty → no drafts.
-//!   2. Exactly one non-empty → canonical = that value (uppercased for
-//!      CountryCode), project to both fields.
-//!   3. Both non-empty AND equal after canonicalisation → write
-//!      canonical to both (handles e.g. `gb` vs `GB` for CountryCode).
+//!   2. Exactly one non-empty → canonical = that value, project to both fields.
+//!      For the CountryCode pair:
+//!        - The canonical semantic value is trimmed, whitespace-collapsed,
+//!          and uppercased alpha-2-style text (this is not alpha-3 conversion
+//!          and does not use a lookup table).
+//!        - XMP projection writes the canonical value, e.g. `GB`.
+//!        - IPTC projection writes the legacy fixed-width padded storage form
+//!          for 2-character ASCII codes, e.g. `GB `.
+//!   3. Both non-empty AND equal after canonicalisation → write to both.
+//!      Handles e.g. `gb` vs `GB` for CountryCode, where IPTC readback
+//!      canonicalisation trims trailing fixed-width space padding before comparison.
 //!   4. Both non-empty AND distinct after canonicalisation → primary
 //!      (XMP side) wins. Stats: `n_location_xmp_iim_conflict`.
 //!
