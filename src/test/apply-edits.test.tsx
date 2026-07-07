@@ -472,20 +472,57 @@ describe("Apply Draft Edits – Progress dialog and cancellation", () => {
     await act(async () => {
       gate.advance();
     });
-    await waitFor(() => {
-      expect(screen.getByTestId("apply-progress-count")).toHaveTextContent(
-        "2 of 2 files",
-      );
-    });
-    expect(screen.getByTestId("apply-progress-cancel-btn")).toBeDisabled();
-    await act(async () => {
-      gate.advance();
-    });
 
     await waitFor(() => {
       expect(
         screen.queryByTestId("apply-progress-dialog"),
       ).not.toBeInTheDocument();
+    });
+
+    expect(
+      mockApiInstance.applyProgressEvents.map((event) => event.relative_path),
+    ).toEqual(["a.jpg"]);
+    expect(screen.getByTestId("status-bar-apply-all-btn")).toBeInTheDocument();
+  });
+
+  it("mocked apply returns only files processed before cancellation", async () => {
+    const gate = createApplyEditsProgressGate();
+    mockApiInstance.applyEditsProgressGate = gate;
+    mockApiInstance.applyEditsResult = {
+      applied: ["a.jpg", "b.jpg"],
+      failed: [],
+      fresh_metadata: {
+        "a.jpg": {
+          "XMP-dc:Description": { kind: "Text", value: "Applied A" },
+        },
+        "b.jpg": {
+          "XMP-dc:Description": { kind: "Text", value: "Applied B" },
+        },
+      },
+    };
+
+    const applyPromise = mockApiInstance.api.invoke(
+      "apply_metadata_draft_edits_cmd",
+      {
+        folderPath: "/photos",
+        relPaths: ["a.jpg", "b.jpg"],
+      },
+    );
+
+    await waitFor(() => {
+      expect(mockApiInstance.applyProgressEvents).toHaveLength(1);
+    });
+    await mockApiInstance.api.invoke("cancel_apply_edits");
+    gate.advance();
+
+    await expect(applyPromise).resolves.toEqual({
+      applied: ["a.jpg"],
+      failed: [],
+      fresh_metadata: {
+        "a.jpg": {
+          "XMP-dc:Description": { kind: "Text", value: "Applied A" },
+        },
+      },
     });
   });
 

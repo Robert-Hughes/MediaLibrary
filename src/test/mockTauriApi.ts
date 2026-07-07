@@ -78,6 +78,12 @@ export interface MockTauriApi {
   applyEditsResult: MetadataApplyEditsResult;
   /** Optional manual gate: after each progress event, apply waits for advance(). */
   applyEditsProgressGate: MockApplyEditsProgressGate | null;
+  /** Progress events emitted by the apply-edits mock. */
+  applyProgressEvents: Array<{
+    current: number;
+    total: number;
+    relative_path: string;
+  }>;
   cancelApplyEditsCalled: boolean;
   /** Stored settings; defaults to empty API key + gpt-4o + heuristic estimates. */
   settings: {
@@ -239,6 +245,7 @@ export function createMockTauriApi(): MockTauriApi {
     currentScanId: 1,
     applyEditsResult: { applied: [], failed: [], fresh_metadata: {} },
     applyEditsProgressGate: null,
+    applyProgressEvents: [],
     cancelApplyEditsCalled: false,
     settings: {
       openai_api_key: "",
@@ -352,7 +359,15 @@ export function createMockTauriApi(): MockTauriApi {
         emit("apply_edits_started", { total });
 
         let current = 0;
+        const applied: string[] = [];
+        const failed: MetadataApplyEditsResult["failed"] = [];
+        const fresh_metadata: MetadataApplyEditsResult["fresh_metadata"] = {};
+
         for (const path of relPaths) {
+          if (mock.cancelApplyEditsCalled) {
+            break;
+          }
+
           const isApplied = result.applied.includes(path);
           const failedEntry = result.failed.find(
             (f) => f.relative_path === path,
@@ -360,7 +375,7 @@ export function createMockTauriApi(): MockTauriApi {
           if (!isApplied && !failedEntry) continue;
 
           current += 1;
-          emit(progressEvent, {
+          const progressPayload = {
             current,
             total,
             relative_path: path,
@@ -370,13 +385,30 @@ export function createMockTauriApi(): MockTauriApi {
             tag_outcomes: isApplied
               ? mockTagOutcomesForPath(mock, folder, path)
               : [],
+          };
+          mock.applyProgressEvents.push({
+            current,
+            total,
+            relative_path: path,
           });
+          emit(progressEvent, progressPayload);
+
+          if (isApplied) {
+            applied.push(path);
+            const fresh = result.fresh_metadata[path];
+            if (fresh) {
+              fresh_metadata[path] = fresh;
+            }
+          } else if (failedEntry) {
+            failed.push(failedEntry);
+          }
+
           if (mock.applyEditsProgressGate) {
             await mock.applyEditsProgressGate.waitForNextStep();
           }
         }
 
-        return result;
+        return { applied, failed, fresh_metadata };
       }
       if (cmd === "cancel_apply_edits") {
         mock.cancelApplyEditsCalled = true;
