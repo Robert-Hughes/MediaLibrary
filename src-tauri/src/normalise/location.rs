@@ -17,6 +17,10 @@ use super::{
     collapse_whitespace_single_line, text_edit, truncate_at_word, GroupOutput, LocationContext,
     LocationInput,
 };
+use crate::country_code::{
+    canonical_country_code, canonical_iptc_country_code_readback, iptc_country_code_projection,
+    xmp_country_code_projection,
+};
 use crate::draft_edits::MetadataDraftEdit;
 use std::collections::HashMap;
 
@@ -40,7 +44,11 @@ fn canonicalise_location_text(s: &str) -> String {
 }
 
 fn canonicalise_country_code(s: &str) -> String {
-    canonicalise_location_text(s).to_uppercase()
+    canonical_country_code(s)
+}
+
+fn canonicalise_iptc_country_code(s: &str) -> String {
+    canonical_iptc_country_code_readback(s)
 }
 
 struct PairResult {
@@ -60,12 +68,13 @@ fn iptc_sub_location_projection(s: &str) -> String {
 fn process_pair(
     xmp: Option<&str>,
     iptc: Option<&str>,
-    canon: fn(&str) -> String,
+    xmp_canon: fn(&str) -> String,
+    iptc_canon: fn(&str) -> String,
     xmp_projection: fn(&str) -> String,
     iptc_projection: fn(&str) -> String,
 ) -> PairResult {
-    let xc = xmp.map(canon).filter(|s| !s.is_empty());
-    let ic = iptc.map(canon).filter(|s| !s.is_empty());
+    let xc = xmp.map(xmp_canon).filter(|s| !s.is_empty());
+    let ic = iptc.map(iptc_canon).filter(|s| !s.is_empty());
 
     let (canonical, conflict) = match (xc, ic) {
         (None, None) => (None, false),
@@ -151,6 +160,7 @@ pub fn normalise_location(input: &LocationInput) -> LocationOutcome {
         fn(&str) -> String,
         fn(&str) -> String,
         fn(&str) -> String,
+        fn(&str) -> String,
     );
     let pairs: [LocationPair<'_>; 5] = [
         (
@@ -158,6 +168,7 @@ pub fn normalise_location(input: &LocationInput) -> LocationOutcome {
             "IPTC:Sub-location",
             input.location_xmp.as_deref(),
             input.location_iptc.as_deref(),
+            canonicalise_location_text,
             canonicalise_location_text,
             identity_projection,
             iptc_sub_location_projection,
@@ -168,6 +179,7 @@ pub fn normalise_location(input: &LocationInput) -> LocationOutcome {
             input.city_xmp.as_deref(),
             input.city_iptc.as_deref(),
             canonicalise_location_text,
+            canonicalise_location_text,
             identity_projection,
             identity_projection,
         ),
@@ -176,6 +188,7 @@ pub fn normalise_location(input: &LocationInput) -> LocationOutcome {
             "IPTC:Province-State",
             input.state_xmp.as_deref(),
             input.state_iptc.as_deref(),
+            canonicalise_location_text,
             canonicalise_location_text,
             identity_projection,
             identity_projection,
@@ -186,6 +199,7 @@ pub fn normalise_location(input: &LocationInput) -> LocationOutcome {
             input.country_xmp.as_deref(),
             input.country_iptc.as_deref(),
             canonicalise_location_text,
+            canonicalise_location_text,
             identity_projection,
             identity_projection,
         ),
@@ -195,15 +209,25 @@ pub fn normalise_location(input: &LocationInput) -> LocationOutcome {
             input.country_code_xmp.as_deref(),
             input.country_code_iptc.as_deref(),
             canonicalise_country_code,
-            identity_projection,
-            identity_projection,
+            canonicalise_iptc_country_code,
+            xmp_country_code_projection,
+            iptc_country_code_projection,
         ),
     ];
 
     let mut edits: HashMap<String, MetadataDraftEdit> = HashMap::new();
     let mut conflicts: u32 = 0;
-    for (xmp_key, iptc_key, xmp, iptc, canon, xmp_projection, iptc_projection) in pairs {
-        let result = process_pair(xmp, iptc, canon, xmp_projection, iptc_projection);
+    for (xmp_key, iptc_key, xmp, iptc, xmp_canon, iptc_canon, xmp_projection, iptc_projection) in
+        pairs
+    {
+        let result = process_pair(
+            xmp,
+            iptc,
+            xmp_canon,
+            iptc_canon,
+            xmp_projection,
+            iptc_projection,
+        );
         if result.conflict {
             conflicts += 1;
         }
@@ -301,7 +325,55 @@ mod tests {
         };
         let out = normalise_location(&input).output.unwrap();
         assert_eq!(s(&out, "XMP-iptcCore:CountryCode"), "GB");
+        assert_eq!(s(&out, "IPTC:Country-PrimaryLocationCode"), "GB ");
+    }
+
+    #[test]
+    fn xmp_country_code_only_projects_padded_iptc() {
+        let input = LocationInput {
+            country_code_xmp: Some("GB".into()),
+            ..Default::default()
+        };
+        let out = normalise_location(&input).output.unwrap();
+        assert!(!out.edits.contains_key("XMP-iptcCore:CountryCode"));
+        assert_eq!(s(&out, "IPTC:Country-PrimaryLocationCode"), "GB ");
+    }
+
+    #[test]
+    fn padded_iptc_country_code_only_backfills_xmp_alpha_2() {
+        let input = LocationInput {
+            country_code_iptc: Some("GB ".into()),
+            ..Default::default()
+        };
+        let out = normalise_location(&input).output.unwrap();
+        assert_eq!(s(&out, "XMP-iptcCore:CountryCode"), "GB");
         assert!(!out.edits.contains_key("IPTC:Country-PrimaryLocationCode"));
+    }
+
+    #[test]
+    fn xmp_country_code_and_padded_iptc_readback_are_in_sync() {
+        let input = LocationInput {
+            country_code_xmp: Some("GB".into()),
+            country_code_iptc: Some("GB ".into()),
+            ..Default::default()
+        };
+        let out = normalise_location(&input);
+        assert!(out.output.is_none());
+        assert_eq!(out.n_xmp_iim_conflict, 0);
+    }
+
+    #[test]
+    fn unpadded_iptc_country_code_is_reprojected_without_conflict() {
+        let input = LocationInput {
+            country_code_xmp: Some("GB".into()),
+            country_code_iptc: Some("GB".into()),
+            ..Default::default()
+        };
+        let out = normalise_location(&input);
+        let g = out.output.expect("must emit padded IPTC projection");
+        assert!(!g.edits.contains_key("XMP-iptcCore:CountryCode"));
+        assert_eq!(s(&g, "IPTC:Country-PrimaryLocationCode"), "GB ");
+        assert_eq!(out.n_xmp_iim_conflict, 0);
     }
 
     #[test]
@@ -325,7 +397,7 @@ mod tests {
         assert!(!g.edits.contains_key("XMP-photoshop:Country"));
         assert_eq!(s(&g, "IPTC:Country-PrimaryLocationName"), "France");
         assert_eq!(s(&g, "XMP-iptcCore:CountryCode"), "FR");
-        assert_eq!(s(&g, "IPTC:Country-PrimaryLocationCode"), "FR");
+        assert_eq!(s(&g, "IPTC:Country-PrimaryLocationCode"), "FR ");
         assert_eq!(out.n_xmp_iim_conflict, 1);
     }
 
@@ -360,7 +432,7 @@ mod tests {
             .output
             .expect("must normalise to uppercase");
         assert_eq!(s(&out, "XMP-iptcCore:CountryCode"), "GB");
-        assert_eq!(s(&out, "IPTC:Country-PrimaryLocationCode"), "GB");
+        assert_eq!(s(&out, "IPTC:Country-PrimaryLocationCode"), "GB ");
     }
 
     #[test]

@@ -322,6 +322,12 @@ fn verify_metadata_set(
         );
     }
 
+    if key == crate::country_code::IPTC_COUNTRY_PRIMARY_LOCATION_CODE
+        && observed.is_some_and(|actual| iptc_country_code_values_match(actual, expected))
+    {
+        return ("Match".to_string(), None);
+    }
+
     if observed.is_some_and(|v| metadata_strict_eq(v, expected)) {
         return ("Match".to_string(), None);
     }
@@ -353,6 +359,15 @@ fn verify_metadata_set(
             key, expected, observed
         )),
     )
+}
+
+fn iptc_country_code_values_match(actual: &MetadataValue, expected: &MetadataValue) -> bool {
+    match (actual, expected) {
+        (MetadataValue::Text(actual), MetadataValue::Text(expected)) => {
+            crate::country_code::iptc_country_code_storage_equivalent(expected, actual)
+        }
+        _ => false,
+    }
 }
 
 fn verify_metadata_delete(
@@ -890,6 +905,26 @@ mod tests {
     }
 
     #[test]
+    fn verify_metadata_accepts_legacy_iptc_country_code_padding_only_for_that_tag() {
+        let metadata = metadata_map(&[(
+            "IPTC:Country-PrimaryLocationCode",
+            MetadataValue::Text("GB ".into()),
+        )]);
+        let expected = MetadataValue::Text("GB".into());
+        let (kind, _) = verify_metadata_set(
+            "IPTC:Country-PrimaryLocationCode",
+            Some(&expected),
+            &metadata,
+            Some(&TagKind::Text),
+        );
+        assert_eq!(kind, "Match");
+
+        let metadata = metadata_map(&[("X", MetadataValue::Text("GB ".into()))]);
+        let (kind, _) = verify_metadata_set("X", Some(&expected), &metadata, Some(&TagKind::Text));
+        assert_eq!(kind, "Mismatch");
+    }
+
+    #[test]
     fn argfile_numeric_pass_contains_numeric_and_charset_lines() {
         let lines = build_exiftool_write_argfile_lines(
             Path::new("photo.jpg"),
@@ -933,6 +968,18 @@ mod tests {
         assert!(lines.contains(&"-XMP-mlib:AIDescription=a café table".to_string()));
         let contents = render_exiftool_argfile(&lines);
         assert!(contents.contains("-XMP-mlib:AIDescription=a café table\n"));
+    }
+
+    #[test]
+    fn argfile_text_pass_preserves_trailing_value_spaces() {
+        let lines = build_exiftool_write_argfile_lines(
+            Path::new("photo.jpg"),
+            &[String::from("-IPTC:Country-PrimaryLocationCode=GB ")],
+            false,
+        )
+        .unwrap();
+        let contents = render_exiftool_argfile(&lines);
+        assert!(contents.contains("-IPTC:Country-PrimaryLocationCode=GB \n"));
     }
 
     #[test]
