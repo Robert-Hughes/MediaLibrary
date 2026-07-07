@@ -1,23 +1,71 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::io::Write;
 use std::path::Path;
 
 use crate::metadata_value::{ListKind, MetadataValue};
 use crate::scanner;
 use crate::tag_schema::TagKind;
 
+fn reject_argfile_line_breaks(label: &str, value: &str) -> Result<(), String> {
+    if value.contains('\n') || value.contains('\r') {
+        return Err(format!(
+            "ExifTool argfile cannot safely encode {} containing a newline",
+            label
+        ));
+    }
+    Ok(())
+}
+
+fn build_exiftool_write_argfile_lines(
+    path: &Path,
+    args: &[String],
+    numeric: bool,
+) -> Result<Vec<String>, String> {
+    let mut lines = vec![
+        "-overwrite_original".to_string(),
+        "-charset".to_string(),
+        "utf8".to_string(),
+        "-charset".to_string(),
+        "filename=utf8".to_string(),
+    ];
+    if numeric {
+        lines.push("-n".to_string());
+    }
+    for arg in args {
+        reject_argfile_line_breaks("argument", arg)?;
+        lines.push(arg.clone());
+    }
+    let path_arg = path.to_string_lossy().into_owned();
+    reject_argfile_line_breaks("file path", &path_arg)?;
+    lines.push(path_arg);
+    Ok(lines)
+}
+
+fn render_exiftool_argfile(lines: &[String]) -> String {
+    let mut contents = lines.join("\n");
+    contents.push('\n');
+    contents
+}
+
 /// Run one exiftool write invocation against `path` with the provided args.
 /// `numeric=true` prepends `-n` so values are interpreted as raw numerics.
 fn run_exiftool_write(path: &Path, args: &[String], numeric: bool) -> Result<(), String> {
+    let lines = build_exiftool_write_argfile_lines(path, args, numeric)?;
+    let dir = tempfile::tempdir().map_err(|e| format!("Failed to create ExifTool argfile: {e}"))?;
+    let argfile_path = dir.path().join("medialibrary-exiftool.args");
+    let mut argfile = std::fs::File::create(&argfile_path)
+        .map_err(|e| format!("Failed to create ExifTool argfile: {e}"))?;
+    argfile
+        .write_all(render_exiftool_argfile(&lines).as_bytes())
+        .map_err(|e| format!("Failed to write ExifTool argfile as UTF-8: {e}"))?;
+    argfile
+        .flush()
+        .map_err(|e| format!("Failed to flush ExifTool argfile: {e}"))?;
+    drop(argfile);
+
     let mut cmd = crate::exiftool_config::exiftool_command();
-    cmd.arg("-overwrite_original");
-    if numeric {
-        cmd.arg("-n");
-    }
-    for a in args {
-        cmd.arg(a);
-    }
-    cmd.arg(path);
+    cmd.arg("-@").arg(&argfile_path);
 
     let output = cmd.output().map_err(|e| {
         format!(
@@ -25,13 +73,20 @@ fn run_exiftool_write(path: &Path, args: &[String], numeric: bool) -> Result<(),
             e
         )
     })?;
+    let stderr = String::from_utf8_lossy(&output.stderr);
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(format!(
             "ExifTool failed ({}): {}",
             if numeric { "-n pass" } else { "text pass" },
             stderr.trim()
         ));
+    }
+    if !stderr.trim().is_empty() {
+        log::warn!(
+            "[apply_edits] ExifTool write emitted stderr on {}: {}",
+            if numeric { "-n pass" } else { "text pass" },
+            stderr.trim()
+        );
     }
     Ok(())
 }
@@ -832,5 +887,62 @@ mod tests {
             Some(&TagKind::Date),
         );
         assert_eq!(kind, "Match");
+    }
+
+    #[test]
+    fn argfile_numeric_pass_contains_numeric_and_charset_lines() {
+        let lines = build_exiftool_write_argfile_lines(
+            Path::new("photo.jpg"),
+            &[String::from("-XMP-xmp:Rating=5")],
+            true,
+        )
+        .unwrap();
+        assert_eq!(
+            &lines[..6],
+            &[
+                "-overwrite_original",
+                "-charset",
+                "utf8",
+                "-charset",
+                "filename=utf8",
+                "-n"
+            ]
+        );
+        assert_eq!(lines.last().unwrap(), "photo.jpg");
+    }
+
+    #[test]
+    fn argfile_text_pass_omits_numeric_but_keeps_utf8_and_spaces() {
+        let lines = build_exiftool_write_argfile_lines(
+            Path::new("photo.jpg"),
+            &[String::from("-XMP-mlib:AIDescription=a café table")],
+            false,
+        )
+        .unwrap();
+        assert_eq!(
+            &lines[..5],
+            &[
+                "-overwrite_original",
+                "-charset",
+                "utf8",
+                "-charset",
+                "filename=utf8"
+            ]
+        );
+        assert!(!lines.iter().any(|line| line == "-n"));
+        assert!(lines.contains(&"-XMP-mlib:AIDescription=a café table".to_string()));
+        let contents = render_exiftool_argfile(&lines);
+        assert!(contents.contains("-XMP-mlib:AIDescription=a café table\n"));
+    }
+
+    #[test]
+    fn argfile_rejects_newline_containing_args() {
+        let err = build_exiftool_write_argfile_lines(
+            Path::new("photo.jpg"),
+            &[String::from("-XMP-dc:Title=bad\nnext")],
+            false,
+        )
+        .unwrap_err();
+        assert!(err.contains("newline"));
     }
 }

@@ -160,6 +160,35 @@ fn apply_text_edit_roundtrip_iptc_city() {
     }
 }
 
+#[test]
+fn apply_xmp_mlib_ai_description_preserves_utf8() {
+    let Some(src) = fixture_path("real_with_exif.jpg") else {
+        return;
+    };
+    let (dir, dst) = copy_to_temp(&src);
+    let folder = dir.path().to_str().unwrap();
+    let rel = rel_of(dir.path(), &dst);
+
+    let mut edits = std::collections::HashMap::new();
+    edits.insert(
+        "XMP-mlib:AIDescription".to_string(),
+        metadata_set(MetadataValue::Text("A café scene".to_string())),
+    );
+
+    let outcome = apply_edits::apply_single_file_metadata(folder, &rel, &edits);
+    assert!(outcome.error.is_none(), "apply failed: {:?}", outcome.error);
+
+    let m = read_one(dir.path(), &dst);
+    match m.metadata.get("XMP-mlib:AIDescription") {
+        Some(MetadataValue::Text(s)) => assert!(
+            s.contains('é'),
+            "expected semantic readback to preserve é, got {:?}",
+            s
+        ),
+        other => panic!("expected XMP-mlib:AIDescription text, got {:?}", other),
+    }
+}
+
 // ── apply_edits delete round-trip ────────────────────────────────────────────
 
 #[test]
