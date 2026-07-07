@@ -73,6 +73,7 @@ pub struct GeocodeSummary {
 /// Default endpoints — not user-configurable in V1 (see plan §10).
 pub const NOMINATIM_BASE_URL: &str = "https://nominatim.openstreetmap.org";
 pub const OVERPASS_BASE_URL: &str = "https://overpass-api.de/api/interpreter";
+pub const NOMINATIM_REVERSE_ZOOMS: &[u8] = &[18, 16, 14, 12, 10];
 
 /// Required by Nominatim's usage policy. Bundles the crate version so
 /// it's clear which build is hitting the server during a debugging
@@ -472,7 +473,9 @@ pub enum GeocodeError {
     /// Nominatim returned an empty `address` block (ocean, etc.). We
     /// treat this as a failure rather than emitting empty drafts.
     /// See file-level doc-comment.
-    NominatimEmpty,
+    NominatimEmpty {
+        detail: String,
+    },
     Http {
         status: u16,
         body: String,
@@ -495,7 +498,7 @@ impl GeocodeError {
         use crate::batch_job::BatchFailureKind as K;
         match self {
             GeocodeError::NoGps => K::NoGps,
-            GeocodeError::NominatimEmpty => K::NominatimEmpty,
+            GeocodeError::NominatimEmpty { .. } => K::NominatimEmpty,
             GeocodeError::Http { .. } => K::Http,
             GeocodeError::Network(_) => K::Network,
             GeocodeError::Cancelled => K::Cancelled,
@@ -505,7 +508,7 @@ impl GeocodeError {
     pub fn detail(&self) -> String {
         match self {
             GeocodeError::NoGps => "no GPS coordinates".into(),
-            GeocodeError::NominatimEmpty => "Nominatim returned no usable address".into(),
+            GeocodeError::NominatimEmpty { detail } => detail.clone(),
             GeocodeError::Http { status, body } => format!("HTTP {}: {}", status, body),
             GeocodeError::Network(s) => s.clone(),
             GeocodeError::Cancelled => "cancelled by user".into(),
@@ -523,17 +526,62 @@ pub struct GeocodeResult {
     pub query_lon: f64,
 }
 
-/// Call Nominatim `/reverse` once. Returns the raw `address` JSON
-/// object (not the parsed AddressFields — caller flattens, so it can
-/// also pass the raw addr into `should_use_overpass_fallback`).
+#[derive(Debug, Clone)]
+pub struct NominatimReverseResponse {
+    pub zoom: u8,
+    pub address: serde_json::Value,
+    pub preview: String,
+}
+
+fn truncate_for_log(value: &str, max_chars: usize) -> String {
+    let mut out: String = value.chars().take(max_chars).collect();
+    if value.chars().count() > max_chars {
+        out.push_str("...");
+    }
+    out
+}
+
+fn nominatim_response_preview(json: &serde_json::Value) -> String {
+    let error = json
+        .get("error")
+        .and_then(|v| v.as_str())
+        .map(|s| truncate_for_log(s, 120));
+    let address = json.get("address");
+    let address_keys = address
+        .and_then(|v| v.as_object())
+        .map(|obj| {
+            let mut keys: Vec<&str> = obj.keys().map(|s| s.as_str()).collect();
+            keys.sort_unstable();
+            keys.join(",")
+        })
+        .unwrap_or_default();
+    let raw = serde_json::to_string(json)
+        .map(|s| truncate_for_log(&s, 240))
+        .unwrap_or_else(|_| "<unserializable>".into());
+    format!(
+        "error={} address={} address_keys=[{}] raw={}",
+        error
+            .as_ref()
+            .map(|s| format!("true({})", s))
+            .unwrap_or_else(|| "false".into()),
+        address.is_some(),
+        address_keys,
+        raw
+    )
+}
+
+/// Call Nominatim `/reverse` once at the requested zoom. Returns the
+/// raw `address` JSON object plus a compact response preview for
+/// diagnostics.
 pub async fn nominatim_reverse(
     client: &GeocodeClient,
     lat: f64,
     lon: f64,
-) -> Result<serde_json::Value, GeocodeError> {
+    zoom: u8,
+) -> Result<NominatimReverseResponse, GeocodeError> {
     let url = format!(
-        "{}/reverse?format=json&lat={}&lon={}&zoom=18&addressdetails=1",
-        client.nominatim_base, lat, lon
+        "{}/reverse?format=json&lat={:.7}&lon={:.7}&zoom={}&addressdetails=1",
+        client.nominatim_base, lat, lon, zoom
     );
     let resp = client
         .http
@@ -552,10 +600,15 @@ pub async fn nominatim_reverse(
     let json: serde_json::Value = serde_json::from_str(&text).map_err(|e| {
         GeocodeError::Network(format!("nominatim bad JSON: {} (body: {})", e, text))
     })?;
-    Ok(json
-        .get("address")
-        .cloned()
-        .unwrap_or(serde_json::Value::Null))
+    let preview = nominatim_response_preview(&json);
+    Ok(NominatimReverseResponse {
+        zoom,
+        address: json
+            .get("address")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null),
+        preview,
+    })
 }
 
 /// Call Overpass for the nearest named feature within 30 m. Returns
@@ -659,18 +712,60 @@ pub async fn geocode_one(
         });
     }
 
-    if cancelled() {
-        return Err(GeocodeError::Cancelled);
+    let mut selected: Option<(serde_json::Value, AddressFields, u8)> = None;
+    let mut empty_previews: Vec<String> = Vec::new();
+    for zoom in NOMINATIM_REVERSE_ZOOMS {
+        if cancelled() {
+            return Err(GeocodeError::Cancelled);
+        }
+        limiter.wait_nominatim().await;
+        // The sleep itself can run for ~1 s — re-check after waking so a
+        // cancel issued during the sleep doesn't waste a network call.
+        if cancelled() {
+            return Err(GeocodeError::Cancelled);
+        }
+        let response = nominatim_reverse(client, lat, lon, *zoom).await?;
+        let parsed = flatten_address(&response.address);
+        if parsed.has_any_usable() {
+            selected = Some((response.address, parsed, response.zoom));
+            break;
+        }
+        log::warn!(
+            "[geocode] nominatim unusable lat={:.6} lon={:.6} zoom={} preview={}",
+            lat,
+            lon,
+            response.zoom,
+            response.preview
+        );
+        empty_previews.push(format!("zoom {}: {}", response.zoom, response.preview));
     }
-    limiter.wait_nominatim().await;
-    // The sleep itself can run for ~1 s — re-check after waking so a
-    // cancel issued during the sleep doesn't waste a network call.
-    if cancelled() {
-        return Err(GeocodeError::Cancelled);
-    }
-    let raw_addr = nominatim_reverse(client, lat, lon).await?;
-    let mut parsed = flatten_address(&raw_addr);
+
+    let (raw_addr, mut parsed, selected_zoom) = match selected {
+        Some(result) => result,
+        None => {
+            let zooms = NOMINATIM_REVERSE_ZOOMS
+                .iter()
+                .map(u8::to_string)
+                .collect::<Vec<_>>()
+                .join(",");
+            return Err(GeocodeError::NominatimEmpty {
+                detail: format!(
+                    "Nominatim returned no usable address for lat={:.6} lon={:.6}; no usable address at zooms {}; previews: {}",
+                    lat,
+                    lon,
+                    zooms,
+                    empty_previews.join(" | ")
+                ),
+            });
+        }
+    };
     let mut source = GeocodeSource::Nominatim;
+    log::info!(
+        "[geocode] nominatim usable lat={:.6} lon={:.6} zoom={}",
+        lat,
+        lon,
+        selected_zoom
+    );
 
     // Overpass refinement for generic Nominatim results. Separate
     // bucket — see GeocodeRateLimiter doc-comment.
@@ -686,10 +781,6 @@ pub async fn geocode_one(
             parsed.location = Some(name);
             source = GeocodeSource::NominatimPlusOverpass;
         }
-    }
-
-    if !parsed.has_any_usable() {
-        return Err(GeocodeError::NominatimEmpty);
     }
 
     let display_name = parsed.display_name();
@@ -863,6 +954,15 @@ where
             }
         };
 
+        log::info!(
+            "[geocode] ({}/{}) resolving {} lat={:.6} lon={:.6}",
+            current,
+            total,
+            rel,
+            lat,
+            lon
+        );
+
         match geocode_one(client, cache, &mut limiter, cancel_flag, lat, lon).await {
             Ok(result) => {
                 let edits = compose_geocode_edits(&result.address);
@@ -926,7 +1026,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wiremock::matchers::{method, path};
+    use wiremock::matchers::{method, path, query_param};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     #[test]
@@ -1101,8 +1201,8 @@ mod tests {
             .await;
 
         let client = GeocodeClient::with_bases(server.uri(), "http://unused".into());
-        let raw = nominatim_reverse(&client, 51.5, -0.07).await.unwrap();
-        let parsed = flatten_address(&raw);
+        let raw = nominatim_reverse(&client, 51.5, -0.07, 18).await.unwrap();
+        let parsed = flatten_address(&raw.address);
         assert_eq!(parsed.location.as_deref(), Some("Tower of London"));
         assert_eq!(parsed.country_code.as_deref(), Some("GB"));
     }
@@ -1127,10 +1227,97 @@ mod tests {
         let mut limiter = GeocodeRateLimiter::new();
         let cancel = std::sync::atomic::AtomicBool::new(false);
         match geocode_one(&client, &mut cache, &mut limiter, &cancel, 0.0, 0.0).await {
-            Err(GeocodeError::NominatimEmpty) => {}
+            Err(GeocodeError::NominatimEmpty { detail }) => {
+                assert!(detail.contains("lat=0.000000"), "detail={}", detail);
+                assert!(detail.contains("lon=0.000000"), "detail={}", detail);
+                assert!(detail.contains("zooms 18,16,14,12,10"), "detail={}", detail);
+            }
             other => panic!("expected NominatimEmpty, got {:?}", other),
         }
         assert!(cache.entries.is_empty(), "must not cache empty results");
+    }
+
+    #[tokio::test]
+    async fn geocode_one_falls_back_to_lower_zoom_when_zoom_18_is_unusable() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/reverse"))
+            .and(query_param("zoom", "18"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "error": "Unable to geocode"
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/reverse"))
+            .and(query_param("zoom", "16"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "address": {
+                    "city": "York",
+                    "country": "United Kingdom",
+                    "country_code": "gb"
+                }
+            })))
+            .mount(&server)
+            .await;
+
+        let client = GeocodeClient::with_bases(server.uri(), "http://unused".into());
+        let mut cache = GeocodeCacheFile::default_v1();
+        let mut limiter = GeocodeRateLimiter::new();
+        let cancel = std::sync::atomic::AtomicBool::new(false);
+        let result = geocode_one(
+            &client,
+            &mut cache,
+            &mut limiter,
+            &cancel,
+            53.983856,
+            -1.100918,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(result.source, GeocodeSource::Nominatim);
+        assert_eq!(result.address.city.as_deref(), Some("York"));
+        assert_eq!(result.address.country_code.as_deref(), Some("GB"));
+        assert_eq!(cache.entries.len(), 1);
+        assert!((cache.entries[0].lat - 53.983856).abs() < 1e-6);
+        assert!((cache.entries[0].lon + 1.100918).abs() < 1e-6);
+    }
+
+    #[tokio::test]
+    async fn geocode_one_sends_original_signed_longitude_to_nominatim() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/reverse"))
+            .and(query_param("lat", "53.9838560"))
+            .and(query_param("lon", "-1.1009180"))
+            .and(query_param("zoom", "18"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "address": {
+                    "city": "York",
+                    "country": "United Kingdom",
+                    "country_code": "gb"
+                }
+            })))
+            .mount(&server)
+            .await;
+
+        let client = GeocodeClient::with_bases(server.uri(), "http://unused".into());
+        let mut cache = GeocodeCacheFile::default_v1();
+        let mut limiter = GeocodeRateLimiter::new();
+        let cancel = std::sync::atomic::AtomicBool::new(false);
+        let result = geocode_one(
+            &client,
+            &mut cache,
+            &mut limiter,
+            &cancel,
+            53.983856,
+            -1.100918,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(result.address.city.as_deref(), Some("York"));
     }
 
     #[tokio::test]
