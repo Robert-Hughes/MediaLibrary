@@ -556,14 +556,20 @@ loops over **every** selected image — same pattern as
 **Key property:** the estimate phase performs the _entire_ normalisation
 walk for each image (idempotency detector, conflict resolution per
 group, projection to derivatives) — only the AI dispatch is skipped.
-When an AI call would fire, the prompt is fully built and sent to
-`/responses/input_tokens` for an exact input token count; no actual
-completion is requested. Output tokens use the per-prompt caps
-(Group B: 400 expected; Group C: 30 expected). Per-call cost via the
+Cost estimation respects the shared `ai_cost_estimate_mode` setting used
+by AI Description. The default `heuristic` mode still captures which Group
+B / Group C prompts would fire, but estimates input tokens locally instead
+of calling `/responses/input_tokens` (Group B description merge: ~800 input
+tokens; Group C title generation: ~300 input tokens). `exact` mode fully
+builds each text prompt and sends it to `/responses/input_tokens` for an
+exact input token count; no actual completion is requested. Normalise exact
+preflight sends text prompts only, never image bytes. Output tokens use the
+per-prompt caps (Group B: 400 max; Group C: 30 max). Per-call cost uses the
 same pricing table used by describe.
 
 Because the walk is exact (not a sample, not an extrapolation), the
-estimate emits exact counts:
+estimate always emits exact would-fire counts. Input token totals are exact
+in exact mode and heuristic in heuristic mode:
 
 - `n_images_with_ai_b` — images whose Group B will fire AI
 - `n_images_with_ai_c` — images whose Group C will fire AI

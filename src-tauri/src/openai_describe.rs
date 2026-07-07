@@ -60,6 +60,24 @@ pub fn estimate_typical_cost_per_image(model: &str) -> Option<f64> {
     Some(input + output)
 }
 
+pub fn heuristic_describe_input_tokens(n_images: usize) -> u64 {
+    TYPICAL_INPUT_TOKENS_PER_IMAGE as u64 * n_images as u64
+}
+
+pub fn estimate_describe_cost_from_input_tokens(
+    model: &str,
+    total_input_tokens: u64,
+    n_images: usize,
+) -> Result<(f64, f64), String> {
+    let p = pricing_for(model).ok_or_else(|| format!("no pricing entry for model {}", model))?;
+    let input_cost = (total_input_tokens as f64 / 1_000_000.0) * p.input_per_1m;
+    let predicted_output_tokens = EXPECTED_OUTPUT_TOKENS as u64 * n_images as u64;
+    let max_output_tokens = MAX_OUTPUT_TOKENS as u64 * n_images as u64;
+    let predicted = input_cost + (predicted_output_tokens as f64 / 1_000_000.0) * p.output_per_1m;
+    let upper = input_cost + (max_output_tokens as f64 / 1_000_000.0) * p.output_per_1m;
+    Ok((predicted, upper))
+}
+
 /// Prompt + schema version.  Bump when either changes so the audit log and
 /// the `XMP-mlib:AIPromptVersion` written to each file can distinguish
 /// runs.
@@ -733,6 +751,18 @@ mod tests {
         //   1100/1e6 * 2.50 + 250/1e6 * 10.00 = 0.00275 + 0.00250 = 0.00525
         let c = estimate_typical_cost_per_image("gpt-4o").unwrap();
         assert!((c - 0.00525).abs() < 1e-9, "got {}", c);
+    }
+
+    #[test]
+    fn heuristic_describe_cost_math_matches_hand_calc_for_two_images() {
+        let total_input = heuristic_describe_input_tokens(2);
+        assert_eq!(total_input, 2200);
+        let (predicted, upper) =
+            estimate_describe_cost_from_input_tokens("gpt-4o", total_input, 2).unwrap();
+        let expected_predicted = (2200.0 / 1e6) * 2.50 + (500.0 / 1e6) * 10.00;
+        let expected_upper = (2200.0 / 1e6) * 2.50 + (1200.0 / 1e6) * 10.00;
+        assert!((predicted - expected_predicted).abs() < 1e-9);
+        assert!((upper - expected_upper).abs() < 1e-9);
     }
 
     #[test]

@@ -19,6 +19,7 @@ use crate::commands::shared::{app_data_dir, make_openai_client};
 use crate::normalise;
 use crate::openai_describe;
 use crate::openai_normalise;
+use crate::settings::AiCostEstimateMode;
 
 #[derive(Clone, Serialize)]
 struct NormaliseEstimateStartedPayload {
@@ -346,6 +347,7 @@ pub async fn estimate_normalise_cost_cmd(
                     openai_normalise::OpenAiNormaliseClient::new(client, model.clone()),
                     model,
                     p,
+                    settings.ai_cost_estimate_mode,
                 )),
                 None => {
                     log::warn!(
@@ -415,40 +417,52 @@ pub async fn estimate_normalise_cost_cmd(
         }
 
         let mut per_image_input_tokens: u32 = 0;
-        if let Some((normalise_client, _, _)) = preflight.as_ref() {
+        if let Some((normalise_client, _, _, estimate_mode)) = preflight.as_ref() {
             for prompt in &description_prompts {
-                let body = normalise_client.description_request_body(prompt);
-                let n = normalise_client
-                    .count_input_tokens(&body)
-                    .await
-                    .map_err(|e| {
-                        let _ = app.emit(
-                            "normalise_estimate_error",
-                            NormaliseEstimateErrorPayload {
-                                relative_path: item.rel_path.clone(),
-                                message: e.clone(),
-                            },
-                        );
-                        format!("{}: {}", item.rel_path, e)
-                    })?;
+                let n = match estimate_mode {
+                    AiCostEstimateMode::Heuristic => {
+                        openai_normalise::HEURISTIC_DESCRIPTION_INPUT_TOKENS
+                    }
+                    AiCostEstimateMode::Exact => {
+                        let body = normalise_client.description_request_body(prompt);
+                        normalise_client
+                            .count_input_tokens(&body)
+                            .await
+                            .map_err(|e| {
+                                let _ = app.emit(
+                                    "normalise_estimate_error",
+                                    NormaliseEstimateErrorPayload {
+                                        relative_path: item.rel_path.clone(),
+                                        message: e.clone(),
+                                    },
+                                );
+                                format!("{}: {}", item.rel_path, e)
+                            })?
+                    }
+                };
                 description_input_tokens += n as u64;
                 per_image_input_tokens = per_image_input_tokens.saturating_add(n);
             }
             for prompt in &title_prompts {
-                let body = normalise_client.title_request_body(prompt);
-                let n = normalise_client
-                    .count_input_tokens(&body)
-                    .await
-                    .map_err(|e| {
-                        let _ = app.emit(
-                            "normalise_estimate_error",
-                            NormaliseEstimateErrorPayload {
-                                relative_path: item.rel_path.clone(),
-                                message: e.clone(),
-                            },
-                        );
-                        format!("{}: {}", item.rel_path, e)
-                    })?;
+                let n = match estimate_mode {
+                    AiCostEstimateMode::Heuristic => openai_normalise::HEURISTIC_TITLE_INPUT_TOKENS,
+                    AiCostEstimateMode::Exact => {
+                        let body = normalise_client.title_request_body(prompt);
+                        normalise_client
+                            .count_input_tokens(&body)
+                            .await
+                            .map_err(|e| {
+                                let _ = app.emit(
+                                    "normalise_estimate_error",
+                                    NormaliseEstimateErrorPayload {
+                                        relative_path: item.rel_path.clone(),
+                                        message: e.clone(),
+                                    },
+                                );
+                                format!("{}: {}", item.rel_path, e)
+                            })?
+                    }
+                };
                 title_input_tokens += n as u64;
                 per_image_input_tokens = per_image_input_tokens.saturating_add(n);
             }
@@ -480,22 +494,21 @@ pub async fn estimate_normalise_cost_cmd(
     // Predicted = expected-output tokens. Upper bound = max-output tokens.
     // Output-token-only spread per plan §7 ("predicted vs upper bound
     // reflects only output-token uncertainty").
-    let expected_out_per_call_b: u32 = 250;
+    let expected_out_per_call_b: u32 = openai_normalise::EXPECTED_DESCRIPTION_OUTPUT_TOKENS;
     let max_out_per_call_b: u32 = openai_normalise::DESCRIPTION_OUTPUT_TOKENS;
-    let expected_out_per_call_c: u32 = 15;
+    let expected_out_per_call_c: u32 = openai_normalise::EXPECTED_TITLE_OUTPUT_TOKENS;
     let max_out_per_call_c: u32 = openai_normalise::TITLE_OUTPUT_TOKENS;
 
     let total_input_tokens = description_input_tokens + title_input_tokens;
     let (predicted_cost, upper_bound, model_out, pricing_out, breakdown_out) =
-        if let Some((_, model, pricing)) = preflight.as_ref() {
-            let predicted_out_total = n_images_with_ai_b as u64 * expected_out_per_call_b as u64
-                + n_images_with_ai_c as u64 * expected_out_per_call_c as u64;
-            let upper_out_total = n_images_with_ai_b as u64 * max_out_per_call_b as u64
-                + n_images_with_ai_c as u64 * max_out_per_call_c as u64;
-            let predicted = (total_input_tokens as f64 / 1_000_000.0) * pricing.input_per_1m
-                + (predicted_out_total as f64 / 1_000_000.0) * pricing.output_per_1m;
-            let upper = (total_input_tokens as f64 / 1_000_000.0) * pricing.input_per_1m
-                + (upper_out_total as f64 / 1_000_000.0) * pricing.output_per_1m;
+        if let Some((_, model, pricing, _)) = preflight.as_ref() {
+            let (predicted, upper) = openai_normalise::estimate_normalise_cost_from_tokens(
+                model,
+                description_input_tokens,
+                title_input_tokens,
+                n_images_with_ai_b,
+                n_images_with_ai_c,
+            )?;
             (
                 predicted,
                 upper,

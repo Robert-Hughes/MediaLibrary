@@ -15,6 +15,7 @@ use crate::batch_job;
 use crate::commands::shared::{app_data_dir, make_openai_client, resolve_rel};
 use crate::describe_log;
 use crate::openai_describe;
+use crate::settings::{self, AiCostEstimateMode};
 
 #[derive(Clone, Serialize)]
 struct DescribeEstimateStartedPayload {
@@ -38,6 +39,7 @@ struct DescribeEstimateCompletePayload {
     predicted_cost_usd: f64,
     upper_bound_cost_usd: f64,
     model: String,
+    estimate_mode: AiCostEstimateMode,
 }
 
 #[derive(Clone, Serialize)]
@@ -66,10 +68,9 @@ struct UsageSummary {
     actual_cost_usd: f64,
 }
 
-/// Preflight cost estimation phase.  Calls `/responses/input_tokens`
-/// once per image; emits a progress event after each.  Hard-fails on
-/// any error — no local-math fallback (V1 design decision).  Honours
-/// the DescribeState cancellation flag at each image boundary.
+/// Preflight cost estimation phase. Heuristic mode is local-only and emits
+/// synthetic per-image progress. Exact mode preserves the original
+/// `/responses/input_tokens` call once per image and hard-fails on errors.
 #[tauri::command]
 pub async fn estimate_describe_cost_cmd(
     folder_path: String,
@@ -78,14 +79,19 @@ pub async fn estimate_describe_cost_cmd(
     describe_state: State<'_, openai_describe::DescribeState>,
 ) -> Result<(), String> {
     let cancel_flag = describe_state.install();
-    let (client, s) = make_openai_client(&app)?;
-    let pricing = openai_describe::pricing_for(&s.openai_model)
+    let s = settings::load_settings(&app_data_dir(&app)?)?;
+    if s.openai_api_key.trim().is_empty() {
+        describe_state.clear();
+        return Err("OpenAI API key is not configured. Open Settings to enter your key.".into());
+    }
+    openai_describe::pricing_for(&s.openai_model)
         .ok_or_else(|| format!("no pricing entry for model {}", s.openai_model))?;
 
     let total = rel_paths.len();
     log::info!(
-        "[describe] estimate starting model={} total={}",
+        "[describe] estimate starting model={} mode={:?} total={}",
         s.openai_model,
+        s.ai_cost_estimate_mode,
         total
     );
     let _ = app.emit(
@@ -93,6 +99,55 @@ pub async fn estimate_describe_cost_cmd(
         DescribeEstimateStartedPayload { total },
     );
 
+    if s.ai_cost_estimate_mode == AiCostEstimateMode::Heuristic {
+        for (index, rel) in rel_paths.iter().enumerate() {
+            if cancel_flag.load(Ordering::Relaxed) {
+                describe_state.clear();
+                return Err("Cancelled by user".into());
+            }
+            let current = index + 1;
+            let _ = app.emit(
+                "describe_estimate_progress",
+                DescribeEstimateProgressPayload {
+                    current,
+                    total,
+                    relative_path: rel.clone(),
+                    input_tokens: openai_describe::TYPICAL_INPUT_TOKENS_PER_IMAGE,
+                    expected_cost_usd: openai_describe::estimate_typical_cost_per_image(
+                        &s.openai_model,
+                    )
+                    .unwrap_or(0.0),
+                },
+            );
+        }
+        let total_input_tokens = openai_describe::heuristic_describe_input_tokens(total);
+        let (predicted_cost, upper_bound) =
+            openai_describe::estimate_describe_cost_from_input_tokens(
+                &s.openai_model,
+                total_input_tokens,
+                total,
+            )?;
+        log::info!(
+            "[describe] heuristic estimate complete total_input_tokens={} predicted_cost_usd={:.6} upper_bound_cost_usd={:.6}",
+            total_input_tokens, predicted_cost, upper_bound
+        );
+        let _ = app.emit(
+            "describe_estimate_complete",
+            DescribeEstimateCompletePayload {
+                total_input_tokens,
+                predicted_cost_usd: predicted_cost,
+                upper_bound_cost_usd: upper_bound,
+                model: s.openai_model.clone(),
+                estimate_mode: s.ai_cost_estimate_mode,
+            },
+        );
+        describe_state.clear();
+        return Ok(());
+    }
+
+    let (client, _) = make_openai_client(&app)?;
+    let pricing = openai_describe::pricing_for(&s.openai_model)
+        .ok_or_else(|| format!("no pricing entry for model {}", s.openai_model))?;
     let mut total_input_tokens: u64 = 0;
     for (index, rel) in rel_paths.iter().enumerate() {
         if cancel_flag.load(Ordering::Relaxed) {
@@ -139,12 +194,11 @@ pub async fn estimate_describe_cost_cmd(
         );
     }
 
-    let predicted_cost = (total_input_tokens as f64 / 1_000_000.0) * pricing.input_per_1m
-        + ((openai_describe::EXPECTED_OUTPUT_TOKENS as u64 * total as u64) as f64 / 1_000_000.0)
-            * pricing.output_per_1m;
-    let upper_bound = (total_input_tokens as f64 / 1_000_000.0) * pricing.input_per_1m
-        + ((openai_describe::MAX_OUTPUT_TOKENS as u64 * total as u64) as f64 / 1_000_000.0)
-            * pricing.output_per_1m;
+    let (predicted_cost, upper_bound) = openai_describe::estimate_describe_cost_from_input_tokens(
+        &s.openai_model,
+        total_input_tokens,
+        total,
+    )?;
     log::info!(
         "[describe] estimate complete total_input_tokens={} predicted_cost_usd={:.6} upper_bound_cost_usd={:.6}",
         total_input_tokens, predicted_cost, upper_bound
@@ -156,6 +210,7 @@ pub async fn estimate_describe_cost_cmd(
             predicted_cost_usd: predicted_cost,
             upper_bound_cost_usd: upper_bound,
             model: s.openai_model.clone(),
+            estimate_mode: s.ai_cost_estimate_mode,
         },
     );
     // The cancel flag installed for this estimate run is dropped: the
@@ -165,14 +220,6 @@ pub async fn estimate_describe_cost_cmd(
     // dialog simply closes — there's no in-flight work to signal.
     describe_state.clear();
     Ok(())
-}
-
-/// Predicted-cost recomputation used for the audit log; cheap, no
-/// allocations.
-fn predicted_cost(model_p: &openai_describe::ModelPricing, total_input: u64, n_images: u64) -> f64 {
-    (total_input as f64 / 1_000_000.0) * model_p.input_per_1m
-        + ((openai_describe::EXPECTED_OUTPUT_TOKENS as u64 * n_images) as f64 / 1_000_000.0)
-            * model_p.output_per_1m
 }
 
 /// Main describe loop.  Sequential, per-image draft persistence,
@@ -301,7 +348,11 @@ pub async fn describe_images_cmd(
         aggregate.output_tokens
     );
 
-    let predicted = predicted_cost(&pricing, total_input_for_predicted, succeeded.len() as u64);
+    let (predicted, _) = openai_describe::estimate_describe_cost_from_input_tokens(
+        &s.openai_model,
+        total_input_for_predicted,
+        succeeded.len(),
+    )?;
     let actual = aggregate.cost(&pricing);
 
     let usage_summary = UsageSummary {

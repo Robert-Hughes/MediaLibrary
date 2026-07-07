@@ -40,6 +40,10 @@ Use the description as the primary source; use location and keywords for disambi
 /// Output-token caps for cost-estimation purposes. Mirror plan §6.
 pub const DESCRIPTION_OUTPUT_TOKENS: u32 = 400;
 pub const TITLE_OUTPUT_TOKENS: u32 = 30;
+pub const EXPECTED_DESCRIPTION_OUTPUT_TOKENS: u32 = 250;
+pub const EXPECTED_TITLE_OUTPUT_TOKENS: u32 = 15;
+pub const HEURISTIC_DESCRIPTION_INPUT_TOKENS: u32 = 800;
+pub const HEURISTIC_TITLE_INPUT_TOKENS: u32 = 300;
 
 /// Synthetic typical cost shown next to each model in the settings
 /// dropdown. Plan §6: assumes the worst case (both Group B and Group C
@@ -47,17 +51,35 @@ pub const TITLE_OUTPUT_TOKENS: u32 = 30;
 /// estimator (§7) computes exact costs from real prompts.
 pub fn typical_normalise_cost_per_image(model: &str) -> Option<f64> {
     let p = crate::openai_describe::pricing_for(model)?;
-    // Group B: ~800 input tokens (system + 3 description sources + AI
-    // context + location + keywords + date), ~250 expected output.
-    let b_in: f64 = 800.0;
-    let b_out: f64 = 250.0;
-    // Group C: ~300 input + ~15 output.
-    let c_in: f64 = 300.0;
-    let c_out: f64 = 15.0;
+    let b_in = HEURISTIC_DESCRIPTION_INPUT_TOKENS as f64;
+    let b_out = EXPECTED_DESCRIPTION_OUTPUT_TOKENS as f64;
+    let c_in = HEURISTIC_TITLE_INPUT_TOKENS as f64;
+    let c_out = EXPECTED_TITLE_OUTPUT_TOKENS as f64;
     Some(
         ((b_in + c_in) / 1_000_000.0) * p.input_per_1m
             + ((b_out + c_out) / 1_000_000.0) * p.output_per_1m,
     )
+}
+
+pub fn estimate_normalise_cost_from_tokens(
+    model: &str,
+    description_input_tokens: u64,
+    title_input_tokens: u64,
+    description_call_count: u32,
+    title_call_count: u32,
+) -> Result<(f64, f64), String> {
+    let p = crate::openai_describe::pricing_for(model)
+        .ok_or_else(|| format!("no pricing entry for model {}", model))?;
+    let total_input_tokens = description_input_tokens + title_input_tokens;
+    let predicted_out_total = description_call_count as u64
+        * EXPECTED_DESCRIPTION_OUTPUT_TOKENS as u64
+        + title_call_count as u64 * EXPECTED_TITLE_OUTPUT_TOKENS as u64;
+    let upper_out_total = description_call_count as u64 * DESCRIPTION_OUTPUT_TOKENS as u64
+        + title_call_count as u64 * TITLE_OUTPUT_TOKENS as u64;
+    let input_cost = (total_input_tokens as f64 / 1_000_000.0) * p.input_per_1m;
+    let predicted = input_cost + (predicted_out_total as f64 / 1_000_000.0) * p.output_per_1m;
+    let upper = input_cost + (upper_out_total as f64 / 1_000_000.0) * p.output_per_1m;
+    Ok((predicted, upper))
 }
 
 #[derive(Clone)]
@@ -326,6 +348,16 @@ mod tests {
         );
         assert_eq!(body["max_output_tokens"], TITLE_OUTPUT_TOKENS);
         assert_eq!(body["text"]["format"]["schema"]["required"][0], "title");
+    }
+
+    #[test]
+    fn normalise_cost_math_matches_hand_calc_for_gpt_4o() {
+        let (predicted, upper) =
+            estimate_normalise_cost_from_tokens("gpt-4o", 800, 300, 1, 1).unwrap();
+        let expected_predicted = (1100.0 / 1e6) * 2.50 + (265.0 / 1e6) * 10.00;
+        let expected_upper = (1100.0 / 1e6) * 2.50 + (430.0 / 1e6) * 10.00;
+        assert!((predicted - expected_predicted).abs() < 1e-9);
+        assert!((upper - expected_upper).abs() < 1e-9);
     }
 
     #[test]

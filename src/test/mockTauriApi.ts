@@ -47,8 +47,13 @@ export interface MockTauriApi {
   /** Override apply_metadata_draft_edits_cmd result. Default: success with no applied/failed. */
   applyEditsResult: MetadataApplyEditsResult;
   cancelApplyEditsCalled: boolean;
-  /** Stored settings; defaults to empty API key + gpt-4o. */
-  settings: { openai_api_key: string; openai_model: string };
+  /** Stored settings; defaults to empty API key + gpt-4o + heuristic estimates. */
+  settings: {
+    openai_api_key: string;
+    openai_model: string;
+    normalise_metadata_model: string;
+    ai_cost_estimate_mode: "heuristic" | "exact";
+  };
   /** Recommended-models list returned by list_recommended_models. */
   recommendedModels: string[];
   /** Per-model ballpark cost returned by estimate_per_image_cost_cmd. */
@@ -85,6 +90,7 @@ export interface MockTauriApi {
     predictedCostUsd: number;
     upperBoundCostUsd: number;
     model: string;
+    estimateMode?: "heuristic" | "exact";
   };
 
   // ── Reverse-geocoding mock state ─────────────────────────────────────
@@ -201,7 +207,12 @@ export function createMockTauriApi(): MockTauriApi {
     currentScanId: 1,
     applyEditsResult: { applied: [], failed: [], fresh_metadata: {} },
     cancelApplyEditsCalled: false,
-    settings: { openai_api_key: "", openai_model: "gpt-4o" },
+    settings: {
+      openai_api_key: "",
+      openai_model: "gpt-4o",
+      normalise_metadata_model: "gpt-5.4-nano",
+      ai_cost_estimate_mode: "heuristic",
+    },
     recommendedModels: [
       "gpt-4o",
       "gpt-5.4-nano",
@@ -233,6 +244,7 @@ export function createMockTauriApi(): MockTauriApi {
       predictedCostUsd: 0,
       upperBoundCostUsd: 0,
       model: "gpt-4o",
+      estimateMode: "heuristic",
     },
     lastGeocodeArgs: null,
     cancelGeocodeCalled: false,

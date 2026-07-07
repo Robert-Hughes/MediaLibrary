@@ -648,6 +648,7 @@ export interface DescribeEstimate {
   predictedCostUsd: number;
   upperBoundCostUsd: number;
   model: string;
+  estimateMode?: "heuristic" | "exact";
 }
 
 /**

@@ -73,6 +73,8 @@ describe("SettingsDialog", () => {
     mockApiInstance.settings = {
       openai_api_key: "sk-existing",
       openai_model: "gpt-5.4",
+      normalise_metadata_model: "gpt-5.4-nano",
+      ai_cost_estimate_mode: "exact",
     };
     const { user } = await openFolderWithPhoto();
 
@@ -87,6 +89,10 @@ describe("SettingsDialog", () => {
       "settings-model-select",
     ) as HTMLSelectElement;
     expect(modelSelect.value).toBe("gpt-5.4");
+    const estimateModeSelect = screen.getByTestId(
+      "settings-ai-cost-estimate-mode-select",
+    ) as HTMLSelectElement;
+    expect(estimateModeSelect.value).toBe("exact");
 
     // Type into the API key input and tab away to commit the save.
     await user.clear(apiKeyInput);
@@ -104,6 +110,12 @@ describe("SettingsDialog", () => {
       await new Promise((r) => setTimeout(r, 10));
     });
     expect(mockApiInstance.settings.openai_model).toBe("gpt-4o");
+
+    await user.selectOptions(estimateModeSelect, "heuristic");
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+    });
+    expect(mockApiInstance.settings.ai_cost_estimate_mode).toBe("heuristic");
   });
 
   it("renders per-image cost beside each model in the dropdown", async () => {
@@ -171,12 +183,15 @@ describe("AI-description flow", () => {
     mockApiInstance.settings = {
       openai_api_key: "sk-test",
       openai_model: "gpt-4o",
+      normalise_metadata_model: "gpt-5.4-nano",
+      ai_cost_estimate_mode: "heuristic",
     };
     mockApiInstance.describeEstimateComplete = {
       totalInputTokens: 1234,
       predictedCostUsd: 0.0042,
       upperBoundCostUsd: 0.0099,
       model: "gpt-4o",
+      estimateMode: "heuristic",
     };
     mockApiInstance.describeUsageSummary = {
       totalInputTokens: 1230,
@@ -228,6 +243,8 @@ describe("AI-description flow", () => {
     mockApiInstance.settings = {
       openai_api_key: "sk-test",
       openai_model: "gpt-4o",
+      normalise_metadata_model: "gpt-5.4-nano",
+      ai_cost_estimate_mode: "heuristic",
     };
     mockApiInstance.describeSchedule = [
       {
@@ -270,10 +287,41 @@ describe("AI-description flow", () => {
     expect(folderDrafts["test.jpg"]["XMP-mlib:AITags"]).toBeTruthy();
   });
 
+  it("compares done actual cost against the confirmation estimate", async () => {
+    mockApiInstance.describeEstimateComplete = {
+      totalInputTokens: 1000,
+      predictedCostUsd: 0.004,
+      upperBoundCostUsd: 0.008,
+      model: "gpt-4o",
+      estimateMode: "heuristic",
+    };
+    mockApiInstance.describeUsageSummary = {
+      totalInputTokens: 1200,
+      totalCachedTokens: 0,
+      totalOutputTokens: 300,
+      predictedCostUsd: 0.005,
+      actualCostUsd: 0.006,
+    };
+
+    const { user, aiBtn } = await startAiDescription();
+    await user.click(aiBtn);
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
+    await user.click(await screen.findByTestId("describe-confirm-btn"));
+    await screen.findByTestId("describe-done-summary");
+
+    expect(screen.getByTestId("describe-usage-summary")).toHaveTextContent(
+      /50% vs estimate/,
+    );
+  });
+
   it("renders per-image failures in the done panel", async () => {
     mockApiInstance.settings = {
       openai_api_key: "sk-test",
       openai_model: "gpt-4o",
+      normalise_metadata_model: "gpt-5.4-nano",
+      ai_cost_estimate_mode: "heuristic",
     };
     mockApiInstance.describeSchedule = [
       {
@@ -313,12 +361,15 @@ describe("AI-description flow", () => {
     mockApiInstance.settings = {
       openai_api_key: "sk-test",
       openai_model: "gpt-4o",
+      normalise_metadata_model: "gpt-5.4-nano",
+      ai_cost_estimate_mode: "heuristic",
     };
     mockApiInstance.describeEstimateComplete = {
       totalInputTokens: 100,
       predictedCostUsd: 0.01,
       upperBoundCostUsd: 0.02,
       model: "gpt-4o",
+      estimateMode: "heuristic",
     };
     const { user, photo } = await openFolderWithPhoto("test.jpg");
     await act(async () => {
@@ -358,6 +409,8 @@ describe("AI-description flow", () => {
     mockApiInstance.settings = {
       openai_api_key: "sk-test",
       openai_model: "gpt-4o",
+      normalise_metadata_model: "gpt-5.4-nano",
+      ai_cost_estimate_mode: "heuristic",
     };
     const { user, aiBtn } = await startAiDescription();
     await user.click(aiBtn);
@@ -378,6 +431,8 @@ describe("AI-description flow", () => {
     mockApiInstance.settings = {
       openai_api_key: "sk-test",
       openai_model: "gpt-4o",
+      normalise_metadata_model: "gpt-5.4-nano",
+      ai_cost_estimate_mode: "heuristic",
     };
     const { user, aiBtn } = await startAiDescription();
     await user.click(aiBtn);
