@@ -3,6 +3,7 @@ pub mod apply_log;
 pub mod batch_audit_log;
 pub mod batch_job;
 pub mod commands;
+pub mod country_code;
 pub mod describe_log;
 pub mod draft_edits;
 pub mod exiftool_config;

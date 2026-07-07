@@ -33,6 +33,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
+use crate::country_code::{iptc_country_code_projection, xmp_country_code_projection};
 use crate::draft_edits::{EditIntent, MetadataDraftEdit};
 use crate::geocode_cache::{CachedResult, GeocodeCacheEntry, GeocodeCacheFile};
 use crate::metadata_value::MetadataValue;
@@ -260,7 +261,7 @@ pub fn flatten_address(addr: &serde_json::Value) -> AddressFields {
     );
     let state = pick(addr, &["state", "region"]);
     let country = pick(addr, &["country"]);
-    let country_code = pick(addr, &["country_code"]).map(|c| c.to_ascii_uppercase());
+    let country_code = pick(addr, &["country_code"]).map(|c| xmp_country_code_projection(&c));
     let postcode = pick(addr, &["postcode"]);
     AddressFields {
         location,
@@ -382,9 +383,13 @@ pub fn compose_geocode_edits(
     // coherent-replacement intent obvious to a reader and keeps the
     // legacy IIM mirror in lockstep with the XMP source of truth.
     let mut edits = std::collections::HashMap::new();
-    let mut put = |xmp: &str, iptc: &str, value: Option<&str>| {
+    let mut put = |xmp: &str,
+                   iptc: &str,
+                   value: Option<&str>,
+                   xmp_project: fn(&str) -> String,
+                   iptc_project: fn(&str) -> String| {
         let (a, b) = match value {
-            Some(v) => (set_text(v), set_text(v)),
+            Some(v) => (set_text(&xmp_project(v)), set_text(&iptc_project(v))),
             None => (delete_field(), delete_field()),
         };
         edits.insert(xmp.to_string(), a);
@@ -395,22 +400,36 @@ pub fn compose_geocode_edits(
         "XMP-iptcCore:Location",
         "IPTC:Sub-location",
         addr.location.as_deref(),
+        str::to_string,
+        str::to_string,
     );
-    put("XMP-photoshop:City", "IPTC:City", addr.city.as_deref());
+    put(
+        "XMP-photoshop:City",
+        "IPTC:City",
+        addr.city.as_deref(),
+        str::to_string,
+        str::to_string,
+    );
     put(
         "XMP-photoshop:State",
         "IPTC:Province-State",
         addr.state.as_deref(),
+        str::to_string,
+        str::to_string,
     );
     put(
         "XMP-photoshop:Country",
         "IPTC:Country-PrimaryLocationName",
         addr.country.as_deref(),
+        str::to_string,
+        str::to_string,
     );
     put(
         "XMP-iptcCore:CountryCode",
         "IPTC:Country-PrimaryLocationCode",
         addr.country_code.as_deref(),
+        xmp_country_code_projection,
+        iptc_country_code_projection,
     );
     edits
 }
@@ -1143,6 +1162,14 @@ mod tests {
         // IPTC mirror agrees with XMP source of truth.
         match &edits["IPTC:Sub-location"].value {
             Some(MetadataValue::Text(s)) => assert_eq!(s, "Tower of London"),
+            other => panic!("expected text value, got {:?}", other),
+        }
+        match &edits["XMP-iptcCore:CountryCode"].value {
+            Some(MetadataValue::Text(s)) => assert_eq!(s, "GB"),
+            other => panic!("expected text value, got {:?}", other),
+        }
+        match &edits["IPTC:Country-PrimaryLocationCode"].value {
+            Some(MetadataValue::Text(s)) => assert_eq!(s, "GB "),
             other => panic!("expected text value, got {:?}", other),
         }
     }

@@ -250,21 +250,31 @@ No AI.
 | Primary    | `XMP-photoshop:Country`            | string                                 |
 | Derivative | `IPTC:Country-PrimaryLocationName` | string                                 |
 | Primary    | `XMP-iptcCore:CountryCode`         | string (ISO 3166-1 alpha-2, uppercase) |
-| Derivative | `IPTC:Country-PrimaryLocationCode` | string                                 |
+| Derivative | `IPTC:Country-PrimaryLocationCode` | fixed-width legacy IPTC projection     |
 
 Five sub-groups, each a 1:1 XMP↔IIM pair. Treated independently inside the
 group so a divergence in one field doesn't cascade.
 
-**Canonical form.** Verbatim text from primary; `CountryCode` forced
-uppercase.
+**Canonical form.** Verbatim text from primary; `CountryCode` is trimmed,
+normal-whitespace-collapsed, and uppercased. `IPTC:Country-PrimaryLocationCode`
+readback trims trailing fixed-width storage padding before comparison, so
+`GB ` canonicalises as `GB`.
+
+**Country-code projection.** `XMP-iptcCore:CountryCode` stores the normal
+alpha-2 semantic value, e.g. `GB`. `IPTC:Country-PrimaryLocationCode` stores
+the legacy fixed-width projection; two-character ASCII codes are right-padded
+with one space, e.g. `GB `. Non-two-character values are preserved after
+canonicalisation rather than failed or truncated. This is not alpha-3
+conversion and does not use an ISO lookup table.
 
 **Conflict policy.** Per pair, pick canonical then project to both fields:
 
 1. Both empty → no drafts.
 2. Exactly one non-empty → canonical = that value (uppercased for
    `CountryCode`); project to the other side.
-3. Both non-empty AND equal after canonicalisation → write canonical to
-   both (handles e.g. `gb` vs `GB` for CountryCode).
+3. Both non-empty AND equal after canonicalisation → write canonical
+   projections to both (handles e.g. `gb` vs `GB`, and `GB` vs `GB ` for
+   CountryCode).
 4. Both non-empty AND distinct after canonicalisation → primary (XMP side)
    wins. Recorded in stats as `n_location_xmp_iim_conflict`. No AI —
    never AI-merge place names.
@@ -836,7 +846,8 @@ Context menu entry: `Normalise Metadata…` next to `Reverse Geocode…` and
   - Group E: union with order preservation; no name normalisation.
   - Group F: longest-wins fallback for derivatives only.
   - Group G: five XMP↔IIM pairs treated independently; primary wins on
-    conflict; CountryCode uppercase enforced.
+    conflict; CountryCode uppercase enforced; IPTC country-code fixed-width
+    padding is projected and readback-canonicalised without alpha-3 conversion.
   - Group H: H1 / H2 sync; ISO normalisation with and without offset;
     sub-second preservation; IPTC date/time split; filename regex table
     (each pattern); date-only fallback writes 00:00:00 + flags stat;

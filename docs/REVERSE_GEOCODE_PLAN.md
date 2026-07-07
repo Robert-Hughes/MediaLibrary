@@ -17,18 +17,21 @@ fields. These are the same fields written by every mainstream tagger
 | `XMP-photoshop:City`               | `city` ∪ `town` ∪ `village` ∪ `hamlet` ∪ `suburb`                                 |                                                                                                                              |
 | `XMP-photoshop:State`              | `state`                                                                           |                                                                                                                              |
 | `XMP-photoshop:Country`            | `country`                                                                         |                                                                                                                              |
-| `XMP-iptcCore:CountryCode`         | `country_code` (uppercased — ISO 3166-1 alpha-2)                                  |                                                                                                                              |
+| `XMP-iptcCore:CountryCode`         | `country_code` (uppercased — ISO 3166-1 alpha-2)                                  | App semantic value, e.g. `GB`.                                                                                               |
 | `IPTC:Sub-location`                | mirror of `XMP-iptcCore:Location`                                                 | Legacy IPTC IIM mirror.                                                                                                      |
 | `IPTC:City`                        | mirror of `XMP-photoshop:City`                                                    |                                                                                                                              |
 | `IPTC:Province-State`              | mirror of `XMP-photoshop:State`                                                   |                                                                                                                              |
 | `IPTC:Country-PrimaryLocationName` | mirror of `XMP-photoshop:Country`                                                 |                                                                                                                              |
-| `IPTC:Country-PrimaryLocationCode` | mirror of `XMP-iptcCore:CountryCode`                                              |                                                                                                                              |
+| `IPTC:Country-PrimaryLocationCode` | fixed-width legacy IPTC projection of `XMP-iptcCore:CountryCode`                  | Alpha-2 value right-padded for two-character ASCII codes, e.g. `GB `. This is not alpha-3 conversion.                        |
 
 Rationale for IPTC IIM mirroring: it's the convention enforced by most apps
 (IPTC fields are stored in two parallel places — XMP and legacy IIM — and tools
 expect them to agree). ExifTool will write both when given the XMP keys, but
 making the mirrors explicit drafts means the user sees what's being written and
-can opt out per-field.
+can opt out per-field. `IPTC:Country-PrimaryLocationCode` is the one
+tag-specific exception to byte-for-byte mirroring: the app keeps the country
+code semantic value as ISO alpha-2 (`GB`) and writes the legacy IPTC fixed-width
+storage projection (`GB `). It does not perform an alpha-2 to alpha-3 lookup.
 
 ### Coherent-replacement rule for empty fields
 
@@ -232,7 +235,7 @@ perspective.
 > - `XMP-photoshop:City` and `IPTC:City`
 > - `XMP-photoshop:State` and `IPTC:Province-State`
 > - `XMP-photoshop:Country` and `IPTC:Country-PrimaryLocationName`
-> - `XMP-iptcCore:CountryCode` and `IPTC:Country-PrimaryLocationCode`
+> - `XMP-iptcCore:CountryCode` and fixed-width `IPTC:Country-PrimaryLocationCode`
 >
 > **Existing GPS values will not be modified.** No file is changed on disk
 > until you apply drafts.
