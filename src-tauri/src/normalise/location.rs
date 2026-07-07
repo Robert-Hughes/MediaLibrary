@@ -14,7 +14,8 @@
 //! Group G only mirrors what is already in metadata.
 
 use super::{
-    collapse_whitespace_single_line, text_edit, GroupOutput, LocationContext, LocationInput,
+    collapse_whitespace_single_line, text_edit, truncate_at_word, GroupOutput, LocationContext,
+    LocationInput,
 };
 use crate::draft_edits::MetadataDraftEdit;
 use std::collections::HashMap;
@@ -32,6 +33,8 @@ pub const LOCATION_TARGET_TAGS: &[&str] = &[
     "IPTC:Country-PrimaryLocationCode",
 ];
 
+const IPTC_SUB_LOCATION_LIMIT: usize = 32;
+
 fn canonicalise_location_text(s: &str) -> String {
     collapse_whitespace_single_line(s)
 }
@@ -41,11 +44,26 @@ fn canonicalise_country_code(s: &str) -> String {
 }
 
 struct PairResult {
-    canonical: Option<String>,
+    xmp_target: Option<String>,
+    iptc_target: Option<String>,
     conflict: bool,
 }
 
-fn process_pair(xmp: Option<&str>, iptc: Option<&str>, canon: fn(&str) -> String) -> PairResult {
+fn identity_projection(s: &str) -> String {
+    s.to_string()
+}
+
+fn iptc_sub_location_projection(s: &str) -> String {
+    truncate_at_word(s, IPTC_SUB_LOCATION_LIMIT)
+}
+
+fn process_pair(
+    xmp: Option<&str>,
+    iptc: Option<&str>,
+    canon: fn(&str) -> String,
+    xmp_projection: fn(&str) -> String,
+    iptc_projection: fn(&str) -> String,
+) -> PairResult {
     let xc = xmp.map(canon).filter(|s| !s.is_empty());
     let ic = iptc.map(canon).filter(|s| !s.is_empty());
 
@@ -53,14 +71,28 @@ fn process_pair(xmp: Option<&str>, iptc: Option<&str>, canon: fn(&str) -> String
         (None, None) => (None, false),
         (Some(v), None) | (None, Some(v)) => (Some(v), false),
         (Some(x), Some(i)) if x == i => (Some(x), false),
-        (Some(x), Some(_)) => (Some(x), true),
+        (Some(x), Some(i)) => {
+            let projected = iptc_projection(&x);
+            let conflict = i != projected;
+            (Some(x), conflict)
+        }
     };
-    let canonical = canonical.filter(|c| {
-        let want = Some(c.as_str());
-        !(xmp == want && iptc == want)
-    });
+
+    let (xmp_target, iptc_target) = match canonical.as_deref() {
+        Some(canonical) => {
+            let xmp_target = xmp_projection(canonical);
+            let iptc_target = iptc_projection(canonical);
+            (
+                (xmp != Some(xmp_target.as_str())).then_some(xmp_target),
+                (iptc != Some(iptc_target.as_str())).then_some(iptc_target),
+            )
+        }
+        None => (None, None),
+    };
+
     PairResult {
-        canonical,
+        xmp_target,
+        iptc_target,
         conflict,
     }
 }
@@ -117,6 +149,8 @@ pub fn normalise_location(input: &LocationInput) -> LocationOutcome {
         Option<&'a str>,
         Option<&'a str>,
         fn(&str) -> String,
+        fn(&str) -> String,
+        fn(&str) -> String,
     );
     let pairs: [LocationPair<'_>; 5] = [
         (
@@ -125,6 +159,8 @@ pub fn normalise_location(input: &LocationInput) -> LocationOutcome {
             input.location_xmp.as_deref(),
             input.location_iptc.as_deref(),
             canonicalise_location_text,
+            identity_projection,
+            iptc_sub_location_projection,
         ),
         (
             "XMP-photoshop:City",
@@ -132,6 +168,8 @@ pub fn normalise_location(input: &LocationInput) -> LocationOutcome {
             input.city_xmp.as_deref(),
             input.city_iptc.as_deref(),
             canonicalise_location_text,
+            identity_projection,
+            identity_projection,
         ),
         (
             "XMP-photoshop:State",
@@ -139,6 +177,8 @@ pub fn normalise_location(input: &LocationInput) -> LocationOutcome {
             input.state_xmp.as_deref(),
             input.state_iptc.as_deref(),
             canonicalise_location_text,
+            identity_projection,
+            identity_projection,
         ),
         (
             "XMP-photoshop:Country",
@@ -146,6 +186,8 @@ pub fn normalise_location(input: &LocationInput) -> LocationOutcome {
             input.country_xmp.as_deref(),
             input.country_iptc.as_deref(),
             canonicalise_location_text,
+            identity_projection,
+            identity_projection,
         ),
         (
             "XMP-iptcCore:CountryCode",
@@ -153,20 +195,23 @@ pub fn normalise_location(input: &LocationInput) -> LocationOutcome {
             input.country_code_xmp.as_deref(),
             input.country_code_iptc.as_deref(),
             canonicalise_country_code,
+            identity_projection,
+            identity_projection,
         ),
     ];
 
     let mut edits: HashMap<String, MetadataDraftEdit> = HashMap::new();
     let mut conflicts: u32 = 0;
-    for (xmp_key, iptc_key, xmp, iptc, canon) in pairs {
-        let result = process_pair(xmp, iptc, canon);
+    for (xmp_key, iptc_key, xmp, iptc, canon, xmp_projection, iptc_projection) in pairs {
+        let result = process_pair(xmp, iptc, canon, xmp_projection, iptc_projection);
         if result.conflict {
             conflicts += 1;
         }
-        if let Some(canonical) = result.canonical {
-            let edit = text_edit(canonical);
-            edits.insert(xmp_key.to_string(), edit.clone());
-            edits.insert(iptc_key.to_string(), edit);
+        if let Some(target) = result.xmp_target {
+            edits.insert(xmp_key.to_string(), text_edit(target));
+        }
+        if let Some(target) = result.iptc_target {
+            edits.insert(iptc_key.to_string(), text_edit(target));
         }
     }
 
@@ -206,7 +251,7 @@ mod tests {
             ..Default::default()
         };
         let out = normalise_location(&input).output.unwrap();
-        assert_eq!(s(&out, "XMP-photoshop:City"), "Paris");
+        assert!(!out.edits.contains_key("XMP-photoshop:City"));
         assert_eq!(s(&out, "IPTC:City"), "Paris");
     }
 
@@ -218,7 +263,7 @@ mod tests {
         };
         let out = normalise_location(&input).output.unwrap();
         assert_eq!(s(&out, "XMP-photoshop:City"), "Paris");
-        assert_eq!(s(&out, "IPTC:City"), "Paris");
+        assert!(!out.edits.contains_key("IPTC:City"));
     }
 
     #[test]
@@ -242,7 +287,7 @@ mod tests {
         };
         let out = normalise_location(&input);
         let g = out.output.expect("conflict must emit drafts");
-        assert_eq!(s(&g, "XMP-photoshop:City"), "Paris");
+        assert!(!g.edits.contains_key("XMP-photoshop:City"));
         assert_eq!(s(&g, "IPTC:City"), "Paris");
         assert_eq!(out.n_xmp_iim_conflict, 1);
     }
@@ -256,7 +301,7 @@ mod tests {
         };
         let out = normalise_location(&input).output.unwrap();
         assert_eq!(s(&out, "XMP-iptcCore:CountryCode"), "GB");
-        assert_eq!(s(&out, "IPTC:Country-PrimaryLocationCode"), "GB");
+        assert!(!out.edits.contains_key("IPTC:Country-PrimaryLocationCode"));
     }
 
     #[test]
@@ -274,10 +319,10 @@ mod tests {
         let g = out.output.unwrap();
         assert!(!g.edits.contains_key("XMP-iptcCore:Location"));
         assert!(!g.edits.contains_key("IPTC:Sub-location"));
-        assert_eq!(s(&g, "XMP-photoshop:City"), "Paris");
+        assert!(!g.edits.contains_key("XMP-photoshop:City"));
         assert_eq!(s(&g, "IPTC:City"), "Paris");
         assert!(!g.edits.contains_key("XMP-photoshop:State"));
-        assert_eq!(s(&g, "XMP-photoshop:Country"), "France");
+        assert!(!g.edits.contains_key("XMP-photoshop:Country"));
         assert_eq!(s(&g, "IPTC:Country-PrimaryLocationName"), "France");
         assert_eq!(s(&g, "XMP-iptcCore:CountryCode"), "FR");
         assert_eq!(s(&g, "IPTC:Country-PrimaryLocationCode"), "FR");
@@ -293,7 +338,7 @@ mod tests {
         };
         let first = normalise_location(&initial).output.unwrap();
         let post = LocationInput {
-            city_xmp: Some(s(&first, "XMP-photoshop:City")),
+            city_xmp: Some("Paris".into()),
             city_iptc: Some(s(&first, "IPTC:City")),
             country_code_xmp: Some(s(&first, "XMP-iptcCore:CountryCode")),
             country_code_iptc: Some(s(&first, "IPTC:Country-PrimaryLocationCode")),
@@ -316,5 +361,66 @@ mod tests {
             .expect("must normalise to uppercase");
         assert_eq!(s(&out, "XMP-iptcCore:CountryCode"), "GB");
         assert_eq!(s(&out, "IPTC:Country-PrimaryLocationCode"), "GB");
+    }
+
+    #[test]
+    fn long_xmp_location_projects_only_iptc_sub_location() {
+        let full = "The Rook and Gaskill Inn, Foss Islands, York, United Kingdom";
+        let input = LocationInput {
+            location_xmp: Some(full.into()),
+            ..Default::default()
+        };
+        let out = normalise_location(&input).output.unwrap();
+        assert!(!out.edits.contains_key("XMP-iptcCore:Location"));
+        let projected = s(&out, "IPTC:Sub-location");
+        assert!(projected.len() <= IPTC_SUB_LOCATION_LIMIT);
+        assert_eq!(projected, truncate_at_word(full, IPTC_SUB_LOCATION_LIMIT));
+    }
+
+    #[test]
+    fn long_xmp_location_with_projected_iptc_is_idempotent() {
+        let full = "The Rook and Gaskill Inn, Foss Islands, York, United Kingdom";
+        let input = LocationInput {
+            location_xmp: Some(full.into()),
+            location_iptc: Some(truncate_at_word(full, IPTC_SUB_LOCATION_LIMIT)),
+            ..Default::default()
+        };
+        let out = normalise_location(&input);
+        assert!(out.output.is_none());
+        assert_eq!(out.n_xmp_iim_conflict, 0);
+    }
+
+    #[test]
+    fn hard_truncated_iptc_sub_location_is_reprojected_once() {
+        let full = "Clifton Moor, York, United Kingdom";
+        let projected = truncate_at_word(full, IPTC_SUB_LOCATION_LIMIT);
+        let initial = LocationInput {
+            location_xmp: Some(full.into()),
+            location_iptc: Some("Clifton Moor, York, United Kingd".into()),
+            ..Default::default()
+        };
+        let first = normalise_location(&initial);
+        let g = first.output.expect("must emit projected IPTC edit");
+        assert!(!g.edits.contains_key("XMP-iptcCore:Location"));
+        assert_eq!(s(&g, "IPTC:Sub-location"), projected);
+
+        let post = LocationInput {
+            location_xmp: Some(full.into()),
+            location_iptc: Some(projected),
+            ..Default::default()
+        };
+        let second = normalise_location(&post);
+        assert!(second.output.is_none());
+    }
+
+    #[test]
+    fn location_context_keeps_full_xmp_location() {
+        let full = "The Rook and Gaskill Inn, Foss Islands, York, United Kingdom";
+        let ctx = derive_location_canonical(&LocationInput {
+            location_xmp: Some(full.into()),
+            location_iptc: Some(truncate_at_word(full, IPTC_SUB_LOCATION_LIMIT)),
+            ..Default::default()
+        });
+        assert_eq!(ctx.location.as_deref(), Some(full));
     }
 }

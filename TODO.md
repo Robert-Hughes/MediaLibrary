@@ -1,9 +1,6 @@
 Current
 =======
 
-* Normalize metadata!
-  * Ability to force normalisation, even if it thinks already done. This is useful for Description, if an AI Description was generated after the normal description already normalised
-
 Bugs/quirks/tweaks/improvements
 =================================
 
@@ -11,6 +8,7 @@ Bugs/quirks/tweaks/improvements
 Features
 ========
 
+- Ability to force normalisation, even if it thinks already done. This is useful for Description, if an AI Description was generated after the normal description already normalised
 - BATCHING OR FLEX for half-price API?
 - Multi-batch chaining context
   - Carry summary/context from one batch into the next, mainly for AI/geographic/theme continuity.
