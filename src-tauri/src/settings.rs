@@ -38,6 +38,19 @@ pub fn default_normalise_model() -> String {
     "gpt-5.4-nano".to_string()
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
+pub enum AiCostEstimateMode {
+    Heuristic,
+    Exact,
+}
+
+pub fn default_ai_cost_estimate_mode() -> AiCostEstimateMode {
+    AiCostEstimateMode::Heuristic
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
@@ -56,6 +69,11 @@ pub struct Settings {
     /// nano-class models.
     #[serde(default = "default_normalise_model")]
     pub normalise_metadata_model: String,
+    /// Shared mode for pre-confirm AI cost estimates. Heuristic is
+    /// local-only and fast; Exact preserves the OpenAI `/responses/input_tokens`
+    /// preflight.
+    #[serde(default = "default_ai_cost_estimate_mode")]
+    pub ai_cost_estimate_mode: AiCostEstimateMode,
 }
 
 impl Default for Settings {
@@ -64,6 +82,7 @@ impl Default for Settings {
             openai_api_key: String::new(),
             openai_model: default_model(),
             normalise_metadata_model: default_normalise_model(),
+            ai_cost_estimate_mode: default_ai_cost_estimate_mode(),
         }
     }
 }
@@ -141,6 +160,7 @@ mod tests {
             openai_api_key: "sk-test-abc".into(),
             openai_model: "gpt-4o".into(),
             normalise_metadata_model: "gpt-5.4-nano".into(),
+            ai_cost_estimate_mode: AiCostEstimateMode::Exact,
         };
         save_settings(dir.path(), &s).unwrap();
         let loaded = load_settings(dir.path()).unwrap();
@@ -158,6 +178,7 @@ mod tests {
                 openai_api_key: "first".into(),
                 openai_model: default_model(),
                 normalise_metadata_model: default_normalise_model(),
+                ai_cost_estimate_mode: AiCostEstimateMode::Heuristic,
             },
         )
         .unwrap();
@@ -167,6 +188,7 @@ mod tests {
                 openai_api_key: "second".into(),
                 openai_model: default_model(),
                 normalise_metadata_model: default_normalise_model(),
+                ai_cost_estimate_mode: AiCostEstimateMode::Heuristic,
             },
         )
         .unwrap();
@@ -189,6 +211,47 @@ mod tests {
         let loaded = load_settings(dir.path()).unwrap();
         assert_eq!(loaded.openai_model, default_model());
         assert_eq!(loaded.openai_api_key, "k");
+        assert_eq!(
+            loaded.ai_cost_estimate_mode,
+            default_ai_cost_estimate_mode()
+        );
+    }
+
+    #[test]
+    fn old_json_without_cost_estimate_mode_defaults_to_heuristic() {
+        let dir = tempdir().unwrap();
+        let path = settings_file_path(dir.path());
+        std::fs::write(
+            &path,
+            br#"{"openai_api_key":"k","openai_model":"gpt-4o","normalise_metadata_model":"gpt-5.4-nano"}"#,
+        )
+        .unwrap();
+        let loaded = load_settings(dir.path()).unwrap();
+        assert_eq!(loaded.ai_cost_estimate_mode, AiCostEstimateMode::Heuristic);
+    }
+
+    #[test]
+    fn round_trip_preserves_heuristic_cost_estimate_mode() {
+        let dir = tempdir().unwrap();
+        let s = Settings {
+            ai_cost_estimate_mode: AiCostEstimateMode::Heuristic,
+            ..Settings::default()
+        };
+        save_settings(dir.path(), &s).unwrap();
+        let loaded = load_settings(dir.path()).unwrap();
+        assert_eq!(loaded.ai_cost_estimate_mode, AiCostEstimateMode::Heuristic);
+    }
+
+    #[test]
+    fn round_trip_preserves_exact_cost_estimate_mode() {
+        let dir = tempdir().unwrap();
+        let s = Settings {
+            ai_cost_estimate_mode: AiCostEstimateMode::Exact,
+            ..Settings::default()
+        };
+        save_settings(dir.path(), &s).unwrap();
+        let loaded = load_settings(dir.path()).unwrap();
+        assert_eq!(loaded.ai_cost_estimate_mode, AiCostEstimateMode::Exact);
     }
 
     #[test]

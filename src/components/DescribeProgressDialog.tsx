@@ -106,7 +106,17 @@ function FailureList({ failures }: { failures: DescribeFailure[] }) {
   );
 }
 
-function UsageSummary({ s }: { s: DescribeUsageSummary }) {
+function UsageSummary({
+  s,
+  estimateCostUsd,
+}: {
+  s: DescribeUsageSummary;
+  estimateCostUsd?: number;
+}) {
+  const comparisonCostUsd =
+    estimateCostUsd != null && estimateCostUsd > 0
+      ? estimateCostUsd
+      : s.predictedCostUsd;
   return (
     <div
       style={{ marginTop: 10, fontSize: 12, color: "var(--text-secondary)" }}
@@ -121,15 +131,15 @@ function UsageSummary({ s }: { s: DescribeUsageSummary }) {
         Output tokens: {s.totalOutputTokens.toLocaleString()}
       </div>
       <div>
-        Predicted: {formatCost(s.predictedCostUsd)}
+        Estimate: {formatCost(comparisonCostUsd)}
         {" · "}
         Actual: <strong>{formatCost(s.actualCostUsd)}</strong>
-        {s.predictedCostUsd > 0 && (
+        {comparisonCostUsd > 0 && (
           <>
             {" "}
             (
             {(
-              ((s.actualCostUsd - s.predictedCostUsd) / s.predictedCostUsd) *
+              ((s.actualCostUsd - comparisonCostUsd) / comparisonCostUsd) *
               100
             ).toFixed(0)}
             % vs estimate)
@@ -160,7 +170,7 @@ export function DescribeProgressDialog({
       {state.phase === "estimating" && (
         <>
           <div className="dialog-hint" data-testid="describe-estimate-count">
-            Counting tokens: {state.current} of {state.total}{" "}
+            Estimating cost: {state.current} of {state.total}{" "}
             {state.total === 1 ? "image" : "images"}
           </div>
           <ProgressBar current={state.current} total={state.total} />
@@ -240,6 +250,20 @@ export function DescribeProgressDialog({
             Each image is uploaded to OpenAI for analysis. Results land as draft
             edits under the XMP-mlib namespace and can be reviewed before
             applying.
+            {state.estimate.estimateMode === "heuristic" && (
+              <>
+                {" "}
+                This cost estimate is approximate and was calculated locally
+                before confirmation.
+              </>
+            )}
+            {state.estimate.estimateMode === "exact" && (
+              <>
+                {" "}
+                The cost estimate used an exact OpenAI token preflight before
+                confirmation.
+              </>
+            )}
           </div>
           {overwriteInfo && (
             <OverwriteNotice
@@ -325,7 +349,12 @@ export function DescribeProgressDialog({
               </span>
             )}
           </div>
-          {state.usageSummary && <UsageSummary s={state.usageSummary} />}
+          {state.usageSummary && (
+            <UsageSummary
+              s={state.usageSummary}
+              estimateCostUsd={state.estimate?.predictedCostUsd}
+            />
+          )}
           <FailureList failures={state.failures} />
           <div
             style={{

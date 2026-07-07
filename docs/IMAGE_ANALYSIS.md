@@ -30,8 +30,8 @@ inputs for a follow-up metadata-normalization feature.
 - API key OS-keyring storage (plaintext settings.json acceptable).
 - Auto-retry on truncation (`status=="incomplete"`). Prompt-side mitigation
   only.
-- Local token-math fallback when `/responses/input_tokens` errors. Hard
-  fail instead.
+- Fallback from exact `/responses/input_tokens` failures. Exact mode hard
+  fails; heuristic mode is a separate user-selected estimate mode.
 - Gallery multi-select UI trigger.
 - First-run consent dialog (warning text in Settings screen suffices).
 - Image-prompt tuning UI (resize, detail level).
@@ -57,9 +57,9 @@ adaptations:
   `draft_edits::save_typed_draft_edits` immediately, before next image
   starts → crash-safe partial progress.
 - Emits events:
-  - `describe_estimate_started { total }` — preflight begins
+  - `describe_estimate_started { total }` — estimate begins
   - `describe_estimate_progress { current, total, rel_path, tokens, cost_usd }`
-  - `describe_estimate_complete { total_input_tokens, predicted_cost_usd, upper_bound_cost_usd }`
+  - `describe_estimate_complete { total_input_tokens, predicted_cost_usd, upper_bound_cost_usd, estimate_mode }`
   - `describe_started { total }` — user confirmed, real work begins
   - `describe_progress { current, total, rel_path, status, error }`
     where `status ∈ { ok, retrying, failed_decode, failed_api, refused, incomplete }`
@@ -80,6 +80,16 @@ adaptations:
 The estimate + run split lets the UI gate on user confirm between them.
 Both share `DescribeState` so cancel works in either phase.
 
+The default estimate mode is `heuristic`: no selected image is opened,
+decoded, downscaled, uploaded, or sent to `/responses/input_tokens` before
+confirmation. The local estimate uses `TYPICAL_INPUT_TOKENS_PER_IMAGE`,
+`EXPECTED_OUTPUT_TOKENS`, and the configured model pricing. Settings also
+exposes `Exact OpenAI token preflight`; in exact mode the pre-confirm
+estimate preserves the original behaviour and uploads each selected image's
+downscaled bytes once to `/responses/input_tokens` before the real run.
+Actual usage and cost are still reported after the run from the OpenAI
+`/responses` usage block.
+
 ### Settings
 
 `src-tauri/src/settings.rs`. Plaintext JSON in `app_data_dir/settings.json`,
@@ -89,6 +99,7 @@ atomic write (same pattern as `draft_edits.rs`).
 struct Settings {
     openai_api_key: String,   // plaintext, V1
     openai_model: String,     // default "gpt-4o"
+    ai_cost_estimate_mode: AiCostEstimateMode, // default Heuristic
 }
 ```
 
@@ -207,7 +218,7 @@ as `failed_api` with a clear reason; user can rerun.
 | Mode                              | Detection                         | Behaviour                                                  |
 | --------------------------------- | --------------------------------- | ---------------------------------------------------------- |
 | Image decode fails                | `image` crate error pre-call      | Skip image, mark failed, continue batch                    |
-| `/responses/input_tokens` errors  | non-2xx during preflight          | Abort whole run (hard fail, no fallback)                   |
+| `/responses/input_tokens` errors  | non-2xx during exact preflight    | Abort estimate (hard fail, no fallback)                    |
 | 429 / 5xx during describe         | reqwest-retry layer               | Auto-retry (≤3) w/ exp-backoff; emit `describe_retry`      |
 | Retries exhausted                 | error returned to handler         | Mark image failed, continue batch                          |
 | Content-moderation refusal        | `response.error` or refusal field | Mark failed with refusal text, continue batch              |

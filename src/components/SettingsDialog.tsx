@@ -199,6 +199,47 @@ export function SettingsDialog({ onClose }: Props) {
                   moderate cost (≈$0.002 per 1024px image). See
                   docs/IMAGE_ANALYSIS.md for the model-choice rationale.
                 </div>
+
+                <label
+                  style={{
+                    display: "block",
+                    fontSize: 12,
+                    marginTop: 12,
+                    marginBottom: 4,
+                  }}
+                >
+                  AI cost estimate
+                </label>
+                <select
+                  data-testid="settings-ai-cost-estimate-mode-select"
+                  value={settings.ai_cost_estimate_mode}
+                  onChange={(e) =>
+                    persist({
+                      ...settings,
+                      ai_cost_estimate_mode: e.target.value as
+                        | "heuristic"
+                        | "exact",
+                    })
+                  }
+                  style={{ width: "100%", padding: 6 }}
+                >
+                  <option value="heuristic">Fast local estimate</option>
+                  <option value="exact">Exact OpenAI token preflight</option>
+                </select>
+                <div
+                  style={{
+                    marginTop: 6,
+                    fontSize: 11,
+                    color: "var(--text-secondary)",
+                  }}
+                >
+                  Fast local estimate is instant and does not call OpenAI before
+                  confirmation. Exact preflight calls OpenAI before confirmation
+                  to count tokens. For AI image description, exact preflight
+                  uploads selected image bytes once before the real run. For
+                  metadata normalisation, exact preflight sends only text
+                  prompts, not image bytes.
+                </div>
               </section>
 
               <section style={{ marginBottom: 16 }}>
