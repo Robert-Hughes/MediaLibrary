@@ -151,10 +151,12 @@ export function SettingsDialog({ onClose }: Props) {
                   }}
                 >
                   Stored in plain text in your app data folder. The key is used
-                  only for the AI-description feature. Enabling this feature
-                  uploads selected images to OpenAI for analysis — don't enter a
-                  key here if your images contain content you cannot send to a
-                  third-party service.
+                  for AI image description and for metadata normalisation when
+                  AI merge/title branches are enabled. AI image description
+                  uploads selected images to OpenAI for analysis; metadata
+                  normalisation sends text prompts only. Don't enter a key here
+                  if your images or metadata contain content you cannot send to
+                  a third-party service.
                 </div>
 
                 <label
@@ -233,12 +235,14 @@ export function SettingsDialog({ onClose }: Props) {
                     color: "var(--text-secondary)",
                   }}
                 >
-                  Fast local estimate is instant and does not call OpenAI before
-                  confirmation. Exact preflight calls OpenAI before confirmation
-                  to count tokens. For AI image description, exact preflight
-                  uploads selected image bytes once before the real run. For
-                  metadata normalisation, exact preflight sends only text
-                  prompts, not image bytes.
+                  Fast local estimate avoids OpenAI calls before confirmation.
+                  Exact preflight calls OpenAI before confirmation to count
+                  tokens. For AI image description, exact preflight uploads
+                  selected image bytes once before the real run. For metadata
+                  normalisation, exact preflight sends only text prompts, not
+                  image bytes. Metadata normalisation may still take a moment in
+                  fast mode because it locally checks which fields and AI
+                  branches would change.
                 </div>
               </section>
 
