@@ -188,6 +188,16 @@ impl ApplyEditsState {
         *self.cancelled.lock().unwrap() = None;
     }
 
+    pub fn clear_if_mine(&self, flag: &Arc<AtomicBool>) {
+        let mut installed = self.cancelled.lock().unwrap();
+        if installed
+            .as_ref()
+            .is_some_and(|current| Arc::ptr_eq(current, flag))
+        {
+            *installed = None;
+        }
+    }
+
     pub fn signal_cancel(&self) -> bool {
         if let Some(flag) = self.cancelled.lock().unwrap().as_ref() {
             flag.store(true, Ordering::Relaxed);
@@ -825,13 +835,41 @@ fn load_metadata_draft_edits(
 }
 
 #[tauri::command]
-fn apply_metadata_draft_edits_cmd(
+async fn apply_metadata_draft_edits_cmd(
     folder_path: String,
     rel_paths: Vec<String>,
     app: AppHandle,
     apply_state: State<'_, ApplyEditsState>,
 ) -> Result<apply_edits::MetadataApplyEditsResult, String> {
     let cancel_flag = apply_state.install();
+    let app_for_worker = app.clone();
+    let cancel_flag_for_worker = cancel_flag.clone();
+
+    let join = tauri::async_runtime::spawn_blocking(move || {
+        run_apply_metadata_draft_edits_blocking(
+            folder_path,
+            rel_paths,
+            app_for_worker,
+            cancel_flag_for_worker,
+        )
+    });
+
+    let result = match join.await {
+        Ok(result) => result,
+        Err(e) => Err(format!("Apply edits worker failed: {e}")),
+    };
+
+    apply_state.clear_if_mine(&cancel_flag);
+
+    result
+}
+
+fn run_apply_metadata_draft_edits_blocking(
+    folder_path: String,
+    rel_paths: Vec<String>,
+    app: AppHandle,
+    cancel_flag: Arc<AtomicBool>,
+) -> Result<apply_edits::MetadataApplyEditsResult, String> {
     let mut all_drafts = draft_edits::load_metadata_draft_edits(&folder_path).unwrap_or_default();
 
     let total = rel_paths
@@ -909,8 +947,6 @@ fn apply_metadata_draft_edits_cmd(
         }
     }
 
-    apply_state.clear();
-
     Ok(apply_edits::MetadataApplyEditsResult {
         applied,
         failed,
@@ -966,6 +1002,32 @@ mod tests {
     fn signal_cancellation_returns_false_when_no_flag_installed() {
         let state = ScanState::new();
         assert!(!state.signal_cancellation());
+    }
+
+    #[test]
+    fn apply_edits_state_clear_removes_installed_cancel_flag() {
+        let state = ApplyEditsState::new();
+        let flag = state.install();
+
+        assert!(state.signal_cancel());
+        assert!(flag.load(Ordering::Relaxed));
+
+        state.clear();
+
+        assert!(!state.signal_cancel());
+    }
+
+    #[test]
+    fn apply_edits_state_clear_if_mine_leaves_newer_flag_installed() {
+        let state = ApplyEditsState::new();
+        let first = state.install();
+        let second = state.install();
+
+        state.clear_if_mine(&first);
+
+        assert!(state.signal_cancel());
+        assert!(!first.load(Ordering::Relaxed));
+        assert!(second.load(Ordering::Relaxed));
     }
 
     #[test]
