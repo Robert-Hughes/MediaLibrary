@@ -219,8 +219,7 @@ export function SettingsDialog({ onClose }: Props) {
                     persist({
                       ...settings,
                       ai_cost_estimate_mode: e.target.value as
-                        | "heuristic"
-                        | "exact",
+                        "heuristic" | "exact",
                     })
                   }
                   style={{ width: "100%", padding: 6 }}
