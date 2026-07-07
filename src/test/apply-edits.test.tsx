@@ -1,11 +1,14 @@
 /**
  * Integration tests for Apply Draft Edits feature
  */
-import { render, screen, act } from "@testing-library/react";
+import { render, screen, act, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import App from "../App";
-import { createMockTauriApi } from "./mockTauriApi";
+import {
+  createApplyEditsProgressGate,
+  createMockTauriApi,
+} from "./mockTauriApi";
 import { makePhoto } from "./factories";
 
 let mockApiInstance: ReturnType<typeof createMockTauriApi>;
@@ -48,6 +51,32 @@ async function openFolderWithPhoto(
   });
 
   return { user, photo };
+}
+
+async function openFolderWithPhotos(photos: ReturnType<typeof makePhoto>[]) {
+  const user = userEvent.setup();
+  mockApiInstance.pickFolderResolves("/photos");
+  render(<App />);
+
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 50));
+  });
+
+  await user.click(screen.getByTestId("open-folder-btn"));
+
+  for (const photo of photos) {
+    await act(async () => {
+      mockApiInstance.emitPhotoFound(photo);
+    });
+  }
+  await act(async () => {
+    mockApiInstance.emitScanComplete();
+  });
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 250));
+  });
+
+  return { user };
 }
 
 async function seedDraftEdit(photo: ReturnType<typeof makePhoto>) {
@@ -334,36 +363,130 @@ describe("Apply Draft Edits – Progress dialog and cancellation", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("clicking Cancel invokes cancel_apply_edits", async () => {
-    const photo = makePhoto({ relative_path: "test.jpg" });
-    await seedDraftEdit(photo);
-
-    // No progress events emitted; we manually drive the in-flight state to
-    // assert the cancel button behavior. Emit started but not progress.
+  it("apply progress advances incrementally before command resolves", async () => {
+    const photos = ["a.jpg", "b.jpg", "c.jpg"].map((relative_path) =>
+      makePhoto({ relative_path }),
+    );
+    mockApiInstance.draftEditsByFolder["/photos"] = Object.fromEntries(
+      photos.map((photo) => [
+        photo.relative_path,
+        {
+          "XMP-dc:Description": {
+            value: { kind: "Text", value: `Draft ${photo.relative_path}` },
+            intent: "Set",
+          },
+        },
+      ]),
+    );
     mockApiInstance.applyEditsResult = {
-      applied: [],
+      applied: photos.map((photo) => photo.relative_path),
       failed: [],
       fresh_metadata: {},
     };
+    const gate = createApplyEditsProgressGate();
+    mockApiInstance.applyEditsProgressGate = gate;
 
-    const { user } = await openFolderWithPhoto(photo);
-
-    // Manually inject an in-flight applying state by emitting apply_edits_started
-    // before triggering the apply command, then assert cancel hooks up.
-    // The mock will emit started + zero progress events synchronously, then resolve.
-    // To check the cancel button, we test it directly:
+    const { user } = await openFolderWithPhotos(photos);
     await user.click(screen.getByTestId("status-bar-apply-all-btn"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("apply-progress-count")).toHaveTextContent(
+        "1 of 3 files",
+      );
+    });
+    expect(screen.getByTestId("apply-progress-dialog")).toBeInTheDocument();
+
     await act(async () => {
-      await new Promise((r) => setTimeout(r, 50));
+      gate.advance();
     });
 
-    // Since the mock resolves synchronously, the dialog has already closed.
-    // The cancel pathway is exercised via a direct test below.
+    await waitFor(() => {
+      expect(screen.getByTestId("apply-progress-count")).toHaveTextContent(
+        "2 of 3 files",
+      );
+    });
+    expect(screen.getByTestId("apply-progress-dialog")).toBeInTheDocument();
+
+    await act(async () => {
+      gate.advance();
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId("apply-progress-count")).toHaveTextContent(
+        "3 of 3 files",
+      );
+    });
+    await act(async () => {
+      gate.advance();
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.queryByTestId("apply-progress-dialog"),
+      ).not.toBeInTheDocument();
+    });
     expect(
-      mockApiInstance.invocations.some(
-        (i) => i.cmd === "apply_metadata_draft_edits_cmd",
-      ),
-    ).toBe(true);
+      screen.queryByTestId("status-bar-apply-all-btn"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("cancel during apply signals backend and keeps dialog in cancelling state", async () => {
+    const photos = ["a.jpg", "b.jpg"].map((relative_path) =>
+      makePhoto({ relative_path }),
+    );
+    mockApiInstance.draftEditsByFolder["/photos"] = Object.fromEntries(
+      photos.map((photo) => [
+        photo.relative_path,
+        {
+          "XMP-dc:Description": {
+            value: { kind: "Text", value: `Draft ${photo.relative_path}` },
+            intent: "Set",
+          },
+        },
+      ]),
+    );
+    mockApiInstance.applyEditsResult = {
+      applied: photos.map((photo) => photo.relative_path),
+      failed: [],
+      fresh_metadata: {},
+    };
+    const gate = createApplyEditsProgressGate();
+    mockApiInstance.applyEditsProgressGate = gate;
+
+    const { user } = await openFolderWithPhotos(photos);
+    await user.click(screen.getByTestId("status-bar-apply-all-btn"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("apply-progress-count")).toHaveTextContent(
+        "1 of 2 files",
+      );
+    });
+
+    await user.click(screen.getByTestId("apply-progress-cancel-btn"));
+
+    expect(mockApiInstance.cancelApplyEditsCalled).toBe(true);
+    expect(screen.getByTestId("apply-progress-cancel-btn")).toBeDisabled();
+    expect(screen.getByTestId("apply-progress-cancel-btn")).toHaveTextContent(
+      "Cancelling",
+    );
+
+    await act(async () => {
+      gate.advance();
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId("apply-progress-count")).toHaveTextContent(
+        "2 of 2 files",
+      );
+    });
+    expect(screen.getByTestId("apply-progress-cancel-btn")).toBeDisabled();
+    await act(async () => {
+      gate.advance();
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.queryByTestId("apply-progress-dialog"),
+      ).not.toBeInTheDocument();
+    });
   });
 
   it("incremental fresh_metadata is merged as events arrive (not at end)", async () => {

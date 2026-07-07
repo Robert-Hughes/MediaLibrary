@@ -15,6 +15,36 @@ type EventHandler = (payload: unknown) => void;
 
 type MockDraftEditsByFolder = Record<string, MetadataDraftEditsByFile>;
 
+export interface MockApplyEditsProgressGate {
+  advance: () => void;
+  waitForNextStep: () => Promise<void>;
+}
+
+export function createApplyEditsProgressGate(): MockApplyEditsProgressGate {
+  let permits = 0;
+  const waiters: Array<() => void> = [];
+
+  return {
+    advance: () => {
+      const waiter = waiters.shift();
+      if (waiter) {
+        waiter();
+      } else {
+        permits += 1;
+      }
+    },
+    waitForNextStep: async () => {
+      if (permits > 0) {
+        permits -= 1;
+        return;
+      }
+      await new Promise<void>((resolve) => {
+        waiters.push(resolve);
+      });
+    },
+  };
+}
+
 export interface MockTauriApi {
   api: TauriApi;
   pickFolderResolves: (path: string | null) => void;
@@ -46,6 +76,8 @@ export interface MockTauriApi {
   currentScanId: number;
   /** Override apply_metadata_draft_edits_cmd result. Default: success with no applied/failed. */
   applyEditsResult: MetadataApplyEditsResult;
+  /** Optional manual gate: after each progress event, apply waits for advance(). */
+  applyEditsProgressGate: MockApplyEditsProgressGate | null;
   cancelApplyEditsCalled: boolean;
   /** Stored settings; defaults to empty API key + gpt-4o + heuristic estimates. */
   settings: {
@@ -206,6 +238,7 @@ export function createMockTauriApi(): MockTauriApi {
     invocations: [],
     currentScanId: 1,
     applyEditsResult: { applied: [], failed: [], fresh_metadata: {} },
+    applyEditsProgressGate: null,
     cancelApplyEditsCalled: false,
     settings: {
       openai_api_key: "",
@@ -338,6 +371,9 @@ export function createMockTauriApi(): MockTauriApi {
               ? mockTagOutcomesForPath(mock, folder, path)
               : [],
           });
+          if (mock.applyEditsProgressGate) {
+            await mock.applyEditsProgressGate.waitForNextStep();
+          }
         }
 
         return result;
