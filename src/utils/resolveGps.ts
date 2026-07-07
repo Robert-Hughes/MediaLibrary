@@ -102,18 +102,7 @@ function gpsScalarFromMetadataEntry(
 ): GpsScalar | null {
   if (value === undefined || value === null) return null;
   if (!isMetadataValue(value)) return value;
-  switch (value.kind) {
-    case "Text":
-    case "Integer":
-    case "Real":
-      return value.value;
-    case "Rational":
-      return value.value.denominator === 0
-        ? null
-        : value.value.numerator / value.value.denominator;
-    default:
-      return null;
-  }
+  return gpsScalarFromMetadataValue(value);
 }
 
 function gpsScalarFromMetadataValue(
@@ -129,6 +118,10 @@ function gpsScalarFromMetadataValue(
       return value.value.denominator === 0
         ? null
         : value.value.numerator / value.value.denominator;
+    case "List":
+      return value.value.items.length === 1
+        ? gpsScalarFromMetadataValue(value.value.items[0])
+        : null;
     default:
       return null;
   }
