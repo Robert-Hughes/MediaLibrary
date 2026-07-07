@@ -14,8 +14,8 @@
 //! prompt enforces title-case when the generation path fires.
 
 use super::{
-    collapse_whitespace_single_line, text_edit, truncate_at_word, AiCallUsage, GroupOutput,
-    NormaliseAiClient, NormaliseAiError, TitleGenPrompt, TitleInput,
+    collapse_whitespace_single_line, lang_alt_edit, text_edit, truncate_at_word, AiCallUsage,
+    GroupOutput, NormaliseAiClient, NormaliseAiError, TitleGenPrompt, TitleInput,
 };
 use crate::draft_edits::MetadataDraftEdit;
 use std::collections::HashMap;
@@ -160,7 +160,7 @@ pub async fn normalise_title(
     let object = truncate_at_word(&canonical, IPTC_OBJECT_NAME_LIMIT);
     let mut edits: HashMap<String, MetadataDraftEdit> = HashMap::new();
     if input.title.as_deref() != Some(canonical.as_str()) {
-        edits.insert("XMP-dc:Title".to_string(), text_edit(canonical.clone()));
+        edits.insert("XMP-dc:Title".to_string(), lang_alt_edit(canonical.clone()));
     }
     if input.object_name.as_deref() != Some(object.as_str()) {
         edits.insert("IPTC:ObjectName".to_string(), text_edit(object));
@@ -183,10 +183,17 @@ mod tests {
     use crate::metadata_value::MetadataValue;
     use crate::normalise::DescriptionMergePrompt;
 
-    fn s(g: &GroupOutput, k: &str) -> String {
+    fn text(g: &GroupOutput, k: &str) -> String {
         match &g.edits.get(k).unwrap().value {
             Some(MetadataValue::Text(v)) => v.clone(),
             other => panic!("expected text value, got {:?}", other),
+        }
+    }
+
+    fn lang_alt_x_default(g: &GroupOutput, k: &str) -> String {
+        match &g.edits.get(k).unwrap().value {
+            Some(MetadataValue::LangAlt(v)) => v.get("x-default").unwrap().clone(),
+            other => panic!("expected lang-alt value, got {:?}", other),
         }
     }
 
@@ -199,7 +206,7 @@ mod tests {
         };
         let out = normalise_title(&input, None).await.output.unwrap();
         assert!(!out.edits.contains_key("XMP-dc:Title"));
-        assert_eq!(s(&out, "IPTC:ObjectName"), "Sunset Over Mont Blanc");
+        assert_eq!(text(&out, "IPTC:ObjectName"), "Sunset Over Mont Blanc");
     }
 
     #[tokio::test]
@@ -210,7 +217,7 @@ mod tests {
             ..Default::default()
         };
         let out = normalise_title(&input, None).await.output.unwrap();
-        assert_eq!(s(&out, "XMP-dc:Title"), "From IPTC");
+        assert_eq!(lang_alt_x_default(&out, "XMP-dc:Title"), "From IPTC");
     }
 
     #[tokio::test]
@@ -220,7 +227,10 @@ mod tests {
             ..Default::default()
         };
         let out = normalise_title(&input, None).await.output.unwrap();
-        assert_eq!(s(&out, "XMP-dc:Title"), "Sunset Over Mont Blanc");
+        assert_eq!(
+            lang_alt_x_default(&out, "XMP-dc:Title"),
+            "Sunset Over Mont Blanc"
+        );
     }
 
     #[tokio::test]
@@ -230,7 +240,7 @@ mod tests {
             ..Default::default()
         };
         let out = normalise_title(&input, None).await.output.unwrap();
-        assert_eq!(s(&out, "XMP-dc:Title"), "Wow");
+        assert_eq!(lang_alt_x_default(&out, "XMP-dc:Title"), "Wow");
     }
 
     #[tokio::test]
@@ -240,7 +250,7 @@ mod tests {
             ..Default::default()
         };
         let out = normalise_title(&input, None).await.output.unwrap();
-        assert_eq!(s(&out, "XMP-dc:Title"), "Lots of space");
+        assert_eq!(lang_alt_x_default(&out, "XMP-dc:Title"), "Lots of space");
     }
 
     #[tokio::test]
@@ -250,7 +260,7 @@ mod tests {
             ..Default::default()
         };
         let out = normalise_title(&input, None).await.output.unwrap();
-        assert_eq!(s(&out, "IPTC:ObjectName"), "iPhone in the Snow");
+        assert_eq!(text(&out, "IPTC:ObjectName"), "iPhone in the Snow");
     }
 
     #[tokio::test]
@@ -293,7 +303,7 @@ mod tests {
         };
         let out = normalise_title(&input, Some(&MockAi)).await;
         let g = out.output.unwrap();
-        assert_eq!(s(&g, "XMP-dc:Title"), "Climbers At Sunset");
+        assert_eq!(lang_alt_x_default(&g, "XMP-dc:Title"), "Climbers At Sunset");
         assert!(out.ai_fired);
     }
 
@@ -358,7 +368,7 @@ mod tests {
             ..Default::default()
         };
         let out = normalise_title(&input, None).await.output.unwrap();
-        let obj = s(&out, "IPTC:ObjectName");
+        let obj = text(&out, "IPTC:ObjectName");
         assert!(obj.len() <= IPTC_OBJECT_NAME_LIMIT);
         assert!(!obj.ends_with(' '));
         assert!(obj.ends_with("word"));
@@ -373,7 +383,7 @@ mod tests {
         let first = normalise_title(&initial, None).await.output.unwrap();
         let post = TitleInput {
             title: Some("My Title".into()),
-            object_name: Some(s(&first, "IPTC:ObjectName")),
+            object_name: Some(text(&first, "IPTC:ObjectName")),
             ..Default::default()
         };
         let second = normalise_title(&post, None).await;

@@ -5,7 +5,7 @@ import type {
   SortKey,
 } from "../types";
 import type { ImageMetadataStore } from "../types";
-import { variantToDisplayString as metadataValueToDisplayString } from "../draft";
+import { metadataEntryToDisplayString as metadataValueToDisplayString } from "../draft";
 
 function getMetadataValueAsString(v: ImageMetadataEntry | undefined): string {
   if (v === undefined || v === null) return "";

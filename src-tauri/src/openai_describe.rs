@@ -18,12 +18,15 @@
 use std::path::Path;
 
 use base64::Engine;
+use chrono::{Datelike, Offset, Timelike};
 use image::io::Reader as ImageReader;
 use serde::{Deserialize, Serialize};
 use std::io::Cursor;
 
 use crate::draft_edits::{EditIntent, MetadataDraftEdit};
-use crate::metadata_value::{ListKind, MetadataValue};
+use crate::metadata_value::{
+    DateTimeValue, DateValue, ListKind, MetadataValue, OffsetSign, TimeValue, UtcOffsetValue,
+};
 use crate::openai_http::OpenAiHttp;
 
 /// Long-side cap before upload.  See experiment for rationale: server-side
@@ -552,6 +555,39 @@ pub async fn describe_one(
 
 // ── Drafts composition ──────────────────────────────────────────────────────
 
+fn utc_offset_from_seconds(seconds: i32) -> UtcOffsetValue {
+    let sign = if seconds < 0 {
+        OffsetSign::Minus
+    } else {
+        OffsetSign::Plus
+    };
+    let abs = seconds.unsigned_abs();
+    UtcOffsetValue {
+        sign,
+        hours: (abs / 3600) as u8,
+        minutes: ((abs % 3600) / 60) as u8,
+    }
+}
+
+fn datetime_value_from_local(generated_at: chrono::DateTime<chrono::Local>) -> DateTimeValue {
+    DateTimeValue {
+        date: DateValue {
+            year: generated_at.year(),
+            month: generated_at.month() as u8,
+            day: generated_at.day() as u8,
+        },
+        time: TimeValue {
+            hour: generated_at.hour() as u8,
+            minute: generated_at.minute() as u8,
+            second: generated_at.second() as u8,
+            subsecond: None,
+            offset: Some(utc_offset_from_seconds(
+                generated_at.offset().fix().local_minus_utc(),
+            )),
+        },
+    }
+}
+
 /// Convert an `AiOutput` into the semantic draft edits for one image. Maps
 /// each field onto its `XMP-mlib:*` tag.
 pub fn compose_metadata_draft_edits(
@@ -602,10 +638,16 @@ pub fn compose_metadata_draft_edits(
         "XMP-mlib:AIPromptVersion".to_string(),
         text_edit(PROMPT_VERSION.to_string()),
     );
-    // ISO-8601 / RFC-3339 with Z; matches the XMP DateTime kind in tag_schema.
+    let generated_at_local = generated_at.with_timezone(&chrono::Local);
     edits.insert(
         "XMP-mlib:AIGeneratedAt".to_string(),
-        text_edit(generated_at.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)),
+        MetadataDraftEdit {
+            value: Some(MetadataValue::DateTime(datetime_value_from_local(
+                generated_at_local,
+            ))),
+            intent: EditIntent::Set,
+            display: None,
+        },
     );
     edits
 }
@@ -779,11 +821,11 @@ mod tests {
             other => panic!("expected text value, got {:?}", other),
         }
         match &edits["XMP-mlib:AIGeneratedAt"].value {
-            Some(MetadataValue::Text(s)) => {
-                assert!(s.starts_with("2024-06-01T12:34:56"), "got {}", s);
-                assert!(s.ends_with('Z'), "expected Z-suffix UTC, got {}", s);
+            Some(MetadataValue::DateTime(dt)) => {
+                assert_eq!(dt.date.year, 2024);
+                assert!(dt.time.offset.is_some(), "expected local offset");
             }
-            other => panic!("expected text value, got {:?}", other),
+            other => panic!("expected datetime value, got {:?}", other),
         }
     }
 

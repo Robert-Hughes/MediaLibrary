@@ -9,6 +9,7 @@ use crate::draft_edits::{EditIntent, MetadataDraftEdit};
 use crate::metadata_value::{
     DateTimeValue, DateValue, MetadataValue, OffsetSign, TimeValue, UtcOffsetValue,
 };
+use chrono::Offset;
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
@@ -52,6 +53,17 @@ impl ComparableTimestamp {
     fn time_with_effective_offset(&self) -> TimeValue {
         let mut time = self.datetime.time.clone();
         time.offset = self.effective_offset().cloned();
+        time
+    }
+
+    fn time_with_iptc_offset(&self, fallback_offset: Option<&UtcOffsetValue>) -> TimeValue {
+        let mut time = self.time_with_effective_offset();
+        if time.offset.is_none() {
+            // Pragmatic app fallback: when no inline or related EXIF offset is
+            // available, write the current PC local offset so IPTC time drafts
+            // stay canonical and verify against ExifTool's offset-bearing read.
+            time.offset = fallback_offset.cloned();
+        }
         time
     }
 
@@ -134,6 +146,21 @@ fn parse_offset(s: &str) -> Option<UtcOffsetValue> {
         minutes: minutes.parse().ok()?,
     };
     (offset.hours <= 23 && offset.minutes <= 59).then_some(offset)
+}
+
+fn local_offset_now() -> UtcOffsetValue {
+    let seconds = chrono::Local::now().offset().fix().local_minus_utc();
+    let sign = if seconds < 0 {
+        OffsetSign::Minus
+    } else {
+        OffsetSign::Plus
+    };
+    let abs = seconds.unsigned_abs();
+    UtcOffsetValue {
+        sign,
+        hours: (abs / 3600) as u8,
+        minutes: ((abs % 3600) / 60) as u8,
+    }
 }
 
 fn split_offset(s: &str) -> (&str, Option<UtcOffsetValue>) {
@@ -297,6 +324,7 @@ fn process_date_subgroup(
     xmp_target_key: &str,
     iptc_date_key: &str,
     iptc_time_key: &str,
+    iptc_fallback_offset: Option<&UtcOffsetValue>,
 ) -> DateSubgroupResult {
     let mut conflict = false;
     let canonical = if let Some(p) = existing_exif.cloned() {
@@ -340,17 +368,24 @@ fn process_date_subgroup(
             set_edit(MetadataValue::DateTime(canonical.with_effective_offset())),
         );
     }
-    if existing_iptc
-        .map(|v| v.compare_for_dates_normaliser(&canonical) == TimestampComparison::Equivalent)
-        != Some(true)
-    {
+    let existing_iptc_offset = existing_iptc.and_then(ComparableTimestamp::effective_offset);
+    let iptc_time = canonical.time_with_iptc_offset(existing_iptc_offset.or(iptc_fallback_offset));
+    let iptc_matches = existing_iptc.map(|v| {
+        v.datetime.date == canonical.datetime.date
+            && v.datetime.time.hour == iptc_time.hour
+            && v.datetime.time.minute == iptc_time.minute
+            && v.datetime.time.second == iptc_time.second
+            && v.datetime.time.subsecond == iptc_time.subsecond
+            && v.datetime.time.offset == iptc_time.offset
+    }) == Some(true);
+    if !iptc_matches {
         edits.insert(
             iptc_date_key.to_string(),
             set_edit(MetadataValue::Date(canonical.date())),
         );
         edits.insert(
             iptc_time_key.to_string(),
-            set_edit(MetadataValue::Time(canonical.time_with_effective_offset())),
+            set_edit(MetadataValue::Time(iptc_time)),
         );
     }
 
@@ -466,7 +501,10 @@ fn parse_filename_for_h1(stem: &str) -> Option<(ComparableTimestamp, bool)> {
     None
 }
 
-pub fn normalise_dates(input: &DatesInput) -> DatesOutcome {
+fn normalise_dates_inner(
+    input: &DatesInput,
+    iptc_fallback_offset: Option<UtcOffsetValue>,
+) -> DatesOutcome {
     let mut edits: HashMap<String, MetadataDraftEdit> = HashMap::new();
     let mut n_conflict = 0;
     let mut n_unparseable = 0;
@@ -523,6 +561,7 @@ pub fn normalise_dates(input: &DatesInput) -> DatesOutcome {
         "XMP-photoshop:DateCreated",
         "IPTC:DateCreated",
         "IPTC:TimeCreated",
+        iptc_fallback_offset.as_ref(),
     );
     if h1.conflict {
         n_conflict += 1;
@@ -562,6 +601,7 @@ pub fn normalise_dates(input: &DatesInput) -> DatesOutcome {
         "XMP-xmp:CreateDate",
         "IPTC:DigitalCreationDate",
         "IPTC:DigitalCreationTime",
+        iptc_fallback_offset.as_ref(),
     );
     if h2.conflict {
         n_conflict += 1;
@@ -579,6 +619,18 @@ pub fn normalise_dates(input: &DatesInput) -> DatesOutcome {
         n_dto_from_filename: n_from_filename,
         n_dto_from_filename_date_only: n_from_filename_date_only,
     }
+}
+
+pub fn normalise_dates(input: &DatesInput) -> DatesOutcome {
+    normalise_dates_inner(input, Some(local_offset_now()))
+}
+
+#[cfg(test)]
+fn normalise_dates_with_fallback_offset(
+    input: &DatesInput,
+    fallback_offset: Option<UtcOffsetValue>,
+) -> DatesOutcome {
+    normalise_dates_inner(input, fallback_offset)
 }
 
 #[cfg(test)]
@@ -651,7 +703,9 @@ mod tests {
             date_time_original: Some(dt(2024, 6, 15, 14, 30, 45, None)),
             ..Default::default()
         };
-        let out = normalise_dates(&input).output.unwrap();
+        let out = normalise_dates_with_fallback_offset(&input, None)
+            .output
+            .unwrap();
         assert!(!out.edits.contains_key("ExifIFD:DateTimeOriginal"));
         assert_eq!(
             display(edit_value(&out, "XMP-photoshop:DateCreated")),
@@ -670,7 +724,7 @@ mod tests {
             iptc_time_created: Some(time(10, 56, 5, Some(off(1)))),
             ..Default::default()
         };
-        let out = normalise_dates(&input);
+        let out = normalise_dates_with_fallback_offset(&input, None);
         assert!(out.output.is_none(), "unexpected edits: {:?}", out.output);
         assert_eq!(out.n_date_conflict, 0);
     }
@@ -684,7 +738,7 @@ mod tests {
             iptc_time_created: Some(time(10, 56, 5, Some(off(1)))),
             ..Default::default()
         };
-        let out = normalise_dates(&input);
+        let out = normalise_dates_with_fallback_offset(&input, None);
         assert!(out.output.is_none());
     }
 
@@ -695,7 +749,9 @@ mod tests {
             iptc_date_created: Some(date(2024, 6, 15)),
             ..Default::default()
         };
-        let out = normalise_dates(&input).output.unwrap();
+        let out = normalise_dates_with_fallback_offset(&input, None)
+            .output
+            .unwrap();
         assert_eq!(display(edit_value(&out, "IPTC:TimeCreated")), "14:30:45");
     }
 
@@ -706,7 +762,9 @@ mod tests {
             iptc_time_created: Some(time(14, 30, 45, Some(off(1)))),
             ..Default::default()
         };
-        let out = normalise_dates(&input).output.unwrap();
+        let out = normalise_dates_with_fallback_offset(&input, None)
+            .output
+            .unwrap();
         assert_eq!(
             display(edit_value(&out, "XMP-photoshop:DateCreated")),
             "2024-06-15T14:30:45+01:00"
@@ -718,13 +776,81 @@ mod tests {
     }
 
     #[test]
+    fn offsetless_iptc_time_uses_injected_local_fallback() {
+        let input = DatesInput {
+            date_time_original: Some(dt(2024, 6, 15, 14, 30, 45, None)),
+            iptc_date_created: Some(date(2024, 6, 15)),
+            ..Default::default()
+        };
+        let out = normalise_dates_with_fallback_offset(&input, Some(off(1)))
+            .output
+            .unwrap();
+        assert_eq!(
+            display(edit_value(&out, "IPTC:TimeCreated")),
+            "14:30:45+01:00"
+        );
+    }
+
+    #[test]
+    fn existing_iptc_time_offset_is_preserved_over_local_fallback() {
+        let input = DatesInput {
+            date_time_original: Some(dt(2024, 6, 15, 14, 30, 45, None)),
+            iptc_date_created: Some(date(2024, 6, 15)),
+            iptc_time_created: Some(time(14, 30, 45, Some(off(2)))),
+            ..Default::default()
+        };
+        let out = normalise_dates_with_fallback_offset(&input, Some(off(1)));
+        let edits = out.output.unwrap().edits;
+        assert!(
+            !edits.contains_key("IPTC:TimeCreated"),
+            "must preserve existing IPTC offset: {:?}",
+            edits
+        );
+    }
+
+    #[test]
+    fn related_exif_offset_wins_over_local_fallback_for_iptc_time() {
+        let input = DatesInput {
+            date_time_original: Some(dt(2024, 6, 15, 14, 30, 45, None)),
+            offset_time_original: Some(MetadataValue::TimeOffset(off(2))),
+            iptc_date_created: Some(date(2024, 6, 15)),
+            ..Default::default()
+        };
+        let out = normalise_dates_with_fallback_offset(&input, Some(off(1)))
+            .output
+            .unwrap();
+        assert_eq!(
+            display(edit_value(&out, "IPTC:TimeCreated")),
+            "14:30:45+02:00"
+        );
+    }
+
+    #[test]
+    fn digital_creation_time_uses_same_offset_rules() {
+        let input = DatesInput {
+            create_date: Some(dt(2024, 6, 15, 14, 30, 45, None)),
+            iptc_digital_creation_date: Some(date(2024, 6, 15)),
+            ..Default::default()
+        };
+        let out = normalise_dates_with_fallback_offset(&input, Some(off(1)))
+            .output
+            .unwrap();
+        assert_eq!(
+            display(edit_value(&out, "IPTC:DigitalCreationTime")),
+            "14:30:45+01:00"
+        );
+    }
+
+    #[test]
     fn related_exif_offset_tag_stays_separate_from_date_time_original() {
         let input = DatesInput {
             date_time_original: Some(dt(2024, 6, 15, 14, 30, 45, None)),
             offset_time_original: Some(MetadataValue::TimeOffset(off(1))),
             ..Default::default()
         };
-        let out = normalise_dates(&input).output.unwrap();
+        let out = normalise_dates_with_fallback_offset(&input, None)
+            .output
+            .unwrap();
         assert!(!out.edits.contains_key("ExifIFD:OffsetTimeOriginal"));
         assert!(!out.edits.contains_key("ExifIFD:DateTimeOriginal"));
         assert_eq!(
@@ -740,7 +866,7 @@ mod tests {
             photoshop_date_created: Some(dt(2024, 6, 15, 14, 30, 45, Some(off(2)))),
             ..Default::default()
         };
-        let out = normalise_dates(&input);
+        let out = normalise_dates_with_fallback_offset(&input, None);
         assert_eq!(out.n_date_conflict, 1);
         let g = out.output.unwrap();
         assert_eq!(
@@ -756,7 +882,7 @@ mod tests {
             photoshop_date_created: Some(dt(2024, 6, 15, 15, 0, 0, None)),
             ..Default::default()
         };
-        let out = normalise_dates(&input);
+        let out = normalise_dates_with_fallback_offset(&input, None);
         assert_eq!(out.n_date_conflict, 1);
         let g = out.output.unwrap();
         assert_eq!(
@@ -771,7 +897,9 @@ mod tests {
             create_date: Some(dt(2024, 6, 15, 14, 30, 45, None)),
             ..Default::default()
         };
-        let out = normalise_dates(&input).output.unwrap();
+        let out = normalise_dates_with_fallback_offset(&input, None)
+            .output
+            .unwrap();
         assert_eq!(
             display(edit_value(&out, "XMP-xmp:CreateDate")),
             "2024-06-15T14:30:45"
@@ -792,14 +920,14 @@ mod tests {
             date_time_original: Some(text("garbage")),
             ..Default::default()
         };
-        let out = normalise_dates(&input);
+        let out = normalise_dates_with_fallback_offset(&input, None);
         assert!(out.output.is_none());
         assert_eq!(out.n_unparseable_inputs, 1);
     }
 
     #[test]
     fn all_empty_returns_no_drafts() {
-        let out = normalise_dates(&DatesInput::default());
+        let out = normalise_dates_with_fallback_offset(&DatesInput::default(), None);
         assert!(out.output.is_none());
         assert_eq!(out.n_date_conflict, 0);
         assert_eq!(out.n_unparseable_inputs, 0);
@@ -811,7 +939,7 @@ mod tests {
             file_stem: Some("20240615143045".into()),
             ..Default::default()
         };
-        let out = normalise_dates(&input);
+        let out = normalise_dates_with_fallback_offset(&input, None);
         let g = out.output.unwrap();
         assert_eq!(
             display(edit_value(&g, "ExifIFD:DateTimeOriginal")),
@@ -827,7 +955,7 @@ mod tests {
             file_stem: Some("Screenshot 2024-06-15".into()),
             ..Default::default()
         };
-        let out = normalise_dates(&input);
+        let out = normalise_dates_with_fallback_offset(&input, None);
         let g = out.output.unwrap();
         assert_eq!(
             display(edit_value(&g, "ExifIFD:DateTimeOriginal")),
@@ -843,7 +971,7 @@ mod tests {
             file_stem: Some("IMG_20240615_143045".into()),
             ..Default::default()
         };
-        let out = normalise_dates(&input);
+        let out = normalise_dates_with_fallback_offset(&input, None);
         assert_eq!(out.n_dto_from_filename, 0);
         let g = out.output.unwrap();
         assert_eq!(

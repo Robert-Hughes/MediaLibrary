@@ -1,5 +1,5 @@
 import type { ImageMetadataEntry, PhotoInfo } from "../types";
-import { variantToDisplayString as metadataValueToDisplayString } from "../draft";
+import { metadataEntryToDisplayString as metadataValueToDisplayString } from "../draft";
 
 export const formatMetadataValue = metadataValueToDisplayString;
 

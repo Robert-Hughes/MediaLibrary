@@ -11,11 +11,8 @@ export function displayStringOfMetadataDraft(
   return metadataValueToDisplayString(d.value);
 }
 
-/** Stringify a MetadataValue for the `string | null` display path.
- *  Kept as a named shim so callers that carry display strings can be
- *  found by grep rather than by tracing every `metadataValueToDisplayString`
- *  call site. */
-export function variantToDisplayString(
+/** Stringify a MetadataValue for the `string | null` display path. */
+export function metadataEntryToDisplayString(
   v: ImageMetadataEntry | null | undefined,
 ): string {
   return metadataValueToDisplayString(v);
@@ -59,6 +56,59 @@ export function metadataValueToDisplayString(
       return "<binary>";
     case "Unknown":
       return JSON.stringify(v.value.raw);
+  }
+}
+
+export function metadataValueToDiagnosticString(
+  v: MetadataValue | null | undefined,
+): string {
+  if (v === null || v === undefined) return "";
+  switch (v.kind) {
+    case "Null":
+      return "Null";
+    case "Text":
+      return `Text(${quote(v.value)})`;
+    case "Integer":
+      return `Integer(${v.value})`;
+    case "Real":
+      return `Real(${v.value})`;
+    case "Bool":
+      return `Bool(${v.value ? "true" : "false"})`;
+    case "Rational":
+      return `Rational(${v.value.numerator}/${v.value.denominator})`;
+    case "Date":
+      return `Date(${metadataValueToDisplayString(v)})`;
+    case "Time":
+      return `Time(${metadataValueToDisplayString(v)})`;
+    case "DateTime":
+      return `DateTime(${metadataValueToDisplayString(v)})`;
+    case "TimeOffset":
+      return `TimeOffset(${metadataValueToDisplayString(v)})`;
+    case "LangAlt":
+      return `LangAlt{${Object.entries(v.value)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([key, value]) => `${key}: ${quote(value ?? "")}`)
+        .join(", ")}}`;
+    case "List":
+      return `List<${v.value.list_kind}>[${v.value.items
+        .map(metadataValueToDiagnosticString)
+        .join(", ")}]`;
+    case "Struct":
+      return `Struct{${Object.entries(v.value)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(
+          ([key, value]) => `${key}: ${metadataValueToDiagnosticString(value)}`,
+        )
+        .join(", ")}}`;
+    case "Binary":
+      return "Binary";
+    case "Unknown": {
+      const expected = v.value.expected
+        ? `expected=${diagnosticPreview(v.value.expected)}`
+        : "expected=null";
+      const reason = v.value.reason ? ` reason=${quote(v.value.reason)}` : "";
+      return `Unknown(${expected}${reason} raw=${diagnosticPreview(v.value.raw)})`;
+    }
   }
 }
 
@@ -254,4 +304,16 @@ function renderLangAlt(value: { [key in string]?: string }): string {
   }
 
   return entries.map(([lang, text]) => `${lang}: ${text}`).join("; ");
+}
+
+function quote(value: string): string {
+  return JSON.stringify(value);
+}
+
+function diagnosticPreview(value: unknown): string {
+  const rendered =
+    typeof value === "string"
+      ? quote(value)
+      : (JSON.stringify(value) ?? String(value));
+  return rendered.length > 160 ? `${rendered.slice(0, 157)}...` : rendered;
 }

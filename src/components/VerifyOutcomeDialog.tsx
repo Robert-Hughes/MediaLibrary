@@ -12,7 +12,10 @@
 // dismiss the row from this dialog without changing anything.
 
 import type { MetadataValue, TagOutcomeEntry } from "../types";
-import { variantToDisplayString } from "../draft";
+import {
+  metadataEntryToDisplayString,
+  metadataValueToDiagnosticString,
+} from "../draft";
 
 interface Props {
   outcomes: Record<string, TagOutcomeEntry[]>;
@@ -34,6 +37,36 @@ const KIND_BADGE: Record<string, { label: string; cls: string }> = {
     cls: "verify-badge verify-badge-mismatch",
   },
 };
+
+function MetadataValueDiagnosticCell({
+  value,
+  title,
+}: {
+  value: MetadataValue | null | undefined;
+  title?: string | null;
+}) {
+  const friendly = metadataEntryToDisplayString(value);
+  const diagnostic = metadataValueToDiagnosticString(value);
+  return (
+    <div title={title || diagnostic}>
+      <div>{friendly}</div>
+      {diagnostic ? (
+        <div
+          className="verify-value-diagnostic"
+          style={{
+            color: "var(--text-muted)",
+            fontFamily: "monospace",
+            fontSize: 12,
+            marginTop: 2,
+            whiteSpace: "pre-wrap",
+          }}
+        >
+          {diagnostic}
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 export function VerifyOutcomeDialog({
   outcomes,
@@ -116,10 +149,16 @@ export function VerifyOutcomeDialog({
                           {entry.tag}
                         </td>
                         <td style={{ padding: "4px 6px" }}>
-                          {variantToDisplayString(entry.sent)}
+                          <MetadataValueDiagnosticCell
+                            value={entry.sent}
+                            title={entry.message}
+                          />
                         </td>
                         <td style={{ padding: "4px 6px" }}>
-                          {variantToDisplayString(entry.observed)}
+                          <MetadataValueDiagnosticCell
+                            value={entry.observed}
+                            title={entry.message}
+                          />
                         </td>
                         <td style={{ padding: "4px 6px" }}>
                           <span

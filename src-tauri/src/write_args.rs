@@ -827,6 +827,39 @@ mod tests {
     }
 
     #[test]
+    fn ai_generated_at_datetime_uses_numeric_group_with_offset() {
+        let i = info_named("XMP-mlib", "AIGeneratedAt", TagKind::DateTime);
+        let args = build_metadata_args(
+            "XMP-mlib:AIGeneratedAt",
+            Some(&i),
+            &metadata_set(MetadataValue::DateTime(DateTimeValue {
+                date: DateValue {
+                    year: 2026,
+                    month: 7,
+                    day: 6,
+                },
+                time: TimeValue {
+                    hour: 21,
+                    minute: 43,
+                    second: 8,
+                    subsecond: None,
+                    offset: Some(UtcOffsetValue {
+                        sign: OffsetSign::Plus,
+                        hours: 1,
+                        minutes: 0,
+                    }),
+                },
+            })),
+        )
+        .unwrap();
+        assert_eq!(
+            args.numeric,
+            vec!["-XMP-mlib:AIGeneratedAt=2026:07:06 21:43:08+01:00"]
+        );
+        assert!(args.text.is_empty());
+    }
+
+    #[test]
     fn iptc_date_renders_storage_format() {
         let i = info_named("IPTC", "DateCreated", TagKind::Date);
         let args = build_metadata_args(

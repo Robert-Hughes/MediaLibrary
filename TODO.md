@@ -1,9 +1,8 @@
 Current
 =======
 
-* Reverse geocode showing "photos don't have GPS so will be skipped" even though they do!
 * Normalize metadata!
-  * Manual testing - check idempotency: running, applying then running again should show no changes necessary
+  * Ability to force normalisation, even if it thinks already done. This is useful for Description, if an AI Description was generated after the normal description already normalised
 
 Bugs/quirks/tweaks/improvements
 =================================

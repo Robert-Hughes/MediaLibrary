@@ -17,8 +17,8 @@
 //!      the AI client is absent or the call errors.
 
 use super::{
-    collapse_whitespace_single_line, text_edit, truncate_at_word, AiCallUsage, DescriptionInput,
-    DescriptionMergePrompt, GroupOutput, NormaliseAiClient, NormaliseAiError,
+    collapse_whitespace_single_line, lang_alt_edit, text_edit, truncate_at_word, AiCallUsage,
+    DescriptionInput, DescriptionMergePrompt, GroupOutput, NormaliseAiClient, NormaliseAiError,
 };
 use crate::draft_edits::MetadataDraftEdit;
 use std::collections::HashMap;
@@ -267,7 +267,7 @@ pub async fn normalise_description(
     if input.description.as_deref() != Some(canonical.as_str()) {
         edits.insert(
             "XMP-dc:Description".to_string(),
-            text_edit(canonical.clone()),
+            lang_alt_edit(canonical.clone()),
         );
     }
     if input.image_description.as_deref() != Some(projection_image.as_str()) {
@@ -302,10 +302,17 @@ mod tests {
     use super::*;
     use crate::metadata_value::MetadataValue;
 
-    fn s(g: &GroupOutput, k: &str) -> String {
+    fn text(g: &GroupOutput, k: &str) -> String {
         match &g.edits.get(k).unwrap().value {
             Some(MetadataValue::Text(v)) => v.clone(),
             other => panic!("expected text value for {}, got {:?}", k, other),
+        }
+    }
+
+    fn lang_alt_x_default(g: &GroupOutput, k: &str) -> String {
+        match &g.edits.get(k).unwrap().value {
+            Some(MetadataValue::LangAlt(v)) => v.get("x-default").unwrap().clone(),
+            other => panic!("expected lang-alt value for {}, got {:?}", k, other),
         }
     }
 
@@ -324,8 +331,8 @@ mod tests {
         };
         let out = normalise_description(&input, None).await;
         let g = out.output.unwrap();
-        assert_eq!(s(&g, "IFD0:ImageDescription"), "A sunset on the bay.");
-        assert_eq!(s(&g, "IPTC:Caption-Abstract"), "A sunset on the bay.");
+        assert_eq!(text(&g, "IFD0:ImageDescription"), "A sunset on the bay.");
+        assert_eq!(text(&g, "IPTC:Caption-Abstract"), "A sunset on the bay.");
     }
 
     #[tokio::test]
@@ -336,7 +343,7 @@ mod tests {
         };
         let out = normalise_description(&input, None).await;
         let g = out.output.unwrap();
-        assert_eq!(s(&g, "XMP-dc:Description"), "A sunset");
+        assert_eq!(lang_alt_x_default(&g, "XMP-dc:Description"), "A sunset");
     }
 
     #[tokio::test]
@@ -377,7 +384,7 @@ mod tests {
         };
         let out = normalise_description(&input, None).await;
         let g = out.output.unwrap();
-        assert_eq!(s(&g, "IFD0:ImageDescription"), "Andre Muller's cafe");
+        assert_eq!(text(&g, "IFD0:ImageDescription"), "Andre Muller's cafe");
         assert!(!g.edits.contains_key("XMP-dc:Description"));
     }
 
@@ -392,7 +399,7 @@ mod tests {
         };
         let out = normalise_description(&input, None).await;
         let g = out.output.unwrap();
-        let cap = s(&g, "IPTC:Caption-Abstract");
+        let cap = text(&g, "IPTC:Caption-Abstract");
         assert!(cap.len() <= IPTC_CAPTION_ABSTRACT_LIMIT);
         assert!(!cap.ends_with(' '));
         assert!(cap.ends_with("word"));
@@ -437,7 +444,10 @@ mod tests {
         };
         let out = normalise_description(&input, Some(&MockAi)).await;
         let g = out.output.unwrap();
-        assert_eq!(s(&g, "XMP-dc:Description"), "Merged factual description.");
+        assert_eq!(
+            lang_alt_x_default(&g, "XMP-dc:Description"),
+            "Merged factual description."
+        );
         assert!(out.ai_fired);
     }
 
@@ -517,8 +527,8 @@ mod tests {
         let first = normalise_description(&input, None).await.output.unwrap();
         let post = DescriptionInput {
             description: Some("A sunset.".into()),
-            image_description: Some(s(&first, "IFD0:ImageDescription")),
-            caption_abstract: Some(s(&first, "IPTC:Caption-Abstract")),
+            image_description: Some(text(&first, "IFD0:ImageDescription")),
+            caption_abstract: Some(text(&first, "IPTC:Caption-Abstract")),
             ..Default::default()
         };
         let second = normalise_description(&post, None).await;
