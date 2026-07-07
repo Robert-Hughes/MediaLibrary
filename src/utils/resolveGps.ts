@@ -25,6 +25,7 @@ import type {
  */
 type MetadataBag = Record<string, ImageMetadataEntry>;
 type GpsScalar = string | number;
+type SelectedGpsValue = { key: string; value: GpsScalar };
 
 /**
  * GPS tag groups exiftool surfaces. `Composite` is the convenient
@@ -137,7 +138,7 @@ function extractValue(
   keys: string[],
   drafts: Record<string, MetadataDraftEdit> | undefined,
   metadata: MetadataBag | undefined,
-): GpsScalar | null {
+): SelectedGpsValue | null {
   // Drafts win whether they are Set or Delete — a Delete-intent draft
   // means "this field is being removed", so we treat it as no value.
   for (const k of keys) {
@@ -145,14 +146,26 @@ function extractValue(
     if (d) {
       if (d.intent === "Delete") return null;
       const value = gpsScalarFromMetadataValue(d.value);
-      if (value !== null) return value;
+      if (value !== null) return { key: k, value };
     }
   }
   for (const k of keys) {
     const v = gpsScalarFromMetadataEntry(metadata?.[k]);
-    if (v !== null) return v;
+    if (v !== null) return { key: k, value: v };
   }
   return null;
+}
+
+function extractScalar(
+  keys: string[],
+  drafts: Record<string, MetadataDraftEdit> | undefined,
+  metadata: MetadataBag | undefined,
+): GpsScalar | null {
+  return extractValue(keys, drafts, metadata)?.value ?? null;
+}
+
+function isCompositeGpsKey(key: string): boolean {
+  return key.startsWith("Composite:");
 }
 
 /**
@@ -170,20 +183,18 @@ export function resolveGps(
   const rawLat = extractValue(LAT_KEYS, drafts, metadata);
   const rawLon = extractValue(LON_KEYS, drafts, metadata);
   if (rawLat == null || rawLon == null) return { lat: null, lon: null };
-  let lat = parseMagnitude(rawLat);
-  let lon = parseMagnitude(rawLon);
+  let lat = parseMagnitude(rawLat.value);
+  let lon = parseMagnitude(rawLon.value);
   if (lat == null || lon == null) return { lat: null, lon: null };
-  // Composite values are signed already; raw GPS:GPSLatitude is
-  // positive magnitude with the sign carried by GPSLatitudeRef. Apply
-  // refs only when the original value was a string (DMS) — Composite
-  // returns a signed number directly.
-  if (typeof rawLat === "string") {
-    const ref = parseRef(extractValue(LAT_REF_KEYS, drafts, metadata) ?? null);
+  // Composite values are signed already; raw GPS/XMP/EXIF latitude and
+  // longitude values carry their sign in the paired hemisphere ref.
+  if (!isCompositeGpsKey(rawLat.key)) {
+    const ref = parseRef(extractScalar(LAT_REF_KEYS, drafts, metadata));
     if (ref === "S") lat = -Math.abs(lat);
     else if (ref === "N") lat = Math.abs(lat);
   }
-  if (typeof rawLon === "string") {
-    const ref = parseRef(extractValue(LON_REF_KEYS, drafts, metadata) ?? null);
+  if (!isCompositeGpsKey(rawLon.key)) {
+    const ref = parseRef(extractScalar(LON_REF_KEYS, drafts, metadata));
     if (ref === "W") lon = -Math.abs(lon);
     else if (ref === "E") lon = Math.abs(lon);
   }

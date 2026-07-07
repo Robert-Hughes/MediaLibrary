@@ -18,6 +18,9 @@ function setEdit(value: MetadataValue): MetadataDraftEdit {
 function real(value: number): MetadataValue {
   return { kind: "Real", value };
 }
+function text(value: string): MetadataValue {
+  return { kind: "Text", value };
+}
 function deleteEdit(): MetadataDraftEdit {
   return { value: null, intent: "Delete" };
 }
@@ -47,6 +50,67 @@ describe("resolveGps", () => {
     const { lat, lon } = resolveGps({}, meta);
     expect(lat).toBeCloseTo(51.5001527, 5);
     expect(lon).toBeCloseTo(-0.1262472, 5);
+  });
+
+  it("applies GPSLongitudeRef=W to raw GPS Real longitude", () => {
+    const meta = mockMetadata({
+      "GPS:GPSLatitude": { kind: "Real", value: 53.983856 },
+      "GPS:GPSLatitudeRef": { kind: "Text", value: "N" },
+      "GPS:GPSLongitude": { kind: "Real", value: 1.100918 },
+      "GPS:GPSLongitudeRef": { kind: "Text", value: "W" },
+    });
+    const { lat, lon } = resolveGps({}, meta);
+    expect(lat).toBeCloseTo(53.983856, 6);
+    expect(lon).toBeCloseTo(-1.100918, 6);
+  });
+
+  it("applies GPSLatitudeRef=S to raw GPS Real latitude", () => {
+    const meta = mockMetadata({
+      "GPS:GPSLatitude": { kind: "Real", value: 53.983856 },
+      "GPS:GPSLatitudeRef": { kind: "Text", value: "S" },
+      "GPS:GPSLongitude": { kind: "Real", value: 1.100918 },
+      "GPS:GPSLongitudeRef": { kind: "Text", value: "E" },
+    });
+    const { lat, lon } = resolveGps({}, meta);
+    expect(lat).toBeCloseTo(-53.983856, 6);
+    expect(lon).toBeCloseTo(1.100918, 6);
+  });
+
+  it("keeps raw GPS Real longitude positive when GPSLongitudeRef=E", () => {
+    const meta = mockMetadata({
+      "GPS:GPSLatitude": { kind: "Real", value: 53.983856 },
+      "GPS:GPSLatitudeRef": { kind: "Text", value: "N" },
+      "GPS:GPSLongitude": { kind: "Real", value: 1.100918 },
+      "GPS:GPSLongitudeRef": { kind: "Text", value: "E" },
+    });
+    const { lon } = resolveGps({}, meta);
+    expect(lon).toBeCloseTo(1.100918, 6);
+  });
+
+  it("does not flip signed Composite longitude using GPSLongitudeRef", () => {
+    const meta = mockMetadata({
+      "Composite:GPSLatitude": { kind: "Real", value: 53.983856 },
+      "Composite:GPSLongitude": { kind: "Real", value: -1.100918 },
+      "GPS:GPSLongitudeRef": { kind: "Text", value: "E" },
+    });
+    const { lon } = resolveGps({}, meta);
+    expect(lon).toBeCloseTo(-1.100918, 6);
+  });
+
+  it("applies ref drafts to draft raw GPS Real values", () => {
+    const drafts: Record<string, MetadataDraftEdit> = {
+      "GPS:GPSLatitude": setEdit(real(53.983856)),
+      "GPS:GPSLatitudeRef": setEdit(text("N")),
+      "GPS:GPSLongitude": setEdit(real(1.100918)),
+      "GPS:GPSLongitudeRef": setEdit(text("W")),
+    };
+    const meta = mockMetadata({
+      "Composite:GPSLatitude": 10,
+      "Composite:GPSLongitude": 20,
+    });
+    const { lat, lon } = resolveGps(drafts, meta);
+    expect(lat).toBeCloseTo(53.983856, 6);
+    expect(lon).toBeCloseTo(-1.100918, 6);
   });
 
   it("draft Set value wins over metadata", () => {

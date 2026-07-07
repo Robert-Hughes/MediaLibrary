@@ -163,6 +163,44 @@ describe("Reverse-geocoding flow", () => {
     expect(folderDrafts?.["test.jpg"]?.["XMP-photoshop:State"]).toBeTruthy();
   });
 
+  it("sends raw GPS Real longitude with W ref as negative to the backend", async () => {
+    mockApiInstance.geocodeSchedule = [
+      {
+        relativePath: "test.jpg",
+        status: "ok",
+        edits: {},
+      },
+    ];
+    mockApiInstance.geocodeSummary = {
+      nSucceededFromNominatim: 1,
+      nSucceededFromCache: 0,
+      nSucceededFromOverpass: 0,
+      nNoGps: 0,
+      nFailed: 0,
+    };
+
+    const { user } = await openFolderAndSelectPhoto("test.jpg", {
+      "GPS:GPSLatitude": { kind: "Real", value: 53.983856 },
+      "GPS:GPSLatitudeRef": { kind: "Text", value: "N" },
+      "GPS:GPSLongitude": { kind: "Real", value: 1.100918 },
+      "GPS:GPSLongitudeRef": { kind: "Text", value: "W" },
+    });
+    await user.click(screen.getByTestId("details-pane-geocode-btn"));
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
+    await user.click(await screen.findByTestId("geocode-confirm-btn"));
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
+
+    expect(mockApiInstance.lastGeocodeArgs?.items[0]).toMatchObject({
+      relPath: "test.jpg",
+      lat: 53.983856,
+      lon: -1.100918,
+    });
+  });
+
   it("renders no_gps failures in the done panel without crashing the flow", async () => {
     // Image has no GPS in metadata or drafts — frontend sends null/null,
     // backend (mock) emits no_gps for that item. The friendly label
