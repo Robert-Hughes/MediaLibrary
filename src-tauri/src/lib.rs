@@ -276,6 +276,7 @@ struct MetadataApplyEditsProgressPayload {
     relative_path: String,
     applied: bool,
     error: Option<String>,
+    warning: Option<String>,
     fresh_metadata: Option<std::collections::HashMap<String, metadata_value::MetadataValue>>,
     tag_outcomes: Vec<apply_edits::MetadataTagOutcome>,
 }
@@ -930,6 +931,7 @@ fn run_apply_metadata_draft_edits_blocking(
                 relative_path: rel_path.clone(),
                 applied: was_applied,
                 error: outcome.error.clone(),
+                warning: outcome.warning.clone(),
                 fresh_metadata: outcome.fresh_metadata.clone(),
                 tag_outcomes: outcome.outcomes.clone(),
             },
