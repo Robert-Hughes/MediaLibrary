@@ -213,7 +213,7 @@ describe("PhotoList column header context menu", () => {
       expect(screen.queryByText(/Remove field from/)).not.toBeInTheDocument();
     });
 
-    it("shows remove option on image columns, confirm cancel does not call handler", async () => {
+    it("shows remove option on image columns, confirm cancel does not call handler (selection scope)", async () => {
       vi.mocked(window.confirm).mockReturnValue(false);
 
       // Setup metadata: photo1 has ExifIFD:DateTimeOriginal, photo2 does not
@@ -263,10 +263,10 @@ describe("PhotoList column header context menu", () => {
       expect(window.confirm).toHaveBeenCalled();
       const confirmArg = vi.mocked(window.confirm).mock.calls[0][0];
       expect(confirmArg).toContain(
-        "Stage removal of ExifIFD:DateTimeOriginal from 2 photos?",
+        "Stage removal of ExifIFD:DateTimeOriginal from 2 selected photos?",
       );
       expect(confirmArg).toContain(
-        "This field currently has a value on 1 selected photo.",
+        "This field currently has a value on 1 of those photos.",
       );
       expect(confirmArg).toContain("pending delete edits only");
       expect(confirmArg).toContain("Nothing will be written");
@@ -378,8 +378,189 @@ describe("PhotoList column header context menu", () => {
       // photo2: effectively present (Set draft)
       // Total present: 1
       expect(confirmArg).toContain(
-        "This field currently has a value on 1 selected photo.",
+        "This field currently has a value on 1 of those photos.",
       );
+    });
+
+    it("A/B. No selection -> operates on all photos in list, confirm message matches 'all' scope", async () => {
+      vi.mocked(window.confirm).mockReturnValue(true);
+
+      // Setup metadata: photo1 has value, photo2 does not
+      metadataStore.set("photo1.jpg", {
+        "ExifIFD:DateTimeOriginal": {
+          kind: "Text",
+          value: "2022:01:01 12:00:00",
+        },
+      });
+      metadataStore.set("photo2.jpg", {});
+
+      render(
+        <PhotoList
+          photos={mockPhotos}
+          thumbnails={thumbnailStore}
+          imageMetadata={metadataStore}
+          visibleColumns={[{ key: "ExifIFD:DateTimeOriginal", kind: "image" }]}
+          {...defaultSortProps}
+          selectedIndex={null} // NO selected photo
+          onSelect={() => {}}
+          onShowInExplorer={() => {}}
+          onVisibilityChange={() => {}}
+          onPhotoOpen={() => {}}
+          onSelectColumns={onSelectColumnsMock}
+          onRemoveFieldFromSelectedPhotos={onRemoveFieldMock}
+        />,
+      );
+
+      const user = userEvent.setup();
+      const imageHeader = screen.getByText("ExifIFD:DateTimeOriginal");
+      await user.pointer({ keys: "[MouseRight]", target: imageHeader });
+
+      // Label should be "Remove field from all 2 photos…"
+      const removeOption = screen.getByText("Remove field from all 2 photos…");
+      expect(removeOption).toBeInTheDocument();
+
+      await user.click(removeOption);
+
+      expect(window.confirm).toHaveBeenCalled();
+      const confirmArg = vi.mocked(window.confirm).mock.calls[0][0];
+      expect(confirmArg).toContain(
+        "Stage removal of ExifIFD:DateTimeOriginal from all 2 photos in the current list?",
+      );
+      expect(confirmArg).toContain(
+        "This field currently has a value on 1 of those photos.",
+      );
+      expect(confirmArg).toContain("pending delete edits only");
+      expect(confirmArg).toContain("Nothing will be written");
+
+      // Verify it operates on ALL photos
+      expect(onRemoveFieldMock).toHaveBeenCalledWith(
+        "ExifIFD:DateTimeOriginal",
+        ["photo1.jpg", "photo2.jpg"],
+      );
+    });
+
+    it("C. Selection still wins over all", async () => {
+      vi.mocked(window.confirm).mockReturnValue(true);
+
+      render(
+        <PhotoList
+          photos={mockPhotos}
+          thumbnails={thumbnailStore}
+          imageMetadata={metadataStore}
+          visibleColumns={[{ key: "ExifIFD:DateTimeOriginal", kind: "image" }]}
+          {...defaultSortProps}
+          selectedIndex={0} // Photo 1 is selected
+          onSelect={() => {}}
+          onShowInExplorer={() => {}}
+          onVisibilityChange={() => {}}
+          onPhotoOpen={() => {}}
+          onSelectColumns={onSelectColumnsMock}
+          onRemoveFieldFromSelectedPhotos={onRemoveFieldMock}
+        />,
+      );
+
+      const user = userEvent.setup();
+      const imageHeader = screen.getByText("ExifIFD:DateTimeOriginal");
+      await user.pointer({ keys: "[MouseRight]", target: imageHeader });
+
+      // Only photo1 is selected, so label should be "Remove field from 1 photo…"
+      const removeOption = screen.getByText("Remove field from 1 photo…");
+      expect(removeOption).toBeInTheDocument();
+
+      await user.click(removeOption);
+
+      // Verify callback receives only photo1.jpg
+      expect(onRemoveFieldMock).toHaveBeenCalledWith(
+        "ExifIFD:DateTimeOriginal",
+        ["photo1.jpg"],
+      );
+    });
+
+    it("E. Decoupled menu: remove works without Select Columns", async () => {
+      vi.mocked(window.confirm).mockReturnValue(true);
+
+      render(
+        <PhotoList
+          photos={mockPhotos}
+          thumbnails={thumbnailStore}
+          imageMetadata={metadataStore}
+          visibleColumns={[{ key: "ExifIFD:DateTimeOriginal", kind: "image" }]}
+          {...defaultSortProps}
+          selectedIndex={0}
+          onSelect={() => {}}
+          onShowInExplorer={() => {}}
+          onVisibilityChange={() => {}}
+          onPhotoOpen={() => {}}
+          // No onSelectColumns
+          onRemoveFieldFromSelectedPhotos={onRemoveFieldMock}
+        />,
+      );
+
+      const user = userEvent.setup();
+      const imageHeader = screen.getByText("ExifIFD:DateTimeOriginal");
+      await user.pointer({ keys: "[MouseRight]", target: imageHeader });
+
+      // Menu should show "Remove field from 1 photo…"
+      const removeOption = screen.getByText("Remove field from 1 photo…");
+      expect(removeOption).toBeInTheDocument();
+
+      // "Select Columns…" should NOT be present
+      expect(screen.queryByText("Select Columns…")).not.toBeInTheDocument();
+
+      await user.click(removeOption);
+      expect(onRemoveFieldMock).toHaveBeenCalled();
+    });
+
+    it("F. Existing Select Columns behaviour remains", async () => {
+      render(
+        <PhotoList
+          photos={mockPhotos}
+          thumbnails={thumbnailStore}
+          imageMetadata={metadataStore}
+          visibleColumns={[{ key: "date_modified", kind: "os" }]}
+          {...defaultSortProps}
+          selectedIndex={null}
+          onSelect={() => {}}
+          onShowInExplorer={() => {}}
+          onVisibilityChange={() => {}}
+          onPhotoOpen={() => {}}
+          onSelectColumns={onSelectColumnsMock}
+        />,
+      );
+
+      const user = userEvent.setup();
+      const modifiedHeader = screen.getByText("Modified");
+      await user.pointer({ keys: "[MouseRight]", target: modifiedHeader });
+
+      const selectOption = screen.getByText("Select Columns…");
+      expect(selectOption).toBeInTheDocument();
+      await user.click(selectOption);
+      expect(onSelectColumnsMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("G. If neither callback exists, context menu does not open", async () => {
+      render(
+        <PhotoList
+          photos={mockPhotos}
+          thumbnails={thumbnailStore}
+          imageMetadata={metadataStore}
+          visibleColumns={[{ key: "ExifIFD:DateTimeOriginal", kind: "image" }]}
+          {...defaultSortProps}
+          selectedIndex={null}
+          onSelect={() => {}}
+          onShowInExplorer={() => {}}
+          onVisibilityChange={() => {}}
+          onPhotoOpen={() => {}}
+          // No callbacks provided
+        />,
+      );
+
+      const user = userEvent.setup();
+      const imageHeader = screen.getByText("ExifIFD:DateTimeOriginal");
+      await user.pointer({ keys: "[MouseRight]", target: imageHeader });
+
+      // No context menu should render
+      expect(screen.queryByTestId("context-menu")).not.toBeInTheDocument();
     });
   });
 });

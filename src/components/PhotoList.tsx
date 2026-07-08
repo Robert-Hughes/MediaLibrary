@@ -27,6 +27,11 @@ export type ColumnContextTarget =
   | { kind: "os"; key: string; label: string }
   | { kind: "image"; key: string; label: string };
 
+export type HeaderActionScope = {
+  paths: string[];
+  scope: "selection" | "all";
+};
+
 interface Props {
   photos: PhotoInfo[];
   thumbnails: ThumbnailStore;
@@ -444,18 +449,30 @@ export function PhotoList({
       onSelectionCountChange,
     });
 
-  function selectedPathsForHeaderAction(): string[] {
+  function pathsForHeaderRemoveAction(): HeaderActionScope {
     const indices = Array.from(selectedIndices).sort((a, b) => a - b);
-    const effectiveIndices =
-      indices.length > 0
-        ? indices
-        : selectedIndex !== null
-          ? [selectedIndex]
-          : [];
 
-    return effectiveIndices
-      .map((i) => photos[i]?.relative_path)
-      .filter((p): p is string => typeof p === "string");
+    if (indices.length > 0) {
+      return {
+        scope: "selection",
+        paths: indices
+          .map((i) => photos[i]?.relative_path)
+          .filter((p): p is string => typeof p === "string"),
+      };
+    }
+
+    if (selectedIndex !== null) {
+      const path = photos[selectedIndex]?.relative_path;
+      return {
+        scope: "selection",
+        paths: path ? [path] : [],
+      };
+    }
+
+    return {
+      scope: "all",
+      paths: photos.map((p) => p.relative_path),
+    };
   }
 
   function hasEffectiveFieldValue(relPath: string, tag: string): boolean {
@@ -515,11 +532,13 @@ export function PhotoList({
     (e: React.MouseEvent, target: ColumnContextTarget) => {
       e.preventDefault();
       e.stopPropagation();
-      if (onSelectColumns) {
+      const canOpenColumnMenu =
+        Boolean(onSelectColumns) || Boolean(onRemoveFieldFromSelectedPhotos);
+      if (canOpenColumnMenu) {
         setColumnContextMenu({ x: e.clientX, y: e.clientY, target });
       }
     },
-    [onSelectColumns],
+    [onSelectColumns, onRemoveFieldFromSelectedPhotos],
   );
 
   const handleColumnClick = useCallback(
@@ -683,11 +702,10 @@ export function PhotoList({
       )}
 
       {columnContextMenu &&
-        onSelectColumns &&
         (() => {
-          const selectedPaths = selectedPathsForHeaderAction();
+          const scope = pathsForHeaderRemoveAction();
           const tag = columnContextMenu.target.key;
-          const presentCount = selectedPaths.filter((p) =>
+          const presentCount = scope.paths.filter((p) =>
             hasEffectiveFieldValue(p, tag),
           ).length;
 
@@ -695,33 +713,42 @@ export function PhotoList({
           if (
             columnContextMenu.target.kind === "image" &&
             onRemoveFieldFromSelectedPhotos &&
-            selectedPaths.length > 0
+            scope.paths.length > 0
           ) {
+            const photoNoun = scope.paths.length === 1 ? "photo" : "photos";
+            const label =
+              scope.scope === "all"
+                ? `Remove field from all ${scope.paths.length} ${photoNoun}…`
+                : `Remove field from ${scope.paths.length} ${photoNoun}…`;
+
             options.push({
-              label: `Remove field from ${selectedPaths.length} ${
-                selectedPaths.length === 1 ? "photo" : "photos"
-              }…`,
+              label,
               onClick: async () => {
                 const confirmed = await confirmRemoveFieldFromPhotos({
                   tag,
-                  selectedCount: selectedPaths.length,
+                  photoCount: scope.paths.length,
                   presentCount,
+                  scope: scope.scope,
                 });
                 if (confirmed) {
-                  onRemoveFieldFromSelectedPhotos(tag, selectedPaths);
+                  onRemoveFieldFromSelectedPhotos(tag, scope.paths);
                 }
                 setColumnContextMenu(null);
               },
             });
           }
 
-          options.push({
-            label: "Select Columns…",
-            onClick: () => {
-              onSelectColumns();
-              setColumnContextMenu(null);
-            },
-          });
+          if (onSelectColumns) {
+            options.push({
+              label: "Select Columns…",
+              onClick: () => {
+                onSelectColumns();
+                setColumnContextMenu(null);
+              },
+            });
+          }
+
+          if (options.length === 0) return null;
 
           return (
             <ContextMenu

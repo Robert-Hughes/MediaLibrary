@@ -1,20 +1,29 @@
 export interface ConfirmRemoveFieldArgs {
   tag: string;
-  selectedCount: number;
+  photoCount: number;
   presentCount: number;
+  scope: "selection" | "all";
 }
 
 export async function confirmRemoveFieldFromPhotos({
   tag,
-  selectedCount,
+  photoCount,
   presentCount,
+  scope,
 }: ConfirmRemoveFieldArgs): Promise<boolean> {
-  const photoNoun = selectedCount === 1 ? "photo" : "photos";
-  const presentNoun = presentCount === 1 ? "photo" : "photos";
+  const photoNoun = photoCount === 1 ? "photo" : "photos";
 
-  return window.confirm(
-    `Stage removal of ${tag} from ${selectedCount} ${photoNoun}?\n\n` +
-      `This field currently has a value on ${presentCount} selected ${presentNoun}.\n\n` +
-      `This will create pending delete edits only. Nothing will be written to the files until you apply edits.`,
-  );
+  if (scope === "all") {
+    return window.confirm(
+      `Stage removal of ${tag} from all ${photoCount} ${photoNoun} in the current list?\n\n` +
+        `This field currently has a value on ${presentCount} of those photos.\n\n` +
+        `This will create pending delete edits only. Nothing will be written to the files until you apply edits.`,
+    );
+  } else {
+    return window.confirm(
+      `Stage removal of ${tag} from ${photoCount} selected ${photoNoun}?\n\n` +
+        `This field currently has a value on ${presentCount} of those photos.\n\n` +
+        `This will create pending delete edits only. Nothing will be written to the files until you apply edits.`,
+    );
+  }
 }
