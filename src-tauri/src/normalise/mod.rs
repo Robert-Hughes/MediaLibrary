@@ -1968,6 +1968,119 @@ mod tests_dispatcher {
         assert_eq!(summary.ai_calls_total, 3);
         assert!((summary.ai_cost_total_usd - 0.0003).abs() < 1e-9);
     }
+
+    #[tokio::test]
+    async fn description_regeneration_feeds_title_generation() {
+        struct MockRegenAi {
+            calls: tokio::sync::Mutex<Vec<&'static str>>,
+        }
+        #[async_trait::async_trait]
+        impl NormaliseAiClient for MockRegenAi {
+            async fn merge_description(
+                &self,
+                p: DescriptionMergePrompt,
+            ) -> Result<(String, AiCallUsage), String> {
+                assert!(p.description_sources.is_empty());
+                assert!(p.ai_context.contains_key("XMP-mlib:AIDescription"));
+                self.calls.lock().await.push("description");
+                Ok(("A black cat sitting by a window.".into(), AiCallUsage::default()))
+            }
+            async fn generate_title(
+                &self,
+                p: TitleGenPrompt,
+            ) -> Result<(String, AiCallUsage), String> {
+                assert_eq!(p.description, "A black cat sitting by a window.");
+                self.calls.lock().await.push("title");
+                Ok(("Cat By Window".into(), AiCallUsage::default()))
+            }
+        }
+        let ai = MockRegenAi {
+            calls: tokio::sync::Mutex::new(Vec::new()),
+        };
+        let item = NormaliseRequestItem {
+            rel_path: "cat.jpg".into(),
+            group_inputs: GroupInputs {
+                description: Some(DescriptionInput {
+                    ai_description: Some("AIDesc: black cat".into()),
+                    ..Default::default()
+                }),
+                title: Some(TitleInput::default()),
+                ..Default::default()
+            },
+        };
+        let (edits, stats, err, ai_calls) = process_image(
+            &item,
+            &[NormaliseGroup::Description, NormaliseGroup::Title],
+            Some(&ai),
+            None,
+        )
+        .await;
+
+        assert!(err.is_none());
+        assert_eq!(ai.calls.lock().await.as_slice(), &["description", "title"]);
+        assert_eq!(ai_calls.len(), 2);
+        assert_eq!(ai_calls[0].group, "description");
+        assert_eq!(ai_calls[1].group, "title");
+
+        // Verify Description drafts
+        assert_eq!(
+            match &edits.get("XMP-dc:Description").expect("description draft").value {
+                Some(MetadataValue::LangAlt(langs)) => langs.get("x-default").unwrap().as_str(),
+                other => panic!("expected lang-alt value, got {:?}", other),
+            },
+            "A black cat sitting by a window."
+        );
+        // Verify Title drafts
+        assert_eq!(
+            match &edits.get("XMP-dc:Title").expect("title draft").value {
+                Some(MetadataValue::LangAlt(langs)) => langs.get("x-default").unwrap().as_str(),
+                other => panic!("expected lang-alt value, got {:?}", other),
+            },
+            "Cat By Window"
+        );
+
+        let desc_stats = stats.per_group.get(&NormaliseGroup::Description).unwrap();
+        assert_eq!(desc_stats.n_normalised_ai, 1);
+        let title_stats = stats.per_group.get(&NormaliseGroup::Title).unwrap();
+        assert_eq!(title_stats.n_normalised_ai, 1);
+    }
+
+    #[tokio::test]
+    async fn estimate_empty_description_and_title_ai_calls() {
+        let capturing = CapturingAiClient::default();
+        let item = NormaliseRequestItem {
+            rel_path: "cat.jpg".into(),
+            group_inputs: GroupInputs {
+                description: Some(DescriptionInput {
+                    ai_description: Some("AIDesc: black cat".into()),
+                    ..Default::default()
+                }),
+                title: Some(TitleInput::default()),
+                ..Default::default()
+            },
+        };
+        let (edits, stats, _err, _calls) = process_image(
+            &item,
+            &[NormaliseGroup::Description, NormaliseGroup::Title],
+            Some(&capturing as &dyn NormaliseAiClient),
+            None,
+        )
+        .await;
+
+        let description_prompts = capturing.description_prompts.lock().await.clone();
+        let title_prompts = capturing.title_prompts.lock().await.clone();
+        assert_eq!(description_prompts.len(), 1);
+        assert_eq!(title_prompts.len(), 1);
+        assert_eq!(title_prompts[0].description, "Placeholder description.");
+
+        let desc_stats = stats.per_group.get(&NormaliseGroup::Description).unwrap();
+        assert_eq!(desc_stats.n_normalised_ai, 1);
+        let title_stats = stats.per_group.get(&NormaliseGroup::Title).unwrap();
+        assert_eq!(title_stats.n_normalised_ai, 1);
+
+        assert!(edits.contains_key("XMP-dc:Description"));
+        assert!(edits.contains_key("XMP-dc:Title"));
+    }
 }
 
 #[cfg(test)]

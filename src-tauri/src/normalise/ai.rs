@@ -153,12 +153,15 @@ impl NormaliseAiClient for CapturingAiClient {
         &self,
         p: DescriptionMergePrompt,
     ) -> Result<(String, AiCallUsage), String> {
-        let stand_in = p
+        let mut stand_in = p
             .description_sources
             .values()
             .find(|s| !s.is_empty())
             .cloned()
             .unwrap_or_default();
+        if stand_in.is_empty() {
+            stand_in = "Placeholder description.".to_string();
+        }
         self.description_prompts.lock().await.push(p);
         Ok((stand_in, AiCallUsage::default()))
     }

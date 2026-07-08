@@ -69,21 +69,21 @@ const AI_GROUPS: ReadonlySet<NormaliseGroup> = new Set([
 function groupBehaviourSummary(g: NormaliseGroup): string {
   switch (g) {
     case "keywords":
-      return "Splits hierarchical paths, normalises whitespace and casing, deduplicates, and mirrors the canonical set across all three keyword tags.";
+      return "Unions existing keywords and read-only inputs (XMP-mlib:AITags, XMP-mlib:AIObjects). Normalises casing/separators, and mirrors hierarchical/flat projections. If all keyword and AI inputs are empty, no drafts.";
     case "creator":
-      return "Picks a canonical creator list (primary: XMP-dc:Creator) and writes it back to the three creator tags, splitting IFD0:Artist on semicolons.";
+      return "Unions and deduplicates creator names preserving first-seen order. If all creator fields are empty, no drafts. No AI.";
     case "copyright":
-      return "Picks the canonical copyright string (primary: XMP-dc:Rights) and mirrors it into the EXIF and IPTC copyright tags.";
+      return "Picks XMP rights if present, otherwise the longest derivative copyright notice. If all copyright fields are empty, no drafts. No AI.";
     case "headline":
-      return "Trims whitespace, collapses internal spaces, and mirrors XMP-photoshop:Headline into IPTC:Headline (truncated to the 256-character IIM limit).";
+      return "Picks photoshop headline if present, otherwise IPTC headline. If both are empty, no drafts. No AI.";
     case "title":
-      return "Mirrors XMP-dc:Title into IPTC:ObjectName (64-char IIM limit). When both are empty and a description is available, calls the AI to generate a short title.";
+      return "Reads canonical Description, location, and keywords. XMP-dc:Title wins; otherwise IPTC:ObjectName wins. If both title targets are empty and Description canonical is available (including newly regenerated Description), calls AI to generate a short title. If both title targets are empty and no Description is available, no drafts.";
     case "location":
-      return "Synchronises the five XMP↔IIM mirror pairs (Sub-location, City, State, Country, CountryCode); XMP side wins on disagreement.";
+      return "Synchronises XMP↔IPTC location, city, state, country, and country-code mirror pairs. Per pair, XMP wins on disagreement. No reverse-geocoding. If both sides of a pair are empty, that pair emits no drafts. No AI.";
     case "dates":
-      return "Normalises ExifIFD:DateTimeOriginal + ExifIFD:CreateDate to ISO 8601 and mirrors them into the XMP and IPTC date/time tags. Falls back to parsing the filename when DTO is missing.";
+      return "Normalises EXIF/XMP/IPTC shutter and creation dates to ISO 8601; EXIF primary wins on conflict. Offsets and subseconds are preserved where possible. Falls back to filename matching for shutter time if all shutter-time fields are empty. No AI.";
     case "description":
-      return "Picks a canonical description from the three description tags. When they disagree or only some are populated, calls the AI to merge them into a single coherent caption.";
+      return "Reads read-only AI inputs (XMP-mlib:AIDescription, XMP-mlib:AIInterpretation, XMP-mlib:AIOcrText, XMP-mlib:AIObjects) and context (keywords, location, date). Calls AI to merge description targets on disagreement, or to generate from AI context when targets are empty. If no target or AI context exists, no drafts.";
   }
 }
 

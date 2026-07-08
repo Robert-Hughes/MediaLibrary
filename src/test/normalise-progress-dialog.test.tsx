@@ -357,6 +357,34 @@ describe("NormaliseProgressDialog — awaiting-confirm", () => {
     expect(cb.checked).toBe(false);
   });
 
+  it("keeps Description enabled when all targets are empty but AI context exists (nNormalisedAi > 0)", () => {
+    const est = mockEstimate({
+      perGroupOutcomes: {
+        description: {
+          nNoop: 0,
+          nNormalisedDeterministic: 0,
+          nNormalisedAi: 1,
+          nConflict: 0,
+          nOverwrites: 0,
+        },
+      },
+    });
+    render(
+      <NormaliseProgressDialog
+        state={baseState({ total: 1, estimate: est })}
+        onConfirm={() => {}}
+        onCancel={() => {}}
+        onClose={() => {}}
+        onSetEnabledGroups={() => {}}
+      />,
+    );
+    const cb = screen.getByTestId(
+      "normalise-group-description-checkbox",
+    ) as HTMLInputElement;
+    expect(cb.disabled).toBe(false);
+    expect(cb.checked).toBe(true);
+  });
+
   it("cost preview adapts to selection — toggling description off removes its cost", () => {
     const est = mockEstimate({
       nImagesWithAiB: 4,
@@ -442,7 +470,45 @@ describe("NormaliseProgressDialog — awaiting-confirm", () => {
     expect(descLabel).toHaveTextContent(/^Description$/);
     expect(descLabel.getAttribute("title")).toMatch(/AI/);
     const kwLabel = screen.getByTestId("normalise-group-keywords-label");
-    expect(kwLabel.getAttribute("title")).not.toMatch(/AI/);
+    expect(kwLabel.getAttribute("title")).toMatch(/XMP-mlib:AITags/);
+  });
+
+  it("Description tooltip includes correct read-only inputs and empty + AI context regeneration behavior", () => {
+    render(
+      <NormaliseProgressDialog
+        state={baseState()}
+        onConfirm={() => {}}
+        onCancel={() => {}}
+        onClose={() => {}}
+        onSetEnabledGroups={() => {}}
+      />,
+    );
+    const descLabel = screen.getByTestId("normalise-group-description-label");
+    const titleAttr = descLabel.getAttribute("title") || "";
+    expect(titleAttr).toMatch(/XMP-mlib:AIDescription/);
+    expect(titleAttr).toMatch(/XMP-mlib:AIInterpretation/);
+    expect(titleAttr).toMatch(/XMP-mlib:AIOcrText/);
+    expect(titleAttr).toMatch(/XMP-mlib:AIObjects/);
+    expect(titleAttr).toMatch(
+      /generate from AI context when targets are empty/,
+    );
+  });
+
+  it("Title tooltip describes generating from description when title targets are empty and newly regenerated description usage", () => {
+    render(
+      <NormaliseProgressDialog
+        state={baseState()}
+        onConfirm={() => {}}
+        onCancel={() => {}}
+        onClose={() => {}}
+        onSetEnabledGroups={() => {}}
+      />,
+    );
+    const titleLabel = screen.getByTestId("normalise-group-title-label");
+    const titleAttr = titleLabel.getAttribute("title") || "";
+    expect(titleAttr).toMatch(
+      /If both title targets are empty and Description canonical is available \(including newly regenerated Description\), calls AI to generate a short title/,
+    );
   });
 
   it("description label no longer mentions API key requirement", () => {

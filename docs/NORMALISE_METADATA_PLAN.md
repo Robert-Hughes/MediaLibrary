@@ -36,7 +36,7 @@ AI and the AI call is unavailable or fails.
 | Group         | Policy                                                                                                                                                                                                                                                                                                           |
 | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | A Keywords    | No conflict concept; union all sources and project canonical bag/leaves.                                                                                                                                                                                                                                         |
-| B Description | Multiple distinct target sources trigger AI merge. If AI is unavailable or fails, return a typed AI failure; do not deterministic-fallback.                                                                                                                                                                      |
+| B Description | Multiple distinct target sources trigger AI merge. If targets are empty but AI-derived context exists, run AI description generation. If AI is unavailable or fails, return a typed AI failure.                                                                                                                  |
 | C Title       | Primary XMP title wins; if empty, derivative IPTC ObjectName wins. AI generation only when targets are empty and description context exists.                                                                                                                                                                     |
 | D Headline    | Primary XMP headline wins; if empty, IPTC headline wins.                                                                                                                                                                                                                                                         |
 | E Creator     | Union names, dedup, preserve first-seen order.                                                                                                                                                                                                                                                                   |
@@ -144,15 +144,16 @@ adapt.
 
 **Conflict policy.**
 
-1. All target sources empty → no drafts (see §4 all-empty rule).
-2. Exactly one target source non-empty → take that value, `normalise(...)`
+1. All target sources empty and no AI-derived context exists → no drafts (see §4 all-empty rule).
+2. All target sources empty and AI-derived context exists → **AI generation** creates canonical Description, then project to all derivatives.
+3. Exactly one target source non-empty → take that value, `normalise(...)`
    it, project to all derivatives. No AI.
-3. Multiple target sources non-empty AND equal after `normalise(...)` →
+4. Multiple target sources non-empty AND equal after `normalise(...)` →
    write the normalised form to all derivatives. No AI.
-4. Multiple target sources non-empty AND distinct after normalisation →
+5. Multiple target sources non-empty AND distinct after normalisation →
    **AI merge** produces canonical, then project to all derivatives.
 
-**AI merge.** Single call to the configured normalisation model (default
+**AI merge/generation.** Single call to the configured normalisation model (default
 `gpt-5.4-nano`). Inputs and prompt: §6.
 
 ### Group C — Title
@@ -395,7 +396,7 @@ Re-runs are cheap and observably no-op.
 **All-empty groups.** If every target source and every read-only input is
 empty for a group, that group produces no drafts (not even
 remove-tag drafts). Rationale: nothing to normalise; "delete everything"
-would be surprising.
+would be surprising. Description has an explicit exception: all target fields empty is not all-empty if read-only AI-derived context exists (which instead triggers AI Description generation).
 
 **Implementation note (v1 / v2).** Every group implemented so far derives
 a scalar / seq / bag canonical that projects either fully across its
@@ -474,10 +475,9 @@ The dropdown label format matches describe: `gpt-5.4-nano (≈ $0.0001 per photo
 
 **Where AI is used.**
 
-1. Group B AI merge (description) — when ≥2 description target sources are
-   non-empty and distinct after normalisation.
-2. Group C AI title generation — when all Group C targets are empty and
-   Group B canonical is non-empty.
+1. Group B AI generation — when all Description target sources are empty but AI-derived context exists.
+2. Group B AI merge — when Description target sources conflict.
+3. Group C AI title generation — when all Group C targets are empty and Description canonical is available (including newly regenerated Description).
 
 Nothing else. All other normalisation is deterministic string processing.
 
@@ -485,13 +485,16 @@ Nothing else. All other normalisation is deterministic string processing.
 
 System message:
 
-> You normalise photo descriptions. Merge the source descriptions into a
-> single factual paragraph in `x-default` English. Prefer concrete facts;
-> drop marketing language and adjectives that aren't grounded in the
-> inputs. Sentence case. No trailing exclamations. Use the location,
-> keywords, and date as contextual hints to disambiguate but do not invent
-> facts not supported by the source descriptions. If the sources conflict,
-> prefer the more specific statement.
+> You generate or normalise a factual photo description for a personal media library.
+> Produce a single factual paragraph in `x-default` English.
+> Prefer existing human-authored description sources when present.
+> When no human description source is present, use AI-derived context such as
+> `XMP-mlib:AIDescription`, `XMP-mlib:AIInterpretation`, `XMP-mlib:AIOcrText`, and `XMP-mlib:AIObjects`.
+> Use location, keywords, and date only as contextual hints.
+> Do not invent facts not supported by the supplied inputs.
+> Keep it concise, factual, sentence-cased, and non-marketing.
+> If sources conflict, prefer the more specific or better-supported statement.
+> If an interpretation field contains speculation/mood/intent, only include it if it is clearly useful and phrase it cautiously; otherwise omit it.
 
 User message (JSON):
 
