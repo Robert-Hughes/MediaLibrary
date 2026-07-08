@@ -140,7 +140,7 @@ pub trait NormaliseAiClient: Send + Sync {
 /// (plan §7) can preflight them against `/responses/input_tokens`
 /// without actually dispatching. Returns deterministic stand-ins from
 /// the trait calls so the dispatcher can still walk Group C with a
-/// plausible description canonical when Group B is in case-4.
+/// plausible description canonical when Group B is in case-2 or case-5.
 #[derive(Default)]
 pub struct CapturingAiClient {
     pub description_prompts: tokio::sync::Mutex<Vec<DescriptionMergePrompt>>,

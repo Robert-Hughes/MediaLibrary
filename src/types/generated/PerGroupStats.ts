@@ -22,7 +22,7 @@ nNoop: number,
 nNormalisedDeterministic: number, 
 /**
  * Group emitted set-value drafts via the AI branch (Group B
- * case 4; Group C case 3). 0 for all other groups.
+ * case 2 or case 5; Group C case 3). 0 for all other groups.
  */
 nNormalisedAi: number, 
 /**

@@ -2,10 +2,10 @@
 //!
 //! See `docs/NORMALISE_METADATA_PLAN.md` §6. Two operations:
 //!
-//! - **Description merge** (Group B case-4): combine 2+ distinct
-//!   description sources into a single factual paragraph, with location
-//!   / keywords / date context to disambiguate.
-//! - **Title generation** (Group C case-3): generate a short title-cased
+//! - **Description merge/generation** (Group B case-2 and case-5): combine 2+ distinct
+//!   description sources or generate from AI-derived context (when targets are empty)
+//!   into a single factual paragraph, with location / keywords / date context to disambiguate.
+//! - **Title generation** (Group C case-4): generate a short title-cased
 //!   phrase from the canonical description + context.
 //!
 //! Both calls hit `/responses` with `text.format: { type: "json_schema" }`
@@ -24,7 +24,7 @@ use crate::openai_http::OpenAiHttp;
 /// Version stamp recorded in the audit log per AI call. Bump when
 /// either prompt or schema changes; old log entries retain the prior
 /// string for archaeology.
-pub const NORMALISE_PROMPT_VERSION: &str = "v1";
+pub const NORMALISE_PROMPT_VERSION: &str = "v2";
 
 const DESCRIPTION_SYSTEM_PROMPT: &str = "You generate or normalise a factual photo description for a personal media library. \
 Produce a single factual paragraph in `x-default` English. \
@@ -185,7 +185,7 @@ fn extract_structured_text(body: &serde_json::Value) -> Result<String, String> {
 }
 
 impl OpenAiNormaliseClient {
-    /// Build the JSON body for a Group B description-merge request.
+    /// Build the JSON body for a Group B description-merge/generation request.
     /// Exposed so the estimate phase can preflight the same body
     /// against `/responses/input_tokens` without dispatching.
     pub fn description_request_body(&self, prompt: &DescriptionMergePrompt) -> serde_json::Value {
