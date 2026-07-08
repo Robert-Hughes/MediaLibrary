@@ -1,9 +1,14 @@
 import { render, screen } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { vi } from "vitest";
+import { ask } from "@tauri-apps/plugin-dialog";
 import { PhotoList } from "../components/PhotoList";
 import { ThumbnailStore, ImageMetadataStore } from "../types";
 import type { PhotoInfo } from "../types";
+
+vi.mock("@tauri-apps/plugin-dialog", () => ({
+  ask: vi.fn(),
+}));
 
 const defaultSortProps = {
   sortConfig: { primary: null, secondary: null } as const,
@@ -169,16 +174,13 @@ describe("PhotoList column header context menu", () => {
 
   describe("remove field action", () => {
     let onRemoveFieldMock: any;
-    let originalConfirm: any;
 
     beforeEach(() => {
       onRemoveFieldMock = vi.fn();
-      originalConfirm = window.confirm;
-      window.confirm = vi.fn();
     });
 
     afterEach(() => {
-      window.confirm = originalConfirm;
+      vi.clearAllMocks();
     });
 
     it("does not show remove field option on Path or OS columns", async () => {
@@ -214,7 +216,7 @@ describe("PhotoList column header context menu", () => {
     });
 
     it("shows remove option on image columns, confirm cancel does not call handler (selection scope)", async () => {
-      vi.mocked(window.confirm).mockReturnValue(false);
+      vi.mocked(ask).mockResolvedValue(false);
 
       // Setup metadata: photo1 has ExifIFD:DateTimeOriginal, photo2 does not
       metadataStore.set("photo1.jpg", {
@@ -260,8 +262,8 @@ describe("PhotoList column header context menu", () => {
 
       await user.click(removeOption);
 
-      expect(window.confirm).toHaveBeenCalled();
-      const confirmArg = vi.mocked(window.confirm).mock.calls[0][0];
+      expect(ask).toHaveBeenCalled();
+      const confirmArg = vi.mocked(ask).mock.calls[0][0];
       expect(confirmArg).toContain(
         "Stage removal of ExifIFD:DateTimeOriginal from 2 selected photos?",
       );
@@ -275,7 +277,7 @@ describe("PhotoList column header context menu", () => {
     });
 
     it("confirm accept calls onRemoveFieldFromSelectedPhotos with correct args", async () => {
-      vi.mocked(window.confirm).mockReturnValue(true);
+      vi.mocked(ask).mockResolvedValue(true);
 
       render(
         <PhotoList
@@ -314,7 +316,7 @@ describe("PhotoList column header context menu", () => {
     });
 
     it("respects draft overlays for present count", async () => {
-      vi.mocked(window.confirm).mockReturnValue(true);
+      vi.mocked(ask).mockResolvedValue(true);
 
       // photo1 has value in metadata but Delete draft edit (effectively absent)
       metadataStore.set("photo1.jpg", {
@@ -372,8 +374,8 @@ describe("PhotoList column header context menu", () => {
       const removeOption = screen.getByText("Remove field from 2 photos…");
       await user.click(removeOption);
 
-      expect(window.confirm).toHaveBeenCalled();
-      const confirmArg = vi.mocked(window.confirm).mock.calls[0][0];
+      expect(ask).toHaveBeenCalled();
+      const confirmArg = vi.mocked(ask).mock.calls[0][0];
       // photo1: effectively absent (Delete draft)
       // photo2: effectively present (Set draft)
       // Total present: 1
@@ -383,7 +385,7 @@ describe("PhotoList column header context menu", () => {
     });
 
     it("A/B. No selection -> operates on all photos in list, confirm message matches 'all' scope", async () => {
-      vi.mocked(window.confirm).mockReturnValue(true);
+      vi.mocked(ask).mockResolvedValue(true);
 
       // Setup metadata: photo1 has value, photo2 does not
       metadataStore.set("photo1.jpg", {
@@ -421,8 +423,8 @@ describe("PhotoList column header context menu", () => {
 
       await user.click(removeOption);
 
-      expect(window.confirm).toHaveBeenCalled();
-      const confirmArg = vi.mocked(window.confirm).mock.calls[0][0];
+      expect(ask).toHaveBeenCalled();
+      const confirmArg = vi.mocked(ask).mock.calls[0][0];
       expect(confirmArg).toContain(
         "Stage removal of ExifIFD:DateTimeOriginal from all 2 photos in the current list?",
       );
@@ -440,7 +442,7 @@ describe("PhotoList column header context menu", () => {
     });
 
     it("C. Selection still wins over all", async () => {
-      vi.mocked(window.confirm).mockReturnValue(true);
+      vi.mocked(ask).mockResolvedValue(true);
 
       render(
         <PhotoList
@@ -477,7 +479,7 @@ describe("PhotoList column header context menu", () => {
     });
 
     it("E. Decoupled menu: remove works without Select Columns", async () => {
-      vi.mocked(window.confirm).mockReturnValue(true);
+      vi.mocked(ask).mockResolvedValue(true);
 
       render(
         <PhotoList
