@@ -1983,7 +1983,10 @@ mod tests_dispatcher {
                 assert!(p.description_sources.is_empty());
                 assert!(p.ai_context.contains_key("XMP-mlib:AIDescription"));
                 self.calls.lock().await.push("description");
-                Ok(("A black cat sitting by a window.".into(), AiCallUsage::default()))
+                Ok((
+                    "A black cat sitting by a window.".into(),
+                    AiCallUsage::default(),
+                ))
             }
             async fn generate_title(
                 &self,
@@ -2024,7 +2027,11 @@ mod tests_dispatcher {
 
         // Verify Description drafts
         assert_eq!(
-            match &edits.get("XMP-dc:Description").expect("description draft").value {
+            match &edits
+                .get("XMP-dc:Description")
+                .expect("description draft")
+                .value
+            {
                 Some(MetadataValue::LangAlt(langs)) => langs.get("x-default").unwrap().as_str(),
                 other => panic!("expected lang-alt value, got {:?}", other),
             },
@@ -2145,7 +2152,11 @@ mod tests_dispatcher {
 
         // Assert Description draft contains the returned canonical description
         assert_eq!(
-            match &edits.get("XMP-dc:Description").expect("description draft").value {
+            match &edits
+                .get("XMP-dc:Description")
+                .expect("description draft")
+                .value
+            {
                 Some(MetadataValue::LangAlt(langs)) => langs.get("x-default").unwrap().as_str(),
                 other => panic!("expected lang-alt value, got {:?}", other),
             },

@@ -819,3 +819,44 @@ fn apply_keywords_writes_back_as_separate_items_not_csv() {
         other => panic!("expected Subject set, got {:?}", other),
     }
 }
+
+#[test]
+fn apply_xmp_mlib_ai_ocr_text_preserves_newlines() {
+    let Some(src) = fixture_path("real_with_exif.jpg") else {
+        return;
+    };
+    let (dir, dst) = copy_to_temp(&src);
+    let folder = dir.path().to_str().unwrap();
+    let rel = rel_of(dir.path(), &dst);
+
+    let ocr_text = "cpp\nCertificate\nOf\nAchievement\nRobert Highet".to_string();
+
+    let mut edits = std::collections::HashMap::new();
+    edits.insert(
+        "XMP-mlib:AIOcrText".to_string(),
+        metadata_set(MetadataValue::List {
+            list_kind: ListKind::Bag,
+            items: vec![MetadataValue::Text(ocr_text.clone())],
+        }),
+    );
+    let drafts = metadata_drafts(&rel, edits);
+    let result =
+        apply_edits::apply_metadata_draft_edits(folder, std::slice::from_ref(&rel), &drafts);
+    assert!(result.failed.is_empty(), "{:?}", result.failed);
+
+    let m = read_one(dir.path(), &dst);
+    match m.metadata.get("XMP-mlib:AIOcrText") {
+        Some(MetadataValue::Text(s)) => {
+            assert_eq!(s, &ocr_text);
+        }
+        Some(MetadataValue::List { items, .. }) => {
+            assert_eq!(items.len(), 1);
+            if let MetadataValue::Text(s) = &items[0] {
+                assert_eq!(s, &ocr_text);
+            } else {
+                panic!("expected Text inside list, got {:?}", items[0]);
+            }
+        }
+        other => panic!("expected AIOcrText as list or text, got {:?}", other),
+    }
+}

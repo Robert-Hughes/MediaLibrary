@@ -7,22 +7,44 @@ use crate::metadata_value::{ListKind, MetadataValue};
 use crate::scanner;
 use crate::tag_schema::TagKind;
 
-fn reject_argfile_line_breaks(label: &str, value: &str) -> Result<(), String> {
-    if value.contains('\n') || value.contains('\r') {
-        return Err(format!(
-            "ExifTool argfile cannot safely encode {} containing a newline",
-            label
-        ));
+fn render_argfile_argument(arg: &str) -> Result<String, String> {
+    if arg.contains('\0') {
+        return Err("ExifTool argfile cannot encode argument containing NUL".to_string());
     }
-    Ok(())
+
+    let needs_cstr = arg.contains('\n')
+        || arg.contains('\r')
+        || arg.contains('\t')
+        || arg.contains('\\')
+        || arg.starts_with('#')
+        || arg.starts_with(char::is_whitespace)
+        || arg.ends_with(char::is_whitespace)
+        || arg.is_empty();
+
+    if !needs_cstr {
+        return Ok(arg.to_string());
+    }
+
+    let mut escaped = String::new();
+    for ch in arg.chars() {
+        match ch {
+            '\\' => escaped.push_str("\\\\"),
+            '\n' => escaped.push_str("\\n"),
+            '\r' => escaped.push_str("\\r"),
+            '\t' => escaped.push_str("\\t"),
+            c => escaped.push(c),
+        }
+    }
+
+    Ok(format!("#[CSTR]{}", escaped))
 }
 
-fn build_exiftool_write_argfile_lines(
+fn build_exiftool_write_argfile_args(
     path: &Path,
     args: &[String],
     numeric: bool,
 ) -> Result<Vec<String>, String> {
-    let mut lines = vec![
+    let mut logical_args = vec![
         "-overwrite_original".to_string(),
         "-charset".to_string(),
         "utf8".to_string(),
@@ -30,34 +52,34 @@ fn build_exiftool_write_argfile_lines(
         "filename=utf8".to_string(),
     ];
     if numeric {
-        lines.push("-n".to_string());
+        logical_args.push("-n".to_string());
     }
     for arg in args {
-        reject_argfile_line_breaks("argument", arg)?;
-        lines.push(arg.clone());
+        logical_args.push(arg.clone());
     }
-    let path_arg = path.to_string_lossy().into_owned();
-    reject_argfile_line_breaks("file path", &path_arg)?;
-    lines.push(path_arg);
-    Ok(lines)
+    logical_args.push(path.to_string_lossy().into_owned());
+    Ok(logical_args)
 }
 
-fn render_exiftool_argfile(lines: &[String]) -> String {
-    let mut contents = lines.join("\n");
+fn render_exiftool_argfile(logical_args: &[String]) -> Result<String, String> {
+    let mut rendered_lines = Vec::with_capacity(logical_args.len());
+    for arg in logical_args {
+        rendered_lines.push(render_argfile_argument(arg)?);
+    }
+    let mut contents = rendered_lines.join("\n");
     contents.push('\n');
-    contents
+    Ok(contents)
 }
 
-/// Run one exiftool write invocation against `path` with the provided args.
-/// `numeric=true` prepends `-n` so values are interpreted as raw numerics.
-fn run_exiftool_write(path: &Path, args: &[String], numeric: bool) -> Result<(), String> {
-    let lines = build_exiftool_write_argfile_lines(path, args, numeric)?;
+/// Run one exiftool write invocation with the pre-rendered argfile contents.
+/// `numeric=true` indicates the numeric pass (for logging/errors).
+fn run_exiftool_write(rendered_contents: &str, numeric: bool) -> Result<(), String> {
     let dir = tempfile::tempdir().map_err(|e| format!("Failed to create ExifTool argfile: {e}"))?;
     let argfile_path = dir.path().join("medialibrary-exiftool.args");
     let mut argfile = std::fs::File::create(&argfile_path)
         .map_err(|e| format!("Failed to create ExifTool argfile: {e}"))?;
     argfile
-        .write_all(render_exiftool_argfile(&lines).as_bytes())
+        .write_all(rendered_contents.as_bytes())
         .map_err(|e| format!("Failed to write ExifTool argfile as UTF-8: {e}"))?;
     argfile
         .flush()
@@ -138,10 +160,101 @@ pub struct MetadataApplyEditsResult {
     pub fresh_metadata: HashMap<String, HashMap<String, MetadataValue>>,
 }
 
+trait MetadataWriteClient {
+    fn read_metadata(
+        &self,
+        rel_path: &str,
+        abs_path: &Path,
+    ) -> Result<HashMap<String, MetadataValue>, String>;
+
+    fn write_metadata(&self, numeric: bool, rendered_contents: &str) -> Result<(), String>;
+}
+
+struct RealMetadataWriteClient;
+
+impl MetadataWriteClient for RealMetadataWriteClient {
+    fn read_metadata(
+        &self,
+        rel_path: &str,
+        abs_path: &Path,
+    ) -> Result<HashMap<String, MetadataValue>, String> {
+        let mut results =
+            scanner::read_image_metadata_batch(&[rel_path.to_string()], &[abs_path.to_path_buf()])
+                .map_err(|e| e.to_string())?;
+
+        results
+            .pop()
+            .map(|r| r.metadata)
+            .ok_or_else(|| "No metadata returned".to_string())
+    }
+
+    fn write_metadata(&self, numeric: bool, rendered_contents: &str) -> Result<(), String> {
+        run_exiftool_write(rendered_contents, numeric)
+    }
+}
+
+fn format_apply_error(
+    numeric_attempted: bool,
+    numeric_result: &Result<(), String>,
+    text_attempted: bool,
+    text_result: &Result<(), String>,
+    verified_count: usize,
+    total_count: usize,
+) -> Option<String> {
+    let pass_info = match (
+        numeric_attempted,
+        numeric_result.is_ok(),
+        text_attempted,
+        text_result.is_err(),
+    ) {
+        (true, true, true, true) => {
+            let err = text_result.as_ref().unwrap_err();
+            Some(format!(
+                "ExifTool text pass failed ({}) after numeric pass succeeded",
+                err
+            ))
+        }
+        (true, false, _, _) => {
+            let err = numeric_result.as_ref().unwrap_err();
+            Some(format!("ExifTool numeric pass failed ({})", err))
+        }
+        (false, _, true, true) => {
+            let err = text_result.as_ref().unwrap_err();
+            Some(format!("ExifTool text pass failed ({})", err))
+        }
+        _ => None,
+    };
+
+    if let Some(info) = pass_info {
+        if verified_count == total_count {
+            Some(format!(
+                "{}, but all intended tags verified successfully on readback.",
+                info
+            ))
+        } else {
+            Some(format!(
+                "{}; post-write verification found {}/{} tags applied.",
+                info, verified_count, total_count
+            ))
+        }
+    } else {
+        None
+    }
+}
+
 pub fn apply_single_file_metadata(
     folder_path: &str,
     rel_path: &str,
     edits: &HashMap<String, crate::draft_edits::MetadataDraftEdit>,
+) -> MetadataSingleFileOutcome {
+    apply_single_file_metadata_with_client(folder_path, rel_path, edits, &RealMetadataWriteClient)
+}
+
+fn apply_single_file_metadata_with_client<C: MetadataWriteClient>(
+    folder_path: &str,
+    rel_path: &str,
+    edits: &HashMap<String, crate::draft_edits::MetadataDraftEdit>,
+    client: &C,
 ) -> MetadataSingleFileOutcome {
     if edits.is_empty() {
         return MetadataSingleFileOutcome::hard_failure("No edits to apply".to_string());
@@ -165,14 +278,8 @@ pub fn apply_single_file_metadata(
 
     let registry = crate::tag_schema::get_registry().ok();
 
-    let (before_metadata, before_read_failed) = match scanner::read_image_metadata_batch(
-        &[rel_path.to_string()],
-        std::slice::from_ref(&abs_path),
-    ) {
-        Ok(mut results) => match results.pop() {
-            Some(r) => (r.metadata, false),
-            None => (HashMap::new(), false),
-        },
+    let (before_metadata, before_read_failed) = match client.read_metadata(rel_path, &abs_path) {
+        Ok(meta) => (meta, false),
         Err(e) => {
             log::warn!(
                 "[apply_edits] Semantic pre-write read failed for {}: {}",
@@ -203,34 +310,104 @@ pub fn apply_single_file_metadata(
         );
     }
 
-    if !combined.numeric.is_empty() {
-        if let Err(e) = run_exiftool_write(&abs_path, &combined.numeric, true) {
-            return MetadataSingleFileOutcome::hard_failure(e);
+    // Pre-render argfile contents to catch any rendering/encoding errors early
+    let numeric_argfile_content = if !combined.numeric.is_empty() {
+        match build_exiftool_write_argfile_args(&abs_path, &combined.numeric, true)
+            .and_then(|args| render_exiftool_argfile(&args))
+        {
+            Ok(content) => Some(content),
+            Err(e) => return MetadataSingleFileOutcome::hard_failure(e),
         }
+    } else {
+        None
+    };
+
+    let text_argfile_content = if !combined.text.is_empty() {
+        match build_exiftool_write_argfile_args(&abs_path, &combined.text, false)
+            .and_then(|args| render_exiftool_argfile(&args))
+        {
+            Ok(content) => Some(content),
+            Err(e) => return MetadataSingleFileOutcome::hard_failure(e),
+        }
+    } else {
+        None
+    };
+
+    let mut numeric_attempted = false;
+    let mut numeric_result = Ok(());
+    if let Some(content) = &numeric_argfile_content {
+        numeric_attempted = true;
+        numeric_result = client.write_metadata(true, content);
     }
-    if !combined.text.is_empty() {
-        if let Err(e) = run_exiftool_write(&abs_path, &combined.text, false) {
-            return MetadataSingleFileOutcome::hard_failure(e);
+
+    let mut text_attempted = false;
+    let mut text_result = Ok(());
+    if numeric_result.is_ok() {
+        if let Some(content) = &text_argfile_content {
+            text_attempted = true;
+            text_result = client.write_metadata(false, content);
         }
     }
 
-    let fresh_metadata =
-        match scanner::read_image_metadata_batch(&[rel_path.to_string()], &[abs_path]) {
-            Ok(mut results) => match results.pop() {
-                Some(r) => r.metadata,
-                None => {
-                    return MetadataSingleFileOutcome::hard_failure(
-                        "Post-write read returned no entry".to_string(),
-                    )
-                }
-            },
-            Err(e) => {
-                return MetadataSingleFileOutcome::hard_failure(format!(
-                    "Post-write read failed: {}",
-                    e
-                ))
+    let launched = numeric_attempted || text_attempted;
+    if !launched {
+        return MetadataSingleFileOutcome::hard_failure(
+            "No ExifTool write pass was attempted".to_string(),
+        );
+    }
+
+    let fresh_metadata_result = client.read_metadata(rel_path, &abs_path);
+
+    let write_err_msg = match (
+        numeric_attempted,
+        &numeric_result,
+        text_attempted,
+        &text_result,
+    ) {
+        (true, Err(e), _, _) => Some(format!("numeric pass failed: {}", e)),
+        (_, _, true, Err(e)) => Some(format!("text pass failed: {}", e)),
+        _ => None,
+    };
+
+    let fresh_metadata = match fresh_metadata_result {
+        Ok(meta) => meta,
+        Err(read_err) => {
+            let error_reason = match write_err_msg {
+                Some(w_err) => format!("ExifTool failed ({}) and post-write readback also failed ({}); file contents could not be verified.", w_err, read_err),
+                None => format!("Post-write readback failed: {}", read_err),
+            };
+
+            let mut tag_outcomes = Vec::with_capacity(edits.len());
+            for (key, edit) in edits {
+                tag_outcomes.push(MetadataTagOutcome {
+                    tag: key.clone(),
+                    kind: "ReadbackFailed".to_string(),
+                    sent: edit.value.clone(),
+                    before: before_metadata.get(key).cloned(),
+                    observed: None,
+                    message: Some(format!("Verification could not be completed because post-write readback failed: {}", read_err)),
+                });
             }
-        };
+
+            crate::apply_log::append_metadata_entries(
+                folder_path,
+                rel_path,
+                edits,
+                &argv_by_tag,
+                &before_metadata,
+                &HashMap::new(),
+                &tag_outcomes,
+                before_read_failed,
+            );
+
+            return MetadataSingleFileOutcome {
+                fresh_metadata: None,
+                error: Some(error_reason),
+                outcomes: tag_outcomes,
+                tags_to_clear: Vec::new(),
+            };
+        }
+    };
 
     use crate::draft_edits::EditIntent;
     let mut tag_outcomes = Vec::with_capacity(edits.len());
@@ -240,7 +417,7 @@ pub fn apply_single_file_metadata(
     for (key, edit) in edits {
         let info = registry.and_then(|r| r.lookup(key));
         let kind = info.map(|i| i.kind.clone());
-        let (outcome_kind, message) = match edit.intent {
+        let (outcome_kind, mut message) = match edit.intent {
             EditIntent::Delete => verify_metadata_delete(key, &fresh_metadata),
             EditIntent::Set => {
                 verify_metadata_set(key, edit.value.as_ref(), &fresh_metadata, kind.as_ref())
@@ -260,6 +437,12 @@ pub fn apply_single_file_metadata(
             "Match" | "DeleteOk" => tags_to_clear.push(key.clone()),
             "Coerced" => {}
             _ => {
+                if let Some(w_err) = &write_err_msg {
+                    message = Some(match message {
+                        Some(m) => format!("{} (ExifTool write failed: {})", m, w_err),
+                        None => format!("ExifTool write failed: {}", w_err),
+                    });
+                }
                 if first_mismatch.is_none() {
                     first_mismatch = message.clone();
                 }
@@ -287,9 +470,18 @@ pub fn apply_single_file_metadata(
         before_read_failed,
     );
 
+    let apply_error = format_apply_error(
+        numeric_attempted,
+        &numeric_result,
+        text_attempted,
+        &text_result,
+        tags_to_clear.len(),
+        edits.len(),
+    );
+
     MetadataSingleFileOutcome {
         fresh_metadata: Some(fresh_metadata),
-        error: first_mismatch,
+        error: apply_error.or(first_mismatch),
         outcomes: tag_outcomes,
         tags_to_clear,
     }
@@ -926,14 +1118,14 @@ mod tests {
 
     #[test]
     fn argfile_numeric_pass_contains_numeric_and_charset_lines() {
-        let lines = build_exiftool_write_argfile_lines(
+        let logical_args = build_exiftool_write_argfile_args(
             Path::new("photo.jpg"),
             &[String::from("-XMP-xmp:Rating=5")],
             true,
         )
         .unwrap();
         assert_eq!(
-            &lines[..6],
+            &logical_args[..6],
             &[
                 "-overwrite_original",
                 "-charset",
@@ -943,19 +1135,19 @@ mod tests {
                 "-n"
             ]
         );
-        assert_eq!(lines.last().unwrap(), "photo.jpg");
+        assert_eq!(logical_args.last().unwrap(), "photo.jpg");
     }
 
     #[test]
     fn argfile_text_pass_omits_numeric_but_keeps_utf8_and_spaces() {
-        let lines = build_exiftool_write_argfile_lines(
+        let logical_args = build_exiftool_write_argfile_args(
             Path::new("photo.jpg"),
             &[String::from("-XMP-mlib:AIDescription=a café table")],
             false,
         )
         .unwrap();
         assert_eq!(
-            &lines[..5],
+            &logical_args[..5],
             &[
                 "-overwrite_original",
                 "-charset",
@@ -964,32 +1156,320 @@ mod tests {
                 "filename=utf8"
             ]
         );
-        assert!(!lines.iter().any(|line| line == "-n"));
-        assert!(lines.contains(&"-XMP-mlib:AIDescription=a café table".to_string()));
-        let contents = render_exiftool_argfile(&lines);
+        assert!(!logical_args.iter().any(|line| line == "-n"));
+        assert!(logical_args.contains(&"-XMP-mlib:AIDescription=a café table".to_string()));
+        let contents = render_exiftool_argfile(&logical_args).unwrap();
         assert!(contents.contains("-XMP-mlib:AIDescription=a café table\n"));
     }
 
     #[test]
     fn argfile_text_pass_preserves_trailing_value_spaces() {
-        let lines = build_exiftool_write_argfile_lines(
+        let logical_args = build_exiftool_write_argfile_args(
             Path::new("photo.jpg"),
             &[String::from("-IPTC:Country-PrimaryLocationCode=GB ")],
             false,
         )
         .unwrap();
-        let contents = render_exiftool_argfile(&lines);
-        assert!(contents.contains("-IPTC:Country-PrimaryLocationCode=GB \n"));
+        let contents = render_exiftool_argfile(&logical_args).unwrap();
+        assert!(contents.contains("#[CSTR]-IPTC:Country-PrimaryLocationCode=GB \n"));
     }
 
     #[test]
-    fn argfile_rejects_newline_containing_args() {
-        let err = build_exiftool_write_argfile_lines(
-            Path::new("photo.jpg"),
-            &[String::from("-XMP-dc:Title=bad\nnext")],
-            false,
-        )
-        .unwrap_err();
-        assert!(err.contains("newline"));
+    fn render_argfile_argument_scenarios() {
+        // 1. Plain safe argument
+        assert_eq!(
+            render_argfile_argument("-XMP-dc:Title=Hello").unwrap(),
+            "-XMP-dc:Title=Hello"
+        );
+
+        // 2. Multiline OCR value encoded as one physical line
+        assert_eq!(
+            render_argfile_argument("-XMP-mlib:AIOcrText=cpp\nCertificate\nOf\nAchievement")
+                .unwrap(),
+            "#[CSTR]-XMP-mlib:AIOcrText=cpp\\nCertificate\\nOf\\nAchievement"
+        );
+
+        // 3. Carriage return and CRLF encoded safely
+        assert_eq!(render_argfile_argument("val\r").unwrap(), "#[CSTR]val\\r");
+        assert_eq!(
+            render_argfile_argument("val\r\nnext").unwrap(),
+            "#[CSTR]val\\r\\nnext"
+        );
+
+        // 4. Tab encoded safely
+        assert_eq!(
+            render_argfile_argument("val\tnext").unwrap(),
+            "#[CSTR]val\\tnext"
+        );
+
+        // 5. Literal backslashes preserved
+        assert_eq!(
+            render_argfile_argument("C:\\tmp\\foo").unwrap(),
+            "#[CSTR]C:\\\\tmp\\\\foo"
+        );
+
+        // 6. Leading # encoded
+        assert_eq!(
+            render_argfile_argument("#comment").unwrap(),
+            "#[CSTR]#comment"
+        );
+
+        // 7. Leading/trailing whitespace preserved
+        assert_eq!(
+            render_argfile_argument(" leading").unwrap(),
+            "#[CSTR] leading"
+        );
+        assert_eq!(
+            render_argfile_argument("trailing ").unwrap(),
+            "#[CSTR]trailing "
+        );
+
+        // 8. NUL is rejected
+        assert!(render_argfile_argument("val\0").is_err());
+    }
+
+    #[test]
+    fn render_complete_argfile_has_correct_physical_lines() {
+        let logical_args = vec![
+            "-overwrite_original".to_string(),
+            "-XMP-mlib:AIOcrText=cpp\nCertificate\nOf\nAchievement".to_string(),
+            "photo.jpg".to_string(),
+        ];
+        let rendered = render_exiftool_argfile(&logical_args).unwrap();
+        // Should contain exactly three lines (plus final trailing newline)
+        let lines: Vec<&str> = rendered.split('\n').filter(|s| !s.is_empty()).collect();
+        assert_eq!(lines.len(), 3);
+        assert_eq!(lines[0], "-overwrite_original");
+        assert_eq!(
+            lines[1],
+            "#[CSTR]-XMP-mlib:AIOcrText=cpp\\nCertificate\\nOf\\nAchievement"
+        );
+        assert_eq!(lines[2], "photo.jpg");
+    }
+
+    struct MockMetadataWriteClient {
+        read_results: std::cell::RefCell<Vec<Result<HashMap<String, MetadataValue>, String>>>,
+        write_results: std::cell::RefCell<Vec<Result<(), String>>>,
+        write_calls: std::cell::RefCell<Vec<(bool, String)>>,
+    }
+
+    impl MetadataWriteClient for MockMetadataWriteClient {
+        fn read_metadata(
+            &self,
+            _rel_path: &str,
+            _abs_path: &Path,
+        ) -> Result<HashMap<String, MetadataValue>, String> {
+            let mut results = self.read_results.borrow_mut();
+            if results.is_empty() {
+                Ok(HashMap::new())
+            } else {
+                results.remove(0)
+            }
+        }
+
+        fn write_metadata(&self, numeric: bool, rendered_contents: &str) -> Result<(), String> {
+            self.write_calls
+                .borrow_mut()
+                .push((numeric, rendered_contents.to_string()));
+            let mut results = self.write_results.borrow_mut();
+            if results.is_empty() {
+                Ok(())
+            } else {
+                results.remove(0)
+            }
+        }
+    }
+
+    #[test]
+    fn write_pipeline_prevalidation_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path().to_str().unwrap();
+        std::fs::write(dir.path().join("photo.jpg"), b"").unwrap();
+        let client = MockMetadataWriteClient {
+            read_results: std::cell::RefCell::new(vec![Ok(HashMap::new())]),
+            write_results: std::cell::RefCell::new(vec![]),
+            write_calls: std::cell::RefCell::new(vec![]),
+        };
+        let mut edits = HashMap::new();
+        edits.insert(
+            "IFD1:ThumbnailImage".to_string(),
+            metadata_edit(MetadataValue::Binary),
+        );
+
+        let outcome = apply_single_file_metadata_with_client(folder, "photo.jpg", &edits, &client);
+        assert!(outcome.fresh_metadata.is_none());
+        assert!(outcome.error.unwrap().contains("binary"));
+        assert!(client.write_calls.borrow().is_empty());
+    }
+
+    #[test]
+    fn write_pipeline_numeric_pass_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path().to_str().unwrap();
+        std::fs::write(dir.path().join("photo.jpg"), b"").unwrap();
+        let client = MockMetadataWriteClient {
+            read_results: std::cell::RefCell::new(vec![
+                Ok(metadata_map(&[(
+                    "XMP-xmp:Rating",
+                    MetadataValue::Integer(1),
+                )])), // before
+                Ok(metadata_map(&[(
+                    "XMP-xmp:Rating",
+                    MetadataValue::Integer(5),
+                )])), // after
+            ]),
+            write_results: std::cell::RefCell::new(vec![Err("exiftool locked".to_string())]),
+            write_calls: std::cell::RefCell::new(vec![]),
+        };
+        let mut edits = HashMap::new();
+        edits.insert(
+            "XMP-xmp:Rating".to_string(),
+            metadata_edit(MetadataValue::Integer(5)),
+        );
+
+        let outcome = apply_single_file_metadata_with_client(folder, "photo.jpg", &edits, &client);
+        assert_eq!(outcome.tags_to_clear, vec!["XMP-xmp:Rating".to_string()]);
+        assert_eq!(outcome.outcomes.len(), 1);
+        assert_eq!(outcome.outcomes[0].kind, "Match");
+        let err = outcome.error.unwrap();
+        assert!(err.contains("exiftool locked"));
+        assert!(err.contains("verified successfully"));
+        assert_eq!(client.write_calls.borrow().len(), 1);
+        assert!(client.write_calls.borrow()[0].0);
+    }
+
+    #[test]
+    fn write_pipeline_numeric_succeeds_text_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path().to_str().unwrap();
+        std::fs::write(dir.path().join("photo.jpg"), b"").unwrap();
+        let client = MockMetadataWriteClient {
+            read_results: std::cell::RefCell::new(vec![
+                Ok(metadata_map(&[
+                    ("XMP-xmp:Rating", MetadataValue::Integer(1)),
+                    ("XMP-dc:Title", MetadataValue::Text("old".to_string())),
+                ])), // before
+                Ok(metadata_map(&[
+                    ("XMP-xmp:Rating", MetadataValue::Integer(5)),
+                    ("XMP-dc:Title", MetadataValue::Text("old".to_string())),
+                ])), // after
+            ]),
+            write_results: std::cell::RefCell::new(vec![Ok(()), Err("disk full".to_string())]),
+            write_calls: std::cell::RefCell::new(vec![]),
+        };
+        let mut edits = HashMap::new();
+        edits.insert(
+            "XMP-xmp:Rating".to_string(),
+            metadata_edit(MetadataValue::Integer(5)),
+        );
+        edits.insert(
+            "XMP-dc:Title".to_string(),
+            metadata_edit(MetadataValue::Text("new".to_string())),
+        );
+
+        let outcome = apply_single_file_metadata_with_client(folder, "photo.jpg", &edits, &client);
+        assert_eq!(outcome.tags_to_clear, vec!["XMP-xmp:Rating".to_string()]);
+        let err = outcome.error.unwrap();
+        assert!(err.contains("disk full"));
+        assert!(err.contains("verification found 1/2"));
+        assert_eq!(client.write_calls.borrow().len(), 2);
+        assert!(client.write_calls.borrow()[0].0);
+        assert!(!client.write_calls.borrow()[1].0);
+    }
+
+    #[test]
+    fn write_pipeline_text_fails_but_verified_success() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path().to_str().unwrap();
+        std::fs::write(dir.path().join("photo.jpg"), b"").unwrap();
+        let client = MockMetadataWriteClient {
+            read_results: std::cell::RefCell::new(vec![
+                Ok(metadata_map(&[(
+                    "XMP-dc:Title",
+                    MetadataValue::Text("old".to_string()),
+                )])), // before
+                Ok(metadata_map(&[(
+                    "XMP-dc:Title",
+                    MetadataValue::Text("new".to_string()),
+                )])), // after
+            ]),
+            write_results: std::cell::RefCell::new(vec![Err("minor error".to_string())]),
+            write_calls: std::cell::RefCell::new(vec![]),
+        };
+        let mut edits = HashMap::new();
+        edits.insert(
+            "XMP-dc:Title".to_string(),
+            metadata_edit(MetadataValue::Text("new".to_string())),
+        );
+
+        let outcome = apply_single_file_metadata_with_client(folder, "photo.jpg", &edits, &client);
+        assert_eq!(outcome.tags_to_clear, vec!["XMP-dc:Title".to_string()]);
+        let err = outcome.error.unwrap();
+        assert!(err.contains("minor error"));
+        assert!(err.contains("all intended tags verified successfully"));
+    }
+
+    #[test]
+    fn write_pipeline_both_write_and_readback_fail() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path().to_str().unwrap();
+        std::fs::write(dir.path().join("photo.jpg"), b"").unwrap();
+        let client = MockMetadataWriteClient {
+            read_results: std::cell::RefCell::new(vec![
+                Ok(HashMap::new()),                        // before
+                Err("read permission denied".to_string()), // after
+            ]),
+            write_results: std::cell::RefCell::new(vec![Err("write write error".to_string())]),
+            write_calls: std::cell::RefCell::new(vec![]),
+        };
+        let mut edits = HashMap::new();
+        edits.insert(
+            "XMP-dc:Title".to_string(),
+            metadata_edit(MetadataValue::Text("new".to_string())),
+        );
+
+        let outcome = apply_single_file_metadata_with_client(folder, "photo.jpg", &edits, &client);
+        assert!(outcome.fresh_metadata.is_none());
+        assert!(outcome.tags_to_clear.is_empty());
+        let err = outcome.error.unwrap();
+        assert!(err.contains("write write error"));
+        assert!(err.contains("read permission denied"));
+        assert_eq!(outcome.outcomes.len(), 1);
+        assert_eq!(outcome.outcomes[0].kind, "ReadbackFailed");
+    }
+
+    #[test]
+    fn write_pipeline_appends_log_on_partial_success() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path().to_str().unwrap();
+        std::fs::write(dir.path().join("photo.jpg"), b"").unwrap();
+        let client = MockMetadataWriteClient {
+            read_results: std::cell::RefCell::new(vec![
+                Ok(metadata_map(&[(
+                    "XMP-xmp:Rating",
+                    MetadataValue::Integer(1),
+                )])), // before
+                Ok(metadata_map(&[(
+                    "XMP-xmp:Rating",
+                    MetadataValue::Integer(5),
+                )])), // after
+            ]),
+            write_results: std::cell::RefCell::new(vec![Err("partial fail".to_string())]),
+            write_calls: std::cell::RefCell::new(vec![]),
+        };
+        let mut edits = HashMap::new();
+        edits.insert(
+            "XMP-xmp:Rating".to_string(),
+            metadata_edit(MetadataValue::Integer(5)),
+        );
+
+        let outcome = apply_single_file_metadata_with_client(folder, "photo.jpg", &edits, &client);
+        assert_eq!(outcome.tags_to_clear, vec!["XMP-xmp:Rating".to_string()]);
+
+        let log_path = dir.path().join("MediaLibraryApplyLog.jsonl");
+        assert!(log_path.exists());
+        let log_contents = std::fs::read_to_string(log_path).unwrap();
+        assert!(log_contents.contains("XMP-xmp:Rating"));
+        assert!(log_contents.contains("Match"));
     }
 }
