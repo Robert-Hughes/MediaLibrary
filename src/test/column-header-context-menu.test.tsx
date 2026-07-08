@@ -18,6 +18,12 @@ describe("PhotoList column header context menu", () => {
       date_modified: 1640995200,
       date_created: 1640995200,
     },
+    {
+      relative_path: "photo2.jpg",
+      filename: "photo2.jpg",
+      date_modified: 1640995200,
+      date_created: 1640995200,
+    },
   ];
 
   let thumbnailStore: ThumbnailStore;
@@ -159,5 +165,221 @@ describe("PhotoList column header context menu", () => {
 
     // Should not show context menu
     expect(screen.queryByText("Select Columns...")).not.toBeInTheDocument();
+  });
+
+  describe("remove field action", () => {
+    let onRemoveFieldMock: any;
+    let originalConfirm: any;
+
+    beforeEach(() => {
+      onRemoveFieldMock = vi.fn();
+      originalConfirm = window.confirm;
+      window.confirm = vi.fn();
+    });
+
+    afterEach(() => {
+      window.confirm = originalConfirm;
+    });
+
+    it("does not show remove field option on Path or OS columns", async () => {
+      render(
+        <PhotoList
+          photos={mockPhotos}
+          thumbnails={thumbnailStore}
+          imageMetadata={metadataStore}
+          visibleColumns={[
+            { key: "date_modified", kind: "os" },
+            { key: "ExifIFD:DateTimeOriginal", kind: "image" },
+          ]}
+          {...defaultSortProps}
+          selectedIndex={0}
+          onSelect={() => {}}
+          onShowInExplorer={() => {}}
+          onVisibilityChange={() => {}}
+          onPhotoOpen={() => {}}
+          onSelectColumns={onSelectColumnsMock}
+          onRemoveFieldFromSelectedPhotos={onRemoveFieldMock}
+        />,
+      );
+
+      // Right-click Path column
+      const pathHeader = screen.getByText("Path");
+      await userEvent.pointer({ keys: "[MouseRight]", target: pathHeader });
+      expect(screen.queryByText(/Remove field from/)).not.toBeInTheDocument();
+
+      // Right-click Modified column
+      const modifiedHeader = screen.getByText("Modified");
+      await userEvent.pointer({ keys: "[MouseRight]", target: modifiedHeader });
+      expect(screen.queryByText(/Remove field from/)).not.toBeInTheDocument();
+    });
+
+    it("shows remove option on image columns, confirm cancel does not call handler", async () => {
+      vi.mocked(window.confirm).mockReturnValue(false);
+
+      // Setup metadata: photo1 has ExifIFD:DateTimeOriginal, photo2 does not
+      metadataStore.set("photo1.jpg", {
+        "ExifIFD:DateTimeOriginal": {
+          kind: "Text",
+          value: "2022:01:01 12:00:00",
+        },
+      });
+      metadataStore.set("photo2.jpg", {});
+
+      render(
+        <PhotoList
+          photos={mockPhotos}
+          thumbnails={thumbnailStore}
+          imageMetadata={metadataStore}
+          visibleColumns={[{ key: "ExifIFD:DateTimeOriginal", kind: "image" }]}
+          {...defaultSortProps}
+          selectedIndex={0} // photo1 is selected
+          onSelect={() => {}}
+          onShowInExplorer={() => {}}
+          onVisibilityChange={() => {}}
+          onPhotoOpen={() => {}}
+          onSelectColumns={onSelectColumnsMock}
+          onRemoveFieldFromSelectedPhotos={onRemoveFieldMock}
+        />,
+      );
+
+      // We'll select both photo1 and photo2 to test multi-selection
+      const user = userEvent.setup();
+      const rows = screen.getAllByTestId("photo-row");
+      await user.click(rows[0]);
+      await user.keyboard("{Control>}");
+      await user.click(rows[1]);
+      await user.keyboard("{/Control}");
+
+      // Right-click image column header
+      const imageHeader = screen.getByText("ExifIFD:DateTimeOriginal");
+      await user.pointer({ keys: "[MouseRight]", target: imageHeader });
+
+      const removeOption = screen.getByText("Remove field from 2 photos…");
+      expect(removeOption).toBeInTheDocument();
+      expect(screen.getByText("Select Columns…")).toBeInTheDocument();
+
+      await user.click(removeOption);
+
+      expect(window.confirm).toHaveBeenCalled();
+      const confirmArg = vi.mocked(window.confirm).mock.calls[0][0];
+      expect(confirmArg).toContain(
+        "Stage removal of ExifIFD:DateTimeOriginal from 2 photos?",
+      );
+      expect(confirmArg).toContain(
+        "This field currently has a value on 1 selected photo.",
+      );
+      expect(confirmArg).toContain("pending delete edits only");
+      expect(confirmArg).toContain("Nothing will be written");
+
+      expect(onRemoveFieldMock).not.toHaveBeenCalled();
+    });
+
+    it("confirm accept calls onRemoveFieldFromSelectedPhotos with correct args", async () => {
+      vi.mocked(window.confirm).mockReturnValue(true);
+
+      render(
+        <PhotoList
+          photos={mockPhotos}
+          thumbnails={thumbnailStore}
+          imageMetadata={metadataStore}
+          visibleColumns={[{ key: "ExifIFD:DateTimeOriginal", kind: "image" }]}
+          {...defaultSortProps}
+          selectedIndex={0}
+          onSelect={() => {}}
+          onShowInExplorer={() => {}}
+          onVisibilityChange={() => {}}
+          onPhotoOpen={() => {}}
+          onSelectColumns={onSelectColumnsMock}
+          onRemoveFieldFromSelectedPhotos={onRemoveFieldMock}
+        />,
+      );
+
+      const user = userEvent.setup();
+      const rows = screen.getAllByTestId("photo-row");
+      await user.click(rows[0]);
+      await user.keyboard("{Control>}");
+      await user.click(rows[1]);
+      await user.keyboard("{/Control}");
+
+      const imageHeader = screen.getByText("ExifIFD:DateTimeOriginal");
+      await user.pointer({ keys: "[MouseRight]", target: imageHeader });
+
+      const removeOption = screen.getByText("Remove field from 2 photos…");
+      await user.click(removeOption);
+
+      expect(onRemoveFieldMock).toHaveBeenCalledWith(
+        "ExifIFD:DateTimeOriginal",
+        ["photo1.jpg", "photo2.jpg"],
+      );
+    });
+
+    it("respects draft overlays for present count", async () => {
+      vi.mocked(window.confirm).mockReturnValue(true);
+
+      // photo1 has value in metadata but Delete draft edit (effectively absent)
+      metadataStore.set("photo1.jpg", {
+        "ExifIFD:DateTimeOriginal": {
+          kind: "Text",
+          value: "2022:01:01 12:00:00",
+        },
+      });
+      // photo2 has no value in metadata but Set draft edit (effectively present)
+      metadataStore.set("photo2.jpg", {});
+
+      const draftEdits = {
+        "photo1.jpg": {
+          "ExifIFD:DateTimeOriginal": {
+            intent: "Delete" as const,
+            value: null,
+          },
+        },
+        "photo2.jpg": {
+          "ExifIFD:DateTimeOriginal": {
+            intent: "Set" as const,
+            value: { kind: "Text" as const, value: "2022:02:02 12:00:00" },
+          },
+        },
+      };
+
+      render(
+        <PhotoList
+          photos={mockPhotos}
+          thumbnails={thumbnailStore}
+          imageMetadata={metadataStore}
+          visibleColumns={[{ key: "ExifIFD:DateTimeOriginal", kind: "image" }]}
+          {...defaultSortProps}
+          selectedIndex={0}
+          onSelect={() => {}}
+          onShowInExplorer={() => {}}
+          onVisibilityChange={() => {}}
+          onPhotoOpen={() => {}}
+          onSelectColumns={onSelectColumnsMock}
+          onRemoveFieldFromSelectedPhotos={onRemoveFieldMock}
+          draftEdits={draftEdits}
+        />,
+      );
+
+      const user = userEvent.setup();
+      const rows = screen.getAllByTestId("photo-row");
+      await user.click(rows[0]);
+      await user.keyboard("{Control>}");
+      await user.click(rows[1]);
+      await user.keyboard("{/Control}");
+
+      const imageHeader = screen.getByText("ExifIFD:DateTimeOriginal");
+      await user.pointer({ keys: "[MouseRight]", target: imageHeader });
+
+      const removeOption = screen.getByText("Remove field from 2 photos…");
+      await user.click(removeOption);
+
+      expect(window.confirm).toHaveBeenCalled();
+      const confirmArg = vi.mocked(window.confirm).mock.calls[0][0];
+      // photo1: effectively absent (Delete draft)
+      // photo2: effectively present (Set draft)
+      // Total present: 1
+      expect(confirmArg).toContain(
+        "This field currently has a value on 1 selected photo.",
+      );
+    });
   });
 });
