@@ -258,6 +258,7 @@ function LoadedView({
     state.imageMetadata,
     state.draftEdits,
     state.metadataVersion,
+    metadataRemaining,
   ]);
 
   const onClickDraftSummary = useCallback(() => {
