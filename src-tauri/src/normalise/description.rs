@@ -8,11 +8,12 @@
 //!     via `IPTC:CodedCharacterSet`.
 //!
 //! Conflict policy:
-//!   1. All target sources empty → no drafts.
-//!   2. Exactly one target source non-empty → normalise + project.
-//!   3. Multiple target sources non-empty AND equal after normalise →
+//!   1. All target sources empty and no AI context → no drafts.
+//!   2. All target sources empty and AI-derived context exists → **AI description generation**.
+//!   3. Exactly one target source non-empty → normalise + project.
+//!   4. Multiple target sources non-empty AND equal after normalise →
 //!      write the normalised form.
-//!   4. Multiple target sources non-empty AND distinct → **AI merge**.
+//!   5. Multiple target sources non-empty AND distinct → **AI merge**.
 //!      No deterministic fallback — surfaces as a typed AI failure if
 //!      the AI client is absent or the call errors.
 
@@ -193,7 +194,7 @@ pub struct DescriptionOutcome {
     pub ai_usage: Option<AiCallUsage>,
     /// The canonical description string the group resolved on, regardless
     /// of whether any drafts were emitted. Populated whenever Group B
-    /// reaches a non-empty canonical (cases 2/3/4 success); `None` for
+    /// reaches a non-empty canonical (cases 2/3/4/5 success); `None` for
     /// all-empty case 1 and for AI failures.
     pub canonical: Option<String>,
 }
@@ -205,7 +206,7 @@ fn has_ai_description_generation_context(input: &DescriptionInput) -> bool {
         || input.ai_objects.iter().any(|s| !s.trim().is_empty())
 }
 
-/// Run Group B (Description) normalisation. Async because case-4 may
+/// Run Group B (Description) normalisation. Async because case-2 or case-5 may
 /// call the injected AI client.
 pub async fn normalise_description(
     input: &DescriptionInput,

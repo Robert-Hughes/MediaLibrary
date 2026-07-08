@@ -19,8 +19,8 @@
 //!
 //! The free-functions / no-state pattern keeps groups testable in
 //! isolation without spinning up a Tauri app, an HTTP client, or the
-//! draft store. AI calls (Group B description merge, Group C title
-//! generation) are deferred to v2 of the feature.
+//! draft store. AI calls (Group B description merge/generation, Group C title
+//! generation) are fully integrated.
 
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
@@ -690,7 +690,7 @@ pub struct PerGroupStats {
     /// Group emitted set-value drafts via the deterministic branches.
     pub n_normalised_deterministic: u32,
     /// Group emitted set-value drafts via the AI branch (Group B
-    /// case 4; Group C case 3). 0 for all other groups.
+    /// case 2 or case 5; Group C case 3). 0 for all other groups.
     pub n_normalised_ai: u32,
     /// Generic conflict counter — incremented whenever the group
     /// resolved disagreement by preferring the primary source over a

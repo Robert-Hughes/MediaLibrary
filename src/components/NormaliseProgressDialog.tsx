@@ -69,21 +69,21 @@ const AI_GROUPS: ReadonlySet<NormaliseGroup> = new Set([
 function groupBehaviourSummary(g: NormaliseGroup): string {
   switch (g) {
     case "keywords":
-      return "Unions existing keywords and read-only inputs (XMP-mlib:AITags, XMP-mlib:AIObjects). Normalises casing/separators, and mirrors hierarchical/flat projections. If all keyword and AI inputs are empty, no drafts.";
+      return "Writes target fields: XMP-lr:HierarchicalSubject, XMP-dc:Subject, and IPTC:Keywords. Reads read-only inputs: XMP-mlib:AITags and XMP-mlib:AIObjects. Behaviour: Unions existing keywords and AI inputs, normalises casing/separators, and mirrors hierarchical/flat projections. If all keyword and AI inputs are empty, no drafts.";
     case "creator":
-      return "Unions and deduplicates creator names preserving first-seen order. If all creator fields are empty, no drafts. No AI.";
+      return "Writes target fields: XMP-dc:Creator, IFD0:Artist, and IPTC:By-line. Behaviour: Unions and deduplicates creator names preserving first-seen order. If all creator fields are empty, no drafts. No AI.";
     case "copyright":
-      return "Picks XMP rights if present, otherwise the longest derivative copyright notice. If all copyright fields are empty, no drafts. No AI.";
+      return "Writes target fields: XMP-dc:Rights, IFD0:Copyright, and IPTC:CopyrightNotice. Behaviour: Picks XMP rights if present, otherwise the longest derivative copyright notice. If all copyright fields are empty, no drafts. No AI.";
     case "headline":
-      return "Picks photoshop headline if present, otherwise IPTC headline. If both are empty, no drafts. No AI.";
+      return "Writes target fields: XMP-photoshop:Headline and IPTC:Headline. Behaviour: Picks photoshop headline if present, otherwise IPTC headline. If both are empty, no drafts. No AI.";
     case "title":
-      return "Reads canonical Description, location, and keywords. XMP-dc:Title wins; otherwise IPTC:ObjectName wins. If both title targets are empty and Description canonical is available (including newly regenerated Description), calls AI to generate a short title. If both title targets are empty and no Description is available, no drafts.";
+      return "Writes target fields: XMP-dc:Title and IPTC:ObjectName. Reads description canonical plus keyword and location context. Behaviour: Existing XMP-dc:Title wins; otherwise IPTC:ObjectName wins. If both title targets are empty and Description canonical is available (including newly regenerated Description), calls AI to generate a short title. If both are empty and no description is available, no drafts.";
     case "location":
-      return "Synchronises XMP↔IPTC location, city, state, country, and country-code mirror pairs. Per pair, XMP wins on disagreement. No reverse-geocoding. If both sides of a pair are empty, that pair emits no drafts. No AI.";
+      return "Writes target fields: XMP-iptcCore:Location, IPTC:Sub-location, XMP-photoshop:City, IPTC:City, XMP-photoshop:State, IPTC:Province-State, XMP-photoshop:Country, IPTC:Country-PrimaryLocationName, XMP-iptcCore:CountryCode, and IPTC:Country-PrimaryLocationCode. Behaviour: Synchronises XMP↔IPTC mirror pairs; XMP side wins on disagreement. No reverse-geocoding. If both sides of a pair are empty, that pair emits no drafts. No AI.";
     case "dates":
-      return "Normalises EXIF/XMP/IPTC shutter and creation dates to ISO 8601; EXIF primary wins on conflict. Offsets and subseconds are preserved where possible. Falls back to filename matching for shutter time if all shutter-time fields are empty. No AI.";
+      return "Writes target fields: ExifIFD:DateTimeOriginal, ExifIFD:CreateDate, XMP-photoshop:DateCreated, IPTC:DateCreated, IPTC:TimeCreated, XMP-xmp:CreateDate, IPTC:DigitalCreationDate, and IPTC:DigitalCreationTime. Reads offset/subsecond fields (ExifIFD:OffsetTimeOriginal, ExifIFD:SubSecTimeOriginal, ExifIFD:OffsetTimeDigitized, ExifIFD:OffsetTime, ExifIFD:SubSecTimeDigitized) and filename fallback input. Behaviour: Normalises dates to ISO 8601; EXIF primary wins on conflict. Falls back to filename matching for shutter time if all shutter-time fields are empty. No AI.";
     case "description":
-      return "Reads read-only AI inputs (XMP-mlib:AIDescription, XMP-mlib:AIInterpretation, XMP-mlib:AIOcrText, XMP-mlib:AIObjects) and context (keywords, location, date). Calls AI to merge description targets on disagreement, or to generate from AI context when targets are empty. If no target or AI context exists, no drafts.";
+      return "Writes target fields: XMP-dc:Description, IFD0:ImageDescription, and IPTC:Caption-Abstract. Reads read-only AI inputs: XMP-mlib:AIDescription, XMP-mlib:AIInterpretation, XMP-mlib:AIOcrText, and XMP-mlib:AIObjects; and context: canonical keywords, location, and date. Behaviour: Calls AI to merge description targets on disagreement, or to generate from AI context when targets are empty. If no target or AI context exists, no drafts.";
   }
 }
 
