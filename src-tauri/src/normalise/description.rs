@@ -200,8 +200,14 @@ pub struct DescriptionOutcome {
 }
 
 fn has_ai_description_generation_context(input: &DescriptionInput) -> bool {
-    input.ai_description.as_deref().map_or(false, |s| !s.trim().is_empty())
-        || input.ai_interpretation.as_deref().map_or(false, |s| !s.trim().is_empty())
+    input
+        .ai_description
+        .as_deref()
+        .is_some_and(|s| !s.trim().is_empty())
+        || input
+            .ai_interpretation
+            .as_deref()
+            .is_some_and(|s| !s.trim().is_empty())
         || input.ai_ocr_text.iter().any(|s| !s.trim().is_empty())
         || input.ai_objects.iter().any(|s| !s.trim().is_empty())
 }
@@ -586,7 +592,10 @@ mod tests {
                 &self,
                 _: DescriptionMergePrompt,
             ) -> Result<(String, AiCallUsage), String> {
-                Ok(("Generated factual description.".into(), AiCallUsage::default()))
+                Ok((
+                    "Generated factual description.".into(),
+                    AiCallUsage::default(),
+                ))
             }
             async fn generate_title(
                 &self,
@@ -602,14 +611,23 @@ mod tests {
         let out = normalise_description(&input, Some(&MockAi)).await;
         assert!(out.ai_fired);
         assert!(out.ai_error.is_none());
-        assert_eq!(out.canonical.as_deref(), Some("Generated factual description."));
+        assert_eq!(
+            out.canonical.as_deref(),
+            Some("Generated factual description.")
+        );
         let g = out.output.unwrap();
         assert_eq!(
             lang_alt_x_default(&g, "XMP-dc:Description"),
             "Generated factual description."
         );
-        assert_eq!(text(&g, "IFD0:ImageDescription"), "Generated factual description.");
-        assert_eq!(text(&g, "IPTC:Caption-Abstract"), "Generated factual description.");
+        assert_eq!(
+            text(&g, "IFD0:ImageDescription"),
+            "Generated factual description."
+        );
+        assert_eq!(
+            text(&g, "IPTC:Caption-Abstract"),
+            "Generated factual description."
+        );
     }
 
     #[tokio::test]
