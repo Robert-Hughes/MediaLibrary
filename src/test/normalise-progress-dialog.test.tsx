@@ -408,7 +408,7 @@ describe("NormaliseProgressDialog — awaiting-confirm", () => {
       />,
     );
     expect(screen.getByTestId("normalise-cost-preview")).toHaveTextContent(
-      /4 description merges/,
+      /4 description AI calls/,
     );
     rerender(
       <NormaliseProgressDialog

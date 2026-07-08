@@ -2081,6 +2081,91 @@ mod tests_dispatcher {
         assert!(edits.contains_key("XMP-dc:Description"));
         assert!(edits.contains_key("XMP-dc:Title"));
     }
+
+    #[tokio::test]
+    async fn dispatcher_description_empty_ai_desc_present_title_empty_regen() {
+        struct MockRegenAi {
+            calls: tokio::sync::Mutex<Vec<&'static str>>,
+            canonical_desc: String,
+        }
+        #[async_trait::async_trait]
+        impl NormaliseAiClient for MockRegenAi {
+            async fn merge_description(
+                &self,
+                p: DescriptionMergePrompt,
+            ) -> Result<(String, AiCallUsage), String> {
+                assert!(p.description_sources.is_empty());
+                assert!(p.ai_context.contains_key("XMP-mlib:AIDescription"));
+                self.calls.lock().await.push("description");
+                Ok((self.canonical_desc.clone(), AiCallUsage::default()))
+            }
+            async fn generate_title(
+                &self,
+                p: TitleGenPrompt,
+            ) -> Result<(String, AiCallUsage), String> {
+                assert_eq!(p.description, self.canonical_desc);
+                self.calls.lock().await.push("title");
+                Ok(("Mock Title".into(), AiCallUsage::default()))
+            }
+        }
+        let canonical_desc = "A canonical Description".to_string();
+        let ai = MockRegenAi {
+            calls: tokio::sync::Mutex::new(Vec::new()),
+            canonical_desc: canonical_desc.clone(),
+        };
+        let item = NormaliseRequestItem {
+            rel_path: "cat.jpg".into(),
+            group_inputs: GroupInputs {
+                description: Some(DescriptionInput {
+                    description: None,
+                    image_description: None,
+                    caption_abstract: None,
+                    ai_description: Some("AIDesc: black cat".into()),
+                    ..Default::default()
+                }),
+                title: Some(TitleInput {
+                    title: None,
+                    object_name: None,
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+        };
+        let (edits, stats, err, ai_calls) = process_image(
+            &item,
+            &[NormaliseGroup::Description, NormaliseGroup::Title],
+            Some(&ai),
+            None,
+        )
+        .await;
+
+        assert!(err.is_none());
+        assert_eq!(ai.calls.lock().await.as_slice(), &["description", "title"]);
+        assert_eq!(ai_calls.len(), 2);
+
+        // Assert Description draft contains the returned canonical description
+        assert_eq!(
+            match &edits.get("XMP-dc:Description").expect("description draft").value {
+                Some(MetadataValue::LangAlt(langs)) => langs.get("x-default").unwrap().as_str(),
+                other => panic!("expected lang-alt value, got {:?}", other),
+            },
+            canonical_desc
+        );
+
+        // Assert Title draft contains the generated title
+        assert_eq!(
+            match &edits.get("XMP-dc:Title").expect("title draft").value {
+                Some(MetadataValue::LangAlt(langs)) => langs.get("x-default").unwrap().as_str(),
+                other => panic!("expected lang-alt value, got {:?}", other),
+            },
+            "Mock Title"
+        );
+
+        let desc_stats = stats.per_group.get(&NormaliseGroup::Description).unwrap();
+        assert_eq!(desc_stats.n_normalised_ai, 1);
+        let title_stats = stats.per_group.get(&NormaliseGroup::Title).unwrap();
+        assert_eq!(title_stats.n_normalised_ai, 1);
+    }
 }
 
 #[cfg(test)]
