@@ -121,9 +121,6 @@ export class ImageMetadataStore {
   private subscribers = new Map<string, Set<() => void>>();
   private globalSubscribers = new Set<ImageMetadataListener>();
 
-  // Tracks how many images have a value for each metadata key.
-  private keyFrequency = new Map<string, number>();
-
   add(path: string) {
     if (!this.data.has(path)) {
       this.data.set(path, "loading");
@@ -132,16 +129,6 @@ export class ImageMetadataStore {
   }
 
   set(path: string, value: ImageMetadataState) {
-    const old = this.data.get(path);
-
-    // Only update frequency if we're transitioning from 'loading' to actual metadata.
-    // (In our current app, metadata for a file is only set once per scan).
-    if (value && value !== "loading" && (!old || old === "loading")) {
-      for (const key of Object.keys(value)) {
-        this.keyFrequency.set(key, (this.keyFrequency.get(key) ?? 0) + 1);
-      }
-    }
-
     this.data.set(path, value);
     this.subscribers.get(path)?.forEach((cb) => cb());
     this.globalSubscribers.forEach((cb) => cb(path, value));
@@ -154,10 +141,6 @@ export class ImageMetadataStore {
 
   get(path: string): ImageMetadataState {
     return this.data.get(path) ?? "loading";
-  }
-
-  getKeyFrequency(): Map<string, number> {
-    return this.keyFrequency;
   }
 
   subscribe(path: string, callback: () => void): () => void {

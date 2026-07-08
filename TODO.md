@@ -21,6 +21,7 @@ Features
 - Combined image + metadata AI review, only if practice shows the split pipeline is weaker
   - This is the main architectural difference, but not necessarily a required gap unless results are worse.
 - Feature to fill in missing GPS location based on description/tags (which could itself have been AI-generated from the visual content). Could also be used to fix batches of photos all clustered to the exact same GPS location (e.g. by a coarse previous manual edit). e.g. 2010 london photos, or where incorrect GPS was recorded
+- Easier GPS editing (e.g. search by address or by map)
 - Map view, showing locations of all photos/heatmap over the map
 - Feature for facial/person recognition?
 - Support deletion of photos (make sure all the various in-memory stores are updated)
