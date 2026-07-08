@@ -46,6 +46,7 @@ import {
 } from "./utils/buildNormaliseItems";
 import { sortPhotos, shouldSuspendSorting } from "./utils/sorting";
 import { listSearchQueryIsActive } from "./utils/listSearchText";
+import { computeEffectiveMetadataKeyFrequency } from "./utils/metadataKeyFrequency";
 import { useSearchWorker, createSearchWorker } from "./hooks/useSearchWorker";
 import "./App.css";
 
@@ -242,6 +243,23 @@ function LoadedView({
     return filesCount > 0 ? { files: filesCount, edits: editsCount } : null;
   }, [state.draftEdits]);
 
+  const columnDialogAllKeys = useMemo(() => {
+    if (!showColumnDialog) return [];
+    return Array.from(
+      computeEffectiveMetadataKeyFrequency(
+        state.photos,
+        state.imageMetadata,
+        state.draftEdits,
+      ).entries(),
+    ).map(([key, count]) => ({ key, count }));
+  }, [
+    showColumnDialog,
+    state.photos,
+    state.imageMetadata,
+    state.draftEdits,
+    state.metadataVersion,
+  ]);
+
   const onClickDraftSummary = useCallback(() => {
     setListSearchQuery("has:edits");
   }, []);
@@ -398,9 +416,7 @@ function LoadedView({
       )}
       {showColumnDialog && (
         <ColumnSelectionDialog
-          allKeys={Array.from(
-            state.imageMetadata.getKeyFrequency().entries(),
-          ).map(([key, count]) => ({ key, count }))}
+          allKeys={columnDialogAllKeys}
           visibleColumns={state.visibleColumns}
           onSave={(cols, resetWidths) => {
             actions.setVisibleColumns(cols);

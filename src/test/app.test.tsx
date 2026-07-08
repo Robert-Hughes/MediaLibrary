@@ -1,10 +1,13 @@
 import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import App from "../App";
+import { makePhoto, mockMetadata } from "./factories";
 
 // Mock Tauri API
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(),
+  convertFileSrc: vi.fn((path: string) => path),
 }));
 
 vi.mock("@tauri-apps/api/event", () => ({
@@ -252,5 +255,104 @@ describe("App CLI folder argument", () => {
     ).length;
 
     expect(finalCallCount).toBe(initialCallCount);
+  });
+});
+
+describe("App Select Columns metadata counts", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+  });
+
+  it("shows a draft-aware effective metadata key count", async () => {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const { listen } = await import("@tauri-apps/api/event");
+    const mockInvoke = vi.mocked(invoke);
+    const mockListen = vi.mocked(listen);
+    const handlers: Record<
+      string,
+      Array<(event: { payload: unknown }) => void>
+    > = {};
+
+    mockListen.mockImplementation((event, handler) => {
+      const callback = handler as (event: { payload: unknown }) => void;
+      handlers[event] ??= [];
+      handlers[event].push(callback);
+      return Promise.resolve(() => {
+        handlers[event] = handlers[event].filter((h) => h !== callback);
+      });
+    });
+
+    const emit = (event: string, payload: unknown) => {
+      for (const handler of handlers[event] ?? []) handler({ payload });
+    };
+
+    mockInvoke.mockImplementation((cmd: string, args?: unknown) => {
+      if (cmd === "preload_schema") return Promise.resolve();
+      if (cmd === "get_cli_folder") return Promise.resolve(null);
+      if (cmd === "pick_folder") return Promise.resolve("/photos");
+      if (cmd === "load_metadata_draft_edits") {
+        return Promise.resolve({
+          "b.jpg": {
+            "XMP-dc:Title": {
+              intent: "Set",
+              value: { kind: "Text", value: "Draft title" },
+            },
+          },
+        });
+      }
+      if (cmd === "stop_scan") return Promise.resolve();
+      if (cmd === "start_scan") return Promise.resolve();
+      if (cmd === "prioritize_queues") return Promise.resolve();
+      if (cmd === "set_window_title") return Promise.resolve();
+      throw new Error(`Unexpected invoke: ${cmd} ${JSON.stringify(args)}`);
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("open-folder-btn")).toBeInTheDocument();
+    });
+
+    await userEvent.click(screen.getByTestId("open-folder-btn"));
+
+    let scanId = 0;
+    await waitFor(() => {
+      const startCall = mockInvoke.mock.calls.find(
+        ([cmd]) => cmd === "start_scan",
+      );
+      expect(startCall).toBeTruthy();
+      scanId = (startCall?.[1] as { scanId: number }).scanId;
+    });
+
+    emit("photo_found", {
+      scan_id: scanId,
+      photos: [
+        makePhoto({ relative_path: "a.jpg" }),
+        makePhoto({ relative_path: "b.jpg" }),
+      ],
+    });
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("photo-row")).toHaveLength(2);
+    });
+
+    emit("image_metadata_ready", {
+      scan_id: scanId,
+      results: [
+        {
+          relative_path: "a.jpg",
+          metadata: mockMetadata({ "XMP-dc:Title": "Committed title" }),
+        },
+        { relative_path: "b.jpg", metadata: mockMetadata({}) },
+      ],
+    });
+
+    await userEvent.click(screen.getByTestId("menu-bar-columns-btn"));
+
+    await waitFor(() => {
+      expect(screen.getByText("XMP-dc:Title")).toBeInTheDocument();
+      expect(screen.getByText("(2 files)")).toBeInTheDocument();
+    });
   });
 });
