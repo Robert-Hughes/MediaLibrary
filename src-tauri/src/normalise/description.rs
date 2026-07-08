@@ -198,6 +198,13 @@ pub struct DescriptionOutcome {
     pub canonical: Option<String>,
 }
 
+fn has_ai_description_generation_context(input: &DescriptionInput) -> bool {
+    input.ai_description.as_deref().map_or(false, |s| !s.trim().is_empty())
+        || input.ai_interpretation.as_deref().map_or(false, |s| !s.trim().is_empty())
+        || input.ai_ocr_text.iter().any(|s| !s.trim().is_empty())
+        || input.ai_objects.iter().any(|s| !s.trim().is_empty())
+}
+
 /// Run Group B (Description) normalisation. Async because case-4 may
 /// call the injected AI client.
 pub async fn normalise_description(
@@ -219,35 +226,59 @@ pub async fn normalise_description(
         .cloned()
         .collect();
 
-    if non_empty.is_empty() {
-        return DescriptionOutcome::default();
-    }
-
-    let distinct: std::collections::BTreeSet<&str> =
-        non_empty.iter().map(|(_, v)| v.as_str()).collect();
     let mut ai_usage: Option<AiCallUsage> = None;
-    let (canonical, ai_fired) = if distinct.len() == 1 {
-        (non_empty[0].1.clone(), false)
-    } else {
-        let prompt = build_description_merge_prompt(input);
-        match ai {
-            Some(client) => match client.merge_description(prompt).await {
-                Ok((merged, usage)) => {
-                    ai_usage = Some(usage);
-                    (normalise_description_text(&merged), true)
-                }
-                Err(e) => {
+    let (canonical, ai_fired) = if non_empty.is_empty() {
+        if has_ai_description_generation_context(input) {
+            let prompt = build_description_merge_prompt(input);
+            match ai {
+                Some(client) => match client.merge_description(prompt).await {
+                    Ok((merged, usage)) => {
+                        ai_usage = Some(usage);
+                        (normalise_description_text(&merged), true)
+                    }
+                    Err(e) => {
+                        return DescriptionOutcome {
+                            ai_error: Some(NormaliseAiError::from_client_string(e)),
+                            ..Default::default()
+                        };
+                    }
+                },
+                None => {
                     return DescriptionOutcome {
-                        ai_error: Some(NormaliseAiError::from_client_string(e)),
+                        ai_error: Some(NormaliseAiError::key_missing()),
                         ..Default::default()
                     };
                 }
-            },
-            None => {
-                return DescriptionOutcome {
-                    ai_error: Some(NormaliseAiError::key_missing()),
-                    ..Default::default()
-                };
+            }
+        } else {
+            return DescriptionOutcome::default();
+        }
+    } else {
+        let distinct: std::collections::BTreeSet<&str> =
+            non_empty.iter().map(|(_, v)| v.as_str()).collect();
+        if distinct.len() == 1 {
+            (non_empty[0].1.clone(), false)
+        } else {
+            let prompt = build_description_merge_prompt(input);
+            match ai {
+                Some(client) => match client.merge_description(prompt).await {
+                    Ok((merged, usage)) => {
+                        ai_usage = Some(usage);
+                        (normalise_description_text(&merged), true)
+                    }
+                    Err(e) => {
+                        return DescriptionOutcome {
+                            ai_error: Some(NormaliseAiError::from_client_string(e)),
+                            ..Default::default()
+                        };
+                    }
+                },
+                None => {
+                    return DescriptionOutcome {
+                        ai_error: Some(NormaliseAiError::key_missing()),
+                        ..Default::default()
+                    };
+                }
             }
         }
     };
@@ -533,5 +564,85 @@ mod tests {
         };
         let second = normalise_description(&post, None).await;
         assert!(second.output.is_none());
+    }
+
+    #[tokio::test]
+    async fn all_targets_empty_and_no_ai_context_returns_no_drafts() {
+        let input = DescriptionInput::default();
+        let out = normalise_description(&input, None).await;
+        assert!(out.output.is_none());
+        assert!(!out.ai_fired);
+        assert!(out.ai_error.is_none());
+        assert!(out.canonical.is_none());
+    }
+
+    #[tokio::test]
+    async fn all_targets_empty_with_ai_description_generates_description() {
+        struct MockAi;
+        #[async_trait::async_trait]
+        impl NormaliseAiClient for MockAi {
+            async fn merge_description(
+                &self,
+                _: DescriptionMergePrompt,
+            ) -> Result<(String, AiCallUsage), String> {
+                Ok(("Generated factual description.".into(), AiCallUsage::default()))
+            }
+            async fn generate_title(
+                &self,
+                _: TitleGenPrompt,
+            ) -> Result<(String, AiCallUsage), String> {
+                unreachable!()
+            }
+        }
+        let input = DescriptionInput {
+            ai_description: Some("AI-derived metadata".into()),
+            ..Default::default()
+        };
+        let out = normalise_description(&input, Some(&MockAi)).await;
+        assert!(out.ai_fired);
+        assert!(out.ai_error.is_none());
+        assert_eq!(out.canonical.as_deref(), Some("Generated factual description."));
+        let g = out.output.unwrap();
+        assert_eq!(
+            lang_alt_x_default(&g, "XMP-dc:Description"),
+            "Generated factual description."
+        );
+        assert_eq!(text(&g, "IFD0:ImageDescription"), "Generated factual description.");
+        assert_eq!(text(&g, "IPTC:Caption-Abstract"), "Generated factual description.");
+    }
+
+    #[tokio::test]
+    async fn all_targets_empty_with_ai_context_but_no_client_returns_key_missing() {
+        let input = DescriptionInput {
+            ai_description: Some("AI-derived metadata".into()),
+            ..Default::default()
+        };
+        let out = normalise_description(&input, None).await;
+        assert!(out.output.is_none());
+        assert!(!out.ai_fired);
+        let err = out.ai_error.expect("ai_error must be populated");
+        assert_eq!(err.kind, crate::batch_job::BatchFailureKind::AiKeyMissing);
+    }
+
+    #[test]
+    fn all_targets_empty_with_ai_objects_or_ocr_can_generate() {
+        let input_ocr = DescriptionInput {
+            ai_ocr_text: vec!["ocr text".into()],
+            ..Default::default()
+        };
+        assert!(has_ai_description_generation_context(&input_ocr));
+
+        let input_objects = DescriptionInput {
+            ai_objects: vec!["objects".into()],
+            ..Default::default()
+        };
+        assert!(has_ai_description_generation_context(&input_objects));
+
+        let input_empty_lists = DescriptionInput {
+            ai_ocr_text: vec![],
+            ai_objects: vec![],
+            ..Default::default()
+        };
+        assert!(!has_ai_description_generation_context(&input_empty_lists));
     }
 }

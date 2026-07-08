@@ -26,12 +26,15 @@ use crate::openai_http::OpenAiHttp;
 /// string for archaeology.
 pub const NORMALISE_PROMPT_VERSION: &str = "v1";
 
-const DESCRIPTION_SYSTEM_PROMPT: &str = "You normalise photo descriptions. \
-Merge the source descriptions into a single factual paragraph in `x-default` English. \
-Prefer concrete facts; drop marketing language and adjectives that aren't grounded in the inputs. \
-Sentence case. No trailing exclamations. \
-Use the location, keywords, and date as contextual hints to disambiguate but do not invent facts not supported by the source descriptions. \
-If the sources conflict, prefer the more specific statement.";
+const DESCRIPTION_SYSTEM_PROMPT: &str = "You generate or normalise a factual photo description for a personal media library. \
+Produce a single factual paragraph in `x-default` English. \
+Prefer existing human-authored description sources when present. \
+When no human description source is present, use AI-derived context such as `XMP-mlib:AIDescription`, `XMP-mlib:AIInterpretation`, `XMP-mlib:AIOcrText`, and `XMP-mlib:AIObjects`. \
+Use location, keywords, and date only as contextual hints. \
+Do not invent facts not supported by the supplied inputs. \
+Keep it concise, factual, sentence-cased, and non-marketing. \
+If sources conflict, prefer the more specific or better-supported statement. \
+If an interpretation field contains speculation/mood/intent, only include it if it is clearly useful and phrase it cautiously; otherwise omit it.";
 
 const TITLE_SYSTEM_PROMPT: &str = "You generate a short photo title. \
 ≤8 words. Title case. No trailing punctuation. \

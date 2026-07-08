@@ -4,11 +4,12 @@ Current
 Bugs/quirks/tweaks/improvements
 =================================
 
+- Ability to force normalisation, even if it thinks already done. This is useful for Description, if an AI Description was generated after the normal description already normalised
+- bulk remove tag for all selected photos (right click on column heading)
 
 Features
 ========
 
-- Ability to force normalisation, even if it thinks already done. This is useful for Description, if an AI Description was generated after the normal description already normalised
 - BATCHING OR FLEX for half-price API?
 - Multi-batch chaining context
   - Carry summary/context from one batch into the next, mainly for AI/geographic/theme continuity.
