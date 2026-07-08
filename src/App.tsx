@@ -359,6 +359,18 @@ function LoadedView({
         }}
         onCopyPaths={onCopyPaths}
         onSelectionCountChange={setSelectionCount}
+        onRemoveFieldFromSelectedPhotos={(tag, relPaths) => {
+          for (const relPath of relPaths) {
+            const existing = state.draftEdits[relPath]?.[tag];
+            if (existing?.intent === "Delete" && existing?.value === null) {
+              continue;
+            }
+            actions.setMetadataDraft(relPath, tag, {
+              value: null,
+              intent: "Delete",
+            });
+          }
+        }}
       />
       {state.galleryIndex !== null && displayPhotos.length > 0 && (
         <GalleryView

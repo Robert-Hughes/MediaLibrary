@@ -19,6 +19,13 @@ import {
 import { useRowSelection } from "../hooks/useRowSelection";
 import { PhotoListContextMenu } from "./PhotoListContextMenu";
 import { selectVisibleNeedingLoad } from "../utils/photoListHelpers";
+import { confirmRemoveFieldFromPhotos } from "../utils/removeFieldPrompts";
+import { metadataValueToDisplayString } from "../draft";
+
+export type ColumnContextTarget =
+  | { kind: "path"; key: "relative_path"; label: "Path" }
+  | { kind: "os"; key: string; label: string }
+  | { kind: "image"; key: string; label: string };
 
 interface Props {
   photos: PhotoInfo[];
@@ -56,6 +63,10 @@ interface Props {
   onCopyPaths?: (fileRelativePaths: string[]) => void;
   /** Notified whenever the multi-selection size changes. */
   onSelectionCountChange?: (count: number) => void;
+  onRemoveFieldFromSelectedPhotos?: (
+    tag: string,
+    relativePaths: string[],
+  ) => void;
 }
 
 const DEFAULT_PREVIEW_COL_WIDTH = 52;
@@ -124,7 +135,10 @@ interface HeaderProps {
   sortConfig: SortConfig;
   sortingDisabled?: boolean;
   dragOver: ColumnDragOver | null;
-  onColumnContextMenu: (e: React.MouseEvent) => void;
+  onColumnContextMenu: (
+    e: React.MouseEvent,
+    target: ColumnContextTarget,
+  ) => void;
   onColumnClick: (column: string, columnType: "path" | "os" | "image") => void;
   onResizeStart: (e: React.PointerEvent, col: string) => void;
   onResizeMove: (e: React.PointerEvent) => void;
@@ -196,7 +210,13 @@ function PhotoListHeader(props: HeaderProps) {
       <div
         className="grid-header grid-header--sortable grid-header--metadata"
         style={{ gridRow: "1 / 3", gridColumn: 2 }}
-        onContextMenu={onColumnContextMenu}
+        onContextMenu={(e) =>
+          onColumnContextMenu(e, {
+            kind: "path",
+            key: "relative_path",
+            label: "Path",
+          })
+        }
         onClick={() => onColumnClick("relative_path", "path")}
       >
         <span className="grid-header-kind">OS</span>
@@ -231,7 +251,13 @@ function PhotoListHeader(props: HeaderProps) {
             onDragLeave={onColDragLeave}
             onDrop={(e) => onColDrop(e, col.key)}
             onDragEnd={onColDragEnd}
-            onContextMenu={onColumnContextMenu}
+            onContextMenu={(e) =>
+              onColumnContextMenu(e, {
+                kind: col.kind,
+                key: col.key,
+                label,
+              })
+            }
             onClick={() => onColumnClick(col.key, col.kind)}
           >
             <span className="grid-header-kind">{KIND_LABELS[col.kind]}</span>
@@ -256,7 +282,6 @@ function PhotoListHeader(props: HeaderProps) {
     </>
   );
 }
-
 export function PhotoList({
   photos,
   thumbnails,
@@ -284,6 +309,7 @@ export function PhotoList({
   onNormalise,
   onCopyPaths,
   onSelectionCountChange,
+  onRemoveFieldFromSelectedPhotos,
 }: Props) {
   const listRef = useRef<HTMLDivElement>(null);
   const visibleRef = useRef<Set<string>>(new Set());
@@ -418,6 +444,53 @@ export function PhotoList({
       onSelectionCountChange,
     });
 
+  function selectedPathsForHeaderAction(): string[] {
+    const indices = Array.from(selectedIndices).sort((a, b) => a - b);
+    const effectiveIndices =
+      indices.length > 0
+        ? indices
+        : selectedIndex !== null
+          ? [selectedIndex]
+          : [];
+
+    return effectiveIndices
+      .map((i) => photos[i]?.relative_path)
+      .filter((p): p is string => typeof p === "string");
+  }
+
+  function hasEffectiveFieldValue(relPath: string, tag: string): boolean {
+    const fileDrafts = draftEdits[relPath];
+    const edit = fileDrafts?.[tag];
+    if (edit !== undefined && edit !== null) {
+      if (edit.intent === "Delete") {
+        return false;
+      }
+      if (edit.intent === "Set") {
+        if (edit.value === null) {
+          return false;
+        }
+        const displayStr =
+          edit.display ?? metadataValueToDisplayString(edit.value);
+        return displayStr !== "";
+      }
+      if (edit.intent === "ListAdd" || edit.intent === "ListRemove") {
+        if (edit.value !== null && edit.value.kind !== "Null") {
+          return true;
+        }
+      }
+    }
+
+    const meta = imageMetadata.get(relPath);
+    if (meta === "loading") {
+      return false;
+    }
+    const val = meta[tag];
+    if (val === undefined || val === null || val.kind === "Null") {
+      return false;
+    }
+    return true;
+  }
+
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
@@ -426,6 +499,7 @@ export function PhotoList({
   const [columnContextMenu, setColumnContextMenu] = useState<{
     x: number;
     y: number;
+    target: ColumnContextTarget;
   } | null>(null);
 
   const handleContextMenu = useCallback(
@@ -438,10 +512,11 @@ export function PhotoList({
   );
 
   const handleColumnContextMenu = useCallback(
-    (e: React.MouseEvent) => {
+    (e: React.MouseEvent, target: ColumnContextTarget) => {
       e.preventDefault();
+      e.stopPropagation();
       if (onSelectColumns) {
-        setColumnContextMenu({ x: e.clientX, y: e.clientY });
+        setColumnContextMenu({ x: e.clientX, y: e.clientY, target });
       }
     },
     [onSelectColumns],
@@ -607,22 +682,56 @@ export function PhotoList({
         />
       )}
 
-      {columnContextMenu && onSelectColumns && (
-        <ContextMenu
-          x={columnContextMenu.x}
-          y={columnContextMenu.y}
-          options={[
-            {
-              label: "Select Columns…",
-              onClick: () => {
-                onSelectColumns();
+      {columnContextMenu &&
+        onSelectColumns &&
+        (() => {
+          const selectedPaths = selectedPathsForHeaderAction();
+          const tag = columnContextMenu.target.key;
+          const presentCount = selectedPaths.filter((p) =>
+            hasEffectiveFieldValue(p, tag),
+          ).length;
+
+          const options = [];
+          if (
+            columnContextMenu.target.kind === "image" &&
+            onRemoveFieldFromSelectedPhotos &&
+            selectedPaths.length > 0
+          ) {
+            options.push({
+              label: `Remove field from ${selectedPaths.length} ${
+                selectedPaths.length === 1 ? "photo" : "photos"
+              }…`,
+              onClick: async () => {
+                const confirmed = await confirmRemoveFieldFromPhotos({
+                  tag,
+                  selectedCount: selectedPaths.length,
+                  presentCount,
+                });
+                if (confirmed) {
+                  onRemoveFieldFromSelectedPhotos(tag, selectedPaths);
+                }
                 setColumnContextMenu(null);
               },
+            });
+          }
+
+          options.push({
+            label: "Select Columns…",
+            onClick: () => {
+              onSelectColumns();
+              setColumnContextMenu(null);
             },
-          ]}
-          onClose={() => setColumnContextMenu(null)}
-        />
-      )}
+          });
+
+          return (
+            <ContextMenu
+              x={columnContextMenu.x}
+              y={columnContextMenu.y}
+              options={options}
+              onClose={() => setColumnContextMenu(null)}
+            />
+          );
+        })()}
     </div>
   );
 }
