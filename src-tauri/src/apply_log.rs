@@ -27,9 +27,10 @@ const LOG_FILE_NAME: &str = "MediaLibraryApplyLog.jsonl";
 ///    value can be distinguished from "the pre-write read itself failed".
 ///    v2 readers see the new field as ignorable.
 ///  - 5: canonical-only metadata values; display/raw semantic fields removed.
-const SEMANTIC_LOG_SCHEMA_VERSION: u32 = 5;
+///  - 6: added `write_diagnostic` field to capture ExifTool errors/warnings.
+const SEMANTIC_LOG_SCHEMA_VERSION: u32 = 6;
 const HEADER_COMMENT: &str =
-    "// Apply-edits audit log. Append-only. Each line is one tag's outcome from one apply. schema_version=5.";
+    "// Apply-edits audit log. Append-only. Each line is one tag's outcome from one apply. schema_version=6.";
 
 #[derive(Serialize)]
 struct MetadataApplyLogEntry<'a> {
@@ -52,6 +53,8 @@ struct MetadataApplyLogEntry<'a> {
     outcome: &'a str,
     /// Free-text error message when outcome is not Match.
     note: Option<&'a str>,
+    /// ExifTool write error or warning diagnostic (if any).
+    write_diagnostic: Option<&'a str>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -64,6 +67,7 @@ pub fn append_metadata_entries(
     observed_metadata: &std::collections::HashMap<String, MetadataValue>,
     tag_outcomes: &[MetadataTagOutcome],
     before_read_failed: bool,
+    write_diagnostic: Option<&str>,
 ) {
     let path = Path::new(folder_path).join(LOG_FILE_NAME);
     let needs_header = !path.exists();
@@ -106,6 +110,7 @@ pub fn append_metadata_entries(
             observed: observed_metadata.get(tag),
             outcome,
             note,
+            write_diagnostic,
         };
 
         match serde_json::to_string(&entry) {
@@ -249,13 +254,14 @@ mod tests {
             &after,
             &[metadata_outcome("IPTC:TimeCreated", "Match")],
             false,
+            Some("test diagnostic"),
         );
 
         let contents = std::fs::read_to_string(dir.path().join(LOG_FILE_NAME)).unwrap();
         let lines: Vec<&str> = contents.lines().collect();
         assert_eq!(lines.len(), 2, "expected header + one semantic entry");
         let entry: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
-        assert_eq!(entry["schema_version"], 5);
+        assert_eq!(entry["schema_version"], 6);
         assert_eq!(entry["intended_value"]["kind"], "Time");
         assert_eq!(
             entry["intended_value"]["value"]["offset"],
@@ -263,6 +269,7 @@ mod tests {
         );
         assert_eq!(entry["observed"]["kind"], "Time");
         assert_eq!(entry["argv"][0], "-IPTC:TimeCreated=10:56:05");
+        assert_eq!(entry["write_diagnostic"], "test diagnostic");
     }
 
     #[test]
@@ -287,10 +294,10 @@ mod tests {
         let outcomes = vec![metadata_outcome("Tag", "Match")];
 
         append_metadata_entries(
-            folder, "a.jpg", &edits, &argv, &before, &after, &outcomes, false,
+            folder, "a.jpg", &edits, &argv, &before, &after, &outcomes, false, None,
         );
         append_metadata_entries(
-            folder, "b.jpg", &edits, &argv, &before, &after, &outcomes, false,
+            folder, "b.jpg", &edits, &argv, &before, &after, &outcomes, false, None,
         );
 
         let contents = std::fs::read_to_string(dir.path().join(LOG_FILE_NAME)).unwrap();

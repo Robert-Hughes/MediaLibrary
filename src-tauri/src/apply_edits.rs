@@ -136,6 +136,7 @@ pub struct MetadataTagOutcome {
 pub struct MetadataSingleFileOutcome {
     pub fresh_metadata: Option<HashMap<String, MetadataValue>>,
     pub error: Option<String>,
+    pub warning: Option<String>,
     pub outcomes: Vec<MetadataTagOutcome>,
     pub tags_to_clear: Vec<String>,
 }
@@ -145,6 +146,7 @@ impl MetadataSingleFileOutcome {
         Self {
             fresh_metadata: None,
             error: Some(reason),
+            warning: None,
             outcomes: Vec::new(),
             tags_to_clear: Vec::new(),
         }
@@ -193,14 +195,19 @@ impl MetadataWriteClient for RealMetadataWriteClient {
     }
 }
 
-fn format_apply_error(
+struct ApplyDiagnostics {
+    error: Option<String>,
+    warning: Option<String>,
+}
+
+fn format_apply_diagnostics(
     numeric_attempted: bool,
     numeric_result: &Result<(), String>,
     text_attempted: bool,
     text_result: &Result<(), String>,
     verified_count: usize,
     total_count: usize,
-) -> Option<String> {
+) -> ApplyDiagnostics {
     let pass_info = match (
         numeric_attempted,
         numeric_result.is_ok(),
@@ -227,18 +234,27 @@ fn format_apply_error(
 
     if let Some(info) = pass_info {
         if verified_count == total_count {
-            Some(format!(
-                "{}, but all intended tags verified successfully on readback.",
-                info
-            ))
+            ApplyDiagnostics {
+                error: None,
+                warning: Some(format!(
+                    "{}, but all intended tags verified successfully on readback.",
+                    info
+                )),
+            }
         } else {
-            Some(format!(
-                "{}; post-write verification found {}/{} tags applied.",
-                info, verified_count, total_count
-            ))
+            ApplyDiagnostics {
+                error: Some(format!(
+                    "{}; post-write verification found {}/{} tags applied.",
+                    info, verified_count, total_count
+                )),
+                warning: None,
+            }
         }
     } else {
-        None
+        ApplyDiagnostics {
+            error: None,
+            warning: None,
+        }
     }
 }
 
@@ -398,11 +414,13 @@ fn apply_single_file_metadata_with_client<C: MetadataWriteClient>(
                 &HashMap::new(),
                 &tag_outcomes,
                 before_read_failed,
+                Some(&error_reason),
             );
 
             return MetadataSingleFileOutcome {
                 fresh_metadata: None,
                 error: Some(error_reason),
+                warning: None,
                 outcomes: tag_outcomes,
                 tags_to_clear: Vec::new(),
             };
@@ -459,6 +477,18 @@ fn apply_single_file_metadata_with_client<C: MetadataWriteClient>(
         });
     }
 
+    let diagnostics = format_apply_diagnostics(
+        numeric_attempted,
+        &numeric_result,
+        text_attempted,
+        &text_result,
+        tags_to_clear.len(),
+        edits.len(),
+    );
+
+    let error = diagnostics.error.clone().or(first_mismatch);
+    let warning = diagnostics.warning;
+
     crate::apply_log::append_metadata_entries(
         folder_path,
         rel_path,
@@ -468,20 +498,13 @@ fn apply_single_file_metadata_with_client<C: MetadataWriteClient>(
         &fresh_metadata,
         &tag_outcomes,
         before_read_failed,
-    );
-
-    let apply_error = format_apply_error(
-        numeric_attempted,
-        &numeric_result,
-        text_attempted,
-        &text_result,
-        tags_to_clear.len(),
-        edits.len(),
+        diagnostics.error.as_deref().or(warning.as_deref()),
     );
 
     MetadataSingleFileOutcome {
         fresh_metadata: Some(fresh_metadata),
-        error: apply_error.or(first_mismatch),
+        error,
+        warning,
         outcomes: tag_outcomes,
         tags_to_clear,
     }
@@ -1331,9 +1354,10 @@ mod tests {
         assert_eq!(outcome.tags_to_clear, vec!["XMP-xmp:Rating".to_string()]);
         assert_eq!(outcome.outcomes.len(), 1);
         assert_eq!(outcome.outcomes[0].kind, "Match");
-        let err = outcome.error.unwrap();
-        assert!(err.contains("exiftool locked"));
-        assert!(err.contains("verified successfully"));
+        assert!(outcome.error.is_none());
+        let warning = outcome.warning.unwrap();
+        assert!(warning.contains("exiftool locked"));
+        assert!(warning.contains("verified successfully"));
         assert_eq!(client.write_calls.borrow().len(), 1);
         assert!(client.write_calls.borrow()[0].0);
     }
@@ -1369,6 +1393,7 @@ mod tests {
 
         let outcome = apply_single_file_metadata_with_client(folder, "photo.jpg", &edits, &client);
         assert_eq!(outcome.tags_to_clear, vec!["XMP-xmp:Rating".to_string()]);
+        assert!(outcome.warning.is_none());
         let err = outcome.error.unwrap();
         assert!(err.contains("disk full"));
         assert!(err.contains("verification found 1/2"));
@@ -1404,9 +1429,10 @@ mod tests {
 
         let outcome = apply_single_file_metadata_with_client(folder, "photo.jpg", &edits, &client);
         assert_eq!(outcome.tags_to_clear, vec!["XMP-dc:Title".to_string()]);
-        let err = outcome.error.unwrap();
-        assert!(err.contains("minor error"));
-        assert!(err.contains("all intended tags verified successfully"));
+        assert!(outcome.error.is_none());
+        let warning = outcome.warning.unwrap();
+        assert!(warning.contains("minor error"));
+        assert!(warning.contains("all intended tags verified successfully"));
     }
 
     #[test]
@@ -1431,6 +1457,7 @@ mod tests {
         let outcome = apply_single_file_metadata_with_client(folder, "photo.jpg", &edits, &client);
         assert!(outcome.fresh_metadata.is_none());
         assert!(outcome.tags_to_clear.is_empty());
+        assert!(outcome.warning.is_none());
         let err = outcome.error.unwrap();
         assert!(err.contains("write write error"));
         assert!(err.contains("read permission denied"));
@@ -1465,11 +1492,14 @@ mod tests {
 
         let outcome = apply_single_file_metadata_with_client(folder, "photo.jpg", &edits, &client);
         assert_eq!(outcome.tags_to_clear, vec!["XMP-xmp:Rating".to_string()]);
+        assert!(outcome.error.is_none());
+        assert!(outcome.warning.is_some());
 
         let log_path = dir.path().join("MediaLibraryApplyLog.jsonl");
         assert!(log_path.exists());
         let log_contents = std::fs::read_to_string(log_path).unwrap();
         assert!(log_contents.contains("XMP-xmp:Rating"));
         assert!(log_contents.contains("Match"));
+        assert!(log_contents.contains("partial fail"));
     }
 }
