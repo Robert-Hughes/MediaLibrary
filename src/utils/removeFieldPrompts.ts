@@ -1,3 +1,5 @@
+import { ask } from "@tauri-apps/plugin-dialog";
+
 export interface ConfirmRemoveFieldArgs {
   tag: string;
   photoCount: number;
@@ -13,17 +15,17 @@ export async function confirmRemoveFieldFromPhotos({
 }: ConfirmRemoveFieldArgs): Promise<boolean> {
   const photoNoun = photoCount === 1 ? "photo" : "photos";
 
-  if (scope === "all") {
-    return window.confirm(
-      `Stage removal of ${tag} from all ${photoCount} ${photoNoun} in the current list?\n\n` +
+  const message =
+    scope === "all"
+      ? `Stage removal of ${tag} from all ${photoCount} ${photoNoun} in the current list?\n\n` +
         `This field currently has a value on ${presentCount} of those photos.\n\n` +
-        `This will create pending delete edits only. Nothing will be written to the files until you apply edits.`,
-    );
-  } else {
-    return window.confirm(
-      `Stage removal of ${tag} from ${photoCount} selected ${photoNoun}?\n\n` +
+        `This will create pending delete edits only. Nothing will be written to the files until you apply edits.`
+      : `Stage removal of ${tag} from ${photoCount} selected ${photoNoun}?\n\n` +
         `This field currently has a value on ${presentCount} of those photos.\n\n` +
-        `This will create pending delete edits only. Nothing will be written to the files until you apply edits.`,
-    );
-  }
+        `This will create pending delete edits only. Nothing will be written to the files until you apply edits.`;
+
+  return ask(message, {
+    title: "Remove Field",
+    kind: "warning",
+  });
 }
