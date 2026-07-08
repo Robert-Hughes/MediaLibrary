@@ -5,7 +5,7 @@
 //! - **Description merge/generation** (Group B case-2 and case-5): combine 2+ distinct
 //!   description sources or generate from AI-derived context (when targets are empty)
 //!   into a single factual paragraph, with location / keywords / date context to disambiguate.
-//! - **Title generation** (Group C case-4): generate a short title-cased
+//! - **Title generation** (Group C case-3): generate a short title-cased
 //!   phrase from the canonical description + context.
 //!
 //! Both calls hit `/responses` with `text.format: { type: "json_schema" }`

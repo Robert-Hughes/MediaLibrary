@@ -122,7 +122,7 @@ pub struct TitleGenPrompt {
 /// `OpenAiNormaliseClient` (see `openai_normalise.rs`).
 #[async_trait::async_trait]
 pub trait NormaliseAiClient: Send + Sync {
-    /// Returns the canonical merged description plus per-call token
+    /// Returns the canonical merged/generated Description plus per-call token
     /// usage. Errors are surfaced to the caller and turned into
     /// per-image failure rows.
     async fn merge_description(

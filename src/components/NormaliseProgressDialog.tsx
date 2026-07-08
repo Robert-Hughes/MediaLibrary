@@ -242,7 +242,7 @@ function CostPreview({
         }}
         data-testid="normalise-cost-preview"
       >
-        AI calls required ({cost.descriptionCalls} description merge,{" "}
+        AI calls required ({cost.descriptionCalls} description AI call,{" "}
         {cost.titleCalls} title gen) but no OpenAI key is configured — open
         Settings to enter your key before normalising.
       </div>
@@ -256,7 +256,7 @@ function CostPreview({
       AI calls required with model <code>{cost.model}</code>:
       <ul style={{ marginTop: 4, paddingLeft: 18 }}>
         {cost.descriptionCalls > 0 && (
-          <li>{cost.descriptionCalls} description merges</li>
+          <li>{cost.descriptionCalls} description AI calls</li>
         )}
         {cost.titleCalls > 0 && <li>{cost.titleCalls} title generations</li>}
       </ul>
