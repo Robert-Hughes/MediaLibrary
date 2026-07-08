@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import App from "../App";
@@ -354,5 +354,136 @@ describe("App Select Columns metadata counts", () => {
       expect(screen.getByText("XMP-dc:Title")).toBeInTheDocument();
       expect(screen.getByText("(2 files)")).toBeInTheDocument();
     });
+  });
+
+  it("updates Select Columns counts while the dialog is open and streaming metadata arrives", async () => {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const { listen } = await import("@tauri-apps/api/event");
+    const mockInvoke = vi.mocked(invoke);
+    const mockListen = vi.mocked(listen);
+    const handlers: Record<
+      string,
+      Array<(event: { payload: unknown }) => void>
+    > = {};
+
+    mockListen.mockImplementation((event, handler) => {
+      const callback = handler as (event: { payload: unknown }) => void;
+      handlers[event] ??= [];
+      handlers[event].push(callback);
+      return Promise.resolve(() => {
+        handlers[event] = handlers[event].filter((h) => h !== callback);
+      });
+    });
+
+    const emit = (event: string, payload: unknown) => {
+      for (const handler of handlers[event] ?? []) handler({ payload });
+    };
+
+    mockInvoke.mockImplementation((cmd: string, args?: unknown) => {
+      if (cmd === "preload_schema") return Promise.resolve();
+      if (cmd === "get_cli_folder") return Promise.resolve(null);
+      if (cmd === "pick_folder") return Promise.resolve("/photos");
+      if (cmd === "load_metadata_draft_edits") {
+        return Promise.resolve({});
+      }
+      if (cmd === "stop_scan") return Promise.resolve();
+      if (cmd === "start_scan") return Promise.resolve();
+      if (cmd === "prioritize_queues") return Promise.resolve();
+      if (cmd === "set_window_title") return Promise.resolve();
+      throw new Error(`Unexpected invoke: ${cmd} ${JSON.stringify(args)}`);
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("open-folder-btn")).toBeInTheDocument();
+    });
+
+    await userEvent.click(screen.getByTestId("open-folder-btn"));
+
+    let scanId = 0;
+    await waitFor(() => {
+      const startCall = mockInvoke.mock.calls.find(
+        ([cmd]) => cmd === "start_scan",
+      );
+      expect(startCall).toBeTruthy();
+      scanId = (startCall?.[1] as { scanId: number }).scanId;
+    });
+
+    // 1. Load/open a folder with two photos.
+    act(() => {
+      emit("photo_found", {
+        scan_id: scanId,
+        photos: [
+          makePhoto({ relative_path: "a.jpg" }),
+          makePhoto({ relative_path: "b.jpg" }),
+        ],
+      });
+    });
+
+    await waitFor(
+      () => {
+        expect(screen.getAllByTestId("photo-row")).toHaveLength(2);
+      },
+      { timeout: 10000 },
+    );
+
+    // 2. Open Select Columns before emitting any `image_metadata_ready` event.
+    await userEvent.click(screen.getByTestId("menu-bar-columns-btn"));
+
+    // 3. Confirm `XMP-dc:Title` is not shown or has no count yet.
+    await waitFor(
+      () => {
+        expect(screen.getByText("Select Columns")).toBeInTheDocument();
+      },
+      { timeout: 10000 },
+    );
+    expect(screen.queryByText("XMP-dc:Title")).not.toBeInTheDocument();
+
+    // 4. Emit an `image_metadata_ready` event for one photo containing `XMP-dc:Title`.
+    act(() => {
+      emit("image_metadata_ready", {
+        scan_id: scanId,
+        results: [
+          {
+            relative_path: "a.jpg",
+            metadata: mockMetadata({ "XMP-dc:Title": "Title A" }),
+          },
+        ],
+      });
+    });
+
+    // 5. Wait for the UI to update.
+    // 6. Assert `XMP-dc:Title` appears with `(1 files)`.
+    await waitFor(
+      () => {
+        expect(screen.getByText("XMP-dc:Title")).toBeInTheDocument();
+        expect(screen.getByText("(1 files)")).toBeInTheDocument();
+      },
+      { timeout: 10000 },
+    );
+
+    // 7. Emit another `image_metadata_ready` event or batch for the second photo also containing `XMP-dc:Title`.
+    act(() => {
+      emit("image_metadata_ready", {
+        scan_id: scanId,
+        results: [
+          {
+            relative_path: "b.jpg",
+            metadata: mockMetadata({ "XMP-dc:Title": "Title B" }),
+          },
+        ],
+      });
+    });
+
+    // 8. Wait for the UI to update.
+    // 9. Assert the count changes to `(2 files)` while the dialog is still open.
+    await waitFor(
+      () => {
+        expect(screen.getByText("XMP-dc:Title")).toBeInTheDocument();
+        expect(screen.getByText("(2 files)")).toBeInTheDocument();
+      },
+      { timeout: 10000 },
+    );
   });
 });
