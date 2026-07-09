@@ -443,7 +443,7 @@ export function createMockTauriApi(): MockTauriApi {
         // synchronous emit can happen before listen() resolves and the
         // dialog never advances.
         const total = relPaths.length;
-        await new Promise((r) => setTimeout(r, 0));
+        await Promise.resolve();
         emit("describe_estimate_started", { total });
         for (let i = 0; i < total; i++) {
           const tokens = mock.estimateTokenSchedule[i] ?? 1000;
@@ -463,7 +463,7 @@ export function createMockTauriApi(): MockTauriApi {
         const relPaths = (args?.relPaths as string[]) ?? [];
         mock.lastDescribeArgs = { folderPath, relPaths };
         const total = relPaths.length;
-        await new Promise((r) => setTimeout(r, 0));
+        await Promise.resolve();
         emit("describe_started", { total });
         const succeeded: string[] = [];
         const failed: Array<{
@@ -514,7 +514,7 @@ export function createMockTauriApi(): MockTauriApi {
           }>) ?? [];
         mock.lastGeocodeArgs = { folderPath, items };
         const total = items.length;
-        await new Promise((r) => setTimeout(r, 0));
+        await Promise.resolve();
         emit("geocode_started", { total });
         const succeeded: string[] = [];
         const failed: Array<{
@@ -563,7 +563,7 @@ export function createMockTauriApi(): MockTauriApi {
         const items = (args?.items as Array<{ relPath: string }>) ?? [];
         const enabledGroups = (args?.enabledGroups as string[]) ?? [];
         const total = items.length;
-        await new Promise((r) => setTimeout(r, 0));
+        await Promise.resolve();
         emit("normalise_estimate_started", { total });
         const wantsAi =
           enabledGroups.includes("description") ||
@@ -617,7 +617,7 @@ export function createMockTauriApi(): MockTauriApi {
         const enabledGroups = (args?.enabledGroups as string[]) ?? [];
         mock.lastNormaliseArgs = { folderPath, items, enabledGroups };
         const total = items.length;
-        await new Promise((r) => setTimeout(r, 0));
+        await Promise.resolve();
         emit("normalise_started", { total });
         const succeeded: string[] = [];
         const failed: Array<{
