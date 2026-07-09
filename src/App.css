@@ -1175,6 +1175,27 @@ body {
   border-radius: 8px;
   overflow: hidden;
   background: var(--surface-alt);
+  user-select: none;
+  cursor: default;
+}
+
+.gps-map,
+.gps-map * {
+  user-select: none;
+}
+
+.gps-map.leaflet-container,
+.gps-map .leaflet-container,
+.gps-map .leaflet-grab,
+.gps-map .leaflet-dragging,
+.gps-map .leaflet-interactive,
+.gps-map a {
+  cursor: default !important;
+}
+
+.gps-map a {
+  pointer-events: none;
+  text-decoration: none;
 }
 
 .gps-map-marker {

@@ -32,8 +32,10 @@ export function GpsMap({ lat, lon }: GpsMapProps) {
       doubleClickZoom: false,
       boxZoom: false,
       keyboard: false,
+      touchZoom: false,
+      tap: false,
       attributionControl: true,
-    });
+    } as L.MapOptions & { tap?: boolean });
 
     L.tileLayer(OSM_TILE_URL, {
       maxZoom: 19,
@@ -46,9 +48,13 @@ export function GpsMap({ lat, lon }: GpsMapProps) {
     );
     mapRef.current = map;
 
-    window.setTimeout(() => map.invalidateSize(), 0);
+    const invalidateSizeTimeout = window.setTimeout(
+      () => map.invalidateSize(),
+      0,
+    );
 
     return () => {
+      window.clearTimeout(invalidateSizeTimeout);
       map.remove();
       mapRef.current = null;
       markerRef.current = null;
