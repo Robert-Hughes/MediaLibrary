@@ -923,6 +923,7 @@ export interface ApplyEditsProgressPayload {
   relative_path: string;
   applied: boolean;
   error: string | null;
+  warning?: string | null;
   fresh_metadata: Record<string, MetadataValue> | null;
   /**
    * Per-tag verification outcomes (Phase 8.1).  The Rust side prunes

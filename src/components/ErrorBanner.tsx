@@ -20,6 +20,8 @@ export function ErrorBanner({ errors, onDismiss }: Props) {
                 {error.worker_type === "thumbnail" &&
                   "Thumbnail Generation Error"}
                 {error.worker_type === "scanner" && "Scanning Error"}
+                {error.worker_type === "apply" && "Apply Error"}
+                {error.worker_type === "apply-warning" && "Apply Warning"}
               </div>
               <div className="error-banner-message">{error.error_message}</div>
               {error.affected_files.length > 0 && (

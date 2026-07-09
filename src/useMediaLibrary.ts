@@ -1003,7 +1003,7 @@ function handleApplyEditsProgress(
     let newErrors = prev.workerErrors;
     if (payload.error) {
       newErrors = [
-        ...prev.workerErrors,
+        ...newErrors,
         {
           scan_id: -1,
           worker_type: "apply",
@@ -1011,9 +1011,20 @@ function handleApplyEditsProgress(
           affected_files: [payload.relative_path],
         },
       ];
-      if (newErrors.length > MAX_WORKER_ERRORS) {
-        newErrors = newErrors.slice(newErrors.length - MAX_WORKER_ERRORS);
-      }
+    }
+    if (payload.warning) {
+      newErrors = [
+        ...newErrors,
+        {
+          scan_id: -1,
+          worker_type: "apply-warning",
+          error_message: payload.warning,
+          affected_files: [payload.relative_path],
+        },
+      ];
+    }
+    if (newErrors.length > MAX_WORKER_ERRORS) {
+      newErrors = newErrors.slice(newErrors.length - MAX_WORKER_ERRORS);
     }
 
     const applying = prev.applying
