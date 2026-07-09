@@ -114,7 +114,7 @@ if (typeof Worker === "undefined") {
         case "QUERY": {
           const id = msg.id as number;
           const r = this.index.query(msg.query as string);
-          setTimeout(() => {
+          queueMicrotask(() => {
             this.onmessage?.({
               data: {
                 type: "RESULT",
@@ -123,7 +123,7 @@ if (typeof Worker === "undefined") {
                 hasEditsFilter: r.hasEditsFilter,
               },
             });
-          }, 0);
+          });
           return;
         }
       }
