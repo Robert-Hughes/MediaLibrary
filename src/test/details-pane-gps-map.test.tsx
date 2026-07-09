@@ -199,19 +199,19 @@ describe("GpsMapOverview component", () => {
     // Verify World map
     expect(maps[0].getAttribute("data-lat")).toBe("34.0522");
     expect(maps[0].getAttribute("data-lon")).toBe("-118.2437");
-    expect(maps[0].getAttribute("data-zoom")).toBe("3");
+    expect(maps[0].getAttribute("data-zoom")).toBe("1");
     expect(maps[0].getAttribute("data-show-attribution")).toBe("false");
 
     // Verify Country map
     expect(maps[1].getAttribute("data-lat")).toBe("34.0522");
     expect(maps[1].getAttribute("data-lon")).toBe("-118.2437");
-    expect(maps[1].getAttribute("data-zoom")).toBe("6");
+    expect(maps[1].getAttribute("data-zoom")).toBe("4");
     expect(maps[1].getAttribute("data-show-attribution")).toBe("false");
 
     // Verify City map
     expect(maps[2].getAttribute("data-lat")).toBe("34.0522");
     expect(maps[2].getAttribute("data-lon")).toBe("-118.2437");
-    expect(maps[2].getAttribute("data-zoom")).toBe("10");
+    expect(maps[2].getAttribute("data-zoom")).toBe("8");
     expect(maps[2].getAttribute("data-show-attribution")).toBe("false");
 
     // Verify Local map
