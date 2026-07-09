@@ -231,6 +231,7 @@ describe("TypedValueEditor GPS routing", () => {
         onSaveMetadata={() => {}}
         onSaveMetadataBatch={() => {}}
         onCancel={() => {}}
+        editorMode="gps"
       />,
     );
 
@@ -273,6 +274,7 @@ describe("TypedValueEditor GPS routing", () => {
         onSaveMetadata={() => {}}
         onSaveMetadataBatch={() => {}}
         onCancel={() => {}}
+        editorMode="gps"
       />,
     );
 

@@ -25,15 +25,15 @@ export interface GpsTagGroup {
 
 /**
  * Given a key like `GPS:GPSLatitude`, `XMP-exif:GPSLongitude`, or
- * `GPS:GPSAltitude`, return the paired-tag group covering the same
- * coordinate triple.  Returns `null` if the key isn't a GPS coord.  The
- * Ref-suffix variants (`GPSLatitudeRef`, `GPSAltitudeRef`, …) are
- * intentionally excluded so editing the Ref directly falls through to the
- * schema router rather than bouncing into the GPS composite editor.
+ * `GPS:GPSAltitude` (including their Ref variants), return the paired-tag group
+ * covering the same coordinate triple. Returns `null` if the key isn't a GPS coord.
  */
-export function gpsTagGroup(key: string): GpsTagGroup | null {
-  const m = key.match(/^([\w-]+):(GPS(?:Latitude|Longitude|Altitude))(?!Ref)$/);
+export function gpsMemberGroup(key: string): GpsTagGroup | null {
+  const m = key.match(
+    /^([\w-]+):(GPS(?:Latitude|Longitude|Altitude)(?:Ref)?)$/,
+  );
   if (!m) return null;
+
   const [, group] = m;
   return {
     latitudeKey: `${group}:GPSLatitude`,

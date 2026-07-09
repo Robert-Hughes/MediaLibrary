@@ -5,11 +5,11 @@ import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { GpsEditor } from "../components/editors/GpsEditor";
 import {
-  gpsGroupFor,
   parseDecimalDegrees,
   parseHemisphere,
   decimalToDms,
 } from "../components/editors/editorHelpers";
+import { gpsMemberGroup } from "../metadata/tag_overrides";
 
 const exampleGroup = {
   latitudeKey: "GPS:GPSLatitude",
@@ -177,25 +177,37 @@ describe("GpsEditor", () => {
   });
 });
 
-describe("gpsGroupFor", () => {
-  it("matches GPS:GPSLatitude / GPSLongitude", () => {
-    expect(gpsGroupFor("GPS:GPSLatitude")).toEqual(exampleGroup);
-    expect(gpsGroupFor("GPS:GPSLongitude")).toEqual(exampleGroup);
+describe("gpsMemberGroup", () => {
+  it("matches all six GPS fields under GPS: prefix", () => {
+    const fields = [
+      "GPS:GPSLatitude",
+      "GPS:GPSLatitudeRef",
+      "GPS:GPSLongitude",
+      "GPS:GPSLongitudeRef",
+      "GPS:GPSAltitude",
+      "GPS:GPSAltitudeRef",
+    ];
+    for (const field of fields) {
+      expect(gpsMemberGroup(field)).toEqual(exampleGroup);
+    }
   });
 
   it("matches XMP-exif prefix", () => {
-    const g = gpsGroupFor("XMP-exif:GPSLatitude");
+    const g = gpsMemberGroup("XMP-exif:GPSLatitudeRef");
+    expect(g).toBeDefined();
     expect(g?.latitudeKey).toBe("XMP-exif:GPSLatitude");
+    expect(g?.latitudeRefKey).toBe("XMP-exif:GPSLatitudeRef");
+    expect(g?.longitudeKey).toBe("XMP-exif:GPSLongitude");
     expect(g?.longitudeRefKey).toBe("XMP-exif:GPSLongitudeRef");
+    expect(g?.altitudeKey).toBe("XMP-exif:GPSAltitude");
+    expect(g?.altitudeRefKey).toBe("XMP-exif:GPSAltitudeRef");
   });
 
-  it("does not match Ref tags", () => {
-    expect(gpsGroupFor("GPS:GPSLatitudeRef")).toBeNull();
-  });
-
-  it("does not match non-GPS tags", () => {
-    expect(gpsGroupFor("XMP-dc:Subject")).toBeNull();
-    expect(gpsGroupFor("plain")).toBeNull();
+  it("does not match unrelated tags", () => {
+    expect(gpsMemberGroup("GPS:GPSVersionID")).toBeNull();
+    expect(gpsMemberGroup("GPS:GPSMapDatum")).toBeNull();
+    expect(gpsMemberGroup("XMP-dc:Subject")).toBeNull();
+    expect(gpsMemberGroup("plain")).toBeNull();
   });
 });
 

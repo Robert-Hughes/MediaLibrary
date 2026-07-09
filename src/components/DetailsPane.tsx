@@ -11,6 +11,7 @@ import { ContextMenu } from "./ContextMenu";
 import { TypedValueEditor } from "./editors/TypedValueEditor";
 import { useTagInfo } from "../hooks/useTagInfo";
 import { DatatypeBadge } from "./DatatypeBadge";
+import { gpsMemberGroup } from "../metadata/tag_overrides";
 import {
   schemaDatatype,
   metadataEntryDatatype,
@@ -295,6 +296,7 @@ function DetailsImageRow({
 function DetailsRowContextMenu({
   contextMenu,
   onEdit,
+  onEditGps,
   onDiscard,
   onRemove,
   onClose,
@@ -307,14 +309,23 @@ function DetailsRowContextMenu({
     draftValue?: string | null;
   };
   onEdit: () => void;
+  onEditGps?: () => void;
   onDiscard: () => void;
   onRemove: () => void;
   onClose: () => void;
 }) {
   const tag = useTagInfo(contextMenu.key);
   const readOnly = tag !== null && tag !== "loading" && !tag.writable;
+  const gpsGroup = gpsMemberGroup(contextMenu.key);
   const options = [
-    ...(readOnly ? [] : [{ label: "Edit…", onClick: onEdit }]),
+    ...(readOnly
+      ? []
+      : [
+          { label: "Edit…", onClick: onEdit },
+          ...(gpsGroup && onEditGps
+            ? [{ label: "Edit GPS…", onClick: onEditGps }]
+            : []),
+        ]),
     ...(contextMenu.draftValue !== undefined
       ? [{ label: "Discard edit", onClick: onDiscard }]
       : []),
@@ -376,6 +387,7 @@ export function DetailsPane({
   const [editDialog, setEditDialog] = useState<{
     key: string;
     initialValue: string;
+    mode: "single" | "gps";
   } | null>(null);
   const [showNewPropertyDialog, setShowNewPropertyDialog] = useState(false);
   // Stage 2 of the new-property flow: key picked, now show a TypedValueEditor
@@ -740,6 +752,19 @@ export function DetailsPane({
                 contextMenu.draftValue !== null
                   ? contextMenu.draftValue
                   : contextMenu.originalValue,
+              mode: "single",
+            });
+            setContextMenu(null);
+          }}
+          onEditGps={() => {
+            setEditDialog({
+              key: contextMenu.key,
+              initialValue:
+                contextMenu.draftValue !== undefined &&
+                contextMenu.draftValue !== null
+                  ? contextMenu.draftValue
+                  : contextMenu.originalValue,
+              mode: "gps",
             });
             setContextMenu(null);
           }}
@@ -768,6 +793,7 @@ export function DetailsPane({
       {editDialog && (
         <TypedValueEditor
           propertyKey={editDialog.key}
+          editorMode={editDialog.mode}
           initialMetadataValue={(() => {
             // Prefer the typed draft MetadataValue when one is already pending —
             // otherwise an editor that consults the raw value (notably
@@ -818,6 +844,7 @@ export function DetailsPane({
       {newPropertyKey !== null && (
         <TypedValueEditor
           propertyKey={newPropertyKey}
+          editorMode="single"
           initialMetadataValue={undefined}
           initialString=""
           metadataForFile={

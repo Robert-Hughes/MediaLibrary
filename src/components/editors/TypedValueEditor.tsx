@@ -52,7 +52,7 @@ import {
   initialItemsFromMetadataValue,
 } from "./editorHelpers";
 
-import { gpsTagGroup, isFlashTag } from "../../metadata/tag_overrides";
+import { gpsMemberGroup, isFlashTag } from "../../metadata/tag_overrides";
 import { EditorMetaHint, type EditorMetaSource } from "./EditorMetaHint";
 
 interface Props {
@@ -66,6 +66,7 @@ interface Props {
     edits: Array<{ key: string; edit: MetadataDraftEdit }>,
   ) => void;
   onCancel: () => void;
+  editorMode?: "single" | "gps";
 }
 
 /** Returns the inner BagInnerKind if `kind` is a Bag or Seq whose inner
@@ -99,6 +100,7 @@ export function TypedValueEditor({
   onSaveMetadata,
   onSaveMetadataBatch,
   onCancel,
+  editorMode = "single",
 }: Props) {
   const tag = useTagInfo(propertyKey);
   const readOnly = tag !== null && tag !== "loading" && !tag.writable;
@@ -144,7 +146,10 @@ export function TypedValueEditor({
 
   // ── Override 2: GPS composite editor (writable only with paired-batch save). ─
   const saveMetadataBatch = onSaveMetadataBatch;
-  const gpsGroup = saveMetadataBatch ? gpsTagGroup(propertyKey) : null;
+  const gpsGroup =
+    editorMode === "gps" && saveMetadataBatch
+      ? gpsMemberGroup(propertyKey)
+      : null;
   if (gpsGroup && metadataForFile && saveMetadataBatch) {
     const latVal = metadataForFile[gpsGroup.latitudeKey];
     const lonVal = metadataForFile[gpsGroup.longitudeKey];
