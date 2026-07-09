@@ -1,11 +1,27 @@
 Current
 =======
 
+- Use (interactive) OSM iframe/API to show GPS location
+  - In GPS editor UI, along with clicking to overwrite with that location for editing
+  - In Details pane next to the GPS section?
+  - Select a bunch of photos, right click, "show on Map" opens map popup with pins/thumbnails for each photo
+- Add bulk tag editor
+  - Choose a tag name
+  - Choose Overwrite/Delete/Update
+  - Choose further options like new value, add or remove from set etc.
+  - Use existing editors/routing
+  - Composite editors like GPS?
+- 2010 folder (and possibly others)
+  - Remove all description/title/keywords fields so can be regenerated
+  - Remove wrong GPS data (coords + the lower-level geocoded fields, leave higher-level London, UK etc.) from photos (several different clusters)
+    - Could manually set rough locations in string fields e.g. using bulk tag editor
+  - AI Description on all photos that don't have it
+  - Normalise for everything
+
 Bugs/quirks/tweaks/improvements
 =================================
 
-- Ability to force normalisation, even if it thinks already done. This is useful for Description, if an AI Description was generated after the normal description already normalised
-- bulk remove tag for all selected photos (right click on column heading)
+- Some image thumbnails are rotated
 
 Features
 ========
