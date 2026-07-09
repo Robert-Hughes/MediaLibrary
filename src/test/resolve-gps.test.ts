@@ -1,3 +1,4 @@
+// @vitest-environment node
 /**
  * Unit tests for the GPS resolver used by the reverse-geocode flow.
  *

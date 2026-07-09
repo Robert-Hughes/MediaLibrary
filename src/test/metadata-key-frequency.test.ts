@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { ImageMetadataStore } from "../types";
 import type { MetadataDraftEditsByFile, MetadataDraftEdit } from "../types";

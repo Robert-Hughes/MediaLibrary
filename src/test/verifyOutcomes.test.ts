@@ -1,3 +1,4 @@
+// @vitest-environment node
 /**
  * Unit tests for the verifyOutcomes reducer helpers extracted from
  * useMediaLibrary's apply_metadata_edits_progress handler.
