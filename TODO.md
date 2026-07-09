@@ -11,6 +11,7 @@ Current
   - Choose further options like new value, add or remove from set etc.
   - Use existing editors/routing
   - Composite editors like GPS?
+  - remove right click option on the headers once we have this
 - 2010 folder (and possibly others)
   - Remove all description/title/keywords fields so can be regenerated
   - Remove wrong GPS data (coords + the lower-level geocoded fields, leave higher-level London, UK etc.) from photos (several different clusters)
