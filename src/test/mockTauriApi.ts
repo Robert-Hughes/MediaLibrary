@@ -84,6 +84,7 @@ export interface MockTauriApi {
     total: number;
     relative_path: string;
   }>;
+  warningsByPath: Record<string, string>;
   cancelApplyEditsCalled: boolean;
   /** Stored settings; defaults to empty API key + gpt-4o + heuristic estimates. */
   settings: {
@@ -246,6 +247,7 @@ export function createMockTauriApi(): MockTauriApi {
     applyEditsResult: { applied: [], failed: [], fresh_metadata: {} },
     applyEditsProgressGate: null,
     applyProgressEvents: [],
+    warningsByPath: {},
     cancelApplyEditsCalled: false,
     settings: {
       openai_api_key: "",
@@ -381,6 +383,7 @@ export function createMockTauriApi(): MockTauriApi {
             relative_path: path,
             applied: isApplied,
             error: failedEntry ? failedEntry.reason : null,
+            warning: mock.warningsByPath[path] ?? null,
             fresh_metadata: result.fresh_metadata[path] ?? null,
             tag_outcomes: isApplied
               ? mockTagOutcomesForPath(mock, folder, path)

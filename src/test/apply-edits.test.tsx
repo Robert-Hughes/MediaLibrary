@@ -646,3 +646,183 @@ describe("Apply Draft Edits – Failure handling", () => {
     expect(screen.getByTestId("status-bar-apply-all-btn")).toBeInTheDocument();
   });
 });
+
+describe("Apply Draft Edits – Warning and Success-with-Warning handling", () => {
+  beforeEach(() => {
+    mockApiInstance = createMockTauriApi();
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+    vi.resetModules();
+  });
+
+  it("Apply warning is displayed and does not count as failure", async () => {
+    const photo = makePhoto({ relative_path: "test.jpg" });
+    await seedDraftEdit(photo);
+
+    mockApiInstance.applyEditsResult = {
+      applied: [photo.relative_path],
+      failed: [],
+      fresh_metadata: {
+        [photo.relative_path]: {
+          "XMP-dc:Description": { kind: "Text", value: "Applied value" },
+        },
+      },
+    };
+    mockApiInstance.warningsByPath = {
+      [photo.relative_path]: "ExifTool warning message",
+    };
+
+    const gate = createApplyEditsProgressGate();
+    mockApiInstance.applyEditsProgressGate = gate;
+
+    const { user } = await openFolderWithPhoto(photo);
+    await user.click(screen.getByTestId("status-bar-apply-all-btn"));
+
+    // Wait for progress dialog to appear
+    await waitFor(() => {
+      expect(screen.getByTestId("apply-progress-dialog")).toBeInTheDocument();
+    });
+
+    // Check that failureCount is 0 / not incremented in progress dialog
+    expect(screen.getByTestId("apply-progress-count")).not.toHaveTextContent(
+      "failed",
+    );
+
+    // Advance the progress gate to finish the apply
+    await act(async () => {
+      gate.advance();
+    });
+
+    // Wait for progress dialog to close
+    await waitFor(() => {
+      expect(
+        screen.queryByTestId("apply-progress-dialog"),
+      ).not.toBeInTheDocument();
+    });
+
+    // Verify warning is displayed in ErrorBanner
+    expect(screen.getByText(/ExifTool warning message/)).toBeInTheDocument();
+    expect(screen.getByText("Apply Warning")).toBeInTheDocument();
+
+    // Verify draft edits are pruned (applied drafts removed) because warning counts as success
+    expect(
+      screen.queryByTestId("status-bar-apply-all-btn"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("Mixed batch: one warning, one error, one clean success", async () => {
+    const photo1 = makePhoto({ relative_path: "a.jpg" });
+    const photo2 = makePhoto({ relative_path: "b.jpg" });
+    const photo3 = makePhoto({ relative_path: "c.jpg" });
+
+    mockApiInstance.draftEditsByFolder["/photos"] = {
+      "a.jpg": {
+        "XMP-dc:Description": {
+          value: { kind: "Text", value: "Draft A" },
+          intent: "Set",
+        },
+      },
+      "b.jpg": {
+        "XMP-dc:Description": {
+          value: { kind: "Text", value: "Draft B" },
+          intent: "Set",
+        },
+      },
+      "c.jpg": {
+        "XMP-dc:Description": {
+          value: { kind: "Text", value: "Draft C" },
+          intent: "Set",
+        },
+      },
+    };
+
+    // a.jpg: success with warning
+    // b.jpg: error
+    // c.jpg: clean success
+    mockApiInstance.applyEditsResult = {
+      applied: ["a.jpg", "c.jpg"],
+      failed: [{ relative_path: "b.jpg", reason: "File write error" }],
+      fresh_metadata: {},
+    };
+    mockApiInstance.warningsByPath = {
+      "a.jpg": "Warning for A",
+    };
+
+    const gate = createApplyEditsProgressGate();
+    mockApiInstance.applyEditsProgressGate = gate;
+
+    const user = userEvent.setup();
+    mockApiInstance.pickFolderResolves("/photos");
+    render(<App />);
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
+    await user.click(screen.getByTestId("open-folder-btn"));
+
+    await act(async () => {
+      mockApiInstance.emitPhotoFound(photo1);
+    });
+    await act(async () => {
+      mockApiInstance.emitPhotoFound(photo2);
+    });
+    await act(async () => {
+      mockApiInstance.emitPhotoFound(photo3);
+    });
+    await act(async () => {
+      mockApiInstance.emitScanComplete();
+    });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 250));
+    });
+
+    await user.click(screen.getByTestId("status-bar-apply-all-btn"));
+
+    // Advance for a.jpg (warning)
+    await act(async () => {
+      gate.advance();
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId("apply-progress-count")).toHaveTextContent(
+        "2 of 3 files",
+      );
+    });
+    // Check that failureCount is 0 because only warning happened
+    expect(screen.getByTestId("apply-progress-count")).not.toHaveTextContent(
+      "failed",
+    );
+
+    // Advance for b.jpg (error)
+    await act(async () => {
+      gate.advance();
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId("apply-progress-count")).toHaveTextContent(
+        "3 of 3 files",
+      );
+    });
+    // Check that failureCount is 1 because of the error
+    expect(screen.getByTestId("apply-progress-count")).toHaveTextContent(
+      "1 failed",
+    );
+
+    // Advance to finish
+    await act(async () => {
+      gate.advance();
+    });
+
+    // Wait for progress dialog to close
+    await waitFor(() => {
+      expect(
+        screen.queryByTestId("apply-progress-dialog"),
+      ).not.toBeInTheDocument();
+    });
+
+    // Verify warning for a.jpg and error for b.jpg are both visible in ErrorBanner
+    expect(screen.getByText(/Warning for A/)).toBeInTheDocument();
+    expect(screen.getByText("Apply Warning")).toBeInTheDocument();
+    expect(screen.getByText(/File write error/)).toBeInTheDocument();
+    expect(screen.getByText("Apply Error")).toBeInTheDocument();
+  });
+});
