@@ -779,6 +779,17 @@ describe("Apply Draft Edits – Warning and Success-with-Warning handling", () =
 
     await user.click(screen.getByTestId("status-bar-apply-all-btn"));
 
+    // Wait for progress dialog to show first file (a.jpg - warning) is processed
+    await waitFor(() => {
+      expect(screen.getByTestId("apply-progress-count")).toHaveTextContent(
+        "1 of 3 files",
+      );
+    });
+    // Check that failureCount is 0 because only warning happened
+    expect(screen.getByTestId("apply-progress-count")).not.toHaveTextContent(
+      "failed",
+    );
+
     // Advance for a.jpg (warning)
     await act(async () => {
       gate.advance();
@@ -788,10 +799,6 @@ describe("Apply Draft Edits – Warning and Success-with-Warning handling", () =
         "2 of 3 files",
       );
     });
-    // Check that failureCount is 0 because only warning happened
-    expect(screen.getByTestId("apply-progress-count")).not.toHaveTextContent(
-      "failed",
-    );
 
     // Advance for b.jpg (error)
     await act(async () => {

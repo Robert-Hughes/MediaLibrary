@@ -32,6 +32,8 @@ import {
   displayStringOfMetadataDraft,
   metadataValueToDisplayStringForTag,
 } from "../draft";
+import { GpsMap } from "./GpsMap";
+import { resolveGps } from "../utils/resolveGps";
 
 interface Props {
   photo: PhotoInfo;
@@ -360,6 +362,10 @@ export function DetailsPane({
   onShowInFileExplorer,
 }: Props) {
   const [detailsSearch, setDetailsSearch] = useState("");
+  const resolvedGps = useMemo(() => {
+    if (metadata === "loading") return { lat: null, lon: null };
+    return resolveGps(typedDraftEdits, metadata);
+  }, [typedDraftEdits, metadata]);
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
@@ -631,6 +637,11 @@ export function DetailsPane({
                   data-testid={`details-section-${group.prefix}`}
                 >
                   <h3 className="details-section-header">{group.prefix}</h3>
+                  {group.prefix === "GPS" &&
+                  resolvedGps.lat !== null &&
+                  resolvedGps.lon !== null ? (
+                    <GpsMap lat={resolvedGps.lat} lon={resolvedGps.lon} />
+                  ) : null}
                   <table className="details-table">
                     <tbody>
                       {group.entries.map((entry) => (
