@@ -4,7 +4,6 @@ import type {
   TagKind,
   UtcOffsetValue,
 } from "../../types";
-import { gpsTagGroup } from "../../metadata/tag_overrides";
 import { metadataValueToDisplayString } from "../../draft";
 
 // ── BagEditor Helpers ────────────────────────────────────────────────────────
@@ -222,8 +221,6 @@ export function describeFlashCode(f: FlashFields): string {
 }
 
 // ── GpsEditor Helpers ─────────────────────────────────────────────────────────
-
-export const gpsGroupFor = gpsTagGroup;
 
 /**
  * Format a decimal-degrees value plus hemisphere as exiftool's canonical

@@ -783,10 +783,185 @@ describe("DetailsPane: Edit reopens with pending draft as the seed", () => {
 
     openRowEdit("Rating");
 
-    // The visible numeric input must be seeded with the draft "4", not "2".
     const input = (await screen.findByTestId(
       "numeric-editor-input",
     )) as HTMLInputElement;
     expect(input.value).toBe("4");
+  });
+});
+
+describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
+  const photo = makePhoto({
+    relative_path: "p.jpg",
+    filename: "p.jpg",
+    date_modified: 0,
+    date_created: 0,
+  });
+
+  beforeEach(() => {
+    cleanup();
+    _clearTagInfoCache();
+
+    // Register all six GPS fields as writable
+    const gpsFields = [
+      { key: "GPS:GPSLatitude", kind: { kind: "Real" } },
+      { key: "GPS:GPSLatitudeRef", kind: { kind: "Text" } },
+      { key: "GPS:GPSLongitude", kind: { kind: "Real" } },
+      { key: "GPS:GPSLongitudeRef", kind: { kind: "Text" } },
+      { key: "GPS:GPSAltitude", kind: { kind: "Real" } },
+      { key: "GPS:GPSAltitudeRef", kind: { kind: "Integer" } },
+    ];
+    for (const f of gpsFields) {
+      _setTagInfoCacheEntry(f.key, {
+        group: f.key.split(":")[0],
+        name: f.key.split(":")[1],
+        writable: true,
+        kind: f.kind as any,
+        description: null,
+      });
+    }
+
+    // Register a non-GPS field
+    _setTagInfoCacheEntry("XMP-dc:Subject", {
+      group: "XMP-dc",
+      name: "Subject",
+      writable: true,
+      kind: { kind: "Text" },
+      description: null,
+    });
+  });
+
+  function openContextMenu(label: string) {
+    const row = screen
+      .getAllByTestId("details-row")
+      .find((r) => within(r).queryByText(label) !== null);
+    expect(row).toBeDefined();
+    fireEvent.contextMenu(row!);
+  }
+
+  it("shows both Edit... and Edit GPS... for all six GPS fields, and only Edit... for non-GPS field", async () => {
+    render(
+      <DetailsPane
+        photo={photo}
+        metadata={mockMetadata({
+          "GPS:GPSLatitude": 51.5,
+          "GPS:GPSLatitudeRef": "N",
+          "GPS:GPSLongitude": 0.12,
+          "GPS:GPSLongitudeRef": "W",
+          "GPS:GPSAltitude": 100,
+          "GPS:GPSAltitudeRef": 0,
+          "XMP-dc:Subject": "test",
+        })}
+      />,
+    );
+
+    const gpsLabels = [
+      "GPSLatitude",
+      "GPSLatitudeRef",
+      "GPSLongitude",
+      "GPSLongitudeRef",
+      "GPSAltitude",
+      "GPSAltitudeRef",
+    ];
+
+    for (const label of gpsLabels) {
+      openContextMenu(label);
+      expect(screen.getByRole("button", { name: "Edit…" })).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "Edit GPS…" }),
+      ).toBeInTheDocument();
+      // Press Escape to dismiss context menu
+      fireEvent.keyDown(document, { key: "Escape" });
+    }
+
+    // Check non-GPS field
+    openContextMenu("Subject");
+    expect(screen.getByRole("button", { name: "Edit…" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Edit GPS…" })).toBeNull();
+  });
+
+  it("does not show edit actions for read-only GPS row", async () => {
+    // Make GPSLatitude read-only
+    _setTagInfoCacheEntry("GPS:GPSLatitude", {
+      group: "GPS",
+      name: "GPSLatitude",
+      writable: false,
+      kind: { kind: "Real" },
+      description: null,
+    });
+
+    render(
+      <DetailsPane
+        photo={photo}
+        metadata={mockMetadata({
+          "GPS:GPSLatitude": 51.5,
+        })}
+      />,
+    );
+
+    openContextMenu("GPSLatitude");
+    // Wait for context menu close logic if no options are available
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: "Edit…" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Edit GPS…" })).toBeNull();
+    });
+  });
+
+  it("clicking Edit... on GPS field opens single-property editor, not GpsEditor", async () => {
+    render(
+      <DetailsPane
+        photo={photo}
+        metadata={mockMetadata({
+          "GPS:GPSLatitude": 51.5,
+        })}
+      />,
+    );
+
+    openContextMenu("GPSLatitude");
+    fireEvent.click(screen.getByRole("button", { name: "Edit…" }));
+
+    // Should open the single property numeric editor (or ValueEditDialog if no tag info fallback matches)
+    expect(screen.queryByTestId("gps-editor-overlay")).toBeNull();
+    expect(
+      screen.queryByTestId("numeric-editor-input") ||
+        screen.queryByTestId("value-edit-input"),
+    ).not.toBeNull();
+  });
+
+  it("clicking Edit GPS... opens GpsEditor on coordinate, ref, altitude, altitude ref fields", async () => {
+    render(
+      <DetailsPane
+        photo={photo}
+        metadata={mockMetadata({
+          "GPS:GPSLatitude": 51.5,
+          "GPS:GPSLatitudeRef": "N",
+          "GPS:GPSLongitude": 0.12,
+          "GPS:GPSLongitudeRef": "W",
+          "GPS:GPSAltitude": 100,
+          "GPS:GPSAltitudeRef": 0,
+        })}
+        onSetMetadataDraftBatch={vi.fn()}
+      />,
+    );
+
+    const testCases = [
+      "GPSLatitude",
+      "GPSLongitudeRef",
+      "GPSAltitude",
+      "GPSAltitudeRef",
+    ];
+
+    for (const label of testCases) {
+      openContextMenu(label);
+      fireEvent.click(screen.getByRole("button", { name: "Edit GPS…" }));
+      expect(
+        await screen.findByTestId("gps-editor-overlay"),
+      ).toBeInTheDocument();
+      // Cancel the GpsEditor to clean up for next iteration
+      fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+      await waitFor(() => {
+        expect(screen.queryByTestId("gps-editor-overlay")).toBeNull();
+      });
+    }
   });
 });
