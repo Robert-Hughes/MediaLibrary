@@ -756,18 +756,22 @@ export function DetailsPane({
             });
             setContextMenu(null);
           }}
-          onEditGps={() => {
-            setEditDialog({
-              key: contextMenu.key,
-              initialValue:
-                contextMenu.draftValue !== undefined &&
-                contextMenu.draftValue !== null
-                  ? contextMenu.draftValue
-                  : contextMenu.originalValue,
-              mode: "gps",
-            });
-            setContextMenu(null);
-          }}
+          onEditGps={
+            onSetMetadataDraftBatch
+              ? () => {
+                  setEditDialog({
+                    key: contextMenu.key,
+                    initialValue:
+                      contextMenu.draftValue !== undefined &&
+                      contextMenu.draftValue !== null
+                        ? contextMenu.draftValue
+                        : contextMenu.originalValue,
+                    mode: "gps",
+                  });
+                  setContextMenu(null);
+                }
+              : undefined
+          }
           onDiscard={() => {
             onDiscardDraft?.(contextMenu.key);
             setContextMenu(null);

@@ -4,7 +4,7 @@ Current
 - WHy is npm run check so slow!
 - Use (interactive) OSM iframe/API to show GPS location
   - In GPS editor UI, along with clicking to overwrite with that location for editing
-    - Figure out how the group edit thing works - editing some fields like Altitude doesn't show the composite editor!
+    - Figure out why editing the individual properties shows such weird behaviour
   - In Details pane next to the GPS section?
     - Clicking on the small maps should open the full map (as below)
     - Right click on maps with edit (opens group editor) and "remove all GPS". Or maybe for the group heading? Make it work for all groups (not just GPS)?

@@ -839,7 +839,7 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
     fireEvent.contextMenu(row!);
   }
 
-  it("shows both Edit... and Edit GPS... for all six GPS fields, and only Edit... for non-GPS field", async () => {
+  it("shows both Edit... and Edit GPS... for all six GPS fields when batch save is available, and only Edit... for non-GPS field", async () => {
     render(
       <DetailsPane
         photo={photo}
@@ -852,6 +852,7 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
           "GPS:GPSAltitudeRef": 0,
           "XMP-dc:Subject": "test",
         })}
+        onSetMetadataDraftBatch={vi.fn()}
       />,
     );
 
@@ -876,6 +877,26 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
 
     // Check non-GPS field
     openContextMenu("Subject");
+    expect(screen.getByRole("button", { name: "Edit…" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Edit GPS…" })).toBeNull();
+  });
+
+  it("shows Edit... but not Edit GPS... for GPS fields when batch save is absent", async () => {
+    render(
+      <DetailsPane
+        photo={photo}
+        metadata={mockMetadata({
+          "GPS:GPSLatitude": 51.5,
+          "GPS:GPSLatitudeRef": "N",
+          "GPS:GPSLongitude": 0.12,
+          "GPS:GPSLongitudeRef": "W",
+          "GPS:GPSAltitude": 100,
+          "GPS:GPSAltitudeRef": 0,
+        })}
+      />,
+    );
+
+    openContextMenu("GPSLatitude");
     expect(screen.getByRole("button", { name: "Edit…" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Edit GPS…" })).toBeNull();
   });
