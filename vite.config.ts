@@ -1,5 +1,6 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import { configDefaults } from "vitest/config";
 
 // @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
@@ -45,9 +46,13 @@ export default defineConfig(async () => ({
     globals: true,
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],
-    // Exclude Claude Code worktree clones so duplicate test runs from
-    // sibling working copies don't double-count and confuse the
-    // headless suite. node_modules / dist remain excluded by default.
-    exclude: ["**/node_modules/**", "**/dist/**", ".claude/**"],
+    include: ["src/test/**/*.{test,spec}.{ts,tsx}"],
+    exclude: [
+      ...configDefaults.exclude,
+      "src-tauri/target/**",
+      "src-tauri/icons/**",
+      "src/types/generated/**",
+      ".claude/**",
+    ],
   },
 }));
