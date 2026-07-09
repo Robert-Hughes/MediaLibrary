@@ -1207,6 +1207,51 @@ body {
   box-shadow: var(--shadow-sm);
 }
 
+.gps-map-overview {
+  margin: 8px 0 6px;
+}
+
+.gps-map-overview__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.gps-map-overview__item {
+  min-width: 0;
+}
+
+.gps-map-overview__label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.gps-map-overview .gps-map {
+  margin: 0;
+  height: 95px;
+}
+
+.gps-map-attribution {
+  font-size: 9px;
+  color: var(--text-dim);
+  text-align: right;
+  margin-top: 4px;
+  user-select: none;
+}
+
+.gps-map-attribution a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.gps-map-attribution a:hover {
+  text-decoration: underline;
+}
+
 .details-pane-footer {
   flex-shrink: 0;
   display: flex;

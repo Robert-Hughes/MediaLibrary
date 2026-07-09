@@ -5,6 +5,8 @@ import "leaflet/dist/leaflet.css";
 interface GpsMapProps {
   lat: number;
   lon: number;
+  zoom?: number;
+  showAttribution?: boolean;
 }
 
 const OSM_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
@@ -15,7 +17,12 @@ const gpsMarkerIcon = L.divIcon({
   iconAnchor: [8, 8],
 });
 
-export function GpsMap({ lat, lon }: GpsMapProps) {
+export function GpsMap({
+  lat,
+  lon,
+  zoom = 16,
+  showAttribution = true,
+}: GpsMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
   const markerRef = useRef<L.Marker | null>(null);
@@ -25,7 +32,7 @@ export function GpsMap({ lat, lon }: GpsMapProps) {
 
     const map = L.map(containerRef.current, {
       center: [lat, lon],
-      zoom: 16,
+      zoom,
       zoomControl: false,
       dragging: false,
       scrollWheelZoom: false,
@@ -34,7 +41,7 @@ export function GpsMap({ lat, lon }: GpsMapProps) {
       keyboard: false,
       touchZoom: false,
       tap: false,
-      attributionControl: true,
+      attributionControl: showAttribution,
     } as L.MapOptions & { tap?: boolean });
 
     L.tileLayer(OSM_TILE_URL, {
@@ -48,10 +55,10 @@ export function GpsMap({ lat, lon }: GpsMapProps) {
     );
     mapRef.current = map;
 
-    const invalidateSizeTimeout = window.setTimeout(
-      () => map.invalidateSize(),
-      0,
-    );
+    const invalidateSizeTimeout = window.setTimeout(() => {
+      map.invalidateSize();
+      map.setView([lat, lon], zoom, { animate: false });
+    }, 0);
 
     return () => {
       window.clearTimeout(invalidateSizeTimeout);
@@ -69,8 +76,8 @@ export function GpsMap({ lat, lon }: GpsMapProps) {
 
     const point: L.LatLngExpression = [lat, lon];
     marker.setLatLng(point);
-    map.setView(point, map.getZoom(), { animate: false });
-  }, [lat, lon]);
+    map.setView(point, zoom, { animate: false });
+  }, [lat, lon, zoom]);
 
   return (
     <div
