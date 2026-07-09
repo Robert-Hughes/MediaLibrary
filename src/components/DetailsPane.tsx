@@ -32,7 +32,7 @@ import {
   displayStringOfMetadataDraft,
   metadataValueToDisplayStringForTag,
 } from "../draft";
-import { GpsMap } from "./GpsMap";
+import { GpsMapOverview } from "./GpsMapOverview";
 import { resolveGps } from "../utils/resolveGps";
 
 interface Props {
@@ -640,7 +640,10 @@ export function DetailsPane({
                   {group.prefix === "GPS" &&
                   resolvedGps.lat !== null &&
                   resolvedGps.lon !== null ? (
-                    <GpsMap lat={resolvedGps.lat} lon={resolvedGps.lon} />
+                    <GpsMapOverview
+                      lat={resolvedGps.lat}
+                      lon={resolvedGps.lon}
+                    />
                   ) : null}
                   <table className="details-table">
                     <tbody>
