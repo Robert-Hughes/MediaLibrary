@@ -1167,6 +1167,25 @@ body {
   background: var(--text-dim);
 }
 
+.gps-map {
+  height: 140px;
+  width: 100%;
+  margin: 8px 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--surface-alt);
+}
+
+.gps-map-marker {
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: var(--accent);
+  border: 2px solid var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
 .details-pane-footer {
   flex-shrink: 0;
   display: flex;
