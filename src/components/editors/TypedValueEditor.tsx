@@ -20,7 +20,7 @@
 //                raw value of a tag the schema doesn't describe.
 //   - Binary  — read-only "binary, not editable in app" message.
 
-import { useTagInfo } from "../../hooks/useTagInfo";
+import { useTagInfo, useTagInfos } from "../../hooks/useTagInfo";
 import type {
   MetadataDraftEdit,
   TagInfo,
@@ -97,6 +97,14 @@ function bagInnerScalar(kind: TagKind): BagInnerKind | null {
   }
 }
 
+function enumKindFromTagInfo(
+  tag: TagInfo | "loading" | null | undefined,
+): Extract<TagKind, { kind: "Enum" }> | undefined {
+  return tag && tag !== "loading" && tag.kind.kind === "Enum"
+    ? tag.kind
+    : undefined;
+}
+
 export function TypedValueEditor({
   propertyKey,
   initialMetadataValue,
@@ -108,6 +116,17 @@ export function TypedValueEditor({
   editorMode = "single",
 }: Props) {
   const tag = useTagInfo(schemaOverride ? null : propertyKey);
+  const gpsSchemaGroup =
+    editorMode === "gps" ? gpsMemberGroup(propertyKey) : null;
+  const gpsTagInfos = useTagInfos(
+    gpsSchemaGroup
+      ? [
+          gpsSchemaGroup.latitudeRefKey,
+          gpsSchemaGroup.longitudeRefKey,
+          gpsSchemaGroup.altitudeRefKey,
+        ]
+      : [],
+  );
   const kind =
     schemaOverride?.kind ?? (tag && tag !== "loading" ? tag.kind : null);
   const semanticInitial =
@@ -180,9 +199,7 @@ export function TypedValueEditor({
   // ── Override 2: GPS composite editor (writable only with paired-batch save). ─
   const saveMetadataBatch = onSaveMetadataBatch;
   const gpsGroup =
-    editorMode === "gps" && saveMetadataBatch
-      ? gpsMemberGroup(propertyKey)
-      : null;
+    editorMode === "gps" && saveMetadataBatch ? gpsSchemaGroup : null;
   const canUseCompositeGpsEditor =
     gpsGroup &&
     metadataForFile &&
@@ -243,6 +260,11 @@ export function TypedValueEditor({
             : null
         }
         initialAltitudeRef={initialAltitudeRef}
+        refKinds={{
+          latitude: enumKindFromTagInfo(gpsTagInfos[gpsGroup.latitudeRefKey]),
+          longitude: enumKindFromTagInfo(gpsTagInfos[gpsGroup.longitudeRefKey]),
+          altitude: enumKindFromTagInfo(gpsTagInfos[gpsGroup.altitudeRefKey]),
+        }}
         onSave={saveMetadataBatch}
         onCancel={onCancel}
         readOnly={readOnly}

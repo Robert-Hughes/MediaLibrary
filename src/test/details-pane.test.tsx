@@ -1059,6 +1059,39 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
       });
     }
   });
+
+  it("opens composite GPS with effective pending enum drafts", async () => {
+    render(
+      <DetailsPane
+        onDiscardDraftBatch={vi.fn()}
+        photo={photo}
+        metadata={mockMetadata({
+          "GPS:GPSLatitude": 51.5,
+          "GPS:GPSLatitudeRef": "N",
+          "GPS:GPSLongitude": 0.12,
+          "GPS:GPSLongitudeRef": "E",
+        })}
+        typedDraftEdits={{
+          "GPS:GPSLatitudeRef": {
+            intent: "Set",
+            value: { kind: "Text", value: "S" },
+            display: "South",
+          },
+          "GPS:GPSLongitudeRef": {
+            intent: "Set",
+            value: { kind: "Text", value: "W" },
+            display: "West",
+          },
+        }}
+        onSetMetadataDraftBatch={vi.fn()}
+      />,
+    );
+
+    openContextMenu("GPSLatitude");
+    fireEvent.click(screen.getByRole("button", { name: "Edit GPS…" }));
+    expect(await screen.findByTestId("gps-editor-lat-ref")).toHaveValue("S");
+    expect(screen.getByTestId("gps-editor-lon-ref")).toHaveValue("W");
+  });
 });
 
 describe("DetailsPane: Group context menu", () => {

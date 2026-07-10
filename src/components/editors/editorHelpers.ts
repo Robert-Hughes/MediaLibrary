@@ -1,10 +1,29 @@
 import type {
   MetadataValue,
+  MetadataDraftEdit,
   EnumOption,
   TagKind,
   UtcOffsetValue,
 } from "../../types";
 import { metadataValueToDisplayString } from "../../draft";
+
+export type EnumTagKind = Extract<TagKind, { kind: "Enum" }>;
+
+export function enumDraftEdit(
+  kind: EnumTagKind,
+  code: string,
+): MetadataDraftEdit {
+  const display =
+    kind.data.options.find((option) => option.code === code)?.label ?? code;
+  if (kind.data.repr === "Integer") {
+    return {
+      value: { kind: "Integer", value: Number(code) },
+      intent: "Set",
+      display,
+    };
+  }
+  return { value: { kind: "Text", value: code }, intent: "Set", display };
+}
 
 // ── BagEditor Helpers ────────────────────────────────────────────────────────
 
@@ -370,6 +389,12 @@ export function parseHemisphere(
   const fallback: "N" | "E" = axis === "lat" ? "N" : "E";
   if (typeof value === "string") {
     const upper = value.trim().toUpperCase();
+    if (axis === "lat" && (upper === "NORTH" || upper === "SOUTH")) {
+      return upper === "NORTH" ? "N" : "S";
+    }
+    if (axis === "lon" && (upper === "EAST" || upper === "WEST")) {
+      return upper === "EAST" ? "E" : "W";
+    }
     if (axis === "lat" && (upper === "N" || upper === "S")) return upper;
     if (axis === "lon" && (upper === "E" || upper === "W")) return upper;
     // Look for trailing N/S/E/W in a DMS string.
