@@ -177,6 +177,42 @@ describe("StructEditor", () => {
     expect(screen.getByTestId("mock-inner-editor")).toBeInTheDocument();
     expect(inner).toHaveBeenCalled();
   });
+
+  it("removes a schema-aware field when its inner editor returns Delete", () => {
+    const onSave = vi.fn();
+    render(
+      <StructEditor
+        propertyKey="X"
+        initialObject={{
+          Enabled: { kind: "Bool", value: true },
+          Name: { kind: "Text", value: "Alice" },
+        }}
+        fieldKinds={{ Enabled: { kind: "Boolean" }, Name: { kind: "Text" } }}
+        innerEditor={(props) => (
+          <button
+            data-testid="delete-inner"
+            onClick={() =>
+              props.onSaveMetadata({ value: null, intent: "Delete" })
+            }
+          >
+            Unset
+          </button>
+        )}
+        onSave={onSave}
+        onCancel={() => {}}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("struct-editor-edit-0"));
+    fireEvent.click(screen.getByTestId("delete-inner"));
+    expect(screen.queryByDisplayValue("Enabled")).not.toBeInTheDocument();
+    expect(screen.getByDisplayValue("Name")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("struct-editor-save"));
+    expect(onSave.mock.calls[0][0].value).toEqual({
+      kind: "Struct",
+      value: { Name: { kind: "Text", value: "Alice" } },
+    });
+  });
 });
 
 describe("initialObjectFrom", () => {
