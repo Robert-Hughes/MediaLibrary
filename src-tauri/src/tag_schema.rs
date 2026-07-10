@@ -702,6 +702,11 @@ fn apply_overrides(tags: &mut BTreeMap<String, TagInfo>) {
         ("GPS:GPSLatitude", || TagKind::Real),
         ("GPS:GPSLongitude", || TagKind::Real),
         ("GPS:GPSAltitude", || TagKind::Real),
+        // listx describes GPSVersionID as `int8u count=4`, matching its
+        // four stored bytes. Both display JSON (`2.3.0.0`) and raw `-n`
+        // JSON (`2 3 0 0`) expose one version string, not a numeric array,
+        // so keep the app-facing schema aligned with that scalar shape.
+        ("GPS:GPSVersionID", || TagKind::Text),
         ("XMP-exif:GPSLatitude", || TagKind::Real),
         ("XMP-exif:GPSLongitude", || TagKind::Real),
         ("XMP-exif:GPSAltitude", || TagKind::Real),
@@ -1014,6 +1019,19 @@ mod tests {
             matches!(alt.kind, TagKind::Real),
             "GPSAltitude must be scalar Real, got {:?}",
             alt.kind
+        );
+    }
+
+    #[test]
+    fn gps_version_id_is_app_facing_text() {
+        let r = fixture_registry();
+        let version = r
+            .lookup("GPS:GPSVersionID")
+            .expect("GPSVersionID override should add the tag");
+        assert!(
+            matches!(version.kind, TagKind::Text),
+            "GPSVersionID must be scalar Text, got {:?}",
+            version.kind
         );
     }
 

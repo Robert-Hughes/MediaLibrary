@@ -1260,6 +1260,29 @@ mod tests {
     }
 
     #[test]
+    fn canonical_gps_version_id_is_text_without_warning() {
+        let reg = canonical_registry();
+        let raw = HashMap::from([("GPS:GPSVersionID".to_string(), serde_json::json!("2 2 0 0"))]);
+        let display =
+            HashMap::from([("GPS:GPSVersionID".to_string(), serde_json::json!("2.2.0.0"))]);
+        let mut warnings = Vec::new();
+
+        let values = canonical_values_from_exiftool_pair(
+            &raw,
+            &display,
+            Some(&reg),
+            "photo.jpg",
+            Some(&mut warnings),
+        );
+
+        assert_eq!(
+            values.get("GPS:GPSVersionID"),
+            Some(&MetadataValue::Text("2 2 0 0".to_string()))
+        );
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
     fn canonical_includes_display_only_fallback_value() {
         let reg = canonical_registry();
         let raw = HashMap::new();
