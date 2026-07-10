@@ -185,7 +185,6 @@ export function NestedListEditor({
       <SubEditor
         propertyKey={`${propertyKey}[${editingIndex}]`}
         initialMetadataValue={value}
-        initialString={metadataValueToDisplayString(value)}
         onSaveMetadata={(edit: MetadataDraftEdit) => {
           const newValue: MetadataValue =
             edit.intent === "Delete"

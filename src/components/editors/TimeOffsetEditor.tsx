@@ -6,7 +6,6 @@ import { parseTimeOffset, formatTimeOffset } from "./editorHelpers";
 interface Props {
   propertyKey: string;
   initialMetadataValue?: MetadataValue;
-  initialValue: string;
   onSave: (edit: MetadataDraftEdit) => void;
   onCancel: () => void;
   headerHint?: React.ReactNode;
@@ -16,7 +15,6 @@ interface Props {
 export function TimeOffsetEditor({
   propertyKey,
   initialMetadataValue,
-  initialValue,
   onSave,
   onCancel,
   headerHint,
@@ -26,7 +24,9 @@ export function TimeOffsetEditor({
     if (initialMetadataValue && initialMetadataValue.kind === "TimeOffset") {
       return formatTimeOffset(initialMetadataValue.value);
     }
-    return initialValue;
+    return initialMetadataValue?.kind === "Text"
+      ? initialMetadataValue.value
+      : "";
   });
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);

@@ -3,7 +3,6 @@ import type { MetadataValue } from "../../types";
 interface Props {
   propertyKey: string;
   initialMetadataValue?: MetadataValue;
-  initialString: string;
   onCancel: () => void;
   headerHint?: React.ReactNode;
 }
@@ -11,7 +10,6 @@ interface Props {
 export function UnknownEditor({
   propertyKey,
   initialMetadataValue,
-  initialString,
   onCancel,
   headerHint,
 }: Props) {
@@ -19,7 +17,7 @@ export function UnknownEditor({
     initialMetadataValue && initialMetadataValue.kind === "Unknown";
   const rawValue = isParsedUnknown
     ? initialMetadataValue.value.raw
-    : initialString;
+    : initialMetadataValue ?? null;
   const reason = isParsedUnknown ? initialMetadataValue.value.reason : null;
 
   return (

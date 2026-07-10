@@ -20,32 +20,10 @@ import { READ_ONLY_TOOLTIP } from "./readOnlyMessages";
 interface Props {
   propertyKey: string;
   initialMetadataValue?: MetadataValue;
-  initialValue: string;
   onSave: (edit: MetadataDraftEdit) => void;
   onCancel: () => void;
   headerHint?: React.ReactNode;
   readOnly?: boolean;
-}
-
-/** Best-effort split of an initial value into num/den.  Accepts:
- *
- *   - `"1/250"`        → (1, 250)
- *   - `"0.004"`        → (1, 250) via decimal-to-rational with a 1e6 cap
- *   - `""` / unparseable → (1, 1) so the editor isn't empty.
- */
-function initialFraction(s: string): { num: number; den: number } {
-  const trimmed = s.trim();
-  const slash = trimmed.match(/^(-?\d+)\s*\/\s*(-?\d+)$/);
-  if (slash) {
-    const n = parseInt(slash[1], 10);
-    const d = parseInt(slash[2], 10);
-    if (Number.isFinite(n) && Number.isFinite(d) && d !== 0) {
-      return { num: n, den: Math.abs(d) };
-    }
-  }
-  const dec = parseFloat(trimmed);
-  if (!Number.isFinite(dec)) return { num: 1, den: 1 };
-  return decimalToRational(dec);
 }
 
 /** Convert a decimal to a reduced rational using a 1e6 denominator cap.
@@ -87,20 +65,28 @@ function gcd(a: number, b: number): number {
 export function RationalEditor({
   propertyKey,
   initialMetadataValue,
-  initialValue,
   onSave,
   onCancel,
   headerHint,
   readOnly,
 }: Props) {
   const initial = (() => {
-    if (initialMetadataValue && initialMetadataValue.kind === "Rational") {
-      return {
-        num: initialMetadataValue.value.numerator,
-        den: initialMetadataValue.value.denominator,
-      };
+    if (initialMetadataValue) {
+      if (initialMetadataValue.kind === "Rational") {
+        const denominator = initialMetadataValue.value.denominator;
+        return {
+          num: initialMetadataValue.value.numerator,
+          den: denominator === 0 ? 1 : denominator,
+        };
+      }
+      if (
+        initialMetadataValue.kind === "Integer" ||
+        initialMetadataValue.kind === "Real"
+      ) {
+        return decimalToRational(initialMetadataValue.value);
+      }
     }
-    return initialFraction(initialValue);
+    return { num: 0, den: 1 };
   })();
   const [mode, setMode] = useState<"fraction" | "decimal">("fraction");
   const [num, setNum] = useState<string>(String(initial.num));

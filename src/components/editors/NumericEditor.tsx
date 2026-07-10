@@ -12,7 +12,7 @@ interface Props {
   kind: "Integer" | "Real" | "Rational";
   min?: number | null;
   max?: number | null;
-  initialValue: string;
+  initialMetadataValue?: MetadataValue;
   onSave: (edit: MetadataDraftEdit) => void;
   onCancel: () => void;
   headerHint?: React.ReactNode;
@@ -24,13 +24,31 @@ export function NumericEditor({
   kind,
   min,
   max,
-  initialValue,
+  initialMetadataValue,
   onSave,
   onCancel,
   headerHint,
   readOnly,
 }: Props) {
-  const [value, setValue] = useState<string>(initialValue);
+  const [value, setValue] = useState<string>(() => {
+    if (!initialMetadataValue || initialMetadataValue.kind === "Null") return "";
+    if (
+      initialMetadataValue.kind === "Integer" ||
+      initialMetadataValue.kind === "Real"
+    ) {
+      return String(initialMetadataValue.value);
+    }
+    if (
+      initialMetadataValue.kind === "Rational" &&
+      initialMetadataValue.value.denominator !== 0
+    ) {
+      return String(
+        initialMetadataValue.value.numerator /
+          initialMetadataValue.value.denominator,
+      );
+    }
+    return "";
+  });
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 

@@ -27,7 +27,6 @@ interface Props {
 export interface InnerEditorProps {
   propertyKey: string;
   initialMetadataValue?: MetadataValue;
-  initialString: string;
   metadataForFile?: Record<string, MetadataValue>;
   onSaveMetadata: (edit: MetadataDraftEdit) => void;
   onCancel: () => void;
@@ -104,7 +103,6 @@ export function StructEditor({
       <SubEditor
         propertyKey={`${propertyKey}.${row.key}`}
         initialMetadataValue={row.value}
-        initialString={metadataValueToDisplayString(row.value)}
         onSaveMetadata={(edit: MetadataDraftEdit) => {
           const newValue: MetadataValue =
             edit.intent === "Delete"

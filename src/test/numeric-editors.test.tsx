@@ -24,7 +24,7 @@ describe("NumericEditor", () => {
         kind="Integer"
         min={0}
         max={5}
-        initialValue="3"
+        initialMetadataValue={{ kind: "Integer", value: 3 }}
         onSave={onSave}
         onCancel={() => {}}
       />,
@@ -48,7 +48,6 @@ describe("NumericEditor", () => {
       <NumericEditor
         propertyKey="X"
         kind="Integer"
-        initialValue=""
         onSave={onSave}
         onCancel={() => {}}
       />,
@@ -74,7 +73,7 @@ describe("NumericEditor", () => {
         kind="Integer"
         min={0}
         max={5}
-        initialValue="0"
+        initialMetadataValue={{ kind: "Integer", value: 0 }}
         onSave={onSave}
         onCancel={() => {}}
       />,
@@ -95,7 +94,7 @@ describe("NumericEditor", () => {
       <NumericEditor
         propertyKey="EXIF:ExifVersion"
         kind="Integer"
-        initialValue="42"
+        initialMetadataValue={{ kind: "Integer", value: 42 }}
         readOnly
         onSave={onSave}
         onCancel={() => {}}
@@ -120,7 +119,6 @@ describe("NumericEditor", () => {
       <NumericEditor
         propertyKey="X"
         kind="Real"
-        initialValue=""
         onSave={onSave}
         onCancel={() => {}}
       />,
@@ -180,7 +178,10 @@ describe("DateTimeEditor", () => {
       <DateTimeEditor
         propertyKey="IPTC:DateCreated"
         mode="date"
-        initialValue="2024-01-15"
+        initialMetadataValue={{
+          kind: "Date",
+          value: { year: 2024, month: 1, day: 15 },
+        }}
         onSave={onSave}
         onCancel={() => {}}
       />,
@@ -204,7 +205,16 @@ describe("DateTimeEditor", () => {
       <DateTimeEditor
         propertyKey="IPTC:TimeCreated"
         mode="time"
-        initialValue="14:30:05+01:00"
+        initialMetadataValue={{
+          kind: "Time",
+          value: {
+            hour: 14,
+            minute: 30,
+            second: 5,
+            subsecond: null,
+            offset: { sign: "Plus", hours: 1, minutes: 0 },
+          },
+        }}
         onSave={onSave}
         onCancel={() => {}}
       />,
@@ -233,7 +243,19 @@ describe("DateTimeEditor", () => {
     render(
       <DateTimeEditor
         propertyKey="ExifIFD:DateTimeOriginal"
-        initialValue="2024:01:15 14:30:00"
+        initialMetadataValue={{
+          kind: "DateTime",
+          value: {
+            date: { year: 2024, month: 1, day: 15 },
+            time: {
+              hour: 14,
+              minute: 30,
+              second: 0,
+              subsecond: null,
+              offset: null,
+            },
+          },
+        }}
         onSave={onSave}
         onCancel={() => {}}
       />,
@@ -267,7 +289,7 @@ describe("DateTimeEditor", () => {
     render(
       <DateTimeEditor
         propertyKey="X"
-        initialValue="garbage"
+        initialMetadataValue={{ kind: "Text", value: "garbage" }}
         onSave={onSave}
         onCancel={() => {}}
       />,
@@ -285,7 +307,10 @@ describe("RationalEditor", () => {
     render(
       <RationalEditor
         propertyKey="EXIF:ExposureTime"
-        initialValue="1/250"
+        initialMetadataValue={{
+          kind: "Rational",
+          value: { numerator: 1, denominator: 250 },
+        }}
         onSave={onSave}
         onCancel={() => {}}
       />,
@@ -311,7 +336,10 @@ describe("RationalEditor", () => {
     render(
       <RationalEditor
         propertyKey="X"
-        initialValue="2/1"
+        initialMetadataValue={{
+          kind: "Rational",
+          value: { numerator: 2, denominator: 1 },
+        }}
         onSave={onSave}
         onCancel={() => {}}
       />,
@@ -333,7 +361,7 @@ describe("RationalEditor", () => {
     render(
       <RationalEditor
         propertyKey="X"
-        initialValue="0.5"
+        initialMetadataValue={{ kind: "Real", value: 0.5 }}
         onSave={onSave}
         onCancel={() => {}}
       />,

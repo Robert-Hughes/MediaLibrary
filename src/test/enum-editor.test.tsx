@@ -177,20 +177,10 @@ describe("EnumEditor", () => {
 });
 
 describe("initialCodeFrom", () => {
-  it("prefers raw value over display label", () => {
+  it("uses the semantic integer code", () => {
     expect(
-      initialCodeFrom(
-        { kind: "Integer", value: 6 },
-        "Rotate 90 CW",
-        orientationOptions,
-      ),
+      initialCodeFrom({ kind: "Integer", value: 6 }, orientationOptions),
     ).toBe("6");
-  });
-
-  it("falls back to label→code lookup", () => {
-    expect(initialCodeFrom(undefined, "Rotate 90 CW", orientationOptions)).toBe(
-      "6",
-    );
   });
 
   it("resolves a raw value that is actually a display label to its code", () => {
@@ -199,7 +189,6 @@ describe("initialCodeFrom", () => {
     expect(
       initialCodeFrom(
         { kind: "Text", value: "Rotate 90 CW" },
-        undefined,
         orientationOptions,
       ),
     ).toBe("6");
@@ -209,19 +198,12 @@ describe("initialCodeFrom", () => {
     expect(
       initialCodeFrom(
         { kind: "Text", value: "6" },
-        undefined,
         orientationOptions,
       ),
     ).toBe("6");
   });
 
-  it("returns the display value when no schema match", () => {
-    expect(initialCodeFrom(undefined, "Custom-thing", orientationOptions)).toBe(
-      "Custom-thing",
-    );
-  });
-
   it("returns first option code as last resort", () => {
-    expect(initialCodeFrom(undefined, undefined, orientationOptions)).toBe("1");
+    expect(initialCodeFrom(undefined, orientationOptions)).toBe("1");
   });
 });
