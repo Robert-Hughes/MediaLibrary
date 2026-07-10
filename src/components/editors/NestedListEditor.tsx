@@ -23,6 +23,7 @@ import type {
 import { metadataValueToDisplayString } from "../../draft";
 import type { InnerEditorProps } from "./StructEditor";
 import { READ_ONLY_TOOLTIP } from "./readOnlyMessages";
+import { defaultMetadataValueForKind } from "./editorHelpers";
 
 interface Props {
   propertyKey: string;
@@ -35,64 +36,6 @@ interface Props {
   onCancel: () => void;
   headerHint?: React.ReactNode;
   readOnly?: boolean;
-}
-
-/** Construct an empty MetadataValue appropriate for `inner` so "Add item" produces
- *  something the recursive sub-editor can populate. */
-function emptyMetadataValueFor(inner: TagKind): MetadataValue {
-  switch (inner.kind) {
-    case "LangAlt":
-      // x-default explicit per design §5 LangAlt rules.
-      return { kind: "LangAlt", value: { "x-default": "" } };
-    case "Struct":
-      return { kind: "Struct", value: {} };
-    case "Bag":
-    case "Seq":
-    case "Alt":
-      return {
-        kind: "List",
-        value: {
-          list_kind:
-            inner.kind === "Bag" || inner.kind === "Seq" || inner.kind === "Alt"
-              ? inner.kind
-              : "Unknown",
-          items: [],
-        },
-      };
-    case "Boolean":
-      return { kind: "Bool", value: false };
-    case "Integer":
-      return { kind: "Integer", value: 0 };
-    case "Real":
-      return { kind: "Real", value: 0 };
-    case "Rational":
-      return { kind: "Rational", value: { numerator: 0, denominator: 1 } };
-    case "Date":
-      return { kind: "Date", value: { year: 0, month: 1, day: 1 } };
-    case "Time":
-      return {
-        kind: "Time",
-        value: { hour: 0, minute: 0, second: 0, subsecond: null, offset: null },
-      };
-    case "DateTime":
-      return {
-        kind: "DateTime",
-        value: {
-          date: { year: 0, month: 1, day: 1 },
-          time: {
-            hour: 0,
-            minute: 0,
-            second: 0,
-            subsecond: null,
-            offset: null,
-          },
-        },
-      };
-    case "Text":
-    case "Unknown":
-    default:
-      return { kind: "Text", value: "" };
-  }
 }
 
 function shortLabel(v: MetadataValue, idx: number): string {
@@ -159,7 +102,7 @@ export function NestedListEditor({
 
   const addItem = () => {
     if (!innerKind) return;
-    const fresh = emptyMetadataValueFor(innerKind);
+    const fresh = defaultMetadataValueForKind(innerKind);
     setItems((prev) => [...prev, fresh]);
     setEditingIndex(items.length); // open the new item for editing immediately
   };
@@ -193,8 +136,8 @@ export function NestedListEditor({
         onSaveMetadata={(edit: MetadataDraftEdit) => {
           const newValue: MetadataValue =
             edit.intent === "Delete"
-              ? emptyMetadataValueFor(innerKind)
-              : (edit.value ?? emptyMetadataValueFor(innerKind));
+              ? defaultMetadataValueForKind(innerKind)
+              : (edit.value ?? defaultMetadataValueForKind(innerKind));
           updateItem(editingIndex, newValue);
           setEditingIndex(null);
         }}
