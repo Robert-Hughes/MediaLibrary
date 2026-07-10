@@ -13,4 +13,8 @@ group: string,
 /**
  * Tag name (e.g. `Subject`, `Orientation`).
  */
-name: string, writable: boolean, kind: TagKind, description: string | null, };
+name: string, writable: boolean, kind: TagKind, description: string | null, 
+/**
+ * Raw ExifTool storage width/component count. This does not imply a list.
+ */
+storage_count?: string, };
