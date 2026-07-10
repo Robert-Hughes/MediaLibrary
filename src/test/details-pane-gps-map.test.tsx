@@ -1,14 +1,11 @@
 import { render, screen, cleanup } from "@testing-library/react";
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { DetailsPane as RealDetailsPane } from "../components/DetailsPane";
+import { DetailsPane } from "../components/DetailsPane";
 
-const DetailsPane = (props: any) => (
-  <RealDetailsPane
-    onSetMetadataDraftBatch={props.onSetMetadataDraftBatch ?? vi.fn()}
-    onDiscardDraftBatch={props.onDiscardDraftBatch ?? vi.fn()}
-    {...props}
-  />
-);
+const defaultCallbacks = () => ({
+  onSetMetadataDraftBatch: vi.fn(),
+  onDiscardDraftBatch: vi.fn(),
+});
 import { GpsMapOverview } from "../components/GpsMapOverview";
 import { makePhoto, mockMetadata } from "./factories";
 import type { MetadataDraftEdit } from "../types";
@@ -69,7 +66,9 @@ describe("DetailsPane GPS Map integration", () => {
       "GPS:GPSLongitudeRef": "W",
     });
 
-    render(<DetailsPane photo={photo} metadata={metadata} />);
+    render(
+      <DetailsPane {...defaultCallbacks()} photo={photo} metadata={metadata} />,
+    );
 
     const overview = screen.getByTestId("gps-map-overview");
     expect(overview).toBeInTheDocument();
@@ -87,7 +86,9 @@ describe("DetailsPane GPS Map integration", () => {
       "IFD0:Make": "Canon",
     });
 
-    render(<DetailsPane photo={photo} metadata={metadata} />);
+    render(
+      <DetailsPane {...defaultCallbacks()} photo={photo} metadata={metadata} />,
+    );
 
     expect(screen.queryByTestId("gps-map-overview")).not.toBeInTheDocument();
     expect(screen.queryByTestId("gps-map")).not.toBeInTheDocument();
@@ -98,7 +99,9 @@ describe("DetailsPane GPS Map integration", () => {
       "GPS:GPSLatitudeRef": "N", // No latitude/longitude values
     });
 
-    render(<DetailsPane photo={photo} metadata={metadata} />);
+    render(
+      <DetailsPane {...defaultCallbacks()} photo={photo} metadata={metadata} />,
+    );
 
     expect(screen.queryByTestId("gps-map-overview")).not.toBeInTheDocument();
   });
@@ -128,6 +131,7 @@ describe("DetailsPane GPS Map integration", () => {
 
     render(
       <DetailsPane
+        {...defaultCallbacks()}
         photo={photo}
         metadata={metadata}
         typedDraftEdits={typedDraftEdits}
@@ -162,6 +166,7 @@ describe("DetailsPane GPS Map integration", () => {
 
     render(
       <DetailsPane
+        {...defaultCallbacks()}
         photo={photo}
         metadata={metadata}
         typedDraftEdits={typedDraftEdits}
@@ -179,7 +184,9 @@ describe("DetailsPane GPS Map integration", () => {
       "GPS:GPSLongitudeRef": "W",
     });
 
-    render(<DetailsPane photo={photo} metadata={metadata} />);
+    render(
+      <DetailsPane {...defaultCallbacks()} photo={photo} metadata={metadata} />,
+    );
 
     const gpsSection = screen.getByTestId("details-section-GPS");
     expect(gpsSection).toBeInTheDocument();

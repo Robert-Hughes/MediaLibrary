@@ -17,15 +17,12 @@
 import { render, screen, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { DetailsPane as RealDetailsPane } from "../components/DetailsPane";
+import { DetailsPane } from "../components/DetailsPane";
 
-const DetailsPane = (props: any) => (
-  <RealDetailsPane
-    onSetMetadataDraftBatch={props.onSetMetadataDraftBatch ?? vi.fn()}
-    onDiscardDraftBatch={props.onDiscardDraftBatch ?? vi.fn()}
-    {...props}
-  />
-);
+const defaultCallbacks = () => ({
+  onSetMetadataDraftBatch: vi.fn(),
+  onDiscardDraftBatch: vi.fn(),
+});
 import { makePhoto, mockMetadata } from "./factories";
 import type { MetadataDraftEdit } from "../types";
 
@@ -62,12 +59,19 @@ describe("DetailsPane: Reverse Geocode button", () => {
 
   it("renders the button whenever onGeocode is wired (no GPS gate)", () => {
     const onGeocode = vi.fn();
-    render(<DetailsPane photo={photo} metadata={{}} onGeocode={onGeocode} />);
+    render(
+      <DetailsPane
+        {...defaultCallbacks()}
+        photo={photo}
+        metadata={{}}
+        onGeocode={onGeocode}
+      />,
+    );
     expect(screen.getByTestId("details-pane-geocode-btn")).toBeInTheDocument();
   });
 
   it("does not render the button when onGeocode is not provided", () => {
-    render(<DetailsPane photo={photo} metadata={{}} />);
+    render(<DetailsPane {...defaultCallbacks()} photo={photo} metadata={{}} />);
     expect(screen.queryByTestId("details-pane-geocode-btn")).toBeNull();
   });
 
@@ -76,6 +80,7 @@ describe("DetailsPane: Reverse Geocode button", () => {
     const user = userEvent.setup();
     render(
       <DetailsPane
+        {...defaultCallbacks()}
         photo={photo}
         metadata={mockMetadata({
           "Composite:GPSLatitude": 51.5,
@@ -97,6 +102,7 @@ describe("DetailsPane: Reverse Geocode button", () => {
     const user = userEvent.setup();
     render(
       <DetailsPane
+        {...defaultCallbacks()}
         photo={photo}
         metadata={mockMetadata({ "XMP-iptcCore:Location": "Existing Place" })}
         onGeocode={onGeocode}
@@ -113,6 +119,7 @@ describe("DetailsPane: Reverse Geocode button", () => {
     const user = userEvent.setup();
     render(
       <DetailsPane
+        {...defaultCallbacks()}
         photo={photo}
         metadata={{}}
         typedDraftEdits={{ "XMP-photoshop:City": setDraftEdit("Manual Edit") }}

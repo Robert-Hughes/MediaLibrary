@@ -7,15 +7,12 @@
 import { render, screen, within, waitFor, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { GalleryView as RealGalleryView } from "../components/GalleryView";
+import { GalleryView } from "../components/GalleryView";
 
-const GalleryView = (props: any) => (
-  <RealGalleryView
-    onSetMetadataDraftBatch={props.onSetMetadataDraftBatch ?? vi.fn()}
-    onDiscardDraftBatch={props.onDiscardDraftBatch ?? vi.fn()}
-    {...props}
-  />
-);
+const defaultGalleryCallbacks = () => ({
+  onSetMetadataDraftBatch: vi.fn(),
+  onDiscardDraftBatch: vi.fn(),
+});
 import { ImageMetadataStore } from "../types";
 import { makePhotos, mockMetadata } from "./factories";
 import type { PhotoInfo } from "../types";
@@ -59,7 +56,9 @@ async function renderGallery(
     imageMetadata: new ImageMetadataStore(),
     ...overrides,
   };
-  const result = render(<GalleryView {...defaults} />);
+  const result = render(
+    <GalleryView {...defaultGalleryCallbacks()} {...defaults} />,
+  );
   await screen.findByTestId("gallery-image");
   return result;
 }
@@ -268,6 +267,7 @@ describe("Gallery details pane with navigation", () => {
 
     const { rerender } = render(
       <GalleryView
+        {...defaultGalleryCallbacks()}
         photos={PHOTOS}
         currentIndex={0}
         folderPath="/photos"
@@ -286,6 +286,7 @@ describe("Gallery details pane with navigation", () => {
     // Simulate navigation to index 1
     rerender(
       <GalleryView
+        {...defaultGalleryCallbacks()}
         photos={PHOTOS}
         currentIndex={1}
         folderPath="/photos"

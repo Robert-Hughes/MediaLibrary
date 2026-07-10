@@ -8,15 +8,12 @@
  */
 import { render, screen, within, cleanup } from "@testing-library/react";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { DetailsPane as RealDetailsPane } from "../components/DetailsPane";
+import { DetailsPane } from "../components/DetailsPane";
 
-const DetailsPane = (props: any) => (
-  <RealDetailsPane
-    onSetMetadataDraftBatch={props.onSetMetadataDraftBatch ?? vi.fn()}
-    onDiscardDraftBatch={props.onDiscardDraftBatch ?? vi.fn()}
-    {...props}
-  />
-);
+const defaultCallbacks = () => ({
+  onSetMetadataDraftBatch: vi.fn(),
+  onDiscardDraftBatch: vi.fn(),
+});
 import { _clearTagInfoCache, _setTagInfoCacheEntry } from "../hooks/useTagInfo";
 import type {
   MetadataDraftEdit,
@@ -79,6 +76,7 @@ describe("DetailsPane datatype badges", () => {
     );
     render(
       <DetailsPane
+        {...defaultCallbacks()}
         photo={photo}
         metadata={mockMetadata({ "XMP-dc:Description": "hi" })}
       />,
@@ -99,6 +97,7 @@ describe("DetailsPane datatype badges", () => {
     );
     render(
       <DetailsPane
+        {...defaultCallbacks()}
         photo={photo}
         metadata={mockMetadata({
           "XMP-dc:Description": { kind: "Integer", value: 42 },
@@ -127,6 +126,7 @@ describe("DetailsPane datatype badges", () => {
     };
     render(
       <DetailsPane
+        {...defaultCallbacks()}
         photo={photo}
         metadata={mockMetadata({ "XMP-dc:Description": "foo" })}
         draftEdits={{ "XMP-dc:Description": "bar" }}
@@ -151,6 +151,7 @@ describe("DetailsPane datatype badges", () => {
     };
     render(
       <DetailsPane
+        {...defaultCallbacks()}
         photo={photo}
         metadata={mockMetadata({ "XMP-dc:Description": "foo" })}
         draftEdits={{ "XMP-dc:Description": "42" }}
@@ -179,6 +180,7 @@ describe("DetailsPane datatype badges", () => {
     };
     render(
       <DetailsPane
+        {...defaultCallbacks()}
         photo={photo}
         metadata={mockMetadata({
           "XMP-dc:Description": { kind: "Integer", value: 42 },
@@ -211,6 +213,7 @@ describe("DetailsPane datatype badges", () => {
     );
     render(
       <DetailsPane
+        {...defaultCallbacks()}
         photo={photo}
         metadata={mockMetadata({
           "ExifIFD:ISO": { kind: "Integer", value: 100 },
@@ -235,6 +238,7 @@ describe("DetailsPane datatype badges", () => {
     );
     render(
       <DetailsPane
+        {...defaultCallbacks()}
         photo={photo}
         metadata={mockMetadata({ "ExifIFD:ISO": "100" })}
       />,
@@ -257,6 +261,7 @@ describe("DetailsPane datatype badges", () => {
     );
     render(
       <DetailsPane
+        {...defaultCallbacks()}
         photo={photo}
         metadata={mockMetadata({ "XMP-dc:Subject": ["a", "b"] })}
       />,
@@ -276,6 +281,7 @@ describe("DetailsPane datatype badges", () => {
     );
     render(
       <DetailsPane
+        {...defaultCallbacks()}
         photo={photo}
         metadata={mockMetadata({ "XMP-dc:Subject": "a" })}
       />,
@@ -301,6 +307,7 @@ describe("DetailsPane datatype badges", () => {
     };
     render(
       <DetailsPane
+        {...defaultCallbacks()}
         photo={photo}
         metadata={mockMetadata({ "XMP-dc:Subject": ["a"] })}
         draftEdits={{ "XMP-dc:Subject": "x" }}
@@ -323,6 +330,7 @@ describe("DetailsPane datatype badges", () => {
     _setTagInfoCacheEntry("Made-Up:Thing", null);
     render(
       <DetailsPane
+        {...defaultCallbacks()}
         photo={photo}
         metadata={mockMetadata({ "Made-Up:Thing": "x" })}
       />,
@@ -343,6 +351,7 @@ describe("DetailsPane datatype badges", () => {
     };
     render(
       <DetailsPane
+        {...defaultCallbacks()}
         photo={photo}
         metadata={mockMetadata({ "Made-Up:Thing": "x" })}
         draftEdits={{ "Made-Up:Thing": "y" }}
@@ -365,6 +374,7 @@ describe("DetailsPane datatype badges", () => {
     };
     render(
       <DetailsPane
+        {...defaultCallbacks()}
         photo={photo}
         metadata={mockMetadata({ "Made-Up:Thing": "x" })}
         draftEdits={{ "Made-Up:Thing": "42" }}
@@ -390,6 +400,7 @@ describe("DetailsPane datatype badges", () => {
     };
     render(
       <DetailsPane
+        {...defaultCallbacks()}
         photo={photo}
         metadata={{} as Record<string, ImageMetadataEntry>}
         draftEdits={{ "Made-Up:Thing": "new" }}
@@ -415,6 +426,7 @@ describe("DetailsPane datatype badges", () => {
     };
     render(
       <DetailsPane
+        {...defaultCallbacks()}
         photo={photo}
         metadata={mockMetadata({ "XMP-dc:Description": "foo" })}
         draftEdits={{ "XMP-dc:Description": null }}
@@ -439,6 +451,7 @@ describe("DetailsPane datatype badges", () => {
     };
     render(
       <DetailsPane
+        {...defaultCallbacks()}
         photo={photo}
         metadata={{} as Record<string, ImageMetadataEntry>}
         draftEdits={{ "XMP-dc:Description": "new" }}
@@ -460,6 +473,7 @@ describe("DetailsPane datatype badges", () => {
     );
     render(
       <DetailsPane
+        {...defaultCallbacks()}
         photo={photo}
         metadata={mockMetadata({ "XMP-x:Flag": true })}
       />,
@@ -482,6 +496,7 @@ describe("DetailsPane datatype badges", () => {
     };
     render(
       <DetailsPane
+        {...defaultCallbacks()}
         photo={photo}
         metadata={mockMetadata({ "XMP-x:Aperture": 1.5 })}
         draftEdits={{ "XMP-x:Aperture": "1.5" }}
@@ -507,6 +522,7 @@ describe("DetailsPane datatype badges", () => {
     );
     render(
       <DetailsPane
+        {...defaultCallbacks()}
         photo={photo}
         metadata={mockMetadata({ "IFD0:Make": "Canon" })}
       />,
@@ -524,6 +540,7 @@ describe("DetailsPane datatype badges", () => {
     );
     render(
       <DetailsPane
+        {...defaultCallbacks()}
         photo={photo}
         metadata={mockMetadata({ "XMP-dc:Description": "hi" })}
       />,
@@ -538,6 +555,7 @@ describe("DetailsPane datatype badges", () => {
     _setTagInfoCacheEntry("Made-Up:Thing", null);
     render(
       <DetailsPane
+        {...defaultCallbacks()}
         photo={photo}
         metadata={mockMetadata({ "Made-Up:Thing": "x" })}
       />,
@@ -548,7 +566,7 @@ describe("DetailsPane datatype badges", () => {
   });
 
   it("OS section rows never render a schema badge", () => {
-    render(<DetailsPane photo={photo} metadata={{}} />);
+    render(<DetailsPane {...defaultCallbacks()} photo={photo} metadata={{}} />);
     const os = screen.getByTestId("details-section-os");
     expect(within(os).queryByTestId("datatype-badge-schema")).toBeNull();
     expect(within(os).queryByTestId("datatype-badge-value")).toBeNull();
@@ -561,6 +579,7 @@ describe("DetailsPane datatype badges", () => {
     );
     render(
       <DetailsPane
+        {...defaultCallbacks()}
         photo={photo}
         metadata={mockMetadata({ "File:FileType": "JPEG" })}
       />,
@@ -574,7 +593,7 @@ describe("DetailsPane datatype badges", () => {
   });
 
   it("OS section value cells are always rendered read-only", () => {
-    render(<DetailsPane photo={photo} metadata={{}} />);
+    render(<DetailsPane {...defaultCallbacks()} photo={photo} metadata={{}} />);
     const os = screen.getByTestId("details-section-os");
     const cells = os.querySelectorAll("td.details-value");
     expect(cells.length).toBeGreaterThan(0);

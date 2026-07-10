@@ -1,14 +1,11 @@
 import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
-import { GalleryView as RealGalleryView } from "../components/GalleryView";
+import { GalleryView } from "../components/GalleryView";
 
-const GalleryView = (props: any) => (
-  <RealGalleryView
-    onSetMetadataDraftBatch={props.onSetMetadataDraftBatch ?? vi.fn()}
-    onDiscardDraftBatch={props.onDiscardDraftBatch ?? vi.fn()}
-    {...props}
-  />
-);
+const defaultGalleryCallbacks = () => ({
+  onSetMetadataDraftBatch: vi.fn(),
+  onDiscardDraftBatch: vi.fn(),
+});
 import { makePhotos } from "./factories";
 
 const PHOTOS = makePhotos(["a.jpg", "b.jpg"]);
@@ -24,7 +21,7 @@ function renderGallery(overrides = {}) {
     loadImage: fakeLoad,
     ...overrides,
   };
-  return render(<GalleryView {...defaults} />);
+  return render(<GalleryView {...defaultGalleryCallbacks()} {...defaults} />);
 }
 
 describe("Gallery Zoom and Pan", () => {
@@ -123,7 +120,7 @@ describe("Gallery Zoom and Pan", () => {
       onNavigate: vi.fn(),
       loadImage: fakeLoad,
     };
-    rerender(<GalleryView {...defaults} />);
+    rerender(<GalleryView {...defaultGalleryCallbacks()} {...defaults} />);
 
     // Check reset
     const newImage = await screen.findByTestId("gallery-image");
