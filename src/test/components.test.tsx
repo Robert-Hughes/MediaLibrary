@@ -1,6 +1,7 @@
 import { render, screen, act, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { _clearTagInfoCache, _setTagInfoCacheEntry } from "../hooks/useTagInfo";
 import { WelcomeScreen } from "../components/WelcomeScreen";
 import { MenuBar } from "../components/MenuBar";
 import { PhotoList } from "../components/PhotoList";
@@ -163,6 +164,10 @@ describe("MenuBar", () => {
 // ── PhotoList ─────────────────────────────────────────────────────────────────
 
 describe("PhotoList", () => {
+  beforeEach(() => {
+    _clearTagInfoCache();
+    _setTagInfoCacheEntry("IFD0:Model", null);
+  });
   it("shows empty message when no photos", () => {
     const { thumbs, imageMetadata } = makeStores([]);
     render(

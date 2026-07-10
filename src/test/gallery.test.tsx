@@ -24,7 +24,7 @@ function makeStore(photos: PhotoInfo[]) {
 const fakeLoad = async (_path: string) => "data:image/jpeg;base64,FAKE";
 
 describe("GalleryView", () => {
-  it("renders the current photo path in the caption", () => {
+  it("renders the current photo path in the caption", async () => {
     render(
       <GalleryView
         photos={PHOTOS}
@@ -35,10 +35,11 @@ describe("GalleryView", () => {
         loadImage={fakeLoad}
       />,
     );
+    await screen.findByTestId("gallery-image");
     expect(screen.getByTestId("gallery-caption")).toHaveTextContent("b.jpg");
   });
 
-  it("shows counter with correct position", () => {
+  it("shows counter with correct position", async () => {
     render(
       <GalleryView
         photos={PHOTOS}
@@ -49,6 +50,7 @@ describe("GalleryView", () => {
         loadImage={fakeLoad}
       />,
     );
+    await screen.findByTestId("gallery-image");
     const counter = document.querySelector(".gallery-counter");
     expect(counter).not.toBeNull();
     expect(counter!.textContent).toMatch(/2.*3/);
@@ -81,6 +83,7 @@ describe("GalleryView", () => {
         loadImage={fakeLoad}
       />,
     );
+    await screen.findByTestId("gallery-image");
     await userEvent.click(screen.getByTestId("gallery-close-btn"));
     expect(onClose).toHaveBeenCalledOnce();
   });

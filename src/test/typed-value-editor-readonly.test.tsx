@@ -25,6 +25,17 @@ vi.mock("@tauri-apps/api/core", () => ({
 beforeEach(() => {
   cleanup();
   _clearTagInfoCache();
+  // Seed GPS tags and other tags that expect fallback/missing schema to null
+  const fallbackTags = [
+    "GPS:GPSLatitude",
+    "GPS:GPSLongitude",
+    "GPS:GPSLatitudeRef",
+    "GPS:GPSLongitudeRef",
+    "XMP-custom:MissingDate",
+  ];
+  for (const tag of fallbackTags) {
+    _setTagInfoCacheEntry(tag, null);
+  }
 });
 
 describe("TypedValueEditor read-only enforcement", () => {

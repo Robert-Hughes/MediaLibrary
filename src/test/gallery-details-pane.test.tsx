@@ -11,6 +11,7 @@ import { GalleryView } from "../components/GalleryView";
 import { ImageMetadataStore } from "../types";
 import { makePhotos, mockMetadata } from "./factories";
 import type { PhotoInfo } from "../types";
+import { _clearTagInfoCache, _setTagInfoCacheEntry } from "../hooks/useTagInfo";
 
 // ── Test helpers ─────────────────────────────────────────────────────────────
 
@@ -37,7 +38,7 @@ function createPopulatedStore(
 }
 
 /** Render the GalleryView with defaults suitable for integration testing. */
-function renderGallery(
+async function renderGallery(
   overrides: Partial<Parameters<typeof GalleryView>[0]> = {},
 ) {
   const defaults = {
@@ -50,23 +51,36 @@ function renderGallery(
     imageMetadata: new ImageMetadataStore(),
     ...overrides,
   };
-  return render(<GalleryView {...defaults} />);
+  const result = render(<GalleryView {...defaults} />);
+  await screen.findByTestId("gallery-image");
+  return result;
 }
 
 // ── Integration tests ────────────────────────────────────────────────────────
 
 beforeEach(() => {
   localStorage.clear();
+  _clearTagInfoCache();
+  const commonTags = [
+    "IFD0:Make",
+    "IFD0:Model",
+    "ExifIFD:ISO",
+    "XMP-dc:Subject",
+    "IFD0:Orientation",
+  ];
+  for (const tag of commonTags) {
+    _setTagInfoCacheEntry(tag, null);
+  }
 });
 
 describe("Gallery details pane toggle", () => {
-  it("details pane is hidden by default", () => {
-    renderGallery();
+  it("details pane is hidden by default", async () => {
+    await renderGallery();
     expect(screen.queryByTestId("details-pane")).not.toBeInTheDocument();
   });
 
   it("shows details pane when toggle button is clicked", async () => {
-    renderGallery();
+    await renderGallery();
 
     const toggle = screen.getByTestId("gallery-info-toggle");
     expect(toggle).toBeInTheDocument();
@@ -76,7 +90,7 @@ describe("Gallery details pane toggle", () => {
   });
 
   it("hides details pane when toggle button is clicked again", async () => {
-    renderGallery();
+    await renderGallery();
 
     const toggle = screen.getByTestId("gallery-info-toggle");
 
@@ -90,7 +104,7 @@ describe("Gallery details pane toggle", () => {
   });
 
   it("toggles details pane with 'I' keyboard shortcut", async () => {
-    renderGallery();
+    await renderGallery();
 
     // Initially hidden
     expect(screen.queryByTestId("details-pane")).not.toBeInTheDocument();
@@ -105,7 +119,7 @@ describe("Gallery details pane toggle", () => {
   });
 
   it("toggle button has correct aria-label reflecting current state", async () => {
-    renderGallery();
+    await renderGallery();
 
     const toggle = screen.getByTestId("gallery-info-toggle");
     expect(toggle).toHaveAttribute("aria-label", "Show details");
@@ -115,7 +129,7 @@ describe("Gallery details pane toggle", () => {
   });
 
   it("gallery-content gets --with-details class when pane is visible", async () => {
-    renderGallery();
+    await renderGallery();
 
     const content = screen.getByTestId("gallery-content");
     expect(content.classList.contains("gallery-content--with-details")).toBe(
@@ -129,7 +143,7 @@ describe("Gallery details pane toggle", () => {
   });
 
   it("details pane visibility persists across gallery remounts", async () => {
-    const { unmount } = renderGallery();
+    const { unmount } = await renderGallery();
 
     // Open the pane
     await userEvent.click(screen.getByTestId("gallery-info-toggle"));
@@ -137,7 +151,7 @@ describe("Gallery details pane toggle", () => {
 
     // Simulate closing and re-opening the gallery
     unmount();
-    renderGallery();
+    await renderGallery();
 
     // Pane should still be visible on remount (state persisted via localStorage)
     expect(screen.getByTestId("details-pane")).toBeInTheDocument();
@@ -147,7 +161,7 @@ describe("Gallery details pane toggle", () => {
     // Pre-seed localStorage with hidden state
     localStorage.setItem("media_library_gallery_details_visible", "0");
 
-    const { unmount } = renderGallery();
+    const { unmount } = await renderGallery();
     expect(screen.queryByTestId("details-pane")).not.toBeInTheDocument();
 
     // Open it, then close it
@@ -157,14 +171,14 @@ describe("Gallery details pane toggle", () => {
 
     // Remount — should still be hidden
     unmount();
-    renderGallery();
+    await renderGallery();
     expect(screen.queryByTestId("details-pane")).not.toBeInTheDocument();
   });
 });
 
 describe("Gallery details pane content", () => {
   it("displays OS metadata for the current photo", async () => {
-    renderGallery({ currentIndex: 0 });
+    await renderGallery({ currentIndex: 0 });
 
     await userEvent.click(screen.getByTestId("gallery-info-toggle"));
 
@@ -180,7 +194,7 @@ describe("Gallery details pane content", () => {
     PHOTOS.forEach((p) => store.add(p.relative_path));
     // Don't set metadata — leave in "loading" state
 
-    renderGallery({ imageMetadata: store });
+    await renderGallery({ imageMetadata: store });
 
     await userEvent.click(screen.getByTestId("gallery-info-toggle"));
 
@@ -198,7 +212,7 @@ describe("Gallery details pane content", () => {
       },
     });
 
-    renderGallery({ imageMetadata: store, currentIndex: 0 });
+    await renderGallery({ imageMetadata: store, currentIndex: 0 });
 
     await userEvent.click(screen.getByTestId("gallery-info-toggle"));
 
@@ -227,7 +241,7 @@ describe("Gallery details pane content", () => {
       "2024/a.jpg": {},
     });
 
-    renderGallery({ imageMetadata: store, currentIndex: 0 });
+    await renderGallery({ imageMetadata: store, currentIndex: 0 });
 
     await userEvent.click(screen.getByTestId("gallery-info-toggle"));
 
@@ -255,6 +269,7 @@ describe("Gallery details pane with navigation", () => {
         imageMetadata={store}
       />,
     );
+    await screen.findByTestId("gallery-image");
 
     // Open details pane
     await userEvent.click(screen.getByTestId("gallery-info-toggle"));
@@ -272,6 +287,7 @@ describe("Gallery details pane with navigation", () => {
         imageMetadata={store}
       />,
     );
+    await screen.findByTestId("gallery-image");
 
     // Details should now show the second photo's metadata
     expect(screen.getByText("Nikon")).toBeInTheDocument();
@@ -284,7 +300,7 @@ describe("Gallery details pane with navigation", () => {
 
 describe("Gallery details pane search", () => {
   it("filters OS rows and highlights matching text", async () => {
-    renderGallery({ currentIndex: 0 });
+    await renderGallery({ currentIndex: 0 });
 
     await userEvent.click(screen.getByTestId("gallery-info-toggle"));
     const search = screen.getByTestId("details-search-input");
@@ -303,7 +319,7 @@ describe("Gallery details pane search", () => {
       "2024/a.jpg": { "IFD0:Make": "Canon" },
     });
 
-    renderGallery({ imageMetadata: store, currentIndex: 0 });
+    await renderGallery({ imageMetadata: store, currentIndex: 0 });
 
     await userEvent.click(screen.getByTestId("gallery-info-toggle"));
     await userEvent.type(screen.getByTestId("details-search-input"), "Canon");
@@ -316,7 +332,7 @@ describe("Gallery details pane search", () => {
       "2024/a.jpg": { "IFD0:Make": "Canon" },
     });
 
-    renderGallery({ imageMetadata: store, currentIndex: 0 });
+    await renderGallery({ imageMetadata: store, currentIndex: 0 });
 
     await userEvent.click(screen.getByTestId("gallery-info-toggle"));
     await userEvent.type(screen.getByTestId("details-search-input"), "IFD0:");
@@ -332,7 +348,7 @@ describe("Gallery details pane search", () => {
 describe("Gallery keyboard shortcuts coexistence", () => {
   it("I key toggles details while Escape still closes gallery", async () => {
     const onClose = vi.fn();
-    renderGallery({ onClose });
+    await renderGallery({ onClose });
 
     // Toggle details
     await userEvent.keyboard("i");
@@ -345,7 +361,7 @@ describe("Gallery keyboard shortcuts coexistence", () => {
 
   it("arrow keys still navigate photos when details pane is open", async () => {
     const onNavigate = vi.fn();
-    renderGallery({ onNavigate });
+    await renderGallery({ onNavigate });
 
     // Open details
     await userEvent.keyboard("i");
@@ -365,7 +381,7 @@ describe("Gallery details pane with reactive metadata", () => {
     const store = new ImageMetadataStore();
     PHOTOS.forEach((p) => store.add(p.relative_path));
 
-    renderGallery({ imageMetadata: store, currentIndex: 0 });
+    await renderGallery({ imageMetadata: store, currentIndex: 0 });
 
     // Open details
     await userEvent.click(screen.getByTestId("gallery-info-toggle"));

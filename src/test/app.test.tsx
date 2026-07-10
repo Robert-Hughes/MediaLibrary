@@ -1,5 +1,10 @@
-import { render, screen, waitFor, act } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import {
+  render,
+  screen,
+  waitFor,
+  act,
+  fireEvent,
+} from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import App from "../App";
 import { makePhoto, mockMetadata } from "./factories";
@@ -314,7 +319,9 @@ describe("App Select Columns metadata counts", () => {
       expect(screen.getByTestId("open-folder-btn")).toBeInTheDocument();
     });
 
-    await userEvent.click(screen.getByTestId("open-folder-btn"));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("open-folder-btn"));
+    });
 
     let scanId = 0;
     await waitFor(() => {
@@ -325,30 +332,36 @@ describe("App Select Columns metadata counts", () => {
       scanId = (startCall?.[1] as { scanId: number }).scanId;
     });
 
-    emit("photo_found", {
-      scan_id: scanId,
-      photos: [
-        makePhoto({ relative_path: "a.jpg" }),
-        makePhoto({ relative_path: "b.jpg" }),
-      ],
+    act(() => {
+      emit("photo_found", {
+        scan_id: scanId,
+        photos: [
+          makePhoto({ relative_path: "a.jpg" }),
+          makePhoto({ relative_path: "b.jpg" }),
+        ],
+      });
     });
 
     await waitFor(() => {
       expect(screen.getAllByTestId("photo-row")).toHaveLength(2);
     });
 
-    emit("image_metadata_ready", {
-      scan_id: scanId,
-      results: [
-        {
-          relative_path: "a.jpg",
-          metadata: mockMetadata({ "XMP-dc:Title": "Committed title" }),
-        },
-        { relative_path: "b.jpg", metadata: mockMetadata({}) },
-      ],
+    act(() => {
+      emit("image_metadata_ready", {
+        scan_id: scanId,
+        results: [
+          {
+            relative_path: "a.jpg",
+            metadata: mockMetadata({ "XMP-dc:Title": "Committed title" }),
+          },
+          { relative_path: "b.jpg", metadata: mockMetadata({}) },
+        ],
+      });
     });
 
-    await userEvent.click(screen.getByTestId("menu-bar-columns-btn"));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("menu-bar-columns-btn"));
+    });
 
     await waitFor(() => {
       expect(screen.getByText("XMP-dc:Title")).toBeInTheDocument();
@@ -399,7 +412,9 @@ describe("App Select Columns metadata counts", () => {
       expect(screen.getByTestId("open-folder-btn")).toBeInTheDocument();
     });
 
-    await userEvent.click(screen.getByTestId("open-folder-btn"));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("open-folder-btn"));
+    });
 
     let scanId = 0;
     await waitFor(() => {
@@ -429,7 +444,9 @@ describe("App Select Columns metadata counts", () => {
     );
 
     // 2. Open Select Columns before emitting any `image_metadata_ready` event.
-    await userEvent.click(screen.getByTestId("menu-bar-columns-btn"));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("menu-bar-columns-btn"));
+    });
 
     // 3. Confirm `XMP-dc:Title` is not shown or has no count yet.
     await waitFor(
@@ -474,6 +491,11 @@ describe("App Select Columns metadata counts", () => {
           },
         ],
       });
+    });
+
+    // Wait for the 200ms debounce of image_metadata_ready to fire inside act
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 250));
     });
 
     // 8. Wait for the UI to update.

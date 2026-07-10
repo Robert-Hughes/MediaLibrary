@@ -2,6 +2,7 @@ Current
 =======
 
 - WHy is npm run check so slow!
+  - also fix the "act(...)" warnings
 - Use (interactive) OSM iframe/API to show GPS location
   - In GPS editor UI, along with clicking to overwrite with that location for editing
     - Figure out why editing the individual properties shows such weird behaviour

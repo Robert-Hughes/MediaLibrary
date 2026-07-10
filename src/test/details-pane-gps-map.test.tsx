@@ -4,6 +4,7 @@ import { DetailsPane } from "../components/DetailsPane";
 import { GpsMapOverview } from "../components/GpsMapOverview";
 import { makePhoto, mockMetadata } from "./factories";
 import type { MetadataDraftEdit } from "../types";
+import { _clearTagInfoCache, _setTagInfoCacheEntry } from "../hooks/useTagInfo";
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(() => Promise.resolve(null)),
@@ -39,6 +40,17 @@ describe("DetailsPane GPS Map integration", () => {
 
   beforeEach(() => {
     cleanup();
+    _clearTagInfoCache();
+    const commonTags = [
+      "GPS:GPSLatitude",
+      "GPS:GPSLongitude",
+      "GPS:GPSLatitudeRef",
+      "GPS:GPSLongitudeRef",
+      "IFD0:Make",
+    ];
+    for (const tag of commonTags) {
+      _setTagInfoCacheEntry(tag, null);
+    }
   });
 
   it("renders the map overview when a GPS section exists and coordinates resolve to valid values", () => {

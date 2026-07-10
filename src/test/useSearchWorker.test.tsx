@@ -348,6 +348,7 @@ describe("useSearchWorker", () => {
           }),
       ),
     ).toBe(true);
+    await act(async () => {});
   });
 
   it("debounces user-typed queries", async () => {
@@ -370,6 +371,8 @@ describe("useSearchWorker", () => {
         }),
       { initialProps: { ...base, query: "" } as HookArgs },
     );
+    await act(async () => {});
+
     const beforeCount = fake.inbound.filter((m) => m.type === "QUERY").length;
     act(() => {
       rerender({ ...base, query: "a" });
@@ -388,6 +391,7 @@ describe("useSearchWorker", () => {
     const queries = fake.inbound.filter((m) => m.type === "QUERY");
     const lastQuery = queries[queries.length - 1];
     expect(lastQuery && "query" in lastQuery && lastQuery.query).toBe("abc");
+    await act(async () => {});
     vi.useRealTimers();
   });
 

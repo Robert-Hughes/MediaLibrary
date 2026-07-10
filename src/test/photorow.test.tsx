@@ -12,6 +12,8 @@ vi.mock("@tauri-apps/api/core", () => ({
 describe("PhotoRow", () => {
   beforeEach(() => {
     _clearTagInfoCache();
+    _setTagInfoCacheEntry("IFD0:Model", null);
+    _setTagInfoCacheEntry("ExifIFD:DateTimeOriginal", null);
   });
 
   it("renders PhotoList with photos without crashing", () => {
