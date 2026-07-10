@@ -17,7 +17,7 @@ export function UnknownEditor({
     initialMetadataValue && initialMetadataValue.kind === "Unknown";
   const rawValue = isParsedUnknown
     ? initialMetadataValue.value.raw
-    : initialMetadataValue ?? null;
+    : (initialMetadataValue ?? null);
   const reason = isParsedUnknown ? initialMetadataValue.value.reason : null;
 
   return (

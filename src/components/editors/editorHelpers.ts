@@ -183,9 +183,7 @@ export function defaultMetadataValueForKind(kind: TagKind): MetadataValue {
 }
 
 /** Initial value for numeric controls, derived only from semantic metadata. */
-export function numericInitialString(
-  value: MetadataValue | undefined,
-): string {
+export function numericInitialString(value: MetadataValue | undefined): string {
   if (!value || value.kind === "Null") return "";
   if (value.kind === "Integer" || value.kind === "Real") {
     return String(value.value);
