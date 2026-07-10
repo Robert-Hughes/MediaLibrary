@@ -73,11 +73,13 @@ export function StructEditor({
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
 
   const updateRow = (idx: number, patch: Partial<FieldRow>) => {
-    setRows(rows.map((r, i) => (i === idx ? { ...r, ...patch } : r)));
+    setRows((current) =>
+      current.map((r, i) => (i === idx ? { ...r, ...patch } : r)),
+    );
   };
 
   const removeRow = (idx: number) => {
-    setRows(rows.filter((_, i) => i !== idx));
+    setRows((current) => current.filter((_, i) => i !== idx));
   };
 
   const addRow = () => {
@@ -117,11 +119,13 @@ export function StructEditor({
             : undefined
         }
         onSaveMetadata={(edit: MetadataDraftEdit) => {
-          const newValue: MetadataValue =
-            edit.intent === "Delete"
-              ? { kind: "Text", value: "" }
-              : (edit.value ?? { kind: "Text", value: "" });
-          updateRow(editingIndex, { value: newValue });
+          if (edit.intent === "Delete") {
+            removeRow(editingIndex);
+          } else {
+            updateRow(editingIndex, {
+              value: edit.value ?? row.value,
+            });
+          }
           setEditingIndex(null);
         }}
         onCancel={() => setEditingIndex(null)}
