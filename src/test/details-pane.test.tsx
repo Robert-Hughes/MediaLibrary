@@ -29,7 +29,11 @@ import {
   extractPrefix,
 } from "../utils/detailsPaneHelpers";
 import { makePhoto, mockMetadata } from "./factories";
-import type { MetadataDraftEdit, ImageMetadataEntry } from "../types";
+import type {
+  MetadataDraftEdit,
+  ImageMetadataEntry,
+  PhotoInfo,
+} from "../types";
 import { _clearTagInfoCache, _setTagInfoCacheEntry } from "../hooks/useTagInfo";
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -1099,8 +1103,8 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
     initialMetadata,
     photo,
   }: {
-    initialMetadata: Record<string, any>;
-    photo: any;
+    initialMetadata: Record<string, unknown>;
+    photo: PhotoInfo;
   }) {
     const [drafts, setDrafts] = useState<Record<string, MetadataDraftEdit>>({});
 
