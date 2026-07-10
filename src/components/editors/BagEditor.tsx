@@ -93,6 +93,7 @@ export function BagEditor({
   }, []);
 
   const commitDraftItem = () => {
+    if (readOnly) return;
     const trimmed = draftItem.trim();
     if (!trimmed) return;
     if (items.includes(trimmed)) {
@@ -177,7 +178,7 @@ export function BagEditor({
                       className="bag-editor-chip-move"
                       aria-label={`Move ${item} up`}
                       title="Move up"
-                      disabled={idx === 0}
+                      disabled={readOnly || idx === 0}
                       onClick={() => moveItem(idx, -1)}
                       data-testid="bag-editor-chip-up"
                     >
@@ -188,7 +189,7 @@ export function BagEditor({
                       className="bag-editor-chip-move"
                       aria-label={`Move ${item} down`}
                       title="Move down"
-                      disabled={idx === items.length - 1}
+                      disabled={readOnly || idx === items.length - 1}
                       onClick={() => moveItem(idx, 1)}
                       data-testid="bag-editor-chip-down"
                     >
@@ -201,6 +202,7 @@ export function BagEditor({
                   type="button"
                   className="bag-editor-chip-remove"
                   aria-label={`Remove ${item}`}
+                  disabled={readOnly}
                   onClick={() => removeItem(idx)}
                 >
                   ×
@@ -217,6 +219,7 @@ export function BagEditor({
               onKeyDown={handleInputKeyDown}
               onBlur={commitDraftItem}
               data-testid="bag-editor-input"
+              disabled={readOnly}
             />
           </div>
           <p className="dialog-hint">

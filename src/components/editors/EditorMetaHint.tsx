@@ -20,7 +20,12 @@ import { describeKind } from "./editorHelpers";
 
 export type EditorMetaSource =
   | { kind: "schema"; tag: TagInfo; override?: string }
-  | { kind: "synthetic"; label: string; description: string }
+  | {
+      kind: "synthetic";
+      label: string;
+      description: string;
+      readOnly?: boolean;
+    }
   | { kind: "unknown"; treatedAs?: string }
   | { kind: "loading" };
 
@@ -62,12 +67,16 @@ export function EditorMetaHint({ source }: Props) {
   }
 
   if (source.kind === "synthetic") {
+    const readOnly = Boolean(source.readOnly);
     return (
       <p
-        className="dialog-hint editor-meta-hint"
+        className={`dialog-hint editor-meta-hint${readOnly ? " editor-meta-hint-warning" : ""}`}
         data-testid="editor-meta-hint"
         data-source="synthetic"
+        data-readonly={readOnly ? "true" : "false"}
+        style={readOnly ? { color: "var(--accent-warning, #aa6)" } : undefined}
       >
+        {readOnly ? "⚠ " : null}
         <strong>{source.label}</strong> — {source.description}
       </p>
     );

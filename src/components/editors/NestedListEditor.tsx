@@ -185,7 +185,11 @@ export function NestedListEditor({
       <SubEditor
         propertyKey={`${propertyKey}[${editingIndex}]`}
         initialMetadataValue={value}
-        schemaOverride={innerKind}
+        schemaOverride={{
+          kind: innerKind,
+          readOnly: Boolean(readOnly),
+          sourceLabel: propertyKey,
+        }}
         onSaveMetadata={(edit: MetadataDraftEdit) => {
           const newValue: MetadataValue =
             edit.intent === "Delete"
@@ -233,7 +237,7 @@ export function NestedListEditor({
                       type="button"
                       aria-label={`Move item ${idx + 1} up`}
                       title="Move up"
-                      disabled={idx === 0}
+                      disabled={readOnly || idx === 0}
                       onClick={() => moveItem(idx, -1)}
                       data-testid="nested-list-editor-up"
                     >
@@ -243,7 +247,7 @@ export function NestedListEditor({
                       type="button"
                       aria-label={`Move item ${idx + 1} down`}
                       title="Move down"
-                      disabled={idx === items.length - 1}
+                      disabled={readOnly || idx === items.length - 1}
                       onClick={() => moveItem(idx, 1)}
                       data-testid="nested-list-editor-down"
                     >
@@ -269,6 +273,7 @@ export function NestedListEditor({
                   className="dialog-btn dialog-btn-secondary"
                   onClick={() => setEditingIndex(idx)}
                   data-testid="nested-list-editor-edit"
+                  disabled={readOnly}
                 >
                   Edit…
                 </button>
@@ -277,6 +282,7 @@ export function NestedListEditor({
                   aria-label={`Remove item ${idx + 1}`}
                   onClick={() => removeItem(idx)}
                   data-testid="nested-list-editor-remove"
+                  disabled={readOnly}
                 >
                   ×
                 </button>
@@ -288,6 +294,7 @@ export function NestedListEditor({
             className="dialog-btn dialog-btn-secondary"
             onClick={addItem}
             data-testid="nested-list-editor-add"
+            disabled={readOnly}
             style={{ marginTop: 8 }}
           >
             + Add item
