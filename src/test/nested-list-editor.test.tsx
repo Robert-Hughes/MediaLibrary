@@ -317,6 +317,37 @@ describe("NestedListEditor", () => {
     });
   });
 
+  it.each([
+    ["String", "first", { kind: "Text", value: "first" }],
+    ["Integer", "7", { kind: "Integer", value: 7 }],
+  ] as const)(
+    "seeds Bag<Enum<%s>> from the first typed option",
+    (repr, code, expected) => {
+      const record: { lastInitial?: MetadataValue } = {};
+      render(
+        <NestedListEditor
+          propertyKey="X:Enums"
+          kind={{
+            kind: "Bag",
+            data: {
+              kind: "Enum",
+              data: {
+                repr,
+                options: [{ code, label: "First" }],
+              },
+            },
+          }}
+          initialItems={[]}
+          innerEditor={stubInnerEditor(record)}
+          onSave={() => {}}
+          onCancel={() => {}}
+        />,
+      );
+      fireEvent.click(screen.getByTestId("nested-list-editor-add"));
+      expect(record.lastInitial).toEqual(expected);
+    },
+  );
+
   it("empty list shows the empty-state hint", () => {
     render(
       <NestedListEditor
