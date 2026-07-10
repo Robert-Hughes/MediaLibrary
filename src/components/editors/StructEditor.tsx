@@ -9,13 +9,14 @@
 // Future work includes introducing schema-aware struct field kinds.
 
 import { useState } from "react";
-import type { MetadataDraftEdit, MetadataValue } from "../../types";
+import type { MetadataDraftEdit, MetadataValue, TagKind } from "../../types";
 import { metadataValueToDisplayString } from "../../draft";
 import { READ_ONLY_TOOLTIP } from "./readOnlyMessages";
 
 interface Props {
   propertyKey: string;
   initialObject: Record<string, MetadataValue>;
+  fieldKinds?: Record<string, TagKind | undefined>;
   /** Recursive editor entry — pass `TypedValueEditor` to support arbitrary nesting. */
   innerEditor?: (props: InnerEditorProps) => React.ReactNode;
   onSave: (edit: MetadataDraftEdit) => void;
@@ -27,6 +28,7 @@ interface Props {
 export interface InnerEditorProps {
   propertyKey: string;
   initialMetadataValue?: MetadataValue;
+  schemaOverride?: TagKind;
   metadataForFile?: Record<string, MetadataValue>;
   onSaveMetadata: (edit: MetadataDraftEdit) => void;
   onCancel: () => void;
@@ -50,14 +52,15 @@ function rowsToObject(rows: FieldRow[]): Record<string, MetadataValue> {
   return out;
 }
 
-function isComplex(v: MetadataValue): boolean {
-  // Treat everything other than Text as complex so it gets a dedicated editor popup via "Edit..."
+function usesSubEditor(v: MetadataValue, fieldKind?: TagKind): boolean {
+  if (fieldKind) return fieldKind.kind !== "Text";
   return v.kind !== "Text";
 }
 
 export function StructEditor({
   propertyKey,
   initialObject,
+  fieldKinds,
   innerEditor,
   onSave,
   onCancel,
@@ -103,6 +106,7 @@ export function StructEditor({
       <SubEditor
         propertyKey={`${propertyKey}.${row.key}`}
         initialMetadataValue={row.value}
+        schemaOverride={fieldKinds?.[row.key]}
         onSaveMetadata={(edit: MetadataDraftEdit) => {
           const newValue: MetadataValue =
             edit.intent === "Delete"
@@ -140,7 +144,7 @@ export function StructEditor({
                   placeholder="field"
                   data-testid={`struct-editor-key-${idx}`}
                 />
-                {isComplex(row.value) ? (
+                {usesSubEditor(row.value, fieldKinds?.[row.key]) ? (
                   <>
                     <span
                       className="struct-editor-complex-preview"

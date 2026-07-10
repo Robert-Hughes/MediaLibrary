@@ -353,3 +353,92 @@ describe("TypedValueEditor semantic save callbacks", () => {
     });
   });
 });
+
+describe("TypedValueEditor nested schema routing", () => {
+  it("opens a Bag<Enum> item with its parent enum schema", async () => {
+    _setTagInfoCacheEntry("GPS:GPSLatitudeRef", {
+      group: "GPS",
+      name: "GPSLatitudeRef",
+      writable: true,
+      kind: {
+        kind: "Bag",
+        data: {
+          kind: "Enum",
+          data: {
+            repr: "String",
+            options: [
+              { code: "N", label: "North" },
+              { code: "S", label: "South" },
+            ],
+          },
+        },
+      },
+      description: null,
+    });
+
+    render(
+      <TypedValueEditor
+        propertyKey="GPS:GPSLatitudeRef"
+        initialMetadataValue={{
+          kind: "List",
+          value: {
+            list_kind: "Bag",
+            items: [{ kind: "Text", value: "N" }],
+          },
+        }}
+        onSaveMetadata={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("nested-list-editor-edit"));
+
+    expect(await screen.findByTestId("enum-editor-select")).toHaveValue("N");
+    const hint = screen.getByTestId("editor-meta-hint");
+    expect(hint).toHaveTextContent("Enum (2 options)");
+    expect(hint).toHaveTextContent("From parent schema");
+    expect(hint).not.toHaveTextContent("Not in ExifTool's writable schema");
+  });
+
+  it("routes a known struct field through its field schema", async () => {
+    _setTagInfoCacheEntry("XMP-test:Record", {
+      group: "XMP-test",
+      name: "Record",
+      writable: true,
+      kind: {
+        kind: "Struct",
+        data: {
+          Mode: {
+            kind: "Enum",
+            data: {
+              repr: "String",
+              options: [
+                { code: "A", label: "Automatic" },
+                { code: "M", label: "Manual" },
+              ],
+            },
+          },
+        },
+      },
+      description: null,
+    });
+
+    render(
+      <TypedValueEditor
+        propertyKey="XMP-test:Record"
+        initialMetadataValue={{
+          kind: "Struct",
+          value: { Mode: { kind: "Text", value: "M" } },
+        }}
+        onSaveMetadata={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("struct-editor-edit-0"));
+    expect(await screen.findByTestId("enum-editor-select")).toHaveValue("M");
+    expect(screen.getByTestId("editor-meta-hint")).toHaveTextContent(
+      "From parent schema",
+    );
+  });
+});
