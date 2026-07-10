@@ -8,6 +8,7 @@
  * - Empty metadata state display
  * - Utility function correctness (grouping, formatting)
  */
+import { useState } from "react";
 import {
   render,
   screen,
@@ -1091,6 +1092,256 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
     fireEvent.click(screen.getByRole("button", { name: "Edit GPS…" }));
     expect(await screen.findByTestId("gps-editor-lat-ref")).toHaveValue("S");
     expect(screen.getByTestId("gps-editor-lon-ref")).toHaveValue("W");
+  });
+
+  // Stateful wrapper harness to simulate real DetailsPane parent
+  function DetailsPaneStateHarness({
+    initialMetadata,
+    photo,
+  }: {
+    initialMetadata: Record<string, any>;
+    photo: any;
+  }) {
+    const [drafts, setDrafts] = useState<Record<string, MetadataDraftEdit>>({});
+
+    return (
+      <>
+        <div data-testid="drafts-debug" style={{ display: "none" }}>
+          {JSON.stringify(drafts)}
+        </div>
+        <DetailsPane
+          photo={photo}
+          metadata={mockMetadata(initialMetadata)}
+          typedDraftEdits={drafts}
+          onSetMetadataDraft={(key, edit) => {
+            setDrafts((prev) => ({ ...prev, [key]: edit }));
+          }}
+          onSetMetadataDraftBatch={(edits) => {
+            setDrafts((prev) => ({
+              ...prev,
+              ...Object.fromEntries(edits.map(({ key, edit }) => [key, edit])),
+            }));
+          }}
+          onDiscardDraft={(key) => {
+            setDrafts((prev) => {
+              const next = { ...prev };
+              delete next[key];
+              return next;
+            });
+          }}
+          onDiscardDraftBatch={(keys) => {
+            setDrafts((prev) => {
+              const next = { ...prev };
+              for (const key of keys) {
+                delete next[key];
+              }
+              return next;
+            });
+          }}
+        />
+      </>
+    );
+  }
+
+  it("composite GPS save, rerender and reopen workflow", async () => {
+    // Seed schema cache with string enum options
+    _setTagInfoCacheEntry("GPS:GPSLatitudeRef", {
+      group: "GPS",
+      name: "GPSLatitudeRef",
+      writable: true,
+      kind: {
+        kind: "Enum",
+        data: {
+          repr: "String",
+          options: [
+            { code: "N", label: "North" },
+            { code: "S", label: "South" },
+          ],
+        },
+      },
+      description: null,
+    });
+    _setTagInfoCacheEntry("GPS:GPSLongitudeRef", {
+      group: "GPS",
+      name: "GPSLongitudeRef",
+      writable: true,
+      kind: {
+        kind: "Enum",
+        data: {
+          repr: "String",
+          options: [
+            { code: "E", label: "East" },
+            { code: "W", label: "West" },
+          ],
+        },
+      },
+      description: null,
+    });
+
+    const user = userEvent.setup();
+
+    render(
+      <DetailsPaneStateHarness
+        photo={photo}
+        initialMetadata={{
+          "GPS:GPSLatitude": 51.5,
+          "GPS:GPSLatitudeRef": "N",
+          "GPS:GPSLongitude": 0.12,
+          "GPS:GPSLongitudeRef": "E",
+        }}
+      />,
+    );
+
+    // Open "Edit GPS..."
+    openContextMenu("GPSLatitude");
+    await user.click(screen.getByRole("button", { name: "Edit GPS…" }));
+
+    // Change latitude ref to S
+    const latRefSelect = await screen.findByTestId("gps-editor-lat-ref");
+    await user.selectOptions(latRefSelect, "S");
+
+    // Change longitude ref to W
+    const lonRefSelect = screen.getByTestId("gps-editor-lon-ref");
+    await user.selectOptions(lonRefSelect, "W");
+
+    // Save the composite editor
+    await user.click(screen.getByTestId("gps-editor-save"));
+
+    // Confirm that the dialog closed
+    await waitFor(() => {
+      expect(screen.queryByTestId("gps-editor-overlay")).toBeNull();
+    });
+
+    // Confirm the pending row displays use schema labels
+    const rowLatRef = screen
+      .getAllByTestId("details-row")
+      .find((r) => within(r).queryByText("GPSLatitudeRef") !== null);
+    expect(rowLatRef).toBeDefined();
+    expect(within(rowLatRef!).getByText("South")).toBeInTheDocument();
+
+    const rowLonRef = screen
+      .getAllByTestId("details-row")
+      .find((r) => within(r).queryByText("GPSLongitudeRef") !== null);
+    expect(rowLonRef).toBeDefined();
+    expect(within(rowLonRef!).getByText("West")).toBeInTheDocument();
+
+    // Reopen "Edit GPS..." without applying drafts
+    openContextMenu("GPSLatitude");
+    await user.click(screen.getByRole("button", { name: "Edit GPS…" }));
+
+    // Assert latitude select is S and longitude select is W, and not N/E
+    expect(await screen.findByTestId("gps-editor-lat-ref")).toHaveValue("S");
+    expect(screen.getByTestId("gps-editor-lon-ref")).toHaveValue("W");
+
+    // Cancel the editor
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    // Inspect the emitted drafts and confirm
+    const draftsJson = JSON.parse(
+      screen.getByTestId("drafts-debug").textContent || "{}",
+    );
+    expect(draftsJson["GPS:GPSLatitudeRef"]).toEqual({
+      value: { kind: "Text", value: "S" },
+      intent: "Set",
+      display: "South",
+    });
+    expect(draftsJson["GPS:GPSLongitudeRef"]).toEqual({
+      value: { kind: "Text", value: "W" },
+      intent: "Set",
+      display: "West",
+    });
+  });
+
+  it("individual enum edit followed by composite GPS edit", async () => {
+    // Seed schema cache with string enum options for LatitudeRef
+    _setTagInfoCacheEntry("GPS:GPSLatitudeRef", {
+      group: "GPS",
+      name: "GPSLatitudeRef",
+      writable: true,
+      kind: {
+        kind: "Enum",
+        data: {
+          repr: "String",
+          options: [
+            { code: "N", label: "North" },
+            { code: "S", label: "South" },
+          ],
+        },
+      },
+      description: null,
+    });
+    _setTagInfoCacheEntry("GPS:GPSLongitudeRef", {
+      group: "GPS",
+      name: "GPSLongitudeRef",
+      writable: true,
+      kind: {
+        kind: "Enum",
+        data: {
+          repr: "String",
+          options: [
+            { code: "E", label: "East" },
+            { code: "W", label: "West" },
+          ],
+        },
+      },
+      description: null,
+    });
+
+    const user = userEvent.setup();
+
+    render(
+      <DetailsPaneStateHarness
+        photo={photo}
+        initialMetadata={{
+          "GPS:GPSLatitude": 51.5,
+          "GPS:GPSLatitudeRef": "N",
+          "GPS:GPSLongitude": 0.12,
+          "GPS:GPSLongitudeRef": "E",
+        }}
+      />,
+    );
+
+    // Open the ordinary individual "Edit..." action for GPSLatitudeRef
+    const rowLatRef = screen
+      .getAllByTestId("details-row")
+      .find((r) => within(r).queryByText("GPSLatitudeRef") !== null);
+    expect(rowLatRef).toBeDefined();
+    fireEvent.contextMenu(rowLatRef!);
+    await user.click(screen.getByRole("button", { name: "Edit…" }));
+
+    // Select South
+    const select = (await screen.findByTestId(
+      "enum-editor-select",
+    )) as HTMLSelectElement;
+    await user.selectOptions(select, "S");
+
+    // Save individual EnumEditor
+    await user.click(screen.getByTestId("enum-editor-save"));
+
+    // Confirm the dialog closed
+    await waitFor(() => {
+      expect(screen.queryByTestId("enum-editor-overlay")).toBeNull();
+    });
+
+    // Confirm resulting draft is semantic Text("S") and display "South"
+    const draftsJson = JSON.parse(
+      screen.getByTestId("drafts-debug").textContent || "{}",
+    );
+    expect(draftsJson["GPS:GPSLatitudeRef"]).toEqual({
+      value: { kind: "Text", value: "S" },
+      intent: "Set",
+      display: "South",
+    });
+
+    // Open "Edit GPS..." for any member of that GPS group (e.g. GPSLatitude)
+    openContextMenu("GPSLatitude");
+    await user.click(screen.getByRole("button", { name: "Edit GPS…" }));
+
+    // Assert that the composite latitude-ref select opens as S
+    expect(await screen.findByTestId("gps-editor-lat-ref")).toHaveValue("S");
+
+    // Cancel the editor
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
   });
 });
 
