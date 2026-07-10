@@ -5,7 +5,15 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderHook, act } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { GalleryView } from "../components/GalleryView";
+import { GalleryView as RealGalleryView } from "../components/GalleryView";
+
+const GalleryView = (props: any) => (
+  <RealGalleryView
+    onSetMetadataDraftBatch={props.onSetMetadataDraftBatch ?? vi.fn()}
+    onDiscardDraftBatch={props.onDiscardDraftBatch ?? vi.fn()}
+    {...props}
+  />
+);
 import { PhotoList } from "../components/PhotoList";
 import { ThumbnailStore, ImageMetadataStore } from "../types";
 import { useMediaLibrary } from "../useMediaLibrary";

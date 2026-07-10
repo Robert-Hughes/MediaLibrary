@@ -1,6 +1,14 @@
 import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
-import { GalleryView } from "../components/GalleryView";
+import { GalleryView as RealGalleryView } from "../components/GalleryView";
+
+const GalleryView = (props: any) => (
+  <RealGalleryView
+    onSetMetadataDraftBatch={props.onSetMetadataDraftBatch ?? vi.fn()}
+    onDiscardDraftBatch={props.onDiscardDraftBatch ?? vi.fn()}
+    {...props}
+  />
+);
 import { makePhotos } from "./factories";
 
 const PHOTOS = makePhotos(["a.jpg", "b.jpg"]);

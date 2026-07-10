@@ -17,7 +17,15 @@
 import { render, screen, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { DetailsPane } from "../components/DetailsPane";
+import { DetailsPane as RealDetailsPane } from "../components/DetailsPane";
+
+const DetailsPane = (props: any) => (
+  <RealDetailsPane
+    onSetMetadataDraftBatch={props.onSetMetadataDraftBatch ?? vi.fn()}
+    onDiscardDraftBatch={props.onDiscardDraftBatch ?? vi.fn()}
+    {...props}
+  />
+);
 import { makePhoto, mockMetadata } from "./factories";
 import type { MetadataDraftEdit } from "../types";
 

@@ -8,7 +8,15 @@
  */
 import { render, screen, within, cleanup } from "@testing-library/react";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { DetailsPane } from "../components/DetailsPane";
+import { DetailsPane as RealDetailsPane } from "../components/DetailsPane";
+
+const DetailsPane = (props: any) => (
+  <RealDetailsPane
+    onSetMetadataDraftBatch={props.onSetMetadataDraftBatch ?? vi.fn()}
+    onDiscardDraftBatch={props.onDiscardDraftBatch ?? vi.fn()}
+    {...props}
+  />
+);
 import { _clearTagInfoCache, _setTagInfoCacheEntry } from "../hooks/useTagInfo";
 import type {
   MetadataDraftEdit,
