@@ -340,6 +340,38 @@ describe("TypedValueEditor temporal routing", () => {
 });
 
 describe("TypedValueEditor GPS routing", () => {
+  it("blocks composite GPS editing when a companion value is Unknown", () => {
+    render(
+      <TypedValueEditor
+        propertyKey="GPS:GPSLatitude"
+        initialMetadataValue={{ kind: "Real", value: 52.2 }}
+        metadataForFile={{
+          "GPS:GPSLatitude": { kind: "Real", value: 52.2 },
+          "GPS:GPSLatitudeRef": { kind: "Text", value: "N" },
+          "GPS:GPSLongitude": {
+            kind: "Unknown",
+            value: {
+              expected: { kind: "Real" },
+              raw: "bad longitude",
+              reason: "could not parse coordinate",
+            },
+          },
+          "GPS:GPSLongitudeRef": { kind: "Text", value: "E" },
+        }}
+        onSaveMetadata={() => {}}
+        onSaveMetadataBatch={() => {}}
+        onCancel={() => {}}
+        editorMode="gps"
+      />,
+    );
+
+    expect(screen.getByTestId("unknown-editor-overlay")).toBeInTheDocument();
+    expect(screen.queryByTestId("gps-editor-overlay")).not.toBeInTheDocument();
+    expect(screen.getByTestId("unknown-editor-raw-value")).toHaveTextContent(
+      "bad longitude",
+    );
+  });
+
   it("opens GpsEditor and prefills canonical Real GPS metadata", () => {
     render(
       <TypedValueEditor
