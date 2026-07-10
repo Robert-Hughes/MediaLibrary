@@ -19,7 +19,7 @@ import { useState } from "react";
 import type { MetadataDraftEdit } from "../../types";
 import type { GpsTagGroup } from "../../metadata/tag_overrides";
 import { READ_ONLY_TOOLTIP } from "./readOnlyMessages";
-import { decimalToDms } from "./editorHelpers";
+import { decimalToDms, enumDraftEdit, type EnumTagKind } from "./editorHelpers";
 
 // Re-export so existing call sites that imported the type from here keep
 // working.  The override matcher lives in tag_overrides.ts.
@@ -35,6 +35,11 @@ interface Props {
   initialAltitudeMetres?: number | null;
   /** "above" → AltitudeRef=0, "below" → AltitudeRef=1. */
   initialAltitudeRef?: "above" | "below";
+  refKinds?: {
+    latitude?: EnumTagKind;
+    longitude?: EnumTagKind;
+    altitude?: EnumTagKind;
+  };
   onSave: (edits: Array<{ key: string; edit: MetadataDraftEdit }>) => void;
   onCancel: () => void;
   headerHint?: React.ReactNode;
@@ -49,6 +54,7 @@ export function GpsEditor({
   initialLonRef,
   initialAltitudeMetres,
   initialAltitudeRef,
+  refKinds,
   onSave,
   onCancel,
   headerHint,
@@ -108,14 +114,14 @@ export function GpsEditor({
         // exiftool encodes AltitudeRef as 0 (above sea level) or 1 (below).
         {
           key: group.altitudeRefKey,
-          edit: {
-            value: {
-              kind: "Integer",
-              value: altRef === "above" ? 0 : 1,
-            },
-            intent: "Set",
-            display: altRef === "above" ? "Above Sea Level" : "Below Sea Level",
-          },
+          edit: refKinds?.altitude
+            ? enumDraftEdit(refKinds.altitude, altRef === "above" ? "0" : "1")
+            : {
+                value: { kind: "Integer", value: altRef === "above" ? 0 : 1 },
+                intent: "Set",
+                display:
+                  altRef === "above" ? "Above Sea Level" : "Below Sea Level",
+              },
         },
       ];
     }
@@ -130,11 +136,13 @@ export function GpsEditor({
       },
       {
         key: group.latitudeRefKey,
-        edit: {
-          value: { kind: "Text", value: latRef },
-          intent: "Set",
-          display: latRef,
-        },
+        edit: refKinds?.latitude
+          ? enumDraftEdit(refKinds.latitude, latRef)
+          : {
+              value: { kind: "Text", value: latRef },
+              intent: "Set",
+              display: latRef === "N" ? "North" : "South",
+            },
       },
       {
         key: group.longitudeKey,
@@ -146,11 +154,13 @@ export function GpsEditor({
       },
       {
         key: group.longitudeRefKey,
-        edit: {
-          value: { kind: "Text", value: lonRef },
-          intent: "Set",
-          display: lonRef,
-        },
+        edit: refKinds?.longitude
+          ? enumDraftEdit(refKinds.longitude, lonRef)
+          : {
+              value: { kind: "Text", value: lonRef },
+              intent: "Set",
+              display: lonRef === "E" ? "East" : "West",
+            },
       },
       ...altitudeEdits,
     ]);

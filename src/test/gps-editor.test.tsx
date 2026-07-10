@@ -20,6 +20,41 @@ const exampleGroup = {
   altitudeRefKey: "GPS:GPSAltitudeRef",
 };
 
+const gpsRefKinds: NonNullable<
+  React.ComponentProps<typeof GpsEditor>["refKinds"]
+> = {
+  latitude: {
+    kind: "Enum",
+    data: {
+      repr: "String",
+      options: [
+        { code: "N", label: "North" },
+        { code: "S", label: "South" },
+      ],
+    },
+  },
+  longitude: {
+    kind: "Enum",
+    data: {
+      repr: "String",
+      options: [
+        { code: "E", label: "East" },
+        { code: "W", label: "West" },
+      ],
+    },
+  },
+  altitude: {
+    kind: "Enum",
+    data: {
+      repr: "Integer",
+      options: [
+        { code: "0", label: "Above Sea Level" },
+        { code: "1", label: "Below Sea Level" },
+      ],
+    },
+  },
+};
+
 beforeEach(() => cleanup());
 
 describe("GpsEditor", () => {
@@ -51,6 +86,7 @@ describe("GpsEditor", () => {
         initialLatRef="N"
         initialLonDecimal={0.13}
         initialLonRef="W"
+        refKinds={gpsRefKinds}
         onSave={onSave}
         onCancel={() => {}}
       />,
@@ -84,10 +120,10 @@ describe("GpsEditor", () => {
       `51 deg 30' 0" N`,
     );
     expect((byKey["GPS:GPSLatitudeRef"] as { display?: string }).display).toBe(
-      "N",
+      "North",
     );
     expect((byKey["GPS:GPSLongitudeRef"] as { display?: string }).display).toBe(
-      "W",
+      "West",
     );
   });
 
@@ -103,6 +139,7 @@ describe("GpsEditor", () => {
         initialLonRef="W"
         initialAltitudeMetres={null}
         initialAltitudeRef="above"
+        refKinds={gpsRefKinds}
         onSave={onSave}
         onCancel={() => {}}
       />,
@@ -246,6 +283,14 @@ describe("parseDecimalDegrees", () => {
 });
 
 describe("parseHemisphere", () => {
+  it.each([
+    ["South", "lat", "S"],
+    ["north", "lat", "N"],
+    ["West", "lon", "W"],
+    ["east", "lon", "E"],
+  ] as const)("parses full-word hemisphere %s", (value, axis, expected) => {
+    expect(parseHemisphere(value, axis)).toBe(expected);
+  });
   it("returns trailing letter from DMS string", () => {
     expect(parseHemisphere(`51 deg 30' 26.16" N`, "lat")).toBe("N");
     expect(parseHemisphere(`51 deg 30' 26.16" S`, "lat")).toBe("S");

@@ -375,7 +375,9 @@ describe("TypedValueEditor GPS routing", () => {
     expect(screen.getByTestId("numeric-editor-overlay")).toBeInTheDocument();
     expect(screen.getByTestId("numeric-editor-input")).toHaveValue(52.2);
     expect(screen.queryByTestId("gps-editor-overlay")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("unknown-editor-overlay")).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("unknown-editor-overlay"),
+    ).not.toBeInTheDocument();
   });
 
   it("falls back to the clicked enum editor when a GPS companion is Unknown", () => {
@@ -422,7 +424,9 @@ describe("TypedValueEditor GPS routing", () => {
     expect(screen.getByTestId("enum-editor-overlay")).toBeInTheDocument();
     expect(screen.getByTestId("enum-editor-select")).toHaveValue("S");
     expect(screen.queryByTestId("gps-editor-overlay")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("unknown-editor-overlay")).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("unknown-editor-overlay"),
+    ).not.toBeInTheDocument();
   });
 
   it("keeps the clicked Unknown GPS property in UnknownEditor", () => {

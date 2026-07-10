@@ -11,6 +11,7 @@
 import { useEffect, useState } from "react";
 import type { EnumOption, EnumRepr, MetadataDraftEdit } from "../../types";
 import { READ_ONLY_TOOLTIP } from "./readOnlyMessages";
+import { enumDraftEdit } from "./editorHelpers";
 
 interface Props {
   propertyKey: string;
@@ -51,15 +52,7 @@ export function EnumEditor({
     if (readOnly) return;
     const code = customMode ? customValue.trim() : selected;
     if (!code) return;
-    const value =
-      repr === "Integer"
-        ? ({ kind: "Integer", value: Number(code) } as const)
-        : ({ kind: "Text", value: code } as const);
-    // Pretty form for the orange "pending" cell: schema label when the code
-    // is in-spec, raw code otherwise (Custom… or unknown).
-    const match = options.find((o) => o.code === code);
-    const display = match ? match.label : code;
-    onSave({ value, intent: "Set", display });
+    onSave(enumDraftEdit({ kind: "Enum", data: { repr, options } }, code));
   };
 
   return (

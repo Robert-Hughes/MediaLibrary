@@ -4,6 +4,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { EnumEditor } from "../components/editors/EnumEditor";
+import { enumDraftEdit } from "../components/editors/editorHelpers";
 import { initialCodeFrom } from "../components/editors/editorHelpers";
 
 beforeEach(() => cleanup());
@@ -16,6 +17,23 @@ const orientationOptions = [
 ];
 
 describe("EnumEditor", () => {
+  it("uses the same schema-aware edit shape as composite enum callers", () => {
+    const kind: Parameters<typeof enumDraftEdit>[0] = {
+      kind: "Enum",
+      data: {
+        repr: "String",
+        options: [
+          { code: "N", label: "North" },
+          { code: "S", label: "South" },
+        ],
+      },
+    };
+    expect(enumDraftEdit(kind, "S")).toEqual({
+      intent: "Set",
+      value: { kind: "Text", value: "S" },
+      display: "South",
+    });
+  });
   it("renders dropdown with all options", () => {
     render(
       <EnumEditor

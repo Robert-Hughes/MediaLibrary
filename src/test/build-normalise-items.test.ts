@@ -10,6 +10,7 @@ import {
   buildNormaliseItemForPhoto,
   buildNormaliseItems,
   resolveTag,
+  buildEffectiveMetadata,
 } from "../utils/buildNormaliseItems";
 
 function set(value: MetadataValue): MetadataDraftEdit {
@@ -66,6 +67,28 @@ describe("resolveTag", () => {
 
   it("returns null when neither side has the tag", () => {
     expect(resolveTag(undefined, undefined, "X")).toBeNull();
+  });
+});
+
+describe("buildEffectiveMetadata", () => {
+  it("applies Set and omits Delete while preserving conservative list intents", () => {
+    const metadata = {
+      kept: { kind: "Text", value: "disk" },
+      replaced: { kind: "Text", value: "old" },
+      deleted: { kind: "Text", value: "old" },
+    } as const;
+    expect(
+      buildEffectiveMetadata(metadata, {
+        replaced: {
+          intent: "Set",
+          value: { kind: "Text", value: "draft" },
+        },
+        deleted: { intent: "Delete", value: null },
+      }),
+    ).toEqual({
+      kept: { kind: "Text", value: "disk" },
+      replaced: { kind: "Text", value: "draft" },
+    });
   });
 });
 

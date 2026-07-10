@@ -37,6 +37,7 @@ import {
 } from "../draft";
 import { GpsMapOverview } from "./GpsMapOverview";
 import { resolveGps } from "../utils/resolveGps";
+import { buildEffectiveMetadata } from "../utils/buildNormaliseItems";
 
 interface Props {
   photo: PhotoInfo;
@@ -517,6 +518,13 @@ export function DetailsPane({
   onShowInFileExplorer,
 }: Props) {
   const [detailsSearch, setDetailsSearch] = useState("");
+  const effectiveMetadata = useMemo(
+    () =>
+      metadata === "loading"
+        ? undefined
+        : buildEffectiveMetadata(metadata, typedDraftEdits),
+    [metadata, typedDraftEdits],
+  );
   const resolvedGps = useMemo(() => {
     if (metadata === "loading") return { lat: null, lon: null };
     return resolveGps(typedDraftEdits, metadata);
@@ -971,24 +979,8 @@ export function DetailsPane({
         <TypedValueEditor
           propertyKey={editDialog.key}
           editorMode={editDialog.mode}
-          initialMetadataValue={(() => {
-            // Prefer the typed draft MetadataValue when one is already pending —
-            // otherwise an editor that consults the raw value (notably
-            // EnumEditor) would silently revert to the on-disk metadata
-            // every time the row was re-edited.
-            const pending = typedDraftEdits?.[editDialog.key];
-            if (pending && pending.intent !== "Delete") {
-              return pending.value ?? undefined;
-            }
-            return metadata !== "loading"
-              ? (metadata[editDialog.key] as MetadataValue)
-              : undefined;
-          })()}
-          metadataForFile={
-            metadata !== "loading"
-              ? (metadata as Record<string, MetadataValue>)
-              : undefined
-          }
+          initialMetadataValue={effectiveMetadata?.[editDialog.key]}
+          metadataForFile={effectiveMetadata}
           onSaveMetadataBatch={(edits) => {
             onSetMetadataDraftBatch(edits);
             setEditDialog(null);
@@ -1018,11 +1010,7 @@ export function DetailsPane({
           propertyKey={newPropertyKey}
           editorMode="single"
           initialMetadataValue={undefined}
-          metadataForFile={
-            metadata !== "loading"
-              ? (metadata as Record<string, MetadataValue>)
-              : undefined
-          }
+          metadataForFile={effectiveMetadata}
           onSaveMetadataBatch={(edits) => {
             onSetMetadataDraftBatch(edits);
             setNewPropertyKey(null);

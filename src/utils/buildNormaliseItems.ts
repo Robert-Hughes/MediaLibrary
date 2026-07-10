@@ -48,6 +48,21 @@ export function resolveTag(
   return metadata?.[key] ?? null;
 }
 
+export function buildEffectiveMetadata(
+  metadata: Record<string, ImageMetadataEntry>,
+  drafts: Record<string, MetadataDraftEdit> | undefined,
+): Record<string, MetadataValue> {
+  const effective: Record<string, MetadataValue> = {};
+  for (const key of new Set([
+    ...Object.keys(metadata),
+    ...Object.keys(drafts ?? {}),
+  ])) {
+    const value = resolveTag(metadata, drafts, key);
+    if (isMetadataValue(value)) effective[key] = value;
+  }
+  return effective;
+}
+
 function isMetadataValue(value: unknown): value is MetadataValue {
   return (
     !!value &&
