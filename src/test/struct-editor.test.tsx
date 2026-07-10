@@ -10,6 +10,42 @@ import type { MetadataValue } from "../types";
 beforeEach(() => cleanup());
 
 describe("StructEditor", () => {
+  it("disables every mutation control for a read-only struct", () => {
+    const onSave = vi.fn();
+    render(
+      <StructEditor
+        propertyKey="XMP:ReadOnlyStruct"
+        initialObject={{
+          Name: { kind: "Text", value: "Alice" },
+          Enabled: { kind: "Bool", value: true },
+        }}
+        fieldKinds={{ Name: { kind: "Text" }, Enabled: { kind: "Boolean" } }}
+        innerEditor={() => <div data-testid="mock-inner-editor" />}
+        onSave={onSave}
+        onCancel={() => {}}
+        readOnly
+      />,
+    );
+
+    expect(screen.getByTestId("struct-editor-key-0")).toBeDisabled();
+    expect(screen.getByTestId("struct-editor-key-1")).toBeDisabled();
+    expect(screen.getByTestId("struct-editor-value-0")).toBeDisabled();
+    expect(screen.getByTestId("struct-editor-edit-1")).toBeDisabled();
+    screen.getAllByRole("button", { name: /Remove/ }).forEach((button) => {
+      expect(button).toBeDisabled();
+      fireEvent.click(button);
+    });
+    expect(screen.getByTestId("struct-editor-new-key")).toBeDisabled();
+    expect(screen.getByTestId("struct-editor-add-btn")).toBeDisabled();
+    expect(screen.getByTestId("struct-editor-save")).toBeDisabled();
+
+    fireEvent.click(screen.getByTestId("struct-editor-edit-1"));
+    fireEvent.click(screen.getByTestId("struct-editor-add-btn"));
+    fireEvent.click(screen.getByTestId("struct-editor-save"));
+    expect(screen.getAllByTestId("struct-editor-row")).toHaveLength(2);
+    expect(screen.queryByTestId("mock-inner-editor")).not.toBeInTheDocument();
+    expect(onSave).not.toHaveBeenCalled();
+  });
   it("renders one row per initial field", () => {
     render(
       <StructEditor

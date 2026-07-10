@@ -112,6 +112,47 @@ function enumIntentEditor(props: InnerEditorProps) {
 }
 
 describe("NestedListEditor", () => {
+  it("disables every mutation control for a read-only nested sequence", () => {
+    const onSave = vi.fn();
+    render(
+      <NestedListEditor
+        propertyKey="XMP:ReadOnlySequence"
+        kind={SEQ_OF_STRUCT}
+        initialItems={[
+          { kind: "Struct", value: { Name: { kind: "Text", value: "Alice" } } },
+          { kind: "Struct", value: { Name: { kind: "Text", value: "Bob" } } },
+        ]}
+        innerEditor={stubInnerEditor({})}
+        onSave={onSave}
+        onCancel={() => {}}
+        readOnly
+      />,
+    );
+
+    const summariesBefore = screen
+      .getAllByTestId("nested-list-editor-summary")
+      .map((node) => node.textContent);
+    const controls = [
+      screen.getByTestId("nested-list-editor-save"),
+      screen.getByTestId("nested-list-editor-add"),
+      ...screen.getAllByTestId("nested-list-editor-edit"),
+      ...screen.getAllByTestId("nested-list-editor-remove"),
+      ...screen.getAllByTestId("nested-list-editor-up"),
+      ...screen.getAllByTestId("nested-list-editor-down"),
+    ];
+    controls.forEach((control) => {
+      expect(control).toBeDisabled();
+      fireEvent.click(control);
+    });
+
+    expect(
+      screen
+        .getAllByTestId("nested-list-editor-summary")
+        .map((node) => node.textContent),
+    ).toEqual(summariesBefore);
+    expect(screen.queryByTestId("stub-inner-editor")).not.toBeInTheDocument();
+    expect(onSave).not.toHaveBeenCalled();
+  });
   it("does not add a staged enum item when its child editor is cancelled", () => {
     const onSave = vi.fn();
     render(
