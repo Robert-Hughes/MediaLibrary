@@ -57,12 +57,13 @@ import {
 
 import { gpsMemberGroup, isFlashTag } from "../../metadata/tag_overrides";
 import { EditorMetaHint, type EditorMetaSource } from "./EditorMetaHint";
+import type { InheritedEditorSchema } from "./editorSchema";
 
 interface Props {
   propertyKey: string;
   initialMetadataValue?: MetadataValue;
   /** Parent-provided schema for synthetic nested paths such as Tag[0]. */
-  schemaOverride?: TagKind;
+  schemaOverride?: InheritedEditorSchema;
   metadataForFile?: Record<string, MetadataValue>;
   onSaveMetadata: (edit: MetadataDraftEdit) => void;
   /** Multi-tag save, used by GpsEditor and any future paired-tag editor. */
@@ -107,19 +108,23 @@ export function TypedValueEditor({
   editorMode = "single",
 }: Props) {
   const tag = useTagInfo(schemaOverride ? null : propertyKey);
-  const kind = schemaOverride ?? (tag && tag !== "loading" ? tag.kind : null);
+  const kind =
+    schemaOverride?.kind ?? (tag && tag !== "loading" ? tag.kind : null);
   const semanticInitial =
     initialMetadataValue ??
     (kind ? defaultMetadataValueForKind(kind) : ({ kind: "Null" } as const));
-  const readOnly = tag !== null && tag !== "loading" && !tag.writable;
+  const readOnly =
+    schemaOverride?.readOnly ??
+    (tag !== null && tag !== "loading" && !tag.writable);
   const schemaHint = (override?: string) => (
     <EditorMetaHint
       source={
         schemaOverride
           ? {
               kind: "synthetic",
-              label: `${propertyKey} — ${describeKind(schemaOverride)}`,
-              description: "From parent schema",
+              label: `${schemaOverride.sourceLabel ?? propertyKey} — ${describeKind(schemaOverride.kind)}`,
+              description: `From parent schema${readOnly ? " — read-only" : ""}`,
+              readOnly,
             }
           : buildSource(tag, override)
       }
@@ -272,6 +277,7 @@ export function TypedValueEditor({
           onSave={onSaveMetadata}
           onCancel={onCancel}
           headerHint={schemaHint()}
+          readOnly={readOnly}
         />
       );
     }
@@ -292,6 +298,7 @@ export function TypedValueEditor({
           onSave={onSaveMetadata}
           onCancel={onCancel}
           headerHint={schemaHint()}
+          readOnly={readOnly}
         />
       );
     }
@@ -478,7 +485,7 @@ export function TypedValueEditor({
   }
 
   // ── Unknown — read-only warning dialog. ────────────────────────────────
-  if (kind?.kind === "Unknown" || semanticInitial.kind === "Unknown") {
+  if (kind?.kind === "Unknown") {
     return (
       <UnknownEditor
         propertyKey={propertyKey}

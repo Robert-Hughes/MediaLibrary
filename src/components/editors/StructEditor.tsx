@@ -12,6 +12,7 @@ import { useState } from "react";
 import type { MetadataDraftEdit, MetadataValue, TagKind } from "../../types";
 import { metadataValueToDisplayString } from "../../draft";
 import { READ_ONLY_TOOLTIP } from "./readOnlyMessages";
+import type { InheritedEditorSchema } from "./editorSchema";
 
 interface Props {
   propertyKey: string;
@@ -28,7 +29,7 @@ interface Props {
 export interface InnerEditorProps {
   propertyKey: string;
   initialMetadataValue?: MetadataValue;
-  schemaOverride?: TagKind;
+  schemaOverride?: InheritedEditorSchema;
   metadataForFile?: Record<string, MetadataValue>;
   onSaveMetadata: (edit: MetadataDraftEdit) => void;
   onCancel: () => void;
@@ -106,7 +107,15 @@ export function StructEditor({
       <SubEditor
         propertyKey={`${propertyKey}.${row.key}`}
         initialMetadataValue={row.value}
-        schemaOverride={fieldKinds?.[row.key]}
+        schemaOverride={
+          fieldKinds?.[row.key]
+            ? {
+                kind: fieldKinds[row.key]!,
+                readOnly: Boolean(readOnly),
+                sourceLabel: propertyKey,
+              }
+            : undefined
+        }
         onSaveMetadata={(edit: MetadataDraftEdit) => {
           const newValue: MetadataValue =
             edit.intent === "Delete"
@@ -143,6 +152,7 @@ export function StructEditor({
                   onChange={(e) => updateRow(idx, { key: e.target.value })}
                   placeholder="field"
                   data-testid={`struct-editor-key-${idx}`}
+                  disabled={readOnly}
                 />
                 {usesSubEditor(row.value, fieldKinds?.[row.key]) ? (
                   <>
@@ -158,6 +168,7 @@ export function StructEditor({
                         className="dialog-btn dialog-btn-secondary"
                         onClick={() => setEditingIndex(idx)}
                         data-testid={`struct-editor-edit-${idx}`}
+                        disabled={readOnly}
                       >
                         Edit…
                       </button>
@@ -174,6 +185,7 @@ export function StructEditor({
                       })
                     }
                     data-testid={`struct-editor-value-${idx}`}
+                    disabled={readOnly}
                   />
                 )}
                 <button
@@ -181,6 +193,7 @@ export function StructEditor({
                   className="struct-editor-remove"
                   onClick={() => removeRow(idx)}
                   aria-label={`Remove ${row.key}`}
+                  disabled={readOnly}
                 >
                   ×
                 </button>
@@ -201,12 +214,14 @@ export function StructEditor({
               }}
               placeholder="new field name"
               data-testid="struct-editor-new-key"
+              disabled={readOnly}
             />
             <button
               type="button"
               className="dialog-btn dialog-btn-secondary"
               onClick={addRow}
               data-testid="struct-editor-add-btn"
+              disabled={readOnly}
             >
               Add field
             </button>

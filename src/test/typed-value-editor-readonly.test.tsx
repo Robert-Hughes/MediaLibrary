@@ -15,6 +15,7 @@ import {
 } from "@testing-library/react";
 import { TypedValueEditor } from "../components/editors/TypedValueEditor";
 import { _clearTagInfoCache, _setTagInfoCacheEntry } from "../hooks/useTagInfo";
+import type { TagKind } from "../types";
 
 // useTagInfo calls Tauri's invoke under the hood for any uncached key.
 // We seed the cache for the keys the tests care about.
@@ -39,6 +40,38 @@ beforeEach(() => {
 });
 
 describe("TypedValueEditor read-only enforcement", () => {
+  it("inherits read-only state with a synthetic Enum schema", () => {
+    render(
+      <TypedValueEditor
+        propertyKey="Parent[0]"
+        schemaOverride={{
+          kind: {
+            kind: "Enum",
+            data: {
+              repr: "String",
+              options: [{ code: "A", label: "Alpha" }],
+            },
+          },
+          readOnly: true,
+          sourceLabel: "Parent",
+        }}
+        initialMetadataValue={{ kind: "Text", value: "A" }}
+        onSaveMetadata={vi.fn()}
+        onCancel={() => {}}
+      />,
+    );
+
+    expect(screen.getByRole("combobox")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /save/i })).toBeDisabled();
+    expect(screen.getByTestId("editor-meta-hint")).toHaveAttribute(
+      "data-readonly",
+      "true",
+    );
+    expect(screen.getByTestId("editor-meta-hint")).toHaveTextContent(
+      /from parent schema.*read-only/i,
+    );
+  });
+
   it.each([
     [
       "Enum",
@@ -48,9 +81,9 @@ describe("TypedValueEditor read-only enforcement", () => {
           repr: "String",
           options: [{ code: "A", label: "Alpha" }],
         },
-      } as const,
+      } as TagKind,
     ],
-    ["numeric", { kind: "Integer", data: { min: null, max: null } } as const],
+    ["numeric", { kind: "Integer", data: { min: null, max: null } } as TagKind],
   ])("keeps runtime Unknown read-only for a known %s schema", (_, kind) => {
     _setTagInfoCacheEntry("Test:Broken", {
       group: "Test",
@@ -64,7 +97,11 @@ describe("TypedValueEditor read-only enforcement", () => {
         propertyKey="Test:Broken"
         initialMetadataValue={{
           kind: "Unknown",
-          value: { raw: "unparsed-value", reason: "invalid representation" },
+          value: {
+            expected: kind,
+            raw: "unparsed-value",
+            reason: "invalid representation",
+          },
         }}
         onSaveMetadata={vi.fn()}
         onCancel={() => {}}
