@@ -1,13 +1,14 @@
 Current
 =======
 
-- Use (interactive) OSM iframe/API to show GPS location
-  - In GPS editor UI, along with clicking to overwrite with that location for editing
-    - Figure out why editing the individual properties shows such weird behaviour
-  - In Details pane next to the GPS section?
-    - Clicking on the small maps should open the full map (as below)
-    - Right click on maps with edit (opens group editor) and "remove all GPS". Or maybe for the group heading? Make it work for all groups (not just GPS)?
-  - Select a bunch of photos, right click, "show on Map" opens map popup with pins/thumbnails for each photo
+- Maps
+  - Follow-up from prop changes, inc. fixing interpretation of "count" property in exiftool schema
+  - In combined GPS editor UI use a map view to view and set
+  - Right click on the property list maps should show edit (opens group editor) and "remove all GPS"?
+  - Full map view
+    - Select a bunch of photos, right click, "show on Map" opens map popup with pins/thumbnails for each photo
+    - Clicking on the small maps on property list should open the full map (showing just this one photo)
+  
 - Add bulk tag editor
   - Choose a tag name
   - Choose Overwrite/Delete/Update
@@ -15,6 +16,7 @@ Current
   - Use existing editors/routing
   - Composite editors like GPS?
   - remove right click option on the headers once we have this
+
 - 2010 folder (and possibly others)
   - Remove all description/title/keywords fields so can be regenerated
   - Remove wrong GPS data (coords + the lower-level geocoded fields, leave higher-level London, UK etc.) from photos (several different clusters)
