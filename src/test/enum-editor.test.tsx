@@ -196,10 +196,7 @@ describe("initialCodeFrom", () => {
 
   it("resolves a numeric raw code string to its option code", () => {
     expect(
-      initialCodeFrom(
-        { kind: "Text", value: "6" },
-        orientationOptions,
-      ),
+      initialCodeFrom({ kind: "Text", value: "6" }, orientationOptions),
     ).toBe("6");
   });
 

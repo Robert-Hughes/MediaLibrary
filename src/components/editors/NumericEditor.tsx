@@ -31,7 +31,8 @@ export function NumericEditor({
   readOnly,
 }: Props) {
   const [value, setValue] = useState<string>(() => {
-    if (!initialMetadataValue || initialMetadataValue.kind === "Null") return "";
+    if (!initialMetadataValue || initialMetadataValue.kind === "Null")
+      return "";
     if (
       initialMetadataValue.kind === "Integer" ||
       initialMetadataValue.kind === "Real"

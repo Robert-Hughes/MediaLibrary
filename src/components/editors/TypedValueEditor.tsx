@@ -107,21 +107,17 @@ export function TypedValueEditor({
   editorMode = "single",
 }: Props) {
   const tag = useTagInfo(schemaOverride ? null : propertyKey);
-  const kind =
-    schemaOverride ?? (tag && tag !== "loading" ? tag.kind : null);
+  const kind = schemaOverride ?? (tag && tag !== "loading" ? tag.kind : null);
   const semanticInitial =
     initialMetadataValue ??
-    (kind
-      ? defaultMetadataValueForKind(kind)
-      : ({ kind: "Null" } as const));
+    (kind ? defaultMetadataValueForKind(kind) : ({ kind: "Null" } as const));
   const readOnly = tag !== null && tag !== "loading" && !tag.writable;
   const saveText = (value: string) => {
     onSaveMetadata({ value: { kind: "Text", value }, intent: "Set" });
   };
   // ── Override 1: Flash bitfield ─────────────────────────────────────────
   if (isFlashTag(propertyKey)) {
-    const code =
-      semanticInitial.kind === "Integer" ? semanticInitial.value : 0;
+    const code = semanticInitial.kind === "Integer" ? semanticInitial.value : 0;
     return (
       <FlashEditor
         propertyKey={propertyKey}
@@ -277,9 +273,7 @@ export function TypedValueEditor({
     // Hands off to the recursive NestedListEditor; each item is edited
     // through TypedValueEditor itself, so arbitrary depth works.
     if (
-      (kind.kind === "Bag" ||
-        kind.kind === "Seq" ||
-        kind.kind === "Alt") &&
+      (kind.kind === "Bag" || kind.kind === "Seq" || kind.kind === "Alt") &&
       inner === null
     ) {
       const items = initialItemsFromMetadataValue(semanticInitial);
@@ -348,8 +342,7 @@ export function TypedValueEditor({
   }
 
   if (kind?.kind === "Boolean") {
-    const v =
-      semanticInitial.kind === "Bool" ? semanticInitial.value : null;
+    const v = semanticInitial.kind === "Bool" ? semanticInitial.value : null;
     return (
       <BooleanEditor
         propertyKey={propertyKey}
@@ -364,9 +357,7 @@ export function TypedValueEditor({
 
   if (
     kind &&
-    (kind.kind === "Date" ||
-      kind.kind === "Time" ||
-      kind.kind === "DateTime")
+    (kind.kind === "Date" || kind.kind === "Time" || kind.kind === "DateTime")
   ) {
     return (
       <DateTimeEditor
@@ -481,10 +472,7 @@ export function TypedValueEditor({
   }
 
   // ── Unknown — read-only warning dialog. ────────────────────────────────
-  if (
-    kind?.kind === "Unknown" ||
-    semanticInitial.kind === "Unknown"
-  ) {
+  if (kind?.kind === "Unknown" || semanticInitial.kind === "Unknown") {
     return (
       <UnknownEditor
         propertyKey={propertyKey}
