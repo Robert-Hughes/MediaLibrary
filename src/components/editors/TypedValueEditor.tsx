@@ -52,6 +52,7 @@ import {
   initialItemsFromMetadataValue,
   defaultMetadataValueForKind,
   textInitialString,
+  describeKind,
 } from "./editorHelpers";
 
 import { gpsMemberGroup, isFlashTag } from "../../metadata/tag_overrides";
@@ -60,6 +61,8 @@ import { EditorMetaHint, type EditorMetaSource } from "./EditorMetaHint";
 interface Props {
   propertyKey: string;
   initialMetadataValue?: MetadataValue;
+  /** Parent-provided schema for synthetic nested paths such as Tag[0]. */
+  schemaOverride?: TagKind;
   metadataForFile?: Record<string, MetadataValue>;
   onSaveMetadata: (edit: MetadataDraftEdit) => void;
   /** Multi-tag save, used by GpsEditor and any future paired-tag editor. */
@@ -96,17 +99,20 @@ function bagInnerScalar(kind: TagKind): BagInnerKind | null {
 export function TypedValueEditor({
   propertyKey,
   initialMetadataValue,
+  schemaOverride,
   metadataForFile,
   onSaveMetadata,
   onSaveMetadataBatch,
   onCancel,
   editorMode = "single",
 }: Props) {
-  const tag = useTagInfo(propertyKey);
+  const tag = useTagInfo(schemaOverride ? null : propertyKey);
+  const kind =
+    schemaOverride ?? (tag && tag !== "loading" ? tag.kind : null);
   const semanticInitial =
     initialMetadataValue ??
-    (tag && tag !== "loading"
-      ? defaultMetadataValueForKind(tag.kind)
+    (kind
+      ? defaultMetadataValueForKind(kind)
       : ({ kind: "Null" } as const));
   const readOnly = tag !== null && tag !== "loading" && !tag.writable;
   const saveText = (value: string) => {
@@ -222,7 +228,17 @@ export function TypedValueEditor({
   // non-override editor below so the user always sees the same datatype +
   // source line in the same slot.
   const schemaHint = (override?: string) => (
-    <EditorMetaHint source={buildSource(tag, override)} />
+    <EditorMetaHint
+      source={
+        schemaOverride
+          ? {
+              kind: "synthetic",
+              label: `${propertyKey} — ${describeKind(schemaOverride)}`,
+              description: "From parent schema",
+            }
+          : buildSource(tag, override)
+      }
+    />
   );
 
   if (tag === "loading") {
@@ -241,15 +257,15 @@ export function TypedValueEditor({
     );
   }
 
-  if (tag) {
-    const inner = bagInnerScalar(tag.kind);
+  if (kind) {
+    const inner = bagInnerScalar(kind);
     if (inner) {
       const initialItems = initialItemsFrom(semanticInitial);
       return (
         <BagEditor
           propertyKey={propertyKey}
           initialItems={initialItems}
-          ordered={tag.kind.kind === "Seq"}
+          ordered={kind.kind === "Seq"}
           innerKind={inner}
           onSave={onSaveMetadata}
           onCancel={onCancel}
@@ -261,16 +277,16 @@ export function TypedValueEditor({
     // Hands off to the recursive NestedListEditor; each item is edited
     // through TypedValueEditor itself, so arbitrary depth works.
     if (
-      (tag.kind.kind === "Bag" ||
-        tag.kind.kind === "Seq" ||
-        tag.kind.kind === "Alt") &&
+      (kind.kind === "Bag" ||
+        kind.kind === "Seq" ||
+        kind.kind === "Alt") &&
       inner === null
     ) {
       const items = initialItemsFromMetadataValue(semanticInitial);
       return (
         <NestedListEditor
           propertyKey={propertyKey}
-          kind={tag.kind}
+          kind={kind}
           initialItems={items}
           innerEditor={TypedValueEditor}
           onSave={onSaveMetadata}
@@ -281,8 +297,8 @@ export function TypedValueEditor({
     }
   }
 
-  if (tag && tag.kind.kind === "Enum") {
-    const { repr, options } = tag.kind.data;
+  if (kind?.kind === "Enum") {
+    const { repr, options } = kind.data;
     const code = initialCodeFrom(semanticInitial, options);
     return (
       <EnumEditor
@@ -300,7 +316,7 @@ export function TypedValueEditor({
 
   // Rational gets a dedicated num/den editor.  Integer / Real
   // continue to use the single-input NumericEditor.
-  if (tag && tag.kind.kind === "Rational") {
+  if (kind?.kind === "Rational") {
     return (
       <RationalEditor
         propertyKey={propertyKey}
@@ -313,13 +329,13 @@ export function TypedValueEditor({
     );
   }
 
-  if (tag && (tag.kind.kind === "Integer" || tag.kind.kind === "Real")) {
-    const min = tag.kind.kind === "Integer" ? tag.kind.data.min : null;
-    const max = tag.kind.kind === "Integer" ? tag.kind.data.max : null;
+  if (kind && (kind.kind === "Integer" || kind.kind === "Real")) {
+    const min = kind.kind === "Integer" ? kind.data.min : null;
+    const max = kind.kind === "Integer" ? kind.data.max : null;
     return (
       <NumericEditor
         propertyKey={propertyKey}
-        kind={tag.kind.kind}
+        kind={kind.kind}
         min={min}
         max={max}
         initialMetadataValue={semanticInitial}
@@ -331,7 +347,7 @@ export function TypedValueEditor({
     );
   }
 
-  if (tag && tag.kind.kind === "Boolean") {
+  if (kind?.kind === "Boolean") {
     const v =
       semanticInitial.kind === "Bool" ? semanticInitial.value : null;
     return (
@@ -347,18 +363,18 @@ export function TypedValueEditor({
   }
 
   if (
-    tag &&
-    (tag.kind.kind === "Date" ||
-      tag.kind.kind === "Time" ||
-      tag.kind.kind === "DateTime")
+    kind &&
+    (kind.kind === "Date" ||
+      kind.kind === "Time" ||
+      kind.kind === "DateTime")
   ) {
     return (
       <DateTimeEditor
         propertyKey={propertyKey}
         mode={
-          tag.kind.kind === "Date"
+          kind.kind === "Date"
             ? "date"
-            : tag.kind.kind === "Time"
+            : kind.kind === "Time"
               ? "time"
               : "datetime"
         }
@@ -371,7 +387,7 @@ export function TypedValueEditor({
     );
   }
 
-  if (tag && tag.kind.kind === "TimeOffset") {
+  if (kind?.kind === "TimeOffset") {
     return (
       <TimeOffsetEditor
         propertyKey={propertyKey}
@@ -384,7 +400,7 @@ export function TypedValueEditor({
     );
   }
 
-  if (tag && tag.kind.kind === "LangAlt") {
+  if (kind?.kind === "LangAlt") {
     const initialLangs = initialLangsFrom(
       semanticInitial,
       metadataForFile ?? {},
@@ -402,12 +418,13 @@ export function TypedValueEditor({
     );
   }
 
-  if (tag && tag.kind.kind === "Struct") {
+  if (kind?.kind === "Struct") {
     const initialObject = initialObjectFrom(semanticInitial);
     return (
       <StructEditor
         propertyKey={propertyKey}
         initialObject={initialObject}
+        fieldKinds={kind.data}
         innerEditor={TypedValueEditor}
         onSave={onSaveMetadata}
         onCancel={onCancel}
@@ -418,7 +435,7 @@ export function TypedValueEditor({
   }
 
   // ── Binary — read-only with explanation. ────────────────────────────────
-  if (tag && tag.kind.kind === "Binary") {
+  if (kind?.kind === "Binary") {
     return (
       <div className="dialog-overlay" data-testid="binary-editor-overlay">
         <div className="dialog-content">
@@ -465,7 +482,7 @@ export function TypedValueEditor({
 
   // ── Unknown — read-only warning dialog. ────────────────────────────────
   if (
-    (tag && tag.kind.kind === "Unknown") ||
+    kind?.kind === "Unknown" ||
     semanticInitial.kind === "Unknown"
   ) {
     return (
