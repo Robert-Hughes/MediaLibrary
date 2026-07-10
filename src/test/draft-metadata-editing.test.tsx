@@ -8,6 +8,10 @@ import App from "../App";
 import { createMockTauriApi } from "./mockTauriApi";
 import { makePhoto } from "./factories";
 import { _clearTagInfoCache, _setTagInfoCacheEntry } from "../hooks/useTagInfo";
+import {
+  _resetSchemaTagNamesCache,
+  _setSchemaTagNamesCache,
+} from "../hooks/useSchemaTagNames";
 
 let mockApiInstance: ReturnType<typeof createMockTauriApi>;
 
@@ -34,10 +38,12 @@ describe("Draft Metadata Editing Integration", () => {
     // suite doesn't drift past the 5s timeout on slower machines.
     _setTagInfoCacheEntry("IFD0:Make", null);
     _setTagInfoCacheEntry("XMP-dc:Description", null);
+    _setSchemaTagNamesCache([]);
   });
 
   afterEach(() => {
     _clearTagInfoCache();
+    _resetSchemaTagNamesCache();
     vi.clearAllMocks();
     vi.resetModules();
   });

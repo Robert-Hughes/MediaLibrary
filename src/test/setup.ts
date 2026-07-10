@@ -2,12 +2,16 @@ import "@testing-library/jest-dom";
 import { afterEach, vi } from "vitest";
 import { cleanup } from "@testing-library/react";
 import { SearchIndex } from "../search/searchIndex";
+import { _clearTagInfoCache } from "../hooks/useTagInfo";
+import { _resetSchemaTagNamesCache } from "../hooks/useSchemaTagNames";
 
 // Unmount React trees between tests so the DOM doesn't bleed across
 // `it()` blocks.  Without this, `screen.getByTestId(...)` in test N+1
 // can hit elements left behind by test N and fail with confusing errors.
 afterEach(() => {
   cleanup();
+  _clearTagInfoCache();
+  _resetSchemaTagNamesCache();
   // Components persist UI preferences (e.g. GalleryView's
   // gallery-info-toggle state, GALLERY_DETAILS_VISIBLE_KEY) to localStorage.
   // jsdom shares one localStorage across every test in the file, so a

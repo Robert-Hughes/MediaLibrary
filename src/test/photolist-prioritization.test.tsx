@@ -4,6 +4,7 @@ import { PhotoList } from "../components/PhotoList";
 import { ThumbnailStore, ImageMetadataStore } from "../types";
 import type { PhotoInfo } from "../types";
 import { makePhotos, mockMetadata } from "./factories";
+import { _clearTagInfoCache, _setTagInfoCacheEntry } from "../hooks/useTagInfo";
 
 const defaultSortProps = {
   sortConfig: { primary: null, secondary: null } as const,
@@ -37,6 +38,9 @@ describe("PhotoList prioritization optimization", () => {
       thumbnailStore.add(photo.relative_path);
       metadataStore.add(photo.relative_path);
     });
+
+    _clearTagInfoCache();
+    _setTagInfoCacheEntry("ExifIFD:DateTimeOriginal", null);
   });
 
   it("should prioritize all photos when none are loaded", () => {

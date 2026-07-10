@@ -7,11 +7,12 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useMemo, useState } from "react";
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { PhotoList } from "../components/PhotoList";
 import { DraftEditsStore, ImageMetadataStore, ThumbnailStore } from "../types";
 import { makePhotos, imgCol, mockMetadata } from "./factories";
 import { useSearchWorker, createSearchWorker } from "../hooks/useSearchWorker";
+import { _clearTagInfoCache, _setTagInfoCacheEntry } from "../hooks/useTagInfo";
 
 const defaultSortProps = {
   sortConfig: { primary: null, secondary: null } as const,
@@ -104,6 +105,11 @@ describe("List view search", () => {
     date_modified: 1_700_000_000,
     date_created: 1_700_000_000,
   }));
+
+  beforeEach(() => {
+    _clearTagInfoCache();
+    _setTagInfoCacheEntry("IFD0:Make", null);
+  });
 
   it("filters rows by path and highlights the match in the path cell", async () => {
     render(

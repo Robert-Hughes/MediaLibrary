@@ -212,6 +212,23 @@ describe("DetailsPane component", () => {
     date_created: 1609372800,
   });
 
+  beforeEach(() => {
+    _clearTagInfoCache();
+    const commonTags = [
+      "IFD0:Make",
+      "IFD0:Model",
+      "ExifIFD:ISO",
+      "XMP-dc:Subject",
+      "GPS:GPSLatitude",
+      "GPS:GPSLongitude",
+      "GPS:GPSLatitudeRef",
+      "GPS:GPSLongitudeRef",
+    ];
+    for (const tag of commonTags) {
+      _setTagInfoCacheEntry(tag, null);
+    }
+  });
+
   it("renders the OS metadata section with all photo properties", () => {
     render(<DetailsPane photo={photo} metadata="loading" />);
 

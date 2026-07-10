@@ -5,6 +5,7 @@ import { ask } from "@tauri-apps/plugin-dialog";
 import { PhotoList } from "../components/PhotoList";
 import { ThumbnailStore, ImageMetadataStore } from "../types";
 import type { PhotoInfo } from "../types";
+import { _clearTagInfoCache, _setTagInfoCacheEntry } from "../hooks/useTagInfo";
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({
   ask: vi.fn(),
@@ -44,6 +45,9 @@ describe("PhotoList column header context menu", () => {
       thumbnailStore.add(photo.relative_path);
       metadataStore.add(photo.relative_path);
     });
+
+    _clearTagInfoCache();
+    _setTagInfoCacheEntry("ExifIFD:DateTimeOriginal", null);
   });
 
   it("shows context menu when right-clicking on column headers", async () => {

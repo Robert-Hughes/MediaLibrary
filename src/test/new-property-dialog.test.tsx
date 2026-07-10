@@ -31,6 +31,10 @@ beforeEach(() => {
   cleanup();
   _clearTagInfoCache();
   _resetSchemaTagNamesCache();
+  _setSchemaTagNamesCache([]);
+  _setTagInfoCacheEntry("XMP-dc:Title", null);
+  _setTagInfoCacheEntry("XMP-dc:Description", null);
+  _setTagInfoCacheEntry("XMP-dc:Creator", null);
 });
 
 describe("NewPropertyDialog", () => {
