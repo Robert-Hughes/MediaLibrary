@@ -68,6 +68,10 @@ export interface MediaLibraryActions {
     edit: MetadataDraftEdit,
   ) => void;
   discardDraftValue: (fileRelativePath: string, propertyKey: string) => void;
+  discardDraftValues: (
+    fileRelativePath: string,
+    propertyKeys: string[],
+  ) => void;
   discardAllDraftEdits: (fileRelativePath?: string | string[]) => void;
   applyDraftEdits: (
     fileRelativePath?: string | string[],
@@ -827,6 +831,13 @@ export function useMediaLibrary(
     [],
   );
 
+  const discardDraftValues = useCallback(
+    (fileRelativePath: string, propertyKeys: string[]) => {
+      draftEditsStoreRef.current.deleteTags(fileRelativePath, propertyKeys);
+    },
+    [],
+  );
+
   const discardAllDraftEdits = useCallback(
     (fileRelativePath?: string | string[]) => {
       if (fileRelativePath === undefined) {
@@ -916,6 +927,7 @@ export function useMediaLibrary(
       setMetadataDraftBatch,
       setMetadataDraft,
       discardDraftValue,
+      discardDraftValues,
       discardAllDraftEdits,
       applyDraftEdits,
       cancelApplyEdits,
@@ -942,6 +954,7 @@ export function useMediaLibrary(
       setMetadataDraftBatch,
       setMetadataDraft,
       discardDraftValue,
+      discardDraftValues,
       discardAllDraftEdits,
       applyDraftEdits,
       cancelApplyEdits,

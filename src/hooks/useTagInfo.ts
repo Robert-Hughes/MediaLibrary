@@ -8,7 +8,7 @@
 //
 // Editors call this to decide which kind-specific control to render.
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { TagInfo } from "../types";
 
@@ -70,6 +70,54 @@ export function useTagInfo(key: string | null | undefined): CacheEntry {
   // Differentiate "not yet cached" from "cached as null".  The ?? operator
   // would mistakenly collapse cached null → "loading".
   return cache.has(key) ? (cache.get(key) as CacheEntry) : "loading";
+}
+
+/**
+ * Returns a record mapping each tag key in `keys` to its CacheEntry.
+ * Deduplicates and sorts the keys to ensure stable subscriptions.
+ * Kicks off Tauri schema lookups for any uncached keys in batch.
+ */
+export function useTagInfos(
+  keys: readonly string[],
+): Record<string, CacheEntry> {
+  const [, setTick] = useState(0);
+
+  const prevKeysRef = useRef<string[]>([]);
+  const stableKeys = useMemo(() => {
+    const sorted = Array.from(new Set(keys)).sort();
+    if (
+      prevKeysRef.current.length === sorted.length &&
+      prevKeysRef.current.every((k, i) => k === sorted[i])
+    ) {
+      return prevKeysRef.current;
+    }
+    prevKeysRef.current = sorted;
+    return sorted;
+  }, [keys]);
+
+  useEffect(() => {
+    if (stableKeys.length === 0) return;
+
+    for (const key of stableKeys) {
+      if (!cache.has(key)) {
+        void fetchTagInfo(key);
+      }
+    }
+
+    const cleanups = stableKeys.map((key) =>
+      subscribe(key, () => setTick((n) => n + 1)),
+    );
+
+    return () => {
+      cleanups.forEach((cleanup) => cleanup());
+    };
+  }, [stableKeys]);
+
+  const result: Record<string, CacheEntry> = {};
+  for (const key of stableKeys) {
+    result[key] = cache.has(key) ? (cache.get(key) as CacheEntry) : "loading";
+  }
+  return result;
 }
 
 // ── Test helpers ────────────────────────────────────────────────────────────
