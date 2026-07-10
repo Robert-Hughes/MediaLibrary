@@ -340,7 +340,14 @@ describe("TypedValueEditor temporal routing", () => {
 });
 
 describe("TypedValueEditor GPS routing", () => {
-  it("blocks composite GPS editing when a companion value is Unknown", () => {
+  it("falls back to the clicked numeric editor when a GPS companion is Unknown", () => {
+    _setTagInfoCacheEntry("GPS:GPSLatitude", {
+      group: "GPS",
+      name: "GPSLatitude",
+      writable: true,
+      kind: { kind: "Real" },
+      description: null,
+    });
     render(
       <TypedValueEditor
         propertyKey="GPS:GPSLatitude"
@@ -365,11 +372,96 @@ describe("TypedValueEditor GPS routing", () => {
       />,
     );
 
-    expect(screen.getByTestId("unknown-editor-overlay")).toBeInTheDocument();
+    expect(screen.getByTestId("numeric-editor-overlay")).toBeInTheDocument();
+    expect(screen.getByTestId("numeric-editor-input")).toHaveValue(52.2);
     expect(screen.queryByTestId("gps-editor-overlay")).not.toBeInTheDocument();
-    expect(screen.getByTestId("unknown-editor-raw-value")).toHaveTextContent(
-      "bad longitude",
+    expect(screen.queryByTestId("unknown-editor-overlay")).not.toBeInTheDocument();
+  });
+
+  it("falls back to the clicked enum editor when a GPS companion is Unknown", () => {
+    _setTagInfoCacheEntry("GPS:GPSLatitudeRef", {
+      group: "GPS",
+      name: "GPSLatitudeRef",
+      writable: true,
+      kind: {
+        kind: "Enum",
+        data: {
+          repr: "String",
+          options: [
+            { code: "N", label: "North" },
+            { code: "S", label: "South" },
+          ],
+        },
+      },
+      description: null,
+    });
+    render(
+      <TypedValueEditor
+        propertyKey="GPS:GPSLatitudeRef"
+        initialMetadataValue={{ kind: "Text", value: "S" }}
+        metadataForFile={{
+          "GPS:GPSLatitude": { kind: "Real", value: 52.2 },
+          "GPS:GPSLatitudeRef": { kind: "Text", value: "S" },
+          "GPS:GPSLongitude": { kind: "Real", value: 0.1 },
+          "GPS:GPSLongitudeRef": {
+            kind: "Unknown",
+            value: {
+              expected: { kind: "Text" },
+              raw: "bad ref",
+              reason: "could not parse ref",
+            },
+          },
+        }}
+        onSaveMetadata={() => {}}
+        onSaveMetadataBatch={() => {}}
+        onCancel={() => {}}
+        editorMode="gps"
+      />,
     );
+
+    expect(screen.getByTestId("enum-editor-overlay")).toBeInTheDocument();
+    expect(screen.getByTestId("enum-editor-select")).toHaveValue("S");
+    expect(screen.queryByTestId("gps-editor-overlay")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("unknown-editor-overlay")).not.toBeInTheDocument();
+  });
+
+  it("keeps the clicked Unknown GPS property in UnknownEditor", () => {
+    render(
+      <TypedValueEditor
+        propertyKey="GPS:GPSLatitude"
+        initialMetadataValue={{
+          kind: "Unknown",
+          value: {
+            expected: { kind: "Real" },
+            raw: "bad latitude",
+            reason: "could not parse coordinate",
+          },
+        }}
+        metadataForFile={{
+          "GPS:GPSLatitude": {
+            kind: "Unknown",
+            value: {
+              expected: { kind: "Real" },
+              raw: "bad latitude",
+              reason: "could not parse coordinate",
+            },
+          },
+          "GPS:GPSLatitudeRef": { kind: "Text", value: "N" },
+          "GPS:GPSLongitude": { kind: "Real", value: 0.1 },
+          "GPS:GPSLongitudeRef": { kind: "Text", value: "E" },
+        }}
+        onSaveMetadata={() => {}}
+        onSaveMetadataBatch={() => {}}
+        onCancel={() => {}}
+        editorMode="gps"
+      />,
+    );
+
+    expect(screen.getByTestId("unknown-editor-overlay")).toBeInTheDocument();
+    expect(screen.getByTestId("unknown-editor-raw-value")).toHaveTextContent(
+      "bad latitude",
+    );
+    expect(screen.queryByTestId("gps-editor-overlay")).not.toBeInTheDocument();
   });
 
   it("opens GpsEditor and prefills canonical Real GPS metadata", () => {

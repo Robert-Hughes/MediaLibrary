@@ -183,27 +183,19 @@ export function TypedValueEditor({
     editorMode === "gps" && saveMetadataBatch
       ? gpsMemberGroup(propertyKey)
       : null;
-  if (gpsGroup && metadataForFile && saveMetadataBatch) {
-    const unknownMember = [
+  const canUseCompositeGpsEditor =
+    gpsGroup &&
+    metadataForFile &&
+    saveMetadataBatch &&
+    ![
       gpsGroup.latitudeKey,
       gpsGroup.latitudeRefKey,
       gpsGroup.longitudeKey,
       gpsGroup.longitudeRefKey,
       gpsGroup.altitudeKey,
       gpsGroup.altitudeRefKey,
-    ].find((key) => metadataForFile[key]?.kind === "Unknown");
-    if (unknownMember) {
-      return (
-        <UnknownEditor
-          propertyKey={unknownMember}
-          initialMetadataValue={metadataForFile[unknownMember]}
-          onCancel={onCancel}
-          headerHint={schemaHint(
-            "GPS composite editing is blocked while a member is unparsed",
-          )}
-        />
-      );
-    }
+    ].some((key) => metadataForFile[key]?.kind === "Unknown");
+  if (canUseCompositeGpsEditor) {
     const latVal = metadataForFile[gpsGroup.latitudeKey];
     const lonVal = metadataForFile[gpsGroup.longitudeKey];
     const altVal = metadataForFile[gpsGroup.altitudeKey];

@@ -76,8 +76,8 @@ const BAG_OF_STRING_ENUM: TagKind = {
     data: {
       repr: "String",
       options: [
-        { value: "first", label: "First option" },
-        { value: "second", label: "Second option" },
+        { code: "first", label: "First option" },
+        { code: "second", label: "Second option" },
       ],
     },
   },
@@ -100,7 +100,7 @@ function enumIntentEditor(props: InnerEditorProps) {
       </button>
       <button
         data-testid="enum-intent-delete"
-        onClick={() => props.onSaveMetadata({ intent: "Delete" })}
+        onClick={() => props.onSaveMetadata({ intent: "Delete", value: null })}
       >
         Delete child
       </button>
