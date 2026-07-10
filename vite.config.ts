@@ -45,6 +45,7 @@ export default defineConfig(async () => ({
   test: {
     globals: true,
     environment: "jsdom",
+    pool: "vmThreads",
     setupFiles: ["./src/test/setup.ts"],
     include: ["src/test/**/*.{test,spec}.{ts,tsx}"],
     exclude: [
