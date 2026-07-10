@@ -7,31 +7,13 @@
 //! keyed by exiftool version plus our parser version
 //! (`<cache_dir>/MediaLibrary/tag_schema_p<parser>_<ver>.json`).
 //! On a cache miss — or when the exiftool version has changed since the
-//! last run — `exiftool -listx -lang en` runs, the XML is parsed, and the
+//! last run — `exiftool -listx -f -lang en` runs, the XML is parsed, and the
 //! result is written to the cache for next time.
 //!
-//! `-listx` exposes most of what we need (group, name, base type, writable,
-//! enum value tables, count) but is silent on two list-ness signals:
-//!
-//!   1. **XMP bag/seq/alt:** XMP-dc:Subject reports `type='string'` despite
-//!      being a Bag of strings. Plain `string`, no marker.
-//!   2. **IIM `List => 1`:** IPTC IIM datasets marked repeatable in
-//!      `Image::ExifTool::IPTC` (Keywords, By-line, SupplementalCategories,
-//!      ContentLocation*, SubjectReference, By-lineTitle, Writer-Editor)
-//!      are byte-identical in `-listx` to scalar IIM strings (City,
-//!      Sub-location, Province-State, …). No `flags` attribute, no hint.
-//!
-//! **Subtle trap:** `-listx`'s `count` attribute on string-shaped IIM tags
-//! is the IIM-spec **max char length**, not array cardinality. Reading
-//! `count='32'` on `Sub-location` as "32-element bag" gave us the wrong
-//! UI `[B]` chip on every IPTC location field. `wrap_count` therefore
-//! skips the wrap for Text/LangAlt kinds; cardinality on numeric tags
-//! (e.g. `rational64u count='3'` GPSLatitude) still works correctly.
-//!
-//! Both gaps are filled by a small hand-curated override table at the
-//! bottom of this file. The IIM section is locked to IIM 4.1 (frozen
-//! 2009) and must stay in lockstep with the `List => 1` flags in
-//! `Image::ExifTool::IPTC`.
+//! `-f` exposes collection semantics in the comma-separated `flags`
+//! attribute (`List`, `List,Bag`, `List,Seq`, or `List,Alt`). The `count`
+//! attribute is retained as storage metadata only: it may describe byte
+//! width or stored component count and never determines app-facing shape.
 
 use quick_xml::events::Event;
 use quick_xml::Reader;
@@ -102,6 +84,10 @@ pub struct TagInfo {
     pub writable: bool,
     pub kind: TagKind,
     pub description: Option<String>,
+    /// Raw ExifTool storage width/component count. This does not imply a list.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional, type = "string"))]
+    pub storage_count: Option<String>,
 }
 
 /// Errors that can occur while building the registry.
@@ -194,13 +180,20 @@ impl TagRegistry {
                             let type_attr = attrs.get("type").cloned().unwrap_or_default();
                             let writable =
                                 attrs.get("writable").map(|s| s == "true").unwrap_or(false);
-                            let count = attrs.get("count").and_then(|s| s.parse::<u32>().ok());
+                            let count = attrs.get("count").cloned();
+                            let flags = attrs
+                                .get("flags")
+                                .map(|value| {
+                                    value.split(',').map(str::trim).map(str::to_owned).collect()
+                                })
+                                .unwrap_or_default();
                             current_tag = Some(PartialTag {
                                 group: g1,
                                 name: tag_name,
                                 type_attr,
                                 writable,
                                 count,
+                                flags,
                                 description: None,
                                 enum_options: Vec::new(),
                             });
@@ -240,11 +233,16 @@ impl TagRegistry {
                             if let Some(partial) = current_tag.take() {
                                 let info = partial.finalize();
                                 let key = format!("{}:{}", info.group, info.name);
-                                // First definition wins. Tag names recur in many
-                                // tables (e.g. `Orientation` lives in several
-                                // groups); keying by full Group:Name avoids
-                                // collisions.
-                                tags.entry(key).or_insert(info);
+                                match tags.entry(key) {
+                                    std::collections::btree_map::Entry::Vacant(entry) => {
+                                        entry.insert(info);
+                                    }
+                                    std::collections::btree_map::Entry::Occupied(mut entry) => {
+                                        if definition_score(&info) > definition_score(entry.get()) {
+                                            entry.insert(info);
+                                        }
+                                    }
+                                }
                             }
                         }
                         "desc" => {
@@ -310,7 +308,7 @@ impl TagRegistry {
     /// Build by running `exiftool -listx -lang en`.
     pub fn build() -> Result<Self, SchemaError> {
         let output = crate::exiftool_config::exiftool_command()
-            .args(["-listx", "-lang", "en"])
+            .args(["-listx", "-f", "-lang", "en"])
             .output()
             .map_err(|e| SchemaError::ExifToolFailed(e.to_string()))?;
         if !output.status.success() {
@@ -425,7 +423,7 @@ fn read_exiftool_version() -> Result<String, SchemaError> {
 // Bump this when the logic that converts ExifTool `-listx` XML into our
 // `TagKind` model changes in a way that should invalidate existing schema
 // cache files, even if the ExifTool version itself did not change.
-const TAG_SCHEMA_PARSER_VERSION: u32 = 5;
+const TAG_SCHEMA_PARSER_VERSION: u32 = 6;
 
 fn cache_path_for(version: &str) -> Option<std::path::PathBuf> {
     let dir = dirs::cache_dir()?;
@@ -466,7 +464,8 @@ struct PartialTag {
     name: String,
     type_attr: String,
     writable: bool,
-    count: Option<u32>,
+    count: Option<String>,
+    flags: Vec<String>,
     description: Option<String>,
     enum_options: Vec<EnumOption>,
 }
@@ -477,15 +476,17 @@ impl PartialTag {
             &self.group,
             &self.name,
             &self.type_attr,
-            self.count,
+            self.count.as_deref().and_then(|value| value.parse().ok()),
             &self.enum_options,
         );
+        let kind = wrap_list_flag(kind, &self.flags);
         TagInfo {
             group: self.group,
             name: self.name,
             writable: self.writable,
             kind,
             description: self.description,
+            storage_count: self.count,
         }
     }
 }
@@ -542,7 +543,7 @@ fn derive_kind_for_tag(
     derive_kind(type_attr, count, options)
 }
 
-fn derive_kind(type_attr: &str, count: Option<u32>, options: &[EnumOption]) -> TagKind {
+fn derive_kind(type_attr: &str, _count: Option<u32>, options: &[EnumOption]) -> TagKind {
     let base = match type_attr {
         "string" => TagKind::Text,
         "lang-alt" => TagKind::LangAlt,
@@ -571,40 +572,37 @@ fn derive_kind(type_attr: &str, count: Option<u32>, options: &[EnumOption]) -> T
             repr,
             options: options.to_vec(),
         };
-        return wrap_count(kind, count);
-    }
-
-    wrap_count(base, count)
-}
-
-/// Wrap a base kind in `Bag` when `-listx`'s `count` attribute legitimately
-/// means "this tag holds N components" — but NOT for string-shaped tags,
-/// where `count` is the per-entry max length in characters and has nothing
-/// to do with how many entries the tag can hold.
-///
-/// Subtle gotcha that bit us once already: ExifTool's IPTC IIM table reports
-/// the IIM-spec max-length as `count`, so `IPTC:Sub-location` shows up as
-/// `type='string' count='32'` (max 32 chars) and `IPTC:Keywords` as
-/// `type='string' count='64'` (max 64 chars per keyword). They are NOT
-/// 32-element or 64-element arrays. Sub-location is scalar; Keywords is
-/// repeatable, but that fact comes from IIM's `List => 1` Perl flag in
-/// `Image::ExifTool::IPTC`, which `-listx` does not surface — see the
-/// IIM-repeatable override block in `apply_overrides`.
-///
-/// For genuine multi-component tags (`int16u count='2'` colour-component
-/// configs, `rational64u count='3'` GPS coordinates, etc.) the count IS
-/// the number of components and the wrap is correct.
-fn wrap_count(kind: TagKind, count: Option<u32>) -> TagKind {
-    // `count` on a string-shaped tag is a byte/char length cap, not a
-    // cardinality. Skip the wrap; any IIM string that is actually
-    // repeatable per the IIM spec is listed in `apply_overrides`.
-    if matches!(kind, TagKind::Text | TagKind::LangAlt) {
         return kind;
     }
-    match count {
-        Some(n) if n > 1 => TagKind::Bag(Box::new(kind)),
-        _ => kind,
+
+    base
+}
+
+fn wrap_list_flag(kind: TagKind, flags: &[String]) -> TagKind {
+    if matches!(kind, TagKind::LangAlt) {
+        return kind;
     }
+    if flags.iter().any(|flag| flag == "Seq") {
+        TagKind::Seq(Box::new(kind))
+    } else if flags.iter().any(|flag| flag == "Alt") {
+        TagKind::Alt(Box::new(kind))
+    } else if flags.iter().any(|flag| flag == "Bag" || flag == "List") {
+        TagKind::Bag(Box::new(kind))
+    } else {
+        kind
+    }
+}
+
+fn definition_score(info: &TagInfo) -> (bool, bool, bool, bool) {
+    (
+        info.writable,
+        matches!(
+            info.kind,
+            TagKind::Bag(_) | TagKind::Seq(_) | TagKind::Alt(_)
+        ),
+        matches!(info.kind, TagKind::Enum { .. } | TagKind::Struct(_)),
+        !matches!(info.kind, TagKind::Unknown),
+    )
 }
 
 /// Hand-curated overrides for XMP list/seq/alt and well-known struct types
@@ -812,6 +810,7 @@ fn apply_overrides(tags: &mut BTreeMap<String, TagInfo>) {
                     writable,
                     kind,
                     description: None,
+                    storage_count: None,
                 },
             );
         }
@@ -866,7 +865,7 @@ mod tests {
  </tag>
 </table>
 <table name='IPTC::ApplicationRecord' g0='IPTC' g1='IPTC' g2='Image'>
- <tag id='25' name='Keywords' type='string' count='64' writable='true'>
+ <tag id='25' name='Keywords' type='string' count='64' writable='true' flags='List'>
   <desc lang='en'>Keywords</desc>
  </tag>
  <tag id='55' name='DateCreated' type='digits' count='8' writable='true' g2='Time'>
@@ -892,6 +891,13 @@ mod tests {
  <tag id='6' name='GPSAltitude' type='rational64u' writable='true'>
   <desc lang='en'>GPS Altitude</desc>
  </tag>
+ <tag id='1' name='GPSLatitudeRef' type='string' count='2' writable='true'>
+  <values><key id='N'><val lang='en'>North</val></key><key id='S'><val lang='en'>South</val></key></values>
+ </tag>
+ <tag id='3' name='GPSLongitudeRef' type='string' count='2' writable='true'>
+  <values><key id='E'><val lang='en'>East</val></key><key id='W'><val lang='en'>West</val></key></values>
+ </tag>
+ <tag id='0' name='GPSVersionID' type='int8u' count='4' writable='true'><desc lang='en'>GPS Version</desc></tag>
 </table>
 <table name='EXIF::Other' g0='EXIF' g1='ExifIFD' g2='Image'>
  <tag id='0x9999' name='ThreeRationals' type='rational64u' count='3' writable='true'>
@@ -899,13 +905,13 @@ mod tests {
  </tag>
 </table>
 <table name='XMP::dc' g0='XMP' g1='XMP-dc' g2='Other'>
- <tag id='subject' name='Subject' type='string' writable='true' g2='Image'>
+ <tag id='subject' name='Subject' type='string' writable='true' flags='List,Bag' g2='Image'>
   <desc lang='en'>Subject</desc>
  </tag>
  <tag id='description' name='Description' type='lang-alt' writable='true' g2='Image'>
   <desc lang='en'>Description</desc>
  </tag>
- <tag id='creator' name='Creator' type='string' writable='true'>
+ <tag id='creator' name='Creator' type='string' writable='true' flags='List,Seq'>
   <desc lang='en'>Creator</desc>
  </tag>
 </table>
@@ -1036,20 +1042,49 @@ mod tests {
     }
 
     #[test]
-    fn non_gps_rational_count_three_still_yields_bag() {
-        // Counter-test: for non-string, non-overridden EXIF tags, `count`
-        // IS the number of components, so generic count wrapping remains
-        // correct.
+    fn gps_reference_storage_width_remains_scalar_enum() {
+        let r = fixture_registry();
+        for key in ["GPS:GPSLatitudeRef", "GPS:GPSLongitudeRef"] {
+            let tag = r.lookup(key).unwrap();
+            assert!(matches!(
+                tag.kind,
+                TagKind::Enum {
+                    repr: EnumRepr::String,
+                    ..
+                }
+            ));
+            assert_eq!(tag.storage_count.as_deref(), Some("2"));
+        }
+    }
+
+    #[test]
+    fn numeric_storage_count_does_not_create_a_collection() {
         let r = fixture_registry();
         let t = r.lookup("ExifIFD:ThreeRationals").unwrap();
-        match &t.kind {
-            TagKind::Bag(inner) => assert!(
-                matches!(**inner, TagKind::Rational),
-                "expected Bag<Rational>, got Bag<{:?}>",
-                inner
-            ),
-            other => panic!("expected Bag<Rational>, got {:?}", other),
-        }
+        assert!(matches!(t.kind, TagKind::Rational));
+        assert_eq!(t.storage_count.as_deref(), Some("3"));
+    }
+
+    #[test]
+    fn explicit_list_flags_define_collection_shape() {
+        let xml = r#"<taginfo><table g1='Test'>
+          <tag name='Generic' type='string' count='64' writable='true' flags='List'><desc lang='en'>Generic</desc></tag>
+          <tag name='Ordered' type='int32u' count='4' writable='true' flags='List,Seq'><desc lang='en'>Ordered</desc></tag>
+          <tag name='Alternative' type='string' writable='true' flags='List,Alt'><desc lang='en'>Alternative</desc></tag>
+        </table></taginfo>"#;
+        let r = TagRegistry::from_listx_xml(xml).unwrap();
+        assert!(matches!(
+            r.lookup("Test:Generic").unwrap().kind,
+            TagKind::Bag(_)
+        ));
+        assert!(matches!(
+            r.lookup("Test:Ordered").unwrap().kind,
+            TagKind::Seq(_)
+        ));
+        assert!(matches!(
+            r.lookup("Test:Alternative").unwrap().kind,
+            TagKind::Alt(_)
+        ));
     }
 
     #[test]
@@ -1083,7 +1118,7 @@ mod tests {
 
     #[test]
     fn schema_parser_cache_version_is_current() {
-        assert_eq!(TAG_SCHEMA_PARSER_VERSION, 5);
+        assert_eq!(TAG_SCHEMA_PARSER_VERSION, 6);
     }
 
     #[test]
@@ -1182,6 +1217,7 @@ mod tests {
                 writable: true,
                 kind: TagKind::Unknown,
                 description: None,
+                storage_count: None,
             },
         );
         apply_overrides(&mut tags);
@@ -1267,6 +1303,7 @@ mod tests {
                 writable: true,
                 kind: TagKind::Unknown,
                 description: None,
+                storage_count: None,
             },
         );
         tags.insert(
@@ -1277,6 +1314,7 @@ mod tests {
                 writable: true,
                 kind: TagKind::Unknown,
                 description: None,
+                storage_count: None,
             },
         );
         apply_overrides(&mut tags);
@@ -1301,6 +1339,7 @@ mod tests {
                 writable: false,
                 kind: TagKind::Unknown,
                 description: None,
+                storage_count: None,
             },
         );
         apply_overrides(&mut tags);
@@ -1363,10 +1402,10 @@ mod tests {
     #[test]
     fn cache_path_sanitises_version_string() {
         let p = cache_path_for("13.57").unwrap();
-        assert!(p.to_string_lossy().contains("tag_schema_p5_13.57.json"));
+        assert!(p.to_string_lossy().contains("tag_schema_p6_13.57.json"));
         let p2 = cache_path_for("13/57 weird!").unwrap();
         let s = p2.to_string_lossy().into_owned();
-        assert!(s.contains("tag_schema_p5_13_57_weird_.json"));
+        assert!(s.contains("tag_schema_p6_13_57_weird_.json"));
         assert!(
             !s.contains('/') || s.contains("MediaLibrary"),
             "no stray slashes in version segment"

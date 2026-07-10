@@ -487,6 +487,7 @@ mod tests {
             writable: true,
             kind,
             description: None,
+            storage_count: None,
         }
     }
 
@@ -541,6 +542,16 @@ mod tests {
             build_metadata_args("XMP-dc:Title", Some(&i), &metadata_set(text("hi"))).unwrap();
         assert!(args.numeric.is_empty());
         assert_eq!(args.text, vec!["-XMP-dc:Title=hi"]);
+    }
+
+    #[test]
+    fn gps_version_id_text_uses_spaced_raw_value() {
+        let i = info_named("GPS", "GPSVersionID", TagKind::Text);
+        let args =
+            build_metadata_args("GPS:GPSVersionID", Some(&i), &metadata_set(text("2 3 0 0")))
+                .unwrap();
+        assert_eq!(args.text, vec!["-GPS:GPSVersionID=2 3 0 0"]);
+        assert!(args.numeric.is_empty());
     }
 
     #[test]
