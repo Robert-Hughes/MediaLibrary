@@ -48,6 +48,7 @@ describe("PhotoList column header context menu", () => {
 
     _clearTagInfoCache();
     _setTagInfoCacheEntry("ExifIFD:DateTimeOriginal", null);
+    _setTagInfoCacheEntry("IFD0:Model", null);
   });
 
   it("shows context menu when right-clicking on column headers", async () => {
