@@ -495,6 +495,38 @@ export class DraftEditsStore {
     }
   }
 
+  /**
+   * User-initiated bulk draft discard (unlike pruneTags which handles backend verify updates).
+   * Drops the listed tags and notifies subscribers once.
+   */
+  deleteTags(path: string, tags: string[]) {
+    const fileEdits = this.snapshot[path];
+    if (!fileEdits || tags.length === 0) return;
+
+    const updated = { ...fileEdits };
+    let touched = false;
+
+    for (const tag of tags) {
+      if (tag in updated) {
+        delete updated[tag];
+        touched = true;
+      }
+    }
+
+    if (!touched) return;
+
+    const next = { ...this.snapshot };
+    if (Object.keys(updated).length === 0) {
+      delete next[path];
+      this.snapshot = next;
+      this.notify([{ path, edits: undefined }]);
+    } else {
+      next[path] = updated;
+      this.snapshot = next;
+      this.notify([{ path, edits: updated }]);
+    }
+  }
+
   deletePath(path: string) {
     if (!this.snapshot[path]) return;
     const next = { ...this.snapshot };

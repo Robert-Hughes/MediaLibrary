@@ -65,3 +65,33 @@ export async function confirmDiscardEdits({
     { title: "Discard Edits", kind: "warning" },
   );
 }
+
+export async function confirmRemoveMetadataGroupFields({
+  group,
+  fieldCount,
+}: {
+  group: string;
+  fieldCount: number;
+}): Promise<boolean> {
+  const fieldNoun = fieldCount === 1 ? "field" : "fields";
+  return ask(
+    `Stage removal of ${fieldCount} ${group} ${fieldNoun}?\n\n` +
+      `This will create pending delete edits only. Nothing will be written to the file until you apply edits.`,
+    { title: `Remove ${group} Fields`, kind: "warning" },
+  );
+}
+
+export async function confirmDiscardMetadataGroupEdits({
+  group,
+  editCount,
+}: {
+  group: string;
+  editCount: number;
+}): Promise<boolean> {
+  const editNoun = editCount === 1 ? "edit" : "edits";
+  return ask(
+    `Discard ${editCount} pending ${group} field ${editNoun}?\n\n` +
+      `This only removes pending edits for this photo. It does not change the image file.`,
+    { title: `Discard ${group} Edits`, kind: "warning" },
+  );
+}

@@ -387,6 +387,7 @@ function LoadedView({
           onSetMetadataDraft={actions.setMetadataDraft}
           onSetMetadataDraftBatch={actions.setMetadataDraftBatch}
           onDiscardDraft={actions.discardDraftValue}
+          onDiscardDraftBatch={actions.discardDraftValues}
           onDiscardAllEdits={actions.discardAllDraftEdits}
           onApplyEdits={(path) => actions.applyDraftEdits(path)}
           onGenerateAiDescription={(relPath) => {

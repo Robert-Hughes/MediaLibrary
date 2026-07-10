@@ -9,7 +9,7 @@ import type {
 import { HighlightedText } from "./HighlightedText";
 import { ContextMenu } from "./ContextMenu";
 import { TypedValueEditor } from "./editors/TypedValueEditor";
-import { useTagInfo } from "../hooks/useTagInfo";
+import { useTagInfo, useTagInfos } from "../hooks/useTagInfo";
 import { DatatypeBadge } from "./DatatypeBadge";
 import { gpsMemberGroup } from "../metadata/tag_overrides";
 import {
@@ -28,6 +28,8 @@ import {
 import {
   confirmApplyEdits,
   confirmDiscardEdits,
+  confirmRemoveMetadataGroupFields,
+  confirmDiscardMetadataGroupEdits,
 } from "../utils/applyDiscardPrompts";
 import {
   displayStringOfMetadataDraft,
@@ -54,6 +56,7 @@ interface Props {
     edits: Array<{ key: string; edit: MetadataDraftEdit }>,
   ) => void;
   onDiscardDraft?: (key: string) => void;
+  onDiscardDraftBatch?: (keys: string[]) => void;
   onDiscardAllEdits?: () => void;
   onApplyEdits?: () => void;
   /**
@@ -357,6 +360,135 @@ function DetailsRowContextMenu({
   );
 }
 
+function DetailsGroupContextMenu({
+  contextMenu,
+  originalMetadata,
+  draftEdits,
+  onSetMetadataDraftBatch,
+  onDiscardDraftBatch,
+  onClose,
+}: {
+  contextMenu: {
+    x: number;
+    y: number;
+    group: string;
+    entries: MetadataEntry[];
+  };
+  originalMetadata: Record<string, MetadataValue> | undefined;
+  draftEdits: Record<string, string | null>;
+  onSetMetadataDraftBatch?: (
+    edits: Array<{ key: string; edit: MetadataDraftEdit }>,
+  ) => void;
+  onDiscardDraftBatch?: (keys: string[]) => void;
+  onClose: () => void;
+}) {
+  const group = contextMenu.group;
+  const keys = useMemo(
+    () => contextMenu.entries.map((e) => e.fullKey),
+    [contextMenu.entries],
+  );
+  const tagInfos = useTagInfos(keys);
+
+  const isLoading = keys.some((key) => tagInfos[key] === "loading");
+
+  const removableKeys = useMemo(() => {
+    if (isLoading) return [];
+    return keys.filter((key) => {
+      const tag = tagInfos[key];
+      return tag === null || (tag !== "loading" && tag.writable);
+    });
+  }, [keys, tagInfos, isLoading]);
+
+  const draftKeys = useMemo(() => {
+    return keys.filter((key) => draftEdits[key] !== undefined);
+  }, [keys, draftEdits]);
+
+  const removeCount = removableKeys.length;
+  const draftCount = draftKeys.length;
+
+  useEffect(() => {
+    if (!isLoading && removeCount === 0 && draftCount === 0) {
+      onClose();
+    }
+  }, [isLoading, removeCount, draftCount, onClose]);
+
+  if (isLoading) return null;
+
+  if (removeCount === 0 && draftCount === 0) {
+    return null;
+  }
+
+  const handleRemove = async () => {
+    const confirmed = await confirmRemoveMetadataGroupFields({
+      group,
+      fieldCount: removeCount,
+    });
+    if (confirmed) {
+      const originalKeys = removableKeys.filter(
+        (key) => originalMetadata && key in originalMetadata,
+      );
+      const draftOnlyKeys = removableKeys.filter(
+        (key) => !originalMetadata || !(key in originalMetadata),
+      );
+
+      if (originalKeys.length > 0 && onSetMetadataDraftBatch) {
+        const deleteEdits = originalKeys.map((key) => ({
+          key,
+          edit: { value: null, intent: "Delete" as const },
+        }));
+        onSetMetadataDraftBatch(deleteEdits);
+      }
+
+      if (draftOnlyKeys.length > 0 && onDiscardDraftBatch) {
+        onDiscardDraftBatch(draftOnlyKeys);
+      }
+    }
+    onClose();
+  };
+
+  const handleDiscard = async () => {
+    const confirmed = await confirmDiscardMetadataGroupEdits({
+      group,
+      editCount: draftCount,
+    });
+    if (confirmed && onDiscardDraftBatch) {
+      onDiscardDraftBatch(draftKeys);
+    }
+    onClose();
+  };
+
+  const pluralHelper = (n: number, singular: string, pluralForm: string) =>
+    n === 1 ? singular : pluralForm;
+
+  const options = [
+    ...(removeCount > 0
+      ? [
+          {
+            label: `Remove all ${removeCount} ${group} ${pluralHelper(removeCount, "field", "fields")}…`,
+            onClick: handleRemove,
+          },
+        ]
+      : []),
+    ...(draftCount > 0
+      ? [
+          {
+            label: `Discard all ${draftCount} ${group} field ${pluralHelper(draftCount, "edit", "edits")}…`,
+            onClick: handleDiscard,
+          },
+        ]
+      : []),
+  ];
+
+  return (
+    <ContextMenu
+      x={contextMenu.x}
+      y={contextMenu.y}
+      options={options}
+      onClose={onClose}
+    />
+  );
+}
+
 export function DetailsPane({
   photo,
   metadata,
@@ -365,6 +497,7 @@ export function DetailsPane({
   onSetMetadataDraft,
   onSetMetadataDraftBatch,
   onDiscardDraft,
+  onDiscardDraftBatch,
   onDiscardAllEdits,
   onApplyEdits,
   onGenerateAiDescription,
@@ -383,6 +516,12 @@ export function DetailsPane({
     key: string;
     originalValue: string;
     draftValue?: string | null;
+  } | null>(null);
+  const [groupContextMenu, setGroupContextMenu] = useState<{
+    x: number;
+    y: number;
+    group: string;
+    entries: MetadataEntry[];
   } | null>(null);
   const [editDialog, setEditDialog] = useState<{
     key: string;
@@ -648,7 +787,22 @@ export function DetailsPane({
                   key={group.prefix}
                   data-testid={`details-section-${group.prefix}`}
                 >
-                  <h3 className="details-section-header">{group.prefix}</h3>
+                  <h3
+                    className="details-section-header"
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setContextMenu(null);
+                      setGroupContextMenu({
+                        x: e.clientX,
+                        y: e.clientY,
+                        group: group.prefix,
+                        entries: group.entries,
+                      });
+                    }}
+                  >
+                    {group.prefix}
+                  </h3>
                   {group.prefix === "GPS" &&
                   resolvedGps.lat !== null &&
                   resolvedGps.lon !== null ? (
@@ -791,6 +945,21 @@ export function DetailsPane({
             setContextMenu(null);
           }}
           onClose={() => setContextMenu(null)}
+        />
+      )}
+
+      {groupContextMenu && (
+        <DetailsGroupContextMenu
+          contextMenu={groupContextMenu}
+          originalMetadata={
+            metadata !== "loading"
+              ? (metadata as Record<string, MetadataValue>)
+              : undefined
+          }
+          draftEdits={draftEdits}
+          onSetMetadataDraftBatch={onSetMetadataDraftBatch}
+          onDiscardDraftBatch={onDiscardDraftBatch}
+          onClose={() => setGroupContextMenu(null)}
         />
       )}
 

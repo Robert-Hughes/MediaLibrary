@@ -1003,3 +1003,421 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
     }
   });
 });
+
+describe("DetailsPane: Group context menu", () => {
+  let askMock = vi.fn();
+
+  beforeEach(() => {
+    cleanup();
+    _clearTagInfoCache();
+    askMock = vi.fn(() => Promise.resolve(true));
+    vi.doMock("@tauri-apps/plugin-dialog", () => ({ ask: askMock }));
+  });
+
+  afterEach(() => {
+    vi.doUnmock("@tauri-apps/plugin-dialog");
+  });
+
+  const photo = makePhoto({
+    relative_path: "p.jpg",
+    filename: "p.jpg",
+    date_modified: 0,
+    date_created: 0,
+  });
+
+  it("Shows remove count for writable fields only", async () => {
+    vi.resetModules();
+    const { _setTagInfoCacheEntry, _clearTagInfoCache } =
+      await import("../hooks/useTagInfo");
+    const { DetailsPane: FreshDetailsPane } =
+      await import("../components/DetailsPane");
+
+    _clearTagInfoCache();
+    _setTagInfoCacheEntry("GPS:GPSLatitude", {
+      group: "GPS",
+      name: "GPSLatitude",
+      writable: true,
+      kind: { kind: "Real" },
+      description: null,
+    });
+    _setTagInfoCacheEntry("GPS:GPSLongitude", {
+      group: "GPS",
+      name: "GPSLongitude",
+      writable: true,
+      kind: { kind: "Real" },
+      description: null,
+    });
+    _setTagInfoCacheEntry("GPS:GPSVersionID", {
+      group: "GPS",
+      name: "GPSVersionID",
+      writable: false,
+      kind: { kind: "Text" },
+      description: null,
+    });
+
+    const onSetBatch = vi.fn();
+    const onDiscardBatch = vi.fn();
+
+    render(
+      <FreshDetailsPane
+        photo={photo}
+        metadata={mockMetadata({
+          "GPS:GPSLatitude": 51.5,
+          "GPS:GPSLongitude": -0.1,
+          "GPS:GPSVersionID": "2.2.0.0",
+        })}
+        onSetMetadataDraftBatch={onSetBatch}
+        onDiscardDraftBatch={onDiscardBatch}
+      />,
+    );
+
+    const section = screen.getByTestId("details-section-GPS");
+    const heading = within(section).getByRole("heading", {
+      name: "GPS",
+      level: 3,
+    });
+    fireEvent.contextMenu(heading);
+
+    await screen.findByRole("button", { name: "Remove all 2 GPS fields…" });
+    expect(
+      screen.queryByRole("button", { name: "Remove all 3 GPS fields…" }),
+    ).toBeNull();
+  });
+
+  it("Does not show remove when all fields read-only and no edits", async () => {
+    vi.resetModules();
+    const { _setTagInfoCacheEntry, _clearTagInfoCache } =
+      await import("../hooks/useTagInfo");
+    const { DetailsPane: FreshDetailsPane } =
+      await import("../components/DetailsPane");
+
+    _clearTagInfoCache();
+    _setTagInfoCacheEntry("GPS:GPSVersionID", {
+      group: "GPS",
+      name: "GPSVersionID",
+      writable: false,
+      kind: { kind: "Text" },
+      description: null,
+    });
+
+    render(
+      <FreshDetailsPane
+        photo={photo}
+        metadata={mockMetadata({
+          "GPS:GPSVersionID": "2.2.0.0",
+        })}
+      />,
+    );
+
+    const section = screen.getByTestId("details-section-GPS");
+    const heading = within(section).getByRole("heading", {
+      name: "GPS",
+      level: 3,
+    });
+    fireEvent.contextMenu(heading);
+
+    // Wait a tick for effects to close the menu
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: /Remove all/ })).toBeNull();
+      expect(screen.queryByRole("button", { name: /Discard all/ })).toBeNull();
+    });
+  });
+
+  it("Shows discard count for pending edits", async () => {
+    vi.resetModules();
+    const { _setTagInfoCacheEntry, _clearTagInfoCache } =
+      await import("../hooks/useTagInfo");
+    const { DetailsPane: FreshDetailsPane } =
+      await import("../components/DetailsPane");
+
+    _clearTagInfoCache();
+    _setTagInfoCacheEntry("IFD0:Make", {
+      group: "IFD0",
+      name: "Make",
+      writable: true,
+      kind: { kind: "Text" },
+      description: null,
+    });
+    _setTagInfoCacheEntry("IFD0:Model", {
+      group: "IFD0",
+      name: "Model",
+      writable: true,
+      kind: { kind: "Text" },
+      description: null,
+    });
+
+    render(
+      <FreshDetailsPane
+        photo={photo}
+        metadata={mockMetadata({
+          "IFD0:Make": "Canon",
+          "IFD0:Model": "5D",
+        })}
+        draftEdits={{
+          "IFD0:Make": "Nikon",
+          "IFD0:Model": "D850",
+        }}
+      />,
+    );
+
+    const section = screen.getByTestId("details-section-IFD0");
+    const heading = within(section).getByRole("heading", {
+      name: "IFD0",
+      level: 3,
+    });
+    fireEvent.contextMenu(heading);
+
+    await screen.findByRole("button", {
+      name: "Discard all 2 IFD0 field edits…",
+    });
+  });
+
+  it("Remove action stages deletes via batch", async () => {
+    vi.resetModules();
+    const { _setTagInfoCacheEntry, _clearTagInfoCache } =
+      await import("../hooks/useTagInfo");
+    const { DetailsPane: FreshDetailsPane } =
+      await import("../components/DetailsPane");
+
+    _clearTagInfoCache();
+    _setTagInfoCacheEntry("GPS:GPSLatitude", {
+      group: "GPS",
+      name: "GPSLatitude",
+      writable: true,
+      kind: { kind: "Real" },
+      description: null,
+    });
+    _setTagInfoCacheEntry("GPS:GPSLongitude", {
+      group: "GPS",
+      name: "GPSLongitude",
+      writable: true,
+      kind: { kind: "Real" },
+      description: null,
+    });
+
+    const onSetBatch = vi.fn();
+
+    render(
+      <FreshDetailsPane
+        photo={photo}
+        metadata={mockMetadata({
+          "GPS:GPSLatitude": 51.5,
+          "GPS:GPSLongitude": -0.1,
+        })}
+        onSetMetadataDraftBatch={onSetBatch}
+      />,
+    );
+
+    const section = screen.getByTestId("details-section-GPS");
+    const heading = within(section).getByRole("heading", {
+      name: "GPS",
+      level: 3,
+    });
+    fireEvent.contextMenu(heading);
+
+    const removeBtn = await screen.findByRole("button", {
+      name: "Remove all 2 GPS fields…",
+    });
+    fireEvent.click(removeBtn);
+
+    await waitFor(() => {
+      expect(askMock).toHaveBeenCalledTimes(1);
+    });
+
+    expect(onSetBatch).toHaveBeenCalledWith([
+      { key: "GPS:GPSLatitude", edit: { value: null, intent: "Delete" } },
+      { key: "GPS:GPSLongitude", edit: { value: null, intent: "Delete" } },
+    ]);
+  });
+
+  it("Remove action discards draft-only fields", async () => {
+    vi.resetModules();
+    const { _setTagInfoCacheEntry, _clearTagInfoCache } =
+      await import("../hooks/useTagInfo");
+    const { DetailsPane: FreshDetailsPane } =
+      await import("../components/DetailsPane");
+
+    _clearTagInfoCache();
+    _setTagInfoCacheEntry("GPS:GPSLatitude", {
+      group: "GPS",
+      name: "GPSLatitude",
+      writable: true,
+      kind: { kind: "Real" },
+      description: null,
+    });
+    _setTagInfoCacheEntry("GPS:GPSAltitude", {
+      group: "GPS",
+      name: "GPSAltitude",
+      writable: true,
+      kind: { kind: "Real" },
+      description: null,
+    });
+
+    const onSetBatch = vi.fn();
+    const onDiscardBatch = vi.fn();
+
+    render(
+      <FreshDetailsPane
+        photo={photo}
+        metadata={mockMetadata({
+          "GPS:GPSLatitude": 51.5,
+        })}
+        draftEdits={{
+          "GPS:GPSAltitude": "100",
+        }}
+        onSetMetadataDraftBatch={onSetBatch}
+        onDiscardDraftBatch={onDiscardBatch}
+      />,
+    );
+
+    const section = screen.getByTestId("details-section-GPS");
+    const heading = within(section).getByRole("heading", {
+      name: "GPS",
+      level: 3,
+    });
+    fireEvent.contextMenu(heading);
+
+    const removeBtn = await screen.findByRole("button", {
+      name: "Remove all 2 GPS fields…",
+    });
+    fireEvent.click(removeBtn);
+
+    await waitFor(() => {
+      expect(askMock).toHaveBeenCalledTimes(1);
+    });
+
+    expect(onSetBatch).toHaveBeenCalledWith([
+      { key: "GPS:GPSLatitude", edit: { value: null, intent: "Delete" } },
+    ]);
+    expect(onDiscardBatch).toHaveBeenCalledWith(["GPS:GPSAltitude"]);
+  });
+
+  it("Discard action calls batch discard once", async () => {
+    vi.resetModules();
+    const { _setTagInfoCacheEntry, _clearTagInfoCache } =
+      await import("../hooks/useTagInfo");
+    const { DetailsPane: FreshDetailsPane } =
+      await import("../components/DetailsPane");
+
+    _clearTagInfoCache();
+    _setTagInfoCacheEntry("GPS:GPSLatitude", {
+      group: "GPS",
+      name: "GPSLatitude",
+      writable: true,
+      kind: { kind: "Real" },
+      description: null,
+    });
+    _setTagInfoCacheEntry("GPS:GPSLongitude", {
+      group: "GPS",
+      name: "GPSLongitude",
+      writable: true,
+      kind: { kind: "Real" },
+      description: null,
+    });
+
+    const onDiscardBatch = vi.fn();
+
+    render(
+      <FreshDetailsPane
+        photo={photo}
+        metadata={mockMetadata({
+          "GPS:GPSLatitude": 51.5,
+          "GPS:GPSLongitude": -0.1,
+        })}
+        draftEdits={{
+          "GPS:GPSLatitude": "52.0",
+          "GPS:GPSLongitude": "-0.2",
+        }}
+        onDiscardDraftBatch={onDiscardBatch}
+      />,
+    );
+
+    const section = screen.getByTestId("details-section-GPS");
+    const heading = within(section).getByRole("heading", {
+      name: "GPS",
+      level: 3,
+    });
+    fireEvent.contextMenu(heading);
+
+    const discardBtn = await screen.findByRole("button", {
+      name: "Discard all 2 GPS field edits…",
+    });
+    fireEvent.click(discardBtn);
+
+    await waitFor(() => {
+      expect(askMock).toHaveBeenCalledTimes(1);
+    });
+
+    expect(onDiscardBatch).toHaveBeenCalledWith([
+      "GPS:GPSLatitude",
+      "GPS:GPSLongitude",
+    ]);
+  });
+
+  it("Confirmation false does not mutate", async () => {
+    vi.resetModules();
+    const { _setTagInfoCacheEntry, _clearTagInfoCache } =
+      await import("../hooks/useTagInfo");
+    const { DetailsPane: FreshDetailsPane } =
+      await import("../components/DetailsPane");
+
+    askMock.mockResolvedValue(false);
+
+    _clearTagInfoCache();
+    _setTagInfoCacheEntry("GPS:GPSLatitude", {
+      group: "GPS",
+      name: "GPSLatitude",
+      writable: true,
+      kind: { kind: "Real" },
+      description: null,
+    });
+
+    const onSetBatch = vi.fn();
+    const onDiscardBatch = vi.fn();
+
+    render(
+      <FreshDetailsPane
+        photo={photo}
+        metadata={mockMetadata({
+          "GPS:GPSLatitude": 51.5,
+        })}
+        draftEdits={{
+          "GPS:GPSLatitude": "52.0",
+        }}
+        onSetMetadataDraftBatch={onSetBatch}
+        onDiscardDraftBatch={onDiscardBatch}
+      />,
+    );
+
+    const section = screen.getByTestId("details-section-GPS");
+    const heading = within(section).getByRole("heading", {
+      name: "GPS",
+      level: 3,
+    });
+
+    // Test Remove cancellation
+    fireEvent.contextMenu(heading);
+    const removeBtn = await screen.findByRole("button", {
+      name: "Remove all 1 GPS field…",
+    });
+    fireEvent.click(removeBtn);
+
+    await waitFor(() => {
+      expect(askMock).toHaveBeenCalledTimes(1);
+    });
+    expect(onSetBatch).not.toHaveBeenCalled();
+    expect(onDiscardBatch).not.toHaveBeenCalled();
+
+    // Test Discard cancellation
+    fireEvent.contextMenu(heading);
+    const discardBtn = await screen.findByRole("button", {
+      name: "Discard all 1 GPS field edit…",
+    });
+    fireEvent.click(discardBtn);
+
+    await waitFor(() => {
+      expect(askMock).toHaveBeenCalledTimes(2);
+    });
+    expect(onDiscardBatch).not.toHaveBeenCalled();
+  });
+});
