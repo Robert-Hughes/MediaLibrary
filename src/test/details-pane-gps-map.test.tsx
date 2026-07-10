@@ -2,10 +2,6 @@ import { render, screen, cleanup } from "@testing-library/react";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { DetailsPane } from "../components/DetailsPane";
 
-const defaultCallbacks = () => ({
-  onSetMetadataDraftBatch: vi.fn(),
-  onDiscardDraftBatch: vi.fn(),
-});
 import { GpsMapOverview } from "../components/GpsMapOverview";
 import { makePhoto, mockMetadata } from "./factories";
 import type { MetadataDraftEdit } from "../types";
@@ -67,7 +63,12 @@ describe("DetailsPane GPS Map integration", () => {
     });
 
     render(
-      <DetailsPane {...defaultCallbacks()} photo={photo} metadata={metadata} />,
+      <DetailsPane
+        onSetMetadataDraftBatch={vi.fn()}
+        onDiscardDraftBatch={vi.fn()}
+        photo={photo}
+        metadata={metadata}
+      />,
     );
 
     const overview = screen.getByTestId("gps-map-overview");
@@ -87,7 +88,12 @@ describe("DetailsPane GPS Map integration", () => {
     });
 
     render(
-      <DetailsPane {...defaultCallbacks()} photo={photo} metadata={metadata} />,
+      <DetailsPane
+        onSetMetadataDraftBatch={vi.fn()}
+        onDiscardDraftBatch={vi.fn()}
+        photo={photo}
+        metadata={metadata}
+      />,
     );
 
     expect(screen.queryByTestId("gps-map-overview")).not.toBeInTheDocument();
@@ -100,7 +106,12 @@ describe("DetailsPane GPS Map integration", () => {
     });
 
     render(
-      <DetailsPane {...defaultCallbacks()} photo={photo} metadata={metadata} />,
+      <DetailsPane
+        onSetMetadataDraftBatch={vi.fn()}
+        onDiscardDraftBatch={vi.fn()}
+        photo={photo}
+        metadata={metadata}
+      />,
     );
 
     expect(screen.queryByTestId("gps-map-overview")).not.toBeInTheDocument();
@@ -131,7 +142,8 @@ describe("DetailsPane GPS Map integration", () => {
 
     render(
       <DetailsPane
-        {...defaultCallbacks()}
+        onSetMetadataDraftBatch={vi.fn()}
+        onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={metadata}
         typedDraftEdits={typedDraftEdits}
@@ -166,7 +178,8 @@ describe("DetailsPane GPS Map integration", () => {
 
     render(
       <DetailsPane
-        {...defaultCallbacks()}
+        onSetMetadataDraftBatch={vi.fn()}
+        onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={metadata}
         typedDraftEdits={typedDraftEdits}
@@ -185,7 +198,12 @@ describe("DetailsPane GPS Map integration", () => {
     });
 
     render(
-      <DetailsPane {...defaultCallbacks()} photo={photo} metadata={metadata} />,
+      <DetailsPane
+        onSetMetadataDraftBatch={vi.fn()}
+        onDiscardDraftBatch={vi.fn()}
+        photo={photo}
+        metadata={metadata}
+      />,
     );
 
     const gpsSection = screen.getByTestId("details-section-GPS");
