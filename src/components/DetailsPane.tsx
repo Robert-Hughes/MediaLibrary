@@ -52,11 +52,11 @@ interface Props {
   /** Semantic setter used by every editor via the local adapter. */
   onSetMetadataDraft?: (key: string, edit: MetadataDraftEdit) => void;
   /** Batch setter for paired-tag editors (GPS). */
-  onSetMetadataDraftBatch?: (
+  onSetMetadataDraftBatch: (
     edits: Array<{ key: string; edit: MetadataDraftEdit }>,
   ) => void;
   onDiscardDraft?: (key: string) => void;
-  onDiscardDraftBatch?: (keys: string[]) => void;
+  onDiscardDraftBatch: (keys: string[]) => void;
   onDiscardAllEdits?: () => void;
   onApplyEdits?: () => void;
   /**
@@ -376,10 +376,10 @@ function DetailsGroupContextMenu({
   };
   originalMetadata: Record<string, MetadataValue> | undefined;
   draftEdits: Record<string, string | null>;
-  onSetMetadataDraftBatch?: (
+  onSetMetadataDraftBatch: (
     edits: Array<{ key: string; edit: MetadataDraftEdit }>,
   ) => void;
-  onDiscardDraftBatch?: (keys: string[]) => void;
+  onDiscardDraftBatch: (keys: string[]) => void;
   onClose: () => void;
 }) {
   const group = contextMenu.group;
@@ -431,7 +431,7 @@ function DetailsGroupContextMenu({
         (key) => !originalMetadata || !(key in originalMetadata),
       );
 
-      if (originalKeys.length > 0 && onSetMetadataDraftBatch) {
+      if (originalKeys.length > 0) {
         const deleteEdits = originalKeys.map((key) => ({
           key,
           edit: { value: null, intent: "Delete" as const },
@@ -439,7 +439,7 @@ function DetailsGroupContextMenu({
         onSetMetadataDraftBatch(deleteEdits);
       }
 
-      if (draftOnlyKeys.length > 0 && onDiscardDraftBatch) {
+      if (draftOnlyKeys.length > 0) {
         onDiscardDraftBatch(draftOnlyKeys);
       }
     }
@@ -451,20 +451,31 @@ function DetailsGroupContextMenu({
       group,
       editCount: draftCount,
     });
-    if (confirmed && onDiscardDraftBatch) {
+    if (confirmed) {
       onDiscardDraftBatch(draftKeys);
     }
     onClose();
   };
 
-  const pluralHelper = (n: number, singular: string, pluralForm: string) =>
-    n === 1 ? singular : pluralForm;
+  function formatRemoveGroupLabel(count: number, group: string): string {
+    if (count === 1) {
+      return `Remove 1 writable ${group} field…`;
+    }
+    return `Remove all ${count} writable ${group} fields…`;
+  }
+
+  function formatDiscardGroupLabel(count: number, group: string): string {
+    if (count === 1) {
+      return `Discard 1 ${group} edit…`;
+    }
+    return `Discard all ${count} ${group} edits…`;
+  }
 
   const options = [
     ...(removeCount > 0
       ? [
           {
-            label: `Remove all ${removeCount} ${group} ${pluralHelper(removeCount, "field", "fields")}…`,
+            label: formatRemoveGroupLabel(removeCount, group),
             onClick: handleRemove,
           },
         ]
@@ -472,7 +483,7 @@ function DetailsGroupContextMenu({
     ...(draftCount > 0
       ? [
           {
-            label: `Discard all ${draftCount} ${group} field ${pluralHelper(draftCount, "edit", "edits")}…`,
+            label: formatDiscardGroupLabel(draftCount, group),
             onClick: handleDiscard,
           },
         ]
@@ -521,7 +532,6 @@ export function DetailsPane({
     x: number;
     y: number;
     group: string;
-    entries: MetadataEntry[];
   } | null>(null);
   const [editDialog, setEditDialog] = useState<{
     key: string;
@@ -582,6 +592,11 @@ export function DetailsPane({
     }
     return groupImageMetadata(combinedMetadata);
   }, [metadata, draftEdits]);
+
+  const fullGroupForMenu = useMemo(() => {
+    if (!groupContextMenu) return null;
+    return imageGroups.find((g) => g.prefix === groupContextMenu.group) ?? null;
+  }, [groupContextMenu, imageGroups]);
 
   const existingMetadataKeys = useMemo(() => {
     const keys = new Set<string>();
@@ -797,7 +812,6 @@ export function DetailsPane({
                         x: e.clientX,
                         y: e.clientY,
                         group: group.prefix,
-                        entries: group.entries,
                       });
                     }}
                   >
@@ -910,22 +924,18 @@ export function DetailsPane({
             });
             setContextMenu(null);
           }}
-          onEditGps={
-            onSetMetadataDraftBatch
-              ? () => {
-                  setEditDialog({
-                    key: contextMenu.key,
-                    initialValue:
-                      contextMenu.draftValue !== undefined &&
-                      contextMenu.draftValue !== null
-                        ? contextMenu.draftValue
-                        : contextMenu.originalValue,
-                    mode: "gps",
-                  });
-                  setContextMenu(null);
-                }
-              : undefined
-          }
+          onEditGps={() => {
+            setEditDialog({
+              key: contextMenu.key,
+              initialValue:
+                contextMenu.draftValue !== undefined &&
+                contextMenu.draftValue !== null
+                  ? contextMenu.draftValue
+                  : contextMenu.originalValue,
+              mode: "gps",
+            });
+            setContextMenu(null);
+          }}
           onDiscard={() => {
             onDiscardDraft?.(contextMenu.key);
             setContextMenu(null);
@@ -948,9 +958,14 @@ export function DetailsPane({
         />
       )}
 
-      {groupContextMenu && (
+      {groupContextMenu && fullGroupForMenu && (
         <DetailsGroupContextMenu
-          contextMenu={groupContextMenu}
+          contextMenu={{
+            x: groupContextMenu.x,
+            y: groupContextMenu.y,
+            group: groupContextMenu.group,
+            entries: fullGroupForMenu.entries,
+          }}
           originalMetadata={
             metadata !== "loading"
               ? (metadata as Record<string, MetadataValue>)
@@ -986,14 +1001,10 @@ export function DetailsPane({
               : undefined
           }
           initialString={editDialog.initialValue}
-          onSaveMetadataBatch={
-            onSetMetadataDraftBatch
-              ? (edits) => {
-                  onSetMetadataDraftBatch(edits);
-                  setEditDialog(null);
-                }
-              : undefined
-          }
+          onSaveMetadataBatch={(edits) => {
+            onSetMetadataDraftBatch(edits);
+            setEditDialog(null);
+          }}
           onSaveMetadata={(edit) => {
             onSetMetadataDraft?.(editDialog.key, edit);
             setEditDialog(null);
@@ -1025,14 +1036,10 @@ export function DetailsPane({
               ? (metadata as Record<string, MetadataValue>)
               : undefined
           }
-          onSaveMetadataBatch={
-            onSetMetadataDraftBatch
-              ? (edits) => {
-                  onSetMetadataDraftBatch(edits);
-                  setNewPropertyKey(null);
-                }
-              : undefined
-          }
+          onSaveMetadataBatch={(edits) => {
+            onSetMetadataDraftBatch(edits);
+            setNewPropertyKey(null);
+          }}
           onSaveMetadata={(edit) => {
             onSetMetadataDraft?.(newPropertyKey, edit);
             setNewPropertyKey(null);

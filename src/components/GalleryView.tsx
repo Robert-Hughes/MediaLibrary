@@ -41,12 +41,12 @@ interface Props {
     key: string,
     edit: MetadataDraftEdit,
   ) => void;
-  onSetMetadataDraftBatch?: (
+  onSetMetadataDraftBatch: (
     fileRelativePath: string,
     edits: Array<{ key: string; edit: MetadataDraftEdit }>,
   ) => void;
   onDiscardDraft?: (fileRelativePath: string, key: string) => void;
-  onDiscardDraftBatch?: (fileRelativePath: string, keys: string[]) => void;
+  onDiscardDraftBatch: (fileRelativePath: string, keys: string[]) => void;
   onDiscardAllEdits?: (fileRelativePath: string) => void;
   onApplyEdits?: (fileRelativePath: string) => void;
   /** Trigger the AI-description flow for the currently-displayed photo. */
@@ -327,11 +327,11 @@ export function GalleryView({
               onSetMetadataDraft?.(photo.relative_path, key, edit)
             }
             onSetMetadataDraftBatch={(edits) =>
-              onSetMetadataDraftBatch?.(photo.relative_path, edits)
+              onSetMetadataDraftBatch(photo.relative_path, edits)
             }
             onDiscardDraft={(key) => onDiscardDraft?.(photo.relative_path, key)}
             onDiscardDraftBatch={(keys) =>
-              onDiscardDraftBatch?.(photo.relative_path, keys)
+              onDiscardDraftBatch(photo.relative_path, keys)
             }
             onDiscardAllEdits={() => onDiscardAllEdits?.(photo.relative_path)}
             onApplyEdits={() => onApplyEdits?.(photo.relative_path)}

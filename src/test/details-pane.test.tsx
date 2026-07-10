@@ -18,7 +18,15 @@ import {
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { DetailsPane } from "../components/DetailsPane";
+import { DetailsPane as RealDetailsPane } from "../components/DetailsPane";
+
+const DetailsPane = (props: any) => (
+  <RealDetailsPane
+    onSetMetadataDraftBatch={props.onSetMetadataDraftBatch ?? vi.fn()}
+    onDiscardDraftBatch={props.onDiscardDraftBatch ?? vi.fn()}
+    {...props}
+  />
+);
 import {
   groupImageMetadata,
   formatMetadataValue,
@@ -414,6 +422,8 @@ describe("DetailsPane: Generate-AI button", () => {
         typedDraftEdits={typedDraftEdits}
         draftEdits={{ "XMP-mlib:AIDescription": "older description" }}
         onGenerateAiDescription={onGenerate}
+        onSetMetadataDraftBatch={vi.fn()}
+        onDiscardDraftBatch={vi.fn()}
       />,
     );
     await user.click(screen.getByTestId("details-pane-generate-ai-btn"));
@@ -434,6 +444,8 @@ describe("DetailsPane: Generate-AI button", () => {
         photo={photo}
         metadata={{} as Record<string, ImageMetadataEntry>}
         onGenerateAiDescription={onGenerate}
+        onSetMetadataDraftBatch={vi.fn()}
+        onDiscardDraftBatch={vi.fn()}
       />,
     );
     await user.click(screen.getByTestId("details-pane-generate-ai-btn"));
@@ -898,26 +910,6 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
     expect(screen.queryByRole("button", { name: "Edit GPS…" })).toBeNull();
   });
 
-  it("shows Edit... but not Edit GPS... for GPS fields when batch save is absent", async () => {
-    render(
-      <DetailsPane
-        photo={photo}
-        metadata={mockMetadata({
-          "GPS:GPSLatitude": 51.5,
-          "GPS:GPSLatitudeRef": "N",
-          "GPS:GPSLongitude": 0.12,
-          "GPS:GPSLongitudeRef": "W",
-          "GPS:GPSAltitude": 100,
-          "GPS:GPSAltitudeRef": 0,
-        })}
-      />,
-    );
-
-    openContextMenu("GPSLatitude");
-    expect(screen.getByRole("button", { name: "Edit…" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Edit GPS…" })).toBeNull();
-  });
-
   it("does not show edit actions for read-only GPS row", async () => {
     // Make GPSLatitude read-only
     _setTagInfoCacheEntry("GPS:GPSLatitude", {
@@ -1078,9 +1070,13 @@ describe("DetailsPane: Group context menu", () => {
     });
     fireEvent.contextMenu(heading);
 
-    await screen.findByRole("button", { name: "Remove all 2 GPS fields…" });
+    await screen.findByRole("button", {
+      name: "Remove all 2 writable GPS fields…",
+    });
     expect(
-      screen.queryByRole("button", { name: "Remove all 3 GPS fields…" }),
+      screen.queryByRole("button", {
+        name: "Remove all 3 writable GPS fields…",
+      }),
     ).toBeNull();
   });
 
@@ -1106,6 +1102,8 @@ describe("DetailsPane: Group context menu", () => {
         metadata={mockMetadata({
           "GPS:GPSVersionID": "2.2.0.0",
         })}
+        onSetMetadataDraftBatch={vi.fn()}
+        onDiscardDraftBatch={vi.fn()}
       />,
     );
 
@@ -1118,8 +1116,8 @@ describe("DetailsPane: Group context menu", () => {
 
     // Wait a tick for effects to close the menu
     await waitFor(() => {
-      expect(screen.queryByRole("button", { name: /Remove all/ })).toBeNull();
-      expect(screen.queryByRole("button", { name: /Discard all/ })).toBeNull();
+      expect(screen.queryByRole("button", { name: /Remove/ })).toBeNull();
+      expect(screen.queryByRole("button", { name: /Discard/ })).toBeNull();
     });
   });
 
@@ -1157,6 +1155,8 @@ describe("DetailsPane: Group context menu", () => {
           "IFD0:Make": "Nikon",
           "IFD0:Model": "D850",
         }}
+        onSetMetadataDraftBatch={vi.fn()}
+        onDiscardDraftBatch={vi.fn()}
       />,
     );
 
@@ -1168,7 +1168,7 @@ describe("DetailsPane: Group context menu", () => {
     fireEvent.contextMenu(heading);
 
     await screen.findByRole("button", {
-      name: "Discard all 2 IFD0 field edits…",
+      name: "Discard all 2 IFD0 edits…",
     });
   });
 
@@ -1205,6 +1205,7 @@ describe("DetailsPane: Group context menu", () => {
           "GPS:GPSLongitude": -0.1,
         })}
         onSetMetadataDraftBatch={onSetBatch}
+        onDiscardDraftBatch={vi.fn()}
       />,
     );
 
@@ -1216,7 +1217,7 @@ describe("DetailsPane: Group context menu", () => {
     fireEvent.contextMenu(heading);
 
     const removeBtn = await screen.findByRole("button", {
-      name: "Remove all 2 GPS fields…",
+      name: "Remove all 2 writable GPS fields…",
     });
     fireEvent.click(removeBtn);
 
@@ -1278,7 +1279,7 @@ describe("DetailsPane: Group context menu", () => {
     fireEvent.contextMenu(heading);
 
     const removeBtn = await screen.findByRole("button", {
-      name: "Remove all 2 GPS fields…",
+      name: "Remove all 2 writable GPS fields…",
     });
     fireEvent.click(removeBtn);
 
@@ -1328,6 +1329,7 @@ describe("DetailsPane: Group context menu", () => {
           "GPS:GPSLatitude": "52.0",
           "GPS:GPSLongitude": "-0.2",
         }}
+        onSetMetadataDraftBatch={vi.fn()}
         onDiscardDraftBatch={onDiscardBatch}
       />,
     );
@@ -1340,7 +1342,7 @@ describe("DetailsPane: Group context menu", () => {
     fireEvent.contextMenu(heading);
 
     const discardBtn = await screen.findByRole("button", {
-      name: "Discard all 2 GPS field edits…",
+      name: "Discard all 2 GPS edits…",
     });
     fireEvent.click(discardBtn);
 
@@ -1398,7 +1400,7 @@ describe("DetailsPane: Group context menu", () => {
     // Test Remove cancellation
     fireEvent.contextMenu(heading);
     const removeBtn = await screen.findByRole("button", {
-      name: "Remove all 1 GPS field…",
+      name: "Remove 1 writable GPS field…",
     });
     fireEvent.click(removeBtn);
 
@@ -1411,7 +1413,7 @@ describe("DetailsPane: Group context menu", () => {
     // Test Discard cancellation
     fireEvent.contextMenu(heading);
     const discardBtn = await screen.findByRole("button", {
-      name: "Discard all 1 GPS field edit…",
+      name: "Discard 1 GPS edit…",
     });
     fireEvent.click(discardBtn);
 
@@ -1419,5 +1421,123 @@ describe("DetailsPane: Group context menu", () => {
       expect(askMock).toHaveBeenCalledTimes(2);
     });
     expect(onDiscardBatch).not.toHaveBeenCalled();
+  });
+
+  it("uses the complete group when the details search filters out some rows", async () => {
+    vi.resetModules();
+    const { _setTagInfoCacheEntry, _clearTagInfoCache } =
+      await import("../hooks/useTagInfo");
+    const { DetailsPane: FreshDetailsPane } =
+      await import("../components/DetailsPane");
+
+    _clearTagInfoCache();
+    _setTagInfoCacheEntry("GPS:GPSLatitude", {
+      group: "GPS",
+      name: "GPSLatitude",
+      writable: true,
+      kind: { kind: "Real" },
+      description: null,
+    });
+    _setTagInfoCacheEntry("GPS:GPSLongitude", {
+      group: "GPS",
+      name: "GPSLongitude",
+      writable: true,
+      kind: { kind: "Real" },
+      description: null,
+    });
+
+    const onSetBatch = vi.fn();
+
+    render(
+      <FreshDetailsPane
+        photo={photo}
+        metadata={mockMetadata({
+          "GPS:GPSLatitude": 51.5,
+          "GPS:GPSLongitude": -0.1,
+        })}
+        onSetMetadataDraftBatch={onSetBatch}
+        onDiscardDraftBatch={vi.fn()}
+      />,
+    );
+
+    // Filter to only match GPSLatitude
+    const searchInput = screen.getByTestId("details-search-input");
+    await userEvent.type(searchInput, "Latitude");
+
+    // Verify GPSLongitude is no longer visible
+    expect(screen.queryByText("Longitude")).toBeNull();
+    expect(screen.getByText("Latitude")).toBeInTheDocument();
+
+    const section = screen.getByTestId("details-section-GPS");
+    const heading = within(section).getByRole("heading", {
+      name: "GPS",
+      level: 3,
+    });
+    fireEvent.contextMenu(heading);
+
+    // Expecting: "Remove all 2 writable GPS fields…" because search filter
+    // does not reduce the group action scope.
+    const removeBtn = await screen.findByRole("button", {
+      name: "Remove all 2 writable GPS fields…",
+    });
+    fireEvent.click(removeBtn);
+
+    await waitFor(() => {
+      expect(askMock).toHaveBeenCalledTimes(1);
+    });
+
+    expect(onSetBatch).toHaveBeenCalledWith([
+      { key: "GPS:GPSLatitude", edit: { value: null, intent: "Delete" } },
+      { key: "GPS:GPSLongitude", edit: { value: null, intent: "Delete" } },
+    ]);
+  });
+
+  it("handles singular/plural labels and formatting correctly (e.g. File group)", async () => {
+    vi.resetModules();
+    const { _setTagInfoCacheEntry, _clearTagInfoCache } =
+      await import("../hooks/useTagInfo");
+    const { DetailsPane: FreshDetailsPane } =
+      await import("../components/DetailsPane");
+
+    _clearTagInfoCache();
+    // Register exactly one tag in File group (e.g. File:FileSize)
+    _setTagInfoCacheEntry("File:FileSize", {
+      group: "File",
+      name: "FileSize",
+      writable: true,
+      kind: { kind: "Text" },
+      description: null,
+    });
+
+    render(
+      <FreshDetailsPane
+        photo={photo}
+        metadata={mockMetadata({
+          "File:FileSize": "1 MB",
+        })}
+        draftEdits={{
+          "File:FileSize": "2 MB",
+        }}
+        onSetMetadataDraftBatch={vi.fn()}
+        onDiscardDraftBatch={vi.fn()}
+      />,
+    );
+
+    const section = screen.getByTestId("details-section-File");
+    const heading = within(section).getByRole("heading", {
+      name: "File",
+      level: 3,
+    });
+
+    // Check singular remove label
+    fireEvent.contextMenu(heading);
+    await screen.findByRole("button", {
+      name: "Remove 1 writable File field…",
+    });
+
+    // Check singular discard label
+    await screen.findByRole("button", {
+      name: "Discard 1 File edit…",
+    });
   });
 });

@@ -7,7 +7,15 @@
 import { render, screen, within, waitFor, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { GalleryView } from "../components/GalleryView";
+import { GalleryView as RealGalleryView } from "../components/GalleryView";
+
+const GalleryView = (props: any) => (
+  <RealGalleryView
+    onSetMetadataDraftBatch={props.onSetMetadataDraftBatch ?? vi.fn()}
+    onDiscardDraftBatch={props.onDiscardDraftBatch ?? vi.fn()}
+    {...props}
+  />
+);
 import { ImageMetadataStore } from "../types";
 import { makePhotos, mockMetadata } from "./factories";
 import type { PhotoInfo } from "../types";
