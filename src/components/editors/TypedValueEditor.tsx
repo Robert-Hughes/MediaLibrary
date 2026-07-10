@@ -112,9 +112,32 @@ export function TypedValueEditor({
     initialMetadataValue ??
     (kind ? defaultMetadataValueForKind(kind) : ({ kind: "Null" } as const));
   const readOnly = tag !== null && tag !== "loading" && !tag.writable;
+  const schemaHint = (override?: string) => (
+    <EditorMetaHint
+      source={
+        schemaOverride
+          ? {
+              kind: "synthetic",
+              label: `${propertyKey} — ${describeKind(schemaOverride)}`,
+              description: "From parent schema",
+            }
+          : buildSource(tag, override)
+      }
+    />
+  );
   const saveText = (value: string) => {
     onSaveMetadata({ value: { kind: "Text", value }, intent: "Set" });
   };
+  if (semanticInitial.kind === "Unknown") {
+    return (
+      <UnknownEditor
+        propertyKey={propertyKey}
+        initialMetadataValue={semanticInitial}
+        onCancel={onCancel}
+        headerHint={schemaHint()}
+      />
+    );
+  }
   // ── Override 1: Flash bitfield ─────────────────────────────────────────
   if (isFlashTag(propertyKey)) {
     const code = semanticInitial.kind === "Integer" ? semanticInitial.value : 0;
@@ -219,23 +242,6 @@ export function TypedValueEditor({
       />
     );
   }
-
-  // Shared meta-hint banner — built once per render, threaded into every
-  // non-override editor below so the user always sees the same datatype +
-  // source line in the same slot.
-  const schemaHint = (override?: string) => (
-    <EditorMetaHint
-      source={
-        schemaOverride
-          ? {
-              kind: "synthetic",
-              label: `${propertyKey} — ${describeKind(schemaOverride)}`,
-              description: "From parent schema",
-            }
-          : buildSource(tag, override)
-      }
-    />
-  );
 
   if (tag === "loading") {
     // First-call lookup; schema build can take 100-500ms.  Show the plain

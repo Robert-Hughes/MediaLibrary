@@ -39,6 +39,52 @@ beforeEach(() => {
 });
 
 describe("TypedValueEditor read-only enforcement", () => {
+  it.each([
+    [
+      "Enum",
+      {
+        kind: "Enum",
+        data: {
+          repr: "String",
+          options: [{ code: "A", label: "Alpha" }],
+        },
+      } as const,
+    ],
+    ["numeric", { kind: "Integer", data: { min: null, max: null } } as const],
+  ])("keeps runtime Unknown read-only for a known %s schema", (_, kind) => {
+    _setTagInfoCacheEntry("Test:Broken", {
+      group: "Test",
+      name: "Broken",
+      writable: true,
+      kind,
+      description: null,
+    });
+    render(
+      <TypedValueEditor
+        propertyKey="Test:Broken"
+        initialMetadataValue={{
+          kind: "Unknown",
+          value: { raw: "unparsed-value", reason: "invalid representation" },
+        }}
+        onSaveMetadata={vi.fn()}
+        onCancel={() => {}}
+      />,
+    );
+
+    expect(screen.getByTestId("unknown-editor-overlay")).toBeInTheDocument();
+    expect(screen.getByTestId("unknown-editor-raw-value")).toHaveTextContent(
+      "unparsed-value",
+    );
+    expect(screen.getByTestId("unknown-editor-reason")).toHaveTextContent(
+      "invalid representation",
+    );
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("numeric-editor-save")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /save/i }),
+    ).not.toBeInTheDocument();
+  });
+
   it("disables Save and marks the banner read-only for a writable=false tag", async () => {
     _setTagInfoCacheEntry("EXIF:ExifVersion", {
       group: "EXIF",
