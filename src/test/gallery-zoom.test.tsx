@@ -1,18 +1,20 @@
 import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
+import type { ComponentProps } from "react";
 import { GalleryView } from "../components/GalleryView";
 
-const defaultGalleryCallbacks = () => ({
-  onSetMetadataDraftBatch: vi.fn(),
-  onDiscardDraftBatch: vi.fn(),
-});
 import { makePhotos } from "./factories";
 
 const PHOTOS = makePhotos(["a.jpg", "b.jpg"]);
 const fakeLoad = async (_path: string) => "data:image/jpeg;base64,FAKE";
 
-function renderGallery(overrides = {}) {
-  const defaults = {
+function renderGallery(
+  overrides: Partial<ComponentProps<typeof GalleryView>> = {},
+) {
+  const onSetMetadataDraftBatch = vi.fn();
+  const onDiscardDraftBatch = vi.fn();
+
+  const props = {
     photos: PHOTOS,
     currentIndex: 0,
     folderPath: "/photos",
@@ -21,7 +23,16 @@ function renderGallery(overrides = {}) {
     loadImage: fakeLoad,
     ...overrides,
   };
-  return render(<GalleryView {...defaultGalleryCallbacks()} {...defaults} />);
+
+  return render(
+    <GalleryView
+      {...props}
+      onSetMetadataDraftBatch={
+        overrides.onSetMetadataDraftBatch ?? onSetMetadataDraftBatch
+      }
+      onDiscardDraftBatch={overrides.onDiscardDraftBatch ?? onDiscardDraftBatch}
+    />,
+  );
 }
 
 describe("Gallery Zoom and Pan", () => {
@@ -103,7 +114,23 @@ describe("Gallery Zoom and Pan", () => {
   });
 
   it("resets zoom and pan when navigating to a different photo", async () => {
-    const { rerender } = renderGallery({ currentIndex: 0 });
+    const onClose = vi.fn();
+    const onNavigate = vi.fn();
+    const onSetMetadataDraftBatch = vi.fn();
+    const onDiscardDraftBatch = vi.fn();
+
+    const { rerender } = render(
+      <GalleryView
+        photos={PHOTOS}
+        currentIndex={0}
+        folderPath="/photos"
+        onClose={onClose}
+        onNavigate={onNavigate}
+        loadImage={fakeLoad}
+        onSetMetadataDraftBatch={onSetMetadataDraftBatch}
+        onDiscardDraftBatch={onDiscardDraftBatch}
+      />,
+    );
     const area = screen.getByTestId("gallery-image-area");
     const image = await screen.findByTestId("gallery-image");
 
@@ -112,15 +139,18 @@ describe("Gallery Zoom and Pan", () => {
     expect(image.style.transform).not.toBe("translate(0px, 0px) scale(1)");
 
     // Navigate
-    const defaults = {
-      photos: PHOTOS,
-      currentIndex: 1, // Changed
-      folderPath: "/photos",
-      onClose: vi.fn(),
-      onNavigate: vi.fn(),
-      loadImage: fakeLoad,
-    };
-    rerender(<GalleryView {...defaultGalleryCallbacks()} {...defaults} />);
+    rerender(
+      <GalleryView
+        photos={PHOTOS}
+        currentIndex={1} // Changed
+        folderPath="/photos"
+        onClose={onClose}
+        onNavigate={onNavigate}
+        loadImage={fakeLoad}
+        onSetMetadataDraftBatch={onSetMetadataDraftBatch}
+        onDiscardDraftBatch={onDiscardDraftBatch}
+      />,
+    );
 
     // Check reset
     const newImage = await screen.findByTestId("gallery-image");

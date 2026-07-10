@@ -19,10 +19,6 @@ import userEvent from "@testing-library/user-event";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { DetailsPane } from "../components/DetailsPane";
 
-const defaultCallbacks = () => ({
-  onSetMetadataDraftBatch: vi.fn(),
-  onDiscardDraftBatch: vi.fn(),
-});
 import { makePhoto, mockMetadata } from "./factories";
 import type { MetadataDraftEdit } from "../types";
 
@@ -61,7 +57,8 @@ describe("DetailsPane: Reverse Geocode button", () => {
     const onGeocode = vi.fn();
     render(
       <DetailsPane
-        {...defaultCallbacks()}
+        onSetMetadataDraftBatch={vi.fn()}
+        onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={{}}
         onGeocode={onGeocode}
@@ -71,7 +68,14 @@ describe("DetailsPane: Reverse Geocode button", () => {
   });
 
   it("does not render the button when onGeocode is not provided", () => {
-    render(<DetailsPane {...defaultCallbacks()} photo={photo} metadata={{}} />);
+    render(
+      <DetailsPane
+        onSetMetadataDraftBatch={vi.fn()}
+        onDiscardDraftBatch={vi.fn()}
+        photo={photo}
+        metadata={{}}
+      />,
+    );
     expect(screen.queryByTestId("details-pane-geocode-btn")).toBeNull();
   });
 
@@ -80,7 +84,8 @@ describe("DetailsPane: Reverse Geocode button", () => {
     const user = userEvent.setup();
     render(
       <DetailsPane
-        {...defaultCallbacks()}
+        onSetMetadataDraftBatch={vi.fn()}
+        onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={mockMetadata({
           "Composite:GPSLatitude": 51.5,
@@ -102,7 +107,8 @@ describe("DetailsPane: Reverse Geocode button", () => {
     const user = userEvent.setup();
     render(
       <DetailsPane
-        {...defaultCallbacks()}
+        onSetMetadataDraftBatch={vi.fn()}
+        onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={mockMetadata({ "XMP-iptcCore:Location": "Existing Place" })}
         onGeocode={onGeocode}
@@ -119,7 +125,8 @@ describe("DetailsPane: Reverse Geocode button", () => {
     const user = userEvent.setup();
     render(
       <DetailsPane
-        {...defaultCallbacks()}
+        onSetMetadataDraftBatch={vi.fn()}
+        onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={{}}
         typedDraftEdits={{ "XMP-photoshop:City": setDraftEdit("Manual Edit") }}

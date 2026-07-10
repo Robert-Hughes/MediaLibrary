@@ -7,12 +7,9 @@
 import { render, screen, within, waitFor, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import type { ComponentProps } from "react";
 import { GalleryView } from "../components/GalleryView";
 
-const defaultGalleryCallbacks = () => ({
-  onSetMetadataDraftBatch: vi.fn(),
-  onDiscardDraftBatch: vi.fn(),
-});
 import { ImageMetadataStore } from "../types";
 import { makePhotos, mockMetadata } from "./factories";
 import type { PhotoInfo } from "../types";
@@ -44,9 +41,12 @@ function createPopulatedStore(
 
 /** Render the GalleryView with defaults suitable for integration testing. */
 async function renderGallery(
-  overrides: Partial<Parameters<typeof GalleryView>[0]> = {},
+  overrides: Partial<ComponentProps<typeof GalleryView>> = {},
 ) {
-  const defaults = {
+  const onSetMetadataDraftBatch = vi.fn();
+  const onDiscardDraftBatch = vi.fn();
+
+  const props = {
     photos: PHOTOS,
     currentIndex: 0,
     folderPath: "/photos",
@@ -56,8 +56,15 @@ async function renderGallery(
     imageMetadata: new ImageMetadataStore(),
     ...overrides,
   };
+
   const result = render(
-    <GalleryView {...defaultGalleryCallbacks()} {...defaults} />,
+    <GalleryView
+      {...props}
+      onSetMetadataDraftBatch={
+        overrides.onSetMetadataDraftBatch ?? onSetMetadataDraftBatch
+      }
+      onDiscardDraftBatch={overrides.onDiscardDraftBatch ?? onDiscardDraftBatch}
+    />,
   );
   await screen.findByTestId("gallery-image");
   return result;
@@ -259,7 +266,10 @@ describe("Gallery details pane content", () => {
 
 describe("Gallery details pane with navigation", () => {
   it("updates details pane content when navigating to a different photo", async () => {
+    const onClose = vi.fn();
     const onNavigate = vi.fn();
+    const onSetMetadataDraftBatch = vi.fn();
+    const onDiscardDraftBatch = vi.fn();
     const store = createPopulatedStore(PHOTOS, {
       "2024/a.jpg": { "IFD0:Make": "Canon" },
       "2024/b.jpg": { "IFD0:Make": "Nikon" },
@@ -267,14 +277,15 @@ describe("Gallery details pane with navigation", () => {
 
     const { rerender } = render(
       <GalleryView
-        {...defaultGalleryCallbacks()}
         photos={PHOTOS}
         currentIndex={0}
         folderPath="/photos"
-        onClose={vi.fn()}
+        onClose={onClose}
         onNavigate={onNavigate}
         loadImage={fakeLoad}
         imageMetadata={store}
+        onSetMetadataDraftBatch={onSetMetadataDraftBatch}
+        onDiscardDraftBatch={onDiscardDraftBatch}
       />,
     );
     await screen.findByTestId("gallery-image");
@@ -286,14 +297,15 @@ describe("Gallery details pane with navigation", () => {
     // Simulate navigation to index 1
     rerender(
       <GalleryView
-        {...defaultGalleryCallbacks()}
         photos={PHOTOS}
         currentIndex={1}
         folderPath="/photos"
-        onClose={vi.fn()}
+        onClose={onClose}
         onNavigate={onNavigate}
         loadImage={fakeLoad}
         imageMetadata={store}
+        onSetMetadataDraftBatch={onSetMetadataDraftBatch}
+        onDiscardDraftBatch={onDiscardDraftBatch}
       />,
     );
     await screen.findByTestId("gallery-image");
