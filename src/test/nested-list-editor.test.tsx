@@ -69,7 +69,103 @@ const BAG_OF_LANGALT: TagKind = {
   data: { kind: "LangAlt" } as TagKind,
 };
 
+const BAG_OF_STRING_ENUM: TagKind = {
+  kind: "Bag",
+  data: {
+    kind: "Enum",
+    data: {
+      repr: "String",
+      options: [
+        { value: "first", label: "First option" },
+        { value: "second", label: "Second option" },
+      ],
+    },
+  },
+};
+
+function enumIntentEditor(props: InnerEditorProps) {
+  return (
+    <div data-testid="enum-intent-editor">
+      <button
+        data-testid="enum-intent-save"
+        onClick={() =>
+          props.onSaveMetadata({
+            intent: "Set",
+            value: { kind: "Text", value: "first" },
+            display: "First option",
+          })
+        }
+      >
+        Save child
+      </button>
+      <button
+        data-testid="enum-intent-delete"
+        onClick={() => props.onSaveMetadata({ intent: "Delete" })}
+      >
+        Delete child
+      </button>
+      <button data-testid="enum-intent-cancel" onClick={props.onCancel}>
+        Cancel child
+      </button>
+    </div>
+  );
+}
+
 describe("NestedListEditor", () => {
+  it("does not add a staged enum item when its child editor is cancelled", () => {
+    const onSave = vi.fn();
+    render(
+      <NestedListEditor
+        propertyKey="XMP:Choices"
+        kind={BAG_OF_STRING_ENUM}
+        initialItems={[]}
+        innerEditor={enumIntentEditor}
+        onSave={onSave}
+        onCancel={() => {}}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("nested-list-editor-add"));
+    fireEvent.click(screen.getByTestId("enum-intent-cancel"));
+    fireEvent.click(screen.getByTestId("nested-list-editor-save"));
+
+    expect(onSave).toHaveBeenCalledWith({
+      intent: "Set",
+      value: { kind: "List", value: { list_kind: "Bag", items: [] } },
+    });
+  });
+
+  it("removes an existing item when its child editor emits Delete", () => {
+    const onSave = vi.fn();
+    render(
+      <NestedListEditor
+        propertyKey="XMP:Choices"
+        kind={BAG_OF_STRING_ENUM}
+        initialItems={[
+          { kind: "Text", value: "first" },
+          { kind: "Text", value: "second" },
+        ]}
+        innerEditor={enumIntentEditor}
+        onSave={onSave}
+        onCancel={() => {}}
+      />,
+    );
+
+    fireEvent.click(screen.getAllByTestId("nested-list-editor-edit")[0]);
+    fireEvent.click(screen.getByTestId("enum-intent-delete"));
+    fireEvent.click(screen.getByTestId("nested-list-editor-save"));
+
+    expect(onSave).toHaveBeenCalledWith({
+      intent: "Set",
+      value: {
+        kind: "List",
+        value: {
+          list_kind: "Bag",
+          items: [{ kind: "Text", value: "second" }],
+        },
+      },
+    });
+  });
   it("renders initial struct items with a per-item summary", () => {
     render(
       <NestedListEditor

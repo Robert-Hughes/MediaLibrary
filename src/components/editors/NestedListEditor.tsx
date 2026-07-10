@@ -38,6 +38,11 @@ interface Props {
   readOnly?: boolean;
 }
 
+type EditingItem =
+  | { mode: "existing"; index: number; initialValue: MetadataValue }
+  | { mode: "new"; initialValue: MetadataValue }
+  | null;
+
 function shortLabel(v: MetadataValue, idx: number): string {
   if (v === null || v === undefined) return `Item ${idx + 1}`;
   // Prefer a Name field if it's a struct with one (face regions, IPTC
@@ -75,7 +80,7 @@ export function NestedListEditor({
   readOnly,
 }: Props) {
   const [items, setItems] = useState<MetadataValue[]>(initialItems);
-  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [editingItem, setEditingItem] = useState<EditingItem>(null);
 
   const innerKind: TagKind | null =
     kind.kind === "Bag" || kind.kind === "Seq" || kind.kind === "Alt"
@@ -102,9 +107,10 @@ export function NestedListEditor({
 
   const addItem = () => {
     if (!innerKind) return;
-    const fresh = defaultMetadataValueForKind(innerKind);
-    setItems((prev) => [...prev, fresh]);
-    setEditingIndex(items.length); // open the new item for editing immediately
+    setEditingItem({
+      mode: "new",
+      initialValue: defaultMetadataValueForKind(innerKind),
+    });
   };
 
   const handleSave = () => {
@@ -122,26 +128,31 @@ export function NestedListEditor({
   };
 
   // ── Sub-editor view ──────────────────────────────────────────────────
-  if (editingIndex !== null && innerKind) {
-    const value = items[editingIndex];
+  if (editingItem && innerKind) {
+    const editingIndex =
+      editingItem.mode === "existing" ? editingItem.index : items.length;
     return (
       <SubEditor
         propertyKey={`${propertyKey}[${editingIndex}]`}
-        initialMetadataValue={value}
+        initialMetadataValue={editingItem.initialValue}
         schemaOverride={{
           kind: innerKind,
           readOnly: Boolean(readOnly),
           sourceLabel: propertyKey,
         }}
         onSaveMetadata={(edit: MetadataDraftEdit) => {
-          const newValue: MetadataValue =
-            edit.intent === "Delete"
-              ? defaultMetadataValueForKind(innerKind)
-              : (edit.value ?? defaultMetadataValueForKind(innerKind));
-          updateItem(editingIndex, newValue);
-          setEditingIndex(null);
+          if (editingItem.mode === "existing") {
+            if (edit.intent === "Delete") {
+              removeItem(editingItem.index);
+            } else if (edit.intent === "Set" && edit.value) {
+              updateItem(editingItem.index, edit.value);
+            }
+          } else if (edit.intent === "Set" && edit.value) {
+            setItems((prev) => [...prev, edit.value as MetadataValue]);
+          }
+          setEditingItem(null);
         }}
-        onCancel={() => setEditingIndex(null)}
+        onCancel={() => setEditingItem(null)}
       />
     );
   }
@@ -214,7 +225,13 @@ export function NestedListEditor({
                 <button
                   type="button"
                   className="dialog-btn dialog-btn-secondary"
-                  onClick={() => setEditingIndex(idx)}
+                  onClick={() =>
+                    setEditingItem({
+                      mode: "existing",
+                      index: idx,
+                      initialValue: item,
+                    })
+                  }
                   data-testid="nested-list-editor-edit"
                   disabled={readOnly}
                 >
