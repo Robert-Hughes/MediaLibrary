@@ -619,59 +619,6 @@ fn apply_overrides(tags: &mut BTreeMap<String, TagInfo>) {
     }
     type TagKindFactory = fn() -> TagKind;
     let overrides: &[(&str, TagKindFactory)] = &[
-        // XMP Dublin Core
-        ("XMP-dc:Subject", || TagKind::Bag(Box::new(TagKind::Text))),
-        ("XMP-dc:Creator", || TagKind::Seq(Box::new(TagKind::Text))),
-        ("XMP-dc:Contributor", || {
-            TagKind::Bag(Box::new(TagKind::Text))
-        }),
-        ("XMP-dc:Publisher", || TagKind::Bag(Box::new(TagKind::Text))),
-        ("XMP-dc:Language", || TagKind::Bag(Box::new(TagKind::Text))),
-        ("XMP-dc:Relation", || TagKind::Bag(Box::new(TagKind::Text))),
-        ("XMP-dc:Type", || TagKind::Bag(Box::new(TagKind::Text))),
-        // Lightroom / IPTC Extension
-        ("XMP-lr:HierarchicalSubject", || {
-            TagKind::Bag(Box::new(TagKind::Text))
-        }),
-        // XMP rights
-        ("XMP-xmpRights:Owner", || {
-            TagKind::Bag(Box::new(TagKind::Text))
-        }),
-        // ── IPTC IIM repeatable strings ────────────────────────────────
-        // The IIM ApplicationRecord defines a small set of DataSets that
-        // may appear more than once in the IIM stream (`List => 1` in
-        // `Image::ExifTool::IPTC`). Every other IIM string is scalar by
-        // spec (City, Sub-location, Province-State, the Country-Primary*
-        // pair, Headline, Caption-Abstract, etc.) even though they may
-        // technically be writable repeatedly at the record-stream level.
-        //
-        // `-listx` does NOT expose the `List` flag (output is identical
-        // between repeatable `Keywords` and scalar `Sub-location` — both
-        // show as `type='string' count='N' writable='true'`), so the only
-        // way to know is to hardcode the list per the IIM 4.1 spec. The
-        // spec is frozen and the table is short — keep it in lockstep
-        // with `Image::ExifTool::IPTC`'s `List` flags. See the comment on
-        // `wrap_count` for why we cannot infer this from `count`.
-        ("IPTC:SubjectReference", || {
-            TagKind::Bag(Box::new(TagKind::Text))
-        }), // 2:12
-        ("IPTC:SupplementalCategories", || {
-            TagKind::Bag(Box::new(TagKind::Text))
-        }), // 2:20
-        ("IPTC:Keywords", || TagKind::Bag(Box::new(TagKind::Text))), // 2:25
-        ("IPTC:ContentLocationCode", || {
-            TagKind::Bag(Box::new(TagKind::Text))
-        }), // 2:26
-        ("IPTC:ContentLocationName", || {
-            TagKind::Bag(Box::new(TagKind::Text))
-        }), // 2:27
-        ("IPTC:By-line", || TagKind::Bag(Box::new(TagKind::Text))),  // 2:80
-        ("IPTC:By-lineTitle", || {
-            TagKind::Bag(Box::new(TagKind::Text))
-        }), // 2:85
-        ("IPTC:Writer-Editor", || {
-            TagKind::Bag(Box::new(TagKind::Text))
-        }), // 2:122
         // MWG regions: bag of structs. Inner fields not enumerated here —
         // the editor will treat unknown struct fields as text. Acceptable
         // first cut; Phase 4 can populate `Struct` field maps explicitly.
@@ -981,11 +928,8 @@ mod tests {
         // Regression: ExifTool's `-listx` reports IIM 2:92 Sub-location as
         // `type='string' count='32'`. The 32 is the IIM-spec max byte
         // length, NOT a 32-element array. Sub-location is scalar per IIM
-        // 4.1 and we used to wrongly wrap any string with `count > 1` as
-        // a Bag, which made the UI show a `[B]` chip on Sub-location,
-        // City, Province-State, Country-PrimaryLocation*, etc. — every
-        // single one of which is scalar by spec. `wrap_count` now skips
-        // the wrap for string-shaped kinds.
+        // 4.1. Collection shape now comes only from the explicit `flags`
+        // attribute, which is absent for this tag.
         let r = fixture_registry();
         let t = r.lookup("IPTC:Sub-location").unwrap();
         assert!(
@@ -1088,9 +1032,7 @@ mod tests {
     }
 
     #[test]
-    fn xmp_dc_subject_override_to_bag() {
-        // listx alone says XMP-dc:Subject is a plain string. Override table
-        // upgrades it to Bag<Text>.
+    fn xmp_dc_subject_list_flag_derives_bag() {
         let r = fixture_registry();
         let t = r.lookup("XMP-dc:Subject").unwrap();
         match &t.kind {
@@ -1100,7 +1042,7 @@ mod tests {
     }
 
     #[test]
-    fn xmp_dc_creator_override_to_seq() {
+    fn xmp_dc_creator_list_flag_derives_seq() {
         let r = fixture_registry();
         let t = r.lookup("XMP-dc:Creator").unwrap();
         match &t.kind {
@@ -1119,6 +1061,19 @@ mod tests {
     #[test]
     fn schema_parser_cache_version_is_current() {
         assert_eq!(TAG_SCHEMA_PARSER_VERSION, 6);
+    }
+
+    #[test]
+    fn duplicate_key_prefers_writable_richer_definition() {
+        let xml = r#"<taginfo>
+          <table g1='Test'><tag name='Duplicate' type='?' writable='false'><desc lang='en'>Weak</desc></tag></table>
+          <table g1='Test'><tag name='Duplicate' type='string' writable='true' flags='List,Bag'><desc lang='en'>Rich</desc></tag></table>
+        </taginfo>"#;
+        let r = TagRegistry::from_listx_xml(xml).unwrap();
+        let tag = r.lookup("Test:Duplicate").unwrap();
+        assert!(tag.writable);
+        assert!(matches!(tag.kind, TagKind::Bag(_)));
+        assert_eq!(tag.description.as_deref(), Some("Rich"));
     }
 
     #[test]
