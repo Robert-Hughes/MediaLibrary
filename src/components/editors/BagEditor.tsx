@@ -126,6 +126,7 @@ export function BagEditor({
       removeItem(items.length - 1);
     } else if (e.key === "Escape") {
       e.preventDefault();
+      e.stopPropagation();
       onCancel();
     }
   };

@@ -12,6 +12,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { Settings } from "../types/generated/Settings";
+import { useDialogEscape } from "../hooks/useDialogEscape";
 
 interface Props {
   onClose: () => void;
@@ -28,6 +29,8 @@ function formatPerImageCost(usd: number): string {
 }
 
 export function SettingsDialog({ onClose }: Props) {
+  useDialogEscape(onClose);
+
   const [settings, setSettings] = useState<Settings | null>(null);
   const [models, setModels] = useState<string[]>([]);
   /** Model id → ballpark per-image cost in USD. Missing entries are

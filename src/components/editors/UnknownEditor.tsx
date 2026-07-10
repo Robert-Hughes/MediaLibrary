@@ -1,4 +1,5 @@
 import type { MetadataValue } from "../../types";
+import { useDialogEscape } from "../../hooks/useDialogEscape";
 
 interface Props {
   propertyKey: string;
@@ -13,6 +14,8 @@ export function UnknownEditor({
   onCancel,
   headerHint,
 }: Props) {
+  useDialogEscape(onCancel);
+
   const isParsedUnknown =
     initialMetadataValue && initialMetadataValue.kind === "Unknown";
   const rawValue = isParsedUnknown

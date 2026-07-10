@@ -20,6 +20,7 @@ import type { MetadataDraftEdit } from "../../types";
 import type { GpsTagGroup } from "../../metadata/tag_overrides";
 import { READ_ONLY_TOOLTIP } from "./readOnlyMessages";
 import { decimalToDms, enumDraftEdit, type EnumTagKind } from "./editorHelpers";
+import { useDialogEscape } from "../../hooks/useDialogEscape";
 
 // Re-export so existing call sites that imported the type from here keep
 // working.  The override matcher lives in tag_overrides.ts.
@@ -77,6 +78,8 @@ export function GpsEditor({
     initialAltitudeRef ?? "above",
   );
   const [error, setError] = useState<string | null>(null);
+
+  useDialogEscape(onCancel);
 
   const handleSave = () => {
     if (readOnly) return;

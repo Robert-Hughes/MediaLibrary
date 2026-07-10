@@ -24,6 +24,7 @@ import { metadataValueToDisplayString } from "../../draft";
 import type { InnerEditorProps } from "./StructEditor";
 import { READ_ONLY_TOOLTIP } from "./readOnlyMessages";
 import { defaultMetadataValueForKind } from "./editorHelpers";
+import { useDialogEscape } from "../../hooks/useDialogEscape";
 
 interface Props {
   propertyKey: string;
@@ -81,6 +82,8 @@ export function NestedListEditor({
 }: Props) {
   const [items, setItems] = useState<MetadataValue[]>(initialItems);
   const [editingItem, setEditingItem] = useState<EditingItem>(null);
+
+  useDialogEscape(onCancel);
 
   const innerKind: TagKind | null =
     kind.kind === "Bag" || kind.kind === "Seq" || kind.kind === "Alt"

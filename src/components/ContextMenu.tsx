@@ -51,7 +51,10 @@ export function ContextMenu({ x, y, options, onClose }: Props) {
       }
     };
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        onClose();
+      }
     };
 
     document.addEventListener("mousedown", handleClickOutside);

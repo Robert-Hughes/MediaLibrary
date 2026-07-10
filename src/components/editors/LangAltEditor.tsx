@@ -71,7 +71,10 @@ export function LangAltEditor({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Escape") onCancel();
+    if (e.key === "Escape") {
+      e.stopPropagation();
+      onCancel();
+    }
   };
 
   return (

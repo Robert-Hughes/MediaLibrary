@@ -58,6 +58,7 @@ export function BatchJobDialog({
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       e.preventDefault();
+      e.stopPropagation();
       if (phase === "done") onClose();
       else onCancel();
     };
