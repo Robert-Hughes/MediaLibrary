@@ -1001,14 +1001,14 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
     });
   });
 
-  it("clicking Edit... on GPS field opens single-property editor, not GpsEditor", async () => {
+  it("generic Edit uses semantic GPS latitude instead of the degree-formatted row", async () => {
     render(
       <DetailsPane
         onSetMetadataDraftBatch={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={mockMetadata({
-          "GPS:GPSLatitude": 51.5,
+          "GPS:GPSLatitude": 53.983856,
         })}
       />,
     );
@@ -1016,12 +1016,10 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
     openContextMenu("GPSLatitude");
     fireEvent.click(screen.getByRole("button", { name: "Edit…" }));
 
-    // Should open the single property numeric editor (or ValueEditDialog if no tag info fallback matches)
+    // The row renders as `53.983856°`; the generic editor must receive the
+    // semantic Real and therefore keep the unformatted numeric value.
     expect(screen.queryByTestId("gps-editor-overlay")).toBeNull();
-    expect(
-      screen.queryByTestId("numeric-editor-input") ||
-        screen.queryByTestId("value-edit-input"),
-    ).not.toBeNull();
+    expect(screen.getByTestId("numeric-editor-input")).toHaveValue(53.983856);
   });
 
   it("clicking Edit GPS... opens GpsEditor on coordinate, ref, altitude, altitude ref fields", async () => {

@@ -50,6 +50,8 @@ import {
   parseHemisphere,
   initialObjectFrom,
   initialItemsFromMetadataValue,
+  defaultMetadataValueForKind,
+  textInitialString,
 } from "./editorHelpers";
 
 import { gpsMemberGroup, isFlashTag } from "../../metadata/tag_overrides";
@@ -58,7 +60,6 @@ import { EditorMetaHint, type EditorMetaSource } from "./EditorMetaHint";
 interface Props {
   propertyKey: string;
   initialMetadataValue?: MetadataValue;
-  initialString: string;
   metadataForFile?: Record<string, MetadataValue>;
   onSaveMetadata: (edit: MetadataDraftEdit) => void;
   /** Multi-tag save, used by GpsEditor and any future paired-tag editor. */
@@ -95,7 +96,6 @@ function bagInnerScalar(kind: TagKind): BagInnerKind | null {
 export function TypedValueEditor({
   propertyKey,
   initialMetadataValue,
-  initialString,
   metadataForFile,
   onSaveMetadata,
   onSaveMetadataBatch,
@@ -103,6 +103,11 @@ export function TypedValueEditor({
   editorMode = "single",
 }: Props) {
   const tag = useTagInfo(propertyKey);
+  const semanticInitial =
+    initialMetadataValue ??
+    (tag && tag !== "loading"
+      ? defaultMetadataValueForKind(tag.kind)
+      : ({ kind: "Null" } as const));
   const readOnly = tag !== null && tag !== "loading" && !tag.writable;
   const saveText = (value: string) => {
     onSaveMetadata({ value: { kind: "Text", value }, intent: "Set" });
@@ -110,9 +115,7 @@ export function TypedValueEditor({
   // ── Override 1: Flash bitfield ─────────────────────────────────────────
   if (isFlashTag(propertyKey)) {
     const code =
-      initialMetadataValue && initialMetadataValue.kind === "Integer"
-        ? initialMetadataValue.value
-        : Number(initialString) || 0;
+      semanticInitial.kind === "Integer" ? semanticInitial.value : 0;
     return (
       <FlashEditor
         propertyKey={propertyKey}
@@ -229,7 +232,7 @@ export function TypedValueEditor({
     return (
       <ValueEditDialog
         propertyKey={propertyKey}
-        initialValue={initialString}
+        initialValue={textInitialString(semanticInitial)}
         onSave={saveText}
         onCancel={onCancel}
         readOnly={readOnly}
@@ -241,9 +244,7 @@ export function TypedValueEditor({
   if (tag) {
     const inner = bagInnerScalar(tag.kind);
     if (inner) {
-      const initialItems = initialItemsFrom(
-        initialMetadataValue ?? initialString,
-      );
+      const initialItems = initialItemsFrom(semanticInitial);
       return (
         <BagEditor
           propertyKey={propertyKey}
@@ -265,7 +266,7 @@ export function TypedValueEditor({
         tag.kind.kind === "Alt") &&
       inner === null
     ) {
-      const items = initialItemsFromMetadataValue(initialMetadataValue);
+      const items = initialItemsFromMetadataValue(semanticInitial);
       return (
         <NestedListEditor
           propertyKey={propertyKey}
@@ -282,13 +283,13 @@ export function TypedValueEditor({
 
   if (tag && tag.kind.kind === "Enum") {
     const { repr, options } = tag.kind.data;
-    const code = initialCodeFrom(initialMetadataValue, initialString, options);
+    const code = initialCodeFrom(semanticInitial, options);
     return (
       <EnumEditor
         propertyKey={propertyKey}
         repr={repr}
         options={options}
-        initialCode={code === "" ? initialString : code}
+        initialCode={code}
         onSave={onSaveMetadata}
         onCancel={onCancel}
         readOnly={readOnly}
@@ -303,8 +304,7 @@ export function TypedValueEditor({
     return (
       <RationalEditor
         propertyKey={propertyKey}
-        initialMetadataValue={initialMetadataValue}
-        initialValue={initialString}
+        initialMetadataValue={semanticInitial}
         onSave={onSaveMetadata}
         onCancel={onCancel}
         readOnly={readOnly}
@@ -322,7 +322,7 @@ export function TypedValueEditor({
         kind={tag.kind.kind}
         min={min}
         max={max}
-        initialValue={initialString}
+        initialMetadataValue={semanticInitial}
         onSave={onSaveMetadata}
         onCancel={onCancel}
         readOnly={readOnly}
@@ -333,13 +333,7 @@ export function TypedValueEditor({
 
   if (tag && tag.kind.kind === "Boolean") {
     const v =
-      initialMetadataValue && initialMetadataValue.kind === "Bool"
-        ? initialMetadataValue.value
-        : initialString.toLowerCase() === "true" || initialString === "1"
-          ? true
-          : initialString.toLowerCase() === "false" || initialString === "0"
-            ? false
-            : null;
+      semanticInitial.kind === "Bool" ? semanticInitial.value : null;
     return (
       <BooleanEditor
         propertyKey={propertyKey}
@@ -368,8 +362,7 @@ export function TypedValueEditor({
               ? "time"
               : "datetime"
         }
-        initialMetadataValue={initialMetadataValue}
-        initialValue={initialString}
+        initialMetadataValue={semanticInitial}
         onSave={onSaveMetadata}
         onCancel={onCancel}
         readOnly={readOnly}
@@ -382,8 +375,7 @@ export function TypedValueEditor({
     return (
       <TimeOffsetEditor
         propertyKey={propertyKey}
-        initialMetadataValue={initialMetadataValue}
-        initialValue={initialString}
+        initialMetadataValue={semanticInitial}
         onSave={onSaveMetadata}
         onCancel={onCancel}
         readOnly={readOnly}
@@ -394,13 +386,10 @@ export function TypedValueEditor({
 
   if (tag && tag.kind.kind === "LangAlt") {
     const initialLangs = initialLangsFrom(
-      initialMetadataValue,
+      semanticInitial,
       metadataForFile ?? {},
       propertyKey,
     );
-    if (Object.keys(initialLangs).length === 0 && initialString) {
-      initialLangs["x-default"] = initialString;
-    }
     return (
       <LangAltEditor
         propertyKey={propertyKey}
@@ -414,7 +403,7 @@ export function TypedValueEditor({
   }
 
   if (tag && tag.kind.kind === "Struct") {
-    const initialObject = initialObjectFrom(initialMetadataValue);
+    const initialObject = initialObjectFrom(semanticInitial);
     return (
       <StructEditor
         propertyKey={propertyKey}
@@ -458,11 +447,11 @@ export function TypedValueEditor({
   // claims Text — common for tags listx doesn't describe as struct but
   // exiftool's -struct flag has nonetheless delivered as an object.  LangAlt
   // is handled above so we won't intercept Description-style objects here.
-  if (initialMetadataValue && initialMetadataValue.kind === "Struct") {
+  if (semanticInitial.kind === "Struct") {
     return (
       <StructEditor
         propertyKey={propertyKey}
-        initialObject={initialObjectFrom(initialMetadataValue)}
+        initialObject={initialObjectFrom(semanticInitial)}
         innerEditor={TypedValueEditor}
         onSave={onSaveMetadata}
         onCancel={onCancel}
@@ -477,13 +466,12 @@ export function TypedValueEditor({
   // ── Unknown — read-only warning dialog. ────────────────────────────────
   if (
     (tag && tag.kind.kind === "Unknown") ||
-    (initialMetadataValue && initialMetadataValue.kind === "Unknown")
+    semanticInitial.kind === "Unknown"
   ) {
     return (
       <UnknownEditor
         propertyKey={propertyKey}
-        initialMetadataValue={initialMetadataValue}
-        initialString={initialString}
+        initialMetadataValue={semanticInitial}
         onCancel={onCancel}
         headerHint={schemaHint()}
       />
@@ -494,7 +482,7 @@ export function TypedValueEditor({
   return (
     <ValueEditDialog
       propertyKey={propertyKey}
-      initialValue={initialString}
+      initialValue={textInitialString(semanticInitial)}
       onSave={saveText}
       onCancel={onCancel}
       readOnly={readOnly}

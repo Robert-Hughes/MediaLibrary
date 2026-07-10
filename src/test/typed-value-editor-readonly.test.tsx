@@ -51,7 +51,7 @@ describe("TypedValueEditor read-only enforcement", () => {
     render(
       <TypedValueEditor
         propertyKey="EXIF:ExifVersion"
-        initialString="0231"
+        initialMetadataValue={{ kind: "Text", value: "0231" }}
         onSaveMetadata={onSaveMetadata}
         onCancel={() => {}}
       />,
@@ -85,7 +85,7 @@ describe("TypedValueEditor read-only enforcement", () => {
     render(
       <TypedValueEditor
         propertyKey="XMP-dc:Title"
-        initialString="hello"
+        initialMetadataValue={{ kind: "Text", value: "hello" }}
         onSaveMetadata={() => {}}
         onCancel={() => {}}
       />,
@@ -111,7 +111,6 @@ describe("TypedValueEditor read-only enforcement", () => {
     render(
       <TypedValueEditor
         propertyKey="EXIF:Orientation"
-        initialString="1"
         initialMetadataValue={{ kind: "Integer", value: 1 }}
         onSaveMetadata={() => {}}
         onCancel={() => {}}
@@ -142,12 +141,33 @@ describe("TypedValueEditor temporal routing", () => {
     render(
       <TypedValueEditor
         propertyKey={key}
-        initialString={
+        initialMetadataValue={
           mode === "date"
-            ? "2026:05:15"
+            ? { kind: "Date", value: { year: 2026, month: 5, day: 15 } }
             : mode === "time"
-              ? "10:30:00+01:00"
-              : "2026:05:15 10:30:00"
+              ? {
+                  kind: "Time",
+                  value: {
+                    hour: 10,
+                    minute: 30,
+                    second: 0,
+                    subsecond: null,
+                    offset: { sign: "Plus", hours: 1, minutes: 0 },
+                  },
+                }
+              : {
+                  kind: "DateTime",
+                  value: {
+                    date: { year: 2026, month: 5, day: 15 },
+                    time: {
+                      hour: 10,
+                      minute: 30,
+                      second: 0,
+                      subsecond: null,
+                      offset: null,
+                    },
+                  },
+                }
         }
         onSaveMetadata={() => {}}
         onCancel={() => {}}
@@ -173,7 +193,10 @@ describe("TypedValueEditor temporal routing", () => {
     render(
       <TypedValueEditor
         propertyKey="XMP-custom:DateishText"
-        initialString="2026:05:15 10:30:00"
+        initialMetadataValue={{
+          kind: "Text",
+          value: "2026:05:15 10:30:00",
+        }}
         onSaveMetadata={() => {}}
         onCancel={() => {}}
       />,
@@ -196,7 +219,10 @@ describe("TypedValueEditor temporal routing", () => {
     render(
       <TypedValueEditor
         propertyKey="XMP-custom:UnknownDate"
-        initialString="2026:05:15 10:30:00"
+        initialMetadataValue={{
+          kind: "Text",
+          value: "2026:05:15 10:30:00",
+        }}
         onSaveMetadata={() => {}}
         onCancel={() => {}}
       />,
@@ -214,7 +240,10 @@ describe("TypedValueEditor temporal routing", () => {
     render(
       <TypedValueEditor
         propertyKey="XMP-custom:MissingDate"
-        initialString="2026:05:15 10:30:00"
+        initialMetadataValue={{
+          kind: "Text",
+          value: "2026:05:15 10:30:00",
+        }}
         onSaveMetadata={() => {}}
         onCancel={() => {}}
       />,
@@ -232,7 +261,6 @@ describe("TypedValueEditor GPS routing", () => {
     render(
       <TypedValueEditor
         propertyKey="GPS:GPSLatitude"
-        initialString="52 deg 12' 13.46&quot;"
         metadataForFile={{
           "GPS:GPSLatitude": { kind: "Real", value: 52.2037391662611 },
           "GPS:GPSLatitudeRef": { kind: "Text", value: "N" },
@@ -261,7 +289,6 @@ describe("TypedValueEditor GPS routing", () => {
     render(
       <TypedValueEditor
         propertyKey="GPS:GPSLatitude"
-        initialString=""
         metadataForFile={{
           "GPS:GPSLatitude": {
             kind: "List",
@@ -310,7 +337,7 @@ describe("TypedValueEditor semantic save callbacks", () => {
     render(
       <TypedValueEditor
         propertyKey="XMP-dc:Title"
-        initialString="old"
+        initialMetadataValue={{ kind: "Text", value: "old" }}
         onSaveMetadata={onSaveMetadata}
         onCancel={() => {}}
       />,

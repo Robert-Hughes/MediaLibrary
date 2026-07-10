@@ -196,24 +196,16 @@ describe("initialItemsFrom", () => {
     ).toEqual(["a", "b"]);
   });
 
-  it("parses plain-string display form (comma-separated)", () => {
-    expect(initialItemsFrom("beach, sunset, vacation")).toEqual([
-      "beach",
-      "sunset",
-      "vacation",
-    ]);
-  });
-
   it("returns empty for null/undefined", () => {
     expect(initialItemsFrom(null)).toEqual([]);
     expect(initialItemsFrom(undefined)).toEqual([]);
   });
 
-  it("returns empty for empty string", () => {
-    expect(initialItemsFrom("")).toEqual([]);
+  it("returns empty for semantic Null", () => {
+    expect(initialItemsFrom({ kind: "Null" })).toEqual([]);
   });
 
-  it("trims whitespace and drops empty fragments", () => {
-    expect(initialItemsFrom("  a , , b  ")).toEqual(["a", "b"]);
+  it("uses non-list semantic value shape as a fallback", () => {
+    expect(initialItemsFrom({ kind: "Integer", value: 3 })).toEqual(["3"]);
   });
 });

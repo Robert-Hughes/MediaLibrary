@@ -13,29 +13,18 @@ import { metadataValueToDisplayString } from "../../draft";
  * a MetadataValue value, a plain-string display form, or undefined.
  */
 export function initialItemsFrom(
-  value: MetadataValue | string | null | undefined,
+  value: MetadataValue | null | undefined,
 ): string[] {
   if (value === null || value === undefined) return [];
-  if (typeof value === "object" && "kind" in value) {
-    if (value.kind === "List") {
-      return value.value.items
-        .map((item) =>
-          item.kind === "Text"
-            ? item.value
-            : metadataValueToDisplayString(item),
-        )
-        .filter((s) => s.length > 0);
-    }
-    const s = metadataValueToDisplayString(value);
-    return s ? [s] : [];
-  }
-  if (typeof value === "string") {
-    return value
-      .split(",")
-      .map((s) => s.trim())
+  if (value.kind === "List") {
+    return value.value.items
+      .map((item) =>
+        item.kind === "Text" ? item.value : metadataValueToDisplayString(item),
+      )
       .filter((s) => s.length > 0);
   }
-  const s = String(value);
+  if (value.kind === "Null") return [];
+  const s = metadataValueToDisplayString(value);
   return s ? [s] : [];
 }
 
@@ -129,7 +118,6 @@ export function toExiftoolFormat(s: string): string | null {
 
 export function initialCodeFrom(
   raw: MetadataValue | undefined,
-  display: string | undefined,
   options: EnumOption[],
 ): string {
   // Prefer the raw value when it matches a known code or label.
@@ -149,13 +137,70 @@ export function initialCodeFrom(
       return s;
     }
   }
-  // Look up the display label in the options table.
-  if (display !== undefined) {
-    const match = options.find((o) => o.label === display);
-    if (match) return match.code;
-    return display;
-  }
   return options[0]?.code ?? "";
+}
+
+/** Construct a semantic starting value for a newly-added property. */
+export function defaultMetadataValueForKind(kind: TagKind): MetadataValue {
+  switch (kind.kind) {
+    case "Text":
+      return { kind: "Text", value: "" };
+    case "LangAlt":
+      return { kind: "LangAlt", value: { "x-default": "" } };
+    case "Integer":
+      return { kind: "Integer", value: kind.data.min ?? 0 };
+    case "Real":
+      return { kind: "Real", value: 0 };
+    case "Rational":
+      return { kind: "Rational", value: { numerator: 0, denominator: 1 } };
+    case "Boolean":
+      return { kind: "Bool", value: false };
+    case "Date":
+    case "Time":
+    case "DateTime":
+    case "TimeOffset":
+      return { kind: "Null" };
+    case "Enum": {
+      const code = kind.data.options[0]?.code ?? "";
+      return kind.data.repr === "Integer"
+        ? { kind: "Integer", value: Number(code) || 0 }
+        : { kind: "Text", value: code };
+    }
+    case "Bag":
+    case "Seq":
+    case "Alt":
+      return {
+        kind: "List",
+        value: { list_kind: kind.kind, items: [] },
+      };
+    case "Struct":
+      return { kind: "Struct", value: {} };
+    case "Binary":
+      return { kind: "Binary" };
+    case "Unknown":
+      return { kind: "Null" };
+  }
+}
+
+/** Initial value for numeric controls, derived only from semantic metadata. */
+export function numericInitialString(
+  value: MetadataValue | undefined,
+): string {
+  if (!value || value.kind === "Null") return "";
+  if (value.kind === "Integer" || value.kind === "Real") {
+    return String(value.value);
+  }
+  if (value.kind === "Rational" && value.value.denominator !== 0) {
+    return String(value.value.numerator / value.value.denominator);
+  }
+  return "";
+}
+
+/** Deliberate plain-text fallback for schema Text/unknown keys. */
+export function textInitialString(value: MetadataValue | undefined): string {
+  if (!value || value.kind === "Null") return "";
+  if (value.kind === "Text") return value.value;
+  return metadataValueToDisplayString(value);
 }
 
 // ── FlashEditor Helpers ───────────────────────────────────────────────────────

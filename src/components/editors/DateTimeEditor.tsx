@@ -25,7 +25,6 @@ interface Props {
   propertyKey: string;
   mode?: "date" | "time" | "datetime";
   initialMetadataValue?: MetadataValue;
-  initialValue: string;
   onSave: (edit: MetadataDraftEdit) => void;
   onCancel: () => void;
   headerHint?: React.ReactNode;
@@ -36,7 +35,6 @@ export function DateTimeEditor({
   propertyKey,
   mode = "datetime",
   initialMetadataValue,
-  initialValue,
   onSave,
   onCancel,
   headerHint,
@@ -60,9 +58,12 @@ export function DateTimeEditor({
       }
     }
 
-    if (mode === "date") return toHtmlDate(initialValue);
-    if (mode === "time") return toHtmlTime(initialValue);
-    return toIsoLocal(initialValue);
+    if (initialMetadataValue?.kind === "Text") {
+      if (mode === "date") return toHtmlDate(initialMetadataValue.value);
+      if (mode === "time") return toHtmlTime(initialMetadataValue.value);
+      return toIsoLocal(initialMetadataValue.value);
+    }
+    return "";
   });
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -82,7 +83,9 @@ export function DateTimeEditor({
         return formatTimeOffset(initialMetadataValue.value.time.offset);
       }
     }
-    return timeOffset(initialValue);
+    return initialMetadataValue?.kind === "Text"
+      ? timeOffset(initialMetadataValue.value)
+      : "";
   })();
   const offsetRef = useRef(initialOffset);
 
@@ -96,7 +99,10 @@ export function DateTimeEditor({
           return initialMetadataValue.value.time.subsecond;
         }
       }
-      const match = initialValue.match(/\.(\d+)/);
+      const match =
+        initialMetadataValue?.kind === "Text"
+          ? initialMetadataValue.value.match(/\.(\d+)/)
+          : null;
       return match ? match[1] : null;
     })(),
   );

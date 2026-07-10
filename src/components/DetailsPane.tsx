@@ -535,7 +535,6 @@ export function DetailsPane({
   } | null>(null);
   const [editDialog, setEditDialog] = useState<{
     key: string;
-    initialValue: string;
     mode: "single" | "gps";
   } | null>(null);
   const [showNewPropertyDialog, setShowNewPropertyDialog] = useState(false);
@@ -915,11 +914,6 @@ export function DetailsPane({
           onEdit={() => {
             setEditDialog({
               key: contextMenu.key,
-              initialValue:
-                contextMenu.draftValue !== undefined &&
-                contextMenu.draftValue !== null
-                  ? contextMenu.draftValue
-                  : contextMenu.originalValue,
               mode: "single",
             });
             setContextMenu(null);
@@ -927,11 +921,6 @@ export function DetailsPane({
           onEditGps={() => {
             setEditDialog({
               key: contextMenu.key,
-              initialValue:
-                contextMenu.draftValue !== undefined &&
-                contextMenu.draftValue !== null
-                  ? contextMenu.draftValue
-                  : contextMenu.originalValue,
               mode: "gps",
             });
             setContextMenu(null);
@@ -1000,7 +989,6 @@ export function DetailsPane({
               ? (metadata as Record<string, MetadataValue>)
               : undefined
           }
-          initialString={editDialog.initialValue}
           onSaveMetadataBatch={(edits) => {
             onSetMetadataDraftBatch(edits);
             setEditDialog(null);
@@ -1030,7 +1018,6 @@ export function DetailsPane({
           propertyKey={newPropertyKey}
           editorMode="single"
           initialMetadataValue={undefined}
-          initialString=""
           metadataForFile={
             metadata !== "loading"
               ? (metadata as Record<string, MetadataValue>)
