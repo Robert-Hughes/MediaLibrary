@@ -5,15 +5,12 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderHook, act } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { GalleryView as RealGalleryView } from "../components/GalleryView";
+import { GalleryView } from "../components/GalleryView";
 
-const GalleryView = (props: any) => (
-  <RealGalleryView
-    onSetMetadataDraftBatch={props.onSetMetadataDraftBatch ?? vi.fn()}
-    onDiscardDraftBatch={props.onDiscardDraftBatch ?? vi.fn()}
-    {...props}
-  />
-);
+const defaultGalleryCallbacks = () => ({
+  onSetMetadataDraftBatch: vi.fn(),
+  onDiscardDraftBatch: vi.fn(),
+});
 import { PhotoList } from "../components/PhotoList";
 import { ThumbnailStore, ImageMetadataStore } from "../types";
 import { useMediaLibrary } from "../useMediaLibrary";
@@ -35,6 +32,7 @@ describe("GalleryView", () => {
   it("renders the current photo path in the caption", async () => {
     render(
       <GalleryView
+        {...defaultGalleryCallbacks()}
         photos={PHOTOS}
         currentIndex={1}
         folderPath="/photos"
@@ -50,6 +48,7 @@ describe("GalleryView", () => {
   it("shows counter with correct position", async () => {
     render(
       <GalleryView
+        {...defaultGalleryCallbacks()}
         photos={PHOTOS}
         currentIndex={1}
         folderPath="/photos"
@@ -67,6 +66,7 @@ describe("GalleryView", () => {
   it("shows the loaded image when loadImage resolves", async () => {
     render(
       <GalleryView
+        {...defaultGalleryCallbacks()}
         photos={PHOTOS}
         currentIndex={0}
         folderPath="/photos"
@@ -83,6 +83,7 @@ describe("GalleryView", () => {
     const onClose = vi.fn();
     render(
       <GalleryView
+        {...defaultGalleryCallbacks()}
         photos={PHOTOS}
         currentIndex={0}
         folderPath="/photos"

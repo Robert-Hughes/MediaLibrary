@@ -18,15 +18,12 @@ import {
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { DetailsPane as RealDetailsPane } from "../components/DetailsPane";
+import { DetailsPane } from "../components/DetailsPane";
 
-const DetailsPane = (props: any) => (
-  <RealDetailsPane
-    onSetMetadataDraftBatch={props.onSetMetadataDraftBatch ?? vi.fn()}
-    onDiscardDraftBatch={props.onDiscardDraftBatch ?? vi.fn()}
-    {...props}
-  />
-);
+const defaultCallbacks = () => ({
+  onSetMetadataDraftBatch: vi.fn(),
+  onDiscardDraftBatch: vi.fn(),
+});
 import {
   groupImageMetadata,
   formatMetadataValue,
@@ -238,7 +235,9 @@ describe("DetailsPane component", () => {
   });
 
   it("renders the OS metadata section with all photo properties", () => {
-    render(<DetailsPane photo={photo} metadata="loading" />);
+    render(
+      <DetailsPane {...defaultCallbacks()} photo={photo} metadata="loading" />,
+    );
 
     const osSection = screen.getByTestId("details-section-os");
     expect(osSection).toBeInTheDocument();
@@ -253,7 +252,9 @@ describe("DetailsPane component", () => {
   });
 
   it('shows a loading state when metadata is "loading"', () => {
-    render(<DetailsPane photo={photo} metadata="loading" />);
+    render(
+      <DetailsPane {...defaultCallbacks()} photo={photo} metadata="loading" />,
+    );
 
     const loadingSection = screen.getByTestId("details-section-loading");
     expect(loadingSection).toBeInTheDocument();
@@ -263,7 +264,7 @@ describe("DetailsPane component", () => {
   });
 
   it("shows empty state when metadata has no keys", () => {
-    render(<DetailsPane photo={photo} metadata={{}} />);
+    render(<DetailsPane {...defaultCallbacks()} photo={photo} metadata={{}} />);
 
     const emptySection = screen.getByTestId("details-section-empty");
     expect(emptySection).toBeInTheDocument();
@@ -280,7 +281,9 @@ describe("DetailsPane component", () => {
       "XMP-dc:Subject": ["landscape", "nature"],
     });
 
-    render(<DetailsPane photo={photo} metadata={metadata} />);
+    render(
+      <DetailsPane {...defaultCallbacks()} photo={photo} metadata={metadata} />,
+    );
 
     // Check that group sections are rendered
     const ifdSection = screen.getByTestId("details-section-IFD0");
@@ -322,6 +325,7 @@ describe("DetailsPane component", () => {
 
     render(
       <DetailsPane
+        {...defaultCallbacks()}
         photo={photo}
         metadata={{
           "IFD0:Orientation": { kind: "Integer", value: 6 },
@@ -339,13 +343,16 @@ describe("DetailsPane component", () => {
   });
 
   it("has the Properties title", () => {
-    render(<DetailsPane photo={photo} metadata="loading" />);
+    render(
+      <DetailsPane {...defaultCallbacks()} photo={photo} metadata="loading" />,
+    );
     expect(screen.getByText("Properties")).toBeInTheDocument();
   });
 
   it("renders the action buttons in a sticky footer outside the scrolling body", () => {
     render(
       <DetailsPane
+        {...defaultCallbacks()}
         photo={photo}
         metadata={{}}
         onGenerateAiDescription={() => {}}
@@ -369,7 +376,12 @@ describe("DetailsPane component", () => {
     const onShow = vi.fn();
     const user = userEvent.setup();
     render(
-      <DetailsPane photo={photo} metadata={{}} onShowInFileExplorer={onShow} />,
+      <DetailsPane
+        {...defaultCallbacks()}
+        photo={photo}
+        metadata={{}}
+        onShowInFileExplorer={onShow}
+      />,
     );
     const btn = screen.getByTestId("details-pane-show-in-explorer-btn");
     expect(btn).toBeInTheDocument();
@@ -378,7 +390,7 @@ describe("DetailsPane component", () => {
   });
 
   it("omits the Show in File Explorer button when no callback is wired", () => {
-    render(<DetailsPane photo={photo} metadata={{}} />);
+    render(<DetailsPane {...defaultCallbacks()} photo={photo} metadata={{}} />);
     expect(
       screen.queryByTestId("details-pane-show-in-explorer-btn"),
     ).toBeNull();
@@ -483,6 +495,7 @@ describe("DetailsPane: Add-Property two-step flow", () => {
 
     render(
       <DetailsPane
+        {...defaultCallbacks()}
         photo={photo}
         metadata={{}}
         onSetMetadataDraft={onSetMetadataDraft}
@@ -537,6 +550,7 @@ describe("DetailsPane: Add-Property two-step flow", () => {
 
     render(
       <DetailsPane
+        {...defaultCallbacks()}
         photo={photo}
         metadata={{}}
         onSetMetadataDraft={onSetMetadataDraft}
@@ -572,6 +586,7 @@ describe("DetailsPane: Add-Property two-step flow", () => {
 
     render(
       <DetailsPane
+        {...defaultCallbacks()}
         photo={photo}
         metadata={{}}
         onSetMetadataDraft={onSetMetadataDraft}
@@ -630,6 +645,7 @@ describe("DetailsPane: read-only row context menu", () => {
 
     render(
       <DetailsPane
+        {...defaultCallbacks()}
         photo={photo}
         metadata={mockMetadata({ "IFD0:Make": "Canon" })}
         onSetMetadataDraft={onSetMetadataDraft}
@@ -662,6 +678,7 @@ describe("DetailsPane: read-only row context menu", () => {
 
     render(
       <DetailsPane
+        {...defaultCallbacks()}
         photo={photo}
         metadata={mockMetadata({ "IFD0:Make": "Canon" })}
         onSetMetadataDraft={onSetMetadataDraft}
@@ -696,6 +713,7 @@ describe("DetailsPane: read-only row context menu", () => {
 
     render(
       <DetailsPane
+        {...defaultCallbacks()}
         photo={photo}
         metadata={mockMetadata({ "IFD0:Make": "Canon" })}
         draftEdits={{ "IFD0:Make": "Nikon" }}
@@ -765,6 +783,7 @@ describe("DetailsPane: Edit reopens with pending draft as the seed", () => {
 
     render(
       <DetailsPane
+        {...defaultCallbacks()}
         photo={photo}
         metadata={mockMetadata({ "IFD0:Orientation": 1 })}
         draftEdits={{ "IFD0:Orientation": "Rotate 270 CW" }}
@@ -802,6 +821,7 @@ describe("DetailsPane: Edit reopens with pending draft as the seed", () => {
 
     render(
       <DetailsPane
+        {...defaultCallbacks()}
         photo={photo}
         metadata={mockMetadata({ "XMP-xmp:Rating": 2 })}
         draftEdits={{ "XMP-xmp:Rating": "4" }}
@@ -871,6 +891,7 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
   it("shows both Edit... and Edit GPS... for all six GPS fields when batch save is available, and only Edit... for non-GPS field", async () => {
     render(
       <DetailsPane
+        {...defaultCallbacks()}
         photo={photo}
         metadata={mockMetadata({
           "GPS:GPSLatitude": 51.5,
@@ -922,6 +943,7 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
 
     render(
       <DetailsPane
+        {...defaultCallbacks()}
         photo={photo}
         metadata={mockMetadata({
           "GPS:GPSLatitude": 51.5,
@@ -940,6 +962,7 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
   it("clicking Edit... on GPS field opens single-property editor, not GpsEditor", async () => {
     render(
       <DetailsPane
+        {...defaultCallbacks()}
         photo={photo}
         metadata={mockMetadata({
           "GPS:GPSLatitude": 51.5,
@@ -961,6 +984,7 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
   it("clicking Edit GPS... opens GpsEditor on coordinate, ref, altitude, altitude ref fields", async () => {
     render(
       <DetailsPane
+        {...defaultCallbacks()}
         photo={photo}
         metadata={mockMetadata({
           "GPS:GPSLatitude": 51.5,
