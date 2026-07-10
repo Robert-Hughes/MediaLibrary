@@ -629,6 +629,19 @@ mod tests {
     }
 
     #[test]
+    fn gps_version_id_raw_string_parses_as_text() {
+        assert_eq!(
+            parse_metadata_value(
+                "GPS:GPSVersionID",
+                Some(&TagKind::Text),
+                &json!("2 2 0 0"),
+                Some(&json!("2.2.0.0")),
+            ),
+            MetadataValue::Text("2 2 0 0".to_string())
+        );
+    }
+
+    #[test]
     fn gps_real_schema_parses_scalar_numbers_as_reals() {
         assert_eq!(
             parse_metadata_value(
