@@ -30,6 +30,7 @@ export function ValueEditDialog({
     if (e.key === "Enter") {
       if (!readOnly) onSave(value);
     } else if (e.key === "Escape") {
+      e.stopPropagation();
       onCancel();
     }
   };

@@ -184,6 +184,7 @@ export function RationalEditor({
       e.preventDefault();
       handleSave();
     } else if (e.key === "Escape") {
+      e.stopPropagation();
       onCancel();
     }
   };

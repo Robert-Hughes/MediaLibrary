@@ -9,6 +9,7 @@ import type {
   UtcOffsetValue,
 } from "../../types";
 import { READ_ONLY_TOOLTIP } from "./readOnlyMessages";
+import { useDialogEscape } from "../../hooks/useDialogEscape";
 import {
   timeOffset,
   toExiftoolDate,
@@ -67,6 +68,8 @@ export function DateTimeEditor({
   });
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  useDialogEscape(onCancel);
 
   const initialOffset = (() => {
     if (initialMetadataValue) {

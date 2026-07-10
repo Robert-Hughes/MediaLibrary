@@ -19,6 +19,7 @@
 import { useState } from "react";
 import type { MetadataDraftEdit } from "../../types";
 import { READ_ONLY_TOOLTIP } from "./readOnlyMessages";
+import { useDialogEscape } from "../../hooks/useDialogEscape";
 import type { FlashFields } from "./editorHelpers";
 import {
   decodeFlashCode,
@@ -48,6 +49,8 @@ export function FlashEditor({
   const [fields, setFields] = useState<FlashFields>(
     decodeFlashCode(initialCode),
   );
+
+  useDialogEscape(onCancel);
 
   const update = <K extends keyof FlashFields>(
     key: K,

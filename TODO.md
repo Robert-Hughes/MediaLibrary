@@ -1,13 +1,17 @@
 Current
 =======
 
+- Figure out if schema keys are unique enough (some 'collisions')
+- Escape with a property edit dialog open closes too much!
+
 - Maps
-  - Follow-up from prop changes, inc. fixing interpretation of "count" property in exiftool schema
   - In combined GPS editor UI use a map view to view and set
   - Right click on the property list maps should show edit (opens group editor) and "remove all GPS"?
   - Full map view
     - Select a bunch of photos, right click, "show on Map" opens map popup with pins/thumbnails for each photo
     - Clicking on the small maps on property list should open the full map (showing just this one photo)
+
+- How do you add a GPS if the file doesn't have one? (Using hte nice editor)
   
 - Add bulk tag editor
   - Choose a tag name

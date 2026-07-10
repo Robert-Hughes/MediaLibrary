@@ -129,6 +129,9 @@ export function GalleryView({
   // Keyboard navigation.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // A property-edit dialog is open on top — let it handle the key.
+      if (document.querySelector(".dialog-overlay")) return;
+
       if (e.key === "Escape") {
         e.preventDefault();
         onClose();
@@ -153,8 +156,8 @@ export function GalleryView({
         setDetailsVisible((v) => !v);
       }
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
   }, [onClose, onNavigate]);
 
   const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {

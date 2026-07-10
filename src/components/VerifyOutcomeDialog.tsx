@@ -16,6 +16,7 @@ import {
   metadataEntryToDisplayString,
   metadataValueToDiagnosticString,
 } from "../draft";
+import { useDialogEscape } from "../hooks/useDialogEscape";
 
 interface Props {
   outcomes: Record<string, TagOutcomeEntry[]>;
@@ -75,6 +76,8 @@ export function VerifyOutcomeDialog({
   onDismiss,
   onDismissAll,
 }: Props) {
+  useDialogEscape(onDismissAll);
+
   const fileEntries = Object.entries(outcomes);
   if (fileEntries.length === 0) return null;
 

@@ -42,10 +42,13 @@ export function EnumEditor({
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onCancel();
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        onCancel();
+      }
     };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
   }, [onCancel]);
 
   const handleSave = () => {

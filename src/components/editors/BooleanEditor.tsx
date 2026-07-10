@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { MetadataDraftEdit } from "../../types";
 import { READ_ONLY_TOOLTIP } from "./readOnlyMessages";
+import { useDialogEscape } from "../../hooks/useDialogEscape";
 
 interface Props {
   propertyKey: string;
@@ -22,6 +23,8 @@ export function BooleanEditor({
   readOnly,
 }: Props) {
   const [value, setValue] = useState<boolean | null>(initialValue);
+
+  useDialogEscape(onCancel);
 
   const handleSave = () => {
     if (value === null) {

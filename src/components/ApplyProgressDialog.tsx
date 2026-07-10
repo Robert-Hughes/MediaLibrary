@@ -1,5 +1,6 @@
 import type { ApplyEditsInFlight } from "../types";
 import { RunningProgressPanel } from "./RunningProgressPanel";
+import { useDialogEscape } from "../hooks/useDialogEscape";
 
 interface Props {
   applying: ApplyEditsInFlight;
@@ -18,6 +19,8 @@ interface Props {
  * copy stay caller-specific, but the structure has one home.
  */
 export function ApplyProgressDialog({ applying, onCancel }: Props) {
+  useDialogEscape(onCancel);
+
   return (
     <div className="dialog-overlay" data-testid="apply-progress-dialog">
       <div className="dialog-content" style={{ width: 460 }}>

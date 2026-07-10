@@ -55,6 +55,7 @@ export function NewPropertyDialog({
     if (e.key === "Enter" && !disabled) {
       onSave(key);
     } else if (e.key === "Escape") {
+      e.stopPropagation();
       onCancel();
     }
   };

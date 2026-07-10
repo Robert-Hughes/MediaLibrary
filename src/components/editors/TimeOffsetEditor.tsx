@@ -59,6 +59,7 @@ export function TimeOffsetEditor({
       e.preventDefault();
       handleSave();
     } else if (e.key === "Escape") {
+      e.stopPropagation();
       onCancel();
     }
   };

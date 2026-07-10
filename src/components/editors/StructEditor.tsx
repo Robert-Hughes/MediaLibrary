@@ -13,6 +13,7 @@ import type { MetadataDraftEdit, MetadataValue, TagKind } from "../../types";
 import { metadataValueToDisplayString } from "../../draft";
 import { READ_ONLY_TOOLTIP } from "./readOnlyMessages";
 import type { InheritedEditorSchema } from "./editorSchema";
+import { useDialogEscape } from "../../hooks/useDialogEscape";
 
 interface Props {
   propertyKey: string;
@@ -71,6 +72,8 @@ export function StructEditor({
   const [rows, setRows] = useState<FieldRow[]>(objectToRows(initialObject));
   const [newFieldKey, setNewFieldKey] = useState("");
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
+
+  useDialogEscape(onCancel);
 
   const updateRow = (idx: number, patch: Partial<FieldRow>) => {
     setRows((current) =>
