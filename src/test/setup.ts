@@ -2,8 +2,6 @@ import "@testing-library/jest-dom";
 import { afterEach, vi } from "vitest";
 import { act, cleanup } from "@testing-library/react";
 import { SearchIndex } from "../search/searchIndex";
-import { _clearTagInfoCache } from "../hooks/useTagInfo";
-import { _resetSchemaTagNamesCache } from "../hooks/useSchemaTagNames";
 
 // jsdom exposes <dialog> but not its modal lifecycle. This deliberately models
 // only the state and focus restoration our controlled wrapper depends on.
@@ -87,10 +85,15 @@ if (typeof document !== "undefined") {
 // Unmount React trees between tests so the DOM doesn't bleed across
 // `it()` blocks.  Without this, `screen.getByTestId(...)` in test N+1
 // can hit elements left behind by test N and fail with confusing errors.
-afterEach(() => {
+afterEach(async () => {
   cleanup();
+  const [{ _clearTagInfoCache }, { _resetWritableSchemaDefinitionsCache }] =
+    await Promise.all([
+      import("../hooks/useTagInfo"),
+      import("../hooks/useWritableSchemaDefinitions"),
+    ]);
   _clearTagInfoCache();
-  _resetSchemaTagNamesCache();
+  _resetWritableSchemaDefinitionsCache();
   // Cancel any unconsumed dialog close timers so they cannot leak into the
   // next test.  We cancel rather than flush to avoid dispatching events
   // after React cleanup (which would cause act() warnings).

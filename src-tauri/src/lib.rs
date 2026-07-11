@@ -804,7 +804,8 @@ fn preload_schema() -> Result<(), String> {
     r
 }
 
-/// Returns the writable `Group:Name` keys in the schema registry, sorted.
+/// Returns the writable exact tag definitions in the schema registry.
+/// Iteration is deterministic by `SchemaDefinitionId` as guaranteed by the underlying `BTreeMap`.
 /// Used by the "Add New Property" dialog for autocomplete — listing
 /// read-only tags would only let the user pick a key that ExifTool would
 /// then refuse to write.

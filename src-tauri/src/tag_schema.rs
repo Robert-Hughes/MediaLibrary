@@ -217,7 +217,8 @@ impl TagRegistry {
         self.tags.iter()
     }
 
-    /// Iterator over (`Group:Name`, `TagInfo`) for writable tags only.
+    /// Iterator over `TagInfo` definitions for writable tags only.
+    /// Iteration is deterministic by `SchemaDefinitionId` as guaranteed by the underlying `BTreeMap`.
     /// Used by the autocomplete command: surfacing read-only entries lets
     /// users pick a key that ExifTool will subsequently refuse to set.
     pub fn all_writable(&self) -> impl Iterator<Item = &TagInfo> {

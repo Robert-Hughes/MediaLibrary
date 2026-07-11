@@ -1,5 +1,7 @@
-import type { ImageMetadataEntry, PhotoInfo } from "../types";
+import type { ImageMetadataEntry, PhotoInfo, TagInfo } from "../types";
 import { metadataEntryToDisplayString as metadataValueToDisplayString } from "../draft";
+import { schemaDefinitionIdToken } from "./schemaDefinitionId";
+import type { TagInfoCacheEntry } from "../hooks/useTagInfo";
 
 export const formatMetadataValue = metadataValueToDisplayString;
 
@@ -30,6 +32,7 @@ export function extractPrefix(key: string): string {
 }
 
 export interface MetadataEntry {
+  id: ImageMetadataEntry["id"];
   label: string;
   value: string;
   /** Original metadata key (e.g. "IFD0:Make"); used for search, not always shown. */
@@ -47,19 +50,26 @@ export interface MetadataGroup {
  */
 export function groupImageMetadata(
   metadata: Record<string, ImageMetadataEntry>,
+  tagInfos: Record<string, TagInfoCacheEntry> = {},
 ): MetadataGroup[] {
   const grouped = new Map<string, MetadataEntry[]>();
 
-  const sortedKeys = Object.keys(metadata).sort((a, b) => a.localeCompare(b));
+  const entries = Object.values(metadata).sort((a, b) =>
+    schemaDefinitionIdToken(a.id).localeCompare(schemaDefinitionIdToken(b.id)),
+  );
 
-  for (const key of sortedKeys) {
-    const prefix = extractPrefix(key);
+  for (const value of entries) {
+    const token = schemaDefinitionIdToken(value.id);
+    const info = tagInfos[token];
+    const tagInfo: TagInfo | null = info && info !== "loading" ? info : null;
+    const prefix = tagInfo?.group ?? value.id.table;
     if (!grouped.has(prefix)) grouped.set(prefix, []);
-    const label = key.includes(":") ? key.slice(key.indexOf(":") + 1) : key;
+    const label = tagInfo?.name ?? value.id.tag_id;
     grouped.get(prefix)!.push({
+      id: value.id,
       label,
-      value: formatMetadataValue(metadata[key]),
-      fullKey: key,
+      value: formatMetadataValue(value),
+      fullKey: token,
     });
   }
 

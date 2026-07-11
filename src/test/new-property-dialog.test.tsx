@@ -1,147 +1,277 @@
-// NewPropertyDialog unit tests.
-//
-// The dialog is stage 1 of a two-step new-property flow: it only picks a
-// key.  Stage 2 (a TypedValueEditor for that key) is owned by the parent
-// (DetailsPane) and is exercised by the editor-specific test files.
-
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import {
-  fireEvent,
-  render,
-  screen,
-  cleanup,
-  waitFor,
-} from "@testing-library/react";
+import { fireEvent, render, screen, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { NewPropertyDialog } from "../components/NewPropertyDialog";
-import { _clearTagInfoCache, _setTagInfoCacheEntry } from "../hooks/useTagInfo";
+import { _clearTagInfoCache } from "../hooks/useTagInfo";
 import {
-  _resetSchemaTagNamesCache,
-  _setSchemaTagNamesCache,
-} from "../hooks/useSchemaTagNames";
+  _resetWritableSchemaDefinitionsCache,
+  _setWritableSchemaDefinitionsCache,
+} from "../hooks/useWritableSchemaDefinitions";
+import type { TagInfo } from "../types";
+import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
 
-// useTagInfo and useSchemaTagNames call Tauri's invoke under the hood.
-// Seed caches via helpers; stub invoke as a no-op so uncached lookups
-// don't crash in test mode.
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(() => Promise.resolve(null)),
 }));
 
+const testDefinitions: TagInfo[] = [
+  {
+    id: { table: "XMP::dc", tag_id: "title" },
+    group: "XMP-dc",
+    name: "Title",
+    writable: true,
+    kind: { kind: "Text" },
+    description: "Document Title",
+  },
+  {
+    id: { table: "XMP::dc", tag_id: "description" },
+    group: "XMP-dc",
+    name: "Description",
+    writable: true,
+    kind: { kind: "Text" },
+    description: "Document Description",
+  },
+  {
+    id: { table: "Canon::CameraInfo40D", tag_id: "4" },
+    group: "Canon",
+    name: "WhiteBalance",
+    writable: true,
+    kind: { kind: "Text" },
+    description: "WB 40D",
+  },
+  {
+    id: { table: "Canon::CameraInfo5D", tag_id: "4" },
+    group: "Canon",
+    name: "WhiteBalance",
+    writable: true,
+    kind: { kind: "Text" },
+    description: "WB 5D",
+  },
+  {
+    id: { table: "Vorbis::Comment", tag_id: "title" },
+    group: "Vorbis",
+    name: "Title",
+    writable: true,
+    kind: { kind: "Text" },
+    description: "Audio Title",
+  },
+  {
+    id: { table: "Exif::Main", tag_id: "271", index: 0 },
+    group: "IFD0",
+    name: "Make",
+    writable: true,
+    kind: { kind: "Text" },
+    description: "Manufacturer Index 0",
+  },
+];
+
 beforeEach(() => {
   cleanup();
   _clearTagInfoCache();
-  _resetSchemaTagNamesCache();
-  _setSchemaTagNamesCache([]);
-  _setTagInfoCacheEntry("XMP-dc:Title", null);
-  _setTagInfoCacheEntry("XMP-dc:Description", null);
-  _setTagInfoCacheEntry("XMP-dc:Creator", null);
+  _resetWritableSchemaDefinitionsCache();
 });
 
-describe("NewPropertyDialog", () => {
-  it("renders empty form with Next disabled", () => {
+describe("NewPropertyDialog exact-ID selection flow", () => {
+  it("represents loading state safely", () => {
+    render(<NewPropertyDialog onSave={() => {}} onCancel={() => {}} />);
+    expect(screen.getByTestId("new-property-loading")).toBeInTheDocument();
+    expect(screen.queryByTestId("new-property-key")).toBeNull();
+  });
+
+  it("loads definitions from useWritableSchemaDefinitions and lists them", () => {
+    _setWritableSchemaDefinitionsCache(testDefinitions);
     render(<NewPropertyDialog onSave={() => {}} onCancel={() => {}} />);
     expect(screen.getByTestId("new-property-key")).toBeInTheDocument();
-    expect(screen.queryByTestId("new-property-value")).toBeNull();
+
+    const titleToken = schemaDefinitionIdToken(testDefinitions[0].id);
+    expect(
+      screen.getByTestId(`schema-option-${titleToken}`),
+    ).toBeInTheDocument();
+  });
+
+  it("filters search matches by friendly name", () => {
+    _setWritableSchemaDefinitionsCache(testDefinitions);
+    render(<NewPropertyDialog onSave={() => {}} onCancel={() => {}} />);
+    const input = screen.getByTestId("new-property-key") as HTMLInputElement;
+
+    fireEvent.change(input, { target: { value: "XMP-dc" } });
+
+    const titleToken = schemaDefinitionIdToken(testDefinitions[0].id);
+    const descToken = schemaDefinitionIdToken(testDefinitions[1].id);
+    const canonToken = schemaDefinitionIdToken(testDefinitions[2].id);
+
+    expect(
+      screen.getByTestId(`schema-option-${titleToken}`),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId(`schema-option-${descToken}`),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId(`schema-option-${canonToken}`)).toBeNull();
+  });
+
+  it("filters search matches by description", () => {
+    _setWritableSchemaDefinitionsCache(testDefinitions);
+    render(<NewPropertyDialog onSave={() => {}} onCancel={() => {}} />);
+    const input = screen.getByTestId("new-property-key") as HTMLInputElement;
+
+    fireEvent.change(input, { target: { value: "Document Description" } });
+
+    const descToken = schemaDefinitionIdToken(testDefinitions[1].id);
+    const titleToken = schemaDefinitionIdToken(testDefinitions[0].id);
+
+    expect(
+      screen.getByTestId(`schema-option-${descToken}`),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId(`schema-option-${titleToken}`)).toBeNull();
+  });
+
+  it("filters search matches by table and tag ID", () => {
+    _setWritableSchemaDefinitionsCache(testDefinitions);
+    render(<NewPropertyDialog onSave={() => {}} onCancel={() => {}} />);
+    const input = screen.getByTestId("new-property-key") as HTMLInputElement;
+
+    // Search by table
+    fireEvent.change(input, { target: { value: "CameraInfo40D" } });
+
+    const canon40DToken = schemaDefinitionIdToken(testDefinitions[2].id);
+    const canon5DToken = schemaDefinitionIdToken(testDefinitions[3].id);
+
+    expect(
+      screen.getByTestId(`schema-option-${canon40DToken}`),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId(`schema-option-${canon5DToken}`)).toBeNull();
+  });
+
+  it("typing alone does not enable Next", () => {
+    _setWritableSchemaDefinitionsCache(testDefinitions);
+    render(<NewPropertyDialog onSave={() => {}} onCancel={() => {}} />);
+    const input = screen.getByTestId("new-property-key") as HTMLInputElement;
+
+    fireEvent.change(input, { target: { value: "Title" } });
     expect(screen.getByTestId("new-property-next")).toBeDisabled();
   });
 
-  it("does not look up the schema until a colon is typed", async () => {
+  it("clicking one result enables Next and onSave returns the selected ID", async () => {
     const user = userEvent.setup();
-    render(<NewPropertyDialog onSave={() => {}} onCancel={() => {}} />);
-    const keyInput = screen.getByTestId("new-property-key");
-    await user.click(keyInput);
-    await user.type(keyInput, "XMP-dc");
-    expect(screen.queryByTestId("new-property-schema-info")).toBeNull();
-    expect(screen.queryByTestId("new-property-schema-unknown")).toBeNull();
+    const onSave = vi.fn();
+    _setWritableSchemaDefinitionsCache(testDefinitions);
+
+    render(<NewPropertyDialog onSave={onSave} onCancel={() => {}} />);
+
+    const titleToken = schemaDefinitionIdToken(testDefinitions[0].id);
+    const option = screen.getByTestId(`schema-option-${titleToken}`);
+
+    await user.click(option);
+    expect(screen.getByTestId("new-property-next")).not.toBeDisabled();
+
+    await user.click(screen.getByTestId("new-property-next"));
+    expect(onSave).toHaveBeenCalledWith(testDefinitions[0].id);
   });
 
-  it("shows the unknown-tag warning when schema lookup misses", async () => {
-    _setTagInfoCacheEntry("XMP-dc:NotARealTag", null);
-    render(<NewPropertyDialog onSave={() => {}} onCancel={() => {}} />);
-    const keyInput = screen.getByTestId("new-property-key") as HTMLInputElement;
-    fireEvent.change(keyInput, { target: { value: "XMP-dc:NotARealTag" } });
-    await waitFor(() => {
-      expect(
-        screen.getByTestId("new-property-schema-unknown"),
-      ).toBeInTheDocument();
-    });
+  it("pressing Enter submits only after an explicit selection", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn();
+    _setWritableSchemaDefinitionsCache(testDefinitions);
+
+    render(<NewPropertyDialog onSave={onSave} onCancel={() => {}} />);
+    const input = screen.getByTestId("new-property-key") as HTMLInputElement;
+
+    // Press enter before selection -> nothing
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onSave).not.toHaveBeenCalled();
+
+    // Select then enter
+    const titleToken = schemaDefinitionIdToken(testDefinitions[0].id);
+    await user.click(screen.getByTestId(`schema-option-${titleToken}`));
+
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onSave).toHaveBeenCalledWith(testDefinitions[0].id);
   });
 
-  it("shows the unwritable-tag warning and disables Next", async () => {
-    _setTagInfoCacheEntry("Foo:Readonly", {
-      group: "Foo",
-      name: "Readonly",
-      writable: false,
-      kind: { kind: "Text" },
-      description: null,
-    });
+  it("renders two same-friendly-name definitions separately and displays enough context to distinguish them", () => {
+    _setWritableSchemaDefinitionsCache(testDefinitions);
     render(<NewPropertyDialog onSave={() => {}} onCancel={() => {}} />);
-    fireEvent.change(screen.getByTestId("new-property-key"), {
-      target: { value: "Foo:Readonly" },
-    });
-    await waitFor(() => {
-      expect(
-        screen.getByTestId("new-property-schema-unwritable"),
-      ).toBeInTheDocument();
-    });
+
+    const canon40DToken = schemaDefinitionIdToken(testDefinitions[2].id);
+    const canon5DToken = schemaDefinitionIdToken(testDefinitions[3].id);
+
+    const opt40D = screen.getByTestId(`schema-option-${canon40DToken}`);
+    const opt5D = screen.getByTestId(`schema-option-${canon5DToken}`);
+
+    expect(opt40D).toBeInTheDocument();
+    expect(opt5D).toBeInTheDocument();
+
+    // Check distinct context
+    expect(opt40D).toHaveTextContent("Canon::CameraInfo40D");
+    expect(opt40D).toHaveTextContent("WB 40D");
+    expect(opt5D).toHaveTextContent("Canon::CameraInfo5D");
+    expect(opt5D).toHaveTextContent("WB 5D");
+  });
+
+  it("selecting one collision returns only that ID", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn();
+    _setWritableSchemaDefinitionsCache(testDefinitions);
+
+    render(<NewPropertyDialog onSave={onSave} onCancel={() => {}} />);
+
+    const canon5DToken = schemaDefinitionIdToken(testDefinitions[3].id);
+    await user.click(screen.getByTestId(`schema-option-${canon5DToken}`));
+
+    await user.click(screen.getByTestId("new-property-next"));
+    expect(onSave).toHaveBeenCalledWith(testDefinitions[3].id);
+  });
+
+  it("exact duplicate detection blocks only the matching ID and keeps sibling selectable", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn();
+    _setWritableSchemaDefinitionsCache(testDefinitions);
+
+    const existingIds = [testDefinitions[2].id]; // 40D is duplicate, 5D is not
+
+    render(
+      <NewPropertyDialog
+        onSave={onSave}
+        onCancel={() => {}}
+        existingIds={existingIds}
+      />,
+    );
+
+    const canon40DToken = schemaDefinitionIdToken(testDefinitions[2].id);
+    const canon5DToken = schemaDefinitionIdToken(testDefinitions[3].id);
+
+    // Select 40D (duplicate)
+    await user.click(screen.getByTestId(`schema-option-${canon40DToken}`));
+    expect(
+      screen.getByTestId("new-property-duplicate-warning"),
+    ).toBeInTheDocument();
     expect(screen.getByTestId("new-property-next")).toBeDisabled();
+
+    // Select 5D (sibling, not duplicate)
+    await user.click(screen.getByTestId(`schema-option-${canon5DToken}`));
+    expect(screen.queryByTestId("new-property-duplicate-warning")).toBeNull();
+    expect(screen.getByTestId("new-property-next")).not.toBeDisabled();
+
+    await user.click(screen.getByTestId("new-property-next"));
+    expect(onSave).toHaveBeenCalledWith(testDefinitions[3].id);
   });
 
-  it("shows kind info for a known writable tag", async () => {
-    _setTagInfoCacheEntry("XMP-dc:Subject", {
-      group: "XMP-dc",
-      name: "Subject",
-      writable: true,
-      kind: { kind: "Bag", data: { kind: "Text" } },
-      description: "Subject keywords",
-    });
+  it("shows and distinguishes index: Some(0) from omitted index", () => {
+    _setWritableSchemaDefinitionsCache(testDefinitions);
     render(<NewPropertyDialog onSave={() => {}} onCancel={() => {}} />);
-    fireEvent.change(screen.getByTestId("new-property-key"), {
-      target: { value: "XMP-dc:Subject" },
-    });
-    await waitFor(() => {
-      expect(
-        screen.getByTestId("new-property-schema-info"),
-      ).toBeInTheDocument();
-    });
-    const info = screen.getByTestId("new-property-schema-info");
-    expect(info).toHaveTextContent("Bag");
-    expect(info).toHaveTextContent("Subject keywords");
+
+    const omittedToken = schemaDefinitionIdToken(testDefinitions[0].id);
+    const zeroToken = schemaDefinitionIdToken(testDefinitions[5].id);
+
+    const optOmitted = screen.getByTestId(`schema-option-${omittedToken}`);
+    const optZero = screen.getByTestId(`schema-option-${zeroToken}`);
+
+    expect(optOmitted).not.toHaveTextContent("Index");
+    expect(optZero).toHaveTextContent("Index 0");
   });
 
-  // ── Autocomplete ───────────────────────────────────────────────────────
-
-  it("datalist contains matching schema tag suggestions", async () => {
-    _setSchemaTagNamesCache([
-      "XMP-dc:Title",
-      "XMP-dc:Subject",
-      "XMP-dc:Description",
-      "IPTC:Keywords",
-    ]);
-    render(<NewPropertyDialog onSave={() => {}} onCancel={() => {}} />);
-    fireEvent.change(screen.getByTestId("new-property-key"), {
-      target: { value: "XMP-dc" },
-    });
-    await waitFor(() => {
-      const datalist = document.getElementById("schema-tag-names");
-      expect(datalist).not.toBeNull();
-      const options = datalist!.querySelectorAll("option");
-      const values = Array.from(options).map((o) => o.getAttribute("value"));
-      expect(values).toContain("XMP-dc:Title");
-      expect(values).toContain("XMP-dc:Subject");
-      expect(values).toContain("XMP-dc:Description");
-      expect(values).not.toContain("IPTC:Keywords");
-    });
-  });
-
-  it("filters out groups inapplicable to the file extension", async () => {
-    _setSchemaTagNamesCache([
-      "IFD0:Make",
-      "ExifIFD:ExifVersion",
-      "Vorbis:Title",
-      "FLAC:Picture",
-      "XMP-dc:Title",
-    ]);
+  it("filters suggestions by filename applicability using TagInfo.group", () => {
+    _setWritableSchemaDefinitionsCache(testDefinitions);
     render(
       <NewPropertyDialog
         onSave={() => {}}
@@ -149,221 +279,20 @@ describe("NewPropertyDialog", () => {
         filename="photo.jpg"
       />,
     );
-    fireEvent.change(screen.getByTestId("new-property-key"), {
-      target: { value: "i" }, // case-insensitive substring
-    });
-    await waitFor(() => {
-      const datalist = document.getElementById("schema-tag-names");
-      const values = Array.from(datalist!.querySelectorAll("option")).map((o) =>
-        o.getAttribute("value"),
-      );
-      expect(values).toContain("IFD0:Make");
-      expect(values).toContain("XMP-dc:Title");
-      // Audio-only groups must not surface on a JPEG.
-      expect(values).not.toContain("Vorbis:Title");
-      expect(values).not.toContain("FLAC:Picture");
-    });
-  });
 
-  it("datalist exposes the full applicable list when the input is blank", async () => {
-    // Empty-input case: we want the browser to surface the dropdown arrow
-    // so the user can browse before typing.  Pass no filename so the list
-    // is unfiltered.
-    _setSchemaTagNamesCache(["XMP-dc:Title", "IPTC:Keywords"]);
-    render(<NewPropertyDialog onSave={() => {}} onCancel={() => {}} />);
-    const datalist = document.getElementById("schema-tag-names");
-    expect(datalist).not.toBeNull();
-    const values = Array.from(datalist!.querySelectorAll("option")).map((o) =>
-      o.getAttribute("value"),
-    );
-    expect(values).toEqual(["XMP-dc:Title", "IPTC:Keywords"]);
-  });
+    const titleToken = schemaDefinitionIdToken(testDefinitions[0].id);
+    const audioToken = schemaDefinitionIdToken(testDefinitions[4].id);
 
-  // ── Duplicate-key warning ──────────────────────────────────────────────
-
-  it("shows overwrite warning when key matches an existing metadata key", async () => {
-    const existingKeys = new Set(["XMP-dc:Title", "IPTC:Keywords"]);
-    render(
-      <NewPropertyDialog
-        onSave={() => {}}
-        onCancel={() => {}}
-        existingKeys={existingKeys}
-      />,
-    );
-    fireEvent.change(screen.getByTestId("new-property-key"), {
-      target: { value: "XMP-dc:Title" },
-    });
-    await waitFor(() => {
-      expect(
-        screen.getByTestId("new-property-duplicate-warning"),
-      ).toBeInTheDocument();
-    });
     expect(
-      screen.getByTestId("new-property-duplicate-warning"),
-    ).toHaveTextContent("already exists");
+      screen.getByTestId(`schema-option-${titleToken}`),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId(`schema-option-${audioToken}`)).toBeNull();
   });
 
-  it("shows overwrite warning when key matches a draft edit key", async () => {
-    const existingKeys = new Set(["XMP-dc:Creator"]);
-    render(
-      <NewPropertyDialog
-        onSave={() => {}}
-        onCancel={() => {}}
-        existingKeys={existingKeys}
-      />,
-    );
-    fireEvent.change(screen.getByTestId("new-property-key"), {
-      target: { value: "XMP-dc:Creator" },
-    });
-    await waitFor(() => {
-      expect(
-        screen.getByTestId("new-property-duplicate-warning"),
-      ).toBeInTheDocument();
-    });
-  });
-
-  it("does not show overwrite warning when key is not in existingKeys", async () => {
-    const existingKeys = new Set(["XMP-dc:Title"]);
-    render(
-      <NewPropertyDialog
-        onSave={() => {}}
-        onCancel={() => {}}
-        existingKeys={existingKeys}
-      />,
-    );
-    fireEvent.change(screen.getByTestId("new-property-key"), {
-      target: { value: "XMP-dc:Description" },
-    });
-    expect(screen.queryByTestId("new-property-duplicate-warning")).toBeNull();
-  });
-
-  it("does not show overwrite warning when existingKeys not provided", async () => {
+  it("shows no raw text/unknown property warnings", () => {
+    _setWritableSchemaDefinitionsCache(testDefinitions);
     render(<NewPropertyDialog onSave={() => {}} onCancel={() => {}} />);
-    fireEvent.change(screen.getByTestId("new-property-key"), {
-      target: { value: "XMP-dc:Title" },
-    });
-    expect(screen.queryByTestId("new-property-duplicate-warning")).toBeNull();
-  });
 
-  it("overwrite warning clears when key changes to non-duplicate", async () => {
-    const existingKeys = new Set(["XMP-dc:Title"]);
-    render(
-      <NewPropertyDialog
-        onSave={() => {}}
-        onCancel={() => {}}
-        existingKeys={existingKeys}
-      />,
-    );
-    const keyInput = screen.getByTestId("new-property-key");
-    fireEvent.change(keyInput, { target: { value: "XMP-dc:Title" } });
-    await waitFor(() => {
-      expect(
-        screen.getByTestId("new-property-duplicate-warning"),
-      ).toBeInTheDocument();
-    });
-    fireEvent.change(keyInput, { target: { value: "XMP-dc:Description" } });
-    await waitFor(() => {
-      expect(screen.queryByTestId("new-property-duplicate-warning")).toBeNull();
-    });
-  });
-
-  // ── Stage transition ───────────────────────────────────────────────────
-
-  it("Next still works when key is a duplicate (overwrite is allowed)", async () => {
-    const user = userEvent.setup();
-    const onSave = vi.fn();
-    const existingKeys = new Set(["XMP-dc:Title"]);
-    _setTagInfoCacheEntry("XMP-dc:Title", {
-      group: "XMP-dc",
-      name: "Title",
-      writable: true,
-      kind: { kind: "Text" },
-      description: null,
-    });
-    render(
-      <NewPropertyDialog
-        onSave={onSave}
-        onCancel={() => {}}
-        existingKeys={existingKeys}
-      />,
-    );
-    fireEvent.change(screen.getByTestId("new-property-key"), {
-      target: { value: "XMP-dc:Title" },
-    });
-    await waitFor(() => {
-      expect(screen.getByTestId("new-property-next")).not.toBeDisabled();
-    });
-    await user.click(screen.getByTestId("new-property-next"));
-    expect(onSave).toHaveBeenCalledWith("XMP-dc:Title");
-  });
-
-  it("Next calls onSave with just the key (no value field)", async () => {
-    const user = userEvent.setup();
-    const onSave = vi.fn();
-    _setTagInfoCacheEntry("XMP-dc:Title", {
-      group: "XMP-dc",
-      name: "Title",
-      writable: true,
-      kind: { kind: "Text" },
-      description: null,
-    });
-    render(<NewPropertyDialog onSave={onSave} onCancel={() => {}} />);
-    fireEvent.change(screen.getByTestId("new-property-key"), {
-      target: { value: "XMP-dc:Title" },
-    });
-    await waitFor(() => {
-      expect(screen.getByTestId("new-property-next")).not.toBeDisabled();
-    });
-    await user.click(screen.getByTestId("new-property-next"));
-    expect(onSave).toHaveBeenCalledWith("XMP-dc:Title");
-  });
-
-  it("Next is enabled even before a colon is typed (key not in schema → text fallback)", async () => {
-    const onSave = vi.fn();
-    render(<NewPropertyDialog onSave={onSave} onCancel={() => {}} />);
-    fireEvent.change(screen.getByTestId("new-property-key"), {
-      target: { value: "FreeFormKey" },
-    });
-    expect(screen.getByTestId("new-property-next")).not.toBeDisabled();
-  });
-
-  it("Enter on the key field advances when valid", async () => {
-    const onSave = vi.fn();
-    _setTagInfoCacheEntry("XMP-dc:Title", {
-      group: "XMP-dc",
-      name: "Title",
-      writable: true,
-      kind: { kind: "Text" },
-      description: null,
-    });
-    render(<NewPropertyDialog onSave={onSave} onCancel={() => {}} />);
-    const keyInput = screen.getByTestId("new-property-key");
-    fireEvent.change(keyInput, { target: { value: "XMP-dc:Title" } });
-    await waitFor(() => {
-      expect(screen.getByTestId("new-property-next")).not.toBeDisabled();
-    });
-    fireEvent.keyDown(keyInput, { key: "Enter" });
-    expect(onSave).toHaveBeenCalledWith("XMP-dc:Title");
-  });
-
-  it("Enter does not advance while the tag is unwritable", async () => {
-    const onSave = vi.fn();
-    _setTagInfoCacheEntry("Foo:Readonly", {
-      group: "Foo",
-      name: "Readonly",
-      writable: false,
-      kind: { kind: "Text" },
-      description: null,
-    });
-    render(<NewPropertyDialog onSave={onSave} onCancel={() => {}} />);
-    const keyInput = screen.getByTestId("new-property-key");
-    fireEvent.change(keyInput, { target: { value: "Foo:Readonly" } });
-    await waitFor(() => {
-      expect(
-        screen.getByTestId("new-property-schema-unwritable"),
-      ).toBeInTheDocument();
-    });
-    fireEvent.keyDown(keyInput, { key: "Enter" });
-    expect(onSave).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("new-property-schema-unknown")).toBeNull();
   });
 });

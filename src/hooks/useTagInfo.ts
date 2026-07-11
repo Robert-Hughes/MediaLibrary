@@ -1,19 +1,24 @@
 // Schema lookup hook with per-session cache.
 //
 // Calls the Tauri `get_tag_info` command and caches results in a
-// module-level Map keyed by `Group:Name`.  Repeated lookups during a
-// session hit the cache.  A failed registry build returns `null`; an unknown
-// tag also returns `null` (caller treats both as "no schema, use text
-// fallback").
+// module-level Map keyed by `schemaDefinitionIdToken(id)`.
+// Repeated lookups during a session hit the cache.
+// If the exact SchemaDefinitionId was not found, the cache entry is set to `null`
+// (invocation failures also currently settle as `null` after logging the exact ID).
 //
 // Editors call this to decide which kind-specific control to render.
 
 import { useEffect, useState, useMemo, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { TagInfo } from "../types";
+import type { TagInfo, SchemaDefinitionId } from "../types";
+import {
+  schemaDefinitionIdToken,
+  formatSchemaDefinitionIdForDiagnostics,
+} from "../utils/schemaDefinitionId";
 
-type CacheEntry = "loading" | TagInfo | null;
-const cache = new Map<string, CacheEntry>();
+export type TagInfoCacheEntry = "loading" | TagInfo | null;
+
+const cache = new Map<string, TagInfoCacheEntry>();
 const subscribers = new Map<string, Set<() => void>>();
 
 function notify(key: string) {
@@ -32,90 +37,116 @@ function subscribe(key: string, cb: () => void): () => void {
   };
 }
 
-async function fetchTagInfo(key: string): Promise<void> {
-  cache.set(key, "loading");
-  notify(key);
+async function fetchTagInfo(
+  id: SchemaDefinitionId,
+  token: string,
+): Promise<void> {
+  cache.set(token, "loading");
+  notify(token);
   try {
     const result = (await invoke("get_tag_info", {
-      tag: key,
+      id,
     })) as TagInfo | null;
-    cache.set(key, result);
+    cache.set(token, result);
   } catch (e) {
-    console.error(`[useTagInfo] get_tag_info(${key}) failed:`, e);
-    cache.set(key, null);
+    console.error(
+      `[useTagInfo] get_tag_info(${formatSchemaDefinitionIdForDiagnostics(id)}) failed:`,
+      e,
+    );
+    cache.set(token, null);
   }
-  notify(key);
+  notify(token);
 }
 
 /**
- * Returns the cached TagInfo for `key`, kicking off a Tauri lookup on first
- * use.  Re-renders the caller when the result lands.
+ * Returns the cached TagInfo for `id`, kicking off a Tauri lookup on first
+ * use. Re-renders the caller when the result lands.
  *
  * - `"loading"` — fetch in flight (first call)
- * - `null`      — fetch completed; tag not in registry, or registry failed
+ * - `null`      — the exact SchemaDefinitionId was not found
  * - `TagInfo`   — fetch completed; schema available
  */
-export function useTagInfo(key: string | null | undefined): CacheEntry {
+export function useTagInfo(
+  id: SchemaDefinitionId | null | undefined,
+): TagInfoCacheEntry {
   const [, setTick] = useState(0);
 
-  useEffect(() => {
-    if (!key) return;
-    if (!cache.has(key)) {
-      void fetchTagInfo(key);
-    }
-    return subscribe(key, () => setTick((n) => n + 1));
-  }, [key]);
+  const token = id ? schemaDefinitionIdToken(id) : null;
+  const requestRef = useRef<{
+    token: string;
+    id: SchemaDefinitionId;
+  } | null>(null);
+  if (id && token && requestRef.current?.token !== token) {
+    requestRef.current = { token, id };
+  }
 
-  if (!key) return null;
-  // Differentiate "not yet cached" from "cached as null".  The ?? operator
-  // would mistakenly collapse cached null → "loading".
-  return cache.has(key) ? (cache.get(key) as CacheEntry) : "loading";
+  useEffect(() => {
+    if (!token) return;
+    if (!cache.has(token)) {
+      void fetchTagInfo(requestRef.current!.id, token);
+    }
+    return subscribe(token, () => setTick((n) => n + 1));
+  }, [token]);
+
+  if (!id || !token) return null;
+  return cache.has(token) ? cache.get(token)! : "loading";
 }
 
 /**
- * Returns a record mapping each tag key in `keys` to its CacheEntry.
+ * Returns a record mapping each tag ID in `ids` to its CacheEntry.
  * Deduplicates and sorts the keys to ensure stable subscriptions.
  * Kicks off Tauri schema lookups for any uncached keys in batch.
  */
 export function useTagInfos(
-  keys: readonly string[],
-): Record<string, CacheEntry> {
+  ids: readonly SchemaDefinitionId[],
+): Record<string, TagInfoCacheEntry> {
   const [, setTick] = useState(0);
 
-  const prevKeysRef = useRef<string[]>([]);
-  const stableKeys = useMemo(() => {
-    const sorted = Array.from(new Set(keys)).sort();
-    if (
-      prevKeysRef.current.length === sorted.length &&
-      prevKeysRef.current.every((k, i) => k === sorted[i])
-    ) {
-      return prevKeysRef.current;
+  const prevTokensRef = useRef<string[]>([]);
+
+  const stableData = useMemo(() => {
+    const uniqueMap = new Map<string, SchemaDefinitionId>();
+    for (const id of ids) {
+      if (!id) continue;
+      const token = schemaDefinitionIdToken(id);
+      if (!uniqueMap.has(token)) {
+        uniqueMap.set(token, id);
+      }
     }
-    prevKeysRef.current = sorted;
-    return sorted;
-  }, [keys]);
+    const sortedTokens = Array.from(uniqueMap.keys()).sort();
+
+    if (
+      prevTokensRef.current.length === sortedTokens.length &&
+      prevTokensRef.current.every((k, i) => k === sortedTokens[i])
+    ) {
+      return { tokens: prevTokensRef.current, uniqueMap };
+    }
+    prevTokensRef.current = sortedTokens;
+    return { tokens: sortedTokens, uniqueMap };
+  }, [ids]);
 
   useEffect(() => {
-    if (stableKeys.length === 0) return;
+    if (stableData.tokens.length === 0) return;
 
-    for (const key of stableKeys) {
-      if (!cache.has(key)) {
-        void fetchTagInfo(key);
+    for (const token of stableData.tokens) {
+      if (!cache.has(token)) {
+        const id = stableData.uniqueMap.get(token)!;
+        void fetchTagInfo(id, token);
       }
     }
 
-    const cleanups = stableKeys.map((key) =>
-      subscribe(key, () => setTick((n) => n + 1)),
+    const cleanups = stableData.tokens.map((token) =>
+      subscribe(token, () => setTick((n) => n + 1)),
     );
 
     return () => {
       cleanups.forEach((cleanup) => cleanup());
     };
-  }, [stableKeys]);
+  }, [stableData]);
 
-  const result: Record<string, CacheEntry> = {};
-  for (const key of stableKeys) {
-    result[key] = cache.has(key) ? (cache.get(key) as CacheEntry) : "loading";
+  const result: Record<string, TagInfoCacheEntry> = {};
+  for (const token of stableData.tokens) {
+    result[token] = cache.has(token) ? cache.get(token)! : "loading";
   }
   return result;
 }
@@ -127,7 +158,30 @@ export function _clearTagInfoCache(): void {
   subscribers.clear();
 }
 
-export function _setTagInfoCacheEntry(key: string, value: CacheEntry): void {
-  cache.set(key, value);
-  notify(key);
+export function _setTagInfoCacheEntry(
+  id: SchemaDefinitionId,
+  value: TagInfoCacheEntry | Omit<TagInfo, "id">,
+): void {
+  const token = schemaDefinitionIdToken(id);
+  if (value && typeof value === "object" && !("id" in value)) {
+    cache.set(token, { ...value, id } as TagInfo);
+  } else {
+    cache.set(token, value as TagInfoCacheEntry);
+  }
+  notify(token);
+}
+
+export function _ensureTagInfoCacheEntry(
+  id: SchemaDefinitionId,
+  value: TagInfo | Omit<TagInfo, "id">,
+): void {
+  const token = schemaDefinitionIdToken(id);
+  if (!cache.has(token)) {
+    if (value && !("id" in value)) {
+      cache.set(token, { ...value, id } as TagInfo);
+    } else {
+      cache.set(token, value as TagInfo);
+    }
+    notify(token);
+  }
 }
