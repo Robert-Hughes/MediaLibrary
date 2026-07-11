@@ -17,7 +17,8 @@ import { ModalDialog } from "../ModalDialog";
 // section the draft store keeps them as separate entries.
 
 import { useState } from "react";
-import type { MetadataDraftEdit } from "../../types";
+import type { MetadataDraftEdit, SchemaDefinitionId } from "../../types";
+import { formatSchemaDefinitionIdForDiagnostics } from "../../utils/schemaDefinitionId";
 import type { GpsTagGroup } from "../../metadata/tag_overrides";
 import { READ_ONLY_TOOLTIP } from "./readOnlyMessages";
 import { decimalToDms, enumDraftEdit, type EnumTagKind } from "./editorHelpers";
@@ -43,7 +44,9 @@ interface Props {
     longitude?: EnumTagKind;
     altitude?: EnumTagKind;
   };
-  onSave: (edits: Array<{ key: string; edit: MetadataDraftEdit }>) => void;
+  onSave: (
+    edits: Array<{ id: SchemaDefinitionId; edit: MetadataDraftEdit }>,
+  ) => void;
   onCancel: () => void;
   headerHint?: React.ReactNode;
   readOnly?: boolean;
@@ -127,7 +130,10 @@ export function GpsEditor({
     // Altitude is optional. Empty input keeps the existing on-disk altitude
     // untouched by emitting no draft for the altitude pair.
     const altTrim = altMetres.trim();
-    let altitudeEdits: Array<{ key: string; edit: MetadataDraftEdit }> = [];
+    let altitudeEdits: Array<{
+      id: SchemaDefinitionId;
+      edit: MetadataDraftEdit;
+    }> = [];
     if (altTrim !== "") {
       const alt = parseFloat(altTrim);
       if (!Number.isFinite(alt) || alt < 0) {
@@ -138,7 +144,7 @@ export function GpsEditor({
       }
       altitudeEdits = [
         {
-          key: group.altitudeKey,
+          id: group.altitudeId,
           edit: {
             value: { kind: "Real", value: alt },
             intent: "Set",
@@ -147,7 +153,7 @@ export function GpsEditor({
         },
         // exiftool encodes AltitudeRef as 0 (above sea level) or 1 (below).
         {
-          key: group.altitudeRefKey,
+          id: group.altitudeRefId,
           edit: refKinds?.altitude
             ? enumDraftEdit(refKinds.altitude, altRef === "above" ? "0" : "1")
             : {
@@ -161,7 +167,7 @@ export function GpsEditor({
     }
     onSave([
       {
-        key: group.latitudeKey,
+        id: group.latitudeId,
         edit: {
           value: { kind: "Real", value: lat },
           intent: "Set",
@@ -169,7 +175,7 @@ export function GpsEditor({
         },
       },
       {
-        key: group.latitudeRefKey,
+        id: group.latitudeRefId,
         edit: refKinds?.latitude
           ? enumDraftEdit(refKinds.latitude, latRef)
           : {
@@ -179,7 +185,7 @@ export function GpsEditor({
             },
       },
       {
-        key: group.longitudeKey,
+        id: group.longitudeId,
         edit: {
           value: { kind: "Real", value: lon },
           intent: "Set",
@@ -187,7 +193,7 @@ export function GpsEditor({
         },
       },
       {
-        key: group.longitudeRefKey,
+        id: group.longitudeRefId,
         edit: refKinds?.longitude
           ? enumDraftEdit(refKinds.longitude, lonRef)
           : {
@@ -315,14 +321,31 @@ export function GpsEditor({
           <details className="gps-editor-details">
             <summary>Details about paired metadata fields</summary>
             <p className="dialog-hint" data-testid="gps-editor-warning">
-              Editing GPS location writes <code>{group.latitudeKey}</code>,{" "}
-              <code>{group.latitudeRefKey}</code>,{" "}
-              <code>{group.longitudeKey}</code>,{" "}
-              <code>{group.longitudeRefKey}</code>
+              Editing GPS location writes{" "}
+              <code>
+                {formatSchemaDefinitionIdForDiagnostics(group.latitudeId)}
+              </code>
+              ,{" "}
+              <code>
+                {formatSchemaDefinitionIdForDiagnostics(group.latitudeRefId)}
+              </code>
+              ,{" "}
+              <code>
+                {formatSchemaDefinitionIdForDiagnostics(group.longitudeId)}
+              </code>
+              ,{" "}
+              <code>
+                {formatSchemaDefinitionIdForDiagnostics(group.longitudeRefId)}
+              </code>
               {", and (when altitude is filled in) "}
-              <code>{group.altitudeKey}</code>
+              <code>
+                {formatSchemaDefinitionIdForDiagnostics(group.altitudeId)}
+              </code>
               {", "}
-              <code>{group.altitudeRefKey}</code> together.
+              <code>
+                {formatSchemaDefinitionIdForDiagnostics(group.altitudeRefId)}
+              </code>{" "}
+              together.
             </p>
           </details>
 

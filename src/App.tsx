@@ -32,7 +32,8 @@ import { useDescribeImages } from "./hooks/useDescribeImages";
 import { GeocodeProgressDialog } from "./components/GeocodeProgressDialog";
 import { useGeocodeImages } from "./hooks/useGeocodeImages";
 import { resolveGps } from "./utils/resolveGps";
-import type { GeocodeRequestItem, MetadataDraftEdit } from "./types";
+import { schemaDefinitionIdToken } from "./utils/schemaDefinitionId";
+import type { GeocodeRequestItem, MetadataDraftEntry } from "./types";
 import { ALL_NORMALISE_GROUPS } from "./types";
 import { NormaliseProgressDialog } from "./components/NormaliseProgressDialog";
 import { useNormaliseMetadata } from "./hooks/useNormaliseMetadata";
@@ -246,13 +247,11 @@ function LoadedView({
 
   const columnDialogAllKeys = useMemo(() => {
     if (!showColumnDialog) return [];
-    return Array.from(
-      computeEffectiveMetadataKeyFrequency(
-        state.photos,
-        state.imageMetadata,
-        state.draftEdits,
-      ).entries(),
-    ).map(([key, count]) => ({ key, count }));
+    return computeEffectiveMetadataKeyFrequency(
+      state.photos,
+      state.imageMetadata,
+      state.draftEdits,
+    );
   }, [
     showColumnDialog,
     state.photos,
@@ -360,13 +359,14 @@ function LoadedView({
         }}
         onCopyPaths={onCopyPaths}
         onSelectionCountChange={setSelectionCount}
-        onRemoveFieldFromSelectedPhotos={(tag, relPaths) => {
+        onRemoveFieldFromSelectedPhotos={(id, relPaths) => {
           for (const relPath of relPaths) {
-            const existing = state.draftEdits[relPath]?.[tag];
+            const existing =
+              state.draftEdits[relPath]?.[schemaDefinitionIdToken(id)]?.edit;
             if (existing?.intent === "Delete" && existing?.value === null) {
               continue;
             }
-            actions.setMetadataDraft(relPath, tag, {
+            actions.setMetadataDraft(relPath, id, {
               value: null,
               intent: "Delete",
             });
@@ -507,12 +507,8 @@ export default function App() {
   // draft action so the UI re-renders immediately and the existing persistence
   // pipeline picks them up.
   const mergeBatchEdits = useCallback(
-    (relPath: string, edits: Record<string, MetadataDraftEdit>) => {
-      const entries = Object.entries(edits).map(([key, edit]) => ({
-        key,
-        edit,
-      }));
-      if (entries.length > 0) actions.setMetadataDraftBatch(relPath, entries);
+    (relPath: string, edits: MetadataDraftEntry[]) => {
+      if (edits.length > 0) actions.setMetadataDraftBatch(relPath, edits);
     },
     [actions],
   );

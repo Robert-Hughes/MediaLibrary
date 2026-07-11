@@ -21,14 +21,8 @@ use super::{
     collapse_whitespace_single_line, lang_alt_edit, text_edit, truncate_at_word, AiCallUsage,
     DescriptionInput, DescriptionMergePrompt, GroupOutput, NormaliseAiClient, NormaliseAiError,
 };
-use crate::draft_edits::MetadataDraftEdit;
-use std::collections::HashMap;
-
-pub const DESCRIPTION_TARGET_TAGS: &[&str] = &[
-    "XMP-dc:Description",
-    "IFD0:ImageDescription",
-    "IPTC:Caption-Abstract",
-];
+use crate::draft_edits::MetadataDraftMap;
+use crate::known_ids;
 
 const IPTC_CAPTION_ABSTRACT_LIMIT: usize = 2000;
 
@@ -301,22 +295,22 @@ pub async fn normalise_description(
     let projection_image = ascii_fold(&canonical);
     let projection_caption = project_caption_abstract(&canonical, input.iptc_charset_is_utf8);
 
-    let mut edits: HashMap<String, MetadataDraftEdit> = HashMap::new();
+    let mut edits = MetadataDraftMap::new();
     if input.description.as_deref() != Some(canonical.as_str()) {
         edits.insert(
-            "XMP-dc:Description".to_string(),
+            known_ids::xmp_description(),
             lang_alt_edit(canonical.clone()),
         );
     }
     if input.image_description.as_deref() != Some(projection_image.as_str()) {
         edits.insert(
-            "IFD0:ImageDescription".to_string(),
+            known_ids::image_description(),
             text_edit(projection_image),
         );
     }
     if input.caption_abstract.as_deref() != Some(projection_caption.as_str()) {
         edits.insert(
-            "IPTC:Caption-Abstract".to_string(),
+            known_ids::iptc_caption(),
             text_edit(projection_caption),
         );
     }
@@ -341,14 +335,14 @@ mod tests {
     use crate::metadata_value::MetadataValue;
 
     fn text(g: &GroupOutput, k: &str) -> String {
-        match &g.edits.get(k).unwrap().value {
+        match &g.edits.get(&crate::known_ids::test_id(k)).unwrap().value {
             Some(MetadataValue::Text(v)) => v.clone(),
             other => panic!("expected text value for {}, got {:?}", k, other),
         }
     }
 
     fn lang_alt_x_default(g: &GroupOutput, k: &str) -> String {
-        match &g.edits.get(k).unwrap().value {
+        match &g.edits.get(&crate::known_ids::test_id(k)).unwrap().value {
             Some(MetadataValue::LangAlt(v)) => v.get("x-default").unwrap().clone(),
             other => panic!("expected lang-alt value for {}, got {:?}", k, other),
         }
@@ -423,7 +417,7 @@ mod tests {
         let out = normalise_description(&input, None).await;
         let g = out.output.unwrap();
         assert_eq!(text(&g, "IFD0:ImageDescription"), "Andre Muller's cafe");
-        assert!(!g.edits.contains_key("XMP-dc:Description"));
+        assert!(!g.edits.contains_key(&crate::known_ids::xmp_description()));
     }
 
     #[tokio::test]

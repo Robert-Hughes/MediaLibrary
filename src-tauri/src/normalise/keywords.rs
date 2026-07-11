@@ -16,19 +16,15 @@ use super::{
     bag_edit, join_hierarchical_path, normalise_keyword, split_hierarchical_path, GroupOutput,
     KeywordsInput,
 };
-use crate::draft_edits::MetadataDraftEdit;
-use std::collections::{HashMap, HashSet};
+use crate::draft_edits::MetadataDraftMap;
+use crate::known_ids;
+use std::collections::HashSet;
 
 /// Target tags written by Group A. Coherent-replacement rule (plan §4)
 /// means every entry here either gets a set-value draft (canonical
 /// non-empty) or a remove-tag draft (canonical empty). Read-only
 /// input tags (`XMP-mlib:AITags`, `XMP-mlib:AIObjects`) are NOT in
 /// this list and never get drafts.
-pub const KEYWORDS_TARGET_TAGS: &[&str] = &[
-    "XMP-lr:HierarchicalSubject",
-    "XMP-dc:Subject",
-    "IPTC:Keywords",
-];
 
 /// Derive the canonical Group A bag for one image.
 ///
@@ -166,13 +162,13 @@ pub fn normalise_keywords_with_canonical(
     if keywords_is_normalised(input, canonical_paths, canonical_leaves) {
         return None;
     }
-    let mut edits: HashMap<String, MetadataDraftEdit> = HashMap::new();
+    let mut edits = MetadataDraftMap::new();
     edits.insert(
-        "XMP-lr:HierarchicalSubject".to_string(),
+        known_ids::xmp_hierarchical_subject(),
         bag_edit(canonical_paths),
     );
-    edits.insert("XMP-dc:Subject".to_string(), bag_edit(canonical_leaves));
-    edits.insert("IPTC:Keywords".to_string(), bag_edit(canonical_leaves));
+    edits.insert(known_ids::xmp_subject(), bag_edit(canonical_leaves));
+    edits.insert(known_ids::iptc_keywords(), bag_edit(canonical_leaves));
 
     Some(GroupOutput { edits })
 }
@@ -191,7 +187,7 @@ mod tests {
     use crate::metadata_value::MetadataValue;
 
     fn paths_of(g: &GroupOutput, key: &str) -> Vec<String> {
-        match &g.edits.get(key).unwrap().value {
+        match &g.edits.get(&crate::known_ids::test_id(key)).unwrap().value {
             Some(MetadataValue::List { items, .. }) => items
                 .iter()
                 .map(|v| match v {

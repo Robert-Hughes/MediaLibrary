@@ -12,7 +12,17 @@ import { ModalDialog } from "./ModalDialog";
 // draft is retained, the user must edit it themselves to fix it, and they can
 // dismiss the row from this dialog without changing anything.
 
-import type { MetadataValue, TagOutcomeEntry } from "../types";
+import type {
+  MetadataValue,
+  SchemaDefinitionId,
+  TagOutcomeEntry,
+} from "../types";
+import { useTagInfo } from "../hooks/useTagInfo";
+import {
+  formatSchemaDefinitionIdForDiagnostics,
+  schemaDefinitionIdToken,
+  tagInfoDisplayName,
+} from "../utils/schemaDefinitionId";
 import {
   metadataEntryToDisplayString,
   metadataValueToDiagnosticString,
@@ -20,9 +30,13 @@ import {
 
 interface Props {
   outcomes: Record<string, TagOutcomeEntry[]>;
-  onAccept: (file: string, tag: string) => void;
-  onRevert: (file: string, tag: string, observed: MetadataValue | null) => void;
-  onDismiss: (file: string, tag: string) => void;
+  onAccept: (file: string, id: SchemaDefinitionId) => void;
+  onRevert: (
+    file: string,
+    id: SchemaDefinitionId,
+    observed: MetadataValue | null,
+  ) => void;
+  onDismiss: (file: string, id: SchemaDefinitionId) => void;
   onDismissAll: () => void;
 }
 
@@ -38,6 +52,17 @@ const KIND_BADGE: Record<string, { label: string; cls: string }> = {
     cls: "verify-badge verify-badge-mismatch",
   },
 };
+
+function OutcomeTagLabel({ id }: { id: SchemaDefinitionId }) {
+  const info = useTagInfo(id);
+  const label =
+    info && info !== "loading"
+      ? tagInfoDisplayName(info)
+      : formatSchemaDefinitionIdForDiagnostics(id);
+  return (
+    <span title={formatSchemaDefinitionIdForDiagnostics(id)}>{label}</span>
+  );
+}
 
 function MetadataValueDiagnosticCell({
   value,
@@ -143,8 +168,8 @@ export function VerifyOutcomeDialog({
                     const observedForRevert = entry.observed ?? null;
                     return (
                       <tr
-                        key={entry.tag}
-                        data-testid={`verify-outcome-row-${file}-${entry.tag}`}
+                        key={schemaDefinitionIdToken(entry.id)}
+                        data-testid={`verify-outcome-row-${file}-${schemaDefinitionIdToken(entry.id)}`}
                       >
                         <td
                           style={{
@@ -152,7 +177,7 @@ export function VerifyOutcomeDialog({
                             fontFamily: "monospace",
                           }}
                         >
-                          {entry.tag}
+                          <OutcomeTagLabel id={entry.id} />
                         </td>
                         <td style={{ padding: "4px 6px" }}>
                           <MetadataValueDiagnosticCell
@@ -186,17 +211,17 @@ export function VerifyOutcomeDialog({
                               <button
                                 className="dialog-btn dialog-btn-secondary"
                                 onClick={() =>
-                                  onRevert(file, entry.tag, observedForRevert)
+                                  onRevert(file, entry.id, observedForRevert)
                                 }
-                                data-testid={`verify-outcome-revert-${file}-${entry.tag}`}
+                                data-testid={`verify-outcome-revert-${file}-${schemaDefinitionIdToken(entry.id)}`}
                                 title="Re-stage the draft with the value the file now holds"
                               >
                                 Revert
                               </button>{" "}
                               <button
                                 className="dialog-btn dialog-btn-primary"
-                                onClick={() => onAccept(file, entry.tag)}
-                                data-testid={`verify-outcome-accept-${file}-${entry.tag}`}
+                                onClick={() => onAccept(file, entry.id)}
+                                data-testid={`verify-outcome-accept-${file}-${schemaDefinitionIdToken(entry.id)}`}
                                 title="Drop the draft and accept what ExifTool wrote"
                               >
                                 Accept
@@ -205,8 +230,8 @@ export function VerifyOutcomeDialog({
                           ) : (
                             <button
                               className="dialog-btn dialog-btn-secondary"
-                              onClick={() => onDismiss(file, entry.tag)}
-                              data-testid={`verify-outcome-dismiss-${file}-${entry.tag}`}
+                              onClick={() => onDismiss(file, entry.id)}
+                              data-testid={`verify-outcome-dismiss-${file}-${schemaDefinitionIdToken(entry.id)}`}
                               title="Hide this row; the draft stays so you can fix it"
                             >
                               Dismiss

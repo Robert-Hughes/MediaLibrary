@@ -6,11 +6,17 @@
 // cargo test --manifest-path src-tauri/Cargo.toml
 
 import type { PhotoInfo } from "./types/generated/PhotoInfo";
+import { schemaDefinitionIdToken } from "./utils/schemaDefinitionId";
 import type { MetadataValue } from "./types/generated/MetadataValue";
 import type { MetadataDraftEdit } from "./types/generated/MetadataDraftEdit";
+import type { SchemaDefinitionId } from "./types/generated/SchemaDefinitionId";
+import { KNOWN_METADATA_IDS as ID } from "./metadata/knownIds";
 
 export type { PhotoInfo };
 export type { MetadataValue } from "./types/generated/MetadataValue";
+export type { SchemaDefinitionId } from "./types/generated/SchemaDefinitionId";
+export type { MetadataEntry } from "./types/generated/MetadataEntry";
+export type { MetadataDraftEntry } from "./types/generated/MetadataDraftEntry";
 export type { MetadataDraftEdit } from "./types/generated/MetadataDraftEdit";
 export type { MetadataTagOutcome } from "./types/generated/MetadataTagOutcome";
 export type { DateValue } from "./types/generated/DateValue";
@@ -102,10 +108,13 @@ export class ThumbnailStore {
 /**
  * Image metadata state for a single photo (EXIF, etc):
  *  - "loading"                 — metadata read is in progress (show spinner in cells)
- *  - Record<string, MetadataValue> — metadata has arrived
+ *  - MetadataCollection — exact-ID metadata has arrived
  */
-export type ImageMetadataEntry = MetadataValue;
-export type ImageMetadataState = "loading" | Record<string, ImageMetadataEntry>;
+export type ImageMetadataEntry = MetadataValue & {
+  readonly id: import("./types/generated/SchemaDefinitionId").SchemaDefinitionId;
+};
+export type ImageMetadataState =
+  "loading" | import("./utils/metadataCollection").MetadataCollection;
 
 /**
  * Observable store for image-level metadata, keyed by relative_path.
@@ -230,23 +239,17 @@ export class MetadataProgressStore {
 
 // ── Columns ───────────────────────────────────────────────────────────────────
 
-export type ColumnKind = "os" | "image";
-
-export interface VisibleColumn {
-  key: string;
-  kind: ColumnKind;
-}
+export type OsColumnKey = "date_modified" | "date_created";
+export type VisibleColumn =
+  { kind: "os"; key: OsColumnKey } | { kind: "image"; id: SchemaDefinitionId };
 
 // ── Sorting ───────────────────────────────────────────────────────────────────
 
-export type SortColumnType = "path" | "os" | "image";
 export type SortDirection = "asc" | "desc";
-
-export interface SortKey {
-  column: string; // Column identifier (e.g. "relative_path", "date_modified", "ExifIFD:DateTimeOriginal")
-  columnType: SortColumnType;
-  direction: SortDirection;
-}
+export type SortKey =
+  | { kind: "path"; direction: SortDirection }
+  | { kind: "os"; key: OsColumnKey; direction: SortDirection }
+  | { kind: "image"; id: SchemaDefinitionId; direction: SortDirection };
 
 export interface SortConfig {
   primary: SortKey | null;
@@ -255,10 +258,50 @@ export interface SortConfig {
 
 // ── Draft Edits ───────────────────────────────────────────────────────────────
 
-export type MetadataDraftEditsByFile = Record<
+export interface MetadataDraftCollectionEntry {
+  id: SchemaDefinitionId;
+  edit: MetadataDraftEdit;
+}
+
+/** Token-keyed only for JS collection mechanics; every value retains its domain ID. */
+export type MetadataDraftCollection = Record<
   string,
-  Record<string, MetadataDraftEdit>
+  MetadataDraftCollectionEntry
 >;
+export type MetadataDraftEditsByFile = Record<string, MetadataDraftCollection>;
+
+export function metadataDraftsFromWire(
+  wire: Record<
+    string,
+    import("./types/generated/MetadataDraftEntry").MetadataDraftEntry[]
+  >,
+): MetadataDraftEditsByFile {
+  return Object.fromEntries(
+    Object.entries(wire).map(([path, entries]) => [
+      path,
+      Object.fromEntries(
+        (entries ?? []).map(({ id, edit }) => [
+          schemaDefinitionIdToken(id),
+          { id, edit },
+        ]),
+      ),
+    ]),
+  );
+}
+
+export function metadataDraftsToWire(
+  drafts: MetadataDraftEditsByFile,
+): Record<
+  string,
+  import("./types/generated/MetadataDraftEntry").MetadataDraftEntry[]
+> {
+  return Object.fromEntries(
+    Object.entries(drafts).map(([path, edits]) => [
+      path,
+      Object.values(edits).map(({ id, edit }) => ({ id, edit })),
+    ]),
+  );
+}
 
 /**
  * Per-mutation change record passed to DraftEditsStore subscribers.
@@ -267,7 +310,7 @@ export type MetadataDraftEditsByFile = Record<
  */
 export interface DraftEditsChange {
   path: string;
-  edits: Record<string, MetadataDraftEdit> | undefined;
+  edits: MetadataDraftCollection | undefined;
 }
 
 export type DraftEditsListener = (changes: DraftEditsChange[]) => void;
@@ -297,8 +340,8 @@ export type SetDraftOutcome = "written" | "redundant" | "cleared";
  * order-independently.
  */
 export function metadataValueEqual(
-  a: ImageMetadataEntry | undefined,
-  b: ImageMetadataEntry | undefined,
+  a: MetadataValue | undefined,
+  b: MetadataValue | undefined,
 ): boolean {
   const av = metadataEntryToComparableValue(a);
   const bv = metadataEntryToComparableValue(b);
@@ -331,9 +374,7 @@ function deepEqual(a: any, b: any): boolean {
   return false;
 }
 
-function metadataEntryToComparableValue(
-  value: ImageMetadataEntry | undefined,
-): any {
+function metadataEntryToComparableValue(value: MetadataValue | undefined): any {
   if (!value) return undefined;
   switch (value.kind) {
     case "Null":
@@ -384,8 +425,8 @@ export class DraftEditsStore {
   private listeners = new Set<DraftEditsListener>();
   private currentValueResolver?: (
     path: string,
-    tag: string,
-  ) => ImageMetadataEntry | undefined;
+    id: SchemaDefinitionId,
+  ) => MetadataValue | undefined;
 
   /**
    * Wire up the redundant-draft guard. Pass a function that returns
@@ -394,7 +435,7 @@ export class DraftEditsStore {
    * resolver the store behaves as it always did (writes always land).
    */
   setCurrentValueResolver(
-    fn: (path: string, tag: string) => ImageMetadataEntry | undefined,
+    fn: (path: string, id: SchemaDefinitionId) => MetadataValue | undefined,
   ) {
     this.currentValueResolver = fn;
   }
@@ -409,7 +450,7 @@ export class DraftEditsStore {
     return this.snapshot;
   }
 
-  getMetadataFile(path: string): Record<string, MetadataDraftEdit> | undefined {
+  getMetadataFile(path: string): MetadataDraftCollection | undefined {
     return this.snapshot[path];
   }
 
@@ -420,23 +461,24 @@ export class DraftEditsStore {
    */
   private applyOne(
     path: string,
-    tag: string,
+    id: SchemaDefinitionId,
     edit: MetadataDraftEdit,
   ): SetDraftOutcome {
-    const existingDraft = this.snapshot[path]?.[tag];
+    const token = schemaDefinitionIdToken(id);
+    const existingDraft = this.snapshot[path]?.[token];
     // Only the Set intent can produce a "value identical to current
     // metadata" situation worth guarding against. List add / list
     // remove operate on the current list; Delete is the user
     // explicitly asking to clear a tag (and we trust them).
     if (edit.intent === "Set" && this.currentValueResolver) {
-      const current = this.currentValueResolver(path, tag);
+      const current = this.currentValueResolver(path, id);
       if (metadataValueEqual(current, edit.value ?? undefined)) {
         if (existingDraft) {
           // Existing draft becomes redundant — remove it so the user
           // doesn't see a "pending change" that wouldn't actually
           // change anything.
           const fileEdits = { ...(this.snapshot[path] ?? {}) };
-          delete fileEdits[tag];
+          delete fileEdits[token];
           const next = { ...this.snapshot };
           if (Object.keys(fileEdits).length === 0) delete next[path];
           else next[path] = fileEdits;
@@ -446,17 +488,20 @@ export class DraftEditsStore {
         return "redundant";
       }
     }
-    const fileEdits = { ...(this.snapshot[path] ?? {}), [tag]: edit };
+    const fileEdits = {
+      ...(this.snapshot[path] ?? {}),
+      [token]: { id, edit },
+    };
     this.snapshot = { ...this.snapshot, [path]: fileEdits };
     return "written";
   }
 
   setMetadataTag(
     path: string,
-    tag: string,
+    id: SchemaDefinitionId,
     edit: MetadataDraftEdit,
   ): SetDraftOutcome {
-    const outcome = this.applyOne(path, tag, edit);
+    const outcome = this.applyOne(path, id, edit);
     if (outcome !== "redundant") {
       this.notify([{ path, edits: this.snapshot[path] }]);
     }
@@ -465,12 +510,13 @@ export class DraftEditsStore {
 
   setMetadataBatch(
     path: string,
-    edits: Array<{ key: string; edit: MetadataDraftEdit }>,
-  ): Array<{ key: string; outcome: SetDraftOutcome }> {
+    edits: Array<{ id: SchemaDefinitionId; edit: MetadataDraftEdit }>,
+  ): Array<{ id: SchemaDefinitionId; outcome: SetDraftOutcome }> {
     if (edits.length === 0) return [];
-    const results: Array<{ key: string; outcome: SetDraftOutcome }> = [];
-    for (const { key, edit } of edits) {
-      results.push({ key, outcome: this.applyOne(path, key, edit) });
+    const results: Array<{ id: SchemaDefinitionId; outcome: SetDraftOutcome }> =
+      [];
+    for (const { id, edit } of edits) {
+      results.push({ id, outcome: this.applyOne(path, id, edit) });
     }
     if (results.some((r) => r.outcome !== "redundant")) {
       this.notify([{ path, edits: this.snapshot[path] }]);
@@ -478,7 +524,8 @@ export class DraftEditsStore {
     return results;
   }
 
-  deleteTag(path: string, tag: string) {
+  deleteTag(path: string, id: SchemaDefinitionId) {
+    const tag = schemaDefinitionIdToken(id);
     const fileEdits = this.snapshot[path];
     if (!fileEdits || !(tag in fileEdits)) return;
     const updated = { ...fileEdits };
@@ -499,14 +546,14 @@ export class DraftEditsStore {
    * User-initiated bulk draft discard (unlike pruneTags which handles backend verify updates).
    * Drops the listed tags and notifies subscribers once.
    */
-  deleteTags(path: string, tags: string[]) {
+  deleteTags(path: string, ids: SchemaDefinitionId[]) {
     const fileEdits = this.snapshot[path];
-    if (!fileEdits || tags.length === 0) return;
+    if (!fileEdits || ids.length === 0) return;
 
     const updated = { ...fileEdits };
     let touched = false;
 
-    for (const tag of tags) {
+    for (const tag of ids.map(schemaDefinitionIdToken)) {
       if (tag in updated) {
         delete updated[tag];
         touched = true;
@@ -555,12 +602,12 @@ export class DraftEditsStore {
    * Phase 8.1 apply path: drop the listed tags after backend verification said
    * they landed cleanly.  No-op if the file or tags are missing.
    */
-  pruneTags(path: string, tagsToDelete: string[]) {
+  pruneTags(path: string, idsToDelete: SchemaDefinitionId[]) {
     const fileEdits = this.snapshot[path];
     if (!fileEdits) return;
     const updated = { ...fileEdits };
     let touched = false;
-    for (const t of tagsToDelete) {
+    for (const t of idsToDelete.map(schemaDefinitionIdToken)) {
       if (t in updated) {
         delete updated[t];
         touched = true;
@@ -785,46 +832,41 @@ export interface DescribeProgressState {
  */
 export const NORMALISE_TARGET_TAGS_BY_GROUP: Record<
   NormaliseGroup,
-  readonly string[]
+  readonly SchemaDefinitionId[]
 > = {
-  keywords: ["XMP-lr:HierarchicalSubject", "XMP-dc:Subject", "IPTC:Keywords"],
-  description: [
-    "XMP-dc:Description",
-    "IFD0:ImageDescription",
-    "IPTC:Caption-Abstract",
-  ],
-  title: ["XMP-dc:Title", "IPTC:ObjectName"],
-  headline: ["XMP-photoshop:Headline", "IPTC:Headline"],
-  creator: ["XMP-dc:Creator", "IFD0:Artist", "IPTC:By-line"],
-  copyright: ["XMP-dc:Rights", "IFD0:Copyright", "IPTC:CopyrightNotice"],
+  keywords: [ID.xmpHierarchicalSubject, ID.xmpSubject, ID.iptcKeywords],
+  description: [ID.xmpDescription, ID.imageDescription, ID.iptcCaption],
+  title: [ID.xmpTitle, ID.iptcObjectName],
+  headline: [ID.xmpHeadline, ID.iptcHeadline],
+  creator: [ID.xmpCreator, ID.artist, ID.iptcByLine],
+  copyright: [ID.xmpRights, ID.copyright, ID.iptcCopyright],
   location: [
-    "XMP-iptcCore:Location",
-    "IPTC:Sub-location",
-    "XMP-photoshop:City",
-    "IPTC:City",
-    "XMP-photoshop:State",
-    "IPTC:Province-State",
-    "XMP-photoshop:Country",
-    "IPTC:Country-PrimaryLocationName",
-    "XMP-iptcCore:CountryCode",
-    "IPTC:Country-PrimaryLocationCode",
+    ID.xmpLocation,
+    ID.iptcSubLocation,
+    ID.xmpCity,
+    ID.iptcCity,
+    ID.xmpState,
+    ID.iptcProvinceState,
+    ID.xmpCountry,
+    ID.iptcCountryName,
+    ID.xmpCountryCode,
+    ID.iptcCountryCode,
   ],
   dates: [
-    "ExifIFD:DateTimeOriginal",
-    "XMP-photoshop:DateCreated",
-    "IPTC:DateCreated",
-    "IPTC:TimeCreated",
-    "ExifIFD:CreateDate",
-    "XMP-xmp:CreateDate",
-    "IPTC:DigitalCreationDate",
-    "IPTC:DigitalCreationTime",
+    ID.dateTimeOriginal,
+    ID.xmpDateCreated,
+    ID.iptcDateCreated,
+    ID.iptcTimeCreated,
+    ID.createDate,
+    ID.xmpCreateDate,
+    ID.iptcDigitalCreationDate,
+    ID.iptcDigitalCreationTime,
   ],
 };
 
 /** Flat union of every group's target tags. */
-export const NORMALISE_ALL_TARGET_TAGS: readonly string[] = Object.values(
-  NORMALISE_TARGET_TAGS_BY_GROUP,
-).flat();
+export const NORMALISE_ALL_TARGET_TAGS: readonly SchemaDefinitionId[] =
+  Object.values(NORMALISE_TARGET_TAGS_BY_GROUP).flat();
 
 /**
  * Every NormaliseGroup the v1 dialog exposes, in the pass order
@@ -848,17 +890,17 @@ export const ALL_NORMALISE_GROUPS: readonly NormaliseGroup[] = [
   "headline",
 ];
 
-export const GEOCODE_TARGET_TAGS: readonly string[] = [
-  "XMP-iptcCore:Location",
-  "XMP-photoshop:City",
-  "XMP-photoshop:State",
-  "XMP-photoshop:Country",
-  "XMP-iptcCore:CountryCode",
-  "IPTC:Sub-location",
-  "IPTC:City",
-  "IPTC:Province-State",
-  "IPTC:Country-PrimaryLocationName",
-  "IPTC:Country-PrimaryLocationCode",
+export const GEOCODE_TARGET_TAGS: readonly SchemaDefinitionId[] = [
+  ID.xmpLocation,
+  ID.xmpCity,
+  ID.xmpState,
+  ID.xmpCountry,
+  ID.xmpCountryCode,
+  ID.iptcSubLocation,
+  ID.iptcCity,
+  ID.iptcProvinceState,
+  ID.iptcCountryName,
+  ID.iptcCountryCode,
 ] as const;
 
 export type GeocodePhase = "awaiting-confirm" | "running" | "done";
@@ -905,7 +947,7 @@ export interface GeocodeProgressState {
 }
 
 export interface TagOutcomeEntry {
-  tag: string;
+  id: SchemaDefinitionId;
   kind: string;
   sent: MetadataValue | null;
   before: MetadataValue | null;
@@ -924,7 +966,7 @@ export interface ImageMetadataReadyPayload {
   scan_id: number;
   results: {
     relative_path: string;
-    metadata: Record<string, ImageMetadataEntry>;
+    metadata: import("./types/generated/MetadataEntry").MetadataEntry[];
   }[];
 }
 
@@ -956,7 +998,8 @@ export interface ApplyEditsProgressPayload {
   applied: boolean;
   error: string | null;
   warning?: string | null;
-  fresh_metadata: Record<string, MetadataValue> | null;
+  fresh_metadata:
+    import("./types/generated/MetadataEntry").MetadataEntry[] | null;
   /**
    * Per-tag verification outcomes (Phase 8.1).  The Rust side prunes
    * Match/DeleteOk drafts on its own; the frontend mirrors those drops

@@ -4,19 +4,25 @@
  * Kept free of React + Tauri so the hook stays a thin orchestrator and
  * these bits can be unit-tested without a render harness.
  */
-import type { MetadataValue } from "../types";
+import type {
+  MetadataEntry,
+  MetadataValue,
+  SchemaDefinitionId,
+} from "../types";
+import {
+  metadataCollection,
+  type MetadataCollection,
+} from "./metadataCollection";
 
-export function normalizeMetadataFromTauri(
-  raw: unknown,
-): Record<string, MetadataValue> {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+export function normalizeMetadataFromTauri(raw: unknown): MetadataCollection {
+  if (!Array.isArray(raw)) return {};
 
-  const out: Record<string, MetadataValue> = {};
+  const out: MetadataEntry[] = [];
   let dropped = 0;
 
-  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
-    if (isMetadataValue(value)) {
-      out[key] = value;
+  for (const entry of raw) {
+    if (isMetadataEntry(entry)) {
+      out.push(entry);
     } else {
       dropped += 1;
     }
@@ -28,7 +34,26 @@ export function normalizeMetadataFromTauri(
     );
   }
 
-  return out;
+  return metadataCollection(out);
+}
+
+function isMetadataEntry(value: unknown): value is MetadataEntry {
+  return (
+    isRecord(value) &&
+    isSchemaDefinitionId(value.id) &&
+    isMetadataValue(value.value)
+  );
+}
+
+function isSchemaDefinitionId(value: unknown): value is SchemaDefinitionId {
+  return (
+    isRecord(value) &&
+    typeof value.table === "string" &&
+    typeof value.tag_id === "string" &&
+    (value.index === undefined ||
+      value.index === null ||
+      (typeof value.index === "number" && Number.isInteger(value.index)))
+  );
 }
 
 function isMetadataValue(value: unknown): value is MetadataValue {

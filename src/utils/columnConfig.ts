@@ -1,19 +1,22 @@
 import type { SortConfig, SortKey, VisibleColumn } from "../types";
+import { KNOWN_METADATA_IDS } from "../metadata/knownIds";
+
+const COLUMN_CONFIG_VERSION = 2;
 
 export const COLUMN_CONFIG_KEY = "media_library_columns_config";
 
 export const DEFAULT_VISIBLE_COLUMNS: VisibleColumn[] = [
   { key: "date_modified", kind: "os" },
   { key: "date_created", kind: "os" },
-  { key: "ExifIFD:DateTimeOriginal", kind: "image" },
-  { key: "XMP-dc:Description", kind: "image" },
-  { key: "XMP-dc:Subject", kind: "image" },
-  { key: "GPS:GPSLatitude", kind: "image" },
-  { key: "GPS:GPSLongitude", kind: "image" },
-  { key: "XMP-iptcCore:Location", kind: "image" },
-  { key: "XMP-photoshop:City", kind: "image" },
-  { key: "XMP-photoshop:State", kind: "image" },
-  { key: "XMP-photoshop:Country", kind: "image" },
+  { id: KNOWN_METADATA_IDS.dateTimeOriginal, kind: "image" },
+  { id: KNOWN_METADATA_IDS.xmpDescription, kind: "image" },
+  { id: KNOWN_METADATA_IDS.xmpSubject, kind: "image" },
+  { id: KNOWN_METADATA_IDS.gpsLatitude, kind: "image" },
+  { id: KNOWN_METADATA_IDS.gpsLongitude, kind: "image" },
+  { id: KNOWN_METADATA_IDS.xmpLocation, kind: "image" },
+  { id: KNOWN_METADATA_IDS.xmpCity, kind: "image" },
+  { id: KNOWN_METADATA_IDS.xmpState, kind: "image" },
+  { id: KNOWN_METADATA_IDS.xmpCountry, kind: "image" },
 ];
 
 export const OS_COLUMN_KEYS = ["date_modified", "date_created"] as const;
@@ -29,10 +32,22 @@ export interface ColumnConfig {
   columnWidths: Record<string, number>;
 }
 
+function isSchemaDefinitionId(v: unknown): boolean {
+  if (!v || typeof v !== "object") return false;
+  const id = v as Record<string, unknown>;
+  return (
+    typeof id.table === "string" &&
+    typeof id.tag_id === "string" &&
+    (id.index === undefined || Number.isInteger(id.index))
+  );
+}
+
 function isVisibleColumn(v: unknown): v is VisibleColumn {
   if (!v || typeof v !== "object") return false;
   const c = v as Record<string, unknown>;
-  return typeof c.key === "string" && (c.kind === "os" || c.kind === "image");
+  return c.kind === "os"
+    ? c.key === "date_modified" || c.key === "date_created"
+    : c.kind === "image" && isSchemaDefinitionId(c.id);
 }
 
 function isVisibleColumnArray(v: unknown): v is VisibleColumn[] {
@@ -43,11 +58,11 @@ function isValidSortKey(v: unknown): v is SortKey {
   if (!v || typeof v !== "object") return false;
   const k = v as Record<string, unknown>;
   return (
-    typeof k.column === "string" &&
-    (k.columnType === "path" ||
-      k.columnType === "os" ||
-      k.columnType === "image") &&
-    (k.direction === "asc" || k.direction === "desc")
+    (k.direction === "asc" || k.direction === "desc") &&
+    (k.kind === "path" ||
+      (k.kind === "os" &&
+        (k.key === "date_modified" || k.key === "date_created")) ||
+      (k.kind === "image" && isSchemaDefinitionId(k.id)))
   );
 }
 
@@ -81,9 +96,45 @@ export function loadColumnConfig(): ColumnConfig {
     if (!raw) return defaultConfig();
 
     const parsed = JSON.parse(raw) as Record<string, unknown>;
-    if (!isVisibleColumnArray(parsed.visibleColumns)) {
-      // Old shape (string[] + visibleOSColumns) or otherwise corrupt — reset.
-      return defaultConfig();
+    if (
+      parsed.version !== COLUMN_CONFIG_VERSION ||
+      !isVisibleColumnArray(parsed.visibleColumns)
+    ) {
+      // Legacy image keys were ambiguous. Preserve only safe OS columns/widths.
+      const legacyColumns = Array.isArray(parsed.visibleColumns)
+        ? parsed.visibleColumns.filter(
+            (
+              value,
+            ): value is { kind: "os"; key: "date_modified" | "date_created" } =>
+              !!value &&
+              typeof value === "object" &&
+              (value as { kind?: unknown }).kind === "os" &&
+              ((value as { key?: unknown }).key === "date_modified" ||
+                (value as { key?: unknown }).key === "date_created"),
+          )
+        : [];
+      const fallback = defaultConfig();
+      return {
+        ...fallback,
+        visibleColumns:
+          legacyColumns.length > 0
+            ? [
+                ...legacyColumns,
+                ...fallback.visibleColumns.filter((c) => c.kind === "image"),
+              ]
+            : fallback.visibleColumns,
+        columnWidths: isValidColumnWidths(parsed.columnWidths)
+          ? Object.fromEntries(
+              Object.entries(parsed.columnWidths).filter(
+                ([key]) =>
+                  key === "relative_path" ||
+                  OS_COLUMN_KEYS.includes(
+                    key as (typeof OS_COLUMN_KEYS)[number],
+                  ),
+              ),
+            )
+          : {},
+      };
     }
     return {
       visibleColumns: parsed.visibleColumns,
@@ -101,7 +152,13 @@ export function loadColumnConfig(): ColumnConfig {
 
 export function saveColumnConfig(config: ColumnConfig): void {
   try {
-    localStorage.setItem(COLUMN_CONFIG_KEY, JSON.stringify(config));
+    localStorage.setItem(
+      COLUMN_CONFIG_KEY,
+      JSON.stringify({
+        version: COLUMN_CONFIG_VERSION,
+        ...config,
+      }),
+    );
   } catch {
     // localStorage may be unavailable (e.g. in tests) — silently ignore
   }

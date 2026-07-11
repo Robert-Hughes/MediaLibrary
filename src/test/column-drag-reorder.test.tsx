@@ -1,8 +1,10 @@
 import { render, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
-import { PhotoList } from "../components/PhotoList";
+import { PhotoList } from "./legacyAdapters";
 import { ThumbnailStore, ImageMetadataStore } from "../types";
-import type { PhotoInfo, VisibleColumn } from "../types";
+import type { PhotoInfo } from "../types";
+
+type VisibleColumn = { key: string; kind: "os" | "image" };
 
 const BEFORE = -1;
 const AFTER = 1;

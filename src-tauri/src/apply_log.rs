@@ -13,8 +13,10 @@
 //! See `docs/METADATA_FORMATS_DESIGN.md` §6.
 
 use crate::apply_edits::MetadataTagOutcome;
-use crate::draft_edits::{EditIntent, MetadataDraftEdit};
+use crate::draft_edits::{EditIntent, MetadataDraftEntry};
 use crate::metadata_value::MetadataValue;
+use crate::scanner::MetadataMap;
+use crate::tag_schema::SchemaDefinitionId;
 use serde::Serialize;
 use std::fs::OpenOptions;
 use std::io::Write;
@@ -28,16 +30,17 @@ const LOG_FILE_NAME: &str = "MediaLibraryApplyLog.jsonl";
 ///    v2 readers see the new field as ignorable.
 ///  - 5: canonical-only metadata values; display/raw semantic fields removed.
 ///  - 6: added `write_diagnostic` field to capture ExifTool errors/warnings.
-const SEMANTIC_LOG_SCHEMA_VERSION: u32 = 6;
+const SEMANTIC_LOG_SCHEMA_VERSION: u32 = 7;
 const HEADER_COMMENT: &str =
-    "// Apply-edits audit log. Append-only. Each line is one tag's outcome from one apply. schema_version=6.";
+    "// Apply-edits audit log. Append-only. Each line is one tag's outcome from one apply. schema_version=7.";
 
 #[derive(Serialize)]
 struct MetadataApplyLogEntry<'a> {
     schema_version: u32,
     timestamp: String,
     relative_path: &'a str,
-    tag: &'a str,
+    id: &'a SchemaDefinitionId,
+    display_name: &'a str,
     intent: &'a EditIntent,
     /// The intended semantic value sent to exiftool.
     intended_value: &'a Option<MetadataValue>,
@@ -61,10 +64,10 @@ struct MetadataApplyLogEntry<'a> {
 pub fn append_metadata_entries(
     folder_path: &str,
     relative_path: &str,
-    edits: &std::collections::HashMap<String, MetadataDraftEdit>,
-    argv_by_tag: &std::collections::HashMap<String, Vec<String>>,
-    before_metadata: &std::collections::HashMap<String, MetadataValue>,
-    observed_metadata: &std::collections::HashMap<String, MetadataValue>,
+    edits: &[MetadataDraftEntry],
+    argv_by_tag: &std::collections::BTreeMap<SchemaDefinitionId, Vec<String>>,
+    before_metadata: &MetadataMap,
+    observed_metadata: &MetadataMap,
     tag_outcomes: &[MetadataTagOutcome],
     before_read_failed: bool,
     write_diagnostic: Option<&str>,
@@ -86,28 +89,31 @@ pub fn append_metadata_entries(
     }
 
     let timestamp = chrono_like_iso();
-    let outcome_by_tag: std::collections::HashMap<&str, &MetadataTagOutcome> =
-        tag_outcomes.iter().map(|o| (o.tag.as_str(), o)).collect();
+    let outcome_by_tag: std::collections::BTreeMap<&SchemaDefinitionId, &MetadataTagOutcome> =
+        tag_outcomes.iter().map(|o| (&o.id, o)).collect();
 
     let empty_argv: Vec<String> = Vec::new();
-    for (tag, edit) in edits {
-        let argv = argv_by_tag.get(tag).unwrap_or(&empty_argv);
-        let (outcome, note) = match outcome_by_tag.get(tag.as_str()) {
-            Some(o) => (o.kind.as_str(), o.message.as_deref()),
-            None => ("Match", None),
+    for edit_entry in edits {
+        let id = &edit_entry.id;
+        let edit = &edit_entry.edit;
+        let argv = argv_by_tag.get(id).unwrap_or(&empty_argv);
+        let (outcome, note, display_name) = match outcome_by_tag.get(id) {
+            Some(o) => (o.kind.as_str(), o.message.as_deref(), o.display_name.as_str()),
+            None => ("Match", None, "<unknown>"),
         };
 
         let entry = MetadataApplyLogEntry {
             schema_version: SEMANTIC_LOG_SCHEMA_VERSION,
             timestamp: timestamp.clone(),
             relative_path,
-            tag,
+            id,
+            display_name,
             intent: &edit.intent,
             intended_value: &edit.value,
             argv,
-            before: before_metadata.get(tag),
+            before: before_metadata.get(id),
             before_read_failed,
-            observed: observed_metadata.get(tag),
+            observed: observed_metadata.get(id),
             outcome,
             note,
             write_diagnostic,
@@ -122,7 +128,7 @@ pub fn append_metadata_entries(
                     return;
                 }
             }
-            Err(e) => log::warn!("[apply_log] serialise error for tag {}: {}", tag, e),
+            Err(e) => log::warn!("[apply_log] serialise error for id {:?}: {}", id, e),
         }
     }
 }
@@ -166,7 +172,8 @@ fn days_to_ymd(days: i64) -> (i32, u32, u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
+    use crate::draft_edits::MetadataDraftEdit;
+    use std::collections::BTreeMap;
     use tempfile::tempdir;
 
     #[test]
@@ -191,8 +198,10 @@ mod tests {
     }
 
     fn metadata_outcome(tag: &str, kind: &str) -> MetadataTagOutcome {
+        let id = SchemaDefinitionId { table: "Test::Log".into(), tag_id: tag.into(), index: None };
         MetadataTagOutcome {
-            tag: tag.to_string(),
+            id,
+            display_name: tag.to_string(),
             kind: kind.to_string(),
             sent: None,
             before: None,
@@ -206,10 +215,10 @@ mod tests {
         let dir = tempdir().unwrap();
         let folder = dir.path().to_str().unwrap();
 
-        let mut edits: HashMap<String, MetadataDraftEdit> = HashMap::new();
-        edits.insert(
-            "IPTC:TimeCreated".to_string(),
-            MetadataDraftEdit {
+        let id = SchemaDefinitionId { table: "IPTC::ApplicationRecord".into(), tag_id: "60".into(), index: None };
+        let edits = vec![MetadataDraftEntry {
+            id: id.clone(),
+            edit: MetadataDraftEdit {
                 value: Some(MetadataValue::Time(crate::metadata_value::TimeValue {
                     hour: 10,
                     minute: 56,
@@ -220,22 +229,22 @@ mod tests {
                 intent: EditIntent::Set,
                 display: None,
             },
-        );
+        }];
 
-        let mut argv: HashMap<String, Vec<String>> = HashMap::new();
+        let mut argv = BTreeMap::new();
         argv.insert(
-            "IPTC:TimeCreated".to_string(),
+            id.clone(),
             vec!["-IPTC:TimeCreated=10:56:05".into()],
         );
 
-        let mut before: HashMap<String, MetadataValue> = HashMap::new();
+        let mut before = BTreeMap::new();
         before.insert(
-            "IPTC:TimeCreated".to_string(),
+            id.clone(),
             MetadataValue::Text("old".into()),
         );
-        let mut after: HashMap<String, MetadataValue> = HashMap::new();
+        let mut after = BTreeMap::new();
         after.insert(
-            "IPTC:TimeCreated".to_string(),
+            id,
             MetadataValue::Time(crate::metadata_value::TimeValue {
                 hour: 10,
                 minute: 56,
@@ -261,7 +270,7 @@ mod tests {
         let lines: Vec<&str> = contents.lines().collect();
         assert_eq!(lines.len(), 2, "expected header + one semantic entry");
         let entry: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
-        assert_eq!(entry["schema_version"], 6);
+        assert_eq!(entry["schema_version"], 7);
         assert_eq!(entry["intended_value"]["kind"], "Time");
         assert_eq!(
             entry["intended_value"]["value"]["offset"],
@@ -276,21 +285,18 @@ mod tests {
     fn append_entries_is_append_only_no_header_on_second_apply() {
         let dir = tempdir().unwrap();
         let folder = dir.path().to_str().unwrap();
-        let edits: HashMap<String, MetadataDraftEdit> = {
-            let mut m = HashMap::new();
-            m.insert(
-                "Tag".to_string(),
-                MetadataDraftEdit {
+        let id = SchemaDefinitionId { table: "Test::Log".into(), tag_id: "Tag".into(), index: None };
+        let edits = vec![MetadataDraftEntry {
+                id,
+                edit: MetadataDraftEdit {
                     value: Some(MetadataValue::Integer(1)),
                     intent: EditIntent::Set,
                     display: None,
                 },
-            );
-            m
-        };
-        let argv = HashMap::new();
-        let before = HashMap::new();
-        let after = HashMap::new();
+            }];
+        let argv = BTreeMap::new();
+        let before = BTreeMap::new();
+        let after = BTreeMap::new();
         let outcomes = vec![metadata_outcome("Tag", "Match")];
 
         append_metadata_entries(

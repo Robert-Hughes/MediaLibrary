@@ -1,6 +1,7 @@
 // ── Metadata display helpers ─────────────────────────────────────────────
 
-import type { ImageMetadataEntry, MetadataValue, TagInfo } from "./types";
+import type { MetadataValue, SchemaDefinitionId, TagInfo } from "./types";
+import { GPS_IDS, KNOWN_METADATA_IDS, isKnownId } from "./metadata/knownIds";
 
 export function displayStringOfMetadataDraft(
   d: import("./types").MetadataDraftEdit | undefined,
@@ -13,7 +14,7 @@ export function displayStringOfMetadataDraft(
 
 /** Stringify a MetadataValue for the `string | null` display path. */
 export function metadataEntryToDisplayString(
-  v: ImageMetadataEntry | null | undefined,
+  v: MetadataValue | null | undefined,
 ): string {
   return metadataValueToDisplayString(v);
 }
@@ -113,14 +114,14 @@ export function metadataValueToDiagnosticString(
 }
 
 export function metadataValueToDisplayStringForTag(
-  key: string,
+  id: SchemaDefinitionId,
   v: MetadataValue | null | undefined,
   tagInfo?: TagInfo | null,
 ): string {
   const enumLabel = enumLabelFromSchema(v, tagInfo);
   if (enumLabel !== null) return enumLabel;
 
-  const tagFormatted = formatKnownPhotoTag(key, v);
+  const tagFormatted = formatKnownPhotoTag(id, v);
   if (tagFormatted !== null) return tagFormatted;
 
   return metadataValueToDisplayString(v);
@@ -140,30 +141,44 @@ function enumLabelFromSchema(
 }
 
 function formatKnownPhotoTag(
-  key: string,
+  id: SchemaDefinitionId,
   v: MetadataValue | null | undefined,
 ): string | null {
-  if (/^[\w-]+:GPSLatitude$/.test(key) || /^[\w-]+:GPSLongitude$/.test(key)) {
+  if (
+    [
+      GPS_IDS.latitude,
+      GPS_IDS.longitude,
+      KNOWN_METADATA_IDS.compositeGpsLatitude,
+      KNOWN_METADATA_IDS.compositeGpsLongitude,
+    ].some((known) => isKnownId(id, known))
+  ) {
     return formatGpsCoordinate(v);
   }
-  if (/^[\w-]+:GPSAltitude$/.test(key)) {
+  if (isKnownId(id, GPS_IDS.altitude)) {
     return formatGpsAltitude(v);
   }
 
-  switch (key) {
-    case "ExifIFD:ExposureTime":
-    case "Composite:ShutterSpeed":
-      return formatExposureTime(v);
-    case "ExifIFD:FNumber":
-    case "Composite:Aperture":
-      return formatAperture(v);
-    case "ExifIFD:FocalLength":
-    case "Composite:FocalLength":
-    case "Composite:FocalLength35efl":
-      return formatFocalLength(v);
-    default:
-      return null;
-  }
+  if (
+    [
+      KNOWN_METADATA_IDS.exposureTime,
+      KNOWN_METADATA_IDS.compositeShutterSpeed,
+    ].some((known) => isKnownId(id, known))
+  )
+    return formatExposureTime(v);
+  if (
+    [KNOWN_METADATA_IDS.fNumber, KNOWN_METADATA_IDS.compositeAperture].some(
+      (known) => isKnownId(id, known),
+    )
+  )
+    return formatAperture(v);
+  if (
+    [
+      KNOWN_METADATA_IDS.focalLength,
+      KNOWN_METADATA_IDS.compositeFocalLength35efl,
+    ].some((known) => isKnownId(id, known))
+  )
+    return formatFocalLength(v);
+  return null;
 }
 
 function formatExposureTime(

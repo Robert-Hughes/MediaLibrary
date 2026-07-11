@@ -9,7 +9,7 @@ import {
   createApplyEditsProgressGate,
   createMockTauriApi,
 } from "./mockTauriApi";
-import { makePhoto } from "./factories";
+import { makePhoto, mockDraftsByFile } from "./factories";
 
 let mockApiInstance: ReturnType<typeof createMockTauriApi>;
 
@@ -80,14 +80,14 @@ async function openFolderWithPhotos(photos: ReturnType<typeof makePhoto>[]) {
 }
 
 async function seedDraftEdit(photo: ReturnType<typeof makePhoto>) {
-  mockApiInstance.draftEditsByFolder["/photos"] = {
+  mockApiInstance.draftEditsByFolder["/photos"] = mockDraftsByFile({
     [photo.relative_path]: {
       "XMP-dc:Description": {
         value: { kind: "Text", value: "Draft value" },
         intent: "Set",
       },
     },
-  };
+  });
 }
 
 describe("Apply Draft Edits – MenuBar", () => {
@@ -136,9 +136,12 @@ describe("Apply Draft Edits – MenuBar", () => {
       applied: [photo.relative_path],
       failed: [],
       fresh_metadata: {
-        [photo.relative_path]: {
-          "XMP-dc:Description": { kind: "Text", value: "Draft value" },
-        },
+        [photo.relative_path]: [
+          {
+            id: { table: "XMP::dc", tag_id: "description" },
+            value: { kind: "Text", value: "Draft value" },
+          },
+        ],
       },
     };
 
@@ -367,16 +370,18 @@ describe("Apply Draft Edits – Progress dialog and cancellation", () => {
     const photos = ["a.jpg", "b.jpg", "c.jpg"].map((relative_path) =>
       makePhoto({ relative_path }),
     );
-    mockApiInstance.draftEditsByFolder["/photos"] = Object.fromEntries(
-      photos.map((photo) => [
-        photo.relative_path,
-        {
-          "XMP-dc:Description": {
-            value: { kind: "Text", value: `Draft ${photo.relative_path}` },
-            intent: "Set",
+    mockApiInstance.draftEditsByFolder["/photos"] = mockDraftsByFile(
+      Object.fromEntries(
+        photos.map((photo) => [
+          photo.relative_path,
+          {
+            "XMP-dc:Description": {
+              value: { kind: "Text", value: `Draft ${photo.relative_path}` },
+              intent: "Set",
+            },
           },
-        },
-      ]),
+        ]),
+      ),
     );
     mockApiInstance.applyEditsResult = {
       applied: photos.map((photo) => photo.relative_path),
@@ -433,16 +438,18 @@ describe("Apply Draft Edits – Progress dialog and cancellation", () => {
     const photos = ["a.jpg", "b.jpg"].map((relative_path) =>
       makePhoto({ relative_path }),
     );
-    mockApiInstance.draftEditsByFolder["/photos"] = Object.fromEntries(
-      photos.map((photo) => [
-        photo.relative_path,
-        {
-          "XMP-dc:Description": {
-            value: { kind: "Text", value: `Draft ${photo.relative_path}` },
-            intent: "Set",
+    mockApiInstance.draftEditsByFolder["/photos"] = mockDraftsByFile(
+      Object.fromEntries(
+        photos.map((photo) => [
+          photo.relative_path,
+          {
+            "XMP-dc:Description": {
+              value: { kind: "Text", value: `Draft ${photo.relative_path}` },
+              intent: "Set",
+            },
           },
-        },
-      ]),
+        ]),
+      ),
     );
     mockApiInstance.applyEditsResult = {
       applied: photos.map((photo) => photo.relative_path),
@@ -492,12 +499,18 @@ describe("Apply Draft Edits – Progress dialog and cancellation", () => {
       applied: ["a.jpg", "b.jpg"],
       failed: [],
       fresh_metadata: {
-        "a.jpg": {
-          "XMP-dc:Description": { kind: "Text", value: "Applied A" },
-        },
-        "b.jpg": {
-          "XMP-dc:Description": { kind: "Text", value: "Applied B" },
-        },
+        "a.jpg": [
+          {
+            id: { table: "XMP::dc", tag_id: "description" },
+            value: { kind: "Text", value: "Applied A" },
+          },
+        ],
+        "b.jpg": [
+          {
+            id: { table: "XMP::dc", tag_id: "description" },
+            value: { kind: "Text", value: "Applied B" },
+          },
+        ],
       },
     };
 
@@ -519,9 +532,12 @@ describe("Apply Draft Edits – Progress dialog and cancellation", () => {
       applied: ["a.jpg"],
       failed: [],
       fresh_metadata: {
-        "a.jpg": {
-          "XMP-dc:Description": { kind: "Text", value: "Applied A" },
-        },
+        "a.jpg": [
+          {
+            id: { table: "XMP::dc", tag_id: "description" },
+            value: { kind: "Text", value: "Applied A" },
+          },
+        ],
       },
     });
   });
@@ -535,9 +551,12 @@ describe("Apply Draft Edits – Progress dialog and cancellation", () => {
       applied: [photo.relative_path],
       failed: [],
       fresh_metadata: {
-        [photo.relative_path]: {
-          "XMP-dc:Description": { kind: "Text", value: "Applied value" },
-        },
+        [photo.relative_path]: [
+          {
+            id: { table: "XMP::dc", tag_id: "description" },
+            value: { kind: "Text", value: "Applied value" },
+          },
+        ],
       },
     };
 
@@ -593,7 +612,7 @@ describe("Apply Draft Edits – Failure handling", () => {
     const photo1 = makePhoto({ relative_path: "a.jpg" });
     const photo2 = makePhoto({ relative_path: "b.jpg" });
 
-    mockApiInstance.draftEditsByFolder["/photos"] = {
+    mockApiInstance.draftEditsByFolder["/photos"] = mockDraftsByFile({
       "a.jpg": {
         "XMP-dc:Description": {
           value: { kind: "Text", value: "Draft A" },
@@ -606,7 +625,7 @@ describe("Apply Draft Edits – Failure handling", () => {
           intent: "Set",
         },
       },
-    };
+    });
     mockApiInstance.applyEditsResult = {
       applied: ["a.jpg"],
       failed: [{ relative_path: "b.jpg", reason: "File not found" }],
@@ -665,9 +684,12 @@ describe("Apply Draft Edits – Warning and Success-with-Warning handling", () =
       applied: [photo.relative_path],
       failed: [],
       fresh_metadata: {
-        [photo.relative_path]: {
-          "XMP-dc:Description": { kind: "Text", value: "Applied value" },
-        },
+        [photo.relative_path]: [
+          {
+            id: { table: "XMP::dc", tag_id: "description" },
+            value: { kind: "Text", value: "Applied value" },
+          },
+        ],
       },
     };
     mockApiInstance.warningsByPath = {
@@ -717,7 +739,7 @@ describe("Apply Draft Edits – Warning and Success-with-Warning handling", () =
     const photo2 = makePhoto({ relative_path: "b.jpg" });
     const photo3 = makePhoto({ relative_path: "c.jpg" });
 
-    mockApiInstance.draftEditsByFolder["/photos"] = {
+    mockApiInstance.draftEditsByFolder["/photos"] = mockDraftsByFile({
       "a.jpg": {
         "XMP-dc:Description": {
           value: { kind: "Text", value: "Draft A" },
@@ -736,7 +758,7 @@ describe("Apply Draft Edits – Warning and Success-with-Warning handling", () =
           intent: "Set",
         },
       },
-    };
+    });
 
     // a.jpg: success with warning
     // b.jpg: error

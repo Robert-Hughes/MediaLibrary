@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { describe, it, expect } from "vitest";
-import { PhotoList } from "../components/PhotoList";
+import { PhotoList } from "./legacyAdapters";
 import { ThumbnailStore, ImageMetadataStore } from "../types";
 import type { PhotoInfo, VisibleColumn } from "../types";
 

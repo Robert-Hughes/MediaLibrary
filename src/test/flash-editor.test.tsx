@@ -9,6 +9,7 @@ import {
   describeFlashCode,
 } from "../components/editors/editorHelpers";
 import { isFlashTag } from "../metadata/tag_overrides";
+import { testId } from "./factories";
 
 beforeEach(() => cleanup());
 
@@ -142,16 +143,13 @@ describe("describeFlashCode", () => {
 });
 
 describe("isFlashTag", () => {
-  it("matches common group prefixes", () => {
-    expect(isFlashTag("EXIF:Flash")).toBe(true);
-    expect(isFlashTag("IFD0:Flash")).toBe(true);
-    expect(isFlashTag("MakerNotes:Flash")).toBe(true);
-    expect(isFlashTag("XMP-exif:Flash")).toBe(true);
+  it("matches the exact EXIF Flash schema definition", () => {
+    expect(isFlashTag(testId("EXIF:Flash"))).toBe(true);
   });
 
   it("does not match unrelated tags", () => {
-    expect(isFlashTag("FlashMode")).toBe(false);
-    expect(isFlashTag("EXIF:FlashCompensation")).toBe(false);
-    expect(isFlashTag("Flash")).toBe(false);
+    expect(isFlashTag(testId("FlashMode"))).toBe(false);
+    expect(isFlashTag(testId("EXIF:FlashCompensation"))).toBe(false);
+    expect(isFlashTag(testId("Flash"))).toBe(false);
   });
 });

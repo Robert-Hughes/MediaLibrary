@@ -5,12 +5,13 @@
 //! are used only as a local comparison/projection hint.
 
 use super::{DatesInput, GroupOutput};
-use crate::draft_edits::{EditIntent, MetadataDraftEdit};
+use crate::draft_edits::{EditIntent, MetadataDraftEdit, MetadataDraftMap};
+use crate::known_ids;
+use crate::tag_schema::SchemaDefinitionId;
 use crate::metadata_value::{
     DateTimeValue, DateValue, MetadataValue, OffsetSign, TimeValue, UtcOffsetValue,
 };
 use chrono::Offset;
-use std::collections::HashMap;
 use std::sync::OnceLock;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -311,7 +312,7 @@ fn has_non_empty_value(value: Option<&MetadataValue>) -> bool {
 
 #[derive(Debug, Clone, Default)]
 struct DateSubgroupResult {
-    edits: HashMap<String, MetadataDraftEdit>,
+    edits: MetadataDraftMap,
     conflict: bool,
 }
 
@@ -321,10 +322,10 @@ fn process_date_subgroup(
     existing_xmp: Option<&ComparableTimestamp>,
     existing_iptc: Option<&ComparableTimestamp>,
     canonical_override: Option<&ComparableTimestamp>,
-    exif_target_key: &str,
-    xmp_target_key: &str,
-    iptc_date_key: &str,
-    iptc_time_key: &str,
+    exif_target_id: SchemaDefinitionId,
+    xmp_target_id: SchemaDefinitionId,
+    iptc_date_id: SchemaDefinitionId,
+    iptc_time_id: SchemaDefinitionId,
     iptc_fallback_offset: Option<&UtcOffsetValue>,
 ) -> DateSubgroupResult {
     let mut conflict = false;
@@ -350,13 +351,13 @@ fn process_date_subgroup(
         return DateSubgroupResult::default();
     };
 
-    let mut edits = HashMap::new();
+    let mut edits = MetadataDraftMap::new();
     if existing_exif
         .map(|v| v.compare_for_dates_normaliser(&canonical) == TimestampComparison::Equivalent)
         != Some(true)
     {
         edits.insert(
-            exif_target_key.to_string(),
+            exif_target_id,
             set_edit(MetadataValue::DateTime(canonical.without_inline_offset())),
         );
     }
@@ -365,7 +366,7 @@ fn process_date_subgroup(
         != Some(true)
     {
         edits.insert(
-            xmp_target_key.to_string(),
+            xmp_target_id,
             set_edit(MetadataValue::DateTime(canonical.with_effective_offset())),
         );
     }
@@ -381,11 +382,11 @@ fn process_date_subgroup(
     }) == Some(true);
     if !iptc_matches {
         edits.insert(
-            iptc_date_key.to_string(),
+            iptc_date_id,
             set_edit(MetadataValue::Date(canonical.date())),
         );
         edits.insert(
-            iptc_time_key.to_string(),
+            iptc_time_id,
             set_edit(MetadataValue::Time(iptc_time)),
         );
     }
@@ -506,7 +507,7 @@ fn normalise_dates_inner(
     input: &DatesInput,
     iptc_fallback_offset: Option<UtcOffsetValue>,
 ) -> DatesOutcome {
-    let mut edits: HashMap<String, MetadataDraftEdit> = HashMap::new();
+    let mut edits = MetadataDraftMap::new();
     let mut n_conflict = 0;
     let mut n_unparseable = 0;
     let mut n_from_filename = 0;
@@ -558,10 +559,10 @@ fn normalise_dates_inner(
         xmp_h1.as_ref(),
         iptc_h1.as_ref(),
         canonical_override.as_ref(),
-        "ExifIFD:DateTimeOriginal",
-        "XMP-photoshop:DateCreated",
-        "IPTC:DateCreated",
-        "IPTC:TimeCreated",
+        known_ids::date_time_original(),
+        known_ids::xmp_date_created(),
+        known_ids::iptc_date_created(),
+        known_ids::iptc_time_created(),
         iptc_fallback_offset.as_ref(),
     );
     if h1.conflict {
@@ -598,10 +599,10 @@ fn normalise_dates_inner(
         xmp_h2.as_ref(),
         iptc_h2.as_ref(),
         None,
-        "ExifIFD:CreateDate",
-        "XMP-xmp:CreateDate",
-        "IPTC:DigitalCreationDate",
-        "IPTC:DigitalCreationTime",
+        known_ids::create_date(),
+        known_ids::xmp_create_date(),
+        known_ids::iptc_digital_creation_date(),
+        known_ids::iptc_digital_creation_time(),
         iptc_fallback_offset.as_ref(),
     );
     if h2.conflict {
@@ -674,7 +675,12 @@ mod tests {
     }
 
     fn edit_value<'a>(g: &'a GroupOutput, k: &str) -> &'a MetadataValue {
-        g.edits.get(k).unwrap().value.as_ref().unwrap()
+        g.edits
+            .get(&crate::known_ids::test_id(k))
+            .unwrap()
+            .value
+            .as_ref()
+            .unwrap()
     }
 
     fn display(v: &MetadataValue) -> String {
@@ -707,7 +713,7 @@ mod tests {
         let out = normalise_dates_with_fallback_offset(&input, None)
             .output
             .unwrap();
-        assert!(!out.edits.contains_key("ExifIFD:DateTimeOriginal"));
+        assert!(!out.edits.contains_key(&crate::known_ids::date_time_original()));
         assert_eq!(
             display(edit_value(&out, "XMP-photoshop:DateCreated")),
             "2024-06-15T14:30:45"
@@ -803,7 +809,7 @@ mod tests {
         let out = normalise_dates_with_fallback_offset(&input, Some(off(1)));
         let edits = out.output.unwrap().edits;
         assert!(
-            !edits.contains_key("IPTC:TimeCreated"),
+            !edits.contains_key(&crate::known_ids::iptc_time_created()),
             "must preserve existing IPTC offset: {:?}",
             edits
         );
@@ -888,7 +894,7 @@ mod tests {
         let out = normalise_dates_with_fallback_offset(&input, Some(off(1)));
         let edits = out.output.unwrap().edits;
         assert!(
-            !edits.contains_key("IPTC:DigitalCreationTime"),
+            !edits.contains_key(&crate::known_ids::iptc_digital_creation_time()),
             "must preserve existing IPTC digital creation offset: {:?}",
             edits
         );
@@ -904,8 +910,8 @@ mod tests {
         let out = normalise_dates_with_fallback_offset(&input, None)
             .output
             .unwrap();
-        assert!(!out.edits.contains_key("ExifIFD:OffsetTimeOriginal"));
-        assert!(!out.edits.contains_key("ExifIFD:DateTimeOriginal"));
+        assert!(!out.edits.contains_key(&crate::known_ids::offset_time_original()));
+        assert!(!out.edits.contains_key(&crate::known_ids::date_time_original()));
         assert_eq!(
             display(edit_value(&out, "IPTC:TimeCreated")),
             "14:30:45+01:00"

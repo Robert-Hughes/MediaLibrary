@@ -337,25 +337,31 @@ MediaLibrary persists draft edits (`MediaLibraryDraftEdits.jsonl`). Read metadat
 - The file is the canonical store. Sidecars introduce sync questions we don't want to answer.
 - exiftool startup amortizes well over batches; scan cost is acceptable.
 
-Draft schema is versioned. The supported on-disk draft schema is v3:
+Draft schema is versioned. The supported on-disk draft schema is v4. Every
+draft entry carries the exact ExifTool schema-definition identity; JSON object
+keys and display labels are never used as metadata identity:
 
 ```json
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "relative_path": "photo.jpg",
-  "edits": {
-    "TAG": {
-      "value": { "kind": "Text", "value": "caption" },
-      "intent": "Set",
-      "display": "optional UI label"
+  "edits": [
+    {
+      "id": { "table": "XMP::dc", "tag_id": "description" },
+      "edit": {
+        "value": { "kind": "Text", "value": "caption" },
+        "intent": "Set",
+        "display": "optional UI label"
+      }
     }
-  }
+  ]
 }
 ```
 
-Older v1/v2 draft files are not loaded or migrated. Loading a legacy line
+Older v1-v3 draft files are not loaded or migrated. Loading a legacy line
 returns a clear error telling the user to recreate pending drafts with
-`schema_version` 3. This avoids reconstructing semantic values from legacy
+`schema_version` 4. This avoids reconstructing exact schema identity or
+semantic values from legacy
 strings or JSON-shaped raw values.
 
 ---
@@ -375,6 +381,7 @@ strings or JSON-shaped raw values.
 ## 9. Glossary
 
 - **MetadataValue** — Discriminated semantic value model used inside the app for read metadata, draft edits, writes, verification, and apply logs.
+- **SchemaDefinitionId** — Exact ExifTool definition identity: `{table, tag_id, index?}` from `-listx`. It is the only metadata identity used by scanning, drafts, writes, verification, sorting, columns, and editor routing. `Group1:Name` is display/search text only.
 - **ExifTool JSON boundary** - serde_json::Value held only at scan parsing boundaries before conversion into MetadataValue.
 - **TagKind** — The schema's classification of a tag (`Text`, `Bag<Text>`, `Enum<Integer>`, etc.). Drives which editor renders.
 - **PrintConv** — exiftool's mechanism for converting raw machine values to human-readable form. Table-based (we use it) or code-based (we don't reimplement).

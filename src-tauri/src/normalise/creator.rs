@@ -5,11 +5,9 @@
 //! case-sensitive, preserve first-seen order.
 
 use super::{bag_edit, text_edit, CreatorInput, GroupOutput};
-use crate::draft_edits::MetadataDraftEdit;
-use std::collections::{HashMap, HashSet};
-
-/// Target tags written by Group E. Coherent-replacement rule (plan §4).
-pub const CREATOR_TARGET_TAGS: &[&str] = &["XMP-dc:Creator", "IFD0:Artist", "IPTC:By-line"];
+use crate::draft_edits::MetadataDraftMap;
+use crate::known_ids;
+use std::collections::HashSet;
 
 /// Separator used by `IFD0:Artist` when multiple names are present.
 const ARTIST_SEPARATOR: &str = "; ";
@@ -72,13 +70,13 @@ pub fn normalise_creator(input: &CreatorInput) -> Option<GroupOutput> {
         return None;
     }
 
-    let mut edits: HashMap<String, MetadataDraftEdit> = HashMap::new();
-    edits.insert("XMP-dc:Creator".to_string(), bag_edit(&canonical));
+    let mut edits = MetadataDraftMap::new();
+    edits.insert(known_ids::xmp_creator(), bag_edit(&canonical));
     edits.insert(
-        "IFD0:Artist".to_string(),
+        known_ids::artist(),
         text_edit(canonical.join(ARTIST_SEPARATOR)),
     );
-    edits.insert("IPTC:By-line".to_string(), bag_edit(&canonical));
+    edits.insert(known_ids::iptc_by_line(), bag_edit(&canonical));
 
     Some(GroupOutput { edits })
 }
@@ -89,7 +87,7 @@ mod tests {
     use crate::metadata_value::MetadataValue;
 
     fn list(g: &GroupOutput, key: &str) -> Vec<String> {
-        match &g.edits.get(key).unwrap().value {
+        match &g.edits.get(&crate::known_ids::test_id(key)).unwrap().value {
             Some(MetadataValue::List { items, .. }) => items
                 .iter()
                 .map(|v| match v {
@@ -102,7 +100,7 @@ mod tests {
     }
 
     fn string(g: &GroupOutput, key: &str) -> String {
-        match &g.edits.get(key).unwrap().value {
+        match &g.edits.get(&crate::known_ids::test_id(key)).unwrap().value {
             Some(MetadataValue::Text(s)) => s.clone(),
             other => panic!("expected text value for {}, got {:?}", key, other),
         }

@@ -9,7 +9,13 @@
 // Future work includes introducing schema-aware struct field kinds.
 
 import { useState } from "react";
-import type { MetadataDraftEdit, MetadataValue, TagKind } from "../../types";
+import type {
+  MetadataDraftEdit,
+  MetadataValue,
+  SchemaDefinitionId,
+  TagKind,
+} from "../../types";
+import type { MetadataCollection } from "../../utils/metadataCollection";
 import { metadataValueToDisplayString } from "../../draft";
 import { READ_ONLY_TOOLTIP } from "./readOnlyMessages";
 import type { InheritedEditorSchema } from "./editorSchema";
@@ -28,10 +34,11 @@ interface Props {
 }
 
 export interface InnerEditorProps {
-  propertyKey: string;
+  propertyId: SchemaDefinitionId | null;
+  propertyLabel?: string;
   initialMetadataValue?: MetadataValue;
   schemaOverride?: InheritedEditorSchema;
-  metadataForFile?: Record<string, MetadataValue>;
+  metadataForFile?: MetadataCollection;
   onSaveMetadata: (edit: MetadataDraftEdit) => void;
   onCancel: () => void;
 }
@@ -110,7 +117,8 @@ export function StructEditor({
           const row = rows[editingIndex];
           return (
             <SubEditor
-              propertyKey={`${propertyKey}.${row.key}`}
+              propertyId={null}
+              propertyLabel={`${propertyKey}.${row.key}`}
               initialMetadataValue={row.value}
               schemaOverride={
                 fieldKinds?.[row.key]

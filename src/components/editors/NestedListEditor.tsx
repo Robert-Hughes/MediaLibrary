@@ -136,7 +136,8 @@ export function NestedListEditor({
             editingItem.mode === "existing" ? editingItem.index : items.length;
           return (
             <SubEditor
-              propertyKey={`${propertyKey}[${editingIndex}]`}
+              propertyId={null}
+              propertyLabel={`${propertyKey}[${editingIndex}]`}
               initialMetadataValue={editingItem.initialValue}
               schemaOverride={{
                 kind: innerKind,

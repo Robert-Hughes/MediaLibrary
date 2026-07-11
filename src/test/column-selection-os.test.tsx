@@ -1,8 +1,8 @@
 import { render, screen } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { vi } from "vitest";
-import { ColumnSelectionDialog } from "../components/ColumnSelectionDialog";
-import type { VisibleColumn } from "../types";
+import { ColumnSelectionDialog } from "./legacyAdapters";
+type VisibleColumn = { key: string; kind: "os" | "image" };
 
 describe("ColumnSelectionDialog OS Metadata", () => {
   const allKeys = [

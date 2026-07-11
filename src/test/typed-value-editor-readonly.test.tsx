@@ -13,9 +13,31 @@ import {
   cleanup,
   waitFor,
 } from "@testing-library/react";
-import { TypedValueEditor } from "../components/editors/TypedValueEditor";
-import { _clearTagInfoCache, _setTagInfoCacheEntry } from "../hooks/useTagInfo";
+import { TypedValueEditor as ExactTypedValueEditor } from "../components/editors/TypedValueEditor";
+import {
+  _clearTagInfoCache,
+  _setTagInfoCacheEntry as setExactTagInfo,
+} from "../hooks/useTagInfo";
 import type { TagKind } from "../types";
+import { mockMetadata, testId } from "./factories";
+
+function _setTagInfoCacheEntry(key: string, value: any) {
+  setExactTagInfo(testId(key), value);
+}
+
+function TypedValueEditor(props: any) {
+  const { propertyKey, metadataForFile, ...rest } = props;
+  return (
+    <ExactTypedValueEditor
+      {...rest}
+      propertyId={testId(propertyKey)}
+      propertyLabel={propertyKey}
+      metadataForFile={
+        metadataForFile ? mockMetadata(metadataForFile) : undefined
+      }
+    />
+  );
+}
 
 // useTagInfo calls Tauri's invoke under the hood for any uncached key.
 // We seed the cache for the keys the tests care about.

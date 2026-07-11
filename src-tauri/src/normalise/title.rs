@@ -17,10 +17,8 @@ use super::{
     collapse_whitespace_single_line, lang_alt_edit, text_edit, truncate_at_word, AiCallUsage,
     GroupOutput, NormaliseAiClient, NormaliseAiError, TitleGenPrompt, TitleInput,
 };
-use crate::draft_edits::MetadataDraftEdit;
-use std::collections::HashMap;
-
-pub const TITLE_TARGET_TAGS: &[&str] = &["XMP-dc:Title", "IPTC:ObjectName"];
+use crate::draft_edits::MetadataDraftMap;
+use crate::known_ids;
 
 const IPTC_OBJECT_NAME_LIMIT: usize = 64;
 
@@ -158,12 +156,12 @@ pub async fn normalise_title(
         };
     }
     let object = truncate_at_word(&canonical, IPTC_OBJECT_NAME_LIMIT);
-    let mut edits: HashMap<String, MetadataDraftEdit> = HashMap::new();
+    let mut edits = MetadataDraftMap::new();
     if input.title.as_deref() != Some(canonical.as_str()) {
-        edits.insert("XMP-dc:Title".to_string(), lang_alt_edit(canonical.clone()));
+        edits.insert(known_ids::xmp_title(), lang_alt_edit(canonical.clone()));
     }
     if input.object_name.as_deref() != Some(object.as_str()) {
-        edits.insert("IPTC:ObjectName".to_string(), text_edit(object));
+        edits.insert(known_ids::iptc_object_name(), text_edit(object));
     }
     TitleOutcome {
         output: if edits.is_empty() {
@@ -184,14 +182,14 @@ mod tests {
     use crate::normalise::DescriptionMergePrompt;
 
     fn text(g: &GroupOutput, k: &str) -> String {
-        match &g.edits.get(k).unwrap().value {
+        match &g.edits.get(&crate::known_ids::test_id(k)).unwrap().value {
             Some(MetadataValue::Text(v)) => v.clone(),
             other => panic!("expected text value, got {:?}", other),
         }
     }
 
     fn lang_alt_x_default(g: &GroupOutput, k: &str) -> String {
-        match &g.edits.get(k).unwrap().value {
+        match &g.edits.get(&crate::known_ids::test_id(k)).unwrap().value {
             Some(MetadataValue::LangAlt(v)) => v.get("x-default").unwrap().clone(),
             other => panic!("expected lang-alt value, got {:?}", other),
         }
@@ -205,7 +203,7 @@ mod tests {
             ..Default::default()
         };
         let out = normalise_title(&input, None).await.output.unwrap();
-        assert!(!out.edits.contains_key("XMP-dc:Title"));
+        assert!(!out.edits.contains_key(&crate::known_ids::xmp_title()));
         assert_eq!(text(&out, "IPTC:ObjectName"), "Sunset Over Mont Blanc");
     }
 

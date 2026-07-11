@@ -17,7 +17,7 @@ use crate::draft_edits::{EditIntent, MetadataDraftEdit};
 use crate::metadata_value::{
     DateTimeValue, DateValue, MetadataValue, OffsetSign, TimeValue, UtcOffsetValue,
 };
-use crate::tag_schema::{EnumRepr, TagInfo, TagKind};
+use crate::tag_schema::{EnumRepr, SchemaDefinitionId, TagInfo, TagKind};
 
 /// Output of `build_args` for one draft edit.
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -40,11 +40,40 @@ impl BuiltArgs {
     }
 }
 
-pub fn build_metadata_args(
-    tag: &str,
-    info: Option<&TagInfo>,
+pub trait WriteTarget<'a> {
+    fn resolve(self) -> Result<(SchemaDefinitionId, &'a TagInfo, String), String>;
+}
+
+impl<'a> WriteTarget<'a> for (&'a SchemaDefinitionId, &'a TagInfo) {
+    fn resolve(self) -> Result<(SchemaDefinitionId, &'a TagInfo, String), String> {
+        Ok((self.0.clone(), self.1, self.1.exiftool_write_name()))
+    }
+}
+
+#[cfg(test)]
+impl<'a> WriteTarget<'a> for (&'a str, Option<&'a TagInfo>) {
+    fn resolve(self) -> Result<(SchemaDefinitionId, &'a TagInfo, String), String> {
+        let info = self.1.ok_or_else(|| format!("missing schema for {}", self.0))?;
+        Ok((info.id.clone(), info, self.0.to_string()))
+    }
+}
+
+pub fn build_metadata_args<'a, A, B>(
+    id: A,
+    info: B,
     edit: &MetadataDraftEdit,
-) -> Result<BuiltArgs, String> {
+) -> Result<BuiltArgs, String>
+where
+    (A, B): WriteTarget<'a>,
+{
+    let (id, info, tag) = (id, info).resolve()?;
+    if info.id != id {
+        return Err(format!("schema identity mismatch: requested {id:?}, got {:?}", info.id));
+    }
+    if !info.writable {
+        return Err(format!("{} ({id:?}) is read-only", info.display_name()));
+    }
+    let tag = tag.as_str();
     if tag.is_empty() || tag.contains('\n') || tag.contains('\0') {
         return Ok(BuiltArgs::default());
     }
@@ -54,9 +83,9 @@ pub fn build_metadata_args(
             numeric: vec![],
             text: vec![format!("-{}=", tag)],
         }),
-        EditIntent::Set => build_metadata_set(tag, info, edit.value.as_ref()),
-        EditIntent::ListAdd => build_metadata_list_op(tag, info, edit.value.as_ref(), "+="),
-        EditIntent::ListRemove => build_metadata_list_op(tag, info, edit.value.as_ref(), "-="),
+        EditIntent::Set => build_metadata_set(tag, Some(info), edit.value.as_ref()),
+        EditIntent::ListAdd => build_metadata_list_op(tag, Some(info), edit.value.as_ref(), "+="),
+        EditIntent::ListRemove => build_metadata_list_op(tag, Some(info), edit.value.as_ref(), "-="),
     }
 }
 
@@ -482,6 +511,11 @@ mod tests {
 
     fn info_named(group: &str, name: &str, kind: TagKind) -> TagInfo {
         TagInfo {
+            id: SchemaDefinitionId {
+                table: format!("Test::{group}"),
+                tag_id: name.to_string(),
+                index: None,
+            },
             group: group.to_string(),
             name: name.to_string(),
             writable: true,
@@ -748,13 +782,13 @@ mod tests {
 
     #[test]
     fn unknown_tag_falls_back_to_text() {
-        let args = build_metadata_args(
+        let err = build_metadata_args(
             "MakerNotes:CustomCameraField",
             None,
             &metadata_set(text("abc")),
         )
-        .unwrap();
-        assert_eq!(args.text, vec!["-MakerNotes:CustomCameraField=abc"]);
+        .unwrap_err();
+        assert!(err.contains("missing schema"));
     }
 
     #[test]

@@ -28,21 +28,9 @@ use crate::country_code::{
     canonical_country_code, canonical_iptc_country_code_readback, iptc_country_code_projection,
     xmp_country_code_projection,
 };
-use crate::draft_edits::MetadataDraftEdit;
-use std::collections::HashMap;
-
-pub const LOCATION_TARGET_TAGS: &[&str] = &[
-    "XMP-iptcCore:Location",
-    "IPTC:Sub-location",
-    "XMP-photoshop:City",
-    "IPTC:City",
-    "XMP-photoshop:State",
-    "IPTC:Province-State",
-    "XMP-photoshop:Country",
-    "IPTC:Country-PrimaryLocationName",
-    "XMP-iptcCore:CountryCode",
-    "IPTC:Country-PrimaryLocationCode",
-];
+use crate::draft_edits::MetadataDraftMap;
+use crate::known_ids;
+use crate::tag_schema::SchemaDefinitionId;
 
 const IPTC_SUB_LOCATION_LIMIT: usize = 32;
 
@@ -160,8 +148,8 @@ pub struct LocationOutcome {
 /// Run Group G (Location) normalisation for one image.
 pub fn normalise_location(input: &LocationInput) -> LocationOutcome {
     type LocationPair<'a> = (
-        &'a str,
-        &'a str,
+        SchemaDefinitionId,
+        SchemaDefinitionId,
         Option<&'a str>,
         Option<&'a str>,
         fn(&str) -> String,
@@ -171,8 +159,8 @@ pub fn normalise_location(input: &LocationInput) -> LocationOutcome {
     );
     let pairs: [LocationPair<'_>; 5] = [
         (
-            "XMP-iptcCore:Location",
-            "IPTC:Sub-location",
+            known_ids::xmp_location(),
+            known_ids::iptc_sub_location(),
             input.location_xmp.as_deref(),
             input.location_iptc.as_deref(),
             canonicalise_location_text,
@@ -181,8 +169,8 @@ pub fn normalise_location(input: &LocationInput) -> LocationOutcome {
             iptc_sub_location_projection,
         ),
         (
-            "XMP-photoshop:City",
-            "IPTC:City",
+            known_ids::xmp_city(),
+            known_ids::iptc_city(),
             input.city_xmp.as_deref(),
             input.city_iptc.as_deref(),
             canonicalise_location_text,
@@ -191,8 +179,8 @@ pub fn normalise_location(input: &LocationInput) -> LocationOutcome {
             identity_projection,
         ),
         (
-            "XMP-photoshop:State",
-            "IPTC:Province-State",
+            known_ids::xmp_state(),
+            known_ids::iptc_province_state(),
             input.state_xmp.as_deref(),
             input.state_iptc.as_deref(),
             canonicalise_location_text,
@@ -201,8 +189,8 @@ pub fn normalise_location(input: &LocationInput) -> LocationOutcome {
             identity_projection,
         ),
         (
-            "XMP-photoshop:Country",
-            "IPTC:Country-PrimaryLocationName",
+            known_ids::xmp_country(),
+            known_ids::iptc_country_name(),
             input.country_xmp.as_deref(),
             input.country_iptc.as_deref(),
             canonicalise_location_text,
@@ -211,8 +199,8 @@ pub fn normalise_location(input: &LocationInput) -> LocationOutcome {
             identity_projection,
         ),
         (
-            "XMP-iptcCore:CountryCode",
-            "IPTC:Country-PrimaryLocationCode",
+            known_ids::xmp_country_code(),
+            known_ids::iptc_country_code(),
             input.country_code_xmp.as_deref(),
             input.country_code_iptc.as_deref(),
             canonicalise_country_code,
@@ -222,7 +210,7 @@ pub fn normalise_location(input: &LocationInput) -> LocationOutcome {
         ),
     ];
 
-    let mut edits: HashMap<String, MetadataDraftEdit> = HashMap::new();
+    let mut edits = MetadataDraftMap::new();
     let mut conflicts: u32 = 0;
     for (xmp_key, iptc_key, xmp, iptc, xmp_canon, iptc_canon, xmp_projection, iptc_projection) in
         pairs
@@ -239,10 +227,10 @@ pub fn normalise_location(input: &LocationInput) -> LocationOutcome {
             conflicts += 1;
         }
         if let Some(target) = result.xmp_target {
-            edits.insert(xmp_key.to_string(), text_edit(target));
+            edits.insert(xmp_key, text_edit(target));
         }
         if let Some(target) = result.iptc_target {
-            edits.insert(iptc_key.to_string(), text_edit(target));
+            edits.insert(iptc_key, text_edit(target));
         }
     }
 
@@ -262,7 +250,7 @@ mod tests {
     use crate::metadata_value::MetadataValue;
 
     fn s(g: &GroupOutput, k: &str) -> String {
-        match &g.edits.get(k).unwrap().value {
+        match &g.edits.get(&crate::known_ids::test_id(k)).unwrap().value {
             Some(MetadataValue::Text(v)) => v.clone(),
             other => panic!("expected text value, got {:?}", other),
         }
@@ -282,7 +270,7 @@ mod tests {
             ..Default::default()
         };
         let out = normalise_location(&input).output.unwrap();
-        assert!(!out.edits.contains_key("XMP-photoshop:City"));
+        assert!(!out.edits.contains_key(&crate::known_ids::xmp_city()));
         assert_eq!(s(&out, "IPTC:City"), "Paris");
     }
 
@@ -294,7 +282,7 @@ mod tests {
         };
         let out = normalise_location(&input).output.unwrap();
         assert_eq!(s(&out, "XMP-photoshop:City"), "Paris");
-        assert!(!out.edits.contains_key("IPTC:City"));
+        assert!(!out.edits.contains_key(&crate::known_ids::iptc_city()));
     }
 
     #[test]
@@ -318,7 +306,7 @@ mod tests {
         };
         let out = normalise_location(&input);
         let g = out.output.expect("conflict must emit drafts");
-        assert!(!g.edits.contains_key("XMP-photoshop:City"));
+        assert!(!g.edits.contains_key(&crate::known_ids::xmp_city()));
         assert_eq!(s(&g, "IPTC:City"), "Paris");
         assert_eq!(out.n_xmp_iim_conflict, 1);
     }
@@ -342,7 +330,7 @@ mod tests {
             ..Default::default()
         };
         let out = normalise_location(&input).output.unwrap();
-        assert!(!out.edits.contains_key("XMP-iptcCore:CountryCode"));
+        assert!(!out.edits.contains_key(&crate::known_ids::xmp_country_code()));
         assert_eq!(s(&out, "IPTC:Country-PrimaryLocationCode"), "GB ");
     }
 
@@ -354,7 +342,7 @@ mod tests {
         };
         let out = normalise_location(&input).output.unwrap();
         assert_eq!(s(&out, "XMP-iptcCore:CountryCode"), "GB");
-        assert!(!out.edits.contains_key("IPTC:Country-PrimaryLocationCode"));
+        assert!(!out.edits.contains_key(&crate::known_ids::iptc_country_code()));
     }
 
     #[test]
@@ -378,7 +366,7 @@ mod tests {
         };
         let out = normalise_location(&input);
         let g = out.output.expect("must emit padded IPTC projection");
-        assert!(!g.edits.contains_key("XMP-iptcCore:CountryCode"));
+        assert!(!g.edits.contains_key(&crate::known_ids::xmp_country_code()));
         assert_eq!(s(&g, "IPTC:Country-PrimaryLocationCode"), "GB ");
         assert_eq!(out.n_xmp_iim_conflict, 0);
     }
@@ -396,12 +384,12 @@ mod tests {
         };
         let out = normalise_location(&input);
         let g = out.output.unwrap();
-        assert!(!g.edits.contains_key("XMP-iptcCore:Location"));
-        assert!(!g.edits.contains_key("IPTC:Sub-location"));
-        assert!(!g.edits.contains_key("XMP-photoshop:City"));
+        assert!(!g.edits.contains_key(&crate::known_ids::xmp_location()));
+        assert!(!g.edits.contains_key(&crate::known_ids::iptc_sub_location()));
+        assert!(!g.edits.contains_key(&crate::known_ids::xmp_city()));
         assert_eq!(s(&g, "IPTC:City"), "Paris");
-        assert!(!g.edits.contains_key("XMP-photoshop:State"));
-        assert!(!g.edits.contains_key("XMP-photoshop:Country"));
+        assert!(!g.edits.contains_key(&crate::known_ids::xmp_state()));
+        assert!(!g.edits.contains_key(&crate::known_ids::xmp_country()));
         assert_eq!(s(&g, "IPTC:Country-PrimaryLocationName"), "France");
         assert_eq!(s(&g, "XMP-iptcCore:CountryCode"), "FR");
         assert_eq!(s(&g, "IPTC:Country-PrimaryLocationCode"), "FR ");
@@ -450,7 +438,7 @@ mod tests {
             ..Default::default()
         };
         let out = normalise_location(&input).output.unwrap();
-        assert!(!out.edits.contains_key("XMP-iptcCore:Location"));
+        assert!(!out.edits.contains_key(&crate::known_ids::xmp_location()));
         let projected = s(&out, "IPTC:Sub-location");
         assert!(projected.len() <= IPTC_SUB_LOCATION_LIMIT);
         assert_eq!(projected, truncate_at_word(full, IPTC_SUB_LOCATION_LIMIT));
@@ -480,7 +468,7 @@ mod tests {
         };
         let first = normalise_location(&initial);
         let g = first.output.expect("must emit projected IPTC edit");
-        assert!(!g.edits.contains_key("XMP-iptcCore:Location"));
+        assert!(!g.edits.contains_key(&crate::known_ids::xmp_location()));
         assert_eq!(s(&g, "IPTC:Sub-location"), projected);
 
         let post = LocationInput {

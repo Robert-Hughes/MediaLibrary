@@ -159,12 +159,20 @@ describe("Reverse-geocoding flow", () => {
 
     // Drafts merged into the in-memory store via the semantic batch setter.
     const folderDrafts = mockApiInstance.draftEditsByFolder["/photos"];
-    expect(folderDrafts?.["test.jpg"]?.["XMP-iptcCore:Location"]).toBeTruthy();
-    expect(folderDrafts?.["test.jpg"]?.["XMP-photoshop:City"]).toBeTruthy();
+    expect(
+      folderDrafts?.["test.jpg"]?.some(
+        ({ id }: any) => id.tag_id === "Location",
+      ),
+    ).toBe(true);
+    expect(
+      folderDrafts?.["test.jpg"]?.some(({ id }: any) => id.tag_id === "City"),
+    ).toBe(true);
     // Delete-intent drafts also land — they're how the coherent-
     // replacement rule from plan §1 is communicated to the apply
     // pipeline.
-    expect(folderDrafts?.["test.jpg"]?.["XMP-photoshop:State"]).toBeTruthy();
+    expect(
+      folderDrafts?.["test.jpg"]?.some(({ id }: any) => id.tag_id === "State"),
+    ).toBe(true);
   });
 
   it("sends raw GPS Real longitude with W ref as negative to the backend", async () => {

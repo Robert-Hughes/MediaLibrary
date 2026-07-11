@@ -1,6 +1,6 @@
 import { render } from "@testing-library/react";
 import { describe, it, vi } from "vitest";
-import { PhotoList } from "../components/PhotoList";
+import { PhotoList } from "./legacyAdapters";
 import { ThumbnailStore, ImageMetadataStore } from "../types";
 
 describe("PhotoList", () => {

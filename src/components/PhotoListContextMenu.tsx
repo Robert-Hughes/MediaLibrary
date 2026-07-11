@@ -7,7 +7,7 @@
  * the union of selected rows. Apply/Discard further filter to rows
  * that actually carry drafts.
  */
-import type { MetadataDraftEdit, PhotoInfo } from "../types";
+import type { MetadataDraftEditsByFile, PhotoInfo } from "../types";
 import { ContextMenu } from "./ContextMenu";
 import {
   confirmApplyEdits,
@@ -20,7 +20,7 @@ interface Props {
   contextMenuIndex: number;
   selectedIndices: Set<number>;
   photos: PhotoInfo[];
-  draftEdits: Record<string, Record<string, MetadataDraftEdit>>;
+  draftEdits: MetadataDraftEditsByFile;
   onPhotoOpen: (index: number) => void;
   onShowInExplorer: (index: number) => void;
   onCopyPaths?: (relativePaths: string[]) => void;

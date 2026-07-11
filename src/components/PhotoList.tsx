@@ -2,8 +2,9 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ThumbnailStore, ImageMetadataStore } from "../types";
 import type {
-  MetadataDraftEdit,
+  MetadataDraftEditsByFile,
   PhotoInfo,
+  SchemaDefinitionId,
   SortConfig,
   VisibleColumn,
 } from "../types";
@@ -21,11 +22,18 @@ import { PhotoListContextMenu } from "./PhotoListContextMenu";
 import { selectVisibleNeedingLoad } from "../utils/photoListHelpers";
 import { confirmRemoveFieldFromPhotos } from "../utils/removeFieldPrompts";
 import { metadataValueToDisplayString } from "../draft";
+import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
+import { useTagInfos } from "../hooks/useTagInfo";
+import {
+  visibleColumnToken,
+  sortKeyMatchesColumn,
+} from "../utils/columnIdentity";
+import { metadataGet } from "../utils/metadataCollection";
 
 export type ColumnContextTarget =
   | { kind: "path"; key: "relative_path"; label: "Path" }
   | { kind: "os"; key: string; label: string }
-  | { kind: "image"; key: string; label: string };
+  | { kind: "image"; id: SchemaDefinitionId; label: string };
 
 export type HeaderActionScope = {
   paths: string[];
@@ -55,7 +63,7 @@ interface Props {
   searchQuery?: string;
   /** Shown in the grid body when `photos` is empty but the folder is not (search had no hits). */
   emptySearchMessage?: string | null;
-  draftEdits?: Record<string, Record<string, MetadataDraftEdit>>;
+  draftEdits?: MetadataDraftEditsByFile;
   onDiscardAllEdits?: (fileRelativePaths: string[]) => void;
   onApplyEdits?: (fileRelativePaths: string[]) => void;
   /** Trigger AI-description flow for the given relative paths. */
@@ -69,7 +77,7 @@ interface Props {
   /** Notified whenever the multi-selection size changes. */
   onSelectionCountChange?: (count: number) => void;
   onRemoveFieldFromSelectedPhotos?: (
-    tag: string,
+    id: SchemaDefinitionId,
     relativePaths: string[],
   ) => void;
 }
@@ -90,7 +98,10 @@ function buildGridTemplate(
     w("preview", "52px"),
     w("relative_path", "minmax(200px, 2fr)"),
     ...visibleColumns.map((c) =>
-      w(c.key, c.kind === "os" ? "minmax(120px, 1fr)" : "minmax(150px, 1fr)"),
+      w(
+        visibleColumnToken(c),
+        c.kind === "os" ? "minmax(120px, 1fr)" : "minmax(150px, 1fr)",
+      ),
     ),
   ].join(" ");
 }
@@ -108,24 +119,28 @@ function rowHeightForPreview(width: number): number {
 }
 
 function SortIndicator({
-  column,
+  target,
   sortConfig,
   disabled,
 }: {
-  column: string;
+  target: { kind: "path" } | VisibleColumn;
   sortConfig: SortConfig;
   disabled?: boolean;
 }) {
   if (disabled) return null;
   const { primary, secondary } = sortConfig;
-  if (primary?.column === column) {
+  const matches = (key: NonNullable<SortConfig["primary"]>) =>
+    target.kind === "path"
+      ? key.kind === "path"
+      : sortKeyMatchesColumn(key, target);
+  if (primary && matches(primary)) {
     return (
       <span className="sort-indicator sort-indicator--primary">
         {primary.direction === "asc" ? " ▲" : " ▼"}
       </span>
     );
   }
-  if (secondary?.column === column) {
+  if (secondary && matches(secondary)) {
     return (
       <span className="sort-indicator sort-indicator--secondary">
         {secondary.direction === "asc" ? " ▲" : " ▼"}
@@ -144,7 +159,7 @@ interface HeaderProps {
     e: React.MouseEvent,
     target: ColumnContextTarget,
   ) => void;
-  onColumnClick: (column: string, columnType: "path" | "os" | "image") => void;
+  onColumnClick: (target: { kind: "path" } | VisibleColumn) => void;
   onResizeStart: (e: React.PointerEvent, col: string) => void;
   onResizeMove: (e: React.PointerEvent) => void;
   onResizeEnd: (e: React.PointerEvent) => void;
@@ -184,6 +199,10 @@ function PhotoListHeader(props: HeaderProps) {
     onColDrop,
     onColDragEnd,
   } = props;
+  const imageIds = visibleColumns.flatMap((column) =>
+    column.kind === "image" ? [column.id] : [],
+  );
+  const tagInfos = useTagInfos(imageIds);
 
   const headerClass = (col: string) => {
     const drop =
@@ -222,13 +241,13 @@ function PhotoListHeader(props: HeaderProps) {
             label: "Path",
           })
         }
-        onClick={() => onColumnClick("relative_path", "path")}
+        onClick={() => onColumnClick({ kind: "path" })}
       >
         <span className="grid-header-kind">OS</span>
         <span className="grid-header-label">
           Path
           <SortIndicator
-            column="relative_path"
+            target={{ kind: "path" }}
             sortConfig={sortConfig}
             disabled={sortingDisabled}
           />
@@ -243,39 +262,49 @@ function PhotoListHeader(props: HeaderProps) {
       </div>
 
       {visibleColumns.map((col, i) => {
+        const token = visibleColumnToken(col);
+        const tag =
+          col.kind === "image"
+            ? tagInfos[schemaDefinitionIdToken(col.id)]
+            : null;
         const label =
-          col.kind === "os" ? (OS_COLUMN_LABELS[col.key] ?? col.key) : col.key;
+          col.kind === "os"
+            ? (OS_COLUMN_LABELS[col.key] ?? col.key)
+            : tag && tag !== "loading"
+              ? `${tag.group}:${tag.name}`
+              : `${col.id.table} / ${col.id.tag_id}`;
         return (
           <div
-            key={col.key}
-            className={`${headerClass(col.key)} grid-header--metadata`}
+            key={token}
+            className={`${headerClass(token)} grid-header--metadata`}
             style={{ gridRow: "1 / 3", gridColumn: 3 + i }}
             draggable
-            onDragStart={(e) => onColDragStart(e, col.key)}
-            onDragOver={(e) => onColDragOver(e, col.key)}
+            onDragStart={(e) => onColDragStart(e, token)}
+            onDragOver={(e) => onColDragOver(e, token)}
             onDragLeave={onColDragLeave}
-            onDrop={(e) => onColDrop(e, col.key)}
+            onDrop={(e) => onColDrop(e, token)}
             onDragEnd={onColDragEnd}
             onContextMenu={(e) =>
-              onColumnContextMenu(e, {
-                kind: col.kind,
-                key: col.key,
-                label,
-              })
+              onColumnContextMenu(
+                e,
+                col.kind === "os"
+                  ? { kind: "os", key: col.key, label }
+                  : { kind: "image", id: col.id, label },
+              )
             }
-            onClick={() => onColumnClick(col.key, col.kind)}
+            onClick={() => onColumnClick(col)}
           >
             <span className="grid-header-kind">{KIND_LABELS[col.kind]}</span>
             <span className="grid-header-label">
               {label}
               <SortIndicator
-                column={col.key}
+                target={col}
                 sortConfig={sortConfig}
                 disabled={sortingDisabled}
               />
             </span>
             <ResizeHandle
-              col={col.key}
+              col={token}
               onResizeStart={onResizeStart}
               onResizeMove={onResizeMove}
               onResizeEnd={onResizeEnd}
@@ -475,9 +504,12 @@ export function PhotoList({
     };
   }
 
-  function hasEffectiveFieldValue(relPath: string, tag: string): boolean {
+  function hasEffectiveFieldValue(
+    relPath: string,
+    id: SchemaDefinitionId,
+  ): boolean {
     const fileDrafts = draftEdits[relPath];
-    const edit = fileDrafts?.[tag];
+    const edit = fileDrafts?.[schemaDefinitionIdToken(id)]?.edit;
     if (edit !== undefined && edit !== null) {
       if (edit.intent === "Delete") {
         return false;
@@ -501,7 +533,7 @@ export function PhotoList({
     if (meta === "loading") {
       return false;
     }
-    const val = meta[tag];
+    const val = metadataGet(meta, id);
     if (val === undefined || val === null || val.kind === "Null") {
       return false;
     }
@@ -542,12 +574,12 @@ export function PhotoList({
   );
 
   const handleColumnClick = useCallback(
-    (column: string, columnType: "path" | "os" | "image") => {
+    (target: { kind: "path" } | VisibleColumn) => {
       // Clicks are always honoured — sortingDisabled only governs whether the
       // *resulting* sort applies and is shown.  Without this, once a user lands
       // in a suspended state (e.g., image-column sort while metadata is still
       // loading) they would be unable to click an OS column to escape it.
-      onSortChange(nextSortConfig(sortConfig, column, columnType));
+      onSortChange(nextSortConfig(sortConfig, target));
     },
     [onSortChange, sortConfig],
   );
@@ -704,14 +736,18 @@ export function PhotoList({
       {columnContextMenu &&
         (() => {
           const scope = pathsForHeaderRemoveAction();
-          const tag = columnContextMenu.target.key;
-          const presentCount = scope.paths.filter((p) =>
-            hasEffectiveFieldValue(p, tag),
-          ).length;
+          const id =
+            columnContextMenu.target.kind === "image"
+              ? columnContextMenu.target.id
+              : null;
+          const presentCount = id
+            ? scope.paths.filter((p) => hasEffectiveFieldValue(p, id)).length
+            : 0;
 
           const options = [];
           if (
             columnContextMenu.target.kind === "image" &&
+            id &&
             onRemoveFieldFromSelectedPhotos &&
             scope.paths.length > 0
           ) {
@@ -725,13 +761,13 @@ export function PhotoList({
               label,
               onClick: async () => {
                 const confirmed = await confirmRemoveFieldFromPhotos({
-                  tag,
+                  tag: columnContextMenu.target.label,
                   photoCount: scope.paths.length,
                   presentCount,
                   scope: scope.scope,
                 });
                 if (confirmed) {
-                  onRemoveFieldFromSelectedPhotos(tag, scope.paths);
+                  onRemoveFieldFromSelectedPhotos(id, scope.paths);
                 }
                 setColumnContextMenu(null);
               },

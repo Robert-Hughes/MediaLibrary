@@ -12,7 +12,7 @@
 import { useMemo, useState } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
-  MetadataDraftEdit,
+  MetadataDraftEntry,
   NormaliseEstimate,
   NormaliseGroup,
   NormaliseRequestItem,
@@ -58,10 +58,7 @@ export interface NormaliseActions {
 }
 
 export interface UseNormaliseMetadataOptions {
-  onApplyEdits?: (
-    relativePath: string,
-    edits: Record<string, MetadataDraftEdit>,
-  ) => void;
+  onApplyEdits?: (relativePath: string, edits: MetadataDraftEntry[]) => void;
 }
 
 interface StartArgs {

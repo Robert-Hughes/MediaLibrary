@@ -124,7 +124,7 @@ struct NormaliseEstimateErrorPayload {
 fn count_overwrites_for_group(
     group: normalise::NormaliseGroup,
     inputs: &normalise::GroupInputs,
-    edits: &std::collections::HashMap<String, crate::draft_edits::MetadataDraftEdit>,
+    edits: &crate::draft_edits::MetadataDraftMap,
     fires_description_ai: bool,
     fires_title_ai: bool,
 ) -> u32 {
@@ -138,7 +138,7 @@ fn count_overwrites_for_group(
         _ => false,
     };
 
-    let scalar = |tag: &str, current: Option<&str>| -> u32 {
+    let scalar = |id: crate::tag_schema::SchemaDefinitionId, current: Option<&str>| -> u32 {
         let current = match current.filter(|s| !s.is_empty()) {
             Some(s) => s,
             None => return 0,
@@ -146,7 +146,7 @@ fn count_overwrites_for_group(
         if assume_ai {
             return 1;
         }
-        match edits.get(tag) {
+        match edits.get(&id) {
             None => 0,
             Some(e) => match e.intent {
                 EditIntent::Delete => 1,
@@ -160,13 +160,13 @@ fn count_overwrites_for_group(
         }
     };
 
-    let scalar_value = |tag: &str, current: Option<&MetadataValue>| -> u32 {
+    let scalar_value = |id: crate::tag_schema::SchemaDefinitionId, current: Option<&MetadataValue>| -> u32 {
         let current = match current {
             Some(MetadataValue::Null) | None => return 0,
             Some(MetadataValue::Text(s)) if s.is_empty() => return 0,
             Some(v) => v,
         };
-        match edits.get(tag) {
+        match edits.get(&id) {
             None => 0,
             Some(e) => match e.intent {
                 EditIntent::Delete => 1,
@@ -180,14 +180,14 @@ fn count_overwrites_for_group(
         }
     };
 
-    let list = |tag: &str, current: &[String]| -> u32 {
+    let list = |id: crate::tag_schema::SchemaDefinitionId, current: &[String]| -> u32 {
         if current.is_empty() {
             return 0;
         }
         if assume_ai {
             return 1;
         }
-        match edits.get(tag) {
+        match edits.get(&id) {
             None => 0,
             Some(e) => match e.intent {
                 EditIntent::Delete => 1,
@@ -216,58 +216,58 @@ fn count_overwrites_for_group(
         G::Keywords => match &inputs.keywords {
             None => 0,
             Some(b) => {
-                list("XMP-lr:HierarchicalSubject", &b.hierarchical_subject)
-                    + list("XMP-dc:Subject", &b.dc_subject)
-                    + list("IPTC:Keywords", &b.iptc_keywords)
+                list(crate::known_ids::xmp_hierarchical_subject(), &b.hierarchical_subject)
+                    + list(crate::known_ids::xmp_subject(), &b.dc_subject)
+                    + list(crate::known_ids::iptc_keywords(), &b.iptc_keywords)
             }
         },
         G::Creator => match &inputs.creator {
             None => 0,
             Some(b) => {
-                list("XMP-dc:Creator", &b.creator)
-                    + scalar("IFD0:Artist", b.artist.as_deref())
-                    + list("IPTC:By-line", &b.byline)
+                list(crate::known_ids::xmp_creator(), &b.creator)
+                    + scalar(crate::known_ids::artist(), b.artist.as_deref())
+                    + list(crate::known_ids::iptc_by_line(), &b.byline)
             }
         },
         G::Copyright => match &inputs.copyright {
             None => 0,
             Some(b) => {
-                scalar("XMP-dc:Rights", b.rights.as_deref())
-                    + scalar("IFD0:Copyright", b.exif_copyright.as_deref())
-                    + scalar("IPTC:CopyrightNotice", b.iptc_copyright.as_deref())
+                scalar(crate::known_ids::xmp_rights(), b.rights.as_deref())
+                    + scalar(crate::known_ids::copyright(), b.exif_copyright.as_deref())
+                    + scalar(crate::known_ids::iptc_copyright(), b.iptc_copyright.as_deref())
             }
         },
         G::Headline => match &inputs.headline {
             None => 0,
             Some(b) => {
-                scalar("XMP-photoshop:Headline", b.photoshop_headline.as_deref())
-                    + scalar("IPTC:Headline", b.iptc_headline.as_deref())
+                scalar(crate::known_ids::xmp_headline(), b.photoshop_headline.as_deref())
+                    + scalar(crate::known_ids::iptc_headline(), b.iptc_headline.as_deref())
             }
         },
         G::Title => match &inputs.title {
             None => 0,
             Some(b) => {
-                scalar("XMP-dc:Title", b.title.as_deref())
-                    + scalar("IPTC:ObjectName", b.object_name.as_deref())
+                scalar(crate::known_ids::xmp_title(), b.title.as_deref())
+                    + scalar(crate::known_ids::iptc_object_name(), b.object_name.as_deref())
             }
         },
         G::Location => match &inputs.location {
             None => 0,
             Some(b) => {
-                scalar("XMP-iptcCore:Location", b.location_xmp.as_deref())
-                    + scalar("IPTC:Sub-location", b.location_iptc.as_deref())
-                    + scalar("XMP-photoshop:City", b.city_xmp.as_deref())
-                    + scalar("IPTC:City", b.city_iptc.as_deref())
-                    + scalar("XMP-photoshop:State", b.state_xmp.as_deref())
-                    + scalar("IPTC:Province-State", b.state_iptc.as_deref())
-                    + scalar("XMP-photoshop:Country", b.country_xmp.as_deref())
+                scalar(crate::known_ids::xmp_location(), b.location_xmp.as_deref())
+                    + scalar(crate::known_ids::iptc_sub_location(), b.location_iptc.as_deref())
+                    + scalar(crate::known_ids::xmp_city(), b.city_xmp.as_deref())
+                    + scalar(crate::known_ids::iptc_city(), b.city_iptc.as_deref())
+                    + scalar(crate::known_ids::xmp_state(), b.state_xmp.as_deref())
+                    + scalar(crate::known_ids::iptc_province_state(), b.state_iptc.as_deref())
+                    + scalar(crate::known_ids::xmp_country(), b.country_xmp.as_deref())
                     + scalar(
-                        "IPTC:Country-PrimaryLocationName",
+                        crate::known_ids::iptc_country_name(),
                         b.country_iptc.as_deref(),
                     )
-                    + scalar("XMP-iptcCore:CountryCode", b.country_code_xmp.as_deref())
+                    + scalar(crate::known_ids::xmp_country_code(), b.country_code_xmp.as_deref())
                     + scalar(
-                        "IPTC:Country-PrimaryLocationCode",
+                        crate::known_ids::iptc_country_code(),
                         b.country_code_iptc.as_deref(),
                     )
             }
@@ -275,21 +275,21 @@ fn count_overwrites_for_group(
         G::Dates => match &inputs.dates {
             None => 0,
             Some(b) => {
-                scalar_value("ExifIFD:DateTimeOriginal", b.date_time_original.as_ref())
+                scalar_value(crate::known_ids::date_time_original(), b.date_time_original.as_ref())
                     + scalar_value(
-                        "XMP-photoshop:DateCreated",
+                        crate::known_ids::xmp_date_created(),
                         b.photoshop_date_created.as_ref(),
                     )
-                    + scalar_value("IPTC:DateCreated", b.iptc_date_created.as_ref())
-                    + scalar_value("IPTC:TimeCreated", b.iptc_time_created.as_ref())
-                    + scalar_value("ExifIFD:CreateDate", b.create_date.as_ref())
-                    + scalar_value("XMP-xmp:CreateDate", b.xmp_create_date.as_ref())
+                    + scalar_value(crate::known_ids::iptc_date_created(), b.iptc_date_created.as_ref())
+                    + scalar_value(crate::known_ids::iptc_time_created(), b.iptc_time_created.as_ref())
+                    + scalar_value(crate::known_ids::create_date(), b.create_date.as_ref())
+                    + scalar_value(crate::known_ids::xmp_create_date(), b.xmp_create_date.as_ref())
                     + scalar_value(
-                        "IPTC:DigitalCreationDate",
+                        crate::known_ids::iptc_digital_creation_date(),
                         b.iptc_digital_creation_date.as_ref(),
                     )
                     + scalar_value(
-                        "IPTC:DigitalCreationTime",
+                        crate::known_ids::iptc_digital_creation_time(),
                         b.iptc_digital_creation_time.as_ref(),
                     )
             }
@@ -297,9 +297,9 @@ fn count_overwrites_for_group(
         G::Description => match &inputs.description {
             None => 0,
             Some(b) => {
-                scalar("XMP-dc:Description", b.description.as_deref())
-                    + scalar("IFD0:ImageDescription", b.image_description.as_deref())
-                    + scalar("IPTC:Caption-Abstract", b.caption_abstract.as_deref())
+                scalar(crate::known_ids::xmp_description(), b.description.as_deref())
+                    + scalar(crate::known_ids::image_description(), b.image_description.as_deref())
+                    + scalar(crate::known_ids::iptc_caption(), b.caption_abstract.as_deref())
             }
         },
     }

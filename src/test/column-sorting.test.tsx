@@ -1,15 +1,38 @@
 import { render, screen } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { describe, it, expect, vi } from "vitest";
-import { PhotoList } from "../components/PhotoList";
+import { PhotoList, exactSortConfig, legacySortConfig } from "./legacyAdapters";
 import { ThumbnailStore, ImageMetadataStore } from "../types";
-import type { PhotoInfo, SortConfig } from "../types";
+import type { PhotoInfo } from "../types";
 import {
-  sortPhotos,
-  nextSortConfig,
-  shouldSuspendSorting,
+  sortPhotos as exactSortPhotos,
+  nextSortConfig as exactNextSortConfig,
+  shouldSuspendSorting as exactShouldSuspendSorting,
 } from "../utils/sorting";
-import { makePhoto, mockMetadata } from "./factories";
+import { makePhoto, mockMetadata, testId } from "./factories";
+
+type SortConfig = any;
+const shouldSuspendSorting = (
+  scanning: boolean,
+  config: any,
+  remaining: number,
+) => exactShouldSuspendSorting(scanning, exactSortConfig(config), remaining);
+const nextSortConfig = (config: any, column: string, columnType: string) =>
+  legacySortConfig(
+    exactNextSortConfig(
+      exactSortConfig(config),
+      columnType === "path"
+        ? { kind: "path" }
+        : columnType === "os"
+          ? { kind: "os", key: column as "date_modified" | "date_created" }
+          : { kind: "image", id: testId(column) },
+    ),
+  );
+const sortPhotos = (
+  photos: PhotoInfo[],
+  config: any,
+  store: ImageMetadataStore,
+) => exactSortPhotos(photos, exactSortConfig(config), store);
 
 // ── shouldSuspendSorting ──────────────────────────────────────────────────────
 

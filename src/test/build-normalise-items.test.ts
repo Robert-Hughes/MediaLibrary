@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { mockMetadata } from "./factories";
+import {
+  mockDrafts,
+  mockDraftsByFile,
+  mockMetadata,
+  testFriendlyName,
+  testId,
+} from "./factories";
 import type {
   ImageMetadataEntry,
   MetadataDraftEdit,
@@ -7,11 +13,46 @@ import type {
   NormaliseGroup,
 } from "../types";
 import {
-  buildNormaliseItemForPhoto,
-  buildNormaliseItems,
-  resolveTag,
-  buildEffectiveMetadata,
+  buildNormaliseItemForPhoto as exactBuildItem,
+  buildNormaliseItems as exactBuildItems,
+  resolveTag as exactResolveTag,
+  buildEffectiveMetadata as exactBuildEffectiveMetadata,
 } from "../utils/buildNormaliseItems";
+import { metadataEntries } from "../utils/metadataCollection";
+
+const resolveTag = (metadata: any, drafts: any, key: string) =>
+  exactResolveTag(
+    metadata,
+    drafts ? mockDrafts(drafts) : undefined,
+    testId(key),
+  );
+const buildNormaliseItemForPhoto = (
+  path: string,
+  metadata: any,
+  drafts: any,
+  groups: any,
+) =>
+  exactBuildItem(
+    path,
+    metadata,
+    drafts ? mockDrafts(drafts) : undefined,
+    groups,
+  );
+const buildNormaliseItems = (
+  paths: any,
+  metadata: any,
+  drafts: any,
+  groups: any,
+) => exactBuildItems(paths, metadata, mockDraftsByFile(drafts), groups);
+const buildEffectiveMetadata = (metadata: any, drafts: any) =>
+  Object.fromEntries(
+    metadataEntries(
+      exactBuildEffectiveMetadata(
+        mockMetadata(metadata),
+        drafts ? mockDrafts(drafts) : undefined,
+      ),
+    ).map(({ id, value }) => [testFriendlyName(id), value]),
+  );
 
 function set(value: MetadataValue): MetadataDraftEdit {
   return { value, intent: "Set" };
@@ -360,7 +401,7 @@ describe("buildNormaliseItems batch", () => {
     md.set("b.jpg", mockMetadata({ "XMP-dc:Subject": ["b-keyword"] }));
     const items = buildNormaliseItems(
       ["a.jpg", "b.jpg"],
-      { get: (p) => md.get(p) },
+      { get: (p: string) => md.get(p) },
       {},
       ["keywords"],
     );

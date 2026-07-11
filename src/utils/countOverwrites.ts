@@ -8,7 +8,10 @@
  * consistent.
  */
 import { GEOCODE_TARGET_TAGS } from "../types";
-import type { ImageMetadataStore, MetadataDraftEdit } from "../types";
+import type { ImageMetadataStore, MetadataDraftEditsByFile } from "../types";
+import { KNOWN_METADATA_IDS } from "../metadata/knownIds";
+import { metadataHas, type MetadataCollection } from "./metadataCollection";
+import { schemaDefinitionIdToken } from "./schemaDefinitionId";
 
 export interface OverwriteCount {
   existingCount: number;
@@ -18,24 +21,22 @@ export interface OverwriteCount {
 function metaBag(
   imageMetadata: ImageMetadataStore,
   relPath: string,
-): Record<string, unknown> | undefined {
+): MetadataCollection | undefined {
   const meta = imageMetadata.get(relPath);
-  return typeof meta === "object" && meta !== null
-    ? (meta as Record<string, unknown>)
-    : undefined;
+  return typeof meta === "object" && meta !== null ? meta : undefined;
 }
 
 export function countDescribeOverwrites(
   relPaths: string[],
   imageMetadata: ImageMetadataStore,
-  draftEdits: Record<string, Record<string, MetadataDraftEdit>>,
+  draftEdits: MetadataDraftEditsByFile,
 ): OverwriteCount {
-  const key = "XMP-mlib:AIDescription";
+  const id = KNOWN_METADATA_IDS.mlibAiDescription;
   let existing = 0;
   for (const p of relPaths) {
     const m = metaBag(imageMetadata, p);
-    const inMeta = m != null && key in m;
-    const inDraft = key in (draftEdits[p] ?? {});
+    const inMeta = m != null && metadataHas(m, id);
+    const inDraft = schemaDefinitionIdToken(id) in (draftEdits[p] ?? {});
     if (inMeta || inDraft) existing++;
   }
   return { existingCount: existing, totalCount: relPaths.length };
@@ -44,13 +45,17 @@ export function countDescribeOverwrites(
 export function countGeocodeOverwrites(
   relPaths: string[],
   imageMetadata: ImageMetadataStore,
-  draftEdits: Record<string, Record<string, MetadataDraftEdit>>,
+  draftEdits: MetadataDraftEditsByFile,
 ): OverwriteCount {
   let existing = 0;
   for (const p of relPaths) {
     const m = metaBag(imageMetadata, p) ?? {};
     const d = draftEdits[p] ?? {};
-    const hit = GEOCODE_TARGET_TAGS.some((k) => k in m || k in d);
+    const hit = GEOCODE_TARGET_TAGS.some(
+      (id) =>
+        metadataHas(m as MetadataCollection, id) ||
+        schemaDefinitionIdToken(id) in d,
+    );
     if (hit) existing++;
   }
   return { existingCount: existing, totalCount: relPaths.length };

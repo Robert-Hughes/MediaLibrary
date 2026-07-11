@@ -1,10 +1,16 @@
 import { useState } from "react";
 import { ModalDialog } from "./ModalDialog";
 import { DEFAULT_VISIBLE_COLUMNS, OS_COLUMN_KEYS } from "../utils/columnConfig";
-import type { VisibleColumn } from "../types";
+import type { SchemaDefinitionId, VisibleColumn } from "../types";
+import { useTagInfos } from "../hooks/useTagInfo";
+import {
+  schemaDefinitionIdToken,
+  tagInfoDisplayName,
+} from "../utils/schemaDefinitionId";
+import { visibleColumnToken } from "../utils/columnIdentity";
 
 interface Props {
-  allKeys: Array<{ key: string; count: number }>;
+  allKeys: Array<{ id: SchemaDefinitionId; count: number }>;
   visibleColumns: VisibleColumn[];
   onSave: (columns: VisibleColumn[], resetWidths?: boolean) => void;
   onClose: () => void;
@@ -26,18 +32,22 @@ function mergeSelection(
   existing: VisibleColumn[],
   selectedOS: Set<string>,
   selectedImage: Set<string>,
+  imageIds: Map<string, SchemaDefinitionId>,
 ): VisibleColumn[] {
   const kept = existing.filter((c) =>
-    c.kind === "os" ? selectedOS.has(c.key) : selectedImage.has(c.key),
+    c.kind === "os"
+      ? selectedOS.has(c.key)
+      : selectedImage.has(schemaDefinitionIdToken(c.id)),
   );
-  const keptKeys = new Set(kept.map((c) => c.key));
+  const keptKeys = new Set(kept.map(visibleColumnToken));
   const additions: VisibleColumn[] = [];
   for (const key of OS_COLUMN_KEYS) {
     if (selectedOS.has(key) && !keptKeys.has(key))
       additions.push({ key, kind: "os" });
   }
   for (const key of selectedImage) {
-    if (!keptKeys.has(key)) additions.push({ key, kind: "image" });
+    const id = imageIds.get(key);
+    if (id && !keptKeys.has(key)) additions.push({ id, kind: "image" });
   }
   return [...kept, ...additions];
 }
@@ -52,7 +62,13 @@ export function ColumnSelectionDialog({
     visibleColumns.filter((c) => c.kind === "os").map((c) => c.key),
   );
   const initialImage = new Set(
-    visibleColumns.filter((c) => c.kind === "image").map((c) => c.key),
+    visibleColumns
+      .filter((c) => c.kind === "image")
+      .map((c) => schemaDefinitionIdToken(c.id)),
+  );
+  const tagInfos = useTagInfos(allKeys.map(({ id }) => id));
+  const imageIds = new Map(
+    allKeys.map(({ id }) => [schemaDefinitionIdToken(id), id]),
   );
   const [selectedOS, setSelectedOS] = useState<Set<string>>(initialOS);
   const [selected, setSelected] = useState<Set<string>>(initialImage);
@@ -78,7 +94,9 @@ export function ColumnSelectionDialog({
   };
 
   const selectAll = () => {
-    setSelected(new Set(allKeys.map((k) => k.key)));
+    setSelected(
+      new Set(allKeys.map((item) => schemaDefinitionIdToken(item.id))),
+    );
     setSelectedOS(new Set(OS_COLUMN_KEYS));
   };
 
@@ -90,8 +108,8 @@ export function ColumnSelectionDialog({
   const resetToDefaults = () => {
     setSelected(
       new Set(
-        DEFAULT_VISIBLE_COLUMNS.filter((c) => c.kind === "image").map(
-          (c) => c.key,
+        DEFAULT_VISIBLE_COLUMNS.filter((c) => c.kind === "image").map((c) =>
+          schemaDefinitionIdToken(c.id),
         ),
       ),
     );
@@ -106,12 +124,23 @@ export function ColumnSelectionDialog({
     setResetWidths(true);
   };
 
-  const sortedKeys = [...allKeys].sort((a, b) => a.key.localeCompare(b.key));
+  const itemLabel = ({ id }: { id: SchemaDefinitionId }) => {
+    const info = tagInfos[schemaDefinitionIdToken(id)];
+    return info && info !== "loading"
+      ? tagInfoDisplayName(info)
+      : `${id.table} / ${id.tag_id}`;
+  };
+  const sortedKeys = [...allKeys].sort((a, b) =>
+    itemLabel(a).localeCompare(itemLabel(b)),
+  );
 
   const lowerSearch = searchTerm.toLowerCase();
 
-  const filteredKeys = sortedKeys.filter(({ key }) =>
-    key.toLowerCase().includes(lowerSearch),
+  const filteredKeys = sortedKeys.filter(
+    (item) =>
+      itemLabel(item).toLowerCase().includes(lowerSearch) ||
+      item.id.table.toLowerCase().includes(lowerSearch) ||
+      item.id.tag_id.toLowerCase().includes(lowerSearch),
   );
 
   const filteredOSColumns = OS_OPTIONS.filter(
@@ -129,7 +158,10 @@ export function ColumnSelectionDialog({
       onKeyDown={(event) => {
         if (event.key === "Enter") {
           event.preventDefault();
-          onSave(mergeSelection(orderBasis, selectedOS, selected), resetWidths);
+          onSave(
+            mergeSelection(orderBasis, selectedOS, selected, imageIds),
+            resetWidths,
+          );
         }
       }}
     >
@@ -193,18 +225,21 @@ export function ColumnSelectionDialog({
           <div className="column-section">
             <h3 className="column-section-title">Image Metadata</h3>
             <div className="column-list">
-              {filteredKeys.map(({ key, count }) => (
-                <label key={key} className="column-item">
-                  <input
-                    type="checkbox"
-                    checked={selected.has(key)}
-                    onChange={() => toggle(key)}
-                    className="column-checkbox"
-                  />
-                  <span className="column-label">{key}</span>
-                  <span className="column-count">({count} files)</span>
-                </label>
-              ))}
+              {filteredKeys.map((item) => {
+                const token = schemaDefinitionIdToken(item.id);
+                return (
+                  <label key={token} className="column-item">
+                    <input
+                      type="checkbox"
+                      checked={selected.has(token)}
+                      onChange={() => toggle(token)}
+                      className="column-checkbox"
+                    />
+                    <span className="column-label">{itemLabel(item)}</span>
+                    <span className="column-count">({item.count} files)</span>
+                  </label>
+                );
+              })}
               {filteredKeys.length === 0 &&
                 filteredOSColumns.length === 0 &&
                 searchTerm && (
@@ -224,7 +259,7 @@ export function ColumnSelectionDialog({
             className="btn-primary"
             onClick={() =>
               onSave(
-                mergeSelection(orderBasis, selectedOS, selected),
+                mergeSelection(orderBasis, selectedOS, selected, imageIds),
                 resetWidths,
               )
             }

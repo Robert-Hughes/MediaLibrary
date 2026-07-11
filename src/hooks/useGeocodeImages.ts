@@ -12,7 +12,7 @@ import type {
   GeocodeProgressState,
   GeocodeRequestItem,
   GeocodeSummary,
-  MetadataDraftEdit,
+  MetadataDraftEntry,
 } from "../types";
 import {
   useBatchImageJob,
@@ -36,10 +36,7 @@ export interface GeocodeActions {
 }
 
 export interface UseGeocodeImagesOptions {
-  onApplyEdits?: (
-    relativePath: string,
-    edits: Record<string, MetadataDraftEdit>,
-  ) => void;
+  onApplyEdits?: (relativePath: string, edits: MetadataDraftEntry[]) => void;
 }
 
 /**

@@ -9,6 +9,7 @@ pub mod draft_edits;
 pub mod exiftool_config;
 pub mod geocode;
 pub mod geocode_cache;
+pub mod known_ids;
 pub mod metadata_value;
 pub mod normalise;
 pub mod openai_describe;
@@ -254,7 +255,7 @@ struct ImageMetadataReadyPayload {
 #[derive(Clone, Serialize)]
 struct ImageMetadataResult {
     relative_path: String,
-    metadata: std::collections::HashMap<String, metadata_value::MetadataValue>,
+    metadata: scanner::MetadataEntries,
 }
 
 #[derive(Clone, Serialize)]
@@ -277,7 +278,7 @@ struct MetadataApplyEditsProgressPayload {
     applied: bool,
     error: Option<String>,
     warning: Option<String>,
-    fresh_metadata: Option<std::collections::HashMap<String, metadata_value::MetadataValue>>,
+    fresh_metadata: Option<Vec<scanner::MetadataEntry>>,
     tag_outcomes: Vec<apply_edits::MetadataTagOutcome>,
 }
 
@@ -462,14 +463,7 @@ fn start_scan(
 
                                 // Send error metadata for failed files so UI shows "failed" instead of spinner
                                 for rel_path in rel_paths {
-                                    let metadata = [(
-                                        "_error".to_string(),
-                                        metadata_value::MetadataValue::Text(
-                                            "Failed to load metadata".to_string(),
-                                        ),
-                                    )]
-                                    .into_iter()
-                                    .collect();
+                                let metadata = scanner::MetadataEntries::default();
                                     batch_results.push(ImageMetadataResult {
                                         relative_path: rel_path,
                                         metadata,
@@ -782,9 +776,9 @@ fn set_window_title(title: String, app: AppHandle) -> Result<(), String> {
 /// is built but the tag is unknown; returns `Err` only when the registry
 /// itself could not be built.
 #[tauri::command]
-fn get_tag_info(tag: String) -> Result<Option<tag_schema::TagInfo>, String> {
+fn get_tag_info(id: tag_schema::SchemaDefinitionId) -> Result<Option<tag_schema::TagInfo>, String> {
     let registry = tag_schema::get_registry().map_err(|e| e.to_string())?;
-    Ok(registry.lookup(&tag).cloned())
+    Ok(registry.lookup(&id).cloned())
 }
 
 /// Eagerly warms the tag-schema registry so the first `get_tag_info` call is
@@ -815,9 +809,9 @@ fn preload_schema() -> Result<(), String> {
 /// read-only tags would only let the user pick a key that ExifTool would
 /// then refuse to write.
 #[tauri::command]
-fn list_schema_tags() -> Result<Vec<String>, String> {
+fn list_writable_schema_definitions() -> Result<Vec<tag_schema::TagInfo>, String> {
     let registry = tag_schema::get_registry().map_err(|e| e.to_string())?;
-    Ok(registry.all_writable().map(|(k, _)| k.to_owned()).collect())
+    Ok(registry.all_writable().cloned().collect())
 }
 
 #[tauri::command]
@@ -907,9 +901,7 @@ fn run_apply_metadata_draft_edits_blocking(
 
         if !outcome.tags_to_clear.is_empty() {
             if let Some(file_drafts) = all_drafts.get_mut(rel_path.as_str()) {
-                for tag in &outcome.tags_to_clear {
-                    file_drafts.remove(tag);
-                }
+                file_drafts.retain(|entry| !outcome.tags_to_clear.contains(&entry.id));
                 if file_drafts.is_empty() {
                     all_drafts.remove(rel_path.as_str());
                 }
@@ -932,13 +924,23 @@ fn run_apply_metadata_draft_edits_blocking(
                 applied: was_applied,
                 error: outcome.error.clone(),
                 warning: outcome.warning.clone(),
-                fresh_metadata: outcome.fresh_metadata.clone(),
+                fresh_metadata: outcome.fresh_metadata.clone().map(|metadata| {
+                    metadata
+                        .into_iter()
+                        .map(|(id, value)| scanner::MetadataEntry { id, value })
+                        .collect()
+                }),
                 tag_outcomes: outcome.outcomes.clone(),
             },
         );
 
         if let Some(meta) = outcome.fresh_metadata {
-            fresh_metadata.insert(rel_path.clone(), meta);
+            fresh_metadata.insert(
+                rel_path.clone(),
+                meta.into_iter()
+                    .map(|(id, value)| scanner::MetadataEntry { id, value })
+                    .collect(),
+            );
         }
         match outcome.error {
             None => applied.push(rel_path.clone()),
@@ -1183,7 +1185,7 @@ pub fn run() {
             cancel_apply_edits,
             get_tag_info,
             preload_schema,
-            list_schema_tags,
+            list_writable_schema_definitions,
             commands::settings::load_settings_cmd,
             commands::settings::save_settings_cmd,
             commands::settings::list_recommended_models,

@@ -107,34 +107,26 @@ describe("LangAltEditor", () => {
 
 describe("initialLangsFrom", () => {
   it("extracts from a MetadataValue::LangAlt base value", () => {
-    const r = initialLangsFrom(
-      { kind: "LangAlt", value: { "x-default": "hi", en: "hi", fr: "salut" } },
-      {},
-      "XMP-dc:Description",
-    );
+    const r = initialLangsFrom({
+      kind: "LangAlt",
+      value: { "x-default": "hi", en: "hi", fr: "salut" },
+    });
     expect(r).toEqual({ "x-default": "hi", en: "hi", fr: "salut" });
   });
 
-  it("gathers sibling -lang keys from the metadata map", () => {
+  it("does not infer language alternatives from friendly-name suffixes", () => {
     const meta = {
       "XMP-dc:Description": { kind: "Text", value: "default text" } as const,
       "XMP-dc:Description-en": { kind: "Text", value: "english" } as const,
       "XMP-dc:Description-fr": { kind: "Text", value: "francais" } as const,
       OtherTag: { kind: "Text", value: "x" } as const,
     };
-    const r = initialLangsFrom(
-      { kind: "Text", value: "default text" },
-      meta,
-      "XMP-dc:Description",
-    );
-    expect(r).toEqual({
-      "x-default": "default text",
-      en: "english",
-      fr: "francais",
-    });
+    const r = initialLangsFrom({ kind: "Text", value: "default text" });
+    expect(meta).toBeDefined();
+    expect(r).toEqual({ "x-default": "default text" });
   });
 
   it("returns empty for undefined input", () => {
-    expect(initialLangsFrom(undefined, {}, "X")).toEqual({});
+    expect(initialLangsFrom(undefined)).toEqual({});
   });
 });

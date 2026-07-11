@@ -5,9 +5,9 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderHook, act } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { GalleryView } from "../components/GalleryView";
+import { GalleryView } from "./legacyAdapters";
 
-import { PhotoList } from "../components/PhotoList";
+import { PhotoList } from "./legacyAdapters";
 import { ThumbnailStore, ImageMetadataStore } from "../types";
 import { useMediaLibrary } from "../useMediaLibrary";
 import { createMockTauriApi } from "./mockTauriApi";

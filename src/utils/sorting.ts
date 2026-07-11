@@ -1,13 +1,17 @@
-import type {
-  ImageMetadataEntry,
-  PhotoInfo,
-  SortConfig,
-  SortKey,
-} from "../types";
+import type { PhotoInfo, SortConfig, SortKey } from "../types";
 import type { ImageMetadataStore } from "../types";
 import { metadataEntryToDisplayString as metadataValueToDisplayString } from "../draft";
+import { metadataGet } from "./metadataCollection";
+import { schemaDefinitionIdEquals } from "./schemaDefinitionId";
 
-function getMetadataValueAsString(v: ImageMetadataEntry | undefined): string {
+export type SortTarget =
+  | { kind: "path" }
+  | { kind: "os"; key: "date_modified" | "date_created" }
+  | { kind: "image"; id: import("../types").SchemaDefinitionId };
+
+function getMetadataValueAsString(
+  v: import("../types").MetadataValue | undefined,
+): string {
   if (v === undefined || v === null) return "";
   return metadataValueToDisplayString(v);
 }
@@ -21,12 +25,12 @@ function compareByKey(
   let valA: string | number | null;
   let valB: string | number | null;
 
-  if (key.columnType === "path") {
+  if (key.kind === "path") {
     valA = a.relative_path;
     valB = b.relative_path;
-  } else if (key.columnType === "os") {
-    valA = key.column === "date_modified" ? a.date_modified : a.date_created;
-    valB = key.column === "date_modified" ? b.date_modified : b.date_created;
+  } else if (key.kind === "os") {
+    valA = key.key === "date_modified" ? a.date_modified : a.date_created;
+    valB = key.key === "date_modified" ? b.date_modified : b.date_created;
     // Nulls sort to the end regardless of direction
     if (valA === null && valB === null) return 0;
     if (valA === null) return 1;
@@ -35,8 +39,8 @@ function compareByKey(
     // image metadata — look up from store; photos still loading sort to the end
     const metaA = imageMetadata.get(a.relative_path);
     const metaB = imageMetadata.get(b.relative_path);
-    const rawA = metaA === "loading" ? undefined : metaA[key.column];
-    const rawB = metaB === "loading" ? undefined : metaB[key.column];
+    const rawA = metaA === "loading" ? undefined : metadataGet(metaA, key.id);
+    const rawB = metaB === "loading" ? undefined : metadataGet(metaB, key.id);
     valA = getMetadataValueAsString(rawA);
     valB = getMetadataValueAsString(rawB);
     // Empty strings (no value or still loading) sort to the end
@@ -98,19 +102,18 @@ export function shouldSuspendSorting(
   metadataRemaining: number,
 ): boolean {
   if (scanning) return true;
-  const primaryNeedsMetadata = sortConfig.primary?.columnType === "image";
+  const primaryNeedsMetadata = sortConfig.primary?.kind === "image";
   return primaryNeedsMetadata && metadataRemaining > 0;
 }
 
 /** Returns the next SortConfig when a column header is clicked. */
 export function nextSortConfig(
   current: SortConfig,
-  column: string,
-  columnType: SortKey["columnType"],
+  target: SortTarget,
 ): SortConfig {
   const { primary } = current;
 
-  if (primary && primary.column === column) {
+  if (primary && sortKeyMatches(primary, target)) {
     // Toggle direction on the current primary column
     return {
       primary: {
@@ -123,7 +126,18 @@ export function nextSortConfig(
 
   // New column: becomes primary asc; old primary demoted to secondary
   return {
-    primary: { column, columnType, direction: "asc" },
+    primary: { ...target, direction: "asc" } as SortKey,
     secondary: primary ?? null,
   };
+}
+
+function sortKeyMatches(a: SortKey, b: SortTarget): boolean {
+  if (a.kind !== b.kind) return false;
+  if (a.kind === "path") return true;
+  if (a.kind === "os" && b.kind === "os") return a.key === b.key;
+  return (
+    a.kind === "image" &&
+    b.kind === "image" &&
+    schemaDefinitionIdEquals(a.id, b.id)
+  );
 }
