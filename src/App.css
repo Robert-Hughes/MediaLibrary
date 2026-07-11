@@ -914,15 +914,18 @@ body {
   border-radius: 8px;
 }
 
-/* ── Gallery overlay ──────────────────────────────────────────────────────── */
-.gallery-overlay {
+/* ── Full-screen native gallery dialog ───────────────────────────────────── */
+.gallery-dialog {
   position: fixed;
   inset: 0;
+  width: 100vw;
+  height: 100vh;
+  margin: 0;
+  background: transparent;
+}
+
+.gallery-dialog::backdrop {
   background: var(--overlay-backdrop);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 100;
 }
 
 .gallery-content {
@@ -1461,14 +1464,18 @@ body {
 
 /* ── Dialogs / Modals ─────────────────────────────────────────────────────── */
 
-.dialog-overlay {
+.modal-dialog {
   position: fixed;
-  inset: 0;
+  border: 0;
+  padding: 0;
+  max-width: none;
+  max-height: none;
+  background: transparent;
+  overflow: visible;
+}
+
+.modal-dialog::backdrop {
   background: rgba(0, 0, 0, 0.7);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 200;
 }
 
 .dialog-content {

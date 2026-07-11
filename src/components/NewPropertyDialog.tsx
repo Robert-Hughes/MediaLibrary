@@ -1,3 +1,4 @@
+import { ModalDialog } from "./ModalDialog";
 import { useState, useRef, useEffect, useMemo } from "react";
 import { useTagInfo } from "../hooks/useTagInfo";
 import { useSchemaTagNames } from "../hooks/useSchemaTagNames";
@@ -54,9 +55,6 @@ export function NewPropertyDialog({
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !disabled) {
       onSave(key);
-    } else if (e.key === "Escape") {
-      e.stopPropagation();
-      onCancel();
     }
   };
 
@@ -117,7 +115,7 @@ export function NewPropertyDialog({
   const isDuplicate = !!key && !!existingKeys?.has(key);
 
   return (
-    <div className="dialog-overlay">
+    <ModalDialog open onDismiss={onCancel} aria-label="Add new property">
       <div className="dialog-content">
         <h3>Add New Property</h3>
         <div
@@ -182,6 +180,6 @@ export function NewPropertyDialog({
           </button>
         </div>
       </div>
-    </div>
+    </ModalDialog>
   );
 }

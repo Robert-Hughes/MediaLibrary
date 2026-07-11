@@ -1,6 +1,6 @@
+import { ModalDialog } from "./ModalDialog";
 import type { ApplyEditsInFlight } from "../types";
 import { RunningProgressPanel } from "./RunningProgressPanel";
-import { useDialogEscape } from "../hooks/useDialogEscape";
 
 interface Props {
   applying: ApplyEditsInFlight;
@@ -19,10 +19,13 @@ interface Props {
  * copy stay caller-specific, but the structure has one home.
  */
 export function ApplyProgressDialog({ applying, onCancel }: Props) {
-  useDialogEscape(onCancel);
-
   return (
-    <div className="dialog-overlay" data-testid="apply-progress-dialog">
+    <ModalDialog
+      open
+      onDismiss={onCancel}
+      testId="apply-progress-dialog"
+      aria-label="Applying edits"
+    >
       <div className="dialog-content" style={{ width: 460 }}>
         <div className="dialog-header">
           <span className="dialog-title">
@@ -54,7 +57,7 @@ export function ApplyProgressDialog({ applying, onCancel }: Props) {
           />
         </div>
       </div>
-    </div>
+    </ModalDialog>
   );
 }
 

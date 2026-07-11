@@ -5,6 +5,37 @@ import { SearchIndex } from "../search/searchIndex";
 import { _clearTagInfoCache } from "../hooks/useTagInfo";
 import { _resetSchemaTagNamesCache } from "../hooks/useSchemaTagNames";
 
+// jsdom exposes <dialog> but not its modal lifecycle. This deliberately models
+// only the state and focus restoration our controlled wrapper depends on.
+const dialogOpeners = new WeakMap<HTMLDialogElement, HTMLElement | null>();
+if (typeof HTMLDialogElement !== "undefined") {
+  HTMLDialogElement.prototype.showModal ??= function () {
+    if (this.open) throw new DOMException("Dialog is already open");
+    dialogOpeners.set(this, document.activeElement as HTMLElement | null);
+    this.setAttribute("open", "");
+  };
+  HTMLDialogElement.prototype.close ??= function () {
+    if (!this.open) return;
+    this.removeAttribute("open");
+    dialogOpeners.get(this)?.focus();
+  };
+}
+
+// user-event cannot ask jsdom's platform layer to issue a dialog close
+// request, so translate Escape into the native event for legacy interaction
+// tests. Application code still receives only `cancel`.
+if (typeof document !== "undefined") {
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    const dialogs = Array.from(
+      document.querySelectorAll<HTMLDialogElement>("dialog[open]"),
+    );
+    dialogs[dialogs.length - 1]?.dispatchEvent(
+      new Event("cancel", { cancelable: true }),
+    );
+  });
+}
+
 // Unmount React trees between tests so the DOM doesn't bleed across
 // `it()` blocks.  Without this, `screen.getByTestId(...)` in test N+1
 // can hit elements left behind by test N and fail with confusing errors.

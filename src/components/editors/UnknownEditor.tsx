@@ -1,5 +1,5 @@
+import { ModalDialog } from "../ModalDialog";
 import type { MetadataValue } from "../../types";
-import { useDialogEscape } from "../../hooks/useDialogEscape";
 
 interface Props {
   propertyKey: string;
@@ -14,8 +14,6 @@ export function UnknownEditor({
   onCancel,
   headerHint,
 }: Props) {
-  useDialogEscape(onCancel);
-
   const isParsedUnknown =
     initialMetadataValue && initialMetadataValue.kind === "Unknown";
   const rawValue = isParsedUnknown
@@ -24,7 +22,12 @@ export function UnknownEditor({
   const reason = isParsedUnknown ? initialMetadataValue.value.reason : null;
 
   return (
-    <div className="dialog-overlay" data-testid="unknown-editor-overlay">
+    <ModalDialog
+      open
+      onDismiss={onCancel}
+      testId="unknown-editor-overlay"
+      aria-label={propertyKey}
+    >
       <div className="dialog-content">
         <h3>{propertyKey}</h3>
         {headerHint}
@@ -84,6 +87,6 @@ export function UnknownEditor({
           </button>
         </div>
       </div>
-    </div>
+    </ModalDialog>
   );
 }

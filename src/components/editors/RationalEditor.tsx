@@ -1,3 +1,4 @@
+import { ModalDialog } from "../ModalDialog";
 // Numerator/denominator editor for Rational tags.
 //
 // Rational EXIF tags (ExposureTime, ShutterSpeedValue, FNumber-as-rational,
@@ -183,9 +184,6 @@ export function RationalEditor({
     if (e.key === "Enter") {
       e.preventDefault();
       handleSave();
-    } else if (e.key === "Escape") {
-      e.stopPropagation();
-      onCancel();
     }
   };
 
@@ -205,7 +203,12 @@ export function RationalEditor({
   }
 
   return (
-    <div className="dialog-overlay" data-testid="rational-editor-overlay">
+    <ModalDialog
+      open
+      onDismiss={onCancel}
+      testId="rational-editor-overlay"
+      aria-label={`Edit ${propertyKey}`}
+    >
       <div className="dialog-content">
         <h3>Edit {propertyKey}</h3>
         {headerHint}
@@ -317,6 +320,6 @@ export function RationalEditor({
           </button>
         </div>
       </div>
-    </div>
+    </ModalDialog>
   );
 }

@@ -1,3 +1,4 @@
+import { ModalDialog } from "../ModalDialog";
 // Dropdown editor for Enum tags (Orientation, Flash mode, WhiteBalance, …).
 //
 // The schema gives us the full `(code, label)` list.  Draft stores the code
@@ -8,7 +9,7 @@
 // raw "Custom…" code entry so the user can still edit without losing the
 // existing value.
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { EnumOption, EnumRepr, MetadataDraftEdit } from "../../types";
 import { READ_ONLY_TOOLTIP } from "./readOnlyMessages";
 import { enumDraftEdit } from "./editorHelpers";
@@ -40,17 +41,6 @@ export function EnumEditor({
   );
   const [customValue, setCustomValue] = useState<string>(initialCode);
 
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        onCancel();
-      }
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [onCancel]);
-
   const handleSave = () => {
     if (readOnly) return;
     const code = customMode ? customValue.trim() : selected;
@@ -59,7 +49,12 @@ export function EnumEditor({
   };
 
   return (
-    <div className="dialog-overlay" data-testid="enum-editor-overlay">
+    <ModalDialog
+      open
+      onDismiss={onCancel}
+      testId="enum-editor-overlay"
+      aria-label={`Edit ${propertyKey}`}
+    >
       <div className="dialog-content">
         <h3>Edit {propertyKey}</h3>
         {headerHint}
@@ -128,6 +123,6 @@ export function EnumEditor({
           </button>
         </div>
       </div>
-    </div>
+    </ModalDialog>
   );
 }

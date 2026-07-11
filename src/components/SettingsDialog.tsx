@@ -1,3 +1,4 @@
+import { ModalDialog } from "./ModalDialog";
 /**
  * Settings dialog — V1 surface is API key + model.
  *
@@ -12,7 +13,6 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { Settings } from "../types/generated/Settings";
-import { useDialogEscape } from "../hooks/useDialogEscape";
 
 interface Props {
   onClose: () => void;
@@ -29,8 +29,6 @@ function formatPerImageCost(usd: number): string {
 }
 
 export function SettingsDialog({ onClose }: Props) {
-  useDialogEscape(onClose);
-
   const [settings, setSettings] = useState<Settings | null>(null);
   const [models, setModels] = useState<string[]>([]);
   /** Model id → ballpark per-image cost in USD. Missing entries are
@@ -115,7 +113,12 @@ export function SettingsDialog({ onClose }: Props) {
   }
 
   return (
-    <div className="dialog-overlay" data-testid="settings-dialog">
+    <ModalDialog
+      open
+      onDismiss={onClose}
+      testId="settings-dialog"
+      aria-label="Settings"
+    >
       <div className="dialog-content" style={{ width: 520 }}>
         <div className="dialog-header">
           <span className="dialog-title">Settings</span>
@@ -321,7 +324,7 @@ export function SettingsDialog({ onClose }: Props) {
           </div>
         </div>
       </div>
-    </div>
+    </ModalDialog>
   );
 }
 

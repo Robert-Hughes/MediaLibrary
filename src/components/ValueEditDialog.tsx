@@ -1,3 +1,4 @@
+import { ModalDialog } from "./ModalDialog";
 import { useState, useEffect, useRef } from "react";
 import { READ_ONLY_TOOLTIP } from "./editors/readOnlyMessages";
 
@@ -29,14 +30,11 @@ export function ValueEditDialog({
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter") {
       if (!readOnly) onSave(value);
-    } else if (e.key === "Escape") {
-      e.stopPropagation();
-      onCancel();
     }
   };
 
   return (
-    <div className="dialog-overlay">
+    <ModalDialog open onDismiss={onCancel} aria-label={`Edit ${propertyKey}`}>
       <div className="dialog-content">
         <h3>Edit {propertyKey}</h3>
         {headerHint}
@@ -69,6 +67,6 @@ export function ValueEditDialog({
           </button>
         </div>
       </div>
-    </div>
+    </ModalDialog>
   );
 }
