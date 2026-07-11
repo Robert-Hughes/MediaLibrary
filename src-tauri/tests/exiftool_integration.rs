@@ -169,7 +169,10 @@ fn apply_text_edit_roundtrip_iptc_city() {
     assert_eq!(result.applied, vec![rel.clone()]);
 
     let m = read_one(dir.path(), &dst);
-    let got = m.metadata.get("IPTC:City").cloned();
+    let got = m
+        .metadata
+        .get(&medialibrary_tauri_lib::known_ids::iptc_city())
+        .cloned();
     match got {
         Some(MetadataValue::Text(s)) => assert_eq!(s, value),
         other => panic!("expected IPTC City set, got {:?}", other),
@@ -194,7 +197,10 @@ fn apply_xmp_mlib_ai_description_preserves_utf8() {
     assert!(outcome.error.is_none(), "apply failed: {:?}", outcome.error);
 
     let m = read_one(dir.path(), &dst);
-    match m.metadata.get("XMP-mlib:AIDescription") {
+    match m
+        .metadata
+        .get(&medialibrary_tauri_lib::known_ids::mlib_ai_description())
+    {
         Some(MetadataValue::Text(s)) => assert!(
             s.contains('é'),
             "expected semantic readback to preserve é, got {:?}",
@@ -235,7 +241,9 @@ fn apply_delete_edit_removes_tag() {
 
     // Step 3: re-read; City should be absent or empty.
     let m = read_one(dir.path(), &dst);
-    let got = m.metadata.get("IPTC:City");
+    let got = m
+        .metadata
+        .get(&medialibrary_tauri_lib::known_ids::iptc_city());
     match got {
         None => {}
         Some(MetadataValue::Text(s)) => assert!(s.is_empty(), "expected empty, got {:?}", s),
@@ -253,7 +261,10 @@ fn fixture_keywords_basic_has_two_keywords() {
     };
     let (_dir, dst) = copy_to_temp(&src);
     let m = read_one(_dir.path(), &dst);
-    match m.metadata.get("XMP-dc:Subject") {
+    match m
+        .metadata
+        .get(&medialibrary_tauri_lib::known_ids::xmp_subject())
+    {
         Some(MetadataValue::List { items, .. }) => {
             assert_eq!(items.len(), 2, "expected two subjects, got {:?}", items);
             let strs: Vec<String> = items
@@ -284,7 +295,12 @@ fn fixture_orientation_rotate90_pretty_and_raw_match_design() {
     let (_dir, dst) = copy_to_temp(&src);
     let m = read_one(_dir.path(), &dst);
     // Canonical: integer 6, primarily from the raw Pass B output.
-    match m.metadata.get("IFD0:Orientation") {
+    let orientation_id = medialibrary_tauri_lib::tag_schema::SchemaDefinitionId {
+        table: "Exif::Main".to_string(),
+        tag_id: "274".to_string(),
+        index: None,
+    };
+    match m.metadata.get(&orientation_id) {
         Some(MetadataValue::Integer(n)) => assert_eq!(*n, 6),
         Some(MetadataValue::Text(s)) if s == "6" => {} // some exiftool builds emit "6" as string under -n
         other => panic!("expected raw Orientation=6, got {:?}", other),
@@ -298,32 +314,20 @@ fn fixture_langalt_description_pretty_and_raw_match_design() {
     };
     let (_dir, dst) = copy_to_temp(&src);
     let m = read_one(_dir.path(), &dst);
-    // The lang-alt rendering under -struct varies: it can be a flat string
-    // (x-default), an Object keyed by language, or include separate
-    // Description-en / Description-fr keys.  Accept any of these and check
-    // the english/french strings are findable.
-    let combined: String = format!(
-        "{:?} {:?} {:?} {:?}",
-        m.metadata.get("XMP-dc:Description"),
-        m.metadata.get("XMP-dc:Description-en"),
-        m.metadata.get("XMP-dc:Description-fr"),
-        m.metadata.get("XMP-dc:Description-x-default"),
+    let desc = m
+        .metadata
+        .get(&medialibrary_tauri_lib::known_ids::xmp_description())
+        .unwrap();
+    let map = match desc {
+        MetadataValue::LangAlt(m) => m,
+        other => panic!("expected LangAlt, got {:?}", other),
+    };
+    assert_eq!(
+        map.get("x-default").map(|s| s.as_str()),
+        Some("default text")
     );
-    assert!(
-        combined.contains("default text"),
-        "missing x-default: {}",
-        combined
-    );
-    assert!(
-        combined.contains("english text"),
-        "missing en: {}",
-        combined
-    );
-    assert!(
-        combined.contains("texte francais"),
-        "missing fr: {}",
-        combined
-    );
+    assert_eq!(map.get("en").map(|s| s.as_str()), Some("english text"));
+    assert_eq!(map.get("fr").map(|s| s.as_str()), Some("texte francais"));
 }
 
 #[test]
@@ -333,9 +337,9 @@ fn fixture_rating_5_pretty_and_raw_match_design() {
     };
     let (_dir, dst) = copy_to_temp(&src);
     let m = read_one(_dir.path(), &dst);
-    // Rating is a real that exiftool prints without PrintConv → "5".
-    let display = m.metadata.get("XMP-xmp:Rating");
-    let raw = m.metadata.get("XMP-xmp:Rating");
+    let rating_id = unique_schema_id_by_display_name("XMP-xmp:Rating");
+    let display = m.metadata.get(&rating_id);
+    let raw = m.metadata.get(&rating_id);
     let display_ok = match display {
         Some(MetadataValue::Integer(5)) => true,
         Some(MetadataValue::Real(f)) => (f - 5.0).abs() < 1e-9,
@@ -364,17 +368,18 @@ fn roundtrip_set_rating() {
     let folder = dir.path().to_str().unwrap();
     let rel = rel_of(dir.path(), &dst);
 
+    let rating_id = unique_schema_id_by_display_name("XMP-xmp:Rating");
+
     // Confirm starting state.
     let before = read_one(dir.path(), &dst);
-    let starting_rating = before.metadata.get("XMP-xmp:Rating").cloned();
+    let starting_rating = before.metadata.get(&rating_id).cloned();
     assert!(
         starting_rating.is_some(),
         "fixture should start with a Rating"
     );
 
-    let rating_id = unique_schema_id_by_display_name("XMP-xmp:Rating");
     let edits = vec![medialibrary_tauri_lib::draft_edits::MetadataDraftEntry {
-        id: rating_id,
+        id: rating_id.clone(),
         edit: metadata_set(MetadataValue::Integer(5)),
     }];
 
@@ -384,8 +389,8 @@ fn roundtrip_set_rating() {
     assert!(result.failed.is_empty(), "failed: {:?}", result.failed);
 
     let after = read_one(dir.path(), &dst);
-    let raw = after.metadata.get("XMP-xmp:Rating");
-    let display = after.metadata.get("XMP-xmp:Rating");
+    let raw = after.metadata.get(&rating_id);
+    let display = after.metadata.get(&rating_id);
     let ok = matches!(raw, Some(MetadataValue::Integer(5)))
         || matches!(raw, Some(MetadataValue::Real(f)) if (f - 5.0).abs() < 1e-6)
         || matches!(display, Some(MetadataValue::Text(s)) if s == "5" || s == "5.0");
@@ -412,7 +417,7 @@ fn roundtrip_set_orientation_via_numeric_pass() {
         index: None,
     };
     let edits = vec![medialibrary_tauri_lib::draft_edits::MetadataDraftEntry {
-        id: orientation_id,
+        id: orientation_id.clone(),
         edit: metadata_set(MetadataValue::Integer(3)),
     }];
 
@@ -422,7 +427,7 @@ fn roundtrip_set_orientation_via_numeric_pass() {
     assert!(result.failed.is_empty(), "failed: {:?}", result.failed);
 
     let after = read_one(dir.path(), &dst);
-    match after.metadata.get("IFD0:Orientation") {
+    match after.metadata.get(&orientation_id) {
         Some(MetadataValue::Integer(n)) => assert_eq!(*n, 3),
         other => panic!("expected canonical Orientation 3, got {:?}", other),
     }
@@ -441,7 +446,9 @@ fn face_regions_round_trip_through_struct_variant() {
     let (dir, dst) = copy_to_temp(&src);
     let m = read_one(dir.path(), &dst);
 
-    let region_info = m.metadata.get("XMP-mwg-rs:RegionInfo");
+    let region_info = m
+        .metadata
+        .get(&unique_schema_id_by_display_name("XMP-mwg-rs:RegionInfo"));
     let region_info = match region_info {
         Some(MetadataValue::Struct(map)) => map,
         other => panic!("expected RegionInfo as Object, got {:?}", other),
@@ -570,7 +577,10 @@ fn semantic_apply_writes_bag_as_separate_items_end_to_end() {
     assert!(outcome.error.is_none(), "apply failed: {:?}", outcome.error);
 
     let m = read_one(dir.path(), &dst);
-    match m.metadata.get("XMP-dc:Subject") {
+    match m
+        .metadata
+        .get(&medialibrary_tauri_lib::known_ids::xmp_subject())
+    {
         Some(MetadataValue::List { items, .. }) => {
             assert_eq!(items.len(), 3, "expected 3 subjects, got {:?}", items);
             let strs: Vec<String> = items
@@ -664,7 +674,9 @@ fn semantic_apply_rating_fractional_coerces_or_rejects_cleanly() {
 
     // Re-read should still parse without panic.
     let m = read_one(dir.path(), &dst);
-    let _ = m.metadata.get("XMP-xmp:Rating");
+    let _ = m
+        .metadata
+        .get(&unique_schema_id_by_display_name("XMP-xmp:Rating"));
 }
 
 // ── ListAdd / ListRemove intents ─────────────────────────────────────────────
@@ -688,7 +700,10 @@ fn semantic_apply_list_add_appends_items_to_bag() {
     assert!(outcome.error.is_none(), "apply failed: {:?}", outcome.error);
 
     let m = read_one(dir.path(), &dst);
-    match m.metadata.get("XMP-dc:Subject") {
+    match m
+        .metadata
+        .get(&medialibrary_tauri_lib::known_ids::xmp_subject())
+    {
         Some(MetadataValue::List { items, .. }) => {
             let strs: Vec<String> = items
                 .iter()
@@ -740,7 +755,10 @@ fn semantic_apply_list_remove_drops_items_from_bag() {
     assert!(outcome.error.is_none(), "apply failed: {:?}", outcome.error);
 
     let m = read_one(dir.path(), &dst);
-    match m.metadata.get("XMP-dc:Subject") {
+    match m
+        .metadata
+        .get(&medialibrary_tauri_lib::known_ids::xmp_subject())
+    {
         Some(MetadataValue::List { items, .. }) => {
             let strs: Vec<String> = items
                 .iter()
@@ -799,7 +817,10 @@ fn apply_keywords_writes_back_as_separate_items_not_csv() {
     assert!(result.failed.is_empty(), "{:?}", result.failed);
 
     let m = read_one(dir.path(), &dst);
-    match m.metadata.get("XMP-dc:Subject") {
+    match m
+        .metadata
+        .get(&medialibrary_tauri_lib::known_ids::xmp_subject())
+    {
         Some(MetadataValue::Text(s)) => assert!(s == "alpha" || s == "beta"),
         Some(MetadataValue::List { items, .. }) => {
             assert_eq!(items.len(), 2);
@@ -845,7 +866,10 @@ fn apply_xmp_mlib_ai_ocr_text_preserves_newlines() {
     assert!(result.failed.is_empty(), "{:?}", result.failed);
 
     let m = read_one(dir.path(), &dst);
-    match m.metadata.get("XMP-mlib:AIOcrText") {
+    match m
+        .metadata
+        .get(&medialibrary_tauri_lib::known_ids::mlib_ai_ocr_text())
+    {
         Some(MetadataValue::Text(s)) => {
             assert_eq!(s.as_str(), ocr_text.as_str());
         }

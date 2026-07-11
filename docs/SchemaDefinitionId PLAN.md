@@ -52,6 +52,7 @@ Friendly names such as `IFD0:Orientation` remain useful for display, searching a
    ```rust
    Option<&TagInfo>
    ```
+
 7. Runtime schema selection must use ExifTool’s emitted `table`, `id` and optional `index`.
 8. Do not use Family 5, Make, Model, FileType, enum values or other heuristics to infer a table.
 9. Add New Property must return and select one exact `SchemaDefinitionId`.
@@ -134,11 +135,11 @@ pub struct SchemaDefinitionId {
 
 The final comments must clearly communicate:
 
-* how runtime output maps to the fields;
-* how `-listx` maps to them;
-* that `tag_id` is local to its table;
-* why `index` exists;
-* that `None` and `Some(0)` are different.
+- how runtime output maps to the fields;
+- how `-listx` maps to them;
+- that `tag_id` is local to its table;
+- why `index` exists;
+- that `None` and `Some(0)` are different.
 
 Generate and export the corresponding TypeScript type through the existing `ts-rs` process.
 
@@ -171,15 +172,15 @@ Store all tag IDs as strings.
 
 For runtime `-D` JSON:
 
-* JSON integer `274` becomes `"274"`.
-* JSON string `"description"` remains `"description"`.
-* Reject unsupported JSON shapes with a clear diagnostic.
+- JSON integer `274` becomes `"274"`.
+- JSON string `"description"` remains `"description"`.
+- Reject unsupported JSON shapes with a clear diagnostic.
 
 For `-listx`:
 
-* Canonicalise numeric and hexadecimal numeric representations to the same base-10 string that `-D` emits.
-* Preserve textual and symbolic IDs exactly where case is significant.
-* Add tests covering numeric, hexadecimal and textual IDs.
+- Canonicalise numeric and hexadecimal numeric representations to the same base-10 string that `-D` emits.
+- Preserve textual and symbolic IDs exactly where case is significant.
+- Add tests covering numeric, hexadecimal and textual IDs.
 
 Keep this normalisation in one shared implementation. Do not duplicate subtly different versions in scanner and schema parser.
 
@@ -260,8 +261,8 @@ After including `table + tag_id + index`, duplicate identities should not be sil
 
 If two parsed definitions produce the same `SchemaDefinitionId`:
 
-* return a schema parse error with the complete ID and both definitions;
-* do not score or overwrite one.
+- return a schema parse error with the complete ID and both definitions;
+- do not score or overwrite one.
 
 Delete:
 
@@ -356,9 +357,9 @@ from its `table`, `id` and optional `index`.
 
 The original JSON property name, such as `IFD0:Orientation`, may be retained only for:
 
-* diagnostics;
-* language-child detection;
-* checking ExifTool output consistency.
+- diagnostics;
+- language-child detection;
+- checking ExifTool output consistency.
 
 It must not be used as the metadata identity or registry lookup key.
 
@@ -385,10 +386,10 @@ The canonical semantic parse should:
 
 A formatted/raw mismatch must produce a diagnostic including:
 
-* source file;
-* full `SchemaDefinitionId`;
-* original JSON property names from both passes;
-* which pass was missing.
+- source file;
+- full `SchemaDefinitionId`;
+- original JSON property names from both passes;
+- which pass was missing.
 
 Do not silently match it to another definition.
 
@@ -468,13 +469,13 @@ Use `BTreeMap<SchemaDefinitionId, MetadataValue>` internally where convenient, t
 
 Update:
 
-* `ImageMetadata`;
-* `ImageMetadataResult`;
-* fresh metadata in apply progress;
-* `MetadataApplyEditsResult`;
-* readback structures;
-* generated TypeScript types;
-* test factories and mocks.
+- `ImageMetadata`;
+- `ImageMetadataResult`;
+- fresh metadata in apply progress;
+- `MetadataApplyEditsResult`;
+- readback structures;
+- generated TypeScript types;
+- test factories and mocks.
 
 Ordering should be deterministic, preferably by `SchemaDefinitionId`.
 
@@ -491,27 +492,27 @@ src/utils/schemaDefinitionId.ts
 It may contain:
 
 ```typescript
-schemaDefinitionIdEquals(a, b)
-schemaDefinitionIdToken(id)
-formatSchemaDefinitionIdForDiagnostics(id)
-tagInfoDisplayName(info)
+schemaDefinitionIdEquals(a, b);
+schemaDefinitionIdToken(id);
+formatSchemaDefinitionIdForDiagnostics(id);
+tagInfoDisplayName(info);
 ```
 
 `schemaDefinitionIdToken()` may produce an unambiguous canonical string such as JSON encoding of:
 
 ```typescript
-[id.table, id.tag_id, id.index ?? null]
+[id.table, id.tag_id, id.index ?? null];
 ```
 
 This token is allowed only as an internal JavaScript collection/React-key mechanism.
 
 It must not become:
 
-* a public domain type;
-* a persisted metadata identity;
-* an ExifTool tag name;
-* an API parameter replacing `SchemaDefinitionId`;
-* a second concept called an application key.
+- a public domain type;
+- a persisted metadata identity;
+- an ExifTool tag name;
+- an API parameter replacing `SchemaDefinitionId`;
+- a second concept called an application key.
 
 All domain-facing functions and component props must accept `SchemaDefinitionId`.
 
@@ -522,7 +523,7 @@ Document this restriction next to the token helper.
 Replace:
 
 ```typescript
-Record<string, MetadataValue>
+Record<string, MetadataValue>;
 ```
 
 metadata collections with entries carrying exact IDs.
@@ -532,28 +533,28 @@ The frontend store may normalise the wire vector into an internal map keyed by `
 Provide central helpers rather than scattering token operations:
 
 ```typescript
-metadataGet(collection, id)
-metadataHas(collection, id)
-metadataEntries(collection)
-metadataIds(collection)
+metadataGet(collection, id);
+metadataHas(collection, id);
+metadataEntries(collection);
+metadataIds(collection);
 ```
 
 Update all consumers, including:
 
-* scan-event handling;
-* `ImageMetadataStore`;
-* details pane;
-* photo rows;
-* list view;
-* sorting;
-* searching/indexing;
-* editor opening;
-* effective value calculation;
-* normalisation;
-* geocoding;
-* GPS editors;
-* diagnostics;
-* test factories.
+- scan-event handling;
+- `ImageMetadataStore`;
+- details pane;
+- photo rows;
+- list view;
+- sorting;
+- searching/indexing;
+- editor opening;
+- effective value calculation;
+- normalisation;
+- geocoding;
+- GPS editors;
+- diagnostics;
+- test factories.
 
 Do a repository-wide search for assumptions such as:
 
@@ -625,23 +626,23 @@ The current free-text field must become a search field, not an identity field.
 
 The user may search by:
 
-* friendly `Group1:TagName`;
-* tag name;
-* description;
-* table name;
-* tag ID;
-* kind.
+- friendly `Group1:TagName`;
+- tag name;
+- description;
+- table name;
+- tag ID;
+- kind.
 
 However, the user must select one concrete result containing one exact `SchemaDefinitionId`.
 
 Requirements:
 
-* Typing arbitrary text is not enough to enable Next.
-* Next is enabled only after a concrete result has been selected.
-* `onSave` receives `SchemaDefinitionId`.
-* Duplicate detection compares exact IDs.
-* Results with the same friendly name remain separate.
-* Show enough context to distinguish them, for example:
+- Typing arbitrary text is not enough to enable Next.
+- Next is enabled only after a concrete result has been selected.
+- `onSave` receives `SchemaDefinitionId`.
+- Duplicate detection compares exact IDs.
+- Results with the same friendly name remain separate.
+- Show enough context to distinguish them, for example:
 
   ```text
   WhiteBalance
@@ -652,9 +653,10 @@ Requirements:
   Canon:WhiteBalance
   Canon::CameraInfo5D · ID 4
   ```
-* Show `index` when present.
-* Continue filtering read-only definitions out of Add New Property.
-* Existing filename applicability filtering may remain as a search/presentation heuristic, but it must operate on `TagInfo` and must not alter identity.
+
+- Show `index` when present.
+- Continue filtering read-only definitions out of Add New Property.
+- Existing filename applicability filtering may remain as a search/presentation heuristic, but it must operate on `TagInfo` and must not alter identity.
 
 Delete the old behaviour that allowed an unknown free-text tag to be sent as raw text.
 
@@ -714,12 +716,12 @@ Reject v1–v3 with a clear message telling the user to recreate pending drafts.
 
 Update:
 
-* Rust draft persistence;
-* frontend `DraftEditsStore`;
-* store notifications;
-* draft equality/redundancy checks;
-* save/load commands;
-* all draft-related tests.
+- Rust draft persistence;
+- frontend `DraftEditsStore`;
+- store notifications;
+- draft equality/redundancy checks;
+- save/load commands;
+- all draft-related tests.
 
 All draft store APIs must accept `SchemaDefinitionId`.
 
@@ -747,6 +749,7 @@ Requirements:
    ```rust
    info.exiftool_write_name()
    ```
+
 5. Keep the selected `SchemaDefinitionId` throughout diagnostics and verification.
 6. Do not try to pass the table name to ExifTool using an invented syntax.
 7. Do not convert the friendly write selector into MediaLibrary’s identity.
@@ -769,10 +772,10 @@ Before/after metadata maps and verification must use `SchemaDefinitionId`.
 
 For each edit:
 
-* `before` is looked up by exact ID;
-* `observed` is looked up by exact ID;
-* successful verification clears the draft for that exact ID;
-* a value written under a different ExifTool definition does not count as a match.
+- `before` is looked up by exact ID;
+- `observed` is looked up by exact ID;
+- successful verification clears the draft for that exact ID;
+- a value written under a different ExifTool definition does not count as a match.
 
 This is particularly important for Add New Property: selecting one definition does not permit verification against a different definition with the same friendly name.
 
@@ -807,15 +810,15 @@ where the string means metadata identity. Use `SchemaDefinitionId`.
 
 The repository contains logic for known metadata such as:
 
-* GPS coordinates and altitude;
-* exposure time;
-* aperture;
-* focal length;
-* country codes;
-* dates;
-* normalisation groups;
-* geocoding fields;
-* keywords and descriptions.
+- GPS coordinates and altitude;
+- exposure time;
+- aperture;
+- focal length;
+- country codes;
+- dates;
+- normalisation groups;
+- geocoding fields;
+- keywords and descriptions.
 
 Replace hard-coded `Group1:TagName` identity constants with exact `SchemaDefinitionId` constants.
 
@@ -828,8 +831,8 @@ A friendly group/name may still be used to render labels. It must not be used to
 Remove identity checks resembling:
 
 ```typescript
-key === "ExifIFD:ExposureTime"
-key.endsWith(":GPSLatitude")
+key === "ExifIFD:ExposureTime";
+key.endsWith(":GPSLatitude");
 ```
 
 and replace them with exact ID comparison.
@@ -842,8 +845,7 @@ Use a discriminated shape such as:
 
 ```typescript
 type VisibleColumn =
-  | { kind: "os"; key: OsColumnKey }
-  | { kind: "image"; id: SchemaDefinitionId };
+  { kind: "os"; key: OsColumnKey } | { kind: "image"; id: SchemaDefinitionId };
 ```
 
 Do the same for image sort keys.
@@ -854,10 +856,10 @@ Existing persisted image-column configuration uses ambiguous string keys and mus
 
 Bump/reset the relevant persisted configuration version:
 
-* preserve OS-column settings where safely possible;
-* discard or reset legacy image-column selections;
-* document the reset;
-* update persistence tests.
+- preserve OS-column settings where safely possible;
+- discard or reset legacy image-column selections;
+- document the reset;
+- update persistence tests.
 
 Do not introduce a permanent mapping from old `Group:Name` strings to new IDs.
 
@@ -867,12 +869,12 @@ Do not introduce a permanent mapping from old `Group:Name` strings to new IDs.
 
 When runtime ExifTool output supplies a valid `SchemaDefinitionId` that is absent from the registry:
 
-* preserve the runtime ID in diagnostics;
-* preserve the value as `MetadataValue::Unknown` if practical;
-* expose it as read-only/uneditable;
-* log a clear schema-gap warning;
-* do not resolve it heuristically;
-* do not write it as generic text.
+- preserve the runtime ID in diagnostics;
+- preserve the value as `MetadataValue::Unknown` if practical;
+- expose it as read-only/uneditable;
+- log a clear schema-gap warning;
+- do not resolve it heuristically;
+- do not write it as generic text.
 
 ### Duplicate canonical IDs
 
@@ -885,10 +887,10 @@ Rules:
 3. Different values for the same canonical ID must not silently overwrite one another.
 4. Return a clear parse error or file-level metadata error containing:
 
-   * source file;
-   * ID;
-   * both original JSON property names;
-   * both values.
+   - source file;
+   - ID;
+   - both original JSON property names;
+   - both values.
 
 Do not add Family 4 to `SchemaDefinitionId`; it identifies runtime occurrences, not static schema definitions.
 
@@ -931,16 +933,16 @@ and any other design documents describing `Group1:TagName` as the metadata key.
 
 Document:
 
-* why `Group1:TagName` was insufficient;
-* the `-j -t -D` discovery;
-* `SchemaDefinitionId`;
-* static index reconstruction;
-* LangAlt canonicalisation;
-* wire arrays rather than object-key maps;
-* exact Add New Property selection;
-* draft v4;
-* exact readback verification;
-* the distinction between identity and friendly display/write names.
+- why `Group1:TagName` was insufficient;
+- the `-j -t -D` discovery;
+- `SchemaDefinitionId`;
+- static index reconstruction;
+- LangAlt canonicalisation;
+- wire arrays rather than object-key maps;
+- exact Add New Property selection;
+- draft v4;
+- exact readback verification;
+- the distinction between identity and friendly display/write names.
 
 Do not retain contradictory older design text.
 
@@ -950,74 +952,75 @@ Add focused tests for:
 
 ### Identity normalisation
 
-* static table prefix removal;
-* runtime table preservation;
-* decimal ID normalisation;
-* hexadecimal static ID normalisation;
-* textual IDs;
-* `None != Some(0)`.
+- static table prefix removal;
+- runtime table preservation;
+- decimal ID normalisation;
+- hexadecimal static ID normalisation;
+- textual IDs;
+- `None != Some(0)`.
 
 ### Static parser
 
-* Windows and OS/2 `BMPVersion` become two distinct definitions:
+- Windows and OS/2 `BMPVersion` become two distinct definitions:
 
   ```text
   BMP::Main / 0 / None
   BMP::OS2 / 0 / None
   ```
-* repeated `Exif::Main` ID 513 definitions receive `Some(0)`, `Some(1)`, etc.;
-* a unique table/ID receives `None`;
-* effective tag-level G1 overrides are retained in `TagInfo`;
-* duplicate canonical IDs cause an error;
-* all alternatives remain in the registry;
-* no scoring occurs.
+
+- repeated `Exif::Main` ID 513 definitions receive `Some(0)`, `Some(1)`, etc.;
+- a unique table/ID receives `None`;
+- effective tag-level G1 overrides are retained in `TagInfo`;
+- duplicate canonical IDs cause an error;
+- all alternatives remain in the registry;
+- no scoring occurs.
 
 ### Cache
 
-* serialisation uses a list;
-* deserialisation reconstructs the exact map;
-* duplicate IDs in cache are rejected;
-* old cache version rebuilds.
+- serialisation uses a list;
+- deserialisation reconstructs the exact map;
+- duplicate IDs in cache are rejected;
+- old cache version rebuilds.
 
 ### Runtime JSON parsing
 
-* ordinary `table/id/val`;
-* indexed `table/id/index/val`;
-* numeric and textual IDs;
-* missing table or ID;
-* Composite `ThumbnailImage`;
-* BMP runtime table distinction;
-* original JSON property name is not used as identity.
+- ordinary `table/id/val`;
+- indexed `table/id/index/val`;
+- numeric and textual IDs;
+- missing table or ID;
+- Composite `ThumbnailImage`;
+- BMP runtime table distinction;
+- original JSON property name is not used as identity.
 
 ### Two-pass merge
 
-* raw and formatted values join by ID;
-* same friendly name with different IDs remains two entries;
-* mismatched identities do not merge.
+- raw and formatted values join by ID;
+- same friendly name with different IDs remains two entries;
+- mismatched identities do not merge.
 
 ### LangAlt
 
-* `description-en` and `description-fr` merge into the parent definition;
-* `x-default` works;
-* exact lookup is attempted first;
-* unrelated hyphenated IDs are not stripped;
-* base definition must be `TagKind::LangAlt`.
+- `description-en` and `description-fr` merge into the parent definition;
+- `x-default` works;
+- exact lookup is attempted first;
+- unrelated hyphenated IDs are not stripped;
+- base definition must be `TagKind::LangAlt`.
 
 ### Draft v4
 
-* round trip;
-* multiple IDs with the same friendly name remain distinct;
-* v3 is rejected;
-* duplicate IDs in one file are rejected.
+- round trip;
+- multiple IDs with the same friendly name remain distinct;
+- v3 is rejected;
+- duplicate IDs in one file are rejected.
 
 ### Writes and verification
 
-* write selector is derived from `TagInfo`;
-* missing schema is rejected;
-* read-only definition is rejected;
-* readback must use the exact ID;
-* a same-name/different-ID readback does not clear the draft;
-* outcomes carry `SchemaDefinitionId`.
+- write selector is derived from `TagInfo`;
+- missing schema is rejected;
+- read-only definition is rejected;
+- readback must use the exact ID;
+- a same-name/different-ID readback does not clear the draft;
+- outcomes carry `SchemaDefinitionId`.
 
 ## Phase 21 — Required frontend tests
 
@@ -1030,11 +1033,12 @@ Update existing tests and add coverage for:
 5. Draft edits are independent by exact ID.
 6. New Property search:
 
-   * searches friendly text;
-   * displays duplicate-friendly-name results separately;
-   * requires explicit selection;
-   * passes the selected ID to `onSave`;
-   * prevents only exact-ID duplicates.
+   - searches friendly text;
+   - displays duplicate-friendly-name results separately;
+   - requires explicit selection;
+   - passes the selected ID to `onSave`;
+   - prevents only exact-ID duplicates.
+
 7. Typed editors receive the exact `TagInfo`.
 8. Columns and sorting use exact IDs.
 9. Legacy image-column persistence is reset safely.
@@ -1093,19 +1097,19 @@ Record the observed IDs in the final response.
 
 The implementation is complete only when:
 
-* `SchemaDefinitionId` is the sole metadata identity.
-* Its doc-comments fully explain the ExifTool mapping.
-* Every static definition is retained.
-* Registry lookup is exact and unique.
-* Runtime scanning uses `-t -D`.
-* Raw and formatted passes join by ID.
-* Metadata wire collections carry IDs explicitly.
-* Drafts use schema v4 and exact IDs.
-* Add New Property requires exact selection.
-* Writes and readback verification retain the selected ID.
-* No production metadata collection is keyed by `Group1:TagName`.
-* No fallback schema-resolution heuristics remain.
-* Tests and generated TypeScript types pass.
+- `SchemaDefinitionId` is the sole metadata identity.
+- Its doc-comments fully explain the ExifTool mapping.
+- Every static definition is retained.
+- Registry lookup is exact and unique.
+- Runtime scanning uses `-t -D`.
+- Raw and formatted passes join by ID.
+- Metadata wire collections carry IDs explicitly.
+- Drafts use schema v4 and exact IDs.
+- Add New Property requires exact selection.
+- Writes and readback verification retain the selected ID.
+- No production metadata collection is keyed by `Group1:TagName`.
+- No fallback schema-resolution heuristics remain.
+- Tests and generated TypeScript types pass.
 
 ## Final response
 
