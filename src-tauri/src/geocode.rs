@@ -34,7 +34,8 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use crate::country_code::{iptc_country_code_projection, xmp_country_code_projection};
-use crate::draft_edits::{EditIntent, MetadataDraftEdit};
+use crate::draft_edits::{EditIntent, MetadataDraftEdit, MetadataDraftMap};
+use crate::{known_ids, tag_schema::SchemaDefinitionId};
 use crate::geocode_cache::{CachedResult, GeocodeCacheEntry, GeocodeCacheFile};
 use crate::metadata_value::MetadataValue;
 
@@ -324,18 +325,13 @@ impl GeocodeSource {
 /// Build the set of target tag keys that geocoding writes drafts for.
 /// Returned in a stable order purely for readability; semantically it's
 /// a set.
-pub fn geocode_target_tags() -> [&'static str; 10] {
+pub fn geocode_target_tags() -> [SchemaDefinitionId; 10] {
     [
-        "XMP-iptcCore:Location",
-        "XMP-photoshop:City",
-        "XMP-photoshop:State",
-        "XMP-photoshop:Country",
-        "XMP-iptcCore:CountryCode",
-        "IPTC:Sub-location",
-        "IPTC:City",
-        "IPTC:Province-State",
-        "IPTC:Country-PrimaryLocationName",
-        "IPTC:Country-PrimaryLocationCode",
+        known_ids::xmp_location(), known_ids::xmp_city(), known_ids::xmp_state(),
+        known_ids::xmp_country(), known_ids::xmp_country_code(),
+        known_ids::iptc_sub_location(), known_ids::iptc_city(),
+        known_ids::iptc_province_state(), known_ids::iptc_country_name(),
+        known_ids::iptc_country_code(),
     ]
 }
 
@@ -349,7 +345,7 @@ pub fn geocode_target_tags() -> [&'static str; 10] {
 /// is a failure, not a success").
 pub fn compose_geocode_edits(
     addr: &AddressFields,
-) -> std::collections::HashMap<String, MetadataDraftEdit> {
+) -> MetadataDraftMap {
     debug_assert!(
         addr.has_any_usable(),
         "compose_geocode_edits called on an empty address — callers must \
@@ -382,9 +378,9 @@ pub fn compose_geocode_edits(
     // tag mirror. Keeping them paired in code makes the
     // coherent-replacement intent obvious to a reader and keeps the
     // legacy IIM mirror in lockstep with the XMP source of truth.
-    let mut edits = std::collections::HashMap::new();
-    let mut put = |xmp: &str,
-                   iptc: &str,
+    let mut edits = MetadataDraftMap::new();
+    let mut put = |xmp: SchemaDefinitionId,
+                   iptc: SchemaDefinitionId,
                    value: Option<&str>,
                    xmp_project: fn(&str) -> String,
                    iptc_project: fn(&str) -> String| {
@@ -392,41 +388,36 @@ pub fn compose_geocode_edits(
             Some(v) => (set_text(&xmp_project(v)), set_text(&iptc_project(v))),
             None => (delete_field(), delete_field()),
         };
-        edits.insert(xmp.to_string(), a);
-        edits.insert(iptc.to_string(), b);
+        edits.insert(xmp, a);
+        edits.insert(iptc, b);
     };
 
     put(
-        "XMP-iptcCore:Location",
-        "IPTC:Sub-location",
+        known_ids::xmp_location(), known_ids::iptc_sub_location(),
         addr.location.as_deref(),
         str::to_string,
         str::to_string,
     );
     put(
-        "XMP-photoshop:City",
-        "IPTC:City",
+        known_ids::xmp_city(), known_ids::iptc_city(),
         addr.city.as_deref(),
         str::to_string,
         str::to_string,
     );
     put(
-        "XMP-photoshop:State",
-        "IPTC:Province-State",
+        known_ids::xmp_state(), known_ids::iptc_province_state(),
         addr.state.as_deref(),
         str::to_string,
         str::to_string,
     );
     put(
-        "XMP-photoshop:Country",
-        "IPTC:Country-PrimaryLocationName",
+        known_ids::xmp_country(), known_ids::iptc_country_name(),
         addr.country.as_deref(),
         str::to_string,
         str::to_string,
     );
     put(
-        "XMP-iptcCore:CountryCode",
-        "IPTC:Country-PrimaryLocationCode",
+        known_ids::xmp_country_code(), known_ids::iptc_country_code(),
         addr.country_code.as_deref(),
         xmp_country_code_projection,
         iptc_country_code_projection,
@@ -884,7 +875,7 @@ pub trait GeocodeEventSink {
         relative_path: &str,
         status: &str,
         error: Option<&str>,
-        edits: Option<&std::collections::HashMap<String, MetadataDraftEdit>>,
+        edits: Option<&MetadataDraftMap>,
     );
     fn complete(
         &self,
@@ -1148,27 +1139,27 @@ mod tests {
         let edits = compose_geocode_edits(&addr);
         // Every target tag appears.
         for k in geocode_target_tags() {
-            assert!(edits.contains_key(k), "missing {}", k);
+            assert!(edits.contains_key(&k), "missing {}", k);
         }
         // Present field → Set.
-        match &edits["XMP-iptcCore:Location"].intent {
+        match &edits[&known_ids::xmp_location()].intent {
             EditIntent::Set => {}
             other => panic!("expected Set, got {:?}", other),
         }
-        match &edits["XMP-iptcCore:Location"].value {
+        match &edits[&known_ids::xmp_location()].value {
             Some(MetadataValue::Text(s)) => assert_eq!(s, "Tower of London"),
             other => panic!("expected text value, got {:?}", other),
         }
         // IPTC mirror agrees with XMP source of truth.
-        match &edits["IPTC:Sub-location"].value {
+        match &edits[&known_ids::iptc_sub_location()].value {
             Some(MetadataValue::Text(s)) => assert_eq!(s, "Tower of London"),
             other => panic!("expected text value, got {:?}", other),
         }
-        match &edits["XMP-iptcCore:CountryCode"].value {
+        match &edits[&known_ids::xmp_country_code()].value {
             Some(MetadataValue::Text(s)) => assert_eq!(s, "GB"),
             other => panic!("expected text value, got {:?}", other),
         }
-        match &edits["IPTC:Country-PrimaryLocationCode"].value {
+        match &edits[&known_ids::iptc_country_code()].value {
             Some(MetadataValue::Text(s)) => assert_eq!(s, "GB "),
             other => panic!("expected text value, got {:?}", other),
         }
@@ -1186,23 +1177,23 @@ mod tests {
         };
         let edits = compose_geocode_edits(&addr);
         for k in [
-            "XMP-iptcCore:Location",
-            "XMP-photoshop:City",
-            "XMP-photoshop:State",
+            known_ids::xmp_location(),
+            known_ids::xmp_city(),
+            known_ids::xmp_state(),
         ] {
-            assert!(edits.contains_key(k), "missing {}", k);
+            assert!(edits.contains_key(&k), "missing {}", k);
             assert!(
-                matches!(edits[k].intent, EditIntent::Delete),
+                matches!(edits[&k].intent, EditIntent::Delete),
                 "expected Delete intent for {}, got {:?}",
                 k,
-                edits[k].intent
+                edits[&k].intent
             );
-            assert!(edits[k].value.is_none(), "Delete should carry no value");
+            assert!(edits[&k].value.is_none(), "Delete should carry no value");
         }
         // And the IPTC mirrors get the same treatment.
-        for k in ["IPTC:Sub-location", "IPTC:City", "IPTC:Province-State"] {
+        for k in [known_ids::iptc_sub_location(), known_ids::iptc_city(), known_ids::iptc_province_state()] {
             assert!(
-                matches!(edits[k].intent, EditIntent::Delete),
+                matches!(edits[&k].intent, EditIntent::Delete),
                 "expected Delete intent for {}",
                 k
             );

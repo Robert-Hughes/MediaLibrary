@@ -27,6 +27,7 @@ import type {
   TagInfo,
   TagKind,
   MetadataValue,
+  SchemaDefinitionId,
 } from "../../types";
 import { ValueEditDialog } from "../ValueEditDialog";
 import { BagEditor, type BagInnerKind } from "./BagEditor";
@@ -59,17 +60,28 @@ import {
 import { gpsMemberGroup, isFlashTag } from "../../metadata/tag_overrides";
 import { EditorMetaHint, type EditorMetaSource } from "./EditorMetaHint";
 import type { InheritedEditorSchema } from "./editorSchema";
+import {
+  metadataGet,
+  type MetadataCollection,
+} from "../../utils/metadataCollection";
+import {
+  formatSchemaDefinitionIdForDiagnostics,
+  schemaDefinitionIdToken,
+  tagInfoDisplayName,
+} from "../../utils/schemaDefinitionId";
 
 interface Props {
-  propertyKey: string;
+  /** Exact top-level metadata identity; null only for synthetic nested values. */
+  propertyId: SchemaDefinitionId | null;
+  propertyLabel?: string;
   initialMetadataValue?: MetadataValue;
   /** Parent-provided schema for synthetic nested paths such as Tag[0]. */
   schemaOverride?: InheritedEditorSchema;
-  metadataForFile?: Record<string, MetadataValue>;
+  metadataForFile?: MetadataCollection;
   onSaveMetadata: (edit: MetadataDraftEdit) => void;
   /** Multi-tag save, used by GpsEditor and any future paired-tag editor. */
   onSaveMetadataBatch?: (
-    edits: Array<{ key: string; edit: MetadataDraftEdit }>,
+    edits: Array<{ id: SchemaDefinitionId; edit: MetadataDraftEdit }>,
   ) => void;
   onCancel: () => void;
   editorMode?: "single" | "gps";
@@ -107,7 +119,8 @@ function enumKindFromTagInfo(
 }
 
 export function TypedValueEditor({
-  propertyKey,
+  propertyId,
+  propertyLabel: suppliedPropertyLabel,
   initialMetadataValue,
   schemaOverride,
   metadataForFile,
@@ -116,15 +129,22 @@ export function TypedValueEditor({
   onCancel,
   editorMode = "single",
 }: Props) {
-  const tag = useTagInfo(schemaOverride ? null : propertyKey);
+  const tag = useTagInfo(schemaOverride ? null : propertyId);
+  const propertyLabel =
+    suppliedPropertyLabel ??
+    (tag && tag !== "loading"
+      ? tagInfoDisplayName(tag)
+      : propertyId
+        ? formatSchemaDefinitionIdForDiagnostics(propertyId)
+        : "Nested value");
   const gpsSchemaGroup =
-    editorMode === "gps" ? gpsMemberGroup(propertyKey) : null;
+    editorMode === "gps" && propertyId ? gpsMemberGroup(propertyId) : null;
   const gpsTagInfos = useTagInfos(
     gpsSchemaGroup
       ? [
-          gpsSchemaGroup.latitudeRefKey,
-          gpsSchemaGroup.longitudeRefKey,
-          gpsSchemaGroup.altitudeRefKey,
+          gpsSchemaGroup.latitudeRefId,
+          gpsSchemaGroup.longitudeRefId,
+          gpsSchemaGroup.altitudeRefId,
         ]
       : [],
   );
@@ -135,14 +155,15 @@ export function TypedValueEditor({
     (kind ? defaultMetadataValueForKind(kind) : ({ kind: "Null" } as const));
   const readOnly =
     schemaOverride?.readOnly ??
-    (tag !== null && tag !== "loading" && !tag.writable);
+    (propertyId !== null &&
+      (tag === null || tag === "loading" || !tag.writable));
   const schemaHint = (override?: string) => (
     <EditorMetaHint
       source={
         schemaOverride
           ? {
               kind: "synthetic",
-              label: `${schemaOverride.sourceLabel ?? propertyKey} — ${describeKind(schemaOverride.kind)}`,
+              label: `${schemaOverride.sourceLabel ?? propertyLabel} — ${describeKind(schemaOverride.kind)}`,
               description: `From parent schema${readOnly ? " — read-only" : ""}`,
               readOnly,
             }
@@ -156,7 +177,7 @@ export function TypedValueEditor({
   if (semanticInitial.kind === "Unknown") {
     return (
       <UnknownEditor
-        propertyKey={propertyKey}
+        propertyKey={propertyLabel}
         initialMetadataValue={semanticInitial}
         onCancel={onCancel}
         headerHint={schemaHint()}
@@ -164,11 +185,11 @@ export function TypedValueEditor({
     );
   }
   // ── Override 1: Flash bitfield ─────────────────────────────────────────
-  if (isFlashTag(propertyKey)) {
+  if (propertyId && isFlashTag(propertyId)) {
     const code = semanticInitial.kind === "Integer" ? semanticInitial.value : 0;
     return (
       <FlashEditor
-        propertyKey={propertyKey}
+        propertyKey={propertyLabel}
         initialCode={code}
         onSave={onSaveMetadata}
         onCancel={onCancel}
@@ -206,18 +227,18 @@ export function TypedValueEditor({
     metadataForFile &&
     saveMetadataBatch &&
     ![
-      gpsGroup.latitudeKey,
-      gpsGroup.latitudeRefKey,
-      gpsGroup.longitudeKey,
-      gpsGroup.longitudeRefKey,
-      gpsGroup.altitudeKey,
-      gpsGroup.altitudeRefKey,
-    ].some((key) => metadataForFile[key]?.kind === "Unknown");
+      gpsGroup.latitudeId,
+      gpsGroup.latitudeRefId,
+      gpsGroup.longitudeId,
+      gpsGroup.longitudeRefId,
+      gpsGroup.altitudeId,
+      gpsGroup.altitudeRefId,
+    ].some((id) => metadataGet(metadataForFile, id)?.kind === "Unknown");
   if (canUseCompositeGpsEditor) {
-    const latVal = metadataForFile[gpsGroup.latitudeKey];
-    const lonVal = metadataForFile[gpsGroup.longitudeKey];
-    const altVal = metadataForFile[gpsGroup.altitudeKey];
-    const altRefVal = metadataForFile[gpsGroup.altitudeRefKey];
+    const latVal = metadataGet(metadataForFile, gpsGroup.latitudeId);
+    const lonVal = metadataGet(metadataForFile, gpsGroup.longitudeId);
+    const altVal = metadataGet(metadataForFile, gpsGroup.altitudeId);
+    const altRefVal = metadataGet(metadataForFile, gpsGroup.altitudeRefId);
     const latScalar = gpsScalarFromMetadataValue(latVal);
     const lonScalar = gpsScalarFromMetadataValue(lonVal);
     const altRefScalar = gpsScalarFromMetadataValue(altRefVal);
@@ -241,7 +262,7 @@ export function TypedValueEditor({
         initialLatRef={
           parseHemisphere(
             gpsScalarFromMetadataValue(
-              metadataForFile[gpsGroup.latitudeRefKey],
+              metadataGet(metadataForFile, gpsGroup.latitudeRefId),
             ) ?? latScalar,
             "lat",
           ) as "N" | "S"
@@ -250,7 +271,7 @@ export function TypedValueEditor({
         initialLonRef={
           parseHemisphere(
             gpsScalarFromMetadataValue(
-              metadataForFile[gpsGroup.longitudeRefKey],
+              metadataGet(metadataForFile, gpsGroup.longitudeRefId),
             ) ?? lonScalar,
             "lon",
           ) as "E" | "W"
@@ -262,9 +283,15 @@ export function TypedValueEditor({
         }
         initialAltitudeRef={initialAltitudeRef}
         refKinds={{
-          latitude: enumKindFromTagInfo(gpsTagInfos[gpsGroup.latitudeRefKey]),
-          longitude: enumKindFromTagInfo(gpsTagInfos[gpsGroup.longitudeRefKey]),
-          altitude: enumKindFromTagInfo(gpsTagInfos[gpsGroup.altitudeRefKey]),
+          latitude: enumKindFromTagInfo(
+            gpsTagInfos[schemaDefinitionIdToken(gpsGroup.latitudeRefId)],
+          ),
+          longitude: enumKindFromTagInfo(
+            gpsTagInfos[schemaDefinitionIdToken(gpsGroup.longitudeRefId)],
+          ),
+          altitude: enumKindFromTagInfo(
+            gpsTagInfos[schemaDefinitionIdToken(gpsGroup.altitudeRefId)],
+          ),
         }}
         onSave={saveMetadataBatch}
         onCancel={onCancel}
@@ -285,11 +312,10 @@ export function TypedValueEditor({
 
   if (tag === "loading") {
     // First-call lookup; schema build can take 100-500ms.  Show the plain
-    // text fallback so the user isn't blocked.  Switching to a richer editor
-    // mid-typing would lose input, so this is a one-render decision.
+    // read-only placeholder while the exact schema lookup is in flight.
     return (
       <ValueEditDialog
-        propertyKey={propertyKey}
+        propertyKey={propertyLabel}
         initialValue={textInitialString(semanticInitial)}
         onSave={saveText}
         onCancel={onCancel}
@@ -305,7 +331,7 @@ export function TypedValueEditor({
       const initialItems = initialItemsFrom(semanticInitial);
       return (
         <BagEditor
-          propertyKey={propertyKey}
+          propertyKey={propertyLabel}
           initialItems={initialItems}
           ordered={kind.kind === "Seq"}
           innerKind={inner}
@@ -326,7 +352,7 @@ export function TypedValueEditor({
       const items = initialItemsFromMetadataValue(semanticInitial);
       return (
         <NestedListEditor
-          propertyKey={propertyKey}
+          propertyKey={propertyLabel}
           kind={kind}
           initialItems={items}
           innerEditor={TypedValueEditor}
@@ -344,7 +370,7 @@ export function TypedValueEditor({
     const code = initialCodeFrom(semanticInitial, options);
     return (
       <EnumEditor
-        propertyKey={propertyKey}
+        propertyKey={propertyLabel}
         repr={repr}
         options={options}
         initialCode={code}
@@ -361,7 +387,7 @@ export function TypedValueEditor({
   if (kind?.kind === "Rational") {
     return (
       <RationalEditor
-        propertyKey={propertyKey}
+        propertyKey={propertyLabel}
         initialMetadataValue={semanticInitial}
         onSave={onSaveMetadata}
         onCancel={onCancel}
@@ -376,7 +402,7 @@ export function TypedValueEditor({
     const max = kind.kind === "Integer" ? kind.data.max : null;
     return (
       <NumericEditor
-        propertyKey={propertyKey}
+        propertyKey={propertyLabel}
         kind={kind.kind}
         min={min}
         max={max}
@@ -393,7 +419,7 @@ export function TypedValueEditor({
     const v = semanticInitial.kind === "Bool" ? semanticInitial.value : null;
     return (
       <BooleanEditor
-        propertyKey={propertyKey}
+        propertyKey={propertyLabel}
         initialValue={v}
         onSave={onSaveMetadata}
         onCancel={onCancel}
@@ -409,7 +435,7 @@ export function TypedValueEditor({
   ) {
     return (
       <DateTimeEditor
-        propertyKey={propertyKey}
+        propertyKey={propertyLabel}
         mode={
           kind.kind === "Date"
             ? "date"
@@ -429,7 +455,7 @@ export function TypedValueEditor({
   if (kind?.kind === "TimeOffset") {
     return (
       <TimeOffsetEditor
-        propertyKey={propertyKey}
+        propertyKey={propertyLabel}
         initialMetadataValue={semanticInitial}
         onSave={onSaveMetadata}
         onCancel={onCancel}
@@ -440,14 +466,10 @@ export function TypedValueEditor({
   }
 
   if (kind?.kind === "LangAlt") {
-    const initialLangs = initialLangsFrom(
-      semanticInitial,
-      metadataForFile ?? {},
-      propertyKey,
-    );
+    const initialLangs = initialLangsFrom(semanticInitial);
     return (
       <LangAltEditor
-        propertyKey={propertyKey}
+        propertyKey={propertyLabel}
         initialLangs={initialLangs}
         onSave={onSaveMetadata}
         onCancel={onCancel}
@@ -461,7 +483,7 @@ export function TypedValueEditor({
     const initialObject = initialObjectFrom(semanticInitial);
     return (
       <StructEditor
-        propertyKey={propertyKey}
+        propertyKey={propertyLabel}
         initialObject={initialObject}
         fieldKinds={kind.data}
         innerEditor={TypedValueEditor}
@@ -480,10 +502,10 @@ export function TypedValueEditor({
         open
         onDismiss={onCancel}
         testId="binary-editor-overlay"
-        aria-label={propertyKey}
+        aria-label={propertyLabel}
       >
         <div className="dialog-content">
-          <h3>{propertyKey}</h3>
+          <h3>{propertyLabel}</h3>
           {schemaHint()}
           <div className="dialog-body">
             <p className="dialog-hint" data-testid="binary-editor-message">
@@ -513,7 +535,7 @@ export function TypedValueEditor({
   if (semanticInitial.kind === "Struct") {
     return (
       <StructEditor
-        propertyKey={propertyKey}
+        propertyKey={propertyLabel}
         initialObject={initialObjectFrom(semanticInitial)}
         innerEditor={TypedValueEditor}
         onSave={onSaveMetadata}
@@ -530,7 +552,7 @@ export function TypedValueEditor({
   if (kind?.kind === "Unknown") {
     return (
       <UnknownEditor
-        propertyKey={propertyKey}
+        propertyKey={propertyLabel}
         initialMetadataValue={semanticInitial}
         onCancel={onCancel}
         headerHint={schemaHint()}
@@ -538,10 +560,10 @@ export function TypedValueEditor({
     );
   }
 
-  // Fallback: plain text editor for Text-kind or unrecognised tags.
+  // Text schema uses the plain editor. Missing top-level schemas are read-only.
   return (
     <ValueEditDialog
-      propertyKey={propertyKey}
+      propertyKey={propertyLabel}
       initialValue={textInitialString(semanticInitial)}
       onSave={saveText}
       onCancel={onCancel}

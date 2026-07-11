@@ -9,9 +9,12 @@
  * pin that contract.
  */
 import { describe, it, expect } from "vitest";
-import { resolveGps } from "../utils/resolveGps";
+import { resolveGps as exactResolveGps } from "../utils/resolveGps";
 import type { MetadataDraftEdit, MetadataValue } from "../types";
-import { mockMetadata } from "./factories";
+import { mockDrafts, mockMetadata } from "./factories";
+
+const resolveGps = (drafts: any, metadata: any) =>
+  exactResolveGps(drafts ? mockDrafts(drafts) : undefined, metadata);
 
 function setEdit(value: MetadataValue): MetadataDraftEdit {
   return { value, intent: "Set" };

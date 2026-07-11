@@ -3,6 +3,8 @@ import { useSpinnerSync } from "../hooks/useSpinnerSync";
 import { DetailsPane } from "./DetailsPane";
 import type {
   MetadataDraftEdit,
+  MetadataDraftCollection,
+  SchemaDefinitionId,
   PhotoInfo,
   ImageMetadataStore,
 } from "../types";
@@ -36,18 +38,21 @@ interface Props {
   loadImage?: (path: string) => Promise<string | null>;
   /** Observable store for image metadata (EXIF, XMP, etc.) */
   imageMetadata?: ImageMetadataStore;
-  typedDraftEdits?: Record<string, MetadataDraftEdit>;
+  typedDraftEdits?: MetadataDraftCollection;
   onSetMetadataDraft?: (
     fileRelativePath: string,
-    key: string,
+    id: SchemaDefinitionId,
     edit: MetadataDraftEdit,
   ) => void;
   onSetMetadataDraftBatch: (
     fileRelativePath: string,
-    edits: Array<{ key: string; edit: MetadataDraftEdit }>,
+    edits: Array<{ id: SchemaDefinitionId; edit: MetadataDraftEdit }>,
   ) => void;
-  onDiscardDraft?: (fileRelativePath: string, key: string) => void;
-  onDiscardDraftBatch: (fileRelativePath: string, keys: string[]) => void;
+  onDiscardDraft?: (fileRelativePath: string, id: SchemaDefinitionId) => void;
+  onDiscardDraftBatch: (
+    fileRelativePath: string,
+    ids: SchemaDefinitionId[],
+  ) => void;
   onDiscardAllEdits?: (fileRelativePath: string) => void;
   onApplyEdits?: (fileRelativePath: string) => void;
   /** Trigger the AI-description flow for the currently-displayed photo. */
@@ -315,15 +320,15 @@ export function GalleryView({
             photo={photo}
             metadata={metadataState}
             typedDraftEdits={typedDraftEdits}
-            onSetMetadataDraft={(key, edit) =>
-              onSetMetadataDraft?.(photo.relative_path, key, edit)
+            onSetMetadataDraft={(id, edit) =>
+              onSetMetadataDraft?.(photo.relative_path, id, edit)
             }
             onSetMetadataDraftBatch={(edits) =>
               onSetMetadataDraftBatch(photo.relative_path, edits)
             }
-            onDiscardDraft={(key) => onDiscardDraft?.(photo.relative_path, key)}
-            onDiscardDraftBatch={(keys) =>
-              onDiscardDraftBatch(photo.relative_path, keys)
+            onDiscardDraft={(id) => onDiscardDraft?.(photo.relative_path, id)}
+            onDiscardDraftBatch={(ids) =>
+              onDiscardDraftBatch(photo.relative_path, ids)
             }
             onDiscardAllEdits={() => onDiscardAllEdits?.(photo.relative_path)}
             onApplyEdits={() => onApplyEdits?.(photo.relative_path)}

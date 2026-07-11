@@ -13,19 +13,22 @@
  * the lat/lon it receives in `GeocodeRequestItem`.
  */
 import type {
-  ImageMetadataEntry,
-  MetadataDraftEdit,
+  MetadataDraftCollection,
   MetadataValue,
+  SchemaDefinitionId,
 } from "../types";
+import { GPS_IDS, KNOWN_METADATA_IDS } from "../metadata/knownIds";
+import { metadataGet, type MetadataCollection } from "./metadataCollection";
+import { schemaDefinitionIdToken } from "./schemaDefinitionId";
 
 /**
  * Flat metadata bag — same shape as the `ImageMetadataStore.get()`
  * payload when present. The store also surfaces `"loading"`, which
  * callers must filter out before calling `resolveGps`.
  */
-type MetadataBag = Record<string, ImageMetadataEntry>;
+type MetadataBag = MetadataCollection;
 type GpsScalar = string | number;
-type SelectedGpsValue = { key: string; value: GpsScalar };
+type SelectedGpsValue = { id: SchemaDefinitionId; value: GpsScalar };
 
 /**
  * GPS tag groups exiftool surfaces. `Composite` is the convenient
@@ -33,30 +36,10 @@ type SelectedGpsValue = { key: string; value: GpsScalar };
  * Listed in priority order — Composite preferred because it's already
  * decimal.
  */
-const LAT_KEYS = [
-  "Composite:GPSLatitude",
-  "GPS:GPSLatitude",
-  "XMP-exif:GPSLatitude",
-  "EXIF:GPSLatitude",
-  "QuickTime:GPSLatitude",
-];
-const LON_KEYS = [
-  "Composite:GPSLongitude",
-  "GPS:GPSLongitude",
-  "XMP-exif:GPSLongitude",
-  "EXIF:GPSLongitude",
-  "QuickTime:GPSLongitude",
-];
-const LAT_REF_KEYS = [
-  "GPS:GPSLatitudeRef",
-  "XMP-exif:GPSLatitudeRef",
-  "EXIF:GPSLatitudeRef",
-];
-const LON_REF_KEYS = [
-  "GPS:GPSLongitudeRef",
-  "XMP-exif:GPSLongitudeRef",
-  "EXIF:GPSLongitudeRef",
-];
+const LAT_IDS = [KNOWN_METADATA_IDS.compositeGpsLatitude, GPS_IDS.latitude];
+const LON_IDS = [KNOWN_METADATA_IDS.compositeGpsLongitude, GPS_IDS.longitude];
+const LAT_REF_IDS = [GPS_IDS.latitudeRef];
+const LON_REF_IDS = [GPS_IDS.longitudeRef];
 
 /** Parse a single GPS scalar into a positive magnitude. Handles number, DMS string, decimal string. */
 function parseMagnitude(v: GpsScalar): number | null {
@@ -98,7 +81,7 @@ function isMetadataValue(value: unknown): value is MetadataValue {
 }
 
 function gpsScalarFromMetadataEntry(
-  value: ImageMetadataEntry | undefined,
+  value: MetadataValue | undefined,
 ): GpsScalar | null {
   if (value === undefined || value === null) return null;
   if (!isMetadataValue(value)) return value;
@@ -128,37 +111,39 @@ function gpsScalarFromMetadataValue(
 }
 
 function extractValue(
-  keys: string[],
-  drafts: Record<string, MetadataDraftEdit> | undefined,
+  ids: readonly SchemaDefinitionId[],
+  drafts: MetadataDraftCollection | undefined,
   metadata: MetadataBag | undefined,
 ): SelectedGpsValue | null {
   // Drafts win whether they are Set or Delete — a Delete-intent draft
   // means "this field is being removed", so we treat it as no value.
-  for (const k of keys) {
-    const d = drafts?.[k];
+  for (const id of ids) {
+    const d = drafts?.[schemaDefinitionIdToken(id)]?.edit;
     if (d) {
       if (d.intent === "Delete") return null;
       const value = gpsScalarFromMetadataValue(d.value);
-      if (value !== null) return { key: k, value };
+      if (value !== null) return { id, value };
     }
   }
-  for (const k of keys) {
-    const v = gpsScalarFromMetadataEntry(metadata?.[k]);
-    if (v !== null) return { key: k, value: v };
+  for (const id of ids) {
+    const v = gpsScalarFromMetadataEntry(
+      metadata ? metadataGet(metadata, id) : undefined,
+    );
+    if (v !== null) return { id, value: v };
   }
   return null;
 }
 
 function extractScalar(
-  keys: string[],
-  drafts: Record<string, MetadataDraftEdit> | undefined,
+  ids: readonly SchemaDefinitionId[],
+  drafts: MetadataDraftCollection | undefined,
   metadata: MetadataBag | undefined,
 ): GpsScalar | null {
-  return extractValue(keys, drafts, metadata)?.value ?? null;
+  return extractValue(ids, drafts, metadata)?.value ?? null;
 }
 
-function isCompositeGpsKey(key: string): boolean {
-  return key.startsWith("Composite:");
+function isCompositeGpsId(id: SchemaDefinitionId): boolean {
+  return id.table === "Composite";
 }
 
 /**
@@ -170,24 +155,24 @@ function isCompositeGpsKey(key: string): boolean {
  * failing the whole batch.
  */
 export function resolveGps(
-  drafts: Record<string, MetadataDraftEdit> | undefined,
+  drafts: MetadataDraftCollection | undefined,
   metadata: MetadataBag | undefined,
 ): { lat: number | null; lon: number | null } {
-  const rawLat = extractValue(LAT_KEYS, drafts, metadata);
-  const rawLon = extractValue(LON_KEYS, drafts, metadata);
+  const rawLat = extractValue(LAT_IDS, drafts, metadata);
+  const rawLon = extractValue(LON_IDS, drafts, metadata);
   if (rawLat == null || rawLon == null) return { lat: null, lon: null };
   let lat = parseMagnitude(rawLat.value);
   let lon = parseMagnitude(rawLon.value);
   if (lat == null || lon == null) return { lat: null, lon: null };
   // Composite values are signed already; raw GPS/XMP/EXIF latitude and
   // longitude values carry their sign in the paired hemisphere ref.
-  if (!isCompositeGpsKey(rawLat.key)) {
-    const ref = parseRef(extractScalar(LAT_REF_KEYS, drafts, metadata));
+  if (!isCompositeGpsId(rawLat.id)) {
+    const ref = parseRef(extractScalar(LAT_REF_IDS, drafts, metadata));
     if (ref === "S") lat = -Math.abs(lat);
     else if (ref === "N") lat = Math.abs(lat);
   }
-  if (!isCompositeGpsKey(rawLon.key)) {
-    const ref = parseRef(extractScalar(LON_REF_KEYS, drafts, metadata));
+  if (!isCompositeGpsId(rawLon.id)) {
+    const ref = parseRef(extractScalar(LON_REF_IDS, drafts, metadata));
     if (ref === "W") lon = -Math.abs(lon);
     else if (ref === "E") lon = Math.abs(lon);
   }

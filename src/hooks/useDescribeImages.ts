@@ -19,7 +19,7 @@ import type {
   DescribeEstimate,
   DescribeProgressState,
   DescribeUsageSummary,
-  MetadataDraftEdit,
+  MetadataDraftEntry,
 } from "../types";
 import {
   useBatchImageJob,
@@ -49,10 +49,7 @@ export interface UseDescribeImagesOptions {
    * directly to draft_edits.jsonl — means the UI re-renders immediately
    * and there is exactly one writer to the typed-draft store.
    */
-  onApplyEdits?: (
-    relativePath: string,
-    edits: Record<string, MetadataDraftEdit>,
-  ) => void;
+  onApplyEdits?: (relativePath: string, edits: MetadataDraftEntry[]) => void;
 }
 
 /**

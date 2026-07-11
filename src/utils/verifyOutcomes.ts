@@ -6,7 +6,12 @@
  * drop a single (path, tag) entry, removing the path key entirely when
  * its list goes empty.
  */
-import type { MetadataTagOutcome, TagOutcomeEntry } from "../types";
+import type {
+  MetadataTagOutcome,
+  SchemaDefinitionId,
+  TagOutcomeEntry,
+} from "../types";
+import { schemaDefinitionIdEquals } from "./schemaDefinitionId";
 
 /**
  * Subset of MetadataTagOutcome.kind that requires user attention. Match and
@@ -45,14 +50,14 @@ export function mergeVerifyOutcomes(
   const merged = [...prior];
   for (const o of interesting) {
     const entry: TagOutcomeEntry = {
-      tag: o.tag,
+      id: o.id,
       kind: o.kind,
       sent: o.sent,
       before: o.before,
       observed: o.observed,
       message: o.message,
     };
-    const idx = merged.findIndex((m) => m.tag === o.tag);
+    const idx = merged.findIndex((m) => schemaDefinitionIdEquals(m.id, o.id));
     if (idx >= 0) merged[idx] = entry;
     else merged.push(entry);
   }
@@ -67,11 +72,11 @@ export function mergeVerifyOutcomes(
 export function removeVerifyOutcome(
   existing: Record<string, TagOutcomeEntry[]>,
   relativePath: string,
-  tag: string,
+  id: SchemaDefinitionId,
 ): Record<string, TagOutcomeEntry[]> {
   const list = existing[relativePath];
   if (!list) return existing;
-  const remaining = list.filter((o) => o.tag !== tag);
+  const remaining = list.filter((o) => !schemaDefinitionIdEquals(o.id, id));
   if (remaining.length === list.length) return existing;
   const next = { ...existing };
   if (remaining.length === 0) delete next[relativePath];

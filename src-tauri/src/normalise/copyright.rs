@@ -14,10 +14,9 @@
 use super::{
     collapse_whitespace_single_line, lang_alt_edit, text_edit, CopyrightInput, GroupOutput,
 };
-use std::collections::HashMap;
+use crate::draft_edits::MetadataDraftMap;
 
-pub const COPYRIGHT_TARGET_TAGS: &[&str] =
-    &["XMP-dc:Rights", "IFD0:Copyright", "IPTC:CopyrightNotice"];
+use crate::known_ids;
 
 fn derive_copyright_canonical(input: &CopyrightInput) -> Option<String> {
     if let Some(primary) = input.rights.as_deref() {
@@ -54,13 +53,13 @@ pub fn normalise_copyright(input: &CopyrightInput) -> Option<GroupOutput> {
     if copyright_is_normalised(input, &canonical) {
         return None;
     }
-    let mut edits = HashMap::new();
+    let mut edits = MetadataDraftMap::new();
     edits.insert(
-        "XMP-dc:Rights".to_string(),
+        known_ids::xmp_rights(),
         lang_alt_edit(canonical.clone()),
     );
-    edits.insert("IFD0:Copyright".to_string(), text_edit(canonical.clone()));
-    edits.insert("IPTC:CopyrightNotice".to_string(), text_edit(canonical));
+    edits.insert(known_ids::copyright(), text_edit(canonical.clone()));
+    edits.insert(known_ids::iptc_copyright(), text_edit(canonical));
     Some(GroupOutput { edits })
 }
 
@@ -70,14 +69,14 @@ mod tests {
     use crate::metadata_value::MetadataValue;
 
     fn text(g: &GroupOutput, k: &str) -> String {
-        match &g.edits.get(k).unwrap().value {
+        match &g.edits.get(&crate::known_ids::test_id(k)).unwrap().value {
             Some(MetadataValue::Text(v)) => v.clone(),
             other => panic!("expected text value, got {:?}", other),
         }
     }
 
     fn lang_alt_x_default(g: &GroupOutput, k: &str) -> String {
-        match &g.edits.get(k).unwrap().value {
+        match &g.edits.get(&crate::known_ids::test_id(k)).unwrap().value {
             Some(MetadataValue::LangAlt(v)) => v.get("x-default").unwrap().clone(),
             other => panic!("expected lang-alt value, got {:?}", other),
         }

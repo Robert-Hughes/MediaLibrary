@@ -2,9 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import type {
   ImageMetadataEntry,
   MetadataDraftEdit,
-  MetadataValue,
   PhotoInfo,
   ImageMetadataState,
+  MetadataDraftCollection,
 } from "../types";
 import { HighlightedText } from "./HighlightedText";
 import { ContextMenu } from "./ContextMenu";
@@ -21,6 +21,8 @@ import {
 import { NewPropertyDialog } from "./NewPropertyDialog";
 import type { MetadataEntry } from "../utils/detailsPaneHelpers";
 import { groupImageMetadata, getOsEntries } from "../utils/detailsPaneHelpers";
+import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
+import type { SchemaDefinitionId } from "../types";
 import {
   haystackContainsNormalized,
   normalizeListSearchQuery,
@@ -38,6 +40,10 @@ import {
 import { GpsMapOverview } from "./GpsMapOverview";
 import { resolveGps } from "../utils/resolveGps";
 import { buildEffectiveMetadata } from "../utils/buildNormaliseItems";
+import {
+  metadataGet,
+  type MetadataCollection,
+} from "../utils/metadataCollection";
 
 interface Props {
   photo: PhotoInfo;
@@ -49,15 +55,18 @@ interface Props {
    */
   draftEdits?: Record<string, string | null>;
   /** Semantic draft edits, keyed by metadata tag. Primary write path. */
-  typedDraftEdits?: Record<string, MetadataDraftEdit>;
+  typedDraftEdits?: MetadataDraftCollection;
   /** Semantic setter used by every editor via the local adapter. */
-  onSetMetadataDraft?: (key: string, edit: MetadataDraftEdit) => void;
+  onSetMetadataDraft?: (
+    id: SchemaDefinitionId,
+    edit: MetadataDraftEdit,
+  ) => void;
   /** Batch setter for paired-tag editors (GPS). */
   onSetMetadataDraftBatch: (
-    edits: Array<{ key: string; edit: MetadataDraftEdit }>,
+    edits: Array<{ id: SchemaDefinitionId; edit: MetadataDraftEdit }>,
   ) => void;
-  onDiscardDraft?: (key: string) => void;
-  onDiscardDraftBatch: (keys: string[]) => void;
+  onDiscardDraft?: (id: SchemaDefinitionId) => void;
+  onDiscardDraftBatch: (ids: SchemaDefinitionId[]) => void;
   onDiscardAllEdits?: () => void;
   onApplyEdits?: () => void;
   /**
@@ -220,10 +229,10 @@ function DetailsImageRow({
   searchQuery: string;
   onContextMenu: (e: React.MouseEvent, originalValue: string) => void;
 }) {
-  const tag = useTagInfo(entry.fullKey);
+  const tag = useTagInfo(entry.id);
   const tagInfo = tag !== "loading" ? tag : null;
   const originalValue = metadataValueToDisplayStringForTag(
-    entry.fullKey,
+    entry.id,
     rawValue,
     tagInfo,
   );
@@ -275,7 +284,10 @@ function DetailsImageRow({
             variant="schema"
           />
         ) : null}
-        <HighlightedText text={entry.label} searchQuery={searchQuery} />
+        <HighlightedText
+          text={tagInfo?.name ?? entry.label}
+          searchQuery={searchQuery}
+        />
       </td>
       <DetailsValueCell
         originalValue={originalValue}
@@ -308,7 +320,7 @@ function DetailsRowContextMenu({
   contextMenu: {
     x: number;
     y: number;
-    key: string;
+    id: SchemaDefinitionId;
     originalValue: string;
     draftValue?: string | null;
   };
@@ -318,9 +330,9 @@ function DetailsRowContextMenu({
   onRemove: () => void;
   onClose: () => void;
 }) {
-  const tag = useTagInfo(contextMenu.key);
+  const tag = useTagInfo(contextMenu.id);
   const readOnly = tag !== null && tag !== "loading" && !tag.writable;
-  const gpsGroup = gpsMemberGroup(contextMenu.key);
+  const gpsGroup = gpsMemberGroup(contextMenu.id);
   const options = [
     ...(readOnly
       ? []
@@ -375,34 +387,38 @@ function DetailsGroupContextMenu({
     group: string;
     entries: MetadataEntry[];
   };
-  originalMetadata: Record<string, MetadataValue> | undefined;
+  originalMetadata: MetadataCollection | undefined;
   draftEdits: Record<string, string | null>;
   onSetMetadataDraftBatch: (
-    edits: Array<{ key: string; edit: MetadataDraftEdit }>,
+    edits: Array<{ id: SchemaDefinitionId; edit: MetadataDraftEdit }>,
   ) => void;
-  onDiscardDraftBatch: (keys: string[]) => void;
+  onDiscardDraftBatch: (ids: SchemaDefinitionId[]) => void;
   onClose: () => void;
 }) {
   const group = contextMenu.group;
-  const keys = useMemo(
-    () => contextMenu.entries.map((e) => e.fullKey),
+  const ids = useMemo(
+    () => contextMenu.entries.map((e) => e.id),
     [contextMenu.entries],
   );
-  const tagInfos = useTagInfos(keys);
+  const tagInfos = useTagInfos(ids);
 
-  const isLoading = keys.some((key) => tagInfos[key] === "loading");
+  const isLoading = ids.some(
+    (id) => tagInfos[schemaDefinitionIdToken(id)] === "loading",
+  );
 
   const removableKeys = useMemo(() => {
     if (isLoading) return [];
-    return keys.filter((key) => {
-      const tag = tagInfos[key];
+    return ids.filter((id) => {
+      const tag = tagInfos[schemaDefinitionIdToken(id)];
       return tag === null || (tag !== "loading" && tag.writable);
     });
-  }, [keys, tagInfos, isLoading]);
+  }, [ids, tagInfos, isLoading]);
 
   const draftKeys = useMemo(() => {
-    return keys.filter((key) => draftEdits[key] !== undefined);
-  }, [keys, draftEdits]);
+    return ids.filter(
+      (id) => draftEdits[schemaDefinitionIdToken(id)] !== undefined,
+    );
+  }, [ids, draftEdits]);
 
   const removeCount = removableKeys.length;
   const draftCount = draftKeys.length;
@@ -425,23 +441,25 @@ function DetailsGroupContextMenu({
       fieldCount: removeCount,
     });
     if (confirmed) {
-      const originalKeys = removableKeys.filter(
-        (key) => originalMetadata && key in originalMetadata,
+      const originalIds = removableKeys.filter(
+        (id) =>
+          originalMetadata && metadataGet(originalMetadata, id) !== undefined,
       );
-      const draftOnlyKeys = removableKeys.filter(
-        (key) => !originalMetadata || !(key in originalMetadata),
+      const draftOnlyIds = removableKeys.filter(
+        (id) =>
+          !originalMetadata || metadataGet(originalMetadata, id) === undefined,
       );
 
-      if (originalKeys.length > 0) {
-        const deleteEdits = originalKeys.map((key) => ({
-          key,
+      if (originalIds.length > 0) {
+        const deleteEdits = originalIds.map((id) => ({
+          id,
           edit: { value: null, intent: "Delete" as const },
         }));
         onSetMetadataDraftBatch(deleteEdits);
       }
 
-      if (draftOnlyKeys.length > 0) {
-        onDiscardDraftBatch(draftOnlyKeys);
+      if (draftOnlyIds.length > 0) {
+        onDiscardDraftBatch(draftOnlyIds);
       }
     }
     onClose();
@@ -532,7 +550,7 @@ export function DetailsPane({
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
-    key: string;
+    id: SchemaDefinitionId;
     originalValue: string;
     draftValue?: string | null;
   } | null>(null);
@@ -542,20 +560,21 @@ export function DetailsPane({
     group: string;
   } | null>(null);
   const [editDialog, setEditDialog] = useState<{
-    key: string;
+    id: SchemaDefinitionId;
     mode: "single" | "gps";
   } | null>(null);
   const [showNewPropertyDialog, setShowNewPropertyDialog] = useState(false);
   // Stage 2 of the new-property flow: key picked, now show a TypedValueEditor
   // for that key.  null when no flow is active or we're still on stage 1.
-  const [newPropertyKey, setNewPropertyKey] = useState<string | null>(null);
+  const [newPropertyKey, setNewPropertyKey] =
+    useState<SchemaDefinitionId | null>(null);
 
   const draftEdits = useMemo(() => {
     if (displayDraftEdits) return displayDraftEdits;
     if (!typedDraftEdits) return {};
     return Object.fromEntries(
       Object.entries(typedDraftEdits)
-        .map(([key, edit]) => [key, displayStringOfDraft(edit)] as const)
+        .map(([key, entry]) => [key, displayStringOfDraft(entry.edit)] as const)
         .filter(
           (entry): entry is readonly [string, string | null] =>
             entry[1] !== undefined,
@@ -565,7 +584,7 @@ export function DetailsPane({
 
   const handleContextMenu = (
     e: React.MouseEvent,
-    key: string,
+    id: SchemaDefinitionId,
     originalValue: string,
     draftValue?: string | null,
   ) => {
@@ -573,7 +592,7 @@ export function DetailsPane({
     setContextMenu({
       x: e.clientX,
       y: e.clientY,
-      key,
+      id,
       originalValue,
       draftValue,
     });
@@ -584,39 +603,41 @@ export function DetailsPane({
   );
 
   const osEntries = useMemo(() => getOsEntries(photo), [photo]);
+  const displayIds = useMemo(() => {
+    const ids: SchemaDefinitionId[] = [];
+    if (metadata !== "loading") {
+      for (const entry of Object.values(metadata)) ids.push(entry.id);
+    }
+    if (typedDraftEdits) {
+      for (const entry of Object.values(typedDraftEdits)) {
+        if (entry.edit.intent !== "Delete") ids.push(entry.id);
+      }
+    }
+    return ids;
+  }, [metadata, typedDraftEdits]);
+  const displayTagInfos = useTagInfos(displayIds);
   const imageGroups = useMemo(() => {
     if (metadata === "loading") return [];
 
     const combinedMetadata: Record<string, ImageMetadataEntry> = {
       ...metadata,
     };
-    if (draftEdits) {
-      for (const [key, value] of Object.entries(draftEdits)) {
-        if (value !== null && !(key in combinedMetadata)) {
-          combinedMetadata[key] = { kind: "Null" };
+    if (typedDraftEdits) {
+      for (const [key, entry] of Object.entries(typedDraftEdits)) {
+        if (entry.edit.intent !== "Delete" && !(key in combinedMetadata)) {
+          combinedMetadata[key] = { kind: "Null", id: entry.id };
         }
       }
     }
-    return groupImageMetadata(combinedMetadata);
-  }, [metadata, draftEdits]);
+    return groupImageMetadata(combinedMetadata, displayTagInfos);
+  }, [metadata, typedDraftEdits, displayTagInfos]);
 
   const fullGroupForMenu = useMemo(() => {
     if (!groupContextMenu) return null;
     return imageGroups.find((g) => g.prefix === groupContextMenu.group) ?? null;
   }, [groupContextMenu, imageGroups]);
 
-  const existingMetadataKeys = useMemo(() => {
-    const keys = new Set<string>();
-    if (metadata !== "loading") {
-      for (const k of Object.keys(metadata)) keys.add(k);
-    }
-    if (draftEdits) {
-      for (const [k, v] of Object.entries(draftEdits)) {
-        if (v !== null) keys.add(k);
-      }
-    }
-    return keys;
-  }, [metadata, draftEdits]);
+  const existingMetadataKeys = displayIds;
 
   const filteredOsEntries = useMemo(() => {
     const { query, hasEditsFilter } = splitHasEditsFilter(
@@ -840,16 +861,16 @@ export function DetailsPane({
                           entry={entry}
                           rawValue={
                             typeof metadata === "object"
-                              ? metadata[entry.fullKey]
+                              ? metadataGet(metadata, entry.id)
                               : undefined
                           }
                           draftValue={draftEdits[entry.fullKey]}
-                          typedDraft={typedDraftEdits?.[entry.fullKey]}
+                          typedDraft={typedDraftEdits?.[entry.fullKey]?.edit}
                           searchQuery={detailsSearch}
                           onContextMenu={(e, originalValue) =>
                             handleContextMenu(
                               e,
-                              entry.fullKey,
+                              entry.id,
                               originalValue,
                               draftEdits[entry.fullKey],
                             )
@@ -921,33 +942,33 @@ export function DetailsPane({
           contextMenu={contextMenu}
           onEdit={() => {
             setEditDialog({
-              key: contextMenu.key,
+              id: contextMenu.id,
               mode: "single",
             });
             setContextMenu(null);
           }}
           onEditGps={() => {
             setEditDialog({
-              key: contextMenu.key,
+              id: contextMenu.id,
               mode: "gps",
             });
             setContextMenu(null);
           }}
           onDiscard={() => {
-            onDiscardDraft?.(contextMenu.key);
+            onDiscardDraft?.(contextMenu.id);
             setContextMenu(null);
           }}
           onRemove={() => {
             const existsInOriginal =
               metadata !== "loading" &&
-              contextMenu.key in (metadata as Record<string, MetadataValue>);
+              metadataGet(metadata, contextMenu.id) !== undefined;
             if (existsInOriginal) {
-              onSetMetadataDraft?.(contextMenu.key, {
+              onSetMetadataDraft?.(contextMenu.id, {
                 value: null,
                 intent: "Delete",
               });
             } else {
-              onDiscardDraft?.(contextMenu.key);
+              onDiscardDraft?.(contextMenu.id);
             }
             setContextMenu(null);
           }}
@@ -963,11 +984,7 @@ export function DetailsPane({
             group: groupContextMenu.group,
             entries: fullGroupForMenu.entries,
           }}
-          originalMetadata={
-            metadata !== "loading"
-              ? (metadata as Record<string, MetadataValue>)
-              : undefined
-          }
+          originalMetadata={metadata !== "loading" ? metadata : undefined}
           draftEdits={draftEdits}
           onSetMetadataDraftBatch={onSetMetadataDraftBatch}
           onDiscardDraftBatch={onDiscardDraftBatch}
@@ -977,16 +994,20 @@ export function DetailsPane({
 
       {editDialog && (
         <TypedValueEditor
-          propertyKey={editDialog.key}
+          propertyId={editDialog.id}
           editorMode={editDialog.mode}
-          initialMetadataValue={effectiveMetadata?.[editDialog.key]}
+          initialMetadataValue={
+            effectiveMetadata
+              ? metadataGet(effectiveMetadata, editDialog.id)
+              : undefined
+          }
           metadataForFile={effectiveMetadata}
           onSaveMetadataBatch={(edits) => {
             onSetMetadataDraftBatch(edits);
             setEditDialog(null);
           }}
           onSaveMetadata={(edit) => {
-            onSetMetadataDraft?.(editDialog.key, edit);
+            onSetMetadataDraft?.(editDialog.id, edit);
             setEditDialog(null);
           }}
           onCancel={() => setEditDialog(null)}
@@ -1000,14 +1021,14 @@ export function DetailsPane({
             setNewPropertyKey(key);
           }}
           onCancel={() => setShowNewPropertyDialog(false)}
-          existingKeys={existingMetadataKeys}
+          existingIds={existingMetadataKeys}
           filename={photo.filename}
         />
       )}
 
       {newPropertyKey !== null && (
         <TypedValueEditor
-          propertyKey={newPropertyKey}
+          propertyId={newPropertyKey}
           editorMode="single"
           initialMetadataValue={undefined}
           metadataForFile={effectiveMetadata}

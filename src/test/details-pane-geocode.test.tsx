@@ -17,7 +17,7 @@
 import { render, screen, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { DetailsPane } from "../components/DetailsPane";
+import { DetailsPane } from "./legacyAdapters";
 
 import { makePhoto, mockMetadata } from "./factories";
 import type { MetadataDraftEdit } from "../types";

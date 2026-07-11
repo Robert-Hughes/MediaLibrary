@@ -2,10 +2,12 @@ import { memo, useCallback, useSyncExternalStore } from "react";
 import type {
   ImageMetadataEntry,
   ImageMetadataStore,
+  MetadataDraftCollection,
   MetadataDraftEdit,
   PhotoInfo,
   ThumbnailStore,
   VisibleColumn,
+  SchemaDefinitionId,
 } from "../types";
 import { formatPhotoRowDate } from "../utils/photoDate";
 import { HighlightedText } from "./HighlightedText";
@@ -15,6 +17,8 @@ import {
   metadataValueToDisplayStringForTag,
 } from "../draft";
 import { useTagInfo } from "../hooks/useTagInfo";
+import { metadataGet } from "../utils/metadataCollection";
+import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
 
 const EMPTY_CELL = "—";
 const ERROR_CELL = "✗";
@@ -48,31 +52,31 @@ function CellContent({
 }
 
 function formatMetadataValue(
-  key: string,
+  id: SchemaDefinitionId,
   v: ImageMetadataEntry | undefined,
   tagInfo: Exclude<ReturnType<typeof useTagInfo>, "loading">,
 ): string {
   if (v === undefined) return EMPTY_CELL;
-  const s = metadataValueToDisplayStringForTag(key, v, tagInfo);
+  const s = metadataValueToDisplayStringForTag(id, v, tagInfo);
   return s === "" ? EMPTY_CELL : s;
 }
 
 function MetadataCellContent({
-  metadataKey,
+  id,
   value,
   draft,
   searchQuery,
 }: {
-  metadataKey: string;
+  id: SchemaDefinitionId;
   value: ImageMetadataEntry | undefined;
   draft?: MetadataDraftEdit;
   searchQuery: string;
 }) {
-  const tag = useTagInfo(metadataKey);
+  const tag = useTagInfo(id);
   const tagInfo = tag !== "loading" ? tag : null;
   return (
     <CellContent
-      text={formatMetadataValue(metadataKey, value, tagInfo)}
+      text={formatMetadataValue(id, value, tagInfo)}
       draft={draft}
       searchQuery={searchQuery}
     />
@@ -92,7 +96,7 @@ interface RowProps {
   thumbnails: ThumbnailStore;
   imageMetadata: ImageMetadataStore;
   visibleColumns: VisibleColumn[];
-  draftEdits?: Record<string, MetadataDraftEdit>;
+  draftEdits?: MetadataDraftCollection;
   onSelect: (
     index: number,
     modifiers: { ctrl: boolean; shift: boolean },
@@ -216,7 +220,7 @@ export const PhotoRow = memo(function PhotoRow({
           <span className="photo-cell-text">
             <CellContent
               text={photo.relative_path}
-              draft={draftEdits["relative_path"]}
+              draft={undefined}
               searchQuery={searchQuery}
             />
           </span>
@@ -248,7 +252,7 @@ export const PhotoRow = memo(function PhotoRow({
             >
               <CellContent
                 text={formatPhotoRowDate(osValue(photo, col.key))}
-                draft={draftEdits[col.key]}
+                draft={undefined}
                 searchQuery={searchQuery}
               />
             </div>
@@ -256,9 +260,9 @@ export const PhotoRow = memo(function PhotoRow({
         }
         return (
           <div
-            key={col.key}
+            key={schemaDefinitionIdToken(col.id)}
             className="grid-cell grid-cell-metadata"
-            data-col={col.key}
+            data-col={schemaDefinitionIdToken(col.id)}
           >
             {metadataLoading ? (
               i === firstImageIdx ? (
@@ -278,9 +282,9 @@ export const PhotoRow = memo(function PhotoRow({
               </span>
             ) : (
               <MetadataCellContent
-                metadataKey={col.key}
-                value={metadata[col.key]}
-                draft={draftEdits[col.key]}
+                id={col.id}
+                value={metadataGet(metadata, col.id)}
+                draft={draftEdits[schemaDefinitionIdToken(col.id)]?.edit}
                 searchQuery={searchQuery}
               />
             )}

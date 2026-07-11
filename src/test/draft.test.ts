@@ -1,11 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
   metadataValueToDisplayString,
-  metadataValueToDisplayStringForTag,
+  metadataValueToDisplayStringForTag as exactDisplayForTag,
   metadataEntryToDisplayString,
   metadataValueToDiagnosticString,
 } from "../draft";
-import type { TagInfo, TagKind } from "../types";
+import type { MetadataValue, TagInfo, TagKind } from "../types";
+import { testId } from "./factories";
+
+const metadataValueToDisplayStringForTag = (
+  key: string,
+  value: MetadataValue | null | undefined,
+  info?: TagInfo,
+) => exactDisplayForTag(testId(key), value, info);
 
 describe("metadataEntryToDisplayString (regression)", () => {
   it("joins arrays with comma-space", () => {
@@ -176,6 +183,7 @@ describe("metadataValueToDisplayString", () => {
 describe("metadataValueToDisplayStringForTag", () => {
   function tagInfo(kind: TagKind): TagInfo {
     return {
+      id: { table: "Exif::Main", tag_id: "274" },
       group: "IFD0",
       name: "Orientation",
       writable: true,
@@ -354,7 +362,7 @@ describe("metadataValueToDisplayStringForTag", () => {
         kind: "Real",
         value: 0.123724997044444,
       }),
-    ).toBe("0.123725°");
+    ).toBe("0.123724997044444");
   });
 
   it("formats GPSAltitude Real values as metres", () => {

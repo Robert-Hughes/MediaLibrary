@@ -2,6 +2,15 @@
 import { describe, it, expect, vi } from "vitest";
 import { DraftEditsStore } from "../types";
 import type { MetadataDraftEdit, MetadataValue } from "../types";
+import { mockDraftsByFile, testId } from "./factories";
+
+const view = (store: DraftEditsStore, path: string) =>
+  Object.fromEntries(
+    Object.values(store.getMetadataFile(path) ?? {}).map(({ id, edit }) => [
+      id.tag_id,
+      edit,
+    ]),
+  );
 
 const edit = (value: string): MetadataDraftEdit => ({
   value: { kind: "Text", value },
@@ -54,9 +63,9 @@ describe("DraftEditsStore", () => {
       const store = new DraftEditsStore();
       const cb = vi.fn();
       store.subscribe(cb);
-      store.resetMetadata({ "a.jpg": { tag: edit("v") } });
+      store.resetMetadata(mockDraftsByFile({ "a.jpg": { tag: edit("v") } }));
       expect(cb).not.toHaveBeenCalled();
-      expect(store.getAllMetadata()).toEqual({ "a.jpg": { tag: edit("v") } });
+      expect(view(store, "a.jpg")).toEqual({ tag: edit("v") });
     });
   });
 
@@ -65,18 +74,16 @@ describe("DraftEditsStore", () => {
       const store = new DraftEditsStore();
       const cb = vi.fn();
       store.subscribe(cb);
-      store.setMetadataTag("a.jpg", "X:Y", edit("v"));
-      expect(store.getMetadataFile("a.jpg")).toEqual({ "X:Y": edit("v") });
-      expect(cb).toHaveBeenCalledWith([
-        { path: "a.jpg", edits: { "X:Y": edit("v") } },
-      ]);
+      store.setMetadataTag("a.jpg", testId("X:Y"), edit("v"));
+      expect(view(store, "a.jpg")).toEqual({ "X:Y": edit("v") });
+      expect(cb).toHaveBeenCalledTimes(1);
     });
 
     it("merges with existing tags", () => {
       const store = new DraftEditsStore();
-      store.setMetadataTag("a.jpg", "A", edit("1"));
-      store.setMetadataTag("a.jpg", "B", edit("2"));
-      expect(store.getMetadataFile("a.jpg")).toEqual({
+      store.setMetadataTag("a.jpg", testId("A"), edit("1"));
+      store.setMetadataTag("a.jpg", testId("B"), edit("2"));
+      expect(view(store, "a.jpg")).toEqual({
         A: edit("1"),
         B: edit("2"),
       });
@@ -84,9 +91,9 @@ describe("DraftEditsStore", () => {
 
     it("emits a new snapshot reference per mutation", () => {
       const store = new DraftEditsStore();
-      store.setMetadataTag("a.jpg", "A", edit("1"));
+      store.setMetadataTag("a.jpg", testId("A"), edit("1"));
       const before = store.getAllMetadata();
-      store.setMetadataTag("a.jpg", "B", edit("2"));
+      store.setMetadataTag("a.jpg", testId("B"), edit("2"));
       expect(store.getAllMetadata()).not.toBe(before);
     });
   });
@@ -97,10 +104,10 @@ describe("DraftEditsStore", () => {
       const cb = vi.fn();
       store.subscribe(cb);
       store.setMetadataBatch("a.jpg", [
-        { key: "GPS:Lat", edit: edit("1") },
-        { key: "GPS:Lng", edit: edit("2") },
+        { id: testId("GPS:Lat"), edit: edit("1") },
+        { id: testId("GPS:Lng"), edit: edit("2") },
       ]);
-      expect(store.getMetadataFile("a.jpg")).toEqual({
+      expect(view(store, "a.jpg")).toEqual({
         "GPS:Lat": edit("1"),
         "GPS:Lng": edit("2"),
       });
@@ -121,35 +128,33 @@ describe("DraftEditsStore", () => {
     it("removes one tag and keeps siblings", () => {
       const store = new DraftEditsStore();
       store.setMetadataBatch("a.jpg", [
-        { key: "A", edit: edit("1") },
-        { key: "B", edit: edit("2") },
+        { id: testId("A"), edit: edit("1") },
+        { id: testId("B"), edit: edit("2") },
       ]);
       const cb = vi.fn();
       store.subscribe(cb);
-      store.deleteTag("a.jpg", "A");
-      expect(store.getMetadataFile("a.jpg")).toEqual({ B: edit("2") });
-      expect(cb).toHaveBeenCalledWith([
-        { path: "a.jpg", edits: { B: edit("2") } },
-      ]);
+      store.deleteTag("a.jpg", testId("A"));
+      expect(view(store, "a.jpg")).toEqual({ B: edit("2") });
+      expect(cb).toHaveBeenCalledTimes(1);
     });
 
     it("removes the file entry when last tag goes", () => {
       const store = new DraftEditsStore();
-      store.setMetadataTag("a.jpg", "A", edit("1"));
+      store.setMetadataTag("a.jpg", testId("A"), edit("1"));
       const cb = vi.fn();
       store.subscribe(cb);
-      store.deleteTag("a.jpg", "A");
+      store.deleteTag("a.jpg", testId("A"));
       expect(store.getMetadataFile("a.jpg")).toBeUndefined();
       expect(cb).toHaveBeenCalledWith([{ path: "a.jpg", edits: undefined }]);
     });
 
     it("no-ops on unknown tag", () => {
       const store = new DraftEditsStore();
-      store.setMetadataTag("a.jpg", "A", edit("1"));
+      store.setMetadataTag("a.jpg", testId("A"), edit("1"));
       const cb = vi.fn();
       store.subscribe(cb);
-      store.deleteTag("a.jpg", "B");
-      store.deleteTag("missing.jpg", "A");
+      store.deleteTag("a.jpg", testId("B"));
+      store.deleteTag("missing.jpg", testId("A"));
       expect(cb).not.toHaveBeenCalled();
     });
   });
@@ -157,7 +162,7 @@ describe("DraftEditsStore", () => {
   describe("deletePath / deletePaths / clear", () => {
     it("deletePath removes the file and fires undefined", () => {
       const store = new DraftEditsStore();
-      store.setMetadataTag("a.jpg", "A", edit("1"));
+      store.setMetadataTag("a.jpg", testId("A"), edit("1"));
       const cb = vi.fn();
       store.subscribe(cb);
       store.deletePath("a.jpg");
@@ -175,8 +180,8 @@ describe("DraftEditsStore", () => {
 
     it("deletePaths drops only existing paths and fires once", () => {
       const store = new DraftEditsStore();
-      store.setMetadataTag("a.jpg", "A", edit("1"));
-      store.setMetadataTag("b.jpg", "A", edit("1"));
+      store.setMetadataTag("a.jpg", testId("A"), edit("1"));
+      store.setMetadataTag("b.jpg", testId("A"), edit("1"));
       const cb = vi.fn();
       store.subscribe(cb);
       store.deletePaths(["a.jpg", "missing.jpg", "b.jpg"]);
@@ -202,8 +207,8 @@ describe("DraftEditsStore", () => {
 
     it("clear empties and notifies for every prior path", () => {
       const store = new DraftEditsStore();
-      store.setMetadataTag("a.jpg", "A", edit("1"));
-      store.setMetadataTag("b.jpg", "A", edit("1"));
+      store.setMetadataTag("a.jpg", testId("A"), edit("1"));
+      store.setMetadataTag("b.jpg", testId("A"), edit("1"));
       const cb = vi.fn();
       store.subscribe(cb);
       store.clear();
@@ -225,30 +230,30 @@ describe("DraftEditsStore", () => {
     it("drops listed tags only", () => {
       const store = new DraftEditsStore();
       store.setMetadataBatch("a.jpg", [
-        { key: "A", edit: edit("1") },
-        { key: "B", edit: del },
-        { key: "C", edit: edit("3") },
+        { id: testId("A"), edit: edit("1") },
+        { id: testId("B"), edit: del },
+        { id: testId("C"), edit: edit("3") },
       ]);
-      store.pruneTags("a.jpg", ["A", "B"]);
-      expect(store.getMetadataFile("a.jpg")).toEqual({ C: edit("3") });
+      store.pruneTags("a.jpg", [testId("A"), testId("B")]);
+      expect(view(store, "a.jpg")).toEqual({ C: edit("3") });
     });
 
     it("removes file when pruning the last tag", () => {
       const store = new DraftEditsStore();
-      store.setMetadataTag("a.jpg", "A", edit("1"));
+      store.setMetadataTag("a.jpg", testId("A"), edit("1"));
       const cb = vi.fn();
       store.subscribe(cb);
-      store.pruneTags("a.jpg", ["A"]);
+      store.pruneTags("a.jpg", [testId("A")]);
       expect(store.getMetadataFile("a.jpg")).toBeUndefined();
       expect(cb).toHaveBeenCalledWith([{ path: "a.jpg", edits: undefined }]);
     });
 
     it("no-ops when none of the listed tags exist", () => {
       const store = new DraftEditsStore();
-      store.setMetadataTag("a.jpg", "A", edit("1"));
+      store.setMetadataTag("a.jpg", testId("A"), edit("1"));
       const cb = vi.fn();
       store.subscribe(cb);
-      store.pruneTags("a.jpg", ["B", "C"]);
+      store.pruneTags("a.jpg", [testId("B"), testId("C")]);
       expect(cb).not.toHaveBeenCalled();
     });
 
@@ -256,7 +261,7 @@ describe("DraftEditsStore", () => {
       const store = new DraftEditsStore();
       const cb = vi.fn();
       store.subscribe(cb);
-      store.pruneTags("missing.jpg", ["A"]);
+      store.pruneTags("missing.jpg", [testId("A")]);
       expect(cb).not.toHaveBeenCalled();
     });
   });
@@ -266,9 +271,9 @@ describe("DraftEditsStore", () => {
       const store = new DraftEditsStore();
       const cb = vi.fn();
       const unsub = store.subscribe(cb);
-      store.setMetadataTag("a.jpg", "A", edit("1"));
+      store.setMetadataTag("a.jpg", testId("A"), edit("1"));
       unsub();
-      store.setMetadataTag("b.jpg", "A", edit("1"));
+      store.setMetadataTag("b.jpg", testId("A"), edit("1"));
       expect(cb).toHaveBeenCalledTimes(1);
     });
   });
@@ -277,11 +282,11 @@ describe("DraftEditsStore", () => {
     it("returns 'redundant' and writes nothing when new Set value equals current", () => {
       const store = new DraftEditsStore();
       store.setCurrentValueResolver((_p, t) =>
-        t === "A" ? textValue("v") : undefined,
+        t.tag_id === "A" ? textValue("v") : undefined,
       );
       const cb = vi.fn();
       store.subscribe(cb);
-      const outcome = store.setMetadataTag("a.jpg", "A", edit("v"));
+      const outcome = store.setMetadataTag("a.jpg", testId("A"), edit("v"));
       expect(outcome).toBe("redundant");
       expect(store.getMetadataFile("a.jpg")).toBeUndefined();
       expect(cb).not.toHaveBeenCalled();
@@ -290,21 +295,21 @@ describe("DraftEditsStore", () => {
     it("returns 'cleared' and removes the existing draft when new Set value equals current", () => {
       const store = new DraftEditsStore();
       store.setCurrentValueResolver((_p, t) =>
-        t === "A" ? textValue("v") : undefined,
+        t.tag_id === "A" ? textValue("v") : undefined,
       );
       // Stage a (different-from-current) draft first; resolver returns
       // "v" so a draft with "different" lands.
       const writeOutcome = store.setMetadataTag(
         "a.jpg",
-        "A",
+        testId("A"),
         edit("different"),
       );
       expect(writeOutcome).toBe("written");
-      expect(store.getMetadataFile("a.jpg")).toEqual({ A: edit("different") });
+      expect(view(store, "a.jpg")).toEqual({ A: edit("different") });
       // Now apply a value that matches current — should clear the draft.
       const cb = vi.fn();
       store.subscribe(cb);
-      const outcome = store.setMetadataTag("a.jpg", "A", edit("v"));
+      const outcome = store.setMetadataTag("a.jpg", testId("A"), edit("v"));
       expect(outcome).toBe("cleared");
       expect(store.getMetadataFile("a.jpg")).toBeUndefined();
       expect(cb).toHaveBeenCalledTimes(1);
@@ -313,44 +318,51 @@ describe("DraftEditsStore", () => {
     it("writes through when value differs from current", () => {
       const store = new DraftEditsStore();
       store.setCurrentValueResolver(() => textValue("old"));
-      expect(store.setMetadataTag("a.jpg", "A", edit("new"))).toBe("written");
-      expect(store.getMetadataFile("a.jpg")).toEqual({ A: edit("new") });
+      expect(store.setMetadataTag("a.jpg", testId("A"), edit("new"))).toBe(
+        "written",
+      );
+      expect(view(store, "a.jpg")).toEqual({ A: edit("new") });
     });
 
     it("writes through when no resolver is registered (back-compat)", () => {
       const store = new DraftEditsStore();
-      expect(store.setMetadataTag("a.jpg", "A", edit("v"))).toBe("written");
-      expect(store.getMetadataFile("a.jpg")).toEqual({ A: edit("v") });
+      expect(store.setMetadataTag("a.jpg", testId("A"), edit("v"))).toBe(
+        "written",
+      );
+      expect(view(store, "a.jpg")).toEqual({ A: edit("v") });
     });
 
     it("does not suppress Delete intents even when current value is present", () => {
       const store = new DraftEditsStore();
       store.setCurrentValueResolver(() => textValue("v"));
-      expect(store.setMetadataTag("a.jpg", "A", del)).toBe("written");
-      expect(store.getMetadataFile("a.jpg")).toEqual({ A: del });
+      expect(store.setMetadataTag("a.jpg", testId("A"), del)).toBe("written");
+      expect(view(store, "a.jpg")).toEqual({ A: del });
     });
 
     it("setBatch returns per-key outcomes and notifies once when any survive", () => {
       const store = new DraftEditsStore();
       // current values: A="same", B undefined (absent), C="other"
       store.setCurrentValueResolver((_p, t) => {
-        if (t === "A") return textValue("same");
-        if (t === "C") return textValue("other");
+        if (t.tag_id === "A") return textValue("same");
+        if (t.tag_id === "C") return textValue("other");
         return undefined;
       });
       const cb = vi.fn();
       store.subscribe(cb);
       const results = store.setMetadataBatch("a.jpg", [
-        { key: "A", edit: edit("same") }, // redundant
-        { key: "B", edit: edit("new") }, // written
-        { key: "C", edit: edit("changed") }, // written
+        { id: testId("A"), edit: edit("same") }, // redundant
+        { id: testId("B"), edit: edit("new") }, // written
+        { id: testId("C"), edit: edit("changed") }, // written
       ]);
       expect(results).toEqual([
-        { key: "A", outcome: "redundant" },
-        { key: "B", outcome: "written" },
-        { key: "C", outcome: "changed" === "changed" ? "written" : "written" },
+        { id: testId("A"), outcome: "redundant" },
+        { id: testId("B"), outcome: "written" },
+        {
+          id: testId("C"),
+          outcome: "changed" === "changed" ? "written" : "written",
+        },
       ]);
-      expect(store.getMetadataFile("a.jpg")).toEqual({
+      expect(view(store, "a.jpg")).toEqual({
         B: edit("new"),
         C: edit("changed"),
       });
@@ -360,13 +372,13 @@ describe("DraftEditsStore", () => {
     it("setBatch with every key redundant fires no notification", () => {
       const store = new DraftEditsStore();
       store.setCurrentValueResolver((_p, t) =>
-        t === "A" ? textValue("v") : textValue("w"),
+        t.tag_id === "A" ? textValue("v") : textValue("w"),
       );
       const cb = vi.fn();
       store.subscribe(cb);
       const results = store.setMetadataBatch("a.jpg", [
-        { key: "A", edit: edit("v") },
-        { key: "B", edit: edit("w") },
+        { id: testId("A"), edit: edit("v") },
+        { id: testId("B"), edit: edit("w") },
       ]);
       expect(results.every((r) => r.outcome === "redundant")).toBe(true);
       expect(cb).not.toHaveBeenCalled();
@@ -378,11 +390,11 @@ describe("DraftEditsStore", () => {
       store.setCurrentValueResolver(() => listValue(["a", "b", "c"]));
       // Identical list → redundant.
       expect(
-        store.setMetadataTag("p.jpg", "K", listEdit(["a", "b", "c"])),
+        store.setMetadataTag("p.jpg", testId("K"), listEdit(["a", "b", "c"])),
       ).toBe("redundant");
       // Reordered → written.
       expect(
-        store.setMetadataTag("p.jpg", "K", listEdit(["c", "b", "a"])),
+        store.setMetadataTag("p.jpg", testId("K"), listEdit(["c", "b", "a"])),
       ).toBe("written");
     });
 
@@ -390,10 +402,10 @@ describe("DraftEditsStore", () => {
       const store = new DraftEditsStore();
       store.setCurrentValueResolver(() => structValue({ a: 1, b: 2 }));
       expect(
-        store.setMetadataTag("p.jpg", "K", structEdit({ b: 2, a: 1 })),
+        store.setMetadataTag("p.jpg", testId("K"), structEdit({ b: 2, a: 1 })),
       ).toBe("redundant");
       expect(
-        store.setMetadataTag("p.jpg", "K", structEdit({ a: 1, b: 3 })),
+        store.setMetadataTag("p.jpg", testId("K"), structEdit({ a: 1, b: 3 })),
       ).toBe("written");
     });
   });

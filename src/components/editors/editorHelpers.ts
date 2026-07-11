@@ -417,8 +417,6 @@ export function parseHemisphere(
 /** Extract initial per-language values from the metadata for this tag. */
 export function initialLangsFrom(
   baseValue: MetadataValue | undefined,
-  metadataForFile: Record<string, MetadataValue>,
-  propertyKey: string,
 ): Record<string, string> {
   const out: Record<string, string> = {};
 
@@ -435,15 +433,6 @@ export function initialLangsFrom(
     }
   }
 
-  for (const [key, value] of Object.entries(metadataForFile)) {
-    if (key === propertyKey) continue;
-    if (key.startsWith(propertyKey + "-")) {
-      const lang = key.slice(propertyKey.length + 1);
-      if (value.kind === "Text") {
-        out[lang] = value.value;
-      }
-    }
-  }
   return out;
 }
 

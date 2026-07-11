@@ -2,13 +2,15 @@ import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { VerifyOutcomeDialog } from "../components/VerifyOutcomeDialog";
 import type { TagOutcomeEntry } from "../types";
+import { testId } from "./factories";
+import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
 
 describe("VerifyOutcomeDialog", () => {
   it("shows friendly and diagnostic metadata values", () => {
     const outcomes: Record<string, TagOutcomeEntry[]> = {
       "a.jpg": [
         {
-          tag: "XMP-dc:Rights",
+          id: testId("XMP-dc:Rights"),
           kind: "Mismatch",
           sent: { kind: "Text", value: "Copyright 2008" },
           before: null,
@@ -19,7 +21,7 @@ describe("VerifyOutcomeDialog", () => {
           message: null,
         },
         {
-          tag: "IPTC:TimeCreated",
+          id: testId("IPTC:TimeCreated"),
           kind: "Mismatch",
           sent: {
             kind: "Time",
@@ -58,7 +60,7 @@ describe("VerifyOutcomeDialog", () => {
     );
 
     const rightsRow = screen.getByTestId(
-      "verify-outcome-row-a.jpg-XMP-dc:Rights",
+      `verify-outcome-row-a.jpg-${schemaDefinitionIdToken(testId("XMP-dc:Rights"))}`,
     );
     expect(within(rightsRow).getAllByText("Copyright 2008")).toHaveLength(2);
     expect(within(rightsRow).getByText('Text("Copyright 2008")')).toBeTruthy();
@@ -67,7 +69,7 @@ describe("VerifyOutcomeDialog", () => {
     ).toBeTruthy();
 
     const timeRow = screen.getByTestId(
-      "verify-outcome-row-a.jpg-IPTC:TimeCreated",
+      `verify-outcome-row-a.jpg-${schemaDefinitionIdToken(testId("IPTC:TimeCreated"))}`,
     );
     expect(within(timeRow).getAllByText("08:06:49")).toHaveLength(1);
     expect(within(timeRow).getAllByText("08:06:49+01:00")).toHaveLength(1);

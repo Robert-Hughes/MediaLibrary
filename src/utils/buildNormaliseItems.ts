@@ -13,52 +13,66 @@
 import type {
   ImageMetadataEntry,
   ImageMetadataStore,
-  MetadataDraftEdit,
   MetadataValue,
   NormaliseGroup,
   NormaliseRequestItem,
+  MetadataDraftCollection,
+  MetadataDraftEditsByFile,
+  SchemaDefinitionId,
 } from "../types";
 import { metadataValueToDisplayString } from "../draft";
+import { KNOWN_METADATA_IDS as ID } from "../metadata/knownIds";
+import { metadataGet, type MetadataCollection } from "./metadataCollection";
+import { schemaDefinitionIdToken } from "./schemaDefinitionId";
 
 /** Per-file shape of the draft store snapshot. */
-export type DraftEditsByFile = Record<
-  string,
-  Record<string, MetadataDraftEdit> | undefined
->;
+export type DraftEditsByFile = MetadataDraftEditsByFile;
 
-type EffectiveMetadataEntry = ImageMetadataEntry | null;
+type EffectiveMetadataEntry = MetadataValue | null;
+
+function metadataValueOnly(
+  entry: ImageMetadataEntry | undefined,
+): MetadataValue | null {
+  if (!entry) return null;
+  const { id: _id, ...value } = entry;
+  return value as MetadataValue;
+}
 
 /** Read a single tag with draft-overlay precedence. Returns the
  *  effective metadata value, or `null` when the tag is deleted-as-
  *  draft OR absent on both sides. */
 export function resolveTag(
-  metadata: Record<string, ImageMetadataEntry> | undefined,
-  drafts: Record<string, MetadataDraftEdit> | undefined,
-  key: string,
+  metadata: MetadataCollection | undefined,
+  drafts: MetadataDraftCollection | undefined,
+  id: SchemaDefinitionId,
 ): EffectiveMetadataEntry {
-  const draft = drafts?.[key];
+  const draft = drafts?.[schemaDefinitionIdToken(id)]?.edit;
   if (draft) {
     if (draft.intent === "Delete") return null;
     if (draft.intent === "Set") return draft.value ?? null;
     // ListAdd / ListRemove require knowing the base — we conservatively
     // fall through to the metadata value when applied on top would be
     // ambiguous. Group normalisers don't currently emit these intents.
-    return metadata?.[key] ?? null;
+    return metadata ? metadataValueOnly(metadataGet(metadata, id)) : null;
   }
-  return metadata?.[key] ?? null;
+  return metadata ? metadataValueOnly(metadataGet(metadata, id)) : null;
 }
 
 export function buildEffectiveMetadata(
-  metadata: Record<string, ImageMetadataEntry>,
-  drafts: Record<string, MetadataDraftEdit> | undefined,
-): Record<string, MetadataValue> {
-  const effective: Record<string, MetadataValue> = {};
+  metadata: MetadataCollection,
+  drafts: MetadataDraftCollection | undefined,
+): MetadataCollection {
+  const effective: MetadataCollection = {};
   for (const key of new Set([
     ...Object.keys(metadata),
     ...Object.keys(drafts ?? {}),
   ])) {
-    const value = resolveTag(metadata, drafts, key);
-    if (isMetadataValue(value)) effective[key] = value;
+    const entry = metadata[key] ?? drafts?.[key];
+    const id = entry && "id" in entry ? entry.id : undefined;
+    if (!id) continue;
+    const value = resolveTag(metadata, drafts, id);
+    if (isMetadataValue(value))
+      effective[key] = { ...value, id } as ImageMetadataEntry;
   }
   return effective;
 }
@@ -129,7 +143,7 @@ function metadataEntryToStringList(v: EffectiveMetadataEntry): string[] {
 /** Photo data passed into the resolver — kept narrow so callers can
  *  pull either the React `ImageMetadataStore` or a plain object map. */
 export interface PhotoMetadataLookup {
-  get(relPath: string): Record<string, ImageMetadataEntry> | undefined;
+  get(relPath: string): MetadataCollection | undefined;
 }
 
 /** Adapt the live `ImageMetadataStore` to the `PhotoMetadataLookup`
@@ -161,31 +175,31 @@ function fileStemOf(relPath: string): string {
  *  `null` (mapped to `undefined` in TS for `serde(skip_if_none)`) when
  *  the tag is absent / deleted / empty. */
 function scalar(
-  metadata: Record<string, ImageMetadataEntry> | undefined,
-  drafts: Record<string, MetadataDraftEdit> | undefined,
-  key: string,
+  metadata: MetadataCollection | undefined,
+  drafts: MetadataDraftCollection | undefined,
+  id: SchemaDefinitionId,
 ): string | undefined {
-  const s = metadataEntryToString(resolveTag(metadata, drafts, key));
+  const s = metadataEntryToString(resolveTag(metadata, drafts, id));
   if (s == null) return undefined;
   return s;
 }
 
 function scalarValue(
-  metadata: Record<string, ImageMetadataEntry> | undefined,
-  drafts: Record<string, MetadataDraftEdit> | undefined,
-  key: string,
+  metadata: MetadataCollection | undefined,
+  drafts: MetadataDraftCollection | undefined,
+  id: SchemaDefinitionId,
 ): MetadataValue | undefined {
-  const value = resolveTag(metadata, drafts, key);
+  const value = resolveTag(metadata, drafts, id);
   return isMetadataValue(value) ? value : undefined;
 }
 
 /** Helper that resolves a list tag to `Vec<String>`. */
 function list(
-  metadata: Record<string, ImageMetadataEntry> | undefined,
-  drafts: Record<string, MetadataDraftEdit> | undefined,
-  key: string,
+  metadata: MetadataCollection | undefined,
+  drafts: MetadataDraftCollection | undefined,
+  id: SchemaDefinitionId,
 ): string[] {
-  return metadataEntryToStringList(resolveTag(metadata, drafts, key));
+  return metadataEntryToStringList(resolveTag(metadata, drafts, id));
 }
 
 /**
@@ -196,8 +210,8 @@ function list(
  */
 export function buildNormaliseItemForPhoto(
   relPath: string,
-  metadata: Record<string, ImageMetadataEntry> | undefined,
-  drafts: Record<string, MetadataDraftEdit> | undefined,
+  metadata: MetadataCollection | undefined,
+  drafts: MetadataDraftCollection | undefined,
   enabledGroups: ReadonlyArray<NormaliseGroup>,
 ): NormaliseRequestItem {
   const groupSet = new Set(enabledGroups);
@@ -215,42 +229,41 @@ export function buildNormaliseItemForPhoto(
 
   if (groupSet.has("keywords")) {
     groupInputs.keywords = {
-      hierarchicalSubject: list(metadata, drafts, "XMP-lr:HierarchicalSubject"),
-      dcSubject: list(metadata, drafts, "XMP-dc:Subject"),
-      iptcKeywords: list(metadata, drafts, "IPTC:Keywords"),
-      aiTags: list(metadata, drafts, "XMP-mlib:AITags"),
-      aiObjects: list(metadata, drafts, "XMP-mlib:AIObjects"),
+      hierarchicalSubject: list(metadata, drafts, ID.xmpHierarchicalSubject),
+      dcSubject: list(metadata, drafts, ID.xmpSubject),
+      iptcKeywords: list(metadata, drafts, ID.iptcKeywords),
+      aiTags: list(metadata, drafts, ID.mlibAiTags),
+      aiObjects: list(metadata, drafts, ID.mlibAiObjects),
     };
   }
 
   if (groupSet.has("creator")) {
     groupInputs.creator = {
-      creator: list(metadata, drafts, "XMP-dc:Creator"),
-      artist: scalar(metadata, drafts, "IFD0:Artist") ?? null,
-      byline: list(metadata, drafts, "IPTC:By-line"),
+      creator: list(metadata, drafts, ID.xmpCreator),
+      artist: scalar(metadata, drafts, ID.artist) ?? null,
+      byline: list(metadata, drafts, ID.iptcByLine),
     };
   }
 
   if (groupSet.has("copyright")) {
     groupInputs.copyright = {
-      rights: scalar(metadata, drafts, "XMP-dc:Rights") ?? null,
-      exifCopyright: scalar(metadata, drafts, "IFD0:Copyright") ?? null,
-      iptcCopyright: scalar(metadata, drafts, "IPTC:CopyrightNotice") ?? null,
+      rights: scalar(metadata, drafts, ID.xmpRights) ?? null,
+      exifCopyright: scalar(metadata, drafts, ID.copyright) ?? null,
+      iptcCopyright: scalar(metadata, drafts, ID.iptcCopyright) ?? null,
     };
   }
 
   if (groupSet.has("headline")) {
     groupInputs.headline = {
-      photoshopHeadline:
-        scalar(metadata, drafts, "XMP-photoshop:Headline") ?? null,
-      iptcHeadline: scalar(metadata, drafts, "IPTC:Headline") ?? null,
+      photoshopHeadline: scalar(metadata, drafts, ID.xmpHeadline) ?? null,
+      iptcHeadline: scalar(metadata, drafts, ID.iptcHeadline) ?? null,
     };
   }
 
   if (groupSet.has("title")) {
     groupInputs.title = {
-      title: scalar(metadata, drafts, "XMP-dc:Title") ?? null,
-      objectName: scalar(metadata, drafts, "IPTC:ObjectName") ?? null,
+      title: scalar(metadata, drafts, ID.xmpTitle) ?? null,
+      objectName: scalar(metadata, drafts, ID.iptcObjectName) ?? null,
       // Pass-2 + pass-3 dispatcher populates these from Group B / F /
       // A canonicals; frontend always leaves them empty.
       descriptionCanonical: null,
@@ -261,37 +274,32 @@ export function buildNormaliseItemForPhoto(
 
   if (groupSet.has("location")) {
     groupInputs.location = {
-      locationXmp: scalar(metadata, drafts, "XMP-iptcCore:Location") ?? null,
-      locationIptc: scalar(metadata, drafts, "IPTC:Sub-location") ?? null,
-      cityXmp: scalar(metadata, drafts, "XMP-photoshop:City") ?? null,
-      cityIptc: scalar(metadata, drafts, "IPTC:City") ?? null,
-      stateXmp: scalar(metadata, drafts, "XMP-photoshop:State") ?? null,
-      stateIptc: scalar(metadata, drafts, "IPTC:Province-State") ?? null,
-      countryXmp: scalar(metadata, drafts, "XMP-photoshop:Country") ?? null,
-      countryIptc:
-        scalar(metadata, drafts, "IPTC:Country-PrimaryLocationName") ?? null,
-      countryCodeXmp:
-        scalar(metadata, drafts, "XMP-iptcCore:CountryCode") ?? null,
-      countryCodeIptc:
-        scalar(metadata, drafts, "IPTC:Country-PrimaryLocationCode") ?? null,
+      locationXmp: scalar(metadata, drafts, ID.xmpLocation) ?? null,
+      locationIptc: scalar(metadata, drafts, ID.iptcSubLocation) ?? null,
+      cityXmp: scalar(metadata, drafts, ID.xmpCity) ?? null,
+      cityIptc: scalar(metadata, drafts, ID.iptcCity) ?? null,
+      stateXmp: scalar(metadata, drafts, ID.xmpState) ?? null,
+      stateIptc: scalar(metadata, drafts, ID.iptcProvinceState) ?? null,
+      countryXmp: scalar(metadata, drafts, ID.xmpCountry) ?? null,
+      countryIptc: scalar(metadata, drafts, ID.iptcCountryName) ?? null,
+      countryCodeXmp: scalar(metadata, drafts, ID.xmpCountryCode) ?? null,
+      countryCodeIptc: scalar(metadata, drafts, ID.iptcCountryCode) ?? null,
     };
   }
 
   if (groupSet.has("description")) {
     groupInputs.description = {
-      description: scalar(metadata, drafts, "XMP-dc:Description") ?? null,
-      imageDescription:
-        scalar(metadata, drafts, "IFD0:ImageDescription") ?? null,
-      captionAbstract:
-        scalar(metadata, drafts, "IPTC:Caption-Abstract") ?? null,
+      description: scalar(metadata, drafts, ID.xmpDescription) ?? null,
+      imageDescription: scalar(metadata, drafts, ID.imageDescription) ?? null,
+      captionAbstract: scalar(metadata, drafts, ID.iptcCaption) ?? null,
       iptcCharsetIsUtf8:
-        scalar(metadata, drafts, "IPTC:CodedCharacterSet") === "UTF8" ||
-        scalar(metadata, drafts, "IPTC:CodedCharacterSet") === "%G",
-      aiDescription: scalar(metadata, drafts, "XMP-mlib:AIDescription") ?? null,
+        scalar(metadata, drafts, ID.iptcCodedCharacterSet) === "UTF8" ||
+        scalar(metadata, drafts, ID.iptcCodedCharacterSet) === "%G",
+      aiDescription: scalar(metadata, drafts, ID.mlibAiDescription) ?? null,
       aiInterpretation:
-        scalar(metadata, drafts, "XMP-mlib:AIInterpretation") ?? null,
-      aiOcrText: list(metadata, drafts, "XMP-mlib:AIOcrText"),
-      aiObjects: list(metadata, drafts, "XMP-mlib:AIObjects"),
+        scalar(metadata, drafts, ID.mlibAiInterpretation) ?? null,
+      aiOcrText: list(metadata, drafts, ID.mlibAiOcrText),
+      aiObjects: list(metadata, drafts, ID.mlibAiObjects),
       // location / keywords / date context are populated by the
       // backend dispatcher from the Pass-1 outputs, not the frontend.
       locationContext: null,
@@ -303,29 +311,28 @@ export function buildNormaliseItemForPhoto(
   if (groupSet.has("dates")) {
     groupInputs.dates = {
       dateTimeOriginal:
-        scalarValue(metadata, drafts, "ExifIFD:DateTimeOriginal") ?? null,
+        scalarValue(metadata, drafts, ID.dateTimeOriginal) ?? null,
       offsetTimeOriginal:
-        scalarValue(metadata, drafts, "ExifIFD:OffsetTimeOriginal") ?? null,
+        scalarValue(metadata, drafts, ID.offsetTimeOriginal) ?? null,
       subSecTimeOriginal:
-        scalarValue(metadata, drafts, "ExifIFD:SubSecTimeOriginal") ?? null,
+        scalarValue(metadata, drafts, ID.subSecTimeOriginal) ?? null,
       photoshopDateCreated:
-        scalarValue(metadata, drafts, "XMP-photoshop:DateCreated") ?? null,
+        scalarValue(metadata, drafts, ID.xmpDateCreated) ?? null,
       iptcDateCreated:
-        scalarValue(metadata, drafts, "IPTC:DateCreated") ?? null,
+        scalarValue(metadata, drafts, ID.iptcDateCreated) ?? null,
       iptcTimeCreated:
-        scalarValue(metadata, drafts, "IPTC:TimeCreated") ?? null,
-      createDate: scalarValue(metadata, drafts, "ExifIFD:CreateDate") ?? null,
+        scalarValue(metadata, drafts, ID.iptcTimeCreated) ?? null,
+      createDate: scalarValue(metadata, drafts, ID.createDate) ?? null,
       offsetTimeDigitized:
-        scalarValue(metadata, drafts, "ExifIFD:OffsetTimeDigitized") ?? null,
-      offsetTime: scalarValue(metadata, drafts, "ExifIFD:OffsetTime") ?? null,
+        scalarValue(metadata, drafts, ID.offsetTimeDigitized) ?? null,
+      offsetTime: scalarValue(metadata, drafts, ID.offsetTime) ?? null,
       subSecTimeDigitized:
-        scalarValue(metadata, drafts, "ExifIFD:SubSecTimeDigitized") ?? null,
-      xmpCreateDate:
-        scalarValue(metadata, drafts, "XMP-xmp:CreateDate") ?? null,
+        scalarValue(metadata, drafts, ID.subSecTimeDigitized) ?? null,
+      xmpCreateDate: scalarValue(metadata, drafts, ID.xmpCreateDate) ?? null,
       iptcDigitalCreationDate:
-        scalarValue(metadata, drafts, "IPTC:DigitalCreationDate") ?? null,
+        scalarValue(metadata, drafts, ID.iptcDigitalCreationDate) ?? null,
       iptcDigitalCreationTime:
-        scalarValue(metadata, drafts, "IPTC:DigitalCreationTime") ?? null,
+        scalarValue(metadata, drafts, ID.iptcDigitalCreationTime) ?? null,
       fileStem: fileStemOf(relPath),
     };
   }

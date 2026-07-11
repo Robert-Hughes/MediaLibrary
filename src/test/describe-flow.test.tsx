@@ -283,8 +283,14 @@ describe("AI-description flow", () => {
     const folderDrafts = mockApiInstance.draftEditsByFolder["/photos"];
     expect(folderDrafts).toBeTruthy();
     expect(folderDrafts["test.jpg"]).toBeTruthy();
-    expect(folderDrafts["test.jpg"]["XMP-mlib:AIDescription"]).toBeTruthy();
-    expect(folderDrafts["test.jpg"]["XMP-mlib:AITags"]).toBeTruthy();
+    expect(
+      folderDrafts["test.jpg"].some(
+        ({ id }: any) => id.tag_id === "AIDescription",
+      ),
+    ).toBe(true);
+    expect(
+      folderDrafts["test.jpg"].some(({ id }: any) => id.tag_id === "AITags"),
+    ).toBe(true);
   });
 
   it("compares done actual cost against the confirmation estimate", async () => {

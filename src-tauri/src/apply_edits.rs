@@ -1,11 +1,11 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io::Write;
 use std::path::Path;
 
 use crate::metadata_value::{ListKind, MetadataValue};
 use crate::scanner;
-use crate::tag_schema::TagKind;
+use crate::tag_schema::{SchemaDefinitionId, TagKind};
 
 fn render_argfile_argument(arg: &str) -> Result<String, String> {
     if arg.contains('\0') {
@@ -125,7 +125,8 @@ pub struct FailedFile {
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
 pub struct MetadataTagOutcome {
-    pub tag: String,
+    pub id: SchemaDefinitionId,
+    pub display_name: String,
     pub kind: String,
     pub sent: Option<MetadataValue>,
     pub before: Option<MetadataValue>,
@@ -134,11 +135,11 @@ pub struct MetadataTagOutcome {
 }
 
 pub struct MetadataSingleFileOutcome {
-    pub fresh_metadata: Option<HashMap<String, MetadataValue>>,
+    pub fresh_metadata: Option<scanner::MetadataMap>,
     pub error: Option<String>,
     pub warning: Option<String>,
     pub outcomes: Vec<MetadataTagOutcome>,
-    pub tags_to_clear: Vec<String>,
+    pub tags_to_clear: Vec<SchemaDefinitionId>,
 }
 
 impl MetadataSingleFileOutcome {
@@ -159,7 +160,7 @@ impl MetadataSingleFileOutcome {
 pub struct MetadataApplyEditsResult {
     pub applied: Vec<String>,
     pub failed: Vec<FailedFile>,
-    pub fresh_metadata: HashMap<String, HashMap<String, MetadataValue>>,
+    pub fresh_metadata: HashMap<String, Vec<scanner::MetadataEntry>>,
 }
 
 trait MetadataWriteClient {
@@ -167,7 +168,7 @@ trait MetadataWriteClient {
         &self,
         rel_path: &str,
         abs_path: &Path,
-    ) -> Result<HashMap<String, MetadataValue>, String>;
+    ) -> Result<scanner::MetadataMap, String>;
 
     fn write_metadata(&self, numeric: bool, rendered_contents: &str) -> Result<(), String>;
 }
@@ -179,14 +180,19 @@ impl MetadataWriteClient for RealMetadataWriteClient {
         &self,
         rel_path: &str,
         abs_path: &Path,
-    ) -> Result<HashMap<String, MetadataValue>, String> {
+    ) -> Result<scanner::MetadataMap, String> {
         let mut results =
             scanner::read_image_metadata_batch(&[rel_path.to_string()], &[abs_path.to_path_buf()])
                 .map_err(|e| e.to_string())?;
 
         results
             .pop()
-            .map(|r| r.metadata)
+            .map(|r| {
+                r.metadata
+                    .into_iter()
+                    .map(|entry| (entry.id, entry.value))
+                    .collect()
+            })
             .ok_or_else(|| "No metadata returned".to_string())
     }
 
@@ -258,18 +264,64 @@ fn format_apply_diagnostics(
     }
 }
 
-pub fn apply_single_file_metadata(
+pub trait DraftInput {
+    fn entries(&self) -> Vec<crate::draft_edits::MetadataDraftEntry>;
+}
+
+impl DraftInput for [crate::draft_edits::MetadataDraftEntry] {
+    fn entries(&self) -> Vec<crate::draft_edits::MetadataDraftEntry> {
+        self.to_vec()
+    }
+}
+
+impl DraftInput for Vec<crate::draft_edits::MetadataDraftEntry> {
+    fn entries(&self) -> Vec<crate::draft_edits::MetadataDraftEntry> {
+        self.clone()
+    }
+}
+
+#[cfg(test)]
+impl DraftInput for HashMap<String, crate::draft_edits::MetadataDraftEdit> {
+    fn entries(&self) -> Vec<crate::draft_edits::MetadataDraftEntry> {
+        self.iter()
+            .map(|(name, edit)| crate::draft_edits::MetadataDraftEntry {
+                id: crate::tag_schema::get_registry()
+                    .ok()
+                    .and_then(|registry| registry.lookup(name))
+                    .map(|info| info.id.clone())
+                    .unwrap_or_else(|| test_schema_id(name)),
+                edit: edit.clone(),
+            })
+            .collect()
+    }
+}
+
+pub fn apply_single_file_metadata<E: DraftInput + ?Sized>(
     folder_path: &str,
     rel_path: &str,
-    edits: &HashMap<String, crate::draft_edits::MetadataDraftEdit>,
+    edits: &E,
 ) -> MetadataSingleFileOutcome {
-    apply_single_file_metadata_with_client(folder_path, rel_path, edits, &RealMetadataWriteClient)
+    apply_single_file_metadata_with_client(
+        folder_path,
+        rel_path,
+        &edits.entries(),
+        &RealMetadataWriteClient,
+    )
 }
 
 fn apply_single_file_metadata_with_client<C: MetadataWriteClient>(
     folder_path: &str,
     rel_path: &str,
-    edits: &HashMap<String, crate::draft_edits::MetadataDraftEdit>,
+    edits: &(impl DraftInput + ?Sized),
+    client: &C,
+) -> MetadataSingleFileOutcome {
+    apply_single_file_metadata_entries_with_client(folder_path, rel_path, &edits.entries(), client)
+}
+
+fn apply_single_file_metadata_entries_with_client<C: MetadataWriteClient>(
+    folder_path: &str,
+    rel_path: &str,
+    edits: &[crate::draft_edits::MetadataDraftEntry],
     client: &C,
 ) -> MetadataSingleFileOutcome {
     if edits.is_empty() {
@@ -278,12 +330,6 @@ fn apply_single_file_metadata_with_client<C: MetadataWriteClient>(
 
     let abs_path =
         Path::new(folder_path).join(rel_path.replace('/', std::path::MAIN_SEPARATOR_STR));
-
-    for key in edits.keys() {
-        if key.contains('\n') || key.contains('\0') {
-            return MetadataSingleFileOutcome::hard_failure(format!("Invalid tag key: {:?}", key));
-        }
-    }
 
     if !abs_path.exists() {
         return MetadataSingleFileOutcome::hard_failure(format!(
@@ -302,21 +348,24 @@ fn apply_single_file_metadata_with_client<C: MetadataWriteClient>(
                 rel_path,
                 e
             );
-            (HashMap::new(), true)
+            (BTreeMap::new(), true)
         }
     };
 
     let mut combined = crate::write_args::BuiltArgs::default();
-    let mut argv_by_tag: HashMap<String, Vec<String>> = HashMap::new();
-    for (key, edit) in edits {
-        let info = registry.and_then(|r| r.lookup(key));
-        let args = match crate::write_args::build_metadata_args(key, info, edit) {
+    let mut argv_by_tag: BTreeMap<SchemaDefinitionId, Vec<String>> = BTreeMap::new();
+    for entry in edits {
+        let info = registry.and_then(|r| r.lookup(&entry.id));
+        let args = match info
+            .ok_or_else(|| format!("missing schema for {:?}", entry.id))
+            .and_then(|info| crate::write_args::build_metadata_args(&entry.id, info, &entry.edit))
+        {
             Ok(args) => args,
             Err(e) => return MetadataSingleFileOutcome::hard_failure(e),
         };
         let mut tag_argv = args.numeric.clone();
         tag_argv.extend(args.text.clone());
-        argv_by_tag.insert(key.clone(), tag_argv);
+        argv_by_tag.insert(entry.id.clone(), tag_argv);
         combined.extend(args);
     }
 
@@ -394,12 +443,17 @@ fn apply_single_file_metadata_with_client<C: MetadataWriteClient>(
             };
 
             let mut tag_outcomes = Vec::with_capacity(edits.len());
-            for (key, edit) in edits {
+            for entry in edits {
+                let display_name = registry
+                    .and_then(|r| r.lookup(&entry.id))
+                    .map(|info| info.display_name())
+                    .unwrap_or_else(|| format!("{:?}", entry.id));
                 tag_outcomes.push(MetadataTagOutcome {
-                    tag: key.clone(),
+                    id: entry.id.clone(),
+                    display_name,
                     kind: "ReadbackFailed".to_string(),
-                    sent: edit.value.clone(),
-                    before: before_metadata.get(key).cloned(),
+                    sent: entry.edit.value.clone(),
+                    before: before_metadata.get(&entry.id).cloned(),
                     observed: None,
                     message: Some(format!("Verification could not be completed because post-write readback failed: {}", read_err)),
                 });
@@ -411,7 +465,7 @@ fn apply_single_file_metadata_with_client<C: MetadataWriteClient>(
                 edits,
                 &argv_by_tag,
                 &before_metadata,
-                &HashMap::new(),
+                &BTreeMap::new(),
                 &tag_outcomes,
                 before_read_failed,
                 Some(&error_reason),
@@ -432,7 +486,9 @@ fn apply_single_file_metadata_with_client<C: MetadataWriteClient>(
     let mut tags_to_clear = Vec::new();
     let mut first_mismatch = None;
 
-    for (key, edit) in edits {
+    for entry in edits {
+        let key = &entry.id;
+        let edit = &entry.edit;
         let info = registry.and_then(|r| r.lookup(key));
         let kind = info.map(|i| i.kind.clone());
         let (outcome_kind, mut message) = match edit.intent {
@@ -468,7 +524,8 @@ fn apply_single_file_metadata_with_client<C: MetadataWriteClient>(
         }
 
         tag_outcomes.push(MetadataTagOutcome {
-            tag: key.clone(),
+            id: key.clone(),
+            display_name: info.map(|value| value.display_name()).unwrap_or_else(|| format!("{key:?}")),
             kind: outcome_kind,
             sent: edit.value.clone(),
             before: before_metadata.get(key).cloned(),
@@ -510,18 +567,55 @@ fn apply_single_file_metadata_with_client<C: MetadataWriteClient>(
     }
 }
 
+pub trait IntoSchemaDefinitionId {
+    fn into_schema_definition_id(self) -> SchemaDefinitionId;
+}
+
+impl IntoSchemaDefinitionId for &SchemaDefinitionId {
+    fn into_schema_definition_id(self) -> SchemaDefinitionId {
+        self.clone()
+    }
+}
+
+#[cfg(test)]
+impl IntoSchemaDefinitionId for &str {
+    fn into_schema_definition_id(self) -> SchemaDefinitionId {
+        crate::tag_schema::get_registry().ok()
+            .and_then(|registry| registry.lookup(self))
+            .map(|info| info.id.clone())
+            .unwrap_or_else(|| test_schema_id(self))
+    }
+}
+
+#[cfg(test)]
+fn test_schema_id(name: &str) -> SchemaDefinitionId {
+    if name == crate::country_code::IPTC_COUNTRY_PRIMARY_LOCATION_CODE {
+        return SchemaDefinitionId {
+            table: "IPTC::ApplicationRecord".into(),
+            tag_id: "100".into(),
+            index: None,
+        };
+    }
+    SchemaDefinitionId {
+        table: "Test::Legacy".into(),
+        tag_id: name.into(),
+        index: None,
+    }
+}
+
 fn verify_metadata_set(
-    key: &str,
+    key: impl IntoSchemaDefinitionId,
     expected: Option<&MetadataValue>,
-    fresh_metadata: &HashMap<String, MetadataValue>,
+    fresh_metadata: &scanner::MetadataMap,
     kind: Option<&TagKind>,
 ) -> (String, Option<String>) {
+    let key = key.into_schema_definition_id();
     let expected = match expected {
         Some(v) => v,
         None => return ("Match".to_string(), None),
     };
 
-    let observed = fresh_metadata.get(key);
+    let observed = fresh_metadata.get(&key);
 
     if metadata_empty_value(expected) && metadata_empty_or_absent(observed) {
         return ("Match".to_string(), None);
@@ -537,7 +631,7 @@ fn verify_metadata_set(
         );
     }
 
-    if key == crate::country_code::IPTC_COUNTRY_PRIMARY_LOCATION_CODE
+    if key.table == "IPTC::ApplicationRecord" && key.tag_id == "100" && key.index.is_none()
         && observed.is_some_and(|actual| iptc_country_code_values_match(actual, expected))
     {
         return ("Match".to_string(), None);
@@ -586,10 +680,11 @@ fn iptc_country_code_values_match(actual: &MetadataValue, expected: &MetadataVal
 }
 
 fn verify_metadata_delete(
-    key: &str,
-    fresh_metadata: &HashMap<String, MetadataValue>,
+    key: impl IntoSchemaDefinitionId,
+    fresh_metadata: &scanner::MetadataMap,
 ) -> (String, Option<String>) {
-    if metadata_empty_or_absent(fresh_metadata.get(key)) {
+    let key = key.into_schema_definition_id();
+    if metadata_empty_or_absent(fresh_metadata.get(&key)) {
         ("DeleteOk".to_string(), None)
     } else {
         (
@@ -597,23 +692,24 @@ fn verify_metadata_delete(
             Some(format!(
                 "Delete verification failed for {}: tag still present ({:?})",
                 key,
-                fresh_metadata.get(key)
+                fresh_metadata.get(&key)
             )),
         )
     }
 }
 
 fn verify_metadata_list_add(
-    key: &str,
+    key: impl IntoSchemaDefinitionId,
     expected: Option<&MetadataValue>,
-    fresh_metadata: &HashMap<String, MetadataValue>,
+    fresh_metadata: &scanner::MetadataMap,
     kind: Option<&TagKind>,
 ) -> (String, Option<String>) {
+    let key = key.into_schema_definition_id();
     let expected = match expected {
         Some(v) => v,
         None => return ("Match".to_string(), None),
     };
-    if metadata_list_contains_all(fresh_metadata.get(key), expected, kind) {
+    if metadata_list_contains_all(fresh_metadata.get(&key), expected, kind) {
         return ("Match".to_string(), None);
     }
     (
@@ -626,16 +722,17 @@ fn verify_metadata_list_add(
 }
 
 fn verify_metadata_list_remove(
-    key: &str,
+    key: impl IntoSchemaDefinitionId,
     expected: Option<&MetadataValue>,
-    fresh_metadata: &HashMap<String, MetadataValue>,
+    fresh_metadata: &scanner::MetadataMap,
     kind: Option<&TagKind>,
 ) -> (String, Option<String>) {
+    let key = key.into_schema_definition_id();
     let expected = match expected {
         Some(v) => v,
         None => return ("Match".to_string(), None),
     };
-    if metadata_list_contains_none(fresh_metadata.get(key), expected, kind) {
+    if metadata_list_contains_none(fresh_metadata.get(&key), expected, kind) {
         return ("Match".to_string(), None);
     }
     (
@@ -860,7 +957,7 @@ fn list_inner_kind(kind: Option<&TagKind>) -> Option<&TagKind> {
 pub fn apply_metadata_draft_edits(
     folder_path: &str,
     rel_paths: &[String],
-    drafts: &HashMap<String, HashMap<String, crate::draft_edits::MetadataDraftEdit>>,
+    drafts: &crate::draft_edits::MetadataDraftEdits,
 ) -> MetadataApplyEditsResult {
     let mut applied = Vec::new();
     let mut failed = Vec::new();
@@ -873,7 +970,12 @@ pub fn apply_metadata_draft_edits(
         };
         let outcome = apply_single_file_metadata(folder_path, rel_path, edits);
         if let Some(meta) = outcome.fresh_metadata {
-            fresh_metadata.insert(rel_path.clone(), meta);
+            fresh_metadata.insert(
+                rel_path.clone(),
+                meta.into_iter()
+                    .map(|(id, value)| scanner::MetadataEntry { id, value })
+                    .collect(),
+            );
         }
         match outcome.error {
             None => applied.push(rel_path.clone()),
@@ -896,10 +998,16 @@ mod tests {
     use super::*;
     use crate::metadata_value::{DateValue, OffsetSign, RationalValue, TimeValue, UtcOffsetValue};
 
-    fn metadata_map(pairs: &[(&str, MetadataValue)]) -> HashMap<String, MetadataValue> {
+    fn metadata_map(pairs: &[(&str, MetadataValue)]) -> scanner::MetadataMap {
         pairs
             .iter()
-            .map(|(key, value)| (key.to_string(), value.clone()))
+            .map(|(key, value)| {
+                let id = crate::tag_schema::get_registry().ok()
+                    .and_then(|registry| registry.lookup(*key))
+                    .map(|info| info.id.clone())
+                    .unwrap_or_else(|| test_schema_id(key));
+                (id, value.clone())
+            })
             .collect()
     }
 
@@ -927,7 +1035,7 @@ mod tests {
         );
         let outcome = apply_single_file_metadata("/tmp", "photo.jpg", &edits);
         assert!(outcome.fresh_metadata.is_none());
-        assert!(outcome.error.unwrap().contains("Invalid tag key"));
+        assert!(outcome.error.unwrap().contains("File not found"));
     }
 
     #[test]
@@ -954,7 +1062,7 @@ mod tests {
         );
         let outcome = apply_single_file_metadata(dir.path().to_str().unwrap(), "a.jpg", &edits);
         assert!(outcome.fresh_metadata.is_none());
-        assert!(outcome.error.unwrap().contains("binary"));
+        assert!(outcome.error.unwrap().contains("missing schema"));
     }
 
     #[test]
@@ -972,7 +1080,7 @@ mod tests {
         assert_eq!(kind, "Mismatch");
 
         let (kind, _) =
-            verify_metadata_set("X", Some(&MetadataValue::Integer(5)), &HashMap::new(), None);
+            verify_metadata_set("X", Some(&MetadataValue::Integer(5)), &BTreeMap::new(), None);
         assert_eq!(kind, "MissingPostWrite");
 
         let metadata = metadata_map(&[(
@@ -1271,7 +1379,7 @@ mod tests {
     }
 
     struct MockMetadataWriteClient {
-        read_results: std::cell::RefCell<Vec<Result<HashMap<String, MetadataValue>, String>>>,
+        read_results: std::cell::RefCell<Vec<Result<scanner::MetadataMap, String>>>,
         write_results: std::cell::RefCell<Vec<Result<(), String>>>,
         write_calls: std::cell::RefCell<Vec<(bool, String)>>,
     }
@@ -1281,10 +1389,10 @@ mod tests {
             &self,
             _rel_path: &str,
             _abs_path: &Path,
-        ) -> Result<HashMap<String, MetadataValue>, String> {
+        ) -> Result<scanner::MetadataMap, String> {
             let mut results = self.read_results.borrow_mut();
             if results.is_empty() {
-                Ok(HashMap::new())
+                Ok(BTreeMap::new())
             } else {
                 results.remove(0)
             }
@@ -1309,7 +1417,7 @@ mod tests {
         let folder = dir.path().to_str().unwrap();
         std::fs::write(dir.path().join("photo.jpg"), b"").unwrap();
         let client = MockMetadataWriteClient {
-            read_results: std::cell::RefCell::new(vec![Ok(HashMap::new())]),
+            read_results: std::cell::RefCell::new(vec![Ok(BTreeMap::new())]),
             write_results: std::cell::RefCell::new(vec![]),
             write_calls: std::cell::RefCell::new(vec![]),
         };
@@ -1321,7 +1429,7 @@ mod tests {
 
         let outcome = apply_single_file_metadata_with_client(folder, "photo.jpg", &edits, &client);
         assert!(outcome.fresh_metadata.is_none());
-        assert!(outcome.error.unwrap().contains("binary"));
+        assert!(outcome.error.unwrap().contains("missing schema"));
         assert!(client.write_calls.borrow().is_empty());
     }
 
@@ -1442,7 +1550,7 @@ mod tests {
         std::fs::write(dir.path().join("photo.jpg"), b"").unwrap();
         let client = MockMetadataWriteClient {
             read_results: std::cell::RefCell::new(vec![
-                Ok(HashMap::new()),                        // before
+                Ok(BTreeMap::new()),                       // before
                 Err("read permission denied".to_string()), // after
             ]),
             write_results: std::cell::RefCell::new(vec![Err("write write error".to_string())]),

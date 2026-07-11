@@ -629,7 +629,7 @@ pub fn compose_metadata_draft_edits(
     model: &str,
     output: &AiOutput,
     generated_at: chrono::DateTime<chrono::Utc>,
-) -> std::collections::HashMap<String, MetadataDraftEdit> {
+) -> crate::draft_edits::MetadataDraftMap {
     fn text_edit(s: String) -> MetadataDraftEdit {
         MetadataDraftEdit {
             value: Some(MetadataValue::Text(s)),
@@ -647,35 +647,35 @@ pub fn compose_metadata_draft_edits(
             display: None,
         }
     }
-    let mut edits = std::collections::HashMap::new();
+    let mut edits = crate::draft_edits::MetadataDraftMap::new();
     edits.insert(
-        "XMP-mlib:AIDescription".to_string(),
+        crate::known_ids::mlib_ai_description(),
         text_edit(output.description.clone()),
     );
     edits.insert(
-        "XMP-mlib:AIInterpretation".to_string(),
+        crate::known_ids::mlib_ai_interpretation(),
         text_edit(output.interpretation.clone()),
     );
     edits.insert(
-        "XMP-mlib:AITags".to_string(),
+        crate::known_ids::mlib_ai_tags(),
         list_edit(output.tags.clone()),
     );
     edits.insert(
-        "XMP-mlib:AIObjects".to_string(),
+        crate::known_ids::mlib_ai_objects(),
         list_edit(output.objects.clone()),
     );
     edits.insert(
-        "XMP-mlib:AIOcrText".to_string(),
+        crate::known_ids::mlib_ai_ocr_text(),
         list_edit(output.ocr_text.clone()),
     );
-    edits.insert("XMP-mlib:AIModel".to_string(), text_edit(model.to_string()));
+    edits.insert(crate::known_ids::mlib_ai_model(), text_edit(model.to_string()));
     edits.insert(
-        "XMP-mlib:AIPromptVersion".to_string(),
+        crate::known_ids::mlib_ai_prompt_version(),
         text_edit(PROMPT_VERSION.to_string()),
     );
     let generated_at_local = generated_at.with_timezone(&chrono::Local);
     edits.insert(
-        "XMP-mlib:AIGeneratedAt".to_string(),
+        crate::known_ids::mlib_ai_generated_at(),
         MetadataDraftEdit {
             value: Some(MetadataValue::DateTime(datetime_value_from_local(
                 generated_at_local,
@@ -845,12 +845,12 @@ mod tests {
             "XMP-mlib:AIPromptVersion",
             "XMP-mlib:AIGeneratedAt",
         ] {
-            assert!(edits.contains_key(k), "missing draft for {}", k);
+            assert!(edits.contains_key(&crate::known_ids::test_id(k)), "missing draft for {}", k);
         }
 
         // Bag tags carry a semantic list, not a comma-joined string — the
         // bug history (keywords-CSV corruption) makes this worth asserting.
-        match &edits["XMP-mlib:AIObjects"].value {
+        match &edits[&crate::known_ids::mlib_ai_objects()].value {
             Some(MetadataValue::List { list_kind, items }) => {
                 assert_eq!(*list_kind, ListKind::Bag);
                 assert_eq!(
@@ -863,11 +863,11 @@ mod tests {
             }
             other => panic!("expected semantic list, got {:?}", other),
         }
-        match &edits["XMP-mlib:AIDescription"].value {
+        match &edits[&crate::known_ids::mlib_ai_description()].value {
             Some(MetadataValue::Text(s)) => assert_eq!(s, "a thing"),
             other => panic!("expected text value, got {:?}", other),
         }
-        match &edits["XMP-mlib:AIGeneratedAt"].value {
+        match &edits[&crate::known_ids::mlib_ai_generated_at()].value {
             Some(MetadataValue::DateTime(dt)) => {
                 assert_eq!(dt.date.year, 2024);
                 assert!(dt.time.offset.is_some(), "expected local offset");

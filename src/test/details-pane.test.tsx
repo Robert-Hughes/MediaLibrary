@@ -19,43 +19,62 @@ import {
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { DetailsPane } from "../components/DetailsPane";
+import { DetailsPane } from "./legacyAdapters";
 
 import {
-  groupImageMetadata,
+  groupImageMetadata as exactGroupImageMetadata,
   formatMetadataValue,
   formatTimestamp,
   getOsEntries,
-  extractPrefix,
 } from "../utils/detailsPaneHelpers";
-import { makePhoto, mockMetadata } from "./factories";
+import { makePhoto, mockMetadata, testFriendlyName, testId } from "./factories";
+import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
+import {
+  _resetWritableSchemaDefinitionsCache as _resetSchemaTagNamesCache,
+  _setWritableSchemaDefinitionsCache as _setSchemaTagNamesCache,
+} from "../hooks/useWritableSchemaDefinitions";
 import type {
   MetadataDraftEdit,
   ImageMetadataEntry,
   PhotoInfo,
 } from "../types";
-import { _clearTagInfoCache, _setTagInfoCacheEntry } from "../hooks/useTagInfo";
+
+const groupImageMetadata = (metadata: Record<string, ImageMetadataEntry>) => {
+  const infos = Object.fromEntries(
+    Object.values(metadata).map((entry) => {
+      const friendly = testFriendlyName(entry.id);
+      const colon = friendly.indexOf(":");
+      return [
+        schemaDefinitionIdToken(entry.id),
+        {
+          id: entry.id,
+          group: colon > 0 ? friendly.slice(0, colon) : "Other",
+          name: colon > 0 ? friendly.slice(colon + 1) : friendly,
+          writable: true,
+          kind: { kind: "Text" as const },
+          description: null,
+        },
+      ];
+    }),
+  );
+  return exactGroupImageMetadata(metadata, infos).map((group) => ({
+    ...group,
+    entries: group.entries.map(({ id, ...entry }) => ({
+      ...entry,
+      fullKey: testFriendlyName(id),
+    })),
+  }));
+};
+import {
+  _clearTagInfoCache,
+  _setTagInfoCacheEntry,
+} from "./tagInfoTestHelpers";
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(() => Promise.resolve(null)),
 }));
 
 // ── Utility function tests ───────────────────────────────────────────────────
-
-describe("extractPrefix", () => {
-  it("extracts the prefix before the colon", () => {
-    expect(extractPrefix("IFD0:Make")).toBe("IFD0");
-    expect(extractPrefix("XMP-dc:Subject")).toBe("XMP-dc");
-  });
-
-  it('returns "Other" when there is no colon', () => {
-    expect(extractPrefix("FileSize")).toBe("Other");
-  });
-
-  it('returns "Other" when the colon is at position 0', () => {
-    expect(extractPrefix(":Something")).toBe("Other");
-  });
-});
 
 describe("formatMetadataValue", () => {
   it("formats a string value", () => {
@@ -231,7 +250,14 @@ describe("DetailsPane component", () => {
       "GPS:GPSLongitudeRef",
     ];
     for (const tag of commonTags) {
-      _setTagInfoCacheEntry(tag, null);
+      const colon = tag.indexOf(":");
+      _setTagInfoCacheEntry(tag, {
+        group: tag.slice(0, colon),
+        name: tag.slice(colon + 1),
+        writable: true,
+        kind: { kind: "Text" },
+        description: null,
+      });
     }
   });
 
@@ -456,7 +482,7 @@ describe("DetailsPane: Generate-AI button", () => {
     const ask = vi.fn();
     vi.doMock("@tauri-apps/plugin-dialog", () => ({ ask }));
     vi.resetModules();
-    const { DetailsPane: Fresh } = await import("../components/DetailsPane");
+    const { DetailsPane: Fresh } = await import("./legacyAdapters");
     const onGenerate = vi.fn();
     const typedDraftEdits: Record<string, MetadataDraftEdit> = {
       "XMP-mlib:AIDescription": {
@@ -486,7 +512,7 @@ describe("DetailsPane: Generate-AI button", () => {
     const ask = vi.fn();
     vi.doMock("@tauri-apps/plugin-dialog", () => ({ ask }));
     vi.resetModules();
-    const { DetailsPane: Fresh } = await import("../components/DetailsPane");
+    const { DetailsPane: Fresh } = await import("./legacyAdapters");
     const onGenerate = vi.fn();
     const user = userEvent.setup();
     render(
@@ -518,6 +544,8 @@ describe("DetailsPane: Add-Property two-step flow", () => {
   beforeEach(() => {
     cleanup();
     _clearTagInfoCache();
+    _resetSchemaTagNamesCache();
+    _setSchemaTagNamesCache([]);
   });
 
   it("stage 2 routes to a kind-appropriate editor (Bag → chip editor)", async () => {
@@ -529,6 +557,16 @@ describe("DetailsPane: Add-Property two-step flow", () => {
       kind: { kind: "Bag", data: { kind: "Text" } },
       description: null,
     });
+    _setSchemaTagNamesCache([
+      {
+        id: testId("XMP-dc:Subject"),
+        group: "XMP-dc",
+        name: "Subject",
+        writable: true,
+        kind: { kind: "Bag", data: { kind: "Text" } },
+        description: null,
+      },
+    ]);
     const onSetMetadataDraft = vi.fn();
 
     render(
@@ -545,6 +583,7 @@ describe("DetailsPane: Add-Property two-step flow", () => {
     fireEvent.change(screen.getByTestId("new-property-key"), {
       target: { value: "XMP-dc:Subject" },
     });
+    await user.click(screen.getByRole("option", { name: /XMP-dc:Subject/ }));
     await waitFor(() => {
       expect(screen.getByTestId("new-property-next")).not.toBeDisabled();
     });
@@ -585,6 +624,16 @@ describe("DetailsPane: Add-Property two-step flow", () => {
       kind: { kind: "Boolean" },
       description: null,
     });
+    _setSchemaTagNamesCache([
+      {
+        id: testId("XMP-foo:Bool"),
+        group: "XMP-foo",
+        name: "Bool",
+        writable: true,
+        kind: { kind: "Boolean" },
+        description: null,
+      },
+    ]);
     const onSetMetadataDraft = vi.fn();
 
     render(
@@ -601,6 +650,7 @@ describe("DetailsPane: Add-Property two-step flow", () => {
     fireEvent.change(screen.getByTestId("new-property-key"), {
       target: { value: "XMP-foo:Bool" },
     });
+    await user.click(screen.getByRole("option", { name: /XMP-foo:Bool/ }));
     await waitFor(() => {
       expect(screen.getByTestId("new-property-next")).not.toBeDisabled();
     });
@@ -622,6 +672,16 @@ describe("DetailsPane: Add-Property two-step flow", () => {
       kind: { kind: "Text" },
       description: null,
     });
+    _setSchemaTagNamesCache([
+      {
+        id: testId("XMP-dc:Title"),
+        group: "XMP-dc",
+        name: "Title",
+        writable: true,
+        kind: { kind: "Text" },
+        description: null,
+      },
+    ]);
     const onSetMetadataDraft = vi.fn();
 
     render(
@@ -638,6 +698,7 @@ describe("DetailsPane: Add-Property two-step flow", () => {
     fireEvent.change(screen.getByTestId("new-property-key"), {
       target: { value: "XMP-dc:Title" },
     });
+    await user.click(screen.getByRole("option", { name: /XMP-dc:Title/ }));
     await waitFor(() => {
       expect(screen.getByTestId("new-property-next")).not.toBeDisabled();
     });
@@ -1117,23 +1178,25 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
           photo={photo}
           metadata={mockMetadata(initialMetadata)}
           typedDraftEdits={drafts}
-          onSetMetadataDraft={(key, edit) => {
+          onSetMetadataDraft={(key: string, edit: MetadataDraftEdit) => {
             setDrafts((prev) => ({ ...prev, [key]: edit }));
           }}
-          onSetMetadataDraftBatch={(edits) => {
+          onSetMetadataDraftBatch={(
+            edits: Array<{ key: string; edit: MetadataDraftEdit }>,
+          ) => {
             setDrafts((prev) => ({
               ...prev,
               ...Object.fromEntries(edits.map(({ key, edit }) => [key, edit])),
             }));
           }}
-          onDiscardDraft={(key) => {
+          onDiscardDraft={(key: string) => {
             setDrafts((prev) => {
               const next = { ...prev };
               delete next[key];
               return next;
             });
           }}
-          onDiscardDraftBatch={(keys) => {
+          onDiscardDraftBatch={(keys: string[]) => {
             setDrafts((prev) => {
               const next = { ...prev };
               for (const key of keys) {
@@ -1373,9 +1436,8 @@ describe("DetailsPane: Group context menu", () => {
   it("Shows remove count for writable fields only", async () => {
     vi.resetModules();
     const { _setTagInfoCacheEntry, _clearTagInfoCache } =
-      await import("../hooks/useTagInfo");
-    const { DetailsPane: FreshDetailsPane } =
-      await import("../components/DetailsPane");
+      await import("./tagInfoTestHelpers");
+    const { DetailsPane: FreshDetailsPane } = await import("./legacyAdapters");
 
     _clearTagInfoCache();
     _setTagInfoCacheEntry("GPS:GPSLatitude", {
@@ -1436,9 +1498,8 @@ describe("DetailsPane: Group context menu", () => {
   it("Does not show remove when all fields read-only and no edits", async () => {
     vi.resetModules();
     const { _setTagInfoCacheEntry, _clearTagInfoCache } =
-      await import("../hooks/useTagInfo");
-    const { DetailsPane: FreshDetailsPane } =
-      await import("../components/DetailsPane");
+      await import("./tagInfoTestHelpers");
+    const { DetailsPane: FreshDetailsPane } = await import("./legacyAdapters");
 
     _clearTagInfoCache();
     _setTagInfoCacheEntry("GPS:GPSVersionID", {
@@ -1477,9 +1538,8 @@ describe("DetailsPane: Group context menu", () => {
   it("Shows discard count for pending edits", async () => {
     vi.resetModules();
     const { _setTagInfoCacheEntry, _clearTagInfoCache } =
-      await import("../hooks/useTagInfo");
-    const { DetailsPane: FreshDetailsPane } =
-      await import("../components/DetailsPane");
+      await import("./tagInfoTestHelpers");
+    const { DetailsPane: FreshDetailsPane } = await import("./legacyAdapters");
 
     _clearTagInfoCache();
     _setTagInfoCacheEntry("IFD0:Make", {
@@ -1528,9 +1588,8 @@ describe("DetailsPane: Group context menu", () => {
   it("Remove action stages deletes via batch", async () => {
     vi.resetModules();
     const { _setTagInfoCacheEntry, _clearTagInfoCache } =
-      await import("../hooks/useTagInfo");
-    const { DetailsPane: FreshDetailsPane } =
-      await import("../components/DetailsPane");
+      await import("./tagInfoTestHelpers");
+    const { DetailsPane: FreshDetailsPane } = await import("./legacyAdapters");
 
     _clearTagInfoCache();
     _setTagInfoCacheEntry("GPS:GPSLatitude", {
@@ -1587,9 +1646,8 @@ describe("DetailsPane: Group context menu", () => {
   it("Remove action discards draft-only fields", async () => {
     vi.resetModules();
     const { _setTagInfoCacheEntry, _clearTagInfoCache } =
-      await import("../hooks/useTagInfo");
-    const { DetailsPane: FreshDetailsPane } =
-      await import("../components/DetailsPane");
+      await import("./tagInfoTestHelpers");
+    const { DetailsPane: FreshDetailsPane } = await import("./legacyAdapters");
 
     _clearTagInfoCache();
     _setTagInfoCacheEntry("GPS:GPSLatitude", {
@@ -1618,6 +1676,12 @@ describe("DetailsPane: Group context menu", () => {
         })}
         draftEdits={{
           "GPS:GPSAltitude": "100",
+        }}
+        typedDraftEdits={{
+          "GPS:GPSAltitude": {
+            intent: "Set",
+            value: { kind: "Real", value: 100 },
+          },
         }}
         onSetMetadataDraftBatch={onSetBatch}
         onDiscardDraftBatch={onDiscardBatch}
@@ -1649,9 +1713,8 @@ describe("DetailsPane: Group context menu", () => {
   it("Discard action calls batch discard once", async () => {
     vi.resetModules();
     const { _setTagInfoCacheEntry, _clearTagInfoCache } =
-      await import("../hooks/useTagInfo");
-    const { DetailsPane: FreshDetailsPane } =
-      await import("../components/DetailsPane");
+      await import("./tagInfoTestHelpers");
+    const { DetailsPane: FreshDetailsPane } = await import("./legacyAdapters");
 
     _clearTagInfoCache();
     _setTagInfoCacheEntry("GPS:GPSLatitude", {
@@ -1712,9 +1775,8 @@ describe("DetailsPane: Group context menu", () => {
   it("Confirmation false does not mutate", async () => {
     vi.resetModules();
     const { _setTagInfoCacheEntry, _clearTagInfoCache } =
-      await import("../hooks/useTagInfo");
-    const { DetailsPane: FreshDetailsPane } =
-      await import("../components/DetailsPane");
+      await import("./tagInfoTestHelpers");
+    const { DetailsPane: FreshDetailsPane } = await import("./legacyAdapters");
 
     askMock.mockResolvedValue(false);
 
@@ -1779,9 +1841,8 @@ describe("DetailsPane: Group context menu", () => {
   it("uses the complete group when the details search filters out some rows", async () => {
     vi.resetModules();
     const { _setTagInfoCacheEntry, _clearTagInfoCache } =
-      await import("../hooks/useTagInfo");
-    const { DetailsPane: FreshDetailsPane } =
-      await import("../components/DetailsPane");
+      await import("./tagInfoTestHelpers");
+    const { DetailsPane: FreshDetailsPane } = await import("./legacyAdapters");
 
     _clearTagInfoCache();
     _setTagInfoCacheEntry("GPS:GPSLatitude", {
@@ -1848,9 +1909,8 @@ describe("DetailsPane: Group context menu", () => {
   it("handles singular/plural labels and formatting correctly (e.g. File group)", async () => {
     vi.resetModules();
     const { _setTagInfoCacheEntry, _clearTagInfoCache } =
-      await import("../hooks/useTagInfo");
-    const { DetailsPane: FreshDetailsPane } =
-      await import("../components/DetailsPane");
+      await import("./tagInfoTestHelpers");
+    const { DetailsPane: FreshDetailsPane } = await import("./legacyAdapters");
 
     _clearTagInfoCache();
     // Register exactly one tag in File group (e.g. File:FileSize)

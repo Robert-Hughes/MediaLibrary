@@ -13,14 +13,17 @@
 // importing it in TypedValueEditor.tsx.  No editor file should grow its own
 // "is-this-tag-special" matcher in isolation again.
 
+import type { SchemaDefinitionId } from "../types";
+import { GPS_IDS, KNOWN_METADATA_IDS, isKnownId } from "./knownIds";
+
 export interface GpsTagGroup {
-  latitudeKey: string;
-  latitudeRefKey: string;
-  longitudeKey: string;
-  longitudeRefKey: string;
+  latitudeId: SchemaDefinitionId;
+  latitudeRefId: SchemaDefinitionId;
+  longitudeId: SchemaDefinitionId;
+  longitudeRefId: SchemaDefinitionId;
   /** GPSAltitude (metres) paired with its 0=above-sea-level / 1=below ref. */
-  altitudeKey: string;
-  altitudeRefKey: string;
+  altitudeId: SchemaDefinitionId;
+  altitudeRefId: SchemaDefinitionId;
 }
 
 /**
@@ -28,20 +31,16 @@ export interface GpsTagGroup {
  * `GPS:GPSAltitude` (including their Ref variants), return the paired-tag group
  * covering the same coordinate triple. Returns `null` if the key isn't a GPS coord.
  */
-export function gpsMemberGroup(key: string): GpsTagGroup | null {
-  const m = key.match(
-    /^([\w-]+):(GPS(?:Latitude|Longitude|Altitude)(?:Ref)?)$/,
-  );
-  if (!m) return null;
-
-  const [, group] = m;
+export function gpsMemberGroup(id: SchemaDefinitionId): GpsTagGroup | null {
+  if (!Object.values(GPS_IDS).some((known) => isKnownId(id, known)))
+    return null;
   return {
-    latitudeKey: `${group}:GPSLatitude`,
-    latitudeRefKey: `${group}:GPSLatitudeRef`,
-    longitudeKey: `${group}:GPSLongitude`,
-    longitudeRefKey: `${group}:GPSLongitudeRef`,
-    altitudeKey: `${group}:GPSAltitude`,
-    altitudeRefKey: `${group}:GPSAltitudeRef`,
+    latitudeId: GPS_IDS.latitude,
+    latitudeRefId: GPS_IDS.latitudeRef,
+    longitudeId: GPS_IDS.longitude,
+    longitudeRefId: GPS_IDS.longitudeRef,
+    altitudeId: GPS_IDS.altitude,
+    altitudeRefId: GPS_IDS.altitudeRef,
   };
 }
 
@@ -49,6 +48,6 @@ export function gpsMemberGroup(key: string): GpsTagGroup | null {
  * Recognise Flash tags by name across every group prefix exiftool exposes
  * them under (`EXIF:Flash`, `IFD0:Flash`, `MakerNotes:Flash`, …).
  */
-export function isFlashTag(key: string): boolean {
-  return /^[\w-]+:Flash$/.test(key);
+export function isFlashTag(id: SchemaDefinitionId): boolean {
+  return isKnownId(id, KNOWN_METADATA_IDS.flash);
 }

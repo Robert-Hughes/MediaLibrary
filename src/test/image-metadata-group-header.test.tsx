@@ -1,9 +1,11 @@
 import { render, screen } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { vi } from "vitest";
-import { PhotoList } from "../components/PhotoList";
+import { PhotoList } from "./legacyAdapters";
 import { ThumbnailStore, ImageMetadataStore } from "../types";
-import type { PhotoInfo, VisibleColumn } from "../types";
+import type { PhotoInfo } from "../types";
+
+type VisibleColumn = { key: string; kind: "os" | "image" };
 
 const defaultSortProps = {
   sortConfig: { primary: null, secondary: null } as const,

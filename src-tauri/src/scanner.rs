@@ -5,7 +5,7 @@
 ///    callback per file so callers can stream results.
 ///  - `read_image_metadata` — reads metadata for a single file using ExifTool.
 ///  - `thumbnail_for` — generates a thumbnail.
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -13,6 +13,65 @@ use std::sync::Arc;
 use walkdir::WalkDir;
 
 use crate::metadata_value::{parse_metadata_value, MetadataValue};
+use crate::tag_schema::{normalize_runtime_tag_id, SchemaDefinitionId, TagKind, TagRegistry};
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
+pub struct MetadataEntry {
+    pub id: SchemaDefinitionId,
+    pub value: MetadataValue,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(transparent)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
+pub struct MetadataEntries(pub Vec<MetadataEntry>);
+
+impl MetadataEntries {
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    #[cfg(test)]
+    pub fn get(&self, key: &str) -> Option<&MetadataValue> {
+        let expected = crate::tag_schema::get_registry().ok().and_then(|registry| registry.lookup(key)).map(|info| &info.id);
+        self.0
+            .iter()
+            .find(|entry| entry.id.tag_id == key || expected.is_some_and(|id| *id == entry.id))
+            .map(|entry| &entry.value)
+    }
+}
+
+impl IntoIterator for MetadataEntries {
+    type Item = MetadataEntry;
+    type IntoIter = std::vec::IntoIter<MetadataEntry>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+
+#[cfg(test)]
+impl std::ops::Index<&str> for MetadataEntries {
+    type Output = MetadataValue;
+    fn index(&self, key: &str) -> &Self::Output {
+        &self
+            .0
+            .iter()
+            .find(|entry| {
+                entry.id.tag_id == key || crate::tag_schema::get_registry().ok()
+                    .and_then(|registry| registry.lookup(key))
+                    .is_some_and(|info| info.id == entry.id)
+            })
+            .unwrap_or_else(|| panic!("missing test metadata entry {key}"))
+            .value
+    }
+}
 
 // ── ExifTool executable name ──────────────────────────────────────────────────
 
@@ -60,7 +119,16 @@ pub struct WalkErrorInfo {
 #[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
 pub struct ImageMetadata {
     pub relative_path: String,
-    pub metadata: HashMap<String, MetadataValue>,
+    pub metadata: MetadataEntries,
+}
+
+pub type MetadataMap = BTreeMap<SchemaDefinitionId, MetadataValue>;
+
+fn metadata_entries(values: MetadataMap) -> MetadataEntries {
+    MetadataEntries(values
+        .into_iter()
+        .map(|(id, value)| MetadataEntry { id, value })
+        .collect())
 }
 
 /// Walk `folder` and call `on_photo` for each image file found.
@@ -232,7 +300,7 @@ pub fn read_image_metadata_batch(
         let key = abs_path.to_string_lossy().replace('\\', "/");
         let display_values = display_json.remove(&key).unwrap_or_default();
         let raw_values = raw_json.remove(&key).unwrap_or_default();
-        let metadata = canonical_values_from_exiftool_pair(
+        let metadata = canonical_values_from_exiftool_pair_exact(
             &raw_values,
             &display_values,
             registry,
@@ -247,7 +315,7 @@ pub fn read_image_metadata_batch(
         }
         results.push(ImageMetadata {
             relative_path: rel_path.clone(),
-            metadata,
+            metadata: metadata_entries(metadata),
         });
     }
 
@@ -263,7 +331,7 @@ pub fn read_image_metadata_batch(
 fn run_exiftool_pass(
     paths: &[std::path::PathBuf],
     numeric: bool,
-) -> Result<HashMap<String, HashMap<String, serde_json::Value>>, String> {
+) -> Result<HashMap<String, RuntimeMap>, String> {
     let pass_label = if numeric {
         "raw (-n) pass"
     } else {
@@ -274,6 +342,8 @@ fn run_exiftool_pass(
         .arg("-G1")
         .arg("-s")
         .arg("-struct")
+        .arg("-t")
+        .arg("-D")
         .arg("-charset")
         .arg("filename=utf8")
         .arg("-charset")
@@ -310,7 +380,7 @@ fn run_exiftool_pass(
     if json.trim().is_empty() {
         return Ok(HashMap::new());
     }
-    Ok(parse_exiftool_pass_json_raw(&json))
+    try_parse_exiftool_pass_json_raw(&json)
 }
 
 /// Parse one exiftool `-j` array into a map keyed by normalized SourceFile path.
@@ -322,14 +392,66 @@ fn run_exiftool_pass(
 /// `-b` flag is meaningless to Media Library users (they never invoke exiftool
 /// directly), so any key whose schema kind is `TagKind::Binary` is replaced
 /// with a neutral `"<binary>"` string before semantic parsing.
-fn parse_exiftool_pass_json_raw(json: &str) -> HashMap<String, HashMap<String, serde_json::Value>> {
-    parse_exiftool_pass_json_raw_with_registry(json, crate::tag_schema::get_registry().ok())
+#[derive(Debug, Clone)]
+struct ExifToolRuntimeValue {
+    table: String,
+    tag_id: String,
+    index: Option<u32>,
+    language: Option<String>,
+    value: serde_json::Value,
 }
 
-fn parse_exiftool_pass_json_raw_with_registry(
+#[derive(Debug, Clone)]
+struct RuntimeProperty {
+    original_name: String,
+    runtime: ExifToolRuntimeValue,
+}
+
+type RuntimeMap = BTreeMap<SchemaDefinitionId, RuntimeProperty>;
+
+fn parse_runtime_value(value: serde_json::Value) -> Result<ExifToolRuntimeValue, String> {
+    let mut object = value
+        .as_object()
+        .cloned()
+        .ok_or_else(|| format!("expected wrapped ExifTool runtime value, got {value}"))?;
+    let table = object
+        .remove("table")
+        .and_then(|value| value.as_str().map(str::to_owned))
+        .ok_or_else(|| "runtime value is missing string field `table`".to_string())?;
+    let id = object
+        .remove("id")
+        .ok_or_else(|| "runtime value is missing field `id`".to_string())?;
+    let tag_id = normalize_runtime_tag_id(&id)?;
+    let index = object
+        .remove("index")
+        .filter(|value| !value.is_null())
+        .map(|value| serde_json::from_value::<u32>(value).map_err(|e| e.to_string()))
+        .transpose()?;
+    let language = object
+        .remove("lang")
+        .filter(|value| !value.is_null())
+        .map(|value| serde_json::from_value::<String>(value).map_err(|e| e.to_string()))
+        .transpose()?;
+    let value = object
+        .remove("val")
+        .ok_or_else(|| "runtime value is missing field `val`".to_string())?;
+    Ok(ExifToolRuntimeValue {
+        table,
+        tag_id,
+        index,
+        language,
+        value,
+    })
+}
+
+fn try_parse_exiftool_pass_json_raw(json: &str) -> Result<HashMap<String, RuntimeMap>, String> {
+    try_parse_exiftool_pass_json_raw_with_registry(json, crate::tag_schema::get_registry().ok())
+}
+
+fn try_parse_exiftool_pass_json_raw_with_registry(
     json: &str,
     registry: Option<&crate::tag_schema::TagRegistry>,
-) -> HashMap<String, HashMap<String, serde_json::Value>> {
+) -> Result<HashMap<String, RuntimeMap>, String> {
     let raw_entries: Vec<serde_json::Value> = match serde_json::from_str(json) {
         Ok(v) => v,
         Err(e) => {
@@ -339,11 +461,11 @@ fn parse_exiftool_pass_json_raw_with_registry(
                 e,
                 preview
             );
-            return HashMap::new();
+            return Err(format!("invalid ExifTool JSON: {e}"));
         }
     };
 
-    let mut map_by_source: HashMap<String, HashMap<String, serde_json::Value>> = HashMap::new();
+    let mut map_by_source: HashMap<String, RuntimeMap> = HashMap::new();
     for (idx, raw) in raw_entries.into_iter().enumerate() {
         let source = raw
             .get("SourceFile")
@@ -363,8 +485,24 @@ fn parse_exiftool_pass_json_raw_with_registry(
             }
         };
 
-        let mut map: HashMap<String, serde_json::Value> = HashMap::with_capacity(obj.len());
+        let mut map = RuntimeMap::new();
         for (key, val) in obj {
+            if key == "SourceFile" {
+                continue;
+            }
+            #[cfg(test)]
+            let val = if val.get("table").is_none() || val.get("id").is_none() {
+                if let Some(info) = registry.and_then(|registry| registry.lookup(key.as_str())) {
+                    serde_json::json!({"table": info.id.table, "id": info.id.tag_id, "index": info.id.index, "val": val})
+                } else {
+                    serde_json::json!({"table": "Test::Legacy", "id": key, "val": val})
+                }
+            } else {
+                val
+            };
+            let mut runtime = parse_runtime_value(val).map_err(|error| {
+                format!("{} property {}: {}", source.as_deref().unwrap_or("<unknown>"), key, error)
+            })?;
             // ExifTool's raw placeholder ("(Binary data N bytes, use -b
             // option to extract)") is confusing in the UI: Media Library
             // users don't invoke exiftool directly, so the `-b` advice is
@@ -376,20 +514,39 @@ fn parse_exiftool_pass_json_raw_with_registry(
             // notably exiftool's synthetic `File:` group (PreviewImage,
             // ThumbnailImage, JpgFromRaw, etc.) which is built from file
             // parsing rather than spec tables.
-            let value = if is_binary_tag(&key, registry) || is_exiftool_binary_placeholder(&val) {
+            let id = SchemaDefinitionId {
+                table: runtime.table.clone(),
+                tag_id: runtime.tag_id.clone(),
+                index: runtime.index,
+            };
+            let value = if is_binary_tag(&id, registry)
+                || is_exiftool_binary_placeholder(&runtime.value)
+            {
                 serde_json::Value::String("<binary>".to_string())
             } else {
-                val
+                runtime.value
             };
-            map.insert(key, value);
+            runtime.value = value;
+            let property = RuntimeProperty {
+                original_name: key,
+                runtime,
+            };
+            if let Some(previous) = map.insert(id.clone(), property.clone()) {
+                if previous.runtime.value != property.runtime.value {
+                    return Err(format!(
+                        "{} has conflicting duplicate runtime identity {id:?}: {}={} and {}={}",
+                        source.as_deref().unwrap_or("<unknown>"),
+                        previous.original_name,
+                        previous.runtime.value,
+                        property.original_name,
+                        property.runtime.value
+                    ));
+                }
+                log::warn!("deduplicated identical runtime identity {id:?}");
+            }
         }
 
-        if let Some(s) = map.remove("SourceFile").and_then(|v| match v {
-            serde_json::Value::String(s) => Some(s),
-            _ => None,
-        }) {
-            map_by_source.insert(s.replace('\\', "/"), map);
-        } else if let Some(s) = source {
+        if let Some(s) = source {
             map_by_source.insert(s.replace('\\', "/"), map);
         } else {
             log::warn!(
@@ -399,7 +556,32 @@ fn parse_exiftool_pass_json_raw_with_registry(
         }
     }
 
-    map_by_source
+    Ok(map_by_source)
+}
+
+#[cfg(test)]
+fn parse_exiftool_pass_json_raw(
+    json: &str,
+) -> HashMap<String, HashMap<String, serde_json::Value>> {
+    parse_exiftool_pass_json_raw_with_registry(json, crate::tag_schema::get_registry().ok())
+}
+
+#[cfg(test)]
+fn parse_exiftool_pass_json_raw_with_registry(
+    json: &str,
+    registry: Option<&TagRegistry>,
+) -> HashMap<String, HashMap<String, serde_json::Value>> {
+    try_parse_exiftool_pass_json_raw_with_registry(json, registry)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(source, properties)| {
+            let values = properties
+                .into_values()
+                .map(|property| (property.original_name, property.runtime.value))
+                .collect();
+            (source, values)
+        })
+        .collect()
 }
 
 struct ParseWarning {
@@ -544,39 +726,168 @@ fn log_aggregated_warnings(warnings: &[ParseWarning]) {
     }
 }
 
-fn canonical_values_from_exiftool_pair(
-    raw_values: &HashMap<String, serde_json::Value>,
-    display_values: &HashMap<String, serde_json::Value>,
-    registry: Option<&crate::tag_schema::TagRegistry>,
+fn canonical_values_from_exiftool_pair_exact(
+    raw_values: &RuntimeMap,
+    display_values: &RuntimeMap,
+    registry: Option<&TagRegistry>,
     rel_path: &str,
     mut warnings_accumulator: Option<&mut Vec<ParseWarning>>,
-) -> HashMap<String, MetadataValue> {
-    let mut values = HashMap::with_capacity(raw_values.len().max(display_values.len()));
+) -> MetadataMap {
+    let mut values = MetadataMap::new();
 
-    for key in raw_values.keys().chain(display_values.keys()) {
-        if values.contains_key(key) {
+    for runtime_id in raw_values.keys().chain(display_values.keys()) {
+        if values.contains_key(runtime_id) {
             continue;
         }
-        let primary = raw_values
-            .get(key)
-            .or_else(|| display_values.get(key))
+        let raw_property = raw_values.get(runtime_id);
+        let display_property = display_values.get(runtime_id);
+        let property = raw_property
+            .or(display_property)
             .expect("key came from one of the source maps");
-        let display_hint = display_values.get(key);
-        let info = registry.and_then(|r| r.lookup(key));
-        let value = parse_metadata_value(key, info.map(|i| &i.kind), primary, display_hint);
+        if raw_property.is_none() || display_property.is_none() {
+            log::warn!(
+                "[parse_exiftool] pass mismatch: file={} id={runtime_id:?} raw_property={:?} formatted_property={:?} missing={}",
+                rel_path,
+                raw_property.map(|p| p.original_name.as_str()),
+                display_property.map(|p| p.original_name.as_str()),
+                if raw_property.is_none() { "raw" } else { "formatted" }
+            );
+        }
+        let (id, info, language) = resolve_schema_identity(runtime_id, property, registry);
+        let primary = &raw_property.unwrap_or(property).runtime.value;
+        let display_hint = display_property.map(|p| &p.runtime.value);
+        if let (Some(language), Some(info)) = (language, info) {
+            if matches!(info.kind, TagKind::LangAlt) {
+                let text = primary
+                    .as_str()
+                    .or_else(|| display_hint.and_then(serde_json::Value::as_str))
+                    .unwrap_or_default()
+                    .to_string();
+                match values.entry(id) {
+                    std::collections::btree_map::Entry::Vacant(entry) => {
+                        entry.insert(MetadataValue::LangAlt(BTreeMap::from([(language, text)])));
+                    }
+                    std::collections::btree_map::Entry::Occupied(mut entry) => {
+                        if let MetadataValue::LangAlt(languages) = entry.get_mut() {
+                            languages.insert(language, text);
+                        }
+                    }
+                }
+                continue;
+            }
+        }
+        let value = parse_metadata_value(
+            &property.original_name,
+            info.map(|i| &i.kind),
+            primary,
+            display_hint,
+        );
         warn_unknown_metadata_value(
             rel_path,
-            key,
+            &format!("{id:?} ({})", property.original_name),
             "canonical",
             primary,
             info,
             &value,
             warnings_accumulator.as_deref_mut(),
         );
-        values.insert(key.clone(), value);
+        values.insert(id, value);
     }
 
     values
+}
+
+#[cfg(test)]
+fn canonical_values_from_exiftool_pair(
+    raw_values: &HashMap<String, serde_json::Value>,
+    display_values: &HashMap<String, serde_json::Value>,
+    registry: Option<&TagRegistry>,
+    rel_path: &str,
+    warnings: Option<&mut Vec<ParseWarning>>,
+) -> HashMap<String, MetadataValue> {
+    fn runtime(values: &HashMap<String, serde_json::Value>, registry: Option<&TagRegistry>) -> RuntimeMap {
+        values
+            .iter()
+            .map(|(name, value)| {
+                let id = registry
+                    .and_then(|registry| registry.iter().find(|(_, info)| info.display_name() == *name).map(|(_, info)| info))
+                    .map(|info| info.id.clone())
+                    .unwrap_or_else(|| SchemaDefinitionId { table: "Test::Legacy".into(), tag_id: name.clone(), index: None });
+                (
+                    id.clone(),
+                    RuntimeProperty {
+                        original_name: name.clone(),
+                        runtime: ExifToolRuntimeValue {
+                            table: id.table.clone(),
+                            tag_id: id.tag_id.clone(),
+                            index: id.index,
+                            language: None,
+                            value: value.clone(),
+                        },
+                    },
+                )
+            })
+            .collect()
+    }
+    canonical_values_from_exiftool_pair_exact(
+        &runtime(raw_values, registry),
+        &runtime(display_values, registry),
+        registry,
+        rel_path,
+        warnings,
+    )
+    .into_iter()
+    .map(|(id, value)| {
+        let name = registry
+            .and_then(|registry| registry.lookup(&id))
+            .map(|info| info.display_name())
+            .unwrap_or(id.tag_id);
+        (name, value)
+    })
+    .collect()
+}
+
+fn resolve_schema_identity<'a>(
+    runtime_id: &SchemaDefinitionId,
+    property: &RuntimeProperty,
+    registry: Option<&'a TagRegistry>,
+) -> (SchemaDefinitionId, Option<&'a crate::tag_schema::TagInfo>, Option<String>) {
+    let Some(registry) = registry else {
+        return (runtime_id.clone(), None, None);
+    };
+    if let Some(info) = registry.lookup(runtime_id) {
+        return (runtime_id.clone(), Some(info), None);
+    }
+    let language = property.runtime.language.clone().or_else(|| {
+        let (_, suffix) = runtime_id.tag_id.rsplit_once('-')?;
+        is_language_code(suffix).then(|| suffix.to_string())
+    });
+    let Some(language) = language else {
+        return (runtime_id.clone(), None, None);
+    };
+    let suffix = format!("-{language}");
+    let Some(base_tag_id) = runtime_id.tag_id.strip_suffix(&suffix) else {
+        return (runtime_id.clone(), None, None);
+    };
+    let base_id = SchemaDefinitionId {
+        table: runtime_id.table.clone(),
+        tag_id: base_tag_id.to_string(),
+        index: runtime_id.index,
+    };
+    match registry.lookup(&base_id) {
+        Some(info) if matches!(info.kind, TagKind::LangAlt) => {
+            (base_id, Some(info), Some(language))
+        }
+        _ => (runtime_id.clone(), None, None),
+    }
+}
+
+fn is_language_code(value: &str) -> bool {
+    value == "x-default"
+        || matches!(value.len(), 2 | 5)
+            && value
+                .split('-')
+                .all(|part| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_alphabetic()))
 }
 
 fn warn_unknown_metadata_value(
@@ -666,9 +977,9 @@ fn tag_kind_summary(kind: &crate::tag_schema::TagKind) -> String {
     }
 }
 
-fn is_binary_tag(key: &str, registry: Option<&crate::tag_schema::TagRegistry>) -> bool {
+fn is_binary_tag(id: &SchemaDefinitionId, registry: Option<&TagRegistry>) -> bool {
     registry
-        .and_then(|r| r.lookup(key))
+        .and_then(|r| r.lookup(id))
         .map(|info| matches!(info.kind, crate::tag_schema::TagKind::Binary))
         .unwrap_or(false)
 }
@@ -699,7 +1010,8 @@ fn parse_exiftool_batch_json(
     abs_paths: &[std::path::PathBuf],
 ) -> Vec<ImageMetadata> {
     let registry = crate::tag_schema::get_registry().ok();
-    let mut map_by_source = parse_exiftool_pass_json_raw_with_registry(json, registry);
+    let mut map_by_source = try_parse_exiftool_pass_json_raw_with_registry(json, registry)
+        .unwrap_or_default();
     let mut results = Vec::with_capacity(rel_paths.len());
     for (i, rel_path) in rel_paths.iter().enumerate() {
         let abs_path = &abs_paths[i];
@@ -709,10 +1021,10 @@ fn parse_exiftool_batch_json(
                 "[parse_exiftool] Warning: No metadata found for path: {}",
                 normalized_abs
             );
-            HashMap::new()
+            BTreeMap::new()
         });
-        let metadata = canonical_values_from_exiftool_pair(
-            &HashMap::new(),
+        let metadata = canonical_values_from_exiftool_pair_exact(
+            &BTreeMap::new(),
             &display_values,
             registry,
             rel_path,
@@ -720,7 +1032,7 @@ fn parse_exiftool_batch_json(
         );
         results.push(ImageMetadata {
             relative_path: rel_path.clone(),
-            metadata,
+            metadata: metadata_entries(metadata),
         });
     }
     results
@@ -1205,6 +1517,9 @@ mod tests {
  <tag id='ExposureTime' name='ExposureTime' type='rational64u' writable='true'>
   <desc lang='en'>Exposure Time</desc>
  </tag>
+</table>
+<table name='EXIF::GPS' g0='EXIF' g1='GPS' g2='Location'>
+ <tag id='0' name='GPSVersionID' type='int8u' count='4' writable='true'><desc lang='en'>GPS Version</desc></tag>
 </table>
 </taginfo>"#,
         )

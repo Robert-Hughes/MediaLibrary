@@ -7,6 +7,7 @@
  */
 import { useCallback, useRef, useState } from "react";
 import type { VisibleColumn } from "../types";
+import { visibleColumnToken } from "../utils/columnIdentity";
 
 type DropSide = "before" | "after";
 
@@ -77,8 +78,8 @@ export function useColumnReorder(
         side === "before" ? (from < to ? to - 1 : to) : from < to ? to : to + 1;
 
       const arr = [...visibleColumns];
-      const from = arr.findIndex((c) => c.key === drag.col);
-      const to = arr.findIndex((c) => c.key === dropCol);
+      const from = arr.findIndex((c) => visibleColumnToken(c) === drag.col);
+      const to = arr.findIndex((c) => visibleColumnToken(c) === dropCol);
       if (from === -1 || to === -1) return;
       const [moved] = arr.splice(from, 1);
       arr.splice(insertAt(from, to), 0, moved);

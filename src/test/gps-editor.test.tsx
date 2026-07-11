@@ -9,13 +9,28 @@ import {
   act,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { GpsEditor } from "../components/editors/GpsEditor";
+import { GpsEditor } from "./legacyAdapters";
 import {
   parseDecimalDegrees,
   parseHemisphere,
   decimalToDms,
 } from "../components/editors/editorHelpers";
-import { gpsMemberGroup } from "../metadata/tag_overrides";
+import { gpsMemberGroup as exactGpsMemberGroup } from "../metadata/tag_overrides";
+import { testFriendlyName, testId } from "./factories";
+
+const gpsMemberGroup = (key: string) => {
+  const group = exactGpsMemberGroup(testId(key));
+  return group
+    ? {
+        latitudeKey: testFriendlyName(group.latitudeId),
+        latitudeRefKey: testFriendlyName(group.latitudeRefId),
+        longitudeKey: testFriendlyName(group.longitudeId),
+        longitudeRefKey: testFriendlyName(group.longitudeRefId),
+        altitudeKey: testFriendlyName(group.altitudeId),
+        altitudeRefKey: testFriendlyName(group.altitudeRefId),
+      }
+    : null;
+};
 
 vi.mock("../components/GpsMap", () => ({
   GpsMap: ({
@@ -108,10 +123,10 @@ describe("GpsEditor", () => {
       />,
     );
     const warning = screen.getByTestId("gps-editor-warning");
-    expect(warning).toHaveTextContent("GPS:GPSLatitude");
-    expect(warning).toHaveTextContent("GPS:GPSLatitudeRef");
-    expect(warning).toHaveTextContent("GPS:GPSLongitude");
-    expect(warning).toHaveTextContent("GPS:GPSLongitudeRef");
+    expect(warning).toHaveTextContent("GPS::Main / 2");
+    expect(warning).toHaveTextContent("GPS::Main / 1");
+    expect(warning).toHaveTextContent("GPS::Main / 4");
+    expect(warning).toHaveTextContent("GPS::Main / 3");
   });
 
   it("Save emits 4 paired semantic draft edits", () => {
@@ -681,15 +696,8 @@ describe("gpsMemberGroup", () => {
     }
   });
 
-  it("matches XMP-exif prefix", () => {
-    const g = gpsMemberGroup("XMP-exif:GPSLatitudeRef");
-    expect(g).toBeDefined();
-    expect(g?.latitudeKey).toBe("XMP-exif:GPSLatitude");
-    expect(g?.latitudeRefKey).toBe("XMP-exif:GPSLatitudeRef");
-    expect(g?.longitudeKey).toBe("XMP-exif:GPSLongitude");
-    expect(g?.longitudeRefKey).toBe("XMP-exif:GPSLongitudeRef");
-    expect(g?.altitudeKey).toBe("XMP-exif:GPSAltitude");
-    expect(g?.altitudeRefKey).toBe("XMP-exif:GPSAltitudeRef");
+  it("does not infer another GPS definition from a friendly prefix", () => {
+    expect(gpsMemberGroup("XMP-exif:GPSLatitudeRef")).toBeNull();
   });
 
   it("does not match unrelated tags", () => {

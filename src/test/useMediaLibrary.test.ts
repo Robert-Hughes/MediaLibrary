@@ -2,7 +2,8 @@ import { renderHook, act } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { useMediaLibrary } from "../useMediaLibrary";
 import { createMockTauriApi } from "./mockTauriApi";
-import { makePhoto, makePhotos } from "./factories";
+import { makePhoto, makePhotos, testId } from "./factories";
+import { metadataGet } from "../utils/metadataCollection";
 
 describe("useMediaLibrary", () => {
   beforeEach(() => {
@@ -132,9 +133,15 @@ describe("useMediaLibrary", () => {
 
     const state = result.current[0];
     if (state.kind === "loaded") {
-      expect(state.imageMetadata.get("a.jpg")).toEqual({
-        "IFD0:Orientation": { kind: "Integer", value: 6 },
-      });
+      const metadata = state.imageMetadata.get("a.jpg");
+      expect(metadata).not.toBe("loading");
+      if (metadata !== "loading") {
+        expect(metadataGet(metadata, testId("IFD0:Orientation"))).toEqual({
+          id: testId("IFD0:Orientation"),
+          kind: "Integer",
+          value: 6,
+        });
+      }
     }
   });
 
@@ -726,11 +733,7 @@ describe("useMediaLibrary", () => {
 
     act(() => {
       result.current[1].setSortConfig({
-        primary: {
-          column: "relative_path",
-          columnType: "path",
-          direction: "asc",
-        },
+        primary: { kind: "path", direction: "asc" },
         secondary: null,
       });
     });
@@ -738,7 +741,7 @@ describe("useMediaLibrary", () => {
     let state = result.current[0];
     if (state.kind === "loaded") {
       expect(state.scanning).toBe(true);
-      expect(state.sortConfig.primary?.column).toBe("relative_path");
+      expect(state.sortConfig.primary?.kind).toBe("path");
     }
 
     act(() => {
@@ -749,7 +752,7 @@ describe("useMediaLibrary", () => {
     if (state.kind === "loaded") {
       expect(state.scanning).toBe(false);
       // Sort config preserved so App can apply it now that scanning has ended.
-      expect(state.sortConfig.primary?.column).toBe("relative_path");
+      expect(state.sortConfig.primary?.kind).toBe("path");
     }
   });
 
@@ -821,11 +824,7 @@ describe("useMediaLibrary", () => {
     // Sort by an OS column: metadataVersion still does not increment
     act(() => {
       result.current[1].setSortConfig({
-        primary: {
-          column: "date_modified",
-          columnType: "os",
-          direction: "asc",
-        },
+        primary: { kind: "os", key: "date_modified", direction: "asc" },
         secondary: null,
       });
     });
@@ -849,11 +848,7 @@ describe("useMediaLibrary", () => {
     // Sort by an image metadata column: metadataVersion increments on the next batch
     act(() => {
       result.current[1].setSortConfig({
-        primary: {
-          column: "IFD0:Model",
-          columnType: "image",
-          direction: "asc",
-        },
+        primary: { kind: "image", id: testId("IFD0:Model"), direction: "asc" },
         secondary: null,
       });
     });

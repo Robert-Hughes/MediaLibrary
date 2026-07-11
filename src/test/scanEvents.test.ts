@@ -1,11 +1,25 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  normalizeMetadataFromTauri,
+  normalizeMetadataFromTauri as exactNormalizeMetadataFromTauri,
   scheduleBatchedFlush,
 } from "../utils/scanEvents";
 
 import type { MetadataValue } from "../types";
+import { testFriendlyName, testId } from "./factories";
+import { metadataEntries } from "../utils/metadataCollection";
+
+const normalizeMetadataFromTauri = (raw: unknown) => {
+  const wire =
+    raw && typeof raw === "object" && !Array.isArray(raw)
+      ? Object.entries(raw).map(([key, value]) => ({ id: testId(key), value }))
+      : raw;
+  return Object.fromEntries(
+    metadataEntries(exactNormalizeMetadataFromTauri(wire)).map(
+      ({ id, value }) => [testFriendlyName(id), value],
+    ),
+  );
+};
 
 describe("normalizeMetadataFromTauri", () => {
   afterEach(() => {

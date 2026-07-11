@@ -25,7 +25,7 @@ function stubInnerEditor(record: {
   lastInitial?: MetadataValue;
 }) {
   return function Stub(props: InnerEditorProps) {
-    record.lastPropertyKey = props.propertyKey;
+    record.lastPropertyKey = props.propertyLabel;
     record.lastInitial = props.initialMetadataValue;
     return (
       <div data-testid="stub-inner-editor">

@@ -6,7 +6,8 @@ import {
 } from "../hooks/useSearchWorker";
 import { DraftEditsStore, ImageMetadataStore, type PhotoInfo } from "../types";
 import { SearchIndex } from "../search/searchIndex";
-import { makePhoto, mockMetadata } from "./factories";
+import { makePhoto, mockDraftsByFile, mockMetadata, testId } from "./factories";
+import { metadataGet } from "../utils/metadataCollection";
 import type {
   SearchWorkerInbound,
   SearchWorkerOutbound,
@@ -115,11 +116,13 @@ describe("useSearchWorker", () => {
     meta.add("a.jpg");
     meta.set("a.jpg", mockMetadata({ "X:Y": "z" }));
     const drafts = new DraftEditsStore();
-    drafts.resetMetadata({
-      "a.jpg": {
-        "Tag:A": { value: { kind: "Text", value: "v" }, intent: "Set" },
-      },
-    });
+    drafts.resetMetadata(
+      mockDraftsByFile({
+        "a.jpg": {
+          "Tag:A": { value: { kind: "Text", value: "v" }, intent: "Set" },
+        },
+      }),
+    );
     const photos = [makePhoto({ relative_path: "a.jpg" })];
 
     const { fake, result } = setup({
@@ -237,7 +240,7 @@ describe("useSearchWorker", () => {
     await waitFor(() => expect(result.current.matched).toEqual(new Set()));
 
     act(() => {
-      drafts.setMetadataTag("a.jpg", "Tag:A", {
+      drafts.setMetadataTag("a.jpg", testId("Tag:A"), {
         value: { kind: "Text", value: "v" },
         intent: "Set",
       });
@@ -341,10 +344,9 @@ describe("useSearchWorker", () => {
         (m) =>
           m.type === "INIT_META" &&
           m.entries.some((e) => {
-            const val = (e.meta as Record<string, any>)["X:Y"];
-            return (
-              val && (val === "newscanmeta" || val.value === "newscanmeta")
-            );
+            if (e.meta === "loading") return false;
+            const val = metadataGet(e.meta, testId("X:Y"));
+            return val?.kind === "Text" && val.value === "newscanmeta";
           }),
       ),
     ).toBe(true);

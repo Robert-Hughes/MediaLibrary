@@ -1,9 +1,29 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { ImageMetadataStore } from "../types";
-import type { MetadataDraftEditsByFile, MetadataDraftEdit } from "../types";
-import { computeEffectiveMetadataKeyFrequency } from "../utils/metadataKeyFrequency";
-import { makePhotos, mockMetadata } from "./factories";
+import type { MetadataDraftEdit } from "../types";
+import { computeEffectiveMetadataKeyFrequency as exactFrequency } from "../utils/metadataKeyFrequency";
+import {
+  makePhotos,
+  mockDraftsByFile,
+  mockMetadata,
+  testFriendlyName,
+} from "./factories";
+
+type MetadataDraftEditsByFile = Record<
+  string,
+  Record<string, MetadataDraftEdit>
+>;
+const computeEffectiveMetadataKeyFrequency = (
+  photos: any,
+  metadata: any,
+  drafts: MetadataDraftEditsByFile,
+) =>
+  new Map(
+    exactFrequency(photos, metadata, mockDraftsByFile(drafts)).map(
+      ({ id, count }) => [testFriendlyName(id), count],
+    ),
+  );
 
 const setDraft = (value: string): MetadataDraftEdit => ({
   intent: "Set",

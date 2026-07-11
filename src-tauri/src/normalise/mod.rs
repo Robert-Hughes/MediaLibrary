@@ -23,9 +23,9 @@
 //! generation) are fully integrated.
 
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 
-use crate::draft_edits::{EditIntent, MetadataDraftEdit};
+use crate::draft_edits::{EditIntent, MetadataDraftEdit, MetadataDraftMap};
 use crate::metadata_value::{ListKind, MetadataValue};
 
 // Per-group implementation modules. The dispatcher (`process_image`)
@@ -35,24 +35,23 @@ use crate::metadata_value::{ListKind, MetadataValue};
 mod keywords;
 pub use keywords::{
     derive_keywords_canonical, normalise_keywords, normalise_keywords_with_canonical,
-    KEYWORDS_TARGET_TAGS,
 };
 
 mod creator;
-pub use creator::{derive_creator_canonical, normalise_creator, CREATOR_TARGET_TAGS};
+pub use creator::{derive_creator_canonical, normalise_creator};
 
 mod copyright;
-pub use copyright::{normalise_copyright, COPYRIGHT_TARGET_TAGS};
+pub use copyright::normalise_copyright;
 
 mod headline;
-pub use headline::{normalise_headline, HEADLINE_TARGET_TAGS};
+pub use headline::normalise_headline;
 
 mod title;
-pub use title::{build_title_gen_prompt, normalise_title, TitleOutcome, TITLE_TARGET_TAGS};
+pub use title::{build_title_gen_prompt, normalise_title, TitleOutcome};
 
 mod location;
 pub use location::{
-    derive_location_canonical, normalise_location, LocationOutcome, LOCATION_TARGET_TAGS,
+    derive_location_canonical, normalise_location, LocationOutcome,
 };
 
 mod dates;
@@ -67,7 +66,6 @@ pub use ai::{
 mod description;
 pub use description::{
     build_description_merge_prompt, normalise_description, DescriptionOutcome,
-    DESCRIPTION_TARGET_TAGS,
 };
 
 /// The eight semantic groups the user can toggle on/off in the confirm
@@ -462,7 +460,7 @@ pub struct NormaliseRequestItem {
 /// projection, remove-tag drafts for fields absent from it.
 #[derive(Debug, Clone, Default)]
 pub struct GroupOutput {
-    pub edits: HashMap<String, MetadataDraftEdit>,
+    pub edits: MetadataDraftMap,
 }
 
 impl GroupOutput {
@@ -580,44 +578,6 @@ pub(crate) fn collapse_whitespace_single_line(s: &str) -> String {
         out.pop();
     }
     out
-}
-
-/// Coherent-replacement helper (plan §4 strict). For each target tag in
-/// `group_targets`, if the group's projection has no value for that
-/// tag AND the current state holds a non-empty value, emit a
-/// remove-tag draft.
-///
-/// **In v1/v2 every group either produces a complete projection across
-/// its target tags or no drafts at all (`all-empty` rule),** so this
-/// helper is currently invoked only for forward-compatibility — when a
-/// future group exposes the partial case it can call this on top of
-/// its existing set-value emission to satisfy plan §4 without a second
-/// rewrite.
-pub fn append_remove_tag_drafts_for_missing_projections(
-    edits: &mut HashMap<String, MetadataDraftEdit>,
-    group_targets: &[&str],
-    projection: &HashMap<&'static str, MetadataValue>,
-    current_value_is_non_empty: impl Fn(&str) -> bool,
-) {
-    for tag in group_targets {
-        if projection.contains_key(*tag) {
-            continue;
-        }
-        if edits.contains_key(*tag) {
-            continue;
-        }
-        if !current_value_is_non_empty(tag) {
-            continue;
-        }
-        edits.insert(
-            (*tag).to_string(),
-            MetadataDraftEdit {
-                value: None,
-                intent: EditIntent::Delete,
-                display: None,
-            },
-        );
-    }
 }
 
 /// Truncate `s` to at most `limit` bytes at a word boundary when
@@ -775,7 +735,7 @@ fn apply_simple_group<T>(
     group: NormaliseGroup,
     enabled: bool,
     input: Option<&T>,
-    edits: &mut HashMap<String, MetadataDraftEdit>,
+    edits: &mut MetadataDraftMap,
     stats: &mut PerImageStats,
     run: impl FnOnce(&T) -> Option<GroupOutput>,
 ) {
@@ -870,12 +830,12 @@ pub async fn process_image(
     ai: Option<&dyn NormaliseAiClient>,
     cancel: Option<&std::sync::Arc<std::sync::atomic::AtomicBool>>,
 ) -> (
-    HashMap<String, MetadataDraftEdit>,
+    MetadataDraftMap,
     PerImageStats,
     Option<NormaliseAiError>,
     Vec<PerImageAiCall>,
 ) {
-    let mut edits: HashMap<String, MetadataDraftEdit> = HashMap::new();
+    let mut edits = MetadataDraftMap::new();
     let mut stats = PerImageStats::default();
     let mut first_ai_error: Option<NormaliseAiError> = None;
     let mut ai_calls: Vec<PerImageAiCall> = Vec::new();
@@ -1222,8 +1182,8 @@ mod tests_dispatcher {
         };
         let (edits, stats, _err, _calls) =
             process_image(&item, &[NormaliseGroup::Keywords], None, None).await;
-        assert!(edits.contains_key("XMP-dc:Subject"));
-        assert!(!edits.contains_key("XMP-dc:Creator"));
+        assert!(edits.contains_key(&crate::known_ids::xmp_subject()));
+        assert!(!edits.contains_key(&crate::known_ids::xmp_creator()));
         let kw = stats.per_group.get(&NormaliseGroup::Keywords).unwrap();
         assert_eq!(kw.n_normalised_deterministic, 1);
         assert_eq!(kw.n_noop, 0);
@@ -1372,7 +1332,7 @@ mod tests_dispatcher {
             .expect("title AI must fire");
         assert_eq!(captured, "A factual sentence.");
         // Generated title became a draft.
-        let title_draft = edits.get("XMP-dc:Title").expect("title draft present");
+        let title_draft = edits.get(&crate::known_ids::xmp_title()).expect("title draft present");
         match &title_draft.value {
             Some(MetadataValue::LangAlt(langs)) => {
                 assert_eq!(
@@ -1426,7 +1386,7 @@ mod tests_dispatcher {
             process_image(&item, &[NormaliseGroup::Title], Some(&ai), None).await;
 
         assert_eq!(
-            match &edits.get("XMP-dc:Title").expect("title draft").value {
+            match &edits.get(&crate::known_ids::xmp_title()).expect("title draft").value {
                 Some(MetadataValue::LangAlt(langs)) => langs.get("x-default").unwrap().as_str(),
                 other => panic!("expected lang-alt value, got {:?}", other),
             },
@@ -1434,7 +1394,7 @@ mod tests_dispatcher {
         );
         assert_eq!(
             match &edits
-                .get("IPTC:ObjectName")
+                .get(&crate::known_ids::iptc_object_name())
                 .expect("object name draft")
                 .value
             {
@@ -1532,7 +1492,7 @@ mod tests_dispatcher {
         let (edits, stats, _err, ai_calls) =
             process_image(&item, &[NormaliseGroup::Description], Some(&ai), None).await;
 
-        assert!(edits.contains_key("XMP-dc:Description"));
+        assert!(edits.contains_key(&crate::known_ids::xmp_description()));
         let desc = stats.per_group.get(&NormaliseGroup::Description).unwrap();
         assert_eq!(desc.n_normalised_ai, 1);
         assert!(!stats.per_group.contains_key(&NormaliseGroup::Keywords));
@@ -1711,7 +1671,7 @@ mod tests_dispatcher {
         )
         .await;
         // Description drafts survived.
-        assert!(edits.contains_key("XMP-dc:Description"));
+        assert!(edits.contains_key(&crate::known_ids::xmp_description()));
         // Title was skipped — never appears in per_group.
         assert!(!stats.per_group.contains_key(&NormaliseGroup::Title));
         // Description recorded an AI-normalised count.
@@ -2028,7 +1988,7 @@ mod tests_dispatcher {
         // Verify Description drafts
         assert_eq!(
             match &edits
-                .get("XMP-dc:Description")
+                .get(&crate::known_ids::xmp_description())
                 .expect("description draft")
                 .value
             {
@@ -2039,7 +1999,7 @@ mod tests_dispatcher {
         );
         // Verify Title drafts
         assert_eq!(
-            match &edits.get("XMP-dc:Title").expect("title draft").value {
+            match &edits.get(&crate::known_ids::xmp_title()).expect("title draft").value {
                 Some(MetadataValue::LangAlt(langs)) => langs.get("x-default").unwrap().as_str(),
                 other => panic!("expected lang-alt value, got {:?}", other),
             },
@@ -2085,8 +2045,8 @@ mod tests_dispatcher {
         let title_stats = stats.per_group.get(&NormaliseGroup::Title).unwrap();
         assert_eq!(title_stats.n_normalised_ai, 1);
 
-        assert!(edits.contains_key("XMP-dc:Description"));
-        assert!(edits.contains_key("XMP-dc:Title"));
+        assert!(edits.contains_key(&crate::known_ids::xmp_description()));
+        assert!(edits.contains_key(&crate::known_ids::xmp_title()));
     }
 
     #[tokio::test]
@@ -2153,7 +2113,7 @@ mod tests_dispatcher {
         // Assert Description draft contains the returned canonical description
         assert_eq!(
             match &edits
-                .get("XMP-dc:Description")
+                .get(&crate::known_ids::xmp_description())
                 .expect("description draft")
                 .value
             {
@@ -2165,7 +2125,7 @@ mod tests_dispatcher {
 
         // Assert Title draft contains the generated title
         assert_eq!(
-            match &edits.get("XMP-dc:Title").expect("title draft").value {
+            match &edits.get(&crate::known_ids::xmp_title()).expect("title draft").value {
                 Some(MetadataValue::LangAlt(langs)) => langs.get("x-default").unwrap().as_str(),
                 other => panic!("expected lang-alt value, got {:?}", other),
             },

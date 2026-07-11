@@ -21,13 +21,15 @@ import {
   removeVerifyOutcome,
 } from "../utils/verifyOutcomes";
 import type { MetadataTagOutcome, TagOutcomeEntry } from "../types";
+import { testId } from "./factories";
 
 function outcome(
   tag: string,
   kind: MetadataTagOutcome["kind"],
 ): MetadataTagOutcome {
   return {
-    tag,
+    id: { table: "Test::Legacy", tag_id: tag },
+    display_name: tag,
     kind,
     sent: null,
     before: null,
@@ -61,7 +63,7 @@ describe("mergeVerifyOutcomes", () => {
     const before = {
       "a.jpg": [
         {
-          tag: "x",
+          id: testId("x"),
           kind: "Coerced",
           sent: null,
           before: null,
@@ -81,7 +83,7 @@ describe("mergeVerifyOutcomes", () => {
       outcome("t2", "Mismatch"),
     ]);
     expect(after["a.jpg"]).toHaveLength(2);
-    expect(after["a.jpg"][0].tag).toBe("t1");
+    expect(after["a.jpg"][0].id.tag_id).toBe("t1");
     expect(after["a.jpg"][0].kind).toBe("Coerced");
     expect(after["a.jpg"][1].kind).toBe("Mismatch");
   });
@@ -93,14 +95,14 @@ describe("mergeVerifyOutcomes", () => {
       outcome("t3", "DeleteOk"),
     ]);
     expect(after["a.jpg"]).toHaveLength(1);
-    expect(after["a.jpg"][0].tag).toBe("t2");
+    expect(after["a.jpg"][0].id.tag_id).toBe("t2");
   });
 
   it("appends to existing per-file list", () => {
     const before: Record<string, TagOutcomeEntry[]> = {
       "a.jpg": [
         {
-          tag: "old",
+          id: testId("old"),
           kind: "Coerced",
           sent: null,
           before: null,
@@ -113,15 +115,15 @@ describe("mergeVerifyOutcomes", () => {
       outcome("new", "Mismatch"),
     ]);
     expect(after["a.jpg"]).toHaveLength(2);
-    expect(after["a.jpg"][0].tag).toBe("old");
-    expect(after["a.jpg"][1].tag).toBe("new");
+    expect(after["a.jpg"][0].id.tag_id).toBe("old");
+    expect(after["a.jpg"][1].id.tag_id).toBe("new");
   });
 
   it("replaces an existing entry for the same tag (latest verdict wins)", () => {
     const before: Record<string, TagOutcomeEntry[]> = {
       "a.jpg": [
         {
-          tag: "t",
+          id: testId("t"),
           kind: "Coerced",
           sent: null,
           before: null,
@@ -142,7 +144,7 @@ describe("mergeVerifyOutcomes", () => {
     const before: Record<string, TagOutcomeEntry[]> = {
       "x.jpg": [
         {
-          tag: "x",
+          id: testId("x"),
           kind: "Coerced",
           sent: null,
           before: null,
@@ -160,14 +162,16 @@ describe("mergeVerifyOutcomes", () => {
 describe("removeVerifyOutcome", () => {
   it("returns the same reference when the path is absent", () => {
     const before = {};
-    expect(removeVerifyOutcome(before, "missing.jpg", "t")).toBe(before);
+    expect(removeVerifyOutcome(before, "missing.jpg", testId("t"))).toBe(
+      before,
+    );
   });
 
   it("returns the same reference when the tag is not in the file's list", () => {
     const before: Record<string, TagOutcomeEntry[]> = {
       "a.jpg": [
         {
-          tag: "other",
+          id: testId("other"),
           kind: "Coerced",
           sent: null,
           before: null,
@@ -176,14 +180,16 @@ describe("removeVerifyOutcome", () => {
         },
       ],
     };
-    expect(removeVerifyOutcome(before, "a.jpg", "missing")).toBe(before);
+    expect(removeVerifyOutcome(before, "a.jpg", testId("missing"))).toBe(
+      before,
+    );
   });
 
   it("removes a single matching tag and keeps the path key", () => {
     const before: Record<string, TagOutcomeEntry[]> = {
       "a.jpg": [
         {
-          tag: "t1",
+          id: testId("t1"),
           kind: "Coerced",
           sent: null,
           before: null,
@@ -191,7 +197,7 @@ describe("removeVerifyOutcome", () => {
           message: null,
         },
         {
-          tag: "t2",
+          id: testId("t2"),
           kind: "Mismatch",
           sent: null,
           before: null,
@@ -200,16 +206,16 @@ describe("removeVerifyOutcome", () => {
         },
       ],
     };
-    const after = removeVerifyOutcome(before, "a.jpg", "t1");
+    const after = removeVerifyOutcome(before, "a.jpg", testId("t1"));
     expect(after["a.jpg"]).toHaveLength(1);
-    expect(after["a.jpg"][0].tag).toBe("t2");
+    expect(after["a.jpg"][0].id.tag_id).toBe("t2");
   });
 
   it("removes the path key when the list becomes empty", () => {
     const before: Record<string, TagOutcomeEntry[]> = {
       "a.jpg": [
         {
-          tag: "only",
+          id: testId("only"),
           kind: "Coerced",
           sent: null,
           before: null,
@@ -218,7 +224,7 @@ describe("removeVerifyOutcome", () => {
         },
       ],
     };
-    const after = removeVerifyOutcome(before, "a.jpg", "only");
+    const after = removeVerifyOutcome(before, "a.jpg", testId("only"));
     expect(after["a.jpg"]).toBeUndefined();
     expect(Object.keys(after)).toHaveLength(0);
   });
@@ -227,7 +233,7 @@ describe("removeVerifyOutcome", () => {
     const before: Record<string, TagOutcomeEntry[]> = {
       "a.jpg": [
         {
-          tag: "t",
+          id: testId("t"),
           kind: "Coerced",
           sent: null,
           before: null,
@@ -237,7 +243,7 @@ describe("removeVerifyOutcome", () => {
       ],
     };
     const snapshot = JSON.stringify(before);
-    removeVerifyOutcome(before, "a.jpg", "t");
+    removeVerifyOutcome(before, "a.jpg", testId("t"));
     expect(JSON.stringify(before)).toBe(snapshot);
   });
 });

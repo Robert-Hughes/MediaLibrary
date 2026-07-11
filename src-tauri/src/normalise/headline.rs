@@ -7,9 +7,9 @@
 use super::{
     collapse_whitespace_single_line, text_edit, truncate_at_word, GroupOutput, HeadlineInput,
 };
-use std::collections::HashMap;
+use crate::draft_edits::MetadataDraftMap;
 
-pub const HEADLINE_TARGET_TAGS: &[&str] = &["XMP-photoshop:Headline", "IPTC:Headline"];
+use crate::known_ids;
 
 const IPTC_HEADLINE_LIMIT: usize = 256;
 
@@ -42,12 +42,12 @@ pub fn normalise_headline(input: &HeadlineInput) -> Option<GroupOutput> {
         return None;
     }
     let iptc = truncate_at_word(&canonical, IPTC_HEADLINE_LIMIT);
-    let mut edits = HashMap::new();
+    let mut edits = MetadataDraftMap::new();
     edits.insert(
-        "XMP-photoshop:Headline".to_string(),
+        known_ids::xmp_headline(),
         text_edit(canonical.clone()),
     );
-    edits.insert("IPTC:Headline".to_string(), text_edit(iptc));
+    edits.insert(known_ids::iptc_headline(), text_edit(iptc));
     Some(GroupOutput { edits })
 }
 
@@ -57,7 +57,7 @@ mod tests {
     use crate::metadata_value::MetadataValue;
 
     fn s(g: &GroupOutput, k: &str) -> String {
-        match &g.edits.get(k).unwrap().value {
+        match &g.edits.get(&crate::known_ids::test_id(k)).unwrap().value {
             Some(MetadataValue::Text(v)) => v.clone(),
             other => panic!("expected text value, got {:?}", other),
         }

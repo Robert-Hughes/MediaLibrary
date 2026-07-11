@@ -7,6 +7,8 @@ import {
   DEFAULT_SORT_CONFIG,
 } from "../utils/columnConfig";
 import type { VisibleColumn } from "../types";
+import { imgCol, osCol, testId } from "./factories";
+import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
 
 function clearStorage() {
   localStorage.removeItem(COLUMN_CONFIG_KEY);
@@ -27,32 +29,35 @@ describe("loadColumnConfig", () => {
 
   it("returns a saved config verbatim", () => {
     const cols: VisibleColumn[] = [
-      { key: "date_modified", kind: "os" },
-      { key: "IFD0:Model", kind: "image" },
-      { key: "ExifIFD:DateTimeOriginal", kind: "image" },
+      osCol("date_modified"),
+      imgCol("IFD0:Model"),
+      imgCol("ExifIFD:DateTimeOriginal"),
     ];
     saveColumnConfig({
       visibleColumns: cols,
       sortConfig: {
         primary: {
-          column: "IFD0:Model",
-          columnType: "image",
+          id: testId("IFD0:Model"),
+          kind: "image",
           direction: "asc",
         },
         secondary: null,
       },
-      columnWidths: { relative_path: 300, "IFD0:Model": 180 },
+      columnWidths: {
+        relative_path: 300,
+        [schemaDefinitionIdToken(testId("IFD0:Model"))]: 180,
+      },
     });
     const config = loadColumnConfig();
     expect(config.visibleColumns).toEqual(cols);
     expect(config.sortConfig.primary).toEqual({
-      column: "IFD0:Model",
-      columnType: "image",
+      id: testId("IFD0:Model"),
+      kind: "image",
       direction: "asc",
     });
     expect(config.columnWidths).toEqual({
       relative_path: 300,
-      "IFD0:Model": 180,
+      [schemaDefinitionIdToken(testId("IFD0:Model"))]: 180,
     });
   });
 
@@ -107,21 +112,18 @@ describe("loadColumnConfig", () => {
       visibleColumns: [],
       sortConfig: {
         primary: {
-          column: "date_modified",
-          columnType: "os",
+          key: "date_modified",
+          kind: "os",
           direction: "desc",
         },
         secondary: {
-          column: "relative_path",
-          columnType: "path",
+          kind: "path",
           direction: "asc",
         },
       },
       columnWidths: NO_WIDTHS,
     });
-    expect(loadColumnConfig().sortConfig.secondary?.column).toBe(
-      "relative_path",
-    );
+    expect(loadColumnConfig().sortConfig.secondary?.kind).toBe("path");
   });
 
   it("returns defaults when localStorage contains invalid JSON", () => {
@@ -156,10 +158,7 @@ describe("saveColumnConfig", () => {
 
   it("writes a value that loadColumnConfig can read back", () => {
     const original = {
-      visibleColumns: [
-        { key: "date_created", kind: "os" as const },
-        { key: "IFD0:Make", kind: "image" as const },
-      ],
+      visibleColumns: [osCol("date_created"), imgCol("IFD0:Make")],
       sortConfig: DEFAULT_SORT_CONFIG,
       columnWidths: { relative_path: 250 },
     };
@@ -169,23 +168,19 @@ describe("saveColumnConfig", () => {
 
   it("overwrites a previous saved value", () => {
     saveColumnConfig({
-      visibleColumns: [{ key: "A", kind: "image" }],
+      visibleColumns: [imgCol("A")],
       sortConfig: DEFAULT_SORT_CONFIG,
       columnWidths: {},
     });
     saveColumnConfig({
-      visibleColumns: [
-        { key: "date_modified", kind: "os" },
-        { key: "B", kind: "image" },
-        { key: "C", kind: "image" },
-      ],
+      visibleColumns: [osCol("date_modified"), imgCol("B"), imgCol("C")],
       sortConfig: DEFAULT_SORT_CONFIG,
       columnWidths: { relative_path: 300 },
     });
     expect(loadColumnConfig().visibleColumns).toEqual([
-      { key: "date_modified", kind: "os" },
-      { key: "B", kind: "image" },
-      { key: "C", kind: "image" },
+      osCol("date_modified"),
+      imgCol("B"),
+      imgCol("C"),
     ]);
     expect(loadColumnConfig().columnWidths).toEqual({ relative_path: 300 });
   });

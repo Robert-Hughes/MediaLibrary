@@ -257,7 +257,7 @@ impl<'a> BatchProgressEmitter<'a> {
         relative_path: &str,
         status: &str,
         error: Option<&str>,
-        edits: Option<&std::collections::HashMap<String, crate::draft_edits::MetadataDraftEdit>>,
+        edits: Option<&crate::draft_edits::MetadataDraftMap>,
     ) {
         #[derive(Clone, Serialize)]
         #[serde(rename_all = "camelCase")]
@@ -269,9 +269,7 @@ impl<'a> BatchProgressEmitter<'a> {
             #[serde(skip_serializing_if = "Option::is_none")]
             error: Option<&'a str>,
             #[serde(skip_serializing_if = "Option::is_none")]
-            edits: Option<
-                &'a std::collections::HashMap<String, crate::draft_edits::MetadataDraftEdit>,
-            >,
+            edits: Option<Vec<crate::draft_edits::MetadataDraftEntry>>,
         }
         let _ = self.app.emit(
             &format!("{}_progress", self.prefix),
@@ -281,7 +279,7 @@ impl<'a> BatchProgressEmitter<'a> {
                 relative_path,
                 status,
                 error,
-                edits,
+                edits: edits.cloned().map(crate::draft_edits::draft_entries),
             },
         );
     }

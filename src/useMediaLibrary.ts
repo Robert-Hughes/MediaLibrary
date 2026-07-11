@@ -4,6 +4,8 @@ import {
   ImageMetadataStore,
   MetadataProgressStore,
   DraftEditsStore,
+  metadataDraftsFromWire,
+  metadataDraftsToWire,
 } from "./types";
 import type {
   AppState,
@@ -18,10 +20,9 @@ import type {
   MetadataApplyEditsResult,
   ApplyEditsStartedPayload,
   ApplyEditsProgressPayload,
-  ImageMetadataEntry,
   MetadataDraftEdit,
-  MetadataDraftEditsByFile,
   MetadataValue,
+  SchemaDefinitionId,
 } from "./types";
 import { loadColumnConfig, saveColumnConfig } from "./utils/columnConfig";
 import {
@@ -29,6 +30,7 @@ import {
   normalizeMetadataFromTauri,
   scheduleBatchedFlush,
 } from "./utils/scanEvents";
+import { metadataGet } from "./utils/metadataCollection";
 import {
   mergeVerifyOutcomes,
   removeVerifyOutcome,
@@ -60,17 +62,17 @@ export interface MediaLibraryActions {
   dismissError: (index: number) => void;
   setMetadataDraftBatch: (
     fileRelativePath: string,
-    edits: Array<{ key: string; edit: MetadataDraftEdit }>,
+    edits: Array<{ id: SchemaDefinitionId; edit: MetadataDraftEdit }>,
   ) => void;
   setMetadataDraft: (
     fileRelativePath: string,
-    propertyKey: string,
+    id: SchemaDefinitionId,
     edit: MetadataDraftEdit,
   ) => void;
-  discardDraftValue: (fileRelativePath: string, propertyKey: string) => void;
+  discardDraftValue: (fileRelativePath: string, id: SchemaDefinitionId) => void;
   discardDraftValues: (
     fileRelativePath: string,
-    propertyKeys: string[],
+    ids: SchemaDefinitionId[],
   ) => void;
   discardAllDraftEdits: (fileRelativePath?: string | string[]) => void;
   applyDraftEdits: (
@@ -78,15 +80,21 @@ export interface MediaLibraryActions {
   ) => Promise<MetadataApplyEditsResult>;
   cancelApplyEdits: () => void;
   /** Phase 8.1: clear a Coerced/Mismatch outcome and drop its draft. */
-  acceptVerifyOutcome: (fileRelativePath: string, tag: string) => void;
+  acceptVerifyOutcome: (
+    fileRelativePath: string,
+    id: SchemaDefinitionId,
+  ) => void;
   /** Phase 8.1: re-stage the draft with the value exiftool actually wrote. */
   revertVerifyOutcome: (
     fileRelativePath: string,
-    tag: string,
+    id: SchemaDefinitionId,
     observed: MetadataValue | null,
   ) => void;
   /** Phase 8.1: dismiss a single pending verify outcome without touching the draft. */
-  dismissVerifyOutcome: (fileRelativePath: string, tag: string) => void;
+  dismissVerifyOutcome: (
+    fileRelativePath: string,
+    id: SchemaDefinitionId,
+  ) => void;
   /** Phase 8.1: dismiss every pending verify outcome without acting on them. */
   dismissAllVerifyOutcomes: () => void;
 }
@@ -114,10 +122,10 @@ export function useMediaLibrary(
   // swap the metadata store don't leave the resolver pointing at the
   // old instance.
   useEffect(() => {
-    draftEditsStoreRef.current.setCurrentValueResolver((path, tag) => {
+    draftEditsStoreRef.current.setCurrentValueResolver((path, id) => {
       const meta = imageMetadataStoreRef.current.get(path);
       if (meta === "loading") return undefined;
-      return meta[tag];
+      return metadataGet(meta, id);
     });
   }, []);
 
@@ -141,7 +149,7 @@ export function useMediaLibrary(
   const metadataBufferRef = useRef<
     {
       relative_path: string;
-      metadata: Record<string, ImageMetadataEntry>;
+      metadata: import("./types/generated/MetadataEntry").MetadataEntry[];
     }[]
   >([]);
   const metadataBatchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
@@ -201,7 +209,9 @@ export function useMediaLibrary(
           folderPath: folder,
         });
         draftEditsStoreRef.current.resetMetadata(
-          raw as MetadataDraftEditsByFile,
+          metadataDraftsFromWire(
+            raw as Record<string, import("./types").MetadataDraftEntry[]>,
+          ),
         );
       } catch (e) {
         console.error("Failed to load draft edits", e);
@@ -302,7 +312,7 @@ export function useMediaLibrary(
         if (prev.kind !== "loaded") return prev;
         if (
           !prev.sortConfig.primary ||
-          prev.sortConfig.primary.columnType !== "image"
+          prev.sortConfig.primary.kind !== "image"
         )
           return prev;
         return { ...prev, metadataVersion: prev.metadataVersion + 1 };
@@ -598,7 +608,7 @@ export function useMediaLibrary(
         api
           .invoke("save_metadata_draft_edits", {
             folderPath: cur.folder,
-            data: store.getAllMetadata(),
+            data: metadataDraftsToWire(store.getAllMetadata()),
           })
           .catch(console.error);
       }
@@ -712,14 +722,14 @@ export function useMediaLibrary(
    * the file's "saved" state matches what exiftool actually wrote.
    */
   const acceptVerifyOutcome = useCallback(
-    (fileRelativePath: string, tag: string) => {
-      draftEditsStoreRef.current.deleteTag(fileRelativePath, tag);
+    (fileRelativePath: string, id: SchemaDefinitionId) => {
+      draftEditsStoreRef.current.deleteTag(fileRelativePath, id);
       setAppState((prev) => {
         if (prev.kind !== "loaded") return prev;
         const next = removeVerifyOutcome(
           prev.verifyOutcomes,
           fileRelativePath,
-          tag,
+          id,
         );
         return next === prev.verifyOutcomes
           ? prev
@@ -735,8 +745,12 @@ export function useMediaLibrary(
    * on the file as it now is rather than on the original sent value.
    */
   const revertVerifyOutcome = useCallback(
-    (fileRelativePath: string, tag: string, observed: MetadataValue | null) => {
-      draftEditsStoreRef.current.setMetadataTag(fileRelativePath, tag, {
+    (
+      fileRelativePath: string,
+      id: SchemaDefinitionId,
+      observed: MetadataValue | null,
+    ) => {
+      draftEditsStoreRef.current.setMetadataTag(fileRelativePath, id, {
         value: observed,
         intent: observed === null ? "Delete" : "Set",
       });
@@ -745,7 +759,7 @@ export function useMediaLibrary(
         const next = removeVerifyOutcome(
           prev.verifyOutcomes,
           fileRelativePath,
-          tag,
+          id,
         );
         return next === prev.verifyOutcomes
           ? prev
@@ -761,13 +775,13 @@ export function useMediaLibrary(
    * where the user has acknowledged the failure and will fix it manually.
    */
   const dismissVerifyOutcome = useCallback(
-    (fileRelativePath: string, tag: string) => {
+    (fileRelativePath: string, id: SchemaDefinitionId) => {
       setAppState((prev) => {
         if (prev.kind !== "loaded") return prev;
         const next = removeVerifyOutcome(
           prev.verifyOutcomes,
           fileRelativePath,
-          tag,
+          id,
         );
         return next === prev.verifyOutcomes
           ? prev
@@ -802,7 +816,7 @@ export function useMediaLibrary(
   const setMetadataDraftBatch = useCallback(
     (
       fileRelativePath: string,
-      edits: Array<{ key: string; edit: MetadataDraftEdit }>,
+      edits: Array<{ id: SchemaDefinitionId; edit: MetadataDraftEdit }>,
     ) => {
       draftEditsStoreRef.current.setMetadataBatch(fileRelativePath, edits);
     },
@@ -812,28 +826,24 @@ export function useMediaLibrary(
   const setMetadataDraft = useCallback(
     (
       fileRelativePath: string,
-      propertyKey: string,
+      id: SchemaDefinitionId,
       edit: MetadataDraftEdit,
     ) => {
-      draftEditsStoreRef.current.setMetadataTag(
-        fileRelativePath,
-        propertyKey,
-        edit,
-      );
+      draftEditsStoreRef.current.setMetadataTag(fileRelativePath, id, edit);
     },
     [],
   );
 
   const discardDraftValue = useCallback(
-    (fileRelativePath: string, propertyKey: string) => {
-      draftEditsStoreRef.current.deleteTag(fileRelativePath, propertyKey);
+    (fileRelativePath: string, id: SchemaDefinitionId) => {
+      draftEditsStoreRef.current.deleteTag(fileRelativePath, id);
     },
     [],
   );
 
   const discardDraftValues = useCallback(
-    (fileRelativePath: string, propertyKeys: string[]) => {
-      draftEditsStoreRef.current.deleteTags(fileRelativePath, propertyKeys);
+    (fileRelativePath: string, ids: SchemaDefinitionId[]) => {
+      draftEditsStoreRef.current.deleteTags(fileRelativePath, ids);
     },
     [],
   );
@@ -999,7 +1009,7 @@ function handleApplyEditsProgress(
   const fileOutcomes = payload.tag_outcomes;
   const tagsToPrune = fileOutcomes
     .filter((o) => o.kind === "Match" || o.kind === "DeleteOk")
-    .map((o) => o.tag);
+    .map((o) => o.id);
   if (tagsToPrune.length > 0) {
     draftStore.pruneTags(payload.relative_path, tagsToPrune);
   }

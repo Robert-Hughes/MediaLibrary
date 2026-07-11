@@ -4,6 +4,12 @@ Cross-boundary types are generated from Rust into `src/types/generated/*.ts` by 
 
 The frontend re-exports generated wire-shape types from `src/types.ts` alongside hand-written frontend-only types such as stores, app state, event payloads, sorting, and column types.
 
+Metadata-bearing wire types use `SchemaDefinitionId` explicitly. Repeated
+metadata and draft values cross the boundary as arrays of `{ id, value }` or
+`{ id, edit }`; do not replace them with `Record<string, ...>` keyed by a
+friendly tag name. Frontend maps may use a serialized ID token internally for
+JavaScript collection mechanics, but each value must retain the domain ID.
+
 ## Generated Types
 
 See `src/types.ts` for the currently re-exported generated bindings.
@@ -35,4 +41,7 @@ Commit the regenerated files in the same commit as the Rust change. Do not edit 
 - `export_to` is relative to the Rust crate root, `src-tauri/`. Use `../../src/types/generated/`; `../src/...` lands inside `src-tauri/src/`.
 - `cfg_attr(test, ...)` means exports run under `cargo test`, not `cargo build`.
 - `ts-rs` maps `HashMap<String, T>` to `{ [key in string]?: T }`, so frontend consumers must handle `T | undefined`.
+- `BTreeMap<SchemaDefinitionId, T>` is not a JSON object wire shape. Expose it
+  as an entry vector and reconstruct an internal token-keyed collection on the
+  frontend.
 - Generated files are ignored by linting and formatting to avoid noisy churn. Regenerate them from Rust instead of formatting them manually.
