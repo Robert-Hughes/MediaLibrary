@@ -78,26 +78,7 @@ describe("GalleryView", () => {
     expect(img).toHaveAttribute("src", "data:image/jpeg;base64,FAKE");
   });
 
-  it("calls onClose when close button is clicked", async () => {
-    const onClose = vi.fn();
-    render(
-      <GalleryView
-        onSetMetadataDraftBatch={vi.fn()}
-        onDiscardDraftBatch={vi.fn()}
-        photos={PHOTOS}
-        currentIndex={0}
-        folderPath="/photos"
-        onClose={onClose}
-        onNavigate={() => {}}
-        loadImage={fakeLoad}
-      />,
-    );
-    await screen.findByTestId("gallery-image");
-    await userEvent.click(screen.getByTestId("gallery-close-btn"));
-    expect(onClose).toHaveBeenCalledOnce();
-  });
-
-  it("uses the full-screen variant and dismisses only from its backdrop", async () => {
+  it("does not close when clicking the gallery content or dialog element", async () => {
     const onClose = vi.fn();
     render(
       <GalleryView
@@ -115,9 +96,51 @@ describe("GalleryView", () => {
       name: "Photo gallery",
     });
     expect(dialog).toHaveClass("modal-dialog", "gallery-dialog");
+
+    // Clicking gallery content does nothing
     fireEvent.click(screen.getByTestId("gallery-content"));
     expect(onClose).not.toHaveBeenCalled();
+
+    // Clicking the dialog element itself does nothing
     fireEvent.click(dialog);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("closes when the close button is clicked", async () => {
+    const onClose = vi.fn();
+    render(
+      <GalleryView
+        onSetMetadataDraftBatch={vi.fn()}
+        onDiscardDraftBatch={vi.fn()}
+        photos={PHOTOS}
+        currentIndex={0}
+        folderPath="/photos"
+        onClose={onClose}
+        onNavigate={vi.fn()}
+        loadImage={fakeLoad}
+      />,
+    );
+    await screen.findByTestId("gallery-image");
+    await userEvent.click(screen.getByTestId("gallery-close-btn"));
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("closes when Escape is pressed", async () => {
+    const onClose = vi.fn();
+    render(
+      <GalleryView
+        onSetMetadataDraftBatch={vi.fn()}
+        onDiscardDraftBatch={vi.fn()}
+        photos={PHOTOS}
+        currentIndex={0}
+        folderPath="/photos"
+        onClose={onClose}
+        onNavigate={vi.fn()}
+        loadImage={fakeLoad}
+      />,
+    );
+    await screen.findByTestId("gallery-image");
+    await userEvent.keyboard("{Escape}");
     expect(onClose).toHaveBeenCalledOnce();
   });
 });

@@ -14,6 +14,7 @@ import { ModalDialog } from "../components/ModalDialog";
 import { useState } from "react";
 import { initialObjectFrom } from "../components/editors/editorHelpers";
 import type { MetadataValue } from "../types";
+import { flushDialogCloseEvents } from "./setup";
 
 beforeEach(() => cleanup());
 
@@ -261,20 +262,28 @@ describe("StructEditor", () => {
     expect(screen.getAllByRole("dialog")).toHaveLength(2);
     expect(screen.getByRole("button", { name: "Child control" })).toHaveFocus();
 
-    fireEvent(
-      screen.getByRole("dialog", { name: "Child Boolean editor" }),
-      new Event("cancel", { bubbles: true, cancelable: true }),
-    );
-    await act(async () => {});
+    // Cancel the child editor
+    await act(async () => {
+      fireEvent(
+        screen.getByRole("dialog", { name: "Child Boolean editor" }),
+        new Event("cancel", { bubbles: true, cancelable: true }),
+      );
+    });
+    // Wait for the focus-restoration microtask after child unmount
+    await flushDialogCloseEvents();
     expect(screen.getAllByRole("dialog")).toHaveLength(1);
     expect(parentCancel).not.toHaveBeenCalled();
     expect(edit).toHaveFocus();
 
-    fireEvent(
-      screen.getByRole("dialog"),
-      new Event("cancel", { cancelable: true }),
-    );
-    await act(async () => {});
+    // Cancel the parent editor
+    await act(async () => {
+      fireEvent(
+        screen.getByRole("dialog"),
+        new Event("cancel", { cancelable: true }),
+      );
+    });
+    // Wait for the focus-restoration microtask after parent unmount
+    await flushDialogCloseEvents();
     expect(parentCancel).toHaveBeenCalledOnce();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(opener).toHaveFocus();
