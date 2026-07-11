@@ -5,6 +5,12 @@ Current
 - Right click on the property list maps should show edit (opens group editor) and "remove all GPS", "discard all GPS"?
 - GPS editor sets lat/long to different string format than the one from exiftool. How does this work? Do we store separate display string? I thoiught we used semantic MetadataValue for everything now?
 - How do you add a GPS if the file doesn't have one? (Using hte nice editor)
+- Lots of warnings: 
+    warning: failed to parse serde attribute
+    | 
+    | #[serde(default, skip_serializing_if = "Option::is_none")]
+    | 
+    = note: ts-rs failed to parse this attribute. It will be ignored.
 
 - Full map view
   - Select a bunch of photos, right click, "show on Map" opens map popup with pins/thumbnails for each photo
