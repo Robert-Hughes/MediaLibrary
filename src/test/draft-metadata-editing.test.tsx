@@ -40,8 +40,20 @@ describe("Draft Metadata Editing Integration", () => {
     // suite doesn't drift past the 5s timeout on slower machines.
     const makeId = testIdForFriendlyName("IFD0:Make");
     const descriptionId = testIdForFriendlyName("XMP-dc:Description");
-    _setTagInfoCacheEntry(makeId, null);
-    _setTagInfoCacheEntry(descriptionId, null);
+    _setTagInfoCacheEntry(makeId, {
+      group: "IFD0",
+      name: "Make",
+      writable: true,
+      kind: { kind: "Text" },
+      description: null,
+    });
+    _setTagInfoCacheEntry(descriptionId, {
+      group: "XMP-dc",
+      name: "Description",
+      writable: true,
+      kind: { kind: "Text" },
+      description: null,
+    });
     _setWritableSchemaDefinitionsCache([
       {
         id: descriptionId,

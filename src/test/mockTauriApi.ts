@@ -9,8 +9,12 @@ import type {
   MetadataApplyEditsResult,
   MetadataTagOutcome,
   MetadataDraftEditsByFile,
+  MetadataDraftEntry,
+  MetadataEntry,
   MetadataValue,
 } from "../types";
+import { metadataDraftsFromWire, metadataDraftsToWire } from "../types";
+import { testFriendlyName, testId } from "./testIds";
 type EventHandler = (payload: unknown) => void;
 
 type MockDraftEditsByFolder = Record<string, MetadataDraftEditsByFile>;
@@ -113,7 +117,7 @@ export interface MockTauriApi {
     status: string;
     error?: string | null;
     /** Typed draft edits the mock backend should emit alongside an "ok" status. */
-    edits?: Record<string, unknown>;
+    edits?: MetadataDraftEntry[];
   }>;
   /** Override the usage summary emitted by describe_complete. */
   describeUsageSummary: {
@@ -145,7 +149,7 @@ export interface MockTauriApi {
     status: string;
     error?: string | null;
     /** Typed draft edits emitted on `status === "ok"`. */
-    edits?: Record<string, unknown>;
+    edits?: MetadataDraftEntry[];
   }>;
   /** Summary emitted by geocode_complete. */
   geocodeSummary: {
@@ -215,7 +219,14 @@ export function createMockTauriApi(): MockTauriApi {
     emitImageMetadataReady: (relative_path, metadata, scanId) =>
       emit("image_metadata_ready", {
         scan_id: scanId ?? mock.currentScanId,
-        results: [{ relative_path, metadata }],
+        results: [
+          {
+            relative_path,
+            metadata: Object.entries(metadata).map(
+              ([name, value]): MetadataEntry => ({ id: testId(name), value }),
+            ),
+          },
+        ],
       } satisfies ImageMetadataReadyPayload),
     emitThumbnailReady: (relative_path, thumbnail, scanId) =>
       emit("thumbnail_ready", {
@@ -337,12 +348,13 @@ export function createMockTauriApi(): MockTauriApi {
       }
       if (cmd === "load_metadata_draft_edits") {
         const folder = args?.folderPath as string;
-        return mock.draftEditsByFolder[folder] || {};
+        return metadataDraftsToWire(mock.draftEditsByFolder[folder] || {});
       }
       if (cmd === "save_metadata_draft_edits") {
         const folder = args?.folderPath as string;
-        mock.draftEditsByFolder[folder] =
-          args?.data as MetadataDraftEditsByFile;
+        mock.draftEditsByFolder[folder] = metadataDraftsFromWire(
+          args?.data as Record<string, import("../types").MetadataDraftEntry[]>,
+        );
         return;
       }
       if (cmd === "get_tag_info") {
@@ -483,7 +495,7 @@ export function createMockTauriApi(): MockTauriApi {
             relativePath: rp,
             status: sched.status,
             error: sched.error ?? null,
-            edits: sched.status === "ok" ? (sched.edits ?? {}) : undefined,
+            edits: sched.status === "ok" ? (sched.edits ?? []) : undefined,
           });
           if (sched.status === "ok") succeeded.push(rp);
           else
@@ -534,7 +546,7 @@ export function createMockTauriApi(): MockTauriApi {
             relativePath: rp,
             status: sched.status,
             error: sched.error ?? null,
-            edits: sched.status === "ok" ? (sched.edits ?? {}) : undefined,
+            edits: sched.status === "ok" ? (sched.edits ?? []) : undefined,
           });
           if (sched.status === "ok") succeeded.push(rp);
           else
@@ -684,8 +696,9 @@ function mockTagOutcomesForPath(
 ): MetadataTagOutcome[] {
   const stored = mock.draftEditsByFolder[folder];
   if (!stored) return [];
-  return Object.keys(stored[path] ?? {}).map((tag) => ({
-    tag,
+  return Object.values(stored[path] ?? {}).map(({ id }) => ({
+    id,
+    display_name: testFriendlyName(id),
     kind: "Match",
     sent: null,
     before: null,

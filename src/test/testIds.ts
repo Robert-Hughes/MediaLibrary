@@ -1,5 +1,6 @@
 import type { SchemaDefinitionId } from "../types";
 import { GPS_IDS, KNOWN_METADATA_IDS as ID } from "../metadata/knownIds";
+import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
 
 const known: Record<string, SchemaDefinitionId> = {
   "IFD0:ImageDescription": ID.imageDescription,
@@ -63,5 +64,23 @@ const known: Record<string, SchemaDefinitionId> = {
   "IPTC:Caption-Abstract": ID.iptcCaption,
 };
 
-export const testIdForFriendlyName = (name: string): SchemaDefinitionId =>
-  known[name] ?? { table: "Test::Legacy", tag_id: name };
+/**
+ * Canonical labels are the first label declared above for an exact ID. Aliases
+ * remain valid fixture input, but reverse lookup always returns the canonical
+ * label so callback assertions are deterministic.
+ */
+const canonicalNames = new Map<string, string>();
+for (const [name, id] of Object.entries(known)) {
+  const token = schemaDefinitionIdToken(id);
+  if (!canonicalNames.has(token)) canonicalNames.set(token, name);
+}
+
+export function testId(name: string): SchemaDefinitionId {
+  return known[name] ?? { table: "Test::Fixture", tag_id: name };
+}
+
+export function testFriendlyName(id: SchemaDefinitionId): string {
+  return canonicalNames.get(schemaDefinitionIdToken(id)) ?? id.tag_id;
+}
+
+export const testIdForFriendlyName = testId;

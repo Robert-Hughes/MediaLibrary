@@ -1,14 +1,24 @@
 import { render, screen, act, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { _clearTagInfoCache, _setTagInfoCacheEntry } from "../hooks/useTagInfo";
+import {
+  _clearTagInfoCache,
+  _setTagInfoCacheEntry,
+} from "./tagInfoTestHelpers";
 import { WelcomeScreen } from "../components/WelcomeScreen";
 import { MenuBar } from "../components/MenuBar";
 import { PhotoList } from "../components/PhotoList";
 import { ColumnSelectionDialog } from "../components/ColumnSelectionDialog";
 import { ThumbnailStore, ImageMetadataStore } from "../types";
 import type { PhotoInfo } from "../types";
-import { makePhoto, makePhotos, mockMetadata } from "./factories";
+import {
+  imgCol,
+  makePhoto,
+  makePhotos,
+  mockMetadata,
+  osCol,
+  testId,
+} from "./factories";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -49,7 +59,7 @@ function renderList(
         opts.visibleColumns ?? [
           { key: "date_modified", kind: "os" },
           { key: "date_created", kind: "os" },
-          { key: "IFD0:Model", kind: "image" },
+          imgCol("IFD0:Model"),
         ]
       }
       selectedIndex={opts.selectedIndex ?? null}
@@ -228,7 +238,7 @@ describe("PhotoList", () => {
         visibleColumns={[
           { key: "date_modified", kind: "os" },
           { key: "date_created", kind: "os" },
-          { key: "IFD0:Model", kind: "image" },
+          imgCol("IFD0:Model"),
         ]}
         sortConfig={{ primary: null, secondary: null }}
         onSortChange={noop}
@@ -294,9 +304,26 @@ describe("PhotoList", () => {
 
 describe("ColumnSelectionDialog", () => {
   const allKeys = [
-    { key: "IFD0:Model", count: 10 },
-    { key: "IFD0:Make", count: 8 },
+    { id: testId("IFD0:Model"), count: 10 },
+    { id: testId("IFD0:Make"), count: 8 },
   ];
+
+  beforeEach(() => {
+    _setTagInfoCacheEntry("IFD0:Model", {
+      group: "IFD0",
+      name: "Model",
+      writable: true,
+      kind: { kind: "Text" },
+      description: null,
+    });
+    _setTagInfoCacheEntry("IFD0:Make", {
+      group: "IFD0",
+      name: "Make",
+      writable: true,
+      kind: { kind: "Text" },
+      description: null,
+    });
+  });
 
   it("renders all keys with counts", () => {
     render(
@@ -323,7 +350,7 @@ describe("ColumnSelectionDialog", () => {
         visibleColumns={[
           { key: "date_modified", kind: "os" },
           { key: "date_created", kind: "os" },
-          { key: "IFD0:Model", kind: "image" },
+          imgCol("IFD0:Model"),
         ]}
         onSave={noop}
         onClose={noop}
@@ -348,7 +375,7 @@ describe("ColumnSelectionDialog", () => {
         visibleColumns={[
           { key: "date_modified", kind: "os" },
           { key: "date_created", kind: "os" },
-          { key: "IFD0:Model", kind: "image" },
+          imgCol("IFD0:Model"),
         ]}
         onSave={onSave}
         onClose={noop}
@@ -361,13 +388,12 @@ describe("ColumnSelectionDialog", () => {
 
     await userEvent.click(screen.getByText("Save Changes"));
     const [saved] = onSave.mock.calls[0];
-    const keys = (saved as Array<{ key: string }>).map((c) => c.key);
-    expect(keys).toEqual(
+    expect(saved).toEqual(
       expect.arrayContaining([
-        "date_modified",
-        "date_created",
-        "IFD0:Model",
-        "IFD0:Make",
+        osCol("date_modified"),
+        osCol("date_created"),
+        imgCol("IFD0:Model"),
+        imgCol("IFD0:Make"),
       ]),
     );
   });

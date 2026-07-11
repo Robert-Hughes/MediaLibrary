@@ -19,7 +19,7 @@ import {
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { DetailsPane } from "./legacyAdapters";
+import { DetailsPane } from "../components/DetailsPane";
 
 import {
   groupImageMetadata as exactGroupImageMetadata,
@@ -27,7 +27,14 @@ import {
   formatTimestamp,
   getOsEntries,
 } from "../utils/detailsPaneHelpers";
-import { makePhoto, mockMetadata, testFriendlyName, testId } from "./factories";
+import {
+  makePhoto,
+  mockDisplayDrafts,
+  mockDrafts,
+  mockMetadata,
+  testFriendlyName,
+  testId,
+} from "./factories";
 import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
 import {
   _resetWritableSchemaDefinitionsCache as _resetSchemaTagNamesCache,
@@ -36,7 +43,9 @@ import {
 import type {
   MetadataDraftEdit,
   ImageMetadataEntry,
+  MetadataDraftCollection,
   PhotoInfo,
+  SchemaDefinitionId,
 } from "../types";
 
 const groupImageMetadata = (metadata: Record<string, ImageMetadataEntry>) => {
@@ -59,8 +68,9 @@ const groupImageMetadata = (metadata: Record<string, ImageMetadataEntry>) => {
   );
   return exactGroupImageMetadata(metadata, infos).map((group) => ({
     ...group,
-    entries: group.entries.map(({ id, ...entry }) => ({
-      ...entry,
+    entries: group.entries.map(({ id, label, value }) => ({
+      label,
+      value,
       fullKey: testFriendlyName(id),
     })),
   }));
@@ -377,9 +387,7 @@ describe("DetailsPane component", () => {
         onSetMetadataDraftBatch={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
-        metadata={{
-          "IFD0:Orientation": { kind: "Integer", value: 6 },
-        }}
+        metadata={mockMetadata({ "IFD0:Orientation": 6 })}
       />,
     );
 
@@ -482,7 +490,7 @@ describe("DetailsPane: Generate-AI button", () => {
     const ask = vi.fn();
     vi.doMock("@tauri-apps/plugin-dialog", () => ({ ask }));
     vi.resetModules();
-    const { DetailsPane: Fresh } = await import("./legacyAdapters");
+    const { DetailsPane: Fresh } = await import("../components/DetailsPane");
     const onGenerate = vi.fn();
     const typedDraftEdits: Record<string, MetadataDraftEdit> = {
       "XMP-mlib:AIDescription": {
@@ -495,8 +503,10 @@ describe("DetailsPane: Generate-AI button", () => {
       <Fresh
         photo={photo}
         metadata={{} as Record<string, ImageMetadataEntry>}
-        typedDraftEdits={typedDraftEdits}
-        draftEdits={{ "XMP-mlib:AIDescription": "older description" }}
+        typedDraftEdits={mockDrafts(typedDraftEdits)}
+        draftEdits={mockDisplayDrafts({
+          "XMP-mlib:AIDescription": "older description",
+        })}
         onGenerateAiDescription={onGenerate}
         onSetMetadataDraftBatch={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
@@ -512,7 +522,7 @@ describe("DetailsPane: Generate-AI button", () => {
     const ask = vi.fn();
     vi.doMock("@tauri-apps/plugin-dialog", () => ({ ask }));
     vi.resetModules();
-    const { DetailsPane: Fresh } = await import("./legacyAdapters");
+    const { DetailsPane: Fresh } = await import("../components/DetailsPane");
     const onGenerate = vi.fn();
     const user = userEvent.setup();
     render(
@@ -583,7 +593,7 @@ describe("DetailsPane: Add-Property two-step flow", () => {
     fireEvent.change(screen.getByTestId("new-property-key"), {
       target: { value: "XMP-dc:Subject" },
     });
-    await user.click(screen.getByRole("option", { name: /XMP-dc:Subject/ }));
+    await user.click(screen.getByRole("button", { name: /XMP-dc:Subject/ }));
     await waitFor(() => {
       expect(screen.getByTestId("new-property-next")).not.toBeDisabled();
     });
@@ -600,11 +610,11 @@ describe("DetailsPane: Add-Property two-step flow", () => {
     await user.click(screen.getByTestId("bag-editor-save"));
 
     expect(onSetMetadataDraft).toHaveBeenCalledTimes(1);
-    const [keyArg, editArg] = onSetMetadataDraft.mock.calls[0] as [
-      string,
+    const [idArg, editArg] = onSetMetadataDraft.mock.calls[0] as [
+      SchemaDefinitionId,
       MetadataDraftEdit,
     ];
-    expect(keyArg).toBe("XMP-dc:Subject");
+    expect(idArg).toEqual(testId("XMP-dc:Subject"));
     expect(editArg.intent).toBe("Set");
     expect(editArg.value).toEqual({
       kind: "List",
@@ -650,7 +660,7 @@ describe("DetailsPane: Add-Property two-step flow", () => {
     fireEvent.change(screen.getByTestId("new-property-key"), {
       target: { value: "XMP-foo:Bool" },
     });
-    await user.click(screen.getByRole("option", { name: /XMP-foo:Bool/ }));
+    await user.click(screen.getByRole("button", { name: /XMP-foo:Bool/ }));
     await waitFor(() => {
       expect(screen.getByTestId("new-property-next")).not.toBeDisabled();
     });
@@ -698,7 +708,7 @@ describe("DetailsPane: Add-Property two-step flow", () => {
     fireEvent.change(screen.getByTestId("new-property-key"), {
       target: { value: "XMP-dc:Title" },
     });
-    await user.click(screen.getByRole("option", { name: /XMP-dc:Title/ }));
+    await user.click(screen.getByRole("button", { name: /XMP-dc:Title/ }));
     await waitFor(() => {
       expect(screen.getByTestId("new-property-next")).not.toBeDisabled();
     });
@@ -800,7 +810,7 @@ describe("DetailsPane: read-only row context menu", () => {
     expect(removeBtn).not.toBeDisabled();
 
     fireEvent.click(removeBtn);
-    expect(onSetMetadataDraft).toHaveBeenCalledWith("IFD0:Make", {
+    expect(onSetMetadataDraft).toHaveBeenCalledWith(testId("IFD0:Make"), {
       value: null,
       intent: "Delete",
     });
@@ -821,7 +831,7 @@ describe("DetailsPane: read-only row context menu", () => {
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={mockMetadata({ "IFD0:Make": "Canon" })}
-        draftEdits={{ "IFD0:Make": "Nikon" }}
+        draftEdits={mockDisplayDrafts({ "IFD0:Make": "Nikon" })}
         onSetMetadataDraft={vi.fn()}
       />,
     );
@@ -832,6 +842,70 @@ describe("DetailsPane: read-only row context menu", () => {
     expect(screen.queryByRole("button", { name: "Edit…" })).toBeNull();
     expect(screen.queryByRole("button", { name: "View…" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Remove" })).toBeNull();
+  });
+});
+
+describe("DetailsPane friendly search and exact identity", () => {
+  it("searches friendly names while keeping colliding rows and drafts distinct", async () => {
+    const photo = makePhoto({ relative_path: "p.jpg", filename: "p.jpg" });
+    const firstId = testId("XMP-dc:Description");
+    const secondId: SchemaDefinitionId = {
+      table: "Test::Alternate",
+      tag_id: "description",
+    };
+    for (const id of [firstId, secondId]) {
+      _setTagInfoCacheEntry(id, {
+        group: "XMP-dc",
+        name: "Description",
+        writable: true,
+        kind: { kind: "Text" },
+        description: null,
+      });
+    }
+
+    const firstToken = schemaDefinitionIdToken(firstId);
+    const secondToken = schemaDefinitionIdToken(secondId);
+    const metadata = {
+      [firstToken]: { id: firstId, kind: "Text" as const, value: "Disk A" },
+      [secondToken]: {
+        id: secondId,
+        kind: "Text" as const,
+        value: "Disk B",
+      },
+    };
+    const typedDraftEdits: MetadataDraftCollection = {
+      [secondToken]: {
+        id: secondId,
+        edit: {
+          intent: "Set",
+          value: { kind: "Text", value: "Draft B" },
+        },
+      },
+    };
+
+    render(
+      <DetailsPane
+        photo={photo}
+        metadata={metadata}
+        typedDraftEdits={typedDraftEdits}
+        onSetMetadataDraftBatch={() => {}}
+        onDiscardDraftBatch={() => {}}
+      />,
+    );
+    const search = screen.getByTestId("details-search-input");
+
+    await userEvent.type(search, "XMP-dc:Description");
+    expect(screen.getAllByText("Description")).toHaveLength(2);
+    const rowKeys = screen
+      .getAllByTestId("details-row")
+      .map((row) => row.getAttribute("data-row-key"));
+    expect(rowKeys).toEqual(expect.arrayContaining([firstToken, secondToken]));
+    expect(screen.getByText("Disk A")).toBeInTheDocument();
+    expect(screen.getByText("Draft B")).toBeInTheDocument();
+
+    await userEvent.clear(search);
+    await userEvent.type(search, "Description");
+    expect(screen.getAllByText("Description")).toHaveLength(2);
   });
 });
 
@@ -892,8 +966,10 @@ describe("DetailsPane: Edit reopens with pending draft as the seed", () => {
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={mockMetadata({ "IFD0:Orientation": 1 })}
-        draftEdits={{ "IFD0:Orientation": "Rotate 270 CW" }}
-        typedDraftEdits={typedDraftEdits}
+        draftEdits={mockDisplayDrafts({
+          "IFD0:Orientation": "Rotate 270 CW",
+        })}
+        typedDraftEdits={mockDrafts(typedDraftEdits)}
         onSetMetadataDraft={vi.fn()}
       />,
     );
@@ -931,8 +1007,8 @@ describe("DetailsPane: Edit reopens with pending draft as the seed", () => {
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={mockMetadata({ "XMP-xmp:Rating": 2 })}
-        draftEdits={{ "XMP-xmp:Rating": "4" }}
-        typedDraftEdits={typedDraftEdits}
+        draftEdits={mockDisplayDrafts({ "XMP-xmp:Rating": "4" })}
+        typedDraftEdits={mockDrafts(typedDraftEdits)}
         onSetMetadataDraft={vi.fn()}
       />,
     );
@@ -1137,7 +1213,7 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
           "GPS:GPSLongitude": 0.12,
           "GPS:GPSLongitudeRef": "E",
         })}
-        typedDraftEdits={{
+        typedDraftEdits={mockDrafts({
           "GPS:GPSLatitudeRef": {
             intent: "Set",
             value: { kind: "Text", value: "S" },
@@ -1148,7 +1224,7 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
             value: { kind: "Text", value: "W" },
             display: "West",
           },
-        }}
+        })}
         onSetMetadataDraftBatch={vi.fn()}
       />,
     );
@@ -1167,7 +1243,7 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
     initialMetadata: Record<string, unknown>;
     photo: PhotoInfo;
   }) {
-    const [drafts, setDrafts] = useState<Record<string, MetadataDraftEdit>>({});
+    const [drafts, setDrafts] = useState<MetadataDraftCollection>({});
 
     return (
       <>
@@ -1178,29 +1254,39 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
           photo={photo}
           metadata={mockMetadata(initialMetadata)}
           typedDraftEdits={drafts}
-          onSetMetadataDraft={(key: string, edit: MetadataDraftEdit) => {
-            setDrafts((prev) => ({ ...prev, [key]: edit }));
+          onSetMetadataDraft={(
+            id: SchemaDefinitionId,
+            edit: MetadataDraftEdit,
+          ) => {
+            const token = schemaDefinitionIdToken(id);
+            setDrafts((prev) => ({ ...prev, [token]: { id, edit } }));
           }}
           onSetMetadataDraftBatch={(
-            edits: Array<{ key: string; edit: MetadataDraftEdit }>,
+            edits: Array<{ id: SchemaDefinitionId; edit: MetadataDraftEdit }>,
           ) => {
             setDrafts((prev) => ({
               ...prev,
-              ...Object.fromEntries(edits.map(({ key, edit }) => [key, edit])),
+              ...Object.fromEntries(
+                edits.map(({ id, edit }) => [
+                  schemaDefinitionIdToken(id),
+                  { id, edit },
+                ]),
+              ),
             }));
           }}
-          onDiscardDraft={(key: string) => {
+          onDiscardDraft={(id: SchemaDefinitionId) => {
+            const token = schemaDefinitionIdToken(id);
             setDrafts((prev) => {
               const next = { ...prev };
-              delete next[key];
+              delete next[token];
               return next;
             });
           }}
-          onDiscardDraftBatch={(keys: string[]) => {
+          onDiscardDraftBatch={(ids: SchemaDefinitionId[]) => {
             setDrafts((prev) => {
               const next = { ...prev };
-              for (const key of keys) {
-                delete next[key];
+              for (const id of ids) {
+                delete next[schemaDefinitionIdToken(id)];
               }
               return next;
             });
@@ -1307,15 +1393,25 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
     const draftsJson = JSON.parse(
       screen.getByTestId("drafts-debug").textContent || "{}",
     );
-    expect(draftsJson["GPS:GPSLatitudeRef"]).toEqual({
-      value: { kind: "Text", value: "S" },
-      intent: "Set",
-      display: "South",
+    expect(
+      draftsJson[schemaDefinitionIdToken(testId("GPS:GPSLatitudeRef"))],
+    ).toEqual({
+      id: testId("GPS:GPSLatitudeRef"),
+      edit: {
+        value: { kind: "Text", value: "S" },
+        intent: "Set",
+        display: "South",
+      },
     });
-    expect(draftsJson["GPS:GPSLongitudeRef"]).toEqual({
-      value: { kind: "Text", value: "W" },
-      intent: "Set",
-      display: "West",
+    expect(
+      draftsJson[schemaDefinitionIdToken(testId("GPS:GPSLongitudeRef"))],
+    ).toEqual({
+      id: testId("GPS:GPSLongitudeRef"),
+      edit: {
+        value: { kind: "Text", value: "W" },
+        intent: "Set",
+        display: "West",
+      },
     });
   });
 
@@ -1394,10 +1490,15 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
     const draftsJson = JSON.parse(
       screen.getByTestId("drafts-debug").textContent || "{}",
     );
-    expect(draftsJson["GPS:GPSLatitudeRef"]).toEqual({
-      value: { kind: "Text", value: "S" },
-      intent: "Set",
-      display: "South",
+    expect(
+      draftsJson[schemaDefinitionIdToken(testId("GPS:GPSLatitudeRef"))],
+    ).toEqual({
+      id: testId("GPS:GPSLatitudeRef"),
+      edit: {
+        value: { kind: "Text", value: "S" },
+        intent: "Set",
+        display: "South",
+      },
     });
 
     // Open "Edit GPS..." for any member of that GPS group (e.g. GPSLatitude)
@@ -1437,7 +1538,8 @@ describe("DetailsPane: Group context menu", () => {
     vi.resetModules();
     const { _setTagInfoCacheEntry, _clearTagInfoCache } =
       await import("./tagInfoTestHelpers");
-    const { DetailsPane: FreshDetailsPane } = await import("./legacyAdapters");
+    const { DetailsPane: FreshDetailsPane } =
+      await import("../components/DetailsPane");
 
     _clearTagInfoCache();
     _setTagInfoCacheEntry("GPS:GPSLatitude", {
@@ -1499,7 +1601,8 @@ describe("DetailsPane: Group context menu", () => {
     vi.resetModules();
     const { _setTagInfoCacheEntry, _clearTagInfoCache } =
       await import("./tagInfoTestHelpers");
-    const { DetailsPane: FreshDetailsPane } = await import("./legacyAdapters");
+    const { DetailsPane: FreshDetailsPane } =
+      await import("../components/DetailsPane");
 
     _clearTagInfoCache();
     _setTagInfoCacheEntry("GPS:GPSVersionID", {
@@ -1539,7 +1642,8 @@ describe("DetailsPane: Group context menu", () => {
     vi.resetModules();
     const { _setTagInfoCacheEntry, _clearTagInfoCache } =
       await import("./tagInfoTestHelpers");
-    const { DetailsPane: FreshDetailsPane } = await import("./legacyAdapters");
+    const { DetailsPane: FreshDetailsPane } =
+      await import("../components/DetailsPane");
 
     _clearTagInfoCache();
     _setTagInfoCacheEntry("IFD0:Make", {
@@ -1564,10 +1668,10 @@ describe("DetailsPane: Group context menu", () => {
           "IFD0:Make": "Canon",
           "IFD0:Model": "5D",
         })}
-        draftEdits={{
+        draftEdits={mockDisplayDrafts({
           "IFD0:Make": "Nikon",
           "IFD0:Model": "D850",
-        }}
+        })}
         onSetMetadataDraftBatch={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
       />,
@@ -1589,7 +1693,8 @@ describe("DetailsPane: Group context menu", () => {
     vi.resetModules();
     const { _setTagInfoCacheEntry, _clearTagInfoCache } =
       await import("./tagInfoTestHelpers");
-    const { DetailsPane: FreshDetailsPane } = await import("./legacyAdapters");
+    const { DetailsPane: FreshDetailsPane } =
+      await import("../components/DetailsPane");
 
     _clearTagInfoCache();
     _setTagInfoCacheEntry("GPS:GPSLatitude", {
@@ -1638,8 +1743,14 @@ describe("DetailsPane: Group context menu", () => {
     });
 
     expect(onSetBatch).toHaveBeenCalledWith([
-      { key: "GPS:GPSLatitude", edit: { value: null, intent: "Delete" } },
-      { key: "GPS:GPSLongitude", edit: { value: null, intent: "Delete" } },
+      {
+        id: testId("GPS:GPSLatitude"),
+        edit: { value: null, intent: "Delete" },
+      },
+      {
+        id: testId("GPS:GPSLongitude"),
+        edit: { value: null, intent: "Delete" },
+      },
     ]);
   });
 
@@ -1647,7 +1758,8 @@ describe("DetailsPane: Group context menu", () => {
     vi.resetModules();
     const { _setTagInfoCacheEntry, _clearTagInfoCache } =
       await import("./tagInfoTestHelpers");
-    const { DetailsPane: FreshDetailsPane } = await import("./legacyAdapters");
+    const { DetailsPane: FreshDetailsPane } =
+      await import("../components/DetailsPane");
 
     _clearTagInfoCache();
     _setTagInfoCacheEntry("GPS:GPSLatitude", {
@@ -1674,15 +1786,15 @@ describe("DetailsPane: Group context menu", () => {
         metadata={mockMetadata({
           "GPS:GPSLatitude": 51.5,
         })}
-        draftEdits={{
+        draftEdits={mockDisplayDrafts({
           "GPS:GPSAltitude": "100",
-        }}
-        typedDraftEdits={{
+        })}
+        typedDraftEdits={mockDrafts({
           "GPS:GPSAltitude": {
             intent: "Set",
             value: { kind: "Real", value: 100 },
           },
-        }}
+        })}
         onSetMetadataDraftBatch={onSetBatch}
         onDiscardDraftBatch={onDiscardBatch}
       />,
@@ -1705,16 +1817,20 @@ describe("DetailsPane: Group context menu", () => {
     });
 
     expect(onSetBatch).toHaveBeenCalledWith([
-      { key: "GPS:GPSLatitude", edit: { value: null, intent: "Delete" } },
+      {
+        id: testId("GPS:GPSLatitude"),
+        edit: { value: null, intent: "Delete" },
+      },
     ]);
-    expect(onDiscardBatch).toHaveBeenCalledWith(["GPS:GPSAltitude"]);
+    expect(onDiscardBatch).toHaveBeenCalledWith([testId("GPS:GPSAltitude")]);
   });
 
   it("Discard action calls batch discard once", async () => {
     vi.resetModules();
     const { _setTagInfoCacheEntry, _clearTagInfoCache } =
       await import("./tagInfoTestHelpers");
-    const { DetailsPane: FreshDetailsPane } = await import("./legacyAdapters");
+    const { DetailsPane: FreshDetailsPane } =
+      await import("../components/DetailsPane");
 
     _clearTagInfoCache();
     _setTagInfoCacheEntry("GPS:GPSLatitude", {
@@ -1741,10 +1857,10 @@ describe("DetailsPane: Group context menu", () => {
           "GPS:GPSLatitude": 51.5,
           "GPS:GPSLongitude": -0.1,
         })}
-        draftEdits={{
+        draftEdits={mockDisplayDrafts({
           "GPS:GPSLatitude": "52.0",
           "GPS:GPSLongitude": "-0.2",
-        }}
+        })}
         onSetMetadataDraftBatch={vi.fn()}
         onDiscardDraftBatch={onDiscardBatch}
       />,
@@ -1767,8 +1883,8 @@ describe("DetailsPane: Group context menu", () => {
     });
 
     expect(onDiscardBatch).toHaveBeenCalledWith([
-      "GPS:GPSLatitude",
-      "GPS:GPSLongitude",
+      testId("GPS:GPSLatitude"),
+      testId("GPS:GPSLongitude"),
     ]);
   });
 
@@ -1776,7 +1892,8 @@ describe("DetailsPane: Group context menu", () => {
     vi.resetModules();
     const { _setTagInfoCacheEntry, _clearTagInfoCache } =
       await import("./tagInfoTestHelpers");
-    const { DetailsPane: FreshDetailsPane } = await import("./legacyAdapters");
+    const { DetailsPane: FreshDetailsPane } =
+      await import("../components/DetailsPane");
 
     askMock.mockResolvedValue(false);
 
@@ -1798,9 +1915,9 @@ describe("DetailsPane: Group context menu", () => {
         metadata={mockMetadata({
           "GPS:GPSLatitude": 51.5,
         })}
-        draftEdits={{
+        draftEdits={mockDisplayDrafts({
           "GPS:GPSLatitude": "52.0",
-        }}
+        })}
         onSetMetadataDraftBatch={onSetBatch}
         onDiscardDraftBatch={onDiscardBatch}
       />,
@@ -1842,7 +1959,8 @@ describe("DetailsPane: Group context menu", () => {
     vi.resetModules();
     const { _setTagInfoCacheEntry, _clearTagInfoCache } =
       await import("./tagInfoTestHelpers");
-    const { DetailsPane: FreshDetailsPane } = await import("./legacyAdapters");
+    const { DetailsPane: FreshDetailsPane } =
+      await import("../components/DetailsPane");
 
     _clearTagInfoCache();
     _setTagInfoCacheEntry("GPS:GPSLatitude", {
@@ -1901,8 +2019,14 @@ describe("DetailsPane: Group context menu", () => {
     });
 
     expect(onSetBatch).toHaveBeenCalledWith([
-      { key: "GPS:GPSLatitude", edit: { value: null, intent: "Delete" } },
-      { key: "GPS:GPSLongitude", edit: { value: null, intent: "Delete" } },
+      {
+        id: testId("GPS:GPSLatitude"),
+        edit: { value: null, intent: "Delete" },
+      },
+      {
+        id: testId("GPS:GPSLongitude"),
+        edit: { value: null, intent: "Delete" },
+      },
     ]);
   });
 
@@ -1910,7 +2034,8 @@ describe("DetailsPane: Group context menu", () => {
     vi.resetModules();
     const { _setTagInfoCacheEntry, _clearTagInfoCache } =
       await import("./tagInfoTestHelpers");
-    const { DetailsPane: FreshDetailsPane } = await import("./legacyAdapters");
+    const { DetailsPane: FreshDetailsPane } =
+      await import("../components/DetailsPane");
 
     _clearTagInfoCache();
     // Register exactly one tag in File group (e.g. File:FileSize)
@@ -1928,9 +2053,9 @@ describe("DetailsPane: Group context menu", () => {
         metadata={mockMetadata({
           "File:FileSize": "1 MB",
         })}
-        draftEdits={{
+        draftEdits={mockDisplayDrafts({
           "File:FileSize": "2 MB",
-        }}
+        })}
         onSetMetadataDraftBatch={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
       />,

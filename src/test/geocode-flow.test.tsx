@@ -10,7 +10,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import App from "../App";
 import { createMockTauriApi } from "./mockTauriApi";
-import { makePhoto } from "./factories";
+import { makePhoto, mockDrafts } from "./factories";
 import type { MetadataValue } from "../types";
 
 let mockApiInstance: ReturnType<typeof createMockTauriApi>;
@@ -110,17 +110,19 @@ describe("Reverse-geocoding flow", () => {
       {
         relativePath: "test.jpg",
         status: "ok",
-        edits: {
-          "XMP-iptcCore:Location": {
-            value: { kind: "Text", value: "Big Ben" },
-            intent: "Set",
-          },
-          "XMP-photoshop:City": {
-            value: { kind: "Text", value: "London" },
-            intent: "Set",
-          },
-          "XMP-photoshop:State": { value: null, intent: "Delete" },
-        },
+        edits: Object.values(
+          mockDrafts({
+            "XMP-iptcCore:Location": {
+              value: { kind: "Text", value: "Big Ben" },
+              intent: "Set",
+            },
+            "XMP-photoshop:City": {
+              value: { kind: "Text", value: "London" },
+              intent: "Set",
+            },
+            "XMP-photoshop:State": { value: null, intent: "Delete" },
+          }),
+        ),
       },
     ];
     mockApiInstance.geocodeSummary = {
@@ -160,18 +162,22 @@ describe("Reverse-geocoding flow", () => {
     // Drafts merged into the in-memory store via the semantic batch setter.
     const folderDrafts = mockApiInstance.draftEditsByFolder["/photos"];
     expect(
-      folderDrafts?.["test.jpg"]?.some(
-        ({ id }: any) => id.tag_id === "Location",
+      Object.values(folderDrafts?.["test.jpg"] ?? {}).some(
+        ({ id }) => id.tag_id === "Location",
       ),
     ).toBe(true);
     expect(
-      folderDrafts?.["test.jpg"]?.some(({ id }: any) => id.tag_id === "City"),
+      Object.values(folderDrafts?.["test.jpg"] ?? {}).some(
+        ({ id }) => id.tag_id === "City",
+      ),
     ).toBe(true);
     // Delete-intent drafts also land — they're how the coherent-
     // replacement rule from plan §1 is communicated to the apply
     // pipeline.
     expect(
-      folderDrafts?.["test.jpg"]?.some(({ id }: any) => id.tag_id === "State"),
+      Object.values(folderDrafts?.["test.jpg"] ?? {}).some(
+        ({ id }) => id.tag_id === "State",
+      ),
     ).toBe(true);
   });
 
@@ -180,7 +186,7 @@ describe("Reverse-geocoding flow", () => {
       {
         relativePath: "test.jpg",
         status: "ok",
-        edits: {},
+        edits: [],
       },
     ];
     mockApiInstance.geocodeSummary = {

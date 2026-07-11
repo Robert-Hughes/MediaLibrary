@@ -1,12 +1,35 @@
 import { render, screen } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
-import { vi } from "vitest";
+import { beforeEach, vi } from "vitest";
 import { ColumnSelectionDialog } from "../components/ColumnSelectionDialog";
 import { DEFAULT_VISIBLE_COLUMNS } from "../utils/columnConfig";
 import type { VisibleColumn } from "../types";
+import { imgCol, testFriendlyName, testId } from "./factories";
+import {
+  _ensureTagInfoCacheEntry,
+  _setTagInfoCacheEntry,
+} from "./tagInfoTestHelpers";
+
+const keyCounts = (items: Array<{ key: string; count: number }>) =>
+  items.map(({ key, count }) => {
+    const id = testId(key);
+    const colon = key.indexOf(":");
+    _ensureTagInfoCacheEntry(id, {
+      group: colon > 0 ? key.slice(0, colon) : "Test",
+      name: colon > 0 ? key.slice(colon + 1) : key,
+      writable: true,
+      kind: { kind: "Text" },
+      description: null,
+      storage_count: undefined,
+    });
+    return { id, count };
+  });
+
+const columnLabel = (column: VisibleColumn) =>
+  column.kind === "os" ? column.key : testFriendlyName(column.id);
 
 describe("ColumnSelectionDialog tests", () => {
-  const allKeys = [
+  const allKeys = keyCounts([
     { key: "ExifIFD:DateTimeOriginal", count: 15 },
     { key: "IFD0:Model", count: 10 },
     { key: "IFD0:Make", count: 8 },
@@ -14,19 +37,34 @@ describe("ColumnSelectionDialog tests", () => {
     { key: "GPS:GPSLatitude", count: 3 },
     { key: "GPS:GPSLongitude", count: 3 },
     { key: "XMP-photoshop:City", count: 7 },
-  ];
+  ]);
 
   const cols = (...arr: VisibleColumn[]): VisibleColumn[] => arr;
 
+  beforeEach(() => {
+    for (const { id } of allKeys) {
+      const name = testFriendlyName(id);
+      const colon = name.indexOf(":");
+      _setTagInfoCacheEntry(id, {
+        group: colon > 0 ? name.slice(0, colon) : "Test",
+        name: colon > 0 ? name.slice(colon + 1) : name,
+        writable: true,
+        kind: { kind: "Text" },
+        description: null,
+        storage_count: undefined,
+      });
+    }
+  });
+
   describe("Alphabetical sorting", () => {
     it("shows image metadata fields in alphabetical order", () => {
-      const sortingKeys = [
+      const sortingKeys = keyCounts([
         { key: "XMP-dc:Subject", count: 5 },
         { key: "IFD0:Model", count: 10 },
         { key: "ExifIFD:DateTimeOriginal", count: 15 },
         { key: "GPS:GPSLatitude", count: 3 },
         { key: "IFD0:Make", count: 8 },
-      ];
+      ]);
 
       const { container } = render(
         <ColumnSelectionDialog
@@ -61,11 +99,11 @@ describe("ColumnSelectionDialog tests", () => {
     });
 
     it("maintains alphabetical order regardless of count values", () => {
-      const sortingKeys = [
+      const sortingKeys = keyCounts([
         { key: "Z-Last:Field", count: 1000 },
         { key: "A-First:Field", count: 1 },
         { key: "M-Middle:Field", count: 500 },
-      ];
+      ]);
 
       const { container } = render(
         <ColumnSelectionDialog
@@ -90,12 +128,12 @@ describe("ColumnSelectionDialog tests", () => {
     });
 
     it("case-insensitive alphabetical sorting", () => {
-      const sortingKeys = [
+      const sortingKeys = keyCounts([
         { key: "xmp-dc:Subject", count: 5 },
         { key: "IFD0:Model", count: 10 },
         { key: "ExifIFD:DateTimeOriginal", count: 15 },
         { key: "gps:GPSLatitude", count: 3 },
-      ];
+      ]);
 
       const { container } = render(
         <ColumnSelectionDialog
@@ -132,7 +170,7 @@ describe("ColumnSelectionDialog tests", () => {
           visibleColumns={cols(
             { key: "date_modified", kind: "os" },
             { key: "date_created", kind: "os" },
-            { key: "IFD0:Model", kind: "image" },
+            imgCol("IFD0:Model"),
           )}
           onSave={onSave}
           onClose={onClose}
@@ -155,7 +193,7 @@ describe("ColumnSelectionDialog tests", () => {
           visibleColumns={cols(
             { key: "date_modified", kind: "os" },
             { key: "date_created", kind: "os" },
-            { key: "IFD0:Model", kind: "image" },
+            imgCol("IFD0:Model"),
           )}
           onSave={onSave}
           onClose={onClose}
@@ -168,7 +206,7 @@ describe("ColumnSelectionDialog tests", () => {
         [
           { key: "date_modified", kind: "os" },
           { key: "date_created", kind: "os" },
-          { key: "IFD0:Model", kind: "image" },
+          imgCol("IFD0:Model"),
         ],
         false,
       );
@@ -184,7 +222,7 @@ describe("ColumnSelectionDialog tests", () => {
           allKeys={allKeys.slice(1, 3)}
           visibleColumns={cols(
             { key: "date_modified", kind: "os" },
-            { key: "IFD0:Model", kind: "image" },
+            imgCol("IFD0:Model"),
           )}
           onSave={onSave}
           onClose={onClose}
@@ -203,8 +241,8 @@ describe("ColumnSelectionDialog tests", () => {
         expect.arrayContaining([
           { key: "date_modified", kind: "os" },
           { key: "date_created", kind: "os" },
-          { key: "IFD0:Model", kind: "image" },
-          { key: "IFD0:Make", kind: "image" },
+          imgCol("IFD0:Model"),
+          imgCol("IFD0:Make"),
         ]),
       );
     });
@@ -347,7 +385,7 @@ describe("ColumnSelectionDialog tests", () => {
       await userEvent.click(screen.getByText("Save Changes"));
 
       expect(onSave).toHaveBeenCalledWith(
-        [{ key: "GPS:GPSLatitude", kind: "image" }],
+        [{ id: testId("GPS:GPSLatitude"), kind: "image" }],
         false,
       );
     });
@@ -500,11 +538,11 @@ describe("ColumnSelectionDialog tests", () => {
   });
 
   describe("Select All / Deselect All", () => {
-    const dialogKeys = [
+    const dialogKeys = keyCounts([
       { key: "IFD0:Model", count: 10 },
       { key: "IFD0:Make", count: 8 },
       { key: "XMP-dc:Subject", count: 5 },
-    ];
+    ]);
 
     it("renders Select All and Deselect All buttons", () => {
       render(
@@ -539,7 +577,7 @@ describe("ColumnSelectionDialog tests", () => {
 
       await userEvent.click(screen.getByText("Save Changes"));
       const [saved] = onSave.mock.calls[0];
-      const keys = saved.map((c: VisibleColumn) => c.key);
+      const keys = saved.map((c: VisibleColumn) => columnLabel(c));
       expect(keys).toEqual(
         expect.arrayContaining([
           "IFD0:Model",
@@ -560,8 +598,8 @@ describe("ColumnSelectionDialog tests", () => {
           visibleColumns={cols(
             { key: "date_modified", kind: "os" },
             { key: "date_created", kind: "os" },
-            { key: "IFD0:Model", kind: "image" },
-            { key: "IFD0:Make", kind: "image" },
+            imgCol("IFD0:Model"),
+            imgCol("IFD0:Make"),
           )}
           onSave={onSave}
           onClose={() => {}}
@@ -585,7 +623,7 @@ describe("ColumnSelectionDialog tests", () => {
           allKeys={dialogKeys}
           visibleColumns={cols(
             { key: "date_modified", kind: "os" },
-            { key: "IFD0:Model", kind: "image" },
+            imgCol("IFD0:Model"),
           )}
           onSave={onSave}
           onClose={() => {}}
@@ -599,7 +637,7 @@ describe("ColumnSelectionDialog tests", () => {
       await userEvent.click(screen.getByText("Save Changes"));
 
       const [saved] = onSave.mock.calls[0];
-      const keys = saved.map((c: VisibleColumn) => c.key);
+      const keys = saved.map((c: VisibleColumn) => columnLabel(c));
       expect(keys).toEqual(
         expect.arrayContaining([
           "IFD0:Model",
@@ -647,10 +685,7 @@ describe("ColumnSelectionDialog tests", () => {
       render(
         <ColumnSelectionDialog
           allKeys={dialogKeys}
-          visibleColumns={cols(
-            { key: "IFD0:Model", kind: "image" },
-            { key: "IFD0:Make", kind: "image" },
-          )}
+          visibleColumns={cols(imgCol("IFD0:Model"), imgCol("IFD0:Make"))}
           onSave={onSave}
           onClose={() => {}}
         />,
@@ -661,8 +696,8 @@ describe("ColumnSelectionDialog tests", () => {
 
       const [saved, resetWidths] = onSave.mock.calls[0];
       expect(resetWidths).toBe(true);
-      const savedKeys = (saved as VisibleColumn[]).map((c) => c.key).sort();
-      const defaultKeys = DEFAULT_VISIBLE_COLUMNS.map((c) => c.key).sort();
+      const savedKeys = (saved as VisibleColumn[]).map(columnLabel).sort();
+      const defaultKeys = DEFAULT_VISIBLE_COLUMNS.map(columnLabel).sort();
       expect(savedKeys).toEqual(defaultKeys);
     });
 
@@ -671,7 +706,7 @@ describe("ColumnSelectionDialog tests", () => {
       render(
         <ColumnSelectionDialog
           allKeys={dialogKeys}
-          visibleColumns={cols({ key: "IFD0:Model", kind: "image" })}
+          visibleColumns={cols(imgCol("IFD0:Model"))}
           onSave={onSave}
           onClose={() => {}}
         />,
@@ -679,10 +714,7 @@ describe("ColumnSelectionDialog tests", () => {
 
       await userEvent.click(screen.getByText("Save Changes"));
 
-      expect(onSave).toHaveBeenCalledWith(
-        [{ key: "IFD0:Model", kind: "image" }],
-        false,
-      );
+      expect(onSave).toHaveBeenCalledWith([imgCol("IFD0:Model")], false);
     });
 
     it("Default button produces columns matching DEFAULT_VISIBLE_COLUMNS order", async () => {
@@ -691,9 +723,9 @@ describe("ColumnSelectionDialog tests", () => {
         <ColumnSelectionDialog
           allKeys={[
             ...dialogKeys,
-            { key: "ExifIFD:DateTimeOriginal", count: 3 },
+            { id: testId("ExifIFD:DateTimeOriginal"), count: 3 },
           ]}
-          visibleColumns={cols({ key: "IFD0:Model", kind: "image" })}
+          visibleColumns={cols(imgCol("IFD0:Model"))}
           onSave={onSave}
           onClose={() => {}}
         />,
@@ -703,7 +735,7 @@ describe("ColumnSelectionDialog tests", () => {
       await userEvent.click(screen.getByText("Save Changes"));
 
       const [saved] = onSave.mock.calls[0];
-      const keys = (saved as VisibleColumn[]).map((c) => c.key);
+      const keys = (saved as VisibleColumn[]).map(columnLabel);
       expect(keys.indexOf("ExifIFD:DateTimeOriginal")).toBeLessThan(
         keys.indexOf("XMP-dc:Subject"),
       );

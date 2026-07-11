@@ -5,7 +5,11 @@ import { ask } from "@tauri-apps/plugin-dialog";
 import { PhotoList } from "../components/PhotoList";
 import { ThumbnailStore, ImageMetadataStore } from "../types";
 import type { PhotoInfo } from "../types";
-import { _clearTagInfoCache, _setTagInfoCacheEntry } from "../hooks/useTagInfo";
+import {
+  _clearTagInfoCache,
+  _setTagInfoCacheEntry,
+} from "./tagInfoTestHelpers";
+import { imgCol, mockDraftsByFile, mockMetadata, testId } from "./factories";
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({
   ask: vi.fn(),
@@ -47,8 +51,20 @@ describe("PhotoList column header context menu", () => {
     });
 
     _clearTagInfoCache();
-    _setTagInfoCacheEntry("ExifIFD:DateTimeOriginal", null);
-    _setTagInfoCacheEntry("IFD0:Model", null);
+    _setTagInfoCacheEntry("ExifIFD:DateTimeOriginal", {
+      group: "ExifIFD",
+      name: "DateTimeOriginal",
+      writable: true,
+      kind: { kind: "Text" },
+      description: null,
+    });
+    _setTagInfoCacheEntry("IFD0:Model", {
+      group: "IFD0",
+      name: "Model",
+      writable: true,
+      kind: { kind: "Text" },
+      description: null,
+    });
   });
 
   it("shows context menu when right-clicking on column headers", async () => {
@@ -60,7 +76,7 @@ describe("PhotoList column header context menu", () => {
         visibleColumns={[
           { key: "date_modified", kind: "os" },
           { key: "date_created", kind: "os" },
-          { key: "ExifIFD:DateTimeOriginal", kind: "image" },
+          imgCol("ExifIFD:DateTimeOriginal"),
         ]}
         {...defaultSortProps}
         selectedIndex={null}
@@ -89,7 +105,7 @@ describe("PhotoList column header context menu", () => {
         visibleColumns={[
           { key: "date_modified", kind: "os" },
           { key: "date_created", kind: "os" },
-          { key: "ExifIFD:DateTimeOriginal", kind: "image" },
+          imgCol("ExifIFD:DateTimeOriginal"),
         ]}
         {...defaultSortProps}
         selectedIndex={null}
@@ -121,8 +137,8 @@ describe("PhotoList column header context menu", () => {
         visibleColumns={[
           { key: "date_modified", kind: "os" },
           { key: "date_created", kind: "os" },
-          { key: "ExifIFD:DateTimeOriginal", kind: "image" },
-          { key: "IFD0:Model", kind: "image" },
+          imgCol("ExifIFD:DateTimeOriginal"),
+          imgCol("IFD0:Model"),
         ]}
         {...defaultSortProps}
         selectedIndex={null}
@@ -157,7 +173,7 @@ describe("PhotoList column header context menu", () => {
         visibleColumns={[
           { key: "date_modified", kind: "os" },
           { key: "date_created", kind: "os" },
-          { key: "ExifIFD:DateTimeOriginal", kind: "image" },
+          imgCol("ExifIFD:DateTimeOriginal"),
         ]}
         {...defaultSortProps}
         selectedIndex={null}
@@ -196,7 +212,7 @@ describe("PhotoList column header context menu", () => {
           imageMetadata={metadataStore}
           visibleColumns={[
             { key: "date_modified", kind: "os" },
-            { key: "ExifIFD:DateTimeOriginal", kind: "image" },
+            imgCol("ExifIFD:DateTimeOriginal"),
           ]}
           {...defaultSortProps}
           selectedIndex={0}
@@ -224,12 +240,15 @@ describe("PhotoList column header context menu", () => {
       vi.mocked(ask).mockResolvedValue(false);
 
       // Setup metadata: photo1 has ExifIFD:DateTimeOriginal, photo2 does not
-      metadataStore.set("photo1.jpg", {
-        "ExifIFD:DateTimeOriginal": {
-          kind: "Text",
-          value: "2022:01:01 12:00:00",
-        },
-      });
+      metadataStore.set(
+        "photo1.jpg",
+        mockMetadata({
+          "ExifIFD:DateTimeOriginal": {
+            kind: "Text",
+            value: "2022:01:01 12:00:00",
+          },
+        }),
+      );
       metadataStore.set("photo2.jpg", {});
 
       render(
@@ -237,7 +256,7 @@ describe("PhotoList column header context menu", () => {
           photos={mockPhotos}
           thumbnails={thumbnailStore}
           imageMetadata={metadataStore}
-          visibleColumns={[{ key: "ExifIFD:DateTimeOriginal", kind: "image" }]}
+          visibleColumns={[imgCol("ExifIFD:DateTimeOriginal")]}
           {...defaultSortProps}
           selectedIndex={0} // photo1 is selected
           onSelect={() => {}}
@@ -289,7 +308,7 @@ describe("PhotoList column header context menu", () => {
           photos={mockPhotos}
           thumbnails={thumbnailStore}
           imageMetadata={metadataStore}
-          visibleColumns={[{ key: "ExifIFD:DateTimeOriginal", kind: "image" }]}
+          visibleColumns={[imgCol("ExifIFD:DateTimeOriginal")]}
           {...defaultSortProps}
           selectedIndex={0}
           onSelect={() => {}}
@@ -315,7 +334,7 @@ describe("PhotoList column header context menu", () => {
       await user.click(removeOption);
 
       expect(onRemoveFieldMock).toHaveBeenCalledWith(
-        "ExifIFD:DateTimeOriginal",
+        testId("ExifIFD:DateTimeOriginal"),
         ["photo1.jpg", "photo2.jpg"],
       );
     });
@@ -324,12 +343,15 @@ describe("PhotoList column header context menu", () => {
       vi.mocked(ask).mockResolvedValue(true);
 
       // photo1 has value in metadata but Delete draft edit (effectively absent)
-      metadataStore.set("photo1.jpg", {
-        "ExifIFD:DateTimeOriginal": {
-          kind: "Text",
-          value: "2022:01:01 12:00:00",
-        },
-      });
+      metadataStore.set(
+        "photo1.jpg",
+        mockMetadata({
+          "ExifIFD:DateTimeOriginal": {
+            kind: "Text",
+            value: "2022:01:01 12:00:00",
+          },
+        }),
+      );
       // photo2 has no value in metadata but Set draft edit (effectively present)
       metadataStore.set("photo2.jpg", {});
 
@@ -353,7 +375,7 @@ describe("PhotoList column header context menu", () => {
           photos={mockPhotos}
           thumbnails={thumbnailStore}
           imageMetadata={metadataStore}
-          visibleColumns={[{ key: "ExifIFD:DateTimeOriginal", kind: "image" }]}
+          visibleColumns={[imgCol("ExifIFD:DateTimeOriginal")]}
           {...defaultSortProps}
           selectedIndex={0}
           onSelect={() => {}}
@@ -362,7 +384,7 @@ describe("PhotoList column header context menu", () => {
           onPhotoOpen={() => {}}
           onSelectColumns={onSelectColumnsMock}
           onRemoveFieldFromSelectedPhotos={onRemoveFieldMock}
-          draftEdits={draftEdits}
+          draftEdits={mockDraftsByFile(draftEdits)}
         />,
       );
 
@@ -393,12 +415,15 @@ describe("PhotoList column header context menu", () => {
       vi.mocked(ask).mockResolvedValue(true);
 
       // Setup metadata: photo1 has value, photo2 does not
-      metadataStore.set("photo1.jpg", {
-        "ExifIFD:DateTimeOriginal": {
-          kind: "Text",
-          value: "2022:01:01 12:00:00",
-        },
-      });
+      metadataStore.set(
+        "photo1.jpg",
+        mockMetadata({
+          "ExifIFD:DateTimeOriginal": {
+            kind: "Text",
+            value: "2022:01:01 12:00:00",
+          },
+        }),
+      );
       metadataStore.set("photo2.jpg", {});
 
       render(
@@ -406,7 +431,7 @@ describe("PhotoList column header context menu", () => {
           photos={mockPhotos}
           thumbnails={thumbnailStore}
           imageMetadata={metadataStore}
-          visibleColumns={[{ key: "ExifIFD:DateTimeOriginal", kind: "image" }]}
+          visibleColumns={[imgCol("ExifIFD:DateTimeOriginal")]}
           {...defaultSortProps}
           selectedIndex={null} // NO selected photo
           onSelect={() => {}}
@@ -441,7 +466,7 @@ describe("PhotoList column header context menu", () => {
 
       // Verify it operates on ALL photos
       expect(onRemoveFieldMock).toHaveBeenCalledWith(
-        "ExifIFD:DateTimeOriginal",
+        testId("ExifIFD:DateTimeOriginal"),
         ["photo1.jpg", "photo2.jpg"],
       );
     });
@@ -454,7 +479,7 @@ describe("PhotoList column header context menu", () => {
           photos={mockPhotos}
           thumbnails={thumbnailStore}
           imageMetadata={metadataStore}
-          visibleColumns={[{ key: "ExifIFD:DateTimeOriginal", kind: "image" }]}
+          visibleColumns={[imgCol("ExifIFD:DateTimeOriginal")]}
           {...defaultSortProps}
           selectedIndex={0} // Photo 1 is selected
           onSelect={() => {}}
@@ -478,7 +503,7 @@ describe("PhotoList column header context menu", () => {
 
       // Verify callback receives only photo1.jpg
       expect(onRemoveFieldMock).toHaveBeenCalledWith(
-        "ExifIFD:DateTimeOriginal",
+        testId("ExifIFD:DateTimeOriginal"),
         ["photo1.jpg"],
       );
     });
@@ -491,7 +516,7 @@ describe("PhotoList column header context menu", () => {
           photos={mockPhotos}
           thumbnails={thumbnailStore}
           imageMetadata={metadataStore}
-          visibleColumns={[{ key: "ExifIFD:DateTimeOriginal", kind: "image" }]}
+          visibleColumns={[imgCol("ExifIFD:DateTimeOriginal")]}
           {...defaultSortProps}
           selectedIndex={0}
           onSelect={() => {}}
@@ -551,7 +576,7 @@ describe("PhotoList column header context menu", () => {
           photos={mockPhotos}
           thumbnails={thumbnailStore}
           imageMetadata={metadataStore}
-          visibleColumns={[{ key: "ExifIFD:DateTimeOriginal", kind: "image" }]}
+          visibleColumns={[imgCol("ExifIFD:DateTimeOriginal")]}
           {...defaultSortProps}
           selectedIndex={null}
           onSelect={() => {}}

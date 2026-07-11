@@ -20,7 +20,10 @@ import { GalleryView } from "../components/GalleryView";
 import { ImageMetadataStore } from "../types";
 import { makePhotos, mockMetadata } from "./factories";
 import type { PhotoInfo } from "../types";
-import { _clearTagInfoCache, _setTagInfoCacheEntry } from "../hooks/useTagInfo";
+import {
+  _clearTagInfoCache,
+  _setTagInfoCacheEntry,
+} from "./tagInfoTestHelpers";
 
 // ── Test helpers ─────────────────────────────────────────────────────────────
 
@@ -90,7 +93,14 @@ beforeEach(() => {
     "IFD0:Orientation",
   ];
   for (const tag of commonTags) {
-    _setTagInfoCacheEntry(tag, null);
+    const colon = tag.indexOf(":");
+    _setTagInfoCacheEntry(tag, {
+      group: tag.slice(0, colon),
+      name: tag.slice(colon + 1),
+      writable: true,
+      kind: { kind: "Text" },
+      description: null,
+    });
   }
 });
 

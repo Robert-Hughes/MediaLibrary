@@ -9,28 +9,18 @@ import {
   act,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { GpsEditor } from "./legacyAdapters";
+import { GpsEditor } from "../components/editors/GpsEditor";
 import {
   parseDecimalDegrees,
   parseHemisphere,
   decimalToDms,
 } from "../components/editors/editorHelpers";
 import { gpsMemberGroup as exactGpsMemberGroup } from "../metadata/tag_overrides";
-import { testFriendlyName, testId } from "./factories";
+import { testId } from "./factories";
+import type { MetadataDraftEdit, SchemaDefinitionId } from "../types";
+import { schemaDefinitionIdEquals } from "../utils/schemaDefinitionId";
 
-const gpsMemberGroup = (key: string) => {
-  const group = exactGpsMemberGroup(testId(key));
-  return group
-    ? {
-        latitudeKey: testFriendlyName(group.latitudeId),
-        latitudeRefKey: testFriendlyName(group.latitudeRefId),
-        longitudeKey: testFriendlyName(group.longitudeId),
-        longitudeRefKey: testFriendlyName(group.longitudeRefId),
-        altitudeKey: testFriendlyName(group.altitudeId),
-        altitudeRefKey: testFriendlyName(group.altitudeRefId),
-      }
-    : null;
-};
+const gpsMemberGroup = (key: string) => exactGpsMemberGroup(testId(key));
 
 vi.mock("../components/GpsMap", () => ({
   GpsMap: ({
@@ -63,14 +53,12 @@ vi.mock("../components/GpsMap", () => ({
   ),
 }));
 
-const exampleGroup = {
-  latitudeKey: "GPS:GPSLatitude",
-  latitudeRefKey: "GPS:GPSLatitudeRef",
-  longitudeKey: "GPS:GPSLongitude",
-  longitudeRefKey: "GPS:GPSLongitudeRef",
-  altitudeKey: "GPS:GPSAltitude",
-  altitudeRefKey: "GPS:GPSAltitudeRef",
-};
+const exampleGroup = exactGpsMemberGroup(testId("GPS:GPSLatitude"))!;
+
+const editFor = (
+  edits: Array<{ id: SchemaDefinitionId; edit: MetadataDraftEdit }>,
+  id: SchemaDefinitionId,
+) => edits.find((entry) => schemaDefinitionIdEquals(entry.id, id))?.edit;
 
 const gpsRefKinds: NonNullable<
   React.ComponentProps<typeof GpsEditor>["refKinds"]
@@ -146,37 +134,38 @@ describe("GpsEditor", () => {
     fireEvent.click(screen.getByTestId("gps-editor-save"));
     expect(onSave).toHaveBeenCalledOnce();
     const edits = onSave.mock.calls[0][0] as Array<{
-      key: string;
-      edit: { value: unknown; intent: string };
+      id: SchemaDefinitionId;
+      edit: MetadataDraftEdit;
     }>;
     expect(edits).toHaveLength(4);
-    const byKey = Object.fromEntries(edits.map((e) => [e.key, e.edit]));
-    expect(byKey["GPS:GPSLatitude"]).toMatchObject({
+    expect(editFor(edits, exampleGroup.latitudeId)).toMatchObject({
       value: { kind: "Real", value: 51.5 },
       intent: "Set",
     });
-    expect(byKey["GPS:GPSLatitudeRef"]).toMatchObject({
+    expect(editFor(edits, exampleGroup.latitudeRefId)).toMatchObject({
       value: { kind: "Text", value: "N" },
       intent: "Set",
     });
-    expect(byKey["GPS:GPSLongitude"]).toMatchObject({
+    expect(editFor(edits, exampleGroup.longitudeId)).toMatchObject({
       value: { kind: "Real", value: 0.13 },
       intent: "Set",
     });
-    expect(byKey["GPS:GPSLongitudeRef"]).toMatchObject({
+    expect(editFor(edits, exampleGroup.longitudeRefId)).toMatchObject({
       value: { kind: "Text", value: "W" },
       intent: "Set",
     });
     // Pretty-form display for the pending-change cell.
-    expect((byKey["GPS:GPSLatitude"] as { display?: string }).display).toBe(
-      `51 deg 30' 0" N`,
-    );
-    expect((byKey["GPS:GPSLatitudeRef"] as { display?: string }).display).toBe(
-      "North",
-    );
-    expect((byKey["GPS:GPSLongitudeRef"] as { display?: string }).display).toBe(
-      "West",
-    );
+    expect(
+      (editFor(edits, exampleGroup.latitudeId) as { display?: string }).display,
+    ).toBe(`51 deg 30' 0" N`);
+    expect(
+      (editFor(edits, exampleGroup.latitudeRefId) as { display?: string })
+        .display,
+    ).toBe("North");
+    expect(
+      (editFor(edits, exampleGroup.longitudeRefId) as { display?: string })
+        .display,
+    ).toBe("West");
   });
 
   it("Save emits 6 paired semantic draft edits when altitude is filled", async () => {
@@ -200,26 +189,26 @@ describe("GpsEditor", () => {
     await user.type(alt, "120.5");
     fireEvent.click(screen.getByTestId("gps-editor-save"));
     const edits = onSave.mock.calls[0][0] as Array<{
-      key: string;
-      edit: { value: unknown; intent: string };
+      id: SchemaDefinitionId;
+      edit: MetadataDraftEdit;
     }>;
     expect(edits).toHaveLength(6);
-    const byKey = Object.fromEntries(edits.map((e) => [e.key, e.edit]));
-    expect(byKey["GPS:GPSAltitude"]).toMatchObject({
+    expect(editFor(edits, exampleGroup.altitudeId)).toMatchObject({
       value: { kind: "Real", value: 120.5 },
       intent: "Set",
     });
-    expect((byKey["GPS:GPSAltitude"] as { display?: string }).display).toBe(
-      "120.5 m Above Sea Level",
-    );
+    expect(
+      (editFor(edits, exampleGroup.altitudeId) as { display?: string }).display,
+    ).toBe("120.5 m Above Sea Level");
     // exiftool encodes AltitudeRef as 0 (above) or 1 (below).
-    expect(byKey["GPS:GPSAltitudeRef"]).toMatchObject({
+    expect(editFor(edits, exampleGroup.altitudeRefId)).toMatchObject({
       value: { kind: "Integer", value: 0 },
       intent: "Set",
     });
-    expect((byKey["GPS:GPSAltitudeRef"] as { display?: string }).display).toBe(
-      "Above Sea Level",
-    );
+    expect(
+      (editFor(edits, exampleGroup.altitudeRefId) as { display?: string })
+        .display,
+    ).toBe("Above Sea Level");
   });
 
   it("Empty altitude leaves the altitude pair untouched", () => {
@@ -236,11 +225,13 @@ describe("GpsEditor", () => {
       />,
     );
     fireEvent.click(screen.getByTestId("gps-editor-save"));
-    const edits = onSave.mock.calls[0][0] as Array<{ key: string }>;
+    const edits = onSave.mock.calls[0][0] as Array<{
+      id: SchemaDefinitionId;
+      edit: MetadataDraftEdit;
+    }>;
     expect(edits).toHaveLength(4);
-    const keys = edits.map((e) => e.key);
-    expect(keys).not.toContain("GPS:GPSAltitude");
-    expect(keys).not.toContain("GPS:GPSAltitudeRef");
+    expect(editFor(edits, exampleGroup.altitudeId)).toBeUndefined();
+    expect(editFor(edits, exampleGroup.altitudeRefId)).toBeUndefined();
   });
 
   it("rejects out-of-range latitude", async () => {
@@ -512,20 +503,19 @@ describe("GpsEditor", () => {
     expect(onSave).toHaveBeenCalledOnce();
     const edits = onSave.mock.calls[0][0];
     expect(edits).toHaveLength(4);
-    const byKey = Object.fromEntries(edits.map((e: any) => [e.key, e.edit]));
-    expect(byKey["GPS:GPSLatitude"]).toMatchObject({
+    expect(editFor(edits, testId("GPS:GPSLatitude"))).toMatchObject({
       value: { kind: "Real", value: 51.5 },
       intent: "Set",
     });
-    expect(byKey["GPS:GPSLatitudeRef"]).toMatchObject({
+    expect(editFor(edits, testId("GPS:GPSLatitudeRef"))).toMatchObject({
       value: { kind: "Text", value: "N" },
       intent: "Set",
     });
-    expect(byKey["GPS:GPSLongitude"]).toMatchObject({
+    expect(editFor(edits, testId("GPS:GPSLongitude"))).toMatchObject({
       value: { kind: "Real", value: 0.13 },
       intent: "Set",
     });
-    expect(byKey["GPS:GPSLongitudeRef"]).toMatchObject({
+    expect(editFor(edits, testId("GPS:GPSLongitudeRef"))).toMatchObject({
       value: { kind: "Text", value: "W" },
       intent: "Set",
     });

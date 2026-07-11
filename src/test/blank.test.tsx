@@ -1,7 +1,8 @@
 import { render } from "@testing-library/react";
 import { describe, it, vi } from "vitest";
-import { PhotoList } from "./legacyAdapters";
+import { PhotoList } from "../components/PhotoList";
 import { ThumbnailStore, ImageMetadataStore } from "../types";
+import { imgCol } from "./factories";
 
 describe("PhotoList", () => {
   it("renders without crashing", () => {
@@ -25,8 +26,8 @@ describe("PhotoList", () => {
         visibleColumns={[
           { key: "date_modified", kind: "os" },
           { key: "date_created", kind: "os" },
-          { key: "ExifIFD:DateTimeOriginal", kind: "image" },
-          { key: "IFD0:Model", kind: "image" },
+          imgCol("ExifIFD:DateTimeOriginal"),
+          imgCol("IFD0:Model"),
         ]}
         sortConfig={{ primary: null, secondary: null }}
         onSortChange={() => {}}

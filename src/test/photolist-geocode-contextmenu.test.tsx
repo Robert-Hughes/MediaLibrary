@@ -14,10 +14,10 @@
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { PhotoList } from "./legacyAdapters";
+import { PhotoList } from "../components/PhotoList";
 import { ThumbnailStore, ImageMetadataStore } from "../types";
 import type { MetadataDraftEdit } from "../types";
-import { mockMetadata } from "./factories";
+import { mockDraftsByFile, mockMetadata } from "./factories";
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({
   ask: vi.fn(() => Promise.resolve(true)),
@@ -78,7 +78,7 @@ function setup(opts: SetupOptions = {}) {
       onDiscardAllEdits={() => {}}
       onGenerateAiDescription={() => {}}
       onGeocode={onGeocode}
-      draftEdits={opts.draftEditsByPath ?? {}}
+      draftEdits={mockDraftsByFile(opts.draftEditsByPath ?? {})}
     />,
   );
 

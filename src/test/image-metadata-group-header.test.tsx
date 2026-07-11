@@ -1,11 +1,10 @@
 import { render, screen } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { vi } from "vitest";
-import { PhotoList } from "./legacyAdapters";
+import { PhotoList } from "../components/PhotoList";
 import { ThumbnailStore, ImageMetadataStore } from "../types";
 import type { PhotoInfo } from "../types";
-
-type VisibleColumn = { key: string; kind: "os" | "image" };
+import { imgCol, osCol } from "./factories";
 
 const defaultSortProps = {
   sortConfig: { primary: null, secondary: null } as const,
@@ -30,9 +29,6 @@ function makeStores(photos: PhotoInfo[]) {
   });
   return { thumbnails, imageMetadata };
 }
-
-const osCol = (key: string): VisibleColumn => ({ key, kind: "os" });
-const imgCol = (key: string): VisibleColumn => ({ key, kind: "image" });
 
 describe("PhotoList per-column kind labels", () => {
   it("shows 'Image' label above each image-metadata column header", () => {

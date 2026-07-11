@@ -3,8 +3,11 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { PhotoList } from "../components/PhotoList";
 import { ThumbnailStore, ImageMetadataStore } from "../types";
 import type { PhotoInfo } from "../types";
-import { makePhotos, mockMetadata } from "./factories";
-import { _clearTagInfoCache, _setTagInfoCacheEntry } from "../hooks/useTagInfo";
+import { imgCol, makePhotos, mockMetadata } from "./factories";
+import {
+  _clearTagInfoCache,
+  _setTagInfoCacheEntry,
+} from "./tagInfoTestHelpers";
 
 const defaultSortProps = {
   sortConfig: { primary: null, secondary: null } as const,
@@ -52,7 +55,7 @@ describe("PhotoList prioritization optimization", () => {
         visibleColumns={[
           { key: "date_modified", kind: "os" },
           { key: "date_created", kind: "os" },
-          { key: "ExifIFD:DateTimeOriginal", kind: "image" },
+          imgCol("ExifIFD:DateTimeOriginal"),
         ]}
         {...defaultSortProps}
         selectedIndex={null}
@@ -88,7 +91,7 @@ describe("PhotoList prioritization optimization", () => {
         visibleColumns={[
           { key: "date_modified", kind: "os" },
           { key: "date_created", kind: "os" },
-          { key: "ExifIFD:DateTimeOriginal", kind: "image" },
+          imgCol("ExifIFD:DateTimeOriginal"),
         ]}
         {...defaultSortProps}
         selectedIndex={null}
@@ -122,7 +125,7 @@ describe("PhotoList prioritization optimization", () => {
         visibleColumns={[
           { key: "date_modified", kind: "os" },
           { key: "date_created", kind: "os" },
-          { key: "ExifIFD:DateTimeOriginal", kind: "image" },
+          imgCol("ExifIFD:DateTimeOriginal"),
         ]}
         {...defaultSortProps}
         selectedIndex={null}
@@ -153,7 +156,7 @@ describe("PhotoList prioritization optimization", () => {
         visibleColumns={[
           { key: "date_modified", kind: "os" },
           { key: "date_created", kind: "os" },
-          { key: "ExifIFD:DateTimeOriginal", kind: "image" },
+          imgCol("ExifIFD:DateTimeOriginal"),
         ]}
         {...defaultSortProps}
         selectedIndex={null}
@@ -190,7 +193,7 @@ describe("PhotoList prioritization optimization", () => {
         visibleColumns={[
           { key: "date_modified", kind: "os" },
           { key: "date_created", kind: "os" },
-          { key: "ExifIFD:DateTimeOriginal", kind: "image" },
+          imgCol("ExifIFD:DateTimeOriginal"),
         ]}
         {...defaultSortProps}
         selectedIndex={null}
@@ -225,7 +228,7 @@ describe("PhotoList prioritization optimization", () => {
         visibleColumns={[
           { key: "date_modified", kind: "os" },
           { key: "date_created", kind: "os" },
-          { key: "ExifIFD:DateTimeOriginal", kind: "image" },
+          imgCol("ExifIFD:DateTimeOriginal"),
         ]}
         {...defaultSortProps}
         selectedIndex={null}
@@ -261,7 +264,7 @@ describe("PhotoList prioritization optimization", () => {
         visibleColumns={[
           { key: "date_modified", kind: "os" },
           { key: "date_created", kind: "os" },
-          { key: "ExifIFD:DateTimeOriginal", kind: "image" },
+          imgCol("ExifIFD:DateTimeOriginal"),
         ]}
         {...defaultSortProps}
         selectedIndex={null}

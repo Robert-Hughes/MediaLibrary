@@ -28,7 +28,7 @@ function outcome(
   kind: MetadataTagOutcome["kind"],
 ): MetadataTagOutcome {
   return {
-    id: { table: "Test::Legacy", tag_id: tag },
+    id: testId(tag),
     display_name: tag,
     kind,
     sent: null,
