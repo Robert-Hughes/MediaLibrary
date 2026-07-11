@@ -113,19 +113,6 @@ impl std::fmt::Display for SchemaDefinitionId {
     }
 }
 
-#[cfg(test)]
-impl PartialEq<String> for SchemaDefinitionId {
-    #[allow(clippy::cmp_owned)]
-    fn eq(&self, other: &String) -> bool {
-        self.tag_id == *other
-            || self.to_string() == *other
-            || get_registry()
-                .ok()
-                .and_then(|registry| registry.lookup(other))
-                .is_some_and(|info| info.id == *self)
-    }
-}
-
 pub fn normalize_static_table_name(table: &str) -> String {
     table
         .strip_prefix("Image::ExifTool::")
@@ -213,36 +200,9 @@ pub struct TagRegistry {
     tags: BTreeMap<SchemaDefinitionId, TagInfo>,
 }
 
-pub trait RegistryLookupKey {
-    fn find(self, registry: &TagRegistry) -> Option<&TagInfo>;
-}
-
-impl RegistryLookupKey for &SchemaDefinitionId {
-    fn find(self, registry: &TagRegistry) -> Option<&TagInfo> {
-        registry.tags.get(self)
-    }
-}
-
-#[cfg(any(test, feature = "integration"))]
-impl RegistryLookupKey for &str {
-    fn find(self, registry: &TagRegistry) -> Option<&TagInfo> {
-        registry
-            .tags
-            .values()
-            .find(|info| info.display_name() == self)
-    }
-}
-
-#[cfg(any(test, feature = "integration"))]
-impl RegistryLookupKey for &String {
-    fn find(self, registry: &TagRegistry) -> Option<&TagInfo> {
-        RegistryLookupKey::find(self.as_str(), registry)
-    }
-}
-
 impl TagRegistry {
-    pub fn lookup<K: RegistryLookupKey>(&self, key: K) -> Option<&TagInfo> {
-        key.find(self)
+    pub fn lookup(&self, id: &SchemaDefinitionId) -> Option<&TagInfo> {
+        self.tags.get(id)
     }
 
     pub fn len(&self) -> usize {
@@ -1002,6 +962,34 @@ mod tests {
 </table>
 </taginfo>"#;
 
+    fn test_id_in(r: &TagRegistry, display_name: &str) -> SchemaDefinitionId {
+        let matches: Vec<_> = r
+            .iter()
+            .filter_map(|(id, info)| (info.display_name() == display_name).then_some(id.clone()))
+            .collect();
+        assert_eq!(
+            matches.len(),
+            1,
+            "expected exactly one schema definition named {display_name:?}, found {}",
+            matches.len(),
+        );
+        matches.into_iter().next().unwrap()
+    }
+
+    fn dummy_id(display_name: &str) -> SchemaDefinitionId {
+        let parts: Vec<&str> = display_name.split(':').collect();
+        let (table, tag_id) = if parts.len() == 2 {
+            (parts[0], parts[1])
+        } else {
+            ("UnknownTable", display_name)
+        };
+        SchemaDefinitionId {
+            table: table.to_string(),
+            tag_id: tag_id.to_string(),
+            index: None,
+        }
+    }
+
     fn fixture_registry() -> TagRegistry {
         TagRegistry::from_listx_xml(SAMPLE_LISTX).expect("parse fixture listx")
     }
@@ -1009,17 +997,17 @@ mod tests {
     #[test]
     fn registry_parses_basic_tags() {
         let r = fixture_registry();
-        assert!(r.lookup("IFD0:Orientation").is_some());
-        assert!(r.lookup("IFD0:ModifyDate").is_some());
-        assert!(r.lookup("IPTC:Keywords").is_some());
-        assert!(r.lookup("XMP-dc:Subject").is_some());
-        assert!(r.lookup("XMP-dc:Description").is_some());
+        assert!(r.lookup(&test_id_in(&r, "IFD0:Orientation")).is_some());
+        assert!(r.lookup(&test_id_in(&r, "IFD0:ModifyDate")).is_some());
+        assert!(r.lookup(&test_id_in(&r, "IPTC:Keywords")).is_some());
+        assert!(r.lookup(&test_id_in(&r, "XMP-dc:Subject")).is_some());
+        assert!(r.lookup(&test_id_in(&r, "XMP-dc:Description")).is_some());
     }
 
     #[test]
     fn orientation_is_enum_with_all_options() {
         let r = fixture_registry();
-        let t = r.lookup("IFD0:Orientation").unwrap();
+        let t = r.lookup(&test_id_in(&r, "IFD0:Orientation")).unwrap();
         assert!(t.writable);
         match &t.kind {
             TagKind::Enum { repr, options } => {
@@ -1036,15 +1024,8 @@ mod tests {
 
     #[test]
     fn iptc_keywords_override_yields_bag() {
-        // Keywords IS repeatable per IIM 4.1 (2:25 has `List => 1` in
-        // Image::ExifTool::IPTC). Note that the `count='64'` attribute is
-        // the per-keyword max length, NOT the cardinality — see the
-        // `iptc_sublocation_count_is_not_bag` test below for the negative
-        // case that pins this distinction. Keywords therefore reaches
-        // `Bag<Text>` via the IIM-repeatable override, not via count
-        // inference.
         let r = fixture_registry();
-        let t = r.lookup("IPTC:Keywords").unwrap();
+        let t = r.lookup(&test_id_in(&r, "IPTC:Keywords")).unwrap();
         match &t.kind {
             TagKind::Bag(inner) => assert!(matches!(**inner, TagKind::Text)),
             other => panic!("expected Bag<Text>, got {:?}", other),
@@ -1053,19 +1034,14 @@ mod tests {
 
     #[test]
     fn iptc_sublocation_count_is_not_bag() {
-        // Regression: ExifTool's `-listx` reports IIM 2:92 Sub-location as
-        // `type='string' count='32'`. The 32 is the IIM-spec max byte
-        // length, NOT a 32-element array. Sub-location is scalar per IIM
-        // 4.1. Collection shape now comes only from the explicit `flags`
-        // attribute, which is absent for this tag.
         let r = fixture_registry();
-        let t = r.lookup("IPTC:Sub-location").unwrap();
+        let t = r.lookup(&test_id_in(&r, "IPTC:Sub-location")).unwrap();
         assert!(
             matches!(t.kind, TagKind::Text),
             "Sub-location must be scalar Text, got {:?}",
             t.kind
         );
-        let c = r.lookup("IPTC:City").unwrap();
+        let c = r.lookup(&test_id_in(&r, "IPTC:City")).unwrap();
         assert!(
             matches!(c.kind, TagKind::Text),
             "City must be scalar Text, got {:?}",
@@ -1075,24 +1051,20 @@ mod tests {
 
     #[test]
     fn exif_gps_coordinates_are_app_facing_reals() {
-        // ExifTool stores latitude/longitude as D/M/S rationals on disk,
-        // but the scanner's JSON interface reports scalar decimal degrees
-        // under -n. The override keeps the app-facing schema aligned with
-        // that interface instead of exposing Bag<Rational> to the UI.
         let r = fixture_registry();
-        let lat = r.lookup("GPS:GPSLatitude").unwrap();
+        let lat = r.lookup(&test_id_in(&r, "GPS:GPSLatitude")).unwrap();
         assert!(
             matches!(lat.kind, TagKind::Real),
             "GPSLatitude must be scalar Real, got {:?}",
             lat.kind
         );
-        let lon = r.lookup("GPS:GPSLongitude").unwrap();
+        let lon = r.lookup(&test_id_in(&r, "GPS:GPSLongitude")).unwrap();
         assert!(
             matches!(lon.kind, TagKind::Real),
             "GPSLongitude must be scalar Real, got {:?}",
             lon.kind
         );
-        let alt = r.lookup("GPS:GPSAltitude").unwrap();
+        let alt = r.lookup(&test_id_in(&r, "GPS:GPSAltitude")).unwrap();
         assert!(
             matches!(alt.kind, TagKind::Real),
             "GPSAltitude must be scalar Real, got {:?}",
@@ -1104,7 +1076,7 @@ mod tests {
     fn gps_version_id_is_app_facing_text() {
         let r = fixture_registry();
         let version = r
-            .lookup("GPS:GPSVersionID")
+            .lookup(&test_id_in(&r, "GPS:GPSVersionID"))
             .expect("GPSVersionID override should add the tag");
         assert!(
             matches!(version.kind, TagKind::Text),
@@ -1117,7 +1089,7 @@ mod tests {
     fn gps_reference_storage_width_remains_scalar_enum() {
         let r = fixture_registry();
         for key in ["GPS:GPSLatitudeRef", "GPS:GPSLongitudeRef"] {
-            let tag = r.lookup(key).unwrap();
+            let tag = r.lookup(&test_id_in(&r, key)).unwrap();
             assert!(matches!(
                 tag.kind,
                 TagKind::Enum {
@@ -1132,7 +1104,7 @@ mod tests {
     #[test]
     fn numeric_storage_count_does_not_create_a_collection() {
         let r = fixture_registry();
-        let t = r.lookup("ExifIFD:ThreeRationals").unwrap();
+        let t = r.lookup(&test_id_in(&r, "ExifIFD:ThreeRationals")).unwrap();
         assert!(matches!(t.kind, TagKind::Rational));
         assert_eq!(t.storage_count.as_deref(), Some("3"));
     }
@@ -1146,15 +1118,15 @@ mod tests {
         </table></taginfo>"#;
         let r = TagRegistry::from_listx_xml(xml).unwrap();
         assert!(matches!(
-            r.lookup("Test:Generic").unwrap().kind,
+            r.lookup(&test_id_in(&r, "Test:Generic")).unwrap().kind,
             TagKind::Bag(_)
         ));
         assert!(matches!(
-            r.lookup("Test:Ordered").unwrap().kind,
+            r.lookup(&test_id_in(&r, "Test:Ordered")).unwrap().kind,
             TagKind::Seq(_)
         ));
         assert!(matches!(
-            r.lookup("Test:Alternative").unwrap().kind,
+            r.lookup(&test_id_in(&r, "Test:Alternative")).unwrap().kind,
             TagKind::Alt(_)
         ));
     }
@@ -1162,7 +1134,7 @@ mod tests {
     #[test]
     fn xmp_dc_subject_list_flag_derives_bag() {
         let r = fixture_registry();
-        let t = r.lookup("XMP-dc:Subject").unwrap();
+        let t = r.lookup(&test_id_in(&r, "XMP-dc:Subject")).unwrap();
         match &t.kind {
             TagKind::Bag(inner) => assert!(matches!(**inner, TagKind::Text)),
             other => panic!("expected Bag<Text>, got {:?}", other),
@@ -1172,7 +1144,7 @@ mod tests {
     #[test]
     fn xmp_dc_creator_list_flag_derives_seq() {
         let r = fixture_registry();
-        let t = r.lookup("XMP-dc:Creator").unwrap();
+        let t = r.lookup(&test_id_in(&r, "XMP-dc:Creator")).unwrap();
         match &t.kind {
             TagKind::Seq(inner) => assert!(matches!(**inner, TagKind::Text)),
             other => panic!("expected Seq<Text>, got {:?}", other),
@@ -1182,7 +1154,7 @@ mod tests {
     #[test]
     fn xmp_dc_description_is_langalt() {
         let r = fixture_registry();
-        let t = r.lookup("XMP-dc:Description").unwrap();
+        let t = r.lookup(&test_id_in(&r, "XMP-dc:Description")).unwrap();
         assert!(matches!(t.kind, TagKind::LangAlt));
     }
 
@@ -1203,15 +1175,12 @@ mod tests {
     #[test]
     fn modify_date_is_datetime() {
         let r = fixture_registry();
-        let t = r.lookup("IFD0:ModifyDate").unwrap();
+        let t = r.lookup(&test_id_in(&r, "IFD0:ModifyDate")).unwrap();
         assert!(matches!(t.kind, TagKind::DateTime));
     }
 
     #[test]
     fn derive_kind_recognises_all_date_flavours() {
-        // Phase 8 fix-up: `date+` and `datetime` previously fell through to
-        // Unknown, leaving write_args's DateTime → numeric arm and the
-        // datetime override editor inert for tags carrying these types.
         assert!(matches!(derive_kind("date", None, &[]), TagKind::DateTime));
         assert!(matches!(derive_kind("date+", None, &[]), TagKind::DateTime));
         assert!(matches!(
@@ -1223,9 +1192,9 @@ mod tests {
     #[test]
     fn iptc_split_date_time_kinds_are_schema_derived() {
         let r = fixture_registry();
-        let date = r.lookup("IPTC:DateCreated").unwrap();
+        let date = r.lookup(&test_id_in(&r, "IPTC:DateCreated")).unwrap();
         assert!(matches!(date.kind, TagKind::Date));
-        let time = r.lookup("IPTC:TimeCreated").unwrap();
+        let time = r.lookup(&test_id_in(&r, "IPTC:TimeCreated")).unwrap();
         assert!(matches!(time.kind, TagKind::Time));
     }
 
@@ -1256,27 +1225,20 @@ mod tests {
 
     #[test]
     fn xmp_datetime_overrides_promote_string_tags_to_datetime() {
-        // listx says XMP-xmp:CreateDate is a plain string because XMP doesn't
-        // constrain it at the schema level; the override table promotes the
-        // common XMP datetime tags so editors / verifier / write_args all
-        // treat them as DateTime.
         let r = fixture_registry();
-        assert!(r.lookup("XMP-xmp:CreateDate").is_none());
-        assert!(r.lookup("XMP-photoshop:DateCreated").is_none());
+        assert!(r.lookup(&dummy_id("XMP-xmp:CreateDate")).is_none());
+        assert!(r.lookup(&dummy_id("XMP-photoshop:DateCreated")).is_none());
     }
 
     #[test]
     fn xmp_rating_is_real() {
         let r = fixture_registry();
-        let t = r.lookup("XMP-xmp:Rating").unwrap();
+        let t = r.lookup(&test_id_in(&r, "XMP-xmp:Rating")).unwrap();
         assert!(matches!(t.kind, TagKind::Real));
     }
 
     #[test]
     fn undef_version_strings_promoted_to_text() {
-        // listx exposes ExifVersion / FlashpixVersion / InteropVersion as
-        // type='undef', which derives to Unknown.  The override table
-        // promotes them to Text so the user gets a real string editor.
         let mut tags: BTreeMap<SchemaDefinitionId, TagInfo> = BTreeMap::new();
         let id = SchemaDefinitionId {
             table: "Exif::Main".into(),
@@ -1312,7 +1274,7 @@ mod tests {
 </table>
 </taginfo>"#;
         let r = TagRegistry::from_listx_xml(xml).expect("parse XPKeywords fixture");
-        let t = r.lookup("IFD0:XPKeywords").unwrap();
+        let t = r.lookup(&test_id_in(&r, "IFD0:XPKeywords")).unwrap();
         assert!(
             matches!(t.kind, TagKind::Text),
             "XPKeywords must be semantic Text, got {:?}",
@@ -1333,7 +1295,7 @@ mod tests {
             "IFD0:XPKeywords",
             "IFD0:XPSubject",
         ] {
-            assert!(r.lookup(key).is_none());
+            assert!(r.lookup(&dummy_id(key)).is_none());
         }
     }
 
@@ -1348,7 +1310,7 @@ mod tests {
 </table>
 </taginfo>"#;
         let r = TagRegistry::from_listx_xml(xml).expect("parse UserComment fixture");
-        let t = r.lookup("ExifIFD:UserComment").unwrap();
+        let t = r.lookup(&test_id_in(&r, "ExifIFD:UserComment")).unwrap();
         assert!(
             matches!(t.kind, TagKind::Text),
             "UserComment must be semantic Text, got {:?}",
@@ -1358,10 +1320,6 @@ mod tests {
 
     #[test]
     fn undef_binary_blobs_demoted_to_binary_and_readonly() {
-        // MakerNotes / preview/thumbnail JPEGs / opaque DNG buffers are
-        // writable='true' per listx but only via `-Tag<=file.bin`.  The
-        // override marks them Binary AND forces writable=false so the UI
-        // treats them as read-only and the autocomplete drops them.
         let mut tags: BTreeMap<SchemaDefinitionId, TagInfo> = BTreeMap::new();
         let maker_id = SchemaDefinitionId {
             table: "Exif::Main".into(),
@@ -1408,8 +1366,6 @@ mod tests {
 
     #[test]
     fn binary_override_does_not_grant_write_when_listx_said_no() {
-        // Defensive: if listx ever reported a Binary-overridden tag as
-        // writable=false, the override must NOT flip that to true.
         let mut tags: BTreeMap<SchemaDefinitionId, TagInfo> = BTreeMap::new();
         let id = SchemaDefinitionId {
             table: "Exif::Main".into(),
@@ -1435,7 +1391,7 @@ mod tests {
     #[test]
     fn undef_type_is_unknown() {
         let r = fixture_registry();
-        let t = r.lookup("Foo:BinaryThing").unwrap();
+        let t = r.lookup(&test_id_in(&r, "Foo:BinaryThing")).unwrap();
         assert!(matches!(t.kind, TagKind::Unknown));
         assert!(!t.writable);
     }
@@ -1443,19 +1399,15 @@ mod tests {
     #[test]
     fn missing_tag_returns_none() {
         let r = fixture_registry();
-        assert!(r.lookup("Nonexistent:Tag").is_none());
-        assert!(r.lookup("XMP-dc:NotARealField").is_none());
+        assert!(r.lookup(&dummy_id("Nonexistent:Tag")).is_none());
+        assert!(r.lookup(&dummy_id("XMP-dc:NotARealField")).is_none());
     }
 
     #[test]
     fn registry_serde_roundtrip_for_disk_cache() {
-        // The build_cached() path writes serde_json of TagRegistry to disk
-        // and reads it back.  Verify the round-trip preserves every kind we
-        // emit in the fixture.
         let original = fixture_registry();
         let json = serde_json::to_string(&original).expect("serialize");
         let restored: TagRegistry = serde_json::from_str(&json).expect("deserialize");
-        // Compare via the same lookups we make at runtime.
         for key in [
             "IFD0:Orientation",
             "IPTC:Keywords",
@@ -1463,20 +1415,23 @@ mod tests {
             "XMP-dc:Description",
             "XMP-xmp:Rating",
             "Foo:BinaryThing",
-            "XMP-mwg-rs:Regions",
         ] {
-            let a = original.lookup(key);
-            let b = restored.lookup(key);
+            let id = test_id_in(&original, key);
+            let a = original.lookup(&id);
+            let b = restored.lookup(&id);
             assert_eq!(a, b, "lookup mismatch after roundtrip for {}", key);
         }
+
+        // Regions is absent in the fixture registry, but let's check it roundtrips None
+        let regions_id = dummy_id("XMP-mwg-rs:Regions");
+        assert_eq!(original.lookup(&regions_id), None);
+        assert_eq!(restored.lookup(&regions_id), None);
+
         assert_eq!(original.len(), restored.len());
     }
 
     #[test]
     fn build_cached_applies_overrides() {
-        // Regression test: ensure build_cached() applies overrides even when
-        // loading from disk. We test this by forcing a cache build (which may
-        // hit disk) and verifying an overridden tag is correct.
         let reg = TagRegistry::build_cached().expect("build_cached failed");
         assert!(!reg.is_empty());
     }
@@ -1498,9 +1453,7 @@ mod tests {
 
     #[test]
     fn mwg_regions_override_present_even_without_listx_entry() {
-        // The fixture XML has no XMP-mwg-rs entries, but the override table
-        // inserts Regions so the editor knows it's a struct.
         let r = fixture_registry();
-        assert!(r.lookup("XMP-mwg-rs:Regions").is_none());
+        assert!(r.lookup(&dummy_id("XMP-mwg-rs:Regions")).is_none());
     }
 }

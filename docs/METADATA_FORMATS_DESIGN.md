@@ -358,6 +358,12 @@ keys and display labels are never used as metadata identity:
 }
 ```
 
+To ensure integrity and predictability, the persistence layer enforces the following validation and sorting guarantees:
+
+- **No Duplicate Entries**: Both load and save operations reject any draft edit payload containing duplicate `SchemaDefinitionId` keys for the same file.
+- **No Duplicate Paths**: Loading draft edits rejects payloads containing duplicate `relative_path` entries.
+- **Deterministic Ordering**: When saved to disk, lines (files) are sorted alphabetically by `relative_path`, and the edits list within each line is sorted by `SchemaDefinitionId`.
+
 Older v1-v3 draft files are not loaded or migrated. Loading a legacy line
 returns a clear error telling the user to recreate pending drafts with
 `schema_version` 4. This avoids reconstructing exact schema identity or

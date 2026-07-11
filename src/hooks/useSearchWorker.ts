@@ -162,13 +162,17 @@ export function useSearchWorker(
         meta,
       })),
     });
+    // TODO: The search worker orchestration currently maps draft edits using serialized string keys
+    // (representing `SchemaDefinitionId.to_string()`) rather than structured exact-ID lookups.
+    // In a subsequent search indexing migration phase, the search worker protocol and indexing logic
+    // must be refactored to support structured exact-ID lookups.
     w.postMessage({
       type: "INIT_DRAFTS",
       entries: Object.entries(draftEditsStore.getAllMetadata()).map(
         ([path, edits]) => ({
           path,
           edits: Object.fromEntries(
-            Object.entries(edits).map(([key, entry]) => [key, entry.edit])
+            Object.entries(edits).map(([key, entry]) => [key, entry.edit]),
           ),
         }),
       ),
@@ -183,7 +187,7 @@ export function useSearchWorker(
       for (const c of changes) {
         const edits = c.edits
           ? Object.fromEntries(
-              Object.entries(c.edits).map(([key, entry]) => [key, entry.edit])
+              Object.entries(c.edits).map(([key, entry]) => [key, entry.edit]),
             )
           : undefined;
         w.postMessage({ type: "UPSERT_DRAFTS", path: c.path, edits });

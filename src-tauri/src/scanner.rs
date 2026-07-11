@@ -38,15 +38,10 @@ impl MetadataEntries {
         self.0.len()
     }
 
-    #[cfg(any(test, feature = "integration"))]
-    pub fn get(&self, key: &str) -> Option<&MetadataValue> {
-        let expected = crate::tag_schema::get_registry()
-            .ok()
-            .and_then(|registry| registry.lookup(key))
-            .map(|info| &info.id);
+    pub fn get(&self, id: &SchemaDefinitionId) -> Option<&MetadataValue> {
         self.0
             .iter()
-            .find(|entry| entry.id.tag_id == key || expected.is_some_and(|id| *id == entry.id))
+            .find(|entry| entry.id == *id)
             .map(|entry| &entry.value)
     }
 }
@@ -56,25 +51,6 @@ impl IntoIterator for MetadataEntries {
     type IntoIter = std::vec::IntoIter<MetadataEntry>;
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()
-    }
-}
-
-#[cfg(test)]
-impl std::ops::Index<&str> for MetadataEntries {
-    type Output = MetadataValue;
-    fn index(&self, key: &str) -> &Self::Output {
-        &self
-            .0
-            .iter()
-            .find(|entry| {
-                entry.id.tag_id == key
-                    || crate::tag_schema::get_registry()
-                        .ok()
-                        .and_then(|registry| registry.lookup(key))
-                        .is_some_and(|info| info.id == entry.id)
-            })
-            .unwrap_or_else(|| panic!("missing test metadata entry {key}"))
-            .value
     }
 }
 
@@ -499,11 +475,7 @@ fn try_parse_exiftool_pass_json_raw_with_registry(
             }
             #[cfg(test)]
             let val = if val.get("table").is_none() || val.get("id").is_none() {
-                if let Some(info) = registry.and_then(|registry| registry.lookup(key.as_str())) {
-                    serde_json::json!({"table": info.id.table, "id": info.id.tag_id, "index": info.id.index, "val": val})
-                } else {
-                    serde_json::json!({"table": "Test::Legacy", "id": key, "val": val})
-                }
+                serde_json::json!({"table": "Test::Legacy", "id": key, "val": val})
             } else {
                 val
             };
@@ -1378,7 +1350,12 @@ mod tests {
         let results = parse_exiftool_batch_json(json, &rel, &abs);
         assert_eq!(results.len(), 3);
         let b = results.iter().find(|r| r.relative_path == "b.mov").unwrap();
-        match b.metadata.get("Keys") {
+        let keys_id = SchemaDefinitionId {
+            table: "Test::Legacy".into(),
+            tag_id: "Keys".into(),
+            index: None,
+        };
+        match b.metadata.get(&keys_id) {
             Some(MetadataValue::Unknown { raw, .. }) => {
                 assert_eq!(raw, &serde_json::json!({"creator": "alice", "year": 2024}));
             }
@@ -1404,12 +1381,17 @@ mod tests {
         assert_eq!(results.len(), 2);
         let a = results.iter().find(|r| r.relative_path == "a.jpg").unwrap();
         let c = results.iter().find(|r| r.relative_path == "c.jpg").unwrap();
+        let tag_id = SchemaDefinitionId {
+            table: "Test::Legacy".into(),
+            tag_id: "Tag".into(),
+            index: None,
+        };
         assert!(matches!(
-            a.metadata.get("Tag"),
+            a.metadata.get(&tag_id),
             Some(MetadataValue::Unknown { raw, .. }) if raw == &serde_json::json!("ok")
         ));
         assert!(matches!(
-            c.metadata.get("Tag"),
+            c.metadata.get(&tag_id),
             Some(MetadataValue::Unknown { raw, .. }) if raw == &serde_json::json!("ok")
         ));
     }
@@ -1457,24 +1439,26 @@ mod tests {
     fn parse_batch_populates_transitional_semantic_maps() {
         let json = r#"[{
             "SourceFile": "D:/a.jpg",
-            "IPTC:TimeCreated": "10:56:05",
-            "ExifIFD:OffsetTimeOriginal": "+01:00",
-            "MadeUp:Thing": 5
+            "IPTC:TimeCreated": {"table": "IPTC::ApplicationRecord", "id": "60", "val": "10:56:05"},
+            "ExifIFD:OffsetTimeOriginal": {"table": "Exif::Main", "id": "36881", "val": "+01:00"},
+            "MadeUp:Thing": {"table": "Test::Legacy", "id": "MadeUp:Thing", "val": 5}
         }]"#;
         let rel = vec!["a.jpg".to_string()];
         let abs = vec![std::path::PathBuf::from("D:/a.jpg")];
         let results = parse_exiftool_batch_json(json, &rel, &abs);
         let image = &results[0];
         assert!(matches!(
-            image.metadata.get("IPTC:TimeCreated"),
+            image.metadata.get(&crate::known_ids::iptc_time_created()),
             Some(MetadataValue::Time(t)) if t.offset.is_none()
         ));
         assert!(matches!(
-            image.metadata.get("ExifIFD:OffsetTimeOriginal"),
+            image
+                .metadata
+                .get(&crate::known_ids::offset_time_original()),
             Some(MetadataValue::TimeOffset(_))
         ));
         assert!(matches!(
-            image.metadata.get("MadeUp:Thing"),
+            image.metadata.get(&SchemaDefinitionId { table: "Test::Legacy".into(), tag_id: "MadeUp:Thing".into(), index: None }),
             Some(MetadataValue::Unknown { expected: None, raw, .. }) if raw == &serde_json::json!(5)
         ));
     }

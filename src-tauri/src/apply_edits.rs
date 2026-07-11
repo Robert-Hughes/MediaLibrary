@@ -264,61 +264,15 @@ fn format_apply_diagnostics(
     }
 }
 
-pub trait DraftInput {
-    fn entries(&self) -> Vec<crate::draft_edits::MetadataDraftEntry>;
-}
-
-impl DraftInput for [crate::draft_edits::MetadataDraftEntry] {
-    fn entries(&self) -> Vec<crate::draft_edits::MetadataDraftEntry> {
-        self.to_vec()
-    }
-}
-
-impl DraftInput for Vec<crate::draft_edits::MetadataDraftEntry> {
-    fn entries(&self) -> Vec<crate::draft_edits::MetadataDraftEntry> {
-        self.clone()
-    }
-}
-
-#[cfg(test)]
-impl DraftInput for HashMap<String, crate::draft_edits::MetadataDraftEdit> {
-    fn entries(&self) -> Vec<crate::draft_edits::MetadataDraftEntry> {
-        self.iter()
-            .map(|(name, edit)| crate::draft_edits::MetadataDraftEntry {
-                id: crate::tag_schema::get_registry()
-                    .ok()
-                    .and_then(|registry| registry.lookup(name))
-                    .map(|info| info.id.clone())
-                    .unwrap_or_else(|| test_schema_id(name)),
-                edit: edit.clone(),
-            })
-            .collect()
-    }
-}
-
-pub fn apply_single_file_metadata<E: DraftInput + ?Sized>(
+pub fn apply_single_file_metadata(
     folder_path: &str,
     rel_path: &str,
-    edits: &E,
+    edits: &[crate::draft_edits::MetadataDraftEntry],
 ) -> MetadataSingleFileOutcome {
-    apply_single_file_metadata_with_client(
-        folder_path,
-        rel_path,
-        &edits.entries(),
-        &RealMetadataWriteClient,
-    )
+    apply_single_file_metadata_with_client(folder_path, rel_path, edits, &RealMetadataWriteClient)
 }
 
 fn apply_single_file_metadata_with_client<C: MetadataWriteClient>(
-    folder_path: &str,
-    rel_path: &str,
-    edits: &(impl DraftInput + ?Sized),
-    client: &C,
-) -> MetadataSingleFileOutcome {
-    apply_single_file_metadata_entries_with_client(folder_path, rel_path, &edits.entries(), client)
-}
-
-fn apply_single_file_metadata_entries_with_client<C: MetadataWriteClient>(
     folder_path: &str,
     rel_path: &str,
     edits: &[crate::draft_edits::MetadataDraftEntry],
@@ -569,56 +523,18 @@ fn apply_single_file_metadata_entries_with_client<C: MetadataWriteClient>(
     }
 }
 
-pub trait IntoSchemaDefinitionId {
-    fn into_schema_definition_id(self) -> SchemaDefinitionId;
-}
-
-impl IntoSchemaDefinitionId for &SchemaDefinitionId {
-    fn into_schema_definition_id(self) -> SchemaDefinitionId {
-        self.clone()
-    }
-}
-
-#[cfg(test)]
-impl IntoSchemaDefinitionId for &str {
-    fn into_schema_definition_id(self) -> SchemaDefinitionId {
-        crate::tag_schema::get_registry()
-            .ok()
-            .and_then(|registry| registry.lookup(self))
-            .map(|info| info.id.clone())
-            .unwrap_or_else(|| test_schema_id(self))
-    }
-}
-
-#[cfg(test)]
-fn test_schema_id(name: &str) -> SchemaDefinitionId {
-    if name == crate::country_code::IPTC_COUNTRY_PRIMARY_LOCATION_CODE {
-        return SchemaDefinitionId {
-            table: "IPTC::ApplicationRecord".into(),
-            tag_id: "100".into(),
-            index: None,
-        };
-    }
-    SchemaDefinitionId {
-        table: "Test::Legacy".into(),
-        tag_id: name.into(),
-        index: None,
-    }
-}
-
 fn verify_metadata_set(
-    key: impl IntoSchemaDefinitionId,
+    key: &SchemaDefinitionId,
     expected: Option<&MetadataValue>,
     fresh_metadata: &scanner::MetadataMap,
     kind: Option<&TagKind>,
 ) -> (String, Option<String>) {
-    let key = key.into_schema_definition_id();
     let expected = match expected {
         Some(v) => v,
         None => return ("Match".to_string(), None),
     };
 
-    let observed = fresh_metadata.get(&key);
+    let observed = fresh_metadata.get(key);
 
     if metadata_empty_value(expected) && metadata_empty_or_absent(observed) {
         return ("Match".to_string(), None);
@@ -685,11 +601,10 @@ fn iptc_country_code_values_match(actual: &MetadataValue, expected: &MetadataVal
 }
 
 fn verify_metadata_delete(
-    key: impl IntoSchemaDefinitionId,
+    key: &SchemaDefinitionId,
     fresh_metadata: &scanner::MetadataMap,
 ) -> (String, Option<String>) {
-    let key = key.into_schema_definition_id();
-    if metadata_empty_or_absent(fresh_metadata.get(&key)) {
+    if metadata_empty_or_absent(fresh_metadata.get(key)) {
         ("DeleteOk".to_string(), None)
     } else {
         (
@@ -697,24 +612,23 @@ fn verify_metadata_delete(
             Some(format!(
                 "Delete verification failed for {}: tag still present ({:?})",
                 key,
-                fresh_metadata.get(&key)
+                fresh_metadata.get(key)
             )),
         )
     }
 }
 
 fn verify_metadata_list_add(
-    key: impl IntoSchemaDefinitionId,
+    key: &SchemaDefinitionId,
     expected: Option<&MetadataValue>,
     fresh_metadata: &scanner::MetadataMap,
     kind: Option<&TagKind>,
 ) -> (String, Option<String>) {
-    let key = key.into_schema_definition_id();
     let expected = match expected {
         Some(v) => v,
         None => return ("Match".to_string(), None),
     };
-    if metadata_list_contains_all(fresh_metadata.get(&key), expected, kind) {
+    if metadata_list_contains_all(fresh_metadata.get(key), expected, kind) {
         return ("Match".to_string(), None);
     }
     (
@@ -727,17 +641,16 @@ fn verify_metadata_list_add(
 }
 
 fn verify_metadata_list_remove(
-    key: impl IntoSchemaDefinitionId,
+    key: &SchemaDefinitionId,
     expected: Option<&MetadataValue>,
     fresh_metadata: &scanner::MetadataMap,
     kind: Option<&TagKind>,
 ) -> (String, Option<String>) {
-    let key = key.into_schema_definition_id();
     let expected = match expected {
         Some(v) => v,
         None => return ("Match".to_string(), None),
     };
-    if metadata_list_contains_none(fresh_metadata.get(&key), expected, kind) {
+    if metadata_list_contains_none(fresh_metadata.get(key), expected, kind) {
         return ("Match".to_string(), None);
     }
     (
@@ -1003,17 +916,34 @@ mod tests {
     use super::*;
     use crate::metadata_value::{DateValue, OffsetSign, RationalValue, TimeValue, UtcOffsetValue};
 
+    fn test_id(display_name: &str) -> SchemaDefinitionId {
+        if display_name == "X" {
+            return SchemaDefinitionId {
+                table: "Test::Legacy".into(),
+                tag_id: "X".into(),
+                index: None,
+            };
+        }
+        let registry = crate::tag_schema::get_registry().expect("registry");
+        let matches: Vec<_> = registry
+            .iter()
+            .filter_map(|(id, info)| (info.display_name() == display_name).then_some(id.clone()))
+            .collect();
+        if matches.len() == 1 {
+            matches.into_iter().next().unwrap()
+        } else {
+            SchemaDefinitionId {
+                table: "Test::Legacy".into(),
+                tag_id: display_name.into(),
+                index: None,
+            }
+        }
+    }
+
     fn metadata_map(pairs: &[(&str, MetadataValue)]) -> scanner::MetadataMap {
         pairs
             .iter()
-            .map(|(key, value)| {
-                let id = crate::tag_schema::get_registry()
-                    .ok()
-                    .and_then(|registry| registry.lookup(*key))
-                    .map(|info| info.id.clone())
-                    .unwrap_or_else(|| test_schema_id(key));
-                (id, value.clone())
-            })
+            .map(|(key, value)| (test_id(key), value.clone()))
             .collect()
     }
 
@@ -1027,18 +957,21 @@ mod tests {
 
     #[test]
     fn semantic_apply_empty_edits_is_hard_failure() {
-        let outcome = apply_single_file_metadata("/tmp", "photo.jpg", &HashMap::new());
+        let outcome = apply_single_file_metadata("/tmp", "photo.jpg", &[]);
         assert!(outcome.fresh_metadata.is_none());
         assert!(outcome.error.unwrap().contains("No edits"));
     }
 
     #[test]
     fn semantic_apply_invalid_key_is_hard_failure() {
-        let mut edits = HashMap::new();
-        edits.insert(
-            "Bad\nKey".to_string(),
-            metadata_edit(MetadataValue::Text("x".into())),
-        );
+        let edits = vec![crate::draft_edits::MetadataDraftEntry {
+            id: SchemaDefinitionId {
+                table: "Test::Legacy".into(),
+                tag_id: "Bad\nKey".into(),
+                index: None,
+            },
+            edit: metadata_edit(MetadataValue::Text("x".into())),
+        }];
         let outcome = apply_single_file_metadata("/tmp", "photo.jpg", &edits);
         assert!(outcome.fresh_metadata.is_none());
         assert!(outcome.error.unwrap().contains("File not found"));
@@ -1046,11 +979,10 @@ mod tests {
 
     #[test]
     fn semantic_apply_missing_file_is_hard_failure() {
-        let mut edits = HashMap::new();
-        edits.insert(
-            "XMP-dc:Title".to_string(),
-            metadata_edit(MetadataValue::Text("x".into())),
-        );
+        let edits = vec![crate::draft_edits::MetadataDraftEntry {
+            id: test_id("XMP-dc:Title"),
+            edit: metadata_edit(MetadataValue::Text("x".into())),
+        }];
         let outcome = apply_single_file_metadata("/tmp", "missing_metadata_semantic.jpg", &edits);
         assert!(outcome.fresh_metadata.is_none());
         assert!(outcome.error.unwrap().contains("File not found"));
@@ -1061,11 +993,14 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("a.jpg");
         std::fs::write(&path, b"not a real image").unwrap();
-        let mut edits = HashMap::new();
-        edits.insert(
-            "IFD1:ThumbnailImage".to_string(),
-            metadata_edit(MetadataValue::Binary),
-        );
+        let edits = vec![crate::draft_edits::MetadataDraftEntry {
+            id: SchemaDefinitionId {
+                table: "Exif::Main".into(),
+                tag_id: "IFD1:ThumbnailImage".into(),
+                index: None,
+            },
+            edit: metadata_edit(MetadataValue::Binary),
+        }];
         let outcome = apply_single_file_metadata(dir.path().to_str().unwrap(), "a.jpg", &edits);
         assert!(outcome.fresh_metadata.is_none());
         assert!(outcome.error.unwrap().contains("missing schema"));
@@ -1074,19 +1009,34 @@ mod tests {
     #[test]
     fn verify_metadata_set_distinguishes_match_coerced_mismatch_missing_and_unparsed() {
         let metadata = metadata_map(&[("X", MetadataValue::Integer(5))]);
-        let (kind, _) = verify_metadata_set("X", Some(&MetadataValue::Integer(5)), &metadata, None);
+        let (kind, _) = verify_metadata_set(
+            &test_id("X"),
+            Some(&MetadataValue::Integer(5)),
+            &metadata,
+            None,
+        );
         assert_eq!(kind, "Match");
 
         let metadata = metadata_map(&[("X", MetadataValue::Real(5.0))]);
-        let (kind, _) = verify_metadata_set("X", Some(&MetadataValue::Integer(5)), &metadata, None);
+        let (kind, _) = verify_metadata_set(
+            &test_id("X"),
+            Some(&MetadataValue::Integer(5)),
+            &metadata,
+            None,
+        );
         assert_eq!(kind, "Coerced");
 
         let metadata = metadata_map(&[("X", MetadataValue::Text("other".into()))]);
-        let (kind, _) = verify_metadata_set("X", Some(&MetadataValue::Integer(5)), &metadata, None);
+        let (kind, _) = verify_metadata_set(
+            &test_id("X"),
+            Some(&MetadataValue::Integer(5)),
+            &metadata,
+            None,
+        );
         assert_eq!(kind, "Mismatch");
 
         let (kind, _) = verify_metadata_set(
-            "X",
+            &test_id("X"),
             Some(&MetadataValue::Integer(5)),
             &BTreeMap::new(),
             None,
@@ -1104,7 +1054,12 @@ mod tests {
                 reason: Some("bad integer".into()),
             },
         )]);
-        let (kind, _) = verify_metadata_set("X", Some(&MetadataValue::Integer(5)), &metadata, None);
+        let (kind, _) = verify_metadata_set(
+            &test_id("X"),
+            Some(&MetadataValue::Integer(5)),
+            &metadata,
+            None,
+        );
         assert_eq!(kind, "UnparsedPostWrite");
     }
 
@@ -1122,7 +1077,7 @@ mod tests {
             denominator: 250,
         });
         let (kind, _) = verify_metadata_set(
-            "EXIF:ExposureTime",
+            &test_id("EXIF:ExposureTime"),
             Some(&expected),
             &metadata,
             Some(&TagKind::Rational),
@@ -1135,7 +1090,7 @@ mod tests {
         let metadata = metadata_map(&[("GPS:GPSLatitude", MetadataValue::Real(52.2037391662333))]);
         let expected = MetadataValue::Real(52.2037391662611);
         let (kind, _) = verify_metadata_set(
-            "GPS:GPSLatitude",
+            &test_id("GPS:GPSLatitude"),
             Some(&expected),
             &metadata,
             Some(&TagKind::Real),
@@ -1229,7 +1184,7 @@ mod tests {
             day: 4,
         });
         let (kind, _) = verify_metadata_set(
-            "IPTC:DateCreated",
+            &test_id("IPTC:DateCreated"),
             Some(&expected),
             &metadata,
             Some(&TagKind::Date),
@@ -1245,7 +1200,7 @@ mod tests {
         )]);
         let expected = MetadataValue::Text("GB".into());
         let (kind, _) = verify_metadata_set(
-            "IPTC:Country-PrimaryLocationCode",
+            &test_id("IPTC:Country-PrimaryLocationCode"),
             Some(&expected),
             &metadata,
             Some(&TagKind::Text),
@@ -1253,7 +1208,12 @@ mod tests {
         assert_eq!(kind, "Match");
 
         let metadata = metadata_map(&[("X", MetadataValue::Text("GB ".into()))]);
-        let (kind, _) = verify_metadata_set("X", Some(&expected), &metadata, Some(&TagKind::Text));
+        let (kind, _) = verify_metadata_set(
+            &test_id("X"),
+            Some(&expected),
+            &metadata,
+            Some(&TagKind::Text),
+        );
         assert_eq!(kind, "Mismatch");
     }
 

@@ -129,7 +129,7 @@ pub fn load_metadata_draft_edits(folder_path: &str) -> Result<MetadataDraftEdits
                 for entry in &parsed.edits {
                     if !seen_ids.insert(&entry.id) {
                         return Err(format!(
-                            "Duplicate tag ID '{}' on line {}",
+                            "Duplicate SchemaDefinitionId '{}' on line {}",
                             entry.id,
                             line_no + 1
                         ));
@@ -141,10 +141,17 @@ pub fn load_metadata_draft_edits(folder_path: &str) -> Result<MetadataDraftEdits
                 }
             }
             Some(old) => {
-                return Err(format!(
-                    "Unsupported draft edit schema_version {old} on line {}. Recreate pending draft edits with schema_version 4 because legacy tag names do not uniquely identify ExifTool definitions.",
-                    line_no + 1
-                ));
+                if old > 4 {
+                    return Err(format!(
+                        "Unsupported future draft edit schema_version {old} on line {}. This version of MediaLibrary only supports schema_version 4.",
+                        line_no + 1
+                    ));
+                } else {
+                    return Err(format!(
+                        "Unsupported draft edit schema_version {old} on line {}. Recreate pending draft edits with schema_version 4 because legacy tag names do not uniquely identify ExifTool definitions.",
+                        line_no + 1
+                    ));
+                }
             }
             None => {
                 return Err(format!(
@@ -170,7 +177,7 @@ pub fn save_metadata_draft_edits(
         for entry in entries {
             if !seen.insert(&entry.id) {
                 return Err(format!(
-                    "Duplicate tag ID '{}' in save payload for file '{}'",
+                    "Duplicate SchemaDefinitionId '{}' in save payload for file '{}'",
                     entry.id, rel_path
                 ));
             }
@@ -549,7 +556,7 @@ mod tests {
         );
         let err = load_metadata_draft_edits(dir.path().to_str().unwrap()).unwrap_err();
         assert!(
-            err.contains("Duplicate tag ID 'XMP::dc/title' on line 1"),
+            err.contains("Duplicate SchemaDefinitionId 'XMP::dc/title' on line 1"),
             "{err}"
         );
     }
@@ -575,7 +582,10 @@ mod tests {
         data.insert("photo.jpg".to_string(), vec![entry1, entry2]);
 
         let err = save_metadata_draft_edits(dir.path().to_str().unwrap(), &data).unwrap_err();
-        assert!(err.contains("Duplicate tag ID 'XMP::dc/title'"), "{err}");
+        assert!(
+            err.contains("Duplicate SchemaDefinitionId 'XMP::dc/title'"),
+            "{err}"
+        );
     }
 
     #[test]
@@ -637,5 +647,115 @@ mod tests {
             "expected entry shape containing edit: {}",
             json_str
         );
+    }
+
+    #[test]
+    fn test_24_idempotency_save_load_save() {
+        let dir = tempdir().unwrap();
+        let mut data: MetadataDraftEdits = HashMap::new();
+        let entry1 = make_entry(
+            "XMP::dc",
+            "title",
+            None,
+            MetadataValue::Text("a".into()),
+            None,
+        );
+        let entry2 = make_entry(
+            "EXIF::Main",
+            "orientation",
+            None,
+            MetadataValue::Integer(3),
+            None,
+        );
+        data.insert("a.jpg".to_string(), vec![entry1]);
+        data.insert("b.jpg".to_string(), vec![entry2]);
+
+        // Save first time
+        save_metadata_draft_edits(dir.path().to_str().unwrap(), &data).unwrap();
+        let first_file_content = read_file(dir.path(), FILE_NAME);
+
+        // Load it
+        let loaded = load_metadata_draft_edits(dir.path().to_str().unwrap()).unwrap();
+        assert_eq!(loaded, data);
+
+        // Save second time
+        save_metadata_draft_edits(dir.path().to_str().unwrap(), &loaded).unwrap();
+        let second_file_content = read_file(dir.path(), FILE_NAME);
+
+        assert_eq!(first_file_content, second_file_content);
+    }
+
+    #[test]
+    fn test_25_deterministic_relative_path_ordering() {
+        let dir = tempdir().unwrap();
+        let mut data: MetadataDraftEdits = HashMap::new();
+        let entry_z = make_entry(
+            "XMP::dc",
+            "title",
+            None,
+            MetadataValue::Text("z".into()),
+            None,
+        );
+        let entry_a = make_entry(
+            "EXIF::Main",
+            "orientation",
+            None,
+            MetadataValue::Integer(1),
+            None,
+        );
+        data.insert("z.jpg".to_string(), vec![entry_z]);
+        data.insert("a.jpg".to_string(), vec![entry_a]);
+
+        save_metadata_draft_edits(dir.path().to_str().unwrap(), &data).unwrap();
+        let contents = read_file(dir.path(), FILE_NAME);
+
+        // Check relative paths ordering
+        let idx_a_jpg = contents.find("a.jpg").unwrap();
+        let idx_z_jpg = contents.find("z.jpg").unwrap();
+        assert!(idx_a_jpg < idx_z_jpg, "a.jpg should come before z.jpg");
+    }
+
+    #[test]
+    fn test_26_tauri_wire_shape_rigorous() {
+        let mut data: MetadataDraftEdits = HashMap::new();
+        let entry = make_entry(
+            "XMP::dc",
+            "title",
+            Some(1),
+            MetadataValue::Text("hello".into()),
+            Some("Nice Title"),
+        );
+        data.insert("photo.jpg".to_string(), vec![entry]);
+
+        let json_str = serde_json::to_string(&data).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+
+        // Must be a map at top level
+        let obj = value.as_object().unwrap();
+        // Must contain "photo.jpg"
+        let photo_edits = obj.get("photo.jpg").unwrap();
+        // Must be an array
+        let edits_arr = photo_edits.as_array().unwrap();
+        assert_eq!(edits_arr.len(), 1);
+
+        let edit_entry = edits_arr[0].as_object().unwrap();
+
+        // Must have "id" which has table/tag_id/index
+        let id_val = edit_entry.get("id").unwrap().as_object().unwrap();
+        assert_eq!(id_val.get("table").unwrap().as_str().unwrap(), "XMP::dc");
+        assert_eq!(id_val.get("tag_id").unwrap().as_str().unwrap(), "title");
+        assert_eq!(id_val.get("index").unwrap().as_i64().unwrap(), 1);
+
+        // Must have "edit" which has value/intent/display
+        let edit_val = edit_entry.get("edit").unwrap().as_object().unwrap();
+        assert_eq!(edit_val.get("intent").unwrap().as_str().unwrap(), "Set");
+        assert_eq!(
+            edit_val.get("display").unwrap().as_str().unwrap(),
+            "Nice Title"
+        );
+
+        let val_val = edit_val.get("value").unwrap().as_object().unwrap();
+        assert_eq!(val_val.get("kind").unwrap().as_str().unwrap(), "Text");
+        assert_eq!(val_val.get("value").unwrap().as_str().unwrap(), "hello");
     }
 }
