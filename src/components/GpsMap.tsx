@@ -52,15 +52,15 @@ export function GpsMap({
 
   // Store selection callback in a ref to avoid map reconstruction
   const onPositionSelectRef = useRef(onPositionSelect);
-  useEffect(() => {
-    onPositionSelectRef.current = onPositionSelect;
-  }, [onPositionSelect]);
+  onPositionSelectRef.current = onPositionSelect;
 
   // Store readOnly in a ref for callback/listener access without reconstruction
   const readOnlyRef = useRef(readOnly);
-  useEffect(() => {
-    readOnlyRef.current = readOnly;
-  }, [readOnly]);
+  readOnlyRef.current = readOnly;
+
+  // Store validPosition in a ref for callback/listener access without reconstruction
+  const validPositionRef = useRef(validPosition);
+  validPositionRef.current = validPosition;
 
   // 1. Map Construction Effect
   // Mode and showAttribution are treated as immutable for the component's lifetime.
@@ -146,7 +146,8 @@ export function GpsMap({
   }, []); // Run once on mount
 
   // 2. Click Handling/Listener Effect
-  // Sets up listener only for picker mode and when not read-only.
+  // 2. Click Handling & Repeated-World Move Handling/Listener Effect
+  // Sets up listeners only for picker mode.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || mode !== "picker") return;
@@ -168,9 +169,23 @@ export function GpsMap({
       }
     };
 
+    const handleMapMove = () => {
+      const marker = markerRef.current;
+      if (marker && validPositionRef.current) {
+        const centerLon = map.getCenter().lng;
+        const displayedLon = getNearestEquivalentLongitude(
+          validPositionRef.current.lon,
+          centerLon,
+        );
+        marker.setLatLng(L.latLng(validPositionRef.current.lat, displayedLon));
+      }
+    };
+
     map.on("click", handleMapClick);
+    map.on("moveend", handleMapMove);
     return () => {
       map.off("click", handleMapClick);
+      map.off("moveend", handleMapMove);
     };
   }, [mode]);
 

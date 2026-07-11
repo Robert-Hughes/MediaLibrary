@@ -235,4 +235,39 @@ describe("GpsMap component", () => {
     rerender(<GpsMap position={{ lat: 95, lon: 10 }} mode="picker" />);
     expect(mockMarkerInstance.remove).toHaveBeenCalled();
   });
+
+  it("repositions marker to nearest world copy on moveend without triggering panTo or selection callbacks", () => {
+    const onPositionSelect = vi.fn();
+    let moveEndCallback: (e: any) => void = () => {};
+    mockMapInstance.on.mockImplementation(
+      (event: string, cb: (e: any) => void) => {
+        if (event === "moveend") {
+          moveEndCallback = cb;
+        }
+        return mockMapInstance;
+      },
+    );
+
+    // Render at -179
+    render(
+      <GpsMap
+        position={{ lat: 0, lon: -179 }}
+        mode="picker"
+        onPositionSelect={onPositionSelect}
+      />,
+    );
+
+    // simulate moveend after centre becomes 541
+    mockMapInstance.getCenter.mockReturnValue({ lat: 0, lng: 541 });
+    moveEndCallback({});
+
+    // expect marker.setLatLng(...541)
+    expect(mockMarkerInstance.setLatLng).toHaveBeenLastCalledWith(
+      expect.objectContaining({ lat: 0, lng: 541 }),
+    );
+    // expect onPositionSelect not called
+    expect(onPositionSelect).not.toHaveBeenCalled();
+    // expect panTo not called
+    expect(mockMapInstance.panTo).not.toHaveBeenCalled();
+  });
 });
