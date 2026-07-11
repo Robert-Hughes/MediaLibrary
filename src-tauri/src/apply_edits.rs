@@ -525,7 +525,9 @@ fn apply_single_file_metadata_entries_with_client<C: MetadataWriteClient>(
 
         tag_outcomes.push(MetadataTagOutcome {
             id: key.clone(),
-            display_name: info.map(|value| value.display_name()).unwrap_or_else(|| format!("{key:?}")),
+            display_name: info
+                .map(|value| value.display_name())
+                .unwrap_or_else(|| format!("{key:?}")),
             kind: outcome_kind,
             sent: edit.value.clone(),
             before: before_metadata.get(key).cloned(),
@@ -580,7 +582,8 @@ impl IntoSchemaDefinitionId for &SchemaDefinitionId {
 #[cfg(test)]
 impl IntoSchemaDefinitionId for &str {
     fn into_schema_definition_id(self) -> SchemaDefinitionId {
-        crate::tag_schema::get_registry().ok()
+        crate::tag_schema::get_registry()
+            .ok()
             .and_then(|registry| registry.lookup(self))
             .map(|info| info.id.clone())
             .unwrap_or_else(|| test_schema_id(self))
@@ -631,7 +634,9 @@ fn verify_metadata_set(
         );
     }
 
-    if key.table == "IPTC::ApplicationRecord" && key.tag_id == "100" && key.index.is_none()
+    if key.table == "IPTC::ApplicationRecord"
+        && key.tag_id == "100"
+        && key.index.is_none()
         && observed.is_some_and(|actual| iptc_country_code_values_match(actual, expected))
     {
         return ("Match".to_string(), None);
@@ -1002,7 +1007,8 @@ mod tests {
         pairs
             .iter()
             .map(|(key, value)| {
-                let id = crate::tag_schema::get_registry().ok()
+                let id = crate::tag_schema::get_registry()
+                    .ok()
                     .and_then(|registry| registry.lookup(*key))
                     .map(|info| info.id.clone())
                     .unwrap_or_else(|| test_schema_id(key));
@@ -1079,8 +1085,12 @@ mod tests {
         let (kind, _) = verify_metadata_set("X", Some(&MetadataValue::Integer(5)), &metadata, None);
         assert_eq!(kind, "Mismatch");
 
-        let (kind, _) =
-            verify_metadata_set("X", Some(&MetadataValue::Integer(5)), &BTreeMap::new(), None);
+        let (kind, _) = verify_metadata_set(
+            "X",
+            Some(&MetadataValue::Integer(5)),
+            &BTreeMap::new(),
+            None,
+        );
         assert_eq!(kind, "MissingPostWrite");
 
         let metadata = metadata_map(&[(
@@ -1421,11 +1431,14 @@ mod tests {
             write_results: std::cell::RefCell::new(vec![]),
             write_calls: std::cell::RefCell::new(vec![]),
         };
-        let mut edits = HashMap::new();
-        edits.insert(
-            "IFD1:ThumbnailImage".to_string(),
-            metadata_edit(MetadataValue::Binary),
-        );
+        let edits = vec![crate::draft_edits::MetadataDraftEntry {
+            id: SchemaDefinitionId {
+                table: "Exif::IFD1".to_string(),
+                tag_id: "ThumbnailImage".to_string(),
+                index: None,
+            },
+            edit: metadata_edit(MetadataValue::Binary),
+        }];
 
         let outcome = apply_single_file_metadata_with_client(folder, "photo.jpg", &edits, &client);
         assert!(outcome.fresh_metadata.is_none());
@@ -1452,14 +1465,18 @@ mod tests {
             write_results: std::cell::RefCell::new(vec![Err("exiftool locked".to_string())]),
             write_calls: std::cell::RefCell::new(vec![]),
         };
-        let mut edits = HashMap::new();
-        edits.insert(
-            "XMP-xmp:Rating".to_string(),
-            metadata_edit(MetadataValue::Integer(5)),
-        );
+        let rating_id = SchemaDefinitionId {
+            table: "XMP::xmp".to_string(),
+            tag_id: "Rating".to_string(),
+            index: None,
+        };
+        let edits = vec![crate::draft_edits::MetadataDraftEntry {
+            id: rating_id.clone(),
+            edit: metadata_edit(MetadataValue::Integer(5)),
+        }];
 
         let outcome = apply_single_file_metadata_with_client(folder, "photo.jpg", &edits, &client);
-        assert_eq!(outcome.tags_to_clear, vec!["XMP-xmp:Rating".to_string()]);
+        assert_eq!(outcome.tags_to_clear, vec![rating_id]);
         assert_eq!(outcome.outcomes.len(), 1);
         assert_eq!(outcome.outcomes[0].kind, "Match");
         assert!(outcome.error.is_none());
@@ -1489,18 +1506,29 @@ mod tests {
             write_results: std::cell::RefCell::new(vec![Ok(()), Err("disk full".to_string())]),
             write_calls: std::cell::RefCell::new(vec![]),
         };
-        let mut edits = HashMap::new();
-        edits.insert(
-            "XMP-xmp:Rating".to_string(),
-            metadata_edit(MetadataValue::Integer(5)),
-        );
-        edits.insert(
-            "XMP-dc:Title".to_string(),
-            metadata_edit(MetadataValue::Text("new".to_string())),
-        );
+        let rating_id = SchemaDefinitionId {
+            table: "XMP::xmp".to_string(),
+            tag_id: "Rating".to_string(),
+            index: None,
+        };
+        let title_id = SchemaDefinitionId {
+            table: "XMP::dc".to_string(),
+            tag_id: "title".to_string(),
+            index: None,
+        };
+        let edits = vec![
+            crate::draft_edits::MetadataDraftEntry {
+                id: rating_id.clone(),
+                edit: metadata_edit(MetadataValue::Integer(5)),
+            },
+            crate::draft_edits::MetadataDraftEntry {
+                id: title_id,
+                edit: metadata_edit(MetadataValue::Text("new".to_string())),
+            },
+        ];
 
         let outcome = apply_single_file_metadata_with_client(folder, "photo.jpg", &edits, &client);
-        assert_eq!(outcome.tags_to_clear, vec!["XMP-xmp:Rating".to_string()]);
+        assert_eq!(outcome.tags_to_clear, vec![rating_id]);
         assert!(outcome.warning.is_none());
         let err = outcome.error.unwrap();
         assert!(err.contains("disk full"));
@@ -1529,14 +1557,18 @@ mod tests {
             write_results: std::cell::RefCell::new(vec![Err("minor error".to_string())]),
             write_calls: std::cell::RefCell::new(vec![]),
         };
-        let mut edits = HashMap::new();
-        edits.insert(
-            "XMP-dc:Title".to_string(),
-            metadata_edit(MetadataValue::Text("new".to_string())),
-        );
+        let title_id = SchemaDefinitionId {
+            table: "XMP::dc".to_string(),
+            tag_id: "title".to_string(),
+            index: None,
+        };
+        let edits = vec![crate::draft_edits::MetadataDraftEntry {
+            id: title_id.clone(),
+            edit: metadata_edit(MetadataValue::Text("new".to_string())),
+        }];
 
         let outcome = apply_single_file_metadata_with_client(folder, "photo.jpg", &edits, &client);
-        assert_eq!(outcome.tags_to_clear, vec!["XMP-dc:Title".to_string()]);
+        assert_eq!(outcome.tags_to_clear, vec![title_id]);
         assert!(outcome.error.is_none());
         let warning = outcome.warning.unwrap();
         assert!(warning.contains("minor error"));
@@ -1556,11 +1588,14 @@ mod tests {
             write_results: std::cell::RefCell::new(vec![Err("write write error".to_string())]),
             write_calls: std::cell::RefCell::new(vec![]),
         };
-        let mut edits = HashMap::new();
-        edits.insert(
-            "XMP-dc:Title".to_string(),
-            metadata_edit(MetadataValue::Text("new".to_string())),
-        );
+        let edits = vec![crate::draft_edits::MetadataDraftEntry {
+            id: SchemaDefinitionId {
+                table: "XMP::dc".to_string(),
+                tag_id: "title".to_string(),
+                index: None,
+            },
+            edit: metadata_edit(MetadataValue::Text("new".to_string())),
+        }];
 
         let outcome = apply_single_file_metadata_with_client(folder, "photo.jpg", &edits, &client);
         assert!(outcome.fresh_metadata.is_none());
@@ -1592,21 +1627,25 @@ mod tests {
             write_results: std::cell::RefCell::new(vec![Err("partial fail".to_string())]),
             write_calls: std::cell::RefCell::new(vec![]),
         };
-        let mut edits = HashMap::new();
-        edits.insert(
-            "XMP-xmp:Rating".to_string(),
-            metadata_edit(MetadataValue::Integer(5)),
-        );
+        let rating_id = SchemaDefinitionId {
+            table: "XMP::xmp".to_string(),
+            tag_id: "Rating".to_string(),
+            index: None,
+        };
+        let edits = vec![crate::draft_edits::MetadataDraftEntry {
+            id: rating_id.clone(),
+            edit: metadata_edit(MetadataValue::Integer(5)),
+        }];
 
         let outcome = apply_single_file_metadata_with_client(folder, "photo.jpg", &edits, &client);
-        assert_eq!(outcome.tags_to_clear, vec!["XMP-xmp:Rating".to_string()]);
+        assert_eq!(outcome.tags_to_clear, vec![rating_id]);
         assert!(outcome.error.is_none());
         assert!(outcome.warning.is_some());
 
         let log_path = dir.path().join("MediaLibraryApplyLog.jsonl");
         assert!(log_path.exists());
         let log_contents = std::fs::read_to_string(log_path).unwrap();
-        assert!(log_contents.contains("XMP-xmp:Rating"));
+        assert!(log_contents.contains("\"tag_id\":\"Rating\""));
         assert!(log_contents.contains("Match"));
         assert!(log_contents.contains("partial fail"));
     }

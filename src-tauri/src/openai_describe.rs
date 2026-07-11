@@ -668,7 +668,10 @@ pub fn compose_metadata_draft_edits(
         crate::known_ids::mlib_ai_ocr_text(),
         list_edit(output.ocr_text.clone()),
     );
-    edits.insert(crate::known_ids::mlib_ai_model(), text_edit(model.to_string()));
+    edits.insert(
+        crate::known_ids::mlib_ai_model(),
+        text_edit(model.to_string()),
+    );
     edits.insert(
         crate::known_ids::mlib_ai_prompt_version(),
         text_edit(PROMPT_VERSION.to_string()),
@@ -845,7 +848,11 @@ mod tests {
             "XMP-mlib:AIPromptVersion",
             "XMP-mlib:AIGeneratedAt",
         ] {
-            assert!(edits.contains_key(&crate::known_ids::test_id(k)), "missing draft for {}", k);
+            assert!(
+                edits.contains_key(&crate::known_ids::test_id(k)),
+                "missing draft for {}",
+                k
+            );
         }
 
         // Bag tags carry a semantic list, not a comma-joined string — the

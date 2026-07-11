@@ -99,11 +99,28 @@ fn metadata_bag(items: &[&str]) -> MetadataValue {
 
 fn metadata_drafts(
     rel: &str,
-    edits: std::collections::HashMap<String, MetadataDraftEdit>,
-) -> std::collections::HashMap<String, std::collections::HashMap<String, MetadataDraftEdit>> {
+    edits: Vec<medialibrary_tauri_lib::draft_edits::MetadataDraftEntry>,
+) -> medialibrary_tauri_lib::draft_edits::MetadataDraftEdits {
     let mut drafts = std::collections::HashMap::new();
     drafts.insert(rel.to_string(), edits);
     drafts
+}
+
+fn unique_schema_id_by_display_name(
+    display_name: &str,
+) -> medialibrary_tauri_lib::tag_schema::SchemaDefinitionId {
+    let registry = medialibrary_tauri_lib::tag_schema::get_registry().expect("schema registry");
+    let matches: Vec<_> = registry
+        .iter()
+        .filter_map(|(id, info)| (info.display_name() == display_name).then_some(id.clone()))
+        .collect();
+    assert_eq!(
+        matches.len(),
+        1,
+        "expected exactly one schema definition named {display_name:?}, found {}",
+        matches.len(),
+    );
+    matches.into_iter().next().unwrap()
 }
 
 // ── Scanner two-pass smoke test ──────────────────────────────────────────────
@@ -135,12 +152,11 @@ fn apply_text_edit_roundtrip_iptc_city() {
     let folder = dir.path().to_str().unwrap();
     let rel = rel_of(dir.path(), &dst);
 
-    let mut edits = std::collections::HashMap::new();
     let value = format!("integration-test-{}", std::process::id());
-    edits.insert(
-        "IPTC:City".to_string(),
-        metadata_set(MetadataValue::Text(value.clone())),
-    );
+    let edits = vec![medialibrary_tauri_lib::draft_edits::MetadataDraftEntry {
+        id: medialibrary_tauri_lib::known_ids::iptc_city(),
+        edit: metadata_set(MetadataValue::Text(value.clone())),
+    }];
 
     let drafts = metadata_drafts(&rel, edits);
     let result =
@@ -169,11 +185,10 @@ fn apply_xmp_mlib_ai_description_preserves_utf8() {
     let folder = dir.path().to_str().unwrap();
     let rel = rel_of(dir.path(), &dst);
 
-    let mut edits = std::collections::HashMap::new();
-    edits.insert(
-        "XMP-mlib:AIDescription".to_string(),
-        metadata_set(MetadataValue::Text("A café scene".to_string())),
-    );
+    let edits = vec![medialibrary_tauri_lib::draft_edits::MetadataDraftEntry {
+        id: medialibrary_tauri_lib::known_ids::mlib_ai_description(),
+        edit: metadata_set(MetadataValue::Text("A café scene".to_string())),
+    }];
 
     let outcome = apply_edits::apply_single_file_metadata(folder, &rel, &edits);
     assert!(outcome.error.is_none(), "apply failed: {:?}", outcome.error);
@@ -201,18 +216,19 @@ fn apply_delete_edit_removes_tag() {
     let rel = rel_of(dir.path(), &dst);
 
     // Step 1: set City so we have something to delete.
-    let mut set_edits = std::collections::HashMap::new();
-    set_edits.insert(
-        "IPTC:City".to_string(),
-        metadata_set(MetadataValue::Text("to-be-deleted".to_string())),
-    );
+    let set_edits = vec![medialibrary_tauri_lib::draft_edits::MetadataDraftEntry {
+        id: medialibrary_tauri_lib::known_ids::iptc_city(),
+        edit: metadata_set(MetadataValue::Text("to-be-deleted".to_string())),
+    }];
     let drafts1 = metadata_drafts(&rel, set_edits);
     let r1 = apply_edits::apply_metadata_draft_edits(folder, std::slice::from_ref(&rel), &drafts1);
     assert!(r1.failed.is_empty());
 
     // Step 2: delete it.
-    let mut del_edits = std::collections::HashMap::new();
-    del_edits.insert("IPTC:City".to_string(), metadata_delete());
+    let del_edits = vec![medialibrary_tauri_lib::draft_edits::MetadataDraftEntry {
+        id: medialibrary_tauri_lib::known_ids::iptc_city(),
+        edit: metadata_delete(),
+    }];
     let drafts2 = metadata_drafts(&rel, del_edits);
     let r2 = apply_edits::apply_metadata_draft_edits(folder, std::slice::from_ref(&rel), &drafts2);
     assert!(r2.failed.is_empty(), "delete failed: {:?}", r2.failed);
@@ -356,11 +372,11 @@ fn roundtrip_set_rating() {
         "fixture should start with a Rating"
     );
 
-    let mut edits = std::collections::HashMap::new();
-    edits.insert(
-        "XMP-xmp:Rating".to_string(),
-        metadata_set(MetadataValue::Integer(5)),
-    );
+    let rating_id = unique_schema_id_by_display_name("XMP-xmp:Rating");
+    let edits = vec![medialibrary_tauri_lib::draft_edits::MetadataDraftEntry {
+        id: rating_id,
+        edit: metadata_set(MetadataValue::Integer(5)),
+    }];
 
     let drafts = metadata_drafts(&rel, edits);
     let result =
@@ -390,11 +406,15 @@ fn roundtrip_set_orientation_via_numeric_pass() {
     let rel = rel_of(dir.path(), &dst);
 
     // Change Orientation from 6 (Rotate 90 CW) to 3 (Rotate 180).
-    let mut edits = std::collections::HashMap::new();
-    edits.insert(
-        "IFD0:Orientation".to_string(),
-        metadata_set(MetadataValue::Integer(3)),
-    );
+    let orientation_id = medialibrary_tauri_lib::tag_schema::SchemaDefinitionId {
+        table: "Exif::Main".to_string(),
+        tag_id: "274".to_string(),
+        index: None,
+    };
+    let edits = vec![medialibrary_tauri_lib::draft_edits::MetadataDraftEntry {
+        id: orientation_id,
+        edit: metadata_set(MetadataValue::Integer(3)),
+    }];
 
     let drafts = metadata_drafts(&rel, edits);
     let result =
@@ -533,10 +553,6 @@ fn malformed_truncated_does_not_kill_batch() {
 
 #[test]
 fn semantic_apply_writes_bag_as_separate_items_end_to_end() {
-    // The end-to-end test for the keywords-CSV bug fix.  We send a semantic
-    // MetadataDraftEdit with Bag<Text>(["alpha", "beta", "gamma"]) for
-    // XMP-dc:Subject, run the semantic apply path, re-read, and assert the
-    // file has THREE separate subjects, not one comma-joined string.
     let Some(src) = fixture_path("real_with_exif.jpg") else {
         return;
     };
@@ -544,11 +560,11 @@ fn semantic_apply_writes_bag_as_separate_items_end_to_end() {
     let folder = dir.path().to_str().unwrap();
     let rel = rel_of(dir.path(), &dst);
 
-    let mut edits = std::collections::HashMap::new();
-    edits.insert(
-        "XMP-dc:Subject".to_string(),
-        metadata_set(metadata_bag(&["alpha", "beta", "gamma"])),
-    );
+    let subject_id = unique_schema_id_by_display_name("XMP-dc:Subject");
+    let edits = vec![medialibrary_tauri_lib::draft_edits::MetadataDraftEntry {
+        id: subject_id,
+        edit: metadata_set(metadata_bag(&["alpha", "beta", "gamma"])),
+    }];
 
     let outcome = apply_edits::apply_single_file_metadata(folder, &rel, &edits);
     assert!(outcome.error.is_none(), "apply failed: {:?}", outcome.error);
@@ -579,9 +595,6 @@ fn semantic_apply_writes_bag_as_separate_items_end_to_end() {
 
 #[test]
 fn apply_emits_apply_log_jsonl_entry() {
-    // After a semantic apply the folder should contain a
-    // `MediaLibraryApplyLog.jsonl` audit file with one header line plus one
-    // line per tag edited.
     let Some(src) = fixture_path("rating_3.jpg") else {
         return;
     };
@@ -589,11 +602,11 @@ fn apply_emits_apply_log_jsonl_entry() {
     let folder = dir.path().to_str().unwrap();
     let rel = rel_of(dir.path(), &dst);
 
-    let mut edits = std::collections::HashMap::new();
-    edits.insert(
-        "XMP-xmp:Rating".to_string(),
-        metadata_set(MetadataValue::Integer(5)),
-    );
+    let rating_id = unique_schema_id_by_display_name("XMP-xmp:Rating");
+    let edits = vec![medialibrary_tauri_lib::draft_edits::MetadataDraftEntry {
+        id: rating_id,
+        edit: metadata_set(MetadataValue::Integer(5)),
+    }];
 
     let outcome = apply_edits::apply_single_file_metadata(folder, &rel, &edits);
     assert!(outcome.error.is_none(), "{:?}", outcome.error);
@@ -612,7 +625,7 @@ fn apply_emits_apply_log_jsonl_entry() {
         lines
     );
     assert!(lines[0].starts_with("// "), "first line should be header");
-    assert!(lines[1].contains("XMP-xmp:Rating"));
+    assert!(lines[1].contains("XMP::xmp/Rating"));
     assert!(lines[1].contains("\"Set\""));
     assert!(
         lines[1].contains("\"Match\"")
@@ -625,10 +638,6 @@ fn apply_emits_apply_log_jsonl_entry() {
 
 #[test]
 fn semantic_apply_rating_fractional_coerces_or_rejects_cleanly() {
-    // Rating is integer 0-5. Writing 3.5 exercises exiftool's value coercion:
-    // depending on version it may store 3, 4, "3.5", or reject the write.
-    // The verifier should either accept the coerced result (semantic
-    // float-epsilon path) or report a clean mismatch — never panic.
     let Some(src) = fixture_path("rating_3.jpg") else {
         return;
     };
@@ -636,11 +645,11 @@ fn semantic_apply_rating_fractional_coerces_or_rejects_cleanly() {
     let folder = dir.path().to_str().unwrap();
     let rel = rel_of(dir.path(), &dst);
 
-    let mut edits = std::collections::HashMap::new();
-    edits.insert(
-        "XMP-xmp:Rating".to_string(),
-        metadata_set(MetadataValue::Real(3.5)),
-    );
+    let rating_id = unique_schema_id_by_display_name("XMP-xmp:Rating");
+    let edits = vec![medialibrary_tauri_lib::draft_edits::MetadataDraftEntry {
+        id: rating_id,
+        edit: metadata_set(MetadataValue::Real(3.5)),
+    }];
 
     let outcome = apply_edits::apply_single_file_metadata(folder, &rel, &edits);
     // Coercion either yields a matched float (3.5 → 3.5 in file) or a
@@ -662,9 +671,6 @@ fn semantic_apply_rating_fractional_coerces_or_rejects_cleanly() {
 
 #[test]
 fn semantic_apply_list_add_appends_items_to_bag() {
-    // Starting from keywords_basic.jpg with ["beach","sunset"], emit a
-    // semantic draft edit with intent=ListAdd value=["vacation"] and confirm
-    // the result is the original plus the new item.
     let Some(src) = fixture_path("keywords_basic.jpg") else {
         return;
     };
@@ -672,11 +678,11 @@ fn semantic_apply_list_add_appends_items_to_bag() {
     let folder = dir.path().to_str().unwrap();
     let rel = rel_of(dir.path(), &dst);
 
-    let mut edits = std::collections::HashMap::new();
-    edits.insert(
-        "XMP-dc:Subject".to_string(),
-        metadata_edit(metadata_bag(&["vacation"]), EditIntent::ListAdd),
-    );
+    let subject_id = unique_schema_id_by_display_name("XMP-dc:Subject");
+    let edits = vec![medialibrary_tauri_lib::draft_edits::MetadataDraftEntry {
+        id: subject_id,
+        edit: metadata_edit(metadata_bag(&["vacation"]), EditIntent::ListAdd),
+    }];
 
     let outcome = apply_edits::apply_single_file_metadata(folder, &rel, &edits);
     assert!(outcome.error.is_none(), "apply failed: {:?}", outcome.error);
@@ -717,9 +723,6 @@ fn semantic_apply_list_add_appends_items_to_bag() {
 
 #[test]
 fn semantic_apply_list_remove_drops_items_from_bag() {
-    // Start from keywords_basic.jpg with ["beach","sunset"], emit a
-    // semantic draft edit with intent=ListRemove value=["beach"], confirm
-    // result is ["sunset"].
     let Some(src) = fixture_path("keywords_basic.jpg") else {
         return;
     };
@@ -727,11 +730,11 @@ fn semantic_apply_list_remove_drops_items_from_bag() {
     let folder = dir.path().to_str().unwrap();
     let rel = rel_of(dir.path(), &dst);
 
-    let mut edits = std::collections::HashMap::new();
-    edits.insert(
-        "XMP-dc:Subject".to_string(),
-        metadata_edit(metadata_bag(&["beach"]), EditIntent::ListRemove),
-    );
+    let subject_id = unique_schema_id_by_display_name("XMP-dc:Subject");
+    let edits = vec![medialibrary_tauri_lib::draft_edits::MetadataDraftEntry {
+        id: subject_id,
+        edit: metadata_edit(metadata_bag(&["beach"]), EditIntent::ListRemove),
+    }];
 
     let outcome = apply_edits::apply_single_file_metadata(folder, &rel, &edits);
     assert!(outcome.error.is_none(), "apply failed: {:?}", outcome.error);
@@ -772,9 +775,6 @@ fn semantic_apply_list_remove_drops_items_from_bag() {
 
 #[test]
 fn apply_keywords_writes_back_as_separate_items_not_csv() {
-    // The previous code emitted `-Keywords=a, b` and stored one keyword "a, b".
-    // Semantic drafts carry list shape to write-back, so exiftool receives
-    // separate Subject arguments.
     let Some(src) = fixture_path("real_with_exif.jpg") else {
         return;
     };
@@ -782,17 +782,17 @@ fn apply_keywords_writes_back_as_separate_items_not_csv() {
     let folder = dir.path().to_str().unwrap();
     let rel = rel_of(dir.path(), &dst);
 
-    let mut edits = std::collections::HashMap::new();
-    edits.insert(
-        "XMP-dc:Subject".to_string(),
-        metadata_set(MetadataValue::List {
+    let subject_id = unique_schema_id_by_display_name("XMP-dc:Subject");
+    let edits = vec![medialibrary_tauri_lib::draft_edits::MetadataDraftEntry {
+        id: subject_id,
+        edit: metadata_set(MetadataValue::List {
             list_kind: ListKind::Bag,
             items: vec![
                 MetadataValue::Text("alpha".into()),
                 MetadataValue::Text("beta".into()),
             ],
         }),
-    );
+    }];
     let drafts = metadata_drafts(&rel, edits);
     let result =
         apply_edits::apply_metadata_draft_edits(folder, std::slice::from_ref(&rel), &drafts);
@@ -831,14 +831,14 @@ fn apply_xmp_mlib_ai_ocr_text_preserves_newlines() {
 
     let ocr_text = "cpp\nCertificate\nOf\nAchievement\nRobert Highet".to_string();
 
-    let mut edits = std::collections::HashMap::new();
-    edits.insert(
-        "XMP-mlib:AIOcrText".to_string(),
-        metadata_set(MetadataValue::List {
+    let ocr_id = unique_schema_id_by_display_name("XMP-mlib:AIOcrText");
+    let edits = vec![medialibrary_tauri_lib::draft_edits::MetadataDraftEntry {
+        id: ocr_id,
+        edit: metadata_set(MetadataValue::List {
             list_kind: ListKind::Bag,
             items: vec![MetadataValue::Text(ocr_text.clone())],
         }),
-    );
+    }];
     let drafts = metadata_drafts(&rel, edits);
     let result =
         apply_edits::apply_metadata_draft_edits(folder, std::slice::from_ref(&rel), &drafts);
@@ -847,12 +847,12 @@ fn apply_xmp_mlib_ai_ocr_text_preserves_newlines() {
     let m = read_one(dir.path(), &dst);
     match m.metadata.get("XMP-mlib:AIOcrText") {
         Some(MetadataValue::Text(s)) => {
-            assert_eq!(s, &ocr_text);
+            assert_eq!(s.as_str(), ocr_text.as_str());
         }
         Some(MetadataValue::List { items, .. }) => {
             assert_eq!(items.len(), 1);
             if let MetadataValue::Text(s) = &items[0] {
-                assert_eq!(s, &ocr_text);
+                assert_eq!(s.as_str(), ocr_text.as_str());
             } else {
                 panic!("expected Text inside list, got {:?}", items[0]);
             }

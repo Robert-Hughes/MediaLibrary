@@ -53,7 +53,9 @@ impl<'a> WriteTarget<'a> for (&'a SchemaDefinitionId, &'a TagInfo) {
 #[cfg(test)]
 impl<'a> WriteTarget<'a> for (&'a str, Option<&'a TagInfo>) {
     fn resolve(self) -> Result<(SchemaDefinitionId, &'a TagInfo, String), String> {
-        let info = self.1.ok_or_else(|| format!("missing schema for {}", self.0))?;
+        let info = self
+            .1
+            .ok_or_else(|| format!("missing schema for {}", self.0))?;
         Ok((info.id.clone(), info, self.0.to_string()))
     }
 }
@@ -68,7 +70,10 @@ where
 {
     let (id, info, tag) = (id, info).resolve()?;
     if info.id != id {
-        return Err(format!("schema identity mismatch: requested {id:?}, got {:?}", info.id));
+        return Err(format!(
+            "schema identity mismatch: requested {id:?}, got {:?}",
+            info.id
+        ));
     }
     if !info.writable {
         return Err(format!("{} ({id:?}) is read-only", info.display_name()));
@@ -85,7 +90,9 @@ where
         }),
         EditIntent::Set => build_metadata_set(tag, Some(info), edit.value.as_ref()),
         EditIntent::ListAdd => build_metadata_list_op(tag, Some(info), edit.value.as_ref(), "+="),
-        EditIntent::ListRemove => build_metadata_list_op(tag, Some(info), edit.value.as_ref(), "-="),
+        EditIntent::ListRemove => {
+            build_metadata_list_op(tag, Some(info), edit.value.as_ref(), "-=")
+        }
     }
 }
 

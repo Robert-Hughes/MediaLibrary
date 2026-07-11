@@ -50,9 +50,7 @@ mod title;
 pub use title::{build_title_gen_prompt, normalise_title, TitleOutcome};
 
 mod location;
-pub use location::{
-    derive_location_canonical, normalise_location, LocationOutcome,
-};
+pub use location::{derive_location_canonical, normalise_location, LocationOutcome};
 
 mod dates;
 pub use dates::{normalise_dates, DatesOutcome};
@@ -64,9 +62,7 @@ pub use ai::{
 };
 
 mod description;
-pub use description::{
-    build_description_merge_prompt, normalise_description, DescriptionOutcome,
-};
+pub use description::{build_description_merge_prompt, normalise_description, DescriptionOutcome};
 
 /// The eight semantic groups the user can toggle on/off in the confirm
 /// dialog. See plan §1 for the definition of each group, its target /
@@ -1332,7 +1328,9 @@ mod tests_dispatcher {
             .expect("title AI must fire");
         assert_eq!(captured, "A factual sentence.");
         // Generated title became a draft.
-        let title_draft = edits.get(&crate::known_ids::xmp_title()).expect("title draft present");
+        let title_draft = edits
+            .get(&crate::known_ids::xmp_title())
+            .expect("title draft present");
         match &title_draft.value {
             Some(MetadataValue::LangAlt(langs)) => {
                 assert_eq!(
@@ -1386,7 +1384,11 @@ mod tests_dispatcher {
             process_image(&item, &[NormaliseGroup::Title], Some(&ai), None).await;
 
         assert_eq!(
-            match &edits.get(&crate::known_ids::xmp_title()).expect("title draft").value {
+            match &edits
+                .get(&crate::known_ids::xmp_title())
+                .expect("title draft")
+                .value
+            {
                 Some(MetadataValue::LangAlt(langs)) => langs.get("x-default").unwrap().as_str(),
                 other => panic!("expected lang-alt value, got {:?}", other),
             },
@@ -1999,7 +2001,11 @@ mod tests_dispatcher {
         );
         // Verify Title drafts
         assert_eq!(
-            match &edits.get(&crate::known_ids::xmp_title()).expect("title draft").value {
+            match &edits
+                .get(&crate::known_ids::xmp_title())
+                .expect("title draft")
+                .value
+            {
                 Some(MetadataValue::LangAlt(langs)) => langs.get("x-default").unwrap().as_str(),
                 other => panic!("expected lang-alt value, got {:?}", other),
             },
@@ -2125,7 +2131,11 @@ mod tests_dispatcher {
 
         // Assert Title draft contains the generated title
         assert_eq!(
-            match &edits.get(&crate::known_ids::xmp_title()).expect("title draft").value {
+            match &edits
+                .get(&crate::known_ids::xmp_title())
+                .expect("title draft")
+                .value
+            {
                 Some(MetadataValue::LangAlt(langs)) => langs.get("x-default").unwrap().as_str(),
                 other => panic!("expected lang-alt value, got {:?}", other),
             },

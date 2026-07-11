@@ -54,10 +54,7 @@ pub fn normalise_copyright(input: &CopyrightInput) -> Option<GroupOutput> {
         return None;
     }
     let mut edits = MetadataDraftMap::new();
-    edits.insert(
-        known_ids::xmp_rights(),
-        lang_alt_edit(canonical.clone()),
-    );
+    edits.insert(known_ids::xmp_rights(), lang_alt_edit(canonical.clone()));
     edits.insert(known_ids::copyright(), text_edit(canonical.clone()));
     edits.insert(known_ids::iptc_copyright(), text_edit(canonical));
     Some(GroupOutput { edits })

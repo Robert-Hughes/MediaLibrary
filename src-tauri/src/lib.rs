@@ -463,7 +463,7 @@ fn start_scan(
 
                                 // Send error metadata for failed files so UI shows "failed" instead of spinner
                                 for rel_path in rel_paths {
-                                let metadata = scanner::MetadataEntries::default();
+                                    let metadata = scanner::MetadataEntries::default();
                                     batch_results.push(ImageMetadataResult {
                                         relative_path: rel_path,
                                         metadata,
@@ -1139,6 +1139,49 @@ mod tests {
         let start = std::time::Instant::now();
         assert!(!state.wait_until_finished(Duration::from_millis(50)));
         assert!(start.elapsed() >= Duration::from_millis(50));
+    }
+
+    #[test]
+    fn clearing_exact_id_does_not_clear_sibling_with_same_friendly_name() {
+        use crate::draft_edits::{EditIntent, MetadataDraftEdit, MetadataDraftEntry};
+        use crate::metadata_value::MetadataValue;
+        use crate::tag_schema::SchemaDefinitionId;
+
+        let id1 = SchemaDefinitionId {
+            table: "XMP::xmp".to_string(),
+            tag_id: "Rating".to_string(),
+            index: None,
+        };
+        let id2 = SchemaDefinitionId {
+            table: "Exif::Main".to_string(),
+            tag_id: "Rating".to_string(),
+            index: None,
+        };
+
+        let mut file_drafts = vec![
+            MetadataDraftEntry {
+                id: id1.clone(),
+                edit: MetadataDraftEdit {
+                    value: Some(MetadataValue::Integer(5)),
+                    intent: EditIntent::Set,
+                    display: Some("Rating".to_string()),
+                },
+            },
+            MetadataDraftEntry {
+                id: id2.clone(),
+                edit: MetadataDraftEdit {
+                    value: Some(MetadataValue::Integer(4)),
+                    intent: EditIntent::Set,
+                    display: Some("Rating".to_string()),
+                },
+            },
+        ];
+
+        let tags_to_clear = [id1.clone()];
+        file_drafts.retain(|entry| !tags_to_clear.contains(&entry.id));
+
+        assert_eq!(file_drafts.len(), 1);
+        assert_eq!(file_drafts[0].id, id2);
     }
 }
 
