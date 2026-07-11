@@ -1,8 +1,8 @@
 Current
 =======
 
-- Figure out if schema keys are unique enough (some 'collisions')
-- Escape with a property edit dialog open closes too much!
+- Figure out if schema keys are unique enough (some 'collisions'). Have chatgpt conversation on this, waiting for results from antigravity (ran out of usage, needs to finish off)
+- Escape with a property edit dialog open closes too much! Have prompt ready to fix this.
 
 - Maps
   - In combined GPS editor UI use a map view to view and set
