@@ -268,6 +268,7 @@ describe("StructEditor", () => {
     await act(async () => {});
     expect(screen.getAllByRole("dialog")).toHaveLength(1);
     expect(parentCancel).not.toHaveBeenCalled();
+    expect(edit).toHaveFocus();
 
     fireEvent(
       screen.getByRole("dialog"),
@@ -276,6 +277,7 @@ describe("StructEditor", () => {
     await act(async () => {});
     expect(parentCancel).toHaveBeenCalledOnce();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(opener).toHaveFocus();
     opener.remove();
   });
 
