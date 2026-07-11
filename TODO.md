@@ -1,17 +1,15 @@
 Current
 =======
 
-- Follow-up from GPS editor review
-- Right click on the property list maps should show edit (opens group editor) and "remove all GPS"?
+- Right click on the property list maps should show edit (opens group editor) and "remove all GPS", "discard all GPS"?
 - SchemaDefinitionId
 - GPS editor sets lat/long to different string format than the one from exiftool. How does this work? Do we store separate display string? I thoiught we used semantic MetadataValue for everything now?
-
-- Maps
-  - Full map view
-    - Select a bunch of photos, right click, "show on Map" opens map popup with pins/thumbnails for each photo
-    - Clicking on the small maps on property list should open the full map (showing just this one photo)
-
 - How do you add a GPS if the file doesn't have one? (Using hte nice editor)
+
+- Full map view
+  - Select a bunch of photos, right click, "show on Map" opens map popup with pins/thumbnails for each photo
+  - Clicking on the small maps on property list should open the full map (showing just this one photo)
+
   
 - Add bulk tag editor
   - Choose a tag name
