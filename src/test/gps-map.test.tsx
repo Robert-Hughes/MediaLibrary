@@ -270,4 +270,64 @@ describe("GpsMap component", () => {
     // expect panTo not called
     expect(mockMapInstance.panTo).not.toHaveBeenCalled();
   });
+
+  it("uses the latest callback and readOnly values on click without reconstructing the map", () => {
+    const callback1 = vi.fn();
+    const callback2 = vi.fn();
+    let clickCallback: (e: any) => void = () => {};
+    mockMapInstance.on.mockImplementation(
+      (event: string, cb: (e: any) => void) => {
+        if (event === "click") {
+          clickCallback = cb;
+        }
+        return mockMapInstance;
+      },
+    );
+
+    // 1. Initial render with callback1 and readOnly={false}
+    const { rerender } = render(
+      <GpsMap
+        position={null}
+        mode="picker"
+        onPositionSelect={callback1}
+        readOnly={false}
+      />,
+    );
+
+    // Verify map was created once
+    expect(L.map).toHaveBeenCalledTimes(1);
+
+    // 2. Rerender with callback2 and readOnly={true}
+    rerender(
+      <GpsMap
+        position={null}
+        mode="picker"
+        onPositionSelect={callback2}
+        readOnly={true}
+      />,
+    );
+
+    // Verify map was NOT reconstructed
+    expect(L.map).toHaveBeenCalledTimes(1);
+
+    // Trigger click while readOnly={true} -> neither callback should be called
+    clickCallback({ latlng: { lat: 10, lng: 20 } });
+    expect(callback1).not.toHaveBeenCalled();
+    expect(callback2).not.toHaveBeenCalled();
+
+    // 3. Rerender back to readOnly={false} with callback2
+    rerender(
+      <GpsMap
+        position={null}
+        mode="picker"
+        onPositionSelect={callback2}
+        readOnly={false}
+      />,
+    );
+
+    // Trigger click -> callback2 should be called, but not callback1
+    clickCallback({ latlng: { lat: 10, lng: 20 } });
+    expect(callback1).not.toHaveBeenCalled();
+    expect(callback2).toHaveBeenCalledWith({ lat: 10, lon: 20 });
+  });
 });
