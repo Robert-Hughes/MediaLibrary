@@ -1,12 +1,16 @@
 import "@testing-library/jest-dom";
 import { afterEach, vi } from "vitest";
-import { cleanup } from "@testing-library/react";
+import { act, cleanup } from "@testing-library/react";
 import { SearchIndex } from "../search/searchIndex";
 import { _clearTagInfoCache } from "../hooks/useTagInfo";
 import { _resetSchemaTagNamesCache } from "../hooks/useSchemaTagNames";
 
 // jsdom exposes <dialog> but not its modal lifecycle. This deliberately models
 // only the state and focus restoration our controlled wrapper depends on.
+//
+// IMPORTANT: the `close` event is dispatched in a later task via setTimeout,
+// matching real-browser ordering.  Tests that depend on the close event must
+// call `flushDialogCloseEvents()` to advance the timer.
 const dialogOpeners = new WeakMap<HTMLDialogElement, HTMLElement | null>();
 let previouslyFocused: HTMLElement | null = null;
 let lastFocused: HTMLElement | null = null;
@@ -16,6 +20,21 @@ if (typeof document !== "undefined") {
     lastFocused = event.target as HTMLElement;
   });
 }
+
+const pendingDialogCloseTimers = new Set<number>();
+
+/**
+ * Flush all queued native `close` events from the dialog shim.
+ *
+ * Call this in tests that need to observe the close event (e.g. verifying
+ * `onDismiss` was called after a native `dialog.close()`).
+ */
+export async function flushDialogCloseEvents() {
+  await act(async () => {
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+  });
+}
+
 if (typeof HTMLDialogElement !== "undefined") {
   HTMLDialogElement.prototype.showModal = function () {
     if (this.open) throw new DOMException("Dialog is already open");
@@ -30,7 +49,11 @@ if (typeof HTMLDialogElement !== "undefined") {
     if (!this.open) return;
     this.removeAttribute("open");
     dialogOpeners.get(this)?.focus();
-    this.dispatchEvent(new Event("close"));
+    const timer = window.setTimeout(() => {
+      pendingDialogCloseTimers.delete(timer);
+      this.dispatchEvent(new Event("close"));
+    }, 0);
+    pendingDialogCloseTimers.add(timer);
   };
 }
 
@@ -56,6 +79,13 @@ afterEach(() => {
   cleanup();
   _clearTagInfoCache();
   _resetSchemaTagNamesCache();
+  // Cancel any unconsumed dialog close timers so they cannot leak into the
+  // next test.  We cancel rather than flush to avoid dispatching events
+  // after React cleanup (which would cause act() warnings).
+  for (const timer of pendingDialogCloseTimers) {
+    clearTimeout(timer);
+  }
+  pendingDialogCloseTimers.clear();
   // Components persist UI preferences (e.g. GalleryView's
   // gallery-info-toggle state, GALLERY_DETAILS_VISIBLE_KEY) to localStorage.
   // jsdom shares one localStorage across every test in the file, so a
