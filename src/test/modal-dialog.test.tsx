@@ -1,8 +1,32 @@
+import React from "react";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { ModalDialog } from "../components/ModalDialog";
 
 describe("ModalDialog", () => {
+  it("maps dismissibility to the native close-request policy", () => {
+    const { rerender } = render(
+      <ModalDialog open onDismiss={vi.fn()} aria-label="Test">
+        body
+      </ModalDialog>,
+    );
+    expect(screen.getByRole("dialog")).toHaveAttribute(
+      "closedby",
+      "closerequest",
+    );
+    rerender(
+      <ModalDialog
+        open
+        dismissible={false}
+        onDismiss={vi.fn()}
+        aria-label="Test"
+      >
+        body
+      </ModalDialog>,
+    );
+    expect(screen.getByRole("dialog")).toHaveAttribute("closedby", "none");
+  });
+
   it("synchronises native open state without duplicate calls", () => {
     const show = vi.spyOn(HTMLDialogElement.prototype, "showModal");
     const close = vi.spyOn(HTMLDialogElement.prototype, "close");
@@ -177,6 +201,61 @@ describe("ModalDialog", () => {
     fireEvent.click(screen.getByRole("dialog"));
     expect(dismiss).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByText("body"));
+    expect(dismiss).toHaveBeenCalledOnce();
+  });
+
+  it("reconciles unexpected closes after Strict Mode effect replay", async () => {
+    const dismiss = vi.fn();
+    const { rerender } = render(
+      <React.StrictMode>
+        <ModalDialog open onDismiss={dismiss} aria-label="Strict dialog">
+          body
+        </ModalDialog>
+      </React.StrictMode>,
+    );
+    const dialog = screen.getByRole("dialog") as HTMLDialogElement;
+    dialog.close();
+    expect(dismiss).toHaveBeenCalledOnce();
+
+    rerender(
+      <React.StrictMode>
+        <ModalDialog
+          open
+          dismissible={false}
+          onDismiss={dismiss}
+          aria-label="Strict dialog"
+        >
+          body
+        </ModalDialog>
+      </React.StrictMode>,
+    );
+    dialog.close();
+    await act(async () => {});
+    expect(dialog).toHaveAttribute("open");
+    expect(dismiss).toHaveBeenCalledOnce();
+  });
+
+  it("supports closing and reopening the same mounted dialog", () => {
+    const dismiss = vi.fn();
+    const { rerender } = render(
+      <ModalDialog open onDismiss={dismiss} aria-label="Cycle">
+        body
+      </ModalDialog>,
+    );
+    const dialog = screen.getByRole("dialog") as HTMLDialogElement;
+    rerender(
+      <ModalDialog open={false} onDismiss={dismiss} aria-label="Cycle">
+        body
+      </ModalDialog>,
+    );
+    expect(dialog).not.toHaveAttribute("open");
+    rerender(
+      <ModalDialog open onDismiss={dismiss} aria-label="Cycle">
+        body
+      </ModalDialog>,
+    );
+    expect(dialog).toHaveAttribute("open");
+    dialog.close();
     expect(dismiss).toHaveBeenCalledOnce();
   });
 });

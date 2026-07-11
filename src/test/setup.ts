@@ -22,6 +22,9 @@ if (typeof HTMLDialogElement !== "undefined") {
     const active = document.activeElement as HTMLElement | null;
     dialogOpeners.set(this, this.contains(active) ? previouslyFocused : active);
     this.setAttribute("open", "");
+    this.querySelector<HTMLElement>(
+      "[autofocus], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])",
+    )?.focus();
   };
   HTMLDialogElement.prototype.close = function () {
     if (!this.open) return;

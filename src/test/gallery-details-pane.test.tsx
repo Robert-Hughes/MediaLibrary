@@ -4,7 +4,14 @@
  * Tests simulate real UI interaction: clicking toggle buttons, pressing
  * keyboard shortcuts, and verifying that the DOM updates accordingly.
  */
-import { render, screen, within, waitFor, act } from "@testing-library/react";
+import {
+  render,
+  screen,
+  within,
+  waitFor,
+  act,
+  fireEvent,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { ComponentProps } from "react";
@@ -367,6 +374,35 @@ describe("Gallery details pane search", () => {
 });
 
 describe("Gallery keyboard shortcuts coexistence", () => {
+  it("cancels a real property editor without closing the gallery", async () => {
+    const onClose = vi.fn();
+    const store = createPopulatedStore(PHOTOS, {
+      "2024/a.jpg": { "IFD0:Make": "Canon" },
+    });
+    await renderGallery({ imageMetadata: store, onClose });
+    await userEvent.click(screen.getByTestId("gallery-info-toggle"));
+
+    fireEvent.contextMenu(screen.getByText("Canon"));
+    await userEvent.click(await screen.findByRole("button", { name: /^Edit/ }));
+
+    const gallery = screen.getByRole("dialog", { name: "Photo gallery" });
+    const editor = screen.getByRole("dialog", { name: "Edit IFD0:Make" });
+    editor.dispatchEvent(
+      new Event("cancel", { bubbles: true, cancelable: true }),
+    );
+    await act(async () => {});
+
+    expect(
+      screen.queryByRole("dialog", { name: "Edit IFD0:Make" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByTestId("gallery-content")).toBeInTheDocument();
+    expect(gallery).toHaveAttribute("open");
+    expect(onClose).not.toHaveBeenCalled();
+
+    gallery.dispatchEvent(new Event("cancel", { cancelable: true }));
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
   it("I key toggles details while Escape still closes gallery", async () => {
     const onClose = vi.fn();
     await renderGallery({ onClose });
