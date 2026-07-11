@@ -9,9 +9,11 @@ import { createMockTauriApi } from "./mockTauriApi";
 import { makePhoto } from "./factories";
 import { _clearTagInfoCache, _setTagInfoCacheEntry } from "../hooks/useTagInfo";
 import {
-  _resetSchemaTagNamesCache,
-  _setSchemaTagNamesCache,
-} from "../hooks/useSchemaTagNames";
+  _resetWritableSchemaDefinitionsCache,
+  _setWritableSchemaDefinitionsCache,
+} from "../hooks/useWritableSchemaDefinitions";
+import { testIdForFriendlyName } from "./testIds";
+import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
 
 let mockApiInstance: ReturnType<typeof createMockTauriApi>;
 
@@ -36,14 +38,25 @@ describe("Draft Metadata Editing Integration", () => {
     // useTagInfo cache is already warm. Mirror that here: pre-seed the
     // keys these tests touch so editors render synchronously and the
     // suite doesn't drift past the 5s timeout on slower machines.
-    _setTagInfoCacheEntry("IFD0:Make", null);
-    _setTagInfoCacheEntry("XMP-dc:Description", null);
-    _setSchemaTagNamesCache([]);
+    const makeId = testIdForFriendlyName("IFD0:Make");
+    const descriptionId = testIdForFriendlyName("XMP-dc:Description");
+    _setTagInfoCacheEntry(makeId, null);
+    _setTagInfoCacheEntry(descriptionId, null);
+    _setWritableSchemaDefinitionsCache([
+      {
+        id: descriptionId,
+        group: "XMP-dc",
+        name: "Description",
+        writable: true,
+        kind: { kind: "Text" },
+        description: "Description",
+      },
+    ]);
   });
 
   afterEach(() => {
     _clearTagInfoCache();
-    _resetSchemaTagNamesCache();
+    _resetWritableSchemaDefinitionsCache();
     vi.clearAllMocks();
     vi.resetModules();
   });
@@ -205,6 +218,11 @@ describe("Draft Metadata Editing Integration", () => {
     await user.type(
       screen.getByTestId("new-property-key"),
       "XMP-dc:Description",
+    );
+    await user.click(
+      screen.getByTestId(
+        `schema-option-${schemaDefinitionIdToken(testIdForFriendlyName("XMP-dc:Description"))}`,
+      ),
     );
     await user.click(screen.getByTestId("new-property-next"));
 

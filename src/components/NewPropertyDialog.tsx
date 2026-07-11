@@ -1,167 +1,251 @@
 import { ModalDialog } from "./ModalDialog";
 import { useState, useRef, useEffect, useMemo } from "react";
-import { useTagInfo } from "../hooks/useTagInfo";
-import { useSchemaTagNames } from "../hooks/useSchemaTagNames";
+import { useWritableSchemaDefinitions } from "../hooks/useWritableSchemaDefinitions";
 import { describeKind } from "./editors/editorHelpers";
-import { filterTagsByFilename } from "../utils/tagGroupApplicability";
+import { filterTagInfosByFilename } from "../utils/tagGroupApplicability";
+import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
+import type { SchemaDefinitionId, TagInfo } from "../types";
 
 interface Props {
   /**
-   * Called once the user has chosen a writable key.  The parent is
-   * expected to swap in a `TypedValueEditor` for that key so the user
-   * gets a schema-appropriate editor (numeric / boolean / Bag / GPS /
-   * Flash / …) instead of a generic string box.
+   * Called once the user has chosen a writable key definition.
    */
-  onSave: (key: string) => void;
+  onSave: (id: SchemaDefinitionId) => void;
   onCancel: () => void;
-  existingKeys?: ReadonlySet<string>;
-  /** Filename of the photo being edited.  Drives file-type filtering of
-   * the autocomplete suggestions so a JPEG doesn't surface Vorbis tags. */
+  existingIds?: readonly SchemaDefinitionId[];
+  /** Filename of the photo being edited. Drives file-type filtering of
+   * the suggestions so a JPEG doesn't surface Vorbis tags. */
   filename?: string;
 }
 
 export function NewPropertyDialog({
   onSave,
   onCancel,
-  existingKeys,
+  existingIds,
   filename,
 }: Props) {
-  const [key, setKey] = useState("");
-  const keyInputRef = useRef<HTMLInputElement>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedTag, setSelectedTag] = useState<TagInfo | null>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
-  // Only consult the registry once the user has typed a colon-shaped tag —
-  // otherwise we pepper the backend with lookups for half-typed strings.
-  const lookupKey = key.includes(":") ? key : "";
-  const tagInfo = useTagInfo(lookupKey);
+  const writableDefinitions = useWritableSchemaDefinitions();
 
-  const allTagNames = useSchemaTagNames();
+  const handleSearchChange = (val: string) => {
+    setSearchQuery(val);
+    setSelectedTag(null);
+  };
 
   const suggestions = useMemo(() => {
-    if (allTagNames === "loading") return [];
-    const applicable = filterTagsByFilename(allTagNames, filename);
-    if (!key) return applicable;
-    const lower = key.toLowerCase();
-    return applicable.filter((t) => t.toLowerCase().includes(lower));
-  }, [allTagNames, key, filename]);
+    if (writableDefinitions === "loading") return [];
+    const applicable = filterTagInfosByFilename(writableDefinitions, filename);
+    if (!searchQuery) return applicable;
+    const lowerQuery = searchQuery.toLowerCase();
+    return applicable.filter((info) => {
+      const friendlyName = `${info.group}:${info.name}`.toLowerCase();
+      const name = info.name.toLowerCase();
+      const description = (info.description ?? "").toLowerCase();
+      const table = info.id.table.toLowerCase();
+      const tagId = info.id.tag_id.toLowerCase();
+      const kindText = describeKind(info.kind).toLowerCase();
+
+      return (
+        friendlyName.includes(lowerQuery) ||
+        name.includes(lowerQuery) ||
+        description.includes(lowerQuery) ||
+        table.includes(lowerQuery) ||
+        tagId.includes(lowerQuery) ||
+        kindText.includes(lowerQuery)
+      );
+    });
+  }, [writableDefinitions, searchQuery, filename]);
 
   useEffect(() => {
-    keyInputRef.current?.focus();
-  }, []);
+    searchInputRef.current?.focus();
+  }, [writableDefinitions]);
 
-  const unwritable =
-    tagInfo !== "loading" && tagInfo !== null && !tagInfo.writable;
-  const disabled = !key || unwritable;
+  const existingTokens = useMemo(() => {
+    return new Set(
+      (existingIds ?? []).map((id) => schemaDefinitionIdToken(id)),
+    );
+  }, [existingIds]);
+
+  const isSelectedDuplicate = selectedTag
+    ? existingTokens.has(schemaDefinitionIdToken(selectedTag.id))
+    : false;
+
+  const disabled = !selectedTag || isSelectedDuplicate;
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !disabled) {
-      onSave(key);
+    if (e.key === "Enter" && !disabled && selectedTag) {
+      onSave(selectedTag.id);
     }
   };
 
-  let schemaLine: React.ReactNode = null;
-  if (lookupKey && tagInfo !== "loading") {
-    if (tagInfo === null) {
-      schemaLine = (
-        <p
-          className="dialog-hint editor-meta-hint editor-meta-hint-warning"
-          data-testid="new-property-schema-unknown"
-          style={{ color: "var(--accent-warning, #aa6)" }}
-        >
-          ⚠ <code>{lookupKey}</code> is not in ExifTool&apos;s writable schema.{" "}
-          The edit will be sent as raw text and may be silently rejected by
-          ExifTool.
-        </p>
-      );
-    } else if (!tagInfo.writable) {
-      schemaLine = (
-        <p
-          className="dialog-error editor-meta-hint"
-          data-testid="new-property-schema-unwritable"
-        >
-          <strong>
-            <code>
-              {tagInfo.group}:{tagInfo.name}
-            </code>{" "}
-            — {describeKind(tagInfo.kind)}
-          </strong>
-          {" · "}From ExifTool schema (read-only) — ExifTool will refuse to
-          write this value.
-        </p>
-      );
-    } else {
-      schemaLine = (
-        <p
-          className="dialog-hint editor-meta-hint"
-          data-testid="new-property-schema-info"
-        >
-          <strong>
-            <code>
-              {tagInfo.group}:{tagInfo.name}
-            </code>{" "}
-            — {describeKind(tagInfo.kind)}
-          </strong>
-          {" · "}From ExifTool schema
-          {tagInfo.description ? (
-            <>
-              <br />
-              {tagInfo.description}
-            </>
-          ) : null}
-        </p>
-      );
-    }
-  }
-
-  const isDuplicate = !!key && !!existingKeys?.has(key);
-
   return (
     <ModalDialog open onDismiss={onCancel} aria-label="Add new property">
-      <div className="dialog-content">
+      <div className="dialog-content" style={{ minWidth: "400px" }}>
         <h3>Add New Property</h3>
         <div
           className="dialog-body"
-          style={{ display: "flex", flexDirection: "column", gap: "10px" }}
+          style={{ display: "flex", flexDirection: "column", gap: "12px" }}
         >
-          <div>
-            <label
+          {writableDefinitions === "loading" ? (
+            <div
               style={{
-                display: "block",
-                marginBottom: "4px",
-                fontSize: "12px",
+                padding: "32px",
+                textAlign: "center",
                 opacity: 0.8,
               }}
+              data-testid="new-property-loading"
             >
-              Key (e.g. XMP-dc:Description)
-            </label>
-            <input
-              ref={keyInputRef}
-              type="text"
-              list="schema-tag-names"
-              className="dialog-input"
-              value={key}
-              onChange={(e) => setKey(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="XMP-dc:Description"
-              data-testid="new-property-key"
-              autoComplete="off"
-            />
-            <datalist id="schema-tag-names">
-              {suggestions.map((t) => (
-                <option key={t} value={t} />
-              ))}
-            </datalist>
-            {isDuplicate && (
-              <p
-                className="dialog-hint editor-meta-hint editor-meta-hint-warning"
-                data-testid="new-property-duplicate-warning"
-                style={{ color: "var(--accent-warning, #aa6)" }}
+              Loading writable schema definitions...
+            </div>
+          ) : (
+            <div>
+              <label
+                style={{
+                  display: "block",
+                  marginBottom: "6px",
+                  fontSize: "12px",
+                  opacity: 0.8,
+                }}
               >
-                ⚠ <code>{key}</code> already exists in this image&apos;s
-                metadata. Saving will overwrite the existing value.
-              </p>
-            )}
-            {schemaLine}
-          </div>
+                Search Writable Properties
+              </label>
+              <input
+                ref={searchInputRef}
+                type="text"
+                className="dialog-input"
+                value={searchQuery}
+                onChange={(e) => handleSearchChange(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="Search by name, group, ID, table..."
+                data-testid="new-property-key"
+                autoComplete="off"
+                style={{ width: "100%", boxSizing: "border-box" }}
+              />
+
+              <div
+                className="dialog-results-list"
+                style={{
+                  maxHeight: "220px",
+                  overflowY: "auto",
+                  padding: "6px",
+                  marginTop: "10px",
+                  border: "1px solid var(--border-color, #3e4451)",
+                  borderRadius: "6px",
+                  backgroundColor: "var(--bg-list, #181a1f)",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "6px",
+                }}
+              >
+                {suggestions.length === 0 ? (
+                  <div
+                    style={{
+                      padding: "24px",
+                      textAlign: "center",
+                      opacity: 0.6,
+                      fontSize: "13px",
+                    }}
+                  >
+                    No matching writable schema definitions found.
+                  </div>
+                ) : (
+                  suggestions.map((info) => {
+                    const token = schemaDefinitionIdToken(info.id);
+                    const isSelected =
+                      selectedTag !== null &&
+                      schemaDefinitionIdToken(selectedTag.id) === token;
+                    return (
+                      <div
+                        key={token}
+                        onClick={() => setSelectedTag(info)}
+                        style={{
+                          padding: "10px 14px",
+                          cursor: "pointer",
+                          backgroundColor: isSelected
+                            ? "var(--accent-selected-bg, #2b3a4a)"
+                            : "var(--bg-card, #1e1e1e)",
+                          color: isSelected
+                            ? "var(--accent-selected-fg, #61afef)"
+                            : "var(--fg-default, #abb2bf)",
+                          border: isSelected
+                            ? "1px solid var(--accent-selected-border, #61afef)"
+                            : "1px solid var(--border-color, #3e4451)",
+                          borderRadius: "6px",
+                          transition: "all 0.15s ease-in-out",
+                        }}
+                        data-testid={`schema-option-${token}`}
+                      >
+                        <div
+                          style={{
+                            fontWeight: "bold",
+                            display: "flex",
+                            justifyContent: "space-between",
+                          }}
+                        >
+                          <span>
+                            {info.group}:{info.name}
+                          </span>
+                          <span style={{ fontSize: "11px", opacity: 0.7 }}>
+                            {describeKind(info.kind)}
+                          </span>
+                        </div>
+                        <div
+                          style={{
+                            fontSize: "11px",
+                            opacity: 0.8,
+                            marginTop: "2px",
+                          }}
+                        >
+                          <code>{info.id.table}</code> · ID{" "}
+                          <code>{info.id.tag_id}</code>
+                          {info.id.index !== undefined ? (
+                            <>
+                              {" · Index "}
+                              <code>{info.id.index}</code>
+                            </>
+                          ) : null}
+                        </div>
+                        {info.description ? (
+                          <div
+                            style={{
+                              fontSize: "11px",
+                              opacity: 0.6,
+                              marginTop: "4px",
+                              fontStyle: "italic",
+                            }}
+                          >
+                            {info.description}
+                          </div>
+                        ) : null}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              {isSelectedDuplicate && (
+                <p
+                  className="dialog-hint editor-meta-hint editor-meta-hint-warning"
+                  data-testid="new-property-duplicate-warning"
+                  style={{
+                    color: "var(--accent-warning, #aa6)",
+                    marginTop: "8px",
+                  }}
+                >
+                  ⚠{" "}
+                  <code>
+                    {selectedTag
+                      ? `${selectedTag.group}:${selectedTag.name}`
+                      : ""}
+                  </code>{" "}
+                  already exists in this image&apos;s metadata.
+                </p>
+              )}
+            </div>
+          )}
         </div>
         <div className="dialog-footer">
           <button
@@ -172,7 +256,7 @@ export function NewPropertyDialog({
           </button>
           <button
             className="dialog-btn dialog-btn-primary"
-            onClick={() => onSave(key)}
+            onClick={() => selectedTag && onSave(selectedTag.id)}
             disabled={disabled}
             data-testid="new-property-next"
           >

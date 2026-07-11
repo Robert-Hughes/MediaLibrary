@@ -7,7 +7,6 @@ import { NewPropertyDialog as ExactNewPropertyDialog } from "../components/NewPr
 import { GpsEditor as ExactGpsEditor } from "../components/editors/GpsEditor";
 import {
   _ensureTagInfoCacheEntry,
-  _ensureTagInfoLabel,
   _setTagInfoCacheEntry,
 } from "../hooks/useTagInfo";
 import {
@@ -37,7 +36,7 @@ const ensureLabel = (key: string) => {
 const ensureColumnLabel = (key: string) => {
   const id = testId(key);
   const colon = key.indexOf(":");
-  _ensureTagInfoLabel(id, {
+  _ensureTagInfoCacheEntry(id, {
     group: colon > 0 ? key.slice(0, colon) : "Other",
     name: colon > 0 ? key.slice(colon + 1) : key,
     writable: true,

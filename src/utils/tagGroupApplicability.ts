@@ -256,3 +256,26 @@ export function filterTagsByFilename(
     return isUniversal(g) || allowed.has(g);
   });
 }
+
+export interface TagGroupInfo {
+  group: string;
+}
+
+export function filterTagInfosByFilename<T extends TagGroupInfo>(
+  tags: readonly T[],
+  filename: string | undefined,
+): T[] {
+  if (!filename) return [...tags];
+  const cat = categoryOf(extOf(filename));
+  if (cat === null) return [...tags];
+  const allowed =
+    cat === "image"
+      ? IMAGE_GROUPS
+      : cat === "audio"
+        ? AUDIO_GROUPS
+        : VIDEO_GROUPS;
+  return tags.filter((t) => {
+    const g = t.group;
+    return isUniversal(g) || allowed.has(g);
+  });
+}

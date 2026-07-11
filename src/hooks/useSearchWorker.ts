@@ -163,9 +163,10 @@ export function useSearchWorker(
       })),
     });
     // TODO: The search worker orchestration currently maps draft edits using serialized string keys
-    // (representing `SchemaDefinitionId.to_string()`) rather than structured exact-ID lookups.
-    // In a subsequent search indexing migration phase, the search worker protocol and indexing logic
-    // must be refactored to support structured exact-ID lookups.
+    // representing the internal JSON token from `schemaDefinitionIdToken`, not Rust's `SchemaDefinitionId.to_string()`.
+    // The worker currently receives token-keyed edits without the original ID/TagInfo, so friendly schema
+    // labels cannot be indexed reliably. In a subsequent search indexing migration phase, the search worker
+    // protocol and indexing logic must be refactored to support structured exact-ID lookups.
     w.postMessage({
       type: "INIT_DRAFTS",
       entries: Object.entries(draftEditsStore.getAllMetadata()).map(

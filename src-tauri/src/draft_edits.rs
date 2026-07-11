@@ -56,6 +56,7 @@ pub struct MetadataDraftEntry {
 
 pub type MetadataDraftEdits = HashMap<String, Vec<MetadataDraftEntry>>;
 
+// Public because the integration-test crate exercises exact-ID geocode batches.
 pub type MetadataDraftMap = BTreeMap<SchemaDefinitionId, MetadataDraftEdit>;
 
 pub(crate) fn draft_entries(map: MetadataDraftMap) -> Vec<MetadataDraftEntry> {
