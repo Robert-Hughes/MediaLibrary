@@ -3,8 +3,6 @@ Current
 
 - SchemaDefinitionId
 
-- Check 5.6 models for use in different tasks
-
 - Maps
   - In combined GPS editor UI use a map view to view and set
   - Right click on the property list maps should show edit (opens group editor) and "remove all GPS"?

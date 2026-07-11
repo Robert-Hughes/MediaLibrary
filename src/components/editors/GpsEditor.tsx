@@ -220,8 +220,8 @@ export function GpsEditor({
             />
             <div className="gps-editor-map-help">
               {readOnly
-                ? "Drag to pan and zoom. Location selection is disabled in read-only mode."
-                : "Click to choose a location. Drag to pan and zoom. Panning does not change the selected coordinates."}
+                ? "Drag to pan, and double-click or scroll to zoom. Location selection is disabled in read-only mode."
+                : "Right-click or Shift+left-click to choose a location. Drag to pan, and double-click or scroll to zoom. Panning and zooming do not change the selected coordinates."}
             </div>
           </div>
 

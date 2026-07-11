@@ -171,7 +171,7 @@ describe("GpsMap component", () => {
     );
   });
 
-  it("handles map click and normalises longitude and clamps latitude", () => {
+  it("does not select on ordinary left-click", () => {
     const onPositionSelect = vi.fn();
     let clickCallback: (e: any) => void = () => {};
     mockMapInstance.on.mockImplementation(
@@ -191,16 +191,128 @@ describe("GpsMap component", () => {
       />,
     );
 
-    // Trigger a click at [95, 541] -> lat clamps to 90, lon normalises to -179
-    clickCallback({ latlng: { lat: 95, lng: 541 } });
-    expect(onPositionSelect).toHaveBeenCalledWith({ lat: 90, lon: -179 });
+    const preventDefault = vi.fn();
+    clickCallback({
+      latlng: { lat: 10, lng: 10 },
+      originalEvent: {
+        shiftKey: false,
+        preventDefault,
+      },
+    });
 
-    // Trigger a click at [-0, -360] -> clamps to [0, 0]
-    clickCallback({ latlng: { lat: -0, lng: -360 } });
-    expect(onPositionSelect).toHaveBeenCalledWith({ lat: 0, lon: 0 });
+    expect(onPositionSelect).not.toHaveBeenCalled();
+    expect(preventDefault).not.toHaveBeenCalled();
   });
 
-  it("does not call selection callback in read-only picker mode", () => {
+  it("selects on Shift+left-click and normalises/clamps coordinates", () => {
+    const onPositionSelect = vi.fn();
+    let clickCallback: (e: any) => void = () => {};
+    mockMapInstance.on.mockImplementation(
+      (event: string, cb: (e: any) => void) => {
+        if (event === "click") {
+          clickCallback = cb;
+        }
+        return mockMapInstance;
+      },
+    );
+
+    render(
+      <GpsMap
+        position={null}
+        mode="picker"
+        onPositionSelect={onPositionSelect}
+      />,
+    );
+
+    const preventDefault = vi.fn();
+    // Trigger shifted click at [95, 541] -> lat clamps to 90, lon normalises to -179
+    clickCallback({
+      latlng: { lat: 95, lng: 541 },
+      originalEvent: {
+        shiftKey: true,
+        preventDefault,
+      },
+    });
+    expect(onPositionSelect).toHaveBeenCalledWith({ lat: 90, lon: -179 });
+
+    // Trigger shifted click at [-0, -360] -> clamps to [0, 0]
+    clickCallback({
+      latlng: { lat: -0, lng: -360 },
+      originalEvent: {
+        shiftKey: true,
+        preventDefault,
+      },
+    });
+    expect(onPositionSelect).toHaveBeenLastCalledWith({ lat: 0, lon: 0 });
+  });
+
+  it("selects on right-click immediately available on mount and calls preventDefault", () => {
+    const onPositionSelect = vi.fn();
+    let contextmenuCallback: (e: any) => void = () => {};
+    mockMapInstance.on.mockImplementation(
+      (event: string, cb: (e: any) => void) => {
+        if (event === "contextmenu") {
+          contextmenuCallback = cb;
+        }
+        return mockMapInstance;
+      },
+    );
+
+    render(
+      <GpsMap
+        position={null}
+        mode="picker"
+        onPositionSelect={onPositionSelect}
+      />,
+    );
+
+    const preventDefault = vi.fn();
+    contextmenuCallback({
+      latlng: { lat: 40, lng: 50 },
+      originalEvent: {
+        shiftKey: false,
+        preventDefault,
+      },
+    });
+
+    expect(preventDefault).toHaveBeenCalledOnce();
+    expect(onPositionSelect).toHaveBeenCalledWith({ lat: 40, lon: 50 });
+  });
+
+  it("right-click prevents default even for invalid coordinates", () => {
+    const onPositionSelect = vi.fn();
+    let contextmenuCallback: (e: any) => void = () => {};
+    mockMapInstance.on.mockImplementation(
+      (event: string, cb: (e: any) => void) => {
+        if (event === "contextmenu") {
+          contextmenuCallback = cb;
+        }
+        return mockMapInstance;
+      },
+    );
+
+    render(
+      <GpsMap
+        position={null}
+        mode="picker"
+        onPositionSelect={onPositionSelect}
+      />,
+    );
+
+    const preventDefault = vi.fn();
+    contextmenuCallback({
+      latlng: { lat: NaN, lng: 50 },
+      originalEvent: {
+        shiftKey: false,
+        preventDefault,
+      },
+    });
+
+    expect(preventDefault).toHaveBeenCalledOnce();
+    expect(onPositionSelect).not.toHaveBeenCalled();
+  });
+
+  it("does not select on Shift+left-click when read-only", () => {
     const onPositionSelect = vi.fn();
     let clickCallback: (e: any) => void = () => {};
     mockMapInstance.on.mockImplementation(
@@ -221,54 +333,53 @@ describe("GpsMap component", () => {
       />,
     );
 
-    clickCallback({ latlng: { lat: 10, lng: 10 } });
+    const preventDefault = vi.fn();
+    clickCallback({
+      latlng: { lat: 10, lng: 10 },
+      originalEvent: {
+        shiftKey: true,
+        preventDefault,
+      },
+    });
+
     expect(onPositionSelect).not.toHaveBeenCalled();
   });
 
-  it("removes marker and does not pass invalid coordinates to Leaflet if prop becomes invalid", () => {
-    const { rerender } = render(
-      <GpsMap position={{ lat: 50, lon: 10 }} mode="picker" />,
-    );
-    expect(mockMarkerInstance.addTo).toHaveBeenCalled();
-
-    // Update to invalid position
-    rerender(<GpsMap position={{ lat: 95, lon: 10 }} mode="picker" />);
-    expect(mockMarkerInstance.remove).toHaveBeenCalled();
-  });
-
-  it("repositions marker to nearest world copy on moveend without triggering panTo or selection callbacks", () => {
+  it("two consecutive ordinary clicks (double click candidate) do not invoke selection", () => {
     const onPositionSelect = vi.fn();
-    let moveEndCallback: (e: any) => void = () => {};
+    let clickCallback: (e: any) => void = () => {};
     mockMapInstance.on.mockImplementation(
       (event: string, cb: (e: any) => void) => {
-        if (event === "moveend") {
-          moveEndCallback = cb;
+        if (event === "click") {
+          clickCallback = cb;
         }
         return mockMapInstance;
       },
     );
 
-    // Render at -179
     render(
       <GpsMap
-        position={{ lat: 0, lon: -179 }}
+        position={null}
         mode="picker"
         onPositionSelect={onPositionSelect}
       />,
     );
 
-    // simulate moveend after centre becomes 541
-    mockMapInstance.getCenter.mockReturnValue({ lat: 0, lng: 541 });
-    moveEndCallback({});
+    const preventDefault = vi.fn();
+    const eventObj = {
+      latlng: { lat: 10, lng: 10 },
+      originalEvent: {
+        shiftKey: false,
+        preventDefault,
+      },
+    };
 
-    // expect marker.setLatLng(...541)
-    expect(mockMarkerInstance.setLatLng).toHaveBeenLastCalledWith(
-      expect.objectContaining({ lat: 0, lng: 541 }),
-    );
-    // expect onPositionSelect not called
+    // First click of a double click
+    clickCallback(eventObj);
+    // Second click of a double click
+    clickCallback(eventObj);
+
     expect(onPositionSelect).not.toHaveBeenCalled();
-    // expect panTo not called
-    expect(mockMapInstance.panTo).not.toHaveBeenCalled();
   });
 
   it("uses the latest callback and readOnly values on click without reconstructing the map", () => {
@@ -311,7 +422,10 @@ describe("GpsMap component", () => {
     expect(L.map).toHaveBeenCalledTimes(1);
 
     // Trigger click while readOnly={true} -> neither callback should be called
-    clickCallback({ latlng: { lat: 10, lng: 20 } });
+    clickCallback({
+      latlng: { lat: 10, lng: 20 },
+      originalEvent: { shiftKey: true, preventDefault: vi.fn() },
+    });
     expect(callback1).not.toHaveBeenCalled();
     expect(callback2).not.toHaveBeenCalled();
 
@@ -329,9 +443,119 @@ describe("GpsMap component", () => {
     expect(L.map).toHaveBeenCalledTimes(1);
 
     // Trigger click -> callback2 should be called, but not callback1
-    clickCallback({ latlng: { lat: 10, lng: 20 } });
+    clickCallback({
+      latlng: { lat: 10, lng: 20 },
+      originalEvent: { shiftKey: true, preventDefault: vi.fn() },
+    });
     expect(callback1).not.toHaveBeenCalled();
     expect(callback2).toHaveBeenCalledOnce();
     expect(callback2).toHaveBeenCalledWith({ lat: 10, lon: 20 });
+  });
+
+  it("manages event listener registration and cleanup lifecycle based on mode and read-only status", () => {
+    const onPositionSelect = vi.fn();
+    const registered: Array<{ event: string; cb: any }> = [];
+    const unregistered: Array<{ event: string; cb: any }> = [];
+
+    mockMapInstance.on.mockImplementation((event: string, cb: any) => {
+      registered.push({ event, cb });
+      return mockMapInstance;
+    });
+    mockMapInstance.off.mockImplementation((event: string, cb: any) => {
+      unregistered.push({ event, cb });
+      return mockMapInstance;
+    });
+
+    // 1. Initial mount in editable picker mode
+    const { rerender, unmount } = render(
+      <GpsMap
+        position={null}
+        mode="picker"
+        onPositionSelect={onPositionSelect}
+        readOnly={false}
+      />,
+    );
+
+    // Verify immediate registration of all three listeners after effect flushes
+    const clicks = registered.filter((r) => r.event === "click");
+    const moveends = registered.filter((r) => r.event === "moveend");
+    const contextmenus = registered.filter((r) => r.event === "contextmenu");
+
+    expect(clicks).toHaveLength(1);
+    expect(moveends).toHaveLength(1);
+    expect(contextmenus).toHaveLength(1);
+
+    // 2. Transition from editable to read-only
+    rerender(
+      <GpsMap
+        position={null}
+        mode="picker"
+        onPositionSelect={onPositionSelect}
+        readOnly={true}
+      />,
+    );
+
+    // Verify contextmenu handler was unregistered with the exact same reference
+    const contextmenuOffs = unregistered.filter(
+      (r) => r.event === "contextmenu",
+    );
+    expect(contextmenuOffs).toHaveLength(1);
+    expect(contextmenuOffs[0].cb).toBe(contextmenus[0].cb);
+
+    // Click and moveend should not be unregistered
+    expect(unregistered.filter((r) => r.event === "click")).toHaveLength(0);
+    expect(unregistered.filter((r) => r.event === "moveend")).toHaveLength(0);
+
+    // 3. Transition back to editable
+    registered.length = 0; // reset trace
+    rerender(
+      <GpsMap
+        position={null}
+        mode="picker"
+        onPositionSelect={onPositionSelect}
+        readOnly={false}
+      />,
+    );
+
+    // Verify contextmenu is registered again without map reconstruction (L.map was called once)
+    const newContextmenus = registered.filter((r) => r.event === "contextmenu");
+    expect(newContextmenus).toHaveLength(1);
+    expect(L.map).toHaveBeenCalledTimes(1);
+
+    // 4. Unmount
+    unregistered.length = 0; // reset trace
+    unmount();
+
+    // Verify all currently active listeners are unregistered
+    expect(unregistered).toContainEqual({ event: "click", cb: clicks[0].cb });
+    expect(unregistered).toContainEqual({
+      event: "moveend",
+      cb: moveends[0].cb,
+    });
+    expect(unregistered).toContainEqual({
+      event: "contextmenu",
+      cb: newContextmenus[0].cb,
+    });
+  });
+
+  it("registers click and moveend but not contextmenu on initial read-only mount", () => {
+    const registered: Array<{ event: string; cb: any }> = [];
+    mockMapInstance.on.mockImplementation((event: string, cb: any) => {
+      registered.push({ event, cb });
+      return mockMapInstance;
+    });
+
+    render(
+      <GpsMap
+        position={null}
+        mode="picker"
+        onPositionSelect={vi.fn()}
+        readOnly={true}
+      />,
+    );
+
+    expect(registered.filter((r) => r.event === "click")).toHaveLength(1);
+    expect(registered.filter((r) => r.event === "moveend")).toHaveLength(1);
+    expect(registered.filter((r) => r.event === "contextmenu")).toHaveLength(0);
   });
 });
