@@ -30,9 +30,19 @@ const pendingDialogCloseTimers = new Set<number>();
  * `onDismiss` was called after a native `dialog.close()`).
  */
 export async function flushDialogCloseEvents() {
-  await act(async () => {
-    await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
-  });
+  const maxIterations = 20;
+
+  for (let iteration = 0; iteration < maxIterations; iteration += 1) {
+    if (pendingDialogCloseTimers.size === 0) return;
+
+    await act(async () => {
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+    });
+  }
+
+  throw new Error(
+    `Dialog close timers did not settle after ${maxIterations} iterations`,
+  );
 }
 
 if (typeof HTMLDialogElement !== "undefined") {

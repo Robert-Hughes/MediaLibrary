@@ -17,14 +17,38 @@ export interface ModalDialogProps {
   children: ReactNode;
 }
 
-let previouslyFocused: HTMLElement | null = null;
-let lastFocused: HTMLElement | null = null;
+interface ModalFocusTracker {
+  previous: HTMLElement | null;
+  last: HTMLElement | null;
+  installed: boolean;
+}
 
-if (typeof document !== "undefined") {
-  document.addEventListener("focusin", (event) => {
-    previouslyFocused = lastFocused;
-    lastFocused = event.target instanceof HTMLElement ? event.target : null;
+const trackerGlobal = globalThis as typeof globalThis & {
+  __mediaLibraryModalFocusTracker?: ModalFocusTracker;
+};
+
+// React can apply a descendant's autoFocus before this component's layout
+// effect calls showModal(). In that case document.activeElement is already
+// inside the dialog, so retain the preceding focused element as the opener
+// for later focus restoration.
+//
+// This listener is intentionally installed once for the module/application lifetime.
+const focusTracker =
+  trackerGlobal.__mediaLibraryModalFocusTracker ??
+  (trackerGlobal.__mediaLibraryModalFocusTracker = {
+    previous: null,
+    last: null,
+    installed: false,
   });
+
+if (typeof document !== "undefined" && !focusTracker.installed) {
+  document.addEventListener("focusin", (event) => {
+    focusTracker.previous = focusTracker.last;
+    focusTracker.last =
+      event.target instanceof HTMLElement ? event.target : null;
+  });
+
+  focusTracker.installed = true;
 }
 
 /** A controlled native modal. React state always remains authoritative. */
@@ -57,7 +81,7 @@ export function ModalDialog({
       openerRef.current =
         active instanceof HTMLElement
           ? dialog.contains(active)
-            ? previouslyFocused
+            ? focusTracker.previous
             : active
           : null;
 
@@ -87,10 +111,9 @@ export function ModalDialog({
 
     return () => {
       const dialog = ref.current;
-      // React removes the DOM node before running layout-effect cleanup,
-      // so by this point focus has already moved to <body> if the dialog
-      // previously held focus.  We check dialog.open (the attribute
-      // survives disconnection) and whether focus is currently unclaimed.
+      // During genuine unmount, focus may still be inside the dialog or may
+      // already be unclaimed, depending on React commit and browser timing.
+      // Handle both states without relying on one exact cleanup order.
       const active = document.activeElement;
       const focusIsUnclaimed =
         active === document.body ||
@@ -100,7 +123,8 @@ export function ModalDialog({
 
       const shouldRestoreFocus =
         dialog?.getAttribute("open") != null &&
-        (focusIsUnclaimed || (active instanceof HTMLElement && dialog.contains(active)));
+        (focusIsUnclaimed ||
+          (active instanceof HTMLElement && dialog.contains(active)));
 
       const cleanupGeneration = ++lifecycleGenerationRef.current;
 
