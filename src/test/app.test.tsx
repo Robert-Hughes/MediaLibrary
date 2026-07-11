@@ -7,7 +7,7 @@ import {
 } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import App from "../App";
-import { makePhoto, mockMetadata } from "./factories";
+import { makePhoto, mockDrafts, mockMetadataEntries } from "./factories";
 
 // Mock Tauri API
 vi.mock("@tauri-apps/api/core", () => ({
@@ -298,12 +298,14 @@ describe("App Select Columns metadata counts", () => {
       if (cmd === "pick_folder") return Promise.resolve("/photos");
       if (cmd === "load_metadata_draft_edits") {
         return Promise.resolve({
-          "b.jpg": {
-            "XMP-dc:Title": {
-              intent: "Set",
-              value: { kind: "Text", value: "Draft title" },
-            },
-          },
+          "b.jpg": Object.values(
+            mockDrafts({
+              "XMP-dc:Title": {
+                intent: "Set",
+                value: { kind: "Text", value: "Draft title" },
+              },
+            }),
+          ),
         });
       }
       if (cmd === "stop_scan") return Promise.resolve();
@@ -344,6 +346,9 @@ describe("App Select Columns metadata counts", () => {
 
     await waitFor(() => {
       expect(screen.getAllByTestId("photo-row")).toHaveLength(2);
+      expect(screen.getByTestId("status-bar-draft-summary")).toHaveTextContent(
+        "1 file",
+      );
     });
 
     act(() => {
@@ -352,9 +357,11 @@ describe("App Select Columns metadata counts", () => {
         results: [
           {
             relative_path: "a.jpg",
-            metadata: mockMetadata({ "XMP-dc:Title": "Committed title" }),
+            metadata: mockMetadataEntries({
+              "XMP-dc:Title": "Committed title",
+            }),
           },
-          { relative_path: "b.jpg", metadata: mockMetadata({}) },
+          { relative_path: "b.jpg", metadata: [] },
         ],
       });
     });
@@ -364,8 +371,9 @@ describe("App Select Columns metadata counts", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText("XMP-dc:Title")).toBeInTheDocument();
-      expect(screen.getByText("(2 files)")).toBeInTheDocument();
+      expect(
+        screen.getByText("XMP-dc:Title").closest("label"),
+      ).toHaveTextContent("(2 files)");
     });
   });
 
@@ -464,7 +472,7 @@ describe("App Select Columns metadata counts", () => {
         results: [
           {
             relative_path: "a.jpg",
-            metadata: mockMetadata({ "XMP-dc:Title": "Title A" }),
+            metadata: mockMetadataEntries({ "XMP-dc:Title": "Title A" }),
           },
         ],
       });
@@ -474,8 +482,9 @@ describe("App Select Columns metadata counts", () => {
     // 6. Assert `XMP-dc:Title` appears with `(1 files)`.
     await waitFor(
       () => {
-        expect(screen.getByText("XMP-dc:Title")).toBeInTheDocument();
-        expect(screen.getByText("(1 files)")).toBeInTheDocument();
+        expect(
+          screen.getByText("XMP-dc:Title").closest("label"),
+        ).toHaveTextContent("(1 files)");
       },
       { timeout: 10000 },
     );
@@ -487,7 +496,7 @@ describe("App Select Columns metadata counts", () => {
         results: [
           {
             relative_path: "b.jpg",
-            metadata: mockMetadata({ "XMP-dc:Title": "Title B" }),
+            metadata: mockMetadataEntries({ "XMP-dc:Title": "Title B" }),
           },
         ],
       });
@@ -502,8 +511,9 @@ describe("App Select Columns metadata counts", () => {
     // 9. Assert the count changes to `(2 files)` while the dialog is still open.
     await waitFor(
       () => {
-        expect(screen.getByText("XMP-dc:Title")).toBeInTheDocument();
-        expect(screen.getByText("(2 files)")).toBeInTheDocument();
+        expect(
+          screen.getByText("XMP-dc:Title").closest("label"),
+        ).toHaveTextContent("(2 files)");
       },
       { timeout: 10000 },
     );

@@ -17,9 +17,9 @@
 import { render, screen, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { DetailsPane } from "./legacyAdapters";
+import { DetailsPane } from "../components/DetailsPane";
 
-import { makePhoto, mockMetadata } from "./factories";
+import { makePhoto, mockDrafts, mockMetadata } from "./factories";
 import type { MetadataDraftEdit } from "../types";
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({
@@ -129,7 +129,9 @@ describe("DetailsPane: Reverse Geocode button", () => {
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={{}}
-        typedDraftEdits={{ "XMP-photoshop:City": setDraftEdit("Manual Edit") }}
+        typedDraftEdits={mockDrafts({
+          "XMP-photoshop:City": setDraftEdit("Manual Edit"),
+        })}
         onGeocode={onGeocode}
       />,
     );

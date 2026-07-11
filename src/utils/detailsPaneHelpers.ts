@@ -1,6 +1,9 @@
 import type { ImageMetadataEntry, PhotoInfo, TagInfo } from "../types";
 import { metadataEntryToDisplayString as metadataValueToDisplayString } from "../draft";
-import { schemaDefinitionIdToken } from "./schemaDefinitionId";
+import {
+  formatSchemaDefinitionIdForDiagnostics,
+  schemaDefinitionIdToken,
+} from "./schemaDefinitionId";
 import type { TagInfoCacheEntry } from "../hooks/useTagInfo";
 
 export const formatMetadataValue = metadataValueToDisplayString;
@@ -33,10 +36,10 @@ export function extractPrefix(key: string): string {
 
 export interface MetadataEntry {
   id: ImageMetadataEntry["id"];
+  identityToken: string;
   label: string;
+  friendlyName: string;
   value: string;
-  /** Original metadata key (e.g. "IFD0:Make"); used for search, not always shown. */
-  fullKey: string;
 }
 
 export interface MetadataGroup {
@@ -67,9 +70,12 @@ export function groupImageMetadata(
     const label = tagInfo?.name ?? value.id.tag_id;
     grouped.get(prefix)!.push({
       id: value.id,
+      identityToken: token,
       label,
+      friendlyName: tagInfo
+        ? `${tagInfo.group}:${tagInfo.name}`
+        : formatSchemaDefinitionIdForDiagnostics(value.id),
       value: formatMetadataValue(value),
-      fullKey: token,
     });
   }
 

@@ -18,6 +18,8 @@ interface Props {
   filename?: string;
 }
 
+const MAX_VISIBLE_RESULTS = 100;
+
 export function NewPropertyDialog({
   onSave,
   onCancel,
@@ -38,7 +40,7 @@ export function NewPropertyDialog({
   const suggestions = useMemo(() => {
     if (writableDefinitions === "loading") return [];
     const applicable = filterTagInfosByFilename(writableDefinitions, filename);
-    if (!searchQuery) return applicable;
+    if (!searchQuery.trim()) return [];
     const lowerQuery = searchQuery.toLowerCase();
     return applicable.filter((info) => {
       const friendlyName = `${info.group}:${info.name}`.toLowerCase();
@@ -58,6 +60,8 @@ export function NewPropertyDialog({
       );
     });
   }, [writableDefinitions, searchQuery, filename]);
+
+  const visibleSuggestions = suggestions.slice(0, MAX_VISIBLE_RESULTS);
 
   useEffect(() => {
     searchInputRef.current?.focus();
@@ -140,7 +144,18 @@ export function NewPropertyDialog({
                   gap: "6px",
                 }}
               >
-                {suggestions.length === 0 ? (
+                {!searchQuery.trim() ? (
+                  <div
+                    style={{
+                      padding: "24px",
+                      textAlign: "center",
+                      opacity: 0.7,
+                      fontSize: "13px",
+                    }}
+                  >
+                    Type to search writable properties.
+                  </div>
+                ) : suggestions.length === 0 ? (
                   <div
                     style={{
                       padding: "24px",
@@ -152,15 +167,17 @@ export function NewPropertyDialog({
                     No matching writable schema definitions found.
                   </div>
                 ) : (
-                  suggestions.map((info) => {
+                  visibleSuggestions.map((info) => {
                     const token = schemaDefinitionIdToken(info.id);
                     const isSelected =
                       selectedTag !== null &&
                       schemaDefinitionIdToken(selectedTag.id) === token;
                     return (
-                      <div
+                      <button
+                        type="button"
                         key={token}
                         onClick={() => setSelectedTag(info)}
+                        aria-pressed={isSelected}
                         style={{
                           padding: "10px 14px",
                           cursor: "pointer",
@@ -175,6 +192,8 @@ export function NewPropertyDialog({
                             : "1px solid var(--border-color, #3e4451)",
                           borderRadius: "6px",
                           transition: "all 0.15s ease-in-out",
+                          textAlign: "left",
+                          font: "inherit",
                         }}
                         data-testid={`schema-option-${token}`}
                       >
@@ -220,10 +239,23 @@ export function NewPropertyDialog({
                             {info.description}
                           </div>
                         ) : null}
-                      </div>
+                      </button>
                     );
                   })
                 )}
+                {suggestions.length > MAX_VISIBLE_RESULTS ? (
+                  <div
+                    style={{
+                      padding: "8px",
+                      textAlign: "center",
+                      opacity: 0.7,
+                    }}
+                  >
+                    Showing the first {MAX_VISIBLE_RESULTS} of{" "}
+                    {suggestions.length} matches. Refine your search to see
+                    others.
+                  </div>
+                ) : null}
               </div>
 
               {isSelectedDuplicate && (

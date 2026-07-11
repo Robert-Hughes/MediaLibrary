@@ -1,10 +1,9 @@
 import { render, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
-import { PhotoList } from "./legacyAdapters";
+import { PhotoList } from "../components/PhotoList";
 import { ThumbnailStore, ImageMetadataStore } from "../types";
-import type { PhotoInfo } from "../types";
-
-type VisibleColumn = { key: string; kind: "os" | "image" };
+import type { PhotoInfo, VisibleColumn } from "../types";
+import { imgCol, osCol } from "./factories";
 
 const BEFORE = -1;
 const AFTER = 1;
@@ -46,8 +45,8 @@ function makeStores() {
   return { thumbnails, imageMetadata };
 }
 
-const img = (key: string): VisibleColumn => ({ key, kind: "image" });
-const os = (key: string): VisibleColumn => ({ key, kind: "os" });
+const img = imgCol;
+const os = osCol;
 
 describe("column header draggable attribute", () => {
   it("image metadata column headers are draggable", () => {
@@ -525,7 +524,7 @@ describe("combined metadata header interactions", () => {
     const { onSortChange, getMetadataAtGridColumn } = setup();
     fireEvent.click(getMetadataAtGridColumn("3"));
     expect(onSortChange).toHaveBeenCalledWith({
-      primary: { column: "date_modified", columnType: "os", direction: "asc" },
+      primary: { kind: "os", key: "date_modified", direction: "asc" },
       secondary: null,
     });
   });

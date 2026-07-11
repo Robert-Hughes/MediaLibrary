@@ -9,7 +9,7 @@
  */
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { PhotoList } from "./legacyAdapters";
+import { PhotoList } from "../components/PhotoList";
 import { ThumbnailStore, ImageMetadataStore } from "../types";
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({

@@ -47,13 +47,13 @@ async function fetchTagInfo(
     const result = (await invoke("get_tag_info", {
       id,
     })) as TagInfo | null;
-    cache.set(token, result);
+    if (cache.get(token) === "loading") cache.set(token, result);
   } catch (e) {
     console.error(
       `[useTagInfo] get_tag_info(${formatSchemaDefinitionIdForDiagnostics(id)}) failed:`,
       e,
     );
-    cache.set(token, null);
+    if (cache.get(token) === "loading") cache.set(token, null);
   }
   notify(token);
 }

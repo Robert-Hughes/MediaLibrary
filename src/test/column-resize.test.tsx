@@ -2,6 +2,8 @@ import { render, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import { useState } from "react";
 import { PhotoList } from "../components/PhotoList";
+import { imgCol, testId } from "./factories";
+import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
 import { ThumbnailStore, ImageMetadataStore } from "../types";
 import type { PhotoInfo } from "../types";
 
@@ -106,7 +108,7 @@ describe("column resize handles", () => {
         photos={mockPhotos}
         thumbnails={thumbnails}
         imageMetadata={imageMetadata}
-        visibleColumns={[{ key: "IFD0:Model", kind: "image" }]}
+        visibleColumns={[imgCol("IFD0:Model")]}
         {...defaultSortProps}
         selectedIndex={null}
         onSelect={() => {}}
@@ -116,7 +118,9 @@ describe("column resize handles", () => {
       />,
     );
     expect(
-      document.querySelector('[data-testid="resize-handle-IFD0:Model"]'),
+      document.querySelector(
+        `[data-testid='resize-handle-${schemaDefinitionIdToken(testId("IFD0:Model"))}']`,
+      ),
     ).not.toBeNull();
   });
 

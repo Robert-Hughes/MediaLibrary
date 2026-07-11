@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { mockMetadata } from "./factories";
+import { mockDraftsByFile, mockMetadata } from "./factories";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { PhotoList } from "./legacyAdapters";
+import { PhotoList } from "../components/PhotoList";
 import { ThumbnailStore, ImageMetadataStore } from "../types";
 import type { MetadataDraftEdit } from "../types";
 
@@ -24,7 +24,15 @@ function makePhotos(n: number) {
   return photos;
 }
 
-function setup(props: Partial<React.ComponentProps<typeof PhotoList>> = {}) {
+type SetupProps = Omit<
+  Partial<React.ComponentProps<typeof PhotoList>>,
+  "draftEdits"
+> & {
+  draftEdits?: Record<string, Record<string, MetadataDraftEdit>>;
+};
+
+function setup(props: SetupProps = {}) {
+  const { draftEdits, ...componentProps } = props;
   const thumbnails = new ThumbnailStore();
   const imageMetadata = new ImageMetadataStore();
   const photos = props.photos ?? makePhotos(5);
@@ -55,7 +63,8 @@ function setup(props: Partial<React.ComponentProps<typeof PhotoList>> = {}) {
       onApplyEdits={onApplyEdits}
       onDiscardAllEdits={onDiscardAllEdits}
       onGenerateAiDescription={onGenerateAiDescription}
-      {...props}
+      {...componentProps}
+      draftEdits={draftEdits ? mockDraftsByFile(draftEdits) : undefined}
     />,
   );
   return {

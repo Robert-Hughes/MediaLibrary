@@ -10,14 +10,19 @@ import { render, screen, within, cleanup } from "@testing-library/react";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { DetailsPane } from "../components/DetailsPane";
 
-import { _clearTagInfoCache, _setTagInfoCacheEntry } from "../hooks/useTagInfo";
-import type {
-  MetadataDraftEdit,
-  TagInfo,
-  TagKind,
-  ImageMetadataEntry,
-} from "../types";
-import { makePhoto, mockMetadata } from "./factories";
+import {
+  _clearTagInfoCache,
+  _setTagInfoCacheEntry,
+} from "./tagInfoTestHelpers";
+import type { MetadataDraftEdit, TagKind, ImageMetadataEntry } from "../types";
+import {
+  makePhoto,
+  mockDisplayDrafts,
+  mockDrafts,
+  mockMetadata,
+  testId,
+} from "./factories";
+import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(() => Promise.resolve(null)),
@@ -28,13 +33,14 @@ function tagInfo(
   name: string,
   kind: TagKind,
   writable = true,
-): TagInfo {
+): Omit<import("../types").TagInfo, "id"> {
   return { group, name, writable, kind, description: null };
 }
 
 function findRow(key: string): HTMLElement {
+  const token = schemaDefinitionIdToken(testId(key));
   const rows = screen.getAllByTestId("details-row");
-  const match = rows.find((r) => r.getAttribute("data-row-key") === key);
+  const match = rows.find((r) => r.getAttribute("data-row-key") === token);
   if (!match) throw new Error(`row for key ${key} not found`);
   return match;
 }
@@ -128,8 +134,8 @@ describe("DetailsPane datatype badges", () => {
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={mockMetadata({ "XMP-dc:Description": "foo" })}
-        draftEdits={{ "XMP-dc:Description": "bar" }}
-        typedDraftEdits={typed}
+        draftEdits={mockDisplayDrafts({ "XMP-dc:Description": "bar" })}
+        typedDraftEdits={mockDrafts(typed)}
       />,
     );
     const row = findRow("XMP-dc:Description");
@@ -154,8 +160,8 @@ describe("DetailsPane datatype badges", () => {
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={mockMetadata({ "XMP-dc:Description": "foo" })}
-        draftEdits={{ "XMP-dc:Description": "42" }}
-        typedDraftEdits={typed}
+        draftEdits={mockDisplayDrafts({ "XMP-dc:Description": "42" })}
+        typedDraftEdits={mockDrafts(typed)}
       />,
     );
     const row = findRow("XMP-dc:Description");
@@ -186,8 +192,8 @@ describe("DetailsPane datatype badges", () => {
         metadata={mockMetadata({
           "XMP-dc:Description": { kind: "Integer", value: 42 },
         })}
-        draftEdits={{ "XMP-dc:Description": "7" }}
-        typedDraftEdits={typed}
+        draftEdits={mockDisplayDrafts({ "XMP-dc:Description": "7" })}
+        typedDraftEdits={mockDrafts(typed)}
       />,
     );
     const row = findRow("XMP-dc:Description");
@@ -316,8 +322,8 @@ describe("DetailsPane datatype badges", () => {
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={mockMetadata({ "XMP-dc:Subject": ["a"] })}
-        draftEdits={{ "XMP-dc:Subject": "x" }}
-        typedDraftEdits={typed}
+        draftEdits={mockDisplayDrafts({ "XMP-dc:Subject": "x" })}
+        typedDraftEdits={mockDrafts(typed)}
       />,
     );
     const row = findRow("XMP-dc:Subject");
@@ -362,8 +368,8 @@ describe("DetailsPane datatype badges", () => {
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={mockMetadata({ "Made-Up:Thing": "x" })}
-        draftEdits={{ "Made-Up:Thing": "y" }}
-        typedDraftEdits={typed}
+        draftEdits={mockDisplayDrafts({ "Made-Up:Thing": "y" })}
+        typedDraftEdits={mockDrafts(typed)}
       />,
     );
     const row = findRow("Made-Up:Thing");
@@ -386,8 +392,8 @@ describe("DetailsPane datatype badges", () => {
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={mockMetadata({ "Made-Up:Thing": "x" })}
-        draftEdits={{ "Made-Up:Thing": "42" }}
-        typedDraftEdits={typed}
+        draftEdits={mockDisplayDrafts({ "Made-Up:Thing": "42" })}
+        typedDraftEdits={mockDrafts(typed)}
       />,
     );
     const row = findRow("Made-Up:Thing");
@@ -413,8 +419,8 @@ describe("DetailsPane datatype badges", () => {
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={{} as Record<string, ImageMetadataEntry>}
-        draftEdits={{ "Made-Up:Thing": "new" }}
-        typedDraftEdits={typed}
+        draftEdits={mockDisplayDrafts({ "Made-Up:Thing": "new" })}
+        typedDraftEdits={mockDrafts(typed)}
       />,
     );
     const row = findRow("Made-Up:Thing");
@@ -440,8 +446,8 @@ describe("DetailsPane datatype badges", () => {
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={mockMetadata({ "XMP-dc:Description": "foo" })}
-        draftEdits={{ "XMP-dc:Description": null }}
-        typedDraftEdits={typed}
+        draftEdits={mockDisplayDrafts({ "XMP-dc:Description": null })}
+        typedDraftEdits={mockDrafts(typed)}
       />,
     );
     const row = findRow("XMP-dc:Description");
@@ -466,8 +472,8 @@ describe("DetailsPane datatype badges", () => {
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={{} as Record<string, ImageMetadataEntry>}
-        draftEdits={{ "XMP-dc:Description": "new" }}
-        typedDraftEdits={typed}
+        draftEdits={mockDisplayDrafts({ "XMP-dc:Description": "new" })}
+        typedDraftEdits={mockDrafts(typed)}
       />,
     );
     const row = findRow("XMP-dc:Description");
@@ -513,8 +519,8 @@ describe("DetailsPane datatype badges", () => {
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={mockMetadata({ "XMP-x:Aperture": 1.5 })}
-        draftEdits={{ "XMP-x:Aperture": "1.5" }}
-        typedDraftEdits={typed}
+        draftEdits={mockDisplayDrafts({ "XMP-x:Aperture": "1.5" })}
+        typedDraftEdits={mockDrafts(typed)}
       />,
     );
     const row = findRow("XMP-x:Aperture");

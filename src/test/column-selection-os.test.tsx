@@ -1,13 +1,14 @@
 import { render, screen } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { vi } from "vitest";
-import { ColumnSelectionDialog } from "./legacyAdapters";
-type VisibleColumn = { key: string; kind: "os" | "image" };
+import { ColumnSelectionDialog } from "../components/ColumnSelectionDialog";
+import type { VisibleColumn } from "../types";
+import { imgCol, osCol, testId } from "./factories";
 
 describe("ColumnSelectionDialog OS Metadata", () => {
   const allKeys = [
-    { key: "IFD0:Model", count: 10 },
-    { key: "IFD0:Make", count: 8 },
+    { id: testId("IFD0:Model"), count: 10 },
+    { id: testId("IFD0:Make"), count: 8 },
   ];
 
   const cols = (...arr: VisibleColumn[]): VisibleColumn[] => arr;
@@ -83,7 +84,7 @@ describe("ColumnSelectionDialog OS Metadata", () => {
         allKeys={allKeys}
         visibleColumns={cols(
           { key: "date_modified", kind: "os" },
-          { key: "IFD0:Model", kind: "image" },
+          imgCol("IFD0:Model"),
         )}
         onSave={onSave}
         onClose={() => {}}
@@ -94,9 +95,12 @@ describe("ColumnSelectionDialog OS Metadata", () => {
     await userEvent.click(screen.getByText("Save Changes"));
 
     const [saved] = onSave.mock.calls[0];
-    const keys = (saved as VisibleColumn[]).map((c) => c.key);
-    expect(keys).toEqual(
-      expect.arrayContaining(["date_modified", "date_created", "IFD0:Model"]),
+    expect(saved as VisibleColumn[]).toEqual(
+      expect.arrayContaining([
+        osCol("date_modified"),
+        osCol("date_created"),
+        imgCol("IFD0:Model"),
+      ]),
     );
   });
 
@@ -108,7 +112,7 @@ describe("ColumnSelectionDialog OS Metadata", () => {
         visibleColumns={cols(
           { key: "date_modified", kind: "os" },
           { key: "date_created", kind: "os" },
-          { key: "IFD0:Model", kind: "image" },
+          imgCol("IFD0:Model"),
         )}
         onSave={onSave}
         onClose={() => {}}
@@ -119,10 +123,7 @@ describe("ColumnSelectionDialog OS Metadata", () => {
     await userEvent.click(screen.getByText("Save Changes"));
 
     expect(onSave).toHaveBeenCalledWith(
-      [
-        { key: "date_created", kind: "os" },
-        { key: "IFD0:Model", kind: "image" },
-      ],
+      [{ key: "date_created", kind: "os" }, imgCol("IFD0:Model")],
       false,
     );
   });

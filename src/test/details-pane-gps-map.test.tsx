@@ -3,9 +3,12 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { DetailsPane } from "../components/DetailsPane";
 
 import { GpsMapOverview } from "../components/GpsMapOverview";
-import { makePhoto, mockMetadata } from "./factories";
+import { makePhoto, mockDrafts, mockMetadata } from "./factories";
 import type { MetadataDraftEdit } from "../types";
-import { _clearTagInfoCache, _setTagInfoCacheEntry } from "../hooks/useTagInfo";
+import {
+  _clearTagInfoCache,
+  _setTagInfoCacheEntry,
+} from "./tagInfoTestHelpers";
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(() => Promise.resolve(null)),
@@ -54,7 +57,14 @@ describe("DetailsPane GPS Map integration", () => {
       "IFD0:Make",
     ];
     for (const tag of commonTags) {
-      _setTagInfoCacheEntry(tag, null);
+      const colon = tag.indexOf(":");
+      _setTagInfoCacheEntry(tag, {
+        group: tag.slice(0, colon),
+        name: tag.slice(colon + 1),
+        writable: true,
+        kind: { kind: "Text" },
+        description: null,
+      });
     }
   });
 
@@ -150,7 +160,7 @@ describe("DetailsPane GPS Map integration", () => {
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={metadata}
-        typedDraftEdits={typedDraftEdits}
+        typedDraftEdits={mockDrafts(typedDraftEdits)}
       />,
     );
 
@@ -186,7 +196,7 @@ describe("DetailsPane GPS Map integration", () => {
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={metadata}
-        typedDraftEdits={typedDraftEdits}
+        typedDraftEdits={mockDrafts(typedDraftEdits)}
       />,
     );
 

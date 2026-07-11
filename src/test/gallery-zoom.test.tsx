@@ -1,7 +1,7 @@
 import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import type { ComponentProps } from "react";
-import { GalleryView } from "./legacyAdapters";
+import { GalleryView } from "../components/GalleryView";
 
 import { makePhotos } from "./factories";
 

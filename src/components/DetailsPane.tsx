@@ -103,12 +103,12 @@ function detailsRowMatchesSearch(
   label: string,
   value: string,
   draftValue: string | null | undefined,
-  fullKey: string,
+  friendlyName: string,
   normalizedQuery: string,
 ): boolean {
   if (!normalizedQuery) return true;
   return haystackContainsNormalized(
-    `${label}\n${value}\n${draftValue ?? ""}\n${fullKey}`,
+    `${label}\n${value}\n${draftValue ?? ""}\n${friendlyName}`,
     normalizedQuery,
   );
 }
@@ -262,10 +262,10 @@ function DetailsImageRow({
 
   return (
     <tr
-      key={entry.fullKey}
+      key={entry.identityToken}
       className={readOnly ? "details-row details-row--readonly" : "details-row"}
       data-testid="details-row"
-      data-row-key={entry.fullKey}
+      data-row-key={entry.identityToken}
       data-readonly={readOnly ? "true" : undefined}
       onContextMenu={(e) => onContextMenu(e, originalValue)}
     >
@@ -659,13 +659,13 @@ export function DetailsPane({
       .map((g) => ({
         ...g,
         entries: g.entries.filter((e) => {
-          if (hasEditsFilter && draftEdits[e.fullKey] === undefined)
+          if (hasEditsFilter && draftEdits[e.identityToken] === undefined)
             return false;
           return detailsRowMatchesSearch(
             e.label,
             e.value,
-            draftEdits[e.fullKey],
-            e.fullKey,
+            draftEdits[e.identityToken],
+            e.friendlyName,
             query,
           );
         }),
@@ -857,22 +857,24 @@ export function DetailsPane({
                     <tbody>
                       {group.entries.map((entry) => (
                         <DetailsImageRow
-                          key={entry.fullKey}
+                          key={entry.identityToken}
                           entry={entry}
                           rawValue={
                             typeof metadata === "object"
                               ? metadataGet(metadata, entry.id)
                               : undefined
                           }
-                          draftValue={draftEdits[entry.fullKey]}
-                          typedDraft={typedDraftEdits?.[entry.fullKey]?.edit}
+                          draftValue={draftEdits[entry.identityToken]}
+                          typedDraft={
+                            typedDraftEdits?.[entry.identityToken]?.edit
+                          }
                           searchQuery={detailsSearch}
                           onContextMenu={(e, originalValue) =>
                             handleContextMenu(
                               e,
                               entry.id,
                               originalValue,
-                              draftEdits[entry.fullKey],
+                              draftEdits[entry.identityToken],
                             )
                           }
                         />

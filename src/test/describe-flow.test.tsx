@@ -17,7 +17,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import App from "../App";
 import { createMockTauriApi } from "./mockTauriApi";
-import { makePhoto } from "./factories";
+import { makePhoto, mockDrafts } from "./factories";
 
 let mockApiInstance: ReturnType<typeof createMockTauriApi>;
 
@@ -250,22 +250,24 @@ describe("AI-description flow", () => {
       {
         relativePath: "test.jpg",
         status: "ok",
-        edits: {
-          "XMP-mlib:AIDescription": {
-            value: { kind: "Text", value: "a calm beach scene" },
-            intent: "Set",
-          },
-          "XMP-mlib:AITags": {
-            value: {
-              kind: "List",
-              value: {
-                list_kind: "Bag",
-                items: [{ kind: "Text", value: "beach" }],
-              },
+        edits: Object.values(
+          mockDrafts({
+            "XMP-mlib:AIDescription": {
+              value: { kind: "Text", value: "a calm beach scene" },
+              intent: "Set",
             },
-            intent: "Set",
-          },
-        },
+            "XMP-mlib:AITags": {
+              value: {
+                kind: "List",
+                value: {
+                  list_kind: "Bag",
+                  items: [{ kind: "Text", value: "beach" }],
+                },
+              },
+              intent: "Set",
+            },
+          }),
+        ),
       },
     ];
 
@@ -284,12 +286,14 @@ describe("AI-description flow", () => {
     expect(folderDrafts).toBeTruthy();
     expect(folderDrafts["test.jpg"]).toBeTruthy();
     expect(
-      folderDrafts["test.jpg"].some(
-        ({ id }: any) => id.tag_id === "AIDescription",
+      Object.values(folderDrafts["test.jpg"]).some(
+        ({ id }) => id.tag_id === "AIDescription",
       ),
     ).toBe(true);
     expect(
-      folderDrafts["test.jpg"].some(({ id }: any) => id.tag_id === "AITags"),
+      Object.values(folderDrafts["test.jpg"]).some(
+        ({ id }) => id.tag_id === "AITags",
+      ),
     ).toBe(true);
   });
 

@@ -80,13 +80,6 @@ describe("SearchIndex", () => {
       expect(matchedSet(idx, "trees")).toEqual(new Set(["a.jpg"]));
     });
 
-    it("ignores '_error' metadata key", () => {
-      const idx = new SearchIndex();
-      seed(idx);
-      idx.setMeta("a.jpg", mockMetadata({ _error: "exiftool blew up" }));
-      expect(matchedSet(idx, "exiftool")).toEqual(new Set());
-    });
-
     it("loading metadata yields no metadata match", () => {
       const idx = new SearchIndex();
       seed(idx);

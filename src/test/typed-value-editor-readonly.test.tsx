@@ -5,6 +5,7 @@
 // view the value) but the Save button is disabled and the meta-hint banner
 // is rendered in warning style with the "read-only" explainer text.
 
+import type { ComponentProps } from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   fireEvent,
@@ -18,20 +19,27 @@ import {
   _clearTagInfoCache,
   _setTagInfoCacheEntry as setExactTagInfo,
 } from "../hooks/useTagInfo";
-import type { TagKind } from "../types";
+import type { MetadataValue, TagKind } from "../types";
 import { mockMetadata, testId } from "./factories";
 
 function _setTagInfoCacheEntry(key: string, value: any) {
   setExactTagInfo(testId(key), value);
 }
 
-function TypedValueEditor(props: any) {
-  const { propertyKey, metadataForFile, ...rest } = props;
+type TestEditorProps = Omit<
+  ComponentProps<typeof ExactTypedValueEditor>,
+  "metadataForFile"
+> & { metadataForFile?: Record<string, MetadataValue> };
+
+const editorIdentity = (label: string) => ({
+  propertyId: testId(label),
+  propertyLabel: label,
+});
+
+function TypedValueEditor({ metadataForFile, ...rest }: TestEditorProps) {
   return (
     <ExactTypedValueEditor
       {...rest}
-      propertyId={testId(propertyKey)}
-      propertyLabel={propertyKey}
       metadataForFile={
         metadataForFile ? mockMetadata(metadataForFile) : undefined
       }
@@ -66,7 +74,7 @@ describe("TypedValueEditor read-only enforcement", () => {
     const onCancel = vi.fn();
     render(
       <TypedValueEditor
-        propertyKey="XMP-test:Blob"
+        {...editorIdentity("XMP-test:Blob")}
         schemaOverride={{
           kind: { kind: "Binary" },
           readOnly: true,
@@ -87,7 +95,7 @@ describe("TypedValueEditor read-only enforcement", () => {
   it("inherits read-only state with a synthetic Enum schema", () => {
     render(
       <TypedValueEditor
-        propertyKey="Parent[0]"
+        {...editorIdentity("Parent[0]")}
         schemaOverride={{
           kind: {
             kind: "Enum",
@@ -138,7 +146,7 @@ describe("TypedValueEditor read-only enforcement", () => {
     });
     render(
       <TypedValueEditor
-        propertyKey="Test:Broken"
+        {...editorIdentity("Test:Broken")}
         initialMetadataValue={{
           kind: "Unknown",
           value: {
@@ -177,7 +185,7 @@ describe("TypedValueEditor read-only enforcement", () => {
     const onSaveMetadata = vi.fn();
     render(
       <TypedValueEditor
-        propertyKey="EXIF:ExifVersion"
+        {...editorIdentity("EXIF:ExifVersion")}
         initialMetadataValue={{ kind: "Text", value: "0231" }}
         onSaveMetadata={onSaveMetadata}
         onCancel={() => {}}
@@ -211,7 +219,7 @@ describe("TypedValueEditor read-only enforcement", () => {
     });
     render(
       <TypedValueEditor
-        propertyKey="XMP-dc:Title"
+        {...editorIdentity("XMP-dc:Title")}
         initialMetadataValue={{ kind: "Text", value: "hello" }}
         onSaveMetadata={() => {}}
         onCancel={() => {}}
@@ -237,7 +245,7 @@ describe("TypedValueEditor read-only enforcement", () => {
     });
     render(
       <TypedValueEditor
-        propertyKey="EXIF:Orientation"
+        {...editorIdentity("EXIF:Orientation")}
         initialMetadataValue={{ kind: "Integer", value: 1 }}
         onSaveMetadata={() => {}}
         onCancel={() => {}}
@@ -267,7 +275,7 @@ describe("TypedValueEditor temporal routing", () => {
     });
     render(
       <TypedValueEditor
-        propertyKey={key}
+        {...editorIdentity(key)}
         initialMetadataValue={
           mode === "date"
             ? { kind: "Date", value: { year: 2026, month: 5, day: 15 } }
@@ -319,7 +327,7 @@ describe("TypedValueEditor temporal routing", () => {
     });
     render(
       <TypedValueEditor
-        propertyKey="XMP-custom:DateishText"
+        {...editorIdentity("XMP-custom:DateishText")}
         initialMetadataValue={{
           kind: "Text",
           value: "2026:05:15 10:30:00",
@@ -345,7 +353,7 @@ describe("TypedValueEditor temporal routing", () => {
     });
     render(
       <TypedValueEditor
-        propertyKey="XMP-custom:UnknownDate"
+        {...editorIdentity("XMP-custom:UnknownDate")}
         initialMetadataValue={{
           kind: "Text",
           value: "2026:05:15 10:30:00",
@@ -366,7 +374,7 @@ describe("TypedValueEditor temporal routing", () => {
   it("keeps a missing-schema date-like tag in the text fallback", async () => {
     render(
       <TypedValueEditor
-        propertyKey="XMP-custom:MissingDate"
+        {...editorIdentity("XMP-custom:MissingDate")}
         initialMetadataValue={{
           kind: "Text",
           value: "2026:05:15 10:30:00",
@@ -394,7 +402,7 @@ describe("TypedValueEditor GPS routing", () => {
     });
     render(
       <TypedValueEditor
-        propertyKey="GPS:GPSLatitude"
+        {...editorIdentity("GPS:GPSLatitude")}
         initialMetadataValue={{ kind: "Real", value: 52.2 }}
         metadataForFile={{
           "GPS:GPSLatitude": { kind: "Real", value: 52.2 },
@@ -443,7 +451,7 @@ describe("TypedValueEditor GPS routing", () => {
     });
     render(
       <TypedValueEditor
-        propertyKey="GPS:GPSLatitudeRef"
+        {...editorIdentity("GPS:GPSLatitudeRef")}
         initialMetadataValue={{ kind: "Text", value: "S" }}
         metadataForFile={{
           "GPS:GPSLatitude": { kind: "Real", value: 52.2 },
@@ -476,7 +484,7 @@ describe("TypedValueEditor GPS routing", () => {
   it("keeps the clicked Unknown GPS property in UnknownEditor", () => {
     render(
       <TypedValueEditor
-        propertyKey="GPS:GPSLatitude"
+        {...editorIdentity("GPS:GPSLatitude")}
         initialMetadataValue={{
           kind: "Unknown",
           value: {
@@ -515,7 +523,7 @@ describe("TypedValueEditor GPS routing", () => {
   it("opens GpsEditor and prefills canonical Real GPS metadata", () => {
     render(
       <TypedValueEditor
-        propertyKey="GPS:GPSLatitude"
+        {...editorIdentity("GPS:GPSLatitude")}
         metadataForFile={{
           "GPS:GPSLatitude": { kind: "Real", value: 52.2037391662611 },
           "GPS:GPSLatitudeRef": { kind: "Text", value: "N" },
@@ -543,7 +551,7 @@ describe("TypedValueEditor GPS routing", () => {
   it("prefills GpsEditor from stale one-item List<Rational> GPS metadata", () => {
     render(
       <TypedValueEditor
-        propertyKey="GPS:GPSLatitude"
+        {...editorIdentity("GPS:GPSLatitude")}
         metadataForFile={{
           "GPS:GPSLatitude": {
             kind: "List",
@@ -591,7 +599,7 @@ describe("TypedValueEditor semantic save callbacks", () => {
 
     render(
       <TypedValueEditor
-        propertyKey="XMP-dc:Title"
+        {...editorIdentity("XMP-dc:Title")}
         initialMetadataValue={{ kind: "Text", value: "old" }}
         onSaveMetadata={onSaveMetadata}
         onCancel={() => {}}
@@ -633,7 +641,7 @@ describe("TypedValueEditor nested schema routing", () => {
 
     render(
       <TypedValueEditor
-        propertyKey="GPS:GPSLatitudeRef"
+        {...editorIdentity("GPS:GPSLatitudeRef")}
         initialMetadataValue={{
           kind: "List",
           value: {
@@ -685,7 +693,7 @@ describe("TypedValueEditor nested schema routing", () => {
 
     render(
       <TypedValueEditor
-        propertyKey="XMP-test:Record"
+        {...editorIdentity("XMP-test:Record")}
         initialMetadataValue={{
           kind: "Struct",
           value: { Mode: { kind: "Text", value: "M" } },

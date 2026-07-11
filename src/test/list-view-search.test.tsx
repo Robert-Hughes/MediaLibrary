@@ -9,10 +9,19 @@ import userEvent from "@testing-library/user-event";
 import { useMemo, useState } from "react";
 import { describe, it, expect, beforeEach } from "vitest";
 import { PhotoList } from "../components/PhotoList";
-import { DraftEditsStore, ImageMetadataStore, ThumbnailStore } from "../types";
-import { makePhotos, imgCol, mockMetadata } from "./factories";
+import {
+  DraftEditsStore,
+  ImageMetadataStore,
+  ThumbnailStore,
+  type VisibleColumn,
+} from "../types";
+import { makePhotos, imgCol, mockMetadata, testId } from "./factories";
+import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
 import { useSearchWorker, createSearchWorker } from "../hooks/useSearchWorker";
-import { _clearTagInfoCache, _setTagInfoCacheEntry } from "../hooks/useTagInfo";
+import {
+  _clearTagInfoCache,
+  _setTagInfoCacheEntry,
+} from "./tagInfoTestHelpers";
 
 const defaultSortProps = {
   sortConfig: { primary: null, secondary: null } as const,
@@ -24,7 +33,7 @@ function ListSearchHarness({
   visibleColumns,
 }: {
   allPhotos: ReturnType<typeof makePhotos>;
-  visibleColumns: Array<{ key: string; kind: "os" | "image" }>;
+  visibleColumns: VisibleColumn[];
 }) {
   const [query, setQuery] = useState("");
   const thumbs = useMemo(() => {
@@ -160,7 +169,7 @@ describe("List view search", () => {
     expect(path.queryAllByRole("mark")).toHaveLength(0);
 
     const makeCell = rows[0].querySelector(
-      '[data-col="IFD0:Make"]',
+      `[data-col='${schemaDefinitionIdToken(testId("IFD0:Make"))}']`,
     ) as HTMLElement;
     expect(makeCell).not.toBeNull();
     expect(within(makeCell).queryAllByRole("mark")).toHaveLength(0);

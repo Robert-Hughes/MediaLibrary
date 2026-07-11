@@ -78,15 +78,15 @@ describe("NewPropertyDialog exact-ID selection flow", () => {
     expect(screen.queryByTestId("new-property-key")).toBeNull();
   });
 
-  it("loads definitions from useWritableSchemaDefinitions and lists them", () => {
+  it("shows an instruction instead of rendering definitions for a blank query", () => {
     _setWritableSchemaDefinitionsCache(testDefinitions);
     render(<NewPropertyDialog onSave={() => {}} onCancel={() => {}} />);
     expect(screen.getByTestId("new-property-key")).toBeInTheDocument();
 
-    const titleToken = schemaDefinitionIdToken(testDefinitions[0].id);
     expect(
-      screen.getByTestId(`schema-option-${titleToken}`),
+      screen.getByText("Type to search writable properties."),
     ).toBeInTheDocument();
+    expect(screen.queryAllByTestId(/^schema-option-/)).toHaveLength(0);
   });
 
   it("filters search matches by friendly name", () => {
@@ -158,6 +158,10 @@ describe("NewPropertyDialog exact-ID selection flow", () => {
 
     render(<NewPropertyDialog onSave={onSave} onCancel={() => {}} />);
 
+    fireEvent.change(screen.getByTestId("new-property-key"), {
+      target: { value: "Title" },
+    });
+
     const titleToken = schemaDefinitionIdToken(testDefinitions[0].id);
     const option = screen.getByTestId(`schema-option-${titleToken}`);
 
@@ -181,6 +185,7 @@ describe("NewPropertyDialog exact-ID selection flow", () => {
     expect(onSave).not.toHaveBeenCalled();
 
     // Select then enter
+    fireEvent.change(input, { target: { value: "Title" } });
     const titleToken = schemaDefinitionIdToken(testDefinitions[0].id);
     await user.click(screen.getByTestId(`schema-option-${titleToken}`));
 
@@ -188,9 +193,30 @@ describe("NewPropertyDialog exact-ID selection flow", () => {
     expect(onSave).toHaveBeenCalledWith(testDefinitions[0].id);
   });
 
+  it("selects a focused search result with the keyboard", async () => {
+    const user = userEvent.setup();
+    _setWritableSchemaDefinitionsCache(testDefinitions);
+
+    render(<NewPropertyDialog onSave={() => {}} onCancel={() => {}} />);
+    await user.type(screen.getByTestId("new-property-key"), "Title");
+
+    const titleToken = schemaDefinitionIdToken(testDefinitions[0].id);
+    const option = screen.getByTestId(`schema-option-${titleToken}`);
+    option.focus();
+    expect(option).toHaveFocus();
+
+    await user.keyboard("{Enter}");
+    expect(option).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("new-property-next")).toBeEnabled();
+  });
+
   it("renders two same-friendly-name definitions separately and displays enough context to distinguish them", () => {
     _setWritableSchemaDefinitionsCache(testDefinitions);
     render(<NewPropertyDialog onSave={() => {}} onCancel={() => {}} />);
+
+    fireEvent.change(screen.getByTestId("new-property-key"), {
+      target: { value: "Canon:WhiteBalance" },
+    });
 
     const canon40DToken = schemaDefinitionIdToken(testDefinitions[2].id);
     const canon5DToken = schemaDefinitionIdToken(testDefinitions[3].id);
@@ -215,6 +241,10 @@ describe("NewPropertyDialog exact-ID selection flow", () => {
 
     render(<NewPropertyDialog onSave={onSave} onCancel={() => {}} />);
 
+    fireEvent.change(screen.getByTestId("new-property-key"), {
+      target: { value: "Canon:WhiteBalance" },
+    });
+
     const canon5DToken = schemaDefinitionIdToken(testDefinitions[3].id);
     await user.click(screen.getByTestId(`schema-option-${canon5DToken}`));
 
@@ -236,6 +266,10 @@ describe("NewPropertyDialog exact-ID selection flow", () => {
         existingIds={existingIds}
       />,
     );
+
+    fireEvent.change(screen.getByTestId("new-property-key"), {
+      target: { value: "Canon:WhiteBalance" },
+    });
 
     const canon40DToken = schemaDefinitionIdToken(testDefinitions[2].id);
     const canon5DToken = schemaDefinitionIdToken(testDefinitions[3].id);
@@ -260,6 +294,10 @@ describe("NewPropertyDialog exact-ID selection flow", () => {
     _setWritableSchemaDefinitionsCache(testDefinitions);
     render(<NewPropertyDialog onSave={() => {}} onCancel={() => {}} />);
 
+    fireEvent.change(screen.getByTestId("new-property-key"), {
+      target: { value: "Text" },
+    });
+
     const omittedToken = schemaDefinitionIdToken(testDefinitions[0].id);
     const zeroToken = schemaDefinitionIdToken(testDefinitions[5].id);
 
@@ -279,6 +317,10 @@ describe("NewPropertyDialog exact-ID selection flow", () => {
         filename="photo.jpg"
       />,
     );
+
+    fireEvent.change(screen.getByTestId("new-property-key"), {
+      target: { value: "Title" },
+    });
 
     const titleToken = schemaDefinitionIdToken(testDefinitions[0].id);
     const audioToken = schemaDefinitionIdToken(testDefinitions[4].id);
