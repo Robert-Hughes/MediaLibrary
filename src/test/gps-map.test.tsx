@@ -41,6 +41,10 @@ describe("GpsMap component", () => {
   beforeEach(() => {
     cleanup();
     vi.clearAllMocks();
+
+    mockMapInstance.on.mockImplementation(() => mockMapInstance);
+    mockMapInstance.off.mockImplementation(() => mockMapInstance);
+
     mockMapInstance.getCenter.mockReturnValue({ lat: 0, lng: 0 });
     mockMapInstance.getBounds.mockReturnValue({
       contains: vi.fn().mockReturnValue(true),

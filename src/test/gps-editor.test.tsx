@@ -318,7 +318,7 @@ describe("GpsEditor", () => {
     expect(mockMap.getAttribute("data-lon")).toBe("");
   });
 
-  it("a north-west map click updates React states and sets refs to N and W", () => {
+  it("a north-west map selection updates React state and sets refs to N and W", () => {
     render(
       <GpsEditor
         group={exampleGroup}
@@ -354,7 +354,7 @@ describe("GpsEditor", () => {
     expect(lonRef.value).toBe("W");
   });
 
-  it("a south-east map click sets S and E", () => {
+  it("a south-east map selection sets S and E", () => {
     render(
       <GpsEditor
         group={exampleGroup}
@@ -382,7 +382,7 @@ describe("GpsEditor", () => {
     expect(lonRef.value).toBe("E");
   });
 
-  it("a click at latitude and longitude zero sets N and E and avoids -0", () => {
+  it("a zero-coordinate map selection sets N and E and avoids -0", () => {
     render(
       <GpsEditor
         group={exampleGroup}
@@ -418,7 +418,7 @@ describe("GpsEditor", () => {
     expect(lonRef.value).toBe("E");
   });
 
-  it("a map click clears any existing coordinate validation error", async () => {
+  it("a map selection clears any existing coordinate validation error", async () => {
     const user = userEvent.setup();
     render(
       <GpsEditor
@@ -440,7 +440,7 @@ describe("GpsEditor", () => {
     fireEvent.click(screen.getByTestId("gps-editor-save"));
     expect(screen.getByTestId("gps-editor-error")).toBeInTheDocument();
 
-    // click map
+    // select a map position
     const mockMap = screen.getByTestId("mock-gps-map");
     act(() => {
       (mockMap as any).triggerPositionSelect(10, 10);
@@ -448,7 +448,7 @@ describe("GpsEditor", () => {
     expect(screen.queryByTestId("gps-editor-error")).not.toBeInTheDocument();
   });
 
-  it("a map click leaves altitude unchanged", () => {
+  it("a map selection leaves altitude unchanged", () => {
     render(
       <GpsEditor
         group={exampleGroup}
@@ -474,7 +474,7 @@ describe("GpsEditor", () => {
     expect(altInput.value).toBe("150");
   });
 
-  it("saving after a map click emits the existing four-edit semantic payload", () => {
+  it("saving after a map selection emits the existing four-edit semantic payload", () => {
     const onSave = vi.fn();
     render(
       <GpsEditor
@@ -516,7 +516,7 @@ describe("GpsEditor", () => {
     });
   });
 
-  it("saving after a map click with altitude still emits six edits", async () => {
+  it("saving after a map selection with altitude still emits six edits", async () => {
     const user = userEvent.setup();
     const onSave = vi.fn();
     render(
@@ -569,6 +569,50 @@ describe("GpsEditor", () => {
       "gps-editor-lat-input",
     ) as HTMLInputElement;
     expect(latInput.value).toBe("51.5");
+  });
+
+  it("shows right-click and Shift+left-click instructions in editable mode", () => {
+    render(
+      <GpsEditor
+        group={exampleGroup}
+        initialLatDecimal={51.5}
+        initialLatRef="N"
+        initialLonDecimal={0.13}
+        initialLonRef="W"
+        onSave={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+    const helperText = screen.getByText(
+      "Right-click or Shift+left-click to choose a location. Drag to pan, and double-click or scroll to zoom. Panning and zooming do not change the selected coordinates.",
+    );
+    expect(helperText).toBeInTheDocument();
+  });
+
+  it("shows navigation-only instructions in read-only mode", () => {
+    render(
+      <GpsEditor
+        group={exampleGroup}
+        initialLatDecimal={51.5}
+        initialLatRef="N"
+        initialLonDecimal={0.13}
+        initialLonRef="W"
+        onSave={() => {}}
+        onCancel={() => {}}
+        readOnly={true}
+      />,
+    );
+    const helperText = screen.getByText(
+      "Drag to pan, and double-click or scroll to zoom. Location selection is disabled in read-only mode.",
+    );
+    expect(helperText).toBeInTheDocument();
+
+    // Ensure editable selection instructions are NOT present
+    expect(
+      screen.queryByText(
+        "Right-click or Shift+left-click to choose a location. Drag to pan, and double-click or scroll to zoom. Panning and zooming do not change the selected coordinates.",
+      ),
+    ).not.toBeInTheDocument();
   });
 
   it("manual input edits update the position passed to the map", async () => {
