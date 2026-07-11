@@ -1,4 +1,4 @@
-import { useEffect, useRef, useLayoutEffect } from "react";
+import { useCallback, useEffect, useRef, useLayoutEffect } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import {
@@ -71,6 +71,24 @@ export function GpsMap({
         ? { lat: validLat, lon: validLon }
         : null;
   }, [onPositionSelect, readOnly, validLat, validLon]);
+
+  const selectMapPosition = useCallback((event: L.LeafletMouseEvent) => {
+    if (readOnlyRef.current) return;
+
+    const { lat, lng } = event.latlng;
+
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      return;
+    }
+
+    const clampedLat = Math.max(-90, Math.min(90, lat));
+    const normalisedLon = normaliseLongitude(lng);
+
+    onPositionSelectRef.current?.({
+      lat: Object.is(clampedLat, -0) ? 0 : clampedLat,
+      lon: Object.is(normalisedLon, -0) ? 0 : normalisedLon,
+    });
+  }, []);
 
   // 1. Map Construction Effect
   // Mode and showAttribution are treated as immutable for the component's lifetime.
@@ -161,21 +179,9 @@ export function GpsMap({
     const map = mapRef.current;
     if (!map || mode !== "picker") return;
 
-    const handleMapClick = (e: L.LeafletMouseEvent) => {
-      if (readOnlyRef.current) return;
-      const { lat, lng } = e.latlng;
-      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-
-      const clampedLat = Math.max(-90, Math.min(90, lat));
-      const normalisedLon = normaliseLongitude(lng);
-
-      // Clamp -0
-      const finalLat = Object.is(clampedLat, -0) ? 0 : clampedLat;
-      const finalLon = normalisedLon;
-
-      if (onPositionSelectRef.current) {
-        onPositionSelectRef.current({ lat: finalLat, lon: finalLon });
-      }
+    const handleMapClick = (event: L.LeafletMouseEvent) => {
+      if (!event.originalEvent.shiftKey) return;
+      selectMapPosition(event);
     };
 
     const handleMapMove = () => {
@@ -196,7 +202,26 @@ export function GpsMap({
       map.off("click", handleMapClick);
       map.off("moveend", handleMapMove);
     };
-  }, [mode]);
+  }, [mode, selectMapPosition]);
+
+  // 2b. Context Menu Listener Effect
+  // Only registered when selection is enabled (readOnly is false).
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || mode !== "picker" || readOnly) return;
+
+    const handleMapContextMenu = (event: L.LeafletMouseEvent) => {
+      if (readOnlyRef.current) return;
+      event.originalEvent.preventDefault();
+      selectMapPosition(event);
+    };
+
+    map.on("contextmenu", handleMapContextMenu);
+
+    return () => {
+      map.off("contextmenu", handleMapContextMenu);
+    };
+  }, [mode, readOnly, selectMapPosition]);
 
   // 3. Marker & Viewport Sync Effect
   // Runs whenever coordinates or zoom changes.
