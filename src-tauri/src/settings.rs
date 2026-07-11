@@ -19,11 +19,11 @@ use std::path::{Path, PathBuf};
 /// `experiments/openai_image_analysis/MODEL_CHOICE.md`. The first entry is
 /// the default for new installs.
 pub const RECOMMENDED_MODELS: &[&str] = &[
-    "gpt-4o",       // default — names landmarks reliably
+    "gpt-5.6-luna", // default — native reasoning, smart and cheap
+    "gpt-4o",       // legacy fallback — names landmarks reliably
     "gpt-5.4-nano", // cheapest; generic descriptions
     "gpt-5.4-mini", // cheap with globally-iconic landmarks
-    "gpt-5.4",      // marginally better prose than 4o
-    "gpt-5.5",      // newest flagship
+    "gpt-5.6-sol",  // flagship reasoning model
 ];
 
 pub fn default_model() -> String {

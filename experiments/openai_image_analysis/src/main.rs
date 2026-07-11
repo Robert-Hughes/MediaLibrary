@@ -23,7 +23,7 @@ const MAX_IMAGE_DIMENSION: u32 = 1024;
 /// JSON output truncated and unparseable. So this must be set comfortably
 /// above the realistic worst case, and we must check `status == "incomplete"`
 /// on the response to detect cases where we underestimated.
-const MAX_OUTPUT_TOKENS: u32 = 600;
+const MAX_OUTPUT_TOKENS: u32 = 1200;
 
 /// Expected output tokens for a typical photo (used for cost estimation only).
 ///
@@ -75,6 +75,27 @@ fn get_model_pricing() -> HashMap<String, ModelPricing> {
     let mut pricing = HashMap::new();
 
     // Standard models
+    pricing.insert("gpt-5.6-sol".to_string(), ModelPricing {
+        input_per_1m: 5.00,
+        cached_input_per_1m: 0.50,
+        output_per_1m: 30.00,
+        supports_batch: true,
+    });
+
+    pricing.insert("gpt-5.6-terra".to_string(), ModelPricing {
+        input_per_1m: 2.50,
+        cached_input_per_1m: 0.25,
+        output_per_1m: 15.00,
+        supports_batch: true,
+    });
+
+    pricing.insert("gpt-5.6-luna".to_string(), ModelPricing {
+        input_per_1m: 1.00,
+        cached_input_per_1m: 0.10,
+        output_per_1m: 6.00,
+        supports_batch: true,
+    });
+
     pricing.insert("gpt-5.5".to_string(), ModelPricing {
         input_per_1m: 5.00,
         cached_input_per_1m: 0.50,
@@ -253,7 +274,7 @@ fn is_checkpoint_model(model_id: &str) -> bool {
 fn is_recommended_for_image_description(model_id: &str) -> bool {
     matches!(
         model_id,
-        "gpt-5.4-nano" | "gpt-5.4-mini" | "gpt-4o" | "gpt-5.4" | "gpt-5.5"
+        "gpt-5.4-nano" | "gpt-5.4-mini" | "gpt-4o" | "gpt-5.4" | "gpt-5.5" | "gpt-5.6-luna" | "gpt-5.6-terra" | "gpt-5.6-sol"
     )
 }
 
@@ -263,6 +284,7 @@ fn supports_vision(model_id: &str) -> bool {
     // Models that support vision according to the documentation
     let vision_models = [
         // GPT-5 series
+        "gpt-5.6",
         "gpt-5.5",
         "gpt-5.4",
         "gpt-5.4-mini",
@@ -569,7 +591,7 @@ fn build_response_request(
     //
     // Note: reasoning models (o-series, gpt-5 reasoning variants) ignore
     // temperature/top_p. That's fine — they're not the target here.
-    let request = serde_json::json!({
+    let mut request = serde_json::json!({
         "model": model,
         "instructions": SYSTEM_INSTRUCTIONS,
         "input": [{
@@ -585,10 +607,15 @@ fn build_response_request(
                 "schema": description_schema()
             }
         },
-        "temperature": 0,
-        "top_p": 1,
         "max_output_tokens": MAX_OUTPUT_TOKENS,
     });
+
+    if !model.starts_with("gpt-5.6") {
+        if let Some(obj) = request.as_object_mut() {
+            obj.insert("temperature".to_string(), serde_json::json!(0));
+            obj.insert("top_p".to_string(), serde_json::json!(1));
+        }
+    }
 
     Ok(request)
 }
@@ -974,10 +1001,25 @@ async fn process_image(
     }
     tracing::debug!("API Response: {}", serde_json::to_string_pretty(&response)?);
 
-    let raw_text = response["output"][0]["content"][0]["text"]
-        .as_str()
-        .unwrap_or("")
-        .to_string();
+    // Robustly extract the text response from standard or reasoning model outputs
+    let mut raw_text = String::new();
+    if let Some(outputs) = response["output"].as_array() {
+        for output in outputs {
+            if output["type"] == "message" || output["role"] == "assistant" {
+                if let Some(contents) = output["content"].as_array() {
+                    for content in contents {
+                        if let Some(text) = content["text"].as_str() {
+                            raw_text = text.to_string();
+                            break;
+                        }
+                    }
+                }
+            }
+            if !raw_text.is_empty() {
+                break;
+            }
+        }
+    }
 
     // Truncation check — hitting max_output_tokens cuts off mid-token and leaves
     // the structured JSON unparseable. Warn loudly so the operator raises the cap.
@@ -1023,6 +1065,7 @@ async fn process_image(
         Err(e) => {
             tracing::warn!("Response text was not valid JSON: {}", e);
             println!("=== Text Response (raw) ===\n{}", raw_text);
+            println!("=== Full Response JSON ===\n{}", serde_json::to_string_pretty(&response).unwrap());
             if write_next_to_image {
                 write_error_stub(image_path, model, "invalid_json", &e.to_string(), &raw_text)?;
             }
