@@ -1198,7 +1198,7 @@ body {
 }
 
 .gps-map--picker:not(.gps-map--read-only).leaflet-grab {
-  cursor: grab;
+  cursor: crosshair;
 }
 
 .gps-map--picker:not(.gps-map--read-only).leaflet-dragging,
@@ -1223,7 +1223,7 @@ body {
 
 /* ── GpsEditor Interactive Map & Responsive Layout ── */
 
-.dialog-content--gps {
+.dialog-content.dialog-content--gps {
   width: min(720px, calc(100vw - 32px));
   max-height: calc(100vh - 32px);
 }
