@@ -6,27 +6,49 @@ interface GpsMapOverviewProps {
 }
 
 export function GpsMapOverview({ lat, lon }: GpsMapOverviewProps) {
+  const position = { lat, lon };
+
   return (
     <div className="gps-map-overview" data-testid="gps-map-overview">
       <div className="gps-map-overview__grid">
         <div className="gps-map-overview__item">
           <div className="gps-map-overview__label">World</div>
-          <GpsMap lat={lat} lon={lon} zoom={1} showAttribution={false} />
+          <GpsMap
+            position={position}
+            zoom={1}
+            mode="static"
+            showAttribution={false}
+          />
         </div>
 
         <div className="gps-map-overview__item">
           <div className="gps-map-overview__label">Country</div>
-          <GpsMap lat={lat} lon={lon} zoom={4} showAttribution={false} />
+          <GpsMap
+            position={position}
+            zoom={4}
+            mode="static"
+            showAttribution={false}
+          />
         </div>
 
         <div className="gps-map-overview__item">
           <div className="gps-map-overview__label">City</div>
-          <GpsMap lat={lat} lon={lon} zoom={8} showAttribution={false} />
+          <GpsMap
+            position={position}
+            zoom={8}
+            mode="static"
+            showAttribution={false}
+          />
         </div>
 
         <div className="gps-map-overview__item">
           <div className="gps-map-overview__label">Local</div>
-          <GpsMap lat={lat} lon={lon} zoom={16} showAttribution={false} />
+          <GpsMap
+            position={position}
+            zoom={16}
+            mode="static"
+            showAttribution={false}
+          />
         </div>
       </div>
 

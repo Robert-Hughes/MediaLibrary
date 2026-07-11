@@ -13,22 +13,26 @@ vi.mock("@tauri-apps/api/core", () => ({
 
 vi.mock("../components/GpsMap", () => ({
   GpsMap: ({
-    lat,
-    lon,
+    position,
     zoom,
+    mode,
     showAttribution,
+    readOnly,
   }: {
-    lat: number;
-    lon: number;
+    position: { lat: number; lon: number } | null;
     zoom?: number;
+    mode?: "static" | "picker";
     showAttribution?: boolean;
+    readOnly?: boolean;
   }) => (
     <div
       data-testid="gps-map"
-      data-lat={lat}
-      data-lon={lon}
+      data-lat={position ? String(position.lat) : ""}
+      data-lon={position ? String(position.lon) : ""}
       data-zoom={zoom}
+      data-mode={mode}
       data-show-attribution={String(showAttribution)}
+      data-readonly={String(readOnly)}
     />
   ),
 }));

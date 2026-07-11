@@ -21,6 +21,8 @@ import type { MetadataDraftEdit } from "../../types";
 import type { GpsTagGroup } from "../../metadata/tag_overrides";
 import { READ_ONLY_TOOLTIP } from "./readOnlyMessages";
 import { decimalToDms, enumDraftEdit, type EnumTagKind } from "./editorHelpers";
+import { GpsMap, type GpsPosition } from "../GpsMap";
+import { formatCoordinate } from "../../utils/gpsUtils";
 
 // Re-export so existing call sites that imported the type from here keep
 // working.  The override matcher lives in tag_overrides.ts.
@@ -78,6 +80,37 @@ export function GpsEditor({
     initialAltitudeRef ?? "above",
   );
   const [error, setError] = useState<string | null>(null);
+
+  // Derive a signed map position when both coordinate strings are valid numbers in range
+  const parseCoordinateInput = (val: string, maxVal: number): number | null => {
+    const parsed = parseFloat(val);
+    if (!Number.isFinite(parsed) || parsed < 0 || parsed > maxVal) {
+      return null;
+    }
+    return parsed;
+  };
+
+  const parsedLat = parseCoordinateInput(latDecimal, 90);
+  const parsedLon = parseCoordinateInput(lonDecimal, 180);
+
+  const signedPos =
+    parsedLat !== null && parsedLon !== null
+      ? {
+          lat: latRef === "S" ? -parsedLat : parsedLat,
+          lon: lonRef === "W" ? -parsedLon : parsedLon,
+        }
+      : null;
+
+  const handleMapPositionSelect = (position: GpsPosition) => {
+    if (readOnly) return;
+    setLatDecimal(formatCoordinate(Math.abs(position.lat)));
+    setLatRef(position.lat < 0 ? "S" : "N");
+
+    setLonDecimal(formatCoordinate(Math.abs(position.lon)));
+    setLonRef(position.lon < 0 ? "W" : "E");
+
+    setError(null);
+  };
 
   const handleSave = () => {
     if (readOnly) return;
@@ -174,70 +207,83 @@ export function GpsEditor({
       testId="gps-editor-overlay"
       aria-label="Edit GPS location"
     >
-      <div className="dialog-content">
+      <div className="dialog-content dialog-content--gps">
         <h3>Edit GPS location</h3>
         {headerHint}
         <div className="dialog-body">
-          <p className="dialog-hint" data-testid="gps-editor-warning">
-            Editing GPS location writes <code>{group.latitudeKey}</code>,{" "}
-            <code>{group.latitudeRefKey}</code>,{" "}
-            <code>{group.longitudeKey}</code>,{" "}
-            <code>{group.longitudeRefKey}</code>
-            {", and (when altitude is filled in) "}
-            <code>{group.altitudeKey}</code>
-            {", "}
-            <code>{group.altitudeRefKey}</code> together.
-          </p>
-          <div className="gps-editor-row">
-            <label>Latitude:</label>
-            <input
-              type="number"
-              step="any"
-              min="0"
-              max="90"
-              value={latDecimal}
-              onChange={(e) => {
-                setLatDecimal(e.target.value);
-                setError(null);
-              }}
-              placeholder="0–90"
-              data-testid="gps-editor-lat-input"
-              className="dialog-input"
+          <div className="gps-editor-map">
+            <GpsMap
+              position={signedPos}
+              mode="picker"
+              readOnly={readOnly}
+              onPositionSelect={handleMapPositionSelect}
             />
-            <select
-              value={latRef}
-              onChange={(e) => setLatRef(e.target.value as "N" | "S")}
-              data-testid="gps-editor-lat-ref"
-            >
-              <option value="N">N</option>
-              <option value="S">S</option>
-            </select>
+            <div className="gps-editor-map-help">
+              {readOnly
+                ? "Drag to pan and zoom. Location selection is disabled in read-only mode."
+                : "Click to choose a location. Drag to pan and zoom. Panning does not change the selected coordinates."}
+            </div>
           </div>
-          <div className="gps-editor-row">
-            <label>Longitude:</label>
-            <input
-              type="number"
-              step="any"
-              min="0"
-              max="180"
-              value={lonDecimal}
-              onChange={(e) => {
-                setLonDecimal(e.target.value);
-                setError(null);
-              }}
-              placeholder="0–180"
-              data-testid="gps-editor-lon-input"
-              className="dialog-input"
-            />
-            <select
-              value={lonRef}
-              onChange={(e) => setLonRef(e.target.value as "E" | "W")}
-              data-testid="gps-editor-lon-ref"
-            >
-              <option value="E">E</option>
-              <option value="W">W</option>
-            </select>
+
+          <div className="gps-editor-coordinate-grid">
+            <div className="gps-editor-coordinate-field">
+              <label>Latitude:</label>
+              <input
+                type="number"
+                step="any"
+                min="0"
+                max="90"
+                value={latDecimal}
+                onChange={(e) => {
+                  setLatDecimal(e.target.value);
+                  setError(null);
+                }}
+                placeholder="0–90"
+                data-testid="gps-editor-lat-input"
+                className="dialog-input"
+              />
+              <select
+                value={latRef}
+                onChange={(e) => {
+                  setLatRef(e.target.value as "N" | "S");
+                  setError(null);
+                }}
+                data-testid="gps-editor-lat-ref"
+              >
+                <option value="N">N</option>
+                <option value="S">S</option>
+              </select>
+            </div>
+            <div className="gps-editor-coordinate-field">
+              <label>Longitude:</label>
+              <input
+                type="number"
+                step="any"
+                min="0"
+                max="180"
+                value={lonDecimal}
+                onChange={(e) => {
+                  setLonDecimal(e.target.value);
+                  setError(null);
+                }}
+                placeholder="0–180"
+                data-testid="gps-editor-lon-input"
+                className="dialog-input"
+              />
+              <select
+                value={lonRef}
+                onChange={(e) => {
+                  setLonRef(e.target.value as "E" | "W");
+                  setError(null);
+                }}
+                data-testid="gps-editor-lon-ref"
+              >
+                <option value="E">E</option>
+                <option value="W">W</option>
+              </select>
+            </div>
           </div>
+
           <div className="gps-editor-row">
             <label>Altitude (m):</label>
             <input
@@ -255,13 +301,31 @@ export function GpsEditor({
             />
             <select
               value={altRef}
-              onChange={(e) => setAltRef(e.target.value as "above" | "below")}
+              onChange={(e) => {
+                setAltRef(e.target.value as "above" | "below");
+                setError(null);
+              }}
               data-testid="gps-editor-alt-ref"
             >
               <option value="above">above sea level</option>
               <option value="below">below sea level</option>
             </select>
           </div>
+
+          <details className="gps-editor-details">
+            <summary>Details about paired metadata fields</summary>
+            <p className="dialog-hint" data-testid="gps-editor-warning">
+              Editing GPS location writes <code>{group.latitudeKey}</code>,{" "}
+              <code>{group.latitudeRefKey}</code>,{" "}
+              <code>{group.longitudeKey}</code>,{" "}
+              <code>{group.longitudeRefKey}</code>
+              {", and (when altitude is filled in) "}
+              <code>{group.altitudeKey}</code>
+              {", "}
+              <code>{group.altitudeRefKey}</code> together.
+            </p>
+          </details>
+
           {error && (
             <p className="dialog-error" data-testid="gps-editor-error">
               {error}
