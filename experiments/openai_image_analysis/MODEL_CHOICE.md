@@ -19,18 +19,18 @@ Pricing reflects cost to process 10,000 1024x1024 images via the Responses API
 | `gpt-4.1-nano` ($25/10k)                      | Dominated by `gpt-5.4-mini` ($12/10k).                                    |
 | `gpt-4.1` ($19/10k)                           | Tied with `gpt-4o` on price; no clear quality edge.                       |
 | `gpt-5.4-pro`, `gpt-5.5-pro` ($498/10k)       | 10–40x cost of flagship for marginal quality on this task. Overkill.      |
-| `gpt-5.6-terra` ($41/10k)                     | Dominated by `gpt-5.6-luna` due to Westminster Bridge regression.          |
+| `gpt-5.6-terra` ($41/10k)                     | Dominated by `gpt-5.6-luna` due to Westminster Bridge regression.         |
 
 ## Pareto Frontier
 
-| Tier       | Model          | 10k cost | When to choose                                     |
-| ---------- | -------------- | -------- | -------------------------------------------------- |
-| Floor      | `gpt-5.4-nano` | $5       | Bulk tagging only; tolerates weak OCR/fine objects |
-| Sweet spot | `gpt-5.4-mini` | $12      | Solid OCR + cleaner descriptions than nano         |
-| Reasoning Sweet Spot | `gpt-5.6-luna` | $17  | **Recommended Default** — Native reasoning, smart OCR, names landmarks (St Pancras, London Eye, sculptor Paul Day) |
-| Baseline   | `gpt-4o`       | $19      | Standard vision model; names London landmarks reliably |
-| Premium    | `gpt-5.4`      | $41      | Slightly better prose; marginal landmark gain      |
-| Flagship   | `gpt-5.6-sol`  | $83      | Ultimate recognition (e.g. Scroby Sands Wind Farm), but high cost |
+| Tier                 | Model          | 10k cost | When to choose                                                                                                     |
+| -------------------- | -------------- | -------- | ------------------------------------------------------------------------------------------------------------------ |
+| Floor                | `gpt-5.4-nano` | $5       | Bulk tagging only; tolerates weak OCR/fine objects                                                                 |
+| Sweet spot           | `gpt-5.4-mini` | $12      | Solid OCR + cleaner descriptions than nano                                                                         |
+| Reasoning Sweet Spot | `gpt-5.6-luna` | $17      | **Recommended Default** — Native reasoning, smart OCR, names landmarks (St Pancras, London Eye, sculptor Paul Day) |
+| Baseline             | `gpt-4o`       | $19      | Standard vision model; names London landmarks reliably                                                             |
+| Premium              | `gpt-5.4`      | $41      | Slightly better prose; marginal landmark gain                                                                      |
+| Flagship             | `gpt-5.6-sol`  | $83      | Ultimate recognition (e.g. Scroby Sands Wind Farm), but high cost                                                  |
 
 ## Test Set Results
 
@@ -45,23 +45,23 @@ difference between "ferris wheel" and "London Eye" in search results.
 
 ✅ = named correctly; ⚠️ = partial / better than generic but no name; ❌ = generic only
 
-| Photo | nano | mini | gpt-4o | gpt-5.4 | 5.6-luna | 5.6-terra | 5.6-sol | opus-4.7 (chat) |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 0036 St Pancras Renaissance Hotel | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ (+ "former Midland Grand Hotel") |
-| 0042 The Meeting Place statue | ❌ | ❌ | ✅ | ✅ | ✅ (1) | ✅ (1) | ✅ (1) | ✅ (+ named sculptor "Paul Day") |
-| 0066 Westminster Bridge / County Hall | ❌ | ❌ | ✅ | ✅ | ✅ | ❌ (2) | ✅ | ✅ (+ "green copper-domed kiosk") |
-| 0125 London Eye | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| 0514 Tower of London | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| 0136 Hungerford + Golden Jubilee Br | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ (+ noted "from inside a London Eye capsule") |
-| 0028 St Pancras Station interior | ❌ | ❌ | ❌ | ❌ | ❌ (3) | ❌ | ❌ | ⚠️ (named "King's Cross" + read "EAST COAST" off train) |
-| 0322 Forth Bridge model (Sci. Museum) | ❌ | ❌ | ⚠️ | ❌ | ❌ (4) | ❌ | ❌ | ✅ (Forth Bridge + Science Museum) |
-| 0381 Queen's House / ORNC | ❌ | ❌ | ✅ | ❌ (reg) | ✅ | ✅ | ✅ | ✅✅ (+ Old Royal Naval College) |
-| 0381 Greenwich Park / Power Station | ❌ | ❌ | ✅ | ❌ | ✅ | ✅ (5) | ✅ | ✅ |
-| 0581 Scroby Sands Wind Farm | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ (6) | ⚠️ (named "offshore wind farm") |
-| 0501 Thames Barrier | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ (all models missed this) |
-| 0686 Punting (Cambridge) | ❌ | ✅ (7) | ✅ | ✅ | ✅ | ✅ | ✅ | n/a |
-| 0047 London Underground map | ❌ (8) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ (named "King's Cross St Pancras") |
-| Screenshot (Samsung Browser / Maps) | n/a | trunc | ✅ | n/a | ✅ | ✅ | ✅ | ✅ |
+| Photo                                 | nano   | mini   | gpt-4o | gpt-5.4  | 5.6-luna | 5.6-terra | 5.6-sol | opus-4.7 (chat)                                         |
+| ------------------------------------- | ------ | ------ | ------ | -------- | -------- | --------- | ------- | ------------------------------------------------------- |
+| 0036 St Pancras Renaissance Hotel     | ❌     | ❌     | ✅     | ✅       | ✅       | ✅        | ✅      | ✅ (+ "former Midland Grand Hotel")                     |
+| 0042 The Meeting Place statue         | ❌     | ❌     | ✅     | ✅       | ✅ (1)   | ✅ (1)    | ✅ (1)  | ✅ (+ named sculptor "Paul Day")                        |
+| 0066 Westminster Bridge / County Hall | ❌     | ❌     | ✅     | ✅       | ✅       | ❌ (2)    | ✅      | ✅ (+ "green copper-domed kiosk")                       |
+| 0125 London Eye                       | ❌     | ✅     | ✅     | ✅       | ✅       | ✅        | ✅      | ✅                                                      |
+| 0514 Tower of London                  | ❌     | ❌     | ✅     | ✅       | ✅       | ✅        | ✅      | ✅                                                      |
+| 0136 Hungerford + Golden Jubilee Br   | ❌     | ❌     | ✅     | ✅       | ✅       | ✅        | ✅      | ✅ (+ noted "from inside a London Eye capsule")         |
+| 0028 St Pancras Station interior      | ❌     | ❌     | ❌     | ❌       | ❌ (3)   | ❌        | ❌      | ⚠️ (named "King's Cross" + read "EAST COAST" off train) |
+| 0322 Forth Bridge model (Sci. Museum) | ❌     | ❌     | ⚠️     | ❌       | ❌ (4)   | ❌        | ❌      | ✅ (Forth Bridge + Science Museum)                      |
+| 0381 Queen's House / ORNC             | ❌     | ❌     | ✅     | ❌ (reg) | ✅       | ✅        | ✅      | ✅✅ (+ Old Royal Naval College)                        |
+| 0381 Greenwich Park / Power Station   | ❌     | ❌     | ✅     | ❌       | ✅       | ✅ (5)    | ✅      | ✅                                                      |
+| 0581 Scroby Sands Wind Farm           | ❌     | ❌     | ❌     | ❌       | ❌       | ❌        | ✅ (6)  | ⚠️ (named "offshore wind farm")                         |
+| 0501 Thames Barrier                   | ❌     | ❌     | ❌     | ❌       | ❌       | ❌        | ❌      | ❌ (all models missed this)                             |
+| 0686 Punting (Cambridge)              | ❌     | ✅ (7) | ✅     | ✅       | ✅       | ✅        | ✅      | n/a                                                     |
+| 0047 London Underground map           | ❌ (8) | ✅     | ✅     | ✅       | ✅       | ✅        | ✅      | ✅ (named "King's Cross St Pancras")                    |
+| Screenshot (Samsung Browser / Maps)   | n/a    | trunc  | ✅     | n/a      | ✅       | ✅        | ✅      | ✅                                                      |
 
 **(1)** Named sculptor Paul Day as well.
 **(2)** Hallucinated as Waterloo Bridge and Somerset House.
@@ -100,6 +100,7 @@ The `gpt-5.6-luna` model offers superior details (e.g. sculptor) and excellent l
 **Switch the previous recommendation from `gpt-4o` to `gpt-5.6-luna`** based on the 5.6 model series results.
 
 Reasoning:
+
 - Native reasoning gives `gpt-5.6-luna` a level of detail and accuracy (e.g., naming sculptor Paul Day) that traditional vision models lack.
 - Extremely cost-effective: At $1.00/1M input ($0.10/1M cached), it has a lower input cost ($17/10k) than `gpt-4o` ($19/10k).
 - Full support for prompt caching makes it highly optimal for batch jobs.
