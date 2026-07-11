@@ -1,7 +1,7 @@
 /**
  * Gallery view tests.
  */
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderHook, act } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -94,6 +94,30 @@ describe("GalleryView", () => {
     );
     await screen.findByTestId("gallery-image");
     await userEvent.click(screen.getByTestId("gallery-close-btn"));
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("uses the full-screen variant and dismisses only from its backdrop", async () => {
+    const onClose = vi.fn();
+    render(
+      <GalleryView
+        onSetMetadataDraftBatch={vi.fn()}
+        onDiscardDraftBatch={vi.fn()}
+        photos={PHOTOS}
+        currentIndex={0}
+        folderPath="/photos"
+        onClose={onClose}
+        onNavigate={vi.fn()}
+        loadImage={fakeLoad}
+      />,
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "Photo gallery",
+    });
+    expect(dialog).toHaveClass("modal-dialog", "gallery-dialog");
+    fireEvent.click(screen.getByTestId("gallery-content"));
+    expect(onClose).not.toHaveBeenCalled();
+    fireEvent.click(dialog);
     expect(onClose).toHaveBeenCalledOnce();
   });
 });

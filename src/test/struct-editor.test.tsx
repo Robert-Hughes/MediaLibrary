@@ -1,9 +1,17 @@
 // StructEditor unit tests.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import {
+  render,
+  screen,
+  fireEvent,
+  cleanup,
+  act,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { StructEditor } from "../components/editors/StructEditor";
+import { ModalDialog } from "../components/ModalDialog";
+import { useState } from "react";
 import { initialObjectFrom } from "../components/editors/editorHelpers";
 import type { MetadataValue } from "../types";
 
@@ -212,6 +220,63 @@ describe("StructEditor", () => {
     fireEvent.click(screen.getByTestId("struct-editor-edit-0"));
     expect(screen.getByTestId("mock-inner-editor")).toBeInTheDocument();
     expect(inner).toHaveBeenCalled();
+  });
+
+  it("cancels one recursive layer at a time", async () => {
+    const parentCancel = vi.fn();
+    const opener = document.createElement("button");
+    document.body.appendChild(opener);
+    opener.focus();
+
+    function Harness() {
+      const [open, setOpen] = useState(true);
+      return open ? (
+        <StructEditor
+          propertyKey="X"
+          initialObject={{
+            Enabled: { kind: "Bool", value: true },
+          }}
+          fieldKinds={{ Enabled: { kind: "Boolean" } }}
+          innerEditor={(props) => (
+            <ModalDialog
+              open
+              onDismiss={props.onCancel}
+              aria-label="Child Boolean editor"
+            >
+              <button autoFocus>Child control</button>
+            </ModalDialog>
+          )}
+          onSave={vi.fn()}
+          onCancel={() => {
+            parentCancel();
+            setOpen(false);
+          }}
+        />
+      ) : null;
+    }
+
+    render(<Harness />);
+    const edit = screen.getByTestId("struct-editor-edit-0");
+    await userEvent.click(edit);
+    expect(screen.getAllByRole("dialog")).toHaveLength(2);
+    expect(screen.getByRole("button", { name: "Child control" })).toHaveFocus();
+
+    fireEvent(
+      screen.getByRole("dialog", { name: "Child Boolean editor" }),
+      new Event("cancel", { bubbles: true, cancelable: true }),
+    );
+    await act(async () => {});
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
+    expect(parentCancel).not.toHaveBeenCalled();
+
+    fireEvent(
+      screen.getByRole("dialog"),
+      new Event("cancel", { cancelable: true }),
+    );
+    await act(async () => {});
+    expect(parentCancel).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    opener.remove();
   });
 
   it("removes a schema-aware field when its inner editor returns Delete", () => {

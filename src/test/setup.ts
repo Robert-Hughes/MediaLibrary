@@ -8,16 +8,26 @@ import { _resetSchemaTagNamesCache } from "../hooks/useSchemaTagNames";
 // jsdom exposes <dialog> but not its modal lifecycle. This deliberately models
 // only the state and focus restoration our controlled wrapper depends on.
 const dialogOpeners = new WeakMap<HTMLDialogElement, HTMLElement | null>();
+let previouslyFocused: HTMLElement | null = null;
+let lastFocused: HTMLElement | null = null;
+if (typeof document !== "undefined") {
+  document.addEventListener("focusin", (event) => {
+    previouslyFocused = lastFocused;
+    lastFocused = event.target as HTMLElement;
+  });
+}
 if (typeof HTMLDialogElement !== "undefined") {
-  HTMLDialogElement.prototype.showModal ??= function () {
+  HTMLDialogElement.prototype.showModal = function () {
     if (this.open) throw new DOMException("Dialog is already open");
-    dialogOpeners.set(this, document.activeElement as HTMLElement | null);
+    const active = document.activeElement as HTMLElement | null;
+    dialogOpeners.set(this, this.contains(active) ? previouslyFocused : active);
     this.setAttribute("open", "");
   };
-  HTMLDialogElement.prototype.close ??= function () {
+  HTMLDialogElement.prototype.close = function () {
     if (!this.open) return;
     this.removeAttribute("open");
     dialogOpeners.get(this)?.focus();
+    this.dispatchEvent(new Event("close"));
   };
 }
 
@@ -26,12 +36,12 @@ if (typeof HTMLDialogElement !== "undefined") {
 // tests. Application code still receives only `cancel`.
 if (typeof document !== "undefined") {
   document.addEventListener("keydown", (event) => {
-    if (event.key !== "Escape") return;
+    if (event.key !== "Escape" || event.defaultPrevented) return;
     const dialogs = Array.from(
       document.querySelectorAll<HTMLDialogElement>("dialog[open]"),
     );
     dialogs[dialogs.length - 1]?.dispatchEvent(
-      new Event("cancel", { cancelable: true }),
+      new Event("cancel", { bubbles: false, cancelable: true }),
     );
   });
 }
