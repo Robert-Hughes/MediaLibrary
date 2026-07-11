@@ -226,6 +226,7 @@ export function GalleryView({
       onDismiss={onClose}
       className="gallery-dialog"
       testId="gallery-overlay"
+      dismissOnBackdrop
       aria-label="Photo gallery"
       onKeyDown={onKey}
     >

@@ -15,6 +15,8 @@ interface Props {
 export function ContextMenu({ x, y, options, onClose }: Props) {
   const menuRef = useRef<HTMLDivElement>(null);
   const previousFocus = useRef<HTMLElement | null>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   // Start where the cursor is, then nudge after layout if the menu would
   // overflow the viewport.  Position update happens in a layout effect
   // so the user never sees a clipped flash before the correction.
@@ -52,7 +54,7 @@ export function ContextMenu({ x, y, options, onClose }: Props) {
       ?.focus();
     const handleClickOutside = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        onClose();
+        onCloseRef.current();
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
@@ -60,9 +62,9 @@ export function ContextMenu({ x, y, options, onClose }: Props) {
       document.removeEventListener("mousedown", handleClickOutside);
       previousFocus.current?.focus();
     };
-  }, [onClose]);
+  }, []);
 
-  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLUListElement>) => {
     const enabled = Array.from(
       menuRef.current?.querySelectorAll<HTMLButtonElement>(
         "button:not(:disabled)",
@@ -71,16 +73,21 @@ export function ContextMenu({ x, y, options, onClose }: Props) {
     const current = enabled.indexOf(
       document.activeElement as HTMLButtonElement,
     );
-    let next: number | null = null;
-    if (event.key === "Escape") onClose();
-    else if (event.key === "ArrowDown") next = (current + 1) % enabled.length;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      onCloseRef.current();
+      return;
+    }
+    if (enabled.length === 0) return;
+    let next: number;
+    if (event.key === "ArrowDown") next = (current + 1) % enabled.length;
     else if (event.key === "ArrowUp")
       next = (current - 1 + enabled.length) % enabled.length;
     else if (event.key === "Home") next = 0;
     else if (event.key === "End") next = enabled.length - 1;
     else return;
     event.preventDefault();
-    if (next !== null) enabled[next]?.focus();
+    enabled[next]?.focus();
   };
 
   return (
@@ -88,8 +95,6 @@ export function ContextMenu({ x, y, options, onClose }: Props) {
       ref={menuRef}
       className="context-menu"
       data-testid="context-menu"
-      role="menu"
-      onKeyDown={handleKeyDown}
       style={{
         position: "fixed",
         top: pos.top,
@@ -97,7 +102,7 @@ export function ContextMenu({ x, y, options, onClose }: Props) {
         zIndex: 1000,
       }}
     >
-      <ul className="context-menu-list">
+      <ul className="context-menu-list" onKeyDown={handleKeyDown}>
         {options.map((opt, i) => (
           <li key={i} className="context-menu-item">
             <button
@@ -105,7 +110,7 @@ export function ContextMenu({ x, y, options, onClose }: Props) {
               onClick={() => {
                 if (opt.disabled) return;
                 opt.onClick();
-                onClose();
+                onCloseRef.current();
               }}
               disabled={opt.disabled}
               title={opt.title}

@@ -2,6 +2,7 @@ import {
   type MouseEvent,
   type KeyboardEventHandler,
   type ReactNode,
+  useEffect,
   useLayoutEffect,
   useRef,
 } from "react";
@@ -32,6 +33,14 @@ export function ModalDialog({
   ...aria
 }: ModalDialogProps) {
   const ref = useRef<HTMLDialogElement>(null);
+  const expectedCloseRef = useRef(false);
+  const openRef = useRef(open);
+  const unmountingRef = useRef(false);
+  openRef.current = open;
+
+  useEffect(() => {
+    ref.current?.setAttribute("closedby", dismissible ? "any" : "none");
+  }, [dismissible]);
 
   useLayoutEffect(() => {
     const dialog = ref.current;
@@ -43,12 +52,22 @@ export function ModalDialog({
         const initial = dialog.querySelector<HTMLElement>("[autofocus]");
         (initial ?? dialog).focus();
       }
-    } else if (!open && dialog.open) dialog.close();
-
-    return () => {
-      if (dialog.open) dialog.close();
-    };
+    } else if (!open && dialog.open) {
+      expectedCloseRef.current = true;
+      dialog.close();
+    }
   }, [open]);
+
+  useLayoutEffect(() => {
+    const dialog = ref.current;
+    return () => {
+      unmountingRef.current = true;
+      if (dialog?.open) {
+        expectedCloseRef.current = true;
+        dialog.close();
+      }
+    };
+  }, []);
 
   const handleBackdropClick = (event: MouseEvent<HTMLDialogElement>) => {
     if (
@@ -67,8 +86,32 @@ export function ModalDialog({
       data-testid={testId}
       tabIndex={-1}
       onCancel={(event) => {
+        if (event.target !== event.currentTarget) return;
         event.preventDefault();
+        event.stopPropagation();
         if (dismissible) onDismiss();
+      }}
+      onClose={() => {
+        if (expectedCloseRef.current) {
+          expectedCloseRef.current = false;
+          return;
+        }
+        if (!openRef.current || unmountingRef.current) return;
+        if (dismissible) {
+          onDismiss();
+          return;
+        }
+        queueMicrotask(() => {
+          const dialog = ref.current;
+          if (
+            dialog &&
+            openRef.current &&
+            !unmountingRef.current &&
+            !dialog.open
+          ) {
+            dialog.showModal();
+          }
+        });
       }}
       onClick={handleBackdropClick}
       onKeyDown={onKeyDown}
