@@ -1,7 +1,13 @@
 // GpsEditor unit tests.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import {
+  render,
+  screen,
+  fireEvent,
+  cleanup,
+  act,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { GpsEditor } from "../components/editors/GpsEditor";
 import {
@@ -10,6 +16,37 @@ import {
   decimalToDms,
 } from "../components/editors/editorHelpers";
 import { gpsMemberGroup } from "../metadata/tag_overrides";
+
+vi.mock("../components/GpsMap", () => ({
+  GpsMap: ({
+    position,
+    mode,
+    readOnly,
+    onPositionSelect,
+  }: {
+    position: { lat: number; lon: number } | null;
+    mode?: "static" | "picker";
+    readOnly?: boolean;
+    onPositionSelect?: (pos: { lat: number; lon: number }) => void;
+  }) => (
+    <div
+      data-testid="mock-gps-map"
+      data-lat={position ? String(position.lat) : ""}
+      data-lon={position ? String(position.lon) : ""}
+      data-mode={mode}
+      data-readonly={String(readOnly)}
+      ref={(el) => {
+        if (el) {
+          (el as any).triggerClick = (lat: number, lon: number) => {
+            if (onPositionSelect) {
+              onPositionSelect({ lat, lon });
+            }
+          };
+        }
+      }}
+    />
+  ),
+}));
 
 const exampleGroup = {
   latitudeKey: "GPS:GPSLatitude",
@@ -211,6 +248,377 @@ describe("GpsEditor", () => {
     fireEvent.click(screen.getByTestId("gps-editor-save"));
     expect(onSave).not.toHaveBeenCalled();
     expect(screen.getByTestId("gps-editor-error")).toHaveTextContent("0–90");
+  });
+
+  it("existing north-east coordinates produce a positive signed map position", () => {
+    render(
+      <GpsEditor
+        group={exampleGroup}
+        initialLatDecimal={51.5}
+        initialLatRef="N"
+        initialLonDecimal={0.13}
+        initialLonRef="E"
+        onSave={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+    const mockMap = screen.getByTestId("mock-gps-map");
+    expect(mockMap.getAttribute("data-lat")).toBe("51.5");
+    expect(mockMap.getAttribute("data-lon")).toBe("0.13");
+  });
+
+  it("existing north-west coordinates produce a negative longitude map position", () => {
+    render(
+      <GpsEditor
+        group={exampleGroup}
+        initialLatDecimal={51.5}
+        initialLatRef="N"
+        initialLonDecimal={0.13}
+        initialLonRef="W"
+        onSave={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+    const mockMap = screen.getByTestId("mock-gps-map");
+    expect(mockMap.getAttribute("data-lat")).toBe("51.5");
+    expect(mockMap.getAttribute("data-lon")).toBe("-0.13");
+  });
+
+  it("existing south-east coordinates produce a negative latitude map position", () => {
+    render(
+      <GpsEditor
+        group={exampleGroup}
+        initialLatDecimal={51.5}
+        initialLatRef="S"
+        initialLonDecimal={0.13}
+        initialLonRef="E"
+        onSave={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+    const mockMap = screen.getByTestId("mock-gps-map");
+    expect(mockMap.getAttribute("data-lat")).toBe("-51.5");
+    expect(mockMap.getAttribute("data-lon")).toBe("0.13");
+  });
+
+  it("incomplete or invalid coordinates pass position={null}", () => {
+    render(
+      <GpsEditor
+        group={exampleGroup}
+        initialLatDecimal={null}
+        initialLatRef="N"
+        initialLonDecimal={0.13}
+        initialLonRef="E"
+        onSave={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+    const mockMap = screen.getByTestId("mock-gps-map");
+    expect(mockMap.getAttribute("data-lat")).toBe("");
+    expect(mockMap.getAttribute("data-lon")).toBe("");
+  });
+
+  it("a north-west map click updates React states and sets refs to N and W", () => {
+    render(
+      <GpsEditor
+        group={exampleGroup}
+        initialLatDecimal={null}
+        initialLatRef="N"
+        initialLonDecimal={null}
+        initialLonRef="E"
+        onSave={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+    const mockMap = screen.getByTestId("mock-gps-map");
+    act(() => {
+      (mockMap as any).triggerClick(51.5074, -0.1278);
+    });
+
+    const latInput = screen.getByTestId(
+      "gps-editor-lat-input",
+    ) as HTMLInputElement;
+    const latRef = screen.getByTestId(
+      "gps-editor-lat-ref",
+    ) as HTMLSelectElement;
+    const lonInput = screen.getByTestId(
+      "gps-editor-lon-input",
+    ) as HTMLInputElement;
+    const lonRef = screen.getByTestId(
+      "gps-editor-lon-ref",
+    ) as HTMLSelectElement;
+
+    expect(latInput.value).toBe("51.5074");
+    expect(latRef.value).toBe("N");
+    expect(lonInput.value).toBe("0.1278");
+    expect(lonRef.value).toBe("W");
+  });
+
+  it("a south-east map click sets S and E", () => {
+    render(
+      <GpsEditor
+        group={exampleGroup}
+        initialLatDecimal={null}
+        initialLatRef="N"
+        initialLonDecimal={null}
+        initialLonRef="E"
+        onSave={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+    const mockMap = screen.getByTestId("mock-gps-map");
+    act(() => {
+      (mockMap as any).triggerClick(-12.34, 45.67);
+    });
+
+    const latRef = screen.getByTestId(
+      "gps-editor-lat-ref",
+    ) as HTMLSelectElement;
+    const lonRef = screen.getByTestId(
+      "gps-editor-lon-ref",
+    ) as HTMLSelectElement;
+
+    expect(latRef.value).toBe("S");
+    expect(lonRef.value).toBe("E");
+  });
+
+  it("a click at latitude and longitude zero sets N and E and avoids -0", () => {
+    render(
+      <GpsEditor
+        group={exampleGroup}
+        initialLatDecimal={5.5}
+        initialLatRef="S"
+        initialLonDecimal={5}
+        initialLonRef="W"
+        onSave={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+    const mockMap = screen.getByTestId("mock-gps-map");
+    act(() => {
+      (mockMap as any).triggerClick(-0.0, -0.0);
+    });
+
+    const latInput = screen.getByTestId(
+      "gps-editor-lat-input",
+    ) as HTMLInputElement;
+    const latRef = screen.getByTestId(
+      "gps-editor-lat-ref",
+    ) as HTMLSelectElement;
+    const lonInput = screen.getByTestId(
+      "gps-editor-lon-input",
+    ) as HTMLInputElement;
+    const lonRef = screen.getByTestId(
+      "gps-editor-lon-ref",
+    ) as HTMLSelectElement;
+
+    expect(latInput.value).toBe("0");
+    expect(latRef.value).toBe("N");
+    expect(lonInput.value).toBe("0");
+    expect(lonRef.value).toBe("E");
+  });
+
+  it("a map click clears any existing coordinate validation error", async () => {
+    const user = userEvent.setup();
+    render(
+      <GpsEditor
+        group={exampleGroup}
+        initialLatDecimal={51.5}
+        initialLatRef="N"
+        initialLonDecimal={0.13}
+        initialLonRef="W"
+        onSave={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+    // trigger error by typing out of range latitude
+    const latInput = screen.getByTestId(
+      "gps-editor-lat-input",
+    ) as HTMLInputElement;
+    await user.clear(latInput);
+    await user.type(latInput, "120");
+    fireEvent.click(screen.getByTestId("gps-editor-save"));
+    expect(screen.getByTestId("gps-editor-error")).toBeInTheDocument();
+
+    // click map
+    const mockMap = screen.getByTestId("mock-gps-map");
+    act(() => {
+      (mockMap as any).triggerClick(10, 10);
+    });
+    expect(screen.queryByTestId("gps-editor-error")).not.toBeInTheDocument();
+  });
+
+  it("a map click leaves altitude unchanged", () => {
+    render(
+      <GpsEditor
+        group={exampleGroup}
+        initialLatDecimal={null}
+        initialLatRef="N"
+        initialLonDecimal={null}
+        initialLonRef="E"
+        initialAltitudeMetres={150}
+        initialAltitudeRef="above"
+        onSave={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+    const altInput = screen.getByTestId(
+      "gps-editor-alt-input",
+    ) as HTMLInputElement;
+    expect(altInput.value).toBe("150");
+
+    const mockMap = screen.getByTestId("mock-gps-map");
+    act(() => {
+      (mockMap as any).triggerClick(10, 10);
+    });
+    expect(altInput.value).toBe("150");
+  });
+
+  it("saving after a map click emits the existing four-edit semantic payload", () => {
+    const onSave = vi.fn();
+    render(
+      <GpsEditor
+        group={exampleGroup}
+        initialLatDecimal={null}
+        initialLatRef="N"
+        initialLonDecimal={null}
+        initialLonRef="E"
+        refKinds={gpsRefKinds}
+        onSave={onSave}
+        onCancel={() => {}}
+      />,
+    );
+    const mockMap = screen.getByTestId("mock-gps-map");
+    act(() => {
+      (mockMap as any).triggerClick(51.5, -0.13);
+    });
+
+    fireEvent.click(screen.getByTestId("gps-editor-save"));
+    expect(onSave).toHaveBeenCalledOnce();
+    const edits = onSave.mock.calls[0][0];
+    expect(edits).toHaveLength(4);
+    const byKey = Object.fromEntries(edits.map((e: any) => [e.key, e.edit]));
+    expect(byKey["GPS:GPSLatitude"]).toMatchObject({
+      value: { kind: "Real", value: 51.5 },
+      intent: "Set",
+    });
+    expect(byKey["GPS:GPSLatitudeRef"]).toMatchObject({
+      value: { kind: "Text", value: "N" },
+      intent: "Set",
+    });
+    expect(byKey["GPS:GPSLongitude"]).toMatchObject({
+      value: { kind: "Real", value: 0.13 },
+      intent: "Set",
+    });
+    expect(byKey["GPS:GPSLongitudeRef"]).toMatchObject({
+      value: { kind: "Text", value: "W" },
+      intent: "Set",
+    });
+  });
+
+  it("saving after a map click with altitude still emits six edits", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn();
+    render(
+      <GpsEditor
+        group={exampleGroup}
+        initialLatDecimal={null}
+        initialLatRef="N"
+        initialLonDecimal={null}
+        initialLonRef="E"
+        initialAltitudeMetres={null}
+        initialAltitudeRef="above"
+        refKinds={gpsRefKinds}
+        onSave={onSave}
+        onCancel={() => {}}
+      />,
+    );
+    const mockMap = screen.getByTestId("mock-gps-map");
+    act(() => {
+      (mockMap as any).triggerClick(51.5, -0.13);
+    });
+
+    const alt = screen.getByTestId("gps-editor-alt-input") as HTMLInputElement;
+    await user.type(alt, "120.5");
+
+    fireEvent.click(screen.getByTestId("gps-editor-save"));
+    expect(onSave).toHaveBeenCalledOnce();
+    const edits = onSave.mock.calls[0][0];
+    expect(edits).toHaveLength(6);
+  });
+
+  it("read-only mode ignores map selection", () => {
+    render(
+      <GpsEditor
+        group={exampleGroup}
+        initialLatDecimal={51.5}
+        initialLatRef="N"
+        initialLonDecimal={0.13}
+        initialLonRef="W"
+        onSave={() => {}}
+        onCancel={() => {}}
+        readOnly={true}
+      />,
+    );
+    const mockMap = screen.getByTestId("mock-gps-map");
+    act(() => {
+      (mockMap as any).triggerClick(10, 10);
+    });
+
+    const latInput = screen.getByTestId(
+      "gps-editor-lat-input",
+    ) as HTMLInputElement;
+    expect(latInput.value).toBe("51.5");
+  });
+
+  it("manual input edits update the position passed to the map", async () => {
+    const user = userEvent.setup();
+    render(
+      <GpsEditor
+        group={exampleGroup}
+        initialLatDecimal={51.5}
+        initialLatRef="N"
+        initialLonDecimal={0.13}
+        initialLonRef="W"
+        onSave={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+    const mockMap = screen.getByTestId("mock-gps-map");
+    expect(mockMap.getAttribute("data-lat")).toBe("51.5");
+
+    const latInput = screen.getByTestId(
+      "gps-editor-lat-input",
+    ) as HTMLInputElement;
+    await user.clear(latInput);
+    await user.type(latInput, "45.67");
+
+    expect(mockMap.getAttribute("data-lat")).toBe("45.67");
+  });
+
+  it("clearing either input removes the marker by passing position={null}", async () => {
+    const user = userEvent.setup();
+    render(
+      <GpsEditor
+        group={exampleGroup}
+        initialLatDecimal={51.5}
+        initialLatRef="N"
+        initialLonDecimal={0.13}
+        initialLonRef="W"
+        onSave={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+    const mockMap = screen.getByTestId("mock-gps-map");
+    expect(mockMap.getAttribute("data-lat")).not.toBe("");
+
+    const latInput = screen.getByTestId(
+      "gps-editor-lat-input",
+    ) as HTMLInputElement;
+    await user.clear(latInput);
+
+    expect(mockMap.getAttribute("data-lat")).toBe("");
+    expect(mockMap.getAttribute("data-lon")).toBe("");
   });
 });
 

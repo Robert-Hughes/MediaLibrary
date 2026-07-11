@@ -1157,34 +1157,143 @@ body {
 }
 
 .gps-map {
-  height: 140px;
   width: 100%;
-  margin: 8px 0 6px;
   border: 1px solid var(--border);
   border-radius: 8px;
   overflow: hidden;
   background: var(--surface-alt);
+}
+
+.gps-map--static {
+  height: 140px;
+  margin: 8px 0 6px;
   user-select: none;
   cursor: default;
 }
 
-.gps-map,
-.gps-map * {
+.gps-map--static,
+.gps-map--static * {
   user-select: none;
 }
 
-.gps-map.leaflet-container,
-.gps-map .leaflet-container,
-.gps-map .leaflet-grab,
-.gps-map .leaflet-dragging,
-.gps-map .leaflet-interactive,
-.gps-map a {
+.gps-map--static.leaflet-container,
+.gps-map--static .leaflet-container,
+.gps-map--static .leaflet-grab,
+.gps-map--static .leaflet-dragging,
+.gps-map--static .leaflet-interactive,
+.gps-map--static a {
   cursor: default !important;
 }
 
-.gps-map a {
+.gps-map--static a {
   pointer-events: none;
   text-decoration: none;
+}
+
+/* ── Picker Mode Interactive map cursors and styling ── */
+
+.gps-map--picker:not(.gps-map--read-only).leaflet-container,
+.gps-map--picker:not(.gps-map--read-only) .leaflet-interactive {
+  cursor: crosshair;
+}
+
+.gps-map--picker:not(.gps-map--read-only).leaflet-grab {
+  cursor: grab;
+}
+
+.gps-map--picker:not(.gps-map--read-only).leaflet-dragging,
+.gps-map--picker:not(.gps-map--read-only).leaflet-grab:active {
+  cursor: grabbing !important;
+}
+
+.gps-map--picker.gps-map--read-only.leaflet-container {
+  cursor: grab;
+}
+
+.gps-map--picker.gps-map--read-only.leaflet-dragging,
+.gps-map--picker.gps-map--read-only.leaflet-grab:active {
+  cursor: grabbing !important;
+}
+
+.gps-map--picker .leaflet-control-zoom a,
+.gps-map--picker a {
+  cursor: pointer;
+  text-decoration: none;
+}
+
+/* ── GpsEditor Interactive Map & Responsive Layout ── */
+
+.dialog-content--gps {
+  width: min(720px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+}
+
+.gps-editor-map {
+  margin-bottom: 12px;
+}
+
+.gps-editor-map .gps-map {
+  height: 320px;
+  margin: 0;
+  overflow: hidden;
+}
+
+.gps-editor-map-help {
+  margin-top: 6px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.gps-editor-coordinate-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.gps-editor-coordinate-field {
+  display: grid;
+  grid-template-columns: 80px 1fr 70px;
+  gap: 8px;
+  align-items: center;
+}
+
+.gps-editor-coordinate-field label {
+  font-size: 14px;
+}
+
+.gps-editor-details {
+  margin-top: 12px;
+  margin-bottom: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-alt);
+}
+
+.gps-editor-details summary {
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.gps-editor-details[open] summary {
+  border-bottom: 1px solid var(--border);
+}
+
+.gps-editor-details .dialog-hint {
+  margin: 0;
+  padding: 10px 12px;
+  font-size: 12px;
+}
+
+@media (max-width: 600px) {
+  .gps-editor-coordinate-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
 }
 
 .gps-map-marker {
