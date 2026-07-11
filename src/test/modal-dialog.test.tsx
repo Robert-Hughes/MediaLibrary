@@ -460,9 +460,7 @@ describe("ModalDialog", () => {
     await flushDialogCloseEvents();
 
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Open settings" }),
-    ).toHaveFocus();
+    expect(screen.getByRole("button", { name: "Open settings" })).toHaveFocus();
 
     opener.remove();
   });
@@ -525,5 +523,102 @@ describe("ModalDialog", () => {
     // No close events should arrive
     await flushDialogCloseEvents();
     expect(dismiss).not.toHaveBeenCalled();
+  });
+
+  it("drains cascading dialog close events", async () => {
+    const dialogA = document.createElement("dialog");
+    const dialogB = document.createElement("dialog");
+    document.body.appendChild(dialogA);
+    document.body.appendChild(dialogB);
+
+    dialogA.showModal();
+    dialogB.showModal();
+
+    const handlerA = vi.fn(() => {
+      dialogB.close();
+    });
+    const handlerB = vi.fn();
+
+    dialogA.addEventListener("close", handlerA);
+    dialogB.addEventListener("close", handlerB);
+
+    // Trigger close on A
+    dialogA.close();
+
+    // Call flushDialogCloseEvents once
+    await flushDialogCloseEvents();
+
+    expect(handlerA).toHaveBeenCalledOnce();
+    expect(handlerB).toHaveBeenCalledOnce();
+
+    dialogA.remove();
+    dialogB.remove();
+  });
+
+  it("survives Strict Mode layout-effect replay and restores focus on subsequent conditional unmount", async () => {
+    const dismiss = vi.fn();
+
+    function Harness() {
+      const [open, setOpen] = useState(false);
+
+      return (
+        <>
+          <button onClick={() => setOpen(true)}>Open settings</button>
+
+          {open && (
+            <ModalDialog
+              open
+              onDismiss={() => {
+                dismiss();
+                setOpen(false);
+              }}
+              aria-label="Settings"
+            >
+              <button autoFocus>Inside settings</button>
+            </ModalDialog>
+          )}
+        </>
+      );
+    }
+
+    render(
+      <React.StrictMode>
+        <Harness />
+      </React.StrictMode>,
+    );
+
+    const openBtn = screen.getByRole("button", { name: "Open settings" });
+    openBtn.focus();
+
+    // 1. Click/Focus "Open settings"
+    await userEvent.click(openBtn);
+
+    // 2. Allow Strict Mode effect replay and any queued dialog tasks to settle.
+    await flushDialogCloseEvents();
+
+    // 3. Assert the dialog remains open.
+    const dialog = screen.getByRole("dialog", { name: "Settings" });
+    expect(dialog).toHaveAttribute("open");
+
+    // 4. Assert `Inside settings` has focus.
+    const insideBtn = screen.getByRole("button", { name: "Inside settings" });
+    expect(insideBtn).toHaveFocus();
+
+    // 5. Dispatch a native `cancel` event to the dialog.
+    await act(async () => {
+      fireEvent(dialog, new Event("cancel", { cancelable: true }));
+    });
+
+    // 6. Allow unmount focus-restoration work to settle.
+    await flushDialogCloseEvents();
+
+    // 7. Assert the dialog is gone.
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    // 8. Assert focus returned to the exact `Open settings` button.
+    expect(openBtn).toHaveFocus();
+
+    // 9. Assert the dismissal/state transition occurred exactly once.
+    expect(dismiss).toHaveBeenCalledOnce();
   });
 });
