@@ -35,7 +35,7 @@ const MAX_IMAGE_DIMENSION: u32 = 1024;
 
 /// Hard cap on `/responses` output tokens.  Hitting this leaves JSON
 /// unparseable, so callers must check `status=="incomplete"`.
-pub const MAX_OUTPUT_TOKENS: u32 = 600;
+pub const MAX_OUTPUT_TOKENS: u32 = 1200;
 
 /// Expected output tokens for cost estimation only.  Tuned by the test set
 /// in the experiment; bounded by `MAX_OUTPUT_TOKENS`.
@@ -142,6 +142,16 @@ pub struct ModelPricing {
 /// `None`; the settings module guarantees we never store an unknown id.
 pub fn pricing_for(model: &str) -> Option<ModelPricing> {
     Some(match model {
+        "gpt-5.6-luna" => ModelPricing {
+            input_per_1m: 1.00,
+            cached_input_per_1m: 0.10,
+            output_per_1m: 6.00,
+        },
+        "gpt-5.6-sol" => ModelPricing {
+            input_per_1m: 5.00,
+            cached_input_per_1m: 0.50,
+            output_per_1m: 30.00,
+        },
         "gpt-4o" => ModelPricing {
             input_per_1m: 2.50,
             cached_input_per_1m: 1.25,
@@ -346,7 +356,7 @@ fn description_schema() -> serde_json::Value {
 fn build_request_body(model: &str, image_bytes: &[u8]) -> serde_json::Value {
     let b64 = base64::engine::general_purpose::STANDARD.encode(image_bytes);
     let data_url = format!("data:image/jpeg;base64,{}", b64);
-    serde_json::json!({
+    let mut request = serde_json::json!({
         "model": model,
         "instructions": SYSTEM_INSTRUCTIONS,
         "input": [{
@@ -362,10 +372,17 @@ fn build_request_body(model: &str, image_bytes: &[u8]) -> serde_json::Value {
                 "schema": description_schema()
             }
         },
-        "temperature": 0,
-        "top_p": 1,
         "max_output_tokens": MAX_OUTPUT_TOKENS,
-    })
+    });
+
+    if !model.starts_with("gpt-5.6") {
+        if let Some(obj) = request.as_object_mut() {
+            obj.insert("temperature".to_string(), serde_json::json!(0));
+            obj.insert("top_p".to_string(), serde_json::json!(1));
+        }
+    }
+
+    request
 }
 
 /// Preflight a single image through `/responses/input_tokens`. Returns the
@@ -760,7 +777,7 @@ mod tests {
         let (predicted, upper) =
             estimate_describe_cost_from_input_tokens("gpt-4o", total_input, 2).unwrap();
         let expected_predicted = (2200.0 / 1e6) * 2.50 + (500.0 / 1e6) * 10.00;
-        let expected_upper = (2200.0 / 1e6) * 2.50 + (1200.0 / 1e6) * 10.00;
+        let expected_upper = (2200.0 / 1e6) * 2.50 + (2400.0 / 1e6) * 10.00;
         assert!((predicted - expected_predicted).abs() < 1e-9);
         assert!((upper - expected_upper).abs() < 1e-9);
     }
