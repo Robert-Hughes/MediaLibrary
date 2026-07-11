@@ -325,9 +325,13 @@ describe("GpsMap component", () => {
       />,
     );
 
+    // Verify map was NOT reconstructed
+    expect(L.map).toHaveBeenCalledTimes(1);
+
     // Trigger click -> callback2 should be called, but not callback1
     clickCallback({ latlng: { lat: 10, lng: 20 } });
     expect(callback1).not.toHaveBeenCalled();
+    expect(callback2).toHaveBeenCalledOnce();
     expect(callback2).toHaveBeenCalledWith({ lat: 10, lon: 20 });
   });
 });
