@@ -203,8 +203,8 @@ export function SettingsDialog({ onClose }: Props) {
                     color: "var(--text-secondary)",
                   }}
                 >
-                  gpt-4o is the recommended default: names landmarks reliably at
-                  moderate cost (≈$0.002 per 1024px image). See
+                  gpt-5.6-luna is the recommended default: native reasoning names landmarks reliably at
+                  low cost (≈$0.0018 per 1024px image). See
                   docs/IMAGE_ANALYSIS.md for the model-choice rationale.
                 </div>
 
