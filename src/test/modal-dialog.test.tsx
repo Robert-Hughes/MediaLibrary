@@ -555,6 +555,33 @@ describe("ModalDialog", () => {
     dialogB.remove();
   });
 
+  it("survives exactly 20 iterations of cascading close events without throwing", async () => {
+    const dialogs: HTMLDialogElement[] = [];
+    const maxIterations = 20;
+    for (let i = 0; i < maxIterations; i++) {
+      const dialog = document.createElement("dialog");
+      document.body.appendChild(dialog);
+      dialog.showModal();
+      dialogs.push(dialog);
+    }
+
+    for (let i = 0; i < maxIterations - 1; i++) {
+      dialogs[i].addEventListener("close", () => {
+        dialogs[i + 1].close();
+      });
+    }
+
+    // Trigger close on the first dialog
+    dialogs[0].close();
+
+    // This should not throw now, but would have thrown with the off-by-one bug
+    await expect(flushDialogCloseEvents()).resolves.not.toThrow();
+
+    for (const dialog of dialogs) {
+      dialog.remove();
+    }
+  });
+
   it("survives Strict Mode layout-effect replay and restores focus on subsequent conditional unmount", async () => {
     const dismiss = vi.fn();
 

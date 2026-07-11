@@ -31,12 +31,6 @@ export type { FailedFile as ApplyEditsFailedFile } from "./types/generated/Faile
 export type { BatchFailureKind } from "./types/generated/BatchFailureKind";
 import type { BatchFailureKind } from "./types/generated/BatchFailureKind";
 
-export type { SchemaDefinitionId } from "./types/generated/SchemaDefinitionId";
-import type { SchemaDefinitionId } from "./types/generated/SchemaDefinitionId";
-export type { MetadataEntry } from "./types/generated/MetadataEntry";
-export type { MetadataDraftEntry } from "./types/generated/MetadataDraftEntry";
-export type { MetadataEntries } from "./types/generated/MetadataEntries";
-
 // ── Metadata normalisation (see docs/NORMALISE_METADATA_PLAN.md) ─────────────
 export type { NormaliseGroup } from "./types/generated/NormaliseGroup";
 import type { NormaliseGroup } from "./types/generated/NormaliseGroup";
@@ -110,7 +104,7 @@ export class ThumbnailStore {
  *  - "loading"                 — metadata read is in progress (show spinner in cells)
  *  - Record<string, MetadataValue> — metadata has arrived
  */
-export type ImageMetadataEntry = MetadataValue & { id?: SchemaDefinitionId };
+export type ImageMetadataEntry = MetadataValue;
 export type ImageMetadataState = "loading" | Record<string, ImageMetadataEntry>;
 
 /**

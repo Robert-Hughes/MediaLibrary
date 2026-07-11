@@ -40,6 +40,8 @@ export async function flushDialogCloseEvents() {
     });
   }
 
+  if (pendingDialogCloseTimers.size === 0) return;
+
   throw new Error(
     `Dialog close timers did not settle after ${maxIterations} iterations`,
   );
