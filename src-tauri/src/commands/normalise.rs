@@ -160,25 +160,26 @@ fn count_overwrites_for_group(
         }
     };
 
-    let scalar_value = |id: crate::tag_schema::SchemaDefinitionId, current: Option<&MetadataValue>| -> u32 {
-        let current = match current {
-            Some(MetadataValue::Null) | None => return 0,
-            Some(MetadataValue::Text(s)) if s.is_empty() => return 0,
-            Some(v) => v,
-        };
-        match edits.get(&id) {
-            None => 0,
-            Some(e) => match e.intent {
-                EditIntent::Delete => 1,
-                EditIntent::Set => match e.value.as_ref() {
-                    Some(value) if value == current => 0,
-                    None => 0,
-                    _ => 1,
+    let scalar_value =
+        |id: crate::tag_schema::SchemaDefinitionId, current: Option<&MetadataValue>| -> u32 {
+            let current = match current {
+                Some(MetadataValue::Null) | None => return 0,
+                Some(MetadataValue::Text(s)) if s.is_empty() => return 0,
+                Some(v) => v,
+            };
+            match edits.get(&id) {
+                None => 0,
+                Some(e) => match e.intent {
+                    EditIntent::Delete => 1,
+                    EditIntent::Set => match e.value.as_ref() {
+                        Some(value) if value == current => 0,
+                        None => 0,
+                        _ => 1,
+                    },
+                    _ => 0,
                 },
-                _ => 0,
-            },
-        }
-    };
+            }
+        };
 
     let list = |id: crate::tag_schema::SchemaDefinitionId, current: &[String]| -> u32 {
         if current.is_empty() {
@@ -216,8 +217,10 @@ fn count_overwrites_for_group(
         G::Keywords => match &inputs.keywords {
             None => 0,
             Some(b) => {
-                list(crate::known_ids::xmp_hierarchical_subject(), &b.hierarchical_subject)
-                    + list(crate::known_ids::xmp_subject(), &b.dc_subject)
+                list(
+                    crate::known_ids::xmp_hierarchical_subject(),
+                    &b.hierarchical_subject,
+                ) + list(crate::known_ids::xmp_subject(), &b.dc_subject)
                     + list(crate::known_ids::iptc_keywords(), &b.iptc_keywords)
             }
         },
@@ -234,38 +237,58 @@ fn count_overwrites_for_group(
             Some(b) => {
                 scalar(crate::known_ids::xmp_rights(), b.rights.as_deref())
                     + scalar(crate::known_ids::copyright(), b.exif_copyright.as_deref())
-                    + scalar(crate::known_ids::iptc_copyright(), b.iptc_copyright.as_deref())
+                    + scalar(
+                        crate::known_ids::iptc_copyright(),
+                        b.iptc_copyright.as_deref(),
+                    )
             }
         },
         G::Headline => match &inputs.headline {
             None => 0,
             Some(b) => {
-                scalar(crate::known_ids::xmp_headline(), b.photoshop_headline.as_deref())
-                    + scalar(crate::known_ids::iptc_headline(), b.iptc_headline.as_deref())
+                scalar(
+                    crate::known_ids::xmp_headline(),
+                    b.photoshop_headline.as_deref(),
+                ) + scalar(
+                    crate::known_ids::iptc_headline(),
+                    b.iptc_headline.as_deref(),
+                )
             }
         },
         G::Title => match &inputs.title {
             None => 0,
             Some(b) => {
                 scalar(crate::known_ids::xmp_title(), b.title.as_deref())
-                    + scalar(crate::known_ids::iptc_object_name(), b.object_name.as_deref())
+                    + scalar(
+                        crate::known_ids::iptc_object_name(),
+                        b.object_name.as_deref(),
+                    )
             }
         },
         G::Location => match &inputs.location {
             None => 0,
             Some(b) => {
                 scalar(crate::known_ids::xmp_location(), b.location_xmp.as_deref())
-                    + scalar(crate::known_ids::iptc_sub_location(), b.location_iptc.as_deref())
+                    + scalar(
+                        crate::known_ids::iptc_sub_location(),
+                        b.location_iptc.as_deref(),
+                    )
                     + scalar(crate::known_ids::xmp_city(), b.city_xmp.as_deref())
                     + scalar(crate::known_ids::iptc_city(), b.city_iptc.as_deref())
                     + scalar(crate::known_ids::xmp_state(), b.state_xmp.as_deref())
-                    + scalar(crate::known_ids::iptc_province_state(), b.state_iptc.as_deref())
+                    + scalar(
+                        crate::known_ids::iptc_province_state(),
+                        b.state_iptc.as_deref(),
+                    )
                     + scalar(crate::known_ids::xmp_country(), b.country_xmp.as_deref())
                     + scalar(
                         crate::known_ids::iptc_country_name(),
                         b.country_iptc.as_deref(),
                     )
-                    + scalar(crate::known_ids::xmp_country_code(), b.country_code_xmp.as_deref())
+                    + scalar(
+                        crate::known_ids::xmp_country_code(),
+                        b.country_code_xmp.as_deref(),
+                    )
                     + scalar(
                         crate::known_ids::iptc_country_code(),
                         b.country_code_iptc.as_deref(),
@@ -275,15 +298,23 @@ fn count_overwrites_for_group(
         G::Dates => match &inputs.dates {
             None => 0,
             Some(b) => {
-                scalar_value(crate::known_ids::date_time_original(), b.date_time_original.as_ref())
+                scalar_value(
+                    crate::known_ids::date_time_original(),
+                    b.date_time_original.as_ref(),
+                ) + scalar_value(
+                    crate::known_ids::xmp_date_created(),
+                    b.photoshop_date_created.as_ref(),
+                ) + scalar_value(
+                    crate::known_ids::iptc_date_created(),
+                    b.iptc_date_created.as_ref(),
+                ) + scalar_value(
+                    crate::known_ids::iptc_time_created(),
+                    b.iptc_time_created.as_ref(),
+                ) + scalar_value(crate::known_ids::create_date(), b.create_date.as_ref())
                     + scalar_value(
-                        crate::known_ids::xmp_date_created(),
-                        b.photoshop_date_created.as_ref(),
+                        crate::known_ids::xmp_create_date(),
+                        b.xmp_create_date.as_ref(),
                     )
-                    + scalar_value(crate::known_ids::iptc_date_created(), b.iptc_date_created.as_ref())
-                    + scalar_value(crate::known_ids::iptc_time_created(), b.iptc_time_created.as_ref())
-                    + scalar_value(crate::known_ids::create_date(), b.create_date.as_ref())
-                    + scalar_value(crate::known_ids::xmp_create_date(), b.xmp_create_date.as_ref())
                     + scalar_value(
                         crate::known_ids::iptc_digital_creation_date(),
                         b.iptc_digital_creation_date.as_ref(),
@@ -297,9 +328,16 @@ fn count_overwrites_for_group(
         G::Description => match &inputs.description {
             None => 0,
             Some(b) => {
-                scalar(crate::known_ids::xmp_description(), b.description.as_deref())
-                    + scalar(crate::known_ids::image_description(), b.image_description.as_deref())
-                    + scalar(crate::known_ids::iptc_caption(), b.caption_abstract.as_deref())
+                scalar(
+                    crate::known_ids::xmp_description(),
+                    b.description.as_deref(),
+                ) + scalar(
+                    crate::known_ids::image_description(),
+                    b.image_description.as_deref(),
+                ) + scalar(
+                    crate::known_ids::iptc_caption(),
+                    b.caption_abstract.as_deref(),
+                )
             }
         },
     }

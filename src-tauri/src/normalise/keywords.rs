@@ -20,11 +20,11 @@ use crate::draft_edits::MetadataDraftMap;
 use crate::known_ids;
 use std::collections::HashSet;
 
-/// Target tags written by Group A. Coherent-replacement rule (plan §4)
-/// means every entry here either gets a set-value draft (canonical
-/// non-empty) or a remove-tag draft (canonical empty). Read-only
-/// input tags (`XMP-mlib:AITags`, `XMP-mlib:AIObjects`) are NOT in
-/// this list and never get drafts.
+// Target tags written by Group A. Coherent-replacement rule (plan §4)
+// means every entry here either gets a set-value draft (canonical
+// non-empty) or a remove-tag draft (canonical empty). Read-only
+// input tags (`XMP-mlib:AITags`, `XMP-mlib:AIObjects`) are NOT in
+// this list and never get drafts.
 
 /// Derive the canonical Group A bag for one image.
 ///

@@ -303,16 +303,10 @@ pub async fn normalise_description(
         );
     }
     if input.image_description.as_deref() != Some(projection_image.as_str()) {
-        edits.insert(
-            known_ids::image_description(),
-            text_edit(projection_image),
-        );
+        edits.insert(known_ids::image_description(), text_edit(projection_image));
     }
     if input.caption_abstract.as_deref() != Some(projection_caption.as_str()) {
-        edits.insert(
-            known_ids::iptc_caption(),
-            text_edit(projection_caption),
-        );
+        edits.insert(known_ids::iptc_caption(), text_edit(projection_caption));
     }
 
     DescriptionOutcome {

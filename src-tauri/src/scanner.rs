@@ -38,9 +38,12 @@ impl MetadataEntries {
         self.0.len()
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "integration"))]
     pub fn get(&self, key: &str) -> Option<&MetadataValue> {
-        let expected = crate::tag_schema::get_registry().ok().and_then(|registry| registry.lookup(key)).map(|info| &info.id);
+        let expected = crate::tag_schema::get_registry()
+            .ok()
+            .and_then(|registry| registry.lookup(key))
+            .map(|info| &info.id);
         self.0
             .iter()
             .find(|entry| entry.id.tag_id == key || expected.is_some_and(|id| *id == entry.id))
@@ -64,9 +67,11 @@ impl std::ops::Index<&str> for MetadataEntries {
             .0
             .iter()
             .find(|entry| {
-                entry.id.tag_id == key || crate::tag_schema::get_registry().ok()
-                    .and_then(|registry| registry.lookup(key))
-                    .is_some_and(|info| info.id == entry.id)
+                entry.id.tag_id == key
+                    || crate::tag_schema::get_registry()
+                        .ok()
+                        .and_then(|registry| registry.lookup(key))
+                        .is_some_and(|info| info.id == entry.id)
             })
             .unwrap_or_else(|| panic!("missing test metadata entry {key}"))
             .value
@@ -125,10 +130,12 @@ pub struct ImageMetadata {
 pub type MetadataMap = BTreeMap<SchemaDefinitionId, MetadataValue>;
 
 fn metadata_entries(values: MetadataMap) -> MetadataEntries {
-    MetadataEntries(values
-        .into_iter()
-        .map(|(id, value)| MetadataEntry { id, value })
-        .collect())
+    MetadataEntries(
+        values
+            .into_iter()
+            .map(|(id, value)| MetadataEntry { id, value })
+            .collect(),
+    )
 }
 
 /// Walk `folder` and call `on_photo` for each image file found.
@@ -501,7 +508,12 @@ fn try_parse_exiftool_pass_json_raw_with_registry(
                 val
             };
             let mut runtime = parse_runtime_value(val).map_err(|error| {
-                format!("{} property {}: {}", source.as_deref().unwrap_or("<unknown>"), key, error)
+                format!(
+                    "{} property {}: {}",
+                    source.as_deref().unwrap_or("<unknown>"),
+                    key,
+                    error
+                )
             })?;
             // ExifTool's raw placeholder ("(Binary data N bytes, use -b
             // option to extract)") is confusing in the UI: Media Library
@@ -519,13 +531,12 @@ fn try_parse_exiftool_pass_json_raw_with_registry(
                 tag_id: runtime.tag_id.clone(),
                 index: runtime.index,
             };
-            let value = if is_binary_tag(&id, registry)
-                || is_exiftool_binary_placeholder(&runtime.value)
-            {
-                serde_json::Value::String("<binary>".to_string())
-            } else {
-                runtime.value
-            };
+            let value =
+                if is_binary_tag(&id, registry) || is_exiftool_binary_placeholder(&runtime.value) {
+                    serde_json::Value::String("<binary>".to_string())
+                } else {
+                    runtime.value
+                };
             runtime.value = value;
             let property = RuntimeProperty {
                 original_name: key,
@@ -560,9 +571,7 @@ fn try_parse_exiftool_pass_json_raw_with_registry(
 }
 
 #[cfg(test)]
-fn parse_exiftool_pass_json_raw(
-    json: &str,
-) -> HashMap<String, HashMap<String, serde_json::Value>> {
+fn parse_exiftool_pass_json_raw(json: &str) -> HashMap<String, HashMap<String, serde_json::Value>> {
     parse_exiftool_pass_json_raw_with_registry(json, crate::tag_schema::get_registry().ok())
 }
 
@@ -805,14 +814,26 @@ fn canonical_values_from_exiftool_pair(
     rel_path: &str,
     warnings: Option<&mut Vec<ParseWarning>>,
 ) -> HashMap<String, MetadataValue> {
-    fn runtime(values: &HashMap<String, serde_json::Value>, registry: Option<&TagRegistry>) -> RuntimeMap {
+    fn runtime(
+        values: &HashMap<String, serde_json::Value>,
+        registry: Option<&TagRegistry>,
+    ) -> RuntimeMap {
         values
             .iter()
             .map(|(name, value)| {
                 let id = registry
-                    .and_then(|registry| registry.iter().find(|(_, info)| info.display_name() == *name).map(|(_, info)| info))
+                    .and_then(|registry| {
+                        registry
+                            .iter()
+                            .find(|(_, info)| info.display_name() == *name)
+                            .map(|(_, info)| info)
+                    })
                     .map(|info| info.id.clone())
-                    .unwrap_or_else(|| SchemaDefinitionId { table: "Test::Legacy".into(), tag_id: name.clone(), index: None });
+                    .unwrap_or_else(|| SchemaDefinitionId {
+                        table: "Test::Legacy".into(),
+                        tag_id: name.clone(),
+                        index: None,
+                    });
                 (
                     id.clone(),
                     RuntimeProperty {
@@ -851,7 +872,11 @@ fn resolve_schema_identity<'a>(
     runtime_id: &SchemaDefinitionId,
     property: &RuntimeProperty,
     registry: Option<&'a TagRegistry>,
-) -> (SchemaDefinitionId, Option<&'a crate::tag_schema::TagInfo>, Option<String>) {
+) -> (
+    SchemaDefinitionId,
+    Option<&'a crate::tag_schema::TagInfo>,
+    Option<String>,
+) {
     let Some(registry) = registry else {
         return (runtime_id.clone(), None, None);
     };
@@ -1010,8 +1035,8 @@ fn parse_exiftool_batch_json(
     abs_paths: &[std::path::PathBuf],
 ) -> Vec<ImageMetadata> {
     let registry = crate::tag_schema::get_registry().ok();
-    let mut map_by_source = try_parse_exiftool_pass_json_raw_with_registry(json, registry)
-        .unwrap_or_default();
+    let mut map_by_source =
+        try_parse_exiftool_pass_json_raw_with_registry(json, registry).unwrap_or_default();
     let mut results = Vec::with_capacity(rel_paths.len());
     for (i, rel_path) in rel_paths.iter().enumerate() {
         let abs_path = &abs_paths[i];

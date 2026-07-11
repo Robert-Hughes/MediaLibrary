@@ -165,7 +165,12 @@ export function useSearchWorker(
     w.postMessage({
       type: "INIT_DRAFTS",
       entries: Object.entries(draftEditsStore.getAllMetadata()).map(
-        ([path, edits]) => ({ path, edits }),
+        ([path, edits]) => ({
+          path,
+          edits: Object.fromEntries(
+            Object.entries(edits).map(([key, entry]) => [key, entry.edit])
+          ),
+        }),
       ),
     });
     submitNow(queryRef.current);
@@ -176,7 +181,12 @@ export function useSearchWorker(
     });
     const unsubDrafts = draftEditsStore.subscribe((changes) => {
       for (const c of changes) {
-        w.postMessage({ type: "UPSERT_DRAFTS", path: c.path, edits: c.edits });
+        const edits = c.edits
+          ? Object.fromEntries(
+              Object.entries(c.edits).map(([key, entry]) => [key, entry.edit])
+            )
+          : undefined;
+        w.postMessage({ type: "UPSERT_DRAFTS", path: c.path, edits });
       }
       submitNow(queryRef.current);
     });

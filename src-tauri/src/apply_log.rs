@@ -98,7 +98,11 @@ pub fn append_metadata_entries(
         let edit = &edit_entry.edit;
         let argv = argv_by_tag.get(id).unwrap_or(&empty_argv);
         let (outcome, note, display_name) = match outcome_by_tag.get(id) {
-            Some(o) => (o.kind.as_str(), o.message.as_deref(), o.display_name.as_str()),
+            Some(o) => (
+                o.kind.as_str(),
+                o.message.as_deref(),
+                o.display_name.as_str(),
+            ),
             None => ("Match", None, "<unknown>"),
         };
 
@@ -198,7 +202,11 @@ mod tests {
     }
 
     fn metadata_outcome(tag: &str, kind: &str) -> MetadataTagOutcome {
-        let id = SchemaDefinitionId { table: "Test::Log".into(), tag_id: tag.into(), index: None };
+        let id = SchemaDefinitionId {
+            table: "Test::Log".into(),
+            tag_id: tag.into(),
+            index: None,
+        };
         MetadataTagOutcome {
             id,
             display_name: tag.to_string(),
@@ -215,7 +223,11 @@ mod tests {
         let dir = tempdir().unwrap();
         let folder = dir.path().to_str().unwrap();
 
-        let id = SchemaDefinitionId { table: "IPTC::ApplicationRecord".into(), tag_id: "60".into(), index: None };
+        let id = SchemaDefinitionId {
+            table: "IPTC::ApplicationRecord".into(),
+            tag_id: "60".into(),
+            index: None,
+        };
         let edits = vec![MetadataDraftEntry {
             id: id.clone(),
             edit: MetadataDraftEdit {
@@ -232,16 +244,10 @@ mod tests {
         }];
 
         let mut argv = BTreeMap::new();
-        argv.insert(
-            id.clone(),
-            vec!["-IPTC:TimeCreated=10:56:05".into()],
-        );
+        argv.insert(id.clone(), vec!["-IPTC:TimeCreated=10:56:05".into()]);
 
         let mut before = BTreeMap::new();
-        before.insert(
-            id.clone(),
-            MetadataValue::Text("old".into()),
-        );
+        before.insert(id.clone(), MetadataValue::Text("old".into()));
         let mut after = BTreeMap::new();
         after.insert(
             id,
@@ -285,15 +291,19 @@ mod tests {
     fn append_entries_is_append_only_no_header_on_second_apply() {
         let dir = tempdir().unwrap();
         let folder = dir.path().to_str().unwrap();
-        let id = SchemaDefinitionId { table: "Test::Log".into(), tag_id: "Tag".into(), index: None };
+        let id = SchemaDefinitionId {
+            table: "Test::Log".into(),
+            tag_id: "Tag".into(),
+            index: None,
+        };
         let edits = vec![MetadataDraftEntry {
-                id,
-                edit: MetadataDraftEdit {
-                    value: Some(MetadataValue::Integer(1)),
-                    intent: EditIntent::Set,
-                    display: None,
-                },
-            }];
+            id,
+            edit: MetadataDraftEdit {
+                value: Some(MetadataValue::Integer(1)),
+                intent: EditIntent::Set,
+                display: None,
+            },
+        }];
         let argv = BTreeMap::new();
         let before = BTreeMap::new();
         let after = BTreeMap::new();

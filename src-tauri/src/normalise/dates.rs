@@ -7,10 +7,10 @@
 use super::{DatesInput, GroupOutput};
 use crate::draft_edits::{EditIntent, MetadataDraftEdit, MetadataDraftMap};
 use crate::known_ids;
-use crate::tag_schema::SchemaDefinitionId;
 use crate::metadata_value::{
     DateTimeValue, DateValue, MetadataValue, OffsetSign, TimeValue, UtcOffsetValue,
 };
+use crate::tag_schema::SchemaDefinitionId;
 use chrono::Offset;
 use std::sync::OnceLock;
 
@@ -385,10 +385,7 @@ fn process_date_subgroup(
             iptc_date_id,
             set_edit(MetadataValue::Date(canonical.date())),
         );
-        edits.insert(
-            iptc_time_id,
-            set_edit(MetadataValue::Time(iptc_time)),
-        );
+        edits.insert(iptc_time_id, set_edit(MetadataValue::Time(iptc_time)));
     }
 
     DateSubgroupResult { edits, conflict }
@@ -713,7 +710,9 @@ mod tests {
         let out = normalise_dates_with_fallback_offset(&input, None)
             .output
             .unwrap();
-        assert!(!out.edits.contains_key(&crate::known_ids::date_time_original()));
+        assert!(!out
+            .edits
+            .contains_key(&crate::known_ids::date_time_original()));
         assert_eq!(
             display(edit_value(&out, "XMP-photoshop:DateCreated")),
             "2024-06-15T14:30:45"
@@ -910,8 +909,12 @@ mod tests {
         let out = normalise_dates_with_fallback_offset(&input, None)
             .output
             .unwrap();
-        assert!(!out.edits.contains_key(&crate::known_ids::offset_time_original()));
-        assert!(!out.edits.contains_key(&crate::known_ids::date_time_original()));
+        assert!(!out
+            .edits
+            .contains_key(&crate::known_ids::offset_time_original()));
+        assert!(!out
+            .edits
+            .contains_key(&crate::known_ids::date_time_original()));
         assert_eq!(
             display(edit_value(&out, "IPTC:TimeCreated")),
             "14:30:45+01:00"

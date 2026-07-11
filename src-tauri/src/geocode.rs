@@ -35,9 +35,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::country_code::{iptc_country_code_projection, xmp_country_code_projection};
 use crate::draft_edits::{EditIntent, MetadataDraftEdit, MetadataDraftMap};
-use crate::{known_ids, tag_schema::SchemaDefinitionId};
 use crate::geocode_cache::{CachedResult, GeocodeCacheEntry, GeocodeCacheFile};
 use crate::metadata_value::MetadataValue;
+use crate::{known_ids, tag_schema::SchemaDefinitionId};
 
 // ── Wire types for the geocode_images_cmd Tauri command ─────────────────────
 //
@@ -327,10 +327,15 @@ impl GeocodeSource {
 /// a set.
 pub fn geocode_target_tags() -> [SchemaDefinitionId; 10] {
     [
-        known_ids::xmp_location(), known_ids::xmp_city(), known_ids::xmp_state(),
-        known_ids::xmp_country(), known_ids::xmp_country_code(),
-        known_ids::iptc_sub_location(), known_ids::iptc_city(),
-        known_ids::iptc_province_state(), known_ids::iptc_country_name(),
+        known_ids::xmp_location(),
+        known_ids::xmp_city(),
+        known_ids::xmp_state(),
+        known_ids::xmp_country(),
+        known_ids::xmp_country_code(),
+        known_ids::iptc_sub_location(),
+        known_ids::iptc_city(),
+        known_ids::iptc_province_state(),
+        known_ids::iptc_country_name(),
         known_ids::iptc_country_code(),
     ]
 }
@@ -343,9 +348,7 @@ pub fn geocode_target_tags() -> [SchemaDefinitionId; 10] {
 /// empty `AddressFields`: that case is the `nominatim_empty` failure
 /// and writes no drafts (see file-level doc-comment "All-empty result
 /// is a failure, not a success").
-pub fn compose_geocode_edits(
-    addr: &AddressFields,
-) -> MetadataDraftMap {
+pub fn compose_geocode_edits(addr: &AddressFields) -> MetadataDraftMap {
     debug_assert!(
         addr.has_any_usable(),
         "compose_geocode_edits called on an empty address — callers must \
@@ -393,31 +396,36 @@ pub fn compose_geocode_edits(
     };
 
     put(
-        known_ids::xmp_location(), known_ids::iptc_sub_location(),
+        known_ids::xmp_location(),
+        known_ids::iptc_sub_location(),
         addr.location.as_deref(),
         str::to_string,
         str::to_string,
     );
     put(
-        known_ids::xmp_city(), known_ids::iptc_city(),
+        known_ids::xmp_city(),
+        known_ids::iptc_city(),
         addr.city.as_deref(),
         str::to_string,
         str::to_string,
     );
     put(
-        known_ids::xmp_state(), known_ids::iptc_province_state(),
+        known_ids::xmp_state(),
+        known_ids::iptc_province_state(),
         addr.state.as_deref(),
         str::to_string,
         str::to_string,
     );
     put(
-        known_ids::xmp_country(), known_ids::iptc_country_name(),
+        known_ids::xmp_country(),
+        known_ids::iptc_country_name(),
         addr.country.as_deref(),
         str::to_string,
         str::to_string,
     );
     put(
-        known_ids::xmp_country_code(), known_ids::iptc_country_code(),
+        known_ids::xmp_country_code(),
+        known_ids::iptc_country_code(),
         addr.country_code.as_deref(),
         xmp_country_code_projection,
         iptc_country_code_projection,
@@ -1191,7 +1199,11 @@ mod tests {
             assert!(edits[&k].value.is_none(), "Delete should carry no value");
         }
         // And the IPTC mirrors get the same treatment.
-        for k in [known_ids::iptc_sub_location(), known_ids::iptc_city(), known_ids::iptc_province_state()] {
+        for k in [
+            known_ids::iptc_sub_location(),
+            known_ids::iptc_city(),
+            known_ids::iptc_province_state(),
+        ] {
             assert!(
                 matches!(edits[&k].intent, EditIntent::Delete),
                 "expected Delete intent for {}",

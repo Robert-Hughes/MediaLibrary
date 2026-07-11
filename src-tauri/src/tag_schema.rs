@@ -115,10 +115,14 @@ impl std::fmt::Display for SchemaDefinitionId {
 
 #[cfg(test)]
 impl PartialEq<String> for SchemaDefinitionId {
+    #[allow(clippy::cmp_owned)]
     fn eq(&self, other: &String) -> bool {
-        self.tag_id == *other || self.to_string() == *other || get_registry().ok()
-            .and_then(|registry| registry.lookup(other))
-            .is_some_and(|info| info.id == *self)
+        self.tag_id == *other
+            || self.to_string() == *other
+            || get_registry()
+                .ok()
+                .and_then(|registry| registry.lookup(other))
+                .is_some_and(|info| info.id == *self)
     }
 }
 
@@ -210,25 +214,28 @@ pub struct TagRegistry {
 }
 
 pub trait RegistryLookupKey {
-    fn find<'a>(self, registry: &'a TagRegistry) -> Option<&'a TagInfo>;
+    fn find(self, registry: &TagRegistry) -> Option<&TagInfo>;
 }
 
 impl RegistryLookupKey for &SchemaDefinitionId {
-    fn find<'a>(self, registry: &'a TagRegistry) -> Option<&'a TagInfo> {
+    fn find(self, registry: &TagRegistry) -> Option<&TagInfo> {
         registry.tags.get(self)
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "integration"))]
 impl RegistryLookupKey for &str {
-    fn find<'a>(self, registry: &'a TagRegistry) -> Option<&'a TagInfo> {
-        registry.tags.values().find(|info| info.display_name() == self)
+    fn find(self, registry: &TagRegistry) -> Option<&TagInfo> {
+        registry
+            .tags
+            .values()
+            .find(|info| info.display_name() == self)
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "integration"))]
 impl RegistryLookupKey for &String {
-    fn find<'a>(self, registry: &'a TagRegistry) -> Option<&'a TagInfo> {
+    fn find(self, registry: &TagRegistry) -> Option<&TagInfo> {
         RegistryLookupKey::find(self.as_str(), registry)
     }
 }
@@ -401,9 +408,8 @@ impl TagRegistry {
                             }
                             let mut occurrences = BTreeMap::<String, u32>::new();
                             for partial in table_tags.drain(..) {
-                                let occurrence = occurrences
-                                    .entry(partial.tag_id.clone())
-                                    .or_default();
+                                let occurrence =
+                                    occurrences.entry(partial.tag_id.clone()).or_default();
                                 let index = (counts[&partial.tag_id] > 1).then_some(*occurrence);
                                 *occurrence += 1;
                                 let id = SchemaDefinitionId {
@@ -1272,7 +1278,11 @@ mod tests {
         // type='undef', which derives to Unknown.  The override table
         // promotes them to Text so the user gets a real string editor.
         let mut tags: BTreeMap<SchemaDefinitionId, TagInfo> = BTreeMap::new();
-        let id = SchemaDefinitionId { table: "Exif::Main".into(), tag_id: "36864".into(), index: None };
+        let id = SchemaDefinitionId {
+            table: "Exif::Main".into(),
+            tag_id: "36864".into(),
+            index: None,
+        };
         tags.insert(
             id.clone(),
             TagInfo {
@@ -1286,9 +1296,7 @@ mod tests {
             },
         );
         apply_overrides(&mut tags);
-        let t = tags
-            .get(&id)
-            .expect("override should keep tag");
+        let t = tags.get(&id).expect("override should keep tag");
         assert!(matches!(t.kind, TagKind::Text));
         assert!(t.writable);
     }
@@ -1355,7 +1363,11 @@ mod tests {
         // override marks them Binary AND forces writable=false so the UI
         // treats them as read-only and the autocomplete drops them.
         let mut tags: BTreeMap<SchemaDefinitionId, TagInfo> = BTreeMap::new();
-        let maker_id = SchemaDefinitionId { table: "Exif::Main".into(), tag_id: "37500".into(), index: None };
+        let maker_id = SchemaDefinitionId {
+            table: "Exif::Main".into(),
+            tag_id: "37500".into(),
+            index: None,
+        };
         tags.insert(
             maker_id.clone(),
             TagInfo {
@@ -1368,7 +1380,11 @@ mod tests {
                 storage_count: None,
             },
         );
-        let preview_id = SchemaDefinitionId { table: "Exif::Main".into(), tag_id: "PreviewImage".into(), index: None };
+        let preview_id = SchemaDefinitionId {
+            table: "Exif::Main".into(),
+            tag_id: "PreviewImage".into(),
+            index: None,
+        };
         tags.insert(
             preview_id.clone(),
             TagInfo {
@@ -1395,7 +1411,11 @@ mod tests {
         // Defensive: if listx ever reported a Binary-overridden tag as
         // writable=false, the override must NOT flip that to true.
         let mut tags: BTreeMap<SchemaDefinitionId, TagInfo> = BTreeMap::new();
-        let id = SchemaDefinitionId { table: "Exif::Main".into(), tag_id: "37500".into(), index: None };
+        let id = SchemaDefinitionId {
+            table: "Exif::Main".into(),
+            tag_id: "37500".into(),
+            index: None,
+        };
         tags.insert(
             id.clone(),
             TagInfo {
@@ -1458,7 +1478,7 @@ mod tests {
         // loading from disk. We test this by forcing a cache build (which may
         // hit disk) and verifying an overridden tag is correct.
         let reg = TagRegistry::build_cached().expect("build_cached failed");
-        assert!(reg.len() > 0);
+        assert!(!reg.is_empty());
     }
 
     #[test]

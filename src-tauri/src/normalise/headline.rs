@@ -43,10 +43,7 @@ pub fn normalise_headline(input: &HeadlineInput) -> Option<GroupOutput> {
     }
     let iptc = truncate_at_word(&canonical, IPTC_HEADLINE_LIMIT);
     let mut edits = MetadataDraftMap::new();
-    edits.insert(
-        known_ids::xmp_headline(),
-        text_edit(canonical.clone()),
-    );
+    edits.insert(known_ids::xmp_headline(), text_edit(canonical.clone()));
     edits.insert(known_ids::iptc_headline(), text_edit(iptc));
     Some(GroupOutput { edits })
 }

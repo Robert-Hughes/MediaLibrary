@@ -330,7 +330,9 @@ mod tests {
             ..Default::default()
         };
         let out = normalise_location(&input).output.unwrap();
-        assert!(!out.edits.contains_key(&crate::known_ids::xmp_country_code()));
+        assert!(!out
+            .edits
+            .contains_key(&crate::known_ids::xmp_country_code()));
         assert_eq!(s(&out, "IPTC:Country-PrimaryLocationCode"), "GB ");
     }
 
@@ -342,7 +344,9 @@ mod tests {
         };
         let out = normalise_location(&input).output.unwrap();
         assert_eq!(s(&out, "XMP-iptcCore:CountryCode"), "GB");
-        assert!(!out.edits.contains_key(&crate::known_ids::iptc_country_code()));
+        assert!(!out
+            .edits
+            .contains_key(&crate::known_ids::iptc_country_code()));
     }
 
     #[test]
