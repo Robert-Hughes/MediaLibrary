@@ -19,23 +19,25 @@ This document presents the findings of the extended investigation into ExifTool 
 ## 2. Static `G1 + TagName + TagID` Analysis
 
 We parsed `listx.xml` (33,676 static definitions) and classified duplicate groups under two keys:
+
 1. **`G1 + TagName`** (Base Key)
 2. **`G1 + TagName + TagID`** (Extended Key)
 
 ### Quantitative Comparison
 
-| Metric | Grouping A (`G1 + Name`) | Grouping B (`G1 + Name + TagID`) |
-| :--- | :---: | :---: |
-| **Total Definitions** | 33,676 | 33,676 |
-| **Unique Keys** | 27,651 | 31,933 |
-| **Duplicate Groups** | 2,217 | 981 |
-| **Exact Duplicate Groups** | 962 | 756 |
-| **Compatible Duplicate Groups** | 282 | 19 |
-| **Conflicting Duplicate Groups** | **973** | **206** |
+| Metric                           | Grouping A (`G1 + Name`) | Grouping B (`G1 + Name + TagID`) |
+| :------------------------------- | :----------------------: | :------------------------------: |
+| **Total Definitions**            |          33,676          |              33,676              |
+| **Unique Keys**                  |          27,651          |              31,933              |
+| **Duplicate Groups**             |          2,217           |               981                |
+| **Exact Duplicate Groups**       |           962            |               756                |
+| **Compatible Duplicate Groups**  |           282            |                19                |
+| **Conflicting Duplicate Groups** |         **973**          |             **206**              |
 
 ### Resolution of G1:Name Conflicts by Tag ID
 
 Of the original **973** conflicting `G1 + Name` groups:
+
 - **654** groups (67.2%) are **fully resolved** to unique definitions by adding Tag ID.
 - **132** groups (13.6%) are **reduced to compatible alternatives** (safe to merge in application).
 - **187** groups (19.2%) **still contain conflicting subgroups** (corresponding to **206** distinct conflicting `G1 + Name + TagID` groups).
@@ -65,21 +67,21 @@ The **206** surviving conflicts are classified into the following categories:
 
 ### Complete List of Non-Maker-Note Conflicts
 
-| G1:TagName:TagID | Conflict Reason | Candidates (Tables) | App-facing Differences |
-| :--- | :--- | :--- | :--- |
-| `File:BMPVersion:0` | different enum mappings | `BMP::Main` vs `BMP::OS2` | Windows V3/4/5 enums vs OS/2 V1/2 enums |
-| `JPS:JPSLayout:12` | different enum mappings | `JPEG::JPS` (both defs) | Interleaved/Side-by-Side vs Eye selections |
-| `QuickTime:PixelAspectRatio:pasp` | writability; storage types | `QuickTime::ItemPropCont` vs `QuickTime::VisualSampleDesc` | Writable int32u vs Read-only int16u |
-| `File:ByteOrder:ByteOrder` | enum vs non-enum | `PCAP::Main` vs `Other::PFM` | Intel/Motorola enum vs raw text |
-| `File:ImageLength:8` | different storage types | `ICO::IconDir` vs `BPG::Main` | `int32u` vs `var_ue7` |
-| `FLIR:Emissivity:3` | writability; storage types | `FLIR::Main` vs `FLIR::Params` | Writable rational64u vs Read-only float |
-| `FujiFilm:AutoBracketing:4352` | different enum mappings | `FujiFilm::Main` (both defs) | Off/On/Pre-shot vs Off/On/No Flash & Flash |
-| `MNG:Compression:10` | different enum mappings | `MNG::BasisObject` vs `MNG::JNGHeader` | Deflate/Inflate vs Huffman JPEG |
-| `MPEG:SampleRate:Bit20-21` | different enum mappings | `MPEG::Audio` (3 defs) | 44.1k/48k/32k vs 22k/24k/16k vs 11k/12k/8k |
-| `RIFF:DateTimeOriginal:IDIT` | different storage types | `RIFF::Info` vs `RIFF::Hdrl` vs `RIFF::Main` | string vs unknown `?` |
-| `RIFF:TimeCode:ISMP` | different storage types | `RIFF::Info` vs `RIFF::Hdrl` | string vs unknown `?` |
-| `Reconyx:TriggerMode:52` | different storage types | `Reconyx::HyperFire2` vs `Reconyx::UltraFire` | `string` vs `undef` |
-| `Sony:SonyISO:4` | different writability | `Sony::Tag9405b` vs `Sony::Tag9416` | Writable `int16u` vs Read-only `int16u` |
+| G1:TagName:TagID                  | Conflict Reason            | Candidates (Tables)                                        | App-facing Differences                     |
+| :-------------------------------- | :------------------------- | :--------------------------------------------------------- | :----------------------------------------- |
+| `File:BMPVersion:0`               | different enum mappings    | `BMP::Main` vs `BMP::OS2`                                  | Windows V3/4/5 enums vs OS/2 V1/2 enums    |
+| `JPS:JPSLayout:12`                | different enum mappings    | `JPEG::JPS` (both defs)                                    | Interleaved/Side-by-Side vs Eye selections |
+| `QuickTime:PixelAspectRatio:pasp` | writability; storage types | `QuickTime::ItemPropCont` vs `QuickTime::VisualSampleDesc` | Writable int32u vs Read-only int16u        |
+| `File:ByteOrder:ByteOrder`        | enum vs non-enum           | `PCAP::Main` vs `Other::PFM`                               | Intel/Motorola enum vs raw text            |
+| `File:ImageLength:8`              | different storage types    | `ICO::IconDir` vs `BPG::Main`                              | `int32u` vs `var_ue7`                      |
+| `FLIR:Emissivity:3`               | writability; storage types | `FLIR::Main` vs `FLIR::Params`                             | Writable rational64u vs Read-only float    |
+| `FujiFilm:AutoBracketing:4352`    | different enum mappings    | `FujiFilm::Main` (both defs)                               | Off/On/Pre-shot vs Off/On/No Flash & Flash |
+| `MNG:Compression:10`              | different enum mappings    | `MNG::BasisObject` vs `MNG::JNGHeader`                     | Deflate/Inflate vs Huffman JPEG            |
+| `MPEG:SampleRate:Bit20-21`        | different enum mappings    | `MPEG::Audio` (3 defs)                                     | 44.1k/48k/32k vs 22k/24k/16k vs 11k/12k/8k |
+| `RIFF:DateTimeOriginal:IDIT`      | different storage types    | `RIFF::Info` vs `RIFF::Hdrl` vs `RIFF::Main`               | string vs unknown `?`                      |
+| `RIFF:TimeCode:ISMP`              | different storage types    | `RIFF::Info` vs `RIFF::Hdrl`                               | string vs unknown `?`                      |
+| `Reconyx:TriggerMode:52`          | different storage types    | `Reconyx::HyperFire2` vs `Reconyx::UltraFire`              | `string` vs `undef`                        |
+| `Sony:SonyISO:4`                  | different writability      | `Sony::Tag9405b` vs `Sony::Tag9416`                        | Writable `int16u` vs Read-only `int16u`    |
 
 ---
 
@@ -111,15 +113,15 @@ We targeted all **15 fixture files** under `test_images/`, including custom-gene
 
 ### Performance Metrics across 377 Tag Occurrences
 
-| Stage | Unique Match | Compatible Match | Conflicting Match | No Static Match |
-| :--- | :---: | :---: | :---: | :---: |
-| **Resolver 1** | 343 (91.0%) | 30 (8.0%) | **2 (0.5%)** | 2 (0.5%) |
-| **Resolver 2** | 343 (91.0%) | 30 (8.0%) | **2 (0.5%)** | 2 (0.5%) |
-| **Resolver 3** | 343 (91.0%) | 30 (8.0%) | **2 (0.5%)** | 2 (0.5%) |
-| **Resolver 4** | 347 (92.0%) | 26 (6.9%) | **2 (0.5%)** | 2 (0.5%) |
-| **Resolver 5** | 347 (92.0%) | 26 (6.9%) | **2 (0.5%)** | 2 (0.5%) |
-| **Resolver 6** | 347 (92.0%) | 26 (6.9%) | **2 (0.5%)** | 2 (0.5%) |
-| **Resolver 7** | **349 (92.6%)** | **26 (6.9%)** | **0 (0.0%)** | **2 (0.5%)** |
+| Stage          |  Unique Match   | Compatible Match | Conflicting Match | No Static Match |
+| :------------- | :-------------: | :--------------: | :---------------: | :-------------: |
+| **Resolver 1** |   343 (91.0%)   |    30 (8.0%)     |   **2 (0.5%)**    |    2 (0.5%)     |
+| **Resolver 2** |   343 (91.0%)   |    30 (8.0%)     |   **2 (0.5%)**    |    2 (0.5%)     |
+| **Resolver 3** |   343 (91.0%)   |    30 (8.0%)     |   **2 (0.5%)**    |    2 (0.5%)     |
+| **Resolver 4** |   347 (92.0%)   |    26 (6.9%)     |   **2 (0.5%)**    |    2 (0.5%)     |
+| **Resolver 5** |   347 (92.0%)   |    26 (6.9%)     |   **2 (0.5%)**    |    2 (0.5%)     |
+| **Resolver 6** |   347 (92.0%)   |    26 (6.9%)     |   **2 (0.5%)**    |    2 (0.5%)     |
+| **Resolver 7** | **349 (92.6%)** |  **26 (6.9%)**   |   **0 (0.0%)**    |  **2 (0.5%)**   |
 
 ### Detailed Resolution Progression Traces for `File:BMPVersion`
 
@@ -152,14 +154,19 @@ Conflict occurrence: File:BMPVersion (ID: 0) in test_win_v3.bmp
 ## 6. Answers to Core Questions
 
 ### Is Family 5 path required or deterministic?
+
 **No**. Family 5 is **not** deterministic. Both `test_win_v3.bmp` and `test_os2_v1.bmp` produce the exact same Family 5 path `BMP-File`, which fails to distinguish between the two static tables (`BMP::Main` and `BMP::OS2`). Family 5 only serves as layout-level contextual evidence.
 
 ### What causes the `IFD1:ThumbnailImage` no-match cases?
+
 ExifTool defines `ThumbnailImage` statically in the `Composite` table with G1=`All`. However, at runtime, ExifTool dynamically overrides G0/G1 of the Composite `ThumbnailImage` tag to match its physical location in the file (`EXIF` / `IFD1`).
+
 - **Implication**: These should be treated as a distinct "dynamic/Composite segment redirection" category rather than ordinary failures.
 
 ### What are the new-property implications?
-Without an existing tag in a file, we do not have a runtime Tag ID. 
+
+Without an existing tag in a file, we do not have a runtime Tag ID.
+
 - **Implication**: Adding a new property is either `not writable` (read-only tags like `BMPVersion`), `safe only with a selected target namespace/table` (maker notes or alternate tables), or `ambiguous`. Tag ID only helps resolve tags already present.
 
 ---

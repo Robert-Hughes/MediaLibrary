@@ -1,3 +1,4 @@
+import { ModalDialog } from "../ModalDialog";
 // Temporal editor.  Each schema kind chooses the matching HTML input:
 // date, time, or datetime-local. Save stores semantic temporal values and
 // keeps the ExifTool storage string as display text for pending rows.
@@ -9,7 +10,6 @@ import type {
   UtcOffsetValue,
 } from "../../types";
 import { READ_ONLY_TOOLTIP } from "./readOnlyMessages";
-import { useDialogEscape } from "../../hooks/useDialogEscape";
 import {
   timeOffset,
   toExiftoolDate,
@@ -68,8 +68,6 @@ export function DateTimeEditor({
   });
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-
-  useDialogEscape(onCancel);
 
   const initialOffset = (() => {
     if (initialMetadataValue) {
@@ -199,7 +197,12 @@ export function DateTimeEditor({
         : "YYYY:MM:DD HH:MM:SS";
 
   return (
-    <div className="dialog-overlay" data-testid="datetime-editor-overlay">
+    <ModalDialog
+      open
+      onDismiss={onCancel}
+      testId="datetime-editor-overlay"
+      aria-label={`Edit ${propertyKey}`}
+    >
       <div className="dialog-content">
         <h3>Edit {propertyKey}</h3>
         {headerHint}
@@ -244,7 +247,7 @@ export function DateTimeEditor({
           </button>
         </div>
       </div>
-    </div>
+    </ModalDialog>
   );
 }
 

@@ -1,3 +1,4 @@
+import { ModalDialog } from "./ModalDialog";
 // Dialog to surface per-tag verification outcomes that need user attention.
 //
 // Mounted while `appState.verifyOutcomes` is non-empty.  Lists every Coerced /
@@ -16,7 +17,6 @@ import {
   metadataEntryToDisplayString,
   metadataValueToDiagnosticString,
 } from "../draft";
-import { useDialogEscape } from "../hooks/useDialogEscape";
 
 interface Props {
   outcomes: Record<string, TagOutcomeEntry[]>;
@@ -76,15 +76,18 @@ export function VerifyOutcomeDialog({
   onDismiss,
   onDismissAll,
 }: Props) {
-  useDialogEscape(onDismissAll);
-
   const fileEntries = Object.entries(outcomes);
   if (fileEntries.length === 0) return null;
 
   const totalRows = fileEntries.reduce((acc, [, list]) => acc + list.length, 0);
 
   return (
-    <div className="dialog-overlay" data-testid="verify-outcome-dialog">
+    <ModalDialog
+      open
+      onDismiss={onDismissAll}
+      testId="verify-outcome-dialog"
+      aria-label="Verification results"
+    >
       <div
         className="dialog-content"
         style={{ width: 640, maxHeight: "80vh", overflowY: "auto" }}
@@ -228,7 +231,7 @@ export function VerifyOutcomeDialog({
           </button>
         </div>
       </div>
-    </div>
+    </ModalDialog>
   );
 }
 

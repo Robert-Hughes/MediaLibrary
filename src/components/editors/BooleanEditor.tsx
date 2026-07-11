@@ -3,7 +3,7 @@
 import { useState } from "react";
 import type { MetadataDraftEdit } from "../../types";
 import { READ_ONLY_TOOLTIP } from "./readOnlyMessages";
-import { useDialogEscape } from "../../hooks/useDialogEscape";
+import { ModalDialog } from "../ModalDialog";
 
 interface Props {
   propertyKey: string;
@@ -24,8 +24,6 @@ export function BooleanEditor({
 }: Props) {
   const [value, setValue] = useState<boolean | null>(initialValue);
 
-  useDialogEscape(onCancel);
-
   const handleSave = () => {
     if (value === null) {
       onSave({ value: null, intent: "Delete" });
@@ -35,7 +33,12 @@ export function BooleanEditor({
   };
 
   return (
-    <div className="dialog-overlay" data-testid="boolean-editor-overlay">
+    <ModalDialog
+      open
+      onDismiss={onCancel}
+      testId="boolean-editor-overlay"
+      aria-label={`Edit ${propertyKey}`}
+    >
       <div className="dialog-content">
         <h3>Edit {propertyKey}</h3>
         {headerHint}
@@ -88,6 +91,6 @@ export function BooleanEditor({
           </button>
         </div>
       </div>
-    </div>
+    </ModalDialog>
   );
 }

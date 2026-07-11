@@ -1,4 +1,5 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
+import { ModalDialog } from "./ModalDialog";
 import { DEFAULT_VISIBLE_COLUMNS, OS_COLUMN_KEYS } from "../utils/columnConfig";
 import type { VisibleColumn } from "../types";
 
@@ -62,22 +63,6 @@ export function ColumnSelectionDialog({
   const [searchTerm, setSearchTerm] = useState<string>("");
   const [resetWidths, setResetWidths] = useState(false);
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        e.stopPropagation();
-        onClose();
-      } else if (e.key === "Enter") {
-        e.preventDefault();
-        onSave(mergeSelection(orderBasis, selectedOS, selected), resetWidths);
-      }
-    };
-
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [selected, selectedOS, onSave, onClose, orderBasis, resetWidths]);
-
   const toggle = (key: string) => {
     const next = new Set(selected);
     if (next.has(key)) next.delete(key);
@@ -136,16 +121,19 @@ export function ColumnSelectionDialog({
   );
 
   return (
-    <div
-      className="dialog-overlay"
-      onClick={onClose}
-      data-testid="column-dialog-overlay"
+    <ModalDialog
+      open
+      onDismiss={onClose}
+      testId="column-dialog-overlay"
+      aria-label="Select columns"
+      onKeyDown={(event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          onSave(mergeSelection(orderBasis, selectedOS, selected), resetWidths);
+        }
+      }}
     >
-      <div
-        className="dialog-content column-dialog"
-        onClick={(e) => e.stopPropagation()}
-        data-testid="column-dialog"
-      >
+      <div className="dialog-content column-dialog" data-testid="column-dialog">
         <div className="dialog-header">
           <h2 className="dialog-title">Select Columns</h2>
           <button className="dialog-close-btn" onClick={onClose}>
@@ -245,6 +233,6 @@ export function ColumnSelectionDialog({
           </button>
         </div>
       </div>
-    </div>
+    </ModalDialog>
   );
 }

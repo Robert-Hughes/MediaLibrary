@@ -22,7 +22,8 @@
  * inline behaviour of both DescribeProgressDialog and
  * GeocodeProgressDialog.
  */
-import { useEffect, type ReactNode } from "react";
+import type { ReactNode } from "react";
+import { ModalDialog } from "./ModalDialog";
 
 export type BatchJobPhase =
   "estimating" | "awaiting-confirm" | "running" | "done";
@@ -54,22 +55,12 @@ export function BatchJobDialog({
   onCancel,
   onClose,
 }: BatchJobDialogProps) {
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      e.preventDefault();
-      e.stopPropagation();
-      if (phase === "done") onClose();
-      else onCancel();
-    };
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [phase, onCancel, onClose]);
-
   return (
-    <div
-      className="dialog-overlay"
-      data-testid={`${testidPrefix}-progress-dialog`}
+    <ModalDialog
+      open
+      onDismiss={phase === "done" ? onClose : onCancel}
+      testId={`${testidPrefix}-progress-dialog`}
+      aria-label={title}
     >
       <div className="dialog-content" style={{ width }}>
         <div className="dialog-header">
@@ -77,7 +68,7 @@ export function BatchJobDialog({
         </div>
         <div className="dialog-body">{children}</div>
       </div>
-    </div>
+    </ModalDialog>
   );
 }
 

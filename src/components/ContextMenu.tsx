@@ -14,6 +14,7 @@ interface Props {
 
 export function ContextMenu({ x, y, options, onClose }: Props) {
   const menuRef = useRef<HTMLDivElement>(null);
+  const previousFocus = useRef<HTMLElement | null>(null);
   // Start where the cursor is, then nudge after layout if the menu would
   // overflow the viewport.  Position update happens in a layout effect
   // so the user never sees a clipped flash before the correction.
@@ -45,31 +46,50 @@ export function ContextMenu({ x, y, options, onClose }: Props) {
   }, [x, y, options.length, pos.top, pos.left]);
 
   useEffect(() => {
+    previousFocus.current = document.activeElement as HTMLElement | null;
+    menuRef.current
+      ?.querySelector<HTMLButtonElement>("button:not(:disabled)")
+      ?.focus();
     const handleClickOutside = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         onClose();
       }
     };
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        onClose();
-      }
-    };
-
     document.addEventListener("mousedown", handleClickOutside);
-    document.addEventListener("keydown", handleKeyDown);
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
-      document.removeEventListener("keydown", handleKeyDown);
+      previousFocus.current?.focus();
     };
   }, [onClose]);
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    const enabled = Array.from(
+      menuRef.current?.querySelectorAll<HTMLButtonElement>(
+        "button:not(:disabled)",
+      ) ?? [],
+    );
+    const current = enabled.indexOf(
+      document.activeElement as HTMLButtonElement,
+    );
+    let next: number | null = null;
+    if (event.key === "Escape") onClose();
+    else if (event.key === "ArrowDown") next = (current + 1) % enabled.length;
+    else if (event.key === "ArrowUp")
+      next = (current - 1 + enabled.length) % enabled.length;
+    else if (event.key === "Home") next = 0;
+    else if (event.key === "End") next = enabled.length - 1;
+    else return;
+    event.preventDefault();
+    if (next !== null) enabled[next]?.focus();
+  };
 
   return (
     <div
       ref={menuRef}
       className="context-menu"
       data-testid="context-menu"
+      role="menu"
+      onKeyDown={handleKeyDown}
       style={{
         position: "fixed",
         top: pos.top,

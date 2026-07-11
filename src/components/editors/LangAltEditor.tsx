@@ -11,6 +11,7 @@
 import { useState } from "react";
 import type { MetadataDraftEdit } from "../../types";
 import { READ_ONLY_TOOLTIP } from "./readOnlyMessages";
+import { ModalDialog } from "../ModalDialog";
 
 interface Props {
   propertyKey: string;
@@ -70,18 +71,12 @@ export function LangAltEditor({
     onSave({ value: { kind: "LangAlt", value: out }, intent: "Set" });
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Escape") {
-      e.stopPropagation();
-      onCancel();
-    }
-  };
-
   return (
-    <div
-      className="dialog-overlay"
-      data-testid="langalt-editor-overlay"
-      onKeyDown={handleKeyDown}
+    <ModalDialog
+      open
+      onDismiss={onCancel}
+      testId="langalt-editor-overlay"
+      aria-label={`Edit ${propertyKey}`}
     >
       <div className="dialog-content">
         <h3>Edit {propertyKey}</h3>
@@ -168,6 +163,6 @@ export function LangAltEditor({
           </button>
         </div>
       </div>
-    </div>
+    </ModalDialog>
   );
 }

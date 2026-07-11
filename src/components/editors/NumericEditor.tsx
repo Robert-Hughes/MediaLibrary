@@ -1,3 +1,4 @@
+import { ModalDialog } from "../ModalDialog";
 // Numeric editor for Integer / Real tags.
 //
 // Single numeric input with optional bounds enforcement (Integer min/max from
@@ -99,14 +100,16 @@ export function NumericEditor({
     if (e.key === "Enter") {
       e.preventDefault();
       handleSave();
-    } else if (e.key === "Escape") {
-      e.stopPropagation();
-      onCancel();
     }
   };
 
   return (
-    <div className="dialog-overlay" data-testid="numeric-editor-overlay">
+    <ModalDialog
+      open
+      onDismiss={onCancel}
+      testId="numeric-editor-overlay"
+      aria-label={`Edit ${propertyKey}`}
+    >
       <div className="dialog-content">
         <h3>Edit {propertyKey}</h3>
         {headerHint}
@@ -151,6 +154,6 @@ export function NumericEditor({
           </button>
         </div>
       </div>
-    </div>
+    </ModalDialog>
   );
 }

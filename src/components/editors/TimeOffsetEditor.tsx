@@ -1,3 +1,4 @@
+import { ModalDialog } from "../ModalDialog";
 import { useState, useEffect, useRef } from "react";
 import type { MetadataDraftEdit, MetadataValue } from "../../types";
 import { READ_ONLY_TOOLTIP } from "./readOnlyMessages";
@@ -58,14 +59,16 @@ export function TimeOffsetEditor({
     if (e.key === "Enter") {
       e.preventDefault();
       handleSave();
-    } else if (e.key === "Escape") {
-      e.stopPropagation();
-      onCancel();
     }
   };
 
   return (
-    <div className="dialog-overlay" data-testid="timeoffset-editor-overlay">
+    <ModalDialog
+      open
+      onDismiss={onCancel}
+      testId="timeoffset-editor-overlay"
+      aria-label={`Edit ${propertyKey}`}
+    >
       <div className="dialog-content">
         <h3>Edit {propertyKey}</h3>
         {headerHint}
@@ -111,6 +114,6 @@ export function TimeOffsetEditor({
           </button>
         </div>
       </div>
-    </div>
+    </ModalDialog>
   );
 }

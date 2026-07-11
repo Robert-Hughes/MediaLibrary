@@ -1,3 +1,4 @@
+import { ModalDialog } from "../ModalDialog";
 // EXIF Flash bitfield editor.
 //
 // The EXIF Flash tag packs several flags into a single int8u value.  Bit
@@ -19,7 +20,6 @@
 import { useState } from "react";
 import type { MetadataDraftEdit } from "../../types";
 import { READ_ONLY_TOOLTIP } from "./readOnlyMessages";
-import { useDialogEscape } from "../../hooks/useDialogEscape";
 import type { FlashFields } from "./editorHelpers";
 import {
   decodeFlashCode,
@@ -50,8 +50,6 @@ export function FlashEditor({
     decodeFlashCode(initialCode),
   );
 
-  useDialogEscape(onCancel);
-
   const update = <K extends keyof FlashFields>(
     key: K,
     value: FlashFields[K],
@@ -71,7 +69,12 @@ export function FlashEditor({
   };
 
   return (
-    <div className="dialog-overlay" data-testid="flash-editor-overlay">
+    <ModalDialog
+      open
+      onDismiss={onCancel}
+      testId="flash-editor-overlay"
+      aria-label={`Edit ${propertyKey}`}
+    >
       <div className="dialog-content">
         <h3>Edit {propertyKey}</h3>
         {headerHint}
@@ -160,6 +163,6 @@ export function FlashEditor({
           </button>
         </div>
       </div>
-    </div>
+    </ModalDialog>
   );
 }

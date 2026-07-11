@@ -6,6 +6,7 @@ import type {
   PhotoInfo,
   ImageMetadataStore,
 } from "../types";
+import { ModalDialog } from "./ModalDialog";
 
 const GALLERY_DETAILS_VISIBLE_KEY = "media_library_gallery_details_visible";
 
@@ -126,39 +127,26 @@ export function GalleryView({
     });
   }, [photo, folderPath, loadImage]);
 
-  // Keyboard navigation.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      // A property-edit dialog is open on top — let it handle the key.
-      if (document.querySelector(".dialog-overlay")) return;
-
-      if (e.key === "Escape") {
-        e.preventDefault();
-        onClose();
-        return;
-      }
-      const target = e.target as HTMLElement | null;
-      if (
-        target?.closest?.("input, textarea, select, [contenteditable='true']")
-      ) {
-        return;
-      }
-      if (e.key === "ArrowLeft") {
-        e.preventDefault();
-        onNavigate(-1);
-      }
-      if (e.key === "ArrowRight") {
-        e.preventDefault();
-        onNavigate(1);
-      }
-      if (e.key === "i" || e.key === "I") {
-        e.preventDefault();
-        setDetailsVisible((v) => !v);
-      }
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [onClose, onNavigate]);
+  const onKey = (e: React.KeyboardEvent<HTMLDialogElement>) => {
+    const target = e.target as HTMLElement | null;
+    if (
+      target?.closest?.("input, textarea, select, [contenteditable='true']")
+    ) {
+      return;
+    }
+    if (e.key === "ArrowLeft") {
+      e.preventDefault();
+      onNavigate(-1);
+    }
+    if (e.key === "ArrowRight") {
+      e.preventDefault();
+      onNavigate(1);
+    }
+    if (e.key === "i" || e.key === "I") {
+      e.preventDefault();
+      setDetailsVisible((v) => !v);
+    }
+  };
 
   const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
     if (!imageSrc) return;
@@ -233,16 +221,17 @@ export function GalleryView({
   const hasNext = currentIndex < photos.length - 1;
 
   return (
-    <div
-      className="gallery-overlay"
-      data-testid="gallery-overlay"
-      onClick={onClose}
+    <ModalDialog
+      open
+      onDismiss={onClose}
+      className="gallery-dialog"
+      testId="gallery-overlay"
+      aria-label="Photo gallery"
+      onKeyDown={onKey}
     >
-      {/* Stop clicks on the inner content from closing the overlay */}
       <div
         className={`gallery-content ${detailsVisible ? "gallery-content--with-details" : ""}`}
         data-testid="gallery-content"
-        onClick={(e) => e.stopPropagation()}
       >
         <button
           className="gallery-close"
@@ -364,6 +353,6 @@ export function GalleryView({
           </span>
         </div>
       </div>
-    </div>
+    </ModalDialog>
   );
 }

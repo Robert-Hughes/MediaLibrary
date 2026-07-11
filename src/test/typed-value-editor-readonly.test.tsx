@@ -40,6 +40,28 @@ beforeEach(() => {
 });
 
 describe("TypedValueEditor read-only enforcement", () => {
+  it("opens Binary as a native dismissible read-only dialog", () => {
+    const onCancel = vi.fn();
+    render(
+      <TypedValueEditor
+        propertyKey="XMP-test:Blob"
+        schemaOverride={{
+          kind: { kind: "Binary" },
+          readOnly: true,
+          sourceLabel: "test",
+        }}
+        onSaveMetadata={vi.fn()}
+        onCancel={onCancel}
+      />,
+    );
+    const dialog = screen.getByTestId("binary-editor-overlay");
+    expect(dialog.tagName).toBe("DIALOG");
+    expect(dialog).toHaveAttribute("open");
+    expect(screen.getByRole("button", { name: "Close" })).toHaveFocus();
+    dialog.dispatchEvent(new Event("cancel", { cancelable: true }));
+    expect(onCancel).toHaveBeenCalledOnce();
+  });
+
   it("inherits read-only state with a synthetic Enum schema", () => {
     render(
       <TypedValueEditor
@@ -605,7 +627,12 @@ describe("TypedValueEditor nested schema routing", () => {
     fireEvent.click(screen.getByTestId("nested-list-editor-edit"));
 
     expect(await screen.findByTestId("enum-editor-select")).toHaveValue("N");
-    const hint = screen.getByTestId("editor-meta-hint");
+    expect(screen.getByTestId("nested-list-editor-overlay")).toHaveAttribute(
+      "open",
+    );
+    expect(screen.getByTestId("enum-editor-overlay")).toHaveAttribute("open");
+    const hints = screen.getAllByTestId("editor-meta-hint");
+    const hint = hints[hints.length - 1];
     expect(hint).toHaveTextContent("Enum (2 options)");
     expect(hint).toHaveTextContent("From parent schema");
     expect(hint).not.toHaveTextContent("Not in ExifTool's writable schema");
@@ -648,8 +675,9 @@ describe("TypedValueEditor nested schema routing", () => {
 
     fireEvent.click(screen.getByTestId("struct-editor-edit-0"));
     expect(await screen.findByTestId("enum-editor-select")).toHaveValue("M");
-    expect(screen.getByTestId("editor-meta-hint")).toHaveTextContent(
-      "From parent schema",
-    );
+    expect(screen.getByTestId("struct-editor-overlay")).toHaveAttribute("open");
+    expect(screen.getByTestId("enum-editor-overlay")).toHaveAttribute("open");
+    const hints = screen.getAllByTestId("editor-meta-hint");
+    expect(hints[hints.length - 1]).toHaveTextContent("From parent schema");
   });
 });

@@ -23,6 +23,7 @@ import { StatusBar } from "./components/StatusBar";
 import { ColumnSelectionDialog } from "./components/ColumnSelectionDialog";
 import { ApplyProgressDialog } from "./components/ApplyProgressDialog";
 import { VerifyOutcomeDialog } from "./components/VerifyOutcomeDialog";
+import { ModalDialog } from "./components/ModalDialog";
 import { ErrorBanner } from "./components/ErrorBanner";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { SettingsDialog } from "./components/SettingsDialog";
@@ -583,7 +584,13 @@ export default function App() {
   return (
     <div className="app">
       {!schemaReady && !schemaError && (
-        <div className="dialog-overlay" data-testid="schema-loading-dialog">
+        <ModalDialog
+          open
+          onDismiss={() => {}}
+          dismissible={false}
+          testId="schema-loading-dialog"
+          aria-label="Loading schema"
+        >
           <div className="dialog-content" style={{ width: 360 }}>
             <div className="dialog-header">
               <span className="dialog-title">Loading schema…</span>
@@ -594,11 +601,17 @@ export default function App() {
               </div>
             </div>
           </div>
-        </div>
+        </ModalDialog>
       )}
 
       {schemaError && (
-        <div className="dialog-overlay" data-testid="schema-error-dialog">
+        <ModalDialog
+          open
+          onDismiss={() => {}}
+          dismissible={false}
+          testId="schema-error-dialog"
+          aria-label="Failed to load tag schema"
+        >
           <div className="dialog-content" style={{ width: 480 }}>
             <div className="dialog-header">
               <span className="dialog-title">Failed to load tag schema</span>
@@ -628,7 +641,7 @@ export default function App() {
               </pre>
             </div>
           </div>
-        </div>
+        </ModalDialog>
       )}
 
       {checkingCli && <div style={{ flex: 1 }} />}

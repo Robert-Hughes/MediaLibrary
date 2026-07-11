@@ -1,3 +1,4 @@
+import { ModalDialog } from "../ModalDialog";
 // GPS composite editor.
 //
 // GPS coordinates are split across paired tags in the file:
@@ -20,7 +21,6 @@ import type { MetadataDraftEdit } from "../../types";
 import type { GpsTagGroup } from "../../metadata/tag_overrides";
 import { READ_ONLY_TOOLTIP } from "./readOnlyMessages";
 import { decimalToDms, enumDraftEdit, type EnumTagKind } from "./editorHelpers";
-import { useDialogEscape } from "../../hooks/useDialogEscape";
 
 // Re-export so existing call sites that imported the type from here keep
 // working.  The override matcher lives in tag_overrides.ts.
@@ -78,8 +78,6 @@ export function GpsEditor({
     initialAltitudeRef ?? "above",
   );
   const [error, setError] = useState<string | null>(null);
-
-  useDialogEscape(onCancel);
 
   const handleSave = () => {
     if (readOnly) return;
@@ -170,7 +168,12 @@ export function GpsEditor({
   };
 
   return (
-    <div className="dialog-overlay" data-testid="gps-editor-overlay">
+    <ModalDialog
+      open
+      onDismiss={onCancel}
+      testId="gps-editor-overlay"
+      aria-label="Edit GPS location"
+    >
       <div className="dialog-content">
         <h3>Edit GPS location</h3>
         {headerHint}
@@ -283,6 +286,6 @@ export function GpsEditor({
           </button>
         </div>
       </div>
-    </div>
+    </ModalDialog>
   );
 }

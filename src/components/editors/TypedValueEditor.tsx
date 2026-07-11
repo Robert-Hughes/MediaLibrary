@@ -21,6 +21,7 @@
 //   - Binary  — read-only "binary, not editable in app" message.
 
 import { useTagInfo, useTagInfos } from "../../hooks/useTagInfo";
+import { ModalDialog } from "../ModalDialog";
 import type {
   MetadataDraftEdit,
   TagInfo,
@@ -475,7 +476,12 @@ export function TypedValueEditor({
   // ── Binary — read-only with explanation. ────────────────────────────────
   if (kind?.kind === "Binary") {
     return (
-      <div className="dialog-overlay" data-testid="binary-editor-overlay">
+      <ModalDialog
+        open
+        onDismiss={onCancel}
+        testId="binary-editor-overlay"
+        aria-label={propertyKey}
+      >
         <div className="dialog-content">
           <h3>{propertyKey}</h3>
           {schemaHint()}
@@ -487,6 +493,8 @@ export function TypedValueEditor({
           </div>
           <div className="dialog-footer">
             <button
+              type="button"
+              autoFocus
               className="dialog-btn dialog-btn-primary"
               onClick={onCancel}
             >
@@ -494,7 +502,7 @@ export function TypedValueEditor({
             </button>
           </div>
         </div>
-      </div>
+      </ModalDialog>
     );
   }
 

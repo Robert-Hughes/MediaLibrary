@@ -137,9 +137,8 @@ export function useRowSelection(cfg: RowSelectionConfig) {
         )
           return;
       }
-      // A modal dialog is open — let it handle the key.  Gallery uses
-      // the same overlay class so this covers both.
-      if (document.querySelector(".dialog-overlay, .gallery-overlay")) return;
+      // Keyboard events bubbling from native dialogs belong to that dialog.
+      if ((e.target as Element | null)?.closest?.("dialog")) return;
       const len = photosLenRef.current;
       if (len === 0) return;
       const cur = selectedIndexRef.current;

@@ -1,3 +1,4 @@
+import { ModalDialog } from "../ModalDialog";
 // Chip editor for Bag<Text> / Seq<Text> tags (XMP-dc:Subject, IPTC:Keywords,
 // XMP-dc:Creator, etc.).
 //
@@ -124,10 +125,6 @@ export function BagEditor({
     } else if (e.key === "Backspace" && !draftItem && items.length > 0) {
       e.preventDefault();
       removeItem(items.length - 1);
-    } else if (e.key === "Escape") {
-      e.preventDefault();
-      e.stopPropagation();
-      onCancel();
     }
   };
 
@@ -160,7 +157,12 @@ export function BagEditor({
   };
 
   return (
-    <div className="dialog-overlay" data-testid="bag-editor-overlay">
+    <ModalDialog
+      open
+      onDismiss={onCancel}
+      testId="bag-editor-overlay"
+      aria-label={`Edit ${propertyKey}`}
+    >
       <div className="dialog-content">
         <h3>Edit {propertyKey}</h3>
         {headerHint}
@@ -255,6 +257,6 @@ export function BagEditor({
           </button>
         </div>
       </div>
-    </div>
+    </ModalDialog>
   );
 }

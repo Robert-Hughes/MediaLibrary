@@ -24,7 +24,7 @@ import { metadataValueToDisplayString } from "../../draft";
 import type { InnerEditorProps } from "./StructEditor";
 import { READ_ONLY_TOOLTIP } from "./readOnlyMessages";
 import { defaultMetadataValueForKind } from "./editorHelpers";
-import { useDialogEscape } from "../../hooks/useDialogEscape";
+import { ModalDialog } from "../ModalDialog";
 
 interface Props {
   propertyKey: string;
@@ -83,8 +83,6 @@ export function NestedListEditor({
   const [items, setItems] = useState<MetadataValue[]>(initialItems);
   const [editingItem, setEditingItem] = useState<EditingItem>(null);
 
-  useDialogEscape(onCancel);
-
   const innerKind: TagKind | null =
     kind.kind === "Bag" || kind.kind === "Seq" || kind.kind === "Alt"
       ? kind.data
@@ -131,159 +129,172 @@ export function NestedListEditor({
   };
 
   // ── Sub-editor view ──────────────────────────────────────────────────
-  if (editingItem && innerKind) {
-    const editingIndex =
-      editingItem.mode === "existing" ? editingItem.index : items.length;
-    return (
-      <SubEditor
-        propertyKey={`${propertyKey}[${editingIndex}]`}
-        initialMetadataValue={editingItem.initialValue}
-        schemaOverride={{
-          kind: innerKind,
-          readOnly: Boolean(readOnly),
-          sourceLabel: propertyKey,
-        }}
-        onSaveMetadata={(edit: MetadataDraftEdit) => {
-          if (editingItem.mode === "existing") {
-            if (edit.intent === "Delete") {
-              removeItem(editingItem.index);
-            } else if (edit.intent === "Set" && edit.value) {
-              updateItem(editingItem.index, edit.value);
-            }
-          } else if (edit.intent === "Set" && edit.value) {
-            setItems((prev) => [...prev, edit.value as MetadataValue]);
-          }
-          setEditingItem(null);
-        }}
-        onCancel={() => setEditingItem(null)}
-      />
-    );
-  }
+  const child =
+    editingItem && innerKind
+      ? (() => {
+          const editingIndex =
+            editingItem.mode === "existing" ? editingItem.index : items.length;
+          return (
+            <SubEditor
+              propertyKey={`${propertyKey}[${editingIndex}]`}
+              initialMetadataValue={editingItem.initialValue}
+              schemaOverride={{
+                kind: innerKind,
+                readOnly: Boolean(readOnly),
+                sourceLabel: propertyKey,
+              }}
+              onSaveMetadata={(edit: MetadataDraftEdit) => {
+                if (editingItem.mode === "existing") {
+                  if (edit.intent === "Delete") {
+                    removeItem(editingItem.index);
+                  } else if (edit.intent === "Set" && edit.value) {
+                    updateItem(editingItem.index, edit.value);
+                  }
+                } else if (edit.intent === "Set" && edit.value) {
+                  setItems((prev) => [...prev, edit.value as MetadataValue]);
+                }
+                setEditingItem(null);
+              }}
+              onCancel={() => setEditingItem(null)}
+            />
+          );
+        })()
+      : null;
 
   return (
-    <div className="dialog-overlay" data-testid="nested-list-editor-overlay">
-      <div className="dialog-content">
-        <h3>Edit {propertyKey}</h3>
-        {headerHint}
-        <div className="dialog-body">
-          {items.length === 0 && (
-            <p className="dialog-hint" data-testid="nested-list-editor-empty">
-              No items. Add one below.
-            </p>
-          )}
-          <ul
-            className="nested-list-editor-items"
-            data-testid="nested-list-editor-items"
-            style={{ listStyle: "none", padding: 0, margin: 0 }}
-          >
-            {items.map((item, idx) => (
-              <li
-                key={idx}
-                data-testid="nested-list-editor-item"
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                  padding: "4px 0",
-                  borderBottom: "1px solid var(--border-subtle, #ddd)",
-                }}
-              >
-                {ordered && (
-                  <>
-                    <button
-                      type="button"
-                      aria-label={`Move item ${idx + 1} up`}
-                      title="Move up"
-                      disabled={readOnly || idx === 0}
-                      onClick={() => moveItem(idx, -1)}
-                      data-testid="nested-list-editor-up"
-                    >
-                      ↑
-                    </button>
-                    <button
-                      type="button"
-                      aria-label={`Move item ${idx + 1} down`}
-                      title="Move down"
-                      disabled={readOnly || idx === items.length - 1}
-                      onClick={() => moveItem(idx, 1)}
-                      data-testid="nested-list-editor-down"
-                    >
-                      ↓
-                    </button>
-                  </>
-                )}
-                <span
+    <>
+      <ModalDialog
+        open
+        onDismiss={onCancel}
+        testId="nested-list-editor-overlay"
+        aria-label={`Edit ${propertyKey}`}
+      >
+        <div className="dialog-content">
+          <h3>Edit {propertyKey}</h3>
+          {headerHint}
+          <div className="dialog-body">
+            {items.length === 0 && (
+              <p className="dialog-hint" data-testid="nested-list-editor-empty">
+                No items. Add one below.
+              </p>
+            )}
+            <ul
+              className="nested-list-editor-items"
+              data-testid="nested-list-editor-items"
+              style={{ listStyle: "none", padding: 0, margin: 0 }}
+            >
+              {items.map((item, idx) => (
+                <li
+                  key={idx}
+                  data-testid="nested-list-editor-item"
                   style={{
-                    flex: 1,
-                    fontFamily: "monospace",
-                    whiteSpace: "nowrap",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    padding: "4px 0",
+                    borderBottom: "1px solid var(--border-subtle, #ddd)",
                   }}
-                  data-testid="nested-list-editor-summary"
-                  title={shortLabel(item, idx)}
                 >
-                  {shortLabel(item, idx)}
-                </span>
-                <button
-                  type="button"
-                  className="dialog-btn dialog-btn-secondary"
-                  onClick={() =>
-                    setEditingItem({
-                      mode: "existing",
-                      index: idx,
-                      initialValue: item,
-                    })
-                  }
-                  data-testid="nested-list-editor-edit"
-                  disabled={readOnly}
-                >
-                  Edit…
-                </button>
-                <button
-                  type="button"
-                  aria-label={`Remove item ${idx + 1}`}
-                  onClick={() => removeItem(idx)}
-                  data-testid="nested-list-editor-remove"
-                  disabled={readOnly}
-                >
-                  ×
-                </button>
-              </li>
-            ))}
-          </ul>
-          <button
-            type="button"
-            className="dialog-btn dialog-btn-secondary"
-            onClick={addItem}
-            data-testid="nested-list-editor-add"
-            disabled={readOnly}
-            style={{ marginTop: 8 }}
-          >
-            + Add item
-          </button>
-          {ordered && items.length > 1 && (
-            <p className="dialog-hint">Order matters — use ↑ / ↓ to reorder.</p>
-          )}
+                  {ordered && (
+                    <>
+                      <button
+                        type="button"
+                        aria-label={`Move item ${idx + 1} up`}
+                        title="Move up"
+                        disabled={readOnly || idx === 0}
+                        onClick={() => moveItem(idx, -1)}
+                        data-testid="nested-list-editor-up"
+                      >
+                        ↑
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={`Move item ${idx + 1} down`}
+                        title="Move down"
+                        disabled={readOnly || idx === items.length - 1}
+                        onClick={() => moveItem(idx, 1)}
+                        data-testid="nested-list-editor-down"
+                      >
+                        ↓
+                      </button>
+                    </>
+                  )}
+                  <span
+                    style={{
+                      flex: 1,
+                      fontFamily: "monospace",
+                      whiteSpace: "nowrap",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                    }}
+                    data-testid="nested-list-editor-summary"
+                    title={shortLabel(item, idx)}
+                  >
+                    {shortLabel(item, idx)}
+                  </span>
+                  <button
+                    type="button"
+                    className="dialog-btn dialog-btn-secondary"
+                    onClick={() =>
+                      setEditingItem({
+                        mode: "existing",
+                        index: idx,
+                        initialValue: item,
+                      })
+                    }
+                    data-testid="nested-list-editor-edit"
+                    disabled={readOnly}
+                  >
+                    Edit…
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={`Remove item ${idx + 1}`}
+                    onClick={() => removeItem(idx)}
+                    data-testid="nested-list-editor-remove"
+                    disabled={readOnly}
+                  >
+                    ×
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <button
+              type="button"
+              className="dialog-btn dialog-btn-secondary"
+              onClick={addItem}
+              data-testid="nested-list-editor-add"
+              disabled={readOnly}
+              style={{ marginTop: 8 }}
+            >
+              + Add item
+            </button>
+            {ordered && items.length > 1 && (
+              <p className="dialog-hint">
+                Order matters — use ↑ / ↓ to reorder.
+              </p>
+            )}
+          </div>
+          <div className="dialog-footer">
+            <button
+              className="dialog-btn dialog-btn-secondary"
+              onClick={onCancel}
+            >
+              Cancel
+            </button>
+            <button
+              className="dialog-btn dialog-btn-primary"
+              onClick={handleSave}
+              data-testid="nested-list-editor-save"
+              disabled={readOnly}
+              title={readOnly ? READ_ONLY_TOOLTIP : undefined}
+            >
+              Save
+            </button>
+          </div>
         </div>
-        <div className="dialog-footer">
-          <button
-            className="dialog-btn dialog-btn-secondary"
-            onClick={onCancel}
-          >
-            Cancel
-          </button>
-          <button
-            className="dialog-btn dialog-btn-primary"
-            onClick={handleSave}
-            data-testid="nested-list-editor-save"
-            disabled={readOnly}
-            title={readOnly ? READ_ONLY_TOOLTIP : undefined}
-          >
-            Save
-          </button>
-        </div>
-      </div>
-    </div>
+      </ModalDialog>
+      {child}
+    </>
   );
 }
