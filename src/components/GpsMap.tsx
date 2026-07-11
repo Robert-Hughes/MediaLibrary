@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useLayoutEffect } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import {
@@ -52,15 +52,25 @@ export function GpsMap({
 
   // Store selection callback in a ref to avoid map reconstruction
   const onPositionSelectRef = useRef(onPositionSelect);
-  onPositionSelectRef.current = onPositionSelect;
 
   // Store readOnly in a ref for callback/listener access without reconstruction
   const readOnlyRef = useRef(readOnly);
-  readOnlyRef.current = readOnly;
 
   // Store validPosition in a ref for callback/listener access without reconstruction
   const validPositionRef = useRef(validPosition);
-  validPositionRef.current = validPosition;
+
+  const validLat = validPosition?.lat;
+  const validLon = validPosition?.lon;
+
+  // Synchronise refs after each committed render
+  useLayoutEffect(() => {
+    onPositionSelectRef.current = onPositionSelect;
+    readOnlyRef.current = readOnly;
+    validPositionRef.current =
+      validLat !== undefined && validLon !== undefined
+        ? { lat: validLat, lon: validLon }
+        : null;
+  }, [onPositionSelect, readOnly, validLat, validLon]);
 
   // 1. Map Construction Effect
   // Mode and showAttribution are treated as immutable for the component's lifetime.
@@ -145,7 +155,6 @@ export function GpsMap({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Run once on mount
 
-  // 2. Click Handling/Listener Effect
   // 2. Click Handling & Repeated-World Move Handling/Listener Effect
   // Sets up listeners only for picker mode.
   useEffect(() => {
@@ -191,8 +200,6 @@ export function GpsMap({
 
   // 3. Marker & Viewport Sync Effect
   // Runs whenever coordinates or zoom changes.
-  const validLat = validPosition?.lat;
-  const validLon = validPosition?.lon;
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
