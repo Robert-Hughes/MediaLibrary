@@ -558,27 +558,33 @@ describe("ModalDialog", () => {
   it("survives exactly 20 iterations of cascading close events without throwing", async () => {
     const dialogs: HTMLDialogElement[] = [];
     const maxIterations = 20;
-    for (let i = 0; i < maxIterations; i++) {
-      const dialog = document.createElement("dialog");
-      document.body.appendChild(dialog);
-      dialog.showModal();
-      dialogs.push(dialog);
-    }
+    const closeCount = vi.fn();
 
-    for (let i = 0; i < maxIterations - 1; i++) {
-      dialogs[i].addEventListener("close", () => {
-        dialogs[i + 1].close();
-      });
-    }
+    try {
+      for (let i = 0; i < maxIterations; i += 1) {
+        const dialog = document.createElement("dialog");
+        document.body.appendChild(dialog);
+        dialog.showModal();
+        dialogs.push(dialog);
+        dialog.addEventListener("close", closeCount);
+      }
 
-    // Trigger close on the first dialog
-    dialogs[0].close();
+      for (let i = 0; i < maxIterations - 1; i += 1) {
+        dialogs[i].addEventListener("close", () => {
+          dialogs[i + 1].close();
+        });
+      }
 
-    // This should not throw now, but would have thrown with the off-by-one bug
-    await expect(flushDialogCloseEvents()).resolves.not.toThrow();
+      // Trigger close on the first dialog
+      dialogs[0].close();
 
-    for (const dialog of dialogs) {
-      dialog.remove();
+      await flushDialogCloseEvents();
+
+      expect(closeCount).toHaveBeenCalledTimes(maxIterations);
+    } finally {
+      for (const dialog of dialogs) {
+        dialog.remove();
+      }
     }
   });
 
