@@ -12,7 +12,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use walkdir::WalkDir;
 
-use crate::metadata_occurrence::{MetadataOccurrence, MetadataOccurrenceId};
+use crate::metadata_occurrence::{MetadataOccurrence, MetadataOccurrenceId, MetadataWriteTarget};
 use crate::metadata_value::{parse_metadata_value, MetadataValue};
 use crate::tag_schema::{normalize_runtime_tag_id, SchemaDefinitionId, TagKind, TagRegistry};
 
@@ -1056,14 +1056,71 @@ fn log_aggregated_warnings(warnings: &[ParseWarning]) {
 
 #[derive(Debug, Clone, PartialEq)]
 struct CanonicalRuntimeOccurrence {
+    // These three identities answer different questions and must stay
+    // independent: the occurrence ID identifies the runtime value, TagInfo::id
+    // identifies its static schema, and the write target identifies the
+    // supported ExifTool selector.
     occurrence: MetadataOccurrence,
     /// Temporary exact schema identity used by the legacy schema-keyed
     /// projection, including unresolved schemas where `occurrence.tag_info`
     /// is `None`.
     projection_schema_id: SchemaDefinitionId,
     friendly_name: String,
+    runtime_group1: String,
+    runtime_tag_name: String,
     language: Option<String>,
     is_lang_alt: bool,
+}
+
+fn selector_component_is_safe(component: &str, reject_colon: bool) -> bool {
+    !component.is_empty()
+        && !component.chars().any(|character| {
+            matches!(character, '\0' | '\r' | '\n' | '=') || reject_colon && character == ':'
+        })
+}
+
+fn assign_exact_write_targets(occurrences: &mut [CanonicalRuntimeOccurrence]) {
+    let mut selector_counts = BTreeMap::new();
+    for occurrence in occurrences.iter() {
+        *selector_counts
+            .entry((
+                occurrence.runtime_group1.to_ascii_lowercase(),
+                occurrence.runtime_tag_name.to_ascii_lowercase(),
+            ))
+            .or_insert(0usize) += 1;
+    }
+
+    for canonical in occurrences {
+        canonical.occurrence.write_target = None;
+        let selector_key = (
+            canonical.runtime_group1.to_ascii_lowercase(),
+            canonical.runtime_tag_name.to_ascii_lowercase(),
+        );
+        let Some(tag_info) = canonical.occurrence.tag_info.as_ref() else {
+            continue;
+        };
+        if !tag_info.writable
+            || matches!(tag_info.kind, TagKind::Binary | TagKind::Unknown)
+            || canonical.occurrence.id.document.is_some()
+            || canonical.occurrence.id.copy != 0
+            || canonical.is_lang_alt
+            || canonical.language.is_some()
+            || canonical.runtime_tag_name != tag_info.name
+            || !selector_component_is_safe(&canonical.runtime_group1, false)
+            || !selector_component_is_safe(&canonical.runtime_tag_name, true)
+            || selector_counts.get(&selector_key) != Some(&1)
+        {
+            continue;
+        }
+
+        // Runtime family 1 and the validated runtime tag name are the only
+        // write coordinates. Schema table/ID/index and TagInfo::group are not
+        // occurrence destinations.
+        canonical.occurrence.write_target = Some(MetadataWriteTarget {
+            group1: canonical.runtime_group1.clone(),
+            tag_name: canonical.runtime_tag_name.clone(),
+        });
+    }
 }
 
 fn canonical_occurrences_from_exiftool_pair(
@@ -1146,6 +1203,8 @@ fn canonical_occurrences_from_exiftool_pair(
                     },
                     projection_schema_id: id,
                     friendly_name: property.friendly_name.clone(),
+                    runtime_group1: property.group1.clone(),
+                    runtime_tag_name: property.tag_name.clone(),
                     language: Some(language),
                     is_lang_alt: true,
                 });
@@ -1178,11 +1237,14 @@ fn canonical_occurrences_from_exiftool_pair(
             },
             projection_schema_id: id,
             friendly_name: property.friendly_name.clone(),
+            runtime_group1: property.group1.clone(),
+            runtime_tag_name: property.tag_name.clone(),
             language: None,
             is_lang_alt: false,
         });
     }
 
+    assign_exact_write_targets(&mut values);
     Ok(values)
 }
 
@@ -1746,6 +1808,52 @@ mod tests {
             .collect()
     }
 
+    fn write_target_test_info(writable: bool, kind: TagKind) -> crate::tag_schema::TagInfo {
+        crate::tag_schema::TagInfo {
+            id: test_schema_id("Exif::Main", "282", None),
+            group: "IFD0".into(),
+            name: "XResolution".into(),
+            writable,
+            kind,
+            description: Some("X resolution".into()),
+            storage_count: None,
+        }
+    }
+
+    fn write_target_test_occurrence(
+        group1: &str,
+        tag_name: &str,
+        path: &str,
+        copy: u32,
+        document: Option<&str>,
+        tag_info: Option<crate::tag_schema::TagInfo>,
+        value: MetadataValue,
+    ) -> CanonicalRuntimeOccurrence {
+        let projection_schema_id = tag_info
+            .as_ref()
+            .map(|info| info.id.clone())
+            .unwrap_or_else(|| test_schema_id("Unknown::Table", tag_name, None));
+        CanonicalRuntimeOccurrence {
+            occurrence: MetadataOccurrence {
+                id: MetadataOccurrenceId {
+                    document: document.map(str::to_owned),
+                    path: path.into(),
+                    tag_id: "282".into(),
+                    copy,
+                },
+                value,
+                tag_info,
+                write_target: None,
+            },
+            projection_schema_id,
+            friendly_name: format!("{group1}:{tag_name}"),
+            runtime_group1: group1.into(),
+            runtime_tag_name: tag_name.into(),
+            language: None,
+            is_lang_alt: false,
+        }
+    }
+
     fn collect(folder: &Path) -> Vec<PhotoInfo> {
         let mut photos = Vec::new();
         scan_folder(
@@ -2018,7 +2126,17 @@ mod tests {
 
     #[test]
     fn pretty_raw_join_is_occurrence_keyed_and_deterministic() {
-        let registry = canonical_registry();
+        let registry = crate::tag_schema::TagRegistry::from_listx_xml(
+            r#"<?xml version='1.0' encoding='UTF-8'?>
+<taginfo>
+<table name='EXIF::Main' g0='EXIF' g1='IFD0' g2='Image'>
+ <tag id='282' name='XResolution' type='int32u' writable='true'>
+  <desc lang='en'>X Resolution</desc>
+ </tag>
+</table>
+</taginfo>"#,
+        )
+        .expect("build controlled IFD resolution registry");
         let info = registry
             .iter()
             .find_map(|(_, info)| (info.name == "XResolution").then_some(info))
@@ -2083,9 +2201,319 @@ mod tests {
         assert_eq!(canonical[1].occurrence.tag_info.as_ref(), Some(info));
         assert_eq!(canonical[0].occurrence.value, MetadataValue::Integer(300));
         assert_eq!(canonical[1].occurrence.value, MetadataValue::Integer(72));
-        assert!(canonical
+        assert_ne!(canonical[0].occurrence.id, canonical[1].occurrence.id);
+        assert_eq!(
+            canonical[0].occurrence.tag_info,
+            canonical[1].occurrence.tag_info
+        );
+        let ifd0_target = canonical[0].occurrence.write_target.as_ref().unwrap();
+        let ifd1_target = canonical[1].occurrence.write_target.as_ref().unwrap();
+        assert_eq!(ifd0_target.group1, "IFD0");
+        assert_eq!(ifd1_target.group1, "IFD1");
+        assert_eq!(ifd0_target.selector(), "IFD0:XResolution");
+        assert_eq!(ifd1_target.selector(), "IFD1:XResolution");
+        assert_eq!(
+            canonical[0].occurrence.tag_info.as_ref().unwrap().group,
+            "IFD0"
+        );
+        assert_eq!(
+            canonical[1].occurrence.tag_info.as_ref().unwrap().group,
+            "IFD0"
+        );
+        assert!(canonical[0].occurrence.is_writable());
+        assert!(canonical[1].occurrence.is_writable());
+
+        let projection_error = project_occurrences_to_legacy_metadata(canonical).unwrap_err();
+        assert!(projection_error.contains("legacy schema projection"));
+    }
+
+    #[test]
+    fn exact_write_target_base_eligibility_is_conservative() {
+        let supported = write_target_test_info(true, TagKind::Rational);
+        let cases = [
+            write_target_test_occurrence(
+                "Unknown",
+                "XResolution",
+                "unresolved",
+                0,
+                None,
+                None,
+                MetadataValue::Integer(300),
+            ),
+            write_target_test_occurrence(
+                "ReadOnly",
+                "XResolution",
+                "readonly",
+                0,
+                None,
+                Some(write_target_test_info(false, TagKind::Rational)),
+                MetadataValue::Integer(300),
+            ),
+            write_target_test_occurrence(
+                "Binary",
+                "XResolution",
+                "binary",
+                0,
+                None,
+                Some(write_target_test_info(true, TagKind::Binary)),
+                MetadataValue::Binary,
+            ),
+            write_target_test_occurrence(
+                "UnknownKind",
+                "XResolution",
+                "unknown-kind",
+                0,
+                None,
+                Some(write_target_test_info(true, TagKind::Unknown)),
+                MetadataValue::Unknown {
+                    expected: Some(TagKind::Unknown),
+                    raw: serde_json::json!(300),
+                    reason: Some("unsupported schema kind".into()),
+                },
+            ),
+            write_target_test_occurrence(
+                "Embedded",
+                "XResolution",
+                "embedded",
+                0,
+                Some("Doc1"),
+                Some(supported.clone()),
+                MetadataValue::Integer(300),
+            ),
+            write_target_test_occurrence(
+                "Copy",
+                "XResolution",
+                "copy",
+                1,
+                None,
+                Some(supported),
+                MetadataValue::Integer(300),
+            ),
+        ];
+
+        for mut occurrence in cases {
+            assign_exact_write_targets(std::slice::from_mut(&mut occurrence));
+            assert!(
+                occurrence.occurrence.write_target.is_none(),
+                "unexpected target for {}",
+                occurrence.friendly_name
+            );
+            assert!(!occurrence.occurrence.is_writable());
+        }
+    }
+
+    #[test]
+    fn selector_siblings_make_every_matching_occurrence_ambiguous() {
+        let info = write_target_test_info(true, TagKind::Rational);
+        let copy0 = write_target_test_occurrence(
+            "IFD0",
+            "XResolution",
+            "same-path",
+            0,
+            None,
+            Some(info.clone()),
+            MetadataValue::Integer(300),
+        );
+        let copy1 = write_target_test_occurrence(
+            "IFD0",
+            "XResolution",
+            "same-path",
+            1,
+            None,
+            Some(info.clone()),
+            MetadataValue::Integer(72),
+        );
+        let mut copies = vec![copy0, copy1];
+        assign_exact_write_targets(&mut copies);
+        assert!(copies
             .iter()
             .all(|item| item.occurrence.write_target.is_none()));
+
+        let mut different_paths = vec![
+            write_target_test_occurrence(
+                "IFD0",
+                "XResolution",
+                "JPEG-APP1-IFD0",
+                0,
+                None,
+                Some(info.clone()),
+                MetadataValue::Integer(300),
+            ),
+            write_target_test_occurrence(
+                "IFD0",
+                "XResolution",
+                "Other-IFD0-Path",
+                0,
+                None,
+                Some(info),
+                MetadataValue::Integer(300),
+            ),
+        ];
+        assign_exact_write_targets(&mut different_paths);
+        assert!(different_paths
+            .iter()
+            .all(|item| item.occurrence.write_target.is_none()));
+    }
+
+    #[test]
+    fn selector_ambiguity_is_ascii_case_insensitive_and_counts_ineligible_siblings() {
+        let mut uppercase_info = write_target_test_info(true, TagKind::Rational);
+        uppercase_info.name = "XRESOLUTION".into();
+        let mut occurrences = vec![
+            write_target_test_occurrence(
+                "IFD0",
+                "XResolution",
+                "primary",
+                0,
+                None,
+                Some(write_target_test_info(true, TagKind::Rational)),
+                MetadataValue::Integer(300),
+            ),
+            write_target_test_occurrence(
+                "ifd0",
+                "XRESOLUTION",
+                "embedded",
+                0,
+                Some("Doc1"),
+                Some(uppercase_info),
+                MetadataValue::Integer(72),
+            ),
+        ];
+        assign_exact_write_targets(&mut occurrences);
+        assert!(occurrences
+            .iter()
+            .all(|item| item.occurrence.write_target.is_none()));
+    }
+
+    #[test]
+    fn aliases_unsafe_selectors_and_lang_alt_children_have_no_target() {
+        let info = write_target_test_info(true, TagKind::Rational);
+        let mut alias = write_target_test_occurrence(
+            "IFD0",
+            "ResolutionAlias",
+            "alias",
+            0,
+            None,
+            Some(info.clone()),
+            MetadataValue::Integer(300),
+        );
+        assign_exact_write_targets(std::slice::from_mut(&mut alias));
+        assert!(alias.occurrence.write_target.is_none());
+
+        for (group1, tag_name) in [
+            ("", "XResolution"),
+            ("IFD0=bad", "XResolution"),
+            ("IFD0\n", "XResolution"),
+            ("IFD0", ""),
+            ("IFD0", "X:Resolution"),
+            ("IFD0", "XResolution=300"),
+            ("IFD0", "XResolution\r"),
+            ("IFD0\0", "XResolution"),
+        ] {
+            let mut matching_info = info.clone();
+            matching_info.name = tag_name.into();
+            let mut occurrence = write_target_test_occurrence(
+                group1,
+                tag_name,
+                "unsafe",
+                0,
+                None,
+                Some(matching_info),
+                MetadataValue::Integer(300),
+            );
+            assign_exact_write_targets(std::slice::from_mut(&mut occurrence));
+            assert!(occurrence.occurrence.write_target.is_none());
+        }
+
+        let mut lang_alt_info = write_target_test_info(true, TagKind::LangAlt);
+        lang_alt_info.name = "Title".into();
+        let mut lang_alt = write_target_test_occurrence(
+            "XMP-dc",
+            "Title",
+            "lang-en",
+            0,
+            None,
+            Some(lang_alt_info),
+            MetadataValue::LangAlt(BTreeMap::from([("en".into(), "Hello".into())])),
+        );
+        lang_alt.is_lang_alt = true;
+        lang_alt.language = Some("en".into());
+        assign_exact_write_targets(std::slice::from_mut(&mut lang_alt));
+        assert!(lang_alt.occurrence.write_target.is_none());
+    }
+
+    #[test]
+    fn known_schema_with_unparsed_value_can_receive_exact_target() {
+        let mut occurrence = write_target_test_occurrence(
+            "IFD0",
+            "XResolution",
+            "unique",
+            0,
+            None,
+            Some(write_target_test_info(true, TagKind::Rational)),
+            MetadataValue::Unknown {
+                expected: Some(TagKind::Rational),
+                raw: serde_json::json!("not a rational"),
+                reason: Some("parse failed".into()),
+            },
+        );
+        assign_exact_write_targets(std::slice::from_mut(&mut occurrence));
+        assert_eq!(
+            occurrence
+                .occurrence
+                .write_target
+                .as_ref()
+                .map(MetadataWriteTarget::selector),
+            Some("IFD0:XResolution".into())
+        );
+        assert!(occurrence.occurrence.is_writable());
+    }
+
+    #[test]
+    fn target_assignment_is_independent_of_input_order() {
+        let info = write_target_test_info(true, TagKind::Rational);
+        let occurrences = vec![
+            write_target_test_occurrence(
+                "IFD0",
+                "XResolution",
+                "ambiguous-a",
+                0,
+                None,
+                Some(info.clone()),
+                MetadataValue::Integer(300),
+            ),
+            write_target_test_occurrence(
+                "IFD0",
+                "XResolution",
+                "ambiguous-b",
+                0,
+                None,
+                Some(info.clone()),
+                MetadataValue::Integer(300),
+            ),
+            write_target_test_occurrence(
+                "IFD1",
+                "XResolution",
+                "unique",
+                0,
+                None,
+                Some(info),
+                MetadataValue::Integer(72),
+            ),
+        ];
+        let mut forward = occurrences.clone();
+        let mut reverse = occurrences;
+        reverse.reverse();
+        assign_exact_write_targets(&mut forward);
+        assign_exact_write_targets(&mut reverse);
+
+        let targets = |items: Vec<CanonicalRuntimeOccurrence>| {
+            items
+                .into_iter()
+                .map(|item| (item.occurrence.id, item.occurrence.write_target))
+                .collect::<BTreeMap<_, _>>()
+        };
+        assert_eq!(targets(forward), targets(reverse));
     }
 
     #[test]
@@ -2233,6 +2661,8 @@ mod tests {
             },
             projection_schema_id: schema_id,
             friendly_name: friendly_name.into(),
+            runtime_group1: friendly_name.split(':').next().unwrap_or_default().into(),
+            runtime_tag_name: friendly_name.split(':').nth(1).unwrap_or_default().into(),
             language: None,
             is_lang_alt: false,
         }
@@ -2310,6 +2740,8 @@ mod tests {
             },
             projection_schema_id: schema.clone(),
             friendly_name: "XMP-dc:Title".into(),
+            runtime_group1: "XMP-dc".into(),
+            runtime_tag_name: "Title".into(),
             language: Some(language.into()),
             is_lang_alt: true,
         };
@@ -2441,6 +2873,166 @@ mod tests {
             assert!(runtime_map.contains_key(&runtime_resolutions[0].occurrence_id));
             assert!(runtime_map.contains_key(&runtime_resolutions[1].occurrence_id));
         }
+    }
+
+    #[cfg(feature = "integration")]
+    fn read_integration_occurrences(path: &Path) -> Vec<CanonicalRuntimeOccurrence> {
+        let paths = [path.to_path_buf()];
+        let display = run_exiftool_pass(&paths, false).unwrap();
+        let raw = run_exiftool_pass(&paths, true).unwrap();
+        let key = path.to_string_lossy().replace('\\', "/");
+        canonical_occurrences_from_exiftool_pair(
+            raw.values_by_source
+                .get(&key)
+                .expect("raw pass contains disposable file"),
+            display
+                .values_by_source
+                .get(&key)
+                .expect("display pass contains disposable file"),
+            Some(crate::tag_schema::get_registry().unwrap()),
+            &key,
+            None,
+        )
+        .unwrap()
+    }
+
+    #[cfg(feature = "integration")]
+    fn rational_integer_value(occurrence: &CanonicalRuntimeOccurrence) -> i64 {
+        match occurrence.occurrence.value {
+            MetadataValue::Rational(ref value) if value.denominator == 1 => value.numerator,
+            ref other => panic!("expected whole-number rational, got {other:?}"),
+        }
+    }
+
+    #[cfg(feature = "integration")]
+    fn integration_resolution_occurrences(
+        items: &[CanonicalRuntimeOccurrence],
+    ) -> Vec<&CanonicalRuntimeOccurrence> {
+        items
+            .iter()
+            .filter(|item| {
+                item.runtime_tag_name == "XResolution"
+                    && matches!(item.runtime_group1.as_str(), "IFD0" | "IFD1")
+            })
+            .collect()
+    }
+
+    #[cfg(feature = "integration")]
+    #[test]
+    fn production_copy_coordinates_keep_ifd1_conservative_and_group_writes_isolate() {
+        let temp = tempdir().unwrap();
+        let source = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("test_images")
+            .join("real_with_exif.jpg");
+        let copy = temp.path().join("ifd-resolution-targets.jpg");
+        fs::copy(source, &copy).unwrap();
+
+        let mut initialise = crate::exiftool_config::exiftool_command();
+        let initial_output = initialise
+            .args([
+                "-overwrite_original",
+                "-IFD0:XResolution=300",
+                "-IFD1:XResolution=72",
+            ])
+            .arg(&copy)
+            .output()
+            .expect("initialise disposable IFD resolutions");
+        assert!(
+            initial_output.status.success(),
+            "ExifTool setup failed: {}",
+            String::from_utf8_lossy(&initial_output.stderr)
+        );
+
+        let initial = read_integration_occurrences(&copy);
+        let initial_resolutions = integration_resolution_occurrences(&initial);
+        assert_eq!(initial_resolutions.len(), 2);
+        let ifd0 = initial_resolutions
+            .iter()
+            .find(|item| item.runtime_group1 == "IFD0")
+            .unwrap();
+        let ifd1 = initial_resolutions
+            .iter()
+            .find(|item| item.runtime_group1 == "IFD1")
+            .unwrap();
+        assert_ne!(ifd0.occurrence.id, ifd1.occurrence.id);
+        assert_eq!(ifd0.occurrence.tag_info, ifd1.occurrence.tag_info);
+        let ifd0_target = ifd0.occurrence.write_target.clone().unwrap();
+        assert_eq!(ifd0_target.selector(), "IFD0:XResolution");
+        assert!(ifd1.occurrence.id.copy > 0);
+        assert!(ifd1.occurrence.write_target.is_none());
+        assert_eq!(rational_integer_value(ifd0), 300);
+        assert_eq!(rational_integer_value(ifd1), 72);
+
+        let mut write_ifd0 = crate::exiftool_config::exiftool_command();
+        let ifd0_output = write_ifd0
+            .args([
+                "-overwrite_original".to_owned(),
+                format!("-{}=240", ifd0_target.selector()),
+            ])
+            .arg(&copy)
+            .output()
+            .expect("write derived IFD0 selector");
+        assert!(
+            ifd0_output.status.success(),
+            "ExifTool IFD0 write failed: {}",
+            String::from_utf8_lossy(&ifd0_output.stderr)
+        );
+        let after_ifd0 = read_integration_occurrences(&copy);
+        let after_ifd0_resolutions = integration_resolution_occurrences(&after_ifd0);
+        assert_eq!(
+            rational_integer_value(
+                after_ifd0_resolutions
+                    .iter()
+                    .find(|item| item.runtime_group1 == "IFD0")
+                    .unwrap()
+            ),
+            240
+        );
+        assert_eq!(
+            rational_integer_value(
+                after_ifd0_resolutions
+                    .iter()
+                    .find(|item| item.runtime_group1 == "IFD1")
+                    .unwrap()
+            ),
+            72
+        );
+
+        let mut write_ifd1 = crate::exiftool_config::exiftool_command();
+        let ifd1_output = write_ifd1
+            .args([
+                "-overwrite_original".to_owned(),
+                format!("-{}:{}=96", ifd1.runtime_group1, ifd1.runtime_tag_name),
+            ])
+            .arg(&copy)
+            .output()
+            .expect("write derived IFD1 selector");
+        assert!(
+            ifd1_output.status.success(),
+            "ExifTool IFD1 write failed: {}",
+            String::from_utf8_lossy(&ifd1_output.stderr)
+        );
+        let after_ifd1 = read_integration_occurrences(&copy);
+        let after_ifd1_resolutions = integration_resolution_occurrences(&after_ifd1);
+        assert_eq!(
+            rational_integer_value(
+                after_ifd1_resolutions
+                    .iter()
+                    .find(|item| item.runtime_group1 == "IFD0")
+                    .unwrap()
+            ),
+            240
+        );
+        assert_eq!(
+            rational_integer_value(
+                after_ifd1_resolutions
+                    .iter()
+                    .find(|item| item.runtime_group1 == "IFD1")
+                    .unwrap()
+            ),
+            96
+        );
     }
 
     #[test]
