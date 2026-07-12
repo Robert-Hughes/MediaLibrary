@@ -4,6 +4,7 @@ import type {
   MetadataDraftEdit,
   PhotoInfo,
   ImageMetadataState,
+  ImageMetadataOccurrencesState,
   MetadataDraftCollection,
 } from "../types";
 import { HighlightedText } from "./HighlightedText";
@@ -19,8 +20,15 @@ import {
   datatypesMatch,
 } from "../utils/datatype";
 import { NewPropertyDialog } from "./NewPropertyDialog";
-import type { MetadataEntry } from "../utils/detailsPaneHelpers";
-import { groupImageMetadata, getOsEntries } from "../utils/detailsPaneHelpers";
+import type {
+  MetadataEntry,
+  MetadataOccurrenceDisplayEntry,
+} from "../utils/detailsPaneHelpers";
+import {
+  groupImageMetadata,
+  getOsEntries,
+  unprojectedResolvedMetadataOccurrences,
+} from "../utils/detailsPaneHelpers";
 import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
 import type { SchemaDefinitionId } from "../types";
 import {
@@ -48,6 +56,8 @@ import {
 interface Props {
   photo: PhotoInfo;
   metadata: ImageMetadataState;
+  /** Authoritative occurrences; optional for legacy/direct consumers. */
+  occurrences?: ImageMetadataOccurrencesState;
   /**
    * Display-string view of pending edits, keyed by metadata tag.  Each value
    * is the human-readable form of the draft (or `null` for a Delete draft).
@@ -301,6 +311,62 @@ function DetailsImageRow({
   );
 }
 
+function DetailsOccurrenceRow({
+  entry,
+  searchQuery,
+}: {
+  entry: MetadataOccurrenceDisplayEntry;
+  searchQuery: string;
+}) {
+  const schemaInfo = schemaDatatype(entry.occurrence.tag_info?.kind);
+  const valueInfo = metadataValueDatatype(entry.occurrence.value);
+  const showValueBadge =
+    valueInfo != null &&
+    (schemaInfo == null || !datatypesMatch(valueInfo.code, schemaInfo.code));
+
+  return (
+    <tr
+      className="details-row details-row--readonly"
+      data-testid="details-occurrence-row"
+      data-occurrence-token={entry.identityToken}
+      data-readonly="true"
+      title={entry.originTitle}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+      }}
+    >
+      <td className="details-key">
+        {schemaInfo ? (
+          <DatatypeBadge
+            code={schemaInfo.code}
+            label={schemaInfo.label}
+            variant="schema"
+          />
+        ) : null}
+        <HighlightedText text={entry.label} searchQuery={searchQuery} />
+        <span className="details-occurrence-origin" title={entry.originTitle}>
+          [{entry.origin}]
+        </span>
+      </td>
+      <td
+        className="details-value details-value--readonly"
+        data-readonly="true"
+        title={`${entry.value}\nOccurrence-specific editing is not available yet.`}
+      >
+        {showValueBadge ? (
+          <DatatypeBadge
+            code={valueInfo.code}
+            label={valueInfo.label}
+            variant="value"
+          />
+        ) : null}
+        <HighlightedText text={entry.value} searchQuery={searchQuery} />
+      </td>
+    </tr>
+  );
+}
+
 /**
  * Right-click menu for a property row. Lives in its own component so it can
  * call `useTagInfo(contextMenu.key)` — schema lookup decides whether to
@@ -522,6 +588,7 @@ function DetailsGroupContextMenu({
 export function DetailsPane({
   photo,
   metadata,
+  occurrences,
   draftEdits: displayDraftEdits,
   typedDraftEdits,
   onSetMetadataDraft,
@@ -673,6 +740,28 @@ export function DetailsPane({
       .filter((g) => g.entries.length > 0);
   }, [imageGroups, normalizedDetailsQuery, draftEdits]);
 
+  const occurrenceEntries = useMemo(() => {
+    if (
+      metadata === "loading" ||
+      occurrences === undefined ||
+      occurrences === "loading"
+    ) {
+      return [];
+    }
+    return unprojectedResolvedMetadataOccurrences(occurrences, metadata);
+  }, [metadata, occurrences]);
+
+  const filteredOccurrenceEntries = useMemo(() => {
+    const { query, hasEditsFilter } = splitHasEditsFilter(
+      normalizedDetailsQuery,
+    );
+    if (hasEditsFilter) return [];
+    if (!query) return occurrenceEntries;
+    return occurrenceEntries.filter((entry) =>
+      haystackContainsNormalized(entry.searchText, query),
+    );
+  }, [occurrenceEntries, normalizedDetailsQuery]);
+
   const showOsSection = !normalizedDetailsQuery || filteredOsEntries.length > 0;
 
   return (
@@ -815,7 +904,8 @@ export function DetailsPane({
           </section>
         ) : (
           <>
-            {filteredImageGroups.length === 0 ? (
+            {filteredImageGroups.length === 0 &&
+            filteredOccurrenceEntries.length === 0 ? (
               <section
                 className="details-section"
                 data-testid="details-section-empty"
@@ -883,6 +973,31 @@ export function DetailsPane({
                   </table>
                 </section>
               ))
+            )}
+            {filteredOccurrenceEntries.length > 0 && (
+              <section
+                className="details-section"
+                data-testid="details-section-additional-occurrences"
+              >
+                <h3 className="details-section-header">
+                  Additional Metadata Occurrences
+                </h3>
+                <p className="details-section-subtitle">
+                  Concrete metadata fields that cannot be represented uniquely
+                  by the schema-keyed compatibility view.
+                </p>
+                <table className="details-table">
+                  <tbody>
+                    {filteredOccurrenceEntries.map((entry) => (
+                      <DetailsOccurrenceRow
+                        key={entry.identityToken}
+                        entry={entry}
+                        searchQuery={detailsSearch}
+                      />
+                    ))}
+                  </tbody>
+                </table>
+              </section>
             )}
           </>
         )}

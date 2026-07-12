@@ -8,6 +8,7 @@ import {
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import App from "../App";
 import { makePhoto, mockDrafts, mockMetadataEntries } from "./factories";
+import type { MetadataOccurrence } from "../types";
 
 // Mock Tauri API
 vi.mock("@tauri-apps/api/core", () => ({
@@ -520,5 +521,131 @@ describe("App Select Columns metadata counts", () => {
       },
       { timeout: 10000 },
     );
+  });
+});
+
+describe("App occurrence wiring regression", () => {
+  it("carries the collision wire payload through the scan stores into Gallery details", async () => {
+    vi.clearAllMocks();
+    localStorage.clear();
+    localStorage.setItem("media_library_gallery_details_visible", "1");
+    const { invoke } = await import("@tauri-apps/api/core");
+    const { listen } = await import("@tauri-apps/api/event");
+    const mockInvoke = vi.mocked(invoke);
+    const handlers: Record<
+      string,
+      Array<(event: { payload: unknown }) => void>
+    > = {};
+    vi.mocked(listen).mockImplementation((event, handler) => {
+      const callback = handler as (event: { payload: unknown }) => void;
+      handlers[event] ??= [];
+      handlers[event].push(callback);
+      return Promise.resolve(() => {});
+    });
+    const emit = (event: string, payload: unknown) => {
+      for (const handler of handlers[event] ?? []) handler({ payload });
+    };
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === "preload_schema") return Promise.resolve();
+      if (cmd === "get_cli_folder") return Promise.resolve(null);
+      if (cmd === "pick_folder") return Promise.resolve("/photos");
+      if (cmd === "load_metadata_draft_edits") return Promise.resolve({});
+      if (
+        [
+          "stop_scan",
+          "start_scan",
+          "prioritize_queues",
+          "set_window_title",
+        ].includes(cmd)
+      ) {
+        return Promise.resolve();
+      }
+      return Promise.resolve(null);
+    });
+
+    render(<App />);
+    await waitFor(() => screen.getByTestId("open-folder-btn"));
+    fireEvent.click(screen.getByTestId("open-folder-btn"));
+    let scanId = 0;
+    await waitFor(() => {
+      const call = mockInvoke.mock.calls.find(([cmd]) => cmd === "start_scan");
+      expect(call).toBeTruthy();
+      scanId = (call?.[1] as { scanId: number }).scanId;
+    });
+    act(() => {
+      emit("photo_found", {
+        scan_id: scanId,
+        photos: [makePhoto({ relative_path: "collision.jpg" })],
+      });
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 150));
+    });
+    await waitFor(() => screen.getByTestId("photo-row"));
+
+    const info = {
+      id: { table: "Exif::Main", tag_id: "282" },
+      group: "IFD0",
+      name: "XResolution",
+      writable: true,
+      kind: {
+        kind: "Integer" as const,
+        data: { min: null, max: null },
+      },
+      description: null,
+    };
+    const occurrences: MetadataOccurrence[] = [
+      {
+        id: {
+          document: null,
+          path: "JPEG-APP1-IFD0",
+          tag_id: "282",
+          copy: 0,
+        },
+        value: { kind: "Integer", value: 300 },
+        tag_info: info,
+        write_target: { group1: "IFD0", tag_name: "XResolution" },
+      },
+      {
+        id: {
+          document: null,
+          path: "JPEG-APP1-IFD1",
+          tag_id: "282",
+          copy: 2,
+        },
+        value: { kind: "Integer", value: 72 },
+        tag_info: info,
+        write_target: { group1: "IFD1", tag_name: "XResolution" },
+      },
+    ];
+    act(() => {
+      emit("image_metadata_ready", {
+        scan_id: scanId,
+        results: [
+          {
+            relative_path: "collision.jpg",
+            occurrences,
+            metadata: mockMetadataEntries({ "XMP-dc:Title": "Unrelated" }),
+          },
+        ],
+      });
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    });
+    fireEvent.doubleClick(screen.getByTestId("photo-row"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Unrelated")).toBeInTheDocument();
+      expect(screen.getByText("300")).toBeInTheDocument();
+      expect(screen.getByText("72")).toBeInTheDocument();
+    });
+    expect(screen.getAllByTestId("details-occurrence-row")).toHaveLength(2);
+    expect(screen.queryByTestId("error-banner")).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("status-bar-metadata-spinner"),
+    ).not.toBeInTheDocument();
+    fireEvent.contextMenu(screen.getAllByTestId("details-occurrence-row")[0]);
+    expect(screen.queryByText(/^Edit…$/)).not.toBeInTheDocument();
   });
 });

@@ -11,9 +11,12 @@ event sends that result directly with `relative_path`, `occurrences`, and
 `metadata`. The frontend validates and stores the two representations
 independently in `ImageMetadataOccurrencesStore` and `ImageMetadataStore`.
 
-Occurrences are transported and retained but no production feature consumes
-them yet. Every current UI, search, sorting, draft, write, normalisation, and
-readback-verification path remains schema-keyed through `ImageMetadataStore`.
+The Details Pane is the first deliberately narrow production occurrence
+consumer. Resolved occurrences omitted from the compatibility projection are
+shown after the ordinary groups in a temporary read-only **Additional Metadata
+Occurrences** section. All ordinary Details Pane rows, drafts, editing, GPS,
+Add Property, search-worker indexing, sorting, normalisation, writes, and
+readback verification remain schema-keyed through `ImageMetadataStore`.
 Identical values sharing a schema may deduplicate in the compatibility field;
 an incompatible schema group is instead omitted atomically from the legacy
 projection without affecting unrelated entries. Every concrete value remains in
@@ -22,11 +25,20 @@ longer fails the file or creates a failed-file placeholder.
 
 Compatibility omissions are logged and returned from the backend-only
 `MetadataBatchReadOutcome::legacy_projection_omissions` diagnostics. They are
-not `worker_error` events. Current UI, search, and sorting consumers may show an
-omitted schema as blank until they migrate to occurrences. Schema-keyed apply
+not `worker_error` events. Consumers other than the Details Pane fallback may
+show an omitted schema as blank until they migrate to occurrences. Schema-keyed apply
 and readback verification reject any partial projection rather than proceeding
-unsafely. Rendering and editing both occurrences remains future migration work,
-and no arbitrary first occurrence may be selected.
+unsafely. If a schema is present in legacy metadata, its occurrences are not
+yet rendered independently, including identical-value deduplication. Unknown-
+schema occurrences are also excluded because public occurrences do not carry
+the scanner's temporary projection-schema candidate. Occurrence-specific
+editing remains pending, and no arbitrary first occurrence may be selected.
+
+For the original IFD0/IFD1 `XResolution` collision, both authoritative values
+now remain part of a successful scan and are visible with their distinct paths
+and origins in the Details Pane. They remain read-only there even when distinct
+write targets exist, because drafts and apply verification are still
+schema-keyed.
 
 Genuine read, parse, canonicalisation, or projection-invariant failures still
 emit empty collections to clear loading state and report details through

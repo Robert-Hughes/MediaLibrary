@@ -1382,6 +1382,13 @@ body {
   z-index: 1;
 }
 
+.details-section-subtitle {
+  margin: 0 0 6px;
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
 .details-table {
   width: 100%;
   border-collapse: collapse;
@@ -1421,6 +1428,15 @@ body {
 
 .details-row--readonly .details-key {
   color: var(--text-dim);
+}
+
+.details-occurrence-origin {
+  display: inline;
+  margin-left: 5px;
+  color: var(--text-dim);
+  font-size: 10px;
+  font-weight: 400;
+  overflow-wrap: anywhere;
 }
 
 .details-loading,

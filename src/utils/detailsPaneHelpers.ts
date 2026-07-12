@@ -1,10 +1,26 @@
-import type { ImageMetadataEntry, PhotoInfo, TagInfo } from "../types";
-import { metadataEntryToDisplayString as metadataValueToDisplayString } from "../draft";
+import type {
+  ImageMetadataEntry,
+  MetadataOccurrence,
+  PhotoInfo,
+  SchemaDefinitionId,
+  TagInfo,
+} from "../types";
+import {
+  metadataEntryToDisplayString as metadataValueToDisplayString,
+  metadataValueToDisplayStringForTag,
+} from "../draft";
 import {
   formatSchemaDefinitionIdForDiagnostics,
   schemaDefinitionIdToken,
 } from "./schemaDefinitionId";
 import type { TagInfoCacheEntry } from "../hooks/useTagInfo";
+import type { MetadataCollection } from "./metadataCollection";
+import { metadataGet } from "./metadataCollection";
+import {
+  compareMetadataOccurrenceIds,
+  formatMetadataOccurrenceIdForDiagnostics,
+  metadataOccurrenceIdToken,
+} from "./metadataOccurrenceId";
 
 export const formatMetadataValue = metadataValueToDisplayString;
 
@@ -45,6 +61,91 @@ export interface MetadataEntry {
 export interface MetadataGroup {
   prefix: string;
   entries: MetadataEntry[];
+}
+
+export interface MetadataOccurrenceDisplayEntry {
+  occurrence: MetadataOccurrence;
+  identityToken: string;
+  schemaId: SchemaDefinitionId;
+  label: string;
+  value: string;
+  origin: string;
+  originTitle: string;
+  searchText: string;
+}
+
+/**
+ * Build the temporary Details Pane bridge for resolved authoritative
+ * occurrences that the schema-keyed compatibility collection cannot hold.
+ *
+ * Unknown-schema occurrences are deliberately excluded: public occurrences
+ * do not carry the scanner's temporary projection-schema candidate, so the
+ * frontend cannot reliably tell whether an unknown occurrence is already in
+ * the legacy collection. A full occurrence-based display will address them.
+ */
+export function unprojectedResolvedMetadataOccurrences(
+  occurrences: readonly MetadataOccurrence[],
+  legacyMetadata: MetadataCollection,
+): MetadataOccurrenceDisplayEntry[] {
+  return occurrences
+    .filter(
+      (occurrence) =>
+        occurrence.tag_info !== null &&
+        metadataGet(legacyMetadata, occurrence.tag_info.id) === undefined,
+    )
+    .sort((a, b) => compareMetadataOccurrenceIds(a.id, b.id))
+    .map((occurrence) => {
+      const tagInfo = occurrence.tag_info!;
+      const runtimeGroup = occurrence.write_target?.group1;
+      const displayGroup = runtimeGroup ?? tagInfo.group;
+      const copy =
+        occurrence.id.copy === 0 ? "primary" : `Copy${occurrence.id.copy}`;
+      const document = occurrence.id.document
+        ? ` · ${occurrence.id.document}`
+        : "";
+      const origin = `${displayGroup} · ${occurrence.id.path} · ${copy}${document}`;
+      const selector = occurrence.write_target
+        ? `${occurrence.write_target.group1}:${occurrence.write_target.tag_name}`
+        : "unavailable";
+      const locationExplanation = runtimeGroup
+        ? `Runtime group: ${runtimeGroup}`
+        : `Schema-group display fallback: ${tagInfo.group} (not a claimed runtime location)`;
+      const value = metadataValueToDisplayStringForTag(
+        tagInfo.id,
+        occurrence.value,
+        tagInfo,
+      );
+
+      return {
+        occurrence,
+        identityToken: metadataOccurrenceIdToken(occurrence.id),
+        schemaId: tagInfo.id,
+        label: tagInfo.name,
+        value,
+        origin,
+        originTitle: [
+          formatMetadataOccurrenceIdForDiagnostics(occurrence.id),
+          `Schema: ${formatSchemaDefinitionIdForDiagnostics(tagInfo.id)}`,
+          locationExplanation,
+          `Exact write selector: ${selector}`,
+          "Occurrence-specific editing is not available yet.",
+        ].join("\n"),
+        searchText: [
+          tagInfo.name,
+          value,
+          `${tagInfo.group}:${tagInfo.name}`,
+          occurrence.write_target?.group1,
+          selector,
+          occurrence.id.document,
+          occurrence.id.path,
+          occurrence.id.tag_id,
+          String(occurrence.id.copy),
+          copy,
+        ]
+          .filter((part): part is string => part != null)
+          .join("\n"),
+      };
+    });
 }
 
 /**

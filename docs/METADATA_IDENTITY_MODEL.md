@@ -193,14 +193,20 @@ result directly, including both authoritative `occurrences` and the legacy
 parallel `ImageMetadataOccurrencesStore`, while `ImageMetadataStore` retains the
 legacy projection.
 
-Every current UI, search, sorting, draft, write, and readback-verification
-consumer still reads `ImageMetadataStore`; occurrence transport is present but
-is not yet behaviourally active. A conflicting schema may therefore appear
-blank in those consumers. Schema-keyed apply and readback verification reject a
-partial legacy projection until they migrate to occurrence identity.
+The Details Pane now has the first narrow occurrence consumer: exactly resolved
+occurrences whose schema is absent from `ImageMetadataStore` appear in a
+temporary read-only **Additional Metadata Occurrences** section. The original
+IFD0/IFD1 `XResolution` values are therefore both visible with distinct runtime
+origins, but are not yet editable through their distinct write targets. Existing
+legacy rows and all drafts, editing, GPS, Add Property, search-worker indexing,
+sorting, normalisation, writes, and readback verification remain schema-keyed.
 
 The file-level duplicate-occurrence scan failure is fixed: a lossy legacy
 projection no longer blocks transport of the successful occurrence read.
-Rendering and editing both occurrences remains pending consumer migration; no
-production UI, search, sorting, draft, normalisation, or write consumer changes
-are included here. No arbitrary first occurrence may be selected.
+Occurrences whose schema is present in legacy metadata are not rendered
+independently yet, so identical-value compatibility deduplication still shows
+only the ordinary legacy row. Unknown-schema occurrences are excluded from this
+first display slice because public `MetadataOccurrence` values do not contain
+the scanner's temporary projection-schema candidate, preventing a reliable
+already-projected check. Complete occurrence rendering and occurrence-specific
+editing remain pending. No arbitrary first occurrence may be selected.

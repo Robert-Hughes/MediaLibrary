@@ -382,6 +382,7 @@ function LoadedView({
           onNavigate={onGalleryNavigate}
           loadImage={loadImage}
           imageMetadata={state.imageMetadata}
+          imageMetadataOccurrences={state.imageMetadataOccurrences}
           typedDraftEdits={
             state.draftEdits[displayPhotos[state.galleryIndex].relative_path]
           }
