@@ -1,7 +1,7 @@
 Current
 =======
 
-- SchemaDefinitionId
+- SchemaDefinitionId. Work through manual checklist. Verify independently against docs\SchemaDefinitionId PLAN.md
 - Right click on the property list maps should show edit (opens group editor) and "remove all GPS", "discard all GPS"?
 - GPS editor sets lat/long to different string format than the one from exiftool. How does this work? Do we store separate display string? I thoiught we used semantic MetadataValue for everything now?
 - How do you add a GPS if the file doesn't have one? (Using hte nice editor)
