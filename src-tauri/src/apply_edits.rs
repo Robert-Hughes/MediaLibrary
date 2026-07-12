@@ -186,6 +186,8 @@ impl MetadataWriteClient for RealMetadataWriteClient {
                 .map_err(|e| e.to_string())?;
 
         if let Some(r) = outcome.results.into_iter().next() {
+            // Compatibility path: writes remain schema-keyed until the write
+            // pipeline is migrated to occurrence identity.
             Ok(r.metadata
                 .into_iter()
                 .map(|entry| (entry.id, entry.value))

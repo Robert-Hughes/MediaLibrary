@@ -2,6 +2,15 @@
 
 This document holds operational rules for the metadata pipeline. For the full type-flow design, see `docs/METADATA_FORMATS_DESIGN.md`.
 
+## Backend Scanner Result
+
+The scanner's public Rust `ImageMetadata` result contains authoritative,
+occurrence-keyed `MetadataOccurrences` and a temporary schema-keyed
+`MetadataEntries` compatibility projection. The Tauri scan event still sends
+only the legacy projection, and apply/readback remains schema-keyed. Identical
+values sharing a schema may deduplicate in the compatibility field; conflicting
+values sharing a schema still fail that file at the projection boundary.
+
 ## Tag-Schema Overrides
 
 The tag registry is built from `exiftool -listx -lang en` in `src-tauri/src/tag_schema.rs`. ExifTool listx is silent or misleading for several shapes the app needs, so `apply_overrides` patches known gaps.

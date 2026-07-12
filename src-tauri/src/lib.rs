@@ -1041,6 +1041,21 @@ mod tests {
     }
 
     #[test]
+    fn metadata_worker_compatibility_result_omits_occurrences() {
+        let result = ImageMetadataResult {
+            relative_path: "photo.jpg".to_string(),
+            metadata: scanner::MetadataEntries::default(),
+        };
+
+        let json = serde_json::to_value(result).unwrap();
+        let object = json.as_object().unwrap();
+        assert_eq!(object.len(), 2);
+        assert!(object.contains_key("relative_path"));
+        assert!(object.contains_key("metadata"));
+        assert!(!object.contains_key("occurrences"));
+    }
+
+    #[test]
     fn apply_edits_state_clear_removes_installed_cancel_flag() {
         let state = ApplyEditsState::new();
         let flag = state.install();

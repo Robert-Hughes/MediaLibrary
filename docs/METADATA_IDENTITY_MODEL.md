@@ -60,6 +60,19 @@ The occurrence also embeds an optional exact `MetadataWriteTarget`. Runtime
 fields that do not resolve to the static registry are retained with no
 `TagInfo` and no write target, so they remain visible but read-only.
 
+## Metadata occurrence collection
+
+```text
+MetadataOccurrences
+```
+
+`MetadataOccurrences` is the ordered collection of concrete occurrences read
+from one source file. Collection identity is occurrence-based, and its
+deterministic order follows `MetadataOccurrenceId`. A schema lookup can return
+zero, one, or several occurrences; callers must handle all three states. The
+collection deliberately provides no conversion or first-match helper that
+silently chooses one occurrence for a schema definition.
+
 ## Write targeting
 
 ```text
@@ -159,19 +172,20 @@ silently select the first occurrence, and there is no general conversion from
 ## Migration status
 
 The scanner's ExifTool pass maps are keyed by `MetadataOccurrenceId`, and pretty
-and raw values join by occurrence identity. Its private canonical stage now
-materialises `MetadataOccurrence` values. Exactly resolved occurrences embed
-their cloned `TagInfo`; unresolved occurrences retain no `TagInfo`. Private
-scanner occurrences now include exact write targets where the conservative
-eligibility and per-file ambiguity checks demonstrate them.
+and raw values join by occurrence identity. Its canonical stage materialises
+`MetadataOccurrence` values. Exactly resolved occurrences embed their cloned
+`TagInfo`; unresolved occurrences retain no `TagInfo`. Scanner occurrences
+include exact write targets where the conservative eligibility and per-file
+ambiguity checks demonstrate them.
 
-Scanner output is still projected into the legacy schema-keyed representation.
-That temporary projection cannot represent multiple different values which
-share one schema identity, so it fails explicitly instead of selecting an
-occurrence.
+The backend scanner's `ImageMetadata` result now carries authoritative
+`MetadataOccurrences` alongside temporary legacy `MetadataEntries`. The legacy
+schema projection cannot represent multiple different values sharing one
+schema identity, so that file still fails explicitly at the projection boundary
+instead of selecting an occurrence.
 
-Targets are not emitted through Tauri and the apply pipeline does not consume
-them. Application consumers and the legacy scanner projection remain
-schema-keyed. The user-visible duplicate-occurrence problem is therefore not
-fixed until scanner output itself becomes occurrence-based; subsequent small
-commits will migrate those systems incrementally.
+The Tauri `image_metadata_ready` event continues to emit only legacy metadata.
+Frontend state and apply/readback consumers remain schema-keyed and do not yet
+consume occurrence identities or targets. The user-visible duplicate-occurrence
+problem is therefore not fixed; subsequent migration commits will move those
+systems incrementally.
