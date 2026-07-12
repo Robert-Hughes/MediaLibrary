@@ -243,11 +243,9 @@ fn read_os_metadata(path: &Path) -> (Option<i64>, Option<i64>) {
 /// sequentially on the same worker — parallelism gains nothing because
 /// startup, not CPU, is the cost.
 ///
-/// Both passes are required. If either pass fails, the batch fails and the
-/// frontend receives a metadata worker error for the affected files.
-/// Both passes are required. If either pass fails for an individual file,
-/// that file's parsing fails and is isolated, returning a failure for that file
-/// while allowing other files in the batch to succeed.
+/// Both display and raw passes are required for each successful file. If a
+/// source-specific pass fails, that file's parsing fails while successful
+/// neighbouring files remain available.
 ///
 /// Top-level or batch-wide failures (such as ExifTool not launching, process exiting
 /// unsuccessfully, or stdout not being valid top-level JSON array) remain batch-wide.
@@ -397,7 +395,7 @@ pub struct MetadataBatchReadOutcome {
 }
 
 #[derive(Debug, Clone)]
-pub struct ExifToolRuntimeValue {
+struct ExifToolRuntimeValue {
     pub table: String,
     pub tag_id: String,
     pub index: Option<u32>,
@@ -406,15 +404,15 @@ pub struct ExifToolRuntimeValue {
 }
 
 #[derive(Debug, Clone)]
-pub struct RuntimeProperty {
+struct RuntimeProperty {
     pub original_name: String,
     pub runtime: ExifToolRuntimeValue,
 }
 
-pub type RuntimeMap = BTreeMap<SchemaDefinitionId, RuntimeProperty>;
+type RuntimeMap = BTreeMap<SchemaDefinitionId, RuntimeProperty>;
 
 #[derive(Debug, Clone, Default)]
-pub struct ExifToolPassOutput {
+struct ExifToolPassOutput {
     pub values_by_source: HashMap<String, RuntimeMap>,
     pub failures_by_source: HashMap<String, String>,
 }
@@ -502,7 +500,7 @@ fn try_parse_exiftool_pass_json_raw(json: &str) -> Result<ExifToolPassOutput, St
     try_parse_exiftool_pass_json_raw_with_registry(json, crate::tag_schema::get_registry().ok())
 }
 
-pub fn try_parse_exiftool_pass_json_raw_with_registry(
+fn try_parse_exiftool_pass_json_raw_with_registry(
     json: &str,
     registry: Option<&crate::tag_schema::TagRegistry>,
 ) -> Result<ExifToolPassOutput, String> {
@@ -572,7 +570,7 @@ pub fn try_parse_exiftool_pass_json_raw_with_registry(
     })
 }
 
-pub fn assemble_batch_outcome(
+fn assemble_batch_outcome(
     rel_paths: &[String],
     abs_paths: &[std::path::PathBuf],
     mut display_pass: ExifToolPassOutput,
@@ -652,7 +650,9 @@ pub fn assemble_batch_outcome(
     Ok(MetadataBatchReadOutcome { results, failures })
 }
 
-pub fn group_metadata_failures(failures: &[MetadataReadFailure]) -> BTreeMap<String, Vec<String>> {
+pub(crate) fn group_metadata_failures(
+    failures: &[MetadataReadFailure],
+) -> BTreeMap<String, Vec<String>> {
     let mut grouped: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for fail in failures {
         grouped
@@ -691,7 +691,7 @@ fn parse_exiftool_pass_json_raw_with_registry(
 }
 
 #[derive(Debug, Clone)]
-pub struct ParseWarning {
+struct ParseWarning {
     pub rel_path: String,
     pub tag: String,
     pub pass_name: String,
@@ -2378,6 +2378,12 @@ mod tests {
         assert!(outcome.failures[0]
             .error_message
             .contains("display failure details"));
+        // Durable isolation invariant: one source can fail parsing while
+        // another source in the same logical batch retains successful metadata.
+        assert!(outcome
+            .results
+            .iter()
+            .any(|result| result.relative_path == "Image1.jpg"));
 
         // 2. A raw-pass failure affects only that file
         let display_pass_2 = ExifToolPassOutput {
