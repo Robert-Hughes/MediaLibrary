@@ -6,13 +6,143 @@
  */
 import type {
   MetadataEntry,
+  MetadataOccurrence,
+  MetadataOccurrenceId,
+  MetadataOccurrences,
   MetadataValue,
   SchemaDefinitionId,
+  TagInfo,
+  TagKind,
 } from "../types";
 import {
   metadataCollection,
   type MetadataCollection,
 } from "./metadataCollection";
+import {
+  compareMetadataOccurrenceIds,
+  metadataOccurrenceIdToken,
+} from "./metadataOccurrenceId";
+
+export function normalizeMetadataOccurrencesFromTauri(
+  raw: unknown,
+): MetadataOccurrences {
+  if (!Array.isArray(raw)) return [];
+
+  const occurrences: MetadataOccurrence[] = [];
+  const seen = new Set<string>();
+  let dropped = 0;
+  for (const value of raw) {
+    if (!isMetadataOccurrence(value)) {
+      dropped += 1;
+      continue;
+    }
+    const token = metadataOccurrenceIdToken(value.id);
+    if (seen.has(token)) {
+      dropped += 1;
+      continue;
+    }
+    seen.add(token);
+    occurrences.push(value);
+  }
+
+  if (dropped > 0) {
+    console.warn(`[metadata] Dropped ${dropped} invalid occurrence value(s)`);
+  }
+  occurrences.sort((a, b) => compareMetadataOccurrenceIds(a.id, b.id));
+  return occurrences;
+}
+
+function isMetadataOccurrence(value: unknown): value is MetadataOccurrence {
+  return (
+    isRecord(value) &&
+    isMetadataOccurrenceId(value.id) &&
+    isMetadataValue(value.value) &&
+    (value.tag_info === null || isTagInfo(value.tag_info)) &&
+    (value.write_target === null || isMetadataWriteTarget(value.write_target))
+  );
+}
+
+function isMetadataOccurrenceId(value: unknown): value is MetadataOccurrenceId {
+  return (
+    isRecord(value) &&
+    (value.document === null || typeof value.document === "string") &&
+    typeof value.path === "string" &&
+    typeof value.tag_id === "string" &&
+    typeof value.copy === "number" &&
+    Number.isInteger(value.copy) &&
+    value.copy >= 0
+  );
+}
+
+function isTagInfo(value: unknown): value is TagInfo {
+  return (
+    isRecord(value) &&
+    isSchemaDefinitionId(value.id) &&
+    typeof value.group === "string" &&
+    typeof value.name === "string" &&
+    typeof value.writable === "boolean" &&
+    isTagKind(value.kind) &&
+    (value.description === null || typeof value.description === "string") &&
+    (value.storage_count === undefined ||
+      typeof value.storage_count === "string")
+  );
+}
+
+function isTagKind(value: unknown): value is TagKind {
+  if (!isRecord(value) || typeof value.kind !== "string") return false;
+  switch (value.kind) {
+    case "Text":
+    case "LangAlt":
+    case "Real":
+    case "Rational":
+    case "Boolean":
+    case "Date":
+    case "Time":
+    case "DateTime":
+    case "TimeOffset":
+    case "Binary":
+    case "Unknown":
+      return true;
+    case "Integer":
+      return (
+        isRecord(value.data) &&
+        (value.data.min === null ||
+          (typeof value.data.min === "number" &&
+            Number.isInteger(value.data.min))) &&
+        (value.data.max === null ||
+          (typeof value.data.max === "number" &&
+            Number.isInteger(value.data.max)))
+      );
+    case "Enum":
+      return (
+        isRecord(value.data) &&
+        (value.data.repr === "Integer" || value.data.repr === "String") &&
+        Array.isArray(value.data.options) &&
+        value.data.options.every(
+          (option) =>
+            isRecord(option) &&
+            typeof option.code === "string" &&
+            typeof option.label === "string",
+        )
+      );
+    case "Bag":
+    case "Seq":
+    case "Alt":
+      return isTagKind(value.data);
+    case "Struct":
+      return isRecord(value.data) && Object.values(value.data).every(isTagKind);
+    default:
+      return false;
+  }
+}
+
+function isMetadataWriteTarget(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.group1 === "string" &&
+    typeof value.tag_name === "string"
+  );
+}
 
 export function normalizeMetadataFromTauri(raw: unknown): MetadataCollection {
   if (!Array.isArray(raw)) return {};
@@ -56,7 +186,7 @@ function isSchemaDefinitionId(value: unknown): value is SchemaDefinitionId {
   );
 }
 
-function isMetadataValue(value: unknown): value is MetadataValue {
+export function isMetadataValue(value: unknown): value is MetadataValue {
   if (!isRecord(value) || typeof value.kind !== "string") return false;
 
   switch (value.kind) {
@@ -112,6 +242,7 @@ function isMetadataValue(value: unknown): value is MetadataValue {
       return (
         isRecord(value.value) &&
         "raw" in value.value &&
+        (value.value.expected === null || isTagKind(value.value.expected)) &&
         (value.value.reason === null || typeof value.value.reason === "string")
       );
     default:

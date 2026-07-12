@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ThumbnailStore,
   ImageMetadataStore,
+  ImageMetadataOccurrencesStore,
   MetadataProgressStore,
   DraftEditsStore,
   metadataDraftsFromWire,
@@ -23,11 +24,13 @@ import type {
   MetadataDraftEdit,
   MetadataValue,
   SchemaDefinitionId,
+  ImageMetadata,
 } from "./types";
 import { loadColumnConfig, saveColumnConfig } from "./utils/columnConfig";
 import {
   MAX_WORKER_ERRORS,
   normalizeMetadataFromTauri,
+  normalizeMetadataOccurrencesFromTauri,
   scheduleBatchedFlush,
 } from "./utils/scanEvents";
 import { metadataGet } from "./utils/metadataCollection";
@@ -109,6 +112,8 @@ export function useMediaLibrary(
   const imageMetadataStoreRef = useRef<ImageMetadataStore>(
     new ImageMetadataStore(),
   );
+  const imageMetadataOccurrencesStoreRef =
+    useRef<ImageMetadataOccurrencesStore>(new ImageMetadataOccurrencesStore());
   const metadataProgressStoreRef = useRef<MetadataProgressStore>(
     new MetadataProgressStore(),
   );
@@ -146,12 +151,7 @@ export function useMediaLibrary(
   const batchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isFirstFlushRef = useRef<boolean>(true);
 
-  const metadataBufferRef = useRef<
-    {
-      relative_path: string;
-      metadata: import("./types/generated/MetadataEntry").MetadataEntry[];
-    }[]
-  >([]);
+  const metadataBufferRef = useRef<ImageMetadata[]>([]);
   const metadataBatchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
@@ -202,6 +202,8 @@ export function useMediaLibrary(
 
       thumbnailStoreRef.current = new ThumbnailStore();
       imageMetadataStoreRef.current = new ImageMetadataStore();
+      imageMetadataOccurrencesStoreRef.current =
+        new ImageMetadataOccurrencesStore();
       metadataProgressStoreRef.current = new MetadataProgressStore();
 
       try {
@@ -262,6 +264,7 @@ export function useMediaLibrary(
             photos: batch,
             thumbnails: thumbnailStoreRef.current,
             imageMetadata: imageMetadataStoreRef.current,
+            imageMetadataOccurrences: imageMetadataOccurrencesStoreRef.current,
             metadataProgress: metadataProgressStoreRef.current,
             scanning: true,
             galleryIndex: null,
@@ -288,7 +291,7 @@ export function useMediaLibrary(
       });
     };
 
-    // Flush canonical metadata batch into ImageMetadataStore.
+    // Flush both authoritative occurrences and the legacy compatibility view.
     const flushMetadataBatch = () => {
       const batch = [...metadataBufferRef.current];
       metadataBufferRef.current = [];
@@ -297,6 +300,10 @@ export function useMediaLibrary(
       console.debug(`[metadata] flushing ${batch.length} results`);
 
       for (const res of batch) {
+        imageMetadataOccurrencesStoreRef.current.set(
+          res.relative_path,
+          normalizeMetadataOccurrencesFromTauri(res.occurrences),
+        );
         imageMetadataStoreRef.current.set(
           res.relative_path,
           normalizeMetadataFromTauri(res.metadata),
@@ -352,6 +359,7 @@ export function useMediaLibrary(
         for (const photo of photos) {
           thumbnailStoreRef.current.add(photo.relative_path);
           imageMetadataStoreRef.current.add(photo.relative_path);
+          imageMetadataOccurrencesStoreRef.current.add(photo.relative_path);
           photoBufferRef.current.push(photo);
         }
 
@@ -395,6 +403,8 @@ export function useMediaLibrary(
               photos: [],
               thumbnails: thumbnailStoreRef.current,
               imageMetadata: imageMetadataStoreRef.current,
+              imageMetadataOccurrences:
+                imageMetadataOccurrencesStoreRef.current,
               metadataProgress: metadataProgressStoreRef.current,
               scanning: false,
               galleryIndex: null,

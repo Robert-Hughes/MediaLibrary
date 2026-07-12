@@ -986,4 +986,112 @@ describe("useMediaLibrary", () => {
       expect(state.photos.map((p) => p.relative_path)).toEqual(["new1.jpg"]);
     }
   });
+
+  it("stores authoritative occurrences beside unchanged legacy metadata and increments progress once", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/photos");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => result.current[1].openFolder());
+    act(() => mock.emitPhotoFound(makePhoto({ relative_path: "a.jpg" })));
+    await act(async () => vi.advanceTimersByTimeAsync(150));
+
+    const occurrence = {
+      id: { document: null, path: "JPEG-APP1-IFD0", tag_id: "274", copy: 0 },
+      value: { kind: "Integer" as const, value: 6 },
+      tag_info: {
+        id: testId("IFD0:Orientation"),
+        group: "IFD0",
+        name: "Orientation",
+        writable: true,
+        kind: { kind: "Integer" as const, data: { min: 1, max: 8 } },
+        description: "Orientation",
+      },
+      write_target: { group1: "IFD0", tag_name: "Orientation" },
+    };
+    act(() => {
+      mock.emitImageMetadataReady(
+        "a.jpg",
+        { "IFD0:Orientation": { kind: "Integer", value: 6 } },
+        undefined,
+        [occurrence],
+      );
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(250));
+
+    const state = result.current[0];
+    expect(state.kind).toBe("loaded");
+    if (state.kind === "loaded") {
+      expect(state.imageMetadataOccurrences.get("a.jpg")).toEqual([occurrence]);
+      const legacy = state.imageMetadata.get("a.jpg");
+      expect(legacy).not.toBe("loading");
+      if (legacy !== "loading") {
+        expect(metadataGet(legacy, testId("IFD0:Orientation"))).toMatchObject({
+          kind: "Integer",
+          value: 6,
+        });
+      }
+      expect(state.metadataProgress.getRemaining()).toBe(0);
+    }
+  });
+
+  it("empty failed-file payloads clear loading in both stores", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/photos");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => result.current[1].openFolder());
+    act(() => mock.emitPhotoFound(makePhoto({ relative_path: "failed.jpg" })));
+    await act(async () => vi.advanceTimersByTimeAsync(150));
+    act(() => mock.emitImageMetadataReady("failed.jpg", {}));
+    await act(async () => vi.advanceTimersByTimeAsync(250));
+
+    const state = result.current[0];
+    if (state.kind === "loaded") {
+      expect(state.imageMetadataOccurrences.get("failed.jpg")).toEqual([]);
+      expect(state.imageMetadata.get("failed.jpg")).toEqual({});
+    }
+  });
+
+  it("stale metadata updates neither store and a replacement scan discards occurrences", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/first");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => result.current[1].openFolder());
+    act(() => mock.emitPhotoFound(makePhoto({ relative_path: "a.jpg" })));
+    await act(async () => vi.advanceTimersByTimeAsync(150));
+    const oldScanId = mock.currentScanId;
+    const firstState = result.current[0];
+    expect(firstState.kind).toBe("loaded");
+    if (firstState.kind !== "loaded") return;
+    const oldStore = firstState.imageMetadataOccurrences;
+
+    act(() =>
+      mock.emitImageMetadataReady(
+        "a.jpg",
+        { "IFD0:Model": { kind: "Text", value: "stale" } },
+        oldScanId - 1,
+        [
+          {
+            id: { document: null, path: "IFD0", tag_id: "272", copy: 0 },
+            value: { kind: "Text", value: "stale" },
+            tag_info: null,
+            write_target: null,
+          },
+        ],
+      ),
+    );
+    await act(async () => vi.advanceTimersByTimeAsync(250));
+    expect(oldStore.get("a.jpg")).toBe("loading");
+    expect(firstState.imageMetadata.get("a.jpg")).toBe("loading");
+
+    await act(async () => result.current[1].openRecent("/second"));
+    act(() => mock.emitPhotoFound(makePhoto({ relative_path: "b.jpg" })));
+    await act(async () => vi.advanceTimersByTimeAsync(150));
+    const replacement = result.current[0];
+    if (replacement.kind === "loaded") {
+      expect(replacement.imageMetadataOccurrences).not.toBe(oldStore);
+      expect([...replacement.imageMetadataOccurrences.entries()]).toEqual([
+        ["b.jpg", "loading"],
+      ]);
+    }
+  });
 });

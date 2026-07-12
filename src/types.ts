@@ -10,6 +10,8 @@ import { schemaDefinitionIdToken } from "./utils/schemaDefinitionId";
 import type { MetadataValue } from "./types/generated/MetadataValue";
 import type { MetadataDraftEdit } from "./types/generated/MetadataDraftEdit";
 import type { SchemaDefinitionId } from "./types/generated/SchemaDefinitionId";
+import type { MetadataOccurrences } from "./types/generated/MetadataOccurrences";
+import type { ImageMetadata } from "./types/generated/ImageMetadata";
 import { KNOWN_METADATA_IDS as ID } from "./metadata/knownIds";
 
 export type { PhotoInfo };
@@ -181,6 +183,48 @@ export class ImageMetadataStore {
   }
 
   getSnapshot(path: string): () => ImageMetadataState {
+    return () => this.get(path);
+  }
+}
+
+// ── Authoritative metadata occurrence store ──────────────────────────────────
+
+export type ImageMetadataOccurrencesState = "loading" | MetadataOccurrences;
+
+/** Observable occurrence collection keyed by file-relative path. */
+export class ImageMetadataOccurrencesStore {
+  private data = new Map<string, ImageMetadataOccurrencesState>();
+  private subscribers = new Map<string, Set<() => void>>();
+
+  add(path: string): void {
+    if (!this.data.has(path)) this.data.set(path, "loading");
+  }
+
+  set(path: string, value: ImageMetadataOccurrencesState): void {
+    this.data.set(path, value);
+    this.subscribers.get(path)?.forEach((callback) => callback());
+  }
+
+  get(path: string): ImageMetadataOccurrencesState {
+    return this.data.get(path) ?? "loading";
+  }
+
+  entries(): IterableIterator<[string, ImageMetadataOccurrencesState]> {
+    return this.data.entries();
+  }
+
+  subscribe(path: string, callback: () => void): () => void {
+    if (!this.subscribers.has(path)) this.subscribers.set(path, new Set());
+    this.subscribers.get(path)!.add(callback);
+    return () => {
+      const callbacks = this.subscribers.get(path);
+      if (!callbacks) return;
+      callbacks.delete(callback);
+      if (callbacks.size === 0) this.subscribers.delete(path);
+    };
+  }
+
+  getSnapshot(path: string): () => ImageMetadataOccurrencesState {
     return () => this.get(path);
   }
 }
@@ -659,6 +703,7 @@ export type AppState =
       photos: PhotoInfo[];
       thumbnails: ThumbnailStore;
       imageMetadata: ImageMetadataStore;
+      imageMetadataOccurrences: ImageMetadataOccurrencesStore;
       metadataProgress: MetadataProgressStore;
       scanning: boolean; // true while the directory walk is still running
       galleryIndex: number | null;
@@ -968,10 +1013,7 @@ export interface PhotoFoundPayload {
 
 export interface ImageMetadataReadyPayload {
   scan_id: number;
-  results: {
-    relative_path: string;
-    metadata: import("./types/generated/MetadataEntry").MetadataEntry[];
-  }[];
+  results: ImageMetadata[];
 }
 
 export interface ThumbnailReadyPayload {

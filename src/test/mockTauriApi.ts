@@ -11,6 +11,7 @@ import type {
   MetadataDraftEditsByFile,
   MetadataDraftEntry,
   MetadataEntry,
+  MetadataOccurrences,
   MetadataValue,
 } from "../types";
 import { metadataDraftsFromWire, metadataDraftsToWire } from "../types";
@@ -59,6 +60,7 @@ export interface MockTauriApi {
     relativePath: string,
     metadata: Record<string, MetadataValue>,
     scanId?: number,
+    occurrences?: MetadataOccurrences,
   ) => void;
   emitThumbnailReady: (
     relativePath: string,
@@ -216,12 +218,18 @@ export function createMockTauriApi(): MockTauriApi {
       } satisfies PhotoFoundPayload),
     emitScanComplete: (scanId) =>
       emit("scan_complete", { scan_id: scanId ?? mock.currentScanId }),
-    emitImageMetadataReady: (relative_path, metadata, scanId) =>
+    emitImageMetadataReady: (
+      relative_path,
+      metadata,
+      scanId,
+      occurrences = [],
+    ) =>
       emit("image_metadata_ready", {
         scan_id: scanId ?? mock.currentScanId,
         results: [
           {
             relative_path,
+            occurrences,
             metadata: Object.entries(metadata).map(
               ([name, value]): MetadataEntry => ({ id: testId(name), value }),
             ),
