@@ -12,7 +12,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use walkdir::WalkDir;
 
-use crate::metadata_occurrence::MetadataOccurrenceId;
+use crate::metadata_occurrence::{MetadataOccurrence, MetadataOccurrenceId};
 use crate::metadata_value::{parse_metadata_value, MetadataValue};
 use crate::tag_schema::{normalize_runtime_tag_id, SchemaDefinitionId, TagKind, TagRegistry};
 
@@ -766,7 +766,7 @@ fn assemble_batch_outcome(
                 .unwrap_or_default();
             let raw_values = raw_pass.values_by_source.remove(&key).unwrap_or_default();
 
-            let metadata = canonical_values_from_exiftool_pair_exact(
+            let occurrences = canonical_occurrences_from_exiftool_pair(
                 &raw_values,
                 &display_values,
                 registry,
@@ -774,12 +774,23 @@ fn assemble_batch_outcome(
                 Some(batch_warnings),
             );
 
-            let metadata = match metadata {
-                Ok(metadata) => metadata,
+            let occurrences = match occurrences {
+                Ok(occurrences) => occurrences,
                 Err(error) => {
                     failures.push(MetadataReadFailure {
                         relative_path: rel_path.clone(),
                         error_message: format!("Metadata canonicalisation failed:\n{error}"),
+                    });
+                    continue;
+                }
+            };
+
+            let metadata = match project_occurrences_to_legacy_metadata(occurrences) {
+                Ok(metadata) => metadata,
+                Err(error) => {
+                    failures.push(MetadataReadFailure {
+                        relative_path: rel_path.clone(),
+                        error_message: format!("Legacy schema projection failed:\n{error}"),
                     });
                     continue;
                 }
@@ -1045,12 +1056,14 @@ fn log_aggregated_warnings(warnings: &[ParseWarning]) {
 
 #[derive(Debug, Clone, PartialEq)]
 struct CanonicalRuntimeOccurrence {
-    occurrence_id: MetadataOccurrenceId,
-    schema_id: SchemaDefinitionId,
+    occurrence: MetadataOccurrence,
+    /// Temporary exact schema identity used by the legacy schema-keyed
+    /// projection, including unresolved schemas where `occurrence.tag_info`
+    /// is `None`.
+    projection_schema_id: SchemaDefinitionId,
     friendly_name: String,
     language: Option<String>,
     is_lang_alt: bool,
-    value: MetadataValue,
 }
 
 fn canonical_occurrences_from_exiftool_pair(
@@ -1123,12 +1136,18 @@ fn canonical_occurrences_from_exiftool_pair(
                     .unwrap_or_default()
                     .to_string();
                 values.push(CanonicalRuntimeOccurrence {
-                    occurrence_id,
-                    schema_id: id,
+                    occurrence: MetadataOccurrence {
+                        id: occurrence_id,
+                        value: MetadataValue::LangAlt(BTreeMap::from([(language.clone(), text)])),
+                        tag_info: Some(info.clone()),
+                        // Family-1 inputs are captured, but exact eligibility and
+                        // ambiguity checks for write targets are intentionally deferred.
+                        write_target: None,
+                    },
+                    projection_schema_id: id,
                     friendly_name: property.friendly_name.clone(),
-                    language: Some(language.clone()),
+                    language: Some(language),
                     is_lang_alt: true,
-                    value: MetadataValue::LangAlt(BTreeMap::from([(language, text)])),
                 });
                 continue;
             }
@@ -1149,12 +1168,18 @@ fn canonical_occurrences_from_exiftool_pair(
             warnings_accumulator.as_deref_mut(),
         );
         values.push(CanonicalRuntimeOccurrence {
-            occurrence_id,
-            schema_id: id,
+            occurrence: MetadataOccurrence {
+                id: occurrence_id,
+                value,
+                tag_info: info.cloned(),
+                // Family-1 inputs are captured, but exact eligibility and
+                // ambiguity checks for write targets are intentionally deferred.
+                write_target: None,
+            },
+            projection_schema_id: id,
             friendly_name: property.friendly_name.clone(),
             language: None,
             is_lang_alt: false,
-            value,
         });
     }
 
@@ -1166,38 +1191,39 @@ fn project_occurrences_to_legacy_metadata(
 ) -> Result<MetadataMap, String> {
     // Deliberate migration scaffolding: application consumers are still keyed
     // by schema identity, so occurrence values must temporarily be projected.
-    // LangAlt merging will need an explicit design when output is occurrence-based.
+    // Runtime LangAlt children remain distinct occurrences even though this
+    // legacy projection merges their semantic values under the parent schema.
     let mut values = MetadataMap::new();
     let mut origins: BTreeMap<SchemaDefinitionId, CanonicalRuntimeOccurrence> = BTreeMap::new();
-    occurrences.sort_by(|left, right| left.occurrence_id.cmp(&right.occurrence_id));
+    occurrences.sort_by(|left, right| left.occurrence.id.cmp(&right.occurrence.id));
 
     for occurrence in occurrences {
         if occurrence.is_lang_alt {
             let language = occurrence.language.as_deref().ok_or_else(|| {
                 format!(
                     "LangAlt occurrence {:?} ({}) has no language",
-                    occurrence.occurrence_id, occurrence.friendly_name
+                    occurrence.occurrence.id, occurrence.friendly_name
                 )
             })?;
-            match values.entry(occurrence.schema_id.clone()) {
+            match values.entry(occurrence.projection_schema_id.clone()) {
                 std::collections::btree_map::Entry::Vacant(entry) => {
-                    entry.insert(occurrence.value.clone());
-                    origins.insert(occurrence.schema_id.clone(), occurrence);
+                    entry.insert(occurrence.occurrence.value.clone());
+                    origins.insert(occurrence.projection_schema_id.clone(), occurrence);
                 }
                 std::collections::btree_map::Entry::Occupied(mut entry) => {
                     if let (MetadataValue::LangAlt(existing), MetadataValue::LangAlt(incoming)) =
-                        (entry.get_mut(), &occurrence.value)
+                        (entry.get_mut(), &occurrence.occurrence.value)
                     {
                         existing.extend(incoming.clone());
                     } else {
                         let previous = origins
-                            .get(&occurrence.schema_id)
+                            .get(&occurrence.projection_schema_id)
                             .expect("legacy projection records every inserted origin");
                         return Err(format!(
                             "legacy schema projection cannot mix LangAlt language {language:?} from occurrence {current:#?} with ordinary occurrence {previous_id:#?} for {schema:#?}",
-                            current = occurrence.occurrence_id,
-                            previous_id = previous.occurrence_id,
-                            schema = occurrence.schema_id,
+                            current = occurrence.occurrence.id,
+                            previous_id = previous.occurrence.id,
+                            schema = occurrence.projection_schema_id,
                         ));
                     }
                 }
@@ -1205,32 +1231,32 @@ fn project_occurrences_to_legacy_metadata(
             continue;
         }
 
-        match values.entry(occurrence.schema_id.clone()) {
+        match values.entry(occurrence.projection_schema_id.clone()) {
             std::collections::btree_map::Entry::Vacant(entry) => {
-                entry.insert(occurrence.value.clone());
-                origins.insert(occurrence.schema_id.clone(), occurrence);
+                entry.insert(occurrence.occurrence.value.clone());
+                origins.insert(occurrence.projection_schema_id.clone(), occurrence);
             }
             std::collections::btree_map::Entry::Occupied(entry) => {
                 let previous = origins
-                    .get(&occurrence.schema_id)
+                    .get(&occurrence.projection_schema_id)
                     .expect("legacy projection records every inserted origin");
-                if entry.get() == &occurrence.value {
+                if entry.get() == &occurrence.occurrence.value {
                     log::warn!(
                         "multiple runtime occurrences projected to one legacy schema entry: schema_id={:?} occurrence_ids={:?}, {:?}",
-                        occurrence.schema_id,
-                        previous.occurrence_id,
-                        occurrence.occurrence_id
+                        occurrence.projection_schema_id,
+                        previous.occurrence.id,
+                        occurrence.occurrence.id
                     );
                 } else {
                     return Err(format!(
                         "legacy schema projection cannot represent multiple runtime occurrences for {schema:#?}:\n{first_occurrence:#?} {first_name} = {first_value:?}\n{second_occurrence:#?} {second_name} = {second_value:?}",
-                        schema = occurrence.schema_id,
-                        first_occurrence = previous.occurrence_id,
+                        schema = occurrence.projection_schema_id,
+                        first_occurrence = previous.occurrence.id,
                         first_name = previous.friendly_name,
-                        first_value = previous.value,
-                        second_occurrence = occurrence.occurrence_id,
+                        first_value = previous.occurrence.value,
+                        second_occurrence = occurrence.occurrence.id,
                         second_name = occurrence.friendly_name,
-                        second_value = occurrence.value,
+                        second_value = occurrence.occurrence.value,
                     ));
                 }
             }
@@ -1239,6 +1265,7 @@ fn project_occurrences_to_legacy_metadata(
     Ok(values)
 }
 
+#[cfg(test)]
 fn canonical_values_from_exiftool_pair_exact(
     raw_values: &RuntimeMap,
     display_values: &RuntimeMap,
@@ -1991,7 +2018,12 @@ mod tests {
 
     #[test]
     fn pretty_raw_join_is_occurrence_keyed_and_deterministic() {
-        let schema = test_schema_id("Exif::Main", "282", None);
+        let registry = canonical_registry();
+        let info = registry
+            .iter()
+            .find_map(|(_, info)| (info.name == "XResolution").then_some(info))
+            .unwrap();
+        let schema = info.id.clone();
         let ifd0 = test_occurrence_id("JPEG-APP1-IFD0", "282");
         let ifd1 = test_occurrence_id("JPEG-APP1-IFD1", "282");
         let raw = runtime_map(vec![
@@ -2031,14 +2063,67 @@ mod tests {
             ),
         ]);
 
-        let canonical =
-            canonical_occurrences_from_exiftool_pair(&raw, &pretty, None, "resolution.jpg", None)
-                .unwrap();
+        let canonical = canonical_occurrences_from_exiftool_pair(
+            &raw,
+            &pretty,
+            Some(&registry),
+            "resolution.jpg",
+            None,
+        )
+        .unwrap();
         assert_eq!(canonical.len(), 2);
-        assert_eq!(canonical[0].occurrence_id, ifd0);
-        assert_eq!(canonical[1].occurrence_id, ifd1);
-        assert_eq!(canonical[0].schema_id, canonical[1].schema_id);
-        assert_ne!(canonical[0].value, canonical[1].value);
+        assert_eq!(canonical[0].occurrence.id, ifd0);
+        assert_eq!(canonical[1].occurrence.id, ifd1);
+        assert_eq!(canonical[0].projection_schema_id, schema);
+        assert_eq!(
+            canonical[0].projection_schema_id,
+            canonical[1].projection_schema_id
+        );
+        assert_eq!(canonical[0].occurrence.tag_info.as_ref(), Some(info));
+        assert_eq!(canonical[1].occurrence.tag_info.as_ref(), Some(info));
+        assert_eq!(canonical[0].occurrence.value, MetadataValue::Integer(300));
+        assert_eq!(canonical[1].occurrence.value, MetadataValue::Integer(72));
+        assert!(canonical
+            .iter()
+            .all(|item| item.occurrence.write_target.is_none()));
+    }
+
+    #[test]
+    fn unresolved_canonical_occurrence_preserves_runtime_identity_and_unknown_value() {
+        let occurrence_id = test_occurrence_id("Custom-Container", "runtime-unknown");
+        let schema_id = test_schema_id("Custom::Unknown", "schema-candidate", Some(0));
+        let property = test_runtime_property(
+            occurrence_id.clone(),
+            schema_id.clone(),
+            "Custom",
+            "Mystery",
+            None,
+            serde_json::json!({"nested": true}),
+        );
+
+        let canonical = canonical_occurrences_from_exiftool_pair(
+            &runtime_map(vec![property.clone()]),
+            &runtime_map(vec![property]),
+            Some(&canonical_registry()),
+            "unknown.jpg",
+            None,
+        )
+        .unwrap();
+        assert_eq!(canonical.len(), 1);
+        let item = &canonical[0];
+        assert_eq!(item.occurrence.id, occurrence_id);
+        assert_eq!(item.projection_schema_id, schema_id);
+        assert_eq!(item.friendly_name, "Custom:Mystery");
+        assert!(item.occurrence.tag_info.is_none());
+        assert!(item.occurrence.write_target.is_none());
+        assert!(matches!(
+            &item.occurrence.value,
+            MetadataValue::Unknown { raw, expected: None, .. }
+                if raw == &serde_json::json!({"nested": true})
+        ));
+
+        let projected = project_occurrences_to_legacy_metadata(canonical).unwrap();
+        assert!(projected.contains_key(&schema_id));
     }
 
     #[test]
@@ -2140,12 +2225,16 @@ mod tests {
         value: MetadataValue,
     ) -> CanonicalRuntimeOccurrence {
         CanonicalRuntimeOccurrence {
-            occurrence_id,
-            schema_id,
+            occurrence: MetadataOccurrence {
+                id: occurrence_id,
+                value,
+                tag_info: None,
+                write_target: None,
+            },
+            projection_schema_id: schema_id,
             friendly_name: friendly_name.into(),
             language: None,
             is_lang_alt: false,
-            value,
         }
     }
 
@@ -2213,12 +2302,16 @@ mod tests {
     fn legacy_projection_preserves_lang_alt_without_broadening_collisions() {
         let schema = test_schema_id("XMP::dc", "title", None);
         let lang = |path: &str, language: &str, text: &str| CanonicalRuntimeOccurrence {
-            occurrence_id: test_occurrence_id(path, "title"),
-            schema_id: schema.clone(),
+            occurrence: MetadataOccurrence {
+                id: test_occurrence_id(path, "title"),
+                value: MetadataValue::LangAlt(BTreeMap::from([(language.into(), text.into())])),
+                tag_info: None,
+                write_target: None,
+            },
+            projection_schema_id: schema.clone(),
             friendly_name: "XMP-dc:Title".into(),
             language: Some(language.into()),
             is_lang_alt: true,
-            value: MetadataValue::LangAlt(BTreeMap::from([(language.into(), text.into())])),
         };
         let projected = project_occurrences_to_legacy_metadata(vec![
             lang("XMP-en", "en", "Hello"),
@@ -2679,6 +2772,9 @@ mod tests {
             r#"<?xml version='1.0' encoding='UTF-8'?>
 <taginfo>
 <table name='EXIF::Main' g0='EXIF' g1='EXIF' g2='Image'>
+ <tag id='282' name='XResolution' type='int32u' writable='true'>
+  <desc lang='en'>X Resolution</desc>
+ </tag>
  <tag id='Make' name='Make' type='string' writable='true'>
   <desc lang='en'>Make</desc>
  </tag>
@@ -2701,6 +2797,66 @@ mod tests {
 </taginfo>"#,
         )
         .expect("build canonical test registry")
+    }
+
+    fn lang_alt_registry() -> crate::tag_schema::TagRegistry {
+        crate::tag_schema::TagRegistry::from_listx_xml(
+            r#"<?xml version='1.0' encoding='UTF-8'?>
+<taginfo>
+<table name='XMP::dc' g0='XMP' g1='XMP-dc' g2='Other'>
+ <tag id='description' name='Description' type='lang-alt' writable='true'>
+  <desc lang='en'>Description</desc>
+ </tag>
+</table>
+</taginfo>"#,
+        )
+        .expect("build LangAlt test registry")
+    }
+
+    #[test]
+    fn lang_alt_children_embed_parent_tag_info_and_remain_distinct() {
+        let registry = lang_alt_registry();
+        let parent_id = test_schema_id("XMP::dc", "description", None);
+        let parent_info = registry.lookup(&parent_id).unwrap();
+        let child = |language: &str, text: &str| {
+            test_runtime_property(
+                test_occurrence_id(&format!("XMP-{language}"), "description"),
+                test_schema_id("XMP::dc", &format!("description-{language}"), None),
+                "XMP-dc",
+                "Description",
+                Some(language),
+                serde_json::json!(text),
+            )
+        };
+        let properties = runtime_map(vec![child("en", "Hello"), child("fr", "Bonjour")]);
+        let canonical = canonical_occurrences_from_exiftool_pair(
+            &properties,
+            &properties,
+            Some(&registry),
+            "lang-alt.jpg",
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(canonical.len(), 2);
+        assert_ne!(canonical[0].occurrence.id, canonical[1].occurrence.id);
+        for item in &canonical {
+            assert_eq!(item.projection_schema_id, parent_id);
+            assert_eq!(item.occurrence.tag_info.as_ref(), Some(parent_info));
+            assert!(item.occurrence.write_target.is_none());
+            assert!(matches!(
+                &item.occurrence.value,
+                MetadataValue::LangAlt(values) if values.len() == 1
+            ));
+        }
+
+        let projected = project_occurrences_to_legacy_metadata(canonical).unwrap();
+        assert!(matches!(
+            &projected[&parent_id],
+            MetadataValue::LangAlt(values)
+                if values.get("en").map(String::as_str) == Some("Hello")
+                    && values.get("fr").map(String::as_str) == Some("Bonjour")
+        ));
     }
 
     #[test]
@@ -3655,7 +3811,11 @@ mod tests {
             .iter()
             .map(|name| std::path::PathBuf::from(format!("D:/batch/{name}")))
             .collect();
-        let schema = test_schema_id("TestFixture::Resolution", "282", None);
+        let registry = canonical_registry();
+        let schema = registry
+            .iter()
+            .find_map(|(_, info)| (info.name == "XResolution").then(|| info.id.clone()))
+            .unwrap();
         let property = |path: &str, group: &str, value| {
             test_runtime_property(
                 test_occurrence_id(path, "282"),
@@ -3697,7 +3857,7 @@ mod tests {
             &abs_paths,
             display_pass,
             raw_pass,
-            None,
+            Some(&registry),
             &mut Vec::new(),
         )
         .expect("individual files remain classifiable");
@@ -3718,9 +3878,100 @@ mod tests {
         assert_eq!(failure.relative_path, "collision.jpg");
         assert!(failure
             .error_message
-            .starts_with("Metadata canonicalisation failed:"));
+            .starts_with("Legacy schema projection failed:"));
+        assert!(failure.error_message.contains("EXIF::Main"));
         assert!(failure.error_message.contains("JPEG-APP1-IFD0"));
         assert!(failure.error_message.contains("JPEG-APP1-IFD1"));
+        assert!(failure.error_message.contains("IFD0:XResolution"));
+        assert!(failure.error_message.contains("IFD1:XResolution"));
+        assert!(failure.error_message.contains("Integer(300)"));
+        assert!(failure.error_message.contains("Integer(72)"));
+    }
+
+    #[test]
+    fn canonicalisation_failure_prefix_is_isolated_and_groups_complete_messages() {
+        let rel_paths = vec![
+            "good.jpg".to_string(),
+            "bad-one.jpg".to_string(),
+            "bad-two.jpg".to_string(),
+        ];
+        let abs_paths: Vec<_> = rel_paths
+            .iter()
+            .map(|name| std::path::PathBuf::from(format!("D:/batch/{name}")))
+            .collect();
+        let occurrence_id = test_occurrence_id("JPEG-APP1-IFD0", "282");
+        let raw_property = test_runtime_property(
+            occurrence_id.clone(),
+            test_schema_id("Exif::Main", "282", None),
+            "IFD0",
+            "XResolution",
+            None,
+            serde_json::json!(300),
+        );
+        let mismatched_pretty = test_runtime_property(
+            occurrence_id,
+            test_schema_id("Exif::Other", "282", None),
+            "IFD0",
+            "XResolution",
+            None,
+            serde_json::json!("300 dpi"),
+        );
+        let good = test_runtime_property(
+            test_occurrence_id("GOOD", "Make"),
+            test_schema_id("EXIF::Main", "Make", None),
+            "EXIF",
+            "Make",
+            None,
+            serde_json::json!("Canon"),
+        );
+        let raw_maps = HashMap::from([
+            ("D:/batch/good.jpg".into(), runtime_map(vec![good.clone()])),
+            (
+                "D:/batch/bad-one.jpg".into(),
+                runtime_map(vec![raw_property.clone()]),
+            ),
+            (
+                "D:/batch/bad-two.jpg".into(),
+                runtime_map(vec![raw_property]),
+            ),
+        ]);
+        let pretty_maps = HashMap::from([
+            ("D:/batch/good.jpg".into(), runtime_map(vec![good])),
+            (
+                "D:/batch/bad-one.jpg".into(),
+                runtime_map(vec![mismatched_pretty.clone()]),
+            ),
+            (
+                "D:/batch/bad-two.jpg".into(),
+                runtime_map(vec![mismatched_pretty]),
+            ),
+        ]);
+
+        let outcome = assemble_batch_outcome(
+            &rel_paths,
+            &abs_paths,
+            ExifToolPassOutput {
+                values_by_source: pretty_maps,
+                failures_by_source: HashMap::new(),
+            },
+            ExifToolPassOutput {
+                values_by_source: raw_maps,
+                failures_by_source: HashMap::new(),
+            },
+            Some(&canonical_registry()),
+            &mut Vec::new(),
+        )
+        .unwrap();
+
+        assert_eq!(outcome.results.len(), 1);
+        assert_eq!(outcome.results[0].relative_path, "good.jpg");
+        assert_eq!(outcome.failures.len(), 2);
+        assert!(outcome.failures.iter().all(|failure| failure
+            .error_message
+            .starts_with("Metadata canonicalisation failed:")));
+        let grouped = group_metadata_failures(&outcome.failures);
+        assert_eq!(grouped.len(), 1);
+        assert_eq!(grouped.values().next().unwrap().len(), 2);
     }
 
     #[test]

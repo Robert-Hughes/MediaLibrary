@@ -104,11 +104,17 @@ silently select the first occurrence, and there is no general conversion from
 
 ## Migration status
 
-The scanner's ExifTool pass maps are now keyed by `MetadataOccurrenceId`, and
-pretty and raw values join by occurrence identity. Canonical occurrence values
-are still projected into the legacy schema-keyed scanner output. That temporary
-projection cannot represent multiple different values which share one schema
-identity, so it fails explicitly instead of selecting an occurrence.
+The scanner's ExifTool pass maps are keyed by `MetadataOccurrenceId`, and pretty
+and raw values join by occurrence identity. Its private canonical stage now
+materialises `MetadataOccurrence` values. Exactly resolved occurrences embed
+their cloned `TagInfo`; unresolved occurrences retain no `TagInfo`, and write
+targets are intentionally still absent while exact eligibility and ambiguity
+rules remain deferred.
+
+Scanner output is still projected into the legacy schema-keyed representation.
+That temporary projection cannot represent multiple different values which
+share one schema identity, so it fails explicitly instead of selecting an
+occurrence.
 
 Application consumers remain schema-keyed. The user-visible duplicate-
 occurrence problem is therefore not fixed until scanner output itself becomes
