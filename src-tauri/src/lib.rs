@@ -433,17 +433,38 @@ fn start_scan(
                             .collect();
 
                         match scanner::read_image_metadata_batch(&rel_paths, &abs_paths) {
-                            Ok(results) => {
+                            Ok(outcome) => {
                                 log::debug!(
-                                    "[metadata] Read {} results, first has {} fields",
-                                    results.len(),
-                                    results.first().map(|r| r.metadata.len()).unwrap_or(0)
+                                    "[metadata] Read {} successes, {} failures",
+                                    outcome.results.len(),
+                                    outcome.failures.len()
                                 );
 
-                                for info in results {
+                                for info in outcome.results {
                                     batch_results.push(ImageMetadataResult {
                                         relative_path: info.relative_path,
                                         metadata: info.metadata,
+                                    });
+                                }
+
+                                let grouped_failures =
+                                    scanner::group_metadata_failures(&outcome.failures);
+                                for (error_msg, affected) in grouped_failures {
+                                    let _ = app.emit(
+                                        "worker_error",
+                                        WorkerErrorPayload {
+                                            scan_id,
+                                            worker_type: "metadata".to_string(),
+                                            error_message: error_msg,
+                                            affected_files: affected,
+                                        },
+                                    );
+                                }
+
+                                for fail in outcome.failures {
+                                    batch_results.push(ImageMetadataResult {
+                                        relative_path: fail.relative_path,
+                                        metadata: scanner::MetadataEntries::default(),
                                     });
                                 }
                             }
