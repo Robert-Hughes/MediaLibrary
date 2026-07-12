@@ -1102,7 +1102,6 @@ fn assign_exact_write_targets(occurrences: &mut [CanonicalRuntimeOccurrence]) {
         if !tag_info.writable
             || matches!(tag_info.kind, TagKind::Binary | TagKind::Unknown)
             || canonical.occurrence.id.document.is_some()
-            || canonical.occurrence.id.copy != 0
             || canonical.is_lang_alt
             || canonical.language.is_some()
             || canonical.runtime_tag_name != tag_info.name
@@ -1113,6 +1112,9 @@ fn assign_exact_write_targets(occurrences: &mut [CanonicalRuntimeOccurrence]) {
             continue;
         }
 
+        // Family 4 is an extraction instance number in MetadataOccurrenceId,
+        // not a write coordinate. Exactness comes from the supported family-1
+        // and tag-name selector identifying one runtime occurrence.
         // Runtime family 1 and the validated runtime tag name are the only
         // write coordinates. Schema table/ID/index and TagInfo::group are not
         // occurrence destinations.
@@ -1197,8 +1199,6 @@ fn canonical_occurrences_from_exiftool_pair(
                         id: occurrence_id,
                         value: MetadataValue::LangAlt(BTreeMap::from([(language.clone(), text)])),
                         tag_info: Some(info.clone()),
-                        // Family-1 inputs are captured, but exact eligibility and
-                        // ambiguity checks for write targets are intentionally deferred.
                         write_target: None,
                     },
                     projection_schema_id: id,
@@ -1231,8 +1231,6 @@ fn canonical_occurrences_from_exiftool_pair(
                 id: occurrence_id,
                 value,
                 tag_info: info.cloned(),
-                // Family-1 inputs are captured, but exact eligibility and
-                // ambiguity checks for write targets are intentionally deferred.
                 write_target: None,
             },
             projection_schema_id: id,
@@ -1244,6 +1242,8 @@ fn canonical_occurrences_from_exiftool_pair(
         });
     }
 
+    // Write targets are assigned after the complete per-file occurrence set is
+    // materialised so selector ambiguity can be evaluated globally.
     assign_exact_write_targets(&mut values);
     Ok(values)
 }
@@ -2143,7 +2143,8 @@ mod tests {
             .unwrap();
         let schema = info.id.clone();
         let ifd0 = test_occurrence_id("JPEG-APP1-IFD0", "282");
-        let ifd1 = test_occurrence_id("JPEG-APP1-IFD1", "282");
+        let mut ifd1 = test_occurrence_id("JPEG-APP1-IFD1", "282");
+        ifd1.copy = 2;
         let raw = runtime_map(vec![
             test_runtime_property(
                 ifd1.clone(),
@@ -2192,6 +2193,8 @@ mod tests {
         assert_eq!(canonical.len(), 2);
         assert_eq!(canonical[0].occurrence.id, ifd0);
         assert_eq!(canonical[1].occurrence.id, ifd1);
+        assert_eq!(canonical[0].occurrence.id.copy, 0);
+        assert_eq!(canonical[1].occurrence.id.copy, 2);
         assert_eq!(canonical[0].projection_schema_id, schema);
         assert_eq!(
             canonical[0].projection_schema_id,
@@ -2280,15 +2283,6 @@ mod tests {
                 Some(supported.clone()),
                 MetadataValue::Integer(300),
             ),
-            write_target_test_occurrence(
-                "Copy",
-                "XResolution",
-                "copy",
-                1,
-                None,
-                Some(supported),
-                MetadataValue::Integer(300),
-            ),
         ];
 
         for mut occurrence in cases {
@@ -2300,6 +2294,72 @@ mod tests {
             );
             assert!(!occurrence.occurrence.is_writable());
         }
+    }
+
+    #[test]
+    fn unique_nonzero_copy_receives_exact_runtime_selector() {
+        let mut occurrence = write_target_test_occurrence(
+            "IFD1",
+            "XResolution",
+            "unique-copy",
+            2,
+            None,
+            Some(write_target_test_info(true, TagKind::Rational)),
+            MetadataValue::Integer(72),
+        );
+
+        assign_exact_write_targets(std::slice::from_mut(&mut occurrence));
+
+        let target = occurrence.occurrence.write_target.as_ref().unwrap();
+        assert_eq!(target.selector(), "IFD1:XResolution");
+        assert!(occurrence.occurrence.is_writable());
+    }
+
+    #[test]
+    fn copy_numbers_do_not_couple_distinct_runtime_selectors() {
+        let info = write_target_test_info(true, TagKind::Rational);
+        let mut occurrences = vec![
+            write_target_test_occurrence(
+                "JFIF",
+                "XResolution",
+                "jfif",
+                0,
+                None,
+                Some(info.clone()),
+                MetadataValue::Integer(72),
+            ),
+            write_target_test_occurrence(
+                "IFD0",
+                "XResolution",
+                "ifd0",
+                1,
+                None,
+                Some(info.clone()),
+                MetadataValue::Integer(300),
+            ),
+            write_target_test_occurrence(
+                "IFD1",
+                "XResolution",
+                "ifd1",
+                2,
+                None,
+                Some(info),
+                MetadataValue::Integer(96),
+            ),
+        ];
+
+        assign_exact_write_targets(&mut occurrences);
+
+        assert_eq!(
+            occurrences
+                .iter()
+                .map(|item| {
+                    assert_eq!(item.occurrence.tag_info.as_ref().unwrap().group, "IFD0");
+                    item.occurrence.write_target.as_ref().unwrap().selector()
+                })
+                .collect::<Vec<_>>(),
+            ["JFIF:XResolution", "IFD0:XResolution", "IFD1:XResolution"]
+        );
     }
 
     #[test]
@@ -2326,6 +2386,31 @@ mod tests {
         let mut copies = vec![copy0, copy1];
         assign_exact_write_targets(&mut copies);
         assert!(copies
+            .iter()
+            .all(|item| item.occurrence.write_target.is_none()));
+
+        let mut non_primary_copies = vec![
+            write_target_test_occurrence(
+                "IFD0",
+                "XResolution",
+                "copy-1",
+                1,
+                None,
+                Some(info.clone()),
+                MetadataValue::Integer(300),
+            ),
+            write_target_test_occurrence(
+                "IFD0",
+                "XResolution",
+                "copy-2",
+                2,
+                None,
+                Some(info.clone()),
+                MetadataValue::Integer(72),
+            ),
+        ];
+        assign_exact_write_targets(&mut non_primary_copies);
+        assert!(non_primary_copies
             .iter()
             .all(|item| item.occurrence.write_target.is_none()));
 
@@ -2486,7 +2571,7 @@ mod tests {
                 "IFD0",
                 "XResolution",
                 "ambiguous-b",
-                0,
+                1,
                 None,
                 Some(info.clone()),
                 MetadataValue::Integer(300),
@@ -2495,7 +2580,7 @@ mod tests {
                 "IFD1",
                 "XResolution",
                 "unique",
-                0,
+                2,
                 None,
                 Some(info),
                 MetadataValue::Integer(72),
@@ -2919,7 +3004,7 @@ mod tests {
 
     #[cfg(feature = "integration")]
     #[test]
-    fn production_copy_coordinates_keep_ifd1_conservative_and_group_writes_isolate() {
+    fn production_copy_coordinates_allow_unique_group_writes_and_preserve_identity() {
         let temp = tempdir().unwrap();
         let source = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("..")
@@ -2957,10 +3042,13 @@ mod tests {
             .unwrap();
         assert_ne!(ifd0.occurrence.id, ifd1.occurrence.id);
         assert_eq!(ifd0.occurrence.tag_info, ifd1.occurrence.tag_info);
+        let ifd0_id = ifd0.occurrence.id.clone();
+        let ifd1_id = ifd1.occurrence.id.clone();
         let ifd0_target = ifd0.occurrence.write_target.clone().unwrap();
+        let ifd1_target = ifd1.occurrence.write_target.clone().unwrap();
         assert_eq!(ifd0_target.selector(), "IFD0:XResolution");
         assert!(ifd1.occurrence.id.copy > 0);
-        assert!(ifd1.occurrence.write_target.is_none());
+        assert_eq!(ifd1_target.selector(), "IFD1:XResolution");
         assert_eq!(rational_integer_value(ifd0), 300);
         assert_eq!(rational_integer_value(ifd1), 72);
 
@@ -3003,7 +3091,7 @@ mod tests {
         let ifd1_output = write_ifd1
             .args([
                 "-overwrite_original".to_owned(),
-                format!("-{}:{}=96", ifd1.runtime_group1, ifd1.runtime_tag_name),
+                format!("-{}=96", ifd1_target.selector()),
             ])
             .arg(&copy)
             .output()
@@ -3015,24 +3103,19 @@ mod tests {
         );
         let after_ifd1 = read_integration_occurrences(&copy);
         let after_ifd1_resolutions = integration_resolution_occurrences(&after_ifd1);
-        assert_eq!(
-            rational_integer_value(
-                after_ifd1_resolutions
-                    .iter()
-                    .find(|item| item.runtime_group1 == "IFD0")
-                    .unwrap()
-            ),
-            240
-        );
-        assert_eq!(
-            rational_integer_value(
-                after_ifd1_resolutions
-                    .iter()
-                    .find(|item| item.runtime_group1 == "IFD1")
-                    .unwrap()
-            ),
-            96
-        );
+        let after_ifd1_ifd0 = after_ifd1_resolutions
+            .iter()
+            .find(|item| item.runtime_group1 == "IFD0")
+            .unwrap();
+        let after_ifd1_ifd1 = after_ifd1_resolutions
+            .iter()
+            .find(|item| item.runtime_group1 == "IFD1")
+            .unwrap();
+        assert_ne!(after_ifd1_ifd0.occurrence.id, after_ifd1_ifd1.occurrence.id);
+        assert_eq!(after_ifd1_ifd0.occurrence.id, ifd0_id);
+        assert_eq!(after_ifd1_ifd1.occurrence.id, ifd1_id);
+        assert_eq!(rational_integer_value(after_ifd1_ifd0), 240);
+        assert_eq!(rational_integer_value(after_ifd1_ifd1), 96);
     }
 
     #[test]
