@@ -1,18 +1,27 @@
 # ExifTool Schema Identity Investigation (Follow-up)
 
-This document presents the findings of the extended investigation into ExifTool schema identity for the `MediaLibrary` repository. It focuses on the completeness of resolving static tag definitions when incorporating the **Tag ID** into the lookup key, and outlines the resolver pipeline required to handle the remaining conflicts.
+> **Historical investigation — superseded by
+> [ExifTool Schema Identity](EXIFTOOL_SCHEMA_IDENTITY.md).**
+>
+> The candidate-scoring resolver proposed near the end of this document was
+> rejected after runtime `-j -t -D` output was shown to expose ExifTool's exact
+> selected table, ID and optional index.
+
+This document preserves the collision evidence from the investigation into
+ExifTool schema identity. Its staged resolver experiments record how the
+problem was explored; they do not describe the current MediaLibrary
+architecture.
 
 ---
 
-## 1. Environment & Tools
+## 1. Investigation environment
 
 - **ExifTool Version**: `13.57`
 - **Operating System**: Windows 11
-- **Updated Tool Paths**:
-  - Static Schema Parser & Analyzer: [analyse_exiftool_schema_identity.py](file:///d:/Programming/Media/MediaLibrary/tools/analyse_exiftool_schema_identity.py)
-  - Runtime Joins Simulator: [test_joins.py](file:///d:/Programming/Media/MediaLibrary/tools/test_joins.py)
-- **Updated Report Path**: [EXIFTOOL_SCHEMA_IDENTITY_INVESTIGATION.md](file:///d:/Programming/Media/MediaLibrary/docs/EXIFTOOL_SCHEMA_IDENTITY_INVESTIGATION.md)
-- **Machine-readable Conflicts Output**: [schema-conflicts-after-tag-id.json](file:///d:/Programming/Media/MediaLibrary/schema-conflicts-after-tag-id.json)
+
+The analysis used a static `-listx` export and runtime experiments over the
+repository fixture corpus. Machine-local paths and temporary research-output
+status have been omitted because they are not durable architecture guidance.
 
 ---
 
@@ -171,47 +180,16 @@ Without an existing tag in a file, we do not have a runtime Tag ID.
 
 ---
 
-## 7. Recommended Minimum Resolver for MediaLibrary
+## 7. Superseded resolver recommendation
 
-```text
-Primary lookup:
-    G1 + TagName + TagID
+The investigation originally proposed resolving by `G1 + TagName + TagID`,
+then scoring candidates with Make and Model, FileType and MIMEType, observed
+value shape, and a preference for writable definitions. That recommendation
+is rejected.
 
-Fallback context (if > 1 candidate remaining):
-    Make + Model (for maker-notes)
-    FileType + MIMEType (for format-level conflicts)
-    Observed raw value shape (matching raw value to static enum keys)
-
-Ambiguous when:
-    The candidates differ in writability only (e.g., Sony:SonyISO:4) and no table identity is exposed.
-    In such cases, fallback to the writable schema.
-
-Scanner fields required on every read:
-    -G1 -D -s -j (Decimal Tag ID and Group 1 location)
-
-Scanner fields required only on fallback:
-    Make, Model, FileType, MIMEType
-
-Static registry must retain:
-    Tag ID (in explicit serializable form)
-    Enum option codes for shape validation
-    Table namespace mapping (for writing new properties)
-
-Not solved for new properties:
-    Writing a new property that does not exist in the file requires the registry to choose a canonical target table/namespace (e.g. defaulting to EXIF over other formats when creating tags).
-```
-
----
-
-## 8. Final Git Status
-
-```text
-Untracked files:
-	docs/EXIFTOOL_SCHEMA_IDENTITY_INVESTIGATION.md
-	listx.xml
-	runtime-experiments.json
-	schema-collisions.json
-	schema-definitions.json
-	tools/analyse_exiftool_schema_identity.py
-	tools/test_joins.py
-```
+Runtime `-j -t -D` output supplies the exact selected table, ID and optional
+index. Current code performs exact `SchemaDefinitionId` lookup and does not use
+candidate scoring, Make/Model inference, file-type inference, value-shape
+inference or a “prefer writable” fallback. Add New Property similarly presents
+exact definitions for explicit selection rather than choosing a friendly-name
+candidate. See [ExifTool Schema Identity](EXIFTOOL_SCHEMA_IDENTITY.md).

@@ -5,6 +5,7 @@ import type {
   MetadataDraftEditsByFile,
   MetadataEntry,
   MetadataValue,
+  EditIntent,
   OsColumnKey,
   PhotoInfo,
   SchemaDefinitionId,
@@ -137,10 +138,19 @@ function fixtureValueToDraftEdit(value: unknown): MetadataDraftEdit {
 function isMetadataDraftEdit(value: unknown): value is MetadataDraftEdit {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const candidate = value as { intent?: unknown; value?: unknown };
-  return (
-    (candidate.intent === "Set" || candidate.intent === "Delete") &&
-    "value" in candidate
-  );
+  return isEditIntent(candidate.intent) && "value" in candidate;
+}
+
+function isEditIntent(intent: unknown): intent is EditIntent {
+  switch (intent) {
+    case "Set":
+    case "Delete":
+    case "ListAdd":
+    case "ListRemove":
+      return true;
+    default:
+      return false;
+  }
 }
 
 function testValueToMetadataValue(value: unknown): MetadataValue {
@@ -181,11 +191,12 @@ function isMetadataValue(value: unknown): value is MetadataValue {
 
 function fixtureId(name: string): SchemaDefinitionId {
   const id = testId(name);
-  const colon = name.indexOf(":");
+  const canonicalName = testFriendlyName(id);
+  const colon = canonicalName.indexOf(":");
   _ensureTagInfoCacheEntry(id, {
     id,
-    group: colon > 0 ? name.slice(0, colon) : "Test",
-    name: colon > 0 ? name.slice(colon + 1) : name,
+    group: colon > 0 ? canonicalName.slice(0, colon) : "Test",
+    name: colon > 0 ? canonicalName.slice(colon + 1) : canonicalName,
     writable: true,
     kind: { kind: "Text" },
     description: null,
