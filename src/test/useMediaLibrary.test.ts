@@ -987,7 +987,7 @@ describe("useMediaLibrary", () => {
     }
   });
 
-  it("stores authoritative occurrences beside unchanged legacy metadata and increments progress once", async () => {
+  it("retains colliding occurrences while the omitted legacy schema stays blank and progress increments once", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/photos");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
@@ -995,42 +995,48 @@ describe("useMediaLibrary", () => {
     act(() => mock.emitPhotoFound(makePhoto({ relative_path: "a.jpg" })));
     await act(async () => vi.advanceTimersByTimeAsync(150));
 
+    const schemaId = testId("IFD0:XResolution");
     const occurrence = {
-      id: { document: null, path: "JPEG-APP1-IFD0", tag_id: "274", copy: 0 },
-      value: { kind: "Integer" as const, value: 6 },
+      id: { document: null, path: "JPEG-APP1-IFD0", tag_id: "282", copy: 0 },
+      value: { kind: "Integer" as const, value: 300 },
       tag_info: {
-        id: testId("IFD0:Orientation"),
+        id: schemaId,
         group: "IFD0",
-        name: "Orientation",
+        name: "XResolution",
         writable: true,
-        kind: { kind: "Integer" as const, data: { min: 1, max: 8 } },
-        description: "Orientation",
+        kind: { kind: "Rational" as const },
+        description: "X resolution",
       },
-      write_target: { group1: "IFD0", tag_name: "Orientation" },
+      write_target: { group1: "IFD0", tag_name: "XResolution" },
+    };
+    const secondOccurrence = {
+      ...occurrence,
+      id: { document: null, path: "JPEG-APP1-IFD1", tag_id: "282", copy: 1 },
+      value: { kind: "Integer" as const, value: 72 },
+      write_target: { group1: "IFD1", tag_name: "XResolution" },
     };
     act(() => {
-      mock.emitImageMetadataReady(
-        "a.jpg",
-        { "IFD0:Orientation": { kind: "Integer", value: 6 } },
-        undefined,
-        [occurrence],
-      );
+      mock.emitImageMetadataReady("a.jpg", {}, undefined, [
+        occurrence,
+        secondOccurrence,
+      ]);
     });
     await act(async () => vi.advanceTimersByTimeAsync(250));
 
     const state = result.current[0];
     expect(state.kind).toBe("loaded");
     if (state.kind === "loaded") {
-      expect(state.imageMetadataOccurrences.get("a.jpg")).toEqual([occurrence]);
+      expect(state.imageMetadataOccurrences.get("a.jpg")).toEqual([
+        occurrence,
+        secondOccurrence,
+      ]);
       const legacy = state.imageMetadata.get("a.jpg");
       expect(legacy).not.toBe("loading");
       if (legacy !== "loading") {
-        expect(metadataGet(legacy, testId("IFD0:Orientation"))).toMatchObject({
-          kind: "Integer",
-          value: 6,
-        });
+        expect(metadataGet(legacy, schemaId)).toBeUndefined();
       }
       expect(state.metadataProgress.getRemaining()).toBe(0);
+      expect(state.workerErrors).toEqual([]);
     }
   });
 

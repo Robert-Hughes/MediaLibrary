@@ -181,8 +181,11 @@ ambiguity checks demonstrate them.
 The backend scanner's `ImageMetadata` result now carries authoritative
 `MetadataOccurrences` alongside temporary legacy `MetadataEntries`. The legacy
 schema projection cannot represent multiple different values sharing one
-schema identity, so that file still fails explicitly at the projection boundary
-instead of selecting an occurrence.
+schema identity, so it omits that complete schema group atomically instead of
+selecting an occurrence. Every concrete occurrence remains authoritative, and
+unrelated legacy schema entries remain available. The backend batch outcome
+returns and logs explicit compatibility omissions; they are not metadata-read
+failures or `worker_error` events.
 
 The Tauri `image_metadata_ready` event transports the scanner's `ImageMetadata`
 result directly, including both authoritative `occurrences` and the legacy
@@ -192,11 +195,12 @@ legacy projection.
 
 Every current UI, search, sorting, draft, write, and readback-verification
 consumer still reads `ImageMetadataStore`; occurrence transport is present but
-is not yet behaviourally active. Conflicting values that share a schema still
-fail before emission at the mandatory legacy-projection boundary. The
-user-visible duplicate-occurrence problem is therefore not fixed; subsequent
-migration commits will move those systems incrementally.
+is not yet behaviourally active. A conflicting schema may therefore appear
+blank in those consumers. Schema-keyed apply and readback verification reject a
+partial legacy projection until they migrate to occurrence identity.
 
-Failed files are emitted with empty occurrence and legacy collections solely to
-clear both frontend loading states. Failure details continue to arrive through
-the `worker_error` event.
+The file-level duplicate-occurrence scan failure is fixed: a lossy legacy
+projection no longer blocks transport of the successful occurrence read.
+Rendering and editing both occurrences remains pending consumer migration; no
+production UI, search, sorting, draft, normalisation, or write consumer changes
+are included here. No arbitrary first occurrence may be selected.

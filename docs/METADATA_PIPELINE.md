@@ -15,12 +15,22 @@ Occurrences are transported and retained but no production feature consumes
 them yet. Every current UI, search, sorting, draft, write, normalisation, and
 readback-verification path remains schema-keyed through `ImageMetadataStore`.
 Identical values sharing a schema may deduplicate in the compatibility field;
-conflicting values sharing a schema still fail the entire file at the mandatory
-legacy-projection boundary.
+an incompatible schema group is instead omitted atomically from the legacy
+projection without affecting unrelated entries. Every concrete value remains in
+authoritative `MetadataOccurrences`, so a lossy compatibility projection no
+longer fails the file or creates a failed-file placeholder.
 
-For a failed file, the metadata event contains empty occurrence and legacy
-collections only so both stores leave their loading state. The associated error
-details remain in `worker_error`.
+Compatibility omissions are logged and returned from the backend-only
+`MetadataBatchReadOutcome::legacy_projection_omissions` diagnostics. They are
+not `worker_error` events. Current UI, search, and sorting consumers may show an
+omitted schema as blank until they migrate to occurrences. Schema-keyed apply
+and readback verification reject any partial projection rather than proceeding
+unsafely. Rendering and editing both occurrences remains future migration work,
+and no arbitrary first occurrence may be selected.
+
+Genuine read, parse, canonicalisation, or projection-invariant failures still
+emit empty collections to clear loading state and report details through
+`worker_error`.
 
 ## Tag-Schema Overrides
 
