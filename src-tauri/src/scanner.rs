@@ -245,14 +245,35 @@ fn read_os_metadata(path: &Path) -> (Option<i64>, Option<i64>) {
 ///
 /// Both passes are required. If either pass fails, the batch fails and the
 /// frontend receives a metadata worker error for the affected files.
+/// Both passes are required. If either pass fails for an individual file,
+/// that file's parsing fails and is isolated, returning a failure for that file
+/// while allowing other files in the batch to succeed.
 ///
-/// Returns Ok(results) when both passes succeed, Err(error_message) otherwise.
+/// Top-level or batch-wide failures (such as ExifTool not launching, process exiting
+/// unsuccessfully, or stdout not being valid top-level JSON array) remain batch-wide.
+///
+/// The function can return successful and failed files together.
+///
+/// Returns Ok(MetadataBatchReadOutcome) when ExifTool executes successfully, which contains
+/// both successfully parsed files and per-file failures. Returns Err(error_message) only
+/// for genuine batch-wide process/parsing failures.
 pub fn read_image_metadata_batch(
     rel_paths: &[String],
     abs_paths: &[std::path::PathBuf],
-) -> Result<Vec<ImageMetadata>, String> {
+) -> Result<MetadataBatchReadOutcome, String> {
+    if rel_paths.len() != abs_paths.len() {
+        return Err(format!(
+            "Mismatched paths length: relative paths count ({}) does not match absolute paths count ({})",
+            rel_paths.len(),
+            abs_paths.len()
+        ));
+    }
+
     if abs_paths.is_empty() {
-        return Ok(Vec::new());
+        return Ok(MetadataBatchReadOutcome {
+            results: Vec::new(),
+            failures: Vec::new(),
+        });
     }
 
     log::info!(
@@ -268,48 +289,30 @@ pub fn read_image_metadata_batch(
     }
 
     // Pass A: pretty values (no -n), used only as parser input.
-    let display_json_map = run_exiftool_pass(abs_paths, false)
+    let display_pass = run_exiftool_pass(abs_paths, false)
         .map_err(|e| format!("ExifTool display pass failed: {}", e))?;
 
     // Pass B: raw values (-n), the primary canonical source.
-    let raw_json_map = run_exiftool_pass(abs_paths, true)
+    let raw_pass = run_exiftool_pass(abs_paths, true)
         .map_err(|e| format!("ExifTool raw (-n) pass failed: {}", e))?;
 
-    // Merge by source path.
-    let mut results = Vec::with_capacity(rel_paths.len());
-    let mut display_json = display_json_map;
-    let mut raw_json = raw_json_map;
     let registry = crate::tag_schema::get_registry().ok();
     let mut batch_warnings = Vec::new();
-    for (i, rel_path) in rel_paths.iter().enumerate() {
-        let abs_path = &abs_paths[i];
-        let key = abs_path.to_string_lossy().replace('\\', "/");
-        let display_values = display_json.remove(&key).unwrap_or_default();
-        let raw_values = raw_json.remove(&key).unwrap_or_default();
-        let metadata = canonical_values_from_exiftool_pair_exact(
-            &raw_values,
-            &display_values,
-            registry,
-            rel_path,
-            Some(&mut batch_warnings),
-        );
-        if metadata.is_empty() {
-            log::warn!(
-                "[parse_exiftool] Warning: no canonical metadata for {}",
-                key
-            );
-        }
-        results.push(ImageMetadata {
-            relative_path: rel_path.clone(),
-            metadata: metadata_entries(metadata),
-        });
-    }
+
+    let outcome = assemble_batch_outcome(
+        rel_paths,
+        abs_paths,
+        display_pass,
+        raw_pass,
+        registry,
+        &mut batch_warnings,
+    )?;
 
     if !batch_warnings.is_empty() {
         log_aggregated_warnings(&batch_warnings);
     }
 
-    Ok(results)
+    Ok(outcome)
 }
 
 /// Run one exiftool pass over `paths` and return a per-SourceFile map.
@@ -317,7 +320,7 @@ pub fn read_image_metadata_batch(
 fn run_exiftool_pass(
     paths: &[std::path::PathBuf],
     numeric: bool,
-) -> Result<HashMap<String, RuntimeMap>, String> {
+) -> Result<ExifToolPassOutput, String> {
     let pass_label = if numeric {
         "raw (-n) pass"
     } else {
@@ -364,7 +367,10 @@ fn run_exiftool_pass(
 
     let json = String::from_utf8_lossy(&output.stdout);
     if json.trim().is_empty() {
-        return Ok(HashMap::new());
+        return Ok(ExifToolPassOutput {
+            values_by_source: HashMap::new(),
+            failures_by_source: HashMap::new(),
+        });
     }
     try_parse_exiftool_pass_json_raw(&json)
 }
@@ -378,22 +384,40 @@ fn run_exiftool_pass(
 /// `-b` flag is meaningless to Media Library users (they never invoke exiftool
 /// directly), so any key whose schema kind is `TagKind::Binary` is replaced
 /// with a neutral `"<binary>"` string before semantic parsing.
-#[derive(Debug, Clone)]
-struct ExifToolRuntimeValue {
-    table: String,
-    tag_id: String,
-    index: Option<u32>,
-    language: Option<String>,
-    value: serde_json::Value,
+#[derive(Debug, Clone, Serialize)]
+pub struct MetadataReadFailure {
+    pub relative_path: String,
+    pub error_message: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct MetadataBatchReadOutcome {
+    pub results: Vec<ImageMetadata>,
+    pub failures: Vec<MetadataReadFailure>,
 }
 
 #[derive(Debug, Clone)]
-struct RuntimeProperty {
-    original_name: String,
-    runtime: ExifToolRuntimeValue,
+pub struct ExifToolRuntimeValue {
+    pub table: String,
+    pub tag_id: String,
+    pub index: Option<u32>,
+    pub language: Option<String>,
+    pub value: serde_json::Value,
 }
 
-type RuntimeMap = BTreeMap<SchemaDefinitionId, RuntimeProperty>;
+#[derive(Debug, Clone)]
+pub struct RuntimeProperty {
+    pub original_name: String,
+    pub runtime: ExifToolRuntimeValue,
+}
+
+pub type RuntimeMap = BTreeMap<SchemaDefinitionId, RuntimeProperty>;
+
+#[derive(Debug, Clone, Default)]
+pub struct ExifToolPassOutput {
+    pub values_by_source: HashMap<String, RuntimeMap>,
+    pub failures_by_source: HashMap<String, String>,
+}
 
 fn parse_runtime_value(value: serde_json::Value) -> Result<ExifToolRuntimeValue, String> {
     let mut object = value
@@ -430,14 +454,58 @@ fn parse_runtime_value(value: serde_json::Value) -> Result<ExifToolRuntimeValue,
     })
 }
 
-fn try_parse_exiftool_pass_json_raw(json: &str) -> Result<HashMap<String, RuntimeMap>, String> {
+fn parse_single_source_object(
+    obj: serde_json::Map<String, serde_json::Value>,
+    registry: Option<&crate::tag_schema::TagRegistry>,
+) -> Result<RuntimeMap, String> {
+    let mut map = RuntimeMap::new();
+    for (key, val) in obj {
+        if key == "SourceFile" {
+            continue;
+        }
+        let mut runtime =
+            parse_runtime_value(val).map_err(|error| format!("property {key}: {error}"))?;
+
+        let id = SchemaDefinitionId {
+            table: runtime.table.clone(),
+            tag_id: runtime.tag_id.clone(),
+            index: runtime.index,
+        };
+        let value =
+            if is_binary_tag(&id, registry) || is_exiftool_binary_placeholder(&runtime.value) {
+                serde_json::Value::String("<binary>".to_string())
+            } else {
+                runtime.value
+            };
+        runtime.value = value;
+        let property = RuntimeProperty {
+            original_name: key,
+            runtime,
+        };
+        if let Some(previous) = map.insert(id.clone(), property.clone()) {
+            if previous.runtime.value != property.runtime.value {
+                return Err(format!(
+                    "conflicting duplicate runtime identity {id:#?}:\n{}={} and {}={}",
+                    previous.original_name,
+                    previous.runtime.value,
+                    property.original_name,
+                    property.runtime.value
+                ));
+            }
+            log::warn!("deduplicated identical runtime identity {id:?}");
+        }
+    }
+    Ok(map)
+}
+
+fn try_parse_exiftool_pass_json_raw(json: &str) -> Result<ExifToolPassOutput, String> {
     try_parse_exiftool_pass_json_raw_with_registry(json, crate::tag_schema::get_registry().ok())
 }
 
-fn try_parse_exiftool_pass_json_raw_with_registry(
+pub fn try_parse_exiftool_pass_json_raw_with_registry(
     json: &str,
     registry: Option<&crate::tag_schema::TagRegistry>,
-) -> Result<HashMap<String, RuntimeMap>, String> {
+) -> Result<ExifToolPassOutput, String> {
     let raw_entries: Vec<serde_json::Value> = match serde_json::from_str(json) {
         Ok(v) => v,
         Err(e) => {
@@ -451,7 +519,9 @@ fn try_parse_exiftool_pass_json_raw_with_registry(
         }
     };
 
-    let mut map_by_source: HashMap<String, RuntimeMap> = HashMap::new();
+    let mut values_by_source = HashMap::new();
+    let mut failures_by_source = HashMap::new();
+
     for (idx, raw) in raw_entries.into_iter().enumerate() {
         let source = raw
             .get("SourceFile")
@@ -471,72 +541,126 @@ fn try_parse_exiftool_pass_json_raw_with_registry(
             }
         };
 
-        let mut map = RuntimeMap::new();
-        for (key, val) in obj {
-            if key == "SourceFile" {
-                continue;
-            }
-            let mut runtime = parse_runtime_value(val).map_err(|error| {
-                format!(
-                    "{} property {}: {}",
-                    source.as_deref().unwrap_or("<unknown>"),
-                    key,
-                    error
-                )
-            })?;
-            // ExifTool's raw placeholder ("(Binary data N bytes, use -b
-            // option to extract)") is confusing in the UI: Media Library
-            // users don't invoke exiftool directly, so the `-b` advice is
-            // noise. Substitute a neutral "<binary>" string so the field
-            // is clearly non-textual without leaking the tool name.
-            //
-            // Primary check is the schema (TagKind::Binary). The regex
-            // fallback catches tags `-listx` does not enumerate — most
-            // notably exiftool's synthetic `File:` group (PreviewImage,
-            // ThumbnailImage, JpgFromRaw, etc.) which is built from file
-            // parsing rather than spec tables.
-            let id = SchemaDefinitionId {
-                table: runtime.table.clone(),
-                tag_id: runtime.tag_id.clone(),
-                index: runtime.index,
-            };
-            let value =
-                if is_binary_tag(&id, registry) || is_exiftool_binary_placeholder(&runtime.value) {
-                    serde_json::Value::String("<binary>".to_string())
-                } else {
-                    runtime.value
-                };
-            runtime.value = value;
-            let property = RuntimeProperty {
-                original_name: key,
-                runtime,
-            };
-            if let Some(previous) = map.insert(id.clone(), property.clone()) {
-                if previous.runtime.value != property.runtime.value {
-                    return Err(format!(
-                        "{} has conflicting duplicate runtime identity {id:?}: {}={} and {}={}",
-                        source.as_deref().unwrap_or("<unknown>"),
-                        previous.original_name,
-                        previous.runtime.value,
-                        property.original_name,
-                        property.runtime.value
-                    ));
-                }
-                log::warn!("deduplicated identical runtime identity {id:?}");
-            }
-        }
-
-        if let Some(s) = source {
-            map_by_source.insert(s.replace('\\', "/"), map);
-        } else {
+        let Some(s) = source else {
             log::warn!(
                 "[parse_exiftool] Entry {} has no SourceFile; cannot map to a request path",
                 idx
             );
+            continue;
+        };
+
+        let normalized_path = s.replace('\\', "/");
+
+        match parse_single_source_object(obj, registry) {
+            Ok(map) => {
+                values_by_source.insert(normalized_path, map);
+            }
+            Err(e) => {
+                log::error!(
+                    "[parse_exiftool] Error parsing metadata for SourceFile {}: {}",
+                    normalized_path,
+                    e
+                );
+                failures_by_source.insert(normalized_path, e);
+            }
         }
     }
 
-    Ok(map_by_source)
+    Ok(ExifToolPassOutput {
+        values_by_source,
+        failures_by_source,
+    })
+}
+
+pub fn assemble_batch_outcome(
+    rel_paths: &[String],
+    abs_paths: &[std::path::PathBuf],
+    mut display_pass: ExifToolPassOutput,
+    mut raw_pass: ExifToolPassOutput,
+    registry: Option<&crate::tag_schema::TagRegistry>,
+    batch_warnings: &mut Vec<ParseWarning>,
+) -> Result<MetadataBatchReadOutcome, String> {
+    if rel_paths.len() != abs_paths.len() {
+        return Err(format!(
+            "Mismatched paths length: relative paths count ({}) does not match absolute paths count ({})",
+            rel_paths.len(),
+            abs_paths.len()
+        ));
+    }
+
+    let mut results = Vec::new();
+    let mut failures = Vec::new();
+
+    for (i, rel_path) in rel_paths.iter().enumerate() {
+        let abs_path = &abs_paths[i];
+        let key = abs_path.to_string_lossy().replace('\\', "/");
+
+        let display_failure = display_pass.failures_by_source.remove(&key);
+        let raw_failure = raw_pass.failures_by_source.remove(&key);
+
+        let has_display_val = display_pass.values_by_source.contains_key(&key);
+        let has_raw_val = raw_pass.values_by_source.contains_key(&key);
+
+        let mut error_messages = Vec::new();
+
+        if let Some(df) = display_failure {
+            error_messages.push(format!("ExifTool display pass failed:\n{}", df));
+        } else if !has_display_val {
+            error_messages.push(
+                "ExifTool display pass failed:\nExifTool returned no result for this file"
+                    .to_string(),
+            );
+        }
+
+        if let Some(rf) = raw_failure {
+            error_messages.push(format!("ExifTool raw (-n) pass failed:\n{}", rf));
+        } else if !has_raw_val {
+            error_messages.push(
+                "ExifTool raw (-n) pass failed:\nExifTool returned no result for this file"
+                    .to_string(),
+            );
+        }
+
+        if !error_messages.is_empty() {
+            let combined_error = error_messages.join("\n\n");
+            failures.push(MetadataReadFailure {
+                relative_path: rel_path.clone(),
+                error_message: combined_error,
+            });
+        } else {
+            let display_values = display_pass
+                .values_by_source
+                .remove(&key)
+                .unwrap_or_default();
+            let raw_values = raw_pass.values_by_source.remove(&key).unwrap_or_default();
+
+            let metadata = canonical_values_from_exiftool_pair_exact(
+                &raw_values,
+                &display_values,
+                registry,
+                rel_path,
+                Some(batch_warnings),
+            );
+
+            results.push(ImageMetadata {
+                relative_path: rel_path.clone(),
+                metadata: metadata_entries(metadata),
+            });
+        }
+    }
+
+    Ok(MetadataBatchReadOutcome { results, failures })
+}
+
+pub fn group_metadata_failures(failures: &[MetadataReadFailure]) -> BTreeMap<String, Vec<String>> {
+    let mut grouped: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for fail in failures {
+        grouped
+            .entry(fail.error_message.clone())
+            .or_default()
+            .push(fail.relative_path.clone());
+    }
+    grouped
 }
 
 #[cfg(test)]
@@ -550,7 +674,11 @@ fn parse_exiftool_pass_json_raw_with_registry(
     registry: Option<&TagRegistry>,
 ) -> HashMap<String, HashMap<String, serde_json::Value>> {
     try_parse_exiftool_pass_json_raw_with_registry(json, registry)
-        .unwrap_or_default()
+        .unwrap_or_else(|_| ExifToolPassOutput {
+            values_by_source: HashMap::new(),
+            failures_by_source: HashMap::new(),
+        })
+        .values_by_source
         .into_iter()
         .map(|(source, properties)| {
             let values = properties
@@ -562,14 +690,15 @@ fn parse_exiftool_pass_json_raw_with_registry(
         .collect()
 }
 
-struct ParseWarning {
-    rel_path: String,
-    tag: String,
-    pass_name: String,
-    expected: String,
-    raw_type: &'static str,
-    raw: serde_json::Value,
-    reason: String,
+#[derive(Debug, Clone)]
+pub struct ParseWarning {
+    pub rel_path: String,
+    pub tag: String,
+    pub pass_name: String,
+    pub expected: String,
+    pub raw_type: &'static str,
+    pub raw: serde_json::Value,
+    pub reason: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -1010,13 +1139,16 @@ fn parse_exiftool_batch_json(
     for (i, rel_path) in rel_paths.iter().enumerate() {
         let abs_path = &abs_paths[i];
         let normalized_abs = abs_path.to_string_lossy().replace('\\', "/");
-        let display_values = map_by_source.remove(&normalized_abs).unwrap_or_else(|| {
-            log::warn!(
-                "[parse_exiftool] Warning: No metadata found for path: {}",
-                normalized_abs
-            );
-            BTreeMap::new()
-        });
+        let display_values = map_by_source
+            .values_by_source
+            .remove(&normalized_abs)
+            .unwrap_or_else(|| {
+                log::warn!(
+                    "[parse_exiftool] Warning: No metadata found for path: {}",
+                    normalized_abs
+                );
+                BTreeMap::new()
+            });
         let metadata = canonical_values_from_exiftool_pair_exact(
             &BTreeMap::new(),
             &display_values,
@@ -1997,5 +2129,487 @@ mod tests {
         ];
         let groups_diff_tag = group_parse_warnings(&warnings_diff_tag);
         assert_eq!(groups_diff_tag.len(), 2);
+    }
+
+    #[test]
+    fn test_parser_per_source_isolation() {
+        let registry = crate::tag_schema::get_registry().ok();
+
+        // 1. A three-source JSON array where:
+        // - first source is valid
+        // - second has conflicting duplicate runtime identity values
+        // - third is valid
+        // 2. Both valid sources remain in values_by_source
+        // 3. Only the second source appears in failures_by_source
+        // 4. Its failure message does not contain the absolute source path
+        let json = r#"[
+            {
+                "SourceFile": "D:/path/Image1.jpg",
+                "IFD0:XResolution": {
+                    "table": "Exif::Main",
+                    "id": "282",
+                    "val": "300"
+                }
+            },
+            {
+                "SourceFile": "D:/path/Image2.jpg",
+                "IFD0:XResolution": {
+                    "table": "Exif::Main",
+                    "id": "282",
+                    "val": "300"
+                },
+                "IFD1:XResolution": {
+                    "table": "Exif::Main",
+                    "id": "282",
+                    "val": "72"
+                }
+            },
+            {
+                "SourceFile": "D:/path/Image3.jpg",
+                "IFD0:XResolution": {
+                    "table": "Exif::Main",
+                    "id": "282",
+                    "val": "150"
+                }
+            }
+        ]"#;
+
+        let res = try_parse_exiftool_pass_json_raw_with_registry(json, registry).unwrap();
+
+        assert_eq!(res.values_by_source.len(), 2);
+        assert!(res.values_by_source.contains_key("D:/path/Image1.jpg"));
+        assert!(res.values_by_source.contains_key("D:/path/Image3.jpg"));
+
+        assert_eq!(res.failures_by_source.len(), 1);
+        let fail_msg = res.failures_by_source.get("D:/path/Image2.jpg").unwrap();
+        assert!(fail_msg.contains("conflicting duplicate runtime identity"));
+        assert!(!fail_msg.contains("D:/path/Image2.jpg"));
+
+        // 5. A malformed wrapped property in one source is isolated similarly
+        let json_malformed_val = r#"[
+            {
+                "SourceFile": "D:/path/Image1.jpg",
+                "IFD0:XResolution": {
+                    "table": "Exif::Main",
+                    "id": "282",
+                    "val": "300"
+                }
+            },
+            {
+                "SourceFile": "D:/path/Image2.jpg",
+                "IFD0:XResolution": "not-an-object"
+            }
+        ]"#;
+        let res_malformed =
+            try_parse_exiftool_pass_json_raw_with_registry(json_malformed_val, registry).unwrap();
+        assert_eq!(res_malformed.values_by_source.len(), 1);
+        assert!(res_malformed
+            .values_by_source
+            .contains_key("D:/path/Image1.jpg"));
+        assert_eq!(res_malformed.failures_by_source.len(), 1);
+        let fail_msg = res_malformed
+            .failures_by_source
+            .get("D:/path/Image2.jpg")
+            .unwrap();
+        assert!(fail_msg.contains("expected wrapped ExifTool runtime value"));
+        assert!(!fail_msg.contains("D:/path/Image2.jpg"));
+
+        // 6. An invalid runtime `index` is isolated similarly
+        let json_invalid_index = r#"[
+            {
+                "SourceFile": "D:/path/Image1.jpg",
+                "IFD0:XResolution": {
+                    "table": "Exif::Main",
+                    "id": "282",
+                    "index": "invalid",
+                    "val": "300"
+                }
+            }
+        ]"#;
+        let res_invalid_index =
+            try_parse_exiftool_pass_json_raw_with_registry(json_invalid_index, registry).unwrap();
+        assert_eq!(res_invalid_index.values_by_source.len(), 0);
+        assert_eq!(res_invalid_index.failures_by_source.len(), 1);
+        let fail_msg = res_invalid_index
+            .failures_by_source
+            .get("D:/path/Image1.jpg")
+            .unwrap();
+        assert!(fail_msg.contains("invalid"));
+        assert!(!fail_msg.contains("D:/path/Image1.jpg"));
+
+        // 7. Identical duplicate values retain the current deduplication behaviour
+        let json_duplicates = r#"[
+            {
+                "SourceFile": "D:/path/Image1.jpg",
+                "IFD0:XResolution": {
+                    "table": "Exif::Main",
+                    "id": "282",
+                    "val": "300"
+                },
+                "IFD1:XResolution": {
+                    "table": "Exif::Main",
+                    "id": "282",
+                    "val": "300"
+                }
+            }
+        ]"#;
+        let res_duplicates =
+            try_parse_exiftool_pass_json_raw_with_registry(json_duplicates, registry).unwrap();
+        assert_eq!(res_duplicates.values_by_source.len(), 1);
+        assert_eq!(res_duplicates.failures_by_source.len(), 0);
+
+        // 8. Invalid top-level JSON remains a batch-wide Err
+        let json_invalid_top = r#"[ { "SourceFile": "D:/path/Image1.jpg" "#;
+        let res_invalid_top =
+            try_parse_exiftool_pass_json_raw_with_registry(json_invalid_top, registry);
+        assert!(res_invalid_top.is_err());
+
+        // 9. A non-object array entry does not remove valid neighbouring source objects
+        let json_non_obj = r#"[
+            {
+                "SourceFile": "D:/path/Image1.jpg",
+                "IFD0:XResolution": {
+                    "table": "Exif::Main",
+                    "id": "282",
+                    "val": "300"
+                }
+            },
+            "not-an-object",
+            {
+                "SourceFile": "D:/path/Image2.jpg",
+                "IFD0:XResolution": {
+                    "table": "Exif::Main",
+                    "id": "282",
+                    "val": "150"
+                }
+            }
+        ]"#;
+        let res_non_obj =
+            try_parse_exiftool_pass_json_raw_with_registry(json_non_obj, registry).unwrap();
+        assert_eq!(res_non_obj.values_by_source.len(), 2);
+        assert!(res_non_obj
+            .values_by_source
+            .contains_key("D:/path/Image1.jpg"));
+        assert!(res_non_obj
+            .values_by_source
+            .contains_key("D:/path/Image2.jpg"));
+        assert_eq!(res_non_obj.failures_by_source.len(), 0);
+
+        // 10. A source-less object is logged/skipped without being assigned to another file
+        let json_sourceless = r#"[
+            {
+                "IFD0:XResolution": {
+                    "table": "Exif::Main",
+                    "id": "282",
+                    "val": "300"
+                }
+            }
+        ]"#;
+        let res_sourceless =
+            try_parse_exiftool_pass_json_raw_with_registry(json_sourceless, registry).unwrap();
+        assert_eq!(res_sourceless.values_by_source.len(), 0);
+        assert_eq!(res_sourceless.failures_by_source.len(), 0);
+    }
+
+    #[test]
+    fn test_assemble_batch_outcome() {
+        let registry = crate::tag_schema::get_registry().ok();
+
+        let rel_paths = vec![
+            "Image1.jpg".to_string(),
+            "Image2.jpg".to_string(),
+            "Image3.jpg".to_string(),
+        ];
+        let abs_paths = vec![
+            std::path::PathBuf::from("D:/path/Image1.jpg"),
+            std::path::PathBuf::from("D:/path/Image2.jpg"),
+            std::path::PathBuf::from("D:/path/Image3.jpg"),
+        ];
+
+        // 1. Two successful files and one display-pass failure produce:
+        // - two successful results
+        // - one failure
+        let display_pass = ExifToolPassOutput {
+            values_by_source: {
+                let mut map = HashMap::new();
+                map.insert("D:/path/Image1.jpg".to_string(), BTreeMap::new());
+                map.insert("D:/path/Image3.jpg".to_string(), BTreeMap::new());
+                map
+            },
+            failures_by_source: {
+                let mut map = HashMap::new();
+                map.insert(
+                    "D:/path/Image2.jpg".to_string(),
+                    "display failure details".to_string(),
+                );
+                map
+            },
+        };
+        let raw_pass = ExifToolPassOutput {
+            values_by_source: {
+                let mut map = HashMap::new();
+                map.insert("D:/path/Image1.jpg".to_string(), BTreeMap::new());
+                map.insert("D:/path/Image2.jpg".to_string(), BTreeMap::new());
+                map.insert("D:/path/Image3.jpg".to_string(), BTreeMap::new());
+                map
+            },
+            failures_by_source: HashMap::new(),
+        };
+
+        let mut warnings = Vec::new();
+        let outcome = assemble_batch_outcome(
+            &rel_paths,
+            &abs_paths,
+            display_pass.clone(),
+            raw_pass.clone(),
+            registry,
+            &mut warnings,
+        )
+        .unwrap();
+
+        assert_eq!(outcome.results.len(), 2);
+        assert_eq!(outcome.results[0].relative_path, "Image1.jpg");
+        assert_eq!(outcome.results[1].relative_path, "Image3.jpg");
+        assert_eq!(outcome.failures.len(), 1);
+        assert_eq!(outcome.failures[0].relative_path, "Image2.jpg");
+        assert!(outcome.failures[0]
+            .error_message
+            .contains("ExifTool display pass failed:"));
+        assert!(outcome.failures[0]
+            .error_message
+            .contains("display failure details"));
+
+        // 2. A raw-pass failure affects only that file
+        let display_pass_2 = ExifToolPassOutput {
+            values_by_source: {
+                let mut map = HashMap::new();
+                map.insert("D:/path/Image1.jpg".to_string(), BTreeMap::new());
+                map.insert("D:/path/Image2.jpg".to_string(), BTreeMap::new());
+                map.insert("D:/path/Image3.jpg".to_string(), BTreeMap::new());
+                map
+            },
+            failures_by_source: HashMap::new(),
+        };
+        let raw_pass_2 = ExifToolPassOutput {
+            values_by_source: {
+                let mut map = HashMap::new();
+                map.insert("D:/path/Image1.jpg".to_string(), BTreeMap::new());
+                map.insert("D:/path/Image3.jpg".to_string(), BTreeMap::new());
+                map
+            },
+            failures_by_source: {
+                let mut map = HashMap::new();
+                map.insert(
+                    "D:/path/Image2.jpg".to_string(),
+                    "raw failure details".to_string(),
+                );
+                map
+            },
+        };
+        let outcome_2 = assemble_batch_outcome(
+            &rel_paths,
+            &abs_paths,
+            display_pass_2,
+            raw_pass_2,
+            registry,
+            &mut warnings,
+        )
+        .unwrap();
+        assert_eq!(outcome_2.results.len(), 2);
+        assert_eq!(outcome_2.failures.len(), 1);
+        assert_eq!(outcome_2.failures[0].relative_path, "Image2.jpg");
+        assert!(outcome_2.failures[0]
+            .error_message
+            .contains("ExifTool raw (-n) pass failed:"));
+        assert!(outcome_2.failures[0]
+            .error_message
+            .contains("raw failure details"));
+
+        // 3. Failures in both passes produce one combined per-file failure
+        let display_pass_3 = ExifToolPassOutput {
+            values_by_source: {
+                let mut map = HashMap::new();
+                map.insert("D:/path/Image1.jpg".to_string(), BTreeMap::new());
+                map.insert("D:/path/Image3.jpg".to_string(), BTreeMap::new());
+                map
+            },
+            failures_by_source: {
+                let mut map = HashMap::new();
+                map.insert(
+                    "D:/path/Image2.jpg".to_string(),
+                    "display failure".to_string(),
+                );
+                map
+            },
+        };
+        let raw_pass_3 = ExifToolPassOutput {
+            values_by_source: {
+                let mut map = HashMap::new();
+                map.insert("D:/path/Image1.jpg".to_string(), BTreeMap::new());
+                map.insert("D:/path/Image3.jpg".to_string(), BTreeMap::new());
+                map
+            },
+            failures_by_source: {
+                let mut map = HashMap::new();
+                map.insert("D:/path/Image2.jpg".to_string(), "raw failure".to_string());
+                map
+            },
+        };
+        let outcome_3 = assemble_batch_outcome(
+            &rel_paths,
+            &abs_paths,
+            display_pass_3,
+            raw_pass_3,
+            registry,
+            &mut warnings,
+        )
+        .unwrap();
+        assert_eq!(outcome_3.results.len(), 2);
+        assert_eq!(outcome_3.failures.len(), 1);
+        assert_eq!(outcome_3.failures[0].relative_path, "Image2.jpg");
+        assert!(outcome_3.failures[0]
+            .error_message
+            .contains("ExifTool display pass failed:"));
+        assert!(outcome_3.failures[0]
+            .error_message
+            .contains("ExifTool raw (-n) pass failed:"));
+
+        // 4. Missing display output affects only that file
+        let display_pass_4 = ExifToolPassOutput {
+            values_by_source: {
+                let mut map = HashMap::new();
+                map.insert("D:/path/Image1.jpg".to_string(), BTreeMap::new());
+                map.insert("D:/path/Image3.jpg".to_string(), BTreeMap::new());
+                map
+            },
+            failures_by_source: HashMap::new(),
+        };
+        let raw_pass_4 = ExifToolPassOutput {
+            values_by_source: {
+                let mut map = HashMap::new();
+                map.insert("D:/path/Image1.jpg".to_string(), BTreeMap::new());
+                map.insert("D:/path/Image2.jpg".to_string(), BTreeMap::new());
+                map.insert("D:/path/Image3.jpg".to_string(), BTreeMap::new());
+                map
+            },
+            failures_by_source: HashMap::new(),
+        };
+        let outcome_4 = assemble_batch_outcome(
+            &rel_paths,
+            &abs_paths,
+            display_pass_4,
+            raw_pass_4,
+            registry,
+            &mut warnings,
+        )
+        .unwrap();
+        assert_eq!(outcome_4.results.len(), 2);
+        assert_eq!(outcome_4.failures.len(), 1);
+        assert_eq!(outcome_4.failures[0].relative_path, "Image2.jpg");
+        assert!(outcome_4.failures[0]
+            .error_message
+            .contains("ExifTool returned no result for this file"));
+
+        // 5. Missing raw output affects only that file
+        let display_pass_5 = ExifToolPassOutput {
+            values_by_source: {
+                let mut map = HashMap::new();
+                map.insert("D:/path/Image1.jpg".to_string(), BTreeMap::new());
+                map.insert("D:/path/Image2.jpg".to_string(), BTreeMap::new());
+                map.insert("D:/path/Image3.jpg".to_string(), BTreeMap::new());
+                map
+            },
+            failures_by_source: HashMap::new(),
+        };
+        let raw_pass_5 = ExifToolPassOutput {
+            values_by_source: {
+                let mut map = HashMap::new();
+                map.insert("D:/path/Image1.jpg".to_string(), BTreeMap::new());
+                map.insert("D:/path/Image3.jpg".to_string(), BTreeMap::new());
+                map
+            },
+            failures_by_source: HashMap::new(),
+        };
+        let outcome_5 = assemble_batch_outcome(
+            &rel_paths,
+            &abs_paths,
+            display_pass_5,
+            raw_pass_5,
+            registry,
+            &mut warnings,
+        )
+        .unwrap();
+        assert_eq!(outcome_5.results.len(), 2);
+        assert_eq!(outcome_5.failures.len(), 1);
+        assert_eq!(outcome_5.failures[0].relative_path, "Image2.jpg");
+        assert!(outcome_5.failures[0]
+            .error_message
+            .contains("ExifTool raw (-n) pass failed:\nExifTool returned no result for this file"));
+
+        // 6. Every requested path is classified exactly once
+        // 7. Input order is preserved
+        assert_eq!(outcome.results[0].relative_path, "Image1.jpg");
+        assert_eq!(outcome.results[1].relative_path, "Image3.jpg");
+        assert_eq!(outcome.failures[0].relative_path, "Image2.jpg");
+
+        // 8. Mismatched path-array lengths return a batch-wide error
+        let bad_abs = vec![std::path::PathBuf::from("D:/path/Image1.jpg")];
+        let outcome_err = assemble_batch_outcome(
+            &rel_paths,
+            &bad_abs,
+            display_pass,
+            raw_pass,
+            registry,
+            &mut warnings,
+        );
+        assert!(outcome_err.is_err());
+    }
+
+    #[test]
+    fn test_worker_failure_grouping() {
+        let outcome = MetadataBatchReadOutcome {
+            results: vec![
+                ImageMetadata {
+                    relative_path: "good1.jpg".to_string(),
+                    metadata: MetadataEntries(vec![]),
+                },
+                ImageMetadata {
+                    relative_path: "good2.jpg".to_string(),
+                    metadata: MetadataEntries(vec![]),
+                },
+            ],
+            failures: vec![
+                MetadataReadFailure {
+                    relative_path: "bad1.jpg".to_string(),
+                    error_message: "Error A".to_string(),
+                },
+                MetadataReadFailure {
+                    relative_path: "bad2.jpg".to_string(),
+                    error_message: "Error B".to_string(),
+                },
+                MetadataReadFailure {
+                    relative_path: "bad3.jpg".to_string(),
+                    error_message: "Error A".to_string(),
+                },
+            ],
+        };
+
+        assert_eq!(outcome.results[0].relative_path, "good1.jpg");
+        assert_eq!(outcome.results[1].relative_path, "good2.jpg");
+
+        let grouped = group_metadata_failures(&outcome.failures);
+
+        assert_eq!(grouped.len(), 2);
+        assert!(grouped.contains_key("Error A"));
+        assert!(grouped.contains_key("Error B"));
+
+        let affected_a = grouped.get("Error A").unwrap();
+        assert_eq!(
+            affected_a,
+            &vec!["bad1.jpg".to_string(), "bad3.jpg".to_string()]
+        );
+
+        let affected_b = grouped.get("Error B").unwrap();
+        assert_eq!(affected_b, &vec!["bad2.jpg".to_string()]);
     }
 }

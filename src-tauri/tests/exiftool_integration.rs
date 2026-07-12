@@ -61,9 +61,12 @@ fn rel_of(folder: &Path, abs: &Path) -> String {
 
 fn read_one(folder: &Path, abs: &Path) -> scanner::ImageMetadata {
     let rel = rel_of(folder, abs);
-    let mut results = scanner::read_image_metadata_batch(&[rel], &[abs.to_path_buf()])
+    let outcome = scanner::read_image_metadata_batch(&[rel], &[abs.to_path_buf()])
         .expect("read_image_metadata_batch ok");
-    results.pop().expect("one result")
+    if !outcome.failures.is_empty() {
+        panic!("read_one failed: {}", outcome.failures[0].error_message);
+    }
+    outcome.results.into_iter().next().expect("one result")
 }
 
 fn metadata_set(value: MetadataValue) -> MetadataDraftEdit {
@@ -487,13 +490,15 @@ fn unicode_filename_does_not_crash_scanner() {
     let rel = rel_of(dir.path(), &dst);
     let result = scanner::read_image_metadata_batch(&[rel], &[dst]);
     match result {
-        Ok(results) => {
+        Ok(outcome) => {
             // If exiftool found the file, sanity-check metadata; otherwise
             // accept the empty case (Windows path-encoding limitation).
-            if let Some(r) = results.into_iter().next() {
+            if let Some(r) = outcome.results.into_iter().next() {
                 if !r.metadata.is_empty() {
                     println!("[unicode test] exiftool read metadata: ok");
                 }
+            } else if let Some(fail) = outcome.failures.into_iter().next() {
+                println!("[unicode test] failed per-file: {}", fail.error_message);
             }
         }
         Err(e) => {
@@ -523,23 +528,30 @@ fn malformed_truncated_does_not_kill_batch() {
     let rel_paths = vec!["good.jpg".to_string(), "bad.jpg".to_string()];
     let abs_paths = vec![good_dst.clone(), bad_dst.clone()];
 
-    let results = scanner::read_image_metadata_batch(&rel_paths, &abs_paths)
+    let outcome = scanner::read_image_metadata_batch(&rel_paths, &abs_paths)
         .expect("batch read should not hard-fail");
-    assert_eq!(results.len(), 2);
+    assert_eq!(outcome.results.len() + outcome.failures.len(), 2);
 
     // The good file's metadata should be intact.
-    let good_result = results
+    let good_result = outcome
+        .results
         .iter()
-        .find(|r| r.relative_path == "good.jpg")
-        .unwrap();
+        .find(|r| r.relative_path == "good.jpg");
     assert!(
-        !good_result.metadata.is_empty(),
+        good_result.map(|r| !r.metadata.is_empty()).unwrap_or(false),
         "good file must still have metadata"
     );
-    // The bad file may have zero or partial metadata, but the call must
-    // have returned an entry for it (no per-file failure should propagate
-    // as a missing entry).
-    assert!(results.iter().any(|r| r.relative_path == "bad.jpg"));
+
+    // The bad file may have zero or partial metadata, or have failed, but it must be in either results or failures.
+    let has_bad = outcome.results.iter().any(|r| r.relative_path == "bad.jpg")
+        || outcome
+            .failures
+            .iter()
+            .any(|f| f.relative_path == "bad.jpg");
+    assert!(
+        has_bad,
+        "bad file must be present in either results or failures"
+    );
 }
 
 // ── Semantic apply path: MetadataDraftEdit with Bag<Text> ────────────────────
@@ -1149,4 +1161,72 @@ fn missing_exact_schema_is_rejected_before_write() {
     assert!(outcome.error.unwrap().contains("missing schema"));
     assert!(outcome.outcomes.is_empty());
     assert_eq!(fs::read(&dst).expect("read after"), before);
+}
+
+#[test]
+fn integration_per_file_metadata_failure_isolation() {
+    // one file fails parsing -> another file in the same logical batch still returns its metadata
+    let rel_paths = vec!["good.jpg".to_string(), "bad.jpg".to_string()];
+    let abs_paths = vec![
+        std::path::PathBuf::from("D:/path/good.jpg"),
+        std::path::PathBuf::from("D:/path/bad.jpg"),
+    ];
+
+    let display_pass = scanner::ExifToolPassOutput {
+        values_by_source: {
+            let mut map = std::collections::HashMap::new();
+            map.insert(
+                "D:/path/good.jpg".to_string(),
+                std::collections::BTreeMap::new(),
+            );
+            map
+        },
+        failures_by_source: {
+            let mut map = std::collections::HashMap::new();
+            map.insert(
+                "D:/path/bad.jpg".to_string(),
+                "synthetic parser failure".to_string(),
+            );
+            map
+        },
+    };
+
+    let raw_pass = scanner::ExifToolPassOutput {
+        values_by_source: {
+            let mut map = std::collections::HashMap::new();
+            map.insert(
+                "D:/path/good.jpg".to_string(),
+                std::collections::BTreeMap::new(),
+            );
+            map
+        },
+        failures_by_source: {
+            let mut map = std::collections::HashMap::new();
+            map.insert(
+                "D:/path/bad.jpg".to_string(),
+                "synthetic parser failure".to_string(),
+            );
+            map
+        },
+    };
+
+    let mut warnings = Vec::new();
+    let outcome = scanner::assemble_batch_outcome(
+        &rel_paths,
+        &abs_paths,
+        display_pass,
+        raw_pass,
+        medialibrary_tauri_lib::tag_schema::get_registry().ok(),
+        &mut warnings,
+    )
+    .unwrap();
+
+    // Assertion: one file fails parsing -> another file in the same logical batch still returns its metadata
+    assert_eq!(outcome.results.len(), 1);
+    assert_eq!(outcome.results[0].relative_path, "good.jpg");
+    assert_eq!(outcome.failures.len(), 1);
+    assert_eq!(outcome.failures[0].relative_path, "bad.jpg");
+    assert!(outcome.failures[0]
+        .error_message
+        .contains("synthetic parser failure"));
 }

@@ -181,19 +181,20 @@ impl MetadataWriteClient for RealMetadataWriteClient {
         rel_path: &str,
         abs_path: &Path,
     ) -> Result<scanner::MetadataMap, String> {
-        let mut results =
+        let outcome =
             scanner::read_image_metadata_batch(&[rel_path.to_string()], &[abs_path.to_path_buf()])
                 .map_err(|e| e.to_string())?;
 
-        results
-            .pop()
-            .map(|r| {
-                r.metadata
-                    .into_iter()
-                    .map(|entry| (entry.id, entry.value))
-                    .collect()
-            })
-            .ok_or_else(|| "No metadata returned".to_string())
+        if let Some(r) = outcome.results.into_iter().next() {
+            Ok(r.metadata
+                .into_iter()
+                .map(|entry| (entry.id, entry.value))
+                .collect())
+        } else if let Some(fail) = outcome.failures.into_iter().next() {
+            Err(fail.error_message)
+        } else {
+            Err("No metadata returned and no failure recorded (impossible outcome)".to_string())
+        }
     }
 
     fn write_metadata(&self, numeric: bool, rendered_contents: &str) -> Result<(), String> {
