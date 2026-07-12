@@ -234,7 +234,7 @@ impl TagRegistry {
         self.tags.values().filter(|info| info.writable)
     }
 
-    /// Build from raw `exiftool -listx -lang en` XML output.
+    /// Build from raw `exiftool -listx -f -lang en` XML output.
     /// Public for testing against fixture XML.
     pub fn from_listx_xml(xml: &str) -> Result<Self, SchemaError> {
         let mut reader = Reader::from_str(xml);
