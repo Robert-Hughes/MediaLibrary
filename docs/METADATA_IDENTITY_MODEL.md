@@ -88,7 +88,6 @@ occurrence in one source file is known. An exact target currently requires:
 - an exactly resolved, statically writable `TagInfo`;
 - a supported schema kind (not `Binary` or `Unknown`);
 - the main family-3 document;
-- the primary family-4 occurrence;
 - no other runtime occurrence with the same selector;
 - no runtime LangAlt child semantics;
 - exact agreement between the runtime tag name and canonical `TagInfo::name`;
@@ -97,8 +96,15 @@ occurrence in one source file is known. An exact target currently requires:
 Selector ambiguity is detected across all occurrences, including otherwise
 ineligible siblings, using the ASCII-case-insensitive runtime family-1/tag-name
 pair. Family 5 cannot disambiguate a selector because it is not represented in
-`MetadataWriteTarget`. A `Copy0` occurrence is therefore not targetable when a
-matching `Copy1` exists.
+`MetadataWriteTarget`.
+
+Family 4 is part of runtime occurrence identity but not part of the supported
+write selector. A non-zero `CopyN` does not by itself make an occurrence
+read-only. Exactness is determined by whether the family-1/tag-name selector is
+unique across the file's extracted occurrences. Family-4 numbering may span
+same-named tags in different groups, so `CopyN` is not equivalent to "Nth copy
+within this family-1 selector". Family 4 cannot itself be used as the current
+write target.
 
 `TagInfo::group` is not the occurrence write destination. Runtime family 1
 supplies the target group, so occurrences sharing one static schema may still
@@ -110,18 +116,22 @@ shared TagInfo
 └── occurrence IFD1 → write target IFD1:XResolution
 ```
 
-This example applies when both runtime records are primary family-4
-occurrences. ExifTool may instead number a later same-named record as `Copy1`
-or higher across groups; under the locked primary-only rule, that record remains
-untargetable even though its family-1 group differs.
-
-Conversely, family-4 copies share a selector that the current target cannot
-distinguish:
+For example, different family-1 selectors are independently exact even when
+ExifTool assigns a later family-4 number to one occurrence:
 
 ```text
-IFD0 / Copy0 / XResolution
-IFD0 / Copy1 / XResolution
-→ neither has an exact MetadataWriteTarget
+IFD0:XResolution / Copy0
+IFD1:XResolution / Copy2
+→ both exact because the family-1 selectors differ
+```
+
+Conversely, family-4 identity cannot distinguish occurrences for a write
+selector that they share:
+
+```text
+IFD0:XResolution / Copy0
+IFD0:XResolution / Copy1
+→ neither exact because the write selector is shared
 ```
 
 ## Creating a new property
