@@ -12,6 +12,30 @@ export function metadataOccurrenceIdEquals(
   );
 }
 
+function compareStrings(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+/** Rust-compatible lexicographic ordering for occurrence identities. */
+export function compareMetadataOccurrenceIds(
+  a: MetadataOccurrenceId,
+  b: MetadataOccurrenceId,
+): number {
+  const aDocument = a.document ?? null;
+  const bDocument = b.document ?? null;
+  if (aDocument === null && bDocument !== null) return -1;
+  if (aDocument !== null && bDocument === null) return 1;
+  if (aDocument !== null && bDocument !== null) {
+    const documentOrder = compareStrings(aDocument, bDocument);
+    if (documentOrder !== 0) return documentOrder;
+  }
+  const pathOrder = compareStrings(a.path, b.path);
+  if (pathOrder !== 0) return pathOrder;
+  const tagOrder = compareStrings(a.tag_id, b.tag_id);
+  if (tagOrder !== 0) return tagOrder;
+  return a.copy - b.copy;
+}
+
 /**
  * Internal JavaScript collection/React-key token only. Domain APIs, persisted
  * data and Tauri commands must always carry the original MetadataOccurrenceId.

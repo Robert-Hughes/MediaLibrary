@@ -6,10 +6,21 @@ This document holds operational rules for the metadata pipeline. For the full ty
 
 The scanner's public Rust `ImageMetadata` result contains authoritative,
 occurrence-keyed `MetadataOccurrences` and a temporary schema-keyed
-`MetadataEntries` compatibility projection. The Tauri scan event still sends
-only the legacy projection, and apply/readback remains schema-keyed. Identical
-values sharing a schema may deduplicate in the compatibility field; conflicting
-values sharing a schema still fail that file at the projection boundary.
+`MetadataEntries` compatibility projection. The Tauri `image_metadata_ready`
+event sends that result directly with `relative_path`, `occurrences`, and
+`metadata`. The frontend validates and stores the two representations
+independently in `ImageMetadataOccurrencesStore` and `ImageMetadataStore`.
+
+Occurrences are transported and retained but no production feature consumes
+them yet. Every current UI, search, sorting, draft, write, normalisation, and
+readback-verification path remains schema-keyed through `ImageMetadataStore`.
+Identical values sharing a schema may deduplicate in the compatibility field;
+conflicting values sharing a schema still fail the entire file at the mandatory
+legacy-projection boundary.
+
+For a failed file, the metadata event contains empty occurrence and legacy
+collections only so both stores leave their loading state. The associated error
+details remain in `worker_error`.
 
 ## Tag-Schema Overrides
 

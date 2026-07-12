@@ -1635,7 +1635,7 @@ fn parse_exiftool_batch_json(
                 );
                 BTreeMap::new()
             });
-        let metadata = canonical_values_from_exiftool_pair_exact(
+        let canonical = canonical_occurrences_from_exiftool_pair(
             &BTreeMap::new(),
             &display_values,
             registry,
@@ -1643,9 +1643,11 @@ fn parse_exiftool_batch_json(
             None,
         )
         .unwrap_or_default();
+        let occurrences = metadata_occurrences_from_canonical(&canonical);
+        let metadata = project_occurrences_to_legacy_metadata(canonical).unwrap_or_default();
         results.push(ImageMetadata {
             relative_path: rel_path.clone(),
-            occurrences: MetadataOccurrences::default(),
+            occurrences,
             metadata: metadata_entries(metadata),
         });
     }
@@ -3024,6 +3026,19 @@ mod tests {
         let result = &outcome.results[0];
         assert!(!result.occurrences.is_empty());
         assert!(!result.metadata.is_empty());
+        assert!(result
+            .occurrences
+            .0
+            .windows(2)
+            .all(|pair| pair[0].id <= pair[1].id));
+        let wire = serde_json::to_value(result).unwrap();
+        let wire_object = wire.as_object().unwrap();
+        assert_eq!(wire_object.len(), 3);
+        assert!(wire_object.contains_key("relative_path"));
+        assert!(wire_object.contains_key("occurrences"));
+        assert!(wire_object.contains_key("metadata"));
+        assert!(!wire["occurrences"].as_array().unwrap().is_empty());
+        assert!(!wire["metadata"].as_array().unwrap().is_empty());
 
         let resolutions: Vec<_> = result
             .occurrences
@@ -3516,6 +3531,18 @@ mod tests {
         let abs = vec![std::path::PathBuf::from("D:/a.jpg")];
         let results = parse_exiftool_batch_json(json, &rel, &abs);
         let image = &results[0];
+        assert!(!image.occurrences.is_empty());
+        let iptc_value = image
+            .metadata
+            .get(&crate::known_ids::iptc_time_created())
+            .unwrap();
+        assert!(image.occurrences.iter().any(|occurrence| {
+            occurrence
+                .tag_info
+                .as_ref()
+                .is_some_and(|info| info.id == crate::known_ids::iptc_time_created())
+                && &occurrence.value == iptc_value
+        }));
         assert!(matches!(
             image.metadata.get(&crate::known_ids::iptc_time_created()),
             Some(MetadataValue::Time(t)) if t.offset.is_none()

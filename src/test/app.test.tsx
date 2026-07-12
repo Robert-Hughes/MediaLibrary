@@ -357,6 +357,7 @@ describe("App Select Columns metadata counts", () => {
         results: [
           {
             relative_path: "a.jpg",
+            occurrences: [],
             metadata: mockMetadataEntries({
               "XMP-dc:Title": "Committed title",
             }),
@@ -472,6 +473,7 @@ describe("App Select Columns metadata counts", () => {
         results: [
           {
             relative_path: "a.jpg",
+            occurrences: [],
             metadata: mockMetadataEntries({ "XMP-dc:Title": "Title A" }),
           },
         ],
@@ -496,6 +498,7 @@ describe("App Select Columns metadata counts", () => {
         results: [
           {
             relative_path: "b.jpg",
+            occurrences: [],
             metadata: mockMetadataEntries({ "XMP-dc:Title": "Title B" }),
           },
         ],

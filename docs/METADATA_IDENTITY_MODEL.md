@@ -184,8 +184,19 @@ schema projection cannot represent multiple different values sharing one
 schema identity, so that file still fails explicitly at the projection boundary
 instead of selecting an occurrence.
 
-The Tauri `image_metadata_ready` event continues to emit only legacy metadata.
-Frontend state and apply/readback consumers remain schema-keyed and do not yet
-consume occurrence identities or targets. The user-visible duplicate-occurrence
-problem is therefore not fixed; subsequent migration commits will move those
-systems incrementally.
+The Tauri `image_metadata_ready` event transports the scanner's `ImageMetadata`
+result directly, including both authoritative `occurrences` and the legacy
+`metadata` projection. The frontend validates and retains occurrences in the
+parallel `ImageMetadataOccurrencesStore`, while `ImageMetadataStore` retains the
+legacy projection.
+
+Every current UI, search, sorting, draft, write, and readback-verification
+consumer still reads `ImageMetadataStore`; occurrence transport is present but
+is not yet behaviourally active. Conflicting values that share a schema still
+fail before emission at the mandatory legacy-projection boundary. The
+user-visible duplicate-occurrence problem is therefore not fixed; subsequent
+migration commits will move those systems incrementally.
+
+Failed files are emitted with empty occurrence and legacy collections solely to
+clear both frontend loading states. Failure details continue to arrive through
+the `worker_error` event.

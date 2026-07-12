@@ -250,13 +250,7 @@ struct WorkerErrorPayload {
 #[derive(Clone, Serialize)]
 struct ImageMetadataReadyPayload {
     scan_id: u64,
-    results: Vec<ImageMetadataResult>,
-}
-
-#[derive(Clone, Serialize)]
-struct ImageMetadataResult {
-    relative_path: String,
-    metadata: scanner::MetadataEntries,
+    results: Vec<scanner::ImageMetadata>,
 }
 
 #[derive(Clone, Serialize)]
@@ -441,12 +435,7 @@ fn start_scan(
                                     outcome.failures.len()
                                 );
 
-                                for info in outcome.results {
-                                    batch_results.push(ImageMetadataResult {
-                                        relative_path: info.relative_path,
-                                        metadata: info.metadata,
-                                    });
-                                }
+                                batch_results.extend(outcome.results);
 
                                 let grouped_failures =
                                     scanner::group_metadata_failures(&outcome.failures);
@@ -463,8 +452,10 @@ fn start_scan(
                                 }
 
                                 for fail in outcome.failures {
-                                    batch_results.push(ImageMetadataResult {
+                                    batch_results.push(scanner::ImageMetadata {
                                         relative_path: fail.relative_path,
+                                        occurrences:
+                                            crate::metadata_occurrence::MetadataOccurrences::default(),
                                         metadata: scanner::MetadataEntries::default(),
                                     });
                                 }
@@ -483,12 +474,13 @@ fn start_scan(
                                     },
                                 );
 
-                                // Send error metadata for failed files so UI shows "failed" instead of spinner
+                                // Send empty results for failed files so both frontend stores clear loading.
                                 for rel_path in rel_paths {
-                                    let metadata = scanner::MetadataEntries::default();
-                                    batch_results.push(ImageMetadataResult {
+                                    batch_results.push(scanner::ImageMetadata {
                                         relative_path: rel_path,
-                                        metadata,
+                                        occurrences:
+                                            crate::metadata_occurrence::MetadataOccurrences::default(),
+                                        metadata: scanner::MetadataEntries::default(),
                                     });
                                 }
                             }
@@ -1041,18 +1033,86 @@ mod tests {
     }
 
     #[test]
-    fn metadata_worker_compatibility_result_omits_occurrences() {
-        let result = ImageMetadataResult {
-            relative_path: "photo.jpg".to_string(),
-            metadata: scanner::MetadataEntries::default(),
+    fn metadata_ready_payload_serializes_authoritative_and_legacy_results() {
+        use crate::metadata_occurrence::{
+            MetadataOccurrence, MetadataOccurrenceId, MetadataOccurrences, MetadataWriteTarget,
+        };
+        use crate::metadata_value::MetadataValue;
+        use crate::tag_schema::{SchemaDefinitionId, TagInfo, TagKind};
+
+        let schema_id = SchemaDefinitionId {
+            table: "Exif::Main".into(),
+            tag_id: "282".into(),
+            index: None,
+        };
+        let tag_info = TagInfo {
+            id: schema_id.clone(),
+            group: "IFD0".into(),
+            name: "XResolution".into(),
+            writable: true,
+            kind: TagKind::Rational,
+            description: Some("X resolution".into()),
+            storage_count: Some("1".into()),
+        };
+        let occurrence = |path: &str, copy: u32, group1: &str| MetadataOccurrence {
+            id: MetadataOccurrenceId {
+                document: None,
+                path: path.into(),
+                tag_id: "282".into(),
+                copy,
+            },
+            value: MetadataValue::Integer(300),
+            tag_info: Some(tag_info.clone()),
+            write_target: Some(MetadataWriteTarget {
+                group1: group1.into(),
+                tag_name: "XResolution".into(),
+            }),
+        };
+        let result = scanner::ImageMetadata {
+            relative_path: "photo.jpg".into(),
+            occurrences: MetadataOccurrences(vec![
+                occurrence("JPEG-APP1-IFD0", 0, "IFD0"),
+                occurrence("JPEG-APP1-IFD1", 2, "IFD1"),
+            ]),
+            metadata: scanner::MetadataEntries(vec![scanner::MetadataEntry {
+                id: schema_id,
+                value: MetadataValue::Integer(300),
+            }]),
         };
 
+        let json = serde_json::to_value(ImageMetadataReadyPayload {
+            scan_id: 7,
+            results: vec![result],
+        })
+        .unwrap();
+        let result = json["results"][0].as_object().unwrap();
+        assert_eq!(result.len(), 3);
+        assert_eq!(
+            result
+                .keys()
+                .map(String::as_str)
+                .collect::<std::collections::BTreeSet<_>>(),
+            std::collections::BTreeSet::from(["metadata", "occurrences", "relative_path"])
+        );
+        assert_eq!(result["occurrences"].as_array().unwrap().len(), 2);
+        assert_eq!(result["occurrences"][1]["id"]["copy"], 2);
+        assert_eq!(result["occurrences"][0]["tag_info"]["id"]["tag_id"], "282");
+        assert_eq!(result["occurrences"][0]["value"]["kind"], "Integer");
+        assert_eq!(result["occurrences"][0]["write_target"]["group1"], "IFD0");
+        assert_eq!(result["metadata"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn metadata_ready_failed_placeholder_serializes_both_empty_collections() {
+        let result = scanner::ImageMetadata {
+            relative_path: "failed.jpg".into(),
+            occurrences: crate::metadata_occurrence::MetadataOccurrences::default(),
+            metadata: scanner::MetadataEntries::default(),
+        };
         let json = serde_json::to_value(result).unwrap();
-        let object = json.as_object().unwrap();
-        assert_eq!(object.len(), 2);
-        assert!(object.contains_key("relative_path"));
-        assert!(object.contains_key("metadata"));
-        assert!(!object.contains_key("occurrences"));
+        assert_eq!(json.as_object().unwrap().len(), 3);
+        assert_eq!(json["occurrences"], serde_json::json!([]));
+        assert_eq!(json["metadata"], serde_json::json!([]));
     }
 
     #[test]
