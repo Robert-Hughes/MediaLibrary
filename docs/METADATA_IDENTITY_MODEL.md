@@ -35,6 +35,12 @@ It consists of ExifTool family 3 (document or timed sample), family 5 (complete
 metadata container path), family 7 (runtime tag ID), and normalised family 4
 (copy number, with the primary occurrence represented as zero).
 
+At the ExifTool read boundary, family 3 `Main` is stored as `document: None`;
+the empty primary family-4 position (or explicit `Copy0`) is stored as
+`copy: 0`; and the family-7 `ID-` transport prefix is omitted from stored
+`tag_id`. Non-primary document/sample names, complete family-5 paths, and the
+remainder of family-7 IDs are retained exactly and case-sensitively.
+
 Runtime occurrence identity deliberately excludes schema identity. When an
 identity must be unique across files, it must be combined with the source
 file's relative path.
@@ -77,8 +83,10 @@ targeted safely.
 ## Creating a new property
 
 Add New Property begins from a selected `TagInfo`. A later migration step will
-decide the new `MetadataOccurrenceId` and `MetadataWriteTarget` after creation.
-No separate creation-target type is introduced yet.
+plan the intended `MetadataOccurrenceId` and `MetadataWriteTarget` before the
+write. The actual resulting occurrence identity will be confirmed by rereading
+the file after ExifTool creates it. No separate creation-target type is
+introduced at present.
 
 ## No arbitrary schema-to-occurrence conversion
 
@@ -96,7 +104,9 @@ silently select the first occurrence, and there is no general conversion from
 
 ## Migration status
 
-This commit only defines the locked model. The current scanner, metadata
-collection, drafts, columns, search, and write pipeline still use their
-existing schema-keyed representation. Subsequent small commits will migrate
+The ExifTool boundary now captures runtime occurrence coordinates inside the
+scanner. Runtime maps, scanner output, and application consumers remain keyed
+by schema identity, so occurrence coordinates are not yet domain identity
+outside scanner internals. In particular, this step does not fix collisions
+between duplicate schema occurrences; subsequent small commits will migrate
 those systems incrementally.
