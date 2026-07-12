@@ -6,12 +6,20 @@
  * Lives in its own module so it can be unit-tested directly (without a
  * Worker harness) and reused as the body of `src/workers/searchWorker.ts`.
  */
-import type { ImageMetadataState, MetadataDraftEdit } from "../types";
+import type {
+  SearchDraftEntry,
+  SearchMetadataState,
+  SearchSchemaLabel,
+} from "../workers/searchWorkerProtocol";
 import {
   displayStringOfMetadataDraft,
   metadataEntryToDisplayString,
 } from "../draft";
 import { formatPhotoRowDate } from "../utils/photoDate";
+import {
+  formatSchemaDefinitionIdForDiagnostics,
+  schemaDefinitionIdToken,
+} from "../utils/schemaDefinitionId";
 
 export interface SearchPhotoFields {
   relative_path: string;
@@ -37,34 +45,66 @@ function photoChunk(fields: SearchPhotoFields): string {
   ].join("\n");
 }
 
-function metaChunk(meta: ImageMetadataState | undefined): string {
-  if (!meta || meta === "loading" || typeof meta !== "object") return "";
+function exactIdChunk(id: SearchMetadataEntryId): string[] {
+  return [
+    id.table,
+    id.tag_id,
+    ...(id.index === undefined ? [] : [String(id.index)]),
+    formatSchemaDefinitionIdForDiagnostics(id),
+  ];
+}
+
+type SearchMetadataEntryId = SearchSchemaLabel["id"];
+
+function labelChunk(
+  id: SearchMetadataEntryId,
+  labels: Map<string, SearchSchemaLabel>,
+): string[] {
+  const label = labels.get(schemaDefinitionIdToken(id));
+  return label
+    ? [`${label.group}:${label.name}`, label.name, label.description ?? ""]
+    : [];
+}
+
+function metaChunk(
+  meta: SearchMetadataState | undefined,
+  labels: Map<string, SearchSchemaLabel>,
+): string {
+  if (!meta || meta === "loading") return "";
   const parts: string[] = [];
-  for (const [key, value] of Object.entries(meta)) {
-    if (key === "_error") continue;
-    parts.push(key, metadataEntryToDisplayString(value));
+  for (const entry of meta) {
+    parts.push(
+      ...labelChunk(entry.id, labels),
+      ...exactIdChunk(entry.id),
+      metadataEntryToDisplayString(entry.value),
+    );
   }
   return parts.join("\n");
 }
 
 function draftsChunk(
-  edits: Record<string, MetadataDraftEdit> | undefined,
+  edits: SearchDraftEntry[] | undefined,
+  labels: Map<string, SearchSchemaLabel>,
 ): string {
   if (!edits) return "";
   const parts: string[] = [];
-  for (const [key, d] of Object.entries(edits)) {
-    const display = displayStringOfMetadataDraft(d);
-    parts.push(key, display === null ? "—" : (display ?? ""));
+  for (const entry of edits) {
+    const display = displayStringOfMetadataDraft(entry.edit);
+    parts.push(
+      ...labelChunk(entry.id, labels),
+      ...exactIdChunk(entry.id),
+      display === null ? "—" : (display ?? ""),
+    );
   }
   return parts.join("\n");
 }
 
 export class SearchIndex {
   private photoFields = new Map<string, SearchPhotoFields>();
-  private metaParts = new Map<string, string>();
-  private draftParts = new Map<string, string>();
+  private metadata = new Map<string, SearchMetadataState>();
   /** Kept raw so `has:edits` can answer without re-parsing the haystack. */
-  private drafts = new Map<string, Record<string, MetadataDraftEdit>>();
+  private drafts = new Map<string, SearchDraftEntry[]>();
+  private schemaLabels = new Map<string, SearchSchemaLabel>();
   /** Pre-lowercased combined haystack, the substring search target. */
   private haystacks = new Map<string, string>();
 
@@ -82,33 +122,37 @@ export class SearchIndex {
     this.rebuild(fields.relative_path);
   }
 
-  setMeta(path: string, meta: ImageMetadataState | undefined) {
+  setMeta(
+    path: string,
+    meta: SearchMetadataState | undefined,
+    schemaLabels: readonly SearchSchemaLabel[] = [],
+  ) {
+    this.storeLabels(schemaLabels);
     if (meta === undefined) {
-      this.metaParts.delete(path);
+      this.metadata.delete(path);
     } else {
-      this.metaParts.set(path, metaChunk(meta));
+      this.metadata.set(path, meta);
     }
     this.rebuild(path);
   }
 
   setDrafts(
     path: string,
-    edits: Record<string, MetadataDraftEdit> | undefined,
+    edits: SearchDraftEntry[] | undefined,
+    schemaLabels: readonly SearchSchemaLabel[] = [],
   ) {
-    if (edits === undefined || Object.keys(edits).length === 0) {
+    this.storeLabels(schemaLabels);
+    if (edits === undefined || edits.length === 0) {
       this.drafts.delete(path);
-      this.draftParts.delete(path);
     } else {
       this.drafts.set(path, edits);
-      this.draftParts.set(path, draftsChunk(edits));
     }
     this.rebuild(path);
   }
 
   deletePath(path: string) {
     this.photoFields.delete(path);
-    this.metaParts.delete(path);
-    this.draftParts.delete(path);
+    this.metadata.delete(path);
     this.drafts.delete(path);
     this.haystacks.delete(path);
     this.priorQuery = null;
@@ -117,9 +161,9 @@ export class SearchIndex {
   /** Drop everything.  Used on scan reset. */
   clear() {
     this.photoFields.clear();
-    this.metaParts.clear();
-    this.draftParts.clear();
+    this.metadata.clear();
     this.drafts.clear();
+    this.schemaLabels.clear();
     this.haystacks.clear();
     this.priorQuery = null;
   }
@@ -186,13 +230,19 @@ export class SearchIndex {
     }
     const combined = [
       photoChunk(fields),
-      this.metaParts.get(path) ?? "",
-      this.draftParts.get(path) ?? "",
+      metaChunk(this.metadata.get(path), this.schemaLabels),
+      draftsChunk(this.drafts.get(path), this.schemaLabels),
     ]
       .filter(Boolean)
       .join("\n")
       .toLowerCase();
     this.haystacks.set(path, combined);
     this.priorQuery = null;
+  }
+
+  private storeLabels(labels: readonly SearchSchemaLabel[]) {
+    for (const label of labels) {
+      this.schemaLabels.set(schemaDefinitionIdToken(label.id), label);
+    }
   }
 }

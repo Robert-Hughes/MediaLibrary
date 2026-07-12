@@ -781,6 +781,15 @@ fn get_tag_info(id: tag_schema::SchemaDefinitionId) -> Result<Option<tag_schema:
     Ok(registry.lookup(&id).cloned())
 }
 
+/// Look up a deduplicated batch of exact schema definitions.
+#[tauri::command]
+fn get_tag_infos(
+    ids: Vec<tag_schema::SchemaDefinitionId>,
+) -> Result<Vec<tag_schema::TagInfo>, String> {
+    let registry = tag_schema::get_registry().map_err(|e| e.to_string())?;
+    Ok(registry.lookup_exact_batch(ids))
+}
+
 /// Eagerly warms the tag-schema registry so the first `get_tag_info` call is
 /// instant.  Called once at startup; the front-end blocks its UI until this
 /// resolves so editors never see a missing-schema flash.
@@ -1228,6 +1237,7 @@ pub fn run() {
             apply_metadata_draft_edits_cmd,
             cancel_apply_edits,
             get_tag_info,
+            get_tag_infos,
             preload_schema,
             list_writable_schema_definitions,
             commands::settings::load_settings_cmd,

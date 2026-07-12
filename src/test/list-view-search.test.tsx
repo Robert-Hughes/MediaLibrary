@@ -4,7 +4,13 @@
  * uses — `useSearchWorker` + the SearchIndex-backed InThreadSearchWorker
  * stub from `src/test/setup.ts`.
  */
-import { render, screen, waitFor, within } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useMemo, useState } from "react";
 import { describe, it, expect, beforeEach } from "vitest";
@@ -15,13 +21,24 @@ import {
   ThumbnailStore,
   type VisibleColumn,
 } from "../types";
-import { makePhotos, imgCol, mockMetadata, testId } from "./factories";
+import {
+  makePhotos,
+  imgCol,
+  mockDraftsByFile,
+  mockMetadata,
+  testId,
+} from "./factories";
 import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
 import { useSearchWorker, createSearchWorker } from "../hooks/useSearchWorker";
 import {
   _clearTagInfoCache,
   _setTagInfoCacheEntry,
 } from "./tagInfoTestHelpers";
+
+const collisionTitleId = {
+  table: "QuickTime::ItemList",
+  tag_id: "Title",
+};
 
 const defaultSortProps = {
   sortConfig: { primary: null, secondary: null } as const,
@@ -52,13 +69,34 @@ function ListSearchHarness({
       mockMetadata({
         "Hidden:SecretTag": "unique-xyz-123",
         "IFD0:Make": "Sony",
+        "XMP-dc:Title": "Aurora catalogue",
       }),
     );
     m.set("b.jpg", mockMetadata({ "IFD0:Make": "Canon" }));
-    m.set("c.jpg", mockMetadata({ "IFD0:Make": "Nikon" }));
+    m.set("c.jpg", {
+      ...mockMetadata({ "IFD0:Make": "Nikon" }),
+      [schemaDefinitionIdToken(collisionTitleId)]: {
+        id: collisionTitleId,
+        kind: "Text",
+        value: "Alternate title",
+      },
+    });
     return m;
   }, [allPhotos]);
-  const drafts = useMemo(() => new DraftEditsStore(), []);
+  const drafts = useMemo(() => {
+    const store = new DraftEditsStore();
+    store.resetMetadata(
+      mockDraftsByFile({
+        "b.jpg": {
+          "IPTC:City": {
+            value: { kind: "Text", value: "Reykjavik draft" },
+            intent: "Set",
+          },
+        },
+      }),
+    );
+    return store;
+  }, []);
 
   const { matched } = useSearchWorker({
     photos: allPhotos,
@@ -118,6 +156,28 @@ describe("List view search", () => {
   beforeEach(() => {
     _clearTagInfoCache();
     _setTagInfoCacheEntry("IFD0:Make", null);
+    _setTagInfoCacheEntry("Hidden:SecretTag", null);
+    _setTagInfoCacheEntry("XMP-dc:Title", {
+      group: "XMP-dc",
+      name: "Title",
+      writable: true,
+      kind: { kind: "Text" },
+      description: "The resource title",
+    });
+    _setTagInfoCacheEntry("IPTC:City", {
+      group: "IPTC",
+      name: "City",
+      writable: true,
+      kind: { kind: "Text" },
+      description: "The city shown",
+    });
+    _setTagInfoCacheEntry(collisionTitleId, {
+      group: "XMP-dc",
+      name: "Title",
+      writable: true,
+      kind: { kind: "Text" },
+      description: "The resource title",
+    });
   });
 
   it("filters rows by path and highlights the match in the path cell", async () => {
@@ -194,5 +254,68 @@ describe("List view search", () => {
     expect(
       screen.getByTestId("photo-list-search-empty-message"),
     ).toHaveTextContent("No photos match your search.");
+  });
+
+  it.each([
+    ["XMP-dc:Title", ["a.jpg", "c.jpg"]],
+    ["Title", ["a.jpg", "c.jpg"]],
+    ["The resource title", ["a.jpg", "c.jpg"]],
+    ["Aurora catalogue", ["a.jpg"]],
+    [testId("XMP-dc:Title").table, ["a.jpg"]],
+    [collisionTitleId.table, ["c.jpg"]],
+  ])("finds committed exact metadata by %s", async (query, expected) => {
+    render(
+      <ListSearchHarness
+        allPhotos={photos}
+        visibleColumns={[{ key: "date_modified", kind: "os" }]}
+      />,
+    );
+    await userEvent.type(screen.getByTestId("list-search-input"), query);
+    await waitFor(() =>
+      expect(
+        screen.getAllByTestId("photo-row").map((row) => row.dataset.path),
+      ).toEqual(expected),
+    );
+  });
+
+  it.each(["IPTC:City", "City", "The city shown", "Reykjavik draft"])(
+    "finds draft-only exact metadata by %s",
+    async (query) => {
+      render(
+        <ListSearchHarness
+          allPhotos={photos}
+          visibleColumns={[{ key: "date_modified", kind: "os" }]}
+        />,
+      );
+      await userEvent.type(screen.getByTestId("list-search-input"), query);
+      await waitFor(() => {
+        const rows = screen.getAllByTestId("photo-row");
+        expect(rows).toHaveLength(1);
+        expect(rows[0]).toHaveAttribute("data-path", "b.jpg");
+      });
+    },
+  );
+
+  it("preserves has:edits and does not require the internal JSON token", async () => {
+    render(
+      <ListSearchHarness
+        allPhotos={photos}
+        visibleColumns={[{ key: "date_modified", kind: "os" }]}
+      />,
+    );
+    const input = screen.getByTestId("list-search-input");
+    await userEvent.type(input, "has:edits");
+    await waitFor(() => {
+      const rows = screen.getAllByTestId("photo-row");
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toHaveAttribute("data-path", "b.jpg");
+    });
+    await userEvent.clear(input);
+    fireEvent.change(input, {
+      target: { value: schemaDefinitionIdToken(testId("XMP-dc:Title")) },
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("photo-list-search-empty")).toBeInTheDocument(),
+    );
   });
 });

@@ -205,6 +205,15 @@ impl TagRegistry {
         self.tags.get(id)
     }
 
+    /// Return only exact requested definitions, deduplicated and ordered by ID.
+    pub(crate) fn lookup_exact_batch(&self, ids: Vec<SchemaDefinitionId>) -> Vec<TagInfo> {
+        ids.into_iter()
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .filter_map(|id| self.lookup(&id).cloned())
+            .collect()
+    }
+
     pub fn len(&self) -> usize {
         self.tags.len()
     }
@@ -409,7 +418,7 @@ impl TagRegistry {
         Ok(TagRegistry { tags })
     }
 
-    /// Build by running `exiftool -listx -lang en`.
+    /// Build by running `exiftool -listx -f -lang en`.
     pub fn build() -> Result<Self, SchemaError> {
         let output = crate::exiftool_config::exiftool_command()
             .args(["-listx", "-f", "-lang", "en"])
@@ -993,6 +1002,100 @@ mod tests {
 
     fn fixture_registry() -> TagRegistry {
         TagRegistry::from_listx_xml(SAMPLE_LISTX).expect("parse fixture listx")
+    }
+
+    fn exact_batch_registry() -> TagRegistry {
+        let ids = [
+            SchemaDefinitionId {
+                table: "Table::B".into(),
+                tag_id: "2".into(),
+                index: None,
+            },
+            SchemaDefinitionId {
+                table: "Table::A".into(),
+                tag_id: "1".into(),
+                index: None,
+            },
+            SchemaDefinitionId {
+                table: "Table::A".into(),
+                tag_id: "1".into(),
+                index: Some(0),
+            },
+        ];
+        let tags = ids
+            .into_iter()
+            .map(|id| {
+                let info = TagInfo {
+                    id: id.clone(),
+                    group: "Shared".into(),
+                    name: "Name".into(),
+                    writable: true,
+                    kind: TagKind::Text,
+                    description: None,
+                    storage_count: None,
+                };
+                (id, info)
+            })
+            .collect();
+        TagRegistry { tags }
+    }
+
+    #[test]
+    fn exact_batch_deduplicates_requested_ids() {
+        let registry = exact_batch_registry();
+        let id = SchemaDefinitionId {
+            table: "Table::B".into(),
+            tag_id: "2".into(),
+            index: None,
+        };
+        assert_eq!(registry.lookup_exact_batch(vec![id.clone(), id]).len(), 1);
+    }
+
+    #[test]
+    fn exact_batch_keeps_same_friendly_name_definitions_separate() {
+        let registry = exact_batch_registry();
+        let ids: Vec<_> = registry.iter().map(|(id, _)| id.clone()).collect();
+        assert_eq!(registry.lookup_exact_batch(ids).len(), 3);
+    }
+
+    #[test]
+    fn exact_batch_distinguishes_missing_index_from_zero() {
+        let registry = exact_batch_registry();
+        let found = registry.lookup_exact_batch(vec![
+            SchemaDefinitionId {
+                table: "Table::A".into(),
+                tag_id: "1".into(),
+                index: None,
+            },
+            SchemaDefinitionId {
+                table: "Table::A".into(),
+                tag_id: "1".into(),
+                index: Some(0),
+            },
+        ]);
+        assert_eq!(found.len(), 2);
+        assert_ne!(found[0].id, found[1].id);
+    }
+
+    #[test]
+    fn exact_batch_omits_missing_ids() {
+        let registry = exact_batch_registry();
+        assert!(registry
+            .lookup_exact_batch(vec![SchemaDefinitionId {
+                table: "Missing".into(),
+                tag_id: "404".into(),
+                index: None,
+            }])
+            .is_empty());
+    }
+
+    #[test]
+    fn exact_batch_results_are_deterministically_ordered() {
+        let registry = exact_batch_registry();
+        let mut ids: Vec<_> = registry.iter().map(|(id, _)| id.clone()).collect();
+        ids.reverse();
+        let result = registry.lookup_exact_batch(ids);
+        assert!(result.windows(2).all(|pair| pair[0].id < pair[1].id));
     }
 
     #[test]

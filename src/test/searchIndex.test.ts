@@ -1,13 +1,28 @@
 import { describe, it, expect } from "vitest";
 import { SearchIndex } from "../search/searchIndex";
 import type { MetadataDraftEdit } from "../types";
+import type {
+  SearchMetadataEntry,
+  SearchSchemaLabel,
+} from "../workers/searchWorkerProtocol";
 import { mockMetadata } from "./factories";
+import { toSearchMetadataState } from "../hooks/useSearchWorker";
+import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
 
 const edit = (value: string): MetadataDraftEdit => ({
   value: { kind: "Text", value },
   intent: "Set",
 });
 const del: MetadataDraftEdit = { value: null, intent: "Delete" };
+
+const searchMeta = (raw: Record<string, unknown>) =>
+  toSearchMetadataState(mockMetadata(raw));
+
+const drafts = (entries: Record<string, MetadataDraftEdit>) =>
+  Object.entries(entries).map(([key, edit]) => ({
+    id: { table: key, tag_id: key },
+    edit,
+  }));
 
 function seed(idx: SearchIndex) {
   idx.setPhoto({
@@ -62,8 +77,8 @@ describe("SearchIndex", () => {
     it("matches via hidden metadata key", () => {
       const idx = new SearchIndex();
       seed(idx);
-      idx.setMeta("a.jpg", mockMetadata({ "Secret:Tag": "hidden-value" }));
-      idx.setMeta("b.jpg", mockMetadata({ "Secret:Tag": "other" }));
+      idx.setMeta("a.jpg", searchMeta({ "Secret:Tag": "hidden-value" }));
+      idx.setMeta("b.jpg", searchMeta({ "Secret:Tag": "other" }));
       expect(matchedSet(idx, "hidden-value")).toEqual(new Set(["a.jpg"]));
     });
 
@@ -72,7 +87,7 @@ describe("SearchIndex", () => {
       seed(idx);
       idx.setMeta(
         "a.jpg",
-        mockMetadata({
+        searchMeta({
           "IFD0:Make": "Sony",
           Subjects: ["birds", "trees"],
         }),
@@ -92,14 +107,17 @@ describe("SearchIndex", () => {
     it("matches draft value text", () => {
       const idx = new SearchIndex();
       seed(idx);
-      idx.setDrafts("a.jpg", { "XMP-dc:Description": edit("a tasty muffin") });
+      idx.setDrafts(
+        "a.jpg",
+        drafts({ "XMP-dc:Description": edit("a tasty muffin") }),
+      );
       expect(matchedSet(idx, "muffin")).toEqual(new Set(["a.jpg"]));
     });
 
     it("renders delete-intent edits as '—' in the haystack", () => {
       const idx = new SearchIndex();
       seed(idx);
-      idx.setDrafts("a.jpg", { "X:Y": del });
+      idx.setDrafts("a.jpg", drafts({ "X:Y": del }));
       expect(matchedSet(idx, "—")).toEqual(
         new Set(["a.jpg", "b.jpg", "sub/c.jpg"]),
       );
@@ -109,7 +127,10 @@ describe("SearchIndex", () => {
     it("clearing drafts removes their contribution to the haystack", () => {
       const idx = new SearchIndex();
       seed(idx);
-      idx.setDrafts("a.jpg", { "XMP-dc:Description": edit("uniquedraftword") });
+      idx.setDrafts(
+        "a.jpg",
+        drafts({ "XMP-dc:Description": edit("uniquedraftword") }),
+      );
       expect(matchedSet(idx, "uniquedraftword")).toEqual(new Set(["a.jpg"]));
       idx.setDrafts("a.jpg", undefined);
       expect(matchedSet(idx, "uniquedraftword")).toEqual(new Set());
@@ -120,15 +141,15 @@ describe("SearchIndex", () => {
     it("restricts to paths with any draft", () => {
       const idx = new SearchIndex();
       seed(idx);
-      idx.setDrafts("a.jpg", { "X:Y": edit("v") });
+      idx.setDrafts("a.jpg", drafts({ "X:Y": edit("v") }));
       expect(matchedSet(idx, "has:edits")).toEqual(new Set(["a.jpg"]));
     });
 
     it("combines with a substring query", () => {
       const idx = new SearchIndex();
       seed(idx);
-      idx.setDrafts("a.jpg", { "X:Y": edit("v") });
-      idx.setDrafts("b.jpg", { "X:Y": edit("v") });
+      idx.setDrafts("a.jpg", drafts({ "X:Y": edit("v") }));
+      idx.setDrafts("b.jpg", drafts({ "X:Y": edit("v") }));
       expect(matchedSet(idx, "has:edits a.jpg")).toEqual(new Set(["a.jpg"]));
     });
 
@@ -154,8 +175,8 @@ describe("SearchIndex", () => {
     it("typing extra chars narrows correctly", () => {
       const idx = new SearchIndex();
       seed(idx);
-      idx.setMeta("a.jpg", mockMetadata({ "IFD0:Make": "Canon" }));
-      idx.setMeta("b.jpg", mockMetadata({ "IFD0:Make": "Canon EOS R5" }));
+      idx.setMeta("a.jpg", searchMeta({ "IFD0:Make": "Canon" }));
+      idx.setMeta("b.jpg", searchMeta({ "IFD0:Make": "Canon EOS R5" }));
       expect(matchedSet(idx, "canon")).toEqual(new Set(["a.jpg", "b.jpg"]));
       expect(matchedSet(idx, "canon eos")).toEqual(new Set(["b.jpg"]));
     });
@@ -170,7 +191,7 @@ describe("SearchIndex", () => {
     it("toggling has:edits filter does not reuse prior cache unsoundly", () => {
       const idx = new SearchIndex();
       seed(idx);
-      idx.setDrafts("a.jpg", { "X:Y": edit("v") });
+      idx.setDrafts("a.jpg", drafts({ "X:Y": edit("v") }));
       // First a plain substring that all match would
       expect(matchedSet(idx, ".jpg")).toEqual(
         new Set(["a.jpg", "b.jpg", "sub/c.jpg"]),
@@ -187,9 +208,102 @@ describe("SearchIndex", () => {
       const idx = new SearchIndex();
       seed(idx);
       expect(matchedSet(idx, "uniquemeta")).toEqual(new Set());
-      idx.setMeta("a.jpg", mockMetadata({ "X:Y": "uniquemeta" }));
+      idx.setMeta("a.jpg", searchMeta({ "X:Y": "uniquemeta" }));
       // If cache wasn't invalidated, the prior empty result would be reused.
       expect(matchedSet(idx, "uniquemeta")).toEqual(new Set(["a.jpg"]));
+    });
+  });
+
+  describe("exact-ID schema enrichment", () => {
+    const titleId = { table: "XMP::dc", tag_id: "0x1234" };
+    const titleLabel: SearchSchemaLabel = {
+      id: titleId,
+      group: "XMP-dc",
+      name: "Title",
+      description: "A short title for the resource",
+    };
+    const metadata = (
+      id = titleId,
+      value = "Northern lights",
+    ): SearchMetadataEntry[] => [{ id, value: { kind: "Text", value } }];
+
+    it.each([
+      "XMP-dc:Title",
+      "Title",
+      "short title for the resource",
+      "XMP::dc",
+      "0x1234",
+      "Northern lights",
+    ])("indexes committed metadata by %s", (query) => {
+      const idx = new SearchIndex();
+      seed(idx);
+      idx.setMeta("a.jpg", metadata(), [titleLabel]);
+      expect(matchedSet(idx, query)).toEqual(new Set(["a.jpg"]));
+    });
+
+    it("indexes draft-only friendly fields and draft values", () => {
+      const idx = new SearchIndex();
+      seed(idx);
+      idx.setDrafts(
+        "a.jpg",
+        [{ id: titleId, edit: edit("draft aurora") }],
+        [titleLabel],
+      );
+      expect(matchedSet(idx, "XMP-dc:Title")).toEqual(new Set(["a.jpg"]));
+      expect(matchedSet(idx, "draft aurora")).toEqual(new Set(["a.jpg"]));
+    });
+
+    it("keeps same-friendly-name definitions distinct and searchable by table", () => {
+      const idx = new SearchIndex();
+      seed(idx);
+      const otherId = { table: "QuickTime::ItemList", tag_id: "title" };
+      const otherLabel = { ...titleLabel, id: otherId };
+      idx.setMeta("a.jpg", metadata(titleId, "xmp value"), [titleLabel]);
+      idx.setMeta("b.jpg", metadata(otherId, "quicktime value"), [otherLabel]);
+
+      expect(matchedSet(idx, "XMP-dc:Title")).toEqual(
+        new Set(["a.jpg", "b.jpg"]),
+      );
+      expect(matchedSet(idx, "XMP::dc")).toEqual(new Set(["a.jpg"]));
+      expect(matchedSet(idx, "QuickTime::ItemList")).toEqual(
+        new Set(["b.jpg"]),
+      );
+    });
+
+    it("keeps omitted index and index zero distinct", () => {
+      const idx = new SearchIndex();
+      seed(idx);
+      const none = { table: "T", tag_id: "7" };
+      const zero = { table: "T", tag_id: "7", index: 0 };
+      idx.setMeta("a.jpg", metadata(none, "none-index"));
+      idx.setMeta("b.jpg", metadata(zero, "zero-index"));
+      expect(matchedSet(idx, "index 0")).toEqual(new Set(["b.jpg"]));
+      expect(matchedSet(idx, "none-index")).toEqual(new Set(["a.jpg"]));
+    });
+
+    it("falls back to readable exact fields without indexing the JSON token", () => {
+      const idx = new SearchIndex();
+      seed(idx);
+      idx.setMeta("a.jpg", metadata());
+      expect(matchedSet(idx, "XMP::dc / 0x1234")).toEqual(new Set(["a.jpg"]));
+      expect(matchedSet(idx, schemaDefinitionIdToken(titleId))).toEqual(
+        new Set(),
+      );
+    });
+
+    it("uses supplied labels immediately and clears empty drafts", () => {
+      const idx = new SearchIndex();
+      seed(idx);
+      idx.setMeta("a.jpg", metadata(), [titleLabel]);
+      expect(matchedSet(idx, "short title")).toEqual(new Set(["a.jpg"]));
+      idx.setDrafts(
+        "a.jpg",
+        [{ id: titleId, edit: edit("draft") }],
+        [titleLabel],
+      );
+      expect(matchedSet(idx, "has:edits")).toEqual(new Set(["a.jpg"]));
+      idx.setDrafts("a.jpg", []);
+      expect(matchedSet(idx, "has:edits")).toEqual(new Set());
     });
   });
 

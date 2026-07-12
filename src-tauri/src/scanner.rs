@@ -210,9 +210,10 @@ fn read_os_metadata(path: &Path) -> (Option<i64>, Option<i64>) {
 ///
 /// Flags:
 ///  -a                    Allow duplicate tag names (see all occurrences)
-///  -G1                   Group tags by location (e.g. IFD0:Make, XMP-dc:Subject).
-///                        G1 is the specific block; format family (G0) is
-///                        implicit in the prefix.
+///  -G1                   Friendly group/name context (e.g. IFD0:Make,
+///                        XMP-dc:Subject); this is not metadata identity.
+///  -t                    Include the exact ExifTool tag-table name.
+///  -D                    Include the exact decimal tag ID.
 ///  -s                    Short tag names
 ///  -struct               Preserve nested XMP structs as JSON objects (face
 ///                        regions, QuickTime Keys group, etc.) — these now
@@ -235,6 +236,8 @@ fn read_os_metadata(path: &Path) -> (Option<i64>, Option<i64>) {
 /// - Pass B: with `-n`. Raw values — `Orientation = 6`,
 ///   `ExposureTime = 0.004`. This is the primary canonical source.
 ///
+/// Both passes request table identity (`-t`) and decimal tag IDs (`-D`).
+/// `-G1` supplies friendly group/name context, but is not metadata identity.
 /// Both passes use the same flags otherwise, so the second pass is cheap
 /// (exiftool startup dominates; the OS file cache is hot). They run
 /// sequentially on the same worker — parallelism gains nothing because
