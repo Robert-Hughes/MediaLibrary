@@ -430,9 +430,10 @@ fn start_scan(
                         match scanner::read_image_metadata_batch(&rel_paths, &abs_paths) {
                             Ok(outcome) => {
                                 log::debug!(
-                                    "[metadata] Read {} successes, {} failures",
+                                    "[metadata] Read {} successes, {} failures, {} legacy projection omissions",
                                     outcome.results.len(),
-                                    outcome.failures.len()
+                                    outcome.failures.len(),
+                                    outcome.legacy_projection_omissions.len()
                                 );
 
                                 batch_results.extend(outcome.results);

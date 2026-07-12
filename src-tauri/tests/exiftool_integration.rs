@@ -66,6 +66,12 @@ fn read_one(folder: &Path, abs: &Path) -> scanner::ImageMetadata {
     if !outcome.failures.is_empty() {
         panic!("read_one failed: {}", outcome.failures[0].error_message);
     }
+    if !outcome.legacy_projection_omissions.is_empty() {
+        panic!(
+            "read_one requires a complete schema-keyed projection, but fields were omitted: {:?}",
+            outcome.legacy_projection_omissions
+        );
+    }
     outcome.results.into_iter().next().expect("one result")
 }
 

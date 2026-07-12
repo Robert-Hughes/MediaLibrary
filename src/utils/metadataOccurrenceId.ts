@@ -12,11 +12,25 @@ export function metadataOccurrenceIdEquals(
   );
 }
 
-function compareStrings(a: string, b: string): number {
-  return a < b ? -1 : a > b ? 1 : 0;
+function compareUnicodeScalarStrings(a: string, b: string): number {
+  const aCodePoints = a[Symbol.iterator]();
+  const bCodePoints = b[Symbol.iterator]();
+  while (true) {
+    const aNext = aCodePoints.next();
+    const bNext = bCodePoints.next();
+    if (aNext.done || bNext.done) {
+      return aNext.done === bNext.done ? 0 : aNext.done ? -1 : 1;
+    }
+    const aCodePoint = aNext.value.codePointAt(0)!;
+    const bCodePoint = bNext.value.codePointAt(0)!;
+    if (aCodePoint !== bCodePoint) return aCodePoint < bCodePoint ? -1 : 1;
+  }
 }
 
-/** Rust-compatible lexicographic ordering for occurrence identities. */
+/**
+ * Lexicographic MetadataOccurrenceId ordering matching Rust `str` for valid
+ * Unicode scalar strings, with null documents first and copy compared numerically.
+ */
 export function compareMetadataOccurrenceIds(
   a: MetadataOccurrenceId,
   b: MetadataOccurrenceId,
@@ -26,12 +40,12 @@ export function compareMetadataOccurrenceIds(
   if (aDocument === null && bDocument !== null) return -1;
   if (aDocument !== null && bDocument === null) return 1;
   if (aDocument !== null && bDocument !== null) {
-    const documentOrder = compareStrings(aDocument, bDocument);
+    const documentOrder = compareUnicodeScalarStrings(aDocument, bDocument);
     if (documentOrder !== 0) return documentOrder;
   }
-  const pathOrder = compareStrings(a.path, b.path);
+  const pathOrder = compareUnicodeScalarStrings(a.path, b.path);
   if (pathOrder !== 0) return pathOrder;
-  const tagOrder = compareStrings(a.tag_id, b.tag_id);
+  const tagOrder = compareUnicodeScalarStrings(a.tag_id, b.tag_id);
   if (tagOrder !== 0) return tagOrder;
   return a.copy - b.copy;
 }

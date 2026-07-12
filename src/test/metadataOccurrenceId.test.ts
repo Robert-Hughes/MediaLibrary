@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { MetadataOccurrenceId } from "../types/generated/MetadataOccurrenceId";
 import {
+  compareMetadataOccurrenceIds,
   formatMetadataOccurrenceIdForDiagnostics,
   metadataOccurrenceIdEquals,
   metadataOccurrenceIdFromToken,
@@ -21,6 +22,30 @@ function id(
 }
 
 describe("metadata occurrence identity", () => {
+  it("orders null documents before non-null documents", () => {
+    expect(
+      compareMetadataOccurrenceIds(id(), id({ document: "" })),
+    ).toBeLessThan(0);
+  });
+
+  it.each(["document", "path", "tag_id"] as const)(
+    "orders %s by Unicode scalar value like Rust rather than UTF-16 code units",
+    (field) => {
+      const bmp = id({ [field]: "\uE000" });
+      const supplementary = id({ [field]: "\u{10000}" });
+      expect(compareMetadataOccurrenceIds(bmp, supplementary)).toBeLessThan(0);
+      expect(compareMetadataOccurrenceIds(supplementary, bmp)).toBeGreaterThan(
+        0,
+      );
+    },
+  );
+
+  it("compares copy numerically after string components", () => {
+    expect(
+      compareMetadataOccurrenceIds(id({ copy: 2 }), id({ copy: 10 })),
+    ).toBeLessThan(0);
+  });
+
   it("compares all four components", () => {
     expect(metadataOccurrenceIdEquals(id(), id())).toBe(true);
     expect(metadataOccurrenceIdEquals(id(), id({ document: "Doc1" }))).toBe(

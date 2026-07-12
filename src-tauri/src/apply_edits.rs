@@ -185,6 +185,27 @@ impl MetadataWriteClient for RealMetadataWriteClient {
             scanner::read_image_metadata_batch(&[rel_path.to_string()], &[abs_path.to_path_buf()])
                 .map_err(|e| e.to_string())?;
 
+        let omissions = outcome
+            .legacy_projection_omissions
+            .iter()
+            .filter(|omission| omission.relative_path == rel_path)
+            .collect::<Vec<_>>();
+        if !omissions.is_empty() {
+            let affected = omissions
+                .iter()
+                .map(|omission| {
+                    format!(
+                        "schema {:?}, occurrences {:?}",
+                        omission.schema_id, omission.occurrence_ids
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("; ");
+            return Err(format!(
+                "Metadata was read successfully by occurrence identity, but the schema-keyed compatibility projection omitted ambiguous fields. The schema-keyed write and verification pipeline cannot safely continue. Affected: {affected}"
+            ));
+        }
+
         if let Some(r) = outcome.results.into_iter().next() {
             // Compatibility path: writes remain schema-keyed until the write
             // pipeline is migrated to occurrence identity.

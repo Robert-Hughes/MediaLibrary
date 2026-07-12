@@ -15,7 +15,8 @@ use crate::tag_schema::{SchemaDefinitionId, TagInfo};
 /// - family 3: embedded document or timed-metadata sample;
 /// - family 5: complete metadata container path;
 /// - family 7: the tag's runtime ID;
-/// - family 4: duplicate-instance number within that location.
+/// - family 4: ExifTool extraction instance/copy number for a same-named
+///   runtime tag.
 ///
 /// `MetadataOccurrenceId` is unique only within one source file. Code requiring
 /// identity across files must combine it with the file's relative path.
@@ -25,7 +26,12 @@ use crate::tag_schema::{SchemaDefinitionId, TagInfo};
 /// - family 3 `Main` is stored as `document = None`;
 /// - the empty primary family-4 position (and explicit `Copy0`) is stored as
 ///   `copy = 0`;
+/// - family-4 `CopyN` values retain their numeric `N` exactly;
 /// - the family-7 transport prefix `ID-` is omitted from stored `tag_id`.
+///
+/// Family-4 numbering may span different family-1 groups and family-5 paths.
+/// It is runtime occurrence identity, not an "Nth copy within this path"
+/// coordinate, and is not independently sufficient to target a write.
 ///
 /// This type deliberately contains no `SchemaDefinitionId`. Multiple runtime
 /// occurrences may resolve to the same static schema definition.
@@ -57,11 +63,13 @@ pub struct MetadataOccurrenceId {
     /// used by the static schema registry.
     pub tag_id: String,
 
-    /// ExifTool family 4, normalised to a zero-based instance number.
+    /// ExifTool family 4 extraction instance/copy number.
     ///
     /// `0` represents ExifTool's empty primary family-4 position or explicit
-    /// `Copy0`. Values greater than zero represent `CopyN` occurrences of the
-    /// same runtime tag in the same metadata location.
+    /// `Copy0`. A `CopyN` value is retained as the numeric `N` exactly.
+    /// Numbering may span family-1 groups and family-5 paths, so this is
+    /// runtime occurrence identity rather than an "Nth copy within this path"
+    /// coordinate. It is not independently a write coordinate.
     pub copy: u32,
 }
 
