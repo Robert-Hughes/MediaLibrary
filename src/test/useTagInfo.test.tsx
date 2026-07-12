@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
 import { invoke } from "@tauri-apps/api/core";
 import {
@@ -19,6 +19,10 @@ vi.mock("@tauri-apps/api/core", () => ({
 beforeEach(() => {
   vi.clearAllMocks();
   _clearTagInfoCache();
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 describe("useTagInfo exact lookup hook", () => {
@@ -231,6 +235,19 @@ describe("useTagInfo exact lookup hook", () => {
     });
   });
 
+  it("settles a failed single lookup without immediately retrying", async () => {
+    const id: SchemaDefinitionId = { table: "Exif::Main", tag_id: "500" };
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(invoke).mockRejectedValue(new Error("offline"));
+
+    const { result, rerender } = renderHook(() => useTagInfo(id));
+
+    await waitFor(() => expect(result.current).toBeNull());
+    rerender();
+    await Promise.resolve();
+    expect(invoke).toHaveBeenCalledTimes(1);
+  });
+
   it("useTagInfos deduplicates equal IDs and returns entries keyed by schemaDefinitionIdToken", async () => {
     const id1: SchemaDefinitionId = { table: "Exif::Main", tag_id: "271" };
     const id2: SchemaDefinitionId = { table: "Exif::Main", tag_id: "271" };
@@ -406,6 +423,47 @@ describe("useTagInfo exact lookup hook", () => {
       await expect(batch).resolves.toEqual({
         [schemaDefinitionIdToken(id)]: info(id),
       });
+    });
+
+    it("rejects a batch joined to a failed single lookup, then retries and updates the mounted hook", async () => {
+      const id = { table: "A", tag_id: "1" };
+      let failSingle!: (reason: Error) => void;
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      vi.mocked(invoke)
+        .mockReturnValueOnce(
+          new Promise<TagInfo>((_resolve, reject) => {
+            failSingle = reject;
+          }),
+        )
+        .mockResolvedValueOnce([info(id, "Recovered")]);
+      const { result } = renderHook(() => useTagInfo(id));
+      await waitFor(() => expect(invoke).toHaveBeenCalledTimes(1));
+
+      const joinedBatch = resolveTagInfosExact([id]);
+      failSingle(new Error("offline"));
+
+      await expect(joinedBatch).rejects.toThrow("offline");
+      await waitFor(() => expect(result.current).toBeNull());
+
+      await expect(resolveTagInfosExact([id])).resolves.toEqual({
+        [schemaDefinitionIdToken(id)]: info(id, "Recovered"),
+      });
+      await waitFor(() =>
+        expect(result.current).toEqual(info(id, "Recovered")),
+      );
+      expect(invoke).toHaveBeenNthCalledWith(2, "get_tag_infos", { ids: [id] });
+    });
+
+    it("does not retry a successfully confirmed missing exact ID", async () => {
+      const id = { table: "A", tag_id: "404" };
+      vi.mocked(invoke).mockResolvedValueOnce(null);
+      const { result } = renderHook(() => useTagInfo(id));
+      await waitFor(() => expect(result.current).toBeNull());
+
+      await expect(resolveTagInfosExact([id])).resolves.toEqual({
+        [schemaDefinitionIdToken(id)]: null,
+      });
+      expect(invoke).toHaveBeenCalledTimes(1);
     });
 
     it("allows retry after failure without erasing resolved values", async () => {

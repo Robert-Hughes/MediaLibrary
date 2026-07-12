@@ -20,6 +20,7 @@ export type TagInfoCacheEntry = "loading" | TagInfo | null;
 const cache = new Map<string, TagInfoCacheEntry>();
 const subscribers = new Map<string, Set<() => void>>();
 const inFlight = new Map<string, Promise<void>>();
+const failedTokens = new Set<string>();
 
 function notify(key: string) {
   subscribers.get(key)?.forEach((cb) => cb());
@@ -48,13 +49,20 @@ async function fetchTagInfo(
       const result = (await invoke("get_tag_info", {
         id,
       })) as TagInfo | null;
-      if (cache.get(token) === "loading") cache.set(token, result);
+      if (cache.get(token) === "loading") {
+        cache.set(token, result);
+        failedTokens.delete(token);
+      }
     } catch (e) {
       console.error(
         `[useTagInfo] get_tag_info(${formatSchemaDefinitionIdForDiagnostics(id)}) failed:`,
         e,
       );
-      if (cache.get(token) === "loading") cache.delete(token);
+      if (cache.get(token) === "loading") {
+        cache.set(token, null);
+        failedTokens.add(token);
+      }
+      throw e;
     } finally {
       inFlight.delete(token);
       notify(token);
@@ -88,14 +96,17 @@ export async function resolveTagInfosExact(
     if (!unique.has(token)) unique.set(token, id);
   }
 
-  const absent = Array.from(unique).filter(([token]) => !cache.has(token));
-  if (absent.length > 0) {
-    for (const [token] of absent) {
+  const requested = Array.from(unique).filter(
+    ([token]) =>
+      (!cache.has(token) || failedTokens.has(token)) && !inFlight.has(token),
+  );
+  if (requested.length > 0) {
+    for (const [token] of requested) {
       cache.set(token, "loading");
       notify(token);
     }
-    const requestedTokens = new Set(absent.map(([token]) => token));
-    const requestedIds = absent.map(([, id]) => id);
+    const requestedTokens = new Set(requested.map(([token]) => token));
+    const requestedIds = requested.map(([, id]) => id);
     const request = (async () => {
       try {
         const found = await invoke<TagInfo[]>("get_tag_infos", {
@@ -104,9 +115,10 @@ export async function resolveTagInfosExact(
         const foundByToken = new Map(
           found.map((info) => [schemaDefinitionIdToken(info.id), info]),
         );
-        for (const [token] of absent) {
+        for (const [token] of requested) {
           if (cache.get(token) === "loading") {
             cache.set(token, foundByToken.get(token) ?? null);
+            failedTokens.delete(token);
           }
         }
       } catch (error) {
@@ -115,7 +127,10 @@ export async function resolveTagInfosExact(
           error,
         );
         for (const token of requestedTokens) {
-          if (cache.get(token) === "loading") cache.delete(token);
+          if (cache.get(token) === "loading") {
+            cache.set(token, null);
+            failedTokens.add(token);
+          }
         }
         throw error;
       } finally {
@@ -125,7 +140,7 @@ export async function resolveTagInfosExact(
         }
       }
     })();
-    for (const [token] of absent) inFlight.set(token, request);
+    for (const [token] of requested) inFlight.set(token, request);
   }
 
   await Promise.all(Array.from(unique.keys(), waitForSettlement));
@@ -162,7 +177,9 @@ export function useTagInfo(
   useEffect(() => {
     if (!token) return;
     if (!cache.has(token)) {
-      void fetchTagInfo(requestRef.current!.id, token);
+      void fetchTagInfo(requestRef.current!.id, token).catch(() => {
+        // The cache records transient failure privately while the hook settles.
+      });
     }
     return subscribe(token, () => setTick((n) => n + 1));
   }, [token]);
@@ -210,7 +227,9 @@ export function useTagInfos(
     for (const token of stableData.tokens) {
       if (!cache.has(token)) {
         const id = stableData.uniqueMap.get(token)!;
-        void fetchTagInfo(id, token);
+        void fetchTagInfo(id, token).catch(() => {
+          // Explicit batch resolution is responsible for retrying failures.
+        });
       }
     }
 
@@ -236,6 +255,7 @@ export function _clearTagInfoCache(): void {
   cache.clear();
   subscribers.clear();
   inFlight.clear();
+  failedTokens.clear();
 }
 
 export function _setTagInfoCacheEntry(
@@ -248,6 +268,7 @@ export function _setTagInfoCacheEntry(
   } else {
     cache.set(token, value as TagInfoCacheEntry);
   }
+  failedTokens.delete(token);
   notify(token);
 }
 
@@ -262,6 +283,7 @@ export function _ensureTagInfoCacheEntry(
     } else {
       cache.set(token, value as TagInfo);
     }
+    failedTokens.delete(token);
     notify(token);
   }
 }

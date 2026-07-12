@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import {
   toSearchDraftEntries,
@@ -39,21 +39,23 @@ class FakeWorker implements SearchWorkerLike {
         for (const p of msg.photos) this.index.setPhoto(p);
         return;
       case "INIT_META":
-        for (const e of msg.entries)
-          this.index.setMeta(e.path, e.meta, msg.schemaLabels);
+        this.index.setSchemaLabels(msg.schemaLabels);
+        for (const e of msg.entries) this.index.setMeta(e.path, e.meta);
         return;
       case "INIT_DRAFTS":
-        for (const e of msg.entries)
-          this.index.setDrafts(e.path, e.edits, msg.schemaLabels);
+        this.index.setSchemaLabels(msg.schemaLabels);
+        for (const e of msg.entries) this.index.setDrafts(e.path, e.edits);
         return;
       case "UPSERT_PHOTO":
         this.index.setPhoto(msg.photo);
         return;
       case "UPSERT_META":
-        this.index.setMeta(msg.path, msg.meta, msg.schemaLabels);
+        this.index.setSchemaLabels(msg.schemaLabels);
+        this.index.setMeta(msg.path, msg.meta);
         return;
       case "UPSERT_DRAFTS":
-        this.index.setDrafts(msg.path, msg.edits, msg.schemaLabels);
+        this.index.setSchemaLabels(msg.schemaLabels);
+        this.index.setDrafts(msg.path, msg.edits);
         return;
       case "DELETE_PATH":
         this.index.deletePath(msg.path);
@@ -125,6 +127,11 @@ beforeEach(() => {
   vi.clearAllMocks();
   _clearTagInfoCache();
   vi.mocked(invoke).mockResolvedValue([]);
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 
 describe("useSearchWorker", () => {
@@ -383,7 +390,7 @@ describe("useSearchWorker", () => {
   });
 
   it("debounces user-typed queries", async () => {
-    vi.useFakeTimers();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const meta = new ImageMetadataStore();
     const drafts = new DraftEditsStore();
     const photos = [makePhoto({ relative_path: "a.jpg" })];
@@ -524,6 +531,314 @@ describe("useSearchWorker", () => {
           (message as { type: string }).type === "UPSERT_SCHEMA_LABELS",
       ),
     ).toBe(false);
+  });
+
+  it("recovers the unchanged initial metadata and drafts after enrichment retries", async () => {
+    const metaId = testId("X:Y");
+    const draftId = testId("Tag:A");
+    let failInitial!: (reason: Error) => void;
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(invoke)
+      .mockReturnValueOnce(
+        new Promise((_resolve, reject) => {
+          failInitial = reject;
+        }),
+      )
+      .mockResolvedValueOnce([
+        {
+          id: metaId,
+          group: "X",
+          name: "Y",
+          writable: true,
+          kind: { kind: "Text" },
+          description: null,
+        },
+        {
+          id: draftId,
+          group: "Tag",
+          name: "A",
+          writable: true,
+          kind: { kind: "Text" },
+          description: null,
+        },
+      ]);
+    const meta = new ImageMetadataStore();
+    meta.set("a.jpg", mockMetadata({ "X:Y": "loaded metadata" }));
+    const drafts = new DraftEditsStore();
+    drafts.resetMetadata(
+      mockDraftsByFile({ "a.jpg": { "Tag:A": "loaded draft" } }),
+    );
+    _clearTagInfoCache();
+
+    const { fake } = setup({
+      photos: [makePhoto({ relative_path: "a.jpg" })],
+      imageMetadataStore: meta,
+      draftEditsStore: drafts,
+    });
+    await waitFor(() => expect(invoke).toHaveBeenCalledTimes(1));
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    await act(async () => {
+      failInitial(new Error("offline"));
+    });
+
+    expect(fake.inbound.some((message) => message.type === "INIT_META")).toBe(
+      false,
+    );
+    expect(fake.inbound.some((message) => message.type === "INIT_DRAFTS")).toBe(
+      false,
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(250);
+    });
+
+    expect(invoke).toHaveBeenCalledTimes(2);
+    expect(
+      fake.inbound.filter((message) => message.type === "INIT_META"),
+    ).toMatchObject([
+      { entries: [{ path: "a.jpg" }], schemaLabels: [{ id: metaId }] },
+    ]);
+    expect(
+      fake.inbound.filter((message) => message.type === "INIT_DRAFTS"),
+    ).toMatchObject([
+      { entries: [{ path: "a.jpg" }], schemaLabels: [{ id: draftId }] },
+    ]);
+  });
+
+  it("cancels a pending initial replay retry on cleanup", async () => {
+    let failInitial!: (reason: Error) => void;
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(invoke).mockReturnValueOnce(
+      new Promise((_resolve, reject) => {
+        failInitial = reject;
+      }),
+    );
+    const meta = new ImageMetadataStore();
+    meta.set("a.jpg", mockMetadata({ "X:Y": "loaded" }));
+    _clearTagInfoCache();
+    const { unmount } = setup({ imageMetadataStore: meta });
+    await waitFor(() => expect(invoke).toHaveBeenCalledTimes(1));
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    await act(async () => {
+      failInitial(new Error("offline"));
+    });
+
+    unmount();
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    expect(invoke).toHaveBeenCalledTimes(1);
+  });
+
+  it("excludes a stale initial path when the retried replay completes", async () => {
+    const id = testId("X:Y");
+    let failInitial!: (reason: Error) => void;
+    let finishRetry!: (value: unknown) => void;
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(invoke)
+      .mockReturnValueOnce(
+        new Promise((_resolve, reject) => {
+          failInitial = reject;
+        }),
+      )
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          finishRetry = resolve;
+        }),
+      );
+    const meta = new ImageMetadataStore();
+    meta.set("a.jpg", mockMetadata({ "X:Y": "old" }));
+    _clearTagInfoCache();
+    const { fake } = setup({ imageMetadataStore: meta });
+    await waitFor(() => expect(invoke).toHaveBeenCalledTimes(1));
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    await act(async () => {
+      failInitial(new Error("offline"));
+    });
+
+    act(() => meta.set("a.jpg", mockMetadata({ "X:Y": "new" })));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(invoke).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(250);
+    });
+    finishRetry([
+      {
+        id,
+        group: "X",
+        name: "Y",
+        writable: true,
+        kind: { kind: "Text" },
+        description: null,
+      },
+    ]);
+    await act(async () => {});
+
+    const initMeta = fake.inbound.find(
+      (message) => message.type === "INIT_META",
+    );
+    expect(initMeta).toMatchObject({ entries: [] });
+    expect(
+      fake.inbound.some(
+        (message) =>
+          message.type === "UPSERT_META" &&
+          message.meta !== "loading" &&
+          message.meta.some(
+            ({ value }) => value.kind === "Text" && value.value === "new",
+          ),
+      ),
+    ).toBe(true);
+  });
+
+  it("caps persistent initial replay failures at a five-second retry interval", async () => {
+    let failInitial!: (reason: Error) => void;
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(invoke)
+      .mockReturnValueOnce(
+        new Promise((_resolve, reject) => {
+          failInitial = reject;
+        }),
+      )
+      .mockRejectedValue(new Error("offline"));
+    const meta = new ImageMetadataStore();
+    meta.set("a.jpg", mockMetadata({ "X:Y": "loaded" }));
+    _clearTagInfoCache();
+    setup({ imageMetadataStore: meta });
+    await waitFor(() => expect(invoke).toHaveBeenCalledTimes(1));
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    await act(async () => {
+      failInitial(new Error("offline"));
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(250);
+      await vi.advanceTimersByTimeAsync(1_000);
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+    expect(invoke).toHaveBeenCalledTimes(4);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4_999);
+    });
+    expect(invoke).toHaveBeenCalledTimes(4);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(invoke).toHaveBeenCalledTimes(5);
+  });
+
+  it("stores combined-message labels once before rebuilding every path", () => {
+    const id = testId("X:Y");
+    const label = {
+      id,
+      group: "Friendly",
+      name: "Label",
+      description: null,
+    };
+    const fake = new FakeWorker();
+    fake.postMessage({
+      type: "INIT_PHOTOS",
+      photos: [
+        {
+          relative_path: "a.jpg",
+          filename: "a.jpg",
+          date_modified: null,
+          date_created: null,
+        },
+        {
+          relative_path: "b.jpg",
+          filename: "b.jpg",
+          date_modified: null,
+          date_created: null,
+        },
+      ],
+    });
+    const labels = vi.spyOn(fake.index, "setSchemaLabels");
+    const metadata = vi.spyOn(fake.index, "setMeta");
+    fake.postMessage({
+      type: "INIT_META",
+      entries: [
+        {
+          path: "a.jpg",
+          meta: toSearchMetadataState(mockMetadata({ "X:Y": "one" })),
+        },
+        {
+          path: "b.jpg",
+          meta: toSearchMetadataState(mockMetadata({ "X:Y": "two" })),
+        },
+      ],
+      schemaLabels: [label],
+    });
+
+    expect(labels).toHaveBeenCalledTimes(1);
+    expect(metadata).toHaveBeenCalledTimes(2);
+    expect(labels.mock.invocationCallOrder[0]).toBeLessThan(
+      metadata.mock.invocationCallOrder[0],
+    );
+    expect(new Set(fake.index.query("Friendly:Label").matched)).toEqual(
+      new Set(["a.jpg", "b.jpg"]),
+    );
+
+    labels.mockClear();
+    const drafts = vi.spyOn(fake.index, "setDrafts");
+    fake.postMessage({
+      type: "INIT_DRAFTS",
+      entries: [
+        {
+          path: "a.jpg",
+          edits: [
+            {
+              id,
+              edit: {
+                value: { kind: "Text", value: "draft one" },
+                intent: "Set",
+              },
+            },
+          ],
+        },
+        {
+          path: "b.jpg",
+          edits: [
+            {
+              id,
+              edit: {
+                value: { kind: "Text", value: "draft two" },
+                intent: "Set",
+              },
+            },
+          ],
+        },
+      ],
+      schemaLabels: [label],
+    });
+    expect(labels).toHaveBeenCalledTimes(1);
+    expect(drafts).toHaveBeenCalledTimes(2);
+    expect(labels.mock.invocationCallOrder[0]).toBeLessThan(
+      drafts.mock.invocationCallOrder[0],
+    );
+  });
+
+  it("stores UPSERT labels before rebuilding the affected path", () => {
+    const fake = new FakeWorker();
+    const id = testId("X:Y");
+    const labels = vi.spyOn(fake.index, "setSchemaLabels");
+    const metadata = vi.spyOn(fake.index, "setMeta");
+
+    fake.postMessage({
+      type: "UPSERT_META",
+      path: "a.jpg",
+      meta: toSearchMetadataState(mockMetadata({ "X:Y": "value" })),
+      schemaLabels: [
+        { id, group: "Friendly", name: "Label", description: null },
+      ],
+    });
+
+    expect(labels).toHaveBeenCalledTimes(1);
+    expect(metadata).toHaveBeenCalledTimes(1);
+    expect(labels.mock.invocationCallOrder[0]).toBeLessThan(
+      metadata.mock.invocationCallOrder[0],
+    );
   });
 
   it("drops stale metadata enrichment and posts only the newest revision", async () => {

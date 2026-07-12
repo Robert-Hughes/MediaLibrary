@@ -122,12 +122,18 @@ export class SearchIndex {
     this.rebuild(fields.relative_path);
   }
 
+  setSchemaLabels(labels: readonly SearchSchemaLabel[]) {
+    for (const label of labels) {
+      this.schemaLabels.set(schemaDefinitionIdToken(label.id), label);
+    }
+  }
+
   setMeta(
     path: string,
     meta: SearchMetadataState | undefined,
     schemaLabels: readonly SearchSchemaLabel[] = [],
   ) {
-    this.storeLabels(schemaLabels);
+    if (schemaLabels.length > 0) this.setSchemaLabels(schemaLabels);
     if (meta === undefined) {
       this.metadata.delete(path);
     } else {
@@ -141,7 +147,7 @@ export class SearchIndex {
     edits: SearchDraftEntry[] | undefined,
     schemaLabels: readonly SearchSchemaLabel[] = [],
   ) {
-    this.storeLabels(schemaLabels);
+    if (schemaLabels.length > 0) this.setSchemaLabels(schemaLabels);
     if (edits === undefined || edits.length === 0) {
       this.drafts.delete(path);
     } else {
@@ -238,11 +244,5 @@ export class SearchIndex {
       .toLowerCase();
     this.haystacks.set(path, combined);
     this.priorQuery = null;
-  }
-
-  private storeLabels(labels: readonly SearchSchemaLabel[]) {
-    for (const label of labels) {
-      this.schemaLabels.set(schemaDefinitionIdToken(label.id), label);
-    }
   }
 }

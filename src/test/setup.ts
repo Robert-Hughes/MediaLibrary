@@ -163,31 +163,29 @@ if (typeof Worker === "undefined") {
           }
           return;
         case "INIT_META":
+          this.index.setSchemaLabels(
+            msg.schemaLabels as Parameters<
+              InstanceType<typeof SearchIndex>["setSchemaLabels"]
+            >[0],
+          );
           for (const e of msg.entries as {
             path: string;
             meta: Parameters<InstanceType<typeof SearchIndex>["setMeta"]>[1];
           }[]) {
-            this.index.setMeta(
-              e.path,
-              e.meta,
-              msg.schemaLabels as Parameters<
-                InstanceType<typeof SearchIndex>["setMeta"]
-              >[2],
-            );
+            this.index.setMeta(e.path, e.meta);
           }
           return;
         case "INIT_DRAFTS":
+          this.index.setSchemaLabels(
+            msg.schemaLabels as Parameters<
+              InstanceType<typeof SearchIndex>["setSchemaLabels"]
+            >[0],
+          );
           for (const e of msg.entries as {
             path: string;
             edits: Parameters<InstanceType<typeof SearchIndex>["setDrafts"]>[1];
           }[]) {
-            this.index.setDrafts(
-              e.path,
-              e.edits,
-              msg.schemaLabels as Parameters<
-                InstanceType<typeof SearchIndex>["setDrafts"]
-              >[2],
-            );
+            this.index.setDrafts(e.path, e.edits);
           }
           return;
         case "UPSERT_PHOTO":
@@ -198,25 +196,29 @@ if (typeof Worker === "undefined") {
           );
           return;
         case "UPSERT_META":
+          this.index.setSchemaLabels(
+            msg.schemaLabels as Parameters<
+              InstanceType<typeof SearchIndex>["setSchemaLabels"]
+            >[0],
+          );
           this.index.setMeta(
             msg.path as string,
             msg.meta as Parameters<
               InstanceType<typeof SearchIndex>["setMeta"]
             >[1],
-            msg.schemaLabels as Parameters<
-              InstanceType<typeof SearchIndex>["setMeta"]
-            >[2],
           );
           return;
         case "UPSERT_DRAFTS":
+          this.index.setSchemaLabels(
+            msg.schemaLabels as Parameters<
+              InstanceType<typeof SearchIndex>["setSchemaLabels"]
+            >[0],
+          );
           this.index.setDrafts(
             msg.path as string,
             msg.edits as Parameters<
               InstanceType<typeof SearchIndex>["setDrafts"]
             >[1],
-            msg.schemaLabels as Parameters<
-              InstanceType<typeof SearchIndex>["setDrafts"]
-            >[2],
           );
           return;
         case "DELETE_PATH":

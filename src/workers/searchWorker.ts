@@ -34,21 +34,23 @@ self.onmessage = (event: MessageEvent<SearchWorkerInbound>) => {
       for (const p of msg.photos) index.setPhoto(p);
       return;
     case "INIT_META":
-      for (const e of msg.entries)
-        index.setMeta(e.path, e.meta, msg.schemaLabels);
+      index.setSchemaLabels(msg.schemaLabels);
+      for (const e of msg.entries) index.setMeta(e.path, e.meta);
       return;
     case "INIT_DRAFTS":
-      for (const e of msg.entries)
-        index.setDrafts(e.path, e.edits, msg.schemaLabels);
+      index.setSchemaLabels(msg.schemaLabels);
+      for (const e of msg.entries) index.setDrafts(e.path, e.edits);
       return;
     case "UPSERT_PHOTO":
       index.setPhoto(msg.photo);
       return;
     case "UPSERT_META":
-      index.setMeta(msg.path, msg.meta, msg.schemaLabels);
+      index.setSchemaLabels(msg.schemaLabels);
+      index.setMeta(msg.path, msg.meta);
       return;
     case "UPSERT_DRAFTS":
-      index.setDrafts(msg.path, msg.edits, msg.schemaLabels);
+      index.setSchemaLabels(msg.schemaLabels);
+      index.setDrafts(msg.path, msg.edits);
       return;
     case "DELETE_PATH":
       index.deletePath(msg.path);

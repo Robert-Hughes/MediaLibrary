@@ -305,6 +305,19 @@ describe("SearchIndex", () => {
       idx.setDrafts("a.jpg", []);
       expect(matchedSet(idx, "has:edits")).toEqual(new Set());
     });
+
+    it("applies labels stored once before metadata and draft batches", () => {
+      const idx = new SearchIndex();
+      seed(idx);
+      idx.setSchemaLabels([titleLabel]);
+      idx.setMeta("a.jpg", metadata(titleId, "committed"));
+      idx.setMeta("b.jpg", metadata(titleId, "also committed"));
+      idx.setDrafts("sub/c.jpg", [{ id: titleId, edit: edit("draft title") }]);
+
+      expect(matchedSet(idx, "short title for the resource")).toEqual(
+        new Set(["a.jpg", "b.jpg", "sub/c.jpg"]),
+      );
+    });
   });
 
   describe("deletion and clear", () => {
