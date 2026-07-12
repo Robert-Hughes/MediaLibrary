@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import {
   useTagInfo,
   useTagInfos,
+  resolveTagInfosExact,
   _clearTagInfoCache,
   _setTagInfoCacheEntry,
   _ensureTagInfoCacheEntry,
@@ -306,6 +307,125 @@ describe("useTagInfo exact lookup hook", () => {
       writable: true,
       kind: { kind: "Text" },
       description: "Make",
+    });
+  });
+
+  describe("resolveTagInfosExact", () => {
+    const info = (id: SchemaDefinitionId, name = "Name"): TagInfo => ({
+      id,
+      group: "Shared",
+      name,
+      writable: true,
+      kind: { kind: "Text" },
+      description: `${name} description`,
+    });
+
+    it("reuses resolved and missing cache entries without Tauri", async () => {
+      const found = { table: "A", tag_id: "1" };
+      const missing = { table: "A", tag_id: "2" };
+      _setTagInfoCacheEntry(found, info(found));
+      _setTagInfoCacheEntry(missing, null);
+
+      const result = await resolveTagInfosExact([found, missing]);
+
+      expect(invoke).not.toHaveBeenCalled();
+      expect(result[schemaDefinitionIdToken(found)]).toEqual(info(found));
+      expect(result[schemaDefinitionIdToken(missing)]).toBeNull();
+    });
+
+    it("deduplicates equal IDs and batches several absent exact IDs", async () => {
+      const a = { table: "A", tag_id: "1" };
+      const equalA = { ...a, index: undefined };
+      const zero = { table: "A", tag_id: "1", index: 0 };
+      const sameNameOtherTable = { table: "B", tag_id: "1" };
+      vi.mocked(invoke).mockResolvedValueOnce([
+        info(a),
+        info(zero),
+        info(sameNameOtherTable),
+      ]);
+
+      await resolveTagInfosExact([a, equalA, zero, sameNameOtherTable]);
+
+      expect(invoke).toHaveBeenCalledTimes(1);
+      expect(invoke).toHaveBeenCalledWith("get_tag_infos", {
+        ids: [a, zero, sameNameOtherTable],
+      });
+    });
+
+    it("primes the hook cache and caches requested omissions as missing", async () => {
+      const found = { table: "A", tag_id: "1" };
+      const missing = { table: "A", tag_id: "404" };
+      vi.mocked(invoke).mockResolvedValueOnce([info(found)]);
+
+      await resolveTagInfosExact([found, missing]);
+      const { result: foundHook } = renderHook(() => useTagInfo(found));
+      const { result: missingHook } = renderHook(() => useTagInfo(missing));
+
+      expect(foundHook.current).toEqual(info(found));
+      expect(missingHook.current).toBeNull();
+      expect(invoke).toHaveBeenCalledTimes(1);
+    });
+
+    it("shares a pending batch across callers and prevents a duplicate hook lookup", async () => {
+      const id = { table: "A", tag_id: "1" };
+      let finish!: (value: TagInfo[]) => void;
+      vi.mocked(invoke).mockReturnValueOnce(
+        new Promise<TagInfo[]>((resolve) => {
+          finish = resolve;
+        }),
+      );
+
+      const first = resolveTagInfosExact([id]);
+      const second = resolveTagInfosExact([{ ...id }]);
+      renderHook(() => useTagInfo(id));
+      expect(invoke).toHaveBeenCalledTimes(1);
+      expect(invoke).toHaveBeenCalledWith("get_tag_infos", { ids: [id] });
+
+      finish([info(id)]);
+      await expect(Promise.all([first, second])).resolves.toEqual([
+        { [schemaDefinitionIdToken(id)]: info(id) },
+        { [schemaDefinitionIdToken(id)]: info(id) },
+      ]);
+      expect(invoke).toHaveBeenCalledTimes(1);
+    });
+
+    it("waits for an existing single-ID request", async () => {
+      const id = { table: "A", tag_id: "1" };
+      let finish!: (value: TagInfo) => void;
+      vi.mocked(invoke).mockReturnValueOnce(
+        new Promise<TagInfo>((resolve) => {
+          finish = resolve;
+        }),
+      );
+      renderHook(() => useTagInfo(id));
+      await waitFor(() => expect(invoke).toHaveBeenCalledTimes(1));
+
+      const batch = resolveTagInfosExact([id]);
+      expect(invoke).toHaveBeenCalledTimes(1);
+      finish(info(id));
+      await expect(batch).resolves.toEqual({
+        [schemaDefinitionIdToken(id)]: info(id),
+      });
+    });
+
+    it("allows retry after failure without erasing resolved values", async () => {
+      const resolvedId = { table: "A", tag_id: "1" };
+      const retryId = { table: "A", tag_id: "2" };
+      _setTagInfoCacheEntry(resolvedId, info(resolvedId));
+      vi.mocked(invoke)
+        .mockRejectedValueOnce(new Error("offline"))
+        .mockResolvedValueOnce([info(retryId)]);
+
+      await expect(resolveTagInfosExact([resolvedId, retryId])).rejects.toThrow(
+        "offline",
+      );
+      const retried = await resolveTagInfosExact([resolvedId, retryId]);
+
+      expect(invoke).toHaveBeenCalledTimes(2);
+      expect(retried[schemaDefinitionIdToken(resolvedId)]).toEqual(
+        info(resolvedId),
+      );
+      expect(retried[schemaDefinitionIdToken(retryId)]).toEqual(info(retryId));
     });
   });
 });

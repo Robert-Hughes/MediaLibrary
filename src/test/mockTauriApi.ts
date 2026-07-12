@@ -362,6 +362,9 @@ export function createMockTauriApi(): MockTauriApi {
         // TypedValueEditor falls through to the plain text editor.
         return null;
       }
+      if (cmd === "get_tag_infos") {
+        return [];
+      }
       if (cmd === "apply_metadata_draft_edits_cmd") {
         const result = mock.applyEditsResult;
         const relPaths = (args?.relPaths as string[]) ?? [];

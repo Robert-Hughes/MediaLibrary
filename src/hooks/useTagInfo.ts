@@ -3,8 +3,7 @@
 // Calls the Tauri `get_tag_info` command and caches results in a
 // module-level Map keyed by `schemaDefinitionIdToken(id)`.
 // Repeated lookups during a session hit the cache.
-// If the exact SchemaDefinitionId was not found, the cache entry is set to `null`
-// (invocation failures also currently settle as `null` after logging the exact ID).
+// If the exact SchemaDefinitionId was not found, the cache entry is set to `null`.
 //
 // Editors call this to decide which kind-specific control to render.
 
@@ -20,6 +19,7 @@ export type TagInfoCacheEntry = "loading" | TagInfo | null;
 
 const cache = new Map<string, TagInfoCacheEntry>();
 const subscribers = new Map<string, Set<() => void>>();
+const inFlight = new Map<string, Promise<void>>();
 
 function notify(key: string) {
   subscribers.get(key)?.forEach((cb) => cb());
@@ -43,19 +43,98 @@ async function fetchTagInfo(
 ): Promise<void> {
   cache.set(token, "loading");
   notify(token);
-  try {
-    const result = (await invoke("get_tag_info", {
-      id,
-    })) as TagInfo | null;
-    if (cache.get(token) === "loading") cache.set(token, result);
-  } catch (e) {
-    console.error(
-      `[useTagInfo] get_tag_info(${formatSchemaDefinitionIdForDiagnostics(id)}) failed:`,
-      e,
-    );
-    if (cache.get(token) === "loading") cache.set(token, null);
+  const request = (async () => {
+    try {
+      const result = (await invoke("get_tag_info", {
+        id,
+      })) as TagInfo | null;
+      if (cache.get(token) === "loading") cache.set(token, result);
+    } catch (e) {
+      console.error(
+        `[useTagInfo] get_tag_info(${formatSchemaDefinitionIdForDiagnostics(id)}) failed:`,
+        e,
+      );
+      if (cache.get(token) === "loading") cache.delete(token);
+    } finally {
+      inFlight.delete(token);
+      notify(token);
+    }
+  })();
+  inFlight.set(token, request);
+  await request;
+}
+
+function waitForSettlement(token: string): Promise<void> {
+  const request = inFlight.get(token);
+  if (request) return request;
+  if (cache.get(token) !== "loading") return Promise.resolve();
+  return new Promise((resolve) => {
+    const unsubscribe = subscribe(token, () => {
+      if (cache.get(token) !== "loading") {
+        unsubscribe();
+        resolve();
+      }
+    });
+  });
+}
+
+/** Resolve exact schema IDs through the hook's existing module-level cache. */
+export async function resolveTagInfosExact(
+  ids: readonly SchemaDefinitionId[],
+): Promise<Record<string, TagInfo | null>> {
+  const unique = new Map<string, SchemaDefinitionId>();
+  for (const id of ids) {
+    const token = schemaDefinitionIdToken(id);
+    if (!unique.has(token)) unique.set(token, id);
   }
-  notify(token);
+
+  const absent = Array.from(unique).filter(([token]) => !cache.has(token));
+  if (absent.length > 0) {
+    for (const [token] of absent) {
+      cache.set(token, "loading");
+      notify(token);
+    }
+    const requestedTokens = new Set(absent.map(([token]) => token));
+    const requestedIds = absent.map(([, id]) => id);
+    const request = (async () => {
+      try {
+        const found = await invoke<TagInfo[]>("get_tag_infos", {
+          ids: requestedIds,
+        });
+        const foundByToken = new Map(
+          found.map((info) => [schemaDefinitionIdToken(info.id), info]),
+        );
+        for (const [token] of absent) {
+          if (cache.get(token) === "loading") {
+            cache.set(token, foundByToken.get(token) ?? null);
+          }
+        }
+      } catch (error) {
+        console.error(
+          `[useTagInfo] get_tag_infos(${requestedIds.map(formatSchemaDefinitionIdForDiagnostics).join(", ")}) failed:`,
+          error,
+        );
+        for (const token of requestedTokens) {
+          if (cache.get(token) === "loading") cache.delete(token);
+        }
+        throw error;
+      } finally {
+        for (const token of requestedTokens) {
+          inFlight.delete(token);
+          notify(token);
+        }
+      }
+    })();
+    for (const [token] of absent) inFlight.set(token, request);
+  }
+
+  await Promise.all(Array.from(unique.keys(), waitForSettlement));
+  const result: Record<string, TagInfo | null> = {};
+  for (const token of unique.keys()) {
+    const value = cache.get(token);
+    result[token] = value && value !== "loading" ? value : null;
+  }
+  return result;
 }
 
 /**
@@ -156,6 +235,7 @@ export function useTagInfos(
 export function _clearTagInfoCache(): void {
   cache.clear();
   subscribers.clear();
+  inFlight.clear();
 }
 
 export function _setTagInfoCacheEntry(

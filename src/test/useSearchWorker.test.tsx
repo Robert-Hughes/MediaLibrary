@@ -1,17 +1,22 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import {
+  toSearchDraftEntries,
+  toSearchMetadataState,
   useSearchWorker,
   type SearchWorkerLike,
 } from "../hooks/useSearchWorker";
 import { DraftEditsStore, ImageMetadataStore, type PhotoInfo } from "../types";
 import { SearchIndex } from "../search/searchIndex";
 import { makePhoto, mockDraftsByFile, mockMetadata, testId } from "./factories";
-import { metadataGet } from "../utils/metadataCollection";
 import type {
   SearchWorkerInbound,
   SearchWorkerOutbound,
 } from "../workers/searchWorkerProtocol";
+import { invoke } from "@tauri-apps/api/core";
+import { _clearTagInfoCache } from "../hooks/useTagInfo";
+
+vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
 /**
  * In-thread fake that routes messages synchronously through a real
@@ -34,19 +39,21 @@ class FakeWorker implements SearchWorkerLike {
         for (const p of msg.photos) this.index.setPhoto(p);
         return;
       case "INIT_META":
-        for (const e of msg.entries) this.index.setMeta(e.path, e.meta);
+        for (const e of msg.entries)
+          this.index.setMeta(e.path, e.meta, msg.schemaLabels);
         return;
       case "INIT_DRAFTS":
-        for (const e of msg.entries) this.index.setDrafts(e.path, e.edits);
+        for (const e of msg.entries)
+          this.index.setDrafts(e.path, e.edits, msg.schemaLabels);
         return;
       case "UPSERT_PHOTO":
         this.index.setPhoto(msg.photo);
         return;
       case "UPSERT_META":
-        this.index.setMeta(msg.path, msg.meta);
+        this.index.setMeta(msg.path, msg.meta, msg.schemaLabels);
         return;
       case "UPSERT_DRAFTS":
-        this.index.setDrafts(msg.path, msg.edits);
+        this.index.setDrafts(msg.path, msg.edits, msg.schemaLabels);
         return;
       case "DELETE_PATH":
         this.index.deletePath(msg.path);
@@ -94,7 +101,7 @@ function setup(initial: Partial<HookArgs> = {}, debounceMs = 0) {
     draftEditsStore,
     query: initial.query ?? "",
   };
-  const { result, rerender } = renderHook(
+  const { result, rerender, unmount } = renderHook(
     (props: HookArgs) =>
       useSearchWorker({
         ...props,
@@ -103,11 +110,21 @@ function setup(initial: Partial<HookArgs> = {}, debounceMs = 0) {
       }),
     { initialProps: args },
   );
-  return { fake, result, rerender, imageMetadataStore, draftEditsStore };
+  return {
+    fake,
+    result,
+    rerender,
+    unmount,
+    imageMetadataStore,
+    draftEditsStore,
+  };
 }
 
 beforeEach(() => {
   vi.useRealTimers();
+  vi.clearAllMocks();
+  _clearTagInfoCache();
+  vi.mocked(invoke).mockResolvedValue([]);
 });
 
 describe("useSearchWorker", () => {
@@ -132,12 +149,14 @@ describe("useSearchWorker", () => {
       query: "",
     });
 
-    const types = fake.inbound.map((m) => m.type);
-    expect(types).toContain("CLEAR");
-    expect(types).toContain("INIT_PHOTOS");
-    expect(types).toContain("INIT_META");
-    expect(types).toContain("INIT_DRAFTS");
-    expect(types).toContain("QUERY");
+    await waitFor(() => {
+      const types = fake.inbound.map((m) => m.type);
+      expect(types).toContain("CLEAR");
+      expect(types).toContain("INIT_PHOTOS");
+      expect(types).toContain("INIT_META");
+      expect(types).toContain("INIT_DRAFTS");
+      expect(types).toContain("QUERY");
+    });
     await waitFor(() =>
       expect(result.current.matched).toEqual(new Set(["a.jpg"])),
     );
@@ -220,7 +239,9 @@ describe("useSearchWorker", () => {
     act(() => {
       meta.set("a.jpg", mockMetadata({ "X:Y": "uniquemeta-found" }));
     });
-    expect(fake.inbound.some((m) => m.type === "UPSERT_META")).toBe(true);
+    await waitFor(() =>
+      expect(fake.inbound.some((m) => m.type === "UPSERT_META")).toBe(true),
+    );
     await waitFor(() =>
       expect(result.current.matched).toEqual(new Set(["a.jpg"])),
     );
@@ -245,7 +266,9 @@ describe("useSearchWorker", () => {
         intent: "Set",
       });
     });
-    expect(fake.inbound.some((m) => m.type === "UPSERT_DRAFTS")).toBe(true);
+    await waitFor(() =>
+      expect(fake.inbound.some((m) => m.type === "UPSERT_DRAFTS")).toBe(true),
+    );
     await waitFor(() =>
       expect(result.current.matched).toEqual(new Set(["a.jpg"])),
     );
@@ -339,17 +362,23 @@ describe("useSearchWorker", () => {
     expect(fake.inbound.filter((m) => m.type === "CLEAR").length).toBe(
       clearCountBefore + 1,
     );
-    expect(
-      fake.inbound.some(
-        (m) =>
-          m.type === "INIT_META" &&
-          m.entries.some((e) => {
-            if (e.meta === "loading") return false;
-            const val = metadataGet(e.meta, testId("X:Y"));
-            return val?.kind === "Text" && val.value === "newscanmeta";
-          }),
-      ),
-    ).toBe(true);
+    await waitFor(() =>
+      expect(
+        fake.inbound.some(
+          (m) =>
+            m.type === "INIT_META" &&
+            m.entries.some((e) => {
+              if (e.meta === "loading") return false;
+              const val = e.meta.find(
+                ({ id }) =>
+                  id.table === testId("X:Y").table &&
+                  id.tag_id === testId("X:Y").tag_id,
+              )?.value;
+              return val?.kind === "Text" && val.value === "newscanmeta";
+            }),
+        ),
+      ).toBe(true),
+    );
     await act(async () => {});
   });
 
@@ -412,5 +441,224 @@ describe("useSearchWorker", () => {
     expect(fake.terminated).toBe(false);
     unmount();
     expect(fake.terminated).toBe(true);
+  });
+
+  it("converts metadata and drafts to structured exact-ID entries", () => {
+    const metadata = toSearchMetadataState(mockMetadata({ "X:Y": "value" }));
+    const draftCollection = mockDraftsByFile({
+      "a.jpg": { "Tag:A": "draft" },
+    })["a.jpg"];
+    const drafts = toSearchDraftEntries(draftCollection);
+
+    expect(metadata).toEqual([
+      { id: testId("X:Y"), value: { kind: "Text", value: "value" } },
+    ]);
+    expect(drafts).toEqual([
+      {
+        id: testId("Tag:A"),
+        edit: { value: { kind: "Text", value: "draft" }, intent: "Set" },
+      },
+    ]);
+  });
+
+  it("cold-start batches exact IDs and sends labels with structured entries", async () => {
+    const metaId = testId("X:Y");
+    const draftId = testId("Tag:A");
+    vi.mocked(invoke).mockResolvedValueOnce([
+      {
+        id: metaId,
+        group: "X",
+        name: "Y",
+        writable: true,
+        kind: { kind: "Text" },
+        description: "Metadata label",
+      },
+      {
+        id: draftId,
+        group: "Tag",
+        name: "A",
+        writable: true,
+        kind: { kind: "Text" },
+        description: "Draft label",
+      },
+    ]);
+    const meta = new ImageMetadataStore();
+    meta.set("a.jpg", mockMetadata({ "X:Y": "value" }));
+    const drafts = new DraftEditsStore();
+    drafts.resetMetadata(mockDraftsByFile({ "a.jpg": { "Tag:A": "draft" } }));
+    _clearTagInfoCache();
+    const { fake } = setup({
+      photos: [makePhoto({ relative_path: "a.jpg" })],
+      imageMetadataStore: meta,
+      draftEditsStore: drafts,
+    });
+
+    expect(fake.inbound.some((message) => message.type === "INIT_META")).toBe(
+      false,
+    );
+    await waitFor(() =>
+      expect(fake.inbound.some((message) => message.type === "INIT_META")).toBe(
+        true,
+      ),
+    );
+    expect(invoke).toHaveBeenCalledWith("get_tag_infos", {
+      ids: [metaId, draftId],
+    });
+    const initMeta = fake.inbound.find(
+      (message) => message.type === "INIT_META",
+    );
+    const initDrafts = fake.inbound.find(
+      (message) => message.type === "INIT_DRAFTS",
+    );
+    expect(initMeta).toMatchObject({
+      entries: [{ path: "a.jpg", meta: [{ id: metaId }] }],
+      schemaLabels: [{ id: metaId, group: "X", name: "Y" }],
+    });
+    expect(initDrafts).toMatchObject({
+      entries: [{ path: "a.jpg", edits: [{ id: draftId }] }],
+      schemaLabels: [{ id: draftId, group: "Tag", name: "A" }],
+    });
+    expect(
+      fake.inbound.some(
+        (message) =>
+          (message as { type: string }).type === "UPSERT_SCHEMA_LABELS",
+      ),
+    ).toBe(false);
+  });
+
+  it("drops stale metadata enrichment and posts only the newest revision", async () => {
+    const id = testId("X:Y");
+    let finish!: (value: unknown) => void;
+    vi.mocked(invoke).mockReturnValueOnce(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
+    const meta = new ImageMetadataStore();
+    const oldMeta = mockMetadata({ "X:Y": "old" });
+    const newMeta = mockMetadata({ "X:Y": "new" });
+    _clearTagInfoCache();
+    const { fake } = setup({ imageMetadataStore: meta });
+    await waitFor(() =>
+      expect(fake.inbound.some((message) => message.type === "INIT_META")).toBe(
+        true,
+      ),
+    );
+    fake.inbound.length = 0;
+
+    act(() => meta.set("a.jpg", oldMeta));
+    act(() => meta.set("a.jpg", newMeta));
+    expect(fake.inbound.some((message) => message.type === "UPSERT_META")).toBe(
+      false,
+    );
+    finish([
+      {
+        id,
+        group: "X",
+        name: "Y",
+        writable: true,
+        kind: { kind: "Text" },
+        description: null,
+      },
+    ]);
+
+    await waitFor(() => {
+      const updates = fake.inbound.filter(
+        (message) => message.type === "UPSERT_META",
+      );
+      expect(updates).toHaveLength(1);
+      expect(updates[0]).toMatchObject({
+        meta: [{ value: { kind: "Text", value: "new" } }],
+      });
+    });
+  });
+
+  it("drops stale draft enrichment and late results after termination", async () => {
+    const id = testId("Tag:A");
+    let finish!: (value: unknown) => void;
+    vi.mocked(invoke).mockReturnValueOnce(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
+    const drafts = new DraftEditsStore();
+    const { fake, unmount } = setup({ draftEditsStore: drafts });
+    await waitFor(() =>
+      expect(
+        fake.inbound.some((message) => message.type === "INIT_DRAFTS"),
+      ).toBe(true),
+    );
+    fake.inbound.length = 0;
+
+    act(() =>
+      drafts.setMetadataTag("a.jpg", id, {
+        value: { kind: "Text", value: "old" },
+        intent: "Set",
+      }),
+    );
+    act(() =>
+      drafts.setMetadataTag("a.jpg", id, {
+        value: { kind: "Text", value: "new" },
+        intent: "Set",
+      }),
+    );
+    expect(
+      fake.inbound.some((message) => message.type === "UPSERT_DRAFTS"),
+    ).toBe(false);
+    unmount();
+    finish([
+      {
+        id,
+        group: "Tag",
+        name: "A",
+        writable: true,
+        kind: { kind: "Text" },
+        description: null,
+      },
+    ]);
+    await act(async () => {});
+    expect(
+      fake.inbound.some((message) => message.type === "UPSERT_DRAFTS"),
+    ).toBe(false);
+  });
+
+  it("retries a failed enrichment on a later update", async () => {
+    const id = testId("X:Y");
+    vi.mocked(invoke)
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValueOnce([
+        {
+          id,
+          group: "X",
+          name: "Y",
+          writable: true,
+          kind: { kind: "Text" },
+          description: null,
+        },
+      ]);
+    const meta = new ImageMetadataStore();
+    const firstMeta = mockMetadata({ "X:Y": "first" });
+    const secondMeta = mockMetadata({ "X:Y": "second" });
+    _clearTagInfoCache();
+    const { fake } = setup({ imageMetadataStore: meta });
+    await waitFor(() =>
+      expect(fake.inbound.some((message) => message.type === "INIT_META")).toBe(
+        true,
+      ),
+    );
+    fake.inbound.length = 0;
+
+    act(() => meta.set("a.jpg", firstMeta));
+    await waitFor(() => expect(invoke).toHaveBeenCalledTimes(1));
+    expect(fake.inbound.some((message) => message.type === "UPSERT_META")).toBe(
+      false,
+    );
+    act(() => meta.set("a.jpg", secondMeta));
+    await waitFor(() =>
+      expect(
+        fake.inbound.some((message) => message.type === "UPSERT_META"),
+      ).toBe(true),
+    );
+    expect(invoke).toHaveBeenCalledTimes(2);
   });
 });

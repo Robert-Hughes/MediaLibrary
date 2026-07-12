@@ -179,3 +179,17 @@ MediaLibrary deliberately has:
 - no “prefer writable candidate” fallback; and
 - no Family 5 identity extension unless later runtime evidence proves it is
   necessary.
+
+## Search indexing
+
+Metadata and draft entries cross the search-worker boundary with structured
+exact `SchemaDefinitionId` values. Before posting them, the main thread resolves
+`TagInfo` through the existing exact-ID cache and projects only the searchable
+label subset: group, name, and description. Entries and their deduplicated
+labels are sent together in one combined message.
+
+The worker matches labels to entries by exact ID and adds the friendly fields to
+its haystack, but labels never become identity. Exact table, tag ID, optional
+index, and a readable diagnostic form remain searchable when a schema is
+missing. The internal JSON token used for JavaScript map keys is not
+user-facing searchable text.

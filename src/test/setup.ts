@@ -167,7 +167,13 @@ if (typeof Worker === "undefined") {
             path: string;
             meta: Parameters<InstanceType<typeof SearchIndex>["setMeta"]>[1];
           }[]) {
-            this.index.setMeta(e.path, e.meta);
+            this.index.setMeta(
+              e.path,
+              e.meta,
+              msg.schemaLabels as Parameters<
+                InstanceType<typeof SearchIndex>["setMeta"]
+              >[2],
+            );
           }
           return;
         case "INIT_DRAFTS":
@@ -175,7 +181,13 @@ if (typeof Worker === "undefined") {
             path: string;
             edits: Parameters<InstanceType<typeof SearchIndex>["setDrafts"]>[1];
           }[]) {
-            this.index.setDrafts(e.path, e.edits);
+            this.index.setDrafts(
+              e.path,
+              e.edits,
+              msg.schemaLabels as Parameters<
+                InstanceType<typeof SearchIndex>["setDrafts"]
+              >[2],
+            );
           }
           return;
         case "UPSERT_PHOTO":
@@ -191,6 +203,9 @@ if (typeof Worker === "undefined") {
             msg.meta as Parameters<
               InstanceType<typeof SearchIndex>["setMeta"]
             >[1],
+            msg.schemaLabels as Parameters<
+              InstanceType<typeof SearchIndex>["setMeta"]
+            >[2],
           );
           return;
         case "UPSERT_DRAFTS":
@@ -199,6 +214,9 @@ if (typeof Worker === "undefined") {
             msg.edits as Parameters<
               InstanceType<typeof SearchIndex>["setDrafts"]
             >[1],
+            msg.schemaLabels as Parameters<
+              InstanceType<typeof SearchIndex>["setDrafts"]
+            >[2],
           );
           return;
         case "DELETE_PATH":

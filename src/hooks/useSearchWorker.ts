@@ -1,9 +1,64 @@
 import { useEffect, useRef, useState } from "react";
-import type { DraftEditsStore, ImageMetadataStore, PhotoInfo } from "../types";
 import type {
+  DraftEditsStore,
+  ImageMetadataState,
+  ImageMetadataStore,
+  MetadataDraftCollection,
+  PhotoInfo,
+  SchemaDefinitionId,
+  TagInfo,
+} from "../types";
+import type {
+  SearchDraftEntry,
+  SearchMetadataState,
+  SearchSchemaLabel,
   SearchWorkerInbound,
   SearchWorkerOutbound,
 } from "../workers/searchWorkerProtocol";
+import { resolveTagInfosExact } from "./useTagInfo";
+import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
+
+export function toSearchMetadataState(
+  meta: ImageMetadataState,
+): SearchMetadataState {
+  if (meta === "loading") return "loading";
+  return Object.values(meta).map((entry) => {
+    const { id, ...value } = entry;
+    return { id, value };
+  });
+}
+
+export function toSearchDraftEntries(
+  collection: MetadataDraftCollection | undefined,
+): SearchDraftEntry[] | undefined {
+  return collection
+    ? Object.values(collection).map(({ id, edit }) => ({ id, edit }))
+    : undefined;
+}
+
+function idsFromMetadata(meta: SearchMetadataState): SchemaDefinitionId[] {
+  return meta === "loading" ? [] : meta.map(({ id }) => id);
+}
+
+function labelsFromResolved(
+  ids: readonly SchemaDefinitionId[],
+  resolved: Record<string, TagInfo | null>,
+): SearchSchemaLabel[] {
+  const labels = new Map<string, SearchSchemaLabel>();
+  for (const id of ids) {
+    const token = schemaDefinitionIdToken(id);
+    const info = resolved[token];
+    if (info && !labels.has(token)) {
+      labels.set(token, {
+        id: info.id,
+        group: info.group,
+        name: info.name,
+        description: info.description,
+      });
+    }
+  }
+  return Array.from(labels.values());
+}
 
 /**
  * Subset of the DOM Worker interface that this hook actually uses.  Lets
@@ -104,11 +159,14 @@ export function useSearchWorker(
   } = args;
 
   const workerRef = useRef<SearchWorkerLike | null>(null);
+  const workerGenerationRef = useRef(0);
   const reqIdRef = useRef(0);
   const queryRef = useRef(query);
   queryRef.current = query;
   const prevPhotosRef = useRef<PhotoInfo[]>([]);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const metaRevisionsRef = useRef(new Map<string, number>());
+  const draftRevisionsRef = useRef(new Map<string, number>());
 
   const [matched, setMatched] = useState<Set<string> | null>(null);
   const [pending, setPending] = useState(false);
@@ -124,6 +182,7 @@ export function useSearchWorker(
   // ── Spawn worker once ───────────────────────────────────────────────
   useEffect(() => {
     const w = createWorker();
+    workerGenerationRef.current += 1;
     workerRef.current = w;
     w.onmessage = (ev) => {
       const msg = ev.data;
@@ -139,6 +198,7 @@ export function useSearchWorker(
       }
       w.terminate();
       workerRef.current = null;
+      workerGenerationRef.current += 1;
     };
     // createWorker is intended to be stable (defined once in the parent).
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -148,6 +208,12 @@ export function useSearchWorker(
   useEffect(() => {
     const w = workerRef.current;
     if (!w) return;
+    let active = true;
+    const generation = workerGenerationRef.current;
+    const isCurrentWorker = () =>
+      active &&
+      workerRef.current === w &&
+      workerGenerationRef.current === generation;
     // Reset and replay the current store contents.  Scan reset swaps in a
     // fresh store instance, which is what re-runs this effect.
     w.postMessage({ type: "CLEAR" });
@@ -155,47 +221,112 @@ export function useSearchWorker(
       type: "INIT_PHOTOS",
       photos: prevPhotosRef.current.map(photoToFields),
     });
-    w.postMessage({
-      type: "INIT_META",
-      entries: Array.from(imageMetadataStore.entries()).map(([path, meta]) => ({
+    // Exact IDs cross the worker boundary. The existing main-thread cache
+    // resolves labels first, then sends entries and search-only labels atomically;
+    // labels enrich the haystack but never become identity.
+    const initialMeta = Array.from(imageMetadataStore.entries()).map(
+      ([path, meta]) => ({
         path,
-        meta,
-      })),
-    });
-    // TODO: The search worker orchestration currently maps draft edits using serialized string keys
-    // representing the internal JSON token from `schemaDefinitionIdToken`, not Rust's `SchemaDefinitionId.to_string()`.
-    // The worker currently receives token-keyed edits without the original ID/TagInfo, so friendly schema
-    // labels cannot be indexed reliably. In a subsequent search indexing migration phase, the search worker
-    // protocol and indexing logic must be refactored to support structured exact-ID lookups.
-    w.postMessage({
-      type: "INIT_DRAFTS",
-      entries: Object.entries(draftEditsStore.getAllMetadata()).map(
-        ([path, edits]) => ({
-          path,
-          edits: Object.fromEntries(
-            Object.entries(edits).map(([key, entry]) => [key, entry.edit]),
-          ),
-        }),
-      ),
-    });
-    submitNow(queryRef.current);
+        meta: toSearchMetadataState(meta),
+        revision: metaRevisionsRef.current.get(path) ?? 0,
+      }),
+    );
+    const initialDrafts = Object.entries(draftEditsStore.getAllMetadata()).map(
+      ([path, edits]) => ({
+        path,
+        edits: toSearchDraftEntries(edits) ?? [],
+        revision: draftRevisionsRef.current.get(path) ?? 0,
+      }),
+    );
+    const initialMetaIds = initialMeta.flatMap(({ meta }) =>
+      idsFromMetadata(meta),
+    );
+    const initialDraftIds = initialDrafts.flatMap(({ edits }) =>
+      edits.map(({ id }) => id),
+    );
+    void resolveTagInfosExact([...initialMetaIds, ...initialDraftIds])
+      .then((resolved) => {
+        if (!isCurrentWorker()) return;
+        const metaEntries = initialMeta
+          .filter(
+            ({ path, revision }) =>
+              (metaRevisionsRef.current.get(path) ?? 0) === revision,
+          )
+          .map(({ path, meta }) => ({ path, meta }));
+        w.postMessage({
+          type: "INIT_META",
+          entries: metaEntries,
+          schemaLabels: labelsFromResolved(initialMetaIds, resolved),
+        });
+        const draftEntries = initialDrafts
+          .filter(
+            ({ path, revision }) =>
+              (draftRevisionsRef.current.get(path) ?? 0) === revision,
+          )
+          .map(({ path, edits }) => ({ path, edits }));
+        w.postMessage({
+          type: "INIT_DRAFTS",
+          entries: draftEntries,
+          schemaLabels: labelsFromResolved(initialDraftIds, resolved),
+        });
+        submitNow(queryRef.current);
+      })
+      .catch(() => {
+        // A later store update retries exact schema enrichment.
+      });
 
     const unsubMeta = imageMetadataStore.subscribeAll((path, meta) => {
-      w.postMessage({ type: "UPSERT_META", path, meta });
-      submitNow(queryRef.current);
+      const revision = (metaRevisionsRef.current.get(path) ?? 0) + 1;
+      metaRevisionsRef.current.set(path, revision);
+      const searchMeta = toSearchMetadataState(meta);
+      const ids = idsFromMetadata(searchMeta);
+      void resolveTagInfosExact(ids)
+        .then((resolved) => {
+          if (
+            !isCurrentWorker() ||
+            metaRevisionsRef.current.get(path) !== revision
+          )
+            return;
+          w.postMessage({
+            type: "UPSERT_META",
+            path,
+            meta: searchMeta,
+            schemaLabels: labelsFromResolved(ids, resolved),
+          });
+          submitNow(queryRef.current);
+        })
+        .catch(() => {
+          // A later update retries.
+        });
     });
     const unsubDrafts = draftEditsStore.subscribe((changes) => {
       for (const c of changes) {
-        const edits = c.edits
-          ? Object.fromEntries(
-              Object.entries(c.edits).map(([key, entry]) => [key, entry.edit]),
+        const revision = (draftRevisionsRef.current.get(c.path) ?? 0) + 1;
+        draftRevisionsRef.current.set(c.path, revision);
+        const edits = toSearchDraftEntries(c.edits);
+        const ids = edits?.map(({ id }) => id) ?? [];
+        void resolveTagInfosExact(ids)
+          .then((resolved) => {
+            if (
+              !isCurrentWorker() ||
+              draftRevisionsRef.current.get(c.path) !== revision
             )
-          : undefined;
-        w.postMessage({ type: "UPSERT_DRAFTS", path: c.path, edits });
+              return;
+            w.postMessage({
+              type: "UPSERT_DRAFTS",
+              path: c.path,
+              edits,
+              schemaLabels: labelsFromResolved(ids, resolved),
+            });
+            submitNow(queryRef.current);
+          })
+          .catch(() => {
+            // A later update retries.
+          });
       }
-      submitNow(queryRef.current);
     });
     return () => {
+      active = false;
       unsubMeta();
       unsubDrafts();
     };
