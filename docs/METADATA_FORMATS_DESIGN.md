@@ -1,6 +1,8 @@
 # Metadata Formats — Design
 
 Operational metadata-pipeline guidance lives in `docs/METADATA_PIPELINE.md`.
+The authoritative rationale and reconstruction rules for exact tag-definition
+identity live in [ExifTool Schema Identity](EXIFTOOL_SCHEMA_IDENTITY.md).
 
 This document describes how MediaLibrary handles image metadata: the types it preserves, how it reads, edits, and writes metadata, and the rationale for the design choices. It is aimed primarily at developers but also useful for advanced users who want to understand what the app actually does to their files.
 
@@ -99,15 +101,26 @@ explicitly, while `TagKind` describes what each tag expects.
 describe what shape a value _should_ have for a given tag. For that,
 MediaLibrary builds a registry of tag types at startup.
 
-### Source: `exiftool -listx`
+### Source: `exiftool -listx -f -lang en`
 
-exiftool publishes its own writable-tag database as XML via `exiftool -listx`. Each tag entry includes group, name, writability, base type, and — for enum tags — the full value-to-label mapping.
+exiftool publishes its tag database as XML. MediaLibrary obtains it with
+`exiftool -listx -f -lang en`; each tag entry includes its table, ID, friendly
+group and name, writability, base type and, for enum tags, its value-to-label
+mapping.
 
-MediaLibrary runs `exiftool -listx -lang en` lazily on first registry access and parses the XML into an in-memory `TagRegistry`. The parsed result is cached to disk at `<dirs::cache_dir>/MediaLibrary/tag_schema_<version>.json`, keyed by the output of `exiftool -ver`. Subsequent app launches read the cache directly; an exiftool version change produces a cache-miss filename and triggers a full rebuild. Cache failures (missing dir, write error, unparseable existing file) degrade silently to the live build path.
+MediaLibrary runs the command lazily on first registry access and parses the
+XML into an in-memory `TagRegistry` keyed by exact `SchemaDefinitionId`
+(`table`, canonical `tag_id`, and optional repeated-definition `index`). The
+parsed result is cached to disk at
+`<dirs::cache_dir>/MediaLibrary/tag_schema_<version>.json`, keyed by the output
+of `exiftool -ver`. Subsequent launches read the cache directly; an ExifTool
+version change triggers a rebuild. Cache failures degrade to the live build
+path. See [ExifTool Schema Identity](EXIFTOOL_SCHEMA_IDENTITY.md) for the full
+identity rationale and reconstruction algorithm.
 
 ### What the registry tells us
 
-For each tag (keyed by `Group:Name`, e.g. `XMP-dc:Subject`):
+For each exact schema definition:
 
 - Is it writable?
 - What is its base type? `Text`, `Integer`, `Real`, `Rational`, `Boolean`, `Date`, `Time`, `DateTime`, `LangAlt`, `Struct`, `Binary`.
@@ -136,25 +149,31 @@ Tags that are missing from the registry, or whose raw JSON cannot be parsed as t
 **Pass A — pretty:**
 
 ```
-exiftool -a -G1 -s -struct -charset filename=utf8 -charset utf8 \
+exiftool -a -G1 -s -struct -t -D -charset filename=utf8 -charset utf8 \
   --system:all --composite:all -j <paths>
 ```
 
 **Pass B — numeric:**
 
 ```
-exiftool -a -G1 -s -struct -n -charset filename=utf8 -charset utf8 \
-  --system:all --composite:all -j <paths>
+exiftool -a -G1 -s -struct -t -D -charset filename=utf8 -charset utf8 \
+  --system:all --composite:all -j -n <paths>
 ```
 
 ### Flag explanations
 
-- `-G1` — Prefix each tag with its group-1 name (the specific block: `XMP-dc`, `ExifIFD`, `IPTC`, `Track1`). exiftool tag families have multiple grouping axes; G1 is the specific sub-group. Without it, `DateTimeOriginal` could come from `ExifIFD` or `XMP-exif` and we couldn't tell which. We do not use `-G0:1` (which would prepend `XMP:` etc.) because G1 alone already encodes enough to disambiguate writes.
+- `-G1` — Include the friendly Group 1 location/name component, such as
+  `XMP-dc`, `ExifIFD`, `IPTC` or `Track1`. It is useful for presentation and
+  write-selector construction, but it does not uniquely identify a schema
+  definition and is never metadata identity.
 - `-s` — Short tag names (no description text).
 - `-struct` — Keep nested structs as JSON objects rather than flattening to dotted keys. Required for face regions, `Keys` group on QuickTime, etc.
 - `-a` — Allow duplicate tags (e.g. `Subject` from both `XMP-dc` and `IPTC`).
 - `--system:all --composite:all` — Exclude file-system metadata (size, mtime — we have those) and computed composites (we don't want them in drafts).
 - `-j` — JSON output.
+- `-t` — Wrap each JSON value with the internal ExifTool tag-table name and
+  optional repeated-definition index.
+- `-D` — Include the tag ID, emitting numeric IDs in decimal.
 - `-charset filename=utf8 -charset utf8` — UTF-8 throughout. Avoids Windows code-page surprises.
 - `-n` (pass B only) — No PrintConv. Raw machine values.
 
@@ -171,6 +190,12 @@ exiftool -a -G1 -s -struct -n -charset filename=utf8 -charset utf8 \
 | `Keywords`     | `["beach", "sunset"]`    | `["beach", "sunset"]` (same — no PrintConv applies) |
 
 We want **pass A for display** (matches what every other tool shows) and **pass B for editing and verification** (the actual machine value, unambiguous on write).
+
+Both passes expose `table`, `id` and optional `index`. They are joined by exact
+`SchemaDefinitionId`, never by the original JSON property name. The frontend
+receives metadata as `{id, value}` entry arrays, then may token-key JavaScript
+collections with `schemaDefinitionIdToken(id)` while retaining the structured
+ID in every value. Image columns and sorting also carry exact IDs.
 
 ### Why not just compute pretty form ourselves
 
@@ -369,6 +394,9 @@ returns a clear error telling the user to recreate pending drafts with
 `schema_version` 4. This avoids reconstructing exact schema identity or
 semantic values from legacy
 strings or JSON-shaped raw values.
+
+Likewise, legacy image-column settings without exact IDs are reset instead of
+being guessed from friendly strings.
 
 ---
 

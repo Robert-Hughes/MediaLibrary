@@ -41,7 +41,7 @@ export function NewPropertyDialog({
     if (writableDefinitions === "loading") return [];
     const applicable = filterTagInfosByFilename(writableDefinitions, filename);
     if (!searchQuery.trim()) return [];
-    const lowerQuery = searchQuery.toLowerCase();
+    const lowerQuery = searchQuery.trim().toLowerCase();
     return applicable.filter((info) => {
       const friendlyName = `${info.group}:${info.name}`.toLowerCase();
       const name = info.name.toLowerCase();
@@ -107,6 +107,7 @@ export function NewPropertyDialog({
           ) : (
             <div>
               <label
+                htmlFor="new-property-search"
                 style={{
                   display: "block",
                   marginBottom: "6px",
@@ -117,6 +118,7 @@ export function NewPropertyDialog({
                 Search Writable Properties
               </label>
               <input
+                id="new-property-search"
                 ref={searchInputRef}
                 type="text"
                 className="dialog-input"

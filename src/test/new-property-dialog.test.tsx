@@ -109,6 +109,20 @@ describe("NewPropertyDialog exact-ID selection flow", () => {
     expect(screen.queryByTestId(`schema-option-${canonToken}`)).toBeNull();
   });
 
+  it("trims surrounding whitespace when filtering", () => {
+    _setWritableSchemaDefinitionsCache(testDefinitions);
+    render(<NewPropertyDialog onSave={() => {}} onCancel={() => {}} />);
+
+    fireEvent.change(screen.getByLabelText("Search Writable Properties"), {
+      target: { value: "  Title  " },
+    });
+
+    const titleToken = schemaDefinitionIdToken(testDefinitions[0].id);
+    expect(
+      screen.getByTestId(`schema-option-${titleToken}`),
+    ).toBeInTheDocument();
+  });
+
   it("filters search matches by description", () => {
     _setWritableSchemaDefinitionsCache(testDefinitions);
     render(<NewPropertyDialog onSave={() => {}} onCancel={() => {}} />);
@@ -206,6 +220,22 @@ describe("NewPropertyDialog exact-ID selection flow", () => {
     expect(option).toHaveFocus();
 
     await user.keyboard("{Enter}");
+    expect(option).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("new-property-next")).toBeEnabled();
+  });
+
+  it("selects a focused search result with Space", async () => {
+    const user = userEvent.setup();
+    _setWritableSchemaDefinitionsCache(testDefinitions);
+
+    render(<NewPropertyDialog onSave={() => {}} onCancel={() => {}} />);
+    await user.type(screen.getByTestId("new-property-key"), "Title");
+
+    const titleToken = schemaDefinitionIdToken(testDefinitions[0].id);
+    const option = screen.getByTestId(`schema-option-${titleToken}`);
+    option.focus();
+
+    await user.keyboard(" ");
     expect(option).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByTestId("new-property-next")).toBeEnabled();
   });

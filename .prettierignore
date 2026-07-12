@@ -6,5 +6,3 @@ src/types/generated/
 .claude/
 package-lock.json
 TODO.md
-docs/METADATA_FORMATS_DESIGN.md
-docs/SchemaDefinitionId PLAN.md
