@@ -80,6 +80,50 @@ an exact `MetadataWriteTarget`. This distinction prevents general schema
 writability from being mistaken for proof that a concrete stored value can be
 targeted safely.
 
+### Conservative targets for existing occurrences
+
+The private scanner occurrence stage assigns a target only after every
+occurrence in one source file is known. An exact target currently requires:
+
+- an exactly resolved, statically writable `TagInfo`;
+- a supported schema kind (not `Binary` or `Unknown`);
+- the main family-3 document;
+- the primary family-4 occurrence;
+- no other runtime occurrence with the same selector;
+- no runtime LangAlt child semantics;
+- exact agreement between the runtime tag name and canonical `TagInfo::name`;
+- non-empty, syntactically safe family-1 and tag-name components.
+
+Selector ambiguity is detected across all occurrences, including otherwise
+ineligible siblings, using the ASCII-case-insensitive runtime family-1/tag-name
+pair. Family 5 cannot disambiguate a selector because it is not represented in
+`MetadataWriteTarget`. A `Copy0` occurrence is therefore not targetable when a
+matching `Copy1` exists.
+
+`TagInfo::group` is not the occurrence write destination. Runtime family 1
+supplies the target group, so occurrences sharing one static schema may still
+have distinct exact targets:
+
+```text
+shared TagInfo
+├── occurrence IFD0 → write target IFD0:XResolution
+└── occurrence IFD1 → write target IFD1:XResolution
+```
+
+This example applies when both runtime records are primary family-4
+occurrences. ExifTool may instead number a later same-named record as `Copy1`
+or higher across groups; under the locked primary-only rule, that record remains
+untargetable even though its family-1 group differs.
+
+Conversely, family-4 copies share a selector that the current target cannot
+distinguish:
+
+```text
+IFD0 / Copy0 / XResolution
+IFD0 / Copy1 / XResolution
+→ neither has an exact MetadataWriteTarget
+```
+
 ## Creating a new property
 
 Add New Property begins from a selected `TagInfo`. A later migration step will
@@ -107,16 +151,17 @@ silently select the first occurrence, and there is no general conversion from
 The scanner's ExifTool pass maps are keyed by `MetadataOccurrenceId`, and pretty
 and raw values join by occurrence identity. Its private canonical stage now
 materialises `MetadataOccurrence` values. Exactly resolved occurrences embed
-their cloned `TagInfo`; unresolved occurrences retain no `TagInfo`, and write
-targets are intentionally still absent while exact eligibility and ambiguity
-rules remain deferred.
+their cloned `TagInfo`; unresolved occurrences retain no `TagInfo`. Private
+scanner occurrences now include exact write targets where the conservative
+eligibility and per-file ambiguity checks demonstrate them.
 
 Scanner output is still projected into the legacy schema-keyed representation.
 That temporary projection cannot represent multiple different values which
 share one schema identity, so it fails explicitly instead of selecting an
 occurrence.
 
-Application consumers remain schema-keyed. The user-visible duplicate-
-occurrence problem is therefore not fixed until scanner output itself becomes
-occurrence-based; subsequent small commits will migrate those systems
-incrementally.
+Targets are not emitted through Tauri and the apply pipeline does not consume
+them. Application consumers and the legacy scanner projection remain
+schema-keyed. The user-visible duplicate-occurrence problem is therefore not
+fixed until scanner output itself becomes occurrence-based; subsequent small
+commits will migrate those systems incrementally.
