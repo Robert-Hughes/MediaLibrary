@@ -18,6 +18,8 @@ import type {
 import { resolveTagInfosExact } from "./useTagInfo";
 import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
 
+const INITIAL_REPLAY_RETRY_DELAYS_MS = [250, 1_000, 5_000] as const;
+
 export function toSearchMetadataState(
   meta: ImageMetadataState,
 ): SearchMetadataState {
@@ -209,6 +211,10 @@ export function useSearchWorker(
     const w = workerRef.current;
     if (!w) return;
     let active = true;
+    let initialReplayComplete = false;
+    let initialReplayInFlight = false;
+    let initialReplayRetryIndex = 0;
+    let initialReplayRetryTimer: ReturnType<typeof setTimeout> | null = null;
     const generation = workerGenerationRef.current;
     const isCurrentWorker = () =>
       active &&
@@ -244,36 +250,66 @@ export function useSearchWorker(
     const initialDraftIds = initialDrafts.flatMap(({ edits }) =>
       edits.map(({ id }) => id),
     );
-    void resolveTagInfosExact([...initialMetaIds, ...initialDraftIds])
-      .then((resolved) => {
-        if (!isCurrentWorker()) return;
-        const metaEntries = initialMeta
-          .filter(
-            ({ path, revision }) =>
-              (metaRevisionsRef.current.get(path) ?? 0) === revision,
+    const scheduleInitialReplayRetry = () => {
+      if (!isCurrentWorker() || initialReplayComplete) return;
+      const delay =
+        INITIAL_REPLAY_RETRY_DELAYS_MS[
+          Math.min(
+            initialReplayRetryIndex,
+            INITIAL_REPLAY_RETRY_DELAYS_MS.length - 1,
           )
-          .map(({ path, meta }) => ({ path, meta }));
-        w.postMessage({
-          type: "INIT_META",
-          entries: metaEntries,
-          schemaLabels: labelsFromResolved(initialMetaIds, resolved),
+        ];
+      initialReplayRetryIndex += 1;
+      initialReplayRetryTimer = setTimeout(() => {
+        initialReplayRetryTimer = null;
+        replayInitialSnapshot();
+      }, delay);
+    };
+    const replayInitialSnapshot = () => {
+      if (!isCurrentWorker() || initialReplayComplete || initialReplayInFlight)
+        return;
+      initialReplayInFlight = true;
+      void resolveTagInfosExact([...initialMetaIds, ...initialDraftIds])
+        .then((resolved) => {
+          if (!isCurrentWorker() || initialReplayComplete) return;
+          initialReplayComplete = true;
+          initialReplayRetryIndex = 0;
+          if (initialReplayRetryTimer) {
+            clearTimeout(initialReplayRetryTimer);
+            initialReplayRetryTimer = null;
+          }
+          const metaEntries = initialMeta
+            .filter(
+              ({ path, revision }) =>
+                (metaRevisionsRef.current.get(path) ?? 0) === revision,
+            )
+            .map(({ path, meta }) => ({ path, meta }));
+          w.postMessage({
+            type: "INIT_META",
+            entries: metaEntries,
+            schemaLabels: labelsFromResolved(initialMetaIds, resolved),
+          });
+          const draftEntries = initialDrafts
+            .filter(
+              ({ path, revision }) =>
+                (draftRevisionsRef.current.get(path) ?? 0) === revision,
+            )
+            .map(({ path, edits }) => ({ path, edits }));
+          w.postMessage({
+            type: "INIT_DRAFTS",
+            entries: draftEntries,
+            schemaLabels: labelsFromResolved(initialDraftIds, resolved),
+          });
+          submitNow(queryRef.current);
+        })
+        .catch(() => {
+          scheduleInitialReplayRetry();
+        })
+        .finally(() => {
+          initialReplayInFlight = false;
         });
-        const draftEntries = initialDrafts
-          .filter(
-            ({ path, revision }) =>
-              (draftRevisionsRef.current.get(path) ?? 0) === revision,
-          )
-          .map(({ path, edits }) => ({ path, edits }));
-        w.postMessage({
-          type: "INIT_DRAFTS",
-          entries: draftEntries,
-          schemaLabels: labelsFromResolved(initialDraftIds, resolved),
-        });
-        submitNow(queryRef.current);
-      })
-      .catch(() => {
-        // A later store update retries exact schema enrichment.
-      });
+    };
+    replayInitialSnapshot();
 
     const unsubMeta = imageMetadataStore.subscribeAll((path, meta) => {
       const revision = (metaRevisionsRef.current.get(path) ?? 0) + 1;
@@ -327,6 +363,10 @@ export function useSearchWorker(
     });
     return () => {
       active = false;
+      if (initialReplayRetryTimer) {
+        clearTimeout(initialReplayRetryTimer);
+        initialReplayRetryTimer = null;
+      }
       unsubMeta();
       unsubDrafts();
     };
