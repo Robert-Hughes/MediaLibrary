@@ -12,7 +12,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use walkdir::WalkDir;
 
-use crate::metadata_occurrence::{MetadataOccurrence, MetadataOccurrenceId, MetadataWriteTarget};
+use crate::metadata_occurrence::{
+    MetadataOccurrence, MetadataOccurrenceId, MetadataOccurrences, MetadataWriteTarget,
+};
 use crate::metadata_value::{parse_metadata_value, MetadataValue};
 use crate::tag_schema::{normalize_runtime_tag_id, SchemaDefinitionId, TagKind, TagRegistry};
 
@@ -91,16 +93,26 @@ pub struct WalkErrorInfo {
     pub message: String,
 }
 
-/// Image-level metadata for a single photo, delivered asynchronously after discovery.
-///
-/// `metadata` is canonical semantic app metadata. ExifTool display/pretty JSON
-/// may be read internally as parsing hints, but it is not exposed as app
-/// metadata.
+/// Image-level metadata for a single photo read by the backend scanner.
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
 pub struct ImageMetadata {
     pub relative_path: String,
+
+    /// Authoritative runtime metadata occurrences.
+    ///
+    /// Each entry retains its concrete occurrence identity, semantic value,
+    /// resolved schema information and exact write target. Several occurrences
+    /// may share one schema definition without losing their runtime identity.
+    pub occurrences: MetadataOccurrences,
+
+    /// Temporary schema-keyed compatibility projection.
+    ///
+    /// This field is retained for schema-keyed consumers while they migrate to
+    /// occurrence identity. It cannot represent every valid occurrence set,
+    /// and an entry here must not be assumed to identify one unique runtime
+    /// occurrence.
     pub metadata: MetadataEntries,
 }
 
@@ -113,6 +125,17 @@ fn metadata_entries(values: MetadataMap) -> MetadataEntries {
             .map(|(id, value)| MetadataEntry { id, value })
             .collect(),
     )
+}
+
+fn metadata_occurrences_from_canonical(
+    occurrences: &[CanonicalRuntimeOccurrence],
+) -> MetadataOccurrences {
+    let mut public_occurrences: Vec<_> = occurrences
+        .iter()
+        .map(|item| item.occurrence.clone())
+        .collect();
+    public_occurrences.sort_by(|left, right| left.id.cmp(&right.id));
+    MetadataOccurrences(public_occurrences)
 }
 
 /// Walk `folder` and call `on_photo` for each image file found.
@@ -785,6 +808,8 @@ fn assemble_batch_outcome(
                 }
             };
 
+            let public_occurrences = metadata_occurrences_from_canonical(&occurrences);
+
             let metadata = match project_occurrences_to_legacy_metadata(occurrences) {
                 Ok(metadata) => metadata,
                 Err(error) => {
@@ -798,6 +823,7 @@ fn assemble_batch_outcome(
 
             results.push(ImageMetadata {
                 relative_path: rel_path.clone(),
+                occurrences: public_occurrences,
                 metadata: metadata_entries(metadata),
             });
         }
@@ -1619,6 +1645,7 @@ fn parse_exiftool_batch_json(
         .unwrap_or_default();
         results.push(ImageMetadata {
             relative_path: rel_path.clone(),
+            occurrences: MetadataOccurrences::default(),
             metadata: metadata_entries(metadata),
         });
     }
@@ -2958,6 +2985,112 @@ mod tests {
             assert!(runtime_map.contains_key(&runtime_resolutions[0].occurrence_id));
             assert!(runtime_map.contains_key(&runtime_resolutions[1].occurrence_id));
         }
+    }
+
+    #[cfg(feature = "integration")]
+    #[test]
+    fn public_batch_read_exposes_occurrences_and_retains_projection_failure_boundary() {
+        let temp = tempdir().unwrap();
+        let source = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("test_images")
+            .join("real_with_exif.jpg");
+        let copy = temp.path().join("public-occurrences.jpg");
+        fs::copy(source, &copy).unwrap();
+
+        let mut initialise = crate::exiftool_config::exiftool_command();
+        let initial_output = initialise
+            .args([
+                "-overwrite_original",
+                "-IFD0:XResolution=300",
+                "-IFD1:XResolution=300",
+                "-IFD0:YResolution=300",
+                "-IFD1:YResolution=300",
+            ])
+            .arg(&copy)
+            .output()
+            .expect("initialise disposable matching IFD resolutions");
+        assert!(
+            initial_output.status.success(),
+            "ExifTool setup failed: {}",
+            String::from_utf8_lossy(&initial_output.stderr)
+        );
+
+        let relative_paths = ["public-occurrences.jpg".to_string()];
+        let absolute_paths = [copy.clone()];
+        let outcome = read_image_metadata_batch(&relative_paths, &absolute_paths).unwrap();
+        assert!(outcome.failures.is_empty(), "{:#?}", outcome.failures);
+        assert_eq!(outcome.results.len(), 1);
+        let result = &outcome.results[0];
+        assert!(!result.occurrences.is_empty());
+        assert!(!result.metadata.is_empty());
+
+        let resolutions: Vec<_> = result
+            .occurrences
+            .iter()
+            .filter(|occurrence| {
+                occurrence
+                    .tag_info
+                    .as_ref()
+                    .is_some_and(|info| info.name == "XResolution")
+                    && matches!(
+                        occurrence
+                            .write_target
+                            .as_ref()
+                            .map(|target| target.group1.as_str()),
+                        Some("IFD0" | "IFD1")
+                    )
+            })
+            .collect();
+        assert_eq!(resolutions.len(), 2);
+        let ifd0 = resolutions
+            .iter()
+            .find(|occurrence| occurrence.write_target.as_ref().unwrap().group1 == "IFD0")
+            .unwrap();
+        let ifd1 = resolutions
+            .iter()
+            .find(|occurrence| occurrence.write_target.as_ref().unwrap().group1 == "IFD1")
+            .unwrap();
+        assert_eq!(ifd0.id.document, None);
+        assert_eq!(ifd0.id.path, "JPEG-APP1-IFD0");
+        assert_eq!(ifd0.id.tag_id, "282");
+        assert_eq!(ifd0.id.copy, 0);
+        assert_eq!(ifd1.id.document, None);
+        assert_eq!(ifd1.id.path, "JPEG-APP1-IFD1");
+        assert_eq!(ifd1.id.tag_id, "282");
+        assert!(ifd1.id.copy > 0);
+        assert_eq!(ifd0.tag_info, ifd1.tag_info);
+        assert_eq!(
+            ifd0.write_target.as_ref().unwrap().selector(),
+            "IFD0:XResolution"
+        );
+        assert_eq!(
+            ifd1.write_target.as_ref().unwrap().selector(),
+            "IFD1:XResolution"
+        );
+        let schema = &ifd0.tag_info.as_ref().unwrap().id;
+        assert_eq!(result.occurrences.for_schema(schema).count(), 2);
+        assert!(result.metadata.get(schema).is_some());
+
+        let mut make_conflict = crate::exiftool_config::exiftool_command();
+        let conflict_output = make_conflict
+            .args(["-overwrite_original", "-IFD1:XResolution=72"])
+            .arg(&copy)
+            .output()
+            .expect("create disposable conflicting IFD resolutions");
+        assert!(
+            conflict_output.status.success(),
+            "ExifTool conflict setup failed: {}",
+            String::from_utf8_lossy(&conflict_output.stderr)
+        );
+
+        let conflicting = read_image_metadata_batch(&relative_paths, &absolute_paths).unwrap();
+        assert!(conflicting.results.is_empty());
+        assert_eq!(conflicting.failures.len(), 1);
+        assert_eq!(conflicting.failures[0].relative_path, relative_paths[0]);
+        assert!(conflicting.failures[0]
+            .error_message
+            .starts_with("Legacy schema projection failed:"));
     }
 
     #[cfg(feature = "integration")]
@@ -4537,17 +4670,18 @@ mod tests {
         )
         .expect("individual files remain classifiable");
         assert_eq!(outcome.results.len(), 2);
-        assert!(
-            outcome
-                .results
-                .iter()
-                .any(|result| result.relative_path == "good-before.jpg"
-                    && !result.metadata.is_empty())
-        );
         assert!(outcome
             .results
             .iter()
-            .any(|result| result.relative_path == "good-after.jpg" && !result.metadata.is_empty()));
+            .any(|result| result.relative_path == "good-before.jpg"
+                && !result.occurrences.is_empty()
+                && !result.metadata.is_empty()));
+        assert!(outcome
+            .results
+            .iter()
+            .any(|result| result.relative_path == "good-after.jpg"
+                && !result.occurrences.is_empty()
+                && !result.metadata.is_empty()));
         assert_eq!(outcome.failures.len(), 1);
         let failure = &outcome.failures[0];
         assert_eq!(failure.relative_path, "collision.jpg");
@@ -4561,6 +4695,159 @@ mod tests {
         assert!(failure.error_message.contains("IFD1:XResolution"));
         assert!(failure.error_message.contains("Integer(300)"));
         assert!(failure.error_message.contains("Integer(72)"));
+    }
+
+    #[test]
+    fn successful_batch_result_exposes_occurrences_and_lossy_legacy_projection() {
+        let rel_paths = vec!["shared-schema.jpg".to_string()];
+        let abs_paths = vec![std::path::PathBuf::from("D:/batch/shared-schema.jpg")];
+        let registry = canonical_registry();
+        let schema = registry
+            .iter()
+            .find_map(|(_, info)| (info.name == "XResolution").then(|| info.id.clone()))
+            .unwrap();
+        let mut ifd1_id = test_occurrence_id("JPEG-APP1-IFD1", "282");
+        ifd1_id.copy = 2;
+        let unknown_id = MetadataOccurrenceId {
+            document: None,
+            path: "ZZZ-UNKNOWN".into(),
+            tag_id: "runtime-unknown".into(),
+            copy: 0,
+        };
+        let unknown_schema = test_schema_id("Unknown::Runtime", "runtime-unknown", None);
+        let properties = runtime_map(vec![
+            test_runtime_property(
+                ifd1_id.clone(),
+                schema.clone(),
+                "IFD1",
+                "XResolution",
+                None,
+                serde_json::json!(300),
+            ),
+            test_runtime_property(
+                unknown_id.clone(),
+                unknown_schema.clone(),
+                "UnknownGroup",
+                "RuntimeUnknown",
+                None,
+                serde_json::json!("preserved"),
+            ),
+            test_runtime_property(
+                test_occurrence_id("JPEG-APP1-IFD0", "282"),
+                schema.clone(),
+                "IFD0",
+                "XResolution",
+                None,
+                serde_json::json!(300),
+            ),
+        ]);
+        let pass = ExifToolPassOutput {
+            values_by_source: HashMap::from([(
+                "D:/batch/shared-schema.jpg".to_string(),
+                properties,
+            )]),
+            failures_by_source: HashMap::new(),
+        };
+
+        let outcome = assemble_batch_outcome(
+            &rel_paths,
+            &abs_paths,
+            pass.clone(),
+            pass,
+            Some(&registry),
+            &mut Vec::new(),
+        )
+        .unwrap();
+
+        assert!(outcome.failures.is_empty());
+        assert_eq!(outcome.results.len(), 1);
+        let result = &outcome.results[0];
+        assert_eq!(result.relative_path, "shared-schema.jpg");
+        assert_eq!(result.occurrences.len(), 3);
+        assert_eq!(result.metadata.len(), 2);
+        assert!(result
+            .occurrences
+            .iter()
+            .map(|occurrence| &occurrence.id)
+            .collect::<Vec<_>>()
+            .windows(2)
+            .all(|pair| pair[0] < pair[1]));
+
+        let shared: Vec<_> = result.occurrences.for_schema(&schema).collect();
+        assert_eq!(shared.len(), 2);
+        assert_eq!(shared[0].id.path, "JPEG-APP1-IFD0");
+        assert_eq!(shared[1].id, ifd1_id);
+        assert!(shared.iter().all(|occurrence| {
+            occurrence.tag_info.as_ref().unwrap().id == schema && occurrence.write_target.is_some()
+        }));
+        assert_eq!(
+            shared[0].write_target.as_ref().unwrap().selector(),
+            "IFD0:XResolution"
+        );
+        assert_eq!(
+            shared[1].write_target.as_ref().unwrap().selector(),
+            "IFD1:XResolution"
+        );
+
+        let unknown = result.occurrences.get(&unknown_id).unwrap();
+        assert!(unknown.tag_info.is_none());
+        assert!(unknown.write_target.is_none());
+        assert!(matches!(
+            &unknown.value,
+            MetadataValue::Unknown { raw, reason, .. }
+                if raw == &serde_json::json!("preserved")
+                    && reason.as_deref() == Some("no schema entry for tag")
+        ));
+
+        assert!(result.metadata.get(&schema).is_some());
+        assert!(result.metadata.get(&unknown_schema).is_some());
+        assert_eq!(result.occurrences.for_schema(&schema).count(), 2);
+        assert_eq!(
+            result
+                .metadata
+                .0
+                .iter()
+                .filter(|entry| entry.id == schema)
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn canonical_to_public_conversion_sorts_without_reconstructing_occurrences() {
+        let info = write_target_test_info(true, TagKind::Rational);
+        let mut ifd1 = write_target_test_occurrence(
+            "IFD1",
+            "XResolution",
+            "JPEG-APP1-IFD1",
+            2,
+            None,
+            Some(info.clone()),
+            MetadataValue::Integer(300),
+        );
+        ifd1.occurrence.write_target = Some(MetadataWriteTarget {
+            group1: "IFD1".into(),
+            tag_name: "XResolution".into(),
+        });
+        let mut ifd0 = write_target_test_occurrence(
+            "IFD0",
+            "XResolution",
+            "JPEG-APP1-IFD0",
+            0,
+            None,
+            Some(info),
+            MetadataValue::Integer(300),
+        );
+        ifd0.occurrence.write_target = Some(MetadataWriteTarget {
+            group1: "IFD0".into(),
+            tag_name: "XResolution".into(),
+        });
+
+        let expected_ifd0 = ifd0.occurrence.clone();
+        let expected_ifd1 = ifd1.occurrence.clone();
+        let public = metadata_occurrences_from_canonical(&[ifd1, ifd0]);
+
+        assert_eq!(public.0, vec![expected_ifd0, expected_ifd1]);
     }
 
     #[test]
@@ -4655,10 +4942,12 @@ mod tests {
             results: vec![
                 ImageMetadata {
                     relative_path: "good1.jpg".to_string(),
+                    occurrences: MetadataOccurrences::default(),
                     metadata: MetadataEntries(vec![]),
                 },
                 ImageMetadata {
                     relative_path: "good2.jpg".to_string(),
+                    occurrences: MetadataOccurrences::default(),
                     metadata: MetadataEntries(vec![]),
                 },
             ],

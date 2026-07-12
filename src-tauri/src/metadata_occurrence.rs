@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::metadata_value::MetadataValue;
-use crate::tag_schema::TagInfo;
+use crate::tag_schema::{SchemaDefinitionId, TagInfo};
 
 /// Identifies one concrete metadata field occurrence within a single source
 /// file.
@@ -167,12 +167,66 @@ impl MetadataOccurrence {
     }
 }
 
+/// Ordered collection of concrete metadata occurrences read from one source
+/// file.
+///
+/// Entries are identified by `MetadataOccurrenceId`, not by schema identity.
+/// Several entries may therefore contain the same `TagInfo`.
+///
+/// The collection order is deterministic and follows
+/// `MetadataOccurrenceId` ordering.
+///
+/// This type must not provide a helper which silently chooses one occurrence
+/// for a `SchemaDefinitionId`. Schema-based callers must explicitly handle
+/// missing, unique and multiple matches.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(transparent)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
+pub struct MetadataOccurrences(pub Vec<MetadataOccurrence>);
+
+impl MetadataOccurrences {
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn get(&self, id: &MetadataOccurrenceId) -> Option<&MetadataOccurrence> {
+        self.0.iter().find(|occurrence| occurrence.id == *id)
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &MetadataOccurrence> {
+        self.0.iter()
+    }
+
+    pub fn for_schema<'a>(
+        &'a self,
+        id: &'a SchemaDefinitionId,
+    ) -> impl Iterator<Item = &'a MetadataOccurrence> {
+        self.0
+            .iter()
+            .filter(move |occurrence| occurrence.tag_info.as_ref().map(|info| &info.id) == Some(id))
+    }
+}
+
+impl IntoIterator for MetadataOccurrences {
+    type Item = MetadataOccurrence;
+    type IntoIter = std::vec::IntoIter<MetadataOccurrence>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashSet;
 
     use super::*;
-    use crate::tag_schema::{SchemaDefinitionId, TagKind};
+    use crate::tag_schema::TagKind;
 
     fn occurrence_id(
         document: Option<&str>,
@@ -221,6 +275,15 @@ mod tests {
             tag_info,
             write_target,
         }
+    }
+
+    fn shared_schema_occurrences() -> MetadataOccurrences {
+        let schema = tag_info(true);
+        let first = occurrence(Some(schema.clone()), Some(target("IFD0")));
+        let mut second = occurrence(Some(schema), Some(target("IFD1")));
+        second.id.path = "JPEG-APP1-IFD1".to_owned();
+        second.id.copy = 2;
+        MetadataOccurrences(vec![first, second])
     }
 
     #[test]
@@ -300,5 +363,90 @@ mod tests {
         assert_eq!(first.tag_info, second.tag_info);
         assert_ne!(first.id, second.id);
         assert_ne!(first.write_target, second.write_target);
+    }
+
+    #[test]
+    fn default_collection_is_empty_and_reports_length() {
+        let empty = MetadataOccurrences::default();
+        assert!(empty.is_empty());
+        assert_eq!(empty.len(), 0);
+
+        let populated = shared_schema_occurrences();
+        assert!(!populated.is_empty());
+        assert_eq!(populated.len(), 2);
+    }
+
+    #[test]
+    fn exact_lookup_keeps_family_five_and_family_four_identity_distinct() {
+        let occurrences = shared_schema_occurrences();
+        let ifd0 = occurrence_id(None, "JPEG-APP1-IFD0", "282", 0);
+        let ifd1_copy2 = occurrence_id(None, "JPEG-APP1-IFD1", "282", 2);
+
+        assert_eq!(occurrences.get(&ifd0).unwrap().id, ifd0);
+        assert_eq!(occurrences.get(&ifd1_copy2).unwrap().id, ifd1_copy2);
+        assert!(occurrences
+            .get(&occurrence_id(None, "JPEG-APP1-IFD1", "282", 0))
+            .is_none());
+        assert!(occurrences
+            .get(&occurrence_id(None, "JPEG-APP1-IFD0", "282", 2))
+            .is_none());
+    }
+
+    #[test]
+    fn schema_lookup_returns_every_match_and_never_matches_unknown_occurrences() {
+        let mut occurrences = shared_schema_occurrences();
+        let schema_id = occurrences.0[0].tag_info.as_ref().unwrap().id.clone();
+        let mut unknown = occurrence(None, None);
+        unknown.id.tag_id = schema_id.tag_id.clone();
+        unknown.id.path = "UNKNOWN".to_owned();
+        occurrences.0.push(unknown);
+
+        let matches: Vec<_> = occurrences.for_schema(&schema_id).collect();
+        assert_eq!(matches.len(), 2);
+        assert_eq!(matches[0].id.path, "JPEG-APP1-IFD0");
+        assert_eq!(matches[1].id.path, "JPEG-APP1-IFD1");
+        assert!(matches.iter().all(|item| item.tag_info.is_some()));
+
+        let unrelated = SchemaDefinitionId {
+            table: "Unknown::Table".to_owned(),
+            tag_id: schema_id.tag_id,
+            index: None,
+        };
+        assert_eq!(occurrences.for_schema(&unrelated).count(), 0);
+    }
+
+    #[test]
+    fn borrowed_and_owned_iteration_preserve_deterministic_order() {
+        let occurrences = shared_schema_occurrences();
+        let borrowed: Vec<_> = occurrences.iter().map(|item| item.id.clone()).collect();
+        let owned: Vec<_> = occurrences
+            .clone()
+            .into_iter()
+            .map(|item| item.id)
+            .collect();
+
+        assert_eq!(borrowed, owned);
+        assert!(owned.windows(2).all(|pair| pair[0] < pair[1]));
+    }
+
+    #[test]
+    fn collection_json_round_trip_preserves_every_nested_field() {
+        let occurrences = shared_schema_occurrences();
+        let json = serde_json::to_string(&occurrences).unwrap();
+        let round_trip: MetadataOccurrences = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(round_trip, occurrences);
+        assert_eq!(round_trip.0[0].tag_info, occurrences.0[0].tag_info);
+        assert_eq!(round_trip.0[1].write_target, occurrences.0[1].write_target);
+    }
+
+    #[test]
+    fn generated_typescript_representation_is_metadata_occurrence_array() {
+        use ts_rs::TS;
+
+        assert_eq!(
+            MetadataOccurrences::decl(),
+            "type MetadataOccurrences = Array<MetadataOccurrence>;"
+        );
     }
 }
