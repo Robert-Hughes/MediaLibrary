@@ -1,7 +1,10 @@
 Current
 =======
 
-- SchemaDefinitionId. Work through manual checklist. Verify independently against docs\SchemaDefinitionId PLAN.md
+- SchemaDefinitionId and MetadataOccurence work. 
+  - Work through prompts from ChatGPT session to add the occurence stuff.
+  - Then work through manual checklist (which will prob first need updating from the occurence work). 
+  - Verify independently against docs\SchemaDefinitionId PLAN.md (except this plan predates the occurence changes, so not sure what can validate against)
 - Right click on the property list maps should show edit (opens group editor) and "remove all GPS", "discard all GPS"?
 - GPS editor sets lat/long to different string format than the one from exiftool. How does this work? Do we store separate display string? I thoiught we used semantic MetadataValue for everything now?
 - How do you add a GPS if the file doesn't have one? (Using hte nice editor)
