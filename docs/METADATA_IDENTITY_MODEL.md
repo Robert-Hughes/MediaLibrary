@@ -104,9 +104,13 @@ silently select the first occurrence, and there is no general conversion from
 
 ## Migration status
 
-The ExifTool boundary now captures runtime occurrence coordinates inside the
-scanner. Runtime maps, scanner output, and application consumers remain keyed
-by schema identity, so occurrence coordinates are not yet domain identity
-outside scanner internals. In particular, this step does not fix collisions
-between duplicate schema occurrences; subsequent small commits will migrate
-those systems incrementally.
+The scanner's ExifTool pass maps are now keyed by `MetadataOccurrenceId`, and
+pretty and raw values join by occurrence identity. Canonical occurrence values
+are still projected into the legacy schema-keyed scanner output. That temporary
+projection cannot represent multiple different values which share one schema
+identity, so it fails explicitly instead of selecting an occurrence.
+
+Application consumers remain schema-keyed. The user-visible duplicate-
+occurrence problem is therefore not fixed until scanner output itself becomes
+occurrence-based; subsequent small commits will migrate those systems
+incrementally.
