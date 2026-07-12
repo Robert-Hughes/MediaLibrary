@@ -10,6 +10,7 @@ pub mod exiftool_config;
 pub mod geocode;
 pub mod geocode_cache;
 pub mod known_ids;
+pub mod metadata_occurrence;
 pub mod metadata_value;
 pub mod normalise;
 pub mod openai_describe;

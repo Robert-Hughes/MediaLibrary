@@ -1,7 +1,13 @@
 # ExifTool Schema Identity
 
 This document defines how MediaLibrary identifies ExifTool schema definitions.
-`SchemaDefinitionId` is the sole metadata identity throughout the application.
+`SchemaDefinitionId` is static schema identity, not the identity of a concrete
+runtime field occurrence. The distinction from runtime occurrence identity and
+ExifTool write targeting is defined in the
+[metadata identity model](METADATA_IDENTITY_MODEL.md).
+
+The sections below describe the existing schema-keyed application pipeline,
+which will be migrated incrementally to the locked occurrence model.
 
 Automated validation covers exact scan/registry joins, same-name BMP table
 collisions, a real-file repeated definition with `index: 0`, draft and column
