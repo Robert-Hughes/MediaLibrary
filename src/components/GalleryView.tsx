@@ -7,6 +7,8 @@ import type {
   SchemaDefinitionId,
   PhotoInfo,
   ImageMetadataStore,
+  ImageMetadataOccurrencesState,
+  ImageMetadataOccurrencesStore,
 } from "../types";
 import { ModalDialog } from "./ModalDialog";
 
@@ -38,6 +40,8 @@ interface Props {
   loadImage?: (path: string) => Promise<string | null>;
   /** Observable store for image metadata (EXIF, XMP, etc.) */
   imageMetadata?: ImageMetadataStore;
+  /** Observable authoritative occurrence store for the read-only bridge. */
+  imageMetadataOccurrences?: ImageMetadataOccurrencesStore;
   typedDraftEdits?: MetadataDraftCollection;
   onSetMetadataDraft?: (
     fileRelativePath: string,
@@ -73,6 +77,7 @@ export function GalleryView({
   onNavigate,
   loadImage,
   imageMetadata,
+  imageMetadataOccurrences,
   typedDraftEdits,
   onSetMetadataDraft,
   onSetMetadataDraftBatch,
@@ -118,6 +123,16 @@ export function GalleryView({
     (cb) =>
       imageMetadata?.subscribe(photo?.relative_path ?? "", cb) ?? (() => {}),
     () => imageMetadata?.get(photo?.relative_path ?? "") ?? "loading",
+  );
+
+  // This hook is unconditional so navigation changes the subscribed path and
+  // unsubscribes from the previously displayed photo.
+  const occurrencesState: ImageMetadataOccurrencesState = useSyncExternalStore(
+    (cb) =>
+      imageMetadataOccurrences?.subscribe(photo?.relative_path ?? "", cb) ??
+      (() => {}),
+    () =>
+      imageMetadataOccurrences?.get(photo?.relative_path ?? "") ?? "loading",
   );
 
   // Load the full image whenever the current photo changes.
@@ -319,6 +334,7 @@ export function GalleryView({
           <DetailsPane
             photo={photo}
             metadata={metadataState}
+            occurrences={occurrencesState}
             typedDraftEdits={typedDraftEdits}
             onSetMetadataDraft={(id, edit) =>
               onSetMetadataDraft?.(photo.relative_path, id, edit)

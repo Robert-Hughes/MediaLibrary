@@ -17,7 +17,9 @@
  * An occurrence has no `MetadataWriteTarget` when an exact write cannot be
  * demonstrated, including cases such as:
  *
- * - family-4 copies that ExifTool cannot individually target;
+ * - occurrences whose only distinguishing coordinates are unsupported by
+ *   the available family-1/tag-name selector, including several occurrences
+ *   that share that one selector;
  * - unsupported embedded documents or timed-metadata samples;
  * - unknown or read-only schema definitions;
  * - ambiguous runtime locations.

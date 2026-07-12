@@ -276,11 +276,18 @@ fn read_os_metadata(path: &Path) -> (Option<i64>, Option<i64>) {
 /// Top-level or batch-wide failures (such as ExifTool not launching, process exiting
 /// unsuccessfully, or stdout not being valid top-level JSON array) remain batch-wide.
 ///
-/// The function can return successful and failed files together.
+/// The function can return successful and failed files together. A successful
+/// outcome contains all three outer-result collections: `results`, `failures`
+/// and `legacy_projection_omissions`. A file may appear successfully in
+/// `results` while contributing one or more omissions. Those omissions report
+/// compatibility loss in the legacy schema-keyed projection, not failed
+/// metadata extraction; the authoritative occurrences remain complete. Only
+/// genuine parsing, canonicalisation or invariant failures appear in
+/// `failures`.
 ///
-/// Returns Ok(MetadataBatchReadOutcome) when ExifTool executes successfully, which contains
-/// both successfully parsed files and per-file failures. Returns Err(error_message) only
-/// for genuine batch-wide process/parsing failures.
+/// Returns Ok(MetadataBatchReadOutcome) when ExifTool executes successfully.
+/// Returns Err(error_message) only for genuine batch-wide process/parsing
+/// failures.
 pub fn read_image_metadata_batch(
     rel_paths: &[String],
     abs_paths: &[std::path::PathBuf],
