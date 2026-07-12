@@ -3,6 +3,13 @@
 This document defines how MediaLibrary identifies ExifTool schema definitions.
 `SchemaDefinitionId` is the sole metadata identity throughout the application.
 
+Automated validation covers exact scan/registry joins, same-name BMP table
+collisions, a real-file repeated definition with `index: 0`, draft and column
+persistence, worker payloads, exact write selection, and temporary-copy
+text/list/LangAlt/GPS/DateTime write-readback. See
+[Exact-ID manual validation](EXACT_ID_MANUAL_VALIDATION.md) for UI cases that
+remain intentionally manual.
+
 ## Problem: friendly ExifTool names are not identities
 
 Names such as `IFD0:Orientation`, `File:BMPVersion` and

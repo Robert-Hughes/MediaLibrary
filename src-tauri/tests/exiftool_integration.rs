@@ -18,13 +18,16 @@
 
 #![cfg(feature = "integration")]
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use medialibrary_tauri_lib::{
     apply_edits,
     draft_edits::{EditIntent, MetadataDraftEdit},
-    metadata_value::{ListKind, MetadataValue},
+    metadata_value::{
+        DateTimeValue, DateValue, ListKind, MetadataValue, OffsetSign, TimeValue, UtcOffsetValue,
+    },
     scanner,
 };
 
@@ -104,23 +107,6 @@ fn metadata_drafts(
     let mut drafts = std::collections::HashMap::new();
     drafts.insert(rel.to_string(), edits);
     drafts
-}
-
-fn unique_schema_id_by_display_name(
-    display_name: &str,
-) -> medialibrary_tauri_lib::tag_schema::SchemaDefinitionId {
-    let registry = medialibrary_tauri_lib::tag_schema::get_registry().expect("schema registry");
-    let matches: Vec<_> = registry
-        .iter()
-        .filter_map(|(id, info)| (info.display_name() == display_name).then_some(id.clone()))
-        .collect();
-    assert_eq!(
-        matches.len(),
-        1,
-        "expected exactly one schema definition named {display_name:?}, found {}",
-        matches.len(),
-    );
-    matches.into_iter().next().unwrap()
 }
 
 // ── Scanner two-pass smoke test ──────────────────────────────────────────────
@@ -337,7 +323,7 @@ fn fixture_rating_5_pretty_and_raw_match_design() {
     };
     let (_dir, dst) = copy_to_temp(&src);
     let m = read_one(_dir.path(), &dst);
-    let rating_id = unique_schema_id_by_display_name("XMP-xmp:Rating");
+    let rating_id = medialibrary_tauri_lib::known_ids::xmp_rating();
     let display = m.metadata.get(&rating_id);
     let raw = m.metadata.get(&rating_id);
     let display_ok = match display {
@@ -368,7 +354,7 @@ fn roundtrip_set_rating() {
     let folder = dir.path().to_str().unwrap();
     let rel = rel_of(dir.path(), &dst);
 
-    let rating_id = unique_schema_id_by_display_name("XMP-xmp:Rating");
+    let rating_id = medialibrary_tauri_lib::known_ids::xmp_rating();
 
     // Confirm starting state.
     let before = read_one(dir.path(), &dst);
@@ -448,7 +434,7 @@ fn face_regions_round_trip_through_struct_variant() {
 
     let region_info = m
         .metadata
-        .get(&unique_schema_id_by_display_name("XMP-mwg-rs:RegionInfo"));
+        .get(&medialibrary_tauri_lib::known_ids::xmp_region_info());
     let region_info = match region_info {
         Some(MetadataValue::Struct(map)) => map,
         other => panic!("expected RegionInfo as Object, got {:?}", other),
@@ -567,7 +553,7 @@ fn semantic_apply_writes_bag_as_separate_items_end_to_end() {
     let folder = dir.path().to_str().unwrap();
     let rel = rel_of(dir.path(), &dst);
 
-    let subject_id = unique_schema_id_by_display_name("XMP-dc:Subject");
+    let subject_id = medialibrary_tauri_lib::known_ids::xmp_subject();
     let edits = vec![medialibrary_tauri_lib::draft_edits::MetadataDraftEntry {
         id: subject_id,
         edit: metadata_set(metadata_bag(&["alpha", "beta", "gamma"])),
@@ -612,7 +598,7 @@ fn apply_emits_apply_log_jsonl_entry() {
     let folder = dir.path().to_str().unwrap();
     let rel = rel_of(dir.path(), &dst);
 
-    let rating_id = unique_schema_id_by_display_name("XMP-xmp:Rating");
+    let rating_id = medialibrary_tauri_lib::known_ids::xmp_rating();
     let edits = vec![medialibrary_tauri_lib::draft_edits::MetadataDraftEntry {
         id: rating_id,
         edit: metadata_set(MetadataValue::Integer(5)),
@@ -655,7 +641,7 @@ fn semantic_apply_rating_fractional_coerces_or_rejects_cleanly() {
     let folder = dir.path().to_str().unwrap();
     let rel = rel_of(dir.path(), &dst);
 
-    let rating_id = unique_schema_id_by_display_name("XMP-xmp:Rating");
+    let rating_id = medialibrary_tauri_lib::known_ids::xmp_rating();
     let edits = vec![medialibrary_tauri_lib::draft_edits::MetadataDraftEntry {
         id: rating_id,
         edit: metadata_set(MetadataValue::Real(3.5)),
@@ -676,7 +662,7 @@ fn semantic_apply_rating_fractional_coerces_or_rejects_cleanly() {
     let m = read_one(dir.path(), &dst);
     let _ = m
         .metadata
-        .get(&unique_schema_id_by_display_name("XMP-xmp:Rating"));
+        .get(&medialibrary_tauri_lib::known_ids::xmp_rating());
 }
 
 // ── ListAdd / ListRemove intents ─────────────────────────────────────────────
@@ -690,7 +676,7 @@ fn semantic_apply_list_add_appends_items_to_bag() {
     let folder = dir.path().to_str().unwrap();
     let rel = rel_of(dir.path(), &dst);
 
-    let subject_id = unique_schema_id_by_display_name("XMP-dc:Subject");
+    let subject_id = medialibrary_tauri_lib::known_ids::xmp_subject();
     let edits = vec![medialibrary_tauri_lib::draft_edits::MetadataDraftEntry {
         id: subject_id,
         edit: metadata_edit(metadata_bag(&["vacation"]), EditIntent::ListAdd),
@@ -745,7 +731,7 @@ fn semantic_apply_list_remove_drops_items_from_bag() {
     let folder = dir.path().to_str().unwrap();
     let rel = rel_of(dir.path(), &dst);
 
-    let subject_id = unique_schema_id_by_display_name("XMP-dc:Subject");
+    let subject_id = medialibrary_tauri_lib::known_ids::xmp_subject();
     let edits = vec![medialibrary_tauri_lib::draft_edits::MetadataDraftEntry {
         id: subject_id,
         edit: metadata_edit(metadata_bag(&["beach"]), EditIntent::ListRemove),
@@ -800,7 +786,7 @@ fn apply_keywords_writes_back_as_separate_items_not_csv() {
     let folder = dir.path().to_str().unwrap();
     let rel = rel_of(dir.path(), &dst);
 
-    let subject_id = unique_schema_id_by_display_name("XMP-dc:Subject");
+    let subject_id = medialibrary_tauri_lib::known_ids::xmp_subject();
     let edits = vec![medialibrary_tauri_lib::draft_edits::MetadataDraftEntry {
         id: subject_id,
         edit: metadata_set(MetadataValue::List {
@@ -852,7 +838,7 @@ fn apply_xmp_mlib_ai_ocr_text_preserves_newlines() {
 
     let ocr_text = "cpp\nCertificate\nOf\nAchievement\nRobert Highet".to_string();
 
-    let ocr_id = unique_schema_id_by_display_name("XMP-mlib:AIOcrText");
+    let ocr_id = medialibrary_tauri_lib::known_ids::mlib_ai_ocr_text();
     let edits = vec![medialibrary_tauri_lib::draft_edits::MetadataDraftEntry {
         id: ocr_id,
         edit: metadata_set(MetadataValue::List {
@@ -883,4 +869,284 @@ fn apply_xmp_mlib_ai_ocr_text_preserves_newlines() {
         }
         other => panic!("expected AIOcrText as list or text, got {:?}", other),
     }
+}
+
+fn write_u16_le(bytes: &mut [u8], offset: usize, value: u16) {
+    bytes[offset..offset + 2].copy_from_slice(&value.to_le_bytes());
+}
+
+fn write_u32_le(bytes: &mut [u8], offset: usize, value: u32) {
+    bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+}
+
+fn minimal_windows_bmp(path: &Path) {
+    let mut bytes = vec![0_u8; 58];
+    bytes[0..2].copy_from_slice(b"BM");
+    write_u32_le(&mut bytes, 2, 58);
+    write_u32_le(&mut bytes, 10, 54);
+    write_u32_le(&mut bytes, 14, 40);
+    write_u32_le(&mut bytes, 18, 1);
+    write_u32_le(&mut bytes, 22, 1);
+    write_u16_le(&mut bytes, 26, 1);
+    write_u16_le(&mut bytes, 28, 24);
+    write_u32_le(&mut bytes, 34, 4);
+    bytes[54..58].copy_from_slice(&[0, 0, 0, 0]);
+    fs::write(path, bytes).expect("write Windows BMP");
+}
+
+fn minimal_os2_bmp(path: &Path) {
+    let mut bytes = vec![0_u8; 30];
+    bytes[0..2].copy_from_slice(b"BM");
+    write_u32_le(&mut bytes, 2, 30);
+    write_u32_le(&mut bytes, 10, 26);
+    write_u32_le(&mut bytes, 14, 12);
+    write_u16_le(&mut bytes, 18, 1);
+    write_u16_le(&mut bytes, 20, 1);
+    write_u16_le(&mut bytes, 22, 1);
+    write_u16_le(&mut bytes, 24, 24);
+    bytes[26..30].copy_from_slice(&[0, 0, 0, 0]);
+    fs::write(path, bytes).expect("write OS/2 BMP");
+}
+
+#[test]
+fn scanner_runtime_ids_resolve_exactly_or_remain_unknown() {
+    let Some(src) = fixture_path("real_with_exif.jpg") else {
+        return;
+    };
+    let (dir, dst) = copy_to_temp(&src);
+    let metadata = read_one(dir.path(), &dst);
+    let registry = medialibrary_tauri_lib::tag_schema::get_registry().expect("schema registry");
+    let mut resolved = 0;
+    for entry in metadata.metadata.0 {
+        match registry.lookup(&entry.id) {
+            Some(info) => {
+                assert_eq!(info.id, entry.id);
+                resolved += 1;
+            }
+            None => assert!(
+                matches!(entry.value, MetadataValue::Unknown { .. }),
+                "missing exact schema must remain unknown/read-only: {:?}",
+                entry.id
+            ),
+        }
+    }
+    assert!(
+        resolved > 10,
+        "fixture should exercise ordinary schema entries"
+    );
+}
+
+#[test]
+fn bmp_collision_files_retain_distinct_exact_tables() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let windows = dir.path().join("windows.bmp");
+    let os2 = dir.path().join("os2.bmp");
+    minimal_windows_bmp(&windows);
+    minimal_os2_bmp(&os2);
+
+    let windows_metadata = read_one(dir.path(), &windows);
+    let os2_metadata = read_one(dir.path(), &os2);
+    let windows_id = medialibrary_tauri_lib::tag_schema::SchemaDefinitionId {
+        table: "BMP::Main".into(),
+        tag_id: "0".into(),
+        index: None,
+    };
+    let os2_id = medialibrary_tauri_lib::tag_schema::SchemaDefinitionId {
+        table: "BMP::OS2".into(),
+        tag_id: "0".into(),
+        index: None,
+    };
+
+    assert!(windows_metadata.metadata.get(&windows_id).is_some());
+    assert!(windows_metadata.metadata.get(&os2_id).is_none());
+    assert!(os2_metadata.metadata.get(&os2_id).is_some());
+    assert!(os2_metadata.metadata.get(&windows_id).is_none());
+
+    let registry = medialibrary_tauri_lib::tag_schema::get_registry().expect("schema registry");
+    let windows_info = registry.lookup(&windows_id).expect("Windows BMP schema");
+    let os2_info = registry.lookup(&os2_id).expect("OS/2 BMP schema");
+    assert_eq!(windows_info.display_name(), "File:BMPVersion");
+    assert_eq!(os2_info.display_name(), "File:BMPVersion");
+    assert_ne!(windows_info.id, os2_info.id);
+}
+
+#[test]
+fn real_fixture_retains_repeated_definition_index_zero() {
+    let Some(src) = fixture_path("real_with_exif.jpg") else {
+        return;
+    };
+    let (dir, dst) = copy_to_temp(&src);
+    let metadata = read_one(dir.path(), &dst);
+    let indexed = medialibrary_tauri_lib::tag_schema::SchemaDefinitionId {
+        table: "Exif::Main".into(),
+        tag_id: "513".into(),
+        index: Some(0),
+    };
+    let unindexed = medialibrary_tauri_lib::tag_schema::SchemaDefinitionId {
+        index: None,
+        ..indexed.clone()
+    };
+
+    assert!(metadata.metadata.get(&indexed).is_some());
+    assert!(metadata.metadata.get(&unindexed).is_none());
+    assert_ne!(indexed, unindexed);
+    let registry = medialibrary_tauri_lib::tag_schema::get_registry().expect("schema registry");
+    assert_eq!(
+        registry.lookup(&indexed).expect("indexed schema").id,
+        indexed
+    );
+}
+
+#[test]
+fn roundtrip_langalt_preserves_exact_parent_id_and_languages() {
+    let Some(src) = fixture_path("real_with_exif.jpg") else {
+        return;
+    };
+    let (dir, dst) = copy_to_temp(&src);
+    let rel = rel_of(dir.path(), &dst);
+    let id = medialibrary_tauri_lib::known_ids::xmp_description();
+    let mut languages = BTreeMap::new();
+    languages.insert("x-default".to_string(), "Exact default".to_string());
+    languages.insert("fr".to_string(), "Texte exact".to_string());
+    let edits = vec![medialibrary_tauri_lib::draft_edits::MetadataDraftEntry {
+        id: id.clone(),
+        edit: metadata_set(MetadataValue::LangAlt(languages.clone())),
+    }];
+
+    let outcome =
+        apply_edits::apply_single_file_metadata(dir.path().to_str().unwrap(), &rel, &edits);
+    assert!(outcome.error.is_none(), "apply failed: {:?}", outcome.error);
+    assert_eq!(outcome.outcomes.len(), 1);
+    assert_eq!(outcome.outcomes[0].id, id);
+    assert!(outcome.tags_to_clear.contains(&id));
+    let reread = read_one(dir.path(), &dst);
+    assert_eq!(
+        reread.metadata.get(&id),
+        Some(&MetadataValue::LangAlt(languages))
+    );
+}
+
+#[test]
+fn roundtrip_gps_preserves_each_exact_id() {
+    let Some(src) = fixture_path("real_with_exif.jpg") else {
+        return;
+    };
+    let (dir, dst) = copy_to_temp(&src);
+    let rel = rel_of(dir.path(), &dst);
+    let values = [
+        (
+            medialibrary_tauri_lib::known_ids::gps_latitude(),
+            MetadataValue::Real(51.5),
+        ),
+        (
+            medialibrary_tauri_lib::known_ids::gps_latitude_ref(),
+            MetadataValue::Text("N".into()),
+        ),
+        (
+            medialibrary_tauri_lib::known_ids::gps_longitude(),
+            MetadataValue::Real(0.125),
+        ),
+        (
+            medialibrary_tauri_lib::known_ids::gps_longitude_ref(),
+            MetadataValue::Text("W".into()),
+        ),
+    ];
+    let edits = values
+        .iter()
+        .map(
+            |(id, value)| medialibrary_tauri_lib::draft_edits::MetadataDraftEntry {
+                id: id.clone(),
+                edit: metadata_set(value.clone()),
+            },
+        )
+        .collect::<Vec<_>>();
+
+    let outcome =
+        apply_edits::apply_single_file_metadata(dir.path().to_str().unwrap(), &rel, &edits);
+    assert!(outcome.error.is_none(), "apply failed: {:?}", outcome.error);
+    assert_eq!(
+        outcome
+            .outcomes
+            .iter()
+            .map(|item| item.id.clone())
+            .collect::<Vec<_>>(),
+        values.iter().map(|(id, _)| id.clone()).collect::<Vec<_>>()
+    );
+    let reread = read_one(dir.path(), &dst);
+    for (id, expected) in values {
+        let actual = reread
+            .metadata
+            .get(&id)
+            .unwrap_or_else(|| panic!("missing {id:?}"));
+        match (&expected, actual) {
+            (MetadataValue::Real(expected), MetadataValue::Real(actual)) => {
+                assert!((actual - expected).abs() < 1e-8, "{id:?}: {actual}");
+            }
+            _ => assert_eq!(actual, &expected, "{id:?}"),
+        }
+    }
+}
+
+#[test]
+fn roundtrip_datetime_preserves_explicit_utc_offset_and_exact_id() {
+    let Some(src) = fixture_path("real_with_exif.jpg") else {
+        return;
+    };
+    let (dir, dst) = copy_to_temp(&src);
+    let rel = rel_of(dir.path(), &dst);
+    let id = medialibrary_tauri_lib::known_ids::xmp_create_date();
+    let value = MetadataValue::DateTime(DateTimeValue {
+        date: DateValue {
+            year: 2026,
+            month: 7,
+            day: 12,
+        },
+        time: TimeValue {
+            hour: 10,
+            minute: 11,
+            second: 12,
+            subsecond: Some("345".into()),
+            offset: Some(UtcOffsetValue {
+                sign: OffsetSign::Plus,
+                hours: 1,
+                minutes: 30,
+            }),
+        },
+    });
+    let edits = vec![medialibrary_tauri_lib::draft_edits::MetadataDraftEntry {
+        id: id.clone(),
+        edit: metadata_set(value.clone()),
+    }];
+
+    let outcome =
+        apply_edits::apply_single_file_metadata(dir.path().to_str().unwrap(), &rel, &edits);
+    assert!(outcome.error.is_none(), "apply failed: {:?}", outcome.error);
+    assert_eq!(outcome.outcomes[0].id, id);
+    let reread = read_one(dir.path(), &dst);
+    assert_eq!(reread.metadata.get(&id), Some(&value));
+}
+
+#[test]
+fn missing_exact_schema_is_rejected_before_write() {
+    let Some(src) = fixture_path("real_with_exif.jpg") else {
+        return;
+    };
+    let (dir, dst) = copy_to_temp(&src);
+    let before = fs::read(&dst).expect("read before");
+    let rel = rel_of(dir.path(), &dst);
+    let missing = medialibrary_tauri_lib::tag_schema::SchemaDefinitionId {
+        table: "Missing::Table".into(),
+        tag_id: "Title".into(),
+        index: None,
+    };
+    let edits = vec![medialibrary_tauri_lib::draft_edits::MetadataDraftEntry {
+        id: missing,
+        edit: metadata_set(MetadataValue::Text("must not write".into())),
+    }];
+
+    let outcome =
+        apply_edits::apply_single_file_metadata(dir.path().to_str().unwrap(), &rel, &edits);
+    assert!(outcome.error.unwrap().contains("missing schema"));
+    assert!(outcome.outcomes.is_empty());
+    assert_eq!(fs::read(&dst).expect("read after"), before);
 }

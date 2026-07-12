@@ -919,7 +919,7 @@ mod tests {
     fn test_id(display_name: &str) -> SchemaDefinitionId {
         if display_name == "X" {
             return SchemaDefinitionId {
-                table: "Test::Legacy".into(),
+                table: "TestFixture::Unknown".into(),
                 tag_id: "X".into(),
                 index: None,
             };
@@ -933,7 +933,7 @@ mod tests {
             matches.into_iter().next().unwrap()
         } else {
             SchemaDefinitionId {
-                table: "Test::Legacy".into(),
+                table: "TestFixture::Unknown".into(),
                 tag_id: display_name.into(),
                 index: None,
             }
@@ -966,7 +966,7 @@ mod tests {
     fn semantic_apply_invalid_key_is_hard_failure() {
         let edits = vec![crate::draft_edits::MetadataDraftEntry {
             id: SchemaDefinitionId {
-                table: "Test::Legacy".into(),
+                table: "TestFixture::Unknown".into(),
                 tag_id: "Bad\nKey".into(),
                 index: None,
             },

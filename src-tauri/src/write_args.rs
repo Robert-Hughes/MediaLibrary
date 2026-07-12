@@ -40,36 +40,12 @@ impl BuiltArgs {
     }
 }
 
-pub trait WriteTarget<'a> {
-    fn resolve(self) -> Result<(SchemaDefinitionId, &'a TagInfo, String), String>;
-}
-
-impl<'a> WriteTarget<'a> for (&'a SchemaDefinitionId, &'a TagInfo) {
-    fn resolve(self) -> Result<(SchemaDefinitionId, &'a TagInfo, String), String> {
-        Ok((self.0.clone(), self.1, self.1.exiftool_write_name()))
-    }
-}
-
-#[cfg(test)]
-impl<'a> WriteTarget<'a> for (&'a str, Option<&'a TagInfo>) {
-    fn resolve(self) -> Result<(SchemaDefinitionId, &'a TagInfo, String), String> {
-        let info = self
-            .1
-            .ok_or_else(|| format!("missing schema for {}", self.0))?;
-        Ok((info.id.clone(), info, self.0.to_string()))
-    }
-}
-
-pub fn build_metadata_args<'a, A, B>(
-    id: A,
-    info: B,
+pub fn build_metadata_args(
+    id: &SchemaDefinitionId,
+    info: &TagInfo,
     edit: &MetadataDraftEdit,
-) -> Result<BuiltArgs, String>
-where
-    (A, B): WriteTarget<'a>,
-{
-    let (id, info, tag) = (id, info).resolve()?;
-    if info.id != id {
+) -> Result<BuiltArgs, String> {
+    if info.id != *id {
         return Err(format!(
             "schema identity mismatch: requested {id:?}, got {:?}",
             info.id
@@ -78,8 +54,9 @@ where
     if !info.writable {
         return Err(format!("{} ({id:?}) is read-only", info.display_name()));
     }
+    let tag = info.exiftool_write_name();
     let tag = tag.as_str();
-    if tag.is_empty() || tag.contains('\n') || tag.contains('\0') {
+    if info.group.is_empty() || info.name.is_empty() || tag.contains('\n') || tag.contains('\0') {
         return Ok(BuiltArgs::default());
     }
 
@@ -532,6 +509,26 @@ mod tests {
         }
     }
 
+    /// Friendly selectors are concise test-fixture shorthand only. Each call
+    /// immediately constructs an exact ID-bearing TagInfo before exercising
+    /// the production exact-ID API.
+    fn build_fixture_args(
+        selector: &str,
+        template: &TagInfo,
+        edit: &MetadataDraftEdit,
+    ) -> Result<BuiltArgs, String> {
+        let (group, name) = selector.split_once(':').unwrap_or((selector, ""));
+        let mut info = template.clone();
+        info.id = SchemaDefinitionId {
+            table: format!("TestFixture::{group}"),
+            tag_id: name.to_string(),
+            index: None,
+        };
+        info.group = group.to_string();
+        info.name = name.to_string();
+        super::build_metadata_args(&info.id, &info, edit)
+    }
+
     fn metadata_set(v: MetadataValue) -> MetadataDraftEdit {
         MetadataDraftEdit {
             value: Some(v),
@@ -579,8 +576,7 @@ mod tests {
     #[test]
     fn set_text_yields_single_text_arg() {
         let i = info(TagKind::Text);
-        let args =
-            build_metadata_args("XMP-dc:Title", Some(&i), &metadata_set(text("hi"))).unwrap();
+        let args = build_fixture_args("XMP-dc:Title", &i, &metadata_set(text("hi"))).unwrap();
         assert!(args.numeric.is_empty());
         assert_eq!(args.text, vec!["-XMP-dc:Title=hi"]);
     }
@@ -589,8 +585,7 @@ mod tests {
     fn gps_version_id_text_uses_spaced_raw_value() {
         let i = info_named("GPS", "GPSVersionID", TagKind::Text);
         let args =
-            build_metadata_args("GPS:GPSVersionID", Some(&i), &metadata_set(text("2 3 0 0")))
-                .unwrap();
+            build_fixture_args("GPS:GPSVersionID", &i, &metadata_set(text("2 3 0 0"))).unwrap();
         assert_eq!(args.text, vec!["-GPS:GPSVersionID=2 3 0 0"]);
         assert!(args.numeric.is_empty());
     }
@@ -601,9 +596,9 @@ mod tests {
             min: None,
             max: None,
         });
-        let args = build_metadata_args(
+        let args = build_fixture_args(
             "XMP-xmp:Rating",
-            Some(&i),
+            &i,
             &metadata_set(MetadataValue::Integer(5)),
         )
         .unwrap();
@@ -614,9 +609,9 @@ mod tests {
     #[test]
     fn set_boolean_uses_1_0_in_numeric_group() {
         let i = info(TagKind::Boolean);
-        let args = build_metadata_args(
+        let args = build_fixture_args(
             "XMP-xmpRights:Marked",
-            Some(&i),
+            &i,
             &metadata_set(MetadataValue::Bool(true)),
         )
         .unwrap();
@@ -639,9 +634,9 @@ mod tests {
                 },
             ],
         });
-        let args = build_metadata_args(
+        let args = build_fixture_args(
             "IFD0:Orientation",
-            Some(&i),
+            &i,
             &metadata_set(MetadataValue::Integer(6)),
         )
         .unwrap();
@@ -651,9 +646,9 @@ mod tests {
     #[test]
     fn set_bag_emits_clear_then_repeated_args() {
         let i = info(TagKind::Bag(Box::new(TagKind::Text)));
-        let args = build_metadata_args(
+        let args = build_fixture_args(
             "XMP-dc:Subject",
-            Some(&i),
+            &i,
             &metadata_set(bag_text(&["beach", "sunset"])),
         )
         .unwrap();
@@ -671,9 +666,9 @@ mod tests {
     #[test]
     fn set_seq_emits_clear_then_ordered_args() {
         let i = info(TagKind::Seq(Box::new(TagKind::Text)));
-        let args = build_metadata_args(
+        let args = build_fixture_args(
             "XMP-dc:Creator",
-            Some(&i),
+            &i,
             &metadata_set(seq_text(&["Ada", "Bea"])),
         )
         .unwrap();
@@ -690,8 +685,7 @@ mod tests {
     #[test]
     fn set_bag_with_scalar_treats_as_single_element() {
         let i = info(TagKind::Bag(Box::new(TagKind::Text)));
-        let args =
-            build_metadata_args("XMP-dc:Subject", Some(&i), &metadata_set(text("only"))).unwrap();
+        let args = build_fixture_args("XMP-dc:Subject", &i, &metadata_set(text("only"))).unwrap();
         assert_eq!(args.text, vec!["-XMP-dc:Subject=", "-XMP-dc:Subject=only"]);
     }
 
@@ -702,9 +696,9 @@ mod tests {
         langs.insert("x-default".to_string(), "Hi".to_string());
         langs.insert("en".to_string(), "Hi".to_string());
         langs.insert("fr".to_string(), "Salut".to_string());
-        let args = build_metadata_args(
+        let args = build_fixture_args(
             "XMP-dc:Description",
-            Some(&i),
+            &i,
             &metadata_set(MetadataValue::LangAlt(langs)),
         )
         .unwrap();
@@ -726,9 +720,9 @@ mod tests {
         let i = info(TagKind::LangAlt);
         let mut langs = BTreeMap::new();
         langs.insert("en".to_string(), "Hello".to_string());
-        let args = build_metadata_args(
+        let args = build_fixture_args(
             "XMP-dc:Description",
-            Some(&i),
+            &i,
             &metadata_set(MetadataValue::LangAlt(langs)),
         )
         .unwrap();
@@ -745,7 +739,7 @@ mod tests {
     #[test]
     fn delete_emits_empty_assignment() {
         let i = info(TagKind::Text);
-        let args = build_metadata_args("XMP-dc:Title", Some(&i), &metadata_delete()).unwrap();
+        let args = build_fixture_args("XMP-dc:Title", &i, &metadata_delete()).unwrap();
         assert_eq!(args.text, vec!["-XMP-dc:Title="]);
         assert!(args.numeric.is_empty());
     }
@@ -753,9 +747,9 @@ mod tests {
     #[test]
     fn listadd_on_bag_emits_plus_equal_per_item() {
         let i = info(TagKind::Bag(Box::new(TagKind::Text)));
-        let args = build_metadata_args(
+        let args = build_fixture_args(
             "XMP-dc:Subject",
-            Some(&i),
+            &i,
             &metadata_list_add(bag_text(&["a", "b"])),
         )
         .unwrap();
@@ -765,12 +759,8 @@ mod tests {
     #[test]
     fn listremove_on_bag_emits_minus_equal_per_item() {
         let i = info(TagKind::Bag(Box::new(TagKind::Text)));
-        let args = build_metadata_args(
-            "XMP-dc:Subject",
-            Some(&i),
-            &metadata_list_remove(text("old")),
-        )
-        .unwrap();
+        let args =
+            build_fixture_args("XMP-dc:Subject", &i, &metadata_list_remove(text("old"))).unwrap();
         assert_eq!(args.text, vec!["-XMP-dc:Subject-=old"]);
     }
 
@@ -778,49 +768,68 @@ mod tests {
     fn list_op_on_non_list_tag_degrades_safely() {
         let i = info(TagKind::Text);
         // ListAdd on a Text tag becomes a Set.
-        let args =
-            build_metadata_args("XMP-dc:Title", Some(&i), &metadata_list_add(text("hi"))).unwrap();
+        let args = build_fixture_args("XMP-dc:Title", &i, &metadata_list_add(text("hi"))).unwrap();
         assert_eq!(args.text, vec!["-XMP-dc:Title=hi"]);
         // ListRemove on a Text tag becomes a Delete.
-        let args = build_metadata_args("XMP-dc:Title", Some(&i), &metadata_list_remove(text("hi")))
-            .unwrap();
+        let args =
+            build_fixture_args("XMP-dc:Title", &i, &metadata_list_remove(text("hi"))).unwrap();
         assert_eq!(args.text, vec!["-XMP-dc:Title="]);
-    }
-
-    #[test]
-    fn unknown_tag_falls_back_to_text() {
-        let err = build_metadata_args(
-            "MakerNotes:CustomCameraField",
-            None,
-            &metadata_set(text("abc")),
-        )
-        .unwrap_err();
-        assert!(err.contains("missing schema"));
     }
 
     #[test]
     fn binary_tag_yields_no_args() {
         let i = info(TagKind::Binary);
-        let err =
-            build_metadata_args("Thumbnail:Bin", Some(&i), &metadata_set(text("x"))).unwrap_err();
+        let err = build_fixture_args("Thumbnail:Bin", &i, &metadata_set(text("x"))).unwrap_err();
         assert!(err.contains("binary"));
     }
 
     #[test]
     fn invalid_tag_name_yields_no_args() {
         let i = info(TagKind::Text);
-        let args = build_metadata_args("bad\nname", Some(&i), &metadata_set(text("x"))).unwrap();
+        let args = build_fixture_args("bad\nname", &i, &metadata_set(text("x"))).unwrap();
         assert!(args.is_empty());
-        let args = build_metadata_args("", Some(&i), &metadata_set(text("x"))).unwrap();
+        let args = build_fixture_args("", &i, &metadata_set(text("x"))).unwrap();
         assert!(args.is_empty());
+    }
+
+    #[test]
+    fn exact_identity_and_selected_tag_info_must_match() {
+        let selected = info_named("XMP-dc", "Title", TagKind::Text);
+        let sibling_id = SchemaDefinitionId {
+            table: "Other::dc".into(),
+            tag_id: selected.id.tag_id.clone(),
+            index: None,
+        };
+        let err = super::build_metadata_args(&sibling_id, &selected, &metadata_set(text("value")))
+            .unwrap_err();
+        assert!(err.contains("schema identity mismatch"));
+    }
+
+    #[test]
+    fn write_selector_is_derived_from_exact_selected_tag_info() {
+        let selected = info_named("XMP-dc", "Title", TagKind::Text);
+        let args =
+            super::build_metadata_args(&selected.id, &selected, &metadata_set(text("value")))
+                .unwrap();
+        assert_eq!(args.text, vec!["-XMP-dc:Title=value"]);
+    }
+
+    #[test]
+    fn exact_read_only_definition_is_rejected() {
+        let mut selected = info_named("File", "BMPVersion", TagKind::Text);
+        selected.writable = false;
+        let err =
+            super::build_metadata_args(&selected.id, &selected, &metadata_set(text("Windows V3")))
+                .unwrap_err();
+        assert!(err.contains("read-only"));
     }
 
     #[test]
     fn float_renders_decimal_in_numeric_group() {
         let i = info(TagKind::Real);
-        let args = build_metadata_args(
+        let args = build_fixture_args(
             "Composite:GPSAltitude",
-            Some(&i),
+            &i,
             &metadata_set(MetadataValue::Real(123.45)),
         )
         .unwrap();
@@ -840,8 +849,7 @@ mod tests {
         ] {
             let i = info(TagKind::Real);
             let args =
-                build_metadata_args(tag, Some(&i), &metadata_set(MetadataValue::Real(value)))
-                    .unwrap();
+                build_fixture_args(tag, &i, &metadata_set(MetadataValue::Real(value))).unwrap();
             assert_eq!(args.numeric, vec![expected]);
             assert!(args.text.is_empty());
         }
@@ -852,9 +860,9 @@ mod tests {
         // Phase 8.7: design §6 puts DateTime in the -n group so the literal
         // YYYY:MM:DD HH:MM:SS±ZZ:ZZ form bypasses PrintConv re-parsing.
         let i = info(TagKind::DateTime);
-        let args = build_metadata_args(
+        let args = build_fixture_args(
             "ExifIFD:DateTimeOriginal",
-            Some(&i),
+            &i,
             &metadata_set(MetadataValue::DateTime(DateTimeValue {
                 date: DateValue {
                     year: 2026,
@@ -881,9 +889,9 @@ mod tests {
     #[test]
     fn ai_generated_at_datetime_uses_numeric_group_with_offset() {
         let i = info_named("XMP-mlib", "AIGeneratedAt", TagKind::DateTime);
-        let args = build_metadata_args(
+        let args = build_fixture_args(
             "XMP-mlib:AIGeneratedAt",
-            Some(&i),
+            &i,
             &metadata_set(MetadataValue::DateTime(DateTimeValue {
                 date: DateValue {
                     year: 2026,
@@ -914,9 +922,9 @@ mod tests {
     #[test]
     fn iptc_date_renders_storage_format() {
         let i = info_named("IPTC", "DateCreated", TagKind::Date);
-        let args = build_metadata_args(
+        let args = build_fixture_args(
             "IPTC:DateCreated",
-            Some(&i),
+            &i,
             &metadata_set(MetadataValue::Date(DateValue {
                 year: 2026,
                 month: 5,
@@ -930,9 +938,9 @@ mod tests {
     #[test]
     fn iptc_time_without_offset_stays_offsetless() {
         let i = info_named("IPTC", "TimeCreated", TagKind::Time);
-        let args = build_metadata_args(
+        let args = build_fixture_args(
             "IPTC:TimeCreated",
-            Some(&i),
+            &i,
             &metadata_set(MetadataValue::Time(TimeValue {
                 hour: 10,
                 minute: 30,
@@ -998,9 +1006,9 @@ mod tests {
     #[test]
     fn semantic_writer_never_comma_joins_text_lists() {
         let i = info(TagKind::Bag(Box::new(TagKind::Text)));
-        let args = build_metadata_args(
+        let args = build_fixture_args(
             "XMP-dc:Subject",
-            Some(&i),
+            &i,
             &metadata_set(MetadataValue::List {
                 list_kind: ListKind::Bag,
                 items: vec![
@@ -1024,9 +1032,9 @@ mod tests {
     #[test]
     fn semantic_writer_handles_alt_lists() {
         let i = info(TagKind::Alt(Box::new(TagKind::Text)));
-        let args = build_metadata_args(
+        let args = build_fixture_args(
             "XMP-dc:Title",
-            Some(&i),
+            &i,
             &metadata_set(MetadataValue::List {
                 list_kind: ListKind::Alt,
                 items: vec![
@@ -1048,9 +1056,9 @@ mod tests {
             min: None,
             max: None,
         })));
-        let args = build_metadata_args(
+        let args = build_fixture_args(
             "X:Numbers",
-            Some(&i),
+            &i,
             &metadata_set(MetadataValue::List {
                 list_kind: ListKind::Bag,
                 items: vec![MetadataValue::Integer(1), MetadataValue::Integer(2)],
@@ -1067,9 +1075,9 @@ mod tests {
     #[test]
     fn semantic_writer_renders_exact_rational() {
         let i = info(TagKind::Rational);
-        let args = build_metadata_args(
+        let args = build_fixture_args(
             "EXIF:ExposureTime",
-            Some(&i),
+            &i,
             &metadata_set(MetadataValue::Rational(
                 crate::metadata_value::RationalValue {
                     numerator: 1,
@@ -1084,18 +1092,18 @@ mod tests {
     #[test]
     fn semantic_writer_blocks_binary_and_unknown() {
         let binary = info(TagKind::Binary);
-        let err = build_metadata_args(
+        let err = build_fixture_args(
             "File:PreviewImage",
-            Some(&binary),
+            &binary,
             &metadata_set(MetadataValue::Binary),
         )
         .unwrap_err();
         assert!(err.contains("binary"));
 
         let text = info(TagKind::Text);
-        let err = build_metadata_args(
+        let err = build_fixture_args(
             "X:Bad",
-            Some(&text),
+            &text,
             &metadata_set(MetadataValue::Unknown {
                 expected: Some(TagKind::Text),
                 raw: serde_json::json!({"bad": true}),
@@ -1109,9 +1117,9 @@ mod tests {
     #[test]
     fn rational_uses_numeric_group() {
         let i = info(TagKind::Rational);
-        let args = build_metadata_args(
+        let args = build_fixture_args(
             "EXIF:ExposureTime",
-            Some(&i),
+            &i,
             &metadata_set(MetadataValue::Rational(
                 crate::metadata_value::RationalValue {
                     numerator: 1,
@@ -1131,9 +1139,9 @@ mod tests {
         inner.insert("Name".to_string(), text("John"));
         inner.insert("Type".to_string(), text("Face"));
         let i = info(TagKind::Struct(BTreeMap::new()));
-        let args = build_metadata_args(
+        let args = build_fixture_args(
             "XMP-mwg-rs:Region",
-            Some(&i),
+            &i,
             &metadata_set(MetadataValue::Struct(inner)),
         )
         .unwrap();
@@ -1156,12 +1164,8 @@ mod tests {
         region.insert("Area".to_string(), MetadataValue::Struct(area));
         region.insert("Names".to_string(), bag_text(&["a", "b"]));
         let i = info(TagKind::Struct(BTreeMap::new()));
-        let args = build_metadata_args(
-            "X:R",
-            Some(&i),
-            &metadata_set(MetadataValue::Struct(region)),
-        )
-        .unwrap();
+        let args =
+            build_fixture_args("X:R", &i, &metadata_set(MetadataValue::Struct(region))).unwrap();
         assert_eq!(args.text, vec!["-X:R={Area={X=0.5,Y=0.5},Names=[a,b]}"]);
     }
 
@@ -1171,17 +1175,16 @@ mod tests {
         // Value containing every metachar exiftool struct parser cares about.
         o.insert("k".to_string(), text("a,b{c}d[e]f=g\\h"));
         let i = info(TagKind::Struct(BTreeMap::new()));
-        let args =
-            build_metadata_args("X:S", Some(&i), &metadata_set(MetadataValue::Struct(o))).unwrap();
+        let args = build_fixture_args("X:S", &i, &metadata_set(MetadataValue::Struct(o))).unwrap();
         assert_eq!(args.text, vec![r"-X:S={k=a\,b\{c\}d\[e\]f\=g\\h}"]);
     }
 
     #[test]
     fn struct_render_empty_object_and_list() {
         let i = info(TagKind::Struct(BTreeMap::new()));
-        let args = build_metadata_args(
+        let args = build_fixture_args(
             "X:S",
-            Some(&i),
+            &i,
             &metadata_set(MetadataValue::Struct(BTreeMap::new())),
         )
         .unwrap();

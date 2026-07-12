@@ -476,12 +476,6 @@ fn try_parse_exiftool_pass_json_raw_with_registry(
             if key == "SourceFile" {
                 continue;
             }
-            #[cfg(test)]
-            let val = if val.get("table").is_none() || val.get("id").is_none() {
-                serde_json::json!({"table": "Test::Legacy", "id": key, "val": val})
-            } else {
-                val
-            };
             let mut runtime = parse_runtime_value(val).map_err(|error| {
                 format!(
                     "{} property {}: {}",
@@ -805,7 +799,7 @@ fn canonical_values_from_exiftool_pair(
                     })
                     .map(|info| info.id.clone())
                     .unwrap_or_else(|| SchemaDefinitionId {
-                        table: "Test::Legacy".into(),
+                        table: "TestFixture::Unknown".into(),
                         tag_id: name.clone(),
                         index: None,
                     });
@@ -1336,9 +1330,9 @@ mod tests {
     #[test]
     fn parse_exiftool_preserves_nested_objects() {
         let json = r#"[
-            {"SourceFile": "D:/a.jpg", "Tag": "ok"},
-            {"SourceFile": "D:/b.mov", "Keys": {"creator": "alice", "year": 2024}},
-            {"SourceFile": "D:/c.jpg", "Tag": "ok"}
+            {"SourceFile": "D:/a.jpg", "Tag": {"table":"TestFixture::Unknown","id":"Tag","val":"ok"}},
+            {"SourceFile": "D:/b.mov", "Keys": {"table":"TestFixture::Unknown","id":"Keys","val":{"creator":"alice","year":2024}}},
+            {"SourceFile": "D:/c.jpg", "Tag": {"table":"TestFixture::Unknown","id":"Tag","val":"ok"}}
         ]"#;
         let rel = vec![
             "a.jpg".to_string(),
@@ -1354,7 +1348,7 @@ mod tests {
         assert_eq!(results.len(), 3);
         let b = results.iter().find(|r| r.relative_path == "b.mov").unwrap();
         let keys_id = SchemaDefinitionId {
-            table: "Test::Legacy".into(),
+            table: "TestFixture::Unknown".into(),
             tag_id: "Keys".into(),
             index: None,
         };
@@ -1371,9 +1365,9 @@ mod tests {
         // An entry that isn't a JSON object can't deserialize to a HashMap.
         // Per-entry isolation means the others must still come through.
         let json = r#"[
-            {"SourceFile": "D:/a.jpg", "Tag": "ok"},
+            {"SourceFile": "D:/a.jpg", "Tag": {"table":"TestFixture::Unknown","id":"Tag","val":"ok"}},
             [1, 2, 3],
-            {"SourceFile": "D:/c.jpg", "Tag": "ok"}
+            {"SourceFile": "D:/c.jpg", "Tag": {"table":"TestFixture::Unknown","id":"Tag","val":"ok"}}
         ]"#;
         let rel = vec!["a.jpg".to_string(), "c.jpg".to_string()];
         let abs = vec![
@@ -1385,7 +1379,7 @@ mod tests {
         let a = results.iter().find(|r| r.relative_path == "a.jpg").unwrap();
         let c = results.iter().find(|r| r.relative_path == "c.jpg").unwrap();
         let tag_id = SchemaDefinitionId {
-            table: "Test::Legacy".into(),
+            table: "TestFixture::Unknown".into(),
             tag_id: "Tag".into(),
             index: None,
         };
@@ -1402,8 +1396,8 @@ mod tests {
     #[test]
     fn parse_pass_json_keys_results_by_normalized_source() {
         let json = r#"[
-            {"SourceFile": "D:\\a.jpg", "Tag": "X"},
-            {"SourceFile": "D:/b.jpg", "Tag": "Y"}
+            {"SourceFile": "D:\\a.jpg", "Tag": {"table":"TestFixture::Unknown","id":"Tag","val":"X"}},
+            {"SourceFile": "D:/b.jpg", "Tag": {"table":"TestFixture::Unknown","id":"Tag","val":"Y"}}
         ]"#;
         let map = parse_exiftool_pass_json_raw(json);
         assert_eq!(map.len(), 2);
@@ -1420,7 +1414,7 @@ mod tests {
     #[test]
     fn parse_pass_json_handles_struct_values() {
         // Pass A typically returns nested Keys / regions structs.
-        let json = r#"[{"SourceFile":"D:/a.mov","Keys":{"creator":"alice"}}]"#;
+        let json = r#"[{"SourceFile":"D:/a.mov","Keys":{"table":"TestFixture::Unknown","id":"Keys","val":{"creator":"alice"}}}]"#;
         let map = parse_exiftool_pass_json_raw(json);
         assert_eq!(
             map.get("D:/a.mov").and_then(|m| m.get("Keys")),
@@ -1430,7 +1424,7 @@ mod tests {
 
     #[test]
     fn parse_pass_json_raw_keeps_exiftool_boundary_as_json() {
-        let json = r#"[{"SourceFile":"D:/a.jpg","Int":5,"Real":1.5,"Obj":{"x":true}}]"#;
+        let json = r#"[{"SourceFile":"D:/a.jpg","Int":{"table":"TestFixture::Unknown","id":"Int","val":5},"Real":{"table":"TestFixture::Unknown","id":"Real","val":1.5},"Obj":{"table":"TestFixture::Unknown","id":"Obj","val":{"x":true}}}]"#;
         let map = parse_exiftool_pass_json_raw(json);
         let entry = map.get("D:/a.jpg").expect("entry");
         assert_eq!(entry.get("Int"), Some(&serde_json::json!(5)));
@@ -1444,7 +1438,7 @@ mod tests {
             "SourceFile": "D:/a.jpg",
             "IPTC:TimeCreated": {"table": "IPTC::ApplicationRecord", "id": "60", "val": "10:56:05"},
             "ExifIFD:OffsetTimeOriginal": {"table": "Exif::Main", "id": "36881", "val": "+01:00"},
-            "MadeUp:Thing": {"table": "Test::Legacy", "id": "MadeUp:Thing", "val": 5}
+            "MadeUp:Thing": {"table": "TestFixture::Unknown", "id": "MadeUp:Thing", "val": 5}
         }]"#;
         let rel = vec!["a.jpg".to_string()];
         let abs = vec![std::path::PathBuf::from("D:/a.jpg")];
@@ -1461,7 +1455,7 @@ mod tests {
             Some(MetadataValue::TimeOffset(_))
         ));
         assert!(matches!(
-            image.metadata.get(&SchemaDefinitionId { table: "Test::Legacy".into(), tag_id: "MadeUp:Thing".into(), index: None }),
+            image.metadata.get(&SchemaDefinitionId { table: "TestFixture::Unknown".into(), tag_id: "MadeUp:Thing".into(), index: None }),
             Some(MetadataValue::Unknown { expected: None, raw, .. }) if raw == &serde_json::json!(5)
         ));
     }
@@ -1665,8 +1659,8 @@ mod tests {
     fn binary_tag_values_are_replaced_with_placeholder() {
         let json = r#"[{
             "SourceFile": "D:/a.jpg",
-            "IFD1:ThumbnailImage": "(Binary data 3965 bytes, use -b option to extract)",
-            "EXIF:Make": "Canon"
+            "IFD1:ThumbnailImage": {"table":"Exif::Main","id":"513","val":"(Binary data 3965 bytes, use -b option to extract)"},
+            "EXIF:Make": {"table":"Exif::Main","id":"271","val":"Canon"}
         }]"#;
         let reg = binary_registry();
         let map = parse_exiftool_pass_json_raw_with_registry(json, Some(&reg));
@@ -1687,7 +1681,7 @@ mod tests {
         // fallback is the only thing that catches them.
         let json = r#"[{
             "SourceFile": "D:/a.jpg",
-            "File:PreviewImage": "(Binary data 105557 bytes, use -b option to extract)"
+            "File:PreviewImage": {"table":"File::Main","id":"PreviewImage","val":"(Binary data 105557 bytes, use -b option to extract)"}
         }]"#;
         let reg = binary_registry();
         let map = parse_exiftool_pass_json_raw_with_registry(json, Some(&reg));
@@ -1703,7 +1697,7 @@ mod tests {
         // No schema available: regex alone must still catch the placeholder.
         let json = r#"[{
             "SourceFile": "D:/a.jpg",
-            "IFD1:ThumbnailImage": "(Binary data 3965 bytes, use -b option to extract)"
+            "IFD1:ThumbnailImage": {"table":"Exif::Main","id":"513","val":"(Binary data 3965 bytes, use -b option to extract)"}
         }]"#;
         let map = parse_exiftool_pass_json_raw_with_registry(json, None);
         let entry = map.get("D:/a.jpg").expect("entry present");
@@ -1720,7 +1714,7 @@ mod tests {
         // protects descriptions and other prose fields.
         let json = r#"[{
             "SourceFile": "D:/a.jpg",
-            "EXIF:ImageDescription": "Note: the exiftool stub reads \"(Binary data 99 bytes, use -b option to extract)\" in this field."
+            "EXIF:ImageDescription": {"table":"Exif::Main","id":"270","val":"Note: the exiftool stub reads \"(Binary data 99 bytes, use -b option to extract)\" in this field."}
         }]"#;
         let reg = binary_registry();
         let map = parse_exiftool_pass_json_raw_with_registry(json, Some(&reg));
