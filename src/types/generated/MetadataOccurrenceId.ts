@@ -18,8 +18,12 @@
  * `MetadataOccurrenceId` is unique only within one source file. Code requiring
  * identity across files must combine it with the file's relative path.
  *
- * The primary family-4 occurrence is normalised to `copy = 0`, whether
- * ExifTool reports it without a family-4 group or explicitly as `Copy0`.
+ * ExifTool family values are normalised at the read boundary as follows:
+ *
+ * - family 3 `Main` is stored as `document = None`;
+ * - the empty primary family-4 position (and explicit `Copy0`) is stored as
+ *   `copy = 0`;
+ * - the family-7 transport prefix `ID-` is omitted from stored `tag_id`.
  *
  * This type deliberately contains no `SchemaDefinitionId`. Multiple runtime
  * occurrences may resolve to the same static schema definition.
@@ -29,8 +33,7 @@ export type MetadataOccurrenceId = {
  * ExifTool family 3.
  *
  * Identifies an embedded document or timed-metadata sample when relevant.
- * `None` represents the main document where ExifTool supplies no distinct
- * family-3 value.
+ * `None` represents ExifTool's primary `Main` document group.
  */
 document: string | null, 
 /**
@@ -47,15 +50,16 @@ path: string,
  * ExifTool family 7.
  *
  * The runtime tag ID used to distinguish tags within the same metadata
- * path. This is runtime occurrence information and is not necessarily
- * identical to the tag ID used by the static schema registry.
+ * path, with ExifTool's `ID-` group-name prefix omitted. This is runtime
+ * occurrence information and is not necessarily identical to the tag ID
+ * used by the static schema registry.
  */
 tag_id: string, 
 /**
  * ExifTool family 4, normalised to a zero-based instance number.
  *
- * `0` represents the primary occurrence. Values greater than zero
- * represent additional copies of the same runtime tag in the same
- * metadata location.
+ * `0` represents ExifTool's empty primary family-4 position or explicit
+ * `Copy0`. Values greater than zero represent `CopyN` occurrences of the
+ * same runtime tag in the same metadata location.
  */
 copy: number, };
