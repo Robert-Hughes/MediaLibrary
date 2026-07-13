@@ -12,6 +12,7 @@ import {
   isMetadataDraftEntryV5,
   isMetadataDraftTarget,
   isMetadataOccurrenceId,
+  isJsonValue,
   isMetadataValue,
   isMetadataWriteTarget,
   isSchemaDefinitionId,
@@ -140,6 +141,25 @@ describe("schema-v5 target and edit wire guards", () => {
     expect(isMetadataDraftEdit({ intent: "Set", value })).toBe(true);
   });
 
+  it("distinguishes integer values from finite real values", () => {
+    expect(isMetadataValue({ kind: "Integer", value: 1 })).toBe(true);
+    expect(isMetadataValue({ kind: "Integer", value: -1 })).toBe(true);
+    expect(isMetadataValue({ kind: "Integer", value: 1.5 })).toBe(false);
+    expect(isMetadataValue({ kind: "Integer", value: Number.NaN })).toBe(false);
+    expect(
+      isMetadataValue({ kind: "Integer", value: Number.POSITIVE_INFINITY }),
+    ).toBe(false);
+    expect(isMetadataValue({ kind: "Real", value: 1.5 })).toBe(true);
+  });
+
+  it("requires exact unit-variant shapes", () => {
+    expect(isMetadataValue({ kind: "Null" })).toBe(true);
+    expect(isMetadataValue({ kind: "Binary" })).toBe(true);
+    expect(isMetadataValue({ kind: "Null", value: "unexpected" })).toBe(false);
+    expect(isMetadataValue({ kind: "Binary", value: {} })).toBe(false);
+    expect(isMetadataValue({ kind: "Null", value: undefined })).toBe(false);
+  });
+
   it("rejects invalid intents, values, displays, and missing values", () => {
     expect(isMetadataDraftEdit({ intent: "Replace", value: null })).toBe(false);
     expect(
@@ -160,6 +180,66 @@ describe("schema-v5 target and edit wire guards", () => {
       false,
     );
     expect(isMetadataDraftEntryV5({ target: {}, edit: edit() })).toBe(false);
+  });
+});
+
+describe("recursive JSON-value wire guard", () => {
+  it("accepts recursively JSON-compatible values", () => {
+    for (const value of [
+      null,
+      true,
+      12.5,
+      "text",
+      [null, false, 1, "nested", { deeper: [2] }],
+      { nested: { array: ["value", 3] } },
+    ]) {
+      expect(isJsonValue(value)).toBe(true);
+    }
+  });
+
+  it("rejects invalid primitive and nested values", () => {
+    for (const value of [
+      undefined,
+      () => undefined,
+      Symbol("invalid"),
+      1n,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      ["valid", undefined],
+      { nested: { invalid: 1n } },
+    ]) {
+      expect(isJsonValue(value)).toBe(false);
+    }
+  });
+
+  it("rejects cyclic objects without traversing prototypes", () => {
+    const cyclic: Record<string, unknown> = {};
+    cyclic.self = cyclic;
+    expect(isJsonValue(cyclic)).toBe(false);
+
+    const inheritedInvalid = Object.create({ ignored: undefined }) as Record<
+      string,
+      unknown
+    >;
+    inheritedInvalid.own = "valid";
+    expect(isJsonValue(inheritedInvalid)).toBe(true);
+  });
+
+  it("uses the JSON guard for Unknown.raw", () => {
+    const unknown = (raw: unknown) => ({
+      kind: "Unknown",
+      value: { raw, expected: null, reason: null },
+    });
+
+    expect(isMetadataValue(unknown({ nested: [null, 1, "value"] }))).toBe(true);
+    expect(isMetadataValue(unknown({ nested: undefined }))).toBe(false);
+    expect(isMetadataValue(unknown(["valid", Number.NaN]))).toBe(false);
+    expect(
+      isMetadataValue({
+        kind: "Unknown",
+        value: { expected: null, reason: null },
+      }),
+    ).toBe(false);
   });
 });
 

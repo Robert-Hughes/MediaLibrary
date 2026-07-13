@@ -11,6 +11,7 @@ import {
   metadataDraftTargetSlotToken,
 } from "./utils/metadataDraftTarget";
 import { isMetadataDraftEntryV5, isRecord } from "./utils/metadataWireGuards";
+import { hasOwnStringKey, recordFromEntries } from "./utils/stringRecord";
 import { compareUnicodeScalarStrings } from "./utils/unicodeOrdering";
 
 /**
@@ -65,8 +66,8 @@ export function validateTargetDraftCollection(
   >();
 
   for (const { recordKey, entry, expectedSlot } of described) {
-    const previous = seen.get(expectedSlot);
-    if (previous) {
+    if (seen.has(expectedSlot)) {
+      const previous = seen.get(expectedSlot)!;
       throw new Error(
         `Duplicate target draft slot for '${path}': supplied record key '${recordKey}', expected slot token '${expectedSlot}', complete target ${JSON.stringify(entry.target)}, duplicate target ${JSON.stringify(previous.target)} supplied under record key '${previous.recordKey}'`,
       );
@@ -87,26 +88,29 @@ export function validateTargetDraftCollection(
 export function targetDraftsFromWire(
   wire: Record<string, MetadataDraftEntryV5[]>,
 ): TargetDraftEditsByFile {
-  const drafts: TargetDraftEditsByFile = {};
+  const draftEntries: Array<readonly [string, TargetDraftCollection]> = [];
 
   for (const [path, entries] of Object.entries(wire)) {
     if (entries.length === 0) continue;
 
-    const collection: TargetDraftCollection = {};
+    const collectionEntries: Array<readonly [string, MetadataDraftEntryV5]> =
+      [];
+    const seenSlots = new Map<string, MetadataDraftEntryV5>();
     for (const entry of entries) {
       const slot = metadataDraftTargetSlotToken(entry.target);
-      const previous = collection[slot];
-      if (previous) {
+      if (seenSlots.has(slot)) {
+        const previous = seenSlots.get(slot)!;
         throw new Error(
           `Duplicate target draft slot for '${path}' (${slot}); first target ${JSON.stringify(previous.target)}, duplicate target ${JSON.stringify(entry.target)}`,
         );
       }
-      collection[slot] = cloneEntry(entry);
+      seenSlots.set(slot, entry);
+      collectionEntries.push([slot, cloneEntry(entry)]);
     }
-    drafts[path] = collection;
+    draftEntries.push([path, recordFromEntries(collectionEntries)]);
   }
 
-  return drafts;
+  return recordFromEntries(draftEntries);
 }
 
 export function targetDraftsFromUnknownWire(
@@ -116,7 +120,7 @@ export function targetDraftsFromUnknownWire(
     throw new Error("Invalid schema-v5 draft wire payload: expected an object");
   }
 
-  const wire: Record<string, MetadataDraftEntryV5[]> = {};
+  const wireEntries: Array<readonly [string, MetadataDraftEntryV5[]]> = [];
   for (const [path, value] of Object.entries(raw)) {
     if (!Array.isArray(value)) {
       throw new Error(
@@ -130,10 +134,10 @@ export function targetDraftsFromUnknownWire(
         );
       }
     }
-    wire[path] = value;
+    wireEntries.push([path, value]);
   }
 
-  return targetDraftsFromWire(wire);
+  return targetDraftsFromWire(recordFromEntries(wireEntries));
 }
 
 /** Deterministic schema-v5 wire conversion ordered exactly by Rust slot order. */
@@ -144,21 +148,25 @@ export function targetDraftsToWire(
     validateTargetDraftCollection(path, collection);
   }
 
-  const wire: Record<string, MetadataDraftEntryV5[]> = {};
   const paths = Object.keys(drafts).sort(compareUnicodeScalarStrings);
+  const wireEntries: Array<readonly [string, MetadataDraftEntryV5[]]> = [];
 
   for (const path of paths) {
+    if (!hasOwnStringKey(drafts, path)) continue;
     const entries = Object.values(drafts[path]);
     if (entries.length === 0) continue;
-    wire[path] = entries
-      .slice()
-      .sort((left, right) =>
-        compareMetadataDraftTargetsBySlot(left.target, right.target),
-      )
-      .map(cloneEntry);
+    wireEntries.push([
+      path,
+      entries
+        .slice()
+        .sort((left, right) =>
+          compareMetadataDraftTargetsBySlot(left.target, right.target),
+        )
+        .map(cloneEntry),
+    ]);
   }
 
-  return wire;
+  return recordFromEntries(wireEntries);
 }
 
 /**
@@ -166,7 +174,7 @@ export function targetDraftsToWire(
  * into AppState, React, persistence, apply, or search-worker indexing.
  */
 export class TargetDraftEditsStore {
-  private snapshot: TargetDraftEditsByFile = {};
+  private snapshot: TargetDraftEditsByFile = recordFromEntries([]);
   private listeners = new Set<TargetDraftEditsListener>();
   private currentValueResolver?: (
     path: string,
@@ -188,16 +196,16 @@ export class TargetDraftEditsStore {
       validateTargetDraftCollection(path, collection);
     }
 
-    const next: TargetDraftEditsByFile = {};
+    const nextEntries: Array<readonly [string, TargetDraftCollection]> = [];
     for (const [path, collection] of Object.entries(initial)) {
-      const cloned: TargetDraftCollection = {};
-      for (const [slot, entry] of Object.entries(collection)) {
-        const stored = cloneEntry(entry);
-        cloned[slot] = stored;
-      }
-      if (Object.keys(cloned).length > 0) next[path] = cloned;
+      const cloned = recordFromEntries(
+        Object.entries(collection).map(
+          ([slot, entry]) => [slot, cloneEntry(entry)] as const,
+        ),
+      );
+      if (Object.keys(cloned).length > 0) nextEntries.push([path, cloned]);
     }
-    this.snapshot = next;
+    this.snapshot = recordFromEntries(nextEntries);
   }
 
   getAllMetadata(): TargetDraftEditsByFile {
@@ -205,18 +213,27 @@ export class TargetDraftEditsStore {
   }
 
   getMetadataFile(path: string): TargetDraftCollection | undefined {
-    return this.snapshot[path];
+    return hasOwnStringKey(this.snapshot, path)
+      ? this.snapshot[path]
+      : undefined;
   }
 
   private removeSlot(path: string, slot: string): void {
+    if (!hasOwnStringKey(this.snapshot, path)) return;
     const current = this.snapshot[path];
-    if (!current || !(slot in current)) return;
+    if (!hasOwnStringKey(current, slot)) return;
 
-    const updated = { ...current };
+    const updated = recordFromEntries(Object.entries(current));
     delete updated[slot];
-    const next = { ...this.snapshot };
-    if (Object.keys(updated).length === 0) delete next[path];
-    else next[path] = updated;
+    const next =
+      Object.keys(updated).length === 0
+        ? recordFromEntries(
+            Object.entries(this.snapshot).filter(([key]) => key !== path),
+          )
+        : recordFromEntries([
+            ...Object.entries(this.snapshot),
+            [path, updated] as const,
+          ]);
     this.snapshot = next;
   }
 
@@ -226,7 +243,13 @@ export class TargetDraftEditsStore {
     edit: MetadataDraftEdit,
   ): SetDraftOutcome {
     const slot = metadataDraftTargetSlotToken(target);
-    const existing = this.snapshot[path]?.[slot];
+    const currentCollection = hasOwnStringKey(this.snapshot, path)
+      ? this.snapshot[path]
+      : undefined;
+    const existing =
+      currentCollection && hasOwnStringKey(currentCollection, slot)
+        ? currentCollection[slot]
+        : undefined;
 
     if (edit.intent === "Set" && this.currentValueResolver) {
       const current = this.currentValueResolver(path, target);
@@ -243,11 +266,14 @@ export class TargetDraftEditsStore {
       target: cloneTarget(target),
       edit,
     };
-    const collection = {
-      ...(this.snapshot[path] ?? {}),
-      [slot]: stored,
-    };
-    this.snapshot = { ...this.snapshot, [path]: collection };
+    const collection = recordFromEntries([
+      ...Object.entries(currentCollection ?? {}),
+      [slot, stored] as const,
+    ]);
+    this.snapshot = recordFromEntries([
+      ...Object.entries(this.snapshot),
+      [path, collection] as const,
+    ]);
     return "written";
   }
 
@@ -258,7 +284,7 @@ export class TargetDraftEditsStore {
   ): SetDraftOutcome {
     const outcome = this.applyOne(path, target, edit);
     if (outcome !== "redundant") {
-      this.notify([{ path, edits: this.snapshot[path] }]);
+      this.notify([{ path, edits: this.getMetadataFile(path) }]);
     }
     return outcome;
   }
@@ -290,7 +316,7 @@ export class TargetDraftEditsStore {
       outcome: this.applyOne(path, target, edit),
     }));
     if (results.some(({ outcome }) => outcome !== "redundant")) {
-      this.notify([{ path, edits: this.snapshot[path] }]);
+      this.notify([{ path, edits: this.getMetadataFile(path) }]);
     }
     return results;
   }
@@ -304,18 +330,20 @@ export class TargetDraftEditsStore {
   }
 
   deletePath(path: string): void {
-    if (!this.snapshot[path]) return;
-    const next = { ...this.snapshot };
+    if (!hasOwnStringKey(this.snapshot, path)) return;
+    const next = recordFromEntries(Object.entries(this.snapshot));
     delete next[path];
     this.snapshot = next;
     this.notify([{ path, edits: undefined }]);
   }
 
   deletePaths(paths: string[]): void {
-    const existing = [...new Set(paths)].filter((path) => this.snapshot[path]);
+    const existing = [...new Set(paths)].filter((path) =>
+      hasOwnStringKey(this.snapshot, path),
+    );
     if (existing.length === 0) return;
 
-    const next = { ...this.snapshot };
+    const next = recordFromEntries(Object.entries(this.snapshot));
     for (const path of existing) delete next[path];
     this.snapshot = next;
     this.notify(existing.map((path) => ({ path, edits: undefined })));
@@ -324,7 +352,7 @@ export class TargetDraftEditsStore {
   clear(): void {
     const paths = Object.keys(this.snapshot);
     if (paths.length === 0) return;
-    this.snapshot = {};
+    this.snapshot = recordFromEntries([]);
     this.notify(paths.map((path) => ({ path, edits: undefined })));
   }
 
@@ -340,24 +368,30 @@ export class TargetDraftEditsStore {
   }
 
   private deleteSlots(path: string, slots: string[]): void {
+    if (!hasOwnStringKey(this.snapshot, path) || slots.length === 0) return;
     const current = this.snapshot[path];
-    if (!current || slots.length === 0) return;
 
-    const updated = { ...current };
+    const updated = recordFromEntries(Object.entries(current));
     let changed = false;
     for (const slot of new Set(slots)) {
-      if (slot in updated) {
+      if (hasOwnStringKey(updated, slot)) {
         delete updated[slot];
         changed = true;
       }
     }
     if (!changed) return;
 
-    const next = { ...this.snapshot };
-    if (Object.keys(updated).length === 0) delete next[path];
-    else next[path] = updated;
+    const next =
+      Object.keys(updated).length === 0
+        ? recordFromEntries(
+            Object.entries(this.snapshot).filter(([key]) => key !== path),
+          )
+        : recordFromEntries([
+            ...Object.entries(this.snapshot),
+            [path, updated] as const,
+          ]);
     this.snapshot = next;
-    this.notify([{ path, edits: this.snapshot[path] }]);
+    this.notify([{ path, edits: this.getMetadataFile(path) }]);
   }
 
   private notify(changes: TargetDraftEditsChange[]): void {
