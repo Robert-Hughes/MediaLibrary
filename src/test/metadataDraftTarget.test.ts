@@ -11,6 +11,7 @@ import {
   existingOccurrenceDraftTarget,
   metadataDraftTargetEquals,
   metadataDraftTargetSchemaId,
+  metadataDraftTargetSlotToken,
   metadataDraftTargetToken,
   newPropertyDraftTarget,
 } from "../utils/metadataDraftTarget";
@@ -289,5 +290,148 @@ describe("metadata draft target access and identity helpers", () => {
     );
     expect(metadataDraftTargetEquals(absent, explicitNull)).toBe(true);
     expect(metadataDraftTargetEquals(absent, zero)).toBe(false);
+  });
+});
+
+describe("metadata draft slot token identity", () => {
+  it("produces a stable existing-occurrence slot token", () => {
+    const target = availableExisting();
+    expect(metadataDraftTargetSlotToken(target)).toBe(
+      metadataDraftTargetSlotToken(structuredClone(target)),
+    );
+    expect(JSON.parse(metadataDraftTargetSlotToken(target))).toEqual([
+      "ExistingOccurrence",
+      [null, "JPEG-APP1-IFD0", "282", 0],
+    ]);
+  });
+
+  it("produces a stable new-property slot token", () => {
+    const target = availableNew(tagInfo(true, schemaId(2)));
+    expect(metadataDraftTargetSlotToken(target)).toBe(
+      metadataDraftTargetSlotToken(structuredClone(target)),
+    );
+    expect(JSON.parse(metadataDraftTargetSlotToken(target))).toEqual([
+      "NewProperty",
+      ["Exif::Main", "282", 2],
+    ]);
+  });
+
+  it("keeps the same occurrence slot when the schema snapshot changes", () => {
+    const first = availableExisting();
+    const second = structuredClone(first);
+    second.schema_id = { table: "Other::Table", tag_id: "999", index: 4 };
+
+    expect(metadataDraftTargetSlotToken(first)).toBe(
+      metadataDraftTargetSlotToken(second),
+    );
+    expect(metadataDraftTargetToken(first)).not.toBe(
+      metadataDraftTargetToken(second),
+    );
+  });
+
+  it("keeps the same occurrence slot when the selector snapshot changes", () => {
+    const first = availableExisting();
+    const second = structuredClone(first);
+    second.write_target = { group1: "IFD1", tag_name: "YResolution" };
+
+    expect(metadataDraftTargetSlotToken(first)).toBe(
+      metadataDraftTargetSlotToken(second),
+    );
+    expect(metadataDraftTargetToken(first)).not.toBe(
+      metadataDraftTargetToken(second),
+    );
+  });
+
+  it("distinguishes occurrence paths", () => {
+    const first = availableExisting();
+    const second = availableExisting(
+      occurrence({ id: occurrenceId({ path: "JPEG-APP1-IFD1" }) }),
+    );
+    expect(metadataDraftTargetSlotToken(first)).not.toBe(
+      metadataDraftTargetSlotToken(second),
+    );
+  });
+
+  it("distinguishes occurrence copy numbers", () => {
+    const first = availableExisting();
+    const second = availableExisting(
+      occurrence({ id: occurrenceId({ copy: 1 }) }),
+    );
+    expect(metadataDraftTargetSlotToken(first)).not.toBe(
+      metadataDraftTargetSlotToken(second),
+    );
+  });
+
+  it("distinguishes new-property schema indexes including absent and zero", () => {
+    const absent = availableNew(tagInfo(true, schemaId()));
+    const zero = availableNew(tagInfo(true, schemaId(0)));
+    const one = availableNew(tagInfo(true, schemaId(1)));
+
+    expect(metadataDraftTargetSlotToken(absent)).not.toBe(
+      metadataDraftTargetSlotToken(zero),
+    );
+    expect(metadataDraftTargetSlotToken(zero)).not.toBe(
+      metadataDraftTargetSlotToken(one),
+    );
+  });
+
+  it("never shares a slot token across existing and new variants", () => {
+    expect(metadataDraftTargetSlotToken(availableExisting())).not.toBe(
+      metadataDraftTargetSlotToken(availableNew()),
+    );
+  });
+
+  it("does not collide on delimiter-like slot values", () => {
+    const left = availableNew(
+      tagInfo(true, { table: "A:B", tag_id: "C", index: 1 }),
+    );
+    const right = availableNew(
+      tagInfo(true, { table: "A", tag_id: "B:C", index: 1 }),
+    );
+    expect(metadataDraftTargetSlotToken(left)).not.toBe(
+      metadataDraftTargetSlotToken(right),
+    );
+  });
+
+  it("keeps non-BMP and control-character slot values unambiguous", () => {
+    const left = availableExisting(
+      occurrence({
+        id: occurrenceId({ path: "\u{1f4f7}\u0000/path", tag_id: "tag\nname" }),
+      }),
+    );
+    const right = availableExisting(
+      occurrence({
+        id: occurrenceId({
+          path: "\u{1f4f7}",
+          tag_id: "\u0000/path/tag\nname",
+        }),
+      }),
+    );
+
+    expect(metadataDraftTargetSlotToken(left)).not.toBe(
+      metadataDraftTargetSlotToken(right),
+    );
+    expect(JSON.parse(metadataDraftTargetSlotToken(left))[1]).toEqual([
+      null,
+      "\u{1f4f7}\u0000/path",
+      "tag\nname",
+      0,
+    ]);
+  });
+
+  it("does not mutate source targets while computing either token", () => {
+    const target = availableExisting(
+      occurrence({
+        id: occurrenceId({ document: "Doc1", copy: 3 }),
+        tag_info: tagInfo(true, schemaId(2)),
+        write_target: writeTarget({ group1: "IFD1" }),
+      }),
+    );
+    const before = structuredClone(target);
+
+    metadataDraftTargetSlotToken(target);
+    metadataDraftTargetToken(target);
+
+    expect(target).toEqual(before);
   });
 });

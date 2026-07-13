@@ -45,8 +45,8 @@ export function metadataDraftTargetSchemaId(
 }
 
 /**
- * Internal JavaScript collection/React-key token only. It is not domain
- * identity and must never be persisted or sent through Tauri.
+ * Identifies the complete stored target snapshot. This internal JavaScript
+ * token must never be persisted or sent through Tauri.
  */
 export function metadataDraftTargetToken(target: MetadataDraftTarget): string {
   const schema = [
@@ -69,6 +69,36 @@ export function metadataDraftTargetToken(target: MetadataDraftTarget): string {
     ],
     schema,
     [target.write_target.group1, target.write_target.tag_name],
+  ]);
+}
+
+/**
+ * Identifies which one logical draft position a complete target snapshot
+ * occupies. This token is only for future draft-map collection mechanics and
+ * must never be persisted or sent through Tauri.
+ */
+export function metadataDraftTargetSlotToken(
+  target: MetadataDraftTarget,
+): string {
+  if (target.kind === "NewProperty") {
+    return JSON.stringify([
+      "NewProperty",
+      [
+        target.schema_id.table,
+        target.schema_id.tag_id,
+        target.schema_id.index ?? null,
+      ],
+    ]);
+  }
+
+  return JSON.stringify([
+    "ExistingOccurrence",
+    [
+      target.occurrence_id.document ?? null,
+      target.occurrence_id.path,
+      target.occurrence_id.tag_id,
+      target.occurrence_id.copy,
+    ],
   ]);
 }
 
