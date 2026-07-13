@@ -203,7 +203,11 @@ work changes selector choice rather than datatype, enum, list, struct, or
 date/time encoding.
 
 The file-relative path remains the outer draft-map context for both variants;
-it is not duplicated inside `MetadataDraftTarget`.
+it is not duplicated inside `MetadataDraftTarget`. File-relative paths are
+untrusted string keys, not JavaScript object mechanics. Frontend collections
+therefore create and test own data properties only, never the prototype chain,
+so reserved-looking filenames such as `__proto__`, `constructor`, and
+`toString` survive unchanged.
 
 `MetadataDraftTarget` and `MetadataDraftSlot` answer different identity
 questions:
@@ -314,7 +318,15 @@ and store reset reject duplicate logical slots. Persistence conversion and
 reset also require each record key to equal its derived token, detect duplicate
 values hidden under different malformed keys, and never silently re-key a
 collection. Reset validates before replacing state, so failure is atomic and
-silent. A frontend/Tauri-contract test round-trips shared-schema IFD0/IFD1
+silent. Reserved-looking outer paths remain ordinary domain data. Logical draft
+identity is the target slot described above, never object-property behaviour.
+The shared frontend semantic guard requires integral finite values for
+`MetadataValue::Integer`, while `Real` continues to accept finite fractions;
+`Unknown.raw` must be recursively JSON-compatible, and unit variants must keep
+their generated no-content wire shape. These are inactive schema-v5 boundary
+guarantees only: production persistence remains schema v4, the target-aware
+store is not in `AppState`, and no occurrence-aware apply pipeline is active.
+A frontend/Tauri-contract test round-trips shared-schema IFD0/IFD1
 occurrences and existing/new targets without collapsing them.
 
 Command registration does not mean production usage. No production component

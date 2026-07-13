@@ -8,8 +8,16 @@ import type {
   SchemaDefinitionId,
   TagKind,
 } from "../types";
+import { hasOwnStringKey } from "./stringRecord";
 
 const U32_MAX = 0xffff_ffff;
+
+function hasOwnStringKeys(
+  record: Record<string, unknown>,
+  keys: readonly string[],
+): boolean {
+  return keys.every((key) => hasOwnStringKey(record, key));
+}
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
@@ -29,6 +37,7 @@ export function isSchemaDefinitionId(
 ): value is SchemaDefinitionId {
   return (
     isRecord(value) &&
+    hasOwnStringKeys(value, ["table", "tag_id"]) &&
     typeof value.table === "string" &&
     typeof value.tag_id === "string" &&
     (value.index === undefined || value.index === null || isU32(value.index))
@@ -40,6 +49,7 @@ export function isMetadataOccurrenceId(
 ): value is MetadataOccurrenceId {
   return (
     isRecord(value) &&
+    hasOwnStringKeys(value, ["document", "path", "tag_id", "copy"]) &&
     (value.document === null || typeof value.document === "string") &&
     typeof value.path === "string" &&
     typeof value.tag_id === "string" &&
@@ -52,13 +62,20 @@ export function isMetadataWriteTarget(
 ): value is MetadataWriteTarget {
   return (
     isRecord(value) &&
+    hasOwnStringKeys(value, ["group1", "tag_name"]) &&
     typeof value.group1 === "string" &&
     typeof value.tag_name === "string"
   );
 }
 
 export function isTagKind(value: unknown): value is TagKind {
-  if (!isRecord(value) || typeof value.kind !== "string") return false;
+  if (
+    !isRecord(value) ||
+    !hasOwnStringKey(value, "kind") ||
+    typeof value.kind !== "string"
+  ) {
+    return false;
+  }
   switch (value.kind) {
     case "Text":
     case "LangAlt":
@@ -75,6 +92,7 @@ export function isTagKind(value: unknown): value is TagKind {
     case "Integer":
       return (
         isRecord(value.data) &&
+        hasOwnStringKeys(value.data, ["min", "max"]) &&
         (value.data.min === null ||
           (typeof value.data.min === "number" &&
             Number.isInteger(value.data.min))) &&
@@ -85,11 +103,13 @@ export function isTagKind(value: unknown): value is TagKind {
     case "Enum":
       return (
         isRecord(value.data) &&
+        hasOwnStringKeys(value.data, ["repr", "options"]) &&
         (value.data.repr === "Integer" || value.data.repr === "String") &&
         Array.isArray(value.data.options) &&
         value.data.options.every(
           (option) =>
             isRecord(option) &&
+            hasOwnStringKeys(option, ["code", "label"]) &&
             typeof option.code === "string" &&
             typeof option.label === "string",
         )
@@ -106,22 +126,37 @@ export function isTagKind(value: unknown): value is TagKind {
 }
 
 export function isMetadataValue(value: unknown): value is MetadataValue {
-  if (!isRecord(value) || typeof value.kind !== "string") return false;
+  if (
+    !isRecord(value) ||
+    !hasOwnStringKey(value, "kind") ||
+    typeof value.kind !== "string"
+  ) {
+    return false;
+  }
+
+  const hasContent = hasOwnStringKey(value, "value");
+  if (value.kind === "Null" || value.kind === "Binary") {
+    return !hasContent;
+  }
+  if (!hasContent) return false;
 
   switch (value.kind) {
-    case "Null":
-    case "Binary":
-      return true;
     case "Text":
       return typeof value.value === "string";
     case "Bool":
       return typeof value.value === "boolean";
     case "Integer":
+      return (
+        typeof value.value === "number" &&
+        Number.isFinite(value.value) &&
+        Number.isInteger(value.value)
+      );
     case "Real":
       return typeof value.value === "number" && Number.isFinite(value.value);
     case "Rational":
       return (
         isRecord(value.value) &&
+        hasOwnStringKeys(value.value, ["numerator", "denominator"]) &&
         typeof value.value.numerator === "number" &&
         Number.isInteger(value.value.numerator) &&
         typeof value.value.denominator === "number" &&
@@ -135,6 +170,7 @@ export function isMetadataValue(value: unknown): value is MetadataValue {
     case "DateTime":
       return (
         isRecord(value.value) &&
+        hasOwnStringKeys(value.value, ["date", "time"]) &&
         isDateValue(value.value.date) &&
         isTimeValue(value.value.time)
       );
@@ -148,6 +184,7 @@ export function isMetadataValue(value: unknown): value is MetadataValue {
     case "List":
       return (
         isRecord(value.value) &&
+        hasOwnStringKeys(value.value, ["list_kind", "items"]) &&
         isListKind(value.value.list_kind) &&
         Array.isArray(value.value.items) &&
         value.value.items.every(isMetadataValue)
@@ -160,7 +197,10 @@ export function isMetadataValue(value: unknown): value is MetadataValue {
     case "Unknown":
       return (
         isRecord(value.value) &&
-        "raw" in value.value &&
+        hasOwnStringKey(value.value, "raw") &&
+        hasOwnStringKey(value.value, "expected") &&
+        hasOwnStringKey(value.value, "reason") &&
+        isJsonValue(value.value.raw) &&
         (value.value.expected === null || isTagKind(value.value.expected)) &&
         (value.value.reason === null || typeof value.value.reason === "string")
       );
@@ -169,19 +209,50 @@ export function isMetadataValue(value: unknown): value is MetadataValue {
   }
 }
 
+export function isJsonValue(value: unknown): boolean {
+  return isJsonValueInternal(value, new WeakSet<object>());
+}
+
+function isJsonValueInternal(
+  value: unknown,
+  ancestors: WeakSet<object>,
+): boolean {
+  if (
+    value === null ||
+    typeof value === "boolean" ||
+    typeof value === "string"
+  ) {
+    return true;
+  }
+  if (typeof value === "number") return Number.isFinite(value);
+  if (typeof value !== "object") return false;
+  if (ancestors.has(value)) return false;
+
+  ancestors.add(value);
+  const valid = Object.values(value).every((item) =>
+    isJsonValueInternal(item, ancestors),
+  );
+  ancestors.delete(value);
+  return valid;
+}
+
 export function isMetadataDraftTarget(
   value: unknown,
 ): value is MetadataDraftTarget {
-  if (!isRecord(value)) return false;
+  if (!isRecord(value) || !hasOwnStringKey(value, "kind")) return false;
   if (value.kind === "ExistingOccurrence") {
     return (
+      hasOwnStringKeys(value, ["occurrence_id", "schema_id", "write_target"]) &&
       isMetadataOccurrenceId(value.occurrence_id) &&
       isSchemaDefinitionId(value.schema_id) &&
       isMetadataWriteTarget(value.write_target)
     );
   }
   if (value.kind === "NewProperty") {
-    return isSchemaDefinitionId(value.schema_id);
+    return (
+      hasOwnStringKey(value, "schema_id") &&
+      isSchemaDefinitionId(value.schema_id)
+    );
   }
   return false;
 }
@@ -191,11 +262,12 @@ export function isMetadataDraftEdit(
 ): value is MetadataDraftEdit {
   return (
     isRecord(value) &&
+    hasOwnStringKey(value, "intent") &&
     (value.intent === "Set" ||
       value.intent === "Delete" ||
       value.intent === "ListAdd" ||
       value.intent === "ListRemove") &&
-    "value" in value &&
+    hasOwnStringKey(value, "value") &&
     (value.value === null || isMetadataValue(value.value)) &&
     (value.display === undefined || typeof value.display === "string")
   );
@@ -206,6 +278,7 @@ export function isMetadataDraftEntryV5(
 ): value is MetadataDraftEntryV5 {
   return (
     isRecord(value) &&
+    hasOwnStringKeys(value, ["target", "edit"]) &&
     isMetadataDraftTarget(value.target) &&
     isMetadataDraftEdit(value.edit)
   );
@@ -214,6 +287,7 @@ export function isMetadataDraftEntryV5(
 function isDateValue(value: unknown): boolean {
   return (
     isRecord(value) &&
+    hasOwnStringKeys(value, ["year", "month", "day"]) &&
     typeof value.year === "number" &&
     Number.isInteger(value.year) &&
     typeof value.month === "number" &&
@@ -230,6 +304,13 @@ function isDateValue(value: unknown): boolean {
 function isTimeValue(value: unknown): boolean {
   return (
     isRecord(value) &&
+    hasOwnStringKeys(value, [
+      "hour",
+      "minute",
+      "second",
+      "subsecond",
+      "offset",
+    ]) &&
     typeof value.hour === "number" &&
     Number.isInteger(value.hour) &&
     value.hour >= 0 &&
@@ -250,6 +331,7 @@ function isTimeValue(value: unknown): boolean {
 function isUtcOffsetValue(value: unknown): boolean {
   return (
     isRecord(value) &&
+    hasOwnStringKeys(value, ["sign", "hours", "minutes"]) &&
     (value.sign === "Plus" || value.sign === "Minus") &&
     typeof value.hours === "number" &&
     Number.isInteger(value.hours) &&

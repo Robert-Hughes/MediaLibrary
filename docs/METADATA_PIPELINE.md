@@ -95,7 +95,11 @@ schema-to-occurrence first-match conversion.
 Before a later occurrence-aware apply path writes an existing target, it must
 reread the file, find the exact occurrence ID, validate the fresh schema and
 write-target snapshot, and reject stale or ambiguous targets. The relative file
-path remains outer draft-map context rather than a target field.
+path remains outer draft-map context rather than a target field. It is also an
+untrusted string key. JavaScript v5 collections use own data properties for
+construction and lookup, so names such as `__proto__`, `constructor`,
+`prototype`, `toString`, and `hasOwnProperty` are preserved exactly instead of
+resolving through `Object.prototype`.
 
 Target snapshot identity and draft-slot identity are deliberately separate:
 
@@ -153,7 +157,12 @@ cross Tauri. Duplicate logical slots fail in Rust persistence, frontend wire
 conversion, and store reset. Record keys that do not equal their derived slots
 also fail, including duplicate values hidden under different bad keys, rather
 than being silently re-keyed. Store reset is atomic and silent after successful
-validation. A tested frontend/Tauri-contract round-trip preserves full targets,
+validation. Outer path property behaviour never contributes to logical draft
+identity; target-slot identity remains authoritative. The shared value guard
+accepts `Integer` only for finite integral numbers, keeps finite fractional
+numbers valid for `Real`, requires `Unknown.raw` to be recursively
+JSON-compatible, and enforces the generated unit shapes for `Null` and
+`Binary`. A tested frontend/Tauri-contract round-trip preserves full targets,
 shared-schema IFD0/IFD1 occurrences, and cross-variant same-schema entries.
 
 Command registration does not mean production usage. No production component
@@ -162,7 +171,8 @@ still call the unversioned schema-v4 Tauri commands; `AppState`,
 `DraftEditsStore`, and persistence remain keyed by `SchemaDefinitionId`. No
 production Details Pane, Add Property, apply, write, verification, or
 search-worker path consumes `MetadataDraftTarget`, and applying v5 targets
-remains pending. V4 and v5 commands share one filename and must never be mixed
+remains pending; no occurrence-aware apply command is introduced here. V4 and
+v5 commands share one filename and must never be mixed
 in one live folder session.
 
 A v4 schema ID cannot be converted automatically into an existing-occurrence

@@ -52,6 +52,53 @@ describe("normalizeMetadataOccurrencesFromTauri", () => {
     expect(normalizeMetadataOccurrencesFromTauri([value])).toEqual([value]);
   });
 
+  it("keeps valid shared-guard variants while isolating malformed siblings", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const values = [
+      occurrence({ id: id({ copy: 0 }), value: { kind: "Integer", value: 1 } }),
+      occurrence({ id: id({ copy: 1 }), value: { kind: "Real", value: 1.5 } }),
+      occurrence({ id: id({ copy: 2 }), value: { kind: "Null" } }),
+      occurrence({ id: id({ copy: 3 }), value: { kind: "Binary" } }),
+      occurrence({
+        id: id({ copy: 4 }),
+        value: {
+          kind: "Unknown",
+          value: {
+            raw: { nested: [null, true, 2, "raw"] },
+            expected: null,
+            reason: null,
+          },
+        },
+      }),
+    ];
+    const invalid = [
+      occurrence({
+        id: id({ copy: 5 }),
+        value: { kind: "Integer", value: 1.5 } as never,
+      }),
+      occurrence({
+        id: id({ copy: 6 }),
+        value: {
+          kind: "Unknown",
+          value: {
+            raw: { invalid: undefined },
+            expected: null,
+            reason: null,
+          },
+        } as never,
+      }),
+    ];
+
+    expect(
+      normalizeMetadataOccurrencesFromTauri([...values, ...invalid]),
+    ).toEqual(values);
+    expect(warn).toHaveBeenCalledOnce();
+    expect(warn).toHaveBeenCalledWith(
+      "[metadata] Dropped 2 invalid occurrence value(s)",
+    );
+    warn.mockRestore();
+  });
+
   it("validates nested list and struct TagKind variants", () => {
     const nested: TagKind = {
       kind: "Bag",

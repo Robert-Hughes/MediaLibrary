@@ -1107,6 +1107,27 @@ mod tests {
     }
 
     #[test]
+    fn v5_commands_and_jsonl_preserve_proto_relative_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder_path = dir.path().to_string_lossy().into_owned();
+        let data = std::collections::HashMap::from([(
+            "__proto__".to_owned(),
+            vec![command_v5_existing("JPEG-APP1-IFD0", "IFD0")],
+        )]);
+
+        save_metadata_draft_edits_v5(folder_path.clone(), data.clone()).unwrap();
+        let loaded = load_metadata_draft_edits_v5(folder_path).unwrap();
+
+        assert_eq!(loaded, data);
+        assert_eq!(loaded["__proto__"].len(), 1);
+        let bytes =
+            std::fs::read_to_string(dir.path().join("MediaLibraryDraftEdits.jsonl")).unwrap();
+        let line: serde_json::Value = serde_json::from_str(bytes.lines().nth(1).unwrap()).unwrap();
+        assert_eq!(line["schema_version"], 5);
+        assert_eq!(line["relative_path"], "__proto__");
+    }
+
+    #[test]
     fn v5_save_command_rejects_duplicate_slots_before_truncation() {
         let dir = tempfile::tempdir().unwrap();
         let folder_path = dir.path().to_string_lossy().into_owned();

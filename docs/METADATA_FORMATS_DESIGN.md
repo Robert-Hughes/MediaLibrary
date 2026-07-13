@@ -452,7 +452,11 @@ line:
 }
 ```
 
-The relative path remains outer context; it is not duplicated in a target.
+The relative path remains outer context; it is not duplicated in a target. It
+is an untrusted string key, so frontend collection construction and lookup use
+own data properties rather than prototype-chain behaviour. Reserved-looking
+filenames such as `__proto__`, `constructor`, `prototype`, `toString`, and
+`hasOwnProperty` are preserved exactly.
 V5 entries preserve complete targets but reject duplicate draft slots. Files
 sort by relative path and entries sort by `MetadataDraftSlot`, after validating
 the complete input before truncation. The registered commands share the v4
@@ -481,6 +485,11 @@ collections, and leave store state unchanged on failure. Rust persistence also
 rejects duplicates before opening or truncating the file. A contract test now
 round-trips the frontend collection through the Tauri wire shape and back,
 including shared-schema occurrences and existing/new targets sharing a schema.
+Object-property behaviour is never draft identity; logical identity remains the
+target slot. The frontend semantic guard distinguishes integral finite
+`Integer` values from finite fractional `Real` values, requires `Unknown.raw`
+to contain only recursively JSON-compatible values, and rejects content fields
+on the `Null` and `Binary` unit variants.
 
 V4 entries are not automatically converted. A schema ID does not say whether
 the operation edits an existing occurrence or creates a new property, and
@@ -498,7 +507,9 @@ MediaLibrary persists draft edits (`MediaLibraryDraftEdits.jsonl`). Read metadat
 - exiftool startup amortizes well over batches; scan cost is acceptable.
 
 Draft schema is versioned. The production on-disk draft schema is v4; schema v5
-is available only through the explicitly versioned inactive commands. Every v4
+is available only through the explicitly versioned inactive commands and
+inactive target-aware store. No occurrence-aware apply pipeline consumes it.
+Every v4
 draft entry carries the exact ExifTool schema-definition identity; JSON object
 keys and display labels are never used as metadata identity:
 

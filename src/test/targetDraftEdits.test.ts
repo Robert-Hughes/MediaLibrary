@@ -9,6 +9,7 @@ import type {
 import {
   TargetDraftEditsStore,
   targetDraftsFromWire,
+  targetDraftsFromUnknownWire,
   targetDraftsToWire,
   type TargetDraftEditsByFile,
 } from "../targetDraftEdits";
@@ -99,6 +100,17 @@ function drafts(
 ): TargetDraftEditsByFile {
   return targetDraftsFromWire(wire);
 }
+
+const reservedPaths = [
+  "__proto__",
+  "constructor",
+  "prototype",
+  "toString",
+  "hasOwnProperty",
+] as const;
+
+const hasOwn = (record: object, key: string): boolean =>
+  Object.prototype.hasOwnProperty.call(record, key);
 
 describe("target draft v5 wire conversion", () => {
   it("loads existing, new-property, and mixed entries while preserving snapshots", () => {
@@ -256,6 +268,54 @@ describe("target draft v5 wire conversion", () => {
   });
 });
 
+describe("target draft v5 reserved-path wire conversion", () => {
+  it.each(reservedPaths)(
+    "preserves %s through typed and unknown wire",
+    (path) => {
+      const prototypeBefore = Object.getOwnPropertyDescriptors(
+        Object.prototype,
+      );
+      const reservedEntry = entry(
+        created(schema("Reserved", path)),
+        setEdit(path),
+      );
+      const siblingEntry = entry(existing(), setEdit("sibling"));
+      const wire = Object.fromEntries([
+        [path, [reservedEntry]],
+        ["ordinary/photo.jpg", [siblingEntry]],
+      ]) as Record<string, MetadataDraftEntryV5[]>;
+
+      const typed = targetDraftsFromWire(wire);
+      expect(Object.keys(typed)).toContain(path);
+      expect(hasOwn(typed, path)).toBe(true);
+      expect(
+        typed[path][metadataDraftTargetSlotToken(reservedEntry.target)],
+      ).toEqual(reservedEntry);
+      expect(hasOwn(typed, "ordinary/photo.jpg")).toBe(true);
+      expect(Object.getPrototypeOf(typed)).toBe(Object.prototype);
+
+      const outgoing = targetDraftsToWire(typed);
+      expect(hasOwn(outgoing, path)).toBe(true);
+      expect(outgoing[path]).toEqual([reservedEntry]);
+      expect(hasOwn(outgoing, "ordinary/photo.jpg")).toBe(true);
+      expect(Object.getPrototypeOf(outgoing)).toBe(Object.prototype);
+
+      const unknown = targetDraftsFromUnknownWire(
+        JSON.parse(JSON.stringify(wire)),
+      );
+      expect(hasOwn(unknown, path)).toBe(true);
+      expect(
+        unknown[path][metadataDraftTargetSlotToken(reservedEntry.target)],
+      ).toEqual(reservedEntry);
+      expect(hasOwn(unknown, "ordinary/photo.jpg")).toBe(true);
+      expect(Object.getPrototypeOf(unknown)).toBe(Object.prototype);
+      expect(Object.getOwnPropertyDescriptors(Object.prototype)).toEqual(
+        prototypeBefore,
+      );
+    },
+  );
+});
+
 describe("TargetDraftEditsStore basic state", () => {
   it("starts empty, silently resets, and gets one file", () => {
     const store = new TargetDraftEditsStore();
@@ -298,6 +358,134 @@ describe("TargetDraftEditsStore basic state", () => {
     expect(store.getMetadataFile("b.jpg")).toBeUndefined();
     store.clear();
     expect(store.getAllMetadata()).toEqual({});
+  });
+});
+
+describe("TargetDraftEditsStore reserved paths", () => {
+  it("does not expose inherited prototype names from an empty store", () => {
+    const store = new TargetDraftEditsStore();
+    for (const path of reservedPaths) {
+      expect(store.getMetadataFile(path)).toBeUndefined();
+    }
+    expect(Object.keys(store.getAllMetadata())).toEqual([]);
+  });
+
+  it("stores exact own collections and retains one file for a second target", () => {
+    const store = new TargetDraftEditsStore();
+    const first = existing();
+    const second = created();
+
+    store.setMetadataTarget("__proto__", first, setEdit("first"));
+    const firstCollection = store.getMetadataFile("__proto__")!;
+    expect(hasOwn(store.getAllMetadata(), "__proto__")).toBe(true);
+    expect(Object.keys(store.getAllMetadata())).toEqual(["__proto__"]);
+    expect(firstCollection[metadataDraftTargetSlotToken(first)]).toEqual(
+      entry(first, setEdit("first")),
+    );
+
+    store.setMetadataTarget("__proto__", second, setEdit("second"));
+    expect(Object.keys(store.getAllMetadata())).toEqual(["__proto__"]);
+    expect(Object.keys(store.getMetadataFile("__proto__")!)).toHaveLength(2);
+    expect(store.getMetadataFile("__proto__")).not.toBe(firstCollection);
+
+    store.setMetadataTarget("constructor", first, setEdit("constructor"));
+    expect(hasOwn(store.getAllMetadata(), "constructor")).toBe(true);
+    expect(store.getMetadataFile("constructor")).toEqual(
+      Object.fromEntries([
+        [
+          metadataDraftTargetSlotToken(first),
+          entry(first, setEdit("constructor")),
+        ],
+      ]),
+    );
+  });
+
+  it("treats missing reserved-looking deletes as silent no-ops", () => {
+    const store = new TargetDraftEditsStore();
+    const listener = vi.fn();
+    store.subscribe(listener);
+    store.deletePath("toString");
+    store.deletePaths(["constructor", "prototype", "hasOwnProperty"]);
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  it("deletes one stored reserved path with one notification", () => {
+    const store = new TargetDraftEditsStore();
+    store.setMetadataTarget("__proto__", existing(), setEdit("value"));
+    const listener = vi.fn();
+    store.subscribe(listener);
+
+    store.deletePath("__proto__");
+
+    expect(store.getMetadataFile("__proto__")).toBeUndefined();
+    expect(listener).toHaveBeenCalledOnce();
+    expect(listener).toHaveBeenCalledWith([
+      { path: "__proto__", edits: undefined },
+    ]);
+  });
+
+  it("deletes several reserved paths in one exact change list", () => {
+    const store = new TargetDraftEditsStore();
+    for (const path of reservedPaths) {
+      store.setMetadataTarget(path, existing(), setEdit(path));
+    }
+    const listener = vi.fn();
+    store.subscribe(listener);
+
+    store.deletePaths(["constructor", "__proto__", "constructor"]);
+
+    expect(listener).toHaveBeenCalledOnce();
+    expect(listener).toHaveBeenCalledWith([
+      { path: "constructor", edits: undefined },
+      { path: "__proto__", edits: undefined },
+    ]);
+    expect(store.getMetadataFile("constructor")).toBeUndefined();
+    expect(store.getMetadataFile("__proto__")).toBeUndefined();
+  });
+
+  it("clear reports every exact reserved path once", () => {
+    const store = new TargetDraftEditsStore();
+    for (const path of reservedPaths) {
+      store.setMetadataTarget(path, existing(), setEdit(path));
+    }
+    const listener = vi.fn();
+    store.subscribe(listener);
+
+    store.clear();
+
+    expect(listener).toHaveBeenCalledOnce();
+    expect(listener).toHaveBeenCalledWith(
+      reservedPaths.map((path) => ({ path, edits: undefined })),
+    );
+    expect(store.getAllMetadata()).toEqual({});
+  });
+
+  it("resets safely, stays atomic on failure, and retains unrelated references", () => {
+    const store = new TargetDraftEditsStore();
+    const initial = drafts(
+      Object.fromEntries([
+        ["__proto__", [entry(existing())]],
+        ["constructor", [entry(created())]],
+        ["ordinary.jpg", [entry(existing({ path: "IFD1" }))]],
+      ]),
+    );
+    store.resetMetadata(initial);
+    expect(hasOwn(store.getAllMetadata(), "__proto__")).toBe(true);
+    expect(hasOwn(store.getAllMetadata(), "constructor")).toBe(true);
+
+    const before = store.getAllMetadata();
+    const ordinary = store.getMetadataFile("ordinary.jpg");
+    const listener = vi.fn();
+    store.subscribe(listener);
+    const invalid = Object.fromEntries([
+      ["__proto__", { wrong: entry(existing()) }],
+    ]) as TargetDraftEditsByFile;
+    expect(() => store.resetMetadata(invalid)).toThrow(/__proto__/);
+    expect(store.getAllMetadata()).toBe(before);
+    expect(listener).not.toHaveBeenCalled();
+
+    store.setMetadataTarget("constructor", existing(), setEdit("changed"));
+    expect(store.getMetadataFile("ordinary.jpg")).toBe(ordinary);
   });
 });
 

@@ -86,6 +86,25 @@ describe("loadTargetDraftEditsV5", () => {
     ).toEqual(newTarget);
   });
 
+  it("loads a JSON-parsed __proto__ path as ordinary backend data", async () => {
+    const target = created();
+    const payload = JSON.parse(
+      JSON.stringify(Object.fromEntries([["__proto__", [entry(target)]]])),
+    );
+    const loaded = await loadTargetDraftEditsV5(
+      { invoke: vi.fn().mockResolvedValue(payload) },
+      "folder",
+    );
+
+    expect(Object.prototype.hasOwnProperty.call(loaded, "__proto__")).toBe(
+      true,
+    );
+    expect(loaded.__proto__[metadataDraftTargetSlotToken(target)]).toEqual(
+      entry(target),
+    );
+    expect(Object.getPrototypeOf(loaded)).toBe(Object.prototype);
+  });
+
   it("rejects invalid and duplicate payloads", async () => {
     await expect(
       loadTargetDraftEditsV5(
@@ -153,6 +172,27 @@ describe("saveTargetDraftEditsV5", () => {
       ),
     ).toBe(true);
     expect(source).toEqual(before);
+  });
+
+  it("invokes Tauri with __proto__ as an own enumerable data property", async () => {
+    const target = created();
+    const invoke = vi.fn().mockResolvedValue(undefined);
+    const source = drafts(
+      Object.fromEntries([["__proto__", [entry(target, "reserved")]]]),
+    );
+
+    await saveTargetDraftEditsV5({ invoke }, "folder", source);
+
+    const args = invoke.mock.calls[0][1] as {
+      data: Record<string, MetadataDraftEntryV5[]>;
+    };
+    expect(Object.getOwnPropertyDescriptor(args.data, "__proto__")).toEqual({
+      value: [entry(target, "reserved")],
+      writable: true,
+      enumerable: true,
+      configurable: true,
+    });
+    expect(Object.getPrototypeOf(args.data)).toBe(Object.prototype);
   });
 
   it("rejects malformed keys before invoke", async () => {
@@ -233,5 +273,39 @@ describe("target draft frontend/Tauri contract round-trip", () => {
     expect(
       loaded["photo.jpg"][metadataDraftTargetSlotToken(newTarget)].target,
     ).toEqual(newTarget);
+  });
+
+  it("keeps __proto__ separate from an ordinary path through JSON cloning", async () => {
+    let wireSnapshot: unknown = {};
+    const api: TargetDraftTauriApi = {
+      async invoke(command, args) {
+        if (command === "save_metadata_draft_edits_v5") {
+          wireSnapshot = JSON.parse(JSON.stringify(args?.data));
+          return undefined;
+        }
+        if (command === "load_metadata_draft_edits_v5") {
+          return JSON.parse(JSON.stringify(wireSnapshot));
+        }
+        throw new Error(`Unexpected command ${command}`);
+      },
+    };
+    const reserved = entry(created(), "reserved");
+    const ordinary = entry(existing(), "ordinary");
+    const source = drafts(
+      Object.fromEntries([
+        ["__proto__", [reserved]],
+        ["ordinary/photo.jpg", [ordinary]],
+      ]),
+    );
+
+    await saveTargetDraftEditsV5(api, "folder", source);
+    const loaded = await loadTargetDraftEditsV5(api, "folder");
+
+    expect(Object.keys(loaded)).toEqual(["__proto__", "ordinary/photo.jpg"]);
+    expect(Object.prototype.hasOwnProperty.call(loaded, "__proto__")).toBe(
+      true,
+    );
+    expect(loaded.__proto__).toEqual(source.__proto__);
+    expect(loaded["ordinary/photo.jpg"]).toEqual(source["ordinary/photo.jpg"]);
   });
 });

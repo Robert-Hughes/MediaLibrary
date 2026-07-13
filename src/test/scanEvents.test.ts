@@ -143,6 +143,43 @@ describe("normalizeMetadataFromTauri", () => {
     }
   });
 
+  it("keeps valid shared-guard variants while dropping malformed siblings once", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const valid = {
+      integer: { kind: "Integer", value: -1 },
+      real: { kind: "Real", value: 1.5 },
+      null: { kind: "Null" },
+      binary: { kind: "Binary" },
+      unknown: {
+        kind: "Unknown",
+        value: {
+          raw: { nested: [null, true, 2, "raw"] },
+          expected: null,
+          reason: null,
+        },
+      },
+    } as const;
+
+    expect(
+      normalizeMetadataFromTauri({
+        ...valid,
+        fractionalInteger: { kind: "Integer", value: 1.5 },
+        invalidUnknown: {
+          kind: "Unknown",
+          value: {
+            raw: { invalid: undefined },
+            expected: null,
+            reason: null,
+          },
+        },
+      }),
+    ).toEqual(valid);
+    expect(warn).toHaveBeenCalledOnce();
+    expect(warn).toHaveBeenCalledWith(
+      "[metadata] Dropped 2 non-semantic metadata payload value(s)",
+    );
+  });
+
   it("keeps offset-bearing and offsetless date/time fields from real scan events", () => {
     const payload = {
       "ExifIFD:DateTimeOriginal": {
