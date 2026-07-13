@@ -24,16 +24,35 @@ use crate::tag_schema::{SchemaDefinitionId, TagInfo, TagKind};
 use crate::write_args::BuiltArgs;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "PascalCase")]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
+pub enum MetadataDraftReconciliation {
+    Clear,
+    Keep,
+    Replace { target: MetadataDraftTarget },
+    Blocked { reason: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
 pub struct MetadataTargetOutcome {
     pub target: MetadataDraftTarget,
+    pub draft_reconciliation: MetadataDraftReconciliation,
     pub display_name: String,
     pub kind: String,
     pub sent: Option<MetadataValue>,
     pub before: Option<MetadataValue>,
     pub observed: Option<MetadataValue>,
     pub message: Option<String>,
+}
+
+struct TargetVerification {
+    kind: String,
+    message: Option<String>,
+    observed: Option<MetadataValue>,
+    draft_reconciliation: MetadataDraftReconciliation,
 }
 
 #[derive(Debug, Clone)]
@@ -517,6 +536,7 @@ where
                 .into_iter()
                 .map(|plan| MetadataTargetOutcome {
                     target: plan.target,
+                    draft_reconciliation: MetadataDraftReconciliation::Keep,
                     display_name: plan.display_name,
                     kind: "ReadbackFailed".to_string(),
                     sent: plan.edit.value,
@@ -552,6 +572,7 @@ where
                 .into_iter()
                 .map(|plan| MetadataTargetOutcome {
                     target: plan.target,
+                    draft_reconciliation: MetadataDraftReconciliation::Keep,
                     display_name: plan.display_name,
                     kind: "ReadbackInvalid".to_string(),
                     sent: plan.edit.value,
@@ -573,17 +594,16 @@ where
     };
 
     let mut outcomes = Vec::with_capacity(planned.targets.len());
-    let mut targets_to_clear = Vec::new();
-    let mut cleared_slots = BTreeSet::new();
     let mut first_mismatch = None;
 
     for plan in planned.targets {
-        let (kind, mut message, observed) = verify_plan(&plan, &post_by_id);
-        if matches!(kind.as_str(), "Match" | "DeleteOk") {
-            if cleared_slots.insert(plan.target.slot()) {
-                targets_to_clear.push(plan.target.clone());
-            }
-        } else {
+        let TargetVerification {
+            kind,
+            mut message,
+            observed,
+            draft_reconciliation,
+        } = verify_plan(&plan, &post_by_id);
+        if !matches!(&draft_reconciliation, MetadataDraftReconciliation::Clear) {
             if let Some(write_error) = &write_failure {
                 message = Some(match message {
                     Some(current) => {
@@ -598,6 +618,7 @@ where
         }
         outcomes.push(MetadataTargetOutcome {
             target: plan.target,
+            draft_reconciliation,
             display_name: plan.display_name,
             kind,
             sent: plan.edit.value,
@@ -606,6 +627,7 @@ where
             message,
         });
     }
+    let targets_to_clear = targets_to_clear_from_reconciliation(&outcomes);
 
     let diagnostics = format_apply_diagnostics(
         numeric_attempted,
@@ -625,6 +647,26 @@ where
         outcomes,
         targets_to_clear,
     }
+}
+
+fn targets_to_clear_from_reconciliation(
+    outcomes: &[MetadataTargetOutcome],
+) -> Vec<MetadataDraftTarget> {
+    let mut cleared_slots = BTreeSet::new();
+    let mut targets = Vec::new();
+    for outcome in outcomes {
+        if matches!(
+            &outcome.draft_reconciliation,
+            MetadataDraftReconciliation::Clear
+        ) {
+            assert!(
+                cleared_slots.insert(outcome.target.slot()),
+                "duplicate logical slot reached draft-clear reconciliation"
+            );
+            targets.push(outcome.target.clone());
+        }
+    }
+    targets
 }
 
 fn build_strict_post_write_occurrence_index(
@@ -647,7 +689,7 @@ fn build_strict_post_write_occurrence_index(
 fn verify_plan(
     plan: &TargetPlan,
     post_by_id: &BTreeMap<MetadataOccurrenceId, &MetadataOccurrence>,
-) -> (String, Option<String>, Option<MetadataValue>) {
+) -> TargetVerification {
     match &plan.target {
         MetadataDraftTarget::ExistingOccurrence { occurrence_id, .. } => {
             verify_existing_plan(plan, post_by_id.get(occurrence_id).copied())
@@ -664,13 +706,14 @@ fn verify_plan(
                 })
                 .collect::<Vec<_>>();
             match matches.as_slice() {
-                [] => (
-                    "MissingPostWrite".to_string(),
-                    Some(format!(
+                [] => TargetVerification {
+                    kind: "MissingPostWrite".to_string(),
+                    message: Some(format!(
                         "New property {schema_id} has zero exact-schema occurrences after write"
                     )),
-                    None,
-                ),
+                    observed: None,
+                    draft_reconciliation: MetadataDraftReconciliation::Keep,
+                },
                 [occurrence] => {
                     let (kind, message) = verify_semantic(
                         schema_id,
@@ -678,16 +721,37 @@ fn verify_plan(
                         Some(&occurrence.value),
                         Some(&plan.kind),
                     );
-                    (kind, message, Some(occurrence.value.clone()))
+                    let draft_reconciliation = if kind == "Match" {
+                        MetadataDraftReconciliation::Clear
+                    } else {
+                        match MetadataDraftTarget::from_existing_occurrence(occurrence) {
+                            Ok(target) => MetadataDraftReconciliation::Replace { target },
+                            Err(error) => MetadataDraftReconciliation::Blocked {
+                                reason: error.to_string(),
+                            },
+                        }
+                    };
+                    TargetVerification {
+                        kind,
+                        message,
+                        observed: Some(occurrence.value.clone()),
+                        draft_reconciliation,
+                    }
                 }
-                many => (
-                    "AmbiguousPostWrite".to_string(),
-                    Some(format!(
+                many => {
+                    let message = format!(
                         "New property {schema_id} resolved to multiple exact-schema occurrences: {:?}",
                         many.iter().map(|item| &item.id).collect::<Vec<_>>()
-                    )),
-                    None,
-                ),
+                    );
+                    TargetVerification {
+                        kind: "AmbiguousPostWrite".to_string(),
+                        message: Some(message.clone()),
+                        observed: None,
+                        draft_reconciliation: MetadataDraftReconciliation::Blocked {
+                            reason: message,
+                        },
+                    }
+                }
             }
         }
     }
@@ -696,7 +760,7 @@ fn verify_plan(
 fn verify_existing_plan(
     plan: &TargetPlan,
     occurrence: Option<&MetadataOccurrence>,
-) -> (String, Option<String>, Option<MetadataValue>) {
+) -> TargetVerification {
     let MetadataDraftTarget::ExistingOccurrence {
         occurrence_id,
         schema_id,
@@ -706,34 +770,41 @@ fn verify_existing_plan(
         unreachable!("existing-target verification requires an existing target")
     };
 
-    if plan.edit.intent == EditIntent::Delete {
-        let observed = occurrence.map(|item| item.value.clone());
-        let (kind, message) =
-            crate::apply_edits::verify_delete_value(schema_id, occurrence.map(|item| &item.value));
-        return (kind, message, observed);
-    }
-
     let Some(occurrence) = occurrence else {
-        return (
-            "MissingPostWrite".to_string(),
-            Some(format!(
+        if plan.edit.intent == EditIntent::Delete {
+            return TargetVerification {
+                kind: "DeleteOk".to_string(),
+                message: None,
+                observed: None,
+                draft_reconciliation: MetadataDraftReconciliation::Clear,
+            };
+        }
+        let reason = format!("Exact occurrence {occurrence_id:?} no longer exists");
+        return TargetVerification {
+            kind: "MissingPostWrite".to_string(),
+            message: Some(format!(
                 "Exact occurrence {occurrence_id:?} is absent after write"
             )),
-            None,
-        );
+            observed: None,
+            draft_reconciliation: MetadataDraftReconciliation::Blocked { reason },
+        };
     };
     let schema_unchanged = occurrence
         .tag_info
         .as_ref()
         .is_some_and(|info| &info.id == schema_id);
     if !schema_unchanged || occurrence.write_target.as_ref() != Some(write_target) {
-        return (
-            "TargetChangedPostWrite".to_string(),
-            Some(format!(
+        let reason = format!(
+            "Exact occurrence {occurrence_id:?} changed schema or selector; the stored target snapshot is stale"
+        );
+        return TargetVerification {
+            kind: "TargetChangedPostWrite".to_string(),
+            message: Some(format!(
                 "Exact occurrence {occurrence_id:?} changed schema or selector after write"
             )),
-            Some(occurrence.value.clone()),
-        );
+            observed: Some(occurrence.value.clone()),
+            draft_reconciliation: MetadataDraftReconciliation::Blocked { reason },
+        };
     }
     let (kind, message) = verify_semantic(
         schema_id,
@@ -741,7 +812,17 @@ fn verify_existing_plan(
         Some(&occurrence.value),
         Some(&plan.kind),
     );
-    (kind, message, Some(occurrence.value.clone()))
+    let draft_reconciliation = if matches!(kind.as_str(), "Match" | "DeleteOk") {
+        MetadataDraftReconciliation::Clear
+    } else {
+        MetadataDraftReconciliation::Keep
+    };
+    TargetVerification {
+        kind,
+        message,
+        observed: Some(occurrence.value.clone()),
+        draft_reconciliation,
+    }
 }
 
 fn verify_semantic(
@@ -1287,6 +1368,16 @@ mod tests {
         assert_eq!(outcome.outcomes[1].before, Some(ifd1.value.clone()));
         assert_eq!(outcome.outcomes[0].kind, "Match");
         assert_eq!(outcome.outcomes[1].kind, "Mismatch");
+        assert_eq!(
+            outcome.outcomes[0].draft_reconciliation,
+            MetadataDraftReconciliation::Clear
+        );
+        assert_eq!(
+            outcome.outcomes[1].draft_reconciliation,
+            MetadataDraftReconciliation::Keep
+        );
+        assert_eq!(outcome.outcomes[0].target, edits[0].target);
+        assert_eq!(outcome.outcomes[1].target, edits[1].target);
         assert_eq!(outcome.targets_to_clear, vec![edits[0].target.clone()]);
         assert!(outcome.fresh_image_metadata.unwrap().metadata.is_empty());
 
@@ -1375,6 +1466,10 @@ mod tests {
             let outcome = apply_fake(std::slice::from_ref(&entry), &client, &[]);
             assert_eq!(outcome.outcomes.len(), 1);
             assert_eq!(outcome.outcomes[0].kind, "ReadbackInvalid");
+            assert_eq!(
+                outcome.outcomes[0].draft_reconciliation,
+                MetadataDraftReconciliation::Keep
+            );
             assert_eq!(outcome.outcomes[0].target, entry.target);
             assert_eq!(
                 outcome.outcomes[0].display_name,
@@ -1423,6 +1518,10 @@ mod tests {
             let client = FakeClient::new(vec![Ok(image(vec![before.clone()])), Ok(image(post))]);
             let outcome = apply_fake(std::slice::from_ref(&entry), &client, &[]);
             assert_eq!(outcome.outcomes[0].kind, "ReadbackInvalid");
+            assert_eq!(
+                outcome.outcomes[0].draft_reconciliation,
+                MetadataDraftReconciliation::Keep
+            );
             assert_eq!(outcome.outcomes[0].sent, None);
             assert_eq!(outcome.outcomes[0].before, Some(before.value.clone()));
             assert!(outcome.outcomes[0].observed.is_none());
@@ -1496,6 +1595,10 @@ mod tests {
             assert_eq!(outcome.outcomes.len(), edits.len());
             for (target_outcome, entry) in outcome.outcomes.iter().zip(&edits) {
                 assert_eq!(target_outcome.kind, "ReadbackInvalid");
+                assert_eq!(
+                    target_outcome.draft_reconciliation,
+                    MetadataDraftReconciliation::Keep
+                );
                 assert_eq!(target_outcome.target, entry.target);
                 assert_eq!(target_outcome.sent, entry.edit.value);
                 assert!(target_outcome.observed.is_none());
@@ -1589,77 +1692,99 @@ mod tests {
         );
         let run = |post: Vec<MetadataOccurrence>| {
             let client = FakeClient::new(vec![Ok(image(vec![before.clone()])), Ok(image(post))]);
-            apply_fake(std::slice::from_ref(&entry), &client, &[]).outcomes[0]
-                .kind
-                .clone()
+            apply_fake(std::slice::from_ref(&entry), &client, &[])
+                .outcomes
+                .remove(0)
         };
-        assert_eq!(
-            run(vec![occurrence(
-                before.id.clone(),
-                MetadataValue::Integer(2),
-                Some(info.clone()),
-                Some("IFD0"),
-                "Number"
-            )]),
-            "Match"
-        );
-        assert_eq!(
-            run(vec![occurrence(
-                before.id.clone(),
-                MetadataValue::Real(2.0),
-                Some(info.clone()),
-                Some("IFD0"),
-                "Number"
-            )]),
-            "Coerced"
-        );
-        assert_eq!(
-            run(vec![occurrence(
-                before.id.clone(),
-                MetadataValue::Integer(3),
-                Some(info.clone()),
-                Some("IFD0"),
-                "Number"
-            )]),
-            "Mismatch"
-        );
-        assert_eq!(run(vec![]), "MissingPostWrite");
+        for (post, expected_kind, expected_reconciliation) in [
+            (
+                vec![occurrence(
+                    before.id.clone(),
+                    MetadataValue::Integer(2),
+                    Some(info.clone()),
+                    Some("IFD0"),
+                    "Number",
+                )],
+                "Match",
+                MetadataDraftReconciliation::Clear,
+            ),
+            (
+                vec![occurrence(
+                    before.id.clone(),
+                    MetadataValue::Real(2.0),
+                    Some(info.clone()),
+                    Some("IFD0"),
+                    "Number",
+                )],
+                "Coerced",
+                MetadataDraftReconciliation::Keep,
+            ),
+            (
+                vec![occurrence(
+                    before.id.clone(),
+                    MetadataValue::Integer(3),
+                    Some(info.clone()),
+                    Some("IFD0"),
+                    "Number",
+                )],
+                "Mismatch",
+                MetadataDraftReconciliation::Keep,
+            ),
+            (
+                vec![occurrence(
+                    before.id.clone(),
+                    MetadataValue::Unknown {
+                        expected: Some(info.kind.clone()),
+                        raw: serde_json::json!("bad"),
+                        reason: Some("parse".into()),
+                    },
+                    Some(info.clone()),
+                    Some("IFD0"),
+                    "Number",
+                )],
+                "UnparsedPostWrite",
+                MetadataDraftReconciliation::Keep,
+            ),
+        ] {
+            let outcome = run(post);
+            assert_eq!(outcome.kind, expected_kind);
+            assert_eq!(outcome.draft_reconciliation, expected_reconciliation);
+            assert_eq!(outcome.target, entry.target);
+        }
+        let missing = run(vec![]);
+        assert_eq!(missing.kind, "MissingPostWrite");
+        assert!(matches!(
+            missing.draft_reconciliation,
+            MetadataDraftReconciliation::Blocked { ref reason }
+                if reason.contains("no longer exists")
+        ));
+        assert_eq!(missing.target, entry.target);
         let mut changed_schema = info.clone();
         changed_schema.id.tag_id = "changed".into();
-        assert_eq!(
-            run(vec![occurrence(
-                before.id.clone(),
-                MetadataValue::Integer(2),
-                Some(changed_schema),
-                Some("IFD0"),
-                "Number"
-            )]),
-            "TargetChangedPostWrite"
-        );
-        assert_eq!(
-            run(vec![occurrence(
-                before.id.clone(),
-                MetadataValue::Integer(2),
-                Some(info.clone()),
-                Some("IFD1"),
-                "Number"
-            )]),
-            "TargetChangedPostWrite"
-        );
-        assert_eq!(
-            run(vec![occurrence(
-                before.id.clone(),
-                MetadataValue::Unknown {
-                    expected: Some(info.kind.clone()),
-                    raw: serde_json::json!("bad"),
-                    reason: Some("parse".into())
-                },
-                Some(info.clone()),
-                Some("IFD0"),
-                "Number"
-            )]),
-            "UnparsedPostWrite"
-        );
+        let changed_schema_outcome = run(vec![occurrence(
+            before.id.clone(),
+            MetadataValue::Integer(2),
+            Some(changed_schema),
+            Some("IFD0"),
+            "Number",
+        )]);
+        assert_eq!(changed_schema_outcome.kind, "TargetChangedPostWrite");
+        assert!(matches!(
+            changed_schema_outcome.draft_reconciliation,
+            MetadataDraftReconciliation::Blocked { ref reason } if reason.contains("stale")
+        ));
+        let changed_selector_outcome = run(vec![occurrence(
+            before.id.clone(),
+            MetadataValue::Integer(2),
+            Some(info.clone()),
+            Some("IFD1"),
+            "Number",
+        )]);
+        assert_eq!(changed_selector_outcome.kind, "TargetChangedPostWrite");
+        assert!(matches!(
+            changed_selector_outcome.draft_reconciliation,
+            MetadataDraftReconciliation::Blocked { ref reason } if reason.contains("stale")
+        ));
 
         let sibling = occurrence(
             occurrence_id("OTHER", "1", 1),
@@ -1668,7 +1793,12 @@ mod tests {
             Some("IFD1"),
             "Number",
         );
-        assert_eq!(run(vec![sibling]), "MissingPostWrite");
+        let sibling_outcome = run(vec![sibling]);
+        assert_eq!(sibling_outcome.kind, "MissingPostWrite");
+        assert!(matches!(
+            sibling_outcome.draft_reconciliation,
+            MetadataDraftReconciliation::Blocked { .. }
+        ));
     }
 
     #[test]
@@ -1708,6 +1838,15 @@ mod tests {
             let client = FakeClient::new(vec![Ok(image(vec![before.clone()])), Ok(image(post))]);
             let outcome = apply_fake(std::slice::from_ref(&entry), &client, &[]);
             assert_eq!(outcome.outcomes[0].kind, expected);
+            assert_eq!(outcome.outcomes[0].target, entry.target);
+            assert_eq!(
+                outcome.outcomes[0].draft_reconciliation,
+                if expected == "DeleteOk" {
+                    MetadataDraftReconciliation::Clear
+                } else {
+                    MetadataDraftReconciliation::Keep
+                }
+            );
             assert_eq!(
                 outcome.targets_to_clear.len(),
                 usize::from(expected == "DeleteOk")
@@ -1754,9 +1893,16 @@ mod tests {
             );
             let client =
                 FakeClient::new(vec![Ok(image(vec![before.clone()])), Ok(image(vec![post]))]);
+            let outcome = apply_fake(std::slice::from_ref(&entry), &client, &[]);
+            assert_eq!(outcome.outcomes[0].kind, expected);
+            assert_eq!(outcome.outcomes[0].target, entry.target);
             assert_eq!(
-                apply_fake(&[entry], &client, &[]).outcomes[0].kind,
-                expected
+                outcome.outcomes[0].draft_reconciliation,
+                if expected == "Match" {
+                    MetadataDraftReconciliation::Clear
+                } else {
+                    MetadataDraftReconciliation::Keep
+                }
             );
         }
     }
@@ -1786,6 +1932,15 @@ mod tests {
                 std::slice::from_ref(&info),
             );
             assert_eq!(outcome.outcomes[0].kind, expected);
+            assert_eq!(outcome.outcomes[0].target, entry.target);
+            assert_eq!(
+                outcome.outcomes[0].draft_reconciliation,
+                if expected == "Match" {
+                    MetadataDraftReconciliation::Clear
+                } else {
+                    MetadataDraftReconciliation::Keep
+                }
+            );
             assert_eq!(!outcome.targets_to_clear.is_empty(), clear);
         }
 
@@ -1797,6 +1952,7 @@ mod tests {
             "Name",
         );
         let mut ambiguity_messages = Vec::new();
+        let mut ambiguity_reasons = Vec::new();
         for post in [
             vec![ifd0_copy0.clone(), unique.clone()],
             vec![unique.clone(), ifd0_copy0.clone()],
@@ -1808,13 +1964,26 @@ mod tests {
                 std::slice::from_ref(&info),
             );
             assert_eq!(outcome.outcomes[0].kind, "AmbiguousPostWrite");
+            assert!(matches!(
+                outcome.outcomes[0].draft_reconciliation,
+                MetadataDraftReconciliation::Blocked { .. }
+            ));
             let message = outcome.outcomes[0].message.as_ref().unwrap();
             assert!(message.contains("IFD0"));
             assert!(message.contains("NON-IFD0"));
             ambiguity_messages.push(message.clone());
+            let MetadataDraftReconciliation::Blocked { reason } =
+                &outcome.outcomes[0].draft_reconciliation
+            else {
+                panic!("ambiguous creation must be blocked")
+            };
+            assert!(reason.contains("IFD0"));
+            assert!(reason.contains("NON-IFD0"));
+            ambiguity_reasons.push(reason.clone());
             assert!(outcome.targets_to_clear.is_empty());
         }
         assert_eq!(ambiguity_messages[0], ambiguity_messages[1]);
+        assert_eq!(ambiguity_reasons[0], ambiguity_reasons[1]);
     }
 
     #[test]
@@ -1851,6 +2020,320 @@ mod tests {
         let outcome = apply_fake(&[entry], &client, &[info]);
         assert_eq!(outcome.outcomes[0].kind, "Match");
         assert_eq!(outcome.outcomes[0].observed, Some(observed));
+    }
+
+    #[test]
+    fn new_property_unique_non_clear_results_replace_with_the_exact_fresh_target() {
+        let info = schema(
+            "282",
+            "SchemaGroupMustNotBeUsed",
+            "XResolution",
+            true,
+            TagKind::Integer {
+                min: None,
+                max: None,
+            },
+        );
+        let entry = new_entry(
+            &info,
+            edit(EditIntent::Set, Some(MetadataValue::Integer(2))),
+        );
+        let original_entry = entry.clone();
+
+        for (observed, expected_kind) in [
+            (MetadataValue::Real(2.0), "Coerced"),
+            (MetadataValue::Integer(3), "Mismatch"),
+            (
+                MetadataValue::Unknown {
+                    expected: Some(info.kind.clone()),
+                    raw: serde_json::json!("unparsed"),
+                    reason: Some("fixture parse failure".into()),
+                },
+                "UnparsedPostWrite",
+            ),
+        ] {
+            let fresh = occurrence(
+                occurrence_id("JPEG-APP1-IFD1", "282", 7),
+                observed.clone(),
+                Some(info.clone()),
+                Some("IFD1"),
+                "XResolution",
+            );
+            let original_fresh = fresh.clone();
+            let client = FakeClient::new(vec![Ok(image(vec![])), Ok(image(vec![fresh.clone()]))]);
+            let outcome = apply_fake(
+                std::slice::from_ref(&entry),
+                &client,
+                std::slice::from_ref(&info),
+            );
+
+            assert_eq!(outcome.outcomes[0].kind, expected_kind);
+            assert_eq!(outcome.outcomes[0].target, entry.target);
+            assert_eq!(outcome.outcomes[0].observed, Some(observed));
+            assert!(outcome.targets_to_clear.is_empty());
+            let MetadataDraftReconciliation::Replace { target } =
+                &outcome.outcomes[0].draft_reconciliation
+            else {
+                panic!("unique non-clear creation must produce an exact replacement")
+            };
+            assert_eq!(target.occurrence_id(), Some(&fresh.id));
+            assert_eq!(target.schema_id(), &info.id);
+            assert_eq!(target.write_target(), fresh.write_target.as_ref());
+            assert_eq!(
+                target.write_target(),
+                Some(&MetadataWriteTarget {
+                    group1: "IFD1".into(),
+                    tag_name: "XResolution".into(),
+                })
+            );
+            assert_ne!(target.write_target().unwrap().group1, info.group);
+            assert_eq!(fresh, original_fresh);
+            assert_eq!(entry, original_entry);
+        }
+    }
+
+    #[test]
+    fn new_property_list_mismatch_replaces_without_changing_the_semantic_edit() {
+        let info = schema(
+            "1",
+            "SchemaGroupMustNotBeUsed",
+            "Items",
+            true,
+            TagKind::Bag(Box::new(TagKind::Text)),
+        );
+        let value = |items: &[&str]| MetadataValue::List {
+            list_kind: ListKind::Bag,
+            items: items
+                .iter()
+                .map(|item| MetadataValue::Text((*item).into()))
+                .collect(),
+        };
+        let entry = new_entry(&info, edit(EditIntent::ListAdd, Some(value(&["wanted"]))));
+        let original_edit = entry.edit.clone();
+        let fresh = occurrence(
+            occurrence_id("LIST-PATH", "1", 4),
+            value(&["different"]),
+            Some(info.clone()),
+            Some("XMP-runtime"),
+            "Items",
+        );
+        let client = FakeClient::new(vec![Ok(image(vec![])), Ok(image(vec![fresh.clone()]))]);
+        let outcome = apply_fake(std::slice::from_ref(&entry), &client, &[info]);
+
+        assert_eq!(outcome.outcomes[0].kind, "Mismatch");
+        assert!(matches!(
+            &outcome.outcomes[0].draft_reconciliation,
+            MetadataDraftReconciliation::Replace { target }
+                if target == &MetadataDraftTarget::from_existing_occurrence(&fresh).unwrap()
+        ));
+        assert_eq!(entry.edit, original_edit);
+        assert_eq!(outcome.outcomes[0].sent, original_edit.value);
+        assert_eq!(outcome.outcomes[0].target, entry.target);
+    }
+
+    #[test]
+    fn new_property_unique_untargetable_occurrence_is_blocked_with_construction_reason() {
+        let info = schema(
+            "1",
+            "XMP-schema",
+            "Number",
+            true,
+            TagKind::Integer {
+                min: None,
+                max: None,
+            },
+        );
+        let entry = new_entry(
+            &info,
+            edit(EditIntent::Set, Some(MetadataValue::Integer(2))),
+        );
+        let base = occurrence(
+            occurrence_id("CREATED", "1", 0),
+            MetadataValue::Integer(3),
+            Some(info.clone()),
+            Some("XMP-runtime"),
+            "Number",
+        );
+        let mut read_only = base.clone();
+        read_only.tag_info.as_mut().unwrap().writable = false;
+        let mut no_selector = base.clone();
+        no_selector.write_target = None;
+
+        for (fresh, expected_reason) in [
+            (read_only, "read-only"),
+            (no_selector, "no exact write target"),
+        ] {
+            let client = FakeClient::new(vec![Ok(image(vec![])), Ok(image(vec![fresh]))]);
+            let outcome = apply_fake(
+                std::slice::from_ref(&entry),
+                &client,
+                std::slice::from_ref(&info),
+            );
+            assert_eq!(outcome.outcomes[0].kind, "Mismatch");
+            assert!(matches!(
+                &outcome.outcomes[0].draft_reconciliation,
+                MetadataDraftReconciliation::Blocked { reason }
+                    if reason.contains(expected_reason)
+            ));
+            assert_eq!(outcome.outcomes[0].target, entry.target);
+            assert!(outcome.targets_to_clear.is_empty());
+        }
+    }
+
+    #[test]
+    fn mixed_reconciliations_derive_clear_targets_in_input_order_only() {
+        let make_info = |id: &str, name: &str| {
+            schema(
+                id,
+                "IFD0",
+                name,
+                true,
+                TagKind::Integer {
+                    min: None,
+                    max: None,
+                },
+            )
+        };
+        let infos = [
+            make_info("1", "First"),
+            make_info("2", "Keep"),
+            make_info("3", "Blocked"),
+            make_info("4", "Replace"),
+            make_info("5", "Last"),
+        ];
+        let existing = |info: &TagInfo| {
+            occurrence(
+                occurrence_id(&format!("PATH-{}", info.id.tag_id), &info.id.tag_id, 0),
+                MetadataValue::Integer(1),
+                Some(info.clone()),
+                Some("IFD0"),
+                &info.name,
+            )
+        };
+        let before = [
+            existing(&infos[0]),
+            existing(&infos[1]),
+            existing(&infos[2]),
+            existing(&infos[4]),
+        ];
+        let entries = [
+            existing_entry(
+                &before[0],
+                edit(EditIntent::Set, Some(MetadataValue::Integer(2))),
+            ),
+            existing_entry(
+                &before[1],
+                edit(EditIntent::Set, Some(MetadataValue::Integer(2))),
+            ),
+            existing_entry(
+                &before[2],
+                edit(EditIntent::Set, Some(MetadataValue::Integer(2))),
+            ),
+            new_entry(
+                &infos[3],
+                edit(EditIntent::Set, Some(MetadataValue::Integer(2))),
+            ),
+            existing_entry(
+                &before[3],
+                edit(EditIntent::Set, Some(MetadataValue::Integer(2))),
+            ),
+        ];
+        let after = vec![
+            occurrence(
+                before[0].id.clone(),
+                MetadataValue::Integer(2),
+                Some(infos[0].clone()),
+                Some("IFD0"),
+                "First",
+            ),
+            occurrence(
+                before[1].id.clone(),
+                MetadataValue::Integer(3),
+                Some(infos[1].clone()),
+                Some("IFD0"),
+                "Keep",
+            ),
+            occurrence(
+                occurrence_id("CREATED-4", "4", 0),
+                MetadataValue::Integer(3),
+                Some(infos[3].clone()),
+                Some("IFD1"),
+                "Replace",
+            ),
+            occurrence(
+                before[3].id.clone(),
+                MetadataValue::Integer(2),
+                Some(infos[4].clone()),
+                Some("IFD0"),
+                "Last",
+            ),
+        ];
+        let client = FakeClient::new(vec![Ok(image(before.to_vec())), Ok(image(after))]);
+        let outcome = apply_fake(&entries, &client, &infos);
+
+        assert!(matches!(
+            outcome.outcomes[0].draft_reconciliation,
+            MetadataDraftReconciliation::Clear
+        ));
+        assert!(matches!(
+            outcome.outcomes[1].draft_reconciliation,
+            MetadataDraftReconciliation::Keep
+        ));
+        assert!(matches!(
+            outcome.outcomes[2].draft_reconciliation,
+            MetadataDraftReconciliation::Blocked { .. }
+        ));
+        assert!(matches!(
+            outcome.outcomes[3].draft_reconciliation,
+            MetadataDraftReconciliation::Replace { .. }
+        ));
+        assert!(matches!(
+            outcome.outcomes[4].draft_reconciliation,
+            MetadataDraftReconciliation::Clear
+        ));
+        assert_eq!(
+            outcome.targets_to_clear,
+            vec![entries[0].target.clone(), entries[4].target.clone()]
+        );
+        assert_eq!(
+            outcome.targets_to_clear,
+            targets_to_clear_from_reconciliation(&outcome.outcomes)
+        );
+        assert_eq!(
+            outcome
+                .targets_to_clear
+                .iter()
+                .map(MetadataDraftTarget::slot)
+                .collect::<BTreeSet<_>>()
+                .len(),
+            outcome.targets_to_clear.len()
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "duplicate logical slot reached draft-clear reconciliation")]
+    fn duplicate_clear_slots_violate_the_internal_reconciliation_invariant() {
+        let info = schema("1", "XMP-test", "Name", true, TagKind::Text);
+        let entry = new_entry(
+            &info,
+            edit(EditIntent::Set, Some(MetadataValue::Text("made".into()))),
+        );
+        let post = occurrence(
+            occurrence_id("CREATED", "1", 0),
+            MetadataValue::Text("made".into()),
+            Some(info.clone()),
+            Some("XMP-test"),
+            "Name",
+        );
+        let client = FakeClient::new(vec![Ok(image(vec![])), Ok(image(vec![post]))]);
+        let outcome = apply_fake(
+            std::slice::from_ref(&entry),
+            &client,
+            std::slice::from_ref(&info),
+        );
+        let duplicated = vec![outcome.outcomes[0].clone(), outcome.outcomes[0].clone()];
+
+        let _ = targets_to_clear_from_reconciliation(&duplicated);
     }
 
     #[test]
@@ -1959,6 +2442,14 @@ mod tests {
             FakeClient::new(vec![Ok(image(vec![])), Ok(image(vec![post]))]).failing(false, true);
         let outcome = apply_fake(&[entry], &client, &[info]);
         assert!(outcome.error.is_none());
+        assert_eq!(
+            outcome.outcomes[0].draft_reconciliation,
+            MetadataDraftReconciliation::Clear
+        );
+        assert_eq!(
+            outcome.targets_to_clear,
+            vec![outcome.outcomes[0].target.clone()]
+        );
         assert!(outcome
             .warning
             .unwrap()
@@ -1985,8 +2476,13 @@ mod tests {
             .contains("post-write readback failed"));
         assert_eq!(outcome.outcomes.len(), 1);
         assert_eq!(outcome.outcomes[0].kind, "ReadbackFailed");
+        assert_eq!(
+            outcome.outcomes[0].draft_reconciliation,
+            MetadataDraftReconciliation::Keep
+        );
         assert_eq!(outcome.outcomes[0].target, entry.target);
         assert_eq!(outcome.outcomes[0].sent, entry.edit.value);
+        assert_eq!(outcome.outcomes[0].before, None);
         assert!(outcome.outcomes[0].observed.is_none());
         assert!(outcome.targets_to_clear.is_empty());
 
@@ -2007,8 +2503,33 @@ mod tests {
             std::slice::from_ref(&info),
         );
         assert_eq!(invalid.outcomes[0].kind, "ReadbackInvalid");
+        assert_eq!(
+            invalid.outcomes[0].draft_reconciliation,
+            MetadataDraftReconciliation::Keep
+        );
         assert_ne!(invalid.outcomes[0].kind, "ReadbackFailed");
         assert!(invalid.error.unwrap().contains("readback was invalid"));
+        assert!(invalid.targets_to_clear.is_empty());
+
+        let write_and_read_failure = FakeClient::new(vec![
+            Ok(image(vec![])),
+            Err("readback after failed write".into()),
+        ])
+        .failing(false, true);
+        let failed = apply_fake(
+            std::slice::from_ref(&entry),
+            &write_and_read_failure,
+            std::slice::from_ref(&info),
+        );
+        let error = failed.error.unwrap();
+        assert!(error.contains("text pass failed"));
+        assert!(error.contains("readback after failed write"));
+        assert_eq!(failed.outcomes[0].sent, entry.edit.value);
+        assert_eq!(failed.outcomes[0].before, None);
+        assert_eq!(
+            failed.outcomes[0].draft_reconciliation,
+            MetadataDraftReconciliation::Keep
+        );
     }
 
     #[test]
@@ -2056,10 +2577,18 @@ mod tests {
 
         let declaration = MetadataTargetOutcome::decl();
         assert!(declaration.contains("target: MetadataDraftTarget"));
+        assert!(declaration.contains("draft_reconciliation: MetadataDraftReconciliation"));
         assert!(declaration.contains("sent: MetadataValue | null"));
         assert!(declaration.contains("before: MetadataValue | null"));
         assert!(declaration.contains("observed: MetadataValue | null"));
         assert!(declaration.contains("message: string | null"));
         assert!(declaration.contains("kind: string"));
+
+        let reconciliation = MetadataDraftReconciliation::decl();
+        assert_eq!(reconciliation.matches("\"kind\":").count(), 4);
+        for kind in ["Clear", "Keep", "Replace", "Blocked"] {
+            assert!(reconciliation.contains(&format!("\"kind\": \"{kind}\"")));
+        }
+        assert!(reconciliation.contains("{ \"kind\": \"Replace\", target: MetadataDraftTarget"));
     }
 }

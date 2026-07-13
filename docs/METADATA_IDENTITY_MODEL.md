@@ -284,9 +284,36 @@ same condition as multiple records sharing one exact occurrence ID, which
 invalidates the complete readback before cardinality is evaluated.
 
 Legacy projection omissions do not block this v5 reader because authoritative
-occurrences remain complete and their exact IDs are unique. Successfully
-verified targets clear by complete
-target and logical slot, not by schema ID. The successful result retains the
+occurrences remain complete and their exact IDs are unique. Verification and
+post-write draft reconciliation are separate results. Every outcome retains the
+complete original target and carries one explicit reconciliation:
+
+```text
+Clear    semantic success; remove the original logical slot
+Keep     the original target remains retryable, or authoritative state is unknown
+Replace  remove the original slot and retain the same edit against a supplied target
+Blocked  retain the draft for user resolution, but do not treat it as immediately re-applicable
+```
+
+An existing target clears only for `Match` or `DeleteOk`. A non-clear semantic
+result keeps the exact target while it remains present with the same schema and
+selector. A missing existing occurrence, or one whose schema or selector has
+changed, is blocked as stale; it is never retargeted to a same-schema sibling.
+
+A `NewProperty` target cannot remain retryable once a unique occurrence has
+been created. `Match` clears it. For a unique non-clear result, reconciliation
+replaces it with an `ExistingOccurrence` target constructed from that fresh
+occurrence's exact ID, embedded schema, and runtime selector while preserving
+the original `MetadataDraftEdit`. If the fresh occurrence is read-only or has
+no exact selector, reconciliation is blocked. Zero matches keep the creation
+target; multiple matches block and include every distinct ID without selecting
+a replacement. `ReadbackFailed` and `ReadbackInvalid` conservatively keep the
+original target because authoritative state is unknown or unusable.
+
+The single-file result still exposes `targets_to_clear`, derived only from
+`Clear` reconciliations in input order and without duplicate logical slots.
+Replacement persistence is not implemented: no batch coordinator or frontend
+consumer removes or inserts drafts yet. The successful result retains the
 scanner's complete `ImageMetadata`, including authoritative occurrences and
 the temporary compatibility projection. Target-aware apply logging remains
 pending; the inactive path does not force targets into the schema-keyed v4 log.
