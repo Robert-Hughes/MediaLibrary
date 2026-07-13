@@ -193,20 +193,21 @@ result directly, including both authoritative `occurrences` and the legacy
 parallel `ImageMetadataOccurrencesStore`, while `ImageMetadataStore` retains the
 legacy projection.
 
-The Details Pane now has the first narrow occurrence consumer: exactly resolved
-occurrences whose schema is absent from `ImageMetadataStore` appear in a
-temporary read-only **Additional Metadata Occurrences** section. The original
-IFD0/IFD1 `XResolution` values are therefore both visible with distinct runtime
-origins, but are not yet editable through their distinct write targets. Existing
-legacy rows and all drafts, editing, GPS, Add Property, search-worker indexing,
-sorting, normalisation, writes, and readback verification remain schema-keyed.
+The Details Pane now resolves each ordinary schema identity explicitly to
+`missing`, `unique`, or `multiple`. A unique resolution uses the authoritative
+occurrence value and its embedded `TagInfo`; a missing resolution retains the
+legacy compatibility value and schema lookup. Multiple resolutions never
+select one runtime field. Each concrete occurrence is shown separately in the
+read-only **Additional Metadata Occurrences** section, while any existing
+legacy compatibility row is marked ambiguous and cannot be edited or removed.
 
 The file-level duplicate-occurrence scan failure is fixed: a lossy legacy
 projection no longer blocks transport of the successful occurrence read.
-Occurrences whose schema is present in legacy metadata are not rendered
-independently yet, so identical-value compatibility deduplication still shows
-only the ordinary legacy row. Unknown-schema occurrences are excluded from this
-first display slice because public `MetadataOccurrence` values do not contain
-the scanner's temporary projection-schema candidate, preventing a reliable
-already-projected check. Complete occurrence rendering and occurrence-specific
-editing remain pending. No arbitrary first occurrence may be selected.
+An existing schema-level draft for a multiple resolution remains attached only
+to the compatibility row and may be discarded, but it cannot be edited further
+or copied onto concrete occurrence rows. Draft persistence, apply/write
+commands, verification, GPS resolution, Add Property, list columns, sorting,
+search-worker indexing, and normalisation remain schema-keyed. Unknown-schema
+occurrence display and occurrence-specific editing remain pending. No arbitrary
+first occurrence is selected, including when values are identical or one
+occurrence appears more writable or otherwise preferable.

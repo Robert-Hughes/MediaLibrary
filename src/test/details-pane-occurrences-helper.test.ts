@@ -6,7 +6,8 @@ import type {
   TagInfo,
 } from "../types";
 import { metadataCollection } from "../utils/metadataCollection";
-import { unprojectedResolvedMetadataOccurrences } from "../utils/detailsPaneHelpers";
+import { supplementalResolvedMetadataOccurrences } from "../utils/detailsPaneHelpers";
+import { buildSchemaOccurrenceResolutionIndex } from "../utils/metadataOccurrences";
 
 const schemaId: SchemaDefinitionId = {
   table: "Exif::Main",
@@ -48,15 +49,26 @@ const ifd1 = (copy = 2): MetadataOccurrenceId => ({
   copy,
 });
 
-describe("unprojectedResolvedMetadataOccurrences", () => {
+function supplemental(
+  occurrences: readonly MetadataOccurrence[],
+  legacyMetadata: Parameters<typeof supplementalResolvedMetadataOccurrences>[1],
+) {
+  return supplementalResolvedMetadataOccurrences(
+    occurrences,
+    legacyMetadata,
+    buildSchemaOccurrenceResolutionIndex(occurrences),
+  );
+}
+
+describe("supplementalResolvedMetadataOccurrences", () => {
   it("returns a resolved occurrence only when its exact schema is absent", () => {
     const value = occurrence(ifd0(), 300);
-    expect(unprojectedResolvedMetadataOccurrences([value], {})).toHaveLength(1);
+    expect(supplemental([value], {})).toHaveLength(1);
 
     const legacy = metadataCollection([
       { id: schemaId, value: { kind: "Integer", value: 300 } },
     ]);
-    expect(unprojectedResolvedMetadataOccurrences([value], legacy)).toEqual([]);
+    expect(supplemental([value], legacy)).toEqual([]);
   });
 
   it("retains shared-schema occurrences, distinct or identical values, and domain IDs", () => {
@@ -64,20 +76,33 @@ describe("unprojectedResolvedMetadataOccurrences", () => {
     const b = occurrence(ifd1(), 72, {
       write_target: { group1: "IFD1", tag_name: "XResolution" },
     });
-    const distinct = unprojectedResolvedMetadataOccurrences([b, a], {});
+    const distinct = supplemental([b, a], {});
     expect(distinct.map((entry) => entry.value)).toEqual(["300", "72"]);
     expect(distinct.map((entry) => entry.occurrence.id)).toEqual([a.id, b.id]);
     expect(distinct[0].occurrence).toBe(a);
 
-    const identical = unprojectedResolvedMetadataOccurrences(
+    const identical = supplemental(
       [occurrence(ifd0(), 300), occurrence(ifd1(), 300)],
       {},
     );
     expect(identical).toHaveLength(2);
   });
 
+  it("includes every multiple occurrence even when legacy metadata has the schema", () => {
+    const a = occurrence(ifd0(), 300);
+    const b = occurrence(ifd1(), 300);
+    const legacy = metadataCollection([
+      { id: schemaId, value: { kind: "Integer", value: 300 } },
+    ]);
+
+    const entries = supplemental([b, a], legacy);
+
+    expect(entries).toHaveLength(2);
+    expect(entries.map((entry) => entry.occurrence)).toEqual([a, b]);
+  });
+
   it("orders by MetadataOccurrenceId and keeps IFD0 Copy0 distinct from IFD1 Copy2", () => {
-    const entries = unprojectedResolvedMetadataOccurrences(
+    const entries = supplemental(
       [
         occurrence(ifd1(), 72, {
           write_target: { group1: "IFD1", tag_name: "XResolution" },
@@ -97,15 +122,12 @@ describe("unprojectedResolvedMetadataOccurrences", () => {
 
   it("excludes unresolved occurrences", () => {
     expect(
-      unprojectedResolvedMetadataOccurrences(
-        [occurrence(ifd0(), 300, { tag_info: null })],
-        {},
-      ),
+      supplemental([occurrence(ifd0(), 300, { tag_info: null })], {}),
     ).toEqual([]);
   });
 
   it("uses the write target runtime group and searches every occurrence coordinate", () => {
-    const entry = unprojectedResolvedMetadataOccurrences(
+    const entry = supplemental(
       [
         occurrence(
           {
@@ -136,7 +158,7 @@ describe("unprojectedResolvedMetadataOccurrences", () => {
   });
 
   it("labels a missing write target as a schema-group display fallback", () => {
-    const entry = unprojectedResolvedMetadataOccurrences(
+    const entry = supplemental(
       [occurrence(ifd0(), 300, { write_target: null })],
       {},
     )[0];

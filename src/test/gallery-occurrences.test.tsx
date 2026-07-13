@@ -1,9 +1,10 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { GalleryView } from "../components/GalleryView";
 import { ImageMetadataOccurrencesStore, ImageMetadataStore } from "../types";
 import type { MetadataOccurrence, TagInfo } from "../types";
 import { makePhotos } from "./factories";
+import { metadataCollection } from "../utils/metadataCollection";
 
 const photos = makePhotos(["a.jpg", "b.jpg"]);
 const tagInfo: TagInfo = {
@@ -98,5 +99,55 @@ describe("Gallery occurrence-store subscription", () => {
     expect(screen.getByText("Loading metadata…")).toBeInTheDocument();
     act(() => legacy.set("a.jpg", {}));
     expect(screen.getByText("No image metadata available")).toBeInTheDocument();
+  });
+
+  it("reacts when the current photo changes from unique to multiple", async () => {
+    const legacy = new ImageMetadataStore();
+    legacy.set(
+      "a.jpg",
+      metadataCollection([
+        { id: tagInfo.id, value: { kind: "Integer", value: 300 } },
+      ]),
+    );
+    const occurrences = new ImageMetadataOccurrencesStore();
+    occurrences.set("a.jpg", [occurrence("JPEG-APP1-IFD0", 301, "IFD0")]);
+
+    render(
+      <GalleryView
+        {...props(legacy, occurrences)}
+        photos={[photos[0]]}
+        currentIndex={0}
+      />,
+    );
+    await screen.findByTestId("gallery-image");
+    const uniqueRow = screen.getByText("XResolution").closest("tr")!;
+    expect(uniqueRow).toHaveTextContent("301");
+    expect(screen.queryByTestId("details-occurrence-row")).toBeNull();
+    fireEvent.contextMenu(uniqueRow);
+    expect(screen.getByRole("button", { name: "Edit…" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Edit…" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    act(() => {
+      occurrences.set("a.jpg", [
+        occurrence("JPEG-APP1-IFD0", 301, "IFD0"),
+        occurrence("JPEG-APP1-IFD1", 301, "IFD1"),
+      ]);
+    });
+
+    const ambiguousRow = await screen.findByText("2 occurrences");
+    expect(ambiguousRow.closest("tr")).toHaveAttribute(
+      "data-occurrence-resolution",
+      "multiple",
+    );
+    const supplemental = screen.getByTestId(
+      "details-section-additional-occurrences",
+    );
+    expect(
+      within(supplemental).getAllByTestId("details-occurrence-row"),
+    ).toHaveLength(2);
+    fireEvent.contextMenu(ambiguousRow.closest("tr")!);
+    expect(screen.queryByRole("button", { name: "Edit…" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Remove" })).toBeNull();
   });
 });

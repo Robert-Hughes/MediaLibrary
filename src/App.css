@@ -1439,6 +1439,18 @@ body {
   overflow-wrap: anywhere;
 }
 
+.details-occurrence-resolution {
+  display: inline-block;
+  margin-left: 0.4rem;
+  padding: 0.05rem 0.35rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 .details-loading,
 .details-empty {
   font-size: 13px;

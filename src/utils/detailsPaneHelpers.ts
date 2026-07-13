@@ -21,6 +21,8 @@ import {
   formatMetadataOccurrenceIdForDiagnostics,
   metadataOccurrenceIdToken,
 } from "./metadataOccurrenceId";
+import type { SchemaOccurrenceResolutionIndex } from "./metadataOccurrences";
+import { resolutionForSchema } from "./metadataOccurrences";
 
 export const formatMetadataValue = metadataValueToDisplayString;
 
@@ -75,23 +77,26 @@ export interface MetadataOccurrenceDisplayEntry {
 }
 
 /**
- * Build the temporary Details Pane bridge for resolved authoritative
- * occurrences that the schema-keyed compatibility collection cannot hold.
+ * Build read-only rows for resolved authoritative occurrences that either
+ * have no compatibility row or belong to a multiply-resolved schema.
  *
  * Unknown-schema occurrences are deliberately excluded: public occurrences
  * do not carry the scanner's temporary projection-schema candidate, so the
  * frontend cannot reliably tell whether an unknown occurrence is already in
  * the legacy collection. A full occurrence-based display will address them.
  */
-export function unprojectedResolvedMetadataOccurrences(
+export function supplementalResolvedMetadataOccurrences(
   occurrences: readonly MetadataOccurrence[],
   legacyMetadata: MetadataCollection,
+  resolutionIndex: SchemaOccurrenceResolutionIndex,
 ): MetadataOccurrenceDisplayEntry[] {
   return occurrences
     .filter(
       (occurrence) =>
         occurrence.tag_info !== null &&
-        metadataGet(legacyMetadata, occurrence.tag_info.id) === undefined,
+        (metadataGet(legacyMetadata, occurrence.tag_info.id) === undefined ||
+          resolutionForSchema(resolutionIndex, occurrence.tag_info.id).kind ===
+            "multiple"),
     )
     .sort((a, b) => compareMetadataOccurrenceIds(a.id, b.id))
     .map((occurrence) => {

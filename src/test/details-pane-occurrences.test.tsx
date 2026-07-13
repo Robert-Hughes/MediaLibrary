@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { DetailsPane } from "../components/DetailsPane";
@@ -9,6 +15,7 @@ import type {
   TagInfo,
 } from "../types";
 import { metadataCollection } from "../utils/metadataCollection";
+import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
 import { makePhoto } from "./factories";
 
 const schemaId: SchemaDefinitionId = {
@@ -66,6 +73,8 @@ function renderPane(
   options: {
     metadata?: Parameters<typeof DetailsPane>[0]["metadata"];
     occurrences?: Parameters<typeof DetailsPane>[0]["occurrences"];
+    draftEdits?: Parameters<typeof DetailsPane>[0]["draftEdits"];
+    typedDraftEdits?: Parameters<typeof DetailsPane>[0]["typedDraftEdits"];
   } = {},
 ) {
   const callbacks = {
@@ -79,6 +88,8 @@ function renderPane(
       photo={photo}
       metadata={options.metadata ?? {}}
       occurrences={options.occurrences ?? collision}
+      draftEdits={options.draftEdits}
+      typedDraftEdits={options.typedDraftEdits}
       {...callbacks}
     />,
   );
@@ -114,16 +125,28 @@ describe("DetailsPane additional metadata occurrences", () => {
     expect(callbacks.onSetMetadataDraftBatch).not.toHaveBeenCalled();
   });
 
-  it("does not duplicate occurrences whose exact schema is in legacy metadata", () => {
+  it("uses the authoritative unique occurrence without duplicating it", () => {
     renderPane({
       metadata: metadataCollection([
         { id: schemaId, value: { kind: "Integer", value: 300 } },
       ]),
+      occurrences: [occurrence(collision[0].id, 301, "IFD0")],
     });
-    expect(screen.getByText("300")).toBeInTheDocument();
+    const row = screen
+      .getByText("XResolution")
+      .closest('[data-testid="details-row"]') as HTMLElement;
+    expect(row).toHaveTextContent("301");
+    expect(row).not.toHaveTextContent("300");
+    expect(row).toHaveTextContent("XResolution");
+    expect(within(row).getByTestId("datatype-badge-schema")).toHaveAttribute(
+      "data-code",
+      "I",
+    );
     expect(
       screen.queryByTestId("details-occurrence-row"),
     ).not.toBeInTheDocument();
+    fireEvent.contextMenu(row);
+    expect(screen.getByRole("button", { name: "Edit…" })).toBeInTheDocument();
   });
 
   it.each(["XResolution", "300", "IFD1", "JPEG-APP1-IFD1", "Copy2", "282"])(
@@ -201,5 +224,108 @@ describe("DetailsPane additional metadata occurrences", () => {
       "data-code",
       "I",
     );
+  });
+
+  it("marks identical multiple occurrences ambiguous and disables schema actions", async () => {
+    const identical = [
+      occurrence(collision[0].id, 300, "IFD0"),
+      occurrence(collision[1].id, 300, "IFD1"),
+    ];
+    renderPane({
+      metadata: metadataCollection([
+        { id: schemaId, value: { kind: "Integer", value: 300 } },
+      ]),
+      occurrences: identical,
+    });
+
+    const aggregate = screen.getByText("2 occurrences").closest("tr")!;
+    expect(aggregate).toHaveAttribute("data-occurrence-resolution", "multiple");
+    expect(aggregate).toHaveTextContent("300");
+    expect(screen.getAllByTestId("details-occurrence-row")).toHaveLength(2);
+
+    fireEvent.contextMenu(aggregate);
+    expect(screen.queryByRole("button", { name: "Edit…" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Edit GPS…" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Remove" })).toBeNull();
+
+    const heading = aggregate.closest("section")!.querySelector("h3")!;
+    fireEvent.contextMenu(heading);
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+  });
+
+  it("renders different multiple values only as concrete occurrence rows", () => {
+    renderPane({ metadata: {}, occurrences: collision });
+
+    const rows = screen.getAllByTestId("details-occurrence-row");
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toHaveTextContent("300");
+    expect(rows[1]).toHaveTextContent("72");
+    expect(rows[0].dataset.occurrenceToken).not.toBe(
+      rows[1].dataset.occurrenceToken,
+    );
+    expect(
+      document.querySelector('[data-occurrence-resolution="multiple"]'),
+    ).toBeNull();
+  });
+
+  it("keeps an ambiguous schema draft only on the aggregate and allows one discard", () => {
+    const token = schemaDefinitionIdToken(schemaId);
+    const callbacks = renderPane({
+      metadata: metadataCollection([
+        { id: schemaId, value: { kind: "Integer", value: 300 } },
+      ]),
+      draftEdits: { [token]: "301" },
+    });
+
+    const aggregate = screen.getByText("2 occurrences").closest("tr")!;
+    expect(aggregate.querySelector(".draft-new")).toHaveTextContent("301");
+    for (const concrete of screen.getAllByTestId("details-occurrence-row")) {
+      expect(concrete.querySelector(".draft-new")).toBeNull();
+    }
+
+    fireEvent.contextMenu(aggregate);
+    expect(screen.queryByRole("button", { name: "Edit…" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Discard edit" }));
+    expect(callbacks.onDiscardDraft).toHaveBeenCalledTimes(1);
+    expect(callbacks.onDiscardDraft).toHaveBeenCalledWith(schemaId);
+  });
+
+  it("excludes ambiguous schemas from group Remove but retains group Discard", async () => {
+    const token = schemaDefinitionIdToken(schemaId);
+    renderPane({
+      metadata: metadataCollection([
+        { id: schemaId, value: { kind: "Integer", value: 300 } },
+      ]),
+      draftEdits: { [token]: "301" },
+    });
+    const aggregate = screen.getByText("2 occurrences").closest("tr")!;
+    fireEvent.contextMenu(aggregate.closest("section")!.querySelector("h3")!);
+
+    expect(
+      await screen.findByRole("button", {
+        name: "Discard 1 Exif::Main edit…",
+      }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Remove .*writable/)).toBeNull();
+  });
+
+  it("searches ambiguity text and keeps only the aggregate draft for has:edits", async () => {
+    const token = schemaDefinitionIdToken(schemaId);
+    renderPane({
+      metadata: metadataCollection([
+        { id: schemaId, value: { kind: "Integer", value: 300 } },
+      ]),
+      draftEdits: { [token]: "301" },
+    });
+    const search = screen.getByTestId("details-search-input");
+
+    await userEvent.type(search, "multiple occurrences");
+    expect(screen.getByText("2 occurrences")).toBeInTheDocument();
+    expect(screen.queryByTestId("details-occurrence-row")).toBeNull();
+
+    await userEvent.clear(search);
+    await userEvent.type(search, "has:edits");
+    expect(screen.getByText("2 occurrences")).toBeInTheDocument();
+    expect(screen.queryByTestId("details-occurrence-row")).toBeNull();
   });
 });

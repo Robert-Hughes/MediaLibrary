@@ -6,6 +6,7 @@ import type {
   ImageMetadataState,
   ImageMetadataOccurrencesState,
   MetadataDraftCollection,
+  MetadataValue,
 } from "../types";
 import { HighlightedText } from "./HighlightedText";
 import { ContextMenu } from "./ContextMenu";
@@ -15,7 +16,6 @@ import { DatatypeBadge } from "./DatatypeBadge";
 import { gpsMemberGroup } from "../metadata/tag_overrides";
 import {
   schemaDatatype,
-  metadataEntryDatatype,
   metadataValueDatatype,
   datatypesMatch,
 } from "../utils/datatype";
@@ -27,7 +27,7 @@ import type {
 import {
   groupImageMetadata,
   getOsEntries,
-  unprojectedResolvedMetadataOccurrences,
+  supplementalResolvedMetadataOccurrences,
 } from "../utils/detailsPaneHelpers";
 import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
 import type { SchemaDefinitionId } from "../types";
@@ -52,6 +52,14 @@ import {
   metadataGet,
   type MetadataCollection,
 } from "../utils/metadataCollection";
+import type {
+  SchemaOccurrenceResolution,
+  SchemaOccurrenceResolutionIndex,
+} from "../utils/metadataOccurrences";
+import {
+  buildSchemaOccurrenceResolutionIndex,
+  resolutionForSchema,
+} from "../utils/metadataOccurrences";
 
 interface Props {
   photo: PhotoInfo;
@@ -229,6 +237,7 @@ function DetailsImageRow({
   rawValue,
   draftValue,
   typedDraft,
+  occurrenceResolution,
   searchQuery,
   onContextMenu,
 }: {
@@ -236,20 +245,48 @@ function DetailsImageRow({
   rawValue: ImageMetadataEntry | undefined;
   draftValue: string | null | undefined;
   typedDraft: MetadataDraftEdit | undefined;
+  occurrenceResolution: SchemaOccurrenceResolution;
   searchQuery: string;
   onContextMenu: (e: React.MouseEvent, originalValue: string) => void;
 }) {
-  const tag = useTagInfo(entry.id);
-  const tagInfo = tag !== "loading" ? tag : null;
+  const lookedUpTag = useTagInfo(
+    occurrenceResolution.kind === "unique" &&
+      occurrenceResolution.occurrence.tag_info !== null
+      ? null
+      : entry.id,
+  );
+  const fallbackTagInfo = lookedUpTag !== "loading" ? lookedUpTag : null;
+  let tagInfo = fallbackTagInfo;
+  let originalSemanticValue: MetadataValue | ImageMetadataEntry | undefined =
+    rawValue;
+  let readOnly =
+    lookedUpTag != null && lookedUpTag !== "loading" && !lookedUpTag.writable;
+
+  switch (occurrenceResolution.kind) {
+    case "unique":
+      originalSemanticValue = occurrenceResolution.occurrence.value;
+      tagInfo = occurrenceResolution.occurrence.tag_info ?? fallbackTagInfo;
+      readOnly = tagInfo != null && !tagInfo.writable;
+      break;
+    case "multiple":
+      // This is only a compatibility aggregate. Never replace it with one
+      // arbitrarily selected concrete occurrence.
+      originalSemanticValue = rawValue;
+      readOnly = true;
+      break;
+    case "missing":
+      // Preserve the compatibility path for unresolved and legacy callers.
+      break;
+  }
+
   const originalValue = metadataValueToDisplayStringForTag(
     entry.id,
-    rawValue,
+    originalSemanticValue,
     tagInfo,
   );
-  const schemaInfo = tag && tag !== "loading" ? schemaDatatype(tag.kind) : null;
-  const readOnly = tag != null && tag !== "loading" && !tag.writable;
+  const schemaInfo = tagInfo ? schemaDatatype(tagInfo.kind) : null;
 
-  const valueInfo = metadataEntryDatatype(rawValue);
+  const valueInfo = metadataValueDatatype(originalSemanticValue);
   // With a schema, the value badge is a divergence indicator (hidden when
   // the type matches expectations). Without a schema there is no reference
   // type, so always surface the runtime datatype as informational.
@@ -269,6 +306,19 @@ function DetailsImageRow({
       (schemaInfo != null &&
         !datatypesMatch(draftInfo.code, schemaInfo.code)) ||
       (schemaInfo == null && valueInfo == null));
+  const ambiguous = occurrenceResolution.kind === "multiple";
+  const ambiguityTitle = ambiguous
+    ? [
+        "Several runtime metadata occurrences share this schema identity.",
+        "The schema-keyed compatibility row cannot identify one occurrence.",
+        "See Additional Metadata Occurrences for the concrete values.",
+        ...(draftValue !== undefined
+          ? [
+              "This draft is keyed by schema identity and is not assigned to any one runtime occurrence.",
+            ]
+          : []),
+      ].join("\n")
+    : undefined;
 
   return (
     <tr
@@ -277,6 +327,8 @@ function DetailsImageRow({
       data-testid="details-row"
       data-row-key={entry.identityToken}
       data-readonly={readOnly ? "true" : undefined}
+      data-occurrence-resolution={ambiguous ? "multiple" : undefined}
+      title={ambiguityTitle}
       onContextMenu={(e) => onContextMenu(e, originalValue)}
     >
       <td
@@ -298,6 +350,14 @@ function DetailsImageRow({
           text={tagInfo?.name ?? entry.label}
           searchQuery={searchQuery}
         />
+        {ambiguous ? (
+          <span
+            className="details-occurrence-resolution"
+            title={ambiguityTitle}
+          >
+            {occurrenceResolution.occurrences.length} occurrences
+          </span>
+        ) : null}
       </td>
       <DetailsValueCell
         originalValue={originalValue}
@@ -389,6 +449,8 @@ function DetailsRowContextMenu({
     id: SchemaDefinitionId;
     originalValue: string;
     draftValue?: string | null;
+    occurrenceResolution: SchemaOccurrenceResolution["kind"];
+    embeddedWritable?: boolean;
   };
   onEdit: () => void;
   onEditGps?: () => void;
@@ -396,8 +458,19 @@ function DetailsRowContextMenu({
   onRemove: () => void;
   onClose: () => void;
 }) {
-  const tag = useTagInfo(contextMenu.id);
-  const readOnly = tag !== null && tag !== "loading" && !tag.writable;
+  const tag = useTagInfo(
+    contextMenu.occurrenceResolution === "unique" &&
+      contextMenu.embeddedWritable !== undefined
+      ? null
+      : contextMenu.id,
+  );
+  const ambiguous = contextMenu.occurrenceResolution === "multiple";
+  const readOnly =
+    ambiguous ||
+    (contextMenu.occurrenceResolution === "unique" &&
+    contextMenu.embeddedWritable !== undefined
+      ? !contextMenu.embeddedWritable
+      : tag !== null && tag !== "loading" && !tag.writable);
   const gpsGroup = gpsMemberGroup(contextMenu.id);
   const options = [
     ...(readOnly
@@ -443,6 +516,7 @@ function DetailsGroupContextMenu({
   contextMenu,
   originalMetadata,
   draftEdits,
+  occurrenceResolutionIndex,
   onSetMetadataDraftBatch,
   onDiscardDraftBatch,
   onClose,
@@ -455,6 +529,7 @@ function DetailsGroupContextMenu({
   };
   originalMetadata: MetadataCollection | undefined;
   draftEdits: Record<string, string | null>;
+  occurrenceResolutionIndex: SchemaOccurrenceResolutionIndex;
   onSetMetadataDraftBatch: (
     edits: Array<{ id: SchemaDefinitionId; edit: MetadataDraftEdit }>,
   ) => void;
@@ -466,19 +541,36 @@ function DetailsGroupContextMenu({
     () => contextMenu.entries.map((e) => e.id),
     [contextMenu.entries],
   );
-  const tagInfos = useTagInfos(ids);
+  const schemaLookupIds = useMemo(
+    () =>
+      ids.filter(
+        (id) =>
+          resolutionForSchema(occurrenceResolutionIndex, id).kind === "missing",
+      ),
+    [ids, occurrenceResolutionIndex],
+  );
+  const tagInfos = useTagInfos(schemaLookupIds);
 
-  const isLoading = ids.some(
+  const isLoading = schemaLookupIds.some(
     (id) => tagInfos[schemaDefinitionIdToken(id)] === "loading",
   );
 
   const removableKeys = useMemo(() => {
     if (isLoading) return [];
     return ids.filter((id) => {
-      const tag = tagInfos[schemaDefinitionIdToken(id)];
-      return tag === null || (tag !== "loading" && tag.writable);
+      const resolution = resolutionForSchema(occurrenceResolutionIndex, id);
+      switch (resolution.kind) {
+        case "multiple":
+          return false;
+        case "unique":
+          return resolution.occurrence.tag_info?.writable ?? false;
+        case "missing": {
+          const tag = tagInfos[schemaDefinitionIdToken(id)];
+          return tag === null || (tag !== "loading" && tag.writable);
+        }
+      }
     });
-  }, [ids, tagInfos, isLoading]);
+  }, [ids, tagInfos, isLoading, occurrenceResolutionIndex]);
 
   const draftKeys = useMemo(() => {
     return ids.filter(
@@ -620,6 +712,8 @@ export function DetailsPane({
     id: SchemaDefinitionId;
     originalValue: string;
     draftValue?: string | null;
+    occurrenceResolution: SchemaOccurrenceResolution["kind"];
+    embeddedWritable?: boolean;
   } | null>(null);
   const [groupContextMenu, setGroupContextMenu] = useState<{
     x: number;
@@ -654,6 +748,7 @@ export function DetailsPane({
     id: SchemaDefinitionId,
     originalValue: string,
     draftValue?: string | null,
+    occurrenceResolution: SchemaOccurrenceResolution = { kind: "missing" },
   ) => {
     e.preventDefault();
     setContextMenu({
@@ -662,6 +757,13 @@ export function DetailsPane({
       id,
       originalValue,
       draftValue,
+      occurrenceResolution: occurrenceResolution.kind,
+      ...(occurrenceResolution.kind === "unique" &&
+      occurrenceResolution.occurrence.tag_info !== null
+        ? {
+            embeddedWritable: occurrenceResolution.occurrence.tag_info.writable,
+          }
+        : {}),
     });
   };
   const normalizedDetailsQuery = useMemo(
@@ -682,7 +784,35 @@ export function DetailsPane({
     }
     return ids;
   }, [metadata, typedDraftEdits]);
-  const displayTagInfos = useTagInfos(displayIds);
+  const occurrenceResolutionIndex = useMemo(
+    () =>
+      occurrences === undefined || occurrences === "loading"
+        ? new Map<string, SchemaOccurrenceResolution>()
+        : buildSchemaOccurrenceResolutionIndex(occurrences),
+    [occurrences],
+  );
+  const schemaLookupIds = useMemo(
+    () =>
+      displayIds.filter(
+        (id) =>
+          resolutionForSchema(occurrenceResolutionIndex, id).kind !== "unique",
+      ),
+    [displayIds, occurrenceResolutionIndex],
+  );
+  const lookedUpDisplayTagInfos = useTagInfos(schemaLookupIds);
+  const displayTagInfos = useMemo(() => {
+    const result = { ...lookedUpDisplayTagInfos };
+    for (const id of displayIds) {
+      const resolution = resolutionForSchema(occurrenceResolutionIndex, id);
+      if (
+        resolution.kind === "unique" &&
+        resolution.occurrence.tag_info !== null
+      ) {
+        result[schemaDefinitionIdToken(id)] = resolution.occurrence.tag_info;
+      }
+    }
+    return result;
+  }, [displayIds, lookedUpDisplayTagInfos, occurrenceResolutionIndex]);
   const imageGroups = useMemo(() => {
     if (metadata === "loading") return [];
 
@@ -728,17 +858,39 @@ export function DetailsPane({
         entries: g.entries.filter((e) => {
           if (hasEditsFilter && draftEdits[e.identityToken] === undefined)
             return false;
+          const resolution = resolutionForSchema(
+            occurrenceResolutionIndex,
+            e.id,
+          );
+          const ambiguitySearchText =
+            resolution.kind === "multiple"
+              ? `multiple occurrences\n${resolution.occurrences.length} occurrences`
+              : "";
+          const searchableOriginalValue =
+            resolution.kind === "unique" &&
+            resolution.occurrence.tag_info !== null
+              ? metadataValueToDisplayStringForTag(
+                  e.id,
+                  resolution.occurrence.value,
+                  resolution.occurrence.tag_info,
+                )
+              : e.value;
           return detailsRowMatchesSearch(
             e.label,
-            e.value,
+            searchableOriginalValue,
             draftEdits[e.identityToken],
-            e.friendlyName,
+            `${e.friendlyName}\n${ambiguitySearchText}`,
             query,
           );
         }),
       }))
       .filter((g) => g.entries.length > 0);
-  }, [imageGroups, normalizedDetailsQuery, draftEdits]);
+  }, [
+    imageGroups,
+    normalizedDetailsQuery,
+    draftEdits,
+    occurrenceResolutionIndex,
+  ]);
 
   const occurrenceEntries = useMemo(() => {
     if (
@@ -748,8 +900,12 @@ export function DetailsPane({
     ) {
       return [];
     }
-    return unprojectedResolvedMetadataOccurrences(occurrences, metadata);
-  }, [metadata, occurrences]);
+    return supplementalResolvedMetadataOccurrences(
+      occurrences,
+      metadata,
+      occurrenceResolutionIndex,
+    );
+  }, [metadata, occurrences, occurrenceResolutionIndex]);
 
   const filteredOccurrenceEntries = useMemo(() => {
     const { query, hasEditsFilter } = splitHasEditsFilter(
@@ -945,30 +1101,38 @@ export function DetailsPane({
                   ) : null}
                   <table className="details-table">
                     <tbody>
-                      {group.entries.map((entry) => (
-                        <DetailsImageRow
-                          key={entry.identityToken}
-                          entry={entry}
-                          rawValue={
-                            typeof metadata === "object"
-                              ? metadataGet(metadata, entry.id)
-                              : undefined
-                          }
-                          draftValue={draftEdits[entry.identityToken]}
-                          typedDraft={
-                            typedDraftEdits?.[entry.identityToken]?.edit
-                          }
-                          searchQuery={detailsSearch}
-                          onContextMenu={(e, originalValue) =>
-                            handleContextMenu(
-                              e,
-                              entry.id,
-                              originalValue,
-                              draftEdits[entry.identityToken],
-                            )
-                          }
-                        />
-                      ))}
+                      {group.entries.map((entry) => {
+                        const occurrenceResolution = resolutionForSchema(
+                          occurrenceResolutionIndex,
+                          entry.id,
+                        );
+                        return (
+                          <DetailsImageRow
+                            key={entry.identityToken}
+                            entry={entry}
+                            rawValue={
+                              typeof metadata === "object"
+                                ? metadataGet(metadata, entry.id)
+                                : undefined
+                            }
+                            draftValue={draftEdits[entry.identityToken]}
+                            typedDraft={
+                              typedDraftEdits?.[entry.identityToken]?.edit
+                            }
+                            occurrenceResolution={occurrenceResolution}
+                            searchQuery={detailsSearch}
+                            onContextMenu={(e, originalValue) =>
+                              handleContextMenu(
+                                e,
+                                entry.id,
+                                originalValue,
+                                draftEdits[entry.identityToken],
+                                occurrenceResolution,
+                              )
+                            }
+                          />
+                        );
+                      })}
                     </tbody>
                   </table>
                 </section>
@@ -1103,6 +1267,7 @@ export function DetailsPane({
           }}
           originalMetadata={metadata !== "loading" ? metadata : undefined}
           draftEdits={draftEdits}
+          occurrenceResolutionIndex={occurrenceResolutionIndex}
           onSetMetadataDraftBatch={onSetMetadataDraftBatch}
           onDiscardDraftBatch={onDiscardDraftBatch}
           onClose={() => setGroupContextMenu(null)}
