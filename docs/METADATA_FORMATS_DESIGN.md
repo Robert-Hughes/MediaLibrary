@@ -352,6 +352,40 @@ The previous implementation skipped the verify check entirely for non-`String` v
 
 Every apply appends one line per tag to `MediaLibraryApplyLog.jsonl` next to the draft file: timestamp, file path, tag, intent, full argv, value before, value after, outcome. Append-only, never read by the app. User-inspectable for forensics or undo.
 
+### Inactive schema-v5 single-file apply
+
+The inactive `apply_edits_v5.rs` foundation uses the target-aware draft model
+without changing production apply:
+
+```text
+v5 entry
+→ exact authoritative pre-write target validation
+→ structured selector collision check
+→ target-aware argument planner
+→ shared numeric/text ExifTool execution
+→ authoritative occurrence readback
+→ target-aware semantic verification
+```
+
+The complete batch, including argfile rendering, succeeds before any write.
+Existing fields resolve only by exact `MetadataOccurrenceId`; neither schema
+identity nor selector similarity may choose a replacement. New properties
+require zero pre-existing exact-schema occurrences and resolve after writing as
+zero, one, or multiple exact-schema occurrences. Multiple results are always
+`AmbiguousPostWrite` and are never reduced through first-result, `Copy0`,
+`IFD0`, lowest-ID, or writability preference.
+
+Both v4 and v5 use the same argfile escaping, numeric-before-text execution,
+and value-oriented semantic verification. Only `Match` and `DeleteOk` are
+eligible to clear, and v5 retains and clears complete targets by logical slot
+rather than schema ID. Legacy projection omissions do not invalidate a v5
+authoritative occurrence read. Successful readback returns the complete
+scanner `ImageMetadata` unchanged.
+
+The v5 path does not write the schema-keyed legacy apply log; target-aware
+logging remains pending. There is no Tauri apply command or production caller.
+Production apply, persistence, frontend state, and logging remain schema v4.
+
 ---
 
 ## 7. Persistence: drafts only
@@ -418,10 +452,11 @@ write destination; new-property creation remains schema-driven because it has
 no occurrence selector. These planners share the legacy builder's semantic
 value encoder and preserve its numeric/text pass grouping and argument order.
 
-This model and its pure planners have no production consumer yet. Draft
-collections, UI behavior, production write argument construction, and
-schema-keyed readback verification remain unchanged. Production Tauri commands
-still use the schema-v4 loader and saver.
+This model, its pure planners, and the composed inactive v5 single-file apply
+foundation have no production consumer. Draft collections, UI behavior,
+production write argument construction, and schema-keyed readback verification
+remain unchanged. Production Tauri commands still use the schema-v4 loader and
+saver.
 
 Inactive v5 Tauri load/save commands define the eventual target-aware JSONL
 line:
@@ -494,7 +529,7 @@ on the `Null` and `Binary` unit variants.
 V4 entries are not automatically converted. A schema ID does not say whether
 the operation edits an existing occurrence or creates a new property, and
 choosing a first occurrence would be forbidden first-match logic. Pending v4
-drafts must be recreated after the eventual migration. Applying v5 targets is
+drafts must be recreated after the eventual migration. Activating v5 apply is
 still pending. No production component creates the target-aware store or
 imports the adapter; production frontend startup, `AppState`,
 `DraftEditsStore`, autosave, apply, and verification remain schema-keyed v4 and
@@ -508,7 +543,8 @@ MediaLibrary persists draft edits (`MediaLibraryDraftEdits.jsonl`). Read metadat
 
 Draft schema is versioned. The production on-disk draft schema is v4; schema v5
 is available only through the explicitly versioned inactive commands and
-inactive target-aware store. No occurrence-aware apply pipeline consumes it.
+inactive target-aware store. The inactive single-file v5 apply foundation has
+no command and no production caller.
 Every v4
 draft entry carries the exact ExifTool schema-definition identity; JSON object
 keys and display labels are never used as metadata identity:

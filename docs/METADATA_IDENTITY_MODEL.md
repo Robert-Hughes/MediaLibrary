@@ -244,6 +244,45 @@ Consumers must represent and handle those states explicitly. They must never
 silently select the first occurrence, and there is no general conversion from
 `SchemaDefinitionId` to `MetadataOccurrenceId`.
 
+## Inactive occurrence-aware apply foundation
+
+`apply_edits_v5.rs` implements an inactive single-file schema-v5 foundation:
+
+```text
+MetadataDraftEntryV5[]
+→ authoritative pre-write occurrence read
+→ exact target validation for the complete batch
+→ structured selector-collision check
+→ target-aware argument planners
+→ numeric then text ExifTool passes
+→ authoritative occurrence readback
+→ target-aware semantic verification
+```
+
+All logical target slots are checked before target lookup, and every target is
+planned and every argfile is rendered before the first write. Duplicate slots,
+duplicate exact pre-write occurrence IDs, stale targets, and case-insensitive
+`(group1, tag_name)` selector collisions reject the complete batch atomically.
+
+An existing field resolves before and after writing only through its exact
+`MetadataOccurrenceId`; a same-schema sibling is irrelevant. A new property
+must be absent before writing. After writing it resolves to zero, one, or
+multiple occurrences with the exact embedded schema identity. Zero is missing,
+one is verified using that occurrence's actual value, and multiple is
+ambiguous. Multiple results are never reduced to a first, lowest, `Copy0`,
+`IFD0`, or writable occurrence.
+
+Legacy projection omissions do not block this v5 reader because authoritative
+occurrences remain complete. Successfully verified targets clear by complete
+target and logical slot, not by schema ID. The successful result retains the
+scanner's complete `ImageMetadata`, including authoritative occurrences and
+the temporary compatibility projection. Target-aware apply logging remains
+pending; the inactive path does not force targets into the schema-keyed v4 log.
+
+There is no Tauri apply command or production caller for this module.
+Production apply, persistence, `AppState`, frontend behavior, and logging
+remain schema v4.
+
 ## Migration status
 
 The scanner's ExifTool pass maps are keyed by `MetadataOccurrenceId`, and pretty
@@ -325,7 +364,8 @@ The shared frontend semantic guard requires integral finite values for
 `Unknown.raw` must be recursively JSON-compatible, and unit variants must keep
 their generated no-content wire shape. These are inactive schema-v5 boundary
 guarantees only: production persistence remains schema v4, the target-aware
-store is not in `AppState`, and no occurrence-aware apply pipeline is active.
+store is not in `AppState`, and the occurrence-aware apply foundation has no
+production caller or command.
 A frontend/Tauri-contract test round-trips shared-schema IFD0/IFD1
 occurrences and existing/new targets without collapsing them.
 
@@ -340,4 +380,4 @@ V4 entries are not automatically converted: a `SchemaDefinitionId` alone does
 not reveal whether the intended operation edits an existing occurrence or
 creates a new property. Choosing an occurrence would require forbidden
 first-match logic. Pending v4 drafts must therefore be recreated after a future
-v5 migration, and applying v5 targets remains pending.
+v5 migration, and activating v5 apply remains pending.

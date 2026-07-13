@@ -1,117 +1,16 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
-use std::io::Write;
 use std::path::Path;
 
 use crate::metadata_value::{ListKind, MetadataValue};
+#[cfg(test)]
+use crate::metadata_write_execution::render_argfile_argument;
+use crate::metadata_write_execution::{
+    build_exiftool_write_argfile_args, format_apply_diagnostics, render_exiftool_argfile,
+    run_exiftool_write,
+};
 use crate::scanner;
 use crate::tag_schema::{SchemaDefinitionId, TagKind};
-
-fn render_argfile_argument(arg: &str) -> Result<String, String> {
-    if arg.contains('\0') {
-        return Err("ExifTool argfile cannot encode argument containing NUL".to_string());
-    }
-
-    let needs_cstr = arg.contains('\n')
-        || arg.contains('\r')
-        || arg.contains('\t')
-        || arg.contains('\\')
-        || arg.starts_with('#')
-        || arg.starts_with(char::is_whitespace)
-        || arg.ends_with(char::is_whitespace)
-        || arg.is_empty();
-
-    if !needs_cstr {
-        return Ok(arg.to_string());
-    }
-
-    let mut escaped = String::new();
-    for ch in arg.chars() {
-        match ch {
-            '\\' => escaped.push_str("\\\\"),
-            '\n' => escaped.push_str("\\n"),
-            '\r' => escaped.push_str("\\r"),
-            '\t' => escaped.push_str("\\t"),
-            c => escaped.push(c),
-        }
-    }
-
-    Ok(format!("#[CSTR]{}", escaped))
-}
-
-fn build_exiftool_write_argfile_args(
-    path: &Path,
-    args: &[String],
-    numeric: bool,
-) -> Result<Vec<String>, String> {
-    let mut logical_args = vec![
-        "-overwrite_original".to_string(),
-        "-charset".to_string(),
-        "utf8".to_string(),
-        "-charset".to_string(),
-        "filename=utf8".to_string(),
-    ];
-    if numeric {
-        logical_args.push("-n".to_string());
-    }
-    for arg in args {
-        logical_args.push(arg.clone());
-    }
-    logical_args.push(path.to_string_lossy().into_owned());
-    Ok(logical_args)
-}
-
-fn render_exiftool_argfile(logical_args: &[String]) -> Result<String, String> {
-    let mut rendered_lines = Vec::with_capacity(logical_args.len());
-    for arg in logical_args {
-        rendered_lines.push(render_argfile_argument(arg)?);
-    }
-    let mut contents = rendered_lines.join("\n");
-    contents.push('\n');
-    Ok(contents)
-}
-
-/// Run one exiftool write invocation with the pre-rendered argfile contents.
-/// `numeric=true` indicates the numeric pass (for logging/errors).
-fn run_exiftool_write(rendered_contents: &str, numeric: bool) -> Result<(), String> {
-    let dir = tempfile::tempdir().map_err(|e| format!("Failed to create ExifTool argfile: {e}"))?;
-    let argfile_path = dir.path().join("medialibrary-exiftool.args");
-    let mut argfile = std::fs::File::create(&argfile_path)
-        .map_err(|e| format!("Failed to create ExifTool argfile: {e}"))?;
-    argfile
-        .write_all(rendered_contents.as_bytes())
-        .map_err(|e| format!("Failed to write ExifTool argfile as UTF-8: {e}"))?;
-    argfile
-        .flush()
-        .map_err(|e| format!("Failed to flush ExifTool argfile: {e}"))?;
-    drop(argfile);
-
-    let mut cmd = crate::exiftool_config::exiftool_command();
-    cmd.arg("-@").arg(&argfile_path);
-
-    let output = cmd.output().map_err(|e| {
-        format!(
-            "Failed to execute ExifTool: {}. Please ensure ExifTool is installed.",
-            e
-        )
-    })?;
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    if !output.status.success() {
-        return Err(format!(
-            "ExifTool failed ({}): {}",
-            if numeric { "-n pass" } else { "text pass" },
-            stderr.trim()
-        ));
-    }
-    if !stderr.trim().is_empty() {
-        log::warn!(
-            "[apply_edits] ExifTool write emitted stderr on {}: {}",
-            if numeric { "-n pass" } else { "text pass" },
-            stderr.trim()
-        );
-    }
-    Ok(())
-}
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[cfg_attr(test, derive(ts_rs::TS))]
@@ -222,69 +121,6 @@ impl MetadataWriteClient for RealMetadataWriteClient {
 
     fn write_metadata(&self, numeric: bool, rendered_contents: &str) -> Result<(), String> {
         run_exiftool_write(rendered_contents, numeric)
-    }
-}
-
-struct ApplyDiagnostics {
-    error: Option<String>,
-    warning: Option<String>,
-}
-
-fn format_apply_diagnostics(
-    numeric_attempted: bool,
-    numeric_result: &Result<(), String>,
-    text_attempted: bool,
-    text_result: &Result<(), String>,
-    verified_count: usize,
-    total_count: usize,
-) -> ApplyDiagnostics {
-    let pass_info = match (
-        numeric_attempted,
-        numeric_result.is_ok(),
-        text_attempted,
-        text_result.is_err(),
-    ) {
-        (true, true, true, true) => {
-            let err = text_result.as_ref().unwrap_err();
-            Some(format!(
-                "ExifTool text pass failed ({}) after numeric pass succeeded",
-                err
-            ))
-        }
-        (true, false, _, _) => {
-            let err = numeric_result.as_ref().unwrap_err();
-            Some(format!("ExifTool numeric pass failed ({})", err))
-        }
-        (false, _, true, true) => {
-            let err = text_result.as_ref().unwrap_err();
-            Some(format!("ExifTool text pass failed ({})", err))
-        }
-        _ => None,
-    };
-
-    if let Some(info) = pass_info {
-        if verified_count == total_count {
-            ApplyDiagnostics {
-                error: None,
-                warning: Some(format!(
-                    "{}, but all intended tags verified successfully on readback.",
-                    info
-                )),
-            }
-        } else {
-            ApplyDiagnostics {
-                error: Some(format!(
-                    "{}; post-write verification found {}/{} tags applied.",
-                    info, verified_count, total_count
-                )),
-                warning: None,
-            }
-        }
-    } else {
-        ApplyDiagnostics {
-            error: None,
-            warning: None,
-        }
     }
 }
 
@@ -553,12 +389,19 @@ fn verify_metadata_set(
     fresh_metadata: &scanner::MetadataMap,
     kind: Option<&TagKind>,
 ) -> (String, Option<String>) {
+    verify_set_value(key, expected, fresh_metadata.get(key), kind)
+}
+
+pub(crate) fn verify_set_value(
+    key: &SchemaDefinitionId,
+    expected: Option<&MetadataValue>,
+    observed: Option<&MetadataValue>,
+    kind: Option<&TagKind>,
+) -> (String, Option<String>) {
     let expected = match expected {
         Some(v) => v,
         None => return ("Match".to_string(), None),
     };
-
-    let observed = fresh_metadata.get(key);
 
     if metadata_empty_value(expected) && metadata_empty_or_absent(observed) {
         return ("Match".to_string(), None);
@@ -628,15 +471,21 @@ fn verify_metadata_delete(
     key: &SchemaDefinitionId,
     fresh_metadata: &scanner::MetadataMap,
 ) -> (String, Option<String>) {
-    if metadata_empty_or_absent(fresh_metadata.get(key)) {
+    verify_delete_value(key, fresh_metadata.get(key))
+}
+
+pub(crate) fn verify_delete_value(
+    key: &SchemaDefinitionId,
+    observed: Option<&MetadataValue>,
+) -> (String, Option<String>) {
+    if metadata_empty_or_absent(observed) {
         ("DeleteOk".to_string(), None)
     } else {
         (
             "DeleteLingering".to_string(),
             Some(format!(
                 "Delete verification failed for {}: tag still present ({:?})",
-                key,
-                fresh_metadata.get(key)
+                key, observed
             )),
         )
     }
@@ -648,11 +497,20 @@ fn verify_metadata_list_add(
     fresh_metadata: &scanner::MetadataMap,
     kind: Option<&TagKind>,
 ) -> (String, Option<String>) {
+    verify_list_add_value(key, expected, fresh_metadata.get(key), kind)
+}
+
+pub(crate) fn verify_list_add_value(
+    key: &SchemaDefinitionId,
+    expected: Option<&MetadataValue>,
+    observed: Option<&MetadataValue>,
+    kind: Option<&TagKind>,
+) -> (String, Option<String>) {
     let expected = match expected {
         Some(v) => v,
         None => return ("Match".to_string(), None),
     };
-    if metadata_list_contains_all(fresh_metadata.get(key), expected, kind) {
+    if metadata_list_contains_all(observed, expected, kind) {
         return ("Match".to_string(), None);
     }
     (
@@ -670,11 +528,20 @@ fn verify_metadata_list_remove(
     fresh_metadata: &scanner::MetadataMap,
     kind: Option<&TagKind>,
 ) -> (String, Option<String>) {
+    verify_list_remove_value(key, expected, fresh_metadata.get(key), kind)
+}
+
+pub(crate) fn verify_list_remove_value(
+    key: &SchemaDefinitionId,
+    expected: Option<&MetadataValue>,
+    observed: Option<&MetadataValue>,
+    kind: Option<&TagKind>,
+) -> (String, Option<String>) {
     let expected = match expected {
         Some(v) => v,
         None => return ("Match".to_string(), None),
     };
-    if metadata_list_contains_none(fresh_metadata.get(key), expected, kind) {
+    if metadata_list_contains_none(observed, expected, kind) {
         return ("Match".to_string(), None);
     }
     (

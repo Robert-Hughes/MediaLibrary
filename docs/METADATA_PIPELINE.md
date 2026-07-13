@@ -135,6 +135,41 @@ New-property creation remains schema-driven because no runtime occurrence or
 write target exists yet. The target-aware planners and the legacy builder share
 one semantic value encoder.
 
+The inactive `apply_edits_v5.rs` single-file path now composes those planners
+into the future occurrence-aware apply flow:
+
+```text
+v5 entry
+→ authoritative pre-write ImageMetadata
+→ duplicate-slot and exact-occurrence validation for every target
+→ structured ASCII-case-insensitive selector collision check
+→ target-aware numeric/text argument planning and argfile rendering
+→ numeric pass, then text pass only after numeric success
+→ authoritative occurrence readback
+→ exact-target/cardinality-aware semantic verification
+```
+
+No write begins until the complete batch has validated and rendered. Existing
+targets use only their exact occurrence ID for pre-write lookup and post-write
+resolution; they never select a same-schema replacement. New properties must
+have zero exact-schema occurrences before writing. Their readback explicitly
+reports zero as `MissingPostWrite`, one as the unique value to verify, and
+multiple as `AmbiguousPostWrite`, including every matching occurrence ID. No
+first, lowest, `Copy0`, `IFD0`, or writable-result preference exists.
+
+The v5 authoritative reader accepts a successful occurrence result even when
+the temporary legacy projection reports omissions. Verified `Match` and
+`DeleteOk` targets are independently eligible for clearing by logical target
+slot, not schema ID. Readback failure produces one complete-target
+`ReadbackFailed` outcome per plan and clears nothing. A successful readback
+returns the original full `ImageMetadata` rather than rebuilding its legacy
+map.
+
+This path deliberately does not use the schema-keyed apply log; target-aware
+logging remains pending. It has no Tauri apply command or production caller.
+Production apply, persistence, `AppState`, frontend callbacks, dialogs, and
+logging remain schema v4.
+
 This remains foundation code only. Inactive schema-v5 Tauri load/save commands
 can parse and serialize lines with a file-relative path as outer context and
 target-aware `{ target, edit }` entries, but they have no production caller. An
@@ -169,8 +204,8 @@ Command registration does not mean production usage. No production component
 creates this store or imports the adapter. Production startup and autosave
 still call the unversioned schema-v4 Tauri commands; `AppState`,
 `DraftEditsStore`, and persistence remain keyed by `SchemaDefinitionId`. No
-production Details Pane, Add Property, apply, write, verification, or
-search-worker path consumes `MetadataDraftTarget`, and applying v5 targets
+production Details Pane, Add Property, apply command, persistence, or
+search-worker path consumes `MetadataDraftTarget`, and activating v5 apply
 remains pending; no occurrence-aware apply command is introduced here. V4 and
 v5 commands share one filename and must never be mixed
 in one live folder session.
