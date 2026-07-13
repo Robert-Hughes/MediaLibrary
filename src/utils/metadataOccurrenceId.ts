@@ -1,4 +1,5 @@
 import type { MetadataOccurrenceId } from "../types/generated/MetadataOccurrenceId";
+import { compareUnicodeScalarStrings } from "./unicodeOrdering";
 
 export function metadataOccurrenceIdEquals(
   a: MetadataOccurrenceId,
@@ -10,21 +11,6 @@ export function metadataOccurrenceIdEquals(
     a.tag_id === b.tag_id &&
     a.copy === b.copy
   );
-}
-
-function compareUnicodeScalarStrings(a: string, b: string): number {
-  const aCodePoints = a[Symbol.iterator]();
-  const bCodePoints = b[Symbol.iterator]();
-  while (true) {
-    const aNext = aCodePoints.next();
-    const bNext = bCodePoints.next();
-    if (aNext.done || bNext.done) {
-      return aNext.done === bNext.done ? 0 : aNext.done ? -1 : 1;
-    }
-    const aCodePoint = aNext.value.codePointAt(0)!;
-    const bCodePoint = bNext.value.codePointAt(0)!;
-    if (aCodePoint !== bCodePoint) return aCodePoint < bCodePoint ? -1 : 1;
-  }
 }
 
 /**

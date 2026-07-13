@@ -296,10 +296,27 @@ uses occurrence identity yet.
 `MetadataDraftTarget`, `MetadataDraftSlot`, and inactive schema-v5 load/save
 functions now define the persistence boundary for the upcoming draft migration.
 The inactive v5 JSONL line keeps `relative_path` as outer context and stores a
-vector of `{ target, edit }` entries. No production component calls those v5
-functions or creates or consumes targets. Production Tauri commands, frontend
-draft collections, Details Pane callbacks, Add Property, apply/write,
-verification, and current draft files remain schema-keyed v4.
+vector of `{ target, edit }` entries. An inactive frontend collection and
+observable store now mirror that boundary:
+
+```text
+file-relative path
+→ metadataDraftTargetSlotToken(target)-keyed collection
+→ complete MetadataDraftTarget + MetadataDraftEdit
+```
+
+The token is collection mechanics only, never domain identity; every entry
+retains its complete target snapshot. Setting a different snapshot for the same
+logical slot replaces the stored target and edit. Wire conversion rejects every
+duplicate slot, including identical entries, and batch mutation validates all
+incoming slots before changing state or notifying listeners. Its redundant-Set
+resolver receives the complete target so occurrence-specific values remain
+distinguishable.
+
+No production component creates this target-aware store or calls the v5
+functions. Production `AppState`, `DraftEditsStore`, persistence and Tauri
+commands remain schema-keyed v4, as do Details Pane callbacks, Add Property,
+apply/write, verification, search-worker indexing, and current draft files.
 
 V4 entries are not automatically converted: a `SchemaDefinitionId` alone does
 not reveal whether the intended operation edits an existing occurrence or

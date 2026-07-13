@@ -4,8 +4,14 @@ import type {
   SchemaDefinitionId,
   TagInfo,
 } from "../types";
-import { metadataOccurrenceIdEquals } from "./metadataOccurrenceId";
-import { schemaDefinitionIdEquals } from "./schemaDefinitionId";
+import {
+  compareMetadataOccurrenceIds,
+  metadataOccurrenceIdEquals,
+} from "./metadataOccurrenceId";
+import {
+  compareSchemaDefinitionIds,
+  schemaDefinitionIdEquals,
+} from "./schemaDefinitionId";
 
 type ExistingOccurrenceDraftTarget = Extract<
   MetadataDraftTarget,
@@ -100,6 +106,23 @@ export function metadataDraftTargetSlotToken(
       target.occurrence_id.copy,
     ],
   ]);
+}
+
+/** Ordering matching Rust's derived `MetadataDraftSlot::Ord`. */
+export function compareMetadataDraftTargetsBySlot(
+  left: MetadataDraftTarget,
+  right: MetadataDraftTarget,
+): number {
+  if (left.kind === "ExistingOccurrence") {
+    if (right.kind === "NewProperty") return -1;
+    return compareMetadataOccurrenceIds(
+      left.occurrence_id,
+      right.occurrence_id,
+    );
+  }
+
+  if (right.kind === "ExistingOccurrence") return 1;
+  return compareSchemaDefinitionIds(left.schema_id, right.schema_id);
 }
 
 export function metadataDraftTargetEquals(

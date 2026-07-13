@@ -457,11 +457,30 @@ sort by relative path and entries sort by `MetadataDraftSlot`, after validating
 the complete input before truncation. These v5 functions have no production
 caller and must not be mixed with v4 functions during one live operation.
 
+The frontend now has an equally inactive target-aware collection and observable
+store:
+
+```text
+file-relative path
+→ metadataDraftTargetSlotToken(target)-keyed collection
+→ complete MetadataDraftTarget + MetadataDraftEdit
+```
+
+The JSON slot token is collection mechanics only and is never the domain
+identity of a draft. Each entry stores the complete target snapshot. Setting a
+new snapshot in the same slot replaces both target and edit rather than
+creating a second draft. From-wire conversion rejects duplicate slots. Batch
+mutation performs the same duplicate-slot validation atomically before changing
+the snapshot or notifying listeners, and the redundant-Set current-value
+resolver receives the complete target.
+
 V4 entries are not automatically converted. A schema ID does not say whether
 the operation edits an existing occurrence or creates a new property, and
 choosing a first occurrence would be forbidden first-match logic. Pending v4
 drafts must be recreated after the eventual migration. Applying v5 targets is
-still pending, and frontend draft collections remain schema-keyed.
+still pending. No production component creates the target-aware store;
+production frontend `AppState`, `DraftEditsStore`, persistence and Tauri
+commands remain schema-keyed v4.
 
 MediaLibrary persists draft edits (`MediaLibraryDraftEdits.jsonl`). Read metadata is **not** cached — every scan re-queries exiftool. Reasons:
 

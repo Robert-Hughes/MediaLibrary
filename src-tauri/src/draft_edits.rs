@@ -2,15 +2,19 @@
 //!
 //! See `docs/METADATA_FORMATS_DESIGN.md` §7.
 //!
-//! On-disk format is JSONL. The supported schema is:
+//! On-disk format is JSONL. Production load/save supports:
 //!
 //! - **v4**: `{ "schema_version": 4, "relative_path": "...", "edits":
 //!   [{ "id": { "table": "...", "tag_id": "...", "index": ... }, "edit": { "value": <MetadataValue | null>, "intent": "Set" | ..., "display": ... } }] }`
 //!
-//! Loading rejects older v1/v2/v3 lines with a clear error. Old drafts must be
-//! recreated so semantic values are never reconstructed from display strings.
+//! Inactive parallel load/save functions support schema v5 target-aware entries.
+//! Both versions use the same eventual `MediaLibraryDraftEdits.jsonl` filename,
+//! so v4 and v5 functions must not be mixed in one live operation. No production
+//! caller uses the v5 functions yet.
 //!
-//! Saving: the semantic API always writes v4.
+//! Production loading rejects older v1/v2/v3 lines with a clear error. Old
+//! drafts must be recreated so semantic values are never reconstructed from
+//! display strings. Production saving always writes v4.
 
 use crate::metadata_draft_target::{MetadataDraftSlot, MetadataDraftTarget};
 use crate::metadata_value::MetadataValue;
