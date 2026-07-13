@@ -1,4 +1,5 @@
 pub mod apply_edits;
+pub mod apply_edits_v5;
 pub mod apply_log;
 pub mod batch_audit_log;
 pub mod batch_job;
@@ -13,6 +14,7 @@ pub mod known_ids;
 pub mod metadata_draft_target;
 pub mod metadata_occurrence;
 pub mod metadata_value;
+pub(crate) mod metadata_write_execution;
 pub mod normalise;
 pub mod openai_describe;
 pub mod openai_http;
