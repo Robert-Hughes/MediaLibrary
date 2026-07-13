@@ -77,6 +77,32 @@ Genuine read, parse, canonicalisation, or projection-invariant failures still
 emit empty collections to clear loading state and report details through
 `worker_error`.
 
+## Locked Draft Target Model
+
+`MetadataDraftTarget` locks the distinction needed by the upcoming migration:
+
+- `ExistingOccurrence` carries the explicitly selected
+  `MetadataOccurrenceId`, the exact semantic `SchemaDefinitionId`, and a
+  snapshot of that occurrence's exact `MetadataWriteTarget`.
+- `NewProperty` carries only the exact `SchemaDefinitionId` selected through a
+  writable `TagInfo`; it has no runtime occurrence or write selector yet.
+
+An existing target is constructible only when that occurrence's exact
+`TagInfo` is writable and its exact write target exists. A new-property target
+starts from an exactly resolved writable `TagInfo`. Neither path permits a
+schema-to-occurrence first-match conversion.
+
+Before a later occurrence-aware apply path writes an existing target, it must
+reread the file, find the exact occurrence ID, validate the fresh schema and
+write-target snapshot, and reject stale or ambiguous targets. The relative file
+path remains outer draft-map context rather than a target field.
+
+This is a foundation model only. In-memory and persisted drafts remain
+schema-keyed v4, load/save behavior and JSONL are unchanged, and no production
+Details Pane, Add Property, apply, write, or verification path consumes
+`MetadataDraftTarget`. The v5 migration is pending, and its persistence shape
+is not finalised beyond this target enum.
+
 ## Tag-Schema Overrides
 
 The tag registry is built from `exiftool -listx -lang en` in `src-tauri/src/tag_schema.rs`. ExifTool listx is silent or misleading for several shapes the app needs, so `apply_overrides` patches known gaps.

@@ -147,13 +147,42 @@ IFD0:XResolution / Copy1
 → neither exact because the write selector is shared
 ```
 
-## Creating a new property
+## Locked draft target distinction
 
-Add New Property begins from a selected `TagInfo`. A later migration step will
-plan the intended `MetadataOccurrenceId` and `MetadataWriteTarget` before the
-write. The actual resulting occurrence identity will be confirmed by rereading
-the file after ExifTool creates it. No separate creation-target type is
-introduced at present.
+```text
+MetadataDraftTarget
+├── ExistingOccurrence
+│   ├── occurrence_id: MetadataOccurrenceId
+│   ├── schema_id: SchemaDefinitionId
+│   └── write_target: MetadataWriteTarget
+└── NewProperty
+    └── schema_id: SchemaDefinitionId
+```
+
+`ExistingOccurrence` means an edit to one runtime field the user explicitly
+selected. It captures runtime identity, semantic schema identity, and the exact
+supported ExifTool selector as three independent facts. It can be constructed
+only from a `MetadataOccurrence` whose exact `TagInfo` is writable and whose
+exact `MetadataWriteTarget` is present. Nothing is derived from a friendly
+name, `TagInfo::group`, a schema ID, or another occurrence sharing the schema.
+
+The stored write target is a selector snapshot, not authority for a blind
+future write. The occurrence-aware apply migration must:
+
+```text
+reread authoritative occurrences
+→ find the exact MetadataOccurrenceId
+→ validate the schema and write-target snapshot
+→ reject stale or ambiguous targets
+→ construct the ExifTool write
+```
+
+`NewProperty` means creation from one exactly selected, writable `TagInfo`. No
+runtime occurrence exists yet, so this variant has no occurrence ID, guessed
+family-1 group, or write target. Creation remains schema-driven.
+
+The file-relative path remains the outer draft-map context for both variants;
+it is not duplicated inside `MetadataDraftTarget`.
 
 ## No arbitrary schema-to-occurrence conversion
 
@@ -221,3 +250,9 @@ occurrence display and occurrence-specific editing remain pending. No arbitrary
 first occurrence is selected, including when values are identical or one
 occurrence appears more writable or otherwise preferable, and no write command
 uses occurrence identity yet.
+
+`MetadataDraftTarget` is now the locked model for the upcoming draft migration,
+but no production component creates or consumes it. Persisted and in-memory
+drafts remain schema-keyed v4, the JSONL shape is unchanged, and draft v5 is
+still pending. Only the target enum is locked; no future v5 persistence shape
+is finalised here.

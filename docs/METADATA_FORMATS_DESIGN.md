@@ -356,6 +356,36 @@ Every apply appends one line per tag to `MediaLibraryApplyLog.jsonl` next to the
 
 ## 7. Persistence: drafts only
 
+### Locked target model for the pending migration
+
+`MetadataDraftTarget` defines the future distinction without changing current
+draft persistence:
+
+```text
+ExistingOccurrence
+    runtime MetadataOccurrenceId
+    + semantic SchemaDefinitionId
+    + exact MetadataWriteTarget snapshot
+
+NewProperty
+    semantic SchemaDefinitionId only
+```
+
+An existing target is created only from one explicit occurrence with writable
+exact `TagInfo` and a present exact write target. A new-property target begins
+from one exact writable `TagInfo` and does not invent an occurrence, family-1
+group, or selector. No schema lookup may silently choose a first occurrence.
+
+The write-target snapshot must be revalidated against the exact occurrence
+after rereading the authoritative file before a later apply pipeline writes.
+The relative file path remains outer draft-map context and is not part of the
+target.
+
+This model has no production consumer yet. Draft collections and JSONL remain
+schema-keyed v4; persistence, load/save behavior, UI behavior, write argument
+construction, and readback verification are unchanged. Draft v5 remains
+pending, and no v5 JSONL shape is final beyond the locked target enum.
+
 MediaLibrary persists draft edits (`MediaLibraryDraftEdits.jsonl`). Read metadata is **not** cached — every scan re-queries exiftool. Reasons:
 
 - exiftool is the source of truth; caching invites staleness.
@@ -415,7 +445,8 @@ being guessed from friendly strings.
 ## 9. Glossary
 
 - **MetadataValue** — Discriminated semantic value model used inside the app for read metadata, draft edits, writes, verification, and apply logs.
-- **SchemaDefinitionId** — Exact ExifTool definition identity: `{table, tag_id, index?}` from `-listx`. It is the only metadata identity used by scanning, drafts, writes, verification, sorting, columns, and editor routing. `Group1:Name` is display/search text only.
+- **SchemaDefinitionId** — Exact ExifTool definition identity: `{table, tag_id, index?}` from `-listx`. It remains the key for current schema-keyed v4 drafts and their production paths. It is distinct from runtime occurrence identity and exact write targeting. `Group1:Name` is display/search text only.
+- **MetadataDraftTarget** — Locked future target union: an existing occurrence carries runtime occurrence, semantic schema, and exact selector snapshot; a new property carries only the selected schema. No production draft or apply path consumes it yet.
 - **ExifTool JSON boundary** - serde_json::Value held only at scan parsing boundaries before conversion into MetadataValue.
 - **TagKind** — The schema's classification of a tag (`Text`, `Bag<Text>`, `Enum<Integer>`, etc.). Drives which editor renders.
 - **PrintConv** — exiftool's mechanism for converting raw machine values to human-readable form. Table-based (we use it) or code-based (we don't reimplement).
