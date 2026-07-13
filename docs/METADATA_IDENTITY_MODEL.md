@@ -181,6 +181,27 @@ reread authoritative occurrences
 runtime occurrence exists yet, so this variant has no occurrence ID, guessed
 family-1 group, or write target. Creation remains schema-driven.
 
+Pure target-aware write planning now makes the destination rules executable:
+
+```text
+ExistingOccurrence
+→ validate against the freshly read exact occurrence
+→ selector from the fresh occurrence's MetadataWriteTarget
+→ value semantics from the fresh occurrence's embedded TagInfo
+
+NewProperty
+→ validate the exact supplied TagInfo schema
+→ schema-driven creation selector
+→ value semantics from that TagInfo
+```
+
+The stored selector snapshot is never trusted without fresh-occurrence
+validation. Existing-occurrence planning never uses `TagInfo::group` as its
+destination, while new-property creation deliberately remains schema-driven.
+Both paths share the legacy builder's semantic value encoder, so this identity
+work changes selector choice rather than datatype, enum, list, struct, or
+date/time encoding.
+
 The file-relative path remains the outer draft-map context for both variants;
 it is not duplicated inside `MetadataDraftTarget`.
 
@@ -252,7 +273,8 @@ occurrence appears more writable or otherwise preferable, and no write command
 uses occurrence identity yet.
 
 `MetadataDraftTarget` is now the locked model for the upcoming draft migration,
-but no production component creates or consumes it. Persisted and in-memory
-drafts remain schema-keyed v4, the JSONL shape is unchanged, and draft v5 is
-still pending. Only the target enum is locked; no future v5 persistence shape
-is finalised here.
+and pure write planning exists for both variants, but no production component
+creates or consumes those targets or builders. Persisted and in-memory drafts
+remain schema-keyed v4, the JSONL shape and schema-keyed verification are
+unchanged, and draft v5 is still pending. Only the target enum is locked; no
+future v5 persistence shape is finalised here.

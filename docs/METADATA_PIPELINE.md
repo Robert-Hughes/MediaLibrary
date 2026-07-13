@@ -97,11 +97,33 @@ reread the file, find the exact occurrence ID, validate the fresh schema and
 write-target snapshot, and reject stale or ambiguous targets. The relative file
 path remains outer draft-map context rather than a target field.
 
-This is a foundation model only. In-memory and persisted drafts remain
+Pure write-argument planners now enforce the next boundary without executing
+ExifTool:
+
+```text
+ExistingOccurrence
+→ exact fresh-occurrence validation
+→ fresh runtime MetadataWriteTarget selector
+→ fresh embedded TagInfo value semantics
+
+NewProperty
+→ exact TagInfo schema validation
+→ schema-driven creation selector
+→ TagInfo value semantics
+```
+
+An existing selector snapshot is never trusted on its own, and
+existing-occurrence writes never derive a destination from `TagInfo::group`.
+New-property creation remains schema-driven because no runtime occurrence or
+write target exists yet. The target-aware planners and the legacy builder share
+one semantic value encoder.
+
+This is foundation code only. In-memory and persisted drafts remain
 schema-keyed v4, load/save behavior and JSONL are unchanged, and no production
 Details Pane, Add Property, apply, write, or verification path consumes
-`MetadataDraftTarget`. The v5 migration is pending, and its persistence shape
-is not finalised beyond this target enum.
+`MetadataDraftTarget` or the new planners. Existing schema-keyed verification
+is unchanged. The v5 migration is pending, and its persistence shape is not
+finalised beyond this target enum.
 
 ## Tag-Schema Overrides
 
