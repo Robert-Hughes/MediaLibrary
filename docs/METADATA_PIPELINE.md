@@ -148,6 +148,7 @@ v5 entry
 → authoritative occurrence readback
 → strict post-write exact-occurrence-ID validation
 → exact-target/cardinality-aware semantic verification
+→ explicit per-target draft reconciliation
 ```
 
 No write begins until the complete batch has validated and rendered. Existing
@@ -175,12 +176,36 @@ the collection before that cardinality check. Neither condition depends on
 scanner result order.
 
 The v5 authoritative reader accepts a successful occurrence result even when
-the temporary legacy projection reports omissions. Verified `Match` and
-`DeleteOk` targets are independently eligible for clearing by logical target
-slot, not schema ID. Readback failure produces one complete-target
-`ReadbackFailed` outcome per plan and clears nothing. A successful, invariant-
-valid readback returns the original full `ImageMetadata` rather than rebuilding
-its legacy map.
+the temporary legacy projection reports omissions. Verification and draft
+reconciliation are separate results. Every target outcome preserves the
+original submitted target and carries one explicit reconciliation:
+
+```text
+Clear    semantic success; remove the original slot
+Keep     original target remains retryable, or post-write state is unknown
+Replace  remove the original slot and use the supplied complete target with the same edit
+Blocked  retain for user resolution, but do not present it as safely retryable
+```
+
+Existing `Match` and `DeleteOk` outcomes clear. Other semantic outcomes keep an
+unchanged exact existing target while it is still present with the same schema
+and selector. A missing or changed existing target is blocked as stale and is
+never retargeted to a same-schema sibling.
+
+For `NewProperty`, zero matches keep the creation target. A unique `Match`
+clears it. A unique non-clear result cannot leave an apparently retryable
+creation draft after the property exists: it replaces the target with an exact
+`ExistingOccurrence` built from the fresh occurrence ID, fresh embedded schema,
+and fresh runtime selector. A construction failure blocks instead. Multiple
+matches block and never choose a replacement. `ReadbackFailed` and
+`ReadbackInvalid` keep every original target conservatively and construct no
+replacement.
+
+`targets_to_clear` remains as a transitional result field but is derived only
+from `Clear` reconciliations, in input order and by unique logical slot. A
+successful, invariant-valid readback returns the original full `ImageMetadata`
+rather than rebuilding its legacy map. No batch layer persists `Replace` yet,
+and no frontend consumer uses reconciliation.
 
 This path deliberately does not use the schema-keyed apply log; target-aware
 logging remains pending. It has no Tauri apply command or production caller.

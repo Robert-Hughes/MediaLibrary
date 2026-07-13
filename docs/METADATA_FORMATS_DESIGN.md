@@ -366,6 +366,7 @@ v5 entry
 → authoritative occurrence readback
 → strict post-write exact-occurrence-ID validation
 → target-aware semantic verification
+→ explicit post-write draft reconciliation
 ```
 
 The complete batch, including argfile rendering, succeeds before any write.
@@ -387,11 +388,32 @@ same-schema IDs for a new property remain `AmbiguousPostWrite`. These results
 do not depend on occurrence order.
 
 Both v4 and v5 use the same argfile escaping, numeric-before-text execution,
-and value-oriented semantic verification. Only `Match` and `DeleteOk` are
-eligible to clear, and v5 retains and clears complete targets by logical slot
-rather than schema ID. Legacy projection omissions do not invalidate a v5
+and value-oriented semantic verification. V5 separately models what should
+happen to the original logical draft slot:
+
+```text
+Clear    semantic success; remove the original slot
+Keep     original target remains retryable, or authoritative state is unknown
+Replace  remove the original slot and retain the same edit with an exact supplied target
+Blocked  retain for user resolution without claiming it is safely re-applicable
+```
+
+An existing target clears only for `Match` or `DeleteOk`; pending semantic
+results keep the unchanged exact target. Missing occurrences and changed
+schema/selector snapshots are blocked rather than automatically retargeted.
+For `NewProperty`, zero matches keep the creation target and a unique `Match`
+clears it. A unique non-clear result must not remain a creation target after the
+property exists: reconciliation replaces it, when possible, with the exact
+fresh occurrence ID, embedded schema, and runtime selector. Read-only or
+untargetable created occurrences block. Ambiguous creation blocks without
+selecting any replacement. Readback failure or invalidity keeps the original
+target conservatively and performs no partial replacement.
+
+`targets_to_clear` is derived only from `Clear` reconciliation, by logical slot
+and in input order. Legacy projection omissions do not invalidate a v5
 authoritative occurrence read. Successful, invariant-valid readback returns the
-complete scanner `ImageMetadata` unchanged.
+complete scanner `ImageMetadata` unchanged. Reconciliation is modeled only:
+there is no batch replacement persistence and no frontend consumer yet.
 
 The v5 path does not write the schema-keyed legacy apply log; target-aware
 logging remains pending. There is no Tauri apply command or production caller.
