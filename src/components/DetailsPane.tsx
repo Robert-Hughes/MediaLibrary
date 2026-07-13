@@ -27,6 +27,7 @@ import type {
 import {
   groupImageMetadata,
   getOsEntries,
+  overlayUniqueOccurrenceValues,
   supplementalResolvedMetadataOccurrences,
 } from "../utils/detailsPaneHelpers";
 import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
@@ -437,6 +438,7 @@ function DetailsOccurrenceRow({
  */
 function DetailsRowContextMenu({
   contextMenu,
+  occurrenceResolution,
   onEdit,
   onEditGps,
   onDiscard,
@@ -449,9 +451,8 @@ function DetailsRowContextMenu({
     id: SchemaDefinitionId;
     originalValue: string;
     draftValue?: string | null;
-    occurrenceResolution: SchemaOccurrenceResolution["kind"];
-    embeddedWritable?: boolean;
   };
+  occurrenceResolution: SchemaOccurrenceResolution;
   onEdit: () => void;
   onEditGps?: () => void;
   onDiscard: () => void;
@@ -459,18 +460,18 @@ function DetailsRowContextMenu({
   onClose: () => void;
 }) {
   const tag = useTagInfo(
-    contextMenu.occurrenceResolution === "unique" &&
-      contextMenu.embeddedWritable !== undefined
-      ? null
-      : contextMenu.id,
+    occurrenceResolution.kind === "missing" ? contextMenu.id : null,
   );
-  const ambiguous = contextMenu.occurrenceResolution === "multiple";
-  const readOnly =
-    ambiguous ||
-    (contextMenu.occurrenceResolution === "unique" &&
-    contextMenu.embeddedWritable !== undefined
-      ? !contextMenu.embeddedWritable
-      : tag !== null && tag !== "loading" && !tag.writable);
+  const readOnly = (() => {
+    switch (occurrenceResolution.kind) {
+      case "multiple":
+        return true;
+      case "unique":
+        return !(occurrenceResolution.occurrence.tag_info?.writable ?? false);
+      case "missing":
+        return tag !== null && tag !== "loading" && !tag.writable;
+    }
+  })();
   const gpsGroup = gpsMemberGroup(contextMenu.id);
   const options = [
     ...(readOnly
@@ -695,25 +696,12 @@ export function DetailsPane({
   onShowInFileExplorer,
 }: Props) {
   const [detailsSearch, setDetailsSearch] = useState("");
-  const effectiveMetadata = useMemo(
-    () =>
-      metadata === "loading"
-        ? undefined
-        : buildEffectiveMetadata(metadata, typedDraftEdits),
-    [metadata, typedDraftEdits],
-  );
-  const resolvedGps = useMemo(() => {
-    if (metadata === "loading") return { lat: null, lon: null };
-    return resolveGps(typedDraftEdits, metadata);
-  }, [typedDraftEdits, metadata]);
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
     id: SchemaDefinitionId;
     originalValue: string;
     draftValue?: string | null;
-    occurrenceResolution: SchemaOccurrenceResolution["kind"];
-    embeddedWritable?: boolean;
   } | null>(null);
   const [groupContextMenu, setGroupContextMenu] = useState<{
     x: number;
@@ -729,6 +717,32 @@ export function DetailsPane({
   // for that key.  null when no flow is active or we're still on stage 1.
   const [newPropertyKey, setNewPropertyKey] =
     useState<SchemaDefinitionId | null>(null);
+
+  const occurrenceResolutionIndex = useMemo(
+    () =>
+      occurrences === undefined || occurrences === "loading"
+        ? new Map<string, SchemaOccurrenceResolution>()
+        : buildSchemaOccurrenceResolutionIndex(occurrences),
+    [occurrences],
+  );
+  const authoritativeBaseMetadata = useMemo(
+    () =>
+      metadata === "loading"
+        ? undefined
+        : overlayUniqueOccurrenceValues(metadata, occurrenceResolutionIndex),
+    [metadata, occurrenceResolutionIndex],
+  );
+  const effectiveMetadata = useMemo(
+    () =>
+      authoritativeBaseMetadata === undefined
+        ? undefined
+        : buildEffectiveMetadata(authoritativeBaseMetadata, typedDraftEdits),
+    [authoritativeBaseMetadata, typedDraftEdits],
+  );
+  const resolvedGps = useMemo(() => {
+    if (metadata === "loading") return { lat: null, lon: null };
+    return resolveGps(typedDraftEdits, metadata);
+  }, [typedDraftEdits, metadata]);
 
   const draftEdits = useMemo(() => {
     if (displayDraftEdits) return displayDraftEdits;
@@ -748,7 +762,6 @@ export function DetailsPane({
     id: SchemaDefinitionId,
     originalValue: string,
     draftValue?: string | null,
-    occurrenceResolution: SchemaOccurrenceResolution = { kind: "missing" },
   ) => {
     e.preventDefault();
     setContextMenu({
@@ -757,13 +770,6 @@ export function DetailsPane({
       id,
       originalValue,
       draftValue,
-      occurrenceResolution: occurrenceResolution.kind,
-      ...(occurrenceResolution.kind === "unique" &&
-      occurrenceResolution.occurrence.tag_info !== null
-        ? {
-            embeddedWritable: occurrenceResolution.occurrence.tag_info.writable,
-          }
-        : {}),
     });
   };
   const normalizedDetailsQuery = useMemo(
@@ -779,18 +785,21 @@ export function DetailsPane({
     }
     if (typedDraftEdits) {
       for (const entry of Object.values(typedDraftEdits)) {
-        if (entry.edit.intent !== "Delete") ids.push(entry.id);
+        const absentFromLegacy =
+          metadata !== "loading" &&
+          metadataGet(metadata, entry.id) === undefined;
+        const ambiguousDelete =
+          entry.edit.intent === "Delete" &&
+          absentFromLegacy &&
+          resolutionForSchema(occurrenceResolutionIndex, entry.id).kind ===
+            "multiple";
+        if (entry.edit.intent !== "Delete" || ambiguousDelete) {
+          ids.push(entry.id);
+        }
       }
     }
     return ids;
-  }, [metadata, typedDraftEdits]);
-  const occurrenceResolutionIndex = useMemo(
-    () =>
-      occurrences === undefined || occurrences === "loading"
-        ? new Map<string, SchemaOccurrenceResolution>()
-        : buildSchemaOccurrenceResolutionIndex(occurrences),
-    [occurrences],
-  );
+  }, [metadata, typedDraftEdits, occurrenceResolutionIndex]);
   const schemaLookupIds = useMemo(
     () =>
       displayIds.filter(
@@ -820,14 +829,49 @@ export function DetailsPane({
       ...metadata,
     };
     if (typedDraftEdits) {
-      for (const [key, entry] of Object.entries(typedDraftEdits)) {
-        if (entry.edit.intent !== "Delete" && !(key in combinedMetadata)) {
-          combinedMetadata[key] = { kind: "Null", id: entry.id };
+      for (const entry of Object.values(typedDraftEdits)) {
+        const absentFromLegacy = metadataGet(metadata, entry.id) === undefined;
+        const ambiguousDelete =
+          entry.edit.intent === "Delete" &&
+          absentFromLegacy &&
+          resolutionForSchema(occurrenceResolutionIndex, entry.id).kind ===
+            "multiple";
+        if (
+          absentFromLegacy &&
+          (entry.edit.intent !== "Delete" || ambiguousDelete)
+        ) {
+          combinedMetadata[schemaDefinitionIdToken(entry.id)] = {
+            kind: "Null",
+            id: entry.id,
+          };
         }
       }
     }
     return groupImageMetadata(combinedMetadata, displayTagInfos);
-  }, [metadata, typedDraftEdits, displayTagInfos]);
+  }, [metadata, typedDraftEdits, displayTagInfos, occurrenceResolutionIndex]);
+
+  const editDialogResolution = editDialog
+    ? resolutionForSchema(occurrenceResolutionIndex, editDialog.id)
+    : null;
+  const editDialogInitialValue =
+    editDialog && effectiveMetadata
+      ? metadataGet(effectiveMetadata, editDialog.id)
+      : undefined;
+  const editDialogRenderKey = editDialog
+    ? `${schemaDefinitionIdToken(editDialog.id)}:${JSON.stringify({
+        occurrence:
+          editDialogResolution?.kind === "unique"
+            ? editDialogResolution.occurrence.id
+            : null,
+        value: editDialogInitialValue,
+      })}`
+    : undefined;
+
+  useEffect(() => {
+    if (editDialog && editDialogResolution?.kind === "multiple") {
+      setEditDialog(null);
+    }
+  }, [editDialog, editDialogResolution]);
 
   const fullGroupForMenu = useMemo(() => {
     if (!groupContextMenu) return null;
@@ -1127,7 +1171,6 @@ export function DetailsPane({
                                 entry.id,
                                 originalValue,
                                 draftEdits[entry.identityToken],
-                                occurrenceResolution,
                               )
                             }
                           />
@@ -1221,6 +1264,10 @@ export function DetailsPane({
       {contextMenu && (
         <DetailsRowContextMenu
           contextMenu={contextMenu}
+          occurrenceResolution={resolutionForSchema(
+            occurrenceResolutionIndex,
+            contextMenu.id,
+          )}
           onEdit={() => {
             setEditDialog({
               id: contextMenu.id,
@@ -1274,15 +1321,12 @@ export function DetailsPane({
         />
       )}
 
-      {editDialog && (
+      {editDialog && editDialogResolution?.kind !== "multiple" && (
         <TypedValueEditor
+          key={editDialogRenderKey}
           propertyId={editDialog.id}
           editorMode={editDialog.mode}
-          initialMetadataValue={
-            effectiveMetadata
-              ? metadataGet(effectiveMetadata, editDialog.id)
-              : undefined
-          }
+          initialMetadataValue={editDialogInitialValue}
           metadataForFile={effectiveMetadata}
           onSaveMetadataBatch={(edits) => {
             onSetMetadataDraftBatch(edits);

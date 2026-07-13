@@ -28,7 +28,26 @@ invented when the schema is absent. An existing schema-level draft stays only
 on that compatibility row and may be discarded; concrete occurrence rows never
 receive drafts or context-menu actions.
 
-Drafts, editing identity, GPS resolution, Add Property, search-worker indexing,
+Details Pane row menus and open editors follow the current live schema
+resolution rather than the resolution that existed when an interaction began.
+If a unique schema becomes multiple, its editor closes without saving or
+changing a draft. If one unique occurrence is replaced by another, the row and
+editor refresh from the replacement's exact semantic value. The pane builds an
+editor-only authoritative base by overlaying unique occurrence values on the
+legacy collection, then applies the existing draft overlay; Set, Delete,
+ListAdd, and ListRemove draft precedence is unchanged. The resulting effective
+collection supplies both the editor's initial value and its file metadata.
+GPS resolution continues to receive the legacy schema-keyed collection.
+
+If an ambiguous schema is absent from the legacy projection but already has a
+schema-keyed Delete draft, the Details Pane creates a Null-valued compatibility
+row solely to keep that draft visible and discardable. The row remains
+ambiguity-marked and excluded from individual and group Remove actions, while
+group Discard includes it. No such row is created for missing or uniquely
+resolved absent schemas. Concrete occurrence rows remain draft-free and
+read-only.
+
+Draft identity and persistence, GPS resolution, Add Property, search-worker indexing,
 sorting, normalisation, writes, and readback verification remain schema-keyed
 through `ImageMetadataStore`.
 Identical values sharing a schema may deduplicate in the compatibility field;
@@ -45,7 +64,8 @@ and readback verification reject any partial projection rather than proceeding
 unsafely. Unknown-schema occurrences remain excluded because public occurrences
 do not carry the scanner's temporary projection-schema candidate.
 Occurrence-specific editing remains pending, and no arbitrary first occurrence
-may be selected.
+may be selected. No apply or write command consumes occurrence identity or
+`MetadataWriteTarget` yet.
 
 For the original IFD0/IFD1 `XResolution` collision, both authoritative values
 now remain part of a successful scan and are visible with their distinct paths

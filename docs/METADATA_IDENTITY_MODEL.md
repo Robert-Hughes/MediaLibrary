@@ -200,14 +200,24 @@ legacy compatibility value and schema lookup. Multiple resolutions never
 select one runtime field. Each concrete occurrence is shown separately in the
 read-only **Additional Metadata Occurrences** section, while any existing
 legacy compatibility row is marked ambiguous and cannot be edited or removed.
+Row actions resolve against the current index while their menu is open. An
+editor opened for a unique schema closes without saving if that schema becomes
+multiple; a replacement unique occurrence refreshes the editor's authoritative
+base value. Details Pane editors overlay schema-keyed drafts on that base, so a
+draft still takes precedence over the occurrence value.
 
 The file-level duplicate-occurrence scan failure is fixed: a lossy legacy
 projection no longer blocks transport of the successful occurrence read.
 An existing schema-level draft for a multiple resolution remains attached only
 to the compatibility row and may be discarded, but it cannot be edited further
-or copied onto concrete occurrence rows. Draft persistence, apply/write
+or copied onto concrete occurrence rows. This includes a Delete draft when the
+ambiguous schema was omitted from the legacy projection: the pane synthesises
+only the ambiguity-marked compatibility row so the draft remains visible and
+discardable. Concrete occurrence rows remain draft-free and read-only. Draft
+identity and persistence, apply/write
 commands, verification, GPS resolution, Add Property, list columns, sorting,
 search-worker indexing, and normalisation remain schema-keyed. Unknown-schema
 occurrence display and occurrence-specific editing remain pending. No arbitrary
 first occurrence is selected, including when values are identical or one
-occurrence appears more writable or otherwise preferable.
+occurrence appears more writable or otherwise preferable, and no write command
+uses occurrence identity yet.
