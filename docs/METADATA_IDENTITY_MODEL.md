@@ -408,6 +408,29 @@ production caller or command.
 A frontend/Tauri-contract test round-trips shared-schema IFD0/IFD1
 occurrences and existing/new targets without collapsing them.
 
+The inactive Rust reconciliation helper applies already-computed outcomes to
+one file's original v5 entry collection:
+
+```text
+original v5 entry
++ target outcome reconciliation
+→ validated reconciled v5 entry collection
+```
+
+Every original logical slot requires exactly one outcome, and the outcome's
+complete original target snapshot must equal the entry target; matching a slot
+or schema alone is insufficient. `Clear` removes the slot, while `Keep` and
+`Blocked` retain the exact target and semantic edit. A `Replace` is valid only
+from `NewProperty` to the supplied exact `ExistingOccurrence`, must keep the
+same `SchemaDefinitionId`, and preserves the original semantic edit rather than
+any sent, observed, before, or display value. A replacement may not collide
+with a retained slot, another replacement, or any other original operation,
+including one marked `Clear`; any collision rejects the complete
+transformation. Blocked reasons remain transient outcome information for a
+future command and frontend to surface, not persisted draft state. The helper
+performs no persistence, has no Tauri command or production caller, and does
+not change schema-v4 production persistence or apply.
+
 Command registration does not mean production usage. No production component
 creates this target-aware store or calls the v5 adapter or commands. Production
 startup, `AppState`, `DraftEditsStore`, autosave and apply remain schema-keyed

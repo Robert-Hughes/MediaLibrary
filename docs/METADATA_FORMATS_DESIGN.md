@@ -409,11 +409,40 @@ untargetable created occurrences block. Ambiguous creation blocks without
 selecting any replacement. Readback failure or invalidity keeps the original
 target conservatively and performs no partial replacement.
 
+The inactive application stage is a pure, atomic transformation:
+
+```text
+original v5 entry
++ target outcome reconciliation
+→ validated reconciled v5 entry collection
+```
+
+Before constructing output, it indexes and rejects duplicate original slots,
+indexes and rejects duplicate outcome slots, rejects unexpected outcomes,
+requires exactly one outcome per original slot, and compares the complete
+outcome target snapshot with the complete original target. Slot or schema
+identity alone never authorizes a match. `Clear` omits the entry; `Keep` and
+`Blocked` preserve its target and edit unchanged. `Replace` is permitted only
+from `NewProperty` to the supplied exact `ExistingOccurrence`, with the same
+schema, and preserves the original semantic edit byte-for-byte through
+serialization. It never derives an edit from sent, before, observed, display,
+or occurrence-value data.
+
+Every replacement slot is checked against retained original slots, other
+replacement slots, and every different original operation including a cleared
+one. Any convergence rejects the complete transformation instead of merging
+operations. Successful output uses logical-slot ordering. Blocked reasons stay
+transient on outcomes for a future command and frontend to surface; they are
+not added to schema-v5 persistence. The pure file helper performs no
+persistence or metadata writes. It has no Tauri command, production caller, or
+frontend consumer, and production persistence and apply remain schema v4.
+
 `targets_to_clear` is derived only from `Clear` reconciliation, by logical slot
 and in input order. Legacy projection omissions do not invalidate a v5
 authoritative occurrence read. Successful, invariant-valid readback returns the
-complete scanner `ImageMetadata` unchanged. Reconciliation is modeled only:
-there is no batch replacement persistence and no frontend consumer yet.
+complete scanner `ImageMetadata` unchanged. Reconciliation application remains
+inactive in-memory foundation code: there is no batch replacement persistence
+and no frontend consumer.
 
 The v5 path does not write the schema-keyed legacy apply log; target-aware
 logging remains pending. There is no Tauri apply command or production caller.

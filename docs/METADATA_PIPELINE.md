@@ -201,11 +201,38 @@ matches block and never choose a replacement. `ReadbackFailed` and
 `ReadbackInvalid` keep every original target conservatively and construct no
 replacement.
 
+An inactive pure Rust engine can now consume those already-computed structured
+reconciliations in memory:
+
+```text
+original v5 entry
++ target outcome reconciliation
+→ validated reconciled v5 entry collection
+```
+
+It requires exactly one outcome for every original logical slot, rejects
+outcomes for unknown slots, and requires the outcome's complete original target
+snapshot to equal the entry target. `Clear` removes the original slot; `Keep`
+and `Blocked` retain the complete original target and edit. `Replace` accepts
+only `NewProperty` to exact supplied `ExistingOccurrence`, requires identical
+schema identity, and carries forward the original semantic edit without using
+sent, before, observed, occurrence-value, or display fields. Replacement slots
+are checked against every retained slot, every other replacement, and every
+other original operation even when that operation is `Clear`; a collision
+rejects the whole transformation. Successful entries are ordered by logical
+slot. Blocked reasons remain transient outcome information that a future
+command and frontend must surface rather than persist.
+
+The file-level helper clones only after validation, removes an emptied file,
+and otherwise preserves unrelated files. It performs no load, save, metadata
+write, or production-state mutation. There is no Tauri command or production
+caller for it, and production persistence and apply remain schema v4.
+
 `targets_to_clear` remains as a transitional result field but is derived only
 from `Clear` reconciliations, in input order and by unique logical slot. A
 successful, invariant-valid readback returns the original full `ImageMetadata`
-rather than rebuilding its legacy map. No batch layer persists `Replace` yet,
-and no frontend consumer uses reconciliation.
+rather than rebuilding its legacy map. No batch layer persists `Replace`, and
+no frontend consumer uses reconciliation.
 
 This path deliberately does not use the schema-keyed apply log; target-aware
 logging remains pending. It has no Tauri apply command or production caller.
