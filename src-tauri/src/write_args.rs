@@ -14,6 +14,8 @@
 //! on numeric tags being already set (rare but possible for derived fields).
 
 use crate::draft_edits::{EditIntent, MetadataDraftEdit};
+use crate::metadata_draft_target::{MetadataDraftTarget, MetadataDraftTargetError};
+use crate::metadata_occurrence::MetadataOccurrence;
 use crate::metadata_value::{
     DateTimeValue, DateValue, MetadataValue, OffsetSign, TimeValue, UtcOffsetValue,
 };
@@ -40,6 +42,52 @@ impl BuiltArgs {
     }
 }
 
+/// A structured reason that occurrence-aware write argument planning failed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MetadataTargetWriteError {
+    /// A domain target rule failed. Existing-occurrence validation preserves
+    /// its exact freshness reason here.
+    TargetValidation(MetadataDraftTargetError),
+    /// An existing-occurrence planner was given a new-property target.
+    ExistingOccurrenceRequired,
+    /// A new-property planner was given an existing-occurrence target.
+    NewPropertyRequired,
+    /// The supplied schema does not exactly match the new-property target.
+    SchemaIdMismatch,
+    /// A selector component cannot safely cross the ExifTool argv boundary.
+    UnsafeWriteTarget,
+    /// The semantic edit value cannot be encoded for this schema.
+    ValueEncoding(String),
+}
+
+impl std::fmt::Display for MetadataTargetWriteError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::TargetValidation(error) => write!(formatter, "target validation failed: {error}"),
+            Self::ExistingOccurrenceRequired => {
+                formatter.write_str("an existing-occurrence target is required")
+            }
+            Self::NewPropertyRequired => formatter.write_str("a new-property target is required"),
+            Self::SchemaIdMismatch => {
+                formatter.write_str("target schema ID does not match the supplied schema")
+            }
+            Self::UnsafeWriteTarget => {
+                formatter.write_str("write-target selector components are unsafe")
+            }
+            Self::ValueEncoding(error) => write!(formatter, "value encoding failed: {error}"),
+        }
+    }
+}
+
+impl std::error::Error for MetadataTargetWriteError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::TargetValidation(error) => Some(error),
+            _ => None,
+        }
+    }
+}
+
 pub fn build_metadata_args(
     id: &SchemaDefinitionId,
     info: &TagInfo,
@@ -59,6 +107,93 @@ pub fn build_metadata_args(
     if info.group.is_empty() || info.name.is_empty() || tag.contains('\n') || tag.contains('\0') {
         return Ok(BuiltArgs::default());
     }
+
+    build_metadata_args_for_selector(tag, info, edit)
+}
+
+/// Plans a write to one exact existing occurrence after revalidating its
+/// persisted target snapshot against a freshly read authoritative occurrence.
+///
+/// This remains unused until draft v5 and occurrence-aware readback are wired
+/// together; production apply continues to use [`build_metadata_args`].
+pub fn build_existing_occurrence_args(
+    target: &MetadataDraftTarget,
+    fresh_occurrence: &MetadataOccurrence,
+    edit: &MetadataDraftEdit,
+) -> Result<BuiltArgs, MetadataTargetWriteError> {
+    if !target.is_existing_occurrence() {
+        return Err(MetadataTargetWriteError::ExistingOccurrenceRequired);
+    }
+    target
+        .validate_existing_occurrence(fresh_occurrence)
+        .map_err(MetadataTargetWriteError::TargetValidation)?;
+
+    // Validation above guarantees both values exist and match the persisted
+    // schema and selector snapshots exactly.
+    let info =
+        fresh_occurrence
+            .tag_info
+            .as_ref()
+            .ok_or(MetadataTargetWriteError::TargetValidation(
+                MetadataDraftTargetError::UnknownSchema,
+            ))?;
+    let write_target = fresh_occurrence.write_target.as_ref().ok_or(
+        MetadataTargetWriteError::TargetValidation(MetadataDraftTargetError::MissingWriteTarget),
+    )?;
+    let selector = validated_selector(&write_target.group1, &write_target.tag_name)?;
+
+    build_metadata_args_for_selector(&selector, info, edit)
+        .map_err(MetadataTargetWriteError::ValueEncoding)
+}
+
+/// Plans schema-driven creation of a property that has no runtime occurrence.
+///
+/// This remains unused until draft v5 and occurrence-aware readback are wired
+/// together; production apply continues to use [`build_metadata_args`].
+pub fn build_new_property_args(
+    target: &MetadataDraftTarget,
+    info: &TagInfo,
+    edit: &MetadataDraftEdit,
+) -> Result<BuiltArgs, MetadataTargetWriteError> {
+    if !target.is_new_property() {
+        return Err(MetadataTargetWriteError::NewPropertyRequired);
+    }
+    if target.schema_id() != &info.id {
+        return Err(MetadataTargetWriteError::SchemaIdMismatch);
+    }
+    if !info.writable {
+        return Err(MetadataTargetWriteError::TargetValidation(
+            MetadataDraftTargetError::ReadOnlySchema,
+        ));
+    }
+    let selector = validated_selector(&info.group, &info.name)?;
+
+    build_metadata_args_for_selector(&selector, info, edit)
+        .map_err(MetadataTargetWriteError::ValueEncoding)
+}
+
+fn validated_selector(group: &str, tag_name: &str) -> Result<String, MetadataTargetWriteError> {
+    let unsafe_group = group.is_empty()
+        || group
+            .chars()
+            .any(|character| matches!(character, '\0' | '\r' | '\n' | '='));
+    let unsafe_tag_name = tag_name.is_empty()
+        || tag_name
+            .chars()
+            .any(|character| matches!(character, '\0' | '\r' | '\n' | '=' | ':'));
+    if unsafe_group || unsafe_tag_name {
+        return Err(MetadataTargetWriteError::UnsafeWriteTarget);
+    }
+
+    Ok(format!("{group}:{tag_name}"))
+}
+
+fn build_metadata_args_for_selector(
+    selector: &str,
+    info: &TagInfo,
+    edit: &MetadataDraftEdit,
+) -> Result<BuiltArgs, String> {
+    let tag = selector;
 
     match edit.intent {
         EditIntent::Delete => Ok(BuiltArgs {
@@ -485,7 +620,8 @@ fn render_offset(offset: &UtcOffsetValue) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::metadata_value::ListKind;
+    use crate::metadata_occurrence::{MetadataOccurrenceId, MetadataWriteTarget};
+    use crate::metadata_value::{ListKind, RationalValue};
     use crate::tag_schema::{EnumOption, EnumRepr};
     use std::collections::BTreeMap;
 
@@ -1204,5 +1340,562 @@ mod tests {
         a.extend(b);
         assert_eq!(a.numeric, vec!["-A=1", "-C=2"]);
         assert_eq!(a.text, vec!["-B=x", "-D=y"]);
+    }
+
+    fn target_test_info(index: Option<u32>) -> TagInfo {
+        TagInfo {
+            id: SchemaDefinitionId {
+                table: "SchemaTableMustNotBeUsed".to_owned(),
+                tag_id: "SchemaTagIdMustNotBeUsed".to_owned(),
+                index,
+            },
+            group: "SchemaGroupMustNotBeUsed".to_owned(),
+            name: "FriendlyNameMustNotBeUsed".to_owned(),
+            writable: true,
+            kind: TagKind::Text,
+            description: Some("Friendly description must not be used".to_owned()),
+            storage_count: None,
+        }
+    }
+
+    fn target_test_occurrence(group1: &str) -> MetadataOccurrence {
+        MetadataOccurrence {
+            id: MetadataOccurrenceId {
+                document: None,
+                path: format!("Family5PathMustNotBeUsed-{group1}"),
+                tag_id: "Family7TagIdMustNotBeUsed".to_owned(),
+                copy: 4,
+            },
+            value: text("old"),
+            tag_info: Some(target_test_info(None)),
+            write_target: Some(MetadataWriteTarget {
+                group1: group1.to_owned(),
+                tag_name: "XResolution".to_owned(),
+            }),
+        }
+    }
+
+    fn existing_target(occurrence: &MetadataOccurrence) -> MetadataDraftTarget {
+        MetadataDraftTarget::from_existing_occurrence(occurrence).unwrap()
+    }
+
+    fn new_property_target(info: &TagInfo) -> MetadataDraftTarget {
+        MetadataDraftTarget::from_new_property(info).unwrap()
+    }
+
+    #[test]
+    fn existing_writable_occurrence_uses_exact_ifd0_runtime_selector() {
+        let occurrence = target_test_occurrence("IFD0");
+        let target = existing_target(&occurrence);
+
+        assert_eq!(
+            build_existing_occurrence_args(&target, &occurrence, &metadata_set(text("value")))
+                .unwrap()
+                .text,
+            vec!["-IFD0:XResolution=value"]
+        );
+    }
+
+    #[test]
+    fn existing_ifd1_selector_ignores_schema_and_friendly_identity_fields() {
+        let occurrence = target_test_occurrence("IFD1");
+        let target = existing_target(&occurrence);
+        let args =
+            build_existing_occurrence_args(&target, &occurrence, &metadata_set(text("value")))
+                .unwrap();
+
+        assert_eq!(args.text, vec!["-IFD1:XResolution=value"]);
+        for forbidden in [
+            "SchemaGroupMustNotBeUsed",
+            "FriendlyNameMustNotBeUsed",
+            "SchemaTableMustNotBeUsed",
+            "SchemaTagIdMustNotBeUsed",
+            "Family5PathMustNotBeUsed",
+            "Family7TagIdMustNotBeUsed",
+            "Copy4",
+        ] {
+            assert!(!args.text[0].contains(forbidden));
+        }
+    }
+
+    #[test]
+    fn existing_shared_schema_occurrences_keep_distinct_runtime_selectors() {
+        let ifd0 = target_test_occurrence("IFD0");
+        let mut ifd1 = target_test_occurrence("IFD1");
+        ifd1.tag_info = ifd0.tag_info.clone();
+        let edit = metadata_set(text("value"));
+
+        let ifd0_args =
+            build_existing_occurrence_args(&existing_target(&ifd0), &ifd0, &edit).unwrap();
+        let ifd1_args =
+            build_existing_occurrence_args(&existing_target(&ifd1), &ifd1, &edit).unwrap();
+
+        assert_eq!(ifd0.tag_info, ifd1.tag_info);
+        assert_eq!(ifd0_args.text, vec!["-IFD0:XResolution=value"]);
+        assert_eq!(ifd1_args.text, vec!["-IFD1:XResolution=value"]);
+        assert_ne!(ifd0_args, ifd1_args);
+    }
+
+    #[test]
+    fn existing_occurrence_id_mismatch_rejects_before_value_encoding() {
+        let original = target_test_occurrence("IFD0");
+        let target = existing_target(&original);
+        let mut fresh = original;
+        fresh.id.copy += 1;
+
+        assert_eq!(
+            build_existing_occurrence_args(&target, &fresh, &metadata_set(MetadataValue::Binary),),
+            Err(MetadataTargetWriteError::TargetValidation(
+                MetadataDraftTargetError::OccurrenceIdMismatch
+            ))
+        );
+    }
+
+    #[test]
+    fn existing_schema_id_mismatch_is_preserved_structurally() {
+        let original = target_test_occurrence("IFD0");
+        let target = existing_target(&original);
+        let mut fresh = original;
+        fresh.tag_info.as_mut().unwrap().id.index = Some(0);
+
+        assert_eq!(
+            build_existing_occurrence_args(&target, &fresh, &metadata_set(text("value"))),
+            Err(MetadataTargetWriteError::TargetValidation(
+                MetadataDraftTargetError::SchemaIdMismatch
+            ))
+        );
+    }
+
+    #[test]
+    fn existing_missing_fresh_schema_is_rejected() {
+        let original = target_test_occurrence("IFD0");
+        let target = existing_target(&original);
+        let mut fresh = original;
+        fresh.tag_info = None;
+
+        assert_eq!(
+            build_existing_occurrence_args(&target, &fresh, &metadata_set(text("value"))),
+            Err(MetadataTargetWriteError::TargetValidation(
+                MetadataDraftTargetError::UnknownSchema
+            ))
+        );
+    }
+
+    #[test]
+    fn existing_fresh_read_only_schema_is_rejected() {
+        let original = target_test_occurrence("IFD0");
+        let target = existing_target(&original);
+        let mut fresh = original;
+        fresh.tag_info.as_mut().unwrap().writable = false;
+
+        assert_eq!(
+            build_existing_occurrence_args(&target, &fresh, &metadata_set(text("value"))),
+            Err(MetadataTargetWriteError::TargetValidation(
+                MetadataDraftTargetError::ReadOnlySchema
+            ))
+        );
+    }
+
+    #[test]
+    fn existing_missing_fresh_write_target_is_rejected() {
+        let original = target_test_occurrence("IFD0");
+        let target = existing_target(&original);
+        let mut fresh = original;
+        fresh.write_target = None;
+
+        assert_eq!(
+            build_existing_occurrence_args(&target, &fresh, &metadata_set(text("value"))),
+            Err(MetadataTargetWriteError::TargetValidation(
+                MetadataDraftTargetError::MissingWriteTarget
+            ))
+        );
+    }
+
+    #[test]
+    fn existing_changed_fresh_write_target_is_rejected() {
+        let original = target_test_occurrence("IFD0");
+        let target = existing_target(&original);
+        let mut fresh = original;
+        fresh.write_target.as_mut().unwrap().group1 = "IFD1".to_owned();
+
+        assert_eq!(
+            build_existing_occurrence_args(&target, &fresh, &metadata_set(text("value"))),
+            Err(MetadataTargetWriteError::TargetValidation(
+                MetadataDraftTargetError::WriteTargetMismatch
+            ))
+        );
+    }
+
+    #[test]
+    fn existing_builder_rejects_new_property_target() {
+        let occurrence = target_test_occurrence("IFD0");
+        let target = new_property_target(occurrence.tag_info.as_ref().unwrap());
+
+        assert_eq!(
+            build_existing_occurrence_args(&target, &occurrence, &metadata_set(text("value"))),
+            Err(MetadataTargetWriteError::ExistingOccurrenceRequired)
+        );
+    }
+
+    #[test]
+    fn existing_builder_rejects_every_unsafe_runtime_group_component() {
+        for group in ["", "IFD\0", "IFD\r", "IFD\n", "IFD=0"] {
+            let occurrence = target_test_occurrence(group);
+            let target = existing_target(&occurrence);
+            assert_eq!(
+                build_existing_occurrence_args(&target, &occurrence, &metadata_set(text("value")),),
+                Err(MetadataTargetWriteError::UnsafeWriteTarget),
+                "group {group:?} should be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn existing_builder_rejects_every_unsafe_runtime_tag_name_component() {
+        for tag_name in ["", "Tag\0", "Tag\r", "Tag\n", "Tag=Name", "Tag:Name"] {
+            let mut occurrence = target_test_occurrence("IFD0");
+            occurrence.write_target.as_mut().unwrap().tag_name = tag_name.to_owned();
+            let target = existing_target(&occurrence);
+            assert_eq!(
+                build_existing_occurrence_args(&target, &occurrence, &metadata_set(text("value")),),
+                Err(MetadataTargetWriteError::UnsafeWriteTarget),
+                "tag name {tag_name:?} should be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn existing_builder_does_not_mutate_target_or_fresh_occurrence() {
+        let occurrence = target_test_occurrence("IFD1");
+        let target = existing_target(&occurrence);
+        let occurrence_before = occurrence.clone();
+        let target_before = target.clone();
+
+        build_existing_occurrence_args(&target, &occurrence, &metadata_set(text("value"))).unwrap();
+
+        assert_eq!(target, target_before);
+        assert_eq!(occurrence, occurrence_before);
+    }
+
+    #[test]
+    fn existing_builder_uses_fresh_tag_info_semantics_after_validation() {
+        let original = target_test_occurrence("IFD0");
+        let target = existing_target(&original);
+        let mut fresh = original;
+        fresh.tag_info.as_mut().unwrap().kind = TagKind::Integer {
+            min: None,
+            max: None,
+        };
+
+        let args = build_existing_occurrence_args(
+            &target,
+            &fresh,
+            &metadata_set(MetadataValue::Integer(5)),
+        )
+        .unwrap();
+
+        assert_eq!(args.numeric, vec!["-IFD0:XResolution=5"]);
+        assert!(args.text.is_empty());
+    }
+
+    #[test]
+    fn new_property_writable_exact_schema_uses_schema_selector_only() {
+        let mut info = target_test_info(None);
+        info.group = "XMP-dc".to_owned();
+        info.name = "Title".to_owned();
+        let target = new_property_target(&info);
+
+        let args = build_new_property_args(&target, &info, &metadata_set(text("value"))).unwrap();
+
+        assert_eq!(args.text, vec!["-XMP-dc:Title=value"]);
+        assert_eq!(target.occurrence_id(), None);
+        assert_eq!(target.write_target(), None);
+    }
+
+    #[test]
+    fn new_property_schema_id_mismatch_is_rejected() {
+        let info = target_test_info(None);
+        let target = MetadataDraftTarget::NewProperty {
+            schema_id: SchemaDefinitionId {
+                index: Some(0),
+                ..info.id.clone()
+            },
+        };
+
+        assert_eq!(
+            build_new_property_args(&target, &info, &metadata_set(text("value"))),
+            Err(MetadataTargetWriteError::SchemaIdMismatch)
+        );
+    }
+
+    #[test]
+    fn new_property_read_only_schema_is_rejected() {
+        let mut info = target_test_info(None);
+        let target = new_property_target(&info);
+        info.writable = false;
+
+        assert_eq!(
+            build_new_property_args(&target, &info, &metadata_set(text("value"))),
+            Err(MetadataTargetWriteError::TargetValidation(
+                MetadataDraftTargetError::ReadOnlySchema
+            ))
+        );
+    }
+
+    #[test]
+    fn new_property_builder_rejects_existing_occurrence_target() {
+        let occurrence = target_test_occurrence("IFD0");
+        let target = existing_target(&occurrence);
+
+        assert_eq!(
+            build_new_property_args(
+                &target,
+                occurrence.tag_info.as_ref().unwrap(),
+                &metadata_set(text("value")),
+            ),
+            Err(MetadataTargetWriteError::NewPropertyRequired)
+        );
+    }
+
+    #[test]
+    fn new_property_builder_rejects_every_unsafe_schema_group_component() {
+        for group in ["", "XMP\0", "XMP\r", "XMP\n", "XMP=dc"] {
+            let mut info = target_test_info(None);
+            info.group = group.to_owned();
+            let target = new_property_target(&info);
+            assert_eq!(
+                build_new_property_args(&target, &info, &metadata_set(text("value"))),
+                Err(MetadataTargetWriteError::UnsafeWriteTarget),
+                "group {group:?} should be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn new_property_builder_rejects_every_unsafe_schema_tag_name_component() {
+        for tag_name in ["", "Tag\0", "Tag\r", "Tag\n", "Tag=Name", "Tag:Name"] {
+            let mut info = target_test_info(None);
+            info.name = tag_name.to_owned();
+            let target = new_property_target(&info);
+            assert_eq!(
+                build_new_property_args(&target, &info, &metadata_set(text("value"))),
+                Err(MetadataTargetWriteError::UnsafeWriteTarget),
+                "tag name {tag_name:?} should be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn new_property_absent_and_zero_schema_indexes_validate_distinctly() {
+        let absent = target_test_info(None);
+        let zero = target_test_info(Some(0));
+        let absent_target = new_property_target(&absent);
+        let zero_target = new_property_target(&zero);
+        let edit = metadata_set(text("value"));
+
+        assert!(build_new_property_args(&absent_target, &absent, &edit).is_ok());
+        assert!(build_new_property_args(&zero_target, &zero, &edit).is_ok());
+        assert_eq!(
+            build_new_property_args(&absent_target, &zero, &edit),
+            Err(MetadataTargetWriteError::SchemaIdMismatch)
+        );
+        assert_eq!(
+            build_new_property_args(&zero_target, &absent, &edit),
+            Err(MetadataTargetWriteError::SchemaIdMismatch)
+        );
+    }
+
+    #[test]
+    fn new_property_builder_does_not_mutate_target_or_tag_info() {
+        let info = target_test_info(None);
+        let target = new_property_target(&info);
+        let info_before = info.clone();
+        let target_before = target.clone();
+
+        build_new_property_args(&target, &info, &metadata_set(text("value"))).unwrap();
+
+        assert_eq!(target, target_before);
+        assert_eq!(info, info_before);
+    }
+
+    #[test]
+    fn target_aware_builders_have_legacy_semantic_parity() {
+        let mut langs = BTreeMap::new();
+        langs.insert("en".to_owned(), "Hello".to_owned());
+        let mut structure = BTreeMap::new();
+        structure.insert("Name".to_owned(), text("Ada"));
+        let offset = UtcOffsetValue {
+            sign: OffsetSign::Plus,
+            hours: 1,
+            minutes: 30,
+        };
+        let date = DateValue {
+            year: 2026,
+            month: 7,
+            day: 13,
+        };
+        let time = TimeValue {
+            hour: 12,
+            minute: 34,
+            second: 56,
+            subsecond: Some("789".to_owned()),
+            offset: Some(offset.clone()),
+        };
+        let integer_kind = TagKind::Integer {
+            min: None,
+            max: None,
+        };
+        let cases = vec![
+            ("delete", TagKind::Text, metadata_delete()),
+            (
+                "integer set",
+                integer_kind.clone(),
+                metadata_set(MetadataValue::Integer(5)),
+            ),
+            (
+                "real set",
+                TagKind::Real,
+                metadata_set(MetadataValue::Real(1.25)),
+            ),
+            (
+                "rational set",
+                TagKind::Rational,
+                metadata_set(MetadataValue::Rational(RationalValue {
+                    numerator: 1,
+                    denominator: 250,
+                })),
+            ),
+            (
+                "boolean set",
+                TagKind::Boolean,
+                metadata_set(MetadataValue::Bool(true)),
+            ),
+            (
+                "integer enum set",
+                TagKind::Enum {
+                    repr: EnumRepr::Integer,
+                    options: vec![],
+                },
+                metadata_set(MetadataValue::Integer(6)),
+            ),
+            (
+                "text enum set",
+                TagKind::Enum {
+                    repr: EnumRepr::String,
+                    options: vec![],
+                },
+                metadata_set(text("active")),
+            ),
+            ("text set", TagKind::Text, metadata_set(text("value"))),
+            (
+                "lang-alt set",
+                TagKind::LangAlt,
+                metadata_set(MetadataValue::LangAlt(langs)),
+            ),
+            (
+                "text-list set",
+                TagKind::Bag(Box::new(TagKind::Text)),
+                metadata_set(bag_text(&["a", "b"])),
+            ),
+            (
+                "alternate-list set",
+                TagKind::Alt(Box::new(TagKind::Text)),
+                metadata_set(MetadataValue::List {
+                    list_kind: ListKind::Alt,
+                    items: vec![text("a"), text("b")],
+                }),
+            ),
+            (
+                "numeric-list set",
+                TagKind::Seq(Box::new(integer_kind.clone())),
+                metadata_set(MetadataValue::List {
+                    list_kind: ListKind::Seq,
+                    items: vec![MetadataValue::Integer(1), MetadataValue::Integer(2)],
+                }),
+            ),
+            (
+                "list add",
+                TagKind::Bag(Box::new(TagKind::Text)),
+                metadata_list_add(bag_text(&["a", "b"])),
+            ),
+            (
+                "list remove",
+                TagKind::Bag(Box::new(TagKind::Text)),
+                metadata_list_remove(text("old")),
+            ),
+            (
+                "date",
+                TagKind::Date,
+                metadata_set(MetadataValue::Date(date.clone())),
+            ),
+            (
+                "time",
+                TagKind::Time,
+                metadata_set(MetadataValue::Time(time.clone())),
+            ),
+            (
+                "date-time",
+                TagKind::DateTime,
+                metadata_set(MetadataValue::DateTime(DateTimeValue { date, time })),
+            ),
+            (
+                "time offset",
+                TagKind::TimeOffset,
+                metadata_set(MetadataValue::TimeOffset(offset)),
+            ),
+            (
+                "struct",
+                TagKind::Struct(BTreeMap::new()),
+                metadata_set(MetadataValue::Struct(structure)),
+            ),
+            ("null set", TagKind::Text, metadata_set(MetadataValue::Null)),
+            (
+                "binary rejection",
+                TagKind::Text,
+                metadata_set(MetadataValue::Binary),
+            ),
+            (
+                "unknown rejection",
+                TagKind::Text,
+                metadata_set(MetadataValue::Unknown {
+                    expected: Some(TagKind::Text),
+                    raw: serde_json::json!({ "raw": true }),
+                    reason: Some("test reason".to_owned()),
+                }),
+            ),
+        ];
+
+        for (case, kind, edit) in cases {
+            let mut info = target_test_info(None);
+            info.group = "IFD0".to_owned();
+            info.name = "XResolution".to_owned();
+            info.kind = kind;
+            let mut occurrence = target_test_occurrence("IFD0");
+            occurrence.tag_info = Some(info.clone());
+            let existing = existing_target(&occurrence);
+            let new_property = new_property_target(&info);
+            let legacy = build_metadata_args(&info.id, &info, &edit);
+            let existing_result = build_existing_occurrence_args(&existing, &occurrence, &edit);
+            let new_result = build_new_property_args(&new_property, &info, &edit);
+
+            match legacy {
+                Ok(expected) => {
+                    assert_eq!(existing_result, Ok(expected.clone()), "existing {case}");
+                    assert_eq!(new_result, Ok(expected), "new property {case}");
+                }
+                Err(expected) => {
+                    assert_eq!(
+                        existing_result,
+                        Err(MetadataTargetWriteError::ValueEncoding(expected.clone())),
+                        "existing {case}"
+                    );
+                    assert_eq!(
+                        new_result,
+                        Err(MetadataTargetWriteError::ValueEncoding(expected)),
+                        "new property {case}"
+                    );
+                }
+            }
+        }
     }
 }

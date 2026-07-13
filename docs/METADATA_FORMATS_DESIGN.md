@@ -381,10 +381,31 @@ after rereading the authoritative file before a later apply pipeline writes.
 The relative file path remains outer draft-map context and is not part of the
 target.
 
-This model has no production consumer yet. Draft collections and JSONL remain
-schema-keyed v4; persistence, load/save behavior, UI behavior, write argument
-construction, and readback verification are unchanged. Draft v5 remains
-pending, and no v5 JSONL shape is final beyond the locked target enum.
+Pure write planning now implements the two selector paths:
+
+```text
+ExistingOccurrence
+    validate stored target against a fresh authoritative occurrence
+    → fresh MetadataWriteTarget selector
+    → fresh embedded TagInfo semantic encoding
+
+NewProperty
+    validate exact supplied TagInfo schema
+    → schema-driven creation selector
+    → supplied TagInfo semantic encoding
+```
+
+The stored selector snapshot is never sufficient without fresh-occurrence
+validation. Existing-occurrence planning never uses `TagInfo::group` for the
+write destination; new-property creation remains schema-driven because it has
+no occurrence selector. These planners share the legacy builder's semantic
+value encoder and preserve its numeric/text pass grouping and argument order.
+
+This model and its pure planners have no production consumer yet. Draft
+collections and JSONL remain schema-keyed v4; persistence, load/save behavior,
+UI behavior, production write argument construction, and schema-keyed readback
+verification are unchanged. Draft v5 remains pending, and no v5 JSONL shape is
+final beyond the locked target enum.
 
 MediaLibrary persists draft edits (`MediaLibraryDraftEdits.jsonl`). Read metadata is **not** cached — every scan re-queries exiftool. Reasons:
 
