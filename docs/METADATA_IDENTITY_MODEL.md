@@ -205,6 +205,27 @@ date/time encoding.
 The file-relative path remains the outer draft-map context for both variants;
 it is not duplicated inside `MetadataDraftTarget`.
 
+`MetadataDraftTarget` and `MetadataDraftSlot` answer different identity
+questions:
+
+```text
+target snapshot identity
+    ExistingOccurrence = occurrence + schema + selector snapshot
+    NewProperty        = schema
+
+draft-slot identity
+    ExistingOccurrence = occurrence only
+    NewProperty        = schema only
+```
+
+The complete target snapshot is retained for later stale-target validation.
+The slot identifies the one logical draft position within a file. Consequently,
+two stale snapshots with the same `MetadataOccurrenceId` cannot become two
+independent drafts merely because their schema or selector snapshots changed.
+Existing-occurrence and new-property slots remain different variants even when
+they carry the same schema. File-relative path is outer context, not a slot
+field; the occurrence ID's family-5 `path` remains part of occurrence identity.
+
 ## No arbitrary schema-to-occurrence conversion
 
 A lookup that begins with a schema definition can produce any of these states:
@@ -272,9 +293,16 @@ first occurrence is selected, including when values are identical or one
 occurrence appears more writable or otherwise preferable, and no write command
 uses occurrence identity yet.
 
-`MetadataDraftTarget` is now the locked model for the upcoming draft migration,
-and pure write planning exists for both variants, but no production component
-creates or consumes those targets or builders. Persisted and in-memory drafts
-remain schema-keyed v4, the JSONL shape and schema-keyed verification are
-unchanged, and draft v5 is still pending. Only the target enum is locked; no
-future v5 persistence shape is finalised here.
+`MetadataDraftTarget`, `MetadataDraftSlot`, and inactive schema-v5 load/save
+functions now define the persistence boundary for the upcoming draft migration.
+The inactive v5 JSONL line keeps `relative_path` as outer context and stores a
+vector of `{ target, edit }` entries. No production component calls those v5
+functions or creates or consumes targets. Production Tauri commands, frontend
+draft collections, Details Pane callbacks, Add Property, apply/write,
+verification, and current draft files remain schema-keyed v4.
+
+V4 entries are not automatically converted: a `SchemaDefinitionId` alone does
+not reveal whether the intended operation edits an existing occurrence or
+creates a new property. Choosing an occurrence would require forbidden
+first-match logic. Pending v4 drafts must therefore be recreated after a future
+v5 migration, and applying v5 targets remains pending.

@@ -97,6 +97,19 @@ reread the file, find the exact occurrence ID, validate the fresh schema and
 write-target snapshot, and reject stale or ambiguous targets. The relative file
 path remains outer draft-map context rather than a target field.
 
+Target snapshot identity and draft-slot identity are deliberately separate:
+
+```text
+                         target snapshot                 draft slot
+ExistingOccurrence      occurrence + schema + selector  occurrence only
+NewProperty             schema                          schema only
+```
+
+The target snapshot preserves everything needed for later revalidation. The
+slot says which one draft position it occupies, so changed stale schema or
+selector snapshots for the same occurrence cannot create parallel drafts.
+Existing and new variants remain distinct slots even when their schemas match.
+
 Pure write-argument planners now enforce the next boundary without executing
 ExifTool:
 
@@ -118,12 +131,19 @@ New-property creation remains schema-driven because no runtime occurrence or
 write target exists yet. The target-aware planners and the legacy builder share
 one semantic value encoder.
 
-This is foundation code only. In-memory and persisted drafts remain
-schema-keyed v4, load/save behavior and JSONL are unchanged, and no production
-Details Pane, Add Property, apply, write, or verification path consumes
-`MetadataDraftTarget` or the new planners. Existing schema-keyed verification
-is unchanged. The v5 migration is pending, and its persistence shape is not
-finalised beyond this target enum.
+This remains foundation code only. Inactive schema-v5 load/save functions can
+parse and serialize lines with a file-relative path as outer context and
+target-aware `{ target, edit }` entries, but they have no production caller.
+Production Tauri commands and frontend draft collections still use schema-v4
+persistence and are keyed by `SchemaDefinitionId`; current v4 files are not
+migrated. No production Details Pane, Add Property, apply, write, or
+verification path consumes `MetadataDraftTarget`, and applying v5 targets
+remains pending.
+
+A v4 schema ID cannot be converted automatically into an existing-occurrence
+or new-property target without authoritative runtime context. In particular,
+selecting a first occurrence would violate the occurrence identity rules, so
+pending v4 drafts must be recreated after the eventual migration.
 
 ## Tag-Schema Overrides
 

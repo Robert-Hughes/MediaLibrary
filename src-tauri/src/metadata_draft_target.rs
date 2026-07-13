@@ -41,6 +41,17 @@ pub enum MetadataDraftTarget {
     NewProperty { schema_id: SchemaDefinitionId },
 }
 
+/// One logical draft position within a source file.
+///
+/// The source file's relative path remains outer collection context. Unlike a
+/// [`MetadataDraftTarget`], this identity deliberately excludes target
+/// snapshots which may become stale while still referring to the same draft.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum MetadataDraftSlot {
+    ExistingOccurrence { occurrence_id: MetadataOccurrenceId },
+    NewProperty { schema_id: SchemaDefinitionId },
+}
+
 /// A specific reason a draft target cannot be constructed or revalidated.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MetadataDraftTargetError {
@@ -75,6 +86,21 @@ impl std::fmt::Display for MetadataDraftTargetError {
 impl std::error::Error for MetadataDraftTargetError {}
 
 impl MetadataDraftTarget {
+    /// Returns the logical draft position occupied by this complete target
+    /// snapshot.
+    pub fn slot(&self) -> MetadataDraftSlot {
+        match self {
+            Self::ExistingOccurrence { occurrence_id, .. } => {
+                MetadataDraftSlot::ExistingOccurrence {
+                    occurrence_id: occurrence_id.clone(),
+                }
+            }
+            Self::NewProperty { schema_id } => MetadataDraftSlot::NewProperty {
+                schema_id: schema_id.clone(),
+            },
+        }
+    }
+
     pub fn schema_id(&self) -> &SchemaDefinitionId {
         match self {
             Self::ExistingOccurrence { schema_id, .. } | Self::NewProperty { schema_id } => {
@@ -439,5 +465,125 @@ mod tests {
         assert!(
             declaration.contains("| { \"kind\": \"NewProperty\", schema_id: SchemaDefinitionId")
         );
+    }
+
+    #[test]
+    fn existing_slot_contains_only_the_occurrence_id() {
+        let target = MetadataDraftTarget::from_existing_occurrence(&occurrence()).unwrap();
+
+        assert_eq!(
+            target.slot(),
+            MetadataDraftSlot::ExistingOccurrence {
+                occurrence_id: occurrence_id()
+            }
+        );
+    }
+
+    #[test]
+    fn new_property_slot_contains_only_the_schema_id() {
+        let target = MetadataDraftTarget::from_new_property(&info(true, Some(3))).unwrap();
+
+        assert_eq!(
+            target.slot(),
+            MetadataDraftSlot::NewProperty {
+                schema_id: schema_id(Some(3))
+            }
+        );
+    }
+
+    #[test]
+    fn identical_targets_have_equal_slots() {
+        let target = MetadataDraftTarget::from_existing_occurrence(&occurrence()).unwrap();
+        assert_eq!(target.slot(), target.clone().slot());
+    }
+
+    #[test]
+    fn same_occurrence_with_changed_schema_snapshot_has_the_same_slot() {
+        let first = MetadataDraftTarget::from_existing_occurrence(&occurrence()).unwrap();
+        let mut second = first.clone();
+        if let MetadataDraftTarget::ExistingOccurrence { schema_id, .. } = &mut second {
+            schema_id.index = Some(7);
+        }
+
+        assert_ne!(first, second);
+        assert_eq!(first.slot(), second.slot());
+    }
+
+    #[test]
+    fn same_occurrence_with_changed_write_target_has_the_same_slot() {
+        let first = MetadataDraftTarget::from_existing_occurrence(&occurrence()).unwrap();
+        let mut second = first.clone();
+        if let MetadataDraftTarget::ExistingOccurrence { write_target, .. } = &mut second {
+            write_target.group1 = "IFD1".to_owned();
+        }
+
+        assert_ne!(first, second);
+        assert_eq!(first.slot(), second.slot());
+    }
+
+    #[test]
+    fn distinct_occurrence_paths_have_different_slots() {
+        let first = MetadataDraftTarget::from_existing_occurrence(&occurrence()).unwrap();
+        let mut changed = occurrence();
+        changed.id.path = "JPEG-APP1-IFD1".to_owned();
+        let second = MetadataDraftTarget::from_existing_occurrence(&changed).unwrap();
+
+        assert_ne!(first.slot(), second.slot());
+    }
+
+    #[test]
+    fn distinct_occurrence_copy_numbers_have_different_slots() {
+        let first = MetadataDraftTarget::from_existing_occurrence(&occurrence()).unwrap();
+        let mut changed = occurrence();
+        changed.id.copy += 1;
+        let second = MetadataDraftTarget::from_existing_occurrence(&changed).unwrap();
+
+        assert_ne!(first.slot(), second.slot());
+    }
+
+    #[test]
+    fn new_property_schema_indexes_define_distinct_slots() {
+        let first = MetadataDraftTarget::from_new_property(&info(true, Some(1))).unwrap();
+        let second = MetadataDraftTarget::from_new_property(&info(true, Some(2))).unwrap();
+        let absent = MetadataDraftTarget::from_new_property(&info(true, None)).unwrap();
+        let zero = MetadataDraftTarget::from_new_property(&info(true, Some(0))).unwrap();
+
+        assert_ne!(first.slot(), second.slot());
+        assert_ne!(absent.slot(), zero.slot());
+    }
+
+    #[test]
+    fn existing_and_new_targets_with_the_same_schema_are_distinct_slots() {
+        let existing = MetadataDraftTarget::from_existing_occurrence(&occurrence()).unwrap();
+        let new_property = MetadataDraftTarget::from_new_property(&info(true, None)).unwrap();
+
+        assert_ne!(existing.slot(), new_property.slot());
+    }
+
+    #[test]
+    fn slot_ordering_is_existing_then_new_and_uses_domain_ordering() {
+        let existing = MetadataDraftTarget::from_existing_occurrence(&occurrence()).unwrap();
+        let new_property = MetadataDraftTarget::from_new_property(&info(true, None)).unwrap();
+        assert!(existing.slot() < new_property.slot());
+
+        let mut later_occurrence = occurrence();
+        later_occurrence.id.path = "ZZZ".to_owned();
+        let later = MetadataDraftTarget::from_existing_occurrence(&later_occurrence).unwrap();
+        assert!(existing.slot() < later.slot());
+
+        let schema_none = MetadataDraftTarget::from_new_property(&info(true, None)).unwrap();
+        let schema_zero = MetadataDraftTarget::from_new_property(&info(true, Some(0))).unwrap();
+        assert!(schema_none.slot() < schema_zero.slot());
+    }
+
+    #[test]
+    fn slot_has_no_source_file_path_outside_the_occurrence_id() {
+        let target = MetadataDraftTarget::from_existing_occurrence(&occurrence()).unwrap();
+        match target.slot() {
+            MetadataDraftSlot::ExistingOccurrence { occurrence_id } => {
+                assert_eq!(occurrence_id.path, "JPEG-APP1-IFD0");
+            }
+            MetadataDraftSlot::NewProperty { .. } => panic!("expected existing slot"),
+        }
     }
 }

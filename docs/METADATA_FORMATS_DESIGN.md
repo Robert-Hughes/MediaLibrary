@@ -381,6 +381,23 @@ after rereading the authoritative file before a later apply pipeline writes.
 The relative file path remains outer draft-map context and is not part of the
 target.
 
+Target snapshots and draft slots have separate identities:
+
+```text
+target snapshot identity
+    ExistingOccurrence = occurrence + schema + selector
+    NewProperty        = schema
+
+draft-slot identity
+    ExistingOccurrence = occurrence only
+    NewProperty        = schema only
+```
+
+The complete snapshot is preserved for stale-target validation, while the slot
+identifies one logical draft position. A changed schema or selector snapshot
+therefore cannot create a second draft for the same occurrence. Existing and
+new variants remain distinct operations even when their schemas match.
+
 Pure write planning now implements the two selector paths:
 
 ```text
@@ -402,10 +419,49 @@ no occurrence selector. These planners share the legacy builder's semantic
 value encoder and preserve its numeric/text pass grouping and argument order.
 
 This model and its pure planners have no production consumer yet. Draft
-collections and JSONL remain schema-keyed v4; persistence, load/save behavior,
-UI behavior, production write argument construction, and schema-keyed readback
-verification are unchanged. Draft v5 remains pending, and no v5 JSONL shape is
-final beyond the locked target enum.
+collections, UI behavior, production write argument construction, and
+schema-keyed readback verification remain unchanged. Production Tauri commands
+still use the schema-v4 loader and saver.
+
+Inactive v5 load/save functions define the eventual target-aware JSONL line:
+
+```json
+{
+  "schema_version": 5,
+  "relative_path": "photo.jpg",
+  "edits": [
+    {
+      "target": {
+        "kind": "ExistingOccurrence",
+        "occurrence_id": {
+          "document": null,
+          "path": "JPEG-APP1-IFD0",
+          "tag_id": "282",
+          "copy": 0
+        },
+        "schema_id": { "table": "Exif::Main", "tag_id": "282" },
+        "write_target": { "group1": "IFD0", "tag_name": "XResolution" }
+      },
+      "edit": {
+        "value": { "kind": "Integer", "value": 300 },
+        "intent": "Set"
+      }
+    }
+  ]
+}
+```
+
+The relative path remains outer context; it is not duplicated in a target.
+V5 entries preserve complete targets but reject duplicate draft slots. Files
+sort by relative path and entries sort by `MetadataDraftSlot`, after validating
+the complete input before truncation. These v5 functions have no production
+caller and must not be mixed with v4 functions during one live operation.
+
+V4 entries are not automatically converted. A schema ID does not say whether
+the operation edits an existing occurrence or creates a new property, and
+choosing a first occurrence would be forbidden first-match logic. Pending v4
+drafts must be recreated after the eventual migration. Applying v5 targets is
+still pending, and frontend draft collections remain schema-keyed.
 
 MediaLibrary persists draft edits (`MediaLibraryDraftEdits.jsonl`). Read metadata is **not** cached — every scan re-queries exiftool. Reasons:
 
@@ -468,6 +524,7 @@ being guessed from friendly strings.
 - **MetadataValue** — Discriminated semantic value model used inside the app for read metadata, draft edits, writes, verification, and apply logs.
 - **SchemaDefinitionId** — Exact ExifTool definition identity: `{table, tag_id, index?}` from `-listx`. It remains the key for current schema-keyed v4 drafts and their production paths. It is distinct from runtime occurrence identity and exact write targeting. `Group1:Name` is display/search text only.
 - **MetadataDraftTarget** — Locked future target union: an existing occurrence carries runtime occurrence, semantic schema, and exact selector snapshot; a new property carries only the selected schema. No production draft or apply path consumes it yet.
+- **MetadataDraftSlot** — One logical draft position within a file: occurrence identity for an existing field, schema identity for a new property. It deliberately excludes stale target snapshots and the outer file-relative path.
 - **ExifTool JSON boundary** - serde_json::Value held only at scan parsing boundaries before conversion into MetadataValue.
 - **TagKind** — The schema's classification of a tag (`Text`, `Bag<Text>`, `Enum<Integer>`, etc.). Drives which editor renders.
 - **PrintConv** — exiftool's mechanism for converting raw machine values to human-readable form. Table-based (we use it) or code-based (we don't reimplement).

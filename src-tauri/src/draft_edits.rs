@@ -12,6 +12,7 @@
 //!
 //! Saving: the semantic API always writes v4.
 
+use crate::metadata_draft_target::{MetadataDraftSlot, MetadataDraftTarget};
 use crate::metadata_value::MetadataValue;
 use crate::tag_schema::SchemaDefinitionId;
 use serde::{Deserialize, Serialize};
@@ -56,6 +57,18 @@ pub struct MetadataDraftEntry {
 
 pub type MetadataDraftEdits = HashMap<String, Vec<MetadataDraftEntry>>;
 
+// ── inactive v5 target-aware model ──────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
+pub struct MetadataDraftEntryV5 {
+    pub target: MetadataDraftTarget,
+    pub edit: MetadataDraftEdit,
+}
+
+pub type MetadataDraftEditsV5 = HashMap<String, Vec<MetadataDraftEntryV5>>;
+
 // Public because the integration-test crate exercises exact-ID geocode batches.
 pub type MetadataDraftMap = BTreeMap<SchemaDefinitionId, MetadataDraftEdit>;
 
@@ -72,6 +85,13 @@ struct V4Line {
     schema_version: u32,
     relative_path: String,
     edits: Vec<MetadataDraftEntry>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct V5Line {
+    schema_version: u32,
+    relative_path: String,
+    edits: Vec<MetadataDraftEntryV5>,
 }
 
 #[derive(Deserialize)]
@@ -219,10 +239,149 @@ pub fn save_metadata_draft_edits(
     Ok(())
 }
 
+/// Loads the inactive target-aware schema-v5 format.
+///
+/// Do not mix this function with the production v4 load/save functions during
+/// one live operation: both versions use the same eventual on-disk filename,
+/// but their entry identities are intentionally incompatible.
+pub fn load_metadata_draft_edits_v5(folder_path: &str) -> Result<MetadataDraftEditsV5, String> {
+    let path = Path::new(folder_path).join(FILE_NAME);
+    let mut typed: MetadataDraftEditsV5 = HashMap::new();
+
+    if !path.exists() {
+        return Ok(typed);
+    }
+
+    let file = File::open(&path).map_err(|e| e.to_string())?;
+    let reader = BufReader::new(file);
+    let mut seen_paths = HashMap::new();
+
+    for (line_no, line_result) in reader.lines().enumerate() {
+        let line = line_result.map_err(|e| e.to_string())?;
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with("//") {
+            continue;
+        }
+
+        let display_line = line_no + 1;
+        let version = serde_json::from_str::<VersionProbe>(trimmed)
+            .map_err(|e| format!("Invalid draft line {display_line}: {e}"))?
+            .schema_version;
+
+        match version {
+            Some(5) => {
+                let parsed = serde_json::from_str::<V5Line>(trimmed)
+                    .map_err(|e| format!("Invalid v5 draft line {display_line}: {e}"))?;
+
+                if let Some(first_line) = seen_paths.get(&parsed.relative_path) {
+                    return Err(format!(
+                        "duplicate relative_path {:?} on line {}; first seen on line {}",
+                        parsed.relative_path, display_line, first_line
+                    ));
+                }
+                seen_paths.insert(parsed.relative_path.clone(), display_line);
+
+                let mut seen_slots: HashSet<MetadataDraftSlot> = HashSet::new();
+                for entry in &parsed.edits {
+                    let slot = entry.target.slot();
+                    if !seen_slots.insert(slot.clone()) {
+                        return Err(format!(
+                            "Duplicate metadata draft slot {slot:?} on line {display_line}"
+                        ));
+                    }
+                }
+
+                if !parsed.edits.is_empty() {
+                    typed.insert(parsed.relative_path, parsed.edits);
+                }
+            }
+            Some(4) => {
+                return Err(format!(
+                    "Cannot load schema_version 4 as v5 on line {display_line}. Schema-v4 drafts are keyed only by SchemaDefinitionId and cannot be safely converted into ExistingOccurrence or NewProperty targets without authoritative runtime context. Recreate pending drafts after the v5 migration."
+                ));
+            }
+            Some(version) if version > 5 => {
+                return Err(format!(
+                    "Unsupported future draft edit schema_version {version} on line {display_line}. This v5 loader only supports schema_version 5."
+                ));
+            }
+            Some(version) => {
+                return Err(format!(
+                    "Unsupported legacy draft edit schema_version {version} on line {display_line}. Recreate pending draft edits with schema_version 5."
+                ));
+            }
+            None => {
+                return Err(format!(
+                    "Unsupported legacy draft edit line {display_line} with no schema_version. Recreate pending draft edits with schema_version 5."
+                ));
+            }
+        }
+    }
+
+    Ok(typed)
+}
+
+/// Saves the inactive target-aware schema-v5 format.
+///
+/// Do not mix this function with the production v4 load/save functions during
+/// one live operation. Validation intentionally completes before the shared
+/// filename is opened or truncated.
+pub fn save_metadata_draft_edits_v5(
+    folder_path: &str,
+    data: &MetadataDraftEditsV5,
+) -> Result<(), String> {
+    let path = Path::new(folder_path).join(FILE_NAME);
+
+    // Validate the complete input before opening/truncating the destination.
+    for (relative_path, entries) in data {
+        let mut seen_slots: HashSet<MetadataDraftSlot> = HashSet::new();
+        for entry in entries {
+            let slot = entry.target.slot();
+            if !seen_slots.insert(slot.clone()) {
+                return Err(format!(
+                    "Duplicate metadata draft slot {slot:?} in save payload for file '{relative_path}'"
+                ));
+            }
+        }
+    }
+
+    let mut file = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(&path)
+        .map_err(|e| e.to_string())?;
+
+    writeln!(file, "{}", HEADER_COMMENT).map_err(|e| e.to_string())?;
+
+    let mut sorted_files: Vec<(&String, &Vec<MetadataDraftEntryV5>)> = data.iter().collect();
+    sorted_files.sort_by(|a, b| a.0.cmp(b.0));
+
+    for (relative_path, edits) in sorted_files {
+        if edits.is_empty() {
+            continue;
+        }
+
+        let mut sorted_edits = edits.clone();
+        sorted_edits.sort_by_key(|entry| entry.target.slot());
+
+        let line = V5Line {
+            schema_version: 5,
+            relative_path: relative_path.clone(),
+            edits: sorted_edits,
+        };
+        let json_line = serde_json::to_string(&line).map_err(|e| e.to_string())?;
+        writeln!(file, "{json_line}").map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::metadata_value::MetadataValue;
+    use crate::metadata_occurrence::{MetadataOccurrenceId, MetadataWriteTarget};
+    use crate::metadata_value::{ListKind, MetadataValue};
     use std::fs;
     use tempfile::tempdir;
 
@@ -758,5 +917,398 @@ mod tests {
         let val_val = edit_val.get("value").unwrap().as_object().unwrap();
         assert_eq!(val_val.get("kind").unwrap().as_str().unwrap(), "Text");
         assert_eq!(val_val.get("value").unwrap().as_str().unwrap(), "hello");
+    }
+
+    fn v5_schema(index: Option<u32>) -> SchemaDefinitionId {
+        SchemaDefinitionId {
+            table: "Exif::Main".to_owned(),
+            tag_id: "282".to_owned(),
+            index,
+        }
+    }
+
+    fn v5_edit(value: MetadataValue) -> MetadataDraftEdit {
+        MetadataDraftEdit {
+            value: Some(value),
+            intent: EditIntent::Set,
+            display: Some("display snapshot".to_owned()),
+        }
+    }
+
+    fn v5_existing_entry(
+        path: &str,
+        copy: u32,
+        schema_index: Option<u32>,
+        group1: &str,
+        value: MetadataValue,
+    ) -> MetadataDraftEntryV5 {
+        MetadataDraftEntryV5 {
+            target: MetadataDraftTarget::ExistingOccurrence {
+                occurrence_id: MetadataOccurrenceId {
+                    document: Some("Doc1".to_owned()),
+                    path: path.to_owned(),
+                    tag_id: "282".to_owned(),
+                    copy,
+                },
+                schema_id: v5_schema(schema_index),
+                write_target: MetadataWriteTarget {
+                    group1: group1.to_owned(),
+                    tag_name: "XResolution".to_owned(),
+                },
+            },
+            edit: v5_edit(value),
+        }
+    }
+
+    fn v5_new_entry(index: Option<u32>, value: MetadataValue) -> MetadataDraftEntryV5 {
+        MetadataDraftEntryV5 {
+            target: MetadataDraftTarget::NewProperty {
+                schema_id: v5_schema(index),
+            },
+            edit: v5_edit(value),
+        }
+    }
+
+    fn write_v5_line(folder: &Path, line: &V5Line) {
+        write_file(
+            folder,
+            FILE_NAME,
+            &format!("{}\n", serde_json::to_string(line).unwrap()),
+        );
+    }
+
+    #[test]
+    fn v5_missing_file_returns_empty() {
+        let dir = tempdir().unwrap();
+        assert!(load_metadata_draft_edits_v5(dir.path().to_str().unwrap())
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn v5_existing_target_round_trip_preserves_every_snapshot_and_outer_path() {
+        let dir = tempdir().unwrap();
+        let entry = v5_existing_entry(
+            "JPEG-APP1-IFD0",
+            2,
+            Some(0),
+            "IFD0",
+            MetadataValue::Integer(300),
+        );
+        let mut data = MetadataDraftEditsV5::new();
+        data.insert("folder/photo.jpg".to_owned(), vec![entry.clone()]);
+
+        save_metadata_draft_edits_v5(dir.path().to_str().unwrap(), &data).unwrap();
+        let loaded = load_metadata_draft_edits_v5(dir.path().to_str().unwrap()).unwrap();
+
+        assert_eq!(loaded, data);
+        let line: serde_json::Value =
+            serde_json::from_str(read_file(dir.path(), FILE_NAME).lines().nth(1).unwrap()).unwrap();
+        assert_eq!(line["relative_path"], "folder/photo.jpg");
+        assert!(line["edits"][0]["target"].get("relative_path").is_none());
+        assert_eq!(loaded["folder/photo.jpg"][0], entry);
+    }
+
+    #[test]
+    fn v5_new_property_target_round_trips() {
+        let dir = tempdir().unwrap();
+        let mut data = MetadataDraftEditsV5::new();
+        data.insert(
+            "photo.jpg".to_owned(),
+            vec![v5_new_entry(Some(0), MetadataValue::Text("new".to_owned()))],
+        );
+
+        save_metadata_draft_edits_v5(dir.path().to_str().unwrap(), &data).unwrap();
+        assert_eq!(
+            load_metadata_draft_edits_v5(dir.path().to_str().unwrap()).unwrap(),
+            data
+        );
+    }
+
+    #[test]
+    fn v5_mixed_targets_and_nested_semantic_values_round_trip_exactly() {
+        let dir = tempdir().unwrap();
+        let nested = MetadataValue::Struct(BTreeMap::from([
+            ("name".to_owned(), MetadataValue::Text("value".to_owned())),
+            (
+                "items".to_owned(),
+                MetadataValue::List {
+                    list_kind: ListKind::Seq,
+                    items: vec![MetadataValue::Integer(1), MetadataValue::Bool(true)],
+                },
+            ),
+        ]));
+        let entries = vec![
+            v5_existing_entry("IFD0", 0, None, "IFD0", nested),
+            v5_new_entry(Some(3), MetadataValue::Null),
+        ];
+        let mut data = MetadataDraftEditsV5::new();
+        data.insert("photo.jpg".to_owned(), entries);
+
+        save_metadata_draft_edits_v5(dir.path().to_str().unwrap(), &data).unwrap();
+        assert_eq!(
+            load_metadata_draft_edits_v5(dir.path().to_str().unwrap()).unwrap(),
+            data
+        );
+    }
+
+    #[test]
+    fn v5_two_existing_occurrences_sharing_one_schema_are_accepted() {
+        let dir = tempdir().unwrap();
+        let entries = vec![
+            v5_existing_entry("IFD0", 0, None, "IFD0", MetadataValue::Integer(1)),
+            v5_existing_entry("IFD1", 0, None, "IFD1", MetadataValue::Integer(2)),
+        ];
+        let mut data = MetadataDraftEditsV5::new();
+        data.insert("photo.jpg".to_owned(), entries);
+
+        save_metadata_draft_edits_v5(dir.path().to_str().unwrap(), &data).unwrap();
+        assert_eq!(
+            load_metadata_draft_edits_v5(dir.path().to_str().unwrap()).unwrap()["photo.jpg"].len(),
+            2
+        );
+    }
+
+    #[test]
+    fn v5_duplicate_identical_existing_slot_is_rejected() {
+        let dir = tempdir().unwrap();
+        let entry = v5_existing_entry("IFD0", 0, None, "IFD0", MetadataValue::Integer(1));
+        write_v5_line(
+            dir.path(),
+            &V5Line {
+                schema_version: 5,
+                relative_path: "photo.jpg".to_owned(),
+                edits: vec![entry.clone(), entry],
+            },
+        );
+
+        let error = load_metadata_draft_edits_v5(dir.path().to_str().unwrap()).unwrap_err();
+        assert!(error.contains("Duplicate metadata draft slot"), "{error}");
+    }
+
+    #[test]
+    fn v5_duplicate_existing_slot_with_changed_schema_snapshot_is_rejected() {
+        let dir = tempdir().unwrap();
+        let first = v5_existing_entry("IFD0", 0, None, "IFD0", MetadataValue::Integer(1));
+        let mut second = first.clone();
+        if let MetadataDraftTarget::ExistingOccurrence { schema_id, .. } = &mut second.target {
+            schema_id.index = Some(9);
+        }
+        write_v5_line(
+            dir.path(),
+            &V5Line {
+                schema_version: 5,
+                relative_path: "photo.jpg".to_owned(),
+                edits: vec![first, second],
+            },
+        );
+
+        let error = load_metadata_draft_edits_v5(dir.path().to_str().unwrap()).unwrap_err();
+        assert!(error.contains("Duplicate metadata draft slot"), "{error}");
+    }
+
+    #[test]
+    fn v5_duplicate_existing_slot_with_changed_selector_snapshot_is_rejected() {
+        let dir = tempdir().unwrap();
+        let first = v5_existing_entry("IFD0", 0, None, "IFD0", MetadataValue::Integer(1));
+        let mut second = first.clone();
+        if let MetadataDraftTarget::ExistingOccurrence { write_target, .. } = &mut second.target {
+            write_target.group1 = "IFD1".to_owned();
+        }
+        write_v5_line(
+            dir.path(),
+            &V5Line {
+                schema_version: 5,
+                relative_path: "photo.jpg".to_owned(),
+                edits: vec![first, second],
+            },
+        );
+
+        let error = load_metadata_draft_edits_v5(dir.path().to_str().unwrap()).unwrap_err();
+        assert!(error.contains("Duplicate metadata draft slot"), "{error}");
+    }
+
+    #[test]
+    fn v5_duplicate_new_property_schema_is_rejected() {
+        let dir = tempdir().unwrap();
+        let first = v5_new_entry(None, MetadataValue::Text("a".to_owned()));
+        let second = v5_new_entry(None, MetadataValue::Text("b".to_owned()));
+        write_v5_line(
+            dir.path(),
+            &V5Line {
+                schema_version: 5,
+                relative_path: "photo.jpg".to_owned(),
+                edits: vec![first, second],
+            },
+        );
+
+        let error = load_metadata_draft_edits_v5(dir.path().to_str().unwrap()).unwrap_err();
+        assert!(error.contains("Duplicate metadata draft slot"), "{error}");
+    }
+
+    #[test]
+    fn v5_existing_and_new_targets_with_same_schema_are_accepted() {
+        let dir = tempdir().unwrap();
+        let mut data = MetadataDraftEditsV5::new();
+        data.insert(
+            "photo.jpg".to_owned(),
+            vec![
+                v5_existing_entry("IFD0", 0, None, "IFD0", MetadataValue::Integer(1)),
+                v5_new_entry(None, MetadataValue::Integer(2)),
+            ],
+        );
+
+        save_metadata_draft_edits_v5(dir.path().to_str().unwrap(), &data).unwrap();
+        assert_eq!(
+            load_metadata_draft_edits_v5(dir.path().to_str().unwrap()).unwrap()["photo.jpg"].len(),
+            2
+        );
+    }
+
+    #[test]
+    fn v5_duplicate_relative_path_lines_are_rejected() {
+        let dir = tempdir().unwrap();
+        let line = serde_json::to_string(&V5Line {
+            schema_version: 5,
+            relative_path: "photo.jpg".to_owned(),
+            edits: vec![],
+        })
+        .unwrap();
+        write_file(dir.path(), FILE_NAME, &format!("{line}\n{line}\n"));
+
+        let error = load_metadata_draft_edits_v5(dir.path().to_str().unwrap()).unwrap_err();
+        assert!(error.contains("on line 2; first seen on line 1"), "{error}");
+    }
+
+    #[test]
+    fn v5_malformed_json_reports_the_line_number() {
+        let dir = tempdir().unwrap();
+        write_file(dir.path(), FILE_NAME, "// comment\n\n{not json}\n");
+        let error = load_metadata_draft_edits_v5(dir.path().to_str().unwrap()).unwrap_err();
+        assert!(error.contains("Invalid draft line 3"), "{error}");
+    }
+
+    #[test]
+    fn v5_blank_comments_and_empty_edit_vectors_are_ignored_or_omitted() {
+        let dir = tempdir().unwrap();
+        write_file(
+            dir.path(),
+            FILE_NAME,
+            "// comment\n\n{\"schema_version\":5,\"relative_path\":\"empty.jpg\",\"edits\":[]}\n",
+        );
+        assert!(load_metadata_draft_edits_v5(dir.path().to_str().unwrap())
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn v5_loader_explicitly_rejects_v4_without_guessing_a_target() {
+        let dir = tempdir().unwrap();
+        write_file(
+            dir.path(),
+            FILE_NAME,
+            "{\"schema_version\":4,\"relative_path\":\"photo.jpg\",\"edits\":[]}\n",
+        );
+        let error = load_metadata_draft_edits_v5(dir.path().to_str().unwrap()).unwrap_err();
+        assert!(
+            error.contains("keyed only by SchemaDefinitionId"),
+            "{error}"
+        );
+        assert!(error.contains("authoritative runtime context"), "{error}");
+        assert!(error.contains("Recreate pending drafts"), "{error}");
+    }
+
+    #[test]
+    fn v5_loader_rejects_v1_through_v3_and_unversioned_input() {
+        for version in 1..=3 {
+            let dir = tempdir().unwrap();
+            write_file(
+                dir.path(),
+                FILE_NAME,
+                &format!(
+                    "{{\"schema_version\":{version},\"relative_path\":\"photo.jpg\",\"edits\":[]}}\n"
+                ),
+            );
+            let error = load_metadata_draft_edits_v5(dir.path().to_str().unwrap()).unwrap_err();
+            assert!(error.contains("Unsupported legacy"), "{error}");
+        }
+
+        let dir = tempdir().unwrap();
+        write_file(
+            dir.path(),
+            FILE_NAME,
+            "{\"relative_path\":\"photo.jpg\",\"edits\":[]}\n",
+        );
+        let error = load_metadata_draft_edits_v5(dir.path().to_str().unwrap()).unwrap_err();
+        assert!(error.contains("no schema_version"), "{error}");
+    }
+
+    #[test]
+    fn v5_loader_rejects_version_six_as_future() {
+        let dir = tempdir().unwrap();
+        write_file(
+            dir.path(),
+            FILE_NAME,
+            "{\"schema_version\":6,\"relative_path\":\"photo.jpg\",\"edits\":[]}\n",
+        );
+        let error = load_metadata_draft_edits_v5(dir.path().to_str().unwrap()).unwrap_err();
+        assert!(error.contains("Unsupported future"), "{error}");
+        assert!(error.contains("schema_version 6"), "{error}");
+    }
+
+    #[test]
+    fn v5_serialization_is_deterministic_without_mutating_source_collections() {
+        let dir = tempdir().unwrap();
+        let a = v5_existing_entry("IFD0", 0, None, "IFD0", MetadataValue::Integer(1));
+        let b = v5_new_entry(Some(2), MetadataValue::Text("b".to_owned()));
+        let mut first = MetadataDraftEditsV5::new();
+        first.insert("z.jpg".to_owned(), vec![b.clone(), a.clone()]);
+        first.insert(
+            "a.jpg".to_owned(),
+            vec![v5_new_entry(None, MetadataValue::Null)],
+        );
+        let before = first.clone();
+
+        save_metadata_draft_edits_v5(dir.path().to_str().unwrap(), &first).unwrap();
+        let first_bytes = fs::read(dir.path().join(FILE_NAME)).unwrap();
+        assert_eq!(first, before);
+
+        let mut second = MetadataDraftEditsV5::new();
+        second.insert("a.jpg".to_owned(), before["a.jpg"].clone());
+        second.insert("z.jpg".to_owned(), vec![a, b]);
+        save_metadata_draft_edits_v5(dir.path().to_str().unwrap(), &second).unwrap();
+        let second_bytes = fs::read(dir.path().join(FILE_NAME)).unwrap();
+
+        assert_eq!(first_bytes, second_bytes);
+    }
+
+    #[test]
+    fn v5_duplicate_validation_occurs_before_truncation() {
+        let dir = tempdir().unwrap();
+        let original = b"existing v4 or v5 bytes must survive\n";
+        fs::write(dir.path().join(FILE_NAME), original).unwrap();
+        let entry = v5_existing_entry("IFD0", 0, None, "IFD0", MetadataValue::Integer(1));
+        let mut invalid = MetadataDraftEditsV5::new();
+        invalid.insert("photo.jpg".to_owned(), vec![entry.clone(), entry]);
+
+        let error =
+            save_metadata_draft_edits_v5(dir.path().to_str().unwrap(), &invalid).unwrap_err();
+        assert!(error.contains("Duplicate metadata draft slot"), "{error}");
+        assert_eq!(fs::read(dir.path().join(FILE_NAME)).unwrap(), original);
+    }
+
+    #[test]
+    fn generated_typescript_v5_entry_preserves_target_and_edit() {
+        use ts_rs::TS;
+
+        let declaration = MetadataDraftEntryV5::decl();
+        assert!(
+            declaration.contains("target: MetadataDraftTarget"),
+            "{declaration}"
+        );
+        assert!(
+            declaration.contains("edit: MetadataDraftEdit"),
+            "{declaration}"
+        );
     }
 }
