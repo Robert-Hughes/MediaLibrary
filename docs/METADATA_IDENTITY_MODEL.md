@@ -256,6 +256,7 @@ MetadataDraftEntryV5[]
 → target-aware argument planners
 → numeric then text ExifTool passes
 → authoritative occurrence readback
+→ strict post-write exact-occurrence-ID validation
 → target-aware semantic verification
 ```
 
@@ -263,6 +264,12 @@ All logical target slots are checked before target lookup, and every target is
 planned and every argfile is rendered before the first write. Duplicate slots,
 duplicate exact pre-write occurrence IDs, stale targets, and case-insensitive
 `(group1, tag_name)` selector collisions reject the complete batch atomically.
+Both the pre-write and post-write authoritative occurrence collections require
+every exact `MetadataOccurrenceId` to be unique. A duplicate exact post-write ID
+is a readback-invariant failure: no target is verified or cleared, and the
+invalid `ImageMetadata` is not returned as fresh metadata. This is distinct
+from an I/O readback failure because the read completed but its authoritative
+identity collection was invalid.
 
 An existing field resolves before and after writing only through its exact
 `MetadataOccurrenceId`; a same-schema sibling is irrelevant. A new property
@@ -271,9 +278,14 @@ multiple occurrences with the exact embedded schema identity. Zero is missing,
 one is verified using that occurrence's actual value, and multiple is
 ambiguous. Multiple results are never reduced to a first, lowest, `Copy0`,
 `IFD0`, or writable occurrence.
+Multiple distinct occurrence IDs sharing one schema remain a valid collection;
+for a new-property readback they produce `AmbiguousPostWrite`. They are not the
+same condition as multiple records sharing one exact occurrence ID, which
+invalidates the complete readback before cardinality is evaluated.
 
 Legacy projection omissions do not block this v5 reader because authoritative
-occurrences remain complete. Successfully verified targets clear by complete
+occurrences remain complete and their exact IDs are unique. Successfully
+verified targets clear by complete
 target and logical slot, not by schema ID. The successful result retains the
 scanner's complete `ImageMetadata`, including authoritative occurrences and
 the temporary compatibility projection. Target-aware apply logging remains
