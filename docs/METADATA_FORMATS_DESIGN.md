@@ -364,6 +364,7 @@ v5 entry
 → target-aware argument planner
 → shared numeric/text ExifTool execution
 → authoritative occurrence readback
+→ strict post-write exact-occurrence-ID validation
 → target-aware semantic verification
 ```
 
@@ -375,12 +376,22 @@ zero, one, or multiple exact-schema occurrences. Multiple results are always
 `AmbiguousPostWrite` and are never reduced through first-result, `Copy0`,
 `IFD0`, lowest-ID, or writability preference.
 
+Both pre-write and post-write authoritative collections require unique exact
+`MetadataOccurrenceId` values. A duplicate exact post-write ID is a
+`ReadbackInvalid` invariant failure, not an I/O read failure: the complete
+readback is rejected before any target is verified, no target clears, and the
+invalid `ImageMetadata` is not exposed as fresh metadata. Multiple distinct IDs
+that share one schema do not violate this invariant. Existing IFD0 and IFD1
+targets, for example, remain independently resolvable, while multiple distinct
+same-schema IDs for a new property remain `AmbiguousPostWrite`. These results
+do not depend on occurrence order.
+
 Both v4 and v5 use the same argfile escaping, numeric-before-text execution,
 and value-oriented semantic verification. Only `Match` and `DeleteOk` are
 eligible to clear, and v5 retains and clears complete targets by logical slot
 rather than schema ID. Legacy projection omissions do not invalidate a v5
-authoritative occurrence read. Successful readback returns the complete
-scanner `ImageMetadata` unchanged.
+authoritative occurrence read. Successful, invariant-valid readback returns the
+complete scanner `ImageMetadata` unchanged.
 
 The v5 path does not write the schema-keyed legacy apply log; target-aware
 logging remains pending. There is no Tauri apply command or production caller.

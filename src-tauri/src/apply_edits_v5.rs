@@ -129,6 +129,9 @@ pub(crate) enum ApplyV5Error {
         second: Box<MetadataDraftTarget>,
     },
     DuplicatePreWriteOccurrenceId(Box<MetadataOccurrenceId>),
+    PostWriteDuplicateOccurrenceId {
+        occurrence_id: Box<MetadataOccurrenceId>,
+    },
     ExistingOccurrenceMissing(Box<MetadataDraftTarget>),
     ExistingTargetValidationFailure {
         target: Box<MetadataDraftTarget>,
@@ -173,6 +176,10 @@ impl std::fmt::Display for ApplyV5Error {
             Self::DuplicatePreWriteOccurrenceId(id) => write!(
                 formatter,
                 "Authoritative pre-write metadata contains duplicate occurrence ID {id:?}"
+            ),
+            Self::PostWriteDuplicateOccurrenceId { occurrence_id } => write!(
+                formatter,
+                "Authoritative post-write metadata contains duplicate exact occurrence ID {occurrence_id:?}"
             ),
             Self::ExistingOccurrenceMissing(target) => write!(
                 formatter,
@@ -530,13 +537,40 @@ where
         }
     };
 
-    let mut post_by_id = BTreeMap::<MetadataOccurrenceId, Vec<&MetadataOccurrence>>::new();
-    for occurrence in fresh.occurrences.iter() {
-        post_by_id
-            .entry(occurrence.id.clone())
-            .or_default()
-            .push(occurrence);
-    }
+    let post_by_id = match build_strict_post_write_occurrence_index(&fresh) {
+        Ok(index) => index,
+        Err(invariant_error) => {
+            let invariant_message = invariant_error.to_string();
+            let error = match &write_failure {
+                Some(write_error) => format!(
+                    "ExifTool write failed ({write_error}) and post-write readback was invalid ({invariant_message}); file contents could not be verified."
+                ),
+                None => format!("Post-write readback was invalid: {invariant_message}"),
+            };
+            let outcomes = planned
+                .targets
+                .into_iter()
+                .map(|plan| MetadataTargetOutcome {
+                    target: plan.target,
+                    display_name: plan.display_name,
+                    kind: "ReadbackInvalid".to_string(),
+                    sent: plan.edit.value,
+                    before: plan.before,
+                    observed: None,
+                    message: Some(format!(
+                        "Verification was not attempted because {invariant_message}"
+                    )),
+                })
+                .collect();
+            return MetadataSingleFileOutcomeV5 {
+                fresh_image_metadata: None,
+                error: Some(error),
+                warning: None,
+                outcomes,
+                targets_to_clear: Vec::new(),
+            };
+        }
+    };
 
     let mut outcomes = Vec::with_capacity(planned.targets.len());
     let mut targets_to_clear = Vec::new();
@@ -544,7 +578,7 @@ where
     let mut first_mismatch = None;
 
     for plan in planned.targets {
-        let (kind, mut message, observed) = verify_plan(&plan, &fresh, &post_by_id);
+        let (kind, mut message, observed) = verify_plan(&plan, &post_by_id);
         if matches!(kind.as_str(), "Match" | "DeleteOk") {
             if cleared_slots.insert(plan.target.slot()) {
                 targets_to_clear.push(plan.target.clone());
@@ -593,64 +627,42 @@ where
     }
 }
 
+fn build_strict_post_write_occurrence_index(
+    fresh: &scanner::ImageMetadata,
+) -> Result<BTreeMap<MetadataOccurrenceId, &MetadataOccurrence>, ApplyV5Error> {
+    let mut occurrences = BTreeMap::new();
+    for occurrence in fresh.occurrences.iter() {
+        if occurrences
+            .insert(occurrence.id.clone(), occurrence)
+            .is_some()
+        {
+            return Err(ApplyV5Error::PostWriteDuplicateOccurrenceId {
+                occurrence_id: Box::new(occurrence.id.clone()),
+            });
+        }
+    }
+    Ok(occurrences)
+}
+
 fn verify_plan(
     plan: &TargetPlan,
-    fresh: &scanner::ImageMetadata,
-    post_by_id: &BTreeMap<MetadataOccurrenceId, Vec<&MetadataOccurrence>>,
+    post_by_id: &BTreeMap<MetadataOccurrenceId, &MetadataOccurrence>,
 ) -> (String, Option<String>, Option<MetadataValue>) {
     match &plan.target {
-        MetadataDraftTarget::ExistingOccurrence {
-            occurrence_id,
-            schema_id,
-            write_target,
-        } => {
-            let matches = post_by_id
-                .get(occurrence_id)
-                .map(Vec::as_slice)
-                .unwrap_or_default();
-            if plan.edit.intent == EditIntent::Delete {
-                let observed = matches.first().map(|occurrence| occurrence.value.clone());
-                let (kind, message) = crate::apply_edits::verify_delete_value(
-                    schema_id,
-                    matches.first().map(|occurrence| &occurrence.value),
-                );
-                return (kind, message, observed);
-            }
-            let Some(occurrence) = matches.first() else {
-                return (
-                    "MissingPostWrite".to_string(),
-                    Some(format!(
-                        "Exact occurrence {occurrence_id:?} is absent after write"
-                    )),
-                    None,
-                );
-            };
-            let schema_unchanged = occurrence
-                .tag_info
-                .as_ref()
-                .is_some_and(|info| &info.id == schema_id);
-            if matches.len() != 1
-                || !schema_unchanged
-                || occurrence.write_target.as_ref() != Some(write_target)
-            {
-                return (
-                    "TargetChangedPostWrite".to_string(),
-                    Some(format!(
-                        "Exact occurrence {occurrence_id:?} changed schema or selector after write"
-                    )),
-                    Some(occurrence.value.clone()),
-                );
-            }
-            let (kind, message) = verify_semantic(
-                schema_id,
-                &plan.edit,
-                Some(&occurrence.value),
-                Some(&plan.kind),
-            );
-            (kind, message, Some(occurrence.value.clone()))
+        MetadataDraftTarget::ExistingOccurrence { occurrence_id, .. } => {
+            verify_existing_plan(plan, post_by_id.get(occurrence_id).copied())
         }
         MetadataDraftTarget::NewProperty { schema_id } => {
-            let matches = fresh.occurrences.for_schema(schema_id).collect::<Vec<_>>();
+            let matches = post_by_id
+                .values()
+                .copied()
+                .filter(|occurrence| {
+                    occurrence
+                        .tag_info
+                        .as_ref()
+                        .is_some_and(|info| &info.id == schema_id)
+                })
+                .collect::<Vec<_>>();
             match matches.as_slice() {
                 [] => (
                     "MissingPostWrite".to_string(),
@@ -679,6 +691,57 @@ fn verify_plan(
             }
         }
     }
+}
+
+fn verify_existing_plan(
+    plan: &TargetPlan,
+    occurrence: Option<&MetadataOccurrence>,
+) -> (String, Option<String>, Option<MetadataValue>) {
+    let MetadataDraftTarget::ExistingOccurrence {
+        occurrence_id,
+        schema_id,
+        write_target,
+    } = &plan.target
+    else {
+        unreachable!("existing-target verification requires an existing target")
+    };
+
+    if plan.edit.intent == EditIntent::Delete {
+        let observed = occurrence.map(|item| item.value.clone());
+        let (kind, message) =
+            crate::apply_edits::verify_delete_value(schema_id, occurrence.map(|item| &item.value));
+        return (kind, message, observed);
+    }
+
+    let Some(occurrence) = occurrence else {
+        return (
+            "MissingPostWrite".to_string(),
+            Some(format!(
+                "Exact occurrence {occurrence_id:?} is absent after write"
+            )),
+            None,
+        );
+    };
+    let schema_unchanged = occurrence
+        .tag_info
+        .as_ref()
+        .is_some_and(|info| &info.id == schema_id);
+    if !schema_unchanged || occurrence.write_target.as_ref() != Some(write_target) {
+        return (
+            "TargetChangedPostWrite".to_string(),
+            Some(format!(
+                "Exact occurrence {occurrence_id:?} changed schema or selector after write"
+            )),
+            Some(occurrence.value.clone()),
+        );
+    }
+    let (kind, message) = verify_semantic(
+        schema_id,
+        &plan.edit,
+        Some(&occurrence.value),
+        Some(&plan.kind),
+    );
+    (kind, message, Some(occurrence.value.clone()))
 }
 
 fn verify_semantic(
@@ -1213,19 +1276,292 @@ mod tests {
         );
         let client = FakeClient::new(vec![
             Ok(image(vec![ifd0.clone(), ifd1.clone()])),
-            Ok(image(vec![after1, after0])),
+            Ok(image(vec![after1.clone(), after0.clone()])),
         ]);
         let outcome = apply_fake(&edits, &client, &[]);
         let rendered = &client.writes.borrow()[0].1;
         assert!(rendered.contains("-IFD0:XResolution=600"));
         assert!(rendered.contains("-IFD1:XResolution=144"));
         assert!(!rendered.contains("SchemaMustNotBeUsed:XResolution"));
-        assert_eq!(outcome.outcomes[0].before, Some(ifd0.value));
-        assert_eq!(outcome.outcomes[1].before, Some(ifd1.value));
+        assert_eq!(outcome.outcomes[0].before, Some(ifd0.value.clone()));
+        assert_eq!(outcome.outcomes[1].before, Some(ifd1.value.clone()));
         assert_eq!(outcome.outcomes[0].kind, "Match");
         assert_eq!(outcome.outcomes[1].kind, "Mismatch");
         assert_eq!(outcome.targets_to_clear, vec![edits[0].target.clone()]);
         assert!(outcome.fresh_image_metadata.unwrap().metadata.is_empty());
+
+        let ordered_client = FakeClient::new(vec![
+            Ok(image(vec![ifd0, ifd1])),
+            Ok(image(vec![after0, after1])),
+        ]);
+        let ordered = apply_fake(&edits, &ordered_client, &[]);
+        assert_eq!(
+            ordered
+                .outcomes
+                .iter()
+                .map(|item| item.kind.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Match", "Mismatch"]
+        );
+        assert_eq!(ordered.targets_to_clear, vec![edits[0].target.clone()]);
+    }
+
+    #[test]
+    fn duplicate_post_write_occurrence_id_is_a_distinct_invariant_error() {
+        let info = schema("1", "XMP-test", "Name", true, TagKind::Text);
+        let duplicate = occurrence(
+            occurrence_id("DUPLICATE-PATH", "1", 7),
+            MetadataValue::Text("value".into()),
+            Some(info),
+            Some("XMP-test"),
+            "Name",
+        );
+
+        let error = build_strict_post_write_occurrence_index(&image(vec![
+            duplicate.clone(),
+            duplicate.clone(),
+        ]))
+        .unwrap_err();
+        assert!(matches!(
+            &error,
+            ApplyV5Error::PostWriteDuplicateOccurrenceId { occurrence_id }
+                if occurrence_id.as_ref() == &duplicate.id
+        ));
+        let message = error.to_string();
+        assert!(message.contains("post-write"));
+        assert!(message.contains("duplicate exact occurrence ID"));
+        assert!(message.contains("DUPLICATE-PATH"));
+        assert!(!matches!(
+            error,
+            ApplyV5Error::DuplicatePreWriteOccurrenceId(_)
+        ));
+    }
+
+    #[test]
+    fn duplicate_post_write_set_never_selects_a_first_record() {
+        let info = schema("1", "XMP-test", "Name", true, TagKind::Text);
+        let before = occurrence(
+            occurrence_id("SET-DUPLICATE", "1", 0),
+            MetadataValue::Text("before".into()),
+            Some(info.clone()),
+            Some("XMP-test"),
+            "Name",
+        );
+        let entry = existing_entry(
+            &before,
+            edit(EditIntent::Set, Some(MetadataValue::Text("sent".into()))),
+        );
+        let matching = occurrence(
+            before.id.clone(),
+            MetadataValue::Text("sent".into()),
+            Some(info.clone()),
+            Some("XMP-test"),
+            "Name",
+        );
+        let mismatching = occurrence(
+            before.id.clone(),
+            MetadataValue::Text("other".into()),
+            Some(info),
+            Some("XMP-test"),
+            "Name",
+        );
+        let duplicate_id = format!("{:?}", before.id);
+
+        for post in [
+            vec![matching.clone(), mismatching.clone()],
+            vec![mismatching, matching],
+        ] {
+            let client = FakeClient::new(vec![Ok(image(vec![before.clone()])), Ok(image(post))]);
+            let outcome = apply_fake(std::slice::from_ref(&entry), &client, &[]);
+            assert_eq!(outcome.outcomes.len(), 1);
+            assert_eq!(outcome.outcomes[0].kind, "ReadbackInvalid");
+            assert_eq!(outcome.outcomes[0].target, entry.target);
+            assert_eq!(
+                outcome.outcomes[0].display_name,
+                before.tag_info.as_ref().unwrap().display_name()
+            );
+            assert_eq!(outcome.outcomes[0].sent, entry.edit.value);
+            assert_eq!(outcome.outcomes[0].before, Some(before.value.clone()));
+            assert!(outcome.outcomes[0].observed.is_none());
+            assert!(outcome.outcomes[0]
+                .message
+                .as_ref()
+                .unwrap()
+                .contains(&duplicate_id));
+            assert!(outcome.error.as_ref().unwrap().contains(&duplicate_id));
+            assert!(outcome.fresh_image_metadata.is_none());
+            assert!(outcome.targets_to_clear.is_empty());
+            assert!(outcome.warning.is_none());
+        }
+    }
+
+    #[test]
+    fn duplicate_post_write_delete_never_clears_regardless_of_values_or_order() {
+        let info = schema("1", "XMP-test", "Name", true, TagKind::Text);
+        let before = occurrence(
+            occurrence_id("DELETE-DUPLICATE", "1", 0),
+            MetadataValue::Text("before".into()),
+            Some(info.clone()),
+            Some("XMP-test"),
+            "Name",
+        );
+        let entry = existing_entry(&before, edit(EditIntent::Delete, None));
+
+        for values in [["", "still"], ["still", ""], ["", ""]] {
+            let post = values
+                .into_iter()
+                .map(|value| {
+                    occurrence(
+                        before.id.clone(),
+                        MetadataValue::Text(value.into()),
+                        Some(info.clone()),
+                        Some("XMP-test"),
+                        "Name",
+                    )
+                })
+                .collect();
+            let client = FakeClient::new(vec![Ok(image(vec![before.clone()])), Ok(image(post))]);
+            let outcome = apply_fake(std::slice::from_ref(&entry), &client, &[]);
+            assert_eq!(outcome.outcomes[0].kind, "ReadbackInvalid");
+            assert_eq!(outcome.outcomes[0].sent, None);
+            assert_eq!(outcome.outcomes[0].before, Some(before.value.clone()));
+            assert!(outcome.outcomes[0].observed.is_none());
+            assert!(outcome.outcomes[0]
+                .message
+                .as_ref()
+                .unwrap()
+                .contains("DELETE-DUPLICATE"));
+            assert!(outcome.fresh_image_metadata.is_none());
+            assert!(outcome.targets_to_clear.is_empty());
+        }
+    }
+
+    #[test]
+    fn duplicate_target_id_invalidates_every_planned_outcome() {
+        let info = schema(
+            "282",
+            "SchemaMustNotSelect",
+            "XResolution",
+            true,
+            TagKind::Rational,
+        );
+        let make_value = |value| {
+            MetadataValue::Rational(RationalValue {
+                numerator: value,
+                denominator: 1,
+            })
+        };
+        let ifd0 = occurrence(
+            occurrence_id("JPEG-APP1-IFD0", "282", 0),
+            make_value(300),
+            Some(info.clone()),
+            Some("IFD0"),
+            "XResolution",
+        );
+        let ifd1 = occurrence(
+            occurrence_id("JPEG-APP1-IFD1", "282", 1),
+            make_value(72),
+            Some(info.clone()),
+            Some("IFD1"),
+            "XResolution",
+        );
+        let edits = [
+            existing_entry(&ifd0, edit(EditIntent::Set, Some(make_value(600)))),
+            existing_entry(&ifd1, edit(EditIntent::Set, Some(make_value(144)))),
+        ];
+        let after0 = occurrence(
+            ifd0.id.clone(),
+            make_value(600),
+            Some(info.clone()),
+            Some("IFD0"),
+            "XResolution",
+        );
+        let after1 = occurrence(
+            ifd1.id.clone(),
+            make_value(144),
+            Some(info),
+            Some("IFD1"),
+            "XResolution",
+        );
+
+        for post in [
+            vec![after0.clone(), after1.clone(), after0.clone()],
+            vec![after0.clone(), after0.clone(), after1.clone()],
+        ] {
+            let client = FakeClient::new(vec![
+                Ok(image(vec![ifd0.clone(), ifd1.clone()])),
+                Ok(image(post)),
+            ]);
+            let outcome = apply_fake(&edits, &client, &[]);
+            assert_eq!(outcome.outcomes.len(), edits.len());
+            for (target_outcome, entry) in outcome.outcomes.iter().zip(&edits) {
+                assert_eq!(target_outcome.kind, "ReadbackInvalid");
+                assert_eq!(target_outcome.target, entry.target);
+                assert_eq!(target_outcome.sent, entry.edit.value);
+                assert!(target_outcome.observed.is_none());
+                assert!(target_outcome
+                    .message
+                    .as_ref()
+                    .unwrap()
+                    .contains("JPEG-APP1-IFD0"));
+            }
+            assert_eq!(outcome.outcomes[0].before, Some(ifd0.value.clone()));
+            assert_eq!(outcome.outcomes[1].before, Some(ifd1.value.clone()));
+            assert!(outcome.fresh_image_metadata.is_none());
+            assert!(outcome.targets_to_clear.is_empty());
+        }
+    }
+
+    #[test]
+    fn duplicate_unrelated_post_write_id_invalidates_readback_and_retains_write_failure() {
+        let info = schema(
+            "1",
+            "IFD0",
+            "Number",
+            true,
+            TagKind::Integer {
+                min: None,
+                max: None,
+            },
+        );
+        let before = occurrence(
+            occurrence_id("TARGET", "1", 0),
+            MetadataValue::Integer(1),
+            Some(info.clone()),
+            Some("IFD0"),
+            "Number",
+        );
+        let entry = existing_entry(
+            &before,
+            edit(EditIntent::Set, Some(MetadataValue::Integer(2))),
+        );
+        let after = occurrence(
+            before.id.clone(),
+            MetadataValue::Integer(2),
+            Some(info),
+            Some("IFD0"),
+            "Number",
+        );
+        let unrelated = occurrence(
+            occurrence_id("UNRELATED-DUPLICATE", "999", 4),
+            MetadataValue::Text("unrelated".into()),
+            None,
+            None,
+            "Unknown",
+        );
+        let client = FakeClient::new(vec![
+            Ok(image(vec![before])),
+            Ok(image(vec![after, unrelated.clone(), unrelated])),
+        ])
+        .failing(true, false);
+        let outcome = apply_fake(std::slice::from_ref(&entry), &client, &[]);
+
+        assert_eq!(outcome.outcomes[0].kind, "ReadbackInvalid");
+        let error = outcome.error.unwrap();
+        assert!(error.contains("numeric pass failed"));
+        assert!(error.contains("UNRELATED-DUPLICATE"));
+        assert!(outcome.fresh_image_metadata.is_none());
+        assert!(outcome.targets_to_clear.is_empty());
     }
 
     #[test]
@@ -1460,6 +1796,7 @@ mod tests {
             Some("IFD0"),
             "Name",
         );
+        let mut ambiguity_messages = Vec::new();
         for post in [
             vec![ifd0_copy0.clone(), unique.clone()],
             vec![unique.clone(), ifd0_copy0.clone()],
@@ -1474,8 +1811,10 @@ mod tests {
             let message = outcome.outcomes[0].message.as_ref().unwrap();
             assert!(message.contains("IFD0"));
             assert!(message.contains("NON-IFD0"));
+            ambiguity_messages.push(message.clone());
             assert!(outcome.targets_to_clear.is_empty());
         }
+        assert_eq!(ambiguity_messages[0], ambiguity_messages[1]);
     }
 
     #[test]
@@ -1634,7 +1973,11 @@ mod tests {
             edit(EditIntent::Set, Some(MetadataValue::Text("x".into()))),
         );
         let client = FakeClient::new(vec![Ok(image(vec![])), Err("readback boom".into())]);
-        let outcome = apply_fake(std::slice::from_ref(&entry), &client, &[info]);
+        let outcome = apply_fake(
+            std::slice::from_ref(&entry),
+            &client,
+            std::slice::from_ref(&info),
+        );
         assert!(outcome.fresh_image_metadata.is_none());
         assert!(outcome
             .error
@@ -1646,6 +1989,26 @@ mod tests {
         assert_eq!(outcome.outcomes[0].sent, entry.edit.value);
         assert!(outcome.outcomes[0].observed.is_none());
         assert!(outcome.targets_to_clear.is_empty());
+
+        let duplicate = occurrence(
+            occurrence_id("INVALID-READBACK", "1", 0),
+            MetadataValue::Text("x".into()),
+            Some(info.clone()),
+            Some("XMP-test"),
+            "Name",
+        );
+        let invalid_client = FakeClient::new(vec![
+            Ok(image(vec![])),
+            Ok(image(vec![duplicate.clone(), duplicate])),
+        ]);
+        let invalid = apply_fake(
+            std::slice::from_ref(&entry),
+            &invalid_client,
+            std::slice::from_ref(&info),
+        );
+        assert_eq!(invalid.outcomes[0].kind, "ReadbackInvalid");
+        assert_ne!(invalid.outcomes[0].kind, "ReadbackFailed");
+        assert!(invalid.error.unwrap().contains("readback was invalid"));
     }
 
     #[test]

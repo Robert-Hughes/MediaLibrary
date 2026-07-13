@@ -146,6 +146,7 @@ v5 entry
 → target-aware numeric/text argument planning and argfile rendering
 → numeric pass, then text pass only after numeric success
 → authoritative occurrence readback
+→ strict post-write exact-occurrence-ID validation
 → exact-target/cardinality-aware semantic verification
 ```
 
@@ -157,13 +158,29 @@ reports zero as `MissingPostWrite`, one as the unique value to verify, and
 multiple as `AmbiguousPostWrite`, including every matching occurrence ID. No
 first, lowest, `Copy0`, `IFD0`, or writable-result preference exists.
 
+Both authoritative occurrence collections require unique exact
+`MetadataOccurrenceId` values. A pre-write duplicate rejects planning. A
+post-write duplicate produces `ReadbackInvalid` for every planned target before
+any target verification, clears no target, and withholds the invalid
+`ImageMetadata` from downstream consumers. The read itself succeeded, so this
+invariant failure remains distinct from the client-error `ReadbackFailed` path.
+Any numeric or text write-pass failure is retained alongside the invariant
+failure.
+
+Two or more distinct IDs may legitimately share one schema, such as IFD0 and
+IFD1 occurrences. Existing targets still resolve independently by exact ID. A
+new property resolving to multiple such distinct same-schema IDs remains valid
+readback data but yields `AmbiguousPostWrite`; a repeated exact ID invalidates
+the collection before that cardinality check. Neither condition depends on
+scanner result order.
+
 The v5 authoritative reader accepts a successful occurrence result even when
 the temporary legacy projection reports omissions. Verified `Match` and
 `DeleteOk` targets are independently eligible for clearing by logical target
 slot, not schema ID. Readback failure produces one complete-target
-`ReadbackFailed` outcome per plan and clears nothing. A successful readback
-returns the original full `ImageMetadata` rather than rebuilding its legacy
-map.
+`ReadbackFailed` outcome per plan and clears nothing. A successful, invariant-
+valid readback returns the original full `ImageMetadata` rather than rebuilding
+its legacy map.
 
 This path deliberately does not use the schema-keyed apply log; target-aware
 logging remains pending. It has no Tauri apply command or production caller.
