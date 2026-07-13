@@ -293,11 +293,11 @@ first occurrence is selected, including when values are identical or one
 occurrence appears more writable or otherwise preferable, and no write command
 uses occurrence identity yet.
 
-`MetadataDraftTarget`, `MetadataDraftSlot`, and inactive schema-v5 load/save
-functions now define the persistence boundary for the upcoming draft migration.
-The inactive v5 JSONL line keeps `relative_path` as outer context and stores a
-vector of `{ target, edit }` entries. An inactive frontend collection and
-observable store now mirror that boundary:
+`MetadataDraftTarget`, `MetadataDraftSlot`, and inactive schema-v5 Tauri
+load/save commands now define the persistence boundary for the upcoming draft
+migration. The inactive v5 JSONL line keeps `relative_path` as outer context
+and stores a vector of `{ target, edit }` entries. An inactive frontend
+collection, observable store, and Tauri adapter now mirror that boundary:
 
 ```text
 file-relative path
@@ -307,16 +307,22 @@ file-relative path
 
 The token is collection mechanics only, never domain identity; every entry
 retains its complete target snapshot. Setting a different snapshot for the same
-logical slot replaces the stored target and edit. Wire conversion rejects every
-duplicate slot, including identical entries, and batch mutation validates all
-incoming slots before changing state or notifying listeners. Its redundant-Set
-resolver receives the complete target so occurrence-specific values remain
-distinguishable.
+logical slot replaces the stored target and edit. The adapter validates every
+unknown load result structurally and sends only deterministic
+`MetadataDraftEntryV5[]` arrays. Rust persistence, frontend wire conversion,
+and store reset reject duplicate logical slots. Persistence conversion and
+reset also require each record key to equal its derived token, detect duplicate
+values hidden under different malformed keys, and never silently re-key a
+collection. Reset validates before replacing state, so failure is atomic and
+silent. A frontend/Tauri-contract test round-trips shared-schema IFD0/IFD1
+occurrences and existing/new targets without collapsing them.
 
-No production component creates this target-aware store or calls the v5
-functions. Production `AppState`, `DraftEditsStore`, persistence and Tauri
-commands remain schema-keyed v4, as do Details Pane callbacks, Add Property,
-apply/write, verification, search-worker indexing, and current draft files.
+Command registration does not mean production usage. No production component
+creates this target-aware store or calls the v5 adapter or commands. Production
+startup, `AppState`, `DraftEditsStore`, autosave and apply remain schema-keyed
+v4, as do Details Pane callbacks, Add Property, apply/write, verification,
+search-worker indexing, and current draft files. V4 and v5 commands share one
+filename and must never be mixed in one live folder session.
 
 V4 entries are not automatically converted: a `SchemaDefinitionId` alone does
 not reveal whether the intended operation edits an existing occurrence or

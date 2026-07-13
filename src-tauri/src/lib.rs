@@ -855,6 +855,24 @@ fn load_metadata_draft_edits(
     draft_edits::load_metadata_draft_edits(&folder_path)
 }
 
+// Inactive schema-v5 boundary.
+// No production frontend caller uses these commands yet.
+// Do not mix them with the v4 commands in one live folder session.
+#[tauri::command]
+fn save_metadata_draft_edits_v5(
+    folder_path: String,
+    data: draft_edits::MetadataDraftEditsV5,
+) -> Result<(), String> {
+    draft_edits::save_metadata_draft_edits_v5(&folder_path, &data)
+}
+
+#[tauri::command]
+fn load_metadata_draft_edits_v5(
+    folder_path: String,
+) -> Result<draft_edits::MetadataDraftEditsV5, String> {
+    draft_edits::load_metadata_draft_edits_v5(&folder_path)
+}
+
 #[tauri::command]
 async fn apply_metadata_draft_edits_cmd(
     folder_path: String,
@@ -1002,6 +1020,151 @@ fn clear_running(app: &AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn command_v5_schema() -> tag_schema::SchemaDefinitionId {
+        tag_schema::SchemaDefinitionId {
+            table: "Exif::Main".to_owned(),
+            tag_id: "282".to_owned(),
+            index: Some(0),
+        }
+    }
+
+    fn command_v5_edit(value: metadata_value::MetadataValue) -> draft_edits::MetadataDraftEdit {
+        draft_edits::MetadataDraftEdit {
+            value: Some(value),
+            intent: draft_edits::EditIntent::Set,
+            display: Some("wire display".to_owned()),
+        }
+    }
+
+    fn command_v5_existing(path: &str, group1: &str) -> draft_edits::MetadataDraftEntryV5 {
+        draft_edits::MetadataDraftEntryV5 {
+            target: metadata_draft_target::MetadataDraftTarget::ExistingOccurrence {
+                occurrence_id: metadata_occurrence::MetadataOccurrenceId {
+                    document: Some("Doc1".to_owned()),
+                    path: path.to_owned(),
+                    tag_id: "282".to_owned(),
+                    copy: 2,
+                },
+                schema_id: command_v5_schema(),
+                write_target: metadata_occurrence::MetadataWriteTarget {
+                    group1: group1.to_owned(),
+                    tag_name: "XResolution".to_owned(),
+                },
+            },
+            edit: command_v5_edit(metadata_value::MetadataValue::Struct(
+                std::collections::BTreeMap::from([(
+                    "nested".to_owned(),
+                    metadata_value::MetadataValue::List {
+                        list_kind: metadata_value::ListKind::Seq,
+                        items: vec![metadata_value::MetadataValue::Text("one".to_owned())],
+                    },
+                )]),
+            )),
+        }
+    }
+
+    fn command_v5_new() -> draft_edits::MetadataDraftEntryV5 {
+        draft_edits::MetadataDraftEntryV5 {
+            target: metadata_draft_target::MetadataDraftTarget::NewProperty {
+                schema_id: command_v5_schema(),
+            },
+            edit: command_v5_edit(metadata_value::MetadataValue::Null),
+        }
+    }
+
+    #[test]
+    fn v5_commands_round_trip_exact_target_aware_wire_shape() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder_path = dir.path().to_string_lossy().into_owned();
+        let ifd0 = command_v5_existing("JPEG-APP1-IFD0", "IFD0");
+        let ifd1 = command_v5_existing("JPEG-APP1-IFD1", "IFD1");
+        let created = command_v5_new();
+        let data = std::collections::HashMap::from([(
+            "folder/photo.jpg".to_owned(),
+            vec![ifd0, ifd1, created],
+        )]);
+
+        save_metadata_draft_edits_v5(folder_path.clone(), data.clone()).unwrap();
+        let loaded = load_metadata_draft_edits_v5(folder_path).unwrap();
+
+        assert_eq!(loaded, data);
+        let bytes =
+            std::fs::read_to_string(dir.path().join("MediaLibraryDraftEdits.jsonl")).unwrap();
+        let line: serde_json::Value = serde_json::from_str(bytes.lines().nth(1).unwrap()).unwrap();
+        assert_eq!(line["schema_version"], 5);
+        assert_eq!(line["relative_path"], "folder/photo.jpg");
+        let edits = line["edits"].as_array().unwrap();
+        assert_eq!(edits.len(), 3);
+        assert!(edits.iter().all(|entry| {
+            entry.as_object().is_some_and(|object| {
+                object.len() == 2
+                    && object.contains_key("target")
+                    && object.contains_key("edit")
+                    && !object.contains_key("slot")
+            })
+        }));
+    }
+
+    #[test]
+    fn v5_save_command_rejects_duplicate_slots_before_truncation() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder_path = dir.path().to_string_lossy().into_owned();
+        let draft_path = dir.path().join("MediaLibraryDraftEdits.jsonl");
+        let original = b"existing bytes survive\n";
+        std::fs::write(&draft_path, original).unwrap();
+        let entry = command_v5_existing("JPEG-APP1-IFD0", "IFD0");
+        let data =
+            std::collections::HashMap::from([("photo.jpg".to_owned(), vec![entry.clone(), entry])]);
+
+        let error = save_metadata_draft_edits_v5(folder_path, data).unwrap_err();
+
+        assert!(error.contains("Duplicate metadata draft slot"), "{error}");
+        assert_eq!(std::fs::read(draft_path).unwrap(), original);
+    }
+
+    #[test]
+    fn v4_and_v5_commands_reject_each_others_files() {
+        let v4_dir = tempfile::tempdir().unwrap();
+        let v4_folder = v4_dir.path().to_string_lossy().into_owned();
+        let v4_data = std::collections::HashMap::from([(
+            "photo.jpg".to_owned(),
+            vec![draft_edits::MetadataDraftEntry {
+                id: command_v5_schema(),
+                edit: command_v5_edit(metadata_value::MetadataValue::Integer(300)),
+            }],
+        )]);
+        save_metadata_draft_edits(v4_folder.clone(), v4_data).unwrap();
+        let v5_error = load_metadata_draft_edits_v5(v4_folder).unwrap_err();
+        assert!(v5_error.contains("Cannot load schema_version 4 as v5"));
+
+        let v5_dir = tempfile::tempdir().unwrap();
+        let v5_folder = v5_dir.path().to_string_lossy().into_owned();
+        let data =
+            std::collections::HashMap::from([("photo.jpg".to_owned(), vec![command_v5_new()])]);
+        save_metadata_draft_edits_v5(v5_folder.clone(), data).unwrap();
+        let v4_error = load_metadata_draft_edits(v5_folder).unwrap_err();
+        assert!(v4_error.contains("Unsupported future draft edit schema_version 5"));
+    }
+
+    #[test]
+    fn v4_commands_still_round_trip_schema_four() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder_path = dir.path().to_string_lossy().into_owned();
+        let data = std::collections::HashMap::from([(
+            "photo.jpg".to_owned(),
+            vec![draft_edits::MetadataDraftEntry {
+                id: command_v5_schema(),
+                edit: command_v5_edit(metadata_value::MetadataValue::Integer(300)),
+            }],
+        )]);
+
+        save_metadata_draft_edits(folder_path.clone(), data.clone()).unwrap();
+        assert_eq!(load_metadata_draft_edits(folder_path).unwrap(), data);
+        let bytes =
+            std::fs::read_to_string(dir.path().join("MediaLibraryDraftEdits.jsonl")).unwrap();
+        assert!(bytes.contains("\"schema_version\":4"));
+    }
 
     #[test]
     fn mark_finished_keeps_cancellation_flag_so_late_stop_scan_can_signal_workers() {
@@ -1333,6 +1496,8 @@ pub fn run() {
             set_window_title,
             save_metadata_draft_edits,
             load_metadata_draft_edits,
+            save_metadata_draft_edits_v5,
+            load_metadata_draft_edits_v5,
             apply_metadata_draft_edits_cmd,
             cancel_apply_edits,
             get_tag_info,

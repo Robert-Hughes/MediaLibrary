@@ -423,7 +423,8 @@ collections, UI behavior, production write argument construction, and
 schema-keyed readback verification remain unchanged. Production Tauri commands
 still use the schema-v4 loader and saver.
 
-Inactive v5 load/save functions define the eventual target-aware JSONL line:
+Inactive v5 Tauri load/save commands define the eventual target-aware JSONL
+line:
 
 ```json
 {
@@ -454,11 +455,13 @@ Inactive v5 load/save functions define the eventual target-aware JSONL line:
 The relative path remains outer context; it is not duplicated in a target.
 V5 entries preserve complete targets but reject duplicate draft slots. Files
 sort by relative path and entries sort by `MetadataDraftSlot`, after validating
-the complete input before truncation. These v5 functions have no production
-caller and must not be mixed with v4 functions during one live operation.
+the complete input before truncation. The registered commands share the v4
+filename and must not be mixed with v4 commands during one live folder session.
+Registration does not imply production usage: no production caller invokes
+them.
 
-The frontend now has an equally inactive target-aware collection and observable
-store:
+The frontend now has an equally inactive target-aware collection, observable
+store, and Tauri adapter:
 
 ```text
 file-relative path
@@ -469,18 +472,24 @@ file-relative path
 The JSON slot token is collection mechanics only and is never the domain
 identity of a draft. Each entry stores the complete target snapshot. Setting a
 new snapshot in the same slot replaces both target and edit rather than
-creating a second draft. From-wire conversion rejects duplicate slots. Batch
-mutation performs the same duplicate-slot validation atomically before changing
-the snapshot or notifying listeners, and the redundant-Set current-value
-resolver receives the complete target.
+creating a second draft. Unknown command results pass through shared structural
+identity and recursive semantic-value guards; one invalid entry rejects the
+complete load. Only deterministic `MetadataDraftEntryV5[]` arrays cross Tauri.
+From-wire conversion rejects duplicate slots. Save conversion and store reset
+validate all record keys and logical slots first, never silently re-key malformed
+collections, and leave store state unchanged on failure. Rust persistence also
+rejects duplicates before opening or truncating the file. A contract test now
+round-trips the frontend collection through the Tauri wire shape and back,
+including shared-schema occurrences and existing/new targets sharing a schema.
 
 V4 entries are not automatically converted. A schema ID does not say whether
 the operation edits an existing occurrence or creates a new property, and
 choosing a first occurrence would be forbidden first-match logic. Pending v4
 drafts must be recreated after the eventual migration. Applying v5 targets is
-still pending. No production component creates the target-aware store;
-production frontend `AppState`, `DraftEditsStore`, persistence and Tauri
-commands remain schema-keyed v4.
+still pending. No production component creates the target-aware store or
+imports the adapter; production frontend startup, `AppState`,
+`DraftEditsStore`, autosave, apply, and verification remain schema-keyed v4 and
+keep using the v4 commands.
 
 MediaLibrary persists draft edits (`MediaLibraryDraftEdits.jsonl`). Read metadata is **not** cached — every scan re-queries exiftool. Reasons:
 
@@ -488,7 +497,8 @@ MediaLibrary persists draft edits (`MediaLibraryDraftEdits.jsonl`). Read metadat
 - The file is the canonical store. Sidecars introduce sync questions we don't want to answer.
 - exiftool startup amortizes well over batches; scan cost is acceptable.
 
-Draft schema is versioned. The supported on-disk draft schema is v4. Every
+Draft schema is versioned. The production on-disk draft schema is v4; schema v5
+is available only through the explicitly versioned inactive commands. Every v4
 draft entry carries the exact ExifTool schema-definition identity; JSON object
 keys and display labels are never used as metadata identity:
 
