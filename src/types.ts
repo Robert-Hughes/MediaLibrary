@@ -21,6 +21,7 @@ export type { MetadataOccurrenceId } from "./types/generated/MetadataOccurrenceI
 export type { MetadataWriteTarget } from "./types/generated/MetadataWriteTarget";
 export type { MetadataOccurrence } from "./types/generated/MetadataOccurrence";
 export type { MetadataOccurrences } from "./types/generated/MetadataOccurrences";
+export type { MetadataDraftTarget } from "./types/generated/MetadataDraftTarget";
 export type { MetadataEntry } from "./types/generated/MetadataEntry";
 export type { MetadataDraftEntry } from "./types/generated/MetadataDraftEntry";
 export type { MetadataDraftEdit } from "./types/generated/MetadataDraftEdit";
