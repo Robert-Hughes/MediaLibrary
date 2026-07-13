@@ -525,7 +525,7 @@ describe("App Select Columns metadata counts", () => {
 });
 
 describe("App occurrence wiring regression", () => {
-  it("carries the collision wire payload through the scan stores into Gallery details", async () => {
+  it("carries unique and identical-duplicate payloads through scan stores into Gallery details", async () => {
     vi.clearAllMocks();
     localStorage.clear();
     localStorage.setItem("media_library_gallery_details_visible", "1");
@@ -575,13 +575,18 @@ describe("App occurrence wiring regression", () => {
     act(() => {
       emit("photo_found", {
         scan_id: scanId,
-        photos: [makePhoto({ relative_path: "collision.jpg" })],
+        photos: [
+          makePhoto({ relative_path: "unique.jpg" }),
+          makePhoto({ relative_path: "duplicate.jpg" }),
+        ],
       });
     });
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 150));
     });
-    await waitFor(() => screen.getByTestId("photo-row"));
+    await waitFor(() => {
+      expect(screen.getAllByTestId("photo-row")).toHaveLength(2);
+    });
 
     const info = {
       id: { table: "Exif::Main", tag_id: "282" },
@@ -594,7 +599,18 @@ describe("App occurrence wiring regression", () => {
       },
       description: null,
     };
-    const occurrences: MetadataOccurrence[] = [
+    const uniqueOccurrence: MetadataOccurrence = {
+      id: {
+        document: null,
+        path: "JPEG-APP1-IFD0",
+        tag_id: "282",
+        copy: 0,
+      },
+      value: { kind: "Integer", value: 301 },
+      tag_info: info,
+      write_target: { group1: "IFD0", tag_name: "XResolution" },
+    };
+    const duplicateOccurrences: MetadataOccurrence[] = [
       {
         id: {
           document: null,
@@ -613,7 +629,7 @@ describe("App occurrence wiring regression", () => {
           tag_id: "282",
           copy: 2,
         },
-        value: { kind: "Integer", value: 72 },
+        value: { kind: "Integer", value: 300 },
         tag_info: info,
         write_target: { group1: "IFD1", tag_name: "XResolution" },
       },
@@ -623,9 +639,14 @@ describe("App occurrence wiring regression", () => {
         scan_id: scanId,
         results: [
           {
-            relative_path: "collision.jpg",
-            occurrences,
-            metadata: mockMetadataEntries({ "XMP-dc:Title": "Unrelated" }),
+            relative_path: "unique.jpg",
+            occurrences: [uniqueOccurrence],
+            metadata: [{ id: info.id, value: { kind: "Integer", value: 300 } }],
+          },
+          {
+            relative_path: "duplicate.jpg",
+            occurrences: duplicateOccurrences,
+            metadata: [{ id: info.id, value: { kind: "Integer", value: 300 } }],
           },
         ],
       });
@@ -633,19 +654,30 @@ describe("App occurrence wiring regression", () => {
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 250));
     });
-    fireEvent.doubleClick(screen.getByTestId("photo-row"));
+    fireEvent.doubleClick(screen.getAllByTestId("photo-row")[0]);
 
     await waitFor(() => {
-      expect(screen.getByText("Unrelated")).toBeInTheDocument();
-      expect(screen.getByText("300")).toBeInTheDocument();
-      expect(screen.getByText("72")).toBeInTheDocument();
+      expect(screen.getByText("301")).toBeInTheDocument();
     });
+    expect(screen.queryByTestId("details-occurrence-row")).toBeNull();
+    const uniqueRow = screen.getByText("XResolution").closest("tr")!;
+    fireEvent.contextMenu(uniqueRow);
+    expect(screen.getByRole("button", { name: "Edit…" })).toBeInTheDocument();
+    fireEvent.mouseDown(document.body);
+
+    fireEvent.click(screen.getByTestId("gallery-next-btn"));
+    const ambiguity = await screen.findByText("2 occurrences");
+    expect(ambiguity.closest("tr")).toHaveAttribute(
+      "data-occurrence-resolution",
+      "multiple",
+    );
     expect(screen.getAllByTestId("details-occurrence-row")).toHaveLength(2);
     expect(screen.queryByTestId("error-banner")).not.toBeInTheDocument();
     expect(
       screen.queryByTestId("status-bar-metadata-spinner"),
     ).not.toBeInTheDocument();
-    fireEvent.contextMenu(screen.getAllByTestId("details-occurrence-row")[0]);
+    fireEvent.contextMenu(ambiguity.closest("tr")!);
     expect(screen.queryByText(/^Edit…$/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Remove$/)).not.toBeInTheDocument();
   });
 });

@@ -12,11 +12,25 @@ event sends that result directly with `relative_path`, `occurrences`, and
 independently in `ImageMetadataOccurrencesStore` and `ImageMetadataStore`.
 
 The Details Pane is the first deliberately narrow production occurrence
-consumer. Resolved occurrences omitted from the compatibility projection are
-shown after the ordinary groups in a temporary read-only **Additional Metadata
-Occurrences** section. All ordinary Details Pane rows, drafts, editing, GPS,
-Add Property, search-worker indexing, sorting, normalisation, writes, and
-readback verification remain schema-keyed through `ImageMetadataStore`.
+consumer. It builds a per-file schema-resolution index and classifies every
+schema lookup as `missing`, `unique`, or `multiple`. A unique ordinary row uses
+the authoritative occurrence value and embedded `TagInfo` without depending on
+a second schema lookup. Missing resolutions preserve the existing legacy row
+behavior. Multiple resolutions never select a preferred or first occurrence:
+all concrete values render separately in the read-only **Additional Metadata
+Occurrences** section, including identical values retained behind one legacy
+compatibility value.
+
+When a multiple resolution also has a compatibility row, that row is visibly
+ambiguous and offers no Edit, Edit GPS, Remove, or group Remove action. It may
+show the existing compatibility projection value, but no aggregate value is
+invented when the schema is absent. An existing schema-level draft stays only
+on that compatibility row and may be discarded; concrete occurrence rows never
+receive drafts or context-menu actions.
+
+Drafts, editing identity, GPS resolution, Add Property, search-worker indexing,
+sorting, normalisation, writes, and readback verification remain schema-keyed
+through `ImageMetadataStore`.
 Identical values sharing a schema may deduplicate in the compatibility field;
 an incompatible schema group is instead omitted atomically from the legacy
 projection without affecting unrelated entries. Every concrete value remains in
@@ -28,11 +42,10 @@ Compatibility omissions are logged and returned from the backend-only
 not `worker_error` events. Consumers other than the Details Pane fallback may
 show an omitted schema as blank until they migrate to occurrences. Schema-keyed apply
 and readback verification reject any partial projection rather than proceeding
-unsafely. If a schema is present in legacy metadata, its occurrences are not
-yet rendered independently, including identical-value deduplication. Unknown-
-schema occurrences are also excluded because public occurrences do not carry
-the scanner's temporary projection-schema candidate. Occurrence-specific
-editing remains pending, and no arbitrary first occurrence may be selected.
+unsafely. Unknown-schema occurrences remain excluded because public occurrences
+do not carry the scanner's temporary projection-schema candidate.
+Occurrence-specific editing remains pending, and no arbitrary first occurrence
+may be selected.
 
 For the original IFD0/IFD1 `XResolution` collision, both authoritative values
 now remain part of a successful scan and are visible with their distinct paths
