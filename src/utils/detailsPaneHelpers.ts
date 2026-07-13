@@ -26,6 +26,35 @@ import { resolutionForSchema } from "./metadataOccurrences";
 
 export const formatMetadataValue = metadataValueToDisplayString;
 
+/**
+ * Overlay uniquely resolved authoritative occurrence values onto the legacy
+ * compatibility collection used by Details Pane editors. Missing and
+ * multiply-resolved schemas deliberately retain the legacy projection.
+ */
+export function overlayUniqueOccurrenceValues(
+  legacyMetadata: MetadataCollection,
+  resolutionIndex: SchemaOccurrenceResolutionIndex,
+): MetadataCollection {
+  const authoritative = { ...legacyMetadata };
+
+  for (const resolution of resolutionIndex.values()) {
+    if (
+      resolution.kind !== "unique" ||
+      resolution.occurrence.tag_info === null
+    ) {
+      continue;
+    }
+
+    const id = resolution.occurrence.tag_info.id;
+    authoritative[schemaDefinitionIdToken(id)] = {
+      ...resolution.occurrence.value,
+      id,
+    };
+  }
+
+  return authoritative;
+}
+
 /** Format an OS timestamp (seconds since epoch, from Rust) into a readable string. */
 export function formatTimestamp(ts: number | null): string {
   if (ts == null) return "—";

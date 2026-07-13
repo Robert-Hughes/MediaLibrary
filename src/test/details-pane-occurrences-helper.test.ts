@@ -1,12 +1,16 @@
 import { describe, expect, it } from "vitest";
 import type {
+  MetadataValue,
   MetadataOccurrence,
   MetadataOccurrenceId,
   SchemaDefinitionId,
   TagInfo,
 } from "../types";
-import { metadataCollection } from "../utils/metadataCollection";
-import { supplementalResolvedMetadataOccurrences } from "../utils/detailsPaneHelpers";
+import { metadataCollection, metadataGet } from "../utils/metadataCollection";
+import {
+  overlayUniqueOccurrenceValues,
+  supplementalResolvedMetadataOccurrences,
+} from "../utils/detailsPaneHelpers";
 import { buildSchemaOccurrenceResolutionIndex } from "../utils/metadataOccurrences";
 
 const schemaId: SchemaDefinitionId = {
@@ -59,6 +63,174 @@ function supplemental(
     buildSchemaOccurrenceResolutionIndex(occurrences),
   );
 }
+
+function occurrenceWithValue(
+  id: MetadataOccurrenceId,
+  value: MetadataValue,
+  info: TagInfo | null = tagInfo,
+): MetadataOccurrence {
+  return {
+    id,
+    value,
+    tag_info: info,
+    write_target: null,
+  };
+}
+
+function overlay(
+  legacyMetadata: Parameters<typeof overlayUniqueOccurrenceValues>[0],
+  occurrences: readonly MetadataOccurrence[],
+) {
+  return overlayUniqueOccurrenceValues(
+    legacyMetadata,
+    buildSchemaOccurrenceResolutionIndex(occurrences),
+  );
+}
+
+describe("overlayUniqueOccurrenceValues", () => {
+  it("replaces a differing legacy value for a unique occurrence", () => {
+    const legacy = metadataCollection([
+      { id: schemaId, value: { kind: "Integer", value: 300 } },
+    ]);
+
+    expect(
+      metadataGet(
+        overlay(legacy, [
+          occurrenceWithValue(ifd0(), { kind: "Integer", value: 301 }),
+        ]),
+        schemaId,
+      ),
+    ).toEqual({ kind: "Integer", value: 301, id: schemaId });
+  });
+
+  it("adds a unique occurrence that is absent from legacy metadata", () => {
+    expect(
+      metadataGet(
+        overlay({}, [
+          occurrenceWithValue(ifd0(), { kind: "Integer", value: 301 }),
+        ]),
+        schemaId,
+      ),
+    ).toEqual({ kind: "Integer", value: 301, id: schemaId });
+  });
+
+  it("retains the legacy value for a missing resolution", () => {
+    const legacy = metadataCollection([
+      { id: schemaId, value: { kind: "Integer", value: 300 } },
+    ]);
+    expect(metadataGet(overlay(legacy, []), schemaId)).toBe(
+      metadataGet(legacy, schemaId),
+    );
+  });
+
+  it("retains the compatibility aggregate for a multiple resolution", () => {
+    const legacy = metadataCollection([
+      { id: schemaId, value: { kind: "Integer", value: 300 } },
+    ]);
+    const result = overlay(legacy, [
+      occurrenceWithValue(ifd0(), { kind: "Integer", value: 301 }),
+      occurrenceWithValue(ifd1(), { kind: "Integer", value: 302 }),
+    ]);
+    expect(metadataGet(result, schemaId)).toBe(metadataGet(legacy, schemaId));
+  });
+
+  it("adds nothing for a multiple resolution without a legacy entry", () => {
+    const result = overlay({}, [
+      occurrenceWithValue(ifd0(), { kind: "Integer", value: 301 }),
+      occurrenceWithValue(ifd1(), { kind: "Integer", value: 302 }),
+    ]);
+    expect(metadataGet(result, schemaId)).toBeUndefined();
+    expect(result).toEqual({});
+  });
+
+  it("does not collapse identical multiple values into an authoritative value", () => {
+    const result = overlay({}, [
+      occurrenceWithValue(ifd0(), { kind: "Integer", value: 301 }),
+      occurrenceWithValue(ifd1(), { kind: "Integer", value: 301 }),
+    ]);
+    expect(metadataGet(result, schemaId)).toBeUndefined();
+  });
+
+  it("ignores unknown-schema occurrences", () => {
+    const legacy = metadataCollection([
+      { id: schemaId, value: { kind: "Integer", value: 300 } },
+    ]);
+    const result = overlay(legacy, [
+      occurrenceWithValue(ifd0(), { kind: "Integer", value: 999 }, null),
+    ]);
+    expect(result).toEqual(legacy);
+  });
+
+  it("keeps absent and zero schema indexes distinct", () => {
+    const unindexedId = { ...schemaId };
+    const zeroIndexId = { ...schemaId, index: 0 };
+    const unindexedInfo = { ...tagInfo, id: unindexedId };
+    const zeroIndexInfo = { ...tagInfo, id: zeroIndexId };
+    const result = overlay({}, [
+      occurrenceWithValue(
+        ifd0(),
+        { kind: "Integer", value: 301 },
+        unindexedInfo,
+      ),
+      occurrenceWithValue(
+        ifd1(),
+        { kind: "Integer", value: 302 },
+        zeroIndexInfo,
+      ),
+    ]);
+
+    expect(metadataGet(result, unindexedId)).toEqual({
+      kind: "Integer",
+      value: 301,
+      id: unindexedId,
+    });
+    expect(metadataGet(result, zeroIndexId)).toEqual({
+      kind: "Integer",
+      value: 302,
+      id: zeroIndexId,
+    });
+    expect(Object.keys(result)).toHaveLength(2);
+  });
+
+  it("does not mutate legacy metadata or occurrences", () => {
+    const legacy = metadataCollection([
+      { id: schemaId, value: { kind: "Integer", value: 300 } },
+    ]);
+    const occurrences = [
+      occurrenceWithValue(ifd0(), { kind: "Integer", value: 301 }),
+    ];
+    const legacySnapshot = structuredClone(legacy);
+    const occurrencesSnapshot = structuredClone(occurrences);
+
+    const result = overlay(legacy, occurrences);
+
+    expect(result).not.toBe(legacy);
+    expect(legacy).toEqual(legacySnapshot);
+    expect(occurrences).toEqual(occurrencesSnapshot);
+  });
+
+  it("preserves nested semantic values exactly without string round-tripping", () => {
+    const value: MetadataValue = {
+      kind: "List",
+      value: {
+        list_kind: "Seq",
+        items: [
+          {
+            kind: "Struct",
+            value: { nested: { kind: "Integer", value: 301 } },
+          },
+        ],
+      },
+    };
+    const result = overlay({}, [occurrenceWithValue(ifd0(), value)]);
+    const overlaid = metadataGet(result, schemaId);
+
+    expect(overlaid).toEqual({ ...value, id: schemaId });
+    expect(overlaid?.kind).toBe("List");
+    if (overlaid?.kind !== "List") throw new Error("expected List overlay");
+    expect(overlaid.value).toBe(value.value);
+  });
+});
 
 describe("supplementalResolvedMetadataOccurrences", () => {
   it("returns a resolved occurrence only when its exact schema is absent", () => {

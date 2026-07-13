@@ -6,17 +6,22 @@ import {
   within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DetailsPane } from "../components/DetailsPane";
 import type {
   MetadataOccurrence,
   MetadataOccurrenceId,
+  MetadataDraftCollection,
   SchemaDefinitionId,
   TagInfo,
 } from "../types";
 import { metadataCollection } from "../utils/metadataCollection";
 import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
 import { makePhoto } from "./factories";
+import {
+  _clearTagInfoCache,
+  _setTagInfoCacheEntry,
+} from "./tagInfoTestHelpers";
 
 const schemaId: SchemaDefinitionId = {
   table: "Exif::Main",
@@ -83,18 +88,35 @@ function renderPane(
     onDiscardDraft: vi.fn(),
     onDiscardDraftBatch: vi.fn(),
   };
-  render(
+  const pane = (paneOptions: typeof options) => (
     <DetailsPane
       photo={photo}
-      metadata={options.metadata ?? {}}
-      occurrences={options.occurrences ?? collision}
-      draftEdits={options.draftEdits}
-      typedDraftEdits={options.typedDraftEdits}
+      metadata={paneOptions.metadata ?? {}}
+      occurrences={paneOptions.occurrences ?? collision}
+      draftEdits={paneOptions.draftEdits}
+      typedDraftEdits={paneOptions.typedDraftEdits}
       {...callbacks}
-    />,
+    />
   );
-  return callbacks;
+  const rendered = render(pane(options));
+  return {
+    ...callbacks,
+    rerenderPane: (nextOptions: typeof options) =>
+      rendered.rerender(pane(nextOptions)),
+  };
 }
+
+function draftCollection(
+  edit: MetadataDraftCollection[string]["edit"],
+): MetadataDraftCollection {
+  return {
+    [schemaDefinitionIdToken(schemaId)]: { id: schemaId, edit },
+  };
+}
+
+beforeEach(() => {
+  _clearTagInfoCache();
+});
 
 describe("DetailsPane additional metadata occurrences", () => {
   it("shows both sides of the original collision with distinct origins and tokens", () => {
@@ -125,7 +147,8 @@ describe("DetailsPane additional metadata occurrences", () => {
     expect(callbacks.onSetMetadataDraftBatch).not.toHaveBeenCalled();
   });
 
-  it("uses the authoritative unique occurrence without duplicating it", () => {
+  it("uses the authoritative unique occurrence in both row and editor without duplicating it", () => {
+    _setTagInfoCacheEntry(schemaId, tagInfo);
     renderPane({
       metadata: metadataCollection([
         { id: schemaId, value: { kind: "Integer", value: 300 } },
@@ -146,7 +169,48 @@ describe("DetailsPane additional metadata occurrences", () => {
       screen.queryByTestId("details-occurrence-row"),
     ).not.toBeInTheDocument();
     fireEvent.contextMenu(row);
-    expect(screen.getByRole("button", { name: "Edit…" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Edit…" }));
+    expect(screen.getByTestId("numeric-editor-input")).toHaveValue(301);
+  });
+
+  it("lets a Set draft override the authoritative unique editor value", () => {
+    _setTagInfoCacheEntry(schemaId, tagInfo);
+    renderPane({
+      metadata: metadataCollection([
+        { id: schemaId, value: { kind: "Integer", value: 300 } },
+      ]),
+      occurrences: [occurrence(collision[0].id, 301, "IFD0")],
+      typedDraftEdits: draftCollection({
+        intent: "Set",
+        value: { kind: "Integer", value: 302 },
+      }),
+    });
+
+    const row = screen
+      .getByText("XResolution")
+      .closest('[data-testid="details-row"]') as HTMLElement;
+    expect(row).toHaveTextContent("301");
+    expect(row.querySelector(".draft-new")).toHaveTextContent("302");
+    fireEvent.contextMenu(row);
+    fireEvent.click(screen.getByRole("button", { name: "Edit…" }));
+    expect(screen.getByTestId("numeric-editor-input")).toHaveValue(302);
+  });
+
+  it("retains legacy editor initialisation for a missing resolution", () => {
+    _setTagInfoCacheEntry(schemaId, tagInfo);
+    renderPane({
+      metadata: metadataCollection([
+        { id: schemaId, value: { kind: "Integer", value: 300 } },
+      ]),
+      occurrences: [],
+    });
+
+    const row = screen
+      .getByText("XResolution")
+      .closest('[data-testid="details-row"]') as HTMLElement;
+    fireEvent.contextMenu(row);
+    fireEvent.click(screen.getByRole("button", { name: "Edit…" }));
+    expect(screen.getByTestId("numeric-editor-input")).toHaveValue(300);
   });
 
   it.each(["XResolution", "300", "IFD1", "JPEG-APP1-IFD1", "Copy2", "282"])(
@@ -208,22 +272,152 @@ describe("DetailsPane additional metadata occurrences", () => {
     expect(screen.queryByText("Loading metadata…")).not.toBeInTheDocument();
   });
 
-  it("uses embedded schema and runtime datatypes without an async lookup", () => {
+  it("uses embedded schema for the unique row label, datatype, and writability", () => {
     const divergentInfo: TagInfo = {
       ...tagInfo,
+      name: "EmbeddedResolution",
+      writable: false,
       kind: { kind: "Text" },
     };
     renderPane({
+      metadata: metadataCollection([
+        { id: schemaId, value: { kind: "Integer", value: 300 } },
+      ]),
       occurrences: [occurrence(collision[0].id, 300, "IFD0", divergentInfo)],
     });
-    expect(screen.getByTestId("datatype-badge-schema")).toHaveAttribute(
+    const row = screen
+      .getByText("EmbeddedResolution")
+      .closest('[data-testid="details-row"]') as HTMLElement;
+    expect(within(row).getByTestId("datatype-badge-schema")).toHaveAttribute(
       "data-code",
       "S",
     );
-    expect(screen.getByTestId("datatype-badge-value")).toHaveAttribute(
+    expect(within(row).getByTestId("datatype-badge-value")).toHaveAttribute(
       "data-code",
       "I",
     );
+    expect(row).toHaveAttribute("data-readonly", "true");
+    fireEvent.contextMenu(row);
+    expect(screen.queryByRole("button", { name: "Edit…" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Remove" })).toBeNull();
+  });
+
+  it("updates an open row menu from unique to multiple without stale actions", () => {
+    const gpsId: SchemaDefinitionId = { table: "GPS::Main", tag_id: "2" };
+    const gpsInfo: TagInfo = {
+      id: gpsId,
+      group: "GPS",
+      name: "GPSLatitude",
+      writable: true,
+      kind: { kind: "Real" },
+      description: null,
+    };
+    const gpsOccurrence = (
+      copy: number,
+      value: number,
+    ): MetadataOccurrence => ({
+      id: {
+        document: null,
+        path: "JPEG-APP1-GPS",
+        tag_id: "2",
+        copy,
+      },
+      value: { kind: "Real", value },
+      tag_info: gpsInfo,
+      write_target: { group1: "GPS", tag_name: "GPSLatitude" },
+    });
+    const metadata = metadataCollection([
+      { id: gpsId, value: { kind: "Real", value: 51.5 } },
+    ]);
+    const typedDraftEdits: MetadataDraftCollection = {
+      [schemaDefinitionIdToken(gpsId)]: {
+        id: gpsId,
+        edit: { intent: "Set", value: { kind: "Real", value: 51.6 } },
+      },
+    };
+    const view = renderPane({
+      metadata,
+      occurrences: [gpsOccurrence(0, 51.5)],
+      typedDraftEdits,
+    });
+    const row = screen
+      .getByText("GPSLatitude")
+      .closest('[data-testid="details-row"]') as HTMLElement;
+
+    fireEvent.contextMenu(row);
+    expect(screen.getByRole("button", { name: "Edit…" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Edit GPS…" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Remove" })).toBeInTheDocument();
+
+    view.rerenderPane({
+      metadata,
+      occurrences: [gpsOccurrence(0, 51.5), gpsOccurrence(1, 51.5)],
+      typedDraftEdits,
+    });
+
+    expect(screen.queryByRole("button", { name: "Edit…" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Edit GPS…" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Remove" })).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Discard edit" }),
+    ).toBeInTheDocument();
+  });
+
+  it("closes an open editor when unique becomes multiple without firing drafts", async () => {
+    _setTagInfoCacheEntry(schemaId, tagInfo);
+    const metadata = metadataCollection([
+      { id: schemaId, value: { kind: "Integer", value: 300 } },
+    ]);
+    const view = renderPane({
+      metadata,
+      occurrences: [occurrence(collision[0].id, 301, "IFD0")],
+    });
+    const row = screen
+      .getByText("XResolution")
+      .closest('[data-testid="details-row"]') as HTMLElement;
+    fireEvent.contextMenu(row);
+    fireEvent.click(screen.getByRole("button", { name: "Edit…" }));
+    expect(screen.getByTestId("numeric-editor-overlay")).toBeInTheDocument();
+
+    view.rerenderPane({ metadata, occurrences: collision });
+
+    await waitFor(() =>
+      expect(screen.queryByTestId("numeric-editor-overlay")).toBeNull(),
+    );
+    expect(view.onSetMetadataDraft).not.toHaveBeenCalled();
+    expect(view.onSetMetadataDraftBatch).not.toHaveBeenCalled();
+
+    const ambiguousRow = screen.getByText("2 occurrences").closest("tr")!;
+    fireEvent.contextMenu(ambiguousRow);
+    expect(screen.queryByRole("button", { name: "Edit…" })).toBeNull();
+  });
+
+  it("refreshes an open editor and row when the unique occurrence is replaced", () => {
+    _setTagInfoCacheEntry(schemaId, tagInfo);
+    const metadata = metadataCollection([
+      { id: schemaId, value: { kind: "Integer", value: 300 } },
+    ]);
+    const view = renderPane({
+      metadata,
+      occurrences: [occurrence(collision[0].id, 301, "IFD0")],
+    });
+    const row = screen
+      .getByText("XResolution")
+      .closest('[data-testid="details-row"]') as HTMLElement;
+    fireEvent.contextMenu(row);
+    fireEvent.click(screen.getByRole("button", { name: "Edit…" }));
+    expect(screen.getByTestId("numeric-editor-input")).toHaveValue(301);
+
+    view.rerenderPane({
+      metadata,
+      occurrences: [occurrence(collision[0].id, 302, "IFD0")],
+    });
+
+    expect(row).toHaveTextContent("302");
+    expect(row).not.toHaveTextContent("301");
+    expect(screen.getByTestId("numeric-editor-input")).toHaveValue(302);
   });
 
   it("marks identical multiple occurrences ambiguous and disables schema actions", async () => {
@@ -288,6 +482,72 @@ describe("DetailsPane additional metadata occurrences", () => {
     fireEvent.click(screen.getByRole("button", { name: "Discard edit" }));
     expect(callbacks.onDiscardDraft).toHaveBeenCalledTimes(1);
     expect(callbacks.onDiscardDraft).toHaveBeenCalledWith(schemaId);
+  });
+
+  it("keeps an absent ambiguous Delete draft visible and discardable only on the compatibility row", async () => {
+    _setTagInfoCacheEntry(schemaId, tagInfo);
+    const callbacks = renderPane({
+      metadata: {},
+      occurrences: collision,
+      typedDraftEdits: draftCollection({ intent: "Delete", value: null }),
+    });
+
+    const aggregate = await screen.findByText("2 occurrences");
+    const compatibilityRow = aggregate.closest("tr")!;
+    expect(compatibilityRow).toHaveAttribute(
+      "data-occurrence-resolution",
+      "multiple",
+    );
+    expect(compatibilityRow.querySelector(".draft-new")).toHaveTextContent("—");
+
+    const concreteRows = screen.getAllByTestId("details-occurrence-row");
+    expect(concreteRows).toHaveLength(2);
+    for (const concrete of concreteRows) {
+      expect(concrete.querySelector(".draft-new")).toBeNull();
+      expect(concrete.querySelector(".draft-original")).toBeNull();
+    }
+
+    fireEvent.contextMenu(compatibilityRow);
+    expect(screen.queryByRole("button", { name: "Edit…" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Edit GPS…" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Remove" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Discard edit" }));
+    expect(callbacks.onDiscardDraft).toHaveBeenCalledTimes(1);
+    expect(callbacks.onDiscardDraft).toHaveBeenCalledWith(schemaId);
+
+    const heading = compatibilityRow.closest("section")!.querySelector("h3")!;
+    fireEvent.contextMenu(heading);
+    expect(
+      await screen.findByRole("button", {
+        name: /Discard 1 .* edit…/,
+      }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Remove .*writable/)).toBeNull();
+
+    await userEvent.type(
+      screen.getByTestId("details-search-input"),
+      "has:edits",
+    );
+    expect(screen.getByText("2 occurrences").closest("tr")).toHaveAttribute(
+      "data-occurrence-resolution",
+      "multiple",
+    );
+    expect(screen.getAllByTestId("details-row")).toHaveLength(1);
+    expect(screen.queryByTestId("details-occurrence-row")).toBeNull();
+  });
+
+  it("does not create a row for an absent Delete draft with a missing resolution", () => {
+    renderPane({
+      metadata: {},
+      occurrences: [],
+      typedDraftEdits: draftCollection({ intent: "Delete", value: null }),
+    });
+
+    expect(screen.queryByText("XResolution")).toBeNull();
+    expect(
+      document.querySelector('[data-occurrence-resolution="multiple"]'),
+    ).toBeNull();
+    expect(screen.getByTestId("details-section-empty")).toBeInTheDocument();
   });
 
   it("excludes ambiguous schemas from group Remove but retains group Discard", async () => {
