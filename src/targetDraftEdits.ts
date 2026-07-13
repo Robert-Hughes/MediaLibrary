@@ -10,6 +10,7 @@ import {
   compareMetadataDraftTargetsBySlot,
   metadataDraftTargetSlotToken,
 } from "./utils/metadataDraftTarget";
+import { isMetadataDraftEntryV5, isRecord } from "./utils/metadataWireGuards";
 import { compareUnicodeScalarStrings } from "./utils/unicodeOrdering";
 
 /**
@@ -49,6 +50,39 @@ function cloneEntry(entry: MetadataDraftEntryV5): MetadataDraftEntryV5 {
   return { target: cloneTarget(entry.target), edit: entry.edit };
 }
 
+export function validateTargetDraftCollection(
+  path: string,
+  collection: TargetDraftCollection,
+): void {
+  const described = Object.entries(collection).map(([recordKey, entry]) => ({
+    recordKey,
+    entry,
+    expectedSlot: metadataDraftTargetSlotToken(entry.target),
+  }));
+  const seen = new Map<
+    string,
+    { recordKey: string; target: MetadataDraftTarget }
+  >();
+
+  for (const { recordKey, entry, expectedSlot } of described) {
+    const previous = seen.get(expectedSlot);
+    if (previous) {
+      throw new Error(
+        `Duplicate target draft slot for '${path}': supplied record key '${recordKey}', expected slot token '${expectedSlot}', complete target ${JSON.stringify(entry.target)}, duplicate target ${JSON.stringify(previous.target)} supplied under record key '${previous.recordKey}'`,
+      );
+    }
+    seen.set(expectedSlot, { recordKey, target: entry.target });
+  }
+
+  for (const { recordKey, entry, expectedSlot } of described) {
+    if (recordKey !== expectedSlot) {
+      throw new Error(
+        `Malformed target draft collection for '${path}': supplied record key '${recordKey}', expected slot token '${expectedSlot}', complete target ${JSON.stringify(entry.target)}`,
+      );
+    }
+  }
+}
+
 /** Strict schema-v5 wire conversion; duplicate logical slots are rejected. */
 export function targetDraftsFromWire(
   wire: Record<string, MetadataDraftEntryV5[]>,
@@ -75,10 +109,41 @@ export function targetDraftsFromWire(
   return drafts;
 }
 
+export function targetDraftsFromUnknownWire(
+  raw: unknown,
+): TargetDraftEditsByFile {
+  if (!isRecord(raw)) {
+    throw new Error("Invalid schema-v5 draft wire payload: expected an object");
+  }
+
+  const wire: Record<string, MetadataDraftEntryV5[]> = {};
+  for (const [path, value] of Object.entries(raw)) {
+    if (!Array.isArray(value)) {
+      throw new Error(
+        `Invalid schema-v5 draft wire payload for '${path}': expected an array`,
+      );
+    }
+    for (const [index, entry] of value.entries()) {
+      if (!isMetadataDraftEntryV5(entry)) {
+        throw new Error(
+          `Invalid schema-v5 draft entry for '${path}' at array index ${index}`,
+        );
+      }
+    }
+    wire[path] = value;
+  }
+
+  return targetDraftsFromWire(wire);
+}
+
 /** Deterministic schema-v5 wire conversion ordered exactly by Rust slot order. */
 export function targetDraftsToWire(
   drafts: TargetDraftEditsByFile,
 ): Record<string, MetadataDraftEntryV5[]> {
+  for (const [path, collection] of Object.entries(drafts)) {
+    validateTargetDraftCollection(path, collection);
+  }
+
   const wire: Record<string, MetadataDraftEntryV5[]> = {};
   const paths = Object.keys(drafts).sort(compareUnicodeScalarStrings);
 
@@ -119,12 +184,16 @@ export class TargetDraftEditsStore {
 
   /** Bulk replacement is silent and defensively clones target snapshots. */
   resetMetadata(initial: TargetDraftEditsByFile): void {
+    for (const [path, collection] of Object.entries(initial)) {
+      validateTargetDraftCollection(path, collection);
+    }
+
     const next: TargetDraftEditsByFile = {};
     for (const [path, collection] of Object.entries(initial)) {
       const cloned: TargetDraftCollection = {};
-      for (const entry of Object.values(collection)) {
+      for (const [slot, entry] of Object.entries(collection)) {
         const stored = cloneEntry(entry);
-        cloned[metadataDraftTargetSlotToken(stored.target)] = stored;
+        cloned[slot] = stored;
       }
       if (Object.keys(cloned).length > 0) next[path] = cloned;
     }

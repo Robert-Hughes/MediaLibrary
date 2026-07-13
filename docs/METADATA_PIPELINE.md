@@ -131,11 +131,11 @@ New-property creation remains schema-driven because no runtime occurrence or
 write target exists yet. The target-aware planners and the legacy builder share
 one semantic value encoder.
 
-This remains foundation code only. Inactive schema-v5 load/save functions can
-parse and serialize lines with a file-relative path as outer context and
+This remains foundation code only. Inactive schema-v5 Tauri load/save commands
+can parse and serialize lines with a file-relative path as outer context and
 target-aware `{ target, edit }` entries, but they have no production caller. An
-inactive frontend v5 collection and observable store now use the parallel
-shape:
+inactive frontend v5 collection, observable store, and command adapter now use
+the parallel shape:
 
 ```text
 file-relative path
@@ -144,22 +144,32 @@ file-relative path
 ```
 
 The slot token is internal collection mechanics, not exposed domain identity.
-Every value retains its complete target. A write to an existing slot replaces
-the old target snapshot and edit; persisted wire conversion rejects duplicate
-slots. Batch writes reject duplicate incoming slots before any mutation or
-notification, and redundant-Set resolution receives the complete target rather
-than only its schema.
+Every value retains its complete target. Load results enter the adapter as
+`unknown`: shared identity, target, edit, and recursive semantic-value guards
+reject the complete payload if any file or entry is invalid. Save conversion
+validates all collections before returning wire data and sends deterministic
+arrays of `{ target, edit }`; slot tokens and source paths inside targets never
+cross Tauri. Duplicate logical slots fail in Rust persistence, frontend wire
+conversion, and store reset. Record keys that do not equal their derived slots
+also fail, including duplicate values hidden under different bad keys, rather
+than being silently re-keyed. Store reset is atomic and silent after successful
+validation. A tested frontend/Tauri-contract round-trip preserves full targets,
+shared-schema IFD0/IFD1 occurrences, and cross-variant same-schema entries.
 
-No production component creates this store. Production Tauri commands,
-`AppState`, `DraftEditsStore`, and persistence still use schema-v4 collections
-keyed by `SchemaDefinitionId`; current v4 files are not migrated. No production
-Details Pane, Add Property, apply, write, verification, or search-worker path
-consumes `MetadataDraftTarget`, and applying v5 targets remains pending.
+Command registration does not mean production usage. No production component
+creates this store or imports the adapter. Production startup and autosave
+still call the unversioned schema-v4 Tauri commands; `AppState`,
+`DraftEditsStore`, and persistence remain keyed by `SchemaDefinitionId`. No
+production Details Pane, Add Property, apply, write, verification, or
+search-worker path consumes `MetadataDraftTarget`, and applying v5 targets
+remains pending. V4 and v5 commands share one filename and must never be mixed
+in one live folder session.
 
 A v4 schema ID cannot be converted automatically into an existing-occurrence
 or new-property target without authoritative runtime context. In particular,
 selecting a first occurrence would violate the occurrence identity rules, so
 pending v4 drafts must be recreated after the eventual migration.
+There is no automatic v4-to-v5 migration.
 
 ## Tag-Schema Overrides
 
