@@ -133,12 +133,28 @@ one semantic value encoder.
 
 This remains foundation code only. Inactive schema-v5 load/save functions can
 parse and serialize lines with a file-relative path as outer context and
-target-aware `{ target, edit }` entries, but they have no production caller.
-Production Tauri commands and frontend draft collections still use schema-v4
-persistence and are keyed by `SchemaDefinitionId`; current v4 files are not
-migrated. No production Details Pane, Add Property, apply, write, or
-verification path consumes `MetadataDraftTarget`, and applying v5 targets
-remains pending.
+target-aware `{ target, edit }` entries, but they have no production caller. An
+inactive frontend v5 collection and observable store now use the parallel
+shape:
+
+```text
+file-relative path
+→ logical-slot-token-keyed collection
+→ complete MetadataDraftTarget + MetadataDraftEdit
+```
+
+The slot token is internal collection mechanics, not exposed domain identity.
+Every value retains its complete target. A write to an existing slot replaces
+the old target snapshot and edit; persisted wire conversion rejects duplicate
+slots. Batch writes reject duplicate incoming slots before any mutation or
+notification, and redundant-Set resolution receives the complete target rather
+than only its schema.
+
+No production component creates this store. Production Tauri commands,
+`AppState`, `DraftEditsStore`, and persistence still use schema-v4 collections
+keyed by `SchemaDefinitionId`; current v4 files are not migrated. No production
+Details Pane, Add Property, apply, write, verification, or search-worker path
+consumes `MetadataDraftTarget`, and applying v5 targets remains pending.
 
 A v4 schema ID cannot be converted automatically into an existing-occurrence
 or new-property target without authoritative runtime context. In particular,

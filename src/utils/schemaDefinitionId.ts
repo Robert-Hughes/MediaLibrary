@@ -1,4 +1,5 @@
 import type { SchemaDefinitionId, TagInfo } from "../types";
+import { compareUnicodeScalarStrings } from "./unicodeOrdering";
 
 export function schemaDefinitionIdEquals(
   a: SchemaDefinitionId,
@@ -9,6 +10,24 @@ export function schemaDefinitionIdEquals(
     a.tag_id === b.tag_id &&
     (a.index ?? null) === (b.index ?? null)
   );
+}
+
+/** Lexicographic ordering matching Rust's derived `SchemaDefinitionId::Ord`. */
+export function compareSchemaDefinitionIds(
+  left: SchemaDefinitionId,
+  right: SchemaDefinitionId,
+): number {
+  const tableOrder = compareUnicodeScalarStrings(left.table, right.table);
+  if (tableOrder !== 0) return tableOrder;
+
+  const tagOrder = compareUnicodeScalarStrings(left.tag_id, right.tag_id);
+  if (tagOrder !== 0) return tagOrder;
+
+  const leftIndex = left.index ?? null;
+  const rightIndex = right.index ?? null;
+  if (leftIndex === null) return rightIndex === null ? 0 : -1;
+  if (rightIndex === null) return 1;
+  return leftIndex - rightIndex;
 }
 
 /**
