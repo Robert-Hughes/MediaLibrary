@@ -7,6 +7,7 @@ pub mod commands;
 pub mod country_code;
 pub mod describe_log;
 pub mod draft_edits;
+pub mod draft_reconciliation_v5;
 pub mod exiftool_config;
 pub mod geocode;
 pub mod geocode_cache;

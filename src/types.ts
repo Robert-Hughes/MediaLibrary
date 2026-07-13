@@ -23,6 +23,7 @@ export type { MetadataOccurrence } from "./types/generated/MetadataOccurrence";
 export type { MetadataOccurrences } from "./types/generated/MetadataOccurrences";
 export type { MetadataDraftTarget } from "./types/generated/MetadataDraftTarget";
 export type { MetadataDraftReconciliation } from "./types/generated/MetadataDraftReconciliation";
+export type { MetadataTargetOutcome } from "./types/generated/MetadataTargetOutcome";
 export type { MetadataEntry } from "./types/generated/MetadataEntry";
 export type { MetadataDraftEntry } from "./types/generated/MetadataDraftEntry";
 export type { MetadataDraftEntryV5 } from "./types/generated/MetadataDraftEntryV5";
