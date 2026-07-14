@@ -8,9 +8,12 @@ import type {
   MetadataDraftCollection,
   MetadataValue,
   MetadataDraftTarget,
+  MetadataOccurrence,
   MetadataOccurrenceId,
+  MetadataDraftEntryV5,
   TargetDraftPersistenceStateV5,
 } from "../types";
+import { metadataValueEqual } from "../types";
 import type { TargetDraftCollection } from "../targetDraftEdits";
 import { HighlightedText } from "./HighlightedText";
 import { ContextMenu } from "./ContextMenu";
@@ -66,6 +69,7 @@ import type {
 } from "../utils/metadataOccurrences";
 import {
   buildSchemaOccurrenceResolutionIndex,
+  resolveExactMetadataOccurrence,
   resolutionForSchema,
 } from "../utils/metadataOccurrences";
 import {
@@ -73,7 +77,42 @@ import {
   resolveTargetDraftByExactSchema,
   targetDraftSchemas,
 } from "../targetDraftView";
-import { existingOccurrenceTargetFromOccurrence } from "../utils/metadataDraftTarget";
+import {
+  existingOccurrenceTargetFromOccurrence,
+  metadataDraftTargetEquals,
+} from "../utils/metadataDraftTarget";
+import { metadataOccurrenceIdToken } from "../utils/metadataOccurrenceId";
+
+type ExistingOccurrenceTarget = Extract<
+  MetadataDraftTarget,
+  { kind: "ExistingOccurrence" }
+>;
+
+type EditDialogState =
+  | {
+      kind: "existing-occurrence";
+      schemaId: SchemaDefinitionId;
+      occurrenceId: MetadataOccurrenceId;
+      openedTarget: ExistingOccurrenceTarget;
+    }
+  | {
+      kind: "gps";
+      schemaId: SchemaDefinitionId;
+      mode: "single" | "gps";
+    }
+  | {
+      kind: "new-property";
+      schemaId: SchemaDefinitionId;
+    };
+
+interface PresentedExistingOccurrenceDraft {
+  token: string;
+  entry: MetadataDraftEntryV5 & { target: ExistingOccurrenceTarget };
+  occurrence: Extract<
+    ReturnType<typeof resolveExactMetadataOccurrence>,
+    { kind: "unique" }
+  >["occurrence"];
+}
 
 interface Props {
   photo: PhotoInfo;
@@ -175,6 +214,48 @@ function displayStringOfDraft(
 ): string | null | undefined {
   if (edit === undefined) return undefined;
   return displayStringOfMetadataDraft(edit);
+}
+
+function effectiveExistingDraftValue(
+  original: MetadataValue,
+  edit: MetadataDraftEdit,
+): MetadataValue {
+  if (edit.intent === "Set" && edit.value !== null) return edit.value;
+  if (edit.intent === "Delete" || edit.value === null) return original;
+  if (original.kind !== "List") return edit.value;
+
+  const stagedItems =
+    edit.value.kind === "List" ? edit.value.value.items : [edit.value];
+  if (edit.intent === "ListRemove") {
+    return {
+      kind: "List",
+      value: {
+        ...original.value,
+        items: original.value.items.filter(
+          (item) =>
+            !stagedItems.some((staged) => metadataValueEqual(item, staged)),
+        ),
+      },
+    };
+  }
+  if (edit.intent === "ListAdd") {
+    return {
+      kind: "List",
+      value: {
+        ...original.value,
+        items: [
+          ...original.value.items,
+          ...stagedItems.filter(
+            (item) =>
+              !original.value.items.some((existing) =>
+                metadataValueEqual(existing, item),
+              ),
+          ),
+        ],
+      },
+    };
+  }
+  return original;
 }
 
 function DetailsValueCell({
@@ -746,10 +827,9 @@ export function DetailsPane({
     y: number;
     group: string;
   } | null>(null);
-  const [editDialog, setEditDialog] = useState<{
-    id: SchemaDefinitionId;
-    mode: "single" | "gps";
-  } | null>(null);
+  const [editDialog, setEditDialog] = useState<EditDialogState | null>(null);
+  const [editDialogUnavailableMessage, setEditDialogUnavailableMessage] =
+    useState<string | null>(null);
   const [showNewPropertyDialog, setShowNewPropertyDialog] = useState(false);
   // Stage 2 of the new-property flow: key picked, now show a TypedValueEditor
   // for that key.  null when no flow is active or we're still on stage 1.
@@ -787,41 +867,86 @@ export function DetailsPane({
     }
     return resolutions;
   }, [targetDraftEdits]);
-  const presentedTargetDrafts = useMemo(() => {
-    if (metadata === "loading") return [];
-    return Array.from(targetSchemaResolutions.entries()).flatMap(
-      ([token, schemaResolution]) => {
-        if (schemaResolution.kind !== "unique") return [];
-        const entry = schemaResolution.entry;
-        const occurrenceResolution = resolutionForSchema(
-          occurrenceResolutionIndex,
-          entry.target.schema_id,
-        );
-        if (entry.target.kind === "NewProperty") {
-          return occurrenceResolution.kind === "missing" &&
-            metadataGet(metadata, entry.target.schema_id) === undefined
-            ? [[token, entry] as const]
-            : [];
+  const presentationPlan = useMemo(() => {
+    const presented: Array<readonly [string, MetadataDraftEntryV5]> = [];
+    const existing: PresentedExistingOccurrenceDraft[] = [];
+    if (metadata === "loading") return { presented, existing };
+    for (const [token, schemaResolution] of targetSchemaResolutions) {
+      if (schemaResolution.kind !== "unique") continue;
+      const entry = schemaResolution.entry;
+      const occurrenceResolution = resolutionForSchema(
+        occurrenceResolutionIndex,
+        entry.target.schema_id,
+      );
+      if (entry.target.kind === "NewProperty") {
+        if (
+          occurrenceResolution.kind === "missing" &&
+          metadataGet(metadata, entry.target.schema_id) === undefined
+        ) {
+          presented.push([token, entry]);
         }
-        if (gpsMemberGroup(entry.target.schema_id) !== null) return [];
-        const rowResolution = resolveExistingRowDraft(
-          entry.target.schema_id,
-          occurrenceResolution,
-          typedDraftEdits,
-          targetDraftEdits,
-        );
-        return rowResolution.kind === "target" && rowResolution.entry === entry
-          ? [[token, entry] as const]
-          : [];
-      },
-    );
+        continue;
+      }
+      if (
+        gpsMemberGroup(entry.target.schema_id) !== null ||
+        occurrences === undefined ||
+        occurrences === "loading" ||
+        Object.values(typedDraftEdits ?? {}).some((legacy) =>
+          schemaDefinitionIdEquals(legacy.id, entry.target.schema_id),
+        )
+      ) {
+        continue;
+      }
+      const exact = resolveExactMetadataOccurrence(
+        occurrences,
+        entry.target.occurrence_id,
+      );
+      if (exact.kind !== "unique") continue;
+      const currentTarget = existingOccurrenceTargetFromOccurrence(
+        exact.occurrence,
+      );
+      if (
+        currentTarget.kind !== "targetable" ||
+        !metadataDraftTargetEquals(currentTarget.target, entry.target)
+      ) {
+        continue;
+      }
+      presented.push([token, entry]);
+      existing.push({
+        token,
+        entry: { ...entry, target: entry.target },
+        occurrence: exact.occurrence,
+      });
+    }
+    return { presented, existing };
   }, [
     metadata,
+    occurrences,
     occurrenceResolutionIndex,
-    targetDraftEdits,
     targetSchemaResolutions,
     typedDraftEdits,
   ]);
+  const presentedTargetDrafts = presentationPlan.presented;
+  const presentedExistingOccurrenceDrafts = presentationPlan.existing;
+  const presentedExistingBySchema = useMemo(
+    () =>
+      new Map(
+        presentedExistingOccurrenceDrafts.map((presented) => [
+          schemaDefinitionIdToken(presented.entry.target.schema_id),
+          presented,
+        ]),
+      ),
+    [presentedExistingOccurrenceDrafts],
+  );
+  const presentedExistingOccurrenceTokens = useMemo(
+    () =>
+      new Set(
+        presentedExistingOccurrenceDrafts.map((presented) =>
+          metadataOccurrenceIdToken(presented.entry.target.occurrence_id),
+        ),
+      ),
+    [presentedExistingOccurrenceDrafts],
+  );
   const unresolvedTargetDrafts = useMemo(() => {
     const presented = new Set(presentedTargetDrafts.map(([, entry]) => entry));
     return Object.values(targetDraftEdits ?? {}).filter(
@@ -930,7 +1055,7 @@ export function DetailsPane({
       }
     }
     for (const [, entry] of presentedTargetDrafts) {
-      if (entry.edit.intent !== "Delete") ids.push(entry.target.schema_id);
+      ids.push(entry.target.schema_id);
     }
     return ids;
   }, [
@@ -943,9 +1068,10 @@ export function DetailsPane({
     () =>
       displayIds.filter(
         (id) =>
+          !presentedExistingBySchema.has(schemaDefinitionIdToken(id)) &&
           resolutionForSchema(occurrenceResolutionIndex, id).kind !== "unique",
       ),
-    [displayIds, occurrenceResolutionIndex],
+    [displayIds, occurrenceResolutionIndex, presentedExistingBySchema],
   );
   const lookedUpDisplayTagInfos = useTagInfos(schemaLookupIds);
   const displayTagInfos = useMemo(() => {
@@ -959,8 +1085,18 @@ export function DetailsPane({
         result[schemaDefinitionIdToken(id)] = resolution.occurrence.tag_info;
       }
     }
+    for (const presented of presentedExistingOccurrenceDrafts) {
+      if (presented.occurrence.tag_info !== null) {
+        result[presented.token] = presented.occurrence.tag_info;
+      }
+    }
     return result;
-  }, [displayIds, lookedUpDisplayTagInfos, occurrenceResolutionIndex]);
+  }, [
+    displayIds,
+    lookedUpDisplayTagInfos,
+    occurrenceResolutionIndex,
+    presentedExistingOccurrenceDrafts,
+  ]);
   const imageGroups = useMemo(() => {
     if (metadata === "loading") return [];
 
@@ -987,10 +1123,13 @@ export function DetailsPane({
       }
     }
     for (const [token, entry] of presentedTargetDrafts) {
-      if (
-        metadataGet(metadata, entry.target.schema_id) === undefined &&
-        entry.edit.intent !== "Delete"
-      ) {
+      const presentedExisting = presentedExistingBySchema.get(token);
+      if (presentedExisting) {
+        combinedMetadata[token] = {
+          ...presentedExisting.occurrence.value,
+          id: entry.target.schema_id,
+        } as ImageMetadataEntry;
+      } else if (metadataGet(metadata, entry.target.schema_id) === undefined) {
         combinedMetadata[token] = {
           kind: "Null",
           id: entry.target.schema_id,
@@ -1004,57 +1143,166 @@ export function DetailsPane({
     displayTagInfos,
     occurrenceResolutionIndex,
     presentedTargetDrafts,
+    presentedExistingBySchema,
   ]);
 
-  const editDialogResolution = editDialog
-    ? resolutionForSchema(occurrenceResolutionIndex, editDialog.id)
-    : null;
-  const editDialogInitialValue =
-    editDialog &&
-    (editDialog.mode === "gps" || gpsMemberGroup(editDialog.id) !== null) &&
-    effectiveMetadata
-      ? metadataGet(effectiveMetadata, editDialog.id)
-      : editDialog && editDialogResolution?.kind === "unique"
-        ? (() => {
-            const rowDraft = resolveExistingRowDraft(
-              editDialog.id,
-              editDialogResolution,
-              typedDraftEdits,
-              targetDraftEdits,
-            );
-            return rowDraft.kind === "target" &&
-              rowDraft.entry.edit.intent === "Set"
-              ? (rowDraft.entry.edit.value ?? undefined)
-              : editDialogResolution.occurrence.value;
-          })()
-        : editDialog
-          ? (() => {
-              const target = resolveTargetDraftByExactSchema(
-                targetDraftEdits,
-                editDialog.id,
-              );
-              return target.kind === "unique" &&
-                target.entry.target.kind === "NewProperty" &&
-                target.entry.edit.intent === "Set"
-                ? (target.entry.edit.value ?? undefined)
-                : undefined;
-            })()
-          : undefined;
+  const ordinaryEditResolution = useMemo<
+    | { kind: "available"; occurrence: MetadataOccurrence }
+    | { kind: "unavailable"; reason: string }
+    | null
+  >(() => {
+    if (editDialog?.kind !== "existing-occurrence") return null;
+    if (occurrences === undefined || occurrences === "loading") {
+      return {
+        kind: "unavailable",
+        reason:
+          "The exact metadata occurrence is unavailable while authoritative metadata is loading. Nothing was saved.",
+      };
+    }
+    const exact = resolveExactMetadataOccurrence(
+      occurrences,
+      editDialog.occurrenceId,
+    );
+    if (exact.kind === "missing") {
+      return {
+        kind: "unavailable",
+        reason:
+          "The exact metadata occurrence selected for this editor no longer exists. Nothing was saved.",
+      };
+    }
+    if (exact.kind === "duplicate") {
+      return {
+        kind: "unavailable",
+        reason:
+          "The selected occurrence ID is duplicated, so this editor can no longer target it safely. Nothing was saved.",
+      };
+    }
+    if (
+      exact.occurrence.tag_info === null ||
+      !schemaDefinitionIdEquals(
+        exact.occurrence.tag_info.id,
+        editDialog.schemaId,
+      )
+    ) {
+      return {
+        kind: "unavailable",
+        reason:
+          "The selected occurrence's embedded schema changed, so this editor was closed without saving.",
+      };
+    }
+    const currentTarget = existingOccurrenceTargetFromOccurrence(
+      exact.occurrence,
+    );
+    if (
+      currentTarget.kind !== "targetable" ||
+      !metadataDraftTargetEquals(currentTarget.target, editDialog.openedTarget)
+    ) {
+      return {
+        kind: "unavailable",
+        reason:
+          "The selected occurrence's exact write target changed or became unavailable. Nothing was saved.",
+      };
+    }
+
+    const token = schemaDefinitionIdToken(editDialog.schemaId);
+    const presented = presentedExistingBySchema.get(token);
+    if (presented) {
+      if (
+        metadataOccurrenceIdToken(presented.occurrence.id) ===
+          metadataOccurrenceIdToken(editDialog.occurrenceId) &&
+        metadataDraftTargetEquals(presented.entry.target, currentTarget.target)
+      ) {
+        return { kind: "available", occurrence: exact.occurrence };
+      }
+      return {
+        kind: "unavailable",
+        reason:
+          "This ordinary row is now owned by a different exact target. Nothing was saved.",
+      };
+    }
+
+    const schemaResolution = resolutionForSchema(
+      occurrenceResolutionIndex,
+      editDialog.schemaId,
+    );
+    const rowDraft = resolveExistingRowDraft(
+      editDialog.schemaId,
+      schemaResolution,
+      typedDraftEdits,
+      targetDraftEdits,
+    );
+    if (
+      schemaResolution.kind === "unique" &&
+      metadataOccurrenceIdToken(schemaResolution.occurrence.id) ===
+        metadataOccurrenceIdToken(editDialog.occurrenceId) &&
+      rowDraft.kind === "none"
+    ) {
+      return { kind: "available", occurrence: exact.occurrence };
+    }
+    return {
+      kind: "unavailable",
+      reason:
+        "The ordinary row no longer resolves to the exact occurrence selected when the editor opened. Nothing was saved.",
+    };
+  }, [
+    editDialog,
+    occurrenceResolutionIndex,
+    occurrences,
+    presentedExistingBySchema,
+    targetDraftEdits,
+    typedDraftEdits,
+  ]);
+
+  const editDialogInitialValue = (() => {
+    if (!editDialog) return undefined;
+    if (editDialog.kind === "gps") {
+      return effectiveMetadata
+        ? metadataGet(effectiveMetadata, editDialog.schemaId)
+        : undefined;
+    }
+    if (editDialog.kind === "new-property") {
+      const target = resolveTargetDraftByExactSchema(
+        targetDraftEdits,
+        editDialog.schemaId,
+      );
+      return target.kind === "unique" &&
+        target.entry.target.kind === "NewProperty" &&
+        target.entry.edit.intent === "Set"
+        ? (target.entry.edit.value ?? undefined)
+        : undefined;
+    }
+    if (ordinaryEditResolution?.kind !== "available") return undefined;
+    const presented = presentedExistingBySchema.get(
+      schemaDefinitionIdToken(editDialog.schemaId),
+    );
+    return presented
+      ? effectiveExistingDraftValue(
+          ordinaryEditResolution.occurrence.value,
+          presented.entry.edit,
+        )
+      : ordinaryEditResolution.occurrence.value;
+  })();
   const editDialogRenderKey = editDialog
-    ? `${schemaDefinitionIdToken(editDialog.id)}:${JSON.stringify({
-        occurrence:
-          editDialogResolution?.kind === "unique"
-            ? editDialogResolution.occurrence.id
-            : null,
-        value: editDialogInitialValue,
-      })}`
+    ? `${editDialog.kind}:${schemaDefinitionIdToken(editDialog.schemaId)}:${JSON.stringify(
+        {
+          occurrence:
+            editDialog.kind === "existing-occurrence"
+              ? editDialog.occurrenceId
+              : null,
+          value: editDialogInitialValue,
+        },
+      )}`
     : undefined;
 
   useEffect(() => {
-    if (editDialog && editDialogResolution?.kind === "multiple") {
+    if (
+      editDialog?.kind === "existing-occurrence" &&
+      ordinaryEditResolution?.kind === "unavailable"
+    ) {
+      setEditDialogUnavailableMessage(ordinaryEditResolution.reason);
       setEditDialog(null);
     }
-  }, [editDialog, editDialogResolution]);
+  }, [editDialog, ordinaryEditResolution]);
 
   const fullGroupForMenu = useMemo(() => {
     if (!groupContextMenu) return null;
@@ -1139,8 +1387,15 @@ export function DetailsPane({
       occurrences,
       metadata,
       occurrenceResolutionIndex,
+    ).filter(
+      (entry) => !presentedExistingOccurrenceTokens.has(entry.identityToken),
     );
-  }, [metadata, occurrences, occurrenceResolutionIndex]);
+  }, [
+    metadata,
+    occurrences,
+    occurrenceResolutionIndex,
+    presentedExistingOccurrenceTokens,
+  ]);
 
   const filteredOccurrenceEntries = useMemo(() => {
     const { query, hasEditsFilter } = splitHasEditsFilter(
@@ -1156,6 +1411,12 @@ export function DetailsPane({
   const showOsSection = !normalizedDetailsQuery || filteredOsEntries.length > 0;
 
   const rowDraftResolutionFor = (id: SchemaDefinitionId) => {
+    const presented = presentedExistingBySchema.get(
+      schemaDefinitionIdToken(id),
+    );
+    if (presented) {
+      return { kind: "target" as const, entry: presented.entry };
+    }
     const occurrenceResolution = resolutionForSchema(
       occurrenceResolutionIndex,
       id,
@@ -1166,6 +1427,17 @@ export function DetailsPane({
       typedDraftEdits,
       targetDraftEdits,
     );
+  };
+
+  const ordinaryOccurrenceResolutionFor = (
+    id: SchemaDefinitionId,
+  ): SchemaOccurrenceResolution => {
+    const presented = presentedExistingBySchema.get(
+      schemaDefinitionIdToken(id),
+    );
+    return presented
+      ? { kind: "unique", occurrence: presented.occurrence }
+      : resolutionForSchema(occurrenceResolutionIndex, id);
   };
 
   const editingUnavailableReasonFor = (
@@ -1197,6 +1469,17 @@ export function DetailsPane({
     if (!targetDraftsWritable) {
       return "Target-aware editing is unavailable because schema-v5 draft persistence did not load safely.";
     }
+    const presented = presentedExistingBySchema.get(
+      schemaDefinitionIdToken(id),
+    );
+    if (presented) {
+      const targetability = existingOccurrenceTargetFromOccurrence(
+        presented.occurrence,
+      );
+      return targetability.kind === "read-only"
+        ? targetability.reason
+        : undefined;
+    }
     const occurrenceResolution = resolutionForSchema(
       occurrenceResolutionIndex,
       id,
@@ -1215,6 +1498,31 @@ export function DetailsPane({
     return targetability.kind === "read-only"
       ? targetability.reason
       : undefined;
+  };
+
+  const openExistingOccurrenceEditor = (schemaId: SchemaDefinitionId) => {
+    const presented = presentedExistingBySchema.get(
+      schemaDefinitionIdToken(schemaId),
+    );
+    const schemaResolution = resolutionForSchema(
+      occurrenceResolutionIndex,
+      schemaId,
+    );
+    const occurrence =
+      presented?.occurrence ??
+      (schemaResolution.kind === "unique"
+        ? schemaResolution.occurrence
+        : undefined);
+    if (!occurrence) return;
+    const targetability = existingOccurrenceTargetFromOccurrence(occurrence);
+    if (targetability.kind !== "targetable") return;
+    setEditDialogUnavailableMessage(null);
+    setEditDialog({
+      kind: "existing-occurrence",
+      schemaId,
+      occurrenceId: structuredClone(occurrence.id),
+      openedTarget: targetability.target,
+    });
   };
 
   return (
@@ -1399,10 +1707,20 @@ export function DetailsPane({
                   <table className="details-table">
                     <tbody>
                       {group.entries.map((entry) => {
-                        const occurrenceResolution = resolutionForSchema(
+                        const schemaOccurrenceResolution = resolutionForSchema(
                           occurrenceResolutionIndex,
                           entry.id,
                         );
+                        const presentedExisting = presentedExistingBySchema.get(
+                          entry.identityToken,
+                        );
+                        const occurrenceResolution: SchemaOccurrenceResolution =
+                          presentedExisting
+                            ? {
+                                kind: "unique",
+                                occurrence: presentedExisting.occurrence,
+                              }
+                            : schemaOccurrenceResolution;
                         const targetResolution = targetSchemaResolutions.get(
                           entry.identityToken,
                         );
@@ -1419,11 +1737,13 @@ export function DetailsPane({
                           );
                         const typedDraft = presentedNewProperty
                           ? targetResolution.entry.edit
-                          : rowDraftResolution.kind === "legacy"
-                            ? rowDraftResolution.edit
-                            : rowDraftResolution.kind === "target"
-                              ? rowDraftResolution.entry.edit
-                              : undefined;
+                          : presentedExisting
+                            ? presentedExisting.entry.edit
+                            : rowDraftResolution.kind === "legacy"
+                              ? rowDraftResolution.edit
+                              : rowDraftResolution.kind === "target"
+                                ? rowDraftResolution.entry.edit
+                                : undefined;
                         return (
                           <DetailsImageRow
                             key={entry.identityToken}
@@ -1571,23 +1891,55 @@ export function DetailsPane({
         </div>
       )}
 
+      {editDialogUnavailableMessage && (
+        <div
+          className="details-editor-unavailable"
+          data-testid="details-editor-unavailable"
+          role="alert"
+        >
+          <span>{editDialogUnavailableMessage}</span>
+          <button
+            className="button button--secondary"
+            onClick={() => setEditDialogUnavailableMessage(null)}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {contextMenu && (
         <DetailsRowContextMenu
           contextMenu={contextMenu}
-          occurrenceResolution={resolutionForSchema(
-            occurrenceResolutionIndex,
-            contextMenu.id,
-          )}
+          occurrenceResolution={ordinaryOccurrenceResolutionFor(contextMenu.id)}
           onEdit={() => {
-            setEditDialog({
-              id: contextMenu.id,
-              mode: "single",
-            });
+            const targetResolution = targetSchemaResolutions.get(
+              schemaDefinitionIdToken(contextMenu.id),
+            );
+            setEditDialogUnavailableMessage(null);
+            if (gpsMemberGroup(contextMenu.id) !== null) {
+              setEditDialog({
+                kind: "gps",
+                schemaId: contextMenu.id,
+                mode: "single",
+              });
+            } else if (
+              targetResolution?.kind === "unique" &&
+              targetResolution.entry.target.kind === "NewProperty"
+            ) {
+              setEditDialog({
+                kind: "new-property",
+                schemaId: contextMenu.id,
+              });
+            } else {
+              openExistingOccurrenceEditor(contextMenu.id);
+            }
             setContextMenu(null);
           }}
           onEditGps={() => {
+            setEditDialogUnavailableMessage(null);
             setEditDialog({
-              id: contextMenu.id,
+              kind: "gps",
+              schemaId: contextMenu.id,
               mode: "gps",
             });
             setContextMenu(null);
@@ -1631,6 +1983,20 @@ export function DetailsPane({
               targetResolution.entry.target.kind === "NewProperty"
             ) {
               onDiscardTargetPropertyDraft?.(targetResolution.entry.target);
+            } else if (
+              presentedExistingBySchema.has(
+                schemaDefinitionIdToken(contextMenu.id),
+              )
+            ) {
+              onSetExistingOccurrenceDraft?.(
+                presentedExistingBySchema.get(
+                  schemaDefinitionIdToken(contextMenu.id),
+                )!.occurrence.id,
+                {
+                  value: null,
+                  intent: "Delete",
+                },
+              );
             } else if (occurrenceResolution.kind === "unique") {
               onSetExistingOccurrenceDraft?.(
                 occurrenceResolution.occurrence.id,
@@ -1664,39 +2030,32 @@ export function DetailsPane({
         />
       )}
 
-      {editDialog && editDialogResolution?.kind !== "multiple" && (
-        <TypedValueEditor
-          key={editDialogRenderKey}
-          propertyId={editDialog.id}
-          editorMode={editDialog.mode}
-          initialMetadataValue={editDialogInitialValue}
-          metadataForFile={effectiveMetadata}
-          onSaveMetadataBatch={(edits) => {
-            onSetMetadataDraftBatch(edits);
-            setEditDialog(null);
-          }}
-          onSaveMetadata={(edit) => {
-            const targetResolution = targetSchemaResolutions.get(
-              schemaDefinitionIdToken(editDialog.id),
-            );
-            if (gpsMemberGroup(editDialog.id) !== null) {
-              onSetMetadataDraftBatch([{ id: editDialog.id, edit }]);
-            } else if (
-              targetResolution?.kind === "unique" &&
-              targetResolution.entry.target.kind === "NewProperty"
-            ) {
-              onSetNewPropertyDraft?.(editDialog.id, edit);
-            } else if (editDialogResolution?.kind === "unique") {
-              onSetExistingOccurrenceDraft?.(
-                editDialogResolution.occurrence.id,
-                edit,
-              );
-            }
-            setEditDialog(null);
-          }}
-          onCancel={() => setEditDialog(null)}
-        />
-      )}
+      {editDialog &&
+        (editDialog.kind !== "existing-occurrence" ||
+          ordinaryEditResolution?.kind === "available") && (
+          <TypedValueEditor
+            key={editDialogRenderKey}
+            propertyId={editDialog.schemaId}
+            editorMode={editDialog.kind === "gps" ? editDialog.mode : "single"}
+            initialMetadataValue={editDialogInitialValue}
+            metadataForFile={effectiveMetadata}
+            onSaveMetadataBatch={(edits) => {
+              onSetMetadataDraftBatch(edits);
+              setEditDialog(null);
+            }}
+            onSaveMetadata={(edit) => {
+              if (editDialog.kind === "gps") {
+                onSetMetadataDraftBatch([{ id: editDialog.schemaId, edit }]);
+              } else if (editDialog.kind === "new-property") {
+                onSetNewPropertyDraft?.(editDialog.schemaId, edit);
+              } else if (ordinaryEditResolution?.kind === "available") {
+                onSetExistingOccurrenceDraft?.(editDialog.occurrenceId, edit);
+              }
+              setEditDialog(null);
+            }}
+            onCancel={() => setEditDialog(null)}
+          />
+        )}
 
       {targetDraftsWritable && showNewPropertyDialog && (
         <NewPropertyDialog
