@@ -386,48 +386,43 @@ export function useMediaLibrary(
         .invoke("set_window_title", { title: `Media Library — ${folder}` })
         .catch(() => {});
 
-      // The temporary bridge loads v4 and strict v5 independently. A bad v5
-      // file is reported and held intact; it is never treated as an empty file
-      // to be overwritten during initialisation.
-      await Promise.all([
-        (async () => {
-          try {
-            const raw = await api.invoke("load_metadata_draft_edits", {
-              folderPath: folder,
-            });
-            draftEditsStoreRef.current.resetMetadata(
-              metadataDraftsFromWire(
-                raw as Record<string, import("./types").MetadataDraftEntry[]>,
-              ),
-            );
-          } catch (e) {
-            console.error("Failed to load draft edits", e);
-            draftEditsStoreRef.current.resetMetadata({});
-          }
-        })(),
-        (async () => {
-          try {
-            const loaded = await loadTargetDraftEditsV5(api, folder);
-            targetDraftEditsStoreRef.current.resetMetadata(loaded);
-            targetDraftPersistenceRef.current = { status: "ready" };
-          } catch (error) {
-            console.error("Failed to load schema-v5 target drafts", error);
-            targetDraftEditsStoreRef.current.resetMetadata({});
-            const errorMessage =
-              error instanceof Error ? error.message : String(error);
-            targetDraftPersistenceRef.current = {
-              status: "load-failed",
-              error: errorMessage,
-            };
-            targetLoadErrorRef.current = {
-              scan_id: scanId,
-              worker_type: "metadata-v5-load",
-              error_message: errorMessage,
-              affected_files: [],
-            };
-          }
-        })(),
-      ]);
+      // Load v5 first so its one-time misplaced-file migration can rename a
+      // valid target-aware old shared file before the independent v4 loader
+      // examines that path. Either load may fail without suppressing the other.
+      try {
+        const loaded = await loadTargetDraftEditsV5(api, folder);
+        targetDraftEditsStoreRef.current.resetMetadata(loaded);
+        targetDraftPersistenceRef.current = { status: "ready" };
+      } catch (error) {
+        console.error("Failed to load schema-v5 target drafts", error);
+        targetDraftEditsStoreRef.current.resetMetadata({});
+        const errorMessage =
+          error instanceof Error ? error.message : String(error);
+        targetDraftPersistenceRef.current = {
+          status: "load-failed",
+          error: errorMessage,
+        };
+        targetLoadErrorRef.current = {
+          scan_id: scanId,
+          worker_type: "metadata-v5-load",
+          error_message: errorMessage,
+          affected_files: [],
+        };
+      }
+
+      try {
+        const raw = await api.invoke("load_metadata_draft_edits", {
+          folderPath: folder,
+        });
+        draftEditsStoreRef.current.resetMetadata(
+          metadataDraftsFromWire(
+            raw as Record<string, import("./types").MetadataDraftEntry[]>,
+          ),
+        );
+      } catch (e) {
+        console.error("Failed to load draft edits", e);
+        draftEditsStoreRef.current.resetMetadata({});
+      }
 
       await api.invoke("start_scan", { scanId, folderPath: folder });
       pushRecentFolder(folder);

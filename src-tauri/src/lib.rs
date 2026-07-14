@@ -859,8 +859,10 @@ fn load_metadata_draft_edits(
     draft_edits::load_metadata_draft_edits(&folder_path)
 }
 
-// Controlled production schema-v5 boundary. Add Property uses these commands;
-// remaining producers stay on v4, and combined frontend apply is sequential.
+// Controlled production schema-v5 boundary. Add Property uses the independent
+// MediaLibraryTargetDraftEdits.jsonl file; remaining producers stay on the
+// v4-owned MediaLibraryDraftEdits.jsonl file, and combined frontend apply is
+// sequential.
 // Target-aware apply logging remains pending.
 #[tauri::command]
 fn save_metadata_draft_edits_v5(
@@ -1124,7 +1126,7 @@ mod tests {
 
         assert_eq!(loaded, data);
         let bytes =
-            std::fs::read_to_string(dir.path().join("MediaLibraryDraftEdits.jsonl")).unwrap();
+            std::fs::read_to_string(dir.path().join("MediaLibraryTargetDraftEdits.jsonl")).unwrap();
         let line: serde_json::Value = serde_json::from_str(bytes.lines().nth(1).unwrap()).unwrap();
         assert_eq!(line["schema_version"], 5);
         assert_eq!(line["relative_path"], "folder/photo.jpg");
@@ -1155,7 +1157,7 @@ mod tests {
         assert_eq!(loaded, data);
         assert_eq!(loaded["__proto__"].len(), 1);
         let bytes =
-            std::fs::read_to_string(dir.path().join("MediaLibraryDraftEdits.jsonl")).unwrap();
+            std::fs::read_to_string(dir.path().join("MediaLibraryTargetDraftEdits.jsonl")).unwrap();
         let line: serde_json::Value = serde_json::from_str(bytes.lines().nth(1).unwrap()).unwrap();
         assert_eq!(line["schema_version"], 5);
         assert_eq!(line["relative_path"], "__proto__");
@@ -1165,7 +1167,7 @@ mod tests {
     fn v5_save_command_rejects_duplicate_slots_before_truncation() {
         let dir = tempfile::tempdir().unwrap();
         let folder_path = dir.path().to_string_lossy().into_owned();
-        let draft_path = dir.path().join("MediaLibraryDraftEdits.jsonl");
+        let draft_path = dir.path().join("MediaLibraryTargetDraftEdits.jsonl");
         let original = b"existing bytes survive\n";
         std::fs::write(&draft_path, original).unwrap();
         let entry = command_v5_existing("JPEG-APP1-IFD0", "IFD0");
@@ -1179,7 +1181,7 @@ mod tests {
     }
 
     #[test]
-    fn v4_and_v5_commands_reject_each_others_files() {
+    fn v4_and_v5_commands_load_independent_files() {
         let v4_dir = tempfile::tempdir().unwrap();
         let v4_folder = v4_dir.path().to_string_lossy().into_owned();
         let v4_data = std::collections::HashMap::from([(
@@ -1189,17 +1191,21 @@ mod tests {
                 edit: command_v5_edit(metadata_value::MetadataValue::Integer(300)),
             }],
         )]);
-        save_metadata_draft_edits(v4_folder.clone(), v4_data).unwrap();
-        let v5_error = load_metadata_draft_edits_v5(v4_folder).unwrap_err();
-        assert!(v5_error.contains("Cannot load schema_version 4 as v5"));
+        save_metadata_draft_edits(v4_folder.clone(), v4_data.clone()).unwrap();
+        assert!(load_metadata_draft_edits_v5(v4_folder.clone())
+            .unwrap()
+            .is_empty());
+        assert_eq!(load_metadata_draft_edits(v4_folder).unwrap(), v4_data);
 
         let v5_dir = tempfile::tempdir().unwrap();
         let v5_folder = v5_dir.path().to_string_lossy().into_owned();
         let data =
             std::collections::HashMap::from([("photo.jpg".to_owned(), vec![command_v5_new()])]);
-        save_metadata_draft_edits_v5(v5_folder.clone(), data).unwrap();
-        let v4_error = load_metadata_draft_edits(v5_folder).unwrap_err();
-        assert!(v4_error.contains("Unsupported future draft edit schema_version 5"));
+        save_metadata_draft_edits_v5(v5_folder.clone(), data.clone()).unwrap();
+        assert!(load_metadata_draft_edits(v5_folder.clone())
+            .unwrap()
+            .is_empty());
+        assert_eq!(load_metadata_draft_edits_v5(v5_folder).unwrap(), data);
     }
 
     #[test]

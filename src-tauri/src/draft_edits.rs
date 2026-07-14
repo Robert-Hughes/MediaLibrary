@@ -7,10 +7,11 @@
 //! - **v4**: `{ "schema_version": 4, "relative_path": "...", "edits":
 //!   [{ "id": { "table": "...", "tag_id": "...", "index": ... }, "edit": { "value": <MetadataValue | null>, "intent": "Set" | ..., "display": ... } }] }`
 //!
-//! Inactive parallel load/save functions support schema v5 target-aware entries.
-//! Both versions use the same eventual `MediaLibraryDraftEdits.jsonl` filename,
-//! so v4 and v5 functions must not be mixed in one live operation. No production
-//! caller uses the v5 functions yet.
+//! Schema v4 remains in `MediaLibraryDraftEdits.jsonl`; production Add Property
+//! schema-v5 drafts use `MediaLibraryTargetDraftEdits.jsonl`. The two maps may
+//! coexist for the same folder and relative path. When the target file is absent,
+//! the v5 loader can atomically migrate a completely valid v5 file written to the
+//! old shared path by the brief activation bridge.
 //!
 //! Production loading rejects older v1/v2/v3 lines with a clear error. Old
 //! drafts must be recreated so semantic values are never reconstructed from
@@ -21,7 +22,7 @@ use crate::metadata_value::MetadataValue;
 use crate::tag_schema::SchemaDefinitionId;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::fs::{File, OpenOptions};
+use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 
@@ -106,12 +107,13 @@ struct VersionProbe {
 
 // ── File names ───────────────────────────────────────────────────────────────
 
-const FILE_NAME: &str = "MediaLibraryDraftEdits.jsonl";
+const V4_FILE_NAME: &str = "MediaLibraryDraftEdits.jsonl";
+const V5_FILE_NAME: &str = "MediaLibraryTargetDraftEdits.jsonl";
 const HEADER_COMMENT: &str =
     "// This file stores unapplied metadata draft edits. Lines starting with // are ignored.";
 
 pub fn load_metadata_draft_edits(folder_path: &str) -> Result<MetadataDraftEdits, String> {
-    let path = Path::new(folder_path).join(FILE_NAME);
+    let path = Path::new(folder_path).join(V4_FILE_NAME);
     let mut typed: MetadataDraftEdits = HashMap::new();
 
     if !path.exists() {
@@ -194,7 +196,7 @@ pub fn save_metadata_draft_edits(
     folder_path: &str,
     data: &MetadataDraftEdits,
 ) -> Result<(), String> {
-    let path = Path::new(folder_path).join(FILE_NAME);
+    let path = Path::new(folder_path).join(V4_FILE_NAME);
 
     // Verify duplicate IDs before saving
     for (rel_path, entries) in data {
@@ -248,14 +250,25 @@ pub fn save_metadata_draft_edits(
 /// Remaining editing producers retain schema-v4 persistence during the
 /// controlled migration; the formats have intentionally incompatible identities.
 pub fn load_metadata_draft_edits_v5(folder_path: &str) -> Result<MetadataDraftEditsV5, String> {
-    let path = Path::new(folder_path).join(FILE_NAME);
-    let mut typed: MetadataDraftEditsV5 = HashMap::new();
+    let folder = Path::new(folder_path);
+    let path = folder.join(V5_FILE_NAME);
 
-    if !path.exists() {
-        return Ok(typed);
+    if path.exists() {
+        return load_metadata_draft_edits_v5_from_path(&path);
     }
 
-    let file = File::open(&path).map_err(|e| e.to_string())?;
+    let old_path = folder.join(V4_FILE_NAME);
+    if !old_path.exists() {
+        return Ok(HashMap::new());
+    }
+
+    migrate_misplaced_v5_file(&old_path, &path)
+}
+
+fn load_metadata_draft_edits_v5_from_path(path: &Path) -> Result<MetadataDraftEditsV5, String> {
+    let mut typed: MetadataDraftEditsV5 = HashMap::new();
+
+    let file = File::open(path).map_err(|e| e.to_string())?;
     let reader = BufReader::new(file);
     let mut seen_paths = HashMap::new();
 
@@ -324,15 +337,80 @@ pub fn load_metadata_draft_edits_v5(folder_path: &str) -> Result<MetadataDraftEd
     Ok(typed)
 }
 
+fn migrate_misplaced_v5_file(
+    old_path: &Path,
+    target_path: &Path,
+) -> Result<MetadataDraftEditsV5, String> {
+    let file = File::open(old_path).map_err(|error| migration_error(error.to_string()))?;
+    let reader = BufReader::new(file);
+    let mut versions = Vec::new();
+
+    for (line_no, line_result) in reader.lines().enumerate() {
+        let line = line_result.map_err(|error| migration_error(error.to_string()))?;
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with("//") {
+            continue;
+        }
+        let version = serde_json::from_str::<VersionProbe>(trimmed)
+            .map_err(|error| {
+                migration_error(format!("invalid JSON on line {}: {error}", line_no + 1))
+            })?
+            .schema_version
+            .ok_or_else(|| {
+                migration_error(format!("line {} has no schema_version", line_no + 1))
+            })?;
+        versions.push(version);
+    }
+
+    if versions.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    if versions.iter().all(|version| *version == 4) {
+        // Validate that this really is a v4 file before classifying it as
+        // independently owned legacy persistence. The v4 loader never writes.
+        load_metadata_draft_edits(
+            old_path
+                .parent()
+                .and_then(Path::to_str)
+                .ok_or_else(|| migration_error("old shared file has a non-UTF-8 parent path"))?,
+        )
+        .map_err(migration_error)?;
+        return Ok(HashMap::new());
+    }
+
+    if !versions.iter().all(|version| *version == 5) {
+        return Err(migration_error(format!(
+            "found incompatible schema versions {versions:?}"
+        )));
+    }
+
+    // Complete strict validation, including duplicate paths and slots, before
+    // the byte-preserving rename is attempted.
+    let drafts = load_metadata_draft_edits_v5_from_path(old_path).map_err(migration_error)?;
+    fs::rename(old_path, target_path).map_err(|error| {
+        migration_error(format!(
+            "validated schema-v5 data but could not rename {} to {}: {error}",
+            old_path.display(),
+            target_path.display()
+        ))
+    })?;
+    Ok(drafts)
+}
+
+fn migration_error(error: impl std::fmt::Display) -> String {
+    format!("Old shared draft file cannot be safely classified or migrated: {error}")
+}
+
 /// Saves the target-aware schema-v5 format used by production Add Property.
 ///
-/// Validation intentionally completes before the shared filename is opened or
-/// truncated. Remaining editing producers retain schema-v4 persistence.
+/// Validation completes before the v5-owned filename is opened or truncated.
+/// Remaining editing producers retain independent schema-v4 persistence.
 pub fn save_metadata_draft_edits_v5(
     folder_path: &str,
     data: &MetadataDraftEditsV5,
 ) -> Result<(), String> {
-    let path = Path::new(folder_path).join(FILE_NAME);
+    let path = Path::new(folder_path).join(V5_FILE_NAME);
 
     // Validate the complete input before opening/truncating the destination.
     for (relative_path, entries) in data {
@@ -386,6 +464,8 @@ mod tests {
     use crate::metadata_value::{ListKind, MetadataValue};
     use std::fs;
     use tempfile::tempdir;
+
+    const FILE_NAME: &str = V4_FILE_NAME;
 
     fn write_file(folder: &Path, name: &str, contents: &str) {
         fs::write(folder.join(name), contents).unwrap();
@@ -974,7 +1054,7 @@ mod tests {
     fn write_v5_line(folder: &Path, line: &V5Line) {
         write_file(
             folder,
-            FILE_NAME,
+            V5_FILE_NAME,
             &format!("{}\n", serde_json::to_string(line).unwrap()),
         );
     }
@@ -1005,7 +1085,8 @@ mod tests {
 
         assert_eq!(loaded, data);
         let line: serde_json::Value =
-            serde_json::from_str(read_file(dir.path(), FILE_NAME).lines().nth(1).unwrap()).unwrap();
+            serde_json::from_str(read_file(dir.path(), V5_FILE_NAME).lines().nth(1).unwrap())
+                .unwrap();
         assert_eq!(line["relative_path"], "folder/photo.jpg");
         assert!(line["edits"][0]["target"].get("relative_path").is_none());
         assert_eq!(loaded["folder/photo.jpg"][0], entry);
@@ -1176,7 +1257,7 @@ mod tests {
             edits: vec![],
         })
         .unwrap();
-        write_file(dir.path(), FILE_NAME, &format!("{line}\n{line}\n"));
+        write_file(dir.path(), V5_FILE_NAME, &format!("{line}\n{line}\n"));
 
         let error = load_metadata_draft_edits_v5(dir.path().to_str().unwrap()).unwrap_err();
         assert!(error.contains("on line 2; first seen on line 1"), "{error}");
@@ -1185,7 +1266,7 @@ mod tests {
     #[test]
     fn v5_malformed_json_reports_the_line_number() {
         let dir = tempdir().unwrap();
-        write_file(dir.path(), FILE_NAME, "// comment\n\n{not json}\n");
+        write_file(dir.path(), V5_FILE_NAME, "// comment\n\n{not json}\n");
         let error = load_metadata_draft_edits_v5(dir.path().to_str().unwrap()).unwrap_err();
         assert!(error.contains("Invalid draft line 3"), "{error}");
     }
@@ -1195,7 +1276,7 @@ mod tests {
         let dir = tempdir().unwrap();
         write_file(
             dir.path(),
-            FILE_NAME,
+            V5_FILE_NAME,
             "// comment\n\n{\"schema_version\":5,\"relative_path\":\"empty.jpg\",\"edits\":[]}\n",
         );
         assert!(load_metadata_draft_edits_v5(dir.path().to_str().unwrap())
@@ -1204,20 +1285,23 @@ mod tests {
     }
 
     #[test]
-    fn v5_loader_explicitly_rejects_v4_without_guessing_a_target() {
+    fn v5_loader_leaves_valid_v4_file_for_the_v4_loader() {
         let dir = tempdir().unwrap();
         write_file(
             dir.path(),
-            FILE_NAME,
+            V4_FILE_NAME,
             "{\"schema_version\":4,\"relative_path\":\"photo.jpg\",\"edits\":[]}\n",
         );
-        let error = load_metadata_draft_edits_v5(dir.path().to_str().unwrap()).unwrap_err();
-        assert!(
-            error.contains("keyed only by SchemaDefinitionId"),
-            "{error}"
-        );
-        assert!(error.contains("authoritative runtime context"), "{error}");
-        assert!(error.contains("Recreate pending drafts"), "{error}");
+        let original = fs::read(dir.path().join(V4_FILE_NAME)).unwrap();
+
+        assert!(load_metadata_draft_edits_v5(dir.path().to_str().unwrap())
+            .unwrap()
+            .is_empty());
+        assert_eq!(fs::read(dir.path().join(V4_FILE_NAME)).unwrap(), original);
+        assert!(!dir.path().join(V5_FILE_NAME).exists());
+        assert!(load_metadata_draft_edits(dir.path().to_str().unwrap())
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
@@ -1226,7 +1310,7 @@ mod tests {
             let dir = tempdir().unwrap();
             write_file(
                 dir.path(),
-                FILE_NAME,
+                V5_FILE_NAME,
                 &format!(
                     "{{\"schema_version\":{version},\"relative_path\":\"photo.jpg\",\"edits\":[]}}\n"
                 ),
@@ -1238,7 +1322,7 @@ mod tests {
         let dir = tempdir().unwrap();
         write_file(
             dir.path(),
-            FILE_NAME,
+            V5_FILE_NAME,
             "{\"relative_path\":\"photo.jpg\",\"edits\":[]}\n",
         );
         let error = load_metadata_draft_edits_v5(dir.path().to_str().unwrap()).unwrap_err();
@@ -1250,7 +1334,7 @@ mod tests {
         let dir = tempdir().unwrap();
         write_file(
             dir.path(),
-            FILE_NAME,
+            V5_FILE_NAME,
             "{\"schema_version\":6,\"relative_path\":\"photo.jpg\",\"edits\":[]}\n",
         );
         let error = load_metadata_draft_edits_v5(dir.path().to_str().unwrap()).unwrap_err();
@@ -1272,14 +1356,14 @@ mod tests {
         let before = first.clone();
 
         save_metadata_draft_edits_v5(dir.path().to_str().unwrap(), &first).unwrap();
-        let first_bytes = fs::read(dir.path().join(FILE_NAME)).unwrap();
+        let first_bytes = fs::read(dir.path().join(V5_FILE_NAME)).unwrap();
         assert_eq!(first, before);
 
         let mut second = MetadataDraftEditsV5::new();
         second.insert("a.jpg".to_owned(), before["a.jpg"].clone());
         second.insert("z.jpg".to_owned(), vec![a, b]);
         save_metadata_draft_edits_v5(dir.path().to_str().unwrap(), &second).unwrap();
-        let second_bytes = fs::read(dir.path().join(FILE_NAME)).unwrap();
+        let second_bytes = fs::read(dir.path().join(V5_FILE_NAME)).unwrap();
 
         assert_eq!(first_bytes, second_bytes);
     }
@@ -1288,7 +1372,7 @@ mod tests {
     fn v5_duplicate_validation_occurs_before_truncation() {
         let dir = tempdir().unwrap();
         let original = b"existing v4 or v5 bytes must survive\n";
-        fs::write(dir.path().join(FILE_NAME), original).unwrap();
+        fs::write(dir.path().join(V5_FILE_NAME), original).unwrap();
         let entry = v5_existing_entry("IFD0", 0, None, "IFD0", MetadataValue::Integer(1));
         let mut invalid = MetadataDraftEditsV5::new();
         invalid.insert("photo.jpg".to_owned(), vec![entry.clone(), entry]);
@@ -1296,7 +1380,240 @@ mod tests {
         let error =
             save_metadata_draft_edits_v5(dir.path().to_str().unwrap(), &invalid).unwrap_err();
         assert!(error.contains("Duplicate metadata draft slot"), "{error}");
-        assert_eq!(fs::read(dir.path().join(FILE_NAME)).unwrap(), original);
+        assert_eq!(fs::read(dir.path().join(V5_FILE_NAME)).unwrap(), original);
+    }
+
+    #[test]
+    fn v4_and_v5_files_coexist_and_mutations_preserve_other_bytes() {
+        let dir = tempdir().unwrap();
+        let folder = dir.path().to_str().unwrap();
+        let shared_path = "__proto__".to_owned();
+        let v4_entry = make_entry(
+            "XMP::dc",
+            "title",
+            Some(0),
+            MetadataValue::Text("legacy".to_owned()),
+            Some("Legacy title"),
+        );
+        let v5_entry = v5_existing_entry(
+            "JPEG-APP1-IFD0",
+            2,
+            Some(0),
+            "IFD0",
+            MetadataValue::Struct(BTreeMap::from([(
+                "nested".to_owned(),
+                MetadataValue::List {
+                    list_kind: ListKind::Seq,
+                    items: vec![MetadataValue::Text("target".to_owned())],
+                },
+            )])),
+        );
+        let v4 = MetadataDraftEdits::from([(shared_path.clone(), vec![v4_entry])]);
+        let v5 = MetadataDraftEditsV5::from([(shared_path.clone(), vec![v5_entry])]);
+
+        save_metadata_draft_edits(folder, &v4).unwrap();
+        save_metadata_draft_edits_v5(folder, &v5).unwrap();
+        assert!(dir.path().join(V4_FILE_NAME).is_file());
+        assert!(dir.path().join(V5_FILE_NAME).is_file());
+        assert_eq!(load_metadata_draft_edits(folder).unwrap(), v4);
+        assert_eq!(load_metadata_draft_edits_v5(folder).unwrap(), v5);
+
+        let v5_bytes = fs::read(dir.path().join(V5_FILE_NAME)).unwrap();
+        save_metadata_draft_edits(folder, &MetadataDraftEdits::new()).unwrap();
+        assert_eq!(fs::read(dir.path().join(V5_FILE_NAME)).unwrap(), v5_bytes);
+        assert!(load_metadata_draft_edits(folder).unwrap().is_empty());
+        assert_eq!(load_metadata_draft_edits_v5(folder).unwrap(), v5);
+
+        save_metadata_draft_edits(folder, &v4).unwrap();
+        let v4_bytes = fs::read(dir.path().join(V4_FILE_NAME)).unwrap();
+        save_metadata_draft_edits_v5(folder, &MetadataDraftEditsV5::new()).unwrap();
+        assert_eq!(fs::read(dir.path().join(V4_FILE_NAME)).unwrap(), v4_bytes);
+        assert_eq!(load_metadata_draft_edits(folder).unwrap(), v4);
+        assert!(load_metadata_draft_edits_v5(folder).unwrap().is_empty());
+    }
+
+    #[test]
+    fn failed_cross_file_saves_leave_the_other_persistence_untouched() {
+        let v5_dir = tempdir().unwrap();
+        let v5_folder = v5_dir.path().to_str().unwrap();
+        let v5 = MetadataDraftEditsV5::from([(
+            "pending.jpg".to_owned(),
+            vec![v5_new_entry(
+                None,
+                MetadataValue::Text("pending".to_owned()),
+            )],
+        )]);
+        save_metadata_draft_edits_v5(v5_folder, &v5).unwrap();
+        let v5_bytes = fs::read(v5_dir.path().join(V5_FILE_NAME)).unwrap();
+        fs::create_dir(v5_dir.path().join(V4_FILE_NAME)).unwrap();
+        assert!(save_metadata_draft_edits(v5_folder, &MetadataDraftEdits::new()).is_err());
+        assert_eq!(
+            fs::read(v5_dir.path().join(V5_FILE_NAME)).unwrap(),
+            v5_bytes
+        );
+
+        let v4_dir = tempdir().unwrap();
+        let v4_folder = v4_dir.path().to_str().unwrap();
+        let v4 = MetadataDraftEdits::from([(
+            "pending.jpg".to_owned(),
+            vec![make_entry(
+                "XMP::dc",
+                "title",
+                None,
+                MetadataValue::Text("pending".to_owned()),
+                None,
+            )],
+        )]);
+        save_metadata_draft_edits(v4_folder, &v4).unwrap();
+        let v4_bytes = fs::read(v4_dir.path().join(V4_FILE_NAME)).unwrap();
+        fs::create_dir(v4_dir.path().join(V5_FILE_NAME)).unwrap();
+        assert!(save_metadata_draft_edits_v5(v4_folder, &MetadataDraftEditsV5::new()).is_err());
+        assert_eq!(
+            fs::read(v4_dir.path().join(V4_FILE_NAME)).unwrap(),
+            v4_bytes
+        );
+    }
+
+    #[test]
+    fn valid_misplaced_v5_file_is_validated_then_renamed_without_rewriting() {
+        let dir = tempdir().unwrap();
+        let folder = dir.path().to_str().unwrap();
+        let drafts = MetadataDraftEditsV5::from([(
+            "__proto__".to_owned(),
+            vec![v5_existing_entry(
+                "JPEG-APP1-IFD0/SubIFD",
+                7,
+                Some(3),
+                "SubIFD",
+                MetadataValue::Struct(BTreeMap::from([(
+                    "nested".to_owned(),
+                    MetadataValue::List {
+                        list_kind: ListKind::Bag,
+                        items: vec![MetadataValue::Integer(4), MetadataValue::Bool(true)],
+                    },
+                )])),
+            )],
+        )]);
+        save_metadata_draft_edits_v5(folder, &drafts).unwrap();
+        fs::rename(dir.path().join(V5_FILE_NAME), dir.path().join(V4_FILE_NAME)).unwrap();
+        let original = fs::read(dir.path().join(V4_FILE_NAME)).unwrap();
+
+        assert_eq!(load_metadata_draft_edits_v5(folder).unwrap(), drafts);
+        assert!(!dir.path().join(V4_FILE_NAME).exists());
+        assert_eq!(fs::read(dir.path().join(V5_FILE_NAME)).unwrap(), original);
+        assert!(load_metadata_draft_edits(folder).unwrap().is_empty());
+    }
+
+    #[test]
+    fn misplaced_v5_rename_failure_leaves_original_file_intact() {
+        let dir = tempdir().unwrap();
+        let entry = v5_new_entry(None, MetadataValue::Text("pending".to_owned()));
+        let contents = format!(
+            "{}\n",
+            serde_json::to_string(&V5Line {
+                schema_version: 5,
+                relative_path: "photo.jpg".to_owned(),
+                edits: vec![entry],
+            })
+            .unwrap()
+        );
+        let old_path = dir.path().join(V4_FILE_NAME);
+        write_file(dir.path(), V4_FILE_NAME, &contents);
+        let original = fs::read(&old_path).unwrap();
+        let target_path = dir.path().join("missing-parent").join(V5_FILE_NAME);
+
+        let error = migrate_misplaced_v5_file(&old_path, &target_path).unwrap_err();
+
+        assert!(error.contains("could not rename"), "{error}");
+        assert_eq!(fs::read(&old_path).unwrap(), original);
+        assert!(!target_path.exists());
+    }
+
+    #[test]
+    fn ambiguous_or_invalid_old_shared_files_are_rejected_without_mutation() {
+        let cases = [
+            concat!(
+                "{\"schema_version\":4,\"relative_path\":\"v4.jpg\",\"edits\":[]}\n",
+                "{\"schema_version\":5,\"relative_path\":\"v5.jpg\",\"edits\":[]}\n"
+            ),
+            "{\"schema_version\":5,\"relative_path\":\"broken.jpg\",\"edits\":[}\n",
+            concat!(
+                "{\"schema_version\":5,\"relative_path\":\"same.jpg\",\"edits\":[]}\n",
+                "{\"schema_version\":5,\"relative_path\":\"same.jpg\",\"edits\":[]}\n"
+            ),
+            "{\"relative_path\":\"legacy.jpg\",\"edits\":[]}\n",
+            concat!(
+                "{\"schema_version\":5,\"relative_path\":\"v5.jpg\",\"edits\":[]}\n",
+                "{\"schema_version\":6,\"relative_path\":\"future.jpg\",\"edits\":[]}\n"
+            ),
+        ];
+
+        for contents in cases {
+            let dir = tempdir().unwrap();
+            write_file(dir.path(), V4_FILE_NAME, contents);
+            let original = fs::read(dir.path().join(V4_FILE_NAME)).unwrap();
+            let error = load_metadata_draft_edits_v5(dir.path().to_str().unwrap()).unwrap_err();
+            assert!(
+                error.contains("Old shared draft file cannot be safely classified or migrated"),
+                "{error}"
+            );
+            assert_eq!(fs::read(dir.path().join(V4_FILE_NAME)).unwrap(), original);
+            assert!(!dir.path().join(V5_FILE_NAME).exists());
+        }
+    }
+
+    #[test]
+    fn duplicate_slots_in_misplaced_v5_file_reject_without_mutation() {
+        let dir = tempdir().unwrap();
+        let entry = v5_existing_entry("IFD0", 0, None, "IFD0", MetadataValue::Integer(1));
+        let contents = format!(
+            "{}\n",
+            serde_json::to_string(&V5Line {
+                schema_version: 5,
+                relative_path: "same.jpg".to_owned(),
+                edits: vec![entry.clone(), entry],
+            })
+            .unwrap()
+        );
+        write_file(dir.path(), V4_FILE_NAME, &contents);
+        let original = fs::read(dir.path().join(V4_FILE_NAME)).unwrap();
+
+        let error = load_metadata_draft_edits_v5(dir.path().to_str().unwrap()).unwrap_err();
+
+        assert!(error.contains("cannot be safely classified or migrated"));
+        assert!(error.contains("Duplicate metadata draft slot"));
+        assert_eq!(fs::read(dir.path().join(V4_FILE_NAME)).unwrap(), original);
+        assert!(!dir.path().join(V5_FILE_NAME).exists());
+    }
+
+    #[test]
+    fn existing_v5_file_is_strict_and_never_consults_old_path() {
+        let dir = tempdir().unwrap();
+        let folder = dir.path().to_str().unwrap();
+        let expected = MetadataDraftEditsV5::from([(
+            "new.jpg".to_owned(),
+            vec![v5_new_entry(None, MetadataValue::Integer(5))],
+        )]);
+        save_metadata_draft_edits_v5(folder, &expected).unwrap();
+        let old = b"misplaced target bytes that must not be consulted\n";
+        fs::write(dir.path().join(V4_FILE_NAME), old).unwrap();
+
+        assert_eq!(load_metadata_draft_edits_v5(folder).unwrap(), expected);
+        assert_eq!(fs::read(dir.path().join(V4_FILE_NAME)).unwrap(), old);
+    }
+
+    #[test]
+    fn empty_or_comment_only_old_file_is_not_a_migration_candidate() {
+        for contents in ["", "// comment\n\n"] {
+            let dir = tempdir().unwrap();
+            write_file(dir.path(), V4_FILE_NAME, contents);
+            let original = fs::read(dir.path().join(V4_FILE_NAME)).unwrap();
+            assert!(load_metadata_draft_edits_v5(dir.path().to_str().unwrap())
+                .unwrap()
+                .is_empty());
+            assert_eq!(fs::read(dir.path().join(V4_FILE_NAME)).unwrap(), original);
+            assert!(!dir.path().join(V5_FILE_NAME).exists());
+        }
     }
 
     #[test]

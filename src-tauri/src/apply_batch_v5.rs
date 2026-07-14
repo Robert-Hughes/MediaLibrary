@@ -2,7 +2,8 @@
 //!
 //! This module consumes [`MetadataDraftEntryV5`] values, invokes the
 //! occurrence-aware single-file pipeline, applies structured draft
-//! reconciliation, and persists only through schema-v5 persistence. It emits
+//! reconciliation, and persists only through the schema-v5-owned
+//! `MediaLibraryTargetDraftEdits.jsonl` file. It emits
 //! versioned events consumed by the production frontend controller. Production
 //! Add Property uses this v5 path; remaining editing producers use schema v4,
 //! and the combined frontend apply runs v5 then v4 sequentially. Target-aware

@@ -1150,11 +1150,15 @@ describe("useMediaLibrary", () => {
     await act(async () => result.current[1].openFolder());
     act(() => mock.emitScanComplete());
 
-    expect(mock.invocations.map(({ cmd }) => cmd)).toEqual(
+    const loadCommands = mock.invocations.map(({ cmd }) => cmd);
+    expect(loadCommands).toEqual(
       expect.arrayContaining([
         "load_metadata_draft_edits",
         "load_metadata_draft_edits_v5",
       ]),
+    );
+    expect(loadCommands.indexOf("load_metadata_draft_edits_v5")).toBeLessThan(
+      loadCommands.indexOf("load_metadata_draft_edits"),
     );
 
     const id = { table: "XMP::dc", tag_id: "subject" };

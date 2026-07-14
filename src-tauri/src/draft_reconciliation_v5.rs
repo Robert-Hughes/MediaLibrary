@@ -295,7 +295,9 @@ mod tests {
     use super::*;
     use crate::apply_edits_v5::{MetadataDraftReconciliation, MetadataTargetOutcome};
     use crate::draft_edits::{
-        load_metadata_draft_edits_v5, save_metadata_draft_edits_v5, EditIntent, MetadataDraftEdit,
+        load_metadata_draft_edits, load_metadata_draft_edits_v5, save_metadata_draft_edits,
+        save_metadata_draft_edits_v5, EditIntent, MetadataDraftEdit, MetadataDraftEdits,
+        MetadataDraftEntry,
     };
     use crate::metadata_occurrence::{MetadataOccurrenceId, MetadataWriteTarget};
     use crate::metadata_value::MetadataValue;
@@ -944,7 +946,27 @@ mod tests {
         .unwrap();
 
         let first_dir = tempdir().unwrap();
+        let legacy_pending = MetadataDraftEntry {
+            id: schema("legacy-pending"),
+            edit: edit("legacy-still-pending"),
+        };
+        let legacy = MetadataDraftEdits::from([(
+            "album/photo.jpg".to_owned(),
+            vec![
+                MetadataDraftEntry {
+                    id: schema("legacy-cleared"),
+                    edit: edit("legacy-cleared"),
+                },
+                legacy_pending.clone(),
+            ],
+        )]);
+        save_metadata_draft_edits(first_dir.path().to_str().unwrap(), &legacy).unwrap();
+        let v4_before = fs::read(first_dir.path().join("MediaLibraryDraftEdits.jsonl")).unwrap();
         save_metadata_draft_edits_v5(first_dir.path().to_str().unwrap(), &reconciled).unwrap();
+        assert_eq!(
+            fs::read(first_dir.path().join("MediaLibraryDraftEdits.jsonl")).unwrap(),
+            v4_before
+        );
         let loaded = load_metadata_draft_edits_v5(first_dir.path().to_str().unwrap()).unwrap();
         assert_eq!(loaded, reconciled);
 
@@ -960,7 +982,24 @@ mod tests {
         }));
 
         let first_text =
-            fs::read_to_string(first_dir.path().join("MediaLibraryDraftEdits.jsonl")).unwrap();
+            fs::read_to_string(first_dir.path().join("MediaLibraryTargetDraftEdits.jsonl"))
+                .unwrap();
+        let pruned_legacy =
+            MetadataDraftEdits::from([("album/photo.jpg".to_owned(), vec![legacy_pending])]);
+        save_metadata_draft_edits(first_dir.path().to_str().unwrap(), &pruned_legacy).unwrap();
+        assert_eq!(
+            fs::read_to_string(first_dir.path().join("MediaLibraryTargetDraftEdits.jsonl"))
+                .unwrap(),
+            first_text
+        );
+        assert_eq!(
+            load_metadata_draft_edits(first_dir.path().to_str().unwrap()).unwrap(),
+            pruned_legacy
+        );
+        assert_eq!(
+            load_metadata_draft_edits_v5(first_dir.path().to_str().unwrap()).unwrap(),
+            reconciled
+        );
         let data_line = first_text
             .lines()
             .find(|line| !line.starts_with("//"))
@@ -976,7 +1015,8 @@ mod tests {
         let second_dir = tempdir().unwrap();
         save_metadata_draft_edits_v5(second_dir.path().to_str().unwrap(), &loaded).unwrap();
         let second_text =
-            fs::read_to_string(second_dir.path().join("MediaLibraryDraftEdits.jsonl")).unwrap();
+            fs::read_to_string(second_dir.path().join("MediaLibraryTargetDraftEdits.jsonl"))
+                .unwrap();
         assert_eq!(second_text, first_text);
     }
 
