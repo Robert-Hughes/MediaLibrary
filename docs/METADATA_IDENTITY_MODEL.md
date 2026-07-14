@@ -244,9 +244,10 @@ Consumers must represent and handle those states explicitly. They must never
 silently select the first occurrence, and there is no general conversion from
 `SchemaDefinitionId` to `MetadataOccurrenceId`.
 
-## Inactive occurrence-aware apply foundation
+## Occurrence-aware apply foundation
 
-`apply_edits_v5.rs` implements an inactive single-file schema-v5 foundation:
+`apply_edits_v5.rs` implements the single-file schema-v5 foundation used by the
+production Add Property bridge:
 
 ```text
 MetadataDraftEntryV5[]
@@ -312,18 +313,18 @@ original target because authoritative state is unknown or unusable.
 
 The single-file result still exposes `targets_to_clear`, derived only from
 `Clear` reconciliations in input order and without duplicate logical slots.
-The single-file helper does not persist replacement itself; the inactive batch
+The single-file helper does not persist replacement itself; the v5 batch
 coordinator applies its structured reconciliation and persists the resulting v5
-entries. No frontend consumer removes or inserts drafts yet. The successful
+entries. The production target controller consumes those persisted snapshots.
+The successful
 result retains the scanner's complete `ImageMetadata`, including authoritative
 occurrences and the temporary compatibility projection. Target-aware apply
-logging remains pending; the inactive path does not force targets into the
+logging remains pending; the target-aware path does not force targets into the
 schema-keyed v4 log.
 
-The single-file module is now composed by the registered inactive v5 batch
-command, and an inactive frontend protocol adapter can invoke that command.
-There is still no production caller. Production apply, persistence, `AppState`,
-frontend behavior, and logging remain schema v4.
+The single-file module is composed by the registered v5 batch command, and the
+production frontend protocol adapter invokes it for Add Property. Remaining
+editing producers, verification, and apply logging remain schema v4.
 
 ## Migration status
 
@@ -378,10 +379,10 @@ first occurrence is selected, including when values are identical or one
 occurrence appears more writable or otherwise preferable, and no write command
 uses occurrence identity yet.
 
-`MetadataDraftTarget`, `MetadataDraftSlot`, and inactive schema-v5 Tauri
-load/save commands now define the persistence boundary for the upcoming draft
-migration. The inactive v5 JSONL line keeps `relative_path` as outer context
-and stores a vector of `{ target, edit }` entries. An inactive frontend
+`MetadataDraftTarget`, `MetadataDraftSlot`, and schema-v5 Tauri load/save
+commands define the target-aware persistence boundary. The v5 JSONL line keeps
+`relative_path` as outer context and stores a vector of `{ target, edit }`
+entries. A frontend
 collection, observable store, and Tauri adapter now mirror that boundary:
 
 ```text
@@ -404,14 +405,13 @@ identity is the target slot described above, never object-property behaviour.
 The shared frontend semantic guard requires integral finite values for
 `MetadataValue::Integer`, while `Real` continues to accept finite fractions;
 `Unknown.raw` must be recursively JSON-compatible, and unit variants must keep
-their generated no-content wire shape. These are inactive schema-v5 boundary
-guarantees only: production persistence remains schema v4, the target-aware
-store is not in `AppState`, and the occurrence-aware apply foundation has no
-production caller.
+their generated no-content wire shape. Add Property uses these schema-v5
+boundary guarantees in production; the remaining producers continue through
+the schema-v4 store.
 A frontend/Tauri-contract test round-trips shared-schema IFD0/IFD1
 occurrences and existing/new targets without collapsing them.
 
-The inactive Rust reconciliation helper applies already-computed outcomes to
+The Rust reconciliation helper applies already-computed outcomes to
 one file's original v5 entry collection:
 
 ```text
@@ -431,26 +431,24 @@ with a retained slot, another replacement, or any other original operation,
 including one marked `Clear`; any collision rejects the complete
 transformation. Blocked reasons remain transient outcome information for a
 future command and frontend to surface, not persisted draft state. The helper
-performs no persistence, has no Tauri command or production caller, and does
-not change schema-v4 production persistence or apply.
+performs no persistence itself; the production v5 batch coordinator persists
+its result without changing schema-v4 persistence or apply.
 
-Command registration does not mean production usage. No production component
-creates this target-aware store or calls the v5 adapter or commands. Production
-startup, `AppState`, `DraftEditsStore`, autosave and apply remain schema-keyed
-v4, as do Details Pane callbacks, Add Property, apply/write, verification,
-search-worker indexing, and current draft files. V4 and v5 commands share one
-filename and must never be mixed in one live folder session.
+Production creates the target-aware store and calls the v5 adapter for Add
+Property. The v4 file remains independently owned by ordinary row edits and the
+other legacy producers; verification, search-worker indexing, and target-aware
+logging remain pending migration.
 
 V4 entries are not automatically converted: a `SchemaDefinitionId` alone does
 not reveal whether the intended operation edits an existing occurrence or
 creates a new property. Choosing an occurrence would require forbidden
-first-match logic. Pending v4 drafts must therefore be recreated after a future
-v5 migration, and activating v5 apply remains pending.
+first-match logic. Existing v4 drafts remain in their own file; only Add
+Property produces and applies v5 drafts today.
 
-## Inactive schema-v5 batch boundary
+## Schema-v5 batch boundary
 
-The versioned `apply_metadata_draft_edits_v5_cmd` is registered for testing and
-future migration work but has no production frontend caller. It strictly loads
+The versioned `apply_metadata_draft_edits_v5_cmd` is used by the production Add
+Property controller. It strictly loads
 the v5 map once (never substituting an empty map for malformed, v4, or unreadable data),
 rejects duplicate requested paths before events or writes, retains requested
 order, and selects only files with current non-empty drafts. Its flow is:
@@ -483,10 +481,11 @@ later files. Progress transports complete target outcomes and full
 `ImageMetadata`, including authoritative occurrences and the temporary
 compatibility projection. `persisted_draft_entries` distinguishes no persisted
 change (`null`), removal (`[]`), and retained/replaced entries. The command uses
-isolated cancellation and versioned events, has no target-aware apply logging,
-and switches no production state or event; production remains schema v4.
+isolated cancellation and versioned events and has no target-aware apply
+logging. Add Property consumes its state and events; other producers remain
+schema v4.
 
-An inactive frontend protocol adapter now wraps
+A frontend protocol adapter wraps
 `apply_metadata_draft_edits_v5_cmd`, `cancel_apply_edits_v5`,
 `apply_edits_v5_started`, and `apply_metadata_edits_v5_progress`. Command
 results and versioned event payloads enter the adapter as `unknown`. The
@@ -526,9 +525,9 @@ autosave, persistence, and apply. Coordination with the independent v5
 load/save commands and a future v5 autosave policy remains production-activation
 work.
 
-## Inactive frontend v5 result application
+## Frontend v5 result application
 
-An inactive, framework-free result engine now sits behind the strict typed
+A framework-free result engine sits behind the strict typed
 file-result boundary:
 
 ```text
@@ -642,6 +641,15 @@ Strict v5 loading has a folder-scoped persistence state. A valid empty load is
 the invalid file stays untouched, and target mutation, autosave, apply, and Add
 Property are blocked until the file is fixed and the folder is reopened. This
 does not block schema-v4 editing, persistence, or apply.
+
+The persistence files are deliberately independent. Schema v4 exclusively owns
+`MediaLibraryDraftEdits.jsonl`; schema v5 exclusively owns
+`MediaLibraryTargetDraftEdits.jsonl`. Both maps may contain the same folder and
+relative path. Folder opening loads v5 first so that, only when the target file
+is absent, a completely valid all-v5 file left at the old shared path can be
+strictly validated and atomically renamed before v4 loads. Valid v4 and
+comment-only old files are not migrated. Mixed, malformed, duplicate, legacy,
+or unsupported shared data is preserved and rejected as unsafe to classify.
 
 V5 progress and authoritative final results invalidate React metadata sorting
 only when their application summary reports `compatibilityChanged`. Exact

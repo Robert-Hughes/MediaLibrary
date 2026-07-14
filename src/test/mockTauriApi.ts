@@ -61,6 +61,8 @@ export function createApplyEditsProgressGate(): MockApplyEditsProgressGate {
 export interface MockTauriApi {
   api: TauriApi;
   pickFolderResolves: (path: string | null) => void;
+  // These maps model the two independent backend JSONL files: schema-v4
+  // MediaLibraryDraftEdits and schema-v5 MediaLibraryTargetDraftEdits.
   draftEditsByFolder: MockDraftEditsByFolder;
   targetDraftEditsByFolder: MockTargetDraftEditsByFolder;
   emitPhotoFound: (photo: PhotoInfo, scanId?: number) => void;
