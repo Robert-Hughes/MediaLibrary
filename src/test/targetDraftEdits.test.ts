@@ -8,6 +8,8 @@ import type {
 } from "../types";
 import {
   TargetDraftEditsStore,
+  metadataDraftEntryV5EqualsExact,
+  targetDraftCollectionEqualsExact,
   targetDraftsFromWire,
   targetDraftsFromUnknownWire,
   targetDraftsToWire,
@@ -720,6 +722,117 @@ describe("TargetDraftEditsStore notifications and immutability", () => {
     store.setMetadataTarget("a.jpg", existing(), setEdit("changed"));
     expect(store.getAllMetadata()).not.toBe(before);
     expect(store.getMetadataFile("b.jpg")).toBe(unrelated);
+  });
+});
+
+describe("TargetDraftEditsStore authoritative replacement", () => {
+  it("handles empty replacement, exact no-op, and complete replacement", () => {
+    const store = new TargetDraftEditsStore();
+    const listener = vi.fn();
+    store.subscribe(listener);
+    expect(store.replaceMetadataFile("photo.jpg", [])).toBe(false);
+
+    const first = entry(existing(), setEdit("one"));
+    expect(store.replaceMetadataFile("photo.jpg", [first])).toBe(true);
+    const snapshot = store.getAllMetadata();
+    const collection = store.getMetadataFile("photo.jpg");
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(
+      store.replaceMetadataFile("photo.jpg", [structuredClone(first)]),
+    ).toBe(false);
+    expect(store.getAllMetadata()).toBe(snapshot);
+    expect(store.getMetadataFile("photo.jpg")).toBe(collection);
+
+    const replacement = entry(created(), setEdit("two"));
+    expect(store.replaceMetadataFile("photo.jpg", [replacement])).toBe(true);
+    expect(Object.values(store.getMetadataFile("photo.jpg")!)).toEqual([
+      replacement,
+    ]);
+    expect(store.replaceMetadataFile("photo.jpg", [])).toBe(true);
+    expect(store.getMetadataFile("photo.jpg")).toBeUndefined();
+  });
+
+  it("uses complete target and exact edit equality", () => {
+    const base = entry(
+      existing(),
+      setEdit({ kind: "Rational", value: { numerator: 1, denominator: 2 } }),
+    );
+    const changedTarget = entry(existing({ group1: "IFD1" }), base.edit);
+    const changedValue = entry(
+      existing(),
+      setEdit({ kind: "Rational", value: { numerator: 2, denominator: 4 } }),
+    );
+    expect(metadataDraftEntryV5EqualsExact(base, structuredClone(base))).toBe(
+      true,
+    );
+    expect(metadataDraftEntryV5EqualsExact(base, changedTarget)).toBe(false);
+    expect(metadataDraftEntryV5EqualsExact(base, changedValue)).toBe(false);
+    expect(
+      targetDraftCollectionEqualsExact(
+        drafts({ p: [base] }).p,
+        drafts({ p: [changedValue] }).p,
+      ),
+    ).toBe(false);
+  });
+
+  it("does not call the resolver and deeply isolates source mutations", () => {
+    const store = new TargetDraftEditsStore();
+    const resolver = vi.fn();
+    store.setCurrentValueResolver(resolver);
+    const source = entry(
+      existing(),
+      setEdit({
+        kind: "Unknown",
+        value: { expected: null, raw: { nested: [1, 2] }, reason: null },
+      }),
+    );
+    const expected = structuredClone(source);
+    store.replaceMetadataFile("photo.jpg", [source]);
+    source.target.schema_id.table = "mutated";
+    source.edit.display = "mutated";
+    if (source.edit.value?.kind === "Unknown")
+      source.edit.value.value.raw = { changed: true };
+    expect(Object.values(store.getMetadataFile("photo.jpg")!)[0]).toEqual(
+      expected,
+    );
+    expect(resolver).not.toHaveBeenCalled();
+  });
+
+  it("rejects duplicate and malformed entries atomically", () => {
+    const store = new TargetDraftEditsStore();
+    store.replaceMetadataFile("kept.jpg", [entry(created())]);
+    const before = store.getAllMetadata();
+    const listener = vi.fn();
+    store.subscribe(listener);
+    expect(() =>
+      store.replaceMetadataFile("photo.jpg", [
+        entry(existing()),
+        entry(existing({ table: "Other" })),
+      ]),
+    ).toThrow(/Duplicate/);
+    expect(() =>
+      store.replaceMetadataFile("photo.jpg", [
+        {
+          target: existing(),
+          edit: { intent: "Set", value: { kind: "Real", value: Number.NaN } },
+        } as MetadataDraftEntryV5,
+      ]),
+    ).toThrow(/Invalid/);
+    expect(store.getAllMetadata()).toBe(before);
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  it("supports __proto__ and retains unrelated file references", () => {
+    const store = new TargetDraftEditsStore();
+    store.replaceMetadataFile("other.jpg", [entry(created())]);
+    const other = store.getMetadataFile("other.jpg");
+    expect(store.replaceMetadataFile("__proto__", [entry(existing())])).toBe(
+      true,
+    );
+    expect(
+      Object.prototype.hasOwnProperty.call(store.getAllMetadata(), "__proto__"),
+    ).toBe(true);
+    expect(store.getMetadataFile("other.jpg")).toBe(other);
   });
 });
 

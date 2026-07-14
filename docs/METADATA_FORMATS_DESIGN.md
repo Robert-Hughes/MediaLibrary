@@ -714,6 +714,25 @@ adapter. Startup, autosave, persistence, and apply remain schema v4;
 coordination with the separately callable v5 load/save commands and a future v5
 autosave policy remains production-activation work.
 
+The inactive frontend also has a pure v5 result preparation and store-application
+layer. Its flow is `strict result → clone and prepare exact candidates → replace
+non-null persisted target drafts → replace both non-null fresh metadata views →
+return cloned target outcomes`. Persisted entries are authoritative; frontend
+reconciliation is forbidden. Null persisted entries mean no successfully
+persisted draft-map change, whereas an empty array authoritatively removes the
+file.
+
+Fresh metadata is authoritative independently of success or semantic error.
+Progress and final results may repeat a file, so all three stores use exact
+structural snapshot equality to suppress identical mutations and notifications.
+This equality preserves rational representation, complete target/schema/runtime
+identity, and occurrence order while ignoring record insertion order. A final
+result that genuinely differs still overwrites earlier progress state.
+
+Target outcomes are returned for future verification state but are not stored.
+There is no autosave, React integration, production caller, or Tauri subscription
+in this layer. Production persistence and apply remain schema v4.
+
 - **MetadataValue** — Discriminated semantic value model used inside the app for read metadata, draft edits, writes, verification, and apply logs.
 - **SchemaDefinitionId** — Exact ExifTool definition identity: `{table, tag_id, index?}` from `-listx`. It remains the key for current schema-keyed v4 drafts and their production paths. It is distinct from runtime occurrence identity and exact write targeting. `Group1:Name` is display/search text only.
 - **MetadataDraftTarget** — Locked future target union: an existing occurrence carries runtime occurrence, semantic schema, and exact selector snapshot; a new property carries only the selected schema. No production draft or apply path consumes it yet.
