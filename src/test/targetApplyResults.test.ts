@@ -498,7 +498,9 @@ describe("target verification result integration", () => {
         state,
       ),
     ).toThrow(/contract error/);
-    expect(state.verification.getFile(path)).toBeUndefined();
+    expect(Object.values(state.verification.getFile(path)!)[0]).toMatchObject({
+      currentTarget: replacement,
+    });
 
     expect(() =>
       applyTargetApplyFileResultV5(
@@ -509,6 +511,173 @@ describe("target verification result integration", () => {
         state,
       ),
     ).toThrow(/snapshot changed/);
-    expect(state.verification.getFile(path)).toBeUndefined();
+    expect(Object.values(state.verification.getFile(path)!)[0]).toMatchObject({
+      currentTarget: replacement,
+    });
+  });
+
+  it("rejects invalid replacement snapshots before any single-file mutation", () => {
+    const state = stores();
+    const replacement = target("IFD1");
+    const replace = outcome();
+    replace.target = { kind: "NewProperty", schema_id: schema() };
+    replace.draft_reconciliation = { kind: "Replace", target: replacement };
+    const replacementDraft = { ...draft(), target: replacement };
+    applyTargetApplyFileResultV5(
+      file({
+        target_outcomes: [replace],
+        persisted_draft_entries: [replacementDraft],
+      }),
+      state,
+    );
+
+    const before = {
+      drafts: state.drafts.getAllMetadata(),
+      verification: state.verification.getAll(),
+      occurrences: state.occurrences.get(path),
+      compatibility: state.compatibility.get(path),
+    };
+    const listeners = {
+      drafts: vi.fn(),
+      verification: vi.fn(),
+      occurrences: vi.fn(),
+      compatibility: vi.fn(),
+    };
+    state.drafts.subscribe(listeners.drafts);
+    state.verification.subscribe(listeners.verification);
+    state.occurrences.subscribe(path, listeners.occurrences);
+    state.compatibility.subscribe(path, listeners.compatibility);
+
+    const missing = file({
+      target_outcomes: [replace],
+      persisted_draft_entries: [],
+      fresh_image_metadata: {
+        ...fresh(),
+        occurrences: [occurrence(9, 10)],
+        metadata: [
+          { id: schema(), value: { kind: "Text", value: "must not install" } },
+        ],
+      },
+    });
+    const missingBefore = structuredClone(missing);
+    expect(() => applyTargetApplyFileResultV5(missing, state)).toThrow(
+      /slot is absent/,
+    );
+    expect(missing).toEqual(missingBefore);
+
+    const changed = file({
+      target_outcomes: [replace],
+      persisted_draft_entries: [{ ...draft(), target: target("Changed") }],
+    });
+    expect(() => applyTargetApplyFileResultV5(changed, state)).toThrow(
+      /snapshot changed/,
+    );
+
+    expect(state.drafts.getAllMetadata()).toBe(before.drafts);
+    expect(state.verification.getAll()).toBe(before.verification);
+    expect(state.occurrences.get(path)).toBe(before.occurrences);
+    expect(state.compatibility.get(path)).toBe(before.compatibility);
+    expect(
+      Object.values(listeners).every((listener) => !listener.mock.calls.length),
+    ).toBe(true);
+  });
+
+  it("validates null persisted snapshots only against the current exact target", () => {
+    const state = stores();
+    state.drafts.replaceMetadataFile(path, [draft()]);
+    expect(() =>
+      applyTargetApplyFileResultV5(
+        file({
+          persisted_draft_entries: null,
+          fresh_image_metadata: null,
+        }),
+        state,
+      ),
+    ).not.toThrow();
+
+    const empty = stores();
+    const snapshots = {
+      drafts: empty.drafts.getAllMetadata(),
+      verification: empty.verification.getAll(),
+    };
+    const draftListener = vi.fn();
+    const verificationListener = vi.fn();
+    empty.drafts.subscribe(draftListener);
+    empty.verification.subscribe(verificationListener);
+    expect(() =>
+      applyTargetApplyFileResultV5(
+        file({
+          persisted_draft_entries: null,
+          fresh_image_metadata: null,
+        }),
+        empty,
+      ),
+    ).toThrow(/slot is absent/);
+    expect(empty.drafts.getAllMetadata()).toBe(snapshots.drafts);
+    expect(empty.verification.getAll()).toBe(snapshots.verification);
+    expect(draftListener).not.toHaveBeenCalled();
+    expect(verificationListener).not.toHaveBeenCalled();
+  });
+});
+
+describe("atomic target apply verification batches", () => {
+  it("preflights every verification contract before mutating the first file", () => {
+    const state = stores();
+    const firstPath = "first.jpg";
+    const secondPath = "second.jpg";
+    const initial = [firstPath, secondPath].map((relativePath) =>
+      file({
+        relative_path: relativePath,
+        fresh_image_metadata: fresh(relativePath),
+      }),
+    );
+    applyTargetApplyResultV5(batch(initial), state);
+    const before = {
+      drafts: state.drafts.getAllMetadata(),
+      verification: state.verification.getAll(),
+      firstOccurrences: state.occurrences.get(firstPath),
+      secondOccurrences: state.occurrences.get(secondPath),
+      firstCompatibility: state.compatibility.get(firstPath),
+      secondCompatibility: state.compatibility.get(secondPath),
+    };
+    const listeners = [vi.fn(), vi.fn(), vi.fn(), vi.fn(), vi.fn(), vi.fn()];
+    state.drafts.subscribe(listeners[0]);
+    state.verification.subscribe(listeners[1]);
+    state.occurrences.subscribe(firstPath, listeners[2]);
+    state.occurrences.subscribe(secondPath, listeners[3]);
+    state.compatibility.subscribe(firstPath, listeners[4]);
+    state.compatibility.subscribe(secondPath, listeners[5]);
+
+    const validFirst = file({
+      relative_path: firstPath,
+      fresh_image_metadata: fresh(firstPath),
+      persisted_draft_entries: [draft(3, 4)],
+    });
+    const invalidSecond = file({
+      relative_path: secondPath,
+      fresh_image_metadata: fresh(secondPath),
+      persisted_draft_entries: [],
+    });
+    expect(() =>
+      applyTargetApplyResultV5(batch([validFirst, invalidSecond]), state),
+    ).toThrow(/slot is absent/);
+
+    expect(state.drafts.getAllMetadata()).toBe(before.drafts);
+    expect(state.verification.getAll()).toBe(before.verification);
+    expect(state.occurrences.get(firstPath)).toBe(before.firstOccurrences);
+    expect(state.occurrences.get(secondPath)).toBe(before.secondOccurrences);
+    expect(state.compatibility.get(firstPath)).toBe(before.firstCompatibility);
+    expect(state.compatibility.get(secondPath)).toBe(
+      before.secondCompatibility,
+    );
+    expect(
+      listeners.every((listener) => listener.mock.calls.length === 0),
+    ).toBe(true);
+    expect(Object.values(state.verification.getFile(firstPath)!)).toHaveLength(
+      1,
+    );
+    expect(Object.values(state.verification.getFile(secondPath)!)).toHaveLength(
+      1,
+    );
   });
 });

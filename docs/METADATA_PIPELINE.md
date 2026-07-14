@@ -417,9 +417,10 @@ independent v5 persistence and autosave gate; other operations remain schema v4.
 
 ### Frontend result application
 
-The `targetApplyResults` module accepts a strict file result, prepares
-all cloned candidates before mutation, then applies each independently
-authoritative field. Non-null `persisted_draft_entries` replaces the complete
+The `targetApplyResults` module accepts a strict file result, prepares all
+cloned candidates and derives target-verification outcomes without store access,
+then validates those outcomes against the effective draft snapshot before
+mutation. Non-null `persisted_draft_entries` replaces the complete
 file in `TargetDraftEditsStore`; null leaves drafts unchanged because it means
 no changed draft map was successfully persisted. Reconciliation kinds and the
 `applied` flag never reconstruct or gate draft state.
@@ -427,14 +428,19 @@ no changed draft map was successfully persisted. Reconciliation kinds and the
 Non-null `fresh_image_metadata` replaces both authoritative occurrences and
 the temporary compatibility collection. This refresh still occurs when
 semantic verification reports an error or a write warning accompanies valid
-fresh metadata. Target outcomes are returned, defensively cloned, for future
-verification handling and are not stored yet.
+fresh metadata. Prepared verification outcomes are defensively cloned and
+installed only after their current slot and complete target match the effective
+drafts. A non-null backend draft snapshot is the sole candidate for that file;
+a null snapshot validates against the existing stored collection.
 
 Exact store comparison makes progress followed by the identical final file
 result a no-op with no second notification. Exact means full wire structure and
 identity, not semantic metadata equality; a genuinely different final result
 therefore remains able to overwrite progress state. Complete final results
-validate and prepare every file before mutating the first store and retain file
+strictly parse and prepare every file, then validate every verification contract
+against the current global draft snapshot plus its own effective per-file
+candidate before mutating the first store. An invalid file preserves every
+prior frontend store and emits no notification. Successful batches retain file
 order, cancellation, and abort status.
 
 This pure module has no listener, Tauri invocation, autosave, or React
@@ -468,8 +474,13 @@ Progress is supplemental. Its complete validated file result updates persisted
 target drafts, authoritative occurrences, and compatibility metadata while the
 autosave gate is held. The production subscriber therefore avoids saving
 snapshots that the backend already persisted. Malformed event records,
-progress-application failures, and
-optional callback failures are contained while the command continues.
+progress-application failures, and optional callback failures are contained
+while the command continues. Backend file errors and warnings are counted and
+presented before progress application, and final diagnostics are presented
+before authoritative final application. Per-run path/message deduplication
+keeps progress/final repetition idempotent. A frontend verification-contract
+failure is reported separately and never replaces the backend persistence,
+write, or readback diagnostic.
 
 Immediately after the command resolves, progress acceptance is disabled before
 the final result is applied authoritatively. A late queued event therefore
@@ -480,11 +491,18 @@ not fabricate a final result or roll stores back. Listener cleanup is attempted
 before suppression and ownership release on every path; an existing command or
 final-application error is not masked by cleanup failure.
 
+Verification acceptance requires an authoritative observed value, including an
+explicit `MetadataValue::Null`. Readback failure, invalid readback, missing
+post-write state, blocked reconciliation, and other outcomes without observed
+state offer exact-target discard plus keep, never acceptance.
+
 Cancellation calls the existing exact v5 adapter once while a signal is in
 flight and keeps controller ownership and autosave suppression until the apply
 command resolves or rejects. `useMediaLibrary` owns the stable production
-instance and publishes its separate target/apply state; legacy operations still
-use schema-v4 persistence and apply.
+instance and publishes its separate target/apply state. Target-aware
+verification remains limited to production schema-v5 operations; ordinary
+existing-row editing and other legacy producers still use schema-v4
+persistence, apply, and verification.
 
 ## Temporary production v4/v5 editing bridge
 

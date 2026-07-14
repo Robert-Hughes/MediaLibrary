@@ -1,5 +1,8 @@
 import type { MetadataDraftTarget, MetadataValue } from "../types";
-import type { TargetVerifyOutcomesByFileV5 } from "../targetVerifyOutcomes";
+import {
+  targetVerifyPrimaryAction,
+  type TargetVerifyOutcomesByFileV5,
+} from "../targetVerifyOutcomes";
 import {
   metadataEntryToDisplayString,
   metadataValueToDiagnosticString,
@@ -100,7 +103,7 @@ export function TargetVerifyOutcomeDialog({
               {Object.values(entries).map((entry) => {
                 const slot = metadataDraftTargetSlotToken(entry.currentTarget);
                 const blocked = entry.reconciliation.kind === "Blocked";
-                const missing = entry.kind.toLowerCase().includes("missing");
+                const primaryAction = targetVerifyPrimaryAction(entry);
                 const blockedReason =
                   entry.reconciliation.kind === "Blocked"
                     ? entry.reconciliation.reason
@@ -185,7 +188,7 @@ export function TargetVerifyOutcomeDialog({
                       >
                         Keep draft
                       </button>{" "}
-                      {blocked || missing ? (
+                      {primaryAction === "discard-pending-draft" ? (
                         <button
                           className="dialog-btn dialog-btn-primary"
                           onClick={() => onDiscard(file, entry.currentTarget)}

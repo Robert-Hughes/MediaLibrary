@@ -2,6 +2,7 @@ import type {
   ApplyEditsV5StartedPayload,
   MetadataApplyEditsProgressPayloadV5,
   MetadataApplyEditsResultV5,
+  MetadataApplyFileResultV5,
 } from "./types";
 import {
   applyTargetApplyFileResultV5,
@@ -201,6 +202,21 @@ export class TargetApplyControllerV5 {
           if (!this.isAccepting(runToken, acceptEvents) || !acceptProgress) {
             return;
           }
+          if (payload.result.error !== null) {
+            progressFailedFiles.add(payload.result.relative_path);
+          }
+          this.updateRunningState({
+            current: payload.current,
+            total: payload.total,
+            currentFile: payload.result.relative_path,
+            fileFailureCount: progressFailedFiles.size,
+          });
+          this.presentFileDiagnostics(
+            payload.result,
+            presentedFileErrors,
+            presentedFileWarnings,
+          );
+
           let application: TargetApplyFileApplicationV5;
           try {
             application = applyTargetApplyFileResultV5(
@@ -223,20 +239,6 @@ export class TargetApplyControllerV5 {
             return;
           }
 
-          if (application.error !== null) {
-            progressFailedFiles.add(application.relativePath);
-          }
-          this.updateRunningState({
-            current: payload.current,
-            total: payload.total,
-            currentFile: payload.result.relative_path,
-            fileFailureCount: progressFailedFiles.size,
-          });
-          this.presentFileDiagnostics(
-            application,
-            presentedFileErrors,
-            presentedFileWarnings,
-          );
           this.callSafely("onProgress", () =>
             this.callbacks.onProgress?.(payload, application),
           );
@@ -265,17 +267,19 @@ export class TargetApplyControllerV5 {
       );
       acceptProgress = false;
       acceptEvents = false;
-      const application = applyTargetApplyResultV5(
-        commandResult,
-        this.dependencies.stores,
-      );
-      for (const file of application.files) {
+      for (const file of commandResult.files) {
+        if (file.error !== null) progressFailedFiles.add(file.relative_path);
         this.presentFileDiagnostics(
           file,
           presentedFileErrors,
           presentedFileWarnings,
         );
       }
+      this.updateRunningState({ fileFailureCount: progressFailedFiles.size });
+      const application = applyTargetApplyResultV5(
+        commandResult,
+        this.dependencies.stores,
+      );
       this.callSafely("onFinalApplied", () =>
         this.callbacks.onFinalApplied?.(commandResult, application),
       );
@@ -382,31 +386,29 @@ export class TargetApplyControllerV5 {
   }
 
   private presentFileDiagnostics(
-    application: TargetApplyFileApplicationV5,
+    result: Pick<
+      MetadataApplyFileResultV5,
+      "relative_path" | "error" | "warning"
+    >,
     presentedErrors: Set<string>,
     presentedWarnings: Set<string>,
   ): void {
-    if (application.error !== null) {
-      const key = `${application.relativePath}\u0000${application.error}`;
+    const relativePath = result.relative_path;
+    if (result.error !== null) {
+      const key = `${relativePath}\u0000${result.error}`;
       if (!presentedErrors.has(key)) {
         presentedErrors.add(key);
         this.callSafely("onFileError", () =>
-          this.callbacks.onFileError?.(
-            application.relativePath,
-            application.error!,
-          ),
+          this.callbacks.onFileError?.(relativePath, result.error!),
         );
       }
     }
-    if (application.warning !== null) {
-      const key = `${application.relativePath}\u0000${application.warning}`;
+    if (result.warning !== null) {
+      const key = `${relativePath}\u0000${result.warning}`;
       if (!presentedWarnings.has(key)) {
         presentedWarnings.add(key);
         this.callSafely("onFileWarning", () =>
-          this.callbacks.onFileWarning?.(
-            application.relativePath,
-            application.warning!,
-          ),
+          this.callbacks.onFileWarning?.(relativePath, result.warning!),
         );
       }
     }

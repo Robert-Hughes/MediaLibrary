@@ -6,6 +6,7 @@ import {
   emptyTargetVerifyOutcomesV5,
   replaceTargetVerifyOutcomesForFile,
   targetVerifyOutcomeFromBackend,
+  targetVerifyPrimaryAction,
   validateTargetVerifyOutcomesAgainstDrafts,
 } from "../targetVerifyOutcomes";
 import { TargetVerifyOutcomesStoreV5 } from "../targetVerifyOutcomesStore";
@@ -60,6 +61,67 @@ const draft = (target: MetadataDraftTarget) => ({
 });
 
 describe("target-aware verification model", () => {
+  it.each([
+    [
+      "ReadbackFailed",
+      { kind: "Keep" } as const,
+      null,
+      "discard-pending-draft",
+    ],
+    [
+      "ReadbackInvalid",
+      { kind: "Keep" } as const,
+      null,
+      "discard-pending-draft",
+    ],
+    [
+      "MissingPostWrite",
+      { kind: "Keep" } as const,
+      null,
+      "discard-pending-draft",
+    ],
+    [
+      "Blocked",
+      { kind: "Blocked", reason: "stale" } as const,
+      { kind: "Text", value: "observed" } as const,
+      "discard-pending-draft",
+    ],
+    [
+      "Mismatch",
+      { kind: "Keep" } as const,
+      { kind: "Text", value: "x" } as const,
+      "accept-current-state",
+    ],
+    [
+      "Coerced",
+      { kind: "Keep" } as const,
+      { kind: "Integer", value: 1 } as const,
+      "accept-current-state",
+    ],
+    [
+      "DeleteLingering",
+      { kind: "Keep" } as const,
+      { kind: "Text", value: "x" } as const,
+      "accept-current-state",
+    ],
+    [
+      "Mismatch",
+      { kind: "Keep" } as const,
+      { kind: "Null" } as const,
+      "accept-current-state",
+    ],
+  ])(
+    "selects the primary action for %s",
+    (kind, reconciliation, observed, expected) => {
+      const entry = targetVerifyOutcomeFromBackend("a.jpg", {
+        ...backend(reconciliation),
+        kind,
+        observed,
+      })!;
+      expect(targetVerifyPrimaryAction(entry)).toBe(expected);
+    },
+  );
+
   it("maps Clear, Keep, Replace, and Blocked structurally", () => {
     expect(
       targetVerifyOutcomeFromBackend("a.jpg", backend({ kind: "Clear" })),

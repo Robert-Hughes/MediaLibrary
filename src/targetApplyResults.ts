@@ -9,6 +9,7 @@ import {
   TargetDraftEditsStore,
   targetDraftsFromWire,
   type TargetDraftCollection,
+  type TargetDraftEditsByFile,
 } from "./targetDraftEdits";
 import {
   metadataCollection,
@@ -62,6 +63,7 @@ export interface PreparedTargetApplyFileResultV5 {
   readonly occurrences: MetadataOccurrences | null;
   readonly compatibility: MetadataCollection | null;
   readonly targetOutcomes: MetadataTargetOutcome[];
+  readonly targetVerifyOutcomes: TargetVerifyOutcomeV5[];
   readonly error: string | null;
   readonly warning: string | null;
 }
@@ -70,6 +72,10 @@ function prepareValidatedTargetApplyFileResultV5(
   parsed: MetadataApplyFileResultV5,
 ): PreparedTargetApplyFileResultV5 {
   const targetOutcomes = structuredClone(parsed.target_outcomes);
+  const targetVerifyOutcomes = targetVerifyOutcomesFromBackend(
+    parsed.relative_path,
+    targetOutcomes,
+  );
   const persistedDraftEntries =
     parsed.persisted_draft_entries === null
       ? null
@@ -89,6 +95,7 @@ function prepareValidatedTargetApplyFileResultV5(
       occurrences: null,
       compatibility: null,
       targetOutcomes,
+      targetVerifyOutcomes,
       error: parsed.error,
       warning: parsed.warning,
     };
@@ -102,9 +109,34 @@ function prepareValidatedTargetApplyFileResultV5(
     occurrences: fresh.occurrences,
     compatibility: metadataCollection(fresh.metadata),
     targetOutcomes,
+    targetVerifyOutcomes,
     error: parsed.error,
     warning: parsed.warning,
   };
+}
+
+export function validatePreparedTargetApplyFileResultV5(
+  prepared: PreparedTargetApplyFileResultV5,
+  currentDrafts: TargetDraftEditsByFile,
+): void {
+  let effectiveDrafts = currentDrafts;
+  if (prepared.persistedDraftEntries !== null) {
+    const retained = Object.entries(currentDrafts).filter(
+      ([path]) => path !== prepared.relativePath,
+    );
+    effectiveDrafts = prepared.persistedDraftCollection
+      ? recordFromEntries([
+          ...retained,
+          [prepared.relativePath, prepared.persistedDraftCollection] as const,
+        ])
+      : recordFromEntries(retained);
+  }
+
+  validateTargetVerifyOutcomesAgainstDrafts(
+    prepared.relativePath,
+    prepared.targetVerifyOutcomes,
+    effectiveDrafts,
+  );
 }
 
 export function prepareTargetApplyFileResultV5(
@@ -127,21 +159,10 @@ export function applyPreparedTargetApplyFileResultV5(
           prepared.persistedDraftEntries,
         );
 
-  const targetOutcomes = targetVerifyOutcomesFromBackend(
+  stores.verification.replaceFile(
     prepared.relativePath,
-    prepared.targetOutcomes,
+    prepared.targetVerifyOutcomes,
   );
-  try {
-    validateTargetVerifyOutcomesAgainstDrafts(
-      prepared.relativePath,
-      targetOutcomes,
-      stores.drafts.getAllMetadata(),
-    );
-  } catch (error) {
-    stores.verification.deletePath(prepared.relativePath);
-    throw error;
-  }
-  stores.verification.replaceFile(prepared.relativePath, targetOutcomes);
 
   let occurrencesChanged = false;
   let compatibilityChanged = false;
@@ -174,7 +195,7 @@ export function applyPreparedTargetApplyFileResultV5(
     occurrencesChanged,
     compatibilityChanged,
     targetOutcomes: structuredClone(prepared.targetOutcomes),
-    targetVerifyOutcomes: targetOutcomes,
+    targetVerifyOutcomes: structuredClone(prepared.targetVerifyOutcomes),
     error: prepared.error,
     warning: prepared.warning,
   };
@@ -184,10 +205,12 @@ export function applyTargetApplyFileResultV5(
   raw: unknown,
   stores: TargetApplyResultStores,
 ): TargetApplyFileApplicationV5 {
-  return applyPreparedTargetApplyFileResultV5(
-    prepareTargetApplyFileResultV5(raw),
-    stores,
+  const prepared = prepareTargetApplyFileResultV5(raw);
+  validatePreparedTargetApplyFileResultV5(
+    prepared,
+    stores.drafts.getAllMetadata(),
   );
+  return applyPreparedTargetApplyFileResultV5(prepared, stores);
 }
 
 export function applyTargetApplyResultV5(
@@ -196,6 +219,10 @@ export function applyTargetApplyResultV5(
 ): TargetApplyResultApplicationV5 {
   const parsed = targetApplyResultFromUnknown(raw);
   const prepared = parsed.files.map(prepareValidatedTargetApplyFileResultV5);
+  const currentDrafts = stores.drafts.getAllMetadata();
+  for (const file of prepared) {
+    validatePreparedTargetApplyFileResultV5(file, currentDrafts);
+  }
   return {
     files: prepared.map((file) =>
       applyPreparedTargetApplyFileResultV5(file, stores),

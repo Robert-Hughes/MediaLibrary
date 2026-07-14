@@ -30,6 +30,17 @@ export type TargetVerifyOutcomesByFileV5 = Record<
   Record<string, TargetVerifyOutcomeV5>
 >;
 
+export type TargetVerifyPrimaryActionV5 =
+  "accept-current-state" | "discard-pending-draft";
+
+export function targetVerifyPrimaryAction(
+  outcome: TargetVerifyOutcomeV5,
+): TargetVerifyPrimaryActionV5 {
+  return outcome.reconciliation.kind === "Blocked" || outcome.observed === null
+    ? "discard-pending-draft"
+    : "accept-current-state";
+}
+
 function immutableClone<T>(value: T): T {
   const cloned = structuredClone(value);
   return deepFreeze(cloned);
