@@ -9,6 +9,7 @@ import type {
 import { targetDraftsFromWire } from "../targetDraftEdits";
 import { metadataDraftTargetSlotToken } from "./metadataDraftTarget";
 import {
+  findImageMetadataDuplicateIdentity,
   isImageMetadata,
   isMetadataDraftEntryV5,
   isMetadataTargetOutcome,
@@ -59,6 +60,13 @@ export function targetApplyFileResultFromUnknown(
   const warning = raw.warning;
 
   const fresh = raw.fresh_image_metadata;
+  const duplicateIdentity = findImageMetadataDuplicateIdentity(fresh);
+  if (duplicateIdentity) {
+    invalid(
+      `${context} for '${relativePath}'`,
+      `fresh_image_metadata contains duplicate ${duplicateIdentity.kind} ID '${duplicateIdentity.token}' at indexes ${duplicateIdentity.firstIndex} and ${duplicateIdentity.secondIndex}`,
+    );
+  }
   if (!(fresh === null || isImageMetadata(fresh))) {
     invalid(
       `${context} for '${relativePath}'`,

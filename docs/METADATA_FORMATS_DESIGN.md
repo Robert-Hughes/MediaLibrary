@@ -692,10 +692,21 @@ An inactive frontend apply adapter accepts every command result and versioned
 event payload as `unknown`, then strictly validates complete nested targets,
 semantic values, outcomes, reconciliation, authoritative occurrences,
 compatibility metadata, and persisted entries. It rechecks replacement domain
-invariants at this boundary. Invocation and listener registration remain
-separate. Progress events are supplemental and may be absent after a non-fatal
-emission failure; the final command result is authoritative for completed files
-and batch status.
+invariants at this boundary. Fresh authoritative occurrences must have unique
+exact `MetadataOccurrenceId` values, and compatibility entries must have
+unique exact `SchemaDefinitionId` values. The latter includes the optional
+index, so an absent index and index zero remain distinct. Any exact duplicate
+invalidates the complete file result or progress event; no first entry is
+selected and no reduced collection is constructed. Invocation and listener
+registration remain separate. Progress events are supplemental and may be
+absent after a non-fatal emission failure; the final command result is
+authoritative for completed files and batch status.
+
+This strict apply boundary does not change lossy scan-event normalization.
+Scan events may drop malformed or duplicate exact occurrences, preserve valid
+siblings in deterministic order, warn, and continue. The apply adapter rejects
+the complete invalid containing result because its final command results are
+authoritative protocol data.
 
 The events carry no operation ID because the backend permits only one active v5
 apply. No frontend store, `AppState`, or production React consumer uses the

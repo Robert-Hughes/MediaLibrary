@@ -14,7 +14,11 @@ import type {
   TagInfo,
   TagKind,
 } from "../types";
-import { schemaDefinitionIdEquals } from "./schemaDefinitionId";
+import { metadataOccurrenceIdToken } from "./metadataOccurrenceId";
+import {
+  schemaDefinitionIdEquals,
+  schemaDefinitionIdToken,
+} from "./schemaDefinitionId";
 import { hasOwnStringKey } from "./stringRecord";
 
 const U32_MAX = 0xffff_ffff;
@@ -335,6 +339,56 @@ export function isMetadataEntry(value: unknown): value is MetadataEntry {
   );
 }
 
+export type ImageMetadataDuplicateIdentity = {
+  kind: "occurrence" | "schema";
+  token: string;
+  firstIndex: number;
+  secondIndex: number;
+};
+
+function findDuplicateIdentity<T>(
+  values: T[],
+  kind: ImageMetadataDuplicateIdentity["kind"],
+  tokenFor: (value: T) => string,
+): ImageMetadataDuplicateIdentity | null {
+  const firstIndexes = new Map<string, number>();
+  for (const [index, value] of values.entries()) {
+    const token = tokenFor(value);
+    const firstIndex = firstIndexes.get(token);
+    if (firstIndex !== undefined) {
+      return { kind, token, firstIndex, secondIndex: index };
+    }
+    firstIndexes.set(token, index);
+  }
+  return null;
+}
+
+export function findImageMetadataDuplicateIdentity(
+  value: unknown,
+): ImageMetadataDuplicateIdentity | null {
+  if (!isRecord(value)) return null;
+
+  if (
+    Array.isArray(value.occurrences) &&
+    value.occurrences.every(isMetadataOccurrence)
+  ) {
+    const duplicate = findDuplicateIdentity(
+      value.occurrences,
+      "occurrence",
+      (occurrence) => metadataOccurrenceIdToken(occurrence.id),
+    );
+    if (duplicate) return duplicate;
+  }
+
+  if (Array.isArray(value.metadata) && value.metadata.every(isMetadataEntry)) {
+    return findDuplicateIdentity(value.metadata, "schema", (entry) =>
+      schemaDefinitionIdToken(entry.id),
+    );
+  }
+
+  return null;
+}
+
 export function isImageMetadata(value: unknown): value is ImageMetadata {
   return (
     isRecord(value) &&
@@ -343,7 +397,8 @@ export function isImageMetadata(value: unknown): value is ImageMetadata {
     Array.isArray(value.occurrences) &&
     value.occurrences.every(isMetadataOccurrence) &&
     Array.isArray(value.metadata) &&
-    value.metadata.every(isMetadataEntry)
+    value.metadata.every(isMetadataEntry) &&
+    findImageMetadataDuplicateIdentity(value) === null
   );
 }
 

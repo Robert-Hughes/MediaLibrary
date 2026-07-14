@@ -395,6 +395,21 @@ validation repeats the replacement invariant: only an original `NewProperty`
 may be replaced, its replacement must be an `ExistingOccurrence`, and both
 schemas must match exactly.
 
+The same strict boundary requires unique exact identities inside every fresh
+`ImageMetadata`: `occurrences` is keyed by the full `MetadataOccurrenceId`, and
+the compatibility `metadata` projection is keyed by the full
+`SchemaDefinitionId`. Exact duplicates invalidate the complete file result or
+progress event, with both array indexes reported; no duplicate is removed and
+no first entry is selected. Distinct same-schema IFD0/IFD1 occurrences,
+different copies, and different documents remain valid, as do schema IDs that
+differ by table, tag ID, or absent index versus index zero.
+
+Ordinary scan events retain their separate lossy policy. Their normalizers may
+drop malformed or duplicate occurrences, keep and deterministically order
+valid siblings, emit the existing warning, and continue. Strict v5 apply
+results and progress payloads instead reject the whole invalid file result.
+The final command result remains authoritative for completed files.
+
 Event subscription is separate from command invocation. Started/progress events
 are optional immediate notifications rather than a completion ledger: event
 emission failure is non-fatal, so the final command result is authoritative for

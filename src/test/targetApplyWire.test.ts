@@ -75,6 +75,22 @@ const imageMetadata = (relativePath = "photo.jpg"): ImageMetadata => ({
   ],
 });
 
+const imageMetadataWithOccurrences = (
+  occurrences: MetadataOccurrence[],
+  relativePath = "photo.jpg",
+): ImageMetadata => ({
+  ...imageMetadata(relativePath),
+  occurrences,
+});
+
+const imageMetadataWithEntries = (
+  metadata: ImageMetadata["metadata"],
+  relativePath = "photo.jpg",
+): ImageMetadata => ({
+  ...imageMetadata(relativePath),
+  metadata,
+});
+
 const existing = (
   schemaId: SchemaDefinitionId = schema(),
 ): Extract<MetadataDraftTarget, { kind: "ExistingOccurrence" }> => ({
@@ -196,6 +212,150 @@ describe("shared scanner-domain guards", () => {
       "[metadata] Dropped 1 non-semantic metadata payload value(s)",
     );
     warn.mockRestore();
+  });
+});
+
+describe("strict ImageMetadata occurrence identity", () => {
+  it("accepts one occurrence and distinct same-schema IFD0/IFD1 occurrences", () => {
+    const ifd0 = occurrence();
+    const ifd1 = {
+      ...occurrence(),
+      id: { ...occurrence().id, path: "JPEG-APP1-IFD1" },
+    };
+
+    expect(isImageMetadata(imageMetadataWithOccurrences([ifd0]))).toBe(true);
+    expect(isImageMetadata(imageMetadataWithOccurrences([ifd0, ifd1]))).toBe(
+      true,
+    );
+  });
+
+  it("rejects exact duplicate IFD0 IDs regardless of values or ordering", () => {
+    const first = occurrence();
+    const identical = structuredClone(first);
+    const differing = {
+      ...occurrence(),
+      value: { kind: "Rational", value: { numerator: 72, denominator: 1 } },
+    } satisfies MetadataOccurrence;
+    const sibling = {
+      ...occurrence(),
+      id: { ...occurrence().id, path: "JPEG-APP1-IFD1" },
+    };
+
+    expect(
+      isImageMetadata(imageMetadataWithOccurrences([first, identical])),
+    ).toBe(false);
+    expect(
+      isImageMetadata(imageMetadataWithOccurrences([first, differing])),
+    ).toBe(false);
+    expect(
+      isImageMetadata(
+        imageMetadataWithOccurrences([first, sibling, differing]),
+      ),
+    ).toBe(false);
+    expect(
+      isImageMetadata(
+        imageMetadataWithOccurrences([sibling, differing, first]),
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps copy numbers and main versus named documents distinct", () => {
+    const primary = occurrence();
+    const copied = {
+      ...occurrence(),
+      id: { ...occurrence().id, copy: 1 },
+    };
+    const namedDocument = {
+      ...occurrence(),
+      id: { ...occurrence().id, document: "Track1" },
+    };
+
+    expect(
+      isImageMetadata(
+        imageMetadataWithOccurrences([primary, copied, namedDocument]),
+      ),
+    ).toBe(true);
+  });
+
+  it("reports the path, occurrence token, and both duplicate indexes", () => {
+    const duplicate = occurrence();
+    const sibling = {
+      ...occurrence(),
+      id: { ...occurrence().id, copy: 1 },
+    };
+    const raw = {
+      ...fileResult("nested/photo.jpg"),
+      fresh_image_metadata: imageMetadataWithOccurrences(
+        [duplicate, sibling, structuredClone(duplicate)],
+        "nested/photo.jpg",
+      ),
+    };
+
+    expect(() => targetApplyFileResultFromUnknown(raw)).toThrow(
+      /nested\/photo\.jpg.*duplicate occurrence ID.*JPEG-APP1-IFD0.*indexes 0 and 2/,
+    );
+    expect(() => targetApplyFileResultFromUnknown(raw)).toThrow();
+    expect(raw.fresh_image_metadata.occurrences).toHaveLength(3);
+  });
+});
+
+describe("strict ImageMetadata compatibility schema identity", () => {
+  const compatibilityEntry = (
+    id: SchemaDefinitionId,
+    value: ImageMetadata["metadata"][number]["value"] = {
+      kind: "Rational",
+      value: { numerator: 300, denominator: 1 },
+    },
+  ): ImageMetadata["metadata"][number] => ({ id, value });
+
+  it("accepts one entry and distinct exact schema IDs", () => {
+    expect(
+      isImageMetadata(imageMetadataWithEntries([compatibilityEntry(schema())])),
+    ).toBe(true);
+    expect(
+      isImageMetadata(
+        imageMetadataWithEntries([
+          compatibilityEntry(schema()),
+          compatibilityEntry(schema(0)),
+          compatibilityEntry({ ...schema(), table: "Exif::SubIFD" }),
+          compatibilityEntry({ ...schema(), tag_id: "283" }),
+        ]),
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects exact duplicate schemas with identical or differing values", () => {
+    const first = compatibilityEntry(schema());
+    const identical = structuredClone(first);
+    const differing = compatibilityEntry(schema(), {
+      kind: "Rational",
+      value: { numerator: 72, denominator: 1 },
+    });
+
+    expect(isImageMetadata(imageMetadataWithEntries([first, identical]))).toBe(
+      false,
+    );
+    expect(isImageMetadata(imageMetadataWithEntries([first, differing]))).toBe(
+      false,
+    );
+  });
+
+  it("reports the schema token and both duplicate indexes without selecting one", () => {
+    const duplicate = compatibilityEntry(schema());
+    const raw = {
+      ...fileResult(),
+      fresh_image_metadata: imageMetadataWithEntries([
+        duplicate,
+        compatibilityEntry(schema(0)),
+        compatibilityEntry({ ...schema(), tag_id: "283" }),
+        structuredClone(duplicate),
+      ]),
+    };
+
+    expect(() => targetApplyFileResultFromUnknown(raw)).toThrow(
+      /photo\.jpg.*duplicate schema ID.*Exif::Main.*indexes 0 and 3/,
+    );
+    expect(raw.fresh_image_metadata.metadata).toHaveLength(4);
   });
 });
 
@@ -494,5 +654,31 @@ describe("batch-result and event payload parsers", () => {
         result: { ...fileResult(), target_outcomes: [{ bad: true }] },
       }),
     ).toThrow(/target_outcomes\[0\]/);
+  });
+
+  it("rejects duplicate occurrence IDs in batch results and progress events", () => {
+    const duplicateResult = {
+      ...fileResult(),
+      fresh_image_metadata: imageMetadataWithOccurrences([
+        occurrence(),
+        structuredClone(occurrence()),
+      ]),
+    };
+
+    expect(() =>
+      targetApplyResultFromUnknown({
+        files: [duplicateResult],
+        cancelled: false,
+        aborted: false,
+        abort_reason: null,
+      }),
+    ).toThrow(/duplicate occurrence ID.*indexes 0 and 1/);
+    expect(() =>
+      targetApplyProgressFromUnknown({
+        current: 1,
+        total: 1,
+        result: duplicateResult,
+      }),
+    ).toThrow(/duplicate occurrence ID.*indexes 0 and 1/);
   });
 });

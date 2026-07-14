@@ -29,6 +29,28 @@ const batchResult = () => ({
   abort_reason: null,
 });
 
+const duplicateOccurrenceBatchResult = () => {
+  const first = {
+    id: {
+      document: null,
+      path: "JPEG-APP1-IFD0",
+      tag_id: "282",
+      copy: 0,
+    },
+    value: { kind: "Rational", value: { numerator: 300, denominator: 1 } },
+    tag_info: null,
+    write_target: null,
+  } as const;
+  const result = fileResult();
+  result.fresh_image_metadata!.occurrences = [first, structuredClone(first)];
+  return {
+    files: [result],
+    cancelled: false,
+    aborted: false,
+    abort_reason: null,
+  };
+};
+
 describe("inactive schema-v5 apply invocation", () => {
   it("uses the exact command and copied, ordered arguments", async () => {
     const paths = ["z.jpg", "a.jpg"];
@@ -74,6 +96,16 @@ describe("inactive schema-v5 apply invocation", () => {
         [],
       ),
     ).rejects.toThrow(/files must be an array/);
+  });
+
+  it("rejects duplicate occurrence IDs without returning a partial result", async () => {
+    const raw = duplicateOccurrenceBatchResult();
+    await expect(
+      applyTargetDraftEditsV5({ invoke: vi.fn(async () => raw) }, "folder", [
+        "photo.jpg",
+      ]),
+    ).rejects.toThrow(/duplicate occurrence ID.*indexes 0 and 1/);
+    expect(raw.files[0].fresh_image_metadata?.occurrences).toHaveLength(2);
   });
 
   it.each([new Error("busy"), { code: "load/apply", detail: "failed" }])(
@@ -194,6 +226,33 @@ describe("inactive schema-v5 apply event subscription", () => {
       expect.any(Error),
       "apply_metadata_edits_v5_progress",
       badProgress,
+    );
+  });
+
+  it("routes duplicate-occurrence progress only to protocol error with raw payload", async () => {
+    const fake = fakeListeners();
+    const onProgress = vi.fn();
+    const onProtocolError = vi.fn();
+    await subscribeTargetApplyV5Events(fake, {
+      onProgress,
+      onProtocolError,
+    });
+    const rawPayload = {
+      current: 1,
+      total: 1,
+      result: duplicateOccurrenceBatchResult().files[0],
+    };
+
+    expect(() =>
+      fake.listeners.get("apply_metadata_edits_v5_progress")?.(rawPayload),
+    ).not.toThrow();
+    expect(onProgress).not.toHaveBeenCalled();
+    expect(onProtocolError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.stringMatching(/duplicate occurrence ID/),
+      }),
+      "apply_metadata_edits_v5_progress",
+      rawPayload,
     );
   });
 
