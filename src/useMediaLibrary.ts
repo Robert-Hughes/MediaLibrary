@@ -25,6 +25,7 @@ import type {
   MetadataValue,
   SchemaDefinitionId,
   ImageMetadata,
+  TargetDraftPersistenceStateV5,
 } from "./types";
 import { loadColumnConfig, saveColumnConfig } from "./utils/columnConfig";
 import {
@@ -51,6 +52,15 @@ import {
 } from "./targetDraftTauri";
 import type { MetadataDraftTarget } from "./types";
 import { schemaDefinitionIdToken } from "./utils/schemaDefinitionId";
+import { resolveTargetDraftByExactSchema } from "./targetDraftView";
+
+const TARGET_DRAFT_LOAD_BLOCKED_MESSAGE =
+  "Target-aware drafts could not be loaded safely. Fix the folder's schema-v5 draft persistence file, then reopen the folder.";
+
+const TARGET_DRAFT_NOT_LOADED_STATE: TargetDraftPersistenceStateV5 = {
+  status: "load-failed",
+  error: "Target-aware drafts have not finished loading for this folder.",
+};
 
 export interface TauriApi {
   invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
@@ -158,6 +168,9 @@ export function useMediaLibrary(
   apiRef.current = api;
   const activeFolderRef = useRef<string | null>(null);
   const targetLoadErrorRef = useRef<WorkerErrorPayload | null>(null);
+  const targetDraftPersistenceRef = useRef<TargetDraftPersistenceStateV5>(
+    TARGET_DRAFT_NOT_LOADED_STATE,
+  );
   const combinedApplyRef = useRef<{
     active: boolean;
     phase: "target-v5" | "legacy-v4" | null;
@@ -245,6 +258,24 @@ export function useMediaLibrary(
           autosaveGate: targetDraftAutosaveGateRef.current,
         },
         {
+          onProgress: (_payload, application) => {
+            if (!application.compatibilityChanged) return;
+            setAppState((prev) =>
+              prev.kind === "loaded"
+                ? { ...prev, metadataVersion: prev.metadataVersion + 1 }
+                : prev,
+            );
+          },
+          onFinalApplied: (_result, application) => {
+            if (!application.files.some((file) => file.compatibilityChanged)) {
+              return;
+            }
+            setAppState((prev) =>
+              prev.kind === "loaded"
+                ? { ...prev, metadataVersion: prev.metadataVersion + 1 }
+                : prev,
+            );
+          },
           onProtocolError: ({ error }) =>
             pushApplicationError("metadata-v5-protocol", error),
           onProgressApplicationError: ({ error }) =>
@@ -342,6 +373,7 @@ export function useMediaLibrary(
       metadataProgressStoreRef.current = new MetadataProgressStore();
       activeFolderRef.current = folder;
       targetLoadErrorRef.current = null;
+      targetDraftPersistenceRef.current = TARGET_DRAFT_NOT_LOADED_STATE;
       const { visibleColumns, sortConfig, columnWidths } = loadColumnConfig();
       setAppState({
         kind: "loading",
@@ -375,17 +407,22 @@ export function useMediaLibrary(
         })(),
         (async () => {
           try {
-            targetDraftEditsStoreRef.current.resetMetadata(
-              await loadTargetDraftEditsV5(api, folder),
-            );
+            const loaded = await loadTargetDraftEditsV5(api, folder);
+            targetDraftEditsStoreRef.current.resetMetadata(loaded);
+            targetDraftPersistenceRef.current = { status: "ready" };
           } catch (error) {
             console.error("Failed to load schema-v5 target drafts", error);
             targetDraftEditsStoreRef.current.resetMetadata({});
+            const errorMessage =
+              error instanceof Error ? error.message : String(error);
+            targetDraftPersistenceRef.current = {
+              status: "load-failed",
+              error: errorMessage,
+            };
             targetLoadErrorRef.current = {
               scan_id: scanId,
               worker_type: "metadata-v5-load",
-              error_message:
-                error instanceof Error ? error.message : String(error),
+              error_message: errorMessage,
               affected_files: [],
             };
           }
@@ -440,6 +477,7 @@ export function useMediaLibrary(
             draftEditsStore: draftEditsStoreRef.current,
             targetDraftEdits: targetDraftEditsStoreRef.current.getAllMetadata(),
             targetDraftEditsStore: targetDraftEditsStoreRef.current,
+            targetDraftPersistence: targetDraftPersistenceRef.current,
             targetApplying: targetApplyControllerRef.current?.getState() ?? {
               status: "idle",
             },
@@ -588,6 +626,7 @@ export function useMediaLibrary(
               targetDraftEdits:
                 targetDraftEditsStoreRef.current.getAllMetadata(),
               targetDraftEditsStore: targetDraftEditsStoreRef.current,
+              targetDraftPersistence: targetDraftPersistenceRef.current,
               targetApplying: targetApplyControllerRef.current?.getState() ?? {
                 status: "idle",
               },
@@ -698,6 +737,7 @@ export function useMediaLibrary(
             payload,
             draftEditsStoreRef.current,
             imageMetadataStoreRef.current,
+            imageMetadataOccurrencesStoreRef.current,
             setAppState,
           );
         },
@@ -742,6 +782,7 @@ export function useMediaLibrary(
   const closeFolder = useCallback(() => {
     activeScanIdRef.current = -1;
     activeFolderRef.current = null;
+    targetDraftPersistenceRef.current = TARGET_DRAFT_NOT_LOADED_STATE;
     void cancelActiveApplyAndWait().finally(() => {
       // A final authoritative event may race with the initial clear; repeat it
       // after cancellation settles so closed-folder state remains empty.
@@ -831,7 +872,13 @@ export function useMediaLibrary(
         return { ...prev, targetDraftEdits: next };
       });
       const folder = activeFolderRef.current;
-      if (!folder || targetDraftAutosaveGateRef.current.isSuppressed()) return;
+      if (
+        !folder ||
+        targetDraftPersistenceRef.current.status !== "ready" ||
+        targetDraftAutosaveGateRef.current.isSuppressed()
+      ) {
+        return;
+      }
       void saveTargetDraftEditsV5(apiRef.current, folder, next).catch((error) =>
         pushApplicationError("metadata-v5-save", error),
       );
@@ -1035,6 +1082,20 @@ export function useMediaLibrary(
     });
   }, []);
 
+  const requireTargetDraftPersistenceReady = useCallback(
+    (affectedFiles: string[] = []): boolean => {
+      const persistence = targetDraftPersistenceRef.current;
+      if (persistence.status === "ready") return true;
+      pushApplicationError(
+        "metadata-v5-unavailable",
+        `${TARGET_DRAFT_LOAD_BLOCKED_MESSAGE} Load error: ${persistence.error}`,
+        affectedFiles,
+      );
+      return false;
+    },
+    [pushApplicationError],
+  );
+
   const setMetadataDraftBatch = useCallback(
     (
       fileRelativePath: string,
@@ -1064,6 +1125,7 @@ export function useMediaLibrary(
       id: SchemaDefinitionId,
       edit: MetadataDraftEdit,
     ) => {
+      if (!requireTargetDraftPersistenceReady([fileRelativePath])) return;
       const token = schemaDefinitionIdToken(id);
       if (
         draftEditsStoreRef.current.getMetadataFile(fileRelativePath)?.[token]
@@ -1075,13 +1137,30 @@ export function useMediaLibrary(
         );
         return;
       }
+
+      const ownership = resolveTargetDraftByExactSchema(
+        targetDraftEditsStoreRef.current.getMetadataFile(fileRelativePath),
+        id,
+      );
+      if (
+        ownership.kind === "ambiguous" ||
+        (ownership.kind === "unique" &&
+          ownership.entry.target.kind === "ExistingOccurrence")
+      ) {
+        pushApplicationError(
+          "metadata-v5-conflict",
+          "This exact schema already has target-aware ownership. Apply or discard the owning target-aware draft before adding the property again.",
+          [fileRelativePath],
+        );
+        return;
+      }
       targetDraftEditsStoreRef.current.setMetadataTarget(
         fileRelativePath,
         { kind: "NewProperty", schema_id: structuredClone(id) },
         edit,
       );
     },
-    [pushApplicationError],
+    [pushApplicationError, requireTargetDraftPersistenceReady],
   );
 
   const setTargetPropertyDraft = useCallback(
@@ -1090,20 +1169,22 @@ export function useMediaLibrary(
       target: MetadataDraftTarget,
       edit: MetadataDraftEdit,
     ) => {
+      if (!requireTargetDraftPersistenceReady([fileRelativePath])) return;
       targetDraftEditsStoreRef.current.setMetadataTarget(
         fileRelativePath,
         target,
         edit,
       );
     },
-    [],
+    [requireTargetDraftPersistenceReady],
   );
 
   const discardTargetPropertyDraft = useCallback(
     (fileRelativePath: string, target: MetadataDraftTarget) => {
+      if (!requireTargetDraftPersistenceReady([fileRelativePath])) return;
       targetDraftEditsStoreRef.current.deleteTarget(fileRelativePath, target);
     },
-    [],
+    [requireTargetDraftPersistenceReady],
   );
 
   const discardDraftValue = useCallback(
@@ -1122,18 +1203,25 @@ export function useMediaLibrary(
 
   const discardAllDraftEdits = useCallback(
     (fileRelativePath?: string | string[]) => {
+      const paths =
+        fileRelativePath === undefined
+          ? []
+          : Array.isArray(fileRelativePath)
+            ? fileRelativePath
+            : [fileRelativePath];
       if (fileRelativePath === undefined) {
         draftEditsStoreRef.current.clear();
-        targetDraftEditsStoreRef.current.clear();
+        if (requireTargetDraftPersistenceReady()) {
+          targetDraftEditsStoreRef.current.clear();
+        }
       } else {
-        const paths = Array.isArray(fileRelativePath)
-          ? fileRelativePath
-          : [fileRelativePath];
         draftEditsStoreRef.current.deletePaths(paths);
-        targetDraftEditsStoreRef.current.deletePaths(paths);
+        if (requireTargetDraftPersistenceReady(paths)) {
+          targetDraftEditsStoreRef.current.deletePaths(paths);
+        }
       }
     },
-    [],
+    [requireTargetDraftPersistenceReady],
   );
 
   /**
@@ -1212,6 +1300,9 @@ export function useMediaLibrary(
           // Deterministic bridge ordering: exact target-aware v5 first, then the
           // remaining legacy v4 paths. The phases are never concurrent.
           if (targetPaths.length > 0) {
+            if (!requireTargetDraftPersistenceReady(targetPaths)) {
+              throw new Error(TARGET_DRAFT_LOAD_BLOCKED_MESSAGE);
+            }
             const controller = targetApplyControllerRef.current;
             if (!controller) throw new Error("Schema-v5 apply is not ready");
             setAppState((prev) =>
@@ -1295,7 +1386,7 @@ export function useMediaLibrary(
       activeApplyPromiseRef.current = promise;
       return promise;
     },
-    [api, pushApplicationError],
+    [api, pushApplicationError, requireTargetDraftPersistenceReady],
   );
 
   const cancelApplyEdits = useCallback(() => {
@@ -1410,6 +1501,7 @@ function handleApplyEditsProgress(
   payload: ApplyEditsProgressPayload,
   draftStore: DraftEditsStore,
   imageMetadataStore: ImageMetadataStore,
+  imageMetadataOccurrencesStore: ImageMetadataOccurrencesStore,
   setAppState: React.Dispatch<React.SetStateAction<AppState>>,
 ) {
   // Apply fresh canonical metadata incrementally so the UI reflects file/disk
@@ -1419,6 +1511,9 @@ function handleApplyEditsProgress(
       payload.relative_path,
       normalizeMetadataFromTauri(payload.fresh_metadata),
     );
+    // Schema-v4 cannot transport the complete occurrence collection. Once it
+    // writes the file, any previously authoritative occurrences are stale.
+    imageMetadataOccurrencesStore.invalidate(payload.relative_path);
   }
 
   // Phase 8.1: prune drafts per-tag based on the backend's verification

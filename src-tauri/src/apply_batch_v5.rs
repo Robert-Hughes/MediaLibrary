@@ -1,11 +1,12 @@
-//! Inactive, versioned schema-v5 batch metadata apply coordinator.
+//! Versioned schema-v5 batch metadata apply coordinator for the controlled bridge.
 //!
-//! This module consumes [`MetadataDraftEntryV5`] values, invokes the inactive
+//! This module consumes [`MetadataDraftEntryV5`] values, invokes the
 //! occurrence-aware single-file pipeline, applies structured draft
 //! reconciliation, and persists only through schema-v5 persistence. It emits
-//! versioned events for which there is intentionally no frontend listener.
-//! Production schema-v4 apply, persistence, cancellation, events, and logging
-//! remain unchanged.
+//! versioned events consumed by the production frontend controller. Production
+//! Add Property uses this v5 path; remaining editing producers use schema v4,
+//! and the combined frontend apply runs v5 then v4 sequentially. Target-aware
+//! apply logging remains pending.
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;

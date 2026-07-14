@@ -8,6 +8,7 @@ import type {
   MetadataDraftCollection,
   MetadataValue,
   MetadataDraftTarget,
+  TargetDraftPersistenceStateV5,
 } from "../types";
 import type { TargetDraftCollection } from "../targetDraftEdits";
 import { HighlightedText } from "./HighlightedText";
@@ -32,7 +33,10 @@ import {
   overlayUniqueOccurrenceValues,
   supplementalResolvedMetadataOccurrences,
 } from "../utils/detailsPaneHelpers";
-import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
+import {
+  schemaDefinitionIdEquals,
+  schemaDefinitionIdToken,
+} from "../utils/schemaDefinitionId";
 import type { SchemaDefinitionId } from "../types";
 import {
   haystackContainsNormalized,
@@ -83,6 +87,8 @@ interface Props {
   typedDraftEdits?: MetadataDraftCollection;
   /** Narrow, exact-target view used only by the migrated Add Property slice. */
   targetDraftEdits?: TargetDraftCollection;
+  /** Folder-scoped safety state for the strict schema-v5 persistence file. */
+  targetDraftPersistence?: TargetDraftPersistenceStateV5;
   /** Semantic setter used by every editor via the local adapter. */
   onSetMetadataDraft?: (
     id: SchemaDefinitionId,
@@ -702,6 +708,7 @@ export function DetailsPane({
   draftEdits: displayDraftEdits,
   typedDraftEdits,
   targetDraftEdits,
+  targetDraftPersistence = { status: "ready" },
   onSetMetadataDraft,
   onSetMetadataDraftBatch,
   onSetNewPropertyDraft,
@@ -738,6 +745,17 @@ export function DetailsPane({
   // for that key.  null when no flow is active or we're still on stage 1.
   const [newPropertyKey, setNewPropertyKey] =
     useState<SchemaDefinitionId | null>(null);
+
+  const targetDraftsWritable = targetDraftPersistence.status === "ready";
+  const addPropertyUnavailableTitle = targetDraftsWritable
+    ? "Add a metadata property"
+    : "Add Property is unavailable because target-aware drafts could not be loaded safely. Fix the schema-v5 draft persistence file, then reopen the folder.";
+
+  useEffect(() => {
+    if (targetDraftsWritable) return;
+    setShowNewPropertyDialog(false);
+    setNewPropertyKey(null);
+  }, [targetDraftsWritable]);
 
   const occurrenceResolutionIndex = useMemo(
     () =>
@@ -986,7 +1004,15 @@ export function DetailsPane({
     return imageGroups.find((g) => g.prefix === groupContextMenu.group) ?? null;
   }, [groupContextMenu, imageGroups]);
 
-  const existingMetadataKeys = displayIds;
+  const existingMetadataKeys = useMemo(() => {
+    const ids = [...displayIds];
+    for (const id of targetDraftSchemas(targetDraftEdits)) {
+      if (!ids.some((candidate) => schemaDefinitionIdEquals(candidate, id))) {
+        ids.push(id);
+      }
+    }
+    return ids;
+  }, [displayIds, targetDraftEdits]);
 
   const filteredOsEntries = useMemo(() => {
     const { query, hasEditsFilter } = splitHasEditsFilter(
@@ -1342,7 +1368,12 @@ export function DetailsPane({
         <div className="details-pane-footer" data-testid="details-pane-footer">
           <button
             className="button button--secondary"
-            onClick={() => setShowNewPropertyDialog(true)}
+            data-testid="details-pane-add-property-btn"
+            disabled={!targetDraftsWritable}
+            title={addPropertyUnavailableTitle}
+            onClick={() => {
+              if (targetDraftsWritable) setShowNewPropertyDialog(true);
+            }}
           >
             + Add Property…
           </button>
@@ -1492,7 +1523,7 @@ export function DetailsPane({
         />
       )}
 
-      {showNewPropertyDialog && (
+      {targetDraftsWritable && showNewPropertyDialog && (
         <NewPropertyDialog
           onSave={(key) => {
             setShowNewPropertyDialog(false);
@@ -1504,7 +1535,7 @@ export function DetailsPane({
         />
       )}
 
-      {newPropertyKey !== null && (
+      {newPropertyKey !== null && targetDraftsWritable && (
         <TypedValueEditor
           propertyId={newPropertyKey}
           editorMode="single"

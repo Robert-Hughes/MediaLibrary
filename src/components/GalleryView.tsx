@@ -10,6 +10,7 @@ import type {
   ImageMetadataOccurrencesState,
   ImageMetadataOccurrencesStore,
   MetadataDraftTarget,
+  TargetDraftPersistenceStateV5,
 } from "../types";
 import type { TargetDraftCollection } from "../targetDraftEdits";
 import { ModalDialog } from "./ModalDialog";
@@ -46,6 +47,7 @@ interface Props {
   imageMetadataOccurrences?: ImageMetadataOccurrencesStore;
   typedDraftEdits?: MetadataDraftCollection;
   targetDraftEdits?: TargetDraftCollection;
+  targetDraftPersistence?: TargetDraftPersistenceStateV5;
   onSetMetadataDraft?: (
     fileRelativePath: string,
     id: SchemaDefinitionId,
@@ -97,6 +99,7 @@ export function GalleryView({
   imageMetadataOccurrences,
   typedDraftEdits,
   targetDraftEdits,
+  targetDraftPersistence,
   onSetMetadataDraft,
   onSetMetadataDraftBatch,
   onSetNewPropertyDraft,
@@ -358,6 +361,7 @@ export function GalleryView({
             occurrences={occurrencesState}
             typedDraftEdits={typedDraftEdits}
             targetDraftEdits={targetDraftEdits}
+            targetDraftPersistence={targetDraftPersistence}
             onSetMetadataDraft={(id, edit) =>
               onSetMetadataDraft?.(photo.relative_path, id, edit)
             }

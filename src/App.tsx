@@ -398,6 +398,7 @@ function LoadedView({
               displayPhotos[state.galleryIndex].relative_path
             ]
           }
+          targetDraftPersistence={state.targetDraftPersistence}
           onSetMetadataDraft={actions.setMetadataDraft}
           onSetMetadataDraftBatch={actions.setMetadataDraftBatch}
           onSetNewPropertyDraft={actions.setNewPropertyDraft}

@@ -1,11 +1,13 @@
-//! Inactive schema-v5, occurrence-aware single-file apply foundation.
+//! Schema-v5, occurrence-aware single-file apply path for the controlled bridge.
 //!
-//! No production command invokes this module. Production `apply_edits.rs`
-//! remains schema-v4 and schema-keyed. Existing-occurrence targets are read,
+//! Production Add Property reaches this module through the versioned batch
+//! command. Remaining editing producers still use schema-v4 `apply_edits.rs`,
+//! and the frontend runs the v5 and v4 phases sequentially. Existing-occurrence targets are read,
 //! written and verified only by exact [`MetadataOccurrenceId`]. New-property
 //! targets use explicit zero/one/multiple exact-schema resolution after the
 //! write. Choosing a first, lowest, `Copy0`, `IFD0`, writable, or otherwise
 //! preferred occurrence is forbidden.
+//! Target-aware apply logging remains pending.
 
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};

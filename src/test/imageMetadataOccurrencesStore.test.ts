@@ -34,6 +34,18 @@ describe("ImageMetadataOccurrencesStore", () => {
     expect(a).toHaveBeenCalledTimes(1);
   });
 
+  it("invalidates a loaded path without asserting an empty occurrence collection", () => {
+    const store = new ImageMetadataOccurrencesStore();
+    const listener = vi.fn();
+    store.set("a.jpg", []);
+    store.subscribe("a.jpg", listener);
+    store.invalidate("a.jpg");
+    expect(store.get("a.jpg")).toBe("loading");
+    expect(listener).toHaveBeenCalledTimes(1);
+    store.invalidate("a.jpg");
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+
   it("a replacement scan can use a fresh independent store", () => {
     const oldStore = new ImageMetadataOccurrencesStore();
     oldStore.set("old.jpg", []);
