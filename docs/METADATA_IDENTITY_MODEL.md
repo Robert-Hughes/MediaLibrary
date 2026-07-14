@@ -461,6 +461,16 @@ load v5 map once
 → continue at file boundary
 ```
 
+Command admission is exclusive within v5. `ApplyEditsV5State` checks and
+installs the active cancellation flag atomically under one mutex, so only one
+schema-v5 batch apply command can run at a time. A second invocation is
+rejected as busy before its worker starts, which means it performs no draft
+load, started or progress event, metadata write, or draft save. Cancellation
+therefore always addresses the sole active v5 apply. Normal completion, worker
+failure, and worker join failure clear the state with ownership checking so a
+later invocation can acquire it. This state remains independent from the
+production v4 apply state.
+
 Cancellation is checked only between files. A hard failure with no outcomes
 leaves drafts unchanged; complete structured outcomes are reconciled even when
 semantic verification reports an error. Unchanged reconciliation is not saved,
@@ -472,3 +482,7 @@ compatibility projection. `persisted_draft_entries` distinguishes no persisted
 change (`null`), removal (`[]`), and retained/replaced entries. The command uses
 isolated cancellation and versioned events, has no target-aware apply logging,
 and switches no production state or event; production remains schema v4.
+
+There is still no frontend caller, and the normal application continues to use
+schema v4. Coordination with the independent v5 load/save commands and the
+future frontend autosave policy remains production-activation work.

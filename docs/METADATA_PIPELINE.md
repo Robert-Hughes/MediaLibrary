@@ -364,6 +364,15 @@ v4, and unreadable draft files are errors rather than empty maps. Duplicate
 requested paths reject before any event, write, or save, while absent and empty
 paths are skipped without changing requested order.
 
+Only one v5 batch apply command may be active. Acquisition checks and installs
+the cancellation flag atomically under the v5 state mutex; a concurrent second
+invocation returns a descriptive busy error before worker creation, loading,
+started or progress events, metadata writes, or draft saves. Cancellation thus
+signals the sole active v5 operation. Completion, a returned worker error, and
+a worker join failure all release the state with an ownership-aware clear, so
+the next invocation can acquire it. The v5 state is isolated from production
+`ApplyEditsState` and does not change v4 command behavior.
+
 Cancellation occurs only between files. A single-file hard failure with no
 outcomes leaves drafts unchanged. Non-empty structured reconciliation is still
 applied when semantic verification reports an error. Semantically unchanged
@@ -374,3 +383,8 @@ target outcomes, full authoritative occurrences, compatibility metadata, and
 `persisted_draft_entries` as null/empty/non-empty for unchanged/removed/retained
 state. V5 cancellation and events are isolated from v4. Target-aware logging is
 still pending, and production persistence, apply, events, and UI remain v4.
+
+There is no frontend v5 caller or listener. Coordination between apply and the
+independent v5 load/save commands, together with a future frontend autosave
+policy, remains required before production activation; the application still
+uses schema v4.

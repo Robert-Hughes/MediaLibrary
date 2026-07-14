@@ -916,22 +916,17 @@ async fn apply_metadata_draft_edits_v5_cmd(
     app: AppHandle,
     apply_state: State<'_, apply_batch_v5::ApplyEditsV5State>,
 ) -> Result<apply_batch_v5::MetadataApplyEditsResultV5, String> {
-    let cancel_flag = apply_state.install();
-    let cancel_flag_for_worker = cancel_flag.clone();
-    let join = tauri::async_runtime::spawn_blocking(move || {
-        apply_batch_v5::run_apply_metadata_draft_edits_v5_blocking(
-            folder_path,
-            rel_paths,
-            app,
-            cancel_flag_for_worker,
-        )
-    });
-    let result = match join.await {
-        Ok(result) => result,
-        Err(error) => Err(format!("Schema-v5 apply edits worker failed: {error}")),
-    };
-    apply_state.clear_if_mine(&cancel_flag);
-    result
+    apply_batch_v5::run_apply_edits_v5_command(&apply_state, move |cancel_flag| {
+        tauri::async_runtime::spawn_blocking(move || {
+            apply_batch_v5::run_apply_metadata_draft_edits_v5_blocking(
+                folder_path,
+                rel_paths,
+                app,
+                cancel_flag,
+            )
+        })
+    })
+    .await
 }
 
 fn run_apply_metadata_draft_edits_blocking(
