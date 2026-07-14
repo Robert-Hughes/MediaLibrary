@@ -1,0 +1,211 @@
+// @vitest-environment node
+import { describe, expect, it, vi } from "vitest";
+import type { MetadataDraftTarget, MetadataTargetOutcome } from "../types";
+import { targetDraftsFromWire } from "../targetDraftEdits";
+import {
+  emptyTargetVerifyOutcomesV5,
+  replaceTargetVerifyOutcomesForFile,
+  targetVerifyOutcomeFromBackend,
+  validateTargetVerifyOutcomesAgainstDrafts,
+} from "../targetVerifyOutcomes";
+import { TargetVerifyOutcomesStoreV5 } from "../targetVerifyOutcomesStore";
+import { metadataDraftTargetSlotToken } from "../utils/metadataDraftTarget";
+
+const schema = (index?: number) => ({
+  table: "Xmp::Main",
+  tag_id: "dc:subject",
+  ...(index === undefined ? {} : { index }),
+});
+
+const existing = (
+  copy = 0,
+  selector = `Subject-${copy}`,
+): MetadataDraftTarget => ({
+  kind: "ExistingOccurrence",
+  occurrence_id: {
+    document: null,
+    path: "JPEG-APP1-XMP",
+    tag_id: "dc:subject",
+    copy,
+  },
+  schema_id: schema(),
+  write_target: { group1: "XMP-dc", tag_name: selector },
+});
+
+const newProperty = (index?: number): MetadataDraftTarget => ({
+  kind: "NewProperty",
+  schema_id: schema(index),
+});
+
+const backend = (
+  reconciliation: MetadataTargetOutcome["draft_reconciliation"],
+  target: MetadataDraftTarget = existing(),
+): MetadataTargetOutcome => ({
+  target,
+  draft_reconciliation: reconciliation,
+  display_name: "Subject",
+  kind: "Mismatch",
+  sent: { kind: "Integer", value: 1 },
+  before: { kind: "Integer", value: 0 },
+  observed: { kind: "Real", value: 1 },
+  message: "different wire value",
+});
+
+const draft = (target: MetadataDraftTarget) => ({
+  target,
+  edit: {
+    intent: "Set" as const,
+    value: { kind: "Text" as const, value: "draft" },
+  },
+});
+
+describe("target-aware verification model", () => {
+  it("maps Clear, Keep, Replace, and Blocked structurally", () => {
+    expect(
+      targetVerifyOutcomeFromBackend("a.jpg", backend({ kind: "Clear" })),
+    ).toBeNull();
+
+    const keepTarget = existing(1, "KeepSelector");
+    const keep = targetVerifyOutcomeFromBackend(
+      "a.jpg",
+      backend({ kind: "Keep" }, keepTarget),
+    )!;
+    expect(keep.currentTarget).toEqual(keepTarget);
+    expect(keep.originalTarget).toEqual(keepTarget);
+
+    const replacement = existing(2, "RuntimeReplacement");
+    const replace = targetVerifyOutcomeFromBackend(
+      "a.jpg",
+      backend({ kind: "Replace", target: replacement }, newProperty()),
+    )!;
+    expect(replace.originalTarget.kind).toBe("NewProperty");
+    expect(replace.currentTarget).toEqual(replacement);
+    expect(replace.currentTarget).toMatchObject({
+      occurrence_id: { copy: 2 },
+      schema_id: schema(),
+      write_target: { group1: "XMP-dc", tag_name: "RuntimeReplacement" },
+    });
+
+    const blocked = targetVerifyOutcomeFromBackend(
+      "a.jpg",
+      backend({ kind: "Blocked", reason: "stale occurrence" }, keepTarget),
+    )!;
+    expect(blocked.currentTarget).toEqual(keepTarget);
+    expect(blocked.reconciliation).toEqual({
+      kind: "Blocked",
+      reason: "stale occurrence",
+    });
+  });
+
+  it("keeps same-schema siblings and absent/zero indices distinct", () => {
+    expect(metadataDraftTargetSlotToken(existing(0))).not.toBe(
+      metadataDraftTargetSlotToken(existing(1)),
+    );
+    expect(metadataDraftTargetSlotToken(newProperty())).not.toBe(
+      metadataDraftTargetSlotToken(newProperty(0)),
+    );
+  });
+
+  it.each([
+    "__proto__",
+    "constructor",
+    "prototype",
+    "toString",
+    "hasOwnProperty",
+  ])("treats reserved path %s as ordinary data", (path) => {
+    const entry = targetVerifyOutcomeFromBackend(
+      path,
+      backend({ kind: "Keep" }),
+    )!;
+    const snapshot = replaceTargetVerifyOutcomesForFile(
+      emptyTargetVerifyOutcomesV5(),
+      path,
+      [entry],
+    );
+    expect(Object.keys(snapshot)).toEqual([path]);
+    expect(Object.values(snapshot[path])).toEqual([entry]);
+  });
+
+  it("validates the exact complete persisted current target", () => {
+    const replacement = existing(3, "ExactRuntimeSelector");
+    const entry = targetVerifyOutcomeFromBackend(
+      "a.jpg",
+      backend({ kind: "Replace", target: replacement }, newProperty()),
+    )!;
+    const drafts = targetDraftsFromWire({ "a.jpg": [draft(replacement)] });
+    expect(() =>
+      validateTargetVerifyOutcomesAgainstDrafts("a.jpg", [entry], drafts),
+    ).not.toThrow();
+    expect(() =>
+      validateTargetVerifyOutcomesAgainstDrafts("a.jpg", [entry], {}),
+    ).toThrow(/slot is absent/);
+    const changed = existing(3, "ChangedSelector");
+    expect(() =>
+      validateTargetVerifyOutcomesAgainstDrafts(
+        "a.jpg",
+        [entry],
+        targetDraftsFromWire({ "a.jpg": [draft(changed)] }),
+      ),
+    ).toThrow(/snapshot changed/);
+  });
+});
+
+describe("target verification store", () => {
+  it("preserves exact-repeat references and notifies once per mutation", () => {
+    const store = new TargetVerifyOutcomesStoreV5();
+    const listener = vi.fn();
+    store.subscribe(listener);
+    const entry = targetVerifyOutcomeFromBackend(
+      "a.jpg",
+      backend({ kind: "Keep" }),
+    )!;
+    expect(store.replaceFile("a.jpg", [entry])).toBe(true);
+    const first = store.getAll();
+    expect(store.replaceFile("a.jpg", [structuredClone(entry)])).toBe(false);
+    expect(store.getAll()).toBe(first);
+    expect(listener).toHaveBeenCalledOnce();
+
+    const changed = { ...entry, message: "changed" };
+    expect(store.replaceFile("a.jpg", [changed])).toBe(true);
+    expect(store.getAll()).not.toBe(first);
+    expect(listener).toHaveBeenCalledTimes(2);
+  });
+
+  it("defensively clones and freezes nested targets and values", () => {
+    const store = new TargetVerifyOutcomesStoreV5();
+    const entry = targetVerifyOutcomeFromBackend(
+      "a.jpg",
+      backend({ kind: "Keep" }),
+    )!;
+    const mutable = structuredClone(entry);
+    store.replaceFile("a.jpg", [mutable]);
+    mutable.displayName = "mutated caller";
+    if (mutable.currentTarget.kind === "ExistingOccurrence") {
+      mutable.currentTarget.write_target.tag_name = "mutated caller";
+    }
+    const stored = Object.values(store.getFile("a.jpg")!)[0];
+    expect(stored.displayName).toBe("Subject");
+    expect(Object.isFrozen(stored.currentTarget)).toBe(true);
+    expect(Object.isFrozen(stored.sent)).toBe(true);
+  });
+
+  it("deletes exact outcomes and prunes only missing or changed targets", () => {
+    const store = new TargetVerifyOutcomesStoreV5();
+    const first = targetVerifyOutcomeFromBackend(
+      "a.jpg",
+      backend({ kind: "Keep" }, existing(0)),
+    )!;
+    const sibling = targetVerifyOutcomeFromBackend(
+      "a.jpg",
+      backend({ kind: "Keep" }, existing(1)),
+    )!;
+    store.replaceFile("a.jpg", [first, sibling]);
+    store.pruneAgainstDrafts(
+      targetDraftsFromWire({ "a.jpg": [draft(existing(1))] }),
+    );
+    expect(Object.values(store.getFile("a.jpg")!)).toEqual([sibling]);
+    expect(store.deleteOutcome("a.jpg", existing(1))).toBe(true);
+    expect(store.getFile("a.jpg")).toBeUndefined();
+    expect(store.clear()).toBe(false);
+  });
+});

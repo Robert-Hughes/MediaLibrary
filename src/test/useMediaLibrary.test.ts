@@ -11,6 +11,8 @@ import type {
   SchemaDefinitionId,
 } from "../types";
 import { sortPhotos } from "../utils/sorting";
+import { targetVerifyOutcomeFromBackend } from "../targetVerifyOutcomes";
+import { metadataDraftTargetSlotToken } from "../utils/metadataDraftTarget";
 
 function targetV5Result(
   path: string,
@@ -1656,6 +1658,196 @@ describe("useMediaLibrary", () => {
     ).toHaveLength(1);
   });
 
+  it("target verification actions use the exact replacement slot and v5 persistence only", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/photos");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => result.current[1].openFolder());
+    act(() => mock.emitScanComplete());
+    const state = result.current[0];
+    if (state.kind !== "loaded") return;
+    const targetDraftStore = state.targetDraftEditsStore;
+    const targetVerificationStore = state.targetVerifyOutcomesStore;
+
+    const id = testId("XMP-dc:Subject");
+    const replacement = {
+      kind: "ExistingOccurrence" as const,
+      occurrence_id: {
+        document: null,
+        path: "JPEG-APP1-XMP",
+        tag_id: id.tag_id,
+        copy: 0,
+      },
+      schema_id: id,
+      write_target: { group1: "XMP-dc", tag_name: "SubjectPrimary" },
+    };
+    const sibling = {
+      ...structuredClone(replacement),
+      occurrence_id: { ...replacement.occurrence_id, copy: 1 },
+      write_target: { group1: "XMP-dc", tag_name: "SubjectSibling" },
+    };
+    const edit = {
+      intent: "Set" as const,
+      value: { kind: "Text" as const, value: "pending" },
+    };
+    act(() => {
+      targetDraftStore.setMetadataTarget("replace.jpg", replacement, edit);
+      targetDraftStore.setMetadataTarget("replace.jpg", sibling, edit);
+    });
+    const entry = targetVerifyOutcomeFromBackend("replace.jpg", {
+      target: { kind: "NewProperty", schema_id: id },
+      draft_reconciliation: { kind: "Replace", target: replacement },
+      display_name: "Subject",
+      kind: "Mismatch",
+      sent: { kind: "Text", value: "pending" },
+      before: null,
+      observed: { kind: "Text", value: "on disk" },
+      message: "coerced",
+    })!;
+    act(() => targetVerificationStore.replaceFile("replace.jpg", [entry]));
+    mock.invocations.length = 0;
+
+    act(() =>
+      result.current[1].acceptTargetVerifyOutcome("replace.jpg", replacement),
+    );
+    let current = result.current[0];
+    if (current.kind !== "loaded") return;
+    expect(
+      current.targetDraftEdits["replace.jpg"][
+        metadataDraftTargetSlotToken(replacement)
+      ],
+    ).toBeUndefined();
+    expect(
+      current.targetDraftEdits["replace.jpg"][
+        metadataDraftTargetSlotToken(sibling)
+      ],
+    ).toBeDefined();
+    expect(current.targetVerifyOutcomes["replace.jpg"]).toBeUndefined();
+    expect(
+      mock.invocations.filter(
+        ({ cmd }) => cmd === "save_metadata_draft_edits_v5",
+      ),
+    ).toHaveLength(1);
+    expect(
+      mock.invocations.filter(({ cmd }) => cmd === "save_metadata_draft_edits"),
+    ).toHaveLength(0);
+
+    act(() => {
+      targetDraftStore.setMetadataTarget("replace.jpg", replacement, edit);
+      targetVerificationStore.replaceFile("replace.jpg", [entry]);
+    });
+    mock.invocations.length = 0;
+    act(() =>
+      result.current[1].keepTargetDraftAndDismissOutcome(
+        "replace.jpg",
+        replacement,
+      ),
+    );
+    current = result.current[0];
+    if (current.kind !== "loaded") return;
+    expect(
+      current.targetDraftEdits["replace.jpg"][
+        metadataDraftTargetSlotToken(replacement)
+      ],
+    ).toBeDefined();
+    expect(current.targetVerifyOutcomes["replace.jpg"]).toBeUndefined();
+    expect(mock.invocations).toHaveLength(0);
+
+    act(() => targetVerificationStore.replaceFile("replace.jpg", [entry]));
+    act(() =>
+      result.current[1].discardTargetDraftAndOutcome(
+        "replace.jpg",
+        replacement,
+      ),
+    );
+    expect(
+      mock.invocations.filter(
+        ({ cmd }) => cmd === "save_metadata_draft_edits_v5",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("production v5 apply installs authoritative replacement verification and surfaces diagnostics once", async () => {
+    const mock = createMockTauriApi();
+    const path = "add-property.jpg";
+    const id = testId("XMP-dc:Subject");
+    const original = { kind: "NewProperty" as const, schema_id: id };
+    const replacement = {
+      kind: "ExistingOccurrence" as const,
+      occurrence_id: {
+        document: null,
+        path: "JPEG-APP1-XMP",
+        tag_id: id.tag_id,
+        copy: 2,
+      },
+      schema_id: id,
+      write_target: { group1: "XMP-dc", tag_name: "SubjectRuntime" },
+    };
+    const store = new TargetDraftEditsStore();
+    store.setMetadataTarget(path, original, {
+      intent: "Set",
+      value: { kind: "Text", value: "requested" },
+    });
+    mock.targetDraftEditsByFolder["/photos"] = store.getAllMetadata();
+    const fileResult: MetadataApplyFileResultV5 = {
+      relative_path: path,
+      applied: false,
+      error: "semantic write failure",
+      warning: "file metadata was partially refreshed",
+      fresh_image_metadata: null,
+      target_outcomes: [
+        {
+          target: original,
+          draft_reconciliation: { kind: "Replace", target: replacement },
+          display_name: "Subject",
+          kind: "Mismatch",
+          sent: { kind: "Text", value: "requested" },
+          before: null,
+          observed: { kind: "Text", value: "observed" },
+          message: "verification mismatch",
+        },
+      ],
+      persisted_draft_entries: [
+        {
+          target: replacement,
+          edit: {
+            intent: "Set",
+            value: { kind: "Text", value: "requested" },
+          },
+        },
+      ],
+    };
+    mock.targetApplyProgressResultsByPath[path] = fileResult;
+    mock.targetApplyFinalResultsByPath[path] = structuredClone(fileResult);
+    mock.pickFolderResolves("/photos");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => result.current[1].openFolder());
+    act(() => mock.emitScanComplete());
+    await act(async () => result.current[1].applyDraftEdits(path));
+
+    const state = result.current[0];
+    if (state.kind !== "loaded") return;
+    const verification = Object.values(state.targetVerifyOutcomes[path])[0];
+    expect(verification.originalTarget).toEqual(original);
+    expect(verification.currentTarget).toEqual(replacement);
+    expect(Object.values(state.targetDraftEdits[path])[0].target).toEqual(
+      replacement,
+    );
+    expect(
+      state.workerErrors.filter(
+        ({ worker_type }) => worker_type === "metadata-v5-file",
+      ),
+    ).toHaveLength(1);
+    expect(
+      state.workerErrors.filter(
+        ({ worker_type }) => worker_type === "metadata-v5-warning",
+      ),
+    ).toHaveLength(1);
+    expect(
+      state.workerErrors[state.workerErrors.length - 1]?.affected_files,
+    ).toEqual([path]);
+  });
+
   it("blocks every target mutation and v5 apply after strict-load failure while v4 remains usable", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/broken");
@@ -1722,6 +1914,54 @@ describe("useMediaLibrary", () => {
     if (state.kind !== "loaded") return;
     expect(state.targetDraftEdits).toBe(targetSnapshot);
     expect(state.targetDraftEdits).toEqual({});
+    const loadFailedTargetDraftStore = state.targetDraftEditsStore;
+    const loadFailedTargetVerificationStore = state.targetVerifyOutcomesStore;
+    expect(
+      mock.invocations.filter(
+        ({ cmd }) => cmd === "save_metadata_draft_edits_v5",
+      ),
+    ).toHaveLength(0);
+
+    act(() =>
+      loadFailedTargetDraftStore.setMetadataTarget(
+        "blocked.jpg",
+        existingTarget,
+        edit,
+      ),
+    );
+    const blockedVerification = targetVerifyOutcomeFromBackend("blocked.jpg", {
+      target: existingTarget,
+      draft_reconciliation: { kind: "Blocked", reason: "stale" },
+      display_name: "Subject",
+      kind: "Blocked",
+      sent: null,
+      before: null,
+      observed: null,
+      message: null,
+    })!;
+    act(() =>
+      loadFailedTargetVerificationStore.replaceFile("blocked.jpg", [
+        blockedVerification,
+      ]),
+    );
+    act(() => {
+      result.current[1].acceptTargetVerifyOutcome(
+        "blocked.jpg",
+        existingTarget,
+      );
+      result.current[1].keepTargetDraftAndDismissOutcome(
+        "blocked.jpg",
+        existingTarget,
+      );
+      result.current[1].discardTargetDraftAndOutcome(
+        "blocked.jpg",
+        existingTarget,
+      );
+    });
+    state = result.current[0];
+    if (state.kind !== "loaded") return;
+    expect(state.targetDraftEdits["blocked.jpg"]).toBeDefined();
+    expect(state.targetVerifyOutcomes["blocked.jpg"]).toBeDefined();
     expect(
       mock.invocations.filter(
         ({ cmd }) => cmd === "save_metadata_draft_edits_v5",
@@ -1729,7 +1969,9 @@ describe("useMediaLibrary", () => {
     ).toHaveLength(0);
 
     await act(async () => {
-      await result.current[1].applyDraftEdits("blocked.jpg");
+      await expect(
+        result.current[1].applyDraftEdits("blocked.jpg"),
+      ).rejects.toThrow(/could not be loaded safely/);
     });
     expect(
       mock.invocations.filter(

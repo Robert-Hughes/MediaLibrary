@@ -20,6 +20,12 @@ import {
 } from "./utils/imageMetadataEquality";
 import { recordFromEntries } from "./utils/stringRecord";
 import {
+  targetVerifyOutcomesFromBackend,
+  validateTargetVerifyOutcomesAgainstDrafts,
+  type TargetVerifyOutcomeV5,
+} from "./targetVerifyOutcomes";
+import type { TargetVerifyOutcomesStoreV5 } from "./targetVerifyOutcomesStore";
+import {
   targetApplyFileResultFromUnknown,
   targetApplyResultFromUnknown,
 } from "./utils/targetApplyWire";
@@ -28,6 +34,7 @@ export interface TargetApplyResultStores {
   drafts: TargetDraftEditsStore;
   occurrences: ImageMetadataOccurrencesStore;
   compatibility: ImageMetadataStore;
+  verification: TargetVerifyOutcomesStoreV5;
 }
 
 export interface TargetApplyFileApplicationV5 {
@@ -36,6 +43,9 @@ export interface TargetApplyFileApplicationV5 {
   occurrencesChanged: boolean;
   compatibilityChanged: boolean;
   targetOutcomes: MetadataTargetOutcome[];
+  targetVerifyOutcomes: TargetVerifyOutcomeV5[];
+  error: string | null;
+  warning: string | null;
 }
 
 export interface TargetApplyResultApplicationV5 {
@@ -52,6 +62,8 @@ export interface PreparedTargetApplyFileResultV5 {
   readonly occurrences: MetadataOccurrences | null;
   readonly compatibility: MetadataCollection | null;
   readonly targetOutcomes: MetadataTargetOutcome[];
+  readonly error: string | null;
+  readonly warning: string | null;
 }
 
 function prepareValidatedTargetApplyFileResultV5(
@@ -77,6 +89,8 @@ function prepareValidatedTargetApplyFileResultV5(
       occurrences: null,
       compatibility: null,
       targetOutcomes,
+      error: parsed.error,
+      warning: parsed.warning,
     };
   }
 
@@ -88,6 +102,8 @@ function prepareValidatedTargetApplyFileResultV5(
     occurrences: fresh.occurrences,
     compatibility: metadataCollection(fresh.metadata),
     targetOutcomes,
+    error: parsed.error,
+    warning: parsed.warning,
   };
 }
 
@@ -110,6 +126,22 @@ export function applyPreparedTargetApplyFileResultV5(
           prepared.relativePath,
           prepared.persistedDraftEntries,
         );
+
+  const targetOutcomes = targetVerifyOutcomesFromBackend(
+    prepared.relativePath,
+    prepared.targetOutcomes,
+  );
+  try {
+    validateTargetVerifyOutcomesAgainstDrafts(
+      prepared.relativePath,
+      targetOutcomes,
+      stores.drafts.getAllMetadata(),
+    );
+  } catch (error) {
+    stores.verification.deletePath(prepared.relativePath);
+    throw error;
+  }
+  stores.verification.replaceFile(prepared.relativePath, targetOutcomes);
 
   let occurrencesChanged = false;
   let compatibilityChanged = false;
@@ -142,6 +174,9 @@ export function applyPreparedTargetApplyFileResultV5(
     occurrencesChanged,
     compatibilityChanged,
     targetOutcomes: structuredClone(prepared.targetOutcomes),
+    targetVerifyOutcomes: targetOutcomes,
+    error: prepared.error,
+    warning: prepared.warning,
   };
 }
 

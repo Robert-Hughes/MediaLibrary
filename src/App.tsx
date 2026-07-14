@@ -23,6 +23,7 @@ import { StatusBar } from "./components/StatusBar";
 import { ColumnSelectionDialog } from "./components/ColumnSelectionDialog";
 import { ApplyProgressDialog } from "./components/ApplyProgressDialog";
 import { VerifyOutcomeDialog } from "./components/VerifyOutcomeDialog";
+import { TargetVerifyOutcomeDialog } from "./components/TargetVerifyOutcomeDialog";
 import { ModalDialog } from "./components/ModalDialog";
 import { ErrorBanner } from "./components/ErrorBanner";
 import { ErrorBoundary } from "./components/ErrorBoundary";
@@ -49,6 +50,7 @@ import {
 import { sortPhotos, shouldSuspendSorting } from "./utils/sorting";
 import { listSearchQueryIsActive } from "./utils/listSearchText";
 import { computeEffectiveMetadataKeyFrequency } from "./utils/metadataKeyFrequency";
+import { verificationDialogToShow } from "./utils/verificationDialogPolicy";
 import { useSearchWorker, createSearchWorker } from "./hooks/useSearchWorker";
 import "./App.css";
 
@@ -242,6 +244,16 @@ function LoadedView({
     }
     return counts;
   }, [state.draftEdits, state.targetDraftEdits]);
+
+  const targetVerifyOutcomeCount = Object.values(
+    state.targetVerifyOutcomes,
+  ).reduce((count, entries) => count + Object.keys(entries).length, 0);
+  const verificationDialog = state.applying
+    ? null
+    : verificationDialogToShow(
+        targetVerifyOutcomeCount,
+        Object.keys(state.verifyOutcomes).length,
+      );
 
   const draftEditsSummary = useMemo(() => {
     const entries = Object.values(draftCounts).filter((count) => count > 0);
@@ -464,16 +476,24 @@ function LoadedView({
           onCancel={actions.cancelApplyEdits}
         />
       )}
-      {!state.applying &&
-        Object.keys(state.verifyOutcomes ?? {}).length > 0 && (
-          <VerifyOutcomeDialog
-            outcomes={state.verifyOutcomes}
-            onAccept={actions.acceptVerifyOutcome}
-            onRevert={actions.revertVerifyOutcome}
-            onDismiss={actions.dismissVerifyOutcome}
-            onDismissAll={actions.dismissAllVerifyOutcomes}
-          />
-        )}
+      {verificationDialog === "target" && (
+        <TargetVerifyOutcomeDialog
+          outcomes={state.targetVerifyOutcomes}
+          onAccept={actions.acceptTargetVerifyOutcome}
+          onKeep={actions.keepTargetDraftAndDismissOutcome}
+          onDiscard={actions.discardTargetDraftAndOutcome}
+          onDismissAll={actions.dismissAllTargetVerifyOutcomes}
+        />
+      )}
+      {verificationDialog === "legacy" && (
+        <VerifyOutcomeDialog
+          outcomes={state.verifyOutcomes}
+          onAccept={actions.acceptVerifyOutcome}
+          onRevert={actions.revertVerifyOutcome}
+          onDismiss={actions.dismissVerifyOutcome}
+          onDismissAll={actions.dismissAllVerifyOutcomes}
+        />
+      )}
       <StatusBar
         photoCount={displayPhotos.length}
         photoCountTotal={listSearchActive ? sortedPhotos.length : undefined}

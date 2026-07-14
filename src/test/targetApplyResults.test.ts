@@ -17,6 +17,7 @@ import {
   type TargetApplyResultStores,
 } from "../targetApplyResults";
 import { TargetDraftEditsStore } from "../targetDraftEdits";
+import { TargetVerifyOutcomesStoreV5 } from "../targetVerifyOutcomesStore";
 
 const path = "photo.jpg";
 const schema = (table = "Exif::Main") => ({ table, tag_id: "282" });
@@ -93,6 +94,7 @@ const stores = (): TargetApplyResultStores => ({
   drafts: new TargetDraftEditsStore(),
   occurrences: new ImageMetadataOccurrencesStore(),
   compatibility: new ImageMetadataStore(),
+  verification: new TargetVerifyOutcomesStoreV5(),
 });
 
 describe("inactive target apply file results", () => {
@@ -120,7 +122,11 @@ describe("inactive target apply file results", () => {
 
     expect(
       applyTargetApplyFileResultV5(
-        file({ persisted_draft_entries: [], fresh_image_metadata: null }),
+        file({
+          persisted_draft_entries: [],
+          fresh_image_metadata: null,
+          target_outcomes: [],
+        }),
         state,
       ).draftsChanged,
     ).toBe(true);
@@ -148,7 +154,7 @@ describe("inactive target apply file results", () => {
     );
   });
 
-  it("does not implement reconciliation or gate on outcome kinds", () => {
+  it("uses reconciliation only for target verification", () => {
     const state = stores();
     state.drafts.replaceMetadataFile(path, [draft()]);
     const clear = outcome();
@@ -163,7 +169,7 @@ describe("inactive target apply file results", () => {
     );
     expect(state.drafts.getMetadataFile(path)).toBeDefined();
 
-    const replacement = draft(3, 5);
+    const replacement = { ...draft(3, 5), target: target("IFD1") };
     const replace = outcome();
     replace.target = { kind: "NewProperty", schema_id: schema() };
     replace.draft_reconciliation = { kind: "Replace", target: target("IFD1") };
@@ -312,11 +318,13 @@ describe("target apply exact idempotency and notifications", () => {
     const occurrenceListener = vi.fn();
     state.occurrences.subscribe(path, occurrenceListener);
     applyTargetApplyFileResultV5(
-      file({ persisted_draft_entries: null }),
+      file({ persisted_draft_entries: null, target_outcomes: [] }),
       state,
     );
     expect(occurrenceListener).toHaveBeenCalledOnce();
-    const reordered = structuredClone(file({ persisted_draft_entries: null }));
+    const reordered = structuredClone(
+      file({ persisted_draft_entries: null, target_outcomes: [] }),
+    );
     reordered.fresh_image_metadata!.occurrences[0].value = Object.fromEntries([
       ["value", { denominator: 2, numerator: 1 }],
       ["kind", "Rational"],
@@ -414,5 +422,93 @@ describe("complete target apply batches", () => {
     expect(() =>
       prepareTargetApplyFileResultV5({ ...source, applied: false }),
     ).toThrow();
+  });
+});
+
+describe("target verification result integration", () => {
+  it("authoritatively installs, clears, and replaces per-file outcomes", () => {
+    const state = stores();
+    const listener = vi.fn();
+    state.verification.subscribe(listener);
+    applyTargetApplyFileResultV5(file(), state);
+    expect(Object.values(state.verification.getFile(path)!)).toHaveLength(1);
+    const progressSnapshot = state.verification.getAll();
+
+    applyTargetApplyResultV5(batch([file()]), state);
+    expect(state.verification.getAll()).toBe(progressSnapshot);
+    expect(listener).toHaveBeenCalledOnce();
+
+    const different = outcome();
+    different.message = "authoritative final difference";
+    applyTargetApplyResultV5(
+      batch([file({ target_outcomes: [different] })]),
+      state,
+    );
+    expect(Object.values(state.verification.getFile(path)!)[0].message).toBe(
+      "authoritative final difference",
+    );
+
+    applyTargetApplyFileResultV5(
+      file({ target_outcomes: [], persisted_draft_entries: [draft()] }),
+      state,
+    );
+    expect(state.verification.getFile(path)).toBeUndefined();
+  });
+
+  it("Clear removes an earlier outcome and final-only results install one", () => {
+    const state = stores();
+    applyTargetApplyFileResultV5(file(), state);
+    const clear = outcome();
+    clear.draft_reconciliation = { kind: "Clear" };
+    applyTargetApplyFileResultV5(
+      file({ target_outcomes: [clear], persisted_draft_entries: [] }),
+      state,
+    );
+    expect(state.verification.getFile(path)).toBeUndefined();
+
+    applyTargetApplyResultV5(batch([file()]), state);
+    expect(Object.values(state.verification.getFile(path)!)).toHaveLength(1);
+  });
+
+  it("validates replacement against the persisted replacement target", () => {
+    const state = stores();
+    const replacement = target("IFD1");
+    const replace = outcome();
+    replace.target = { kind: "NewProperty", schema_id: schema() };
+    replace.draft_reconciliation = { kind: "Replace", target: replacement };
+    const replacementDraft = { ...draft(), target: replacement };
+    applyTargetApplyFileResultV5(
+      file({
+        target_outcomes: [replace],
+        persisted_draft_entries: [replacementDraft],
+      }),
+      state,
+    );
+    expect(Object.values(state.verification.getFile(path)!)[0]).toMatchObject({
+      originalTarget: { kind: "NewProperty" },
+      currentTarget: replacement,
+    });
+
+    expect(() =>
+      applyTargetApplyFileResultV5(
+        file({
+          target_outcomes: [replace],
+          persisted_draft_entries: [],
+        }),
+        state,
+      ),
+    ).toThrow(/contract error/);
+    expect(state.verification.getFile(path)).toBeUndefined();
+
+    expect(() =>
+      applyTargetApplyFileResultV5(
+        file({
+          target_outcomes: [replace],
+          persisted_draft_entries: [{ ...draft(), target: target("Changed") }],
+        }),
+        state,
+      ),
+    ).toThrow(/snapshot changed/);
+    expect(state.verification.getFile(path)).toBeUndefined();
   });
 });

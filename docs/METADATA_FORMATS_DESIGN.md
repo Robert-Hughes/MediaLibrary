@@ -770,8 +770,9 @@ failure cannot strand either lifecycle resource or mask an earlier command or
 final-application failure.
 
 `useMediaLibrary` owns the single controller instance, target-aware `AppState`,
-and v5 autosave subscriber used by Add New Property. Other editing operations
-and verification remain schema v4 during the controlled bridge.
+and v5 autosave subscriber used by Add New Property. Add Property verification
+is target-aware and separate; other editing operations and their verification
+remain schema v4 during the controlled bridge.
 
 - **MetadataValue** — Discriminated semantic value model used inside the app for read metadata, draft edits, writes, verification, and apply logs.
 - **SchemaDefinitionId** — Exact ExifTool definition identity: `{table, tag_id, index?}` from `-listx`. It remains the key for current schema-keyed v4 drafts and their production paths. It is distinct from runtime occurrence identity and exact write targeting. `Group1:Name` is display/search text only.
@@ -824,8 +825,21 @@ its fresh compatibility projection. Consequently, mixed same-file v5-then-v4
 apply ends with unavailable occurrences, never stale pre-v4 occurrences; a
 later scan or v5 full result may repopulate them.
 
+Target verification never changes either wire format. Its in-memory identity is
+relative path plus the logical slot token of the complete current target.
+`Clear` creates no entry; `Keep`, `Replace`, and `Blocked` remain actionable.
+For `Replace`, the persisted replacement occurrence is the only actionable
+target, including its runtime selector. Every entry is validated against the
+authoritative persisted v5 draft snapshot before insertion. Progress is
+supplemental and final per-file results authoritatively replace it.
+
+Accepting the file state or discarding removes the exact target draft and is
+persisted only through `MediaLibraryTargetDraftEdits.jsonl`; keeping the draft
+dismisses only the diagnostic. Target verification itself is never persisted
+and is not mixed with schema-v4 verification. The target dialog has modal
+precedence until empty.
+
 This format boundary is deliberately temporary. Existing-row, GPS, bulk,
 AI-description, geocode, normalise, and other batch edits still use schema-v4;
 there is no automatic conversion and no general schema projection that could
-collapse occurrence targets. Target-aware verification and migration of those
-remaining producers are pending.
+collapse occurrence targets. Migration of those remaining producers is pending.

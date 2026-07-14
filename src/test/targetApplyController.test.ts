@@ -14,6 +14,7 @@ import {
 } from "../targetApplyController";
 import type { TargetApplyResultStores } from "../targetApplyResults";
 import type { TargetApplyTauriApi } from "../targetApplyTauri";
+import { TargetVerifyOutcomesStoreV5 } from "../targetVerifyOutcomesStore";
 import {
   TargetDraftAutosaveAlreadySuspendedError,
   TargetDraftAutosaveGateV5,
@@ -143,6 +144,7 @@ function makeStores(): TargetApplyResultStores {
     drafts: new TargetDraftEditsStore(),
     occurrences: new ImageMetadataOccurrencesStore(),
     compatibility: new ImageMetadataStore(),
+    verification: new TargetVerifyOutcomesStoreV5(),
   };
 }
 
@@ -374,6 +376,38 @@ describe("inactive TargetApplyControllerV5 lifecycle", () => {
 });
 
 describe("inactive TargetApplyControllerV5 errors", () => {
+  it("counts semantic file failures and deduplicates exact file diagnostics per run", async () => {
+    const onFileError = vi.fn();
+    const onFileWarning = vi.fn();
+    const { api, controller } = harness({ onFileError, onFileWarning });
+    const command = deferred<unknown>();
+    api.apply = () => command.promise;
+    const run = controller.run("folder", [path]);
+    await waitForApply(api);
+    const failed = fileResult({
+      applied: false,
+      error: "write failed",
+      warning: "partial metadata remained",
+    });
+    const payload = { current: 1, total: 1, result: failed };
+    api.emit(PROGRESS_EVENT, payload);
+    api.emit(PROGRESS_EVENT, payload);
+    expect(controller.getState()).toMatchObject({
+      fileFailureCount: 1,
+      protocolErrorCount: 0,
+      progressApplicationErrorCount: 0,
+    });
+    command.resolve(batchResult([failed]));
+    await run;
+    expect(onFileError).toHaveBeenCalledOnce();
+    expect(onFileError).toHaveBeenCalledWith(path, "write failed");
+    expect(onFileWarning).toHaveBeenCalledOnce();
+    expect(onFileWarning).toHaveBeenCalledWith(
+      path,
+      "partial metadata remained",
+    );
+  });
+
   it("does not invoke after atomic listener registration fails and releases all lifecycle state", async () => {
     const { api, controller, gate } = harness();
     api.failListenEvent = PROGRESS_EVENT;

@@ -53,6 +53,11 @@ import {
 import type { MetadataDraftTarget } from "./types";
 import { schemaDefinitionIdToken } from "./utils/schemaDefinitionId";
 import { resolveTargetDraftByExactSchema } from "./targetDraftView";
+import { TargetVerifyOutcomesStoreV5 } from "./targetVerifyOutcomesStore";
+import {
+  metadataDraftTargetEquals,
+  metadataDraftTargetSlotToken,
+} from "./utils/metadataDraftTarget";
 
 const TARGET_DRAFT_LOAD_BLOCKED_MESSAGE =
   "Target-aware drafts could not be loaded safely. Fix the folder's schema-v5 draft persistence file, then reopen the folder.";
@@ -136,6 +141,19 @@ export interface MediaLibraryActions {
   ) => void;
   /** Phase 8.1: dismiss every pending verify outcome without acting on them. */
   dismissAllVerifyOutcomes: () => void;
+  acceptTargetVerifyOutcome: (
+    relativePath: string,
+    currentTarget: MetadataDraftTarget,
+  ) => void;
+  keepTargetDraftAndDismissOutcome: (
+    relativePath: string,
+    currentTarget: MetadataDraftTarget,
+  ) => void;
+  discardTargetDraftAndOutcome: (
+    relativePath: string,
+    currentTarget: MetadataDraftTarget,
+  ) => void;
+  dismissAllTargetVerifyOutcomes: () => void;
 }
 
 export function useMediaLibrary(
@@ -159,6 +177,9 @@ export function useMediaLibrary(
   const activeScanIdRef = useRef<number>(-1);
   const targetDraftEditsStoreRef = useRef<TargetDraftEditsStore>(
     new TargetDraftEditsStore(),
+  );
+  const targetVerifyOutcomesStoreRef = useRef<TargetVerifyOutcomesStoreV5>(
+    new TargetVerifyOutcomesStoreV5(),
   );
   const targetDraftAutosaveGateRef = useRef<TargetDraftAutosaveGateV5>(
     new TargetDraftAutosaveGateV5(),
@@ -254,6 +275,7 @@ export function useMediaLibrary(
             drafts: targetDraftEditsStoreRef.current,
             occurrences: imageMetadataOccurrencesStoreRef.current,
             compatibility: imageMetadataStoreRef.current,
+            verification: targetVerifyOutcomesStoreRef.current,
           },
           autosaveGate: targetDraftAutosaveGateRef.current,
         },
@@ -280,6 +302,12 @@ export function useMediaLibrary(
             pushApplicationError("metadata-v5-protocol", error),
           onProgressApplicationError: ({ error }) =>
             pushApplicationError("metadata-v5-progress", error),
+          onFileError: (relativePath, error) =>
+            pushApplicationError("metadata-v5-file", error, [relativePath]),
+          onFileWarning: (relativePath, warning) =>
+            pushApplicationError("metadata-v5-warning", warning, [
+              relativePath,
+            ]),
         },
       );
       targetApplyControllerRef.current = controller;
@@ -299,7 +327,8 @@ export function useMediaLibrary(
             currentFile: targetApplying.currentFile,
             failureCount:
               targetApplying.protocolErrorCount +
-              targetApplying.progressApplicationErrorCount,
+              targetApplying.progressApplicationErrorCount +
+              targetApplying.fileFailureCount,
             cancelling: targetApplying.cancelling,
             phase: "target-v5",
           };
@@ -374,6 +403,7 @@ export function useMediaLibrary(
       activeFolderRef.current = folder;
       targetLoadErrorRef.current = null;
       targetDraftPersistenceRef.current = TARGET_DRAFT_NOT_LOADED_STATE;
+      targetVerifyOutcomesStoreRef.current.clear();
       const { visibleColumns, sortConfig, columnWidths } = loadColumnConfig();
       setAppState({
         kind: "loading",
@@ -478,6 +508,8 @@ export function useMediaLibrary(
             },
             applying: null,
             verifyOutcomes: {},
+            targetVerifyOutcomes: targetVerifyOutcomesStoreRef.current.getAll(),
+            targetVerifyOutcomesStore: targetVerifyOutcomesStoreRef.current,
           };
         }
 
@@ -627,6 +659,9 @@ export function useMediaLibrary(
               },
               applying: null,
               verifyOutcomes: {},
+              targetVerifyOutcomes:
+                targetVerifyOutcomesStoreRef.current.getAll(),
+              targetVerifyOutcomesStore: targetVerifyOutcomesStoreRef.current,
             };
           }
           return prev;
@@ -778,10 +813,12 @@ export function useMediaLibrary(
     activeScanIdRef.current = -1;
     activeFolderRef.current = null;
     targetDraftPersistenceRef.current = TARGET_DRAFT_NOT_LOADED_STATE;
+    targetVerifyOutcomesStoreRef.current.clear();
     void cancelActiveApplyAndWait().finally(() => {
       // A final authoritative event may race with the initial clear; repeat it
       // after cancellation settles so closed-folder state remains empty.
       targetDraftEditsStoreRef.current.resetMetadata({});
+      targetVerifyOutcomesStoreRef.current.clear();
     });
 
     // Cancel any pending batch flushes — they would still safely no-op against
@@ -803,6 +840,7 @@ export function useMediaLibrary(
     metadataBufferRef.current = [];
     thumbnailBufferRef.current = [];
     targetDraftEditsStoreRef.current.resetMetadata({});
+    targetVerifyOutcomesStoreRef.current.clear();
     imageMetadataStoreRef.current.clear();
     imageMetadataOccurrencesStoreRef.current.clear();
 
@@ -860,6 +898,7 @@ export function useMediaLibrary(
     const store = targetDraftEditsStoreRef.current;
     return store.subscribe(() => {
       const next = store.getAllMetadata();
+      targetVerifyOutcomesStoreRef.current.pruneAgainstDrafts(next);
       setAppState((prev) => {
         if (prev.kind !== "loaded" || prev.targetDraftEdits === next) {
           return prev;
@@ -879,6 +918,18 @@ export function useMediaLibrary(
       );
     });
   }, [pushApplicationError]);
+
+  useEffect(() => {
+    const store = targetVerifyOutcomesStoreRef.current;
+    return store.subscribe((next) => {
+      setAppState((prev) => {
+        if (prev.kind !== "loaded" || prev.targetVerifyOutcomes === next) {
+          return prev;
+        }
+        return { ...prev, targetVerifyOutcomes: next };
+      });
+    });
+  }, []);
 
   const showInExplorer = useCallback(
     async (index: number) => {
@@ -1068,15 +1119,6 @@ export function useMediaLibrary(
     });
   }, []);
 
-  const dismissError = useCallback((index: number) => {
-    setAppState((prev) => {
-      if (prev.kind !== "loaded") return prev;
-      const newErrors = [...prev.workerErrors];
-      newErrors.splice(index, 1);
-      return { ...prev, workerErrors: newErrors };
-    });
-  }, []);
-
   const requireTargetDraftPersistenceReady = useCallback(
     (affectedFiles: string[] = []): boolean => {
       const persistence = targetDraftPersistenceRef.current;
@@ -1090,6 +1132,82 @@ export function useMediaLibrary(
     },
     [pushApplicationError],
   );
+
+  const targetOutcomeExists = useCallback(
+    (relativePath: string, currentTarget: MetadataDraftTarget): boolean => {
+      const file = targetVerifyOutcomesStoreRef.current.getFile(relativePath);
+      const slot = metadataDraftTargetSlotToken(currentTarget);
+      const outcome = file?.[slot];
+      return (
+        outcome !== undefined &&
+        metadataDraftTargetEquals(outcome.currentTarget, currentTarget)
+      );
+    },
+    [],
+  );
+
+  const removeTargetDraftAndOutcome = useCallback(
+    (relativePath: string, currentTarget: MetadataDraftTarget) => {
+      if (!requireTargetDraftPersistenceReady([relativePath])) return;
+      if (!targetOutcomeExists(relativePath, currentTarget)) return;
+      const slot = metadataDraftTargetSlotToken(currentTarget);
+      const persisted =
+        targetDraftEditsStoreRef.current.getMetadataFile(relativePath)?.[slot];
+      if (
+        persisted === undefined ||
+        !metadataDraftTargetEquals(persisted.target, currentTarget)
+      ) {
+        return;
+      }
+      targetDraftEditsStoreRef.current.deleteTarget(
+        relativePath,
+        currentTarget,
+      );
+      targetVerifyOutcomesStoreRef.current.deleteOutcome(
+        relativePath,
+        currentTarget,
+      );
+    },
+    [requireTargetDraftPersistenceReady, targetOutcomeExists],
+  );
+
+  const acceptTargetVerifyOutcome = useCallback(
+    (relativePath: string, currentTarget: MetadataDraftTarget) => {
+      removeTargetDraftAndOutcome(relativePath, currentTarget);
+    },
+    [removeTargetDraftAndOutcome],
+  );
+
+  const keepTargetDraftAndDismissOutcome = useCallback(
+    (relativePath: string, currentTarget: MetadataDraftTarget) => {
+      if (!requireTargetDraftPersistenceReady([relativePath])) return;
+      targetVerifyOutcomesStoreRef.current.deleteOutcome(
+        relativePath,
+        currentTarget,
+      );
+    },
+    [requireTargetDraftPersistenceReady],
+  );
+
+  const discardTargetDraftAndOutcome = useCallback(
+    (relativePath: string, currentTarget: MetadataDraftTarget) => {
+      removeTargetDraftAndOutcome(relativePath, currentTarget);
+    },
+    [removeTargetDraftAndOutcome],
+  );
+
+  const dismissAllTargetVerifyOutcomes = useCallback(() => {
+    targetVerifyOutcomesStoreRef.current.clear();
+  }, []);
+
+  const dismissError = useCallback((index: number) => {
+    setAppState((prev) => {
+      if (prev.kind !== "loaded") return prev;
+      const newErrors = [...prev.workerErrors];
+      newErrors.splice(index, 1);
+      return { ...prev, workerErrors: newErrors };
+    });
+  }, []);
 
   const setMetadataDraftBatch = useCallback(
     (
@@ -1430,6 +1548,10 @@ export function useMediaLibrary(
       revertVerifyOutcome,
       dismissVerifyOutcome,
       dismissAllVerifyOutcomes,
+      acceptTargetVerifyOutcome,
+      keepTargetDraftAndDismissOutcome,
+      discardTargetDraftAndOutcome,
+      dismissAllTargetVerifyOutcomes,
     }),
     [
       openFolder,
@@ -1460,6 +1582,10 @@ export function useMediaLibrary(
       revertVerifyOutcome,
       dismissVerifyOutcome,
       dismissAllVerifyOutcomes,
+      acceptTargetVerifyOutcome,
+      keepTargetDraftAndDismissOutcome,
+      discardTargetDraftAndOutcome,
+      dismissAllTargetVerifyOutcomes,
     ],
   );
 
