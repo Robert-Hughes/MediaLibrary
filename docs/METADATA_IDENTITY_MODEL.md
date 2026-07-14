@@ -4,6 +4,39 @@ This document locks the distinction between static schema identity, runtime
 occurrence identity, and exact ExifTool write targeting. These are related but
 independent concepts and must not be substituted for one another.
 
+## Current production editing boundary
+
+Add Property and uniquely resolved writable non-GPS existing rows use the
+schema-v5 target store. An existing row is eligible only when its authoritative
+`MetadataOccurrence` has non-null embedded `TagInfo`, that `TagInfo` is
+writable, and the occurrence has a non-null runtime `MetadataWriteTarget`.
+Production receives only the occurrence ID, rereads the authoritative
+collection, rejects missing or duplicate exact IDs, and constructs this cloned
+snapshot from that occurrence:
+
+```text
+ExistingOccurrence = occurrence ID + embedded schema ID + runtime write target
+```
+
+The current-value guard rereads the exact ID and requires all three snapshots
+to still match. It never resolves a same-schema sibling, and `NewProperty` has
+no current value. Exact target drafts therefore clear when a Set restores the
+current occurrence value.
+
+Persisted schema-v4 drafts are not converted. A v4 draft keeps display, discard,
+and v4 apply ownership; ordinary Edit and Remove stay unavailable until it is
+applied or discarded. Missing, multiple, read-only, and missing-write-target
+occurrences remain read-only. While occurrences are loading, exact existing-row
+editing is unavailable and existing v5 targets are shown as unresolved rather
+than overlaid by schema.
+
+GPS members (including one-field Edit and Remove), paired/map GPS writes,
+group/bulk operations, AI/geocode/normalise and other generated drafts remain
+schema v4. Additional Metadata Occurrence rows remain read-only. The generic v4
+single-row producer has been deleted. Ordinary v5 outcomes use the existing
+target-aware verification pipeline; Match/DeleteOk clear only the exact slot,
+while Keep/Blocked retain it without reinterpreting a schema sibling.
+
 ## Static schema identity
 
 ```text
@@ -435,15 +468,16 @@ performs no persistence itself; the production v5 batch coordinator persists
 its result without changing schema-v4 persistence or apply.
 
 Production creates the target-aware store and calls the v5 adapter for Add
-Property. The v4 file remains independently owned by ordinary row edits and the
-other legacy producers; verification, search-worker indexing, and target-aware
-logging remain pending migration.
+Property and exact unique-row edits. The v4 file remains independently owned by
+GPS, group/bulk and generated producers plus persisted legacy drafts;
+target-aware logging remains pending migration.
 
 V4 entries are not automatically converted: a `SchemaDefinitionId` alone does
 not reveal whether the intended operation edits an existing occurrence or
 creates a new property. Choosing an occurrence would require forbidden
-first-match logic. Existing v4 drafts remain in their own file; only Add
-Property produces and applies v5 drafts today.
+first-match logic. Existing v4 drafts remain in their own file and are never
+converted. Add Property and exact unique-row operations produce and apply v5
+drafts.
 
 ## Schema-v5 batch boundary
 
@@ -605,11 +639,10 @@ command settles.
 
 `useMediaLibrary` owns one controller, target store, and autosave gate for its
 lifetime, and loaded `AppState` exposes the distinct target snapshot and apply
-state. Only Add New Property uses this draft path; its target-aware verification
-is active while the remaining draft producers and their verification remain
-schema v4.
+state. Add New Property and exact unique-row operations use this draft path and
+the same target-aware verification; legacy producers retain v4 verification.
 
-## Production schema-v5 activation: Add New Property
+## Production schema-v5 activation: Add New Property and unique rows
 
 Add New Property is the first production editor to use exact target identity.
 It creates a `NewProperty` target containing the schema picker's complete
@@ -620,9 +653,12 @@ Backend reconciliation may replace that target with a complete
 `ExistingOccurrence`; the Details Pane continues to edit and discard that exact
 replacement target, including its occurrence ID and write selector.
 
-This is a temporary bridge organised by operation type. Ordinary metadata-row
-edits, GPS, bulk field removal, AI description, geocode, normalise, and other
-batch-generated drafts remain explicitly schema-v4. No generic
+Unique writable non-GPS metadata rows also create `ExistingOccurrence` targets
+from their authoritative occurrence and use exact current-value comparison.
+
+This is a temporary bridge organised by operation type. GPS, bulk field
+removal, AI description, geocode, normalise, and other batch-generated drafts
+remain explicitly schema-v4. No generic
 schema-to-occurrence inference or v4-file conversion was introduced. A file and
 exact schema cannot be owned by both systems: creation and combined apply reject
 the collision without deleting or converting either draft. The narrow Add

@@ -579,7 +579,7 @@ describe("DetailsPane: Add-Property two-step flow", () => {
       },
     ]);
     const onSetNewPropertyDraft = vi.fn();
-    const onSetMetadataDraft = vi.fn();
+    const onSetExistingOccurrenceDraft = vi.fn();
 
     render(
       <DetailsPane
@@ -587,7 +587,7 @@ describe("DetailsPane: Add-Property two-step flow", () => {
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={{}}
-        onSetMetadataDraft={onSetMetadataDraft}
+        onSetExistingOccurrenceDraft={onSetExistingOccurrenceDraft}
         onSetNewPropertyDraft={onSetNewPropertyDraft}
       />,
     );
@@ -612,7 +612,7 @@ describe("DetailsPane: Add-Property two-step flow", () => {
     fireEvent.keyDown(chipInput, { key: "Enter" });
     await user.click(screen.getByTestId("bag-editor-save"));
 
-    expect(onSetMetadataDraft).not.toHaveBeenCalled();
+    expect(onSetExistingOccurrenceDraft).not.toHaveBeenCalled();
     expect(onSetNewPropertyDraft).toHaveBeenCalledTimes(1);
     const [idArg, editArg] = onSetNewPropertyDraft.mock.calls[0] as [
       SchemaDefinitionId,
@@ -648,7 +648,7 @@ describe("DetailsPane: Add-Property two-step flow", () => {
         description: null,
       },
     ]);
-    const onSetMetadataDraft = vi.fn();
+    const onSetExistingOccurrenceDraft = vi.fn();
     const onSetNewPropertyDraft = vi.fn();
 
     render(
@@ -657,7 +657,7 @@ describe("DetailsPane: Add-Property two-step flow", () => {
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={{}}
-        onSetMetadataDraft={onSetMetadataDraft}
+        onSetExistingOccurrenceDraft={onSetExistingOccurrenceDraft}
         onSetNewPropertyDraft={onSetNewPropertyDraft}
       />,
     );
@@ -698,7 +698,7 @@ describe("DetailsPane: Add-Property two-step flow", () => {
         description: null,
       },
     ]);
-    const onSetMetadataDraft = vi.fn();
+    const onSetExistingOccurrenceDraft = vi.fn();
     const onSetNewPropertyDraft = vi.fn();
 
     render(
@@ -707,7 +707,7 @@ describe("DetailsPane: Add-Property two-step flow", () => {
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={{}}
-        onSetMetadataDraft={onSetMetadataDraft}
+        onSetExistingOccurrenceDraft={onSetExistingOccurrenceDraft}
         onSetNewPropertyDraft={onSetNewPropertyDraft}
       />,
     );
@@ -724,7 +724,7 @@ describe("DetailsPane: Add-Property two-step flow", () => {
 
     // Stage 2 should be a ValueEditDialog for Text — cancel it.
     await user.click(screen.getByText("Cancel"));
-    expect(onSetMetadataDraft).not.toHaveBeenCalled();
+    expect(onSetExistingOccurrenceDraft).not.toHaveBeenCalled();
     expect(onSetNewPropertyDraft).not.toHaveBeenCalled();
     expect(screen.queryByTestId("value-edit-input")).toBeNull();
   });
@@ -777,7 +777,7 @@ describe("DetailsPane: target-aware Add Property drafts", () => {
     ).toBeInTheDocument();
   });
 
-  it("disables both Add Property stages after a failed v5 load while existing-row editing remains available", async () => {
+  it("disables Add Property and existing-row editing after a failed v5 load", async () => {
     const user = userEvent.setup();
     const titleId = testId("XMP-dc:Title");
     _setTagInfoCacheEntry("XMP-dc:Title", {
@@ -801,7 +801,7 @@ describe("DetailsPane: target-aware Add Property drafts", () => {
           status: "load-failed",
           error: "malformed file",
         }}
-        onSetMetadataDraft={vi.fn()}
+        onSetExistingOccurrenceDraft={vi.fn()}
         onSetMetadataDraftBatch={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
       />,
@@ -817,8 +817,8 @@ describe("DetailsPane: target-aware Add Property drafts", () => {
 
     const row = screen.getByText("Title").closest("tr")!;
     fireEvent.contextMenu(row);
-    await user.click(screen.getByRole("button", { name: "Edit…" }));
-    expect(screen.getByTestId("value-edit-input")).toHaveValue("existing");
+    expect(screen.queryByRole("button", { name: "Edit…" })).toBeNull();
+    expect(row).toHaveAttribute("data-readonly", "true");
   });
 
   it("marks every ambiguous target-owned exact schema unavailable in the picker while a distinct schema remains selectable", async () => {
@@ -857,7 +857,22 @@ describe("DetailsPane: target-aware Add Property drafts", () => {
     render(
       <DetailsPane
         photo={photo}
-        metadata={{}}
+        metadata={mockMetadata({ "XMP-dc:Subject": "original" })}
+        occurrences={[
+          {
+            id: target.occurrence_id,
+            value: { kind: "Text", value: "original" },
+            tag_info: {
+              id,
+              group: "XMP-dc",
+              name: "Subject",
+              writable: true,
+              kind: { kind: "Text" },
+              description: null,
+            },
+            write_target: target.write_target,
+          },
+        ]}
         targetDraftEdits={store.getMetadataFile("target.jpg")}
         targetDraftPersistence={{ status: "ready" }}
         onSetMetadataDraftBatch={vi.fn()}
@@ -891,17 +906,31 @@ describe("DetailsPane: target-aware Add Property drafts", () => {
       intent: "Set",
       value: { kind: "Text", value: "reconciled value" },
     });
-    const onSetTargetPropertyDraft = vi.fn();
+    const onSetExistingOccurrenceDraft = vi.fn();
     const onDiscardTargetPropertyDraft = vi.fn();
     render(
       <DetailsPane
         photo={photo}
-        metadata={{}}
+        metadata={mockMetadata({ "XMP-dc:Subject": "original" })}
+        occurrences={[
+          {
+            id: target.occurrence_id,
+            value: { kind: "Text", value: "original" },
+            tag_info: {
+              id,
+              group: "XMP-dc",
+              name: "Subject",
+              writable: true,
+              kind: { kind: "Text" },
+              description: null,
+            },
+            write_target: target.write_target,
+          },
+        ]}
         targetDraftEdits={store.getMetadataFile("target.jpg")}
-        onSetMetadataDraft={vi.fn()}
+        onSetExistingOccurrenceDraft={onSetExistingOccurrenceDraft}
         onSetMetadataDraftBatch={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
-        onSetTargetPropertyDraft={onSetTargetPropertyDraft}
         onDiscardTargetPropertyDraft={onDiscardTargetPropertyDraft}
       />,
     );
@@ -915,8 +944,8 @@ describe("DetailsPane: target-aware Add Property drafts", () => {
     await user.clear(input);
     await user.type(input, "updated");
     await user.click(screen.getByText("Save"));
-    expect(onSetTargetPropertyDraft).toHaveBeenCalledWith(
-      target,
+    expect(onSetExistingOccurrenceDraft).toHaveBeenCalledWith(
+      target.occurrence_id,
       expect.objectContaining({
         intent: "Set",
         value: { kind: "Text", value: "updated" },
@@ -991,7 +1020,7 @@ describe("DetailsPane: read-only row context menu", () => {
       kind: { kind: "Text" },
       description: null,
     });
-    const onSetMetadataDraft = vi.fn();
+    const onSetExistingOccurrenceDraft = vi.fn();
     const onDiscardDraft = vi.fn();
 
     render(
@@ -1000,7 +1029,27 @@ describe("DetailsPane: read-only row context menu", () => {
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={mockMetadata({ "IFD0:Make": "Canon" })}
-        onSetMetadataDraft={onSetMetadataDraft}
+        occurrences={[
+          {
+            id: {
+              document: null,
+              path: "JPEG-APP1-IFD0",
+              tag_id: "Make",
+              copy: 0,
+            },
+            value: { kind: "Text", value: "Canon" },
+            tag_info: {
+              id: testId("IFD0:Make"),
+              group: "IFD0",
+              name: "Make",
+              writable: false,
+              kind: { kind: "Text" },
+              description: null,
+            },
+            write_target: { group1: "IFD0", tag_name: "Make" },
+          },
+        ]}
+        onSetExistingOccurrenceDraft={onSetExistingOccurrenceDraft}
         onDiscardDraft={onDiscardDraft}
       />,
     );
@@ -1014,7 +1063,7 @@ describe("DetailsPane: read-only row context menu", () => {
       expect(screen.queryByRole("button", { name: "Remove" })).toBeNull();
       expect(screen.queryByRole("button", { name: "Discard edit" })).toBeNull();
     });
-    expect(onSetMetadataDraft).not.toHaveBeenCalled();
+    expect(onSetExistingOccurrenceDraft).not.toHaveBeenCalled();
     expect(onDiscardDraft).not.toHaveBeenCalled();
   });
 
@@ -1026,7 +1075,7 @@ describe("DetailsPane: read-only row context menu", () => {
       kind: { kind: "Text" },
       description: null,
     });
-    const onSetMetadataDraft = vi.fn();
+    const onSetExistingOccurrenceDraft = vi.fn();
 
     render(
       <DetailsPane
@@ -1034,7 +1083,27 @@ describe("DetailsPane: read-only row context menu", () => {
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={mockMetadata({ "IFD0:Make": "Canon" })}
-        onSetMetadataDraft={onSetMetadataDraft}
+        occurrences={[
+          {
+            id: {
+              document: null,
+              path: "JPEG-APP1-IFD0",
+              tag_id: "Make",
+              copy: 0,
+            },
+            value: { kind: "Text", value: "Canon" },
+            tag_info: {
+              id: testId("IFD0:Make"),
+              group: "IFD0",
+              name: "Make",
+              writable: true,
+              kind: { kind: "Text" },
+              description: null,
+            },
+            write_target: { group1: "IFD0", tag_name: "Make" },
+          },
+        ]}
+        onSetExistingOccurrenceDraft={onSetExistingOccurrenceDraft}
       />,
     );
 
@@ -1049,10 +1118,10 @@ describe("DetailsPane: read-only row context menu", () => {
     expect(removeBtn).not.toBeDisabled();
 
     fireEvent.click(removeBtn);
-    expect(onSetMetadataDraft).toHaveBeenCalledWith(testId("IFD0:Make"), {
-      value: null,
-      intent: "Delete",
-    });
+    expect(onSetExistingOccurrenceDraft).toHaveBeenCalledWith(
+      expect.objectContaining({ path: "JPEG-APP1-IFD0" }),
+      { value: null, intent: "Delete" },
+    );
   });
 
   it("shows only Discard edit for a read-only tag that has a pending draft", async () => {
@@ -1071,7 +1140,7 @@ describe("DetailsPane: read-only row context menu", () => {
         photo={photo}
         metadata={mockMetadata({ "IFD0:Make": "Canon" })}
         draftEdits={mockDisplayDrafts({ "IFD0:Make": "Nikon" })}
-        onSetMetadataDraft={vi.fn()}
+        onSetExistingOccurrenceDraft={vi.fn()}
       />,
     );
 
@@ -1163,16 +1232,7 @@ describe("DetailsPane: Edit reopens with pending draft as the seed", () => {
     date_created: 0,
   });
 
-  function openRowEdit(rowLabel: string) {
-    const row = screen
-      .getAllByTestId("details-row")
-      .find((r) => within(r).queryByText(rowLabel) !== null);
-    expect(row).toBeDefined();
-    fireEvent.contextMenu(row!);
-    fireEvent.click(screen.getByRole("button", { name: "Edit…" }));
-  }
-
-  it("EnumEditor opens on the draft value, not the metadata value", async () => {
+  it("blocks editing a row owned by a legacy enum draft", async () => {
     _setTagInfoCacheEntry("IFD0:Orientation", {
       group: "IFD0",
       name: "Orientation",
@@ -1209,21 +1269,17 @@ describe("DetailsPane: Edit reopens with pending draft as the seed", () => {
           "IFD0:Orientation": "Rotate 270 CW",
         })}
         typedDraftEdits={mockDrafts(typedDraftEdits)}
-        onSetMetadataDraft={vi.fn()}
+        onSetExistingOccurrenceDraft={vi.fn()}
       />,
     );
 
-    openRowEdit("Orientation");
-
-    // Editor must open in dropdown mode (not Custom) and have the draft
-    // selection (8) pre-selected — not the on-disk value (1).
-    const select = (await screen.findByTestId(
-      "enum-editor-select",
-    )) as HTMLSelectElement;
-    expect(select.value).toBe("8");
+    const row = screen.getByText("Orientation").closest("tr")!;
+    fireEvent.contextMenu(row);
+    expect(screen.queryByRole("button", { name: "Edit…" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Discard edit" })).toBeVisible();
   });
 
-  it("NumericEditor seeds the input with the pending draft value", async () => {
+  it("blocks editing a row owned by a legacy numeric draft", async () => {
     _setTagInfoCacheEntry("XMP-xmp:Rating", {
       group: "XMP-xmp",
       name: "Rating",
@@ -1248,16 +1304,14 @@ describe("DetailsPane: Edit reopens with pending draft as the seed", () => {
         metadata={mockMetadata({ "XMP-xmp:Rating": 2 })}
         draftEdits={mockDisplayDrafts({ "XMP-xmp:Rating": "4" })}
         typedDraftEdits={mockDrafts(typedDraftEdits)}
-        onSetMetadataDraft={vi.fn()}
+        onSetExistingOccurrenceDraft={vi.fn()}
       />,
     );
 
-    openRowEdit("Rating");
-
-    const input = (await screen.findByTestId(
-      "numeric-editor-input",
-    )) as HTMLInputElement;
-    expect(input.value).toBe("4");
+    const row = screen.getByText("Rating").closest("tr")!;
+    fireEvent.contextMenu(row);
+    expect(screen.queryByRole("button", { name: "Edit…" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Discard edit" })).toBeVisible();
   });
 });
 
@@ -1310,7 +1364,7 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
     fireEvent.contextMenu(row!);
   }
 
-  it("shows both Edit... and Edit GPS... for all six GPS fields when batch save is available, and only Edit... for non-GPS field", async () => {
+  it("shows both GPS edit actions while an unresolved non-GPS row stays read-only", async () => {
     render(
       <DetailsPane
         onDiscardDraftBatch={vi.fn()}
@@ -1349,7 +1403,7 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
 
     // Check non-GPS field
     openContextMenu("Subject");
-    expect(screen.getByRole("button", { name: "Edit…" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Edit…" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Edit GPS…" })).toBeNull();
   });
 
@@ -1493,13 +1547,6 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
           photo={photo}
           metadata={mockMetadata(initialMetadata)}
           typedDraftEdits={drafts}
-          onSetMetadataDraft={(
-            id: SchemaDefinitionId,
-            edit: MetadataDraftEdit,
-          ) => {
-            const token = schemaDefinitionIdToken(id);
-            setDrafts((prev) => ({ ...prev, [token]: { id, edit } }));
-          }}
           onSetMetadataDraftBatch={(
             edits: Array<{ id: SchemaDefinitionId; edit: MetadataDraftEdit }>,
           ) => {

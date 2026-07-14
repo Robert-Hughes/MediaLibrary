@@ -385,10 +385,9 @@ function LoadedView({
             if (existing?.intent === "Delete" && existing?.value === null) {
               continue;
             }
-            actions.setMetadataDraft(relPath, id, {
-              value: null,
-              intent: "Delete",
-            });
+            actions.setMetadataDraftBatch(relPath, [
+              { id, edit: { value: null, intent: "Delete" } },
+            ]);
           }
         }}
       />
@@ -411,10 +410,9 @@ function LoadedView({
             ]
           }
           targetDraftPersistence={state.targetDraftPersistence}
-          onSetMetadataDraft={actions.setMetadataDraft}
+          onSetExistingOccurrenceDraft={actions.setExistingOccurrenceDraft}
           onSetMetadataDraftBatch={actions.setMetadataDraftBatch}
           onSetNewPropertyDraft={actions.setNewPropertyDraft}
-          onSetTargetPropertyDraft={actions.setTargetPropertyDraft}
           onDiscardTargetPropertyDraft={actions.discardTargetPropertyDraft}
           onDiscardDraft={actions.discardDraftValue}
           onDiscardDraftBatch={actions.discardDraftValues}

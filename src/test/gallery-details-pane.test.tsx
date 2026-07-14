@@ -17,7 +17,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { ComponentProps } from "react";
 import { GalleryView } from "../components/GalleryView";
 
-import { ImageMetadataStore } from "../types";
+import { ImageMetadataOccurrencesStore, ImageMetadataStore } from "../types";
 import { makePhotos, mockMetadata } from "./factories";
 import type { PhotoInfo } from "../types";
 import {
@@ -389,7 +389,33 @@ describe("Gallery keyboard shortcuts coexistence", () => {
     const store = createPopulatedStore(PHOTOS, {
       "2024/a.jpg": { "IFD0:Make": "Canon" },
     });
-    await renderGallery({ imageMetadata: store, onClose });
+    const occurrences = new ImageMetadataOccurrencesStore();
+    occurrences.set("2024/a.jpg", [
+      {
+        id: {
+          document: null,
+          path: "JPEG-APP1-IFD0",
+          tag_id: "Make",
+          copy: 0,
+        },
+        value: { kind: "Text", value: "Canon" },
+        tag_info: {
+          id: { table: "Test::Fixture", tag_id: "IFD0:Make" },
+          group: "IFD0",
+          name: "Make",
+          writable: true,
+          kind: { kind: "Text" },
+          description: null,
+        },
+        write_target: { group1: "IFD0", tag_name: "Make" },
+      },
+    ]);
+    await renderGallery({
+      imageMetadata: store,
+      imageMetadataOccurrences: occurrences,
+      onSetExistingOccurrenceDraft: vi.fn(),
+      onClose,
+    });
     await userEvent.click(screen.getByTestId("gallery-info-toggle"));
 
     fireEvent.contextMenu(screen.getByText("Canon"));

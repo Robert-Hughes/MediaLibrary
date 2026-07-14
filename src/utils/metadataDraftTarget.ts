@@ -1,4 +1,5 @@
 import type {
+  ImageMetadataOccurrencesState,
   MetadataDraftTarget,
   MetadataOccurrence,
   SchemaDefinitionId,
@@ -12,6 +13,7 @@ import {
   compareSchemaDefinitionIds,
   schemaDefinitionIdEquals,
 } from "./schemaDefinitionId";
+import { resolveExactMetadataOccurrence } from "./metadataOccurrences";
 
 type ExistingOccurrenceDraftTarget = Extract<
   MetadataDraftTarget,
@@ -31,6 +33,16 @@ export type ExistingOccurrenceDraftTargetResolution =
   | {
       kind: "unavailable";
       reason: "unknown_schema" | "read_only_schema" | "missing_write_target";
+    };
+
+export type ExistingOccurrenceTargetResolution =
+  | {
+      kind: "targetable";
+      target: ExistingOccurrenceDraftTarget;
+    }
+  | {
+      kind: "read-only";
+      reason: string;
     };
 
 export type NewPropertyDraftTargetResolution =
@@ -149,6 +161,11 @@ export function metadataDraftTargetEquals(
 export function existingOccurrenceDraftTarget(
   occurrence: MetadataOccurrence,
 ): ExistingOccurrenceDraftTargetResolution {
+  const resolution = existingOccurrenceTargetFromOccurrence(occurrence);
+  if (resolution.kind === "targetable") {
+    return { kind: "available", target: resolution.target };
+  }
+
   const info = occurrence.tag_info;
   if (info == null) {
     return { kind: "unavailable", reason: "unknown_schema" };
@@ -160,17 +177,71 @@ export function existingOccurrenceDraftTarget(
     return { kind: "unavailable", reason: "missing_write_target" };
   }
 
+  throw new Error("Unreachable targetability state");
+}
+
+/**
+ * Builds a complete target snapshot from one authoritative occurrence.
+ * Nothing in this boundary infers runtime identity from schema identity.
+ */
+export function existingOccurrenceTargetFromOccurrence(
+  occurrence: MetadataOccurrence,
+): ExistingOccurrenceTargetResolution {
+  if (occurrence.tag_info === null) {
+    return {
+      kind: "read-only",
+      reason:
+        "This occurrence has no exact TagInfo and cannot be edited safely.",
+    };
+  }
+  if (!occurrence.tag_info.writable) {
+    return {
+      kind: "read-only",
+      reason: "This occurrence's TagInfo is read-only.",
+    };
+  }
+  if (occurrence.write_target === null) {
+    return {
+      kind: "read-only",
+      reason:
+        "This occurrence has no runtime write target and cannot be edited safely.",
+    };
+  }
+
   return {
-    kind: "available",
+    kind: "targetable",
     target: {
       kind: "ExistingOccurrence",
-      occurrence_id: { ...occurrence.id },
-      schema_id: { ...info.id },
-      // Snapshot only: a future apply pipeline must reread the exact
-      // occurrence and revalidate this selector before writing.
-      write_target: { ...occurrence.write_target },
+      occurrence_id: structuredClone(occurrence.id),
+      schema_id: structuredClone(occurrence.tag_info.id),
+      write_target: structuredClone(occurrence.write_target),
     },
   };
+}
+
+/** Current-value lookup for the v5 redundant-draft guard. */
+export function currentValueForMetadataDraftTarget(
+  occurrences: ImageMetadataOccurrencesState,
+  target: MetadataDraftTarget,
+): MetadataOccurrence["value"] | undefined {
+  if (target.kind === "NewProperty" || occurrences === "loading") {
+    return undefined;
+  }
+  const exact = resolveExactMetadataOccurrence(
+    occurrences,
+    target.occurrence_id,
+  );
+  if (exact.kind !== "unique") return undefined;
+  const currentTarget = existingOccurrenceTargetFromOccurrence(
+    exact.occurrence,
+  );
+  if (
+    currentTarget.kind !== "targetable" ||
+    !metadataDraftTargetEquals(currentTarget.target, target)
+  ) {
+    return undefined;
+  }
+  return exact.occurrence.value;
 }
 
 /** Creates a schema-driven target without inventing a runtime occurrence. */

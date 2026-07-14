@@ -554,7 +554,7 @@ describe("DetailsPane datatype badges", () => {
     expect(cell.getAttribute("data-readonly")).toBe("true");
   });
 
-  it("writable schema → value cell omits read-only class", () => {
+  it("writable schema without an authoritative occurrence remains read-only", () => {
     _setTagInfoCacheEntry(
       "XMP-dc:Description",
       tagInfo("XMP-dc", "Description", { kind: "Text" }, /*writable*/ true),
@@ -569,11 +569,11 @@ describe("DetailsPane datatype badges", () => {
     );
     const row = findRow("XMP-dc:Description");
     const cell = row.querySelector("td.details-value") as HTMLElement;
-    expect(cell.classList.contains("details-value--readonly")).toBe(false);
-    expect(cell.getAttribute("data-readonly")).toBeNull();
+    expect(cell.classList.contains("details-value--readonly")).toBe(true);
+    expect(cell.getAttribute("data-readonly")).toBe("true");
   });
 
-  it("unknown tag → value cell stays editable-looking (no read-only class)", () => {
+  it("unknown tag without an authoritative occurrence remains read-only", () => {
     _setTagInfoCacheEntry("Made-Up:Thing", null);
     render(
       <DetailsPane
@@ -585,7 +585,7 @@ describe("DetailsPane datatype badges", () => {
     );
     const row = findRow("Made-Up:Thing");
     const cell = row.querySelector("td.details-value") as HTMLElement;
-    expect(cell.classList.contains("details-value--readonly")).toBe(false);
+    expect(cell.classList.contains("details-value--readonly")).toBe(true);
   });
 
   it("OS section rows never render a schema badge", () => {

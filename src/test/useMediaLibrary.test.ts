@@ -49,6 +49,34 @@ function targetV5Result(
   };
 }
 
+function targetableOccurrence(
+  id: SchemaDefinitionId,
+  value = "current",
+  options: { copy?: number; path?: string; tagName?: string } = {},
+): MetadataOccurrence {
+  return {
+    id: {
+      document: null,
+      path: options.path ?? "JPEG-APP1-XMP",
+      tag_id: id.tag_id,
+      copy: options.copy ?? 0,
+    },
+    value: { kind: "Text", value },
+    tag_info: {
+      id,
+      group: "XMP-dc",
+      name: "Title",
+      writable: true,
+      kind: { kind: "Text" },
+      description: null,
+    },
+    write_target: {
+      group1: "XMP-dc",
+      tag_name: options.tagName ?? "Title",
+    },
+  };
+}
+
 describe("useMediaLibrary", () => {
   beforeEach(() => {
     localStorage.clear();
@@ -1217,7 +1245,7 @@ describe("useMediaLibrary", () => {
     expect(Object.values(state.targetDraftEdits["a.jpg"])).toHaveLength(2);
 
     act(() => {
-      result.current[1].setMetadataDraft("b.jpg", zero, edit);
+      result.current[1].setMetadataDraftBatch("b.jpg", [{ id: zero, edit }]);
       result.current[1].setNewPropertyDraft("b.jpg", zero, edit);
     });
     state = result.current[0];
@@ -1226,6 +1254,298 @@ describe("useMediaLibrary", () => {
     expect(state.workerErrors[state.workerErrors.length - 1]?.worker_type).toBe(
       "metadata-v5-conflict",
     );
+  });
+
+  it("creates, updates, and clears one exact ExistingOccurrence draft without v4 mutation", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/photos");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => result.current[1].openFolder());
+    const id = testId("XMP-dc:Title");
+    const occurrence = targetableOccurrence(id);
+    act(() => {
+      mock.emitPhotoFound(makePhoto({ relative_path: "exact.jpg" }));
+      mock.emitImageMetadataReady(
+        "exact.jpg",
+        { "XMP-dc:Title": { kind: "Text", value: "current" } },
+        undefined,
+        [occurrence],
+      );
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(300));
+
+    act(() =>
+      result.current[1].setExistingOccurrenceDraft("exact.jpg", occurrence.id, {
+        intent: "Set",
+        value: { kind: "Text", value: "current" },
+      }),
+    );
+    let state = result.current[0];
+    if (state.kind !== "loaded") return;
+    expect(state.targetDraftEdits["exact.jpg"]).toBeUndefined();
+
+    act(() =>
+      result.current[1].setExistingOccurrenceDraft("exact.jpg", occurrence.id, {
+        intent: "Set",
+        value: { kind: "Text", value: "edited" },
+      }),
+    );
+    state = result.current[0];
+    if (state.kind !== "loaded") return;
+    const entries = Object.values(state.targetDraftEdits["exact.jpg"]);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toEqual({
+      target: {
+        kind: "ExistingOccurrence",
+        occurrence_id: occurrence.id,
+        schema_id: id,
+        write_target: occurrence.write_target,
+      },
+      edit: { intent: "Set", value: { kind: "Text", value: "edited" } },
+    });
+    expect(state.draftEdits["exact.jpg"]).toBeUndefined();
+    expect(
+      mock.invocations.filter(({ cmd }) => cmd === "save_metadata_draft_edits"),
+    ).toHaveLength(0);
+
+    act(() =>
+      result.current[1].discardTargetPropertyDraft(
+        "exact.jpg",
+        entries[0].target,
+      ),
+    );
+    state = result.current[0];
+    if (state.kind !== "loaded") return;
+    expect(state.targetDraftEdits["exact.jpg"]).toBeUndefined();
+    expect(state.draftEdits["exact.jpg"]).toBeUndefined();
+
+    act(() =>
+      result.current[1].setExistingOccurrenceDraft("exact.jpg", occurrence.id, {
+        intent: "Set",
+        value: { kind: "Text", value: "edited again" },
+      }),
+    );
+
+    act(() =>
+      result.current[1].setExistingOccurrenceDraft("exact.jpg", occurrence.id, {
+        intent: "Delete",
+        value: null,
+      }),
+    );
+    state = result.current[0];
+    if (state.kind !== "loaded") return;
+    expect(Object.values(state.targetDraftEdits["exact.jpg"])).toHaveLength(1);
+    expect(
+      Object.values(state.targetDraftEdits["exact.jpg"])[0].edit.intent,
+    ).toBe("Delete");
+
+    act(() =>
+      result.current[1].setExistingOccurrenceDraft("exact.jpg", occurrence.id, {
+        intent: "Set",
+        value: { kind: "Text", value: "current" },
+      }),
+    );
+    state = result.current[0];
+    if (state.kind === "loaded") {
+      expect(state.targetDraftEdits["exact.jpg"]).toBeUndefined();
+    }
+  });
+
+  it("blocks exact-row creation while loading or when legacy/NewProperty ownership exists", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/photos");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => result.current[1].openFolder());
+    const id = testId("XMP-dc:Title");
+    const occurrence = targetableOccurrence(id);
+    const edit = {
+      intent: "Set" as const,
+      value: { kind: "Text" as const, value: "edited" },
+    };
+
+    act(() =>
+      result.current[1].setExistingOccurrenceDraft(
+        "loading.jpg",
+        occurrence.id,
+        edit,
+      ),
+    );
+    let state = result.current[0];
+    if (state.kind !== "loaded") return;
+    expect(state.targetDraftEdits["loading.jpg"]).toBeUndefined();
+
+    act(() => {
+      mock.emitImageMetadataReady(
+        "legacy.jpg",
+        { "XMP-dc:Title": { kind: "Text", value: "current" } },
+        undefined,
+        [occurrence],
+      );
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(300));
+    act(() => {
+      result.current[1].setMetadataDraftBatch("legacy.jpg", [{ id, edit }]);
+      result.current[1].setExistingOccurrenceDraft(
+        "legacy.jpg",
+        occurrence.id,
+        edit,
+      );
+    });
+    state = result.current[0];
+    if (state.kind !== "loaded") return;
+    expect(state.targetDraftEdits["legacy.jpg"]).toBeUndefined();
+    expect(state.draftEdits["legacy.jpg"]).toBeDefined();
+
+    act(() => {
+      mock.emitImageMetadataReady(
+        "owned.jpg",
+        { "XMP-dc:Title": { kind: "Text", value: "current" } },
+        undefined,
+        [occurrence],
+      );
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(300));
+    act(() => {
+      result.current[1].setNewPropertyDraft("owned.jpg", id, edit);
+      result.current[1].setExistingOccurrenceDraft(
+        "owned.jpg",
+        occurrence.id,
+        edit,
+      );
+    });
+    state = result.current[0];
+    if (state.kind !== "loaded") return;
+    expect(Object.values(state.targetDraftEdits["owned.jpg"])).toHaveLength(1);
+    expect(
+      Object.values(state.targetDraftEdits["owned.jpg"])[0].target.kind,
+    ).toBe("NewProperty");
+  });
+
+  it("rejects missing, duplicate, read-only, untargetable, and different same-schema ownership", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/photos");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => result.current[1].openFolder());
+    const state = result.current[0];
+    if (state.kind !== "loaded") return;
+    const id = testId("XMP-dc:Title");
+    const exact = targetableOccurrence(id);
+    const edit = {
+      intent: "Set" as const,
+      value: { kind: "Text" as const, value: "edited" },
+    };
+
+    act(() => {
+      state.imageMetadataOccurrences.set("missing.jpg", []);
+      result.current[1].setExistingOccurrenceDraft(
+        "missing.jpg",
+        exact.id,
+        edit,
+      );
+
+      state.imageMetadataOccurrences.set("duplicate.jpg", [
+        exact,
+        structuredClone(exact),
+      ]);
+      result.current[1].setExistingOccurrenceDraft(
+        "duplicate.jpg",
+        exact.id,
+        edit,
+      );
+
+      state.imageMetadataOccurrences.set("readonly.jpg", [
+        {
+          ...exact,
+          tag_info: { ...exact.tag_info!, writable: false },
+        },
+      ]);
+      result.current[1].setExistingOccurrenceDraft(
+        "readonly.jpg",
+        exact.id,
+        edit,
+      );
+
+      state.imageMetadataOccurrences.set("untargetable.jpg", [
+        { ...exact, write_target: null },
+      ]);
+      result.current[1].setExistingOccurrenceDraft(
+        "untargetable.jpg",
+        exact.id,
+        edit,
+      );
+    });
+
+    let current = result.current[0];
+    if (current.kind !== "loaded") return;
+    for (const path of [
+      "missing.jpg",
+      "duplicate.jpg",
+      "readonly.jpg",
+      "untargetable.jpg",
+    ]) {
+      expect(current.targetDraftEdits[path]).toBeUndefined();
+    }
+
+    const gpsId: SchemaDefinitionId = { table: "GPS::Main", tag_id: "2" };
+    const gpsOccurrence: MetadataOccurrence = {
+      ...targetableOccurrence(gpsId),
+      tag_info: {
+        id: gpsId,
+        group: "GPS",
+        name: "GPSLatitude",
+        writable: true,
+        kind: { kind: "Real" },
+        description: null,
+      },
+      write_target: { group1: "GPS", tag_name: "GPSLatitude" },
+    };
+    const loadedBeforeGps = current;
+    act(() => {
+      loadedBeforeGps.imageMetadataOccurrences.set("gps.jpg", [gpsOccurrence]);
+      result.current[1].setExistingOccurrenceDraft(
+        "gps.jpg",
+        gpsOccurrence.id,
+        { intent: "Set", value: { kind: "Real", value: 51.5 } },
+      );
+    });
+    current = result.current[0];
+    if (current.kind !== "loaded") return;
+    expect(current.targetDraftEdits["gps.jpg"]).toBeUndefined();
+
+    const ownerOccurrence = targetableOccurrence(id, "sibling", {
+      copy: 1,
+      path: "JPEG-APP1-IFD1",
+      tagName: "SiblingTitle",
+    });
+    const loadedState = current;
+    act(() => {
+      loadedState.imageMetadataOccurrences.set("owned-existing.jpg", [exact]);
+      loadedState.targetDraftEditsStore.setMetadataTarget(
+        "owned-existing.jpg",
+        {
+          kind: "ExistingOccurrence",
+          occurrence_id: ownerOccurrence.id,
+          schema_id: id,
+          write_target: ownerOccurrence.write_target!,
+        },
+        edit,
+      );
+      result.current[1].setExistingOccurrenceDraft(
+        "owned-existing.jpg",
+        exact.id,
+        edit,
+      );
+    });
+    current = result.current[0];
+    if (current.kind !== "loaded") return;
+    const owners = Object.values(
+      current.targetDraftEdits["owned-existing.jpg"],
+    );
+    expect(owners).toHaveLength(1);
+    expect(owners[0].target).toMatchObject({
+      kind: "ExistingOccurrence",
+      occurrence_id: ownerOccurrence.id,
+    });
   });
 
   it("runs mixed apply v5 then v4 and suppresses controller snapshot autosave", async () => {
@@ -1239,11 +1559,9 @@ describe("useMediaLibrary", () => {
       value: { kind: "Text" as const, value: "value" },
     };
     act(() => {
-      result.current[1].setMetadataDraft(
-        "legacy.jpg",
-        testId("XMP-dc:Title"),
-        edit,
-      );
+      result.current[1].setMetadataDraftBatch("legacy.jpg", [
+        { id: testId("XMP-dc:Title"), edit },
+      ]);
       result.current[1].setNewPropertyDraft(
         "target.jpg",
         testId("XMP-dc:Subject"),
@@ -1440,10 +1758,15 @@ describe("useMediaLibrary", () => {
       },
     };
     act(() =>
-      result.current[1].setMetadataDraft("same.jpg", id, {
-        intent: "Set",
-        value: { kind: "Text", value: "fresh v4" },
-      }),
+      result.current[1].setMetadataDraftBatch("same.jpg", [
+        {
+          id,
+          edit: {
+            intent: "Set",
+            value: { kind: "Text", value: "fresh v4" },
+          },
+        },
+      ]),
     );
     await act(async () => result.current[1].applyDraftEdits("same.jpg"));
 
@@ -1521,10 +1844,15 @@ describe("useMediaLibrary", () => {
       fresh_metadata: {},
     };
     act(() =>
-      result.current[1].setMetadataDraft("error.jpg", id, {
-        intent: "Set",
-        value: { kind: "Text", value: "attempt" },
-      }),
+      result.current[1].setMetadataDraftBatch("error.jpg", [
+        {
+          id,
+          edit: {
+            intent: "Set",
+            value: { kind: "Text", value: "attempt" },
+          },
+        },
+      ]),
     );
     await act(async () => result.current[1].applyDraftEdits("error.jpg"));
     const state = result.current[0];
@@ -1548,10 +1876,15 @@ describe("useMediaLibrary", () => {
         intent: "Set",
         value: { kind: "Text", value: "target" },
       });
-      result.current[1].setMetadataDraft("same.jpg", legacyId, {
-        intent: "Set",
-        value: { kind: "Text", value: "legacy" },
-      });
+      result.current[1].setMetadataDraftBatch("same.jpg", [
+        {
+          id: legacyId,
+          edit: {
+            intent: "Set",
+            value: { kind: "Text", value: "legacy" },
+          },
+        },
+      ]);
     });
     mock.targetApplyProgressResultsByPath["same.jpg"] = targetV5Result(
       "same.jpg",
@@ -1900,9 +2233,9 @@ describe("useMediaLibrary", () => {
 
     act(() => {
       result.current[1].setNewPropertyDraft("blocked.jpg", id, edit);
-      result.current[1].setTargetPropertyDraft(
+      result.current[1].setExistingOccurrenceDraft(
         "blocked.jpg",
-        existingTarget,
+        existingTarget.occurrence_id,
         edit,
       );
       result.current[1].discardTargetPropertyDraft(
@@ -2000,11 +2333,9 @@ describe("useMediaLibrary", () => {
     ).toHaveLength(0);
 
     act(() =>
-      result.current[1].setMetadataDraft(
-        "legacy.jpg",
-        testId("XMP-dc:Title"),
-        edit,
-      ),
+      result.current[1].setMetadataDraftBatch("legacy.jpg", [
+        { id: testId("XMP-dc:Title"), edit },
+      ]),
     );
     await act(async () => {
       await result.current[1].applyDraftEdits("legacy.jpg");

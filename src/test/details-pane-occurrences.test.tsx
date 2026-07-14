@@ -83,7 +83,7 @@ function renderPane(
   } = {},
 ) {
   const callbacks = {
-    onSetMetadataDraft: vi.fn(),
+    onSetExistingOccurrenceDraft: vi.fn(),
     onSetMetadataDraftBatch: vi.fn(),
     onDiscardDraft: vi.fn(),
     onDiscardDraftBatch: vi.fn(),
@@ -143,7 +143,7 @@ describe("DetailsPane additional metadata occurrences", () => {
     expect(screen.queryByText(/^Edit…$/)).not.toBeInTheDocument();
     expect(screen.queryByText(/^Remove$/)).not.toBeInTheDocument();
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
-    expect(callbacks.onSetMetadataDraft).not.toHaveBeenCalled();
+    expect(callbacks.onSetExistingOccurrenceDraft).not.toHaveBeenCalled();
     expect(callbacks.onSetMetadataDraftBatch).not.toHaveBeenCalled();
   });
 
@@ -173,7 +173,7 @@ describe("DetailsPane additional metadata occurrences", () => {
     expect(screen.getByTestId("numeric-editor-input")).toHaveValue(301);
   });
 
-  it("lets a Set draft override the authoritative unique editor value", () => {
+  it("displays a legacy Set draft but blocks concrete-occurrence editing", () => {
     _setTagInfoCacheEntry(schemaId, tagInfo);
     renderPane({
       metadata: metadataCollection([
@@ -191,12 +191,16 @@ describe("DetailsPane additional metadata occurrences", () => {
       .closest('[data-testid="details-row"]') as HTMLElement;
     expect(row).toHaveTextContent("301");
     expect(row.querySelector(".draft-new")).toHaveTextContent("302");
+    expect(row).toHaveAttribute(
+      "title",
+      expect.stringMatching(/legacy draft/i),
+    );
     fireEvent.contextMenu(row);
-    fireEvent.click(screen.getByRole("button", { name: "Edit…" }));
-    expect(screen.getByTestId("numeric-editor-input")).toHaveValue(302);
+    expect(screen.queryByRole("button", { name: "Edit…" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Discard edit" })).toBeVisible();
   });
 
-  it("retains legacy editor initialisation for a missing resolution", () => {
+  it("keeps a missing occurrence row read-only", () => {
     _setTagInfoCacheEntry(schemaId, tagInfo);
     renderPane({
       metadata: metadataCollection([
@@ -209,8 +213,8 @@ describe("DetailsPane additional metadata occurrences", () => {
       .getByText("XResolution")
       .closest('[data-testid="details-row"]') as HTMLElement;
     fireEvent.contextMenu(row);
-    fireEvent.click(screen.getByRole("button", { name: "Edit…" }));
-    expect(screen.getByTestId("numeric-editor-input")).toHaveValue(300);
+    expect(screen.queryByRole("button", { name: "Edit…" })).toBeNull();
+    expect(row).toHaveAttribute("data-readonly", "true");
   });
 
   it.each(["XResolution", "300", "IFD1", "JPEG-APP1-IFD1", "Copy2", "282"])(
@@ -386,7 +390,7 @@ describe("DetailsPane additional metadata occurrences", () => {
     await waitFor(() =>
       expect(screen.queryByTestId("numeric-editor-overlay")).toBeNull(),
     );
-    expect(view.onSetMetadataDraft).not.toHaveBeenCalled();
+    expect(view.onSetExistingOccurrenceDraft).not.toHaveBeenCalled();
     expect(view.onSetMetadataDraftBatch).not.toHaveBeenCalled();
 
     const ambiguousRow = screen.getByText("2 occurrences").closest("tr")!;

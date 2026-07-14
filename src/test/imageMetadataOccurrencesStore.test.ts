@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { ImageMetadataOccurrencesStore } from "../types";
+import { resolveExactMetadataOccurrence } from "../utils/metadataOccurrences";
 
 describe("ImageMetadataOccurrencesStore", () => {
   it("reads unknown paths as loading and add preserves completed results", () => {
@@ -53,5 +54,27 @@ describe("ImageMetadataOccurrencesStore", () => {
     expect(replacement).not.toBe(oldStore);
     expect(replacement.get("old.jpg")).toBe("loading");
     expect([...replacement.entries()]).toEqual([]);
+  });
+});
+
+describe("exact occurrence lookup", () => {
+  const value = {
+    id: { document: null, path: "IFD0", tag_id: "1", copy: 0 },
+    value: { kind: "Text" as const, value: "value" },
+    tag_info: null,
+    write_target: null,
+  };
+
+  it("returns missing, unique, and duplicate exact-ID results", () => {
+    expect(resolveExactMetadataOccurrence([], value.id)).toEqual({
+      kind: "missing",
+    });
+    expect(resolveExactMetadataOccurrence([value], value.id)).toEqual({
+      kind: "unique",
+      occurrence: value,
+    });
+    expect(
+      resolveExactMetadataOccurrence([value, structuredClone(value)], value.id),
+    ).toMatchObject({ kind: "duplicate", occurrences: [value, value] });
   });
 });

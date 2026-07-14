@@ -2,6 +2,37 @@
 
 This document holds operational rules for the metadata pipeline. For the full type-flow design, see `docs/METADATA_FORMATS_DESIGN.md`.
 
+## Current row-edit flow
+
+An ordinary non-GPS Details Pane row is writable only when schema resolution is
+unique and its authoritative occurrence carries writable embedded `TagInfo`
+plus a runtime write target. The UI passes the exact occurrence ID to the
+production action. The action requires v5 persistence readiness, loaded
+occurrences, one exact ID match, targetability, no exact-schema v4 owner, and
+safe target-aware ownership before writing a cloned `ExistingOccurrence` to
+`TargetDraftEditsStore`.
+
+Target ownership is deliberately strict: no same-schema target entry creates
+the exact slot; one entry may be updated only when its complete target equals
+the current occurrence target; any `NewProperty`, different occurrence, stale
+snapshot, or multiplicity blocks the row. Overlay uses the same complete-target
+check. Incompatible targets remain visible in the unresolved target section.
+
+The target store's current-value resolver reads only
+`ImageMetadataOccurrencesStore`: loading, missing/duplicate IDs, changed schema
+or selector snapshots, and `NewProperty` resolve to `undefined`. Restoring the
+exact current value removes only that occurrence draft. V5 autosave writes only
+`MediaLibraryTargetDraftEdits.jsonl`; exact target discard does the same.
+Legacy discard writes only `MediaLibraryDraftEdits.jsonl`.
+
+Persisted v4 row drafts remain visible and apply/discard through v4, but block
+ordinary Edit and Remove and are never converted. GPS members and paired GPS
+writes, group/bulk operations, and generated producers remain v4. Missing,
+multiple, untargetable, and loading occurrences are read-only; supplemental
+duplicate-schema rows remain read-only. Combined apply remains v5 then v4 with
+the exact-schema cross-system guard, and ordinary row outcomes use the existing
+target-aware verification pipeline.
+
 ## Backend Scanner Result
 
 The scanner's public Rust `ImageMetadata` result contains authoritative,
@@ -269,11 +300,12 @@ JSON-compatible, and enforces the generated unit shapes for `Null` and
 `Binary`. A tested frontend/Tauri-contract round-trip preserves full targets,
 shared-schema IFD0/IFD1 occurrences, and cross-variant same-schema entries.
 
-Production creates the target store and imports the adapter for Add Property.
+Production creates the target store and imports the adapter for Add Property
+and unique non-GPS existing rows.
 Startup loads its v5 persistence before the independent schema-v4 map, and
-`AppState` exposes both. Ordinary Details Pane rows, verification, and the
-search-worker path do not consume `MetadataDraftTarget`; Add Property is the
-only production v5 producer and other producers remain schema v4.
+`AppState` exposes both. Exact ordinary Details Pane rows and verification
+consume `MetadataDraftTarget`; the search-worker counts both draft systems.
+GPS and batch/generated producers remain schema v4.
 
 A v4 schema ID cannot be converted automatically into an existing-occurrence
 or new-property target without authoritative runtime context. In particular,
@@ -500,9 +532,9 @@ Cancellation calls the existing exact v5 adapter once while a signal is in
 flight and keeps controller ownership and autosave suppression until the apply
 command resolves or rejects. `useMediaLibrary` owns the stable production
 instance and publishes its separate target/apply state. Target-aware
-verification remains limited to production schema-v5 operations; ordinary
-existing-row editing and other legacy producers still use schema-v4
-persistence, apply, and verification.
+verification covers all production schema-v5 operations, including exact
+ordinary existing-row editing. GPS and other legacy producers still use
+schema-v4 persistence, apply, and verification.
 
 ## Temporary production v4/v5 editing bridge
 
@@ -571,14 +603,15 @@ occurrences. For a same-file mixed apply, the later v4 phase therefore leaves
 fresh v4 compatibility visible and invalidates the earlier v5 occurrence
 collection; the Details Pane cannot overlay a stale occurrence value.
 
-The only production v5 draft producer is Add New Property. The explicit v4
-producers are ordinary existing metadata rows, GPS editing, bulk remove-field,
+The production v5 draft producers are Add New Property and uniquely resolved
+writable non-GPS existing rows. The explicit v4 producers are GPS editing,
+bulk remove-field,
 AI description, geocode, normalise, and other batch-generated drafts. Schema-v4
 persistence, apply logging, and verification remain in service for them.
 
 ## Target-aware v5 verification flow
 
-For production Add Property, each valid v5 file result is processed as:
+For every production v5 operation, each valid v5 file result is processed as:
 
 ```text
 persisted_draft_entries
