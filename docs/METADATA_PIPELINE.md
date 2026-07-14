@@ -420,3 +420,29 @@ No production React listener, frontend store mutation, or `AppState` consumer
 uses this adapter. Startup, autosave, persistence, and production apply remain
 schema v4. Coordination with the independent v5 load/save commands and a future
 v5 autosave policy remains required before activation.
+
+### Inactive frontend result application
+
+The inactive `targetApplyResults` module accepts a strict file result, prepares
+all cloned candidates before mutation, then applies each independently
+authoritative field. Non-null `persisted_draft_entries` replaces the complete
+file in `TargetDraftEditsStore`; null leaves drafts unchanged because it means
+no changed draft map was successfully persisted. Reconciliation kinds and the
+`applied` flag never reconstruct or gate draft state.
+
+Non-null `fresh_image_metadata` replaces both authoritative occurrences and
+the temporary compatibility collection. This refresh still occurs when
+semantic verification reports an error or a write warning accompanies valid
+fresh metadata. Target outcomes are returned, defensively cloned, for future
+verification handling and are not stored yet.
+
+Exact store comparison makes progress followed by the identical final file
+result a no-op with no second notification. Exact means full wire structure and
+identity, not semantic metadata equality; a genuinely different final result
+therefore remains able to overwrite progress state. Complete final results
+validate and prepare every file before mutating the first store and retain file
+order, cancellation, and abort status.
+
+This module has no listener, Tauri invocation, autosave, React integration, or
+production caller. It does not cause a second persistence write. Normal startup,
+persistence, apply, and `DraftEditsStore` continue to use schema v4.

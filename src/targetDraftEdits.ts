@@ -8,11 +8,13 @@ import type {
 import { metadataValueEqual } from "./types";
 import {
   compareMetadataDraftTargetsBySlot,
+  metadataDraftTargetEquals,
   metadataDraftTargetSlotToken,
 } from "./utils/metadataDraftTarget";
 import { isMetadataDraftEntryV5, isRecord } from "./utils/metadataWireGuards";
 import { hasOwnStringKey, recordFromEntries } from "./utils/stringRecord";
 import { compareUnicodeScalarStrings } from "./utils/unicodeOrdering";
+import { wireStructuralEqual } from "./utils/wireStructuralEquality";
 
 /**
  * The record key is logical slot identity used only for collection mechanics.
@@ -48,7 +50,32 @@ function cloneTarget(target: MetadataDraftTarget): MetadataDraftTarget {
 }
 
 function cloneEntry(entry: MetadataDraftEntryV5): MetadataDraftEntryV5 {
-  return { target: cloneTarget(entry.target), edit: entry.edit };
+  return structuredClone(entry);
+}
+
+export function metadataDraftEntryV5EqualsExact(
+  left: MetadataDraftEntryV5,
+  right: MetadataDraftEntryV5,
+): boolean {
+  return (
+    metadataDraftTargetEquals(left.target, right.target) &&
+    wireStructuralEqual(left.edit, right.edit)
+  );
+}
+
+export function targetDraftCollectionEqualsExact(
+  left: TargetDraftCollection | undefined,
+  right: TargetDraftCollection | undefined,
+): boolean {
+  if (left === undefined || right === undefined) return left === right;
+  const leftSlots = Object.keys(left);
+  const rightSlots = Object.keys(right);
+  if (leftSlots.length !== rightSlots.length) return false;
+  return leftSlots.every(
+    (slot) =>
+      hasOwnStringKey(right, slot) &&
+      metadataDraftEntryV5EqualsExact(left[slot], right[slot]),
+  );
 }
 
 export function validateTargetDraftCollection(
@@ -218,6 +245,38 @@ export class TargetDraftEditsStore {
       : undefined;
   }
 
+  /** Replace one file with the exact successfully persisted v5 snapshot. */
+  replaceMetadataFile(
+    path: string,
+    persistedEntries: readonly MetadataDraftEntryV5[],
+  ): boolean {
+    for (const [index, entry] of persistedEntries.entries()) {
+      if (!isMetadataDraftEntryV5(entry)) {
+        throw new Error(
+          `Invalid schema-v5 draft entry for '${path}' at array index ${index}`,
+        );
+      }
+    }
+
+    const candidateSnapshot = targetDraftsFromWire(
+      recordFromEntries([[path, Array.from(persistedEntries)]]),
+    );
+    const candidate = hasOwnStringKey(candidateSnapshot, path)
+      ? candidateSnapshot[path]
+      : undefined;
+    const current = this.getMetadataFile(path);
+    if (targetDraftCollectionEqualsExact(current, candidate)) return false;
+
+    const retained = Object.entries(this.snapshot).filter(
+      ([existingPath]) => existingPath !== path,
+    );
+    this.snapshot = candidate
+      ? recordFromEntries([...retained, [path, candidate] as const])
+      : recordFromEntries(retained);
+    this.notify([{ path, edits: candidate }]);
+    return true;
+  }
+
   private removeSlot(path: string, slot: string): void {
     if (!hasOwnStringKey(this.snapshot, path)) return;
     const current = this.snapshot[path];
@@ -264,7 +323,7 @@ export class TargetDraftEditsStore {
 
     const stored: MetadataDraftEntryV5 = {
       target: cloneTarget(target),
-      edit,
+      edit: structuredClone(edit),
     };
     const collection = recordFromEntries([
       ...Object.entries(currentCollection ?? {}),

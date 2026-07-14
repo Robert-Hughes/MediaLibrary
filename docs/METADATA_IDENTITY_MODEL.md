@@ -525,3 +525,36 @@ mutation consumer. The normal application still uses schema v4 for startup,
 autosave, persistence, and apply. Coordination with the independent v5
 load/save commands and a future v5 autosave policy remains production-activation
 work.
+
+## Inactive frontend v5 result application
+
+An inactive, framework-free result engine now sits behind the strict typed
+file-result boundary:
+
+```text
+strict typed file result
+→ prepare complete exact candidates
+→ replace persisted target drafts when non-null
+→ replace authoritative occurrences when non-null
+→ replace compatibility metadata when non-null
+→ return target outcomes for future verification handling
+```
+
+`persisted_draft_entries` is the sole authority for local target-draft
+replacement. The frontend does not reimplement reconciliation: null means no
+draft-map change was successfully persisted, an empty array removes that file,
+and a non-empty array replaces its complete target-aware snapshot. Target
+outcomes are defensively returned but are not yet stored as verification state.
+
+Fresh metadata independently replaces both the ordered occurrence snapshot and
+the schema-keyed compatibility projection, even when semantic verification
+reported an error. Equality is exact structural equality, not display equality
+or semantic numeric equivalence: for example rational `1/2` and `2/4` are
+different authoritative snapshots. Record insertion order is irrelevant while
+occurrence order and complete identities remain significant.
+
+Progress and final results may repeat the same file. Exact current-store
+comparison makes an identical repeat a notification-free no-op, while a
+genuinely different final result remains authoritative and overwrites progress
+state. The engine performs no Tauri call, subscription, autosave, React update,
+or production apply. Production persistence and apply remain schema v4.
