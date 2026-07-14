@@ -23,6 +23,7 @@ import type {
   ApplyEditsProgressPayload,
   MetadataDraftEdit,
   MetadataValue,
+  MetadataOccurrenceId,
   SchemaDefinitionId,
   ImageMetadata,
   TargetDraftPersistenceStateV5,
@@ -51,13 +52,20 @@ import {
   saveTargetDraftEditsV5,
 } from "./targetDraftTauri";
 import type { MetadataDraftTarget } from "./types";
-import { schemaDefinitionIdToken } from "./utils/schemaDefinitionId";
+import {
+  schemaDefinitionIdEquals,
+  schemaDefinitionIdToken,
+} from "./utils/schemaDefinitionId";
 import { resolveTargetDraftByExactSchema } from "./targetDraftView";
 import { TargetVerifyOutcomesStoreV5 } from "./targetVerifyOutcomesStore";
 import {
+  currentValueForMetadataDraftTarget,
+  existingOccurrenceTargetFromOccurrence,
   metadataDraftTargetEquals,
   metadataDraftTargetSlotToken,
 } from "./utils/metadataDraftTarget";
+import { resolveExactMetadataOccurrence } from "./utils/metadataOccurrences";
+import { gpsMemberGroup } from "./metadata/tag_overrides";
 
 const TARGET_DRAFT_LOAD_BLOCKED_MESSAGE =
   "Target-aware drafts could not be loaded safely. Fix the folder's schema-v5 draft persistence file, then reopen the folder.";
@@ -94,19 +102,14 @@ export interface MediaLibraryActions {
     fileRelativePath: string,
     edits: Array<{ id: SchemaDefinitionId; edit: MetadataDraftEdit }>,
   ) => void;
-  setMetadataDraft: (
+  setExistingOccurrenceDraft: (
     fileRelativePath: string,
-    id: SchemaDefinitionId,
+    occurrenceId: MetadataOccurrenceId,
     edit: MetadataDraftEdit,
   ) => void;
   setNewPropertyDraft: (
     fileRelativePath: string,
     id: SchemaDefinitionId,
-    edit: MetadataDraftEdit,
-  ) => void;
-  setTargetPropertyDraft: (
-    fileRelativePath: string,
-    target: MetadataDraftTarget,
     edit: MetadataDraftEdit,
   ) => void;
   discardTargetPropertyDraft: (
@@ -231,6 +234,12 @@ export function useMediaLibrary(
       if (meta === "loading") return undefined;
       return metadataGet(meta, id);
     });
+    targetDraftEditsStoreRef.current.setCurrentValueResolver((path, target) =>
+      currentValueForMetadataDraftTarget(
+        imageMetadataOccurrencesStoreRef.current.get(path),
+        target,
+      ),
+    );
   }, []);
 
   // Promise-based latch: resolves once the current useEffect cycle has finished
@@ -1220,16 +1229,98 @@ export function useMediaLibrary(
     [],
   );
 
-  const setMetadataDraft = useCallback(
+  const setExistingOccurrenceDraft = useCallback(
     (
       fileRelativePath: string,
-      id: SchemaDefinitionId,
+      occurrenceId: MetadataOccurrenceId,
       edit: MetadataDraftEdit,
     ) => {
-      // Temporary bridge: ordinary existing-row edits remain schema-v4.
-      draftEditsStoreRef.current.setMetadataTag(fileRelativePath, id, edit);
+      if (!requireTargetDraftPersistenceReady([fileRelativePath])) return;
+
+      const occurrenceState =
+        imageMetadataOccurrencesStoreRef.current.get(fileRelativePath);
+      if (occurrenceState === "loading") {
+        pushApplicationError(
+          "metadata-v5-occurrence-unavailable",
+          "Authoritative metadata occurrences are still loading. Wait for the file to be scanned before editing this row.",
+          [fileRelativePath],
+        );
+        return;
+      }
+
+      const exact = resolveExactMetadataOccurrence(
+        occurrenceState,
+        occurrenceId,
+      );
+      if (exact.kind !== "unique") {
+        pushApplicationError(
+          "metadata-v5-occurrence-unavailable",
+          exact.kind === "duplicate"
+            ? "The exact metadata occurrence ID is duplicated, so no occurrence was selected."
+            : "The exact metadata occurrence no longer exists, so no draft was created.",
+          [fileRelativePath],
+        );
+        return;
+      }
+
+      const targetResolution = existingOccurrenceTargetFromOccurrence(
+        exact.occurrence,
+      );
+      if (targetResolution.kind === "read-only") {
+        pushApplicationError(
+          "metadata-v5-occurrence-read-only",
+          targetResolution.reason,
+          [fileRelativePath],
+        );
+        return;
+      }
+      const target = targetResolution.target;
+      if (gpsMemberGroup(target.schema_id) !== null) {
+        pushApplicationError(
+          "metadata-v5-gps-legacy",
+          "GPS members remain on the legacy schema-v4 batch editing boundary.",
+          [fileRelativePath],
+        );
+        return;
+      }
+      const legacy =
+        draftEditsStoreRef.current.getMetadataFile(fileRelativePath);
+      if (legacy?.[schemaDefinitionIdToken(target.schema_id)]) {
+        pushApplicationError(
+          "metadata-v5-conflict",
+          "This property has a legacy draft. Apply or discard it before editing the concrete occurrence.",
+          [fileRelativePath],
+        );
+        return;
+      }
+
+      const owners = Object.values(
+        targetDraftEditsStoreRef.current.getMetadataFile(fileRelativePath) ??
+          {},
+      ).filter((entry) =>
+        schemaDefinitionIdEquals(entry.target.schema_id, target.schema_id),
+      );
+      const ownershipSafe =
+        owners.length === 0 ||
+        (owners.length === 1 &&
+          owners[0].target.kind === "ExistingOccurrence" &&
+          metadataDraftTargetEquals(owners[0].target, target));
+      if (!ownershipSafe) {
+        pushApplicationError(
+          "metadata-v5-conflict",
+          "Another target-aware operation owns this exact schema. Apply or discard it before editing this occurrence.",
+          [fileRelativePath],
+        );
+        return;
+      }
+
+      targetDraftEditsStoreRef.current.setMetadataTarget(
+        fileRelativePath,
+        target,
+        edit,
+      );
     },
-    [],
+    [pushApplicationError, requireTargetDraftPersistenceReady],
   );
 
   const setNewPropertyDraft = useCallback(
@@ -1276,25 +1367,20 @@ export function useMediaLibrary(
     [pushApplicationError, requireTargetDraftPersistenceReady],
   );
 
-  const setTargetPropertyDraft = useCallback(
-    (
-      fileRelativePath: string,
-      target: MetadataDraftTarget,
-      edit: MetadataDraftEdit,
-    ) => {
-      if (!requireTargetDraftPersistenceReady([fileRelativePath])) return;
-      targetDraftEditsStoreRef.current.setMetadataTarget(
-        fileRelativePath,
-        target,
-        edit,
-      );
-    },
-    [requireTargetDraftPersistenceReady],
-  );
-
   const discardTargetPropertyDraft = useCallback(
     (fileRelativePath: string, target: MetadataDraftTarget) => {
       if (!requireTargetDraftPersistenceReady([fileRelativePath])) return;
+      const slot = metadataDraftTargetSlotToken(target);
+      const persisted =
+        targetDraftEditsStoreRef.current.getMetadataFile(fileRelativePath)?.[
+          slot
+        ];
+      if (
+        persisted === undefined ||
+        !metadataDraftTargetEquals(persisted.target, target)
+      ) {
+        return;
+      }
       targetDraftEditsStoreRef.current.deleteTarget(fileRelativePath, target);
     },
     [requireTargetDraftPersistenceReady],
@@ -1535,9 +1621,8 @@ export function useMediaLibrary(
       resetColumnWidths,
       dismissError,
       setMetadataDraftBatch,
-      setMetadataDraft,
+      setExistingOccurrenceDraft,
       setNewPropertyDraft,
-      setTargetPropertyDraft,
       discardTargetPropertyDraft,
       discardDraftValue,
       discardDraftValues,
@@ -1569,9 +1654,8 @@ export function useMediaLibrary(
       resetColumnWidths,
       dismissError,
       setMetadataDraftBatch,
-      setMetadataDraft,
+      setExistingOccurrenceDraft,
       setNewPropertyDraft,
-      setTargetPropertyDraft,
       discardTargetPropertyDraft,
       discardDraftValue,
       discardDraftValues,

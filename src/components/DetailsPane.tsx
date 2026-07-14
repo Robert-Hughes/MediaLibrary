@@ -8,6 +8,7 @@ import type {
   MetadataDraftCollection,
   MetadataValue,
   MetadataDraftTarget,
+  MetadataOccurrenceId,
   TargetDraftPersistenceStateV5,
 } from "../types";
 import type { TargetDraftCollection } from "../targetDraftEdits";
@@ -68,9 +69,11 @@ import {
   resolutionForSchema,
 } from "../utils/metadataOccurrences";
 import {
+  resolveExistingRowDraft,
   resolveTargetDraftByExactSchema,
   targetDraftSchemas,
 } from "../targetDraftView";
+import { existingOccurrenceTargetFromOccurrence } from "../utils/metadataDraftTarget";
 
 interface Props {
   photo: PhotoInfo;
@@ -85,13 +88,12 @@ interface Props {
   draftEdits?: Record<string, string | null>;
   /** Semantic draft edits, keyed by metadata tag. Primary write path. */
   typedDraftEdits?: MetadataDraftCollection;
-  /** Narrow, exact-target view used only by the migrated Add Property slice. */
+  /** Exact-target drafts for Add Property and unique non-GPS existing rows. */
   targetDraftEdits?: TargetDraftCollection;
   /** Folder-scoped safety state for the strict schema-v5 persistence file. */
   targetDraftPersistence?: TargetDraftPersistenceStateV5;
-  /** Semantic setter used by every editor via the local adapter. */
-  onSetMetadataDraft?: (
-    id: SchemaDefinitionId,
+  onSetExistingOccurrenceDraft?: (
+    occurrenceId: MetadataOccurrenceId,
     edit: MetadataDraftEdit,
   ) => void;
   /** Batch setter for paired-tag editors (GPS). */
@@ -100,10 +102,6 @@ interface Props {
   ) => void;
   onSetNewPropertyDraft?: (
     id: SchemaDefinitionId,
-    edit: MetadataDraftEdit,
-  ) => void;
-  onSetTargetPropertyDraft?: (
-    target: MetadataDraftTarget,
     edit: MetadataDraftEdit,
   ) => void;
   onDiscardTargetPropertyDraft?: (target: MetadataDraftTarget) => void;
@@ -264,6 +262,7 @@ function DetailsImageRow({
   occurrenceResolution,
   searchQuery,
   onContextMenu,
+  unavailableReason,
 }: {
   entry: MetadataEntry;
   rawValue: ImageMetadataEntry | undefined;
@@ -272,6 +271,7 @@ function DetailsImageRow({
   occurrenceResolution: SchemaOccurrenceResolution;
   searchQuery: string;
   onContextMenu: (e: React.MouseEvent, originalValue: string) => void;
+  unavailableReason?: string;
 }) {
   const lookedUpTag = useTagInfo(
     occurrenceResolution.kind === "unique" &&
@@ -347,12 +347,16 @@ function DetailsImageRow({
   return (
     <tr
       key={entry.identityToken}
-      className={readOnly ? "details-row details-row--readonly" : "details-row"}
+      className={
+        readOnly || unavailableReason
+          ? "details-row details-row--readonly"
+          : "details-row"
+      }
       data-testid="details-row"
       data-row-key={entry.identityToken}
-      data-readonly={readOnly ? "true" : undefined}
+      data-readonly={readOnly || unavailableReason ? "true" : undefined}
       data-occurrence-resolution={ambiguous ? "multiple" : undefined}
-      title={ambiguityTitle}
+      title={unavailableReason ?? ambiguityTitle}
       onContextMenu={(e) => onContextMenu(e, originalValue)}
     >
       <td
@@ -389,7 +393,7 @@ function DetailsImageRow({
         searchQuery={searchQuery}
         valueBadge={showValueBadge ? valueInfo : null}
         draftBadge={showDraftBadge ? draftInfo : null}
-        readOnly={readOnly}
+        readOnly={readOnly || unavailableReason !== undefined}
       />
     </tr>
   );
@@ -467,6 +471,7 @@ function DetailsRowContextMenu({
   onDiscard,
   onRemove,
   onClose,
+  editingUnavailableReason,
 }: {
   contextMenu: {
     x: number;
@@ -481,11 +486,12 @@ function DetailsRowContextMenu({
   onDiscard: () => void;
   onRemove: () => void;
   onClose: () => void;
+  editingUnavailableReason?: string;
 }) {
   const tag = useTagInfo(
     occurrenceResolution.kind === "missing" ? contextMenu.id : null,
   );
-  const readOnly = (() => {
+  const schemaReadOnly = (() => {
     switch (occurrenceResolution.kind) {
       case "multiple":
         return true;
@@ -496,11 +502,16 @@ function DetailsRowContextMenu({
     }
   })();
   const gpsGroup = gpsMemberGroup(contextMenu.id);
+  const readOnly = schemaReadOnly || editingUnavailableReason !== undefined;
   const options = [
     ...(readOnly
       ? []
       : [
-          { label: "Edit…", onClick: onEdit },
+          {
+            label: "Edit…",
+            onClick: onEdit,
+            title: editingUnavailableReason,
+          },
           ...(gpsGroup && onEditGps
             ? [{ label: "Edit GPS…", onClick: onEditGps }]
             : []),
@@ -709,10 +720,9 @@ export function DetailsPane({
   typedDraftEdits,
   targetDraftEdits,
   targetDraftPersistence = { status: "ready" },
-  onSetMetadataDraft,
+  onSetExistingOccurrenceDraft,
   onSetMetadataDraftBatch,
   onSetNewPropertyDraft,
-  onSetTargetPropertyDraft,
   onDiscardTargetPropertyDraft,
   onDiscardDraft,
   onDiscardDraftBatch,
@@ -777,31 +787,47 @@ export function DetailsPane({
     }
     return resolutions;
   }, [targetDraftEdits]);
-  const uniqueTargetDrafts = useMemo(
-    () =>
-      Array.from(targetSchemaResolutions.entries()).flatMap(
-        ([token, resolution]) =>
-          resolution.kind === "unique"
-            ? [[token, resolution.entry] as const]
-            : [],
-      ),
-    [targetSchemaResolutions],
-  );
-  const ambiguousTargetDrafts = useMemo(
-    () =>
-      Array.from(targetSchemaResolutions.entries()).filter(
-        (
-          entry,
-        ): entry is [
-          string,
-          Extract<
-            ReturnType<typeof resolveTargetDraftByExactSchema>,
-            { kind: "ambiguous" }
-          >,
-        ] => entry[1].kind === "ambiguous",
-      ),
-    [targetSchemaResolutions],
-  );
+  const presentedTargetDrafts = useMemo(() => {
+    if (metadata === "loading") return [];
+    return Array.from(targetSchemaResolutions.entries()).flatMap(
+      ([token, schemaResolution]) => {
+        if (schemaResolution.kind !== "unique") return [];
+        const entry = schemaResolution.entry;
+        const occurrenceResolution = resolutionForSchema(
+          occurrenceResolutionIndex,
+          entry.target.schema_id,
+        );
+        if (entry.target.kind === "NewProperty") {
+          return occurrenceResolution.kind === "missing" &&
+            metadataGet(metadata, entry.target.schema_id) === undefined
+            ? [[token, entry] as const]
+            : [];
+        }
+        if (gpsMemberGroup(entry.target.schema_id) !== null) return [];
+        const rowResolution = resolveExistingRowDraft(
+          entry.target.schema_id,
+          occurrenceResolution,
+          typedDraftEdits,
+          targetDraftEdits,
+        );
+        return rowResolution.kind === "target" && rowResolution.entry === entry
+          ? [[token, entry] as const]
+          : [];
+      },
+    );
+  }, [
+    metadata,
+    occurrenceResolutionIndex,
+    targetDraftEdits,
+    targetSchemaResolutions,
+    typedDraftEdits,
+  ]);
+  const unresolvedTargetDrafts = useMemo(() => {
+    const presented = new Set(presentedTargetDrafts.map(([, entry]) => entry));
+    return Object.values(targetDraftEdits ?? {}).filter(
+      (entry) => !presented.has(entry),
+    );
+  }, [presentedTargetDrafts, targetDraftEdits]);
   const authoritativeBaseMetadata = useMemo(
     () =>
       metadata === "loading"
@@ -815,7 +841,7 @@ export function DetailsPane({
       authoritativeBaseMetadata,
       typedDraftEdits,
     );
-    for (const [token, entry] of uniqueTargetDrafts) {
+    for (const [token, entry] of presentedTargetDrafts) {
       if (entry.edit.intent === "Set" && entry.edit.value) {
         effective[token] = {
           ...entry.edit.value,
@@ -826,7 +852,7 @@ export function DetailsPane({
       }
     }
     return effective;
-  }, [authoritativeBaseMetadata, typedDraftEdits, uniqueTargetDrafts]);
+  }, [authoritativeBaseMetadata, typedDraftEdits, presentedTargetDrafts]);
   const resolvedGps = useMemo(() => {
     if (metadata === "loading") return { lat: null, lon: null };
     return resolveGps(typedDraftEdits, metadata);
@@ -851,12 +877,16 @@ export function DetailsPane({
   );
   const draftEdits = useMemo(() => {
     const combined = { ...legacyDraftEdits };
-    for (const [token, entry] of uniqueTargetDrafts) {
+    for (const [token, entry] of presentedTargetDrafts) {
       const display = displayStringOfDraft(entry.edit);
       if (display !== undefined) combined[token] = display;
     }
     return combined;
-  }, [legacyDraftEdits, uniqueTargetDrafts]);
+  }, [legacyDraftEdits, presentedTargetDrafts]);
+
+  const totalDraftCount =
+    Object.keys(typedDraftEdits ?? {}).length +
+    Object.keys(targetDraftEdits ?? {}).length;
 
   const handleContextMenu = (
     e: React.MouseEvent,
@@ -899,7 +929,7 @@ export function DetailsPane({
         }
       }
     }
-    for (const [, entry] of uniqueTargetDrafts) {
+    for (const [, entry] of presentedTargetDrafts) {
       if (entry.edit.intent !== "Delete") ids.push(entry.target.schema_id);
     }
     return ids;
@@ -907,7 +937,7 @@ export function DetailsPane({
     metadata,
     typedDraftEdits,
     occurrenceResolutionIndex,
-    uniqueTargetDrafts,
+    presentedTargetDrafts,
   ]);
   const schemaLookupIds = useMemo(
     () =>
@@ -956,7 +986,7 @@ export function DetailsPane({
         }
       }
     }
-    for (const [token, entry] of uniqueTargetDrafts) {
+    for (const [token, entry] of presentedTargetDrafts) {
       if (
         metadataGet(metadata, entry.target.schema_id) === undefined &&
         entry.edit.intent !== "Delete"
@@ -973,16 +1003,43 @@ export function DetailsPane({
     typedDraftEdits,
     displayTagInfos,
     occurrenceResolutionIndex,
-    uniqueTargetDrafts,
+    presentedTargetDrafts,
   ]);
 
   const editDialogResolution = editDialog
     ? resolutionForSchema(occurrenceResolutionIndex, editDialog.id)
     : null;
   const editDialogInitialValue =
-    editDialog && effectiveMetadata
+    editDialog &&
+    (editDialog.mode === "gps" || gpsMemberGroup(editDialog.id) !== null) &&
+    effectiveMetadata
       ? metadataGet(effectiveMetadata, editDialog.id)
-      : undefined;
+      : editDialog && editDialogResolution?.kind === "unique"
+        ? (() => {
+            const rowDraft = resolveExistingRowDraft(
+              editDialog.id,
+              editDialogResolution,
+              typedDraftEdits,
+              targetDraftEdits,
+            );
+            return rowDraft.kind === "target" &&
+              rowDraft.entry.edit.intent === "Set"
+              ? (rowDraft.entry.edit.value ?? undefined)
+              : editDialogResolution.occurrence.value;
+          })()
+        : editDialog
+          ? (() => {
+              const target = resolveTargetDraftByExactSchema(
+                targetDraftEdits,
+                editDialog.id,
+              );
+              return target.kind === "unique" &&
+                target.entry.target.kind === "NewProperty" &&
+                target.entry.edit.intent === "Set"
+                ? (target.entry.edit.value ?? undefined)
+                : undefined;
+            })()
+          : undefined;
   const editDialogRenderKey = editDialog
     ? `${schemaDefinitionIdToken(editDialog.id)}:${JSON.stringify({
         occurrence:
@@ -1098,6 +1155,68 @@ export function DetailsPane({
 
   const showOsSection = !normalizedDetailsQuery || filteredOsEntries.length > 0;
 
+  const rowDraftResolutionFor = (id: SchemaDefinitionId) => {
+    const occurrenceResolution = resolutionForSchema(
+      occurrenceResolutionIndex,
+      id,
+    );
+    return resolveExistingRowDraft(
+      id,
+      occurrenceResolution,
+      typedDraftEdits,
+      targetDraftEdits,
+    );
+  };
+
+  const editingUnavailableReasonFor = (
+    id: SchemaDefinitionId,
+  ): string | undefined => {
+    // Temporary bridge: every GPS member, including generic one-field Edit
+    // and Remove, remains on the legacy schema-v4 batch boundary.
+    if (gpsMemberGroup(id) !== null) return undefined;
+    const targetSchemaResolution = targetSchemaResolutions.get(
+      schemaDefinitionIdToken(id),
+    );
+    if (
+      targetSchemaResolution?.kind === "unique" &&
+      targetSchemaResolution.entry.target.kind === "NewProperty" &&
+      presentedTargetDrafts.some(
+        ([, entry]) => entry === targetSchemaResolution.entry,
+      )
+    ) {
+      return undefined;
+    }
+    const draftResolution = rowDraftResolutionFor(id);
+    if (draftResolution.kind === "legacy") {
+      return "This property has a legacy draft. Apply or discard it before editing the concrete occurrence.";
+    }
+    if (legacyDraftEdits[schemaDefinitionIdToken(id)] !== undefined) {
+      return "This property has a legacy draft. Apply or discard it before editing the concrete occurrence.";
+    }
+    if (draftResolution.kind === "blocked") return draftResolution.reason;
+    if (!targetDraftsWritable) {
+      return "Target-aware editing is unavailable because schema-v5 draft persistence did not load safely.";
+    }
+    const occurrenceResolution = resolutionForSchema(
+      occurrenceResolutionIndex,
+      id,
+    );
+    if (occurrenceResolution.kind === "multiple") {
+      return "Several authoritative occurrences share this schema; no occurrence was selected.";
+    }
+    if (occurrenceResolution.kind === "missing") {
+      return occurrences === "loading" || occurrences === undefined
+        ? "Authoritative metadata occurrences are loading."
+        : "No authoritative occurrence exists for this row.";
+    }
+    const targetability = existingOccurrenceTargetFromOccurrence(
+      occurrenceResolution.occurrence,
+    );
+    return targetability.kind === "read-only"
+      ? targetability.reason
+      : undefined;
+  };
+
   return (
     <div className="details-pane" data-testid="details-pane">
       <h2
@@ -1105,7 +1224,7 @@ export function DetailsPane({
         style={{ display: "flex", alignItems: "center" }}
       >
         Properties
-        {Object.keys(draftEdits).length > 0 && (
+        {totalDraftCount > 0 && (
           <div
             style={{
               marginLeft: "auto",
@@ -1120,8 +1239,8 @@ export function DetailsPane({
               onClick={() => setDetailsSearch("has:edits")}
               title="Show only edited fields"
             >
-              {Object.keys(draftEdits).length} edit
-              {Object.keys(draftEdits).length === 1 ? "" : "s"}
+              {totalDraftCount} edit
+              {totalDraftCount === 1 ? "" : "s"}
             </span>
             {onApplyEdits && (
               <button
@@ -1133,7 +1252,7 @@ export function DetailsPane({
                   borderRadius: "8px",
                 }}
                 onClick={async () => {
-                  const editCount = Object.keys(draftEdits).length;
+                  const editCount = totalDraftCount;
                   const confirmed = await confirmApplyEdits({
                     editCount,
                     target: "this photo",
@@ -1157,7 +1276,7 @@ export function DetailsPane({
               }}
               onClick={async () => {
                 if (!onDiscardAllEdits) return;
-                const editCount = Object.keys(draftEdits).length;
+                const editCount = totalDraftCount;
                 const confirmed = await confirmDiscardEdits({
                   editCount,
                   scope: "this photo",
@@ -1287,6 +1406,24 @@ export function DetailsPane({
                         const targetResolution = targetSchemaResolutions.get(
                           entry.identityToken,
                         );
+                        const rowDraftResolution = rowDraftResolutionFor(
+                          entry.id,
+                        );
+                        const presentedNewProperty =
+                          targetResolution?.kind === "unique" &&
+                          targetResolution.entry.target.kind ===
+                            "NewProperty" &&
+                          presentedTargetDrafts.some(
+                            ([, candidate]) =>
+                              candidate === targetResolution.entry,
+                          );
+                        const typedDraft = presentedNewProperty
+                          ? targetResolution.entry.edit
+                          : rowDraftResolution.kind === "legacy"
+                            ? rowDraftResolution.edit
+                            : rowDraftResolution.kind === "target"
+                              ? rowDraftResolution.entry.edit
+                              : undefined;
                         return (
                           <DetailsImageRow
                             key={entry.identityToken}
@@ -1297,13 +1434,12 @@ export function DetailsPane({
                                 : undefined
                             }
                             draftValue={draftEdits[entry.identityToken]}
-                            typedDraft={
-                              targetResolution?.kind === "unique"
-                                ? targetResolution.entry.edit
-                                : typedDraftEdits?.[entry.identityToken]?.edit
-                            }
+                            typedDraft={typedDraft}
                             occurrenceResolution={occurrenceResolution}
                             searchQuery={detailsSearch}
+                            unavailableReason={editingUnavailableReasonFor(
+                              entry.id,
+                            )}
                             onContextMenu={(e, originalValue) =>
                               handleContextMenu(
                                 e,
@@ -1320,19 +1456,34 @@ export function DetailsPane({
                 </section>
               ))
             )}
-            {ambiguousTargetDrafts.length > 0 && (
+            {unresolvedTargetDrafts.length > 0 && (
               <section
                 className="details-section"
                 data-testid="details-target-drafts-ambiguous"
               >
                 <h3 className="details-section-header">
-                  Ambiguous staged properties
+                  Unresolved target-aware edits
                 </h3>
                 <p className="details-section-subtitle">
-                  Multiple target-aware occurrences share the same exact schema.
-                  Apply or discard them individually before editing this
-                  property; no occurrence was selected automatically.
+                  These drafts do not match one complete authoritative row
+                  target. They were not overlaid or reinterpreted by schema.
                 </p>
+                <ul data-testid="details-unresolved-target-list">
+                  {unresolvedTargetDrafts.map((entry) => (
+                    <li key={JSON.stringify(entry.target)}>
+                      <span>{entry.target.kind}</span>{" "}
+                      <button
+                        className="button button--secondary"
+                        disabled={!targetDraftsWritable}
+                        onClick={() =>
+                          onDiscardTargetPropertyDraft?.(entry.target)
+                        }
+                      >
+                        Discard edit
+                      </button>
+                    </li>
+                  ))}
+                </ul>
               </section>
             )}
             {filteredOccurrenceEntries.length > 0 && (
@@ -1442,39 +1593,56 @@ export function DetailsPane({
             setContextMenu(null);
           }}
           onDiscard={() => {
-            const targetResolution = resolveTargetDraftByExactSchema(
-              targetDraftEdits,
-              contextMenu.id,
+            const rowDraftResolution = rowDraftResolutionFor(contextMenu.id);
+            const targetResolution = targetSchemaResolutions.get(
+              schemaDefinitionIdToken(contextMenu.id),
             );
-            if (targetResolution.kind === "unique") {
+            if (rowDraftResolution.kind === "legacy") {
+              onDiscardDraft?.(contextMenu.id);
+            } else if (rowDraftResolution.kind === "target") {
+              onDiscardTargetPropertyDraft?.(rowDraftResolution.entry.target);
+            } else if (
+              targetResolution?.kind === "unique" &&
+              targetResolution.entry.target.kind === "NewProperty"
+            ) {
               onDiscardTargetPropertyDraft?.(targetResolution.entry.target);
-            } else if (targetResolution.kind === "missing") {
+            } else if (contextMenu.draftValue !== undefined) {
               onDiscardDraft?.(contextMenu.id);
             }
             setContextMenu(null);
           }}
           onRemove={() => {
-            const existsInOriginal =
-              metadata !== "loading" &&
-              metadataGet(metadata, contextMenu.id) !== undefined;
-            const targetResolution = resolveTargetDraftByExactSchema(
-              targetDraftEdits,
+            const occurrenceResolution = resolutionForSchema(
+              occurrenceResolutionIndex,
               contextMenu.id,
             );
-            if (targetResolution.kind === "unique") {
+            const targetResolution = targetSchemaResolutions.get(
+              schemaDefinitionIdToken(contextMenu.id),
+            );
+            if (gpsMemberGroup(contextMenu.id) !== null) {
+              onSetMetadataDraftBatch([
+                {
+                  id: contextMenu.id,
+                  edit: { value: null, intent: "Delete" },
+                },
+              ]);
+            } else if (
+              targetResolution?.kind === "unique" &&
+              targetResolution.entry.target.kind === "NewProperty"
+            ) {
               onDiscardTargetPropertyDraft?.(targetResolution.entry.target);
-            } else if (targetResolution.kind === "ambiguous") {
-              // The explicit ambiguity panel is the only safe presentation.
-            } else if (existsInOriginal) {
-              onSetMetadataDraft?.(contextMenu.id, {
-                value: null,
-                intent: "Delete",
-              });
-            } else {
-              onDiscardDraft?.(contextMenu.id);
+            } else if (occurrenceResolution.kind === "unique") {
+              onSetExistingOccurrenceDraft?.(
+                occurrenceResolution.occurrence.id,
+                {
+                  value: null,
+                  intent: "Delete",
+                },
+              );
             }
             setContextMenu(null);
           }}
+          editingUnavailableReason={editingUnavailableReasonFor(contextMenu.id)}
           onClose={() => setContextMenu(null)}
         />
       )}
@@ -1508,14 +1676,21 @@ export function DetailsPane({
             setEditDialog(null);
           }}
           onSaveMetadata={(edit) => {
-            const targetResolution = resolveTargetDraftByExactSchema(
-              targetDraftEdits,
-              editDialog.id,
+            const targetResolution = targetSchemaResolutions.get(
+              schemaDefinitionIdToken(editDialog.id),
             );
-            if (targetResolution.kind === "unique") {
-              onSetTargetPropertyDraft?.(targetResolution.entry.target, edit);
-            } else if (targetResolution.kind === "missing") {
-              onSetMetadataDraft?.(editDialog.id, edit);
+            if (gpsMemberGroup(editDialog.id) !== null) {
+              onSetMetadataDraftBatch([{ id: editDialog.id, edit }]);
+            } else if (
+              targetResolution?.kind === "unique" &&
+              targetResolution.entry.target.kind === "NewProperty"
+            ) {
+              onSetNewPropertyDraft?.(editDialog.id, edit);
+            } else if (editDialogResolution?.kind === "unique") {
+              onSetExistingOccurrenceDraft?.(
+                editDialogResolution.occurrence.id,
+                edit,
+              );
             }
             setEditDialog(null);
           }}

@@ -8,7 +8,9 @@ import type {
   TagInfo,
 } from "../types";
 import {
+  currentValueForMetadataDraftTarget,
   existingOccurrenceDraftTarget,
+  existingOccurrenceTargetFromOccurrence,
   metadataDraftTargetEquals,
   metadataDraftTargetSchemaId,
   metadataDraftTargetSlotToken,
@@ -81,6 +83,54 @@ function availableNew(
 }
 
 describe("metadata draft target construction", () => {
+  it("constructs a targetable exact occurrence and reports focused read-only reasons", () => {
+    const source = occurrence();
+    expect(existingOccurrenceTargetFromOccurrence(source)).toEqual({
+      kind: "targetable",
+      target: availableExisting(source),
+    });
+    expect(
+      existingOccurrenceTargetFromOccurrence(
+        occurrence({ tag_info: null, write_target: null }),
+      ),
+    ).toMatchObject({
+      kind: "read-only",
+      reason: expect.stringMatching(/TagInfo/),
+    });
+    expect(
+      existingOccurrenceTargetFromOccurrence(
+        occurrence({ tag_info: tagInfo(false) }),
+      ),
+    ).toMatchObject({
+      kind: "read-only",
+      reason: expect.stringMatching(/read-only/),
+    });
+    expect(
+      existingOccurrenceTargetFromOccurrence(
+        occurrence({ write_target: null }),
+      ),
+    ).toMatchObject({
+      kind: "read-only",
+      reason: expect.stringMatching(/runtime write target/),
+    });
+  });
+
+  it("keeps IFD0 and IFD1 same-schema occurrences distinct", () => {
+    const first = existingOccurrenceTargetFromOccurrence(occurrence());
+    const second = existingOccurrenceTargetFromOccurrence(
+      occurrence({
+        id: occurrenceId({ path: "JPEG-APP1-IFD1", copy: 1 }),
+        write_target: writeTarget({ group1: "IFD1" }),
+      }),
+    );
+    expect(first.kind).toBe("targetable");
+    expect(second.kind).toBe("targetable");
+    if (first.kind === "targetable" && second.kind === "targetable") {
+      expect(metadataDraftTargetEquals(first.target, second.target)).toBe(
+        false,
+      );
+    }
+  });
   it("constructs an existing target with every original exact domain ID", () => {
     const source = occurrence({
       id: occurrenceId({ document: "Doc1", copy: 2 }),
@@ -142,6 +192,45 @@ describe("metadata draft target construction", () => {
     target.write_target.group1 = "changed target group";
 
     expect(source).toEqual(before);
+  });
+});
+
+describe("target current-value resolution", () => {
+  it("returns only the exact complete ExistingOccurrence value", () => {
+    const exact = occurrence();
+    const sibling = occurrence({
+      id: occurrenceId({ path: "JPEG-APP1-IFD1", copy: 1 }),
+      value: { kind: "Integer", value: 72 },
+      write_target: writeTarget({ group1: "IFD1" }),
+    });
+    const target = availableExisting(exact);
+    expect(
+      currentValueForMetadataDraftTarget([sibling, exact], target),
+    ).toEqual(exact.value);
+    expect(
+      currentValueForMetadataDraftTarget([sibling], target),
+    ).toBeUndefined();
+    expect(
+      currentValueForMetadataDraftTarget([exact], {
+        ...target,
+        schema_id: schemaId(3),
+      }),
+    ).toBeUndefined();
+    expect(
+      currentValueForMetadataDraftTarget([exact], {
+        ...target,
+        write_target: writeTarget({ tag_name: "Changed" }),
+      }),
+    ).toBeUndefined();
+  });
+
+  it("returns undefined while loading and for NewProperty", () => {
+    expect(
+      currentValueForMetadataDraftTarget("loading", availableExisting()),
+    ).toBeUndefined();
+    expect(
+      currentValueForMetadataDraftTarget([occurrence()], availableNew()),
+    ).toBeUndefined();
   });
 });
 

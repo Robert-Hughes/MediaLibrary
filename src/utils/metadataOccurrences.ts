@@ -1,5 +1,12 @@
-import type { MetadataOccurrence, SchemaDefinitionId } from "../types";
-import { compareMetadataOccurrenceIds } from "./metadataOccurrenceId";
+import type {
+  MetadataOccurrence,
+  MetadataOccurrenceId,
+  SchemaDefinitionId,
+} from "../types";
+import {
+  compareMetadataOccurrenceIds,
+  metadataOccurrenceIdToken,
+} from "./metadataOccurrenceId";
 import {
   schemaDefinitionIdEquals,
   schemaDefinitionIdToken,
@@ -14,6 +21,25 @@ export type SchemaOccurrenceResolutionIndex = ReadonlyMap<
   string,
   SchemaOccurrenceResolution
 >;
+
+export type ExactOccurrenceResolution =
+  | { kind: "missing" }
+  | { kind: "unique"; occurrence: MetadataOccurrence }
+  | { kind: "duplicate"; occurrences: MetadataOccurrence[] };
+
+/** Resolve one runtime ID exactly; duplicate IDs are rejected, never selected. */
+export function resolveExactMetadataOccurrence(
+  occurrences: readonly MetadataOccurrence[],
+  occurrenceId: MetadataOccurrenceId,
+): ExactOccurrenceResolution {
+  const expected = metadataOccurrenceIdToken(occurrenceId);
+  const matches = occurrences.filter(
+    (occurrence) => metadataOccurrenceIdToken(occurrence.id) === expected,
+  );
+  if (matches.length === 0) return { kind: "missing" };
+  if (matches.length === 1) return { kind: "unique", occurrence: matches[0] };
+  return { kind: "duplicate", occurrences: matches };
+}
 
 const MISSING_RESOLUTION: SchemaOccurrenceResolution = { kind: "missing" };
 

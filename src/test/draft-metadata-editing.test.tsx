@@ -14,8 +14,31 @@ import {
 } from "../hooks/useWritableSchemaDefinitions";
 import { testIdForFriendlyName } from "./testIds";
 import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
+import type { MetadataOccurrence } from "../types";
 
 let mockApiInstance: ReturnType<typeof createMockTauriApi>;
+
+function makeOccurrence(value = "Canon"): MetadataOccurrence {
+  const id = testIdForFriendlyName("IFD0:Make");
+  return {
+    id: {
+      document: null,
+      path: "JPEG-APP1-IFD0",
+      tag_id: "Make",
+      copy: 0,
+    },
+    value: { kind: "Text", value },
+    tag_info: {
+      id,
+      group: "IFD0",
+      name: "Make",
+      writable: true,
+      kind: { kind: "Text" },
+      description: null,
+    },
+    write_target: { group1: "IFD0", tag_name: "Make" },
+  };
+}
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: (cmd: string, args?: Record<string, unknown>) =>
@@ -97,7 +120,12 @@ describe("Draft Metadata Editing Integration", () => {
     // We also need some metadata so we have a column to edit
     const metadata = { "IFD0:Make": { kind: "Text", value: "Canon" } } as const;
     await act(async () => {
-      mockApiInstance.emitImageMetadataReady(photo.relative_path, metadata);
+      mockApiInstance.emitImageMetadataReady(
+        photo.relative_path,
+        metadata,
+        undefined,
+        [makeOccurrence()],
+      );
     });
 
     // Wait for debounce and state
@@ -165,11 +193,10 @@ describe("Draft Metadata Editing Integration", () => {
 
     // Check list view
     const newRows = screen.getAllByTestId("photo-row");
-    // List view should also show "Sony" in a bold draft element
-    const draftNewSpanInList = within(newRows[0]).getByText("Sony");
-    const draftNewInList = draftNewSpanInList.closest("strong")!;
-    expect(draftNewInList).toBeInTheDocument();
-    expect(draftNewInList).toHaveClass("draft-new");
+    // The list summary counts the exact target draft. Existing target values
+    // are presented on their concrete Details Pane row, not schema-overlaid
+    // into the compatibility list column.
+    expect(within(newRows[0]).getByTitle("1 pending edit(s)")).toBeVisible();
 
     // Open gallery again.  GalleryView persists the info-toggle state to
     // localStorage so reopening restores details=visible without a second
@@ -211,7 +238,12 @@ describe("Draft Metadata Editing Integration", () => {
 
     const metadata = { "IFD0:Make": { kind: "Text", value: "Canon" } } as const;
     await act(async () => {
-      mockApiInstance.emitImageMetadataReady(photo.relative_path, metadata);
+      mockApiInstance.emitImageMetadataReady(
+        photo.relative_path,
+        metadata,
+        undefined,
+        [makeOccurrence()],
+      );
     });
 
     await act(async () => {
@@ -288,8 +320,18 @@ describe("Draft Metadata Editing Integration", () => {
 
     const metadata = { "IFD0:Make": { kind: "Text", value: "Canon" } } as const;
     await act(async () => {
-      mockApiInstance.emitImageMetadataReady(photo1.relative_path, metadata);
-      mockApiInstance.emitImageMetadataReady(photo2.relative_path, metadata);
+      mockApiInstance.emitImageMetadataReady(
+        photo1.relative_path,
+        metadata,
+        undefined,
+        [makeOccurrence()],
+      );
+      mockApiInstance.emitImageMetadataReady(
+        photo2.relative_path,
+        metadata,
+        undefined,
+        [makeOccurrence()],
+      );
     });
 
     await act(async () => {
@@ -372,7 +414,12 @@ describe("Draft Metadata Editing Integration", () => {
 
     const metadata = { "IFD0:Make": { kind: "Text", value: "Canon" } } as const;
     await act(async () => {
-      mockApiInstance.emitImageMetadataReady(photo.relative_path, metadata);
+      mockApiInstance.emitImageMetadataReady(
+        photo.relative_path,
+        metadata,
+        undefined,
+        [makeOccurrence()],
+      );
     });
 
     await act(async () => {
@@ -446,8 +493,18 @@ describe("Draft Metadata Editing Integration", () => {
 
     const metadata = { "IFD0:Make": { kind: "Text", value: "Canon" } } as const;
     await act(async () => {
-      mockApiInstance.emitImageMetadataReady(photo1.relative_path, metadata);
-      mockApiInstance.emitImageMetadataReady(photo2.relative_path, metadata);
+      mockApiInstance.emitImageMetadataReady(
+        photo1.relative_path,
+        metadata,
+        undefined,
+        [makeOccurrence()],
+      );
+      mockApiInstance.emitImageMetadataReady(
+        photo2.relative_path,
+        metadata,
+        undefined,
+        [makeOccurrence()],
+      );
     });
 
     await act(async () => {

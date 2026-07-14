@@ -8,6 +8,27 @@ This document describes how MediaLibrary handles image metadata: the types it pr
 
 The guiding principle: **never hide behaviour from the user where it affects the outcome.** If exiftool coerces a value, the user sees it. If a tag is unwritable, the user is told. If we don't know a tag's type, we say so rather than guessing.
 
+## Current v4/v5 editing boundary
+
+Uniquely resolved writable non-GPS existing rows now use schema v5 alongside
+Add Property. Their target is constructed only from the authoritative runtime
+occurrence and retains cloned occurrence-ID, embedded-schema, and runtime
+write-selector snapshots. Neither the compatibility row's schema nor any
+same-schema occurrence is a substitute. Exact current-value comparison and
+verification use that same occurrence target.
+
+Already-persisted v4 drafts are displayed, discarded, and applied without
+conversion; they block ordinary row editing until resolved. Missing, multiple,
+read-only, missing-write-target, and loading occurrence states are read-only.
+Stale or incompatible v5 targets are shown separately rather than overlaid by
+schema. Additional Metadata Occurrence rows remain read-only.
+
+GPS one-field and paired/map edits, group/bulk operations, AI, geocode,
+normalise, and other generated drafts continue through the schema-v4 batch
+boundary. The generic schema-v4 single-row producer and its App/Gallery/Details
+prop plumbing no longer exist. Per-file and Apply All still run v5 before v4;
+the two persistence files and exact discard actions remain independent.
+
 ---
 
 ## 1. The problem
@@ -781,13 +802,13 @@ failure cannot strand either lifecycle resource or mask an earlier command or
 final-application failure.
 
 `useMediaLibrary` owns the single controller instance, target-aware `AppState`,
-and v5 autosave subscriber used by Add New Property. Add Property verification
-is target-aware and separate; other editing operations and their verification
-remain schema v4 during the controlled bridge.
+and v5 autosave subscriber used by Add New Property and exact unique rows.
+Their verification is target-aware and separate; GPS and batch/generated
+operations remain schema v4 during the controlled bridge.
 
 - **MetadataValue** — Discriminated semantic value model used inside the app for read metadata, draft edits, writes, verification, and apply logs.
 - **SchemaDefinitionId** — Exact ExifTool definition identity: `{table, tag_id, index?}` from `-listx`. It remains the key for current schema-keyed v4 drafts and their production paths. It is distinct from runtime occurrence identity and exact write targeting. `Group1:Name` is display/search text only.
-- **MetadataDraftTarget** — Exact target union: an existing occurrence carries runtime occurrence, semantic schema, and exact selector snapshot; a new property carries only the selected schema. Add New Property consumes it in production; remaining editors are still migrating.
+- **MetadataDraftTarget** — Exact target union: an existing occurrence carries runtime occurrence, semantic schema, and exact selector snapshot; a new property carries only the selected schema. Add New Property and uniquely resolved writable non-GPS rows consume it in production; GPS and supplemental duplicate-schema editors are still pending.
 - **MetadataDraftSlot** — One logical draft position within a file: occurrence identity for an existing field, schema identity for a new property. It deliberately excludes stale target snapshots and the outer file-relative path.
 - **ExifTool JSON boundary** - serde_json::Value held only at scan parsing boundaries before conversion into MetadataValue.
 - **TagKind** — The schema's classification of a tag (`Text`, `Bag<Text>`, `Enum<Integer>`, etc.). Drives which editor renders.

@@ -9,6 +9,7 @@ import type {
   ImageMetadataStore,
   ImageMetadataOccurrencesState,
   ImageMetadataOccurrencesStore,
+  MetadataOccurrenceId,
   MetadataDraftTarget,
   TargetDraftPersistenceStateV5,
 } from "../types";
@@ -48,9 +49,9 @@ interface Props {
   typedDraftEdits?: MetadataDraftCollection;
   targetDraftEdits?: TargetDraftCollection;
   targetDraftPersistence?: TargetDraftPersistenceStateV5;
-  onSetMetadataDraft?: (
+  onSetExistingOccurrenceDraft?: (
     fileRelativePath: string,
-    id: SchemaDefinitionId,
+    occurrenceId: MetadataOccurrenceId,
     edit: MetadataDraftEdit,
   ) => void;
   onSetMetadataDraftBatch: (
@@ -60,11 +61,6 @@ interface Props {
   onSetNewPropertyDraft?: (
     fileRelativePath: string,
     id: SchemaDefinitionId,
-    edit: MetadataDraftEdit,
-  ) => void;
-  onSetTargetPropertyDraft?: (
-    fileRelativePath: string,
-    target: MetadataDraftTarget,
     edit: MetadataDraftEdit,
   ) => void;
   onDiscardTargetPropertyDraft?: (
@@ -100,10 +96,9 @@ export function GalleryView({
   typedDraftEdits,
   targetDraftEdits,
   targetDraftPersistence,
-  onSetMetadataDraft,
+  onSetExistingOccurrenceDraft,
   onSetMetadataDraftBatch,
   onSetNewPropertyDraft,
-  onSetTargetPropertyDraft,
   onDiscardTargetPropertyDraft,
   onDiscardDraft,
   onDiscardDraftBatch,
@@ -362,17 +357,18 @@ export function GalleryView({
             typedDraftEdits={typedDraftEdits}
             targetDraftEdits={targetDraftEdits}
             targetDraftPersistence={targetDraftPersistence}
-            onSetMetadataDraft={(id, edit) =>
-              onSetMetadataDraft?.(photo.relative_path, id, edit)
+            onSetExistingOccurrenceDraft={(occurrenceId, edit) =>
+              onSetExistingOccurrenceDraft?.(
+                photo.relative_path,
+                occurrenceId,
+                edit,
+              )
             }
             onSetMetadataDraftBatch={(edits) =>
               onSetMetadataDraftBatch(photo.relative_path, edits)
             }
             onSetNewPropertyDraft={(id, edit) =>
               onSetNewPropertyDraft?.(photo.relative_path, id, edit)
-            }
-            onSetTargetPropertyDraft={(target, edit) =>
-              onSetTargetPropertyDraft?.(photo.relative_path, target, edit)
             }
             onDiscardTargetPropertyDraft={(target) =>
               onDiscardTargetPropertyDraft?.(photo.relative_path, target)
