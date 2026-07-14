@@ -9,7 +9,9 @@ import type {
   ImageMetadataStore,
   ImageMetadataOccurrencesState,
   ImageMetadataOccurrencesStore,
+  MetadataDraftTarget,
 } from "../types";
+import type { TargetDraftCollection } from "../targetDraftEdits";
 import { ModalDialog } from "./ModalDialog";
 
 const GALLERY_DETAILS_VISIBLE_KEY = "media_library_gallery_details_visible";
@@ -43,6 +45,7 @@ interface Props {
   /** Observable authoritative occurrence store for the read-only bridge. */
   imageMetadataOccurrences?: ImageMetadataOccurrencesStore;
   typedDraftEdits?: MetadataDraftCollection;
+  targetDraftEdits?: TargetDraftCollection;
   onSetMetadataDraft?: (
     fileRelativePath: string,
     id: SchemaDefinitionId,
@@ -51,6 +54,20 @@ interface Props {
   onSetMetadataDraftBatch: (
     fileRelativePath: string,
     edits: Array<{ id: SchemaDefinitionId; edit: MetadataDraftEdit }>,
+  ) => void;
+  onSetNewPropertyDraft?: (
+    fileRelativePath: string,
+    id: SchemaDefinitionId,
+    edit: MetadataDraftEdit,
+  ) => void;
+  onSetTargetPropertyDraft?: (
+    fileRelativePath: string,
+    target: MetadataDraftTarget,
+    edit: MetadataDraftEdit,
+  ) => void;
+  onDiscardTargetPropertyDraft?: (
+    fileRelativePath: string,
+    target: MetadataDraftTarget,
   ) => void;
   onDiscardDraft?: (fileRelativePath: string, id: SchemaDefinitionId) => void;
   onDiscardDraftBatch: (
@@ -79,8 +96,12 @@ export function GalleryView({
   imageMetadata,
   imageMetadataOccurrences,
   typedDraftEdits,
+  targetDraftEdits,
   onSetMetadataDraft,
   onSetMetadataDraftBatch,
+  onSetNewPropertyDraft,
+  onSetTargetPropertyDraft,
+  onDiscardTargetPropertyDraft,
   onDiscardDraft,
   onDiscardDraftBatch,
   onDiscardAllEdits,
@@ -336,11 +357,21 @@ export function GalleryView({
             metadata={metadataState}
             occurrences={occurrencesState}
             typedDraftEdits={typedDraftEdits}
+            targetDraftEdits={targetDraftEdits}
             onSetMetadataDraft={(id, edit) =>
               onSetMetadataDraft?.(photo.relative_path, id, edit)
             }
             onSetMetadataDraftBatch={(edits) =>
               onSetMetadataDraftBatch(photo.relative_path, edits)
+            }
+            onSetNewPropertyDraft={(id, edit) =>
+              onSetNewPropertyDraft?.(photo.relative_path, id, edit)
+            }
+            onSetTargetPropertyDraft={(target, edit) =>
+              onSetTargetPropertyDraft?.(photo.relative_path, target, edit)
+            }
+            onDiscardTargetPropertyDraft={(target) =>
+              onDiscardTargetPropertyDraft?.(photo.relative_path, target)
             }
             onDiscardDraft={(id) => onDiscardDraft?.(photo.relative_path, id)}
             onDiscardDraftBatch={(ids) =>

@@ -107,9 +107,9 @@ function cloneState(
 }
 
 /**
- * Inactive coordinator for the complete frontend schema-v5 apply protocol.
- * Production activation must route every frontend v5 apply through one such
- * controller because the versioned backend events carry no operation ID.
+ * Sole production coordinator for the complete frontend schema-v5 apply
+ * protocol. Versioned backend events carry no operation ID, so callers must
+ * share one controller instance.
  */
 export class TargetApplyControllerV5 {
   private state: TargetApplyControllerStateV5 = { status: "idle" };

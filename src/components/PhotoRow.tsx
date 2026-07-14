@@ -97,6 +97,7 @@ interface RowProps {
   imageMetadata: ImageMetadataStore;
   visibleColumns: VisibleColumn[];
   draftEdits?: MetadataDraftCollection;
+  draftCount?: number;
   onSelect: (
     index: number,
     modifiers: { ctrl: boolean; shift: boolean },
@@ -115,6 +116,7 @@ export const PhotoRow = memo(function PhotoRow({
   imageMetadata,
   visibleColumns,
   draftEdits = {},
+  draftCount,
   onSelect,
   onPhotoOpen,
   onContextMenu,
@@ -165,7 +167,8 @@ export const PhotoRow = memo(function PhotoRow({
     [onContextMenu, index],
   );
 
-  const hasDrafts = Object.keys(draftEdits).length > 0;
+  const effectiveDraftCount = draftCount ?? Object.keys(draftEdits).length;
+  const hasDrafts = effectiveDraftCount > 0;
   const rowClass = `photo-row ${index % 2 === 0 ? "photo-row--even" : "photo-row--odd"} ${selected ? "photo-row--selected" : ""}`;
 
   // Index of the first image-metadata cell — used to place exactly one spinner
@@ -228,10 +231,10 @@ export const PhotoRow = memo(function PhotoRow({
         {hasDrafts && (
           <span
             className="row-draft-badge"
-            title={`${Object.keys(draftEdits).length} pending edit(s)`}
+            title={`${effectiveDraftCount} pending edit(s)`}
           >
-            {Object.keys(draftEdits).length} draft edit
-            {Object.keys(draftEdits).length === 1 ? "" : "s"}
+            {effectiveDraftCount} draft edit
+            {effectiveDraftCount === 1 ? "" : "s"}
           </span>
         )}
       </div>

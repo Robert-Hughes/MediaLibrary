@@ -2,8 +2,9 @@ import { renderHook, act } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { useMediaLibrary } from "../useMediaLibrary";
 import { createMockTauriApi } from "./mockTauriApi";
-import { makePhoto, makePhotos, testId } from "./factories";
+import { makePhoto, makePhotos, mockDrafts, testId } from "./factories";
 import { metadataGet } from "../utils/metadataCollection";
+import { TargetDraftEditsStore } from "../targetDraftEdits";
 
 describe("useMediaLibrary", () => {
   beforeEach(() => {
@@ -1094,10 +1095,245 @@ describe("useMediaLibrary", () => {
     await act(async () => vi.advanceTimersByTimeAsync(150));
     const replacement = result.current[0];
     if (replacement.kind === "loaded") {
-      expect(replacement.imageMetadataOccurrences).not.toBe(oldStore);
+      expect(replacement.imageMetadataOccurrences).toBe(oldStore);
       expect([...replacement.imageMetadataOccurrences.entries()]).toEqual([
         ["b.jpg", "loading"],
       ]);
     }
+  });
+
+  it("loads both persistence versions and creates Add Property only in v5", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/photos");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => result.current[1].openFolder());
+    act(() => mock.emitScanComplete());
+
+    expect(mock.invocations.map(({ cmd }) => cmd)).toEqual(
+      expect.arrayContaining([
+        "load_metadata_draft_edits",
+        "load_metadata_draft_edits_v5",
+      ]),
+    );
+
+    const id = { table: "XMP::dc", tag_id: "subject" };
+    const edit = {
+      intent: "Set" as const,
+      value: { kind: "Text" as const, value: "landscape" },
+    };
+    act(() => result.current[1].setNewPropertyDraft("reserved", id, edit));
+
+    const state = result.current[0];
+    expect(state.kind).toBe("loaded");
+    if (state.kind !== "loaded") return;
+    expect(state.draftEdits.reserved).toBeUndefined();
+    const targetEntries = Object.values(state.targetDraftEdits.reserved);
+    expect(targetEntries).toHaveLength(1);
+    expect(targetEntries[0].target).toEqual({
+      kind: "NewProperty",
+      schema_id: id,
+    });
+    expect(
+      mock.invocations.filter(
+        ({ cmd }) => cmd === "save_metadata_draft_edits_v5",
+      ),
+    ).toHaveLength(1);
+
+    // Exact replacement is a no-op: no notification and no duplicate save.
+    act(() => result.current[1].setNewPropertyDraft("reserved", id, edit));
+    expect(
+      mock.invocations.filter(
+        ({ cmd }) => cmd === "save_metadata_draft_edits_v5",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("preserves absent index versus zero and blocks cross-system ownership", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/photos");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => result.current[1].openFolder());
+    act(() => mock.emitScanComplete());
+
+    const absent = { table: "Exif::Main", tag_id: "400" };
+    const zero = { table: "Exif::Main", tag_id: "400", index: 0 };
+    const edit = {
+      intent: "Set" as const,
+      value: { kind: "Text" as const, value: "value" },
+    };
+    act(() => {
+      result.current[1].setNewPropertyDraft("a.jpg", absent, edit);
+      result.current[1].setNewPropertyDraft("a.jpg", zero, edit);
+    });
+    let state = result.current[0];
+    if (state.kind !== "loaded") return;
+    expect(Object.values(state.targetDraftEdits["a.jpg"])).toHaveLength(2);
+
+    act(() => {
+      result.current[1].setMetadataDraft("b.jpg", zero, edit);
+      result.current[1].setNewPropertyDraft("b.jpg", zero, edit);
+    });
+    state = result.current[0];
+    if (state.kind !== "loaded") return;
+    expect(state.targetDraftEdits["b.jpg"]).toBeUndefined();
+    expect(state.workerErrors[state.workerErrors.length - 1]?.worker_type).toBe(
+      "metadata-v5-conflict",
+    );
+  });
+
+  it("runs mixed apply v5 then v4 and suppresses controller snapshot autosave", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/photos");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => result.current[1].openFolder());
+    act(() => mock.emitScanComplete());
+    const edit = {
+      intent: "Set" as const,
+      value: { kind: "Text" as const, value: "value" },
+    };
+    act(() => {
+      result.current[1].setMetadataDraft(
+        "legacy.jpg",
+        testId("XMP-dc:Title"),
+        edit,
+      );
+      result.current[1].setNewPropertyDraft(
+        "target.jpg",
+        testId("XMP-dc:Subject"),
+        edit,
+      );
+    });
+    const savesBeforeApply = mock.invocations.filter(
+      ({ cmd }) => cmd === "save_metadata_draft_edits_v5",
+    ).length;
+
+    await act(async () => {
+      await result.current[1].applyDraftEdits(["legacy.jpg", "target.jpg"]);
+    });
+
+    const applyCommands = mock.invocations
+      .filter(({ cmd }) =>
+        [
+          "apply_metadata_draft_edits_v5_cmd",
+          "apply_metadata_draft_edits_cmd",
+        ].includes(cmd),
+      )
+      .map(({ cmd }) => cmd);
+    expect(applyCommands).toEqual([
+      "apply_metadata_draft_edits_v5_cmd",
+      "apply_metadata_draft_edits_cmd",
+    ]);
+    expect(
+      mock.invocations.filter(
+        ({ cmd }) => cmd === "save_metadata_draft_edits_v5",
+      ),
+    ).toHaveLength(savesBeforeApply);
+    const state = result.current[0];
+    if (state.kind === "loaded") {
+      expect(state.targetDraftEdits["target.jpg"]).toBeUndefined();
+      expect(state.applying).toBeNull();
+    }
+  });
+
+  it("rejects a cross-system file/schema collision before either apply phase", async () => {
+    const mock = createMockTauriApi();
+    const id = testId("XMP-dc:Title");
+    const edit = {
+      intent: "Set" as const,
+      value: { kind: "Text" as const, value: "value" },
+    };
+    mock.draftEditsByFolder["/photos"] = {
+      "same.jpg": mockDrafts({ "XMP-dc:Title": edit }),
+    };
+    const targetStore = new TargetDraftEditsStore();
+    targetStore.setMetadataTarget(
+      "same.jpg",
+      { kind: "NewProperty", schema_id: id },
+      edit,
+    );
+    mock.targetDraftEditsByFolder["/photos"] = targetStore.getAllMetadata();
+    mock.pickFolderResolves("/photos");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => result.current[1].openFolder());
+    act(() => mock.emitScanComplete());
+
+    await act(async () => {
+      await expect(result.current[1].applyDraftEdits()).rejects.toThrow(
+        /owned by both v4 and v5/,
+      );
+    });
+    expect(
+      mock.invocations.filter(({ cmd }) =>
+        [
+          "apply_metadata_draft_edits_v5_cmd",
+          "apply_metadata_draft_edits_cmd",
+        ].includes(cmd),
+      ),
+    ).toHaveLength(0);
+  });
+
+  it("reports strict v5 load failure, preserves it, then switches safely", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/photos");
+    const api = {
+      ...mock.api,
+      invoke: (cmd: string, args?: Record<string, unknown>) =>
+        cmd === "load_metadata_draft_edits_v5" && args?.folderPath === "/photos"
+          ? Promise.reject(new Error("invalid schema version"))
+          : mock.api.invoke(cmd, args),
+    };
+    const { result } = renderHook(() => useMediaLibrary(api));
+    await act(async () => result.current[1].openFolder());
+    act(() => mock.emitScanComplete());
+    const state = result.current[0];
+    if (state.kind !== "loaded") return;
+    expect(state.targetDraftEdits).toEqual({});
+    expect(state.workerErrors[0].worker_type).toBe("metadata-v5-load");
+    expect(
+      mock.invocations.some(
+        ({ cmd }) => cmd === "save_metadata_draft_edits_v5",
+      ),
+    ).toBe(false);
+
+    await act(async () => result.current[1].openRecent("/second"));
+    act(() => mock.emitScanComplete());
+    act(() =>
+      result.current[1].setNewPropertyDraft("new.jpg", testId("XMP-dc:Title"), {
+        intent: "Set",
+        value: { kind: "Text", value: "new folder" },
+      }),
+    );
+    expect(
+      mock.invocations.find(({ cmd }) => cmd === "save_metadata_draft_edits_v5")
+        ?.args?.folderPath,
+    ).toBe("/second");
+  });
+
+  it("uses the switched folder for target autosave and clears on close", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/first");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => result.current[1].openFolder());
+    act(() => mock.emitScanComplete());
+    const id = testId("XMP-dc:Title");
+    const edit = {
+      intent: "Set" as const,
+      value: { kind: "Text" as const, value: "value" },
+    };
+    act(() => result.current[1].setNewPropertyDraft("a.jpg", id, edit));
+    await act(async () => result.current[1].applyDraftEdits("a.jpg"));
+    await act(async () => result.current[1].openRecent("/second"));
+    act(() => mock.emitScanComplete());
+    act(() => result.current[1].setNewPropertyDraft("b.jpg", id, edit));
+    const saveFolders = mock.invocations
+      .filter(({ cmd }) => cmd === "save_metadata_draft_edits_v5")
+      .map(({ args }) => args?.folderPath);
+    expect(saveFolders).toEqual(["/first", "/second"]);
+    const loaded = result.current[0];
+    if (loaded.kind !== "loaded") return;
+    const store = loaded.targetDraftEditsStore;
+    act(() => result.current[1].closeFolder());
+    expect(store.getAllMetadata()).toEqual({});
+    expect(result.current[0].kind).toBe("idle");
   });
 });

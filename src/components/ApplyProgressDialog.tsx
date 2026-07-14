@@ -31,6 +31,11 @@ export function ApplyProgressDialog({ applying, onCancel }: Props) {
           <span className="dialog-title">
             {applying.cancelling ? "Cancelling…" : "Applying edits"}
           </span>
+          <span data-testid="apply-progress-phase">
+            {applying.phase === "target-v5"
+              ? "Target-aware metadata (v5)"
+              : "Legacy metadata (v4)"}
+          </span>
         </div>
         <div className="dialog-body">
           <RunningProgressPanel

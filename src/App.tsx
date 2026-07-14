@@ -169,6 +169,7 @@ function LoadedView({
     photos: sortedPhotos,
     imageMetadataStore: state.imageMetadata,
     draftEditsStore: state.draftEditsStore,
+    targetDraftEditsStore: state.targetDraftEditsStore,
     query: listSearchQuery,
     createWorker: createSearchWorker,
   });
@@ -231,19 +232,23 @@ function LoadedView({
       ? "No photos match your search."
       : null;
 
-  const draftEditsSummary = useMemo(() => {
-    if (!state.draftEdits) return null;
-    let filesCount = 0;
-    let editsCount = 0;
-    for (const edits of Object.values(state.draftEdits)) {
-      const keys = Object.keys(edits);
-      if (keys.length > 0) {
-        filesCount++;
-        editsCount += keys.length;
-      }
+  const draftCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const [path, edits] of Object.entries(state.draftEdits)) {
+      counts[path] = Object.keys(edits).length;
     }
-    return filesCount > 0 ? { files: filesCount, edits: editsCount } : null;
-  }, [state.draftEdits]);
+    for (const [path, edits] of Object.entries(state.targetDraftEdits)) {
+      counts[path] = (counts[path] ?? 0) + Object.keys(edits).length;
+    }
+    return counts;
+  }, [state.draftEdits, state.targetDraftEdits]);
+
+  const draftEditsSummary = useMemo(() => {
+    const entries = Object.values(draftCounts).filter((count) => count > 0);
+    return entries.length > 0
+      ? { files: entries.length, edits: entries.reduce((a, b) => a + b, 0) }
+      : null;
+  }, [draftCounts]);
 
   const columnDialogAllKeys = useMemo(() => {
     if (!showColumnDialog) return [];
@@ -323,6 +328,7 @@ function LoadedView({
         searchQuery={listSearchQuery}
         emptySearchMessage={emptySearchMessage}
         draftEdits={state.draftEdits}
+        draftCounts={draftCounts}
         onDiscardAllEdits={(paths) => actions.discardAllDraftEdits(paths)}
         onApplyEdits={(paths) => actions.applyDraftEdits(paths)}
         onGenerateAiDescription={(relPaths) => {
@@ -360,6 +366,7 @@ function LoadedView({
         onCopyPaths={onCopyPaths}
         onSelectionCountChange={setSelectionCount}
         onRemoveFieldFromSelectedPhotos={(id, relPaths) => {
+          // Temporary bridge boundary: bulk remove-field remains schema-v4.
           for (const relPath of relPaths) {
             const existing =
               state.draftEdits[relPath]?.[schemaDefinitionIdToken(id)]?.edit;
@@ -386,8 +393,16 @@ function LoadedView({
           typedDraftEdits={
             state.draftEdits[displayPhotos[state.galleryIndex].relative_path]
           }
+          targetDraftEdits={
+            state.targetDraftEdits[
+              displayPhotos[state.galleryIndex].relative_path
+            ]
+          }
           onSetMetadataDraft={actions.setMetadataDraft}
           onSetMetadataDraftBatch={actions.setMetadataDraftBatch}
+          onSetNewPropertyDraft={actions.setNewPropertyDraft}
+          onSetTargetPropertyDraft={actions.setTargetPropertyDraft}
+          onDiscardTargetPropertyDraft={actions.discardTargetPropertyDraft}
           onDiscardDraft={actions.discardDraftValue}
           onDiscardDraftBatch={actions.discardDraftValues}
           onDiscardAllEdits={actions.discardAllDraftEdits}
@@ -502,11 +517,8 @@ export default function App() {
   const [geocodeOverwrite, setGeocodeOverwrite] = useState<
     OverwriteCount | undefined
   >(undefined);
-  // Shared merge-into-drafts callback for every batch image job
-  // (describe, geocode, normalise). Each hook emits per-image typed
-  // edits via this callback; we funnel them through the media-library
-  // draft action so the UI re-renders immediately and the existing persistence
-  // pipeline picks them up.
+  // Temporary bridge boundary: AI description, geocode and normalise remain
+  // explicit schema-v4 producers. Each must migrate deliberately later.
   const mergeBatchEdits = useCallback(
     (relPath: string, edits: MetadataDraftEntry[]) => {
       if (edits.length > 0) actions.setMetadataDraftBatch(relPath, edits);

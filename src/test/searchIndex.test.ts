@@ -358,4 +358,19 @@ describe("SearchIndex", () => {
       expect(matchedSet(idx, "renamed")).toEqual(new Set(["p"]));
     });
   });
+
+  it("includes separately indexed target drafts in has:edits", () => {
+    const idx = new SearchIndex();
+    idx.setPhoto({
+      relative_path: "target.jpg",
+      filename: "target.jpg",
+      date_modified: null,
+      date_created: null,
+    });
+    expect(matchedSet(idx, "has:edits")).toEqual(new Set());
+    idx.setTargetDraftPresence("target.jpg", true);
+    expect(matchedSet(idx, "has:edits")).toEqual(new Set(["target.jpg"]));
+    idx.setTargetDraftPresence("target.jpg", false);
+    expect(matchedSet(idx, "has:edits")).toEqual(new Set());
+  });
 });

@@ -21,6 +21,7 @@ interface Props {
   selectedIndices: Set<number>;
   photos: PhotoInfo[];
   draftEdits: MetadataDraftEditsByFile;
+  draftCounts?: Record<string, number>;
   onPhotoOpen: (index: number) => void;
   onShowInExplorer: (index: number) => void;
   onCopyPaths?: (relativePaths: string[]) => void;
@@ -39,6 +40,7 @@ export function PhotoListContextMenu({
   selectedIndices,
   photos,
   draftEdits,
+  draftCounts = {},
   onPhotoOpen,
   onShowInExplorer,
   onCopyPaths,
@@ -55,10 +57,11 @@ export function PhotoListContextMenu({
     .map((i) => photos[i]?.relative_path)
     .filter((p): p is string => typeof p === "string");
   const editablePaths = selectedPaths.filter(
-    (p) => draftEdits[p] && Object.keys(draftEdits[p]).length > 0,
+    (p) => (draftCounts[p] ?? Object.keys(draftEdits[p] ?? {}).length) > 0,
   );
   const totalEdits = editablePaths.reduce(
-    (sum, p) => sum + Object.keys(draftEdits[p] ?? {}).length,
+    (sum, p) =>
+      sum + (draftCounts[p] ?? Object.keys(draftEdits[p] ?? {}).length),
     0,
   );
   const count = selectedPaths.length;

@@ -7,7 +7,9 @@ import type {
   ImageMetadataOccurrencesState,
   MetadataDraftCollection,
   MetadataValue,
+  MetadataDraftTarget,
 } from "../types";
+import type { TargetDraftCollection } from "../targetDraftEdits";
 import { HighlightedText } from "./HighlightedText";
 import { ContextMenu } from "./ContextMenu";
 import { TypedValueEditor } from "./editors/TypedValueEditor";
@@ -61,6 +63,10 @@ import {
   buildSchemaOccurrenceResolutionIndex,
   resolutionForSchema,
 } from "../utils/metadataOccurrences";
+import {
+  resolveTargetDraftByExactSchema,
+  targetDraftSchemas,
+} from "../targetDraftView";
 
 interface Props {
   photo: PhotoInfo;
@@ -75,6 +81,8 @@ interface Props {
   draftEdits?: Record<string, string | null>;
   /** Semantic draft edits, keyed by metadata tag. Primary write path. */
   typedDraftEdits?: MetadataDraftCollection;
+  /** Narrow, exact-target view used only by the migrated Add Property slice. */
+  targetDraftEdits?: TargetDraftCollection;
   /** Semantic setter used by every editor via the local adapter. */
   onSetMetadataDraft?: (
     id: SchemaDefinitionId,
@@ -84,6 +92,15 @@ interface Props {
   onSetMetadataDraftBatch: (
     edits: Array<{ id: SchemaDefinitionId; edit: MetadataDraftEdit }>,
   ) => void;
+  onSetNewPropertyDraft?: (
+    id: SchemaDefinitionId,
+    edit: MetadataDraftEdit,
+  ) => void;
+  onSetTargetPropertyDraft?: (
+    target: MetadataDraftTarget,
+    edit: MetadataDraftEdit,
+  ) => void;
+  onDiscardTargetPropertyDraft?: (target: MetadataDraftTarget) => void;
   onDiscardDraft?: (id: SchemaDefinitionId) => void;
   onDiscardDraftBatch: (ids: SchemaDefinitionId[]) => void;
   onDiscardAllEdits?: () => void;
@@ -684,8 +701,12 @@ export function DetailsPane({
   occurrences,
   draftEdits: displayDraftEdits,
   typedDraftEdits,
+  targetDraftEdits,
   onSetMetadataDraft,
   onSetMetadataDraftBatch,
+  onSetNewPropertyDraft,
+  onSetTargetPropertyDraft,
+  onDiscardTargetPropertyDraft,
   onDiscardDraft,
   onDiscardDraftBatch,
   onDiscardAllEdits,
@@ -725,6 +746,44 @@ export function DetailsPane({
         : buildSchemaOccurrenceResolutionIndex(occurrences),
     [occurrences],
   );
+  const targetSchemaResolutions = useMemo(() => {
+    const resolutions = new Map<
+      string,
+      ReturnType<typeof resolveTargetDraftByExactSchema>
+    >();
+    for (const id of targetDraftSchemas(targetDraftEdits)) {
+      resolutions.set(
+        schemaDefinitionIdToken(id),
+        resolveTargetDraftByExactSchema(targetDraftEdits, id),
+      );
+    }
+    return resolutions;
+  }, [targetDraftEdits]);
+  const uniqueTargetDrafts = useMemo(
+    () =>
+      Array.from(targetSchemaResolutions.entries()).flatMap(
+        ([token, resolution]) =>
+          resolution.kind === "unique"
+            ? [[token, resolution.entry] as const]
+            : [],
+      ),
+    [targetSchemaResolutions],
+  );
+  const ambiguousTargetDrafts = useMemo(
+    () =>
+      Array.from(targetSchemaResolutions.entries()).filter(
+        (
+          entry,
+        ): entry is [
+          string,
+          Extract<
+            ReturnType<typeof resolveTargetDraftByExactSchema>,
+            { kind: "ambiguous" }
+          >,
+        ] => entry[1].kind === "ambiguous",
+      ),
+    [targetSchemaResolutions],
+  );
   const authoritativeBaseMetadata = useMemo(
     () =>
       metadata === "loading"
@@ -732,30 +791,54 @@ export function DetailsPane({
         : overlayUniqueOccurrenceValues(metadata, occurrenceResolutionIndex),
     [metadata, occurrenceResolutionIndex],
   );
-  const effectiveMetadata = useMemo(
-    () =>
-      authoritativeBaseMetadata === undefined
-        ? undefined
-        : buildEffectiveMetadata(authoritativeBaseMetadata, typedDraftEdits),
-    [authoritativeBaseMetadata, typedDraftEdits],
-  );
+  const effectiveMetadata = useMemo(() => {
+    if (authoritativeBaseMetadata === undefined) return undefined;
+    const effective = buildEffectiveMetadata(
+      authoritativeBaseMetadata,
+      typedDraftEdits,
+    );
+    for (const [token, entry] of uniqueTargetDrafts) {
+      if (entry.edit.intent === "Set" && entry.edit.value) {
+        effective[token] = {
+          ...entry.edit.value,
+          id: entry.target.schema_id,
+        } as ImageMetadataEntry;
+      } else if (entry.edit.intent === "Delete") {
+        delete effective[token];
+      }
+    }
+    return effective;
+  }, [authoritativeBaseMetadata, typedDraftEdits, uniqueTargetDrafts]);
   const resolvedGps = useMemo(() => {
     if (metadata === "loading") return { lat: null, lon: null };
     return resolveGps(typedDraftEdits, metadata);
   }, [typedDraftEdits, metadata]);
 
+  const legacyDraftEdits = useMemo(
+    () =>
+      displayDraftEdits
+        ? { ...displayDraftEdits }
+        : Object.fromEntries(
+            Object.entries(typedDraftEdits ?? {})
+              .map(
+                ([key, entry]) =>
+                  [key, displayStringOfDraft(entry.edit)] as const,
+              )
+              .filter(
+                (entry): entry is readonly [string, string | null] =>
+                  entry[1] !== undefined,
+              ),
+          ),
+    [displayDraftEdits, typedDraftEdits],
+  );
   const draftEdits = useMemo(() => {
-    if (displayDraftEdits) return displayDraftEdits;
-    if (!typedDraftEdits) return {};
-    return Object.fromEntries(
-      Object.entries(typedDraftEdits)
-        .map(([key, entry]) => [key, displayStringOfDraft(entry.edit)] as const)
-        .filter(
-          (entry): entry is readonly [string, string | null] =>
-            entry[1] !== undefined,
-        ),
-    );
-  }, [displayDraftEdits, typedDraftEdits]);
+    const combined = { ...legacyDraftEdits };
+    for (const [token, entry] of uniqueTargetDrafts) {
+      const display = displayStringOfDraft(entry.edit);
+      if (display !== undefined) combined[token] = display;
+    }
+    return combined;
+  }, [legacyDraftEdits, uniqueTargetDrafts]);
 
   const handleContextMenu = (
     e: React.MouseEvent,
@@ -798,8 +881,16 @@ export function DetailsPane({
         }
       }
     }
+    for (const [, entry] of uniqueTargetDrafts) {
+      if (entry.edit.intent !== "Delete") ids.push(entry.target.schema_id);
+    }
     return ids;
-  }, [metadata, typedDraftEdits, occurrenceResolutionIndex]);
+  }, [
+    metadata,
+    typedDraftEdits,
+    occurrenceResolutionIndex,
+    uniqueTargetDrafts,
+  ]);
   const schemaLookupIds = useMemo(
     () =>
       displayIds.filter(
@@ -847,8 +938,25 @@ export function DetailsPane({
         }
       }
     }
+    for (const [token, entry] of uniqueTargetDrafts) {
+      if (
+        metadataGet(metadata, entry.target.schema_id) === undefined &&
+        entry.edit.intent !== "Delete"
+      ) {
+        combinedMetadata[token] = {
+          kind: "Null",
+          id: entry.target.schema_id,
+        };
+      }
+    }
     return groupImageMetadata(combinedMetadata, displayTagInfos);
-  }, [metadata, typedDraftEdits, displayTagInfos, occurrenceResolutionIndex]);
+  }, [
+    metadata,
+    typedDraftEdits,
+    displayTagInfos,
+    occurrenceResolutionIndex,
+    uniqueTargetDrafts,
+  ]);
 
   const editDialogResolution = editDialog
     ? resolutionForSchema(occurrenceResolutionIndex, editDialog.id)
@@ -1150,6 +1258,9 @@ export function DetailsPane({
                           occurrenceResolutionIndex,
                           entry.id,
                         );
+                        const targetResolution = targetSchemaResolutions.get(
+                          entry.identityToken,
+                        );
                         return (
                           <DetailsImageRow
                             key={entry.identityToken}
@@ -1161,7 +1272,9 @@ export function DetailsPane({
                             }
                             draftValue={draftEdits[entry.identityToken]}
                             typedDraft={
-                              typedDraftEdits?.[entry.identityToken]?.edit
+                              targetResolution?.kind === "unique"
+                                ? targetResolution.entry.edit
+                                : typedDraftEdits?.[entry.identityToken]?.edit
                             }
                             occurrenceResolution={occurrenceResolution}
                             searchQuery={detailsSearch}
@@ -1180,6 +1293,21 @@ export function DetailsPane({
                   </table>
                 </section>
               ))
+            )}
+            {ambiguousTargetDrafts.length > 0 && (
+              <section
+                className="details-section"
+                data-testid="details-target-drafts-ambiguous"
+              >
+                <h3 className="details-section-header">
+                  Ambiguous staged properties
+                </h3>
+                <p className="details-section-subtitle">
+                  Multiple target-aware occurrences share the same exact schema.
+                  Apply or discard them individually before editing this
+                  property; no occurrence was selected automatically.
+                </p>
+              </section>
             )}
             {filteredOccurrenceEntries.length > 0 && (
               <section
@@ -1283,14 +1411,30 @@ export function DetailsPane({
             setContextMenu(null);
           }}
           onDiscard={() => {
-            onDiscardDraft?.(contextMenu.id);
+            const targetResolution = resolveTargetDraftByExactSchema(
+              targetDraftEdits,
+              contextMenu.id,
+            );
+            if (targetResolution.kind === "unique") {
+              onDiscardTargetPropertyDraft?.(targetResolution.entry.target);
+            } else if (targetResolution.kind === "missing") {
+              onDiscardDraft?.(contextMenu.id);
+            }
             setContextMenu(null);
           }}
           onRemove={() => {
             const existsInOriginal =
               metadata !== "loading" &&
               metadataGet(metadata, contextMenu.id) !== undefined;
-            if (existsInOriginal) {
+            const targetResolution = resolveTargetDraftByExactSchema(
+              targetDraftEdits,
+              contextMenu.id,
+            );
+            if (targetResolution.kind === "unique") {
+              onDiscardTargetPropertyDraft?.(targetResolution.entry.target);
+            } else if (targetResolution.kind === "ambiguous") {
+              // The explicit ambiguity panel is the only safe presentation.
+            } else if (existsInOriginal) {
               onSetMetadataDraft?.(contextMenu.id, {
                 value: null,
                 intent: "Delete",
@@ -1313,7 +1457,7 @@ export function DetailsPane({
             entries: fullGroupForMenu.entries,
           }}
           originalMetadata={metadata !== "loading" ? metadata : undefined}
-          draftEdits={draftEdits}
+          draftEdits={legacyDraftEdits}
           occurrenceResolutionIndex={occurrenceResolutionIndex}
           onSetMetadataDraftBatch={onSetMetadataDraftBatch}
           onDiscardDraftBatch={onDiscardDraftBatch}
@@ -1333,7 +1477,15 @@ export function DetailsPane({
             setEditDialog(null);
           }}
           onSaveMetadata={(edit) => {
-            onSetMetadataDraft?.(editDialog.id, edit);
+            const targetResolution = resolveTargetDraftByExactSchema(
+              targetDraftEdits,
+              editDialog.id,
+            );
+            if (targetResolution.kind === "unique") {
+              onSetTargetPropertyDraft?.(targetResolution.entry.target, edit);
+            } else if (targetResolution.kind === "missing") {
+              onSetMetadataDraft?.(editDialog.id, edit);
+            }
             setEditDialog(null);
           }}
           onCancel={() => setEditDialog(null)}
@@ -1359,11 +1511,13 @@ export function DetailsPane({
           initialMetadataValue={undefined}
           metadataForFile={effectiveMetadata}
           onSaveMetadataBatch={(edits) => {
-            onSetMetadataDraftBatch(edits);
+            for (const { id, edit } of edits) {
+              onSetNewPropertyDraft?.(id, edit);
+            }
             setNewPropertyKey(null);
           }}
           onSaveMetadata={(edit) => {
-            onSetMetadataDraft?.(newPropertyKey, edit);
+            onSetNewPropertyDraft?.(newPropertyKey, edit);
             setNewPropertyKey(null);
           }}
           onCancel={() => setNewPropertyKey(null)}

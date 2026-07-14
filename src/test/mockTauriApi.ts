@@ -13,12 +13,19 @@ import type {
   MetadataEntry,
   MetadataOccurrences,
   MetadataValue,
+  MetadataDraftEntryV5,
 } from "../types";
 import { metadataDraftsFromWire, metadataDraftsToWire } from "../types";
+import {
+  targetDraftsFromWire,
+  targetDraftsToWire,
+  type TargetDraftEditsByFile,
+} from "../targetDraftEdits";
 import { testFriendlyName, testId } from "./testIds";
 type EventHandler = (payload: unknown) => void;
 
 type MockDraftEditsByFolder = Record<string, MetadataDraftEditsByFile>;
+type MockTargetDraftEditsByFolder = Record<string, TargetDraftEditsByFile>;
 
 export interface MockApplyEditsProgressGate {
   advance: () => void;
@@ -54,6 +61,7 @@ export interface MockTauriApi {
   api: TauriApi;
   pickFolderResolves: (path: string | null) => void;
   draftEditsByFolder: MockDraftEditsByFolder;
+  targetDraftEditsByFolder: MockTargetDraftEditsByFolder;
   emitPhotoFound: (photo: PhotoInfo, scanId?: number) => void;
   emitScanComplete: (scanId?: number) => void;
   emitImageMetadataReady: (
@@ -92,6 +100,7 @@ export interface MockTauriApi {
   }>;
   warningsByPath: Record<string, string>;
   cancelApplyEditsCalled: boolean;
+  cancelTargetApplyCalled: boolean;
   /** Stored settings; defaults to empty API key + gpt-4o + heuristic estimates. */
   settings: {
     openai_api_key: string;
@@ -259,6 +268,7 @@ export function createMockTauriApi(): MockTauriApi {
         affected_files,
       } satisfies WorkerErrorPayload),
     draftEditsByFolder: {},
+    targetDraftEditsByFolder: {},
     lastPrioritizedPaths: [],
     lastWindowTitle: null,
     invocations: [],
@@ -268,6 +278,7 @@ export function createMockTauriApi(): MockTauriApi {
     applyProgressEvents: [],
     warningsByPath: {},
     cancelApplyEditsCalled: false,
+    cancelTargetApplyCalled: false,
     settings: {
       openai_api_key: "",
       openai_model: "gpt-4o",
@@ -365,6 +376,17 @@ export function createMockTauriApi(): MockTauriApi {
         );
         return;
       }
+      if (cmd === "load_metadata_draft_edits_v5") {
+        const folder = args?.folderPath as string;
+        return targetDraftsToWire(mock.targetDraftEditsByFolder[folder] || {});
+      }
+      if (cmd === "save_metadata_draft_edits_v5") {
+        const folder = args?.folderPath as string;
+        mock.targetDraftEditsByFolder[folder] = targetDraftsFromWire(
+          args?.data as Record<string, MetadataDraftEntryV5[]>,
+        );
+        return;
+      }
       if (cmd === "get_tag_info") {
         // Tests don't exercise schema-driven editors; return null so
         // TypedValueEditor falls through to the plain text editor.
@@ -438,6 +460,43 @@ export function createMockTauriApi(): MockTauriApi {
       }
       if (cmd === "cancel_apply_edits") {
         mock.cancelApplyEditsCalled = true;
+        return;
+      }
+      if (cmd === "apply_metadata_draft_edits_v5_cmd") {
+        const relPaths = (args?.relPaths as string[]) ?? [];
+        const folder = args?.folderPath as string;
+        await Promise.resolve();
+        emit("apply_edits_v5_started", { total: relPaths.length });
+        const files = relPaths.map((relative_path, index) => {
+          const result = {
+            relative_path,
+            applied: true,
+            error: null,
+            warning: null,
+            fresh_image_metadata: null,
+            target_outcomes: [],
+            persisted_draft_entries: [],
+          };
+          emit("apply_metadata_edits_v5_progress", {
+            current: index + 1,
+            total: relPaths.length,
+            result,
+          });
+          return result;
+        });
+        const existing = mock.targetDraftEditsByFolder[folder] ?? {};
+        mock.targetDraftEditsByFolder[folder] = Object.fromEntries(
+          Object.entries(existing).filter(([path]) => !relPaths.includes(path)),
+        );
+        return {
+          files,
+          cancelled: mock.cancelTargetApplyCalled,
+          aborted: false,
+          abort_reason: null,
+        };
+      }
+      if (cmd === "cancel_apply_edits_v5") {
+        mock.cancelTargetApplyCalled = true;
         return;
       }
       if (cmd === "preload_schema") {

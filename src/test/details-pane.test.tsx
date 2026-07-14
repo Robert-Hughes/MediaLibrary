@@ -20,6 +20,7 @@ import {
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { DetailsPane } from "../components/DetailsPane";
+import { TargetDraftEditsStore } from "../targetDraftEdits";
 
 import {
   groupImageMetadata as exactGroupImageMetadata,
@@ -577,6 +578,7 @@ describe("DetailsPane: Add-Property two-step flow", () => {
         description: null,
       },
     ]);
+    const onSetNewPropertyDraft = vi.fn();
     const onSetMetadataDraft = vi.fn();
 
     render(
@@ -586,6 +588,7 @@ describe("DetailsPane: Add-Property two-step flow", () => {
         photo={photo}
         metadata={{}}
         onSetMetadataDraft={onSetMetadataDraft}
+        onSetNewPropertyDraft={onSetNewPropertyDraft}
       />,
     );
 
@@ -609,8 +612,9 @@ describe("DetailsPane: Add-Property two-step flow", () => {
     fireEvent.keyDown(chipInput, { key: "Enter" });
     await user.click(screen.getByTestId("bag-editor-save"));
 
-    expect(onSetMetadataDraft).toHaveBeenCalledTimes(1);
-    const [idArg, editArg] = onSetMetadataDraft.mock.calls[0] as [
+    expect(onSetMetadataDraft).not.toHaveBeenCalled();
+    expect(onSetNewPropertyDraft).toHaveBeenCalledTimes(1);
+    const [idArg, editArg] = onSetNewPropertyDraft.mock.calls[0] as [
       SchemaDefinitionId,
       MetadataDraftEdit,
     ];
@@ -645,6 +649,7 @@ describe("DetailsPane: Add-Property two-step flow", () => {
       },
     ]);
     const onSetMetadataDraft = vi.fn();
+    const onSetNewPropertyDraft = vi.fn();
 
     render(
       <DetailsPane
@@ -653,6 +658,7 @@ describe("DetailsPane: Add-Property two-step flow", () => {
         photo={photo}
         metadata={{}}
         onSetMetadataDraft={onSetMetadataDraft}
+        onSetNewPropertyDraft={onSetNewPropertyDraft}
       />,
     );
 
@@ -673,7 +679,7 @@ describe("DetailsPane: Add-Property two-step flow", () => {
     expect(radios.length).toBeGreaterThanOrEqual(2);
   });
 
-  it("cancelling stage 2 closes the flow without calling onSetMetadataDraft", async () => {
+  it("cancelling stage 2 closes the flow without creating either draft kind", async () => {
     const user = userEvent.setup();
     _setTagInfoCacheEntry("XMP-dc:Title", {
       group: "XMP-dc",
@@ -693,6 +699,7 @@ describe("DetailsPane: Add-Property two-step flow", () => {
       },
     ]);
     const onSetMetadataDraft = vi.fn();
+    const onSetNewPropertyDraft = vi.fn();
 
     render(
       <DetailsPane
@@ -701,6 +708,7 @@ describe("DetailsPane: Add-Property two-step flow", () => {
         photo={photo}
         metadata={{}}
         onSetMetadataDraft={onSetMetadataDraft}
+        onSetNewPropertyDraft={onSetNewPropertyDraft}
       />,
     );
 
@@ -717,7 +725,111 @@ describe("DetailsPane: Add-Property two-step flow", () => {
     // Stage 2 should be a ValueEditDialog for Text — cancel it.
     await user.click(screen.getByText("Cancel"));
     expect(onSetMetadataDraft).not.toHaveBeenCalled();
+    expect(onSetNewPropertyDraft).not.toHaveBeenCalled();
     expect(screen.queryByTestId("value-edit-input")).toBeNull();
+  });
+});
+
+describe("DetailsPane: target-aware Add Property drafts", () => {
+  const photo = makePhoto({ relative_path: "target.jpg" });
+  const id = testId("XMP-dc:Subject");
+  const target = {
+    kind: "ExistingOccurrence" as const,
+    occurrence_id: {
+      document: null,
+      path: "JPEG-APP1-XMP",
+      tag_id: "subject",
+      copy: 0,
+    },
+    schema_id: id,
+    write_target: { group1: "XMP-dc", tag_name: "Subject" },
+  };
+
+  beforeEach(() => {
+    cleanup();
+    _clearTagInfoCache();
+    _setTagInfoCacheEntry("XMP-dc:Subject", {
+      group: "XMP-dc",
+      name: "Subject",
+      writable: true,
+      kind: { kind: "Text" },
+      description: null,
+    });
+  });
+
+  it("displays, edits and discards a reconciled draft through its exact target", async () => {
+    const user = userEvent.setup();
+    const store = new TargetDraftEditsStore();
+    store.setMetadataTarget("target.jpg", target, {
+      intent: "Set",
+      value: { kind: "Text", value: "reconciled value" },
+    });
+    const onSetTargetPropertyDraft = vi.fn();
+    const onDiscardTargetPropertyDraft = vi.fn();
+    render(
+      <DetailsPane
+        photo={photo}
+        metadata={{}}
+        targetDraftEdits={store.getMetadataFile("target.jpg")}
+        onSetMetadataDraft={vi.fn()}
+        onSetMetadataDraftBatch={vi.fn()}
+        onDiscardDraftBatch={vi.fn()}
+        onSetTargetPropertyDraft={onSetTargetPropertyDraft}
+        onDiscardTargetPropertyDraft={onDiscardTargetPropertyDraft}
+      />,
+    );
+
+    expect(screen.getByText("reconciled value")).toBeInTheDocument();
+    const row = screen.getByText("reconciled value").closest("tr")!;
+    fireEvent.contextMenu(row);
+    await user.click(screen.getByText("Edit…"));
+    const input = screen.getByTestId("value-edit-input");
+    expect(input).toHaveValue("reconciled value");
+    await user.clear(input);
+    await user.type(input, "updated");
+    await user.click(screen.getByText("Save"));
+    expect(onSetTargetPropertyDraft).toHaveBeenCalledWith(
+      target,
+      expect.objectContaining({
+        intent: "Set",
+        value: { kind: "Text", value: "updated" },
+      }),
+    );
+
+    fireEvent.contextMenu(row);
+    await user.click(screen.getByText("Discard edit"));
+    expect(onDiscardTargetPropertyDraft).toHaveBeenCalledWith(target);
+  });
+
+  it("never first-selects multiple existing targets sharing one schema", () => {
+    const store = new TargetDraftEditsStore();
+    store.setMetadataTarget("target.jpg", target, {
+      intent: "Set",
+      value: { kind: "Text", value: "first" },
+    });
+    store.setMetadataTarget(
+      "target.jpg",
+      {
+        ...target,
+        occurrence_id: { ...target.occurrence_id, copy: 1 },
+        write_target: { group1: "XMP-dc", tag_name: "Subject-2" },
+      },
+      { intent: "Set", value: { kind: "Text", value: "second" } },
+    );
+    render(
+      <DetailsPane
+        photo={photo}
+        metadata={{}}
+        targetDraftEdits={store.getMetadataFile("target.jpg")}
+        onSetMetadataDraftBatch={vi.fn()}
+        onDiscardDraftBatch={vi.fn()}
+      />,
+    );
+    expect(
+      screen.getByTestId("details-target-drafts-ambiguous"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("first")).not.toBeInTheDocument();
+    expect(screen.queryByText("second")).not.toBeInTheDocument();
   });
 });
 
