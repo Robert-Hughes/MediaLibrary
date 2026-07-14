@@ -495,6 +495,24 @@ reconciliations, authoritative occurrences, compatibility metadata, and
 persisted draft entries. It also rechecks that `Replace` changes a
 `NewProperty` into an `ExistingOccurrence` with exactly the same schema identity.
 
+Strict frontend v5 `ImageMetadata` validation also enforces collection
+identity. Every authoritative occurrence must have a unique exact
+`MetadataOccurrenceId` (`document`, complete path, tag ID, and copy), while
+every compatibility entry must have a unique exact `SchemaDefinitionId`
+(`table`, tag ID, and optional index). An absent schema index and index zero are
+different identities. A repeated exact occurrence or schema identity
+invalidates the complete file result or progress event; the adapter never
+deduplicates the array or chooses a first entry. Distinct IFD0 and IFD1
+occurrences, copy numbers, or document values remain valid even when they
+share one schema.
+
+This strict apply-result policy is intentionally different from ordinary scan
+event normalization. Scan normalization is lossy: it may drop malformed or
+duplicate exact occurrences, retain valid siblings, sort them, warn, and
+continue. Apply command results and progress events are authoritative protocol
+objects and reject the complete containing result instead. The final command
+result remains authoritative when progress delivery is absent.
+
 Listener registration is intentionally separate from invocation. Progress
 events are supplemental immediate updates and can be absent because backend
 event emission is non-fatal; the final command result is authoritative for the

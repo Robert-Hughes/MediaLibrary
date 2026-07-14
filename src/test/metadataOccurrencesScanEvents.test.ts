@@ -151,12 +151,24 @@ describe("normalizeMetadataOccurrencesFromTauri", () => {
     warn.mockRestore();
   });
 
-  it("retains the first occurrence when an ID is duplicated", () => {
+  it("drops one duplicate, keeps siblings sorted, warns once, and preserves input", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const first = occurrence({ value: { kind: "Text", value: "first" } });
     const second = occurrence({ value: { kind: "Text", value: "second" } });
-    expect(normalizeMetadataOccurrencesFromTauri([first, second])).toEqual([
+    const sibling = occurrence({ id: id({ copy: 1 }) });
+    const input = [sibling, first, second];
+    const before = structuredClone(input);
+
+    expect(normalizeMetadataOccurrencesFromTauri(input)).toEqual([
       first,
+      sibling,
     ]);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(
+      "[metadata] Dropped 1 invalid occurrence value(s)",
+    );
+    expect(input).toEqual(before);
+    warn.mockRestore();
   });
 
   it("sorts by document, path, tag ID, and copy without using tokens", () => {
