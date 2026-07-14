@@ -659,6 +659,24 @@ being guessed from friendly strings.
 
 ## 9. Glossary
 
+### Inactive schema-v5 batch transport
+
+The registered but frontend-inactive v5 command strictly loads one v5 map,
+rejects duplicate requested paths before writing, applies selected files in
+request order, reconciles every complete target outcome vector, saves only
+changed complete candidates, emits versioned progress, and checks cancellation
+at the next file boundary. No-outcome hard failures do not alter drafts;
+semantic errors do not suppress valid reconciliation; and reconciliation or
+persistence failures abort later files. Candidate state is adopted only after
+save succeeds.
+
+Its progress result preserves full `ImageMetadata` (authoritative occurrences
+plus compatibility metadata), complete targets and reconciliation decisions.
+`persisted_draft_entries` is null for no successful map change, empty when the
+file key was removed, and non-empty for exact retained/replaced entries. There
+is no frontend caller/listener, production state/event switch, or target-aware
+log entry. Production remains schema-v4.
+
 - **MetadataValue** — Discriminated semantic value model used inside the app for read metadata, draft edits, writes, verification, and apply logs.
 - **SchemaDefinitionId** — Exact ExifTool definition identity: `{table, tag_id, index?}` from `-listx`. It remains the key for current schema-keyed v4 drafts and their production paths. It is distinct from runtime occurrence identity and exact write targeting. `Group1:Name` is display/search text only.
 - **MetadataDraftTarget** — Locked future target union: an existing occurrence carries runtime occurrence, semantic schema, and exact selector snapshot; a new property carries only the selected schema. No production draft or apply path consumes it yet.

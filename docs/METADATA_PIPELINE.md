@@ -353,3 +353,24 @@ Examples: sorting in `src/utils/sorting.ts`, backend persistence and verificatio
 Pre-write warnings sometimes need to know whether a value exists in metadata or drafts. This is an OR-exist union (`inMeta || inDraft`), not resolve semantics.
 
 Before adding a metadata read, choose the pattern explicitly. In display contexts, raw `metadata[key]` is rarely enough if pending edits should be visible.
+
+## Inactive versioned v5 batch apply
+
+The backend now contains an inactive `apply_metadata_draft_edits_v5_cmd` with
+no frontend caller or listener. It performs `load v5 map once → apply selected
+file → reconcile complete target outcomes → save changed candidate map → emit
+versioned progress → continue at file boundary`. Loading is strict; malformed,
+v4, and unreadable draft files are errors rather than empty maps. Duplicate
+requested paths reject before any event, write, or save, while absent and empty
+paths are skipped without changing requested order.
+
+Cancellation occurs only between files. A single-file hard failure with no
+outcomes leaves drafts unchanged. Non-empty structured reconciliation is still
+applied when semantic verification reports an error. Semantically unchanged
+maps are not saved; a changed candidate becomes current only after a successful
+complete-map save. Reconciliation and persistence failures emit progress for
+the affected file and abort later files. Versioned progress carries complete
+target outcomes, full authoritative occurrences, compatibility metadata, and
+`persisted_draft_entries` as null/empty/non-empty for unchanged/removed/retained
+state. V5 cancellation and events are isolated from v4. Target-aware logging is
+still pending, and production persistence, apply, events, and UI remain v4.

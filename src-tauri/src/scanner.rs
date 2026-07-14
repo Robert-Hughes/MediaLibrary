@@ -94,7 +94,7 @@ pub struct WalkErrorInfo {
 }
 
 /// Image-level metadata for a single photo read by the backend scanner.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
 pub struct ImageMetadata {
