@@ -605,8 +605,9 @@ command settles.
 
 `useMediaLibrary` owns one controller, target store, and autosave gate for its
 lifetime, and loaded `AppState` exposes the distinct target snapshot and apply
-state. Only Add New Property uses this path; verification and the remaining
-draft producers remain schema v4.
+state. Only Add New Property uses this draft path; its target-aware verification
+is active while the remaining draft producers and their verification remain
+schema v4.
 
 ## Production schema-v5 activation: Add New Property
 
@@ -626,7 +627,8 @@ schema-to-occurrence inference or v4-file conversion was introduced. A file and
 exact schema cannot be owned by both systems: creation and combined apply reject
 the collision without deleting or converting either draft. The narrow Add
 Property view also refuses to first-select when multiple target-aware existing
-occurrences share one schema; target-aware verification UI remains pending.
+occurrences share one schema; target-aware verification acts only through the
+complete persisted target selected by reconciliation.
 
 The target store also enforces exact schema ownership for Add Property. With no
 target-aware entry, Add Property creates one `NewProperty` slot. One existing
@@ -659,3 +661,28 @@ that file's occurrence collection unavailable because v4 cannot transport a
 complete authoritative collection. In a mixed same-file v5-then-v4 apply, the
 final UI therefore shows fresh v4 compatibility metadata and never treats the
 pre-v4 v5 occurrences as current.
+
+## Production target-aware verification
+
+Schema-v5 Add Property results now produce session-only verification state.
+Identity is the relative path plus
+`metadataDraftTargetSlotToken(currentTarget)`, while each value retains the
+complete original and current target snapshots. `Clear` creates no pending
+diagnostic. `Keep` and `Blocked` act through the original target; `Replace`
+acts through the exact persisted replacement `ExistingOccurrence`, preserving
+occurrence ID, schema ID, and runtime write selector. Before storage, the
+current slot must exist in the authoritative persisted draft snapshot and its
+complete target must compare equal.
+
+Progress results are supplemental; every completed file in the final command
+result authoritatively replaces that file's verification collection in final
+order. Exact repetition is a no-op. Users may accept the current file state by
+removing the exact pending target draft, keep the draft while dismissing only
+the diagnostic, or discard the exact draft and diagnostic. Blocked targets are
+never repaired or schema-resolved automatically. Draft changes prune only
+verification entries whose complete current target has disappeared or changed.
+
+This state is not persisted and remains separate from schema-v4 verification.
+The target dialog takes precedence while it has entries; the v4 dialog may
+appear after it empties. Ordinary existing-row editing remains v4 for the next
+migration slice.

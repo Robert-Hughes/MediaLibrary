@@ -15,7 +15,8 @@
 //!
 //! Production loading rejects older v1/v2/v3 lines with a clear error. Old
 //! drafts must be recreated so semantic values are never reconstructed from
-//! display strings. Production saving always writes v4.
+//! display strings. Legacy producers save v4 here; production Add Property
+//! saves target-aware v5 independently in `MediaLibraryTargetDraftEdits.jsonl`.
 
 use crate::metadata_draft_target::{MetadataDraftSlot, MetadataDraftTarget};
 use crate::metadata_value::MetadataValue;

@@ -18,6 +18,8 @@ import type {
   TargetDraftEditsStore,
 } from "./targetDraftEdits";
 import type { TargetApplyControllerStateV5 } from "./targetApplyController";
+import type { TargetVerifyOutcomesByFileV5 } from "./targetVerifyOutcomes";
+import type { TargetVerifyOutcomesStoreV5 } from "./targetVerifyOutcomesStore";
 
 export type { PhotoInfo };
 export type { MetadataValue } from "./types/generated/MetadataValue";
@@ -787,6 +789,8 @@ export type AppState =
        * VerifyOutcomeDialog renders while this is non-empty.
        */
       verifyOutcomes: Record<string, TagOutcomeEntry[]>;
+      targetVerifyOutcomes: TargetVerifyOutcomesByFileV5;
+      targetVerifyOutcomesStore: TargetVerifyOutcomesStoreV5;
     };
 
 export interface ApplyEditsInFlight {

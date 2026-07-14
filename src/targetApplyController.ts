@@ -55,6 +55,7 @@ export type TargetApplyControllerStateV5 =
       cancelling: boolean;
       protocolErrorCount: number;
       progressApplicationErrorCount: number;
+      fileFailureCount: number;
     };
 
 export interface TargetApplyControllerCallbacksV5 {
@@ -67,6 +68,8 @@ export interface TargetApplyControllerCallbacksV5 {
   onProgressApplicationError?: (
     error: TargetApplyControllerApplicationErrorV5,
   ) => void;
+  onFileError?: (relativePath: string, error: string) => void;
+  onFileWarning?: (relativePath: string, warning: string) => void;
   onFinalApplied?: (
     result: MetadataApplyEditsResultV5,
     application: TargetApplyResultApplicationV5,
@@ -96,7 +99,9 @@ function statesEqual(
     left.currentFile === right.currentFile &&
     left.cancelling === right.cancelling &&
     left.protocolErrorCount === right.protocolErrorCount &&
-    left.progressApplicationErrorCount === right.progressApplicationErrorCount
+    left.progressApplicationErrorCount ===
+      right.progressApplicationErrorCount &&
+    left.fileFailureCount === right.fileFailureCount
   );
 }
 
@@ -153,6 +158,9 @@ export class TargetApplyControllerV5 {
     const protocolErrors: TargetApplyControllerProtocolErrorV5[] = [];
     const progressApplicationErrors: TargetApplyControllerApplicationErrorV5[] =
       [];
+    const progressFailedFiles = new Set<string>();
+    const presentedFileErrors = new Set<string>();
+    const presentedFileWarnings = new Set<string>();
     let acceptEvents = true;
     let acceptProgress = true;
     let suspension: ReturnType<TargetDraftAutosaveGateV5["trySuspend"]> | null =
@@ -174,6 +182,7 @@ export class TargetApplyControllerV5 {
         cancelling: false,
         protocolErrorCount: 0,
         progressApplicationErrorCount: 0,
+        fileFailureCount: 0,
       });
 
       cleanup = await subscribeTargetApplyV5Events(this.dependencies.api, {
@@ -214,11 +223,20 @@ export class TargetApplyControllerV5 {
             return;
           }
 
+          if (application.error !== null) {
+            progressFailedFiles.add(application.relativePath);
+          }
           this.updateRunningState({
             current: payload.current,
             total: payload.total,
             currentFile: payload.result.relative_path,
+            fileFailureCount: progressFailedFiles.size,
           });
+          this.presentFileDiagnostics(
+            application,
+            presentedFileErrors,
+            presentedFileWarnings,
+          );
           this.callSafely("onProgress", () =>
             this.callbacks.onProgress?.(payload, application),
           );
@@ -251,6 +269,13 @@ export class TargetApplyControllerV5 {
         commandResult,
         this.dependencies.stores,
       );
+      for (const file of application.files) {
+        this.presentFileDiagnostics(
+          file,
+          presentedFileErrors,
+          presentedFileWarnings,
+        );
+      }
       this.callSafely("onFinalApplied", () =>
         this.callbacks.onFinalApplied?.(commandResult, application),
       );
@@ -353,6 +378,37 @@ export class TargetApplyControllerV5 {
         `[metadata] Schema-v5 apply callback ${name} failed`,
         error,
       );
+    }
+  }
+
+  private presentFileDiagnostics(
+    application: TargetApplyFileApplicationV5,
+    presentedErrors: Set<string>,
+    presentedWarnings: Set<string>,
+  ): void {
+    if (application.error !== null) {
+      const key = `${application.relativePath}\u0000${application.error}`;
+      if (!presentedErrors.has(key)) {
+        presentedErrors.add(key);
+        this.callSafely("onFileError", () =>
+          this.callbacks.onFileError?.(
+            application.relativePath,
+            application.error!,
+          ),
+        );
+      }
+    }
+    if (application.warning !== null) {
+      const key = `${application.relativePath}\u0000${application.warning}`;
+      if (!presentedWarnings.has(key)) {
+        presentedWarnings.add(key);
+        this.callSafely("onFileWarning", () =>
+          this.callbacks.onFileWarning?.(
+            application.relativePath,
+            application.warning!,
+          ),
+        );
+      }
     }
   }
 }

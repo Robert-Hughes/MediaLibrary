@@ -520,8 +520,9 @@ autosave gate suppresses a duplicate frontend save while those snapshots are
 being applied. Result metadata is consumed directly by the existing strict v5
 result engine. `Clear` outcomes disappear via persisted snapshots; `Keep`,
 `Replace`, and `Blocked` remain as target drafts. They are not projected into
-the schema-v4 verification collection, because target-aware verification is a
-later slice.
+the schema-v4 verification collection. Instead, production derives a separate
+target-aware, session-only verification collection after validating each exact
+current target against this authoritative persisted snapshot.
 
 Combined apply runs target-aware v5 paths first and legacy v4 paths second,
 sequentially under one modal. Progress names the active phase, and cancellation
@@ -556,3 +557,36 @@ The only production v5 draft producer is Add New Property. The explicit v4
 producers are ordinary existing metadata rows, GPS editing, bulk remove-field,
 AI description, geocode, normalise, and other batch-generated drafts. Schema-v4
 persistence, apply logging, and verification remain in service for them.
+
+## Target-aware v5 verification flow
+
+For production Add Property, each valid v5 file result is processed as:
+
+```text
+persisted_draft_entries
+→ authoritative target draft file snapshot
+→ derive non-Clear current targets
+→ validate exact file/slot/complete-target presence
+→ authoritatively replace that file's verification entries
+```
+
+`Clear` produces no pending verification. `Keep` and `Blocked` retain the
+submitted target. `Replace` uses the exact replacement `ExistingOccurrence`;
+the submitted `NewProperty` survives only as explanatory context. No schema
+lookup, occurrence enumeration, or first-match selection participates.
+
+Progress is supplemental. Final results repeat derivation and replacement for
+every completed file in final-result order; exact progress/final repetition is
+a no-op and a genuinely different final result wins. File errors and warnings
+are presented with the affected relative path and exact per-run deduplication.
+Semantic file failures contribute to v5 apply progress independently of
+protocol and local application failures.
+
+The target dialog offers accept-file-state (remove the exact target draft),
+keep-draft (dismiss only the diagnostic), and discard-draft (remove the exact
+draft and diagnostic). Blocked or missing states use conservative discard
+wording and never auto-retarget. Draft removal autosaves only
+`MediaLibraryTargetDraftEdits.jsonl`; legacy verification continues to affect
+only `MediaLibraryDraftEdits.jsonl`. Target verification is session-only,
+separate from v4, and shown ahead of the v4 dialog. Ordinary row editing remains
+v4.
