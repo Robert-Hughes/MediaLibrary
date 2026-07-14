@@ -558,3 +558,52 @@ comparison makes an identical repeat a notification-free no-op, while a
 genuinely different final result remains authoritative and overwrites progress
 state. The engine performs no Tauri call, subscription, autosave, React update,
 or production apply. Production persistence and apply remain schema v4.
+
+## Inactive frontend v5 apply controller
+
+The framework-free `TargetApplyControllerV5` now coordinates the complete
+inactive frontend protocol:
+
+```text
+local controller ownership
+→ autosave suppression
+→ versioned listener setup
+→ versioned apply command
+→ incremental strict progress application
+→ disable progress acceptance
+→ authoritative final application
+→ listener cleanup and lifecycle release
+```
+
+Local ownership rejects an overlapping `run()` before autosave suppression,
+listener registration, Tauri invocation, or store mutation. Backend admission
+remains authoritative across other controllers, callers, and processes. The
+controller is intended to become the sole frontend owner of every v5 apply
+invocation because the global versioned events still carry no operation ID.
+Each local run also captures a unique generation token so completed, failed,
+cancelled, or older-run callbacks cannot affect a current run.
+
+Started events update only observable controller progress. Valid progress is
+supplemental and applies the strict complete file result through the existing
+result engine while autosave is suppressed. Event protocol and local
+application failures are recorded as structured data, callback failures are
+contained, and none automatically cancels the command. The final command
+result remains authoritative: progress acceptance is disabled before final
+application, so queued late progress cannot overwrite final state. Exact
+idempotency makes an identical progress/final pair notification-free, while a
+genuinely different final snapshot replaces progress state.
+
+`TargetDraftAutosaveGateV5` is an ownership-aware, idempotently released gate
+for a future autosave subscriber. Suppression spans listener setup, all
+backend-persisted progress and final snapshot installation, and listener
+cleanup. The gate performs no persistence and no store subscription exists.
+All exit paths attempt cleanup before releasing suppression and local
+ownership; command or final-application errors remain primary if cleanup also
+fails. Cancellation is only a deduplicated signal to the exact v5 cancel
+adapter and does not end ownership or release suppression before the apply
+command settles.
+
+This controller is not instantiated by React or `useMediaLibrary`; no v5 store
+was added to `AppState`, and there is no production caller or v5 autosave
+subscriber. Startup, persistence, apply, UI editing, and verification remain
+schema v4.
