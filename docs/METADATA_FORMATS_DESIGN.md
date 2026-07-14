@@ -434,8 +434,9 @@ one. Any convergence rejects the complete transformation instead of merging
 operations. Successful output uses logical-slot ordering. Blocked reasons stay
 transient on outcomes for a future command and frontend to surface; they are
 not added to schema-v5 persistence. The pure file helper performs no
-persistence or metadata writes. It has no Tauri command, production caller, or
-frontend consumer, and production persistence and apply remain schema v4.
+persistence or metadata writes. It is composed by the inactive v5 batch command
+and protocol adapter but has no production caller or frontend state consumer,
+and production persistence and apply remain schema v4.
 
 `targets_to_clear` is derived only from `Clear` reconciliation, by logical slot
 and in input order. Legacy projection omissions do not invalidate a v5
@@ -445,8 +446,9 @@ inactive in-memory foundation code: there is no batch replacement persistence
 and no frontend consumer.
 
 The v5 path does not write the schema-keyed legacy apply log; target-aware
-logging remains pending. There is no Tauri apply command or production caller.
-Production apply, persistence, frontend state, and logging remain schema v4.
+logging remains pending. The registered batch command and inactive frontend
+adapter have no production caller. Production apply, persistence, frontend
+state, and logging remain schema v4.
 
 ---
 
@@ -605,8 +607,8 @@ MediaLibrary persists draft edits (`MediaLibraryDraftEdits.jsonl`). Read metadat
 
 Draft schema is versioned. The production on-disk draft schema is v4; schema v5
 is available only through the explicitly versioned inactive commands and
-inactive target-aware store. The inactive single-file v5 apply foundation has
-no command and no production caller.
+inactive target-aware store. The inactive single-file v5 apply foundation is
+composed by the versioned batch command but has no production caller.
 Every v4
 draft entry carries the exact ExifTool schema-definition identity; JSON object
 keys and display labels are never used as metadata identity:
@@ -683,12 +685,23 @@ Its progress result preserves full `ImageMetadata` (authoritative occurrences
 plus compatibility metadata), complete targets and reconciliation decisions.
 `persisted_draft_entries` is null for no successful map change, empty when the
 file key was removed, and non-empty for exact retained/replaced entries. There
-is no frontend caller/listener, production state/event switch, or target-aware
+is no production caller/listener, production state/event switch, or target-aware
 log entry. Production remains schema-v4.
 
-The v5 command still has no frontend caller and is not used by the normal
-application. Coordination with the separately callable v5 load/save commands
-and a future frontend autosave policy remains production-activation work.
+An inactive frontend apply adapter accepts every command result and versioned
+event payload as `unknown`, then strictly validates complete nested targets,
+semantic values, outcomes, reconciliation, authoritative occurrences,
+compatibility metadata, and persisted entries. It rechecks replacement domain
+invariants at this boundary. Invocation and listener registration remain
+separate. Progress events are supplemental and may be absent after a non-fatal
+emission failure; the final command result is authoritative for completed files
+and batch status.
+
+The events carry no operation ID because the backend permits only one active v5
+apply. No frontend store, `AppState`, or production React consumer uses the
+adapter. Startup, autosave, persistence, and apply remain schema v4;
+coordination with the separately callable v5 load/save commands and a future v5
+autosave policy remains production-activation work.
 
 - **MetadataValue** — Discriminated semantic value model used inside the app for read metadata, draft edits, writes, verification, and apply logs.
 - **SchemaDefinitionId** — Exact ExifTool definition identity: `{table, tag_id, index?}` from `-listx`. It remains the key for current schema-keyed v4 drafts and their production paths. It is distinct from runtime occurrence identity and exact write targeting. `Group1:Name` is display/search text only.
