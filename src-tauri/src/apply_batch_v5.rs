@@ -9,6 +9,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+use std::future::Future;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter};
@@ -74,6 +75,17 @@ pub struct ApplyEditsV5State {
     cancelled: Mutex<Option<Arc<AtomicBool>>>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ApplyEditsV5BusyError;
+
+impl std::fmt::Display for ApplyEditsV5BusyError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("A schema-v5 metadata apply operation is already running")
+    }
+}
+
+impl std::error::Error for ApplyEditsV5BusyError {}
+
 impl ApplyEditsV5State {
     pub fn new() -> Self {
         Self {
@@ -81,10 +93,15 @@ impl ApplyEditsV5State {
         }
     }
 
-    pub fn install(&self) -> Arc<AtomicBool> {
+    pub fn try_install(&self) -> Result<Arc<AtomicBool>, ApplyEditsV5BusyError> {
+        let mut installed = self.cancelled.lock().unwrap();
+        if installed.is_some() {
+            return Err(ApplyEditsV5BusyError);
+        }
+
         let flag = Arc::new(AtomicBool::new(false));
-        *self.cancelled.lock().unwrap() = Some(flag.clone());
-        flag
+        *installed = Some(flag.clone());
+        Ok(flag)
     }
 
     pub fn clear(&self) {
@@ -115,6 +132,24 @@ impl Default for ApplyEditsV5State {
     fn default() -> Self {
         Self::new()
     }
+}
+
+pub(crate) async fn run_apply_edits_v5_command<T, StartWorker, WorkerFuture, WorkerJoinError>(
+    state: &ApplyEditsV5State,
+    start_worker: StartWorker,
+) -> Result<T, String>
+where
+    StartWorker: FnOnce(Arc<AtomicBool>) -> WorkerFuture,
+    WorkerFuture: Future<Output = Result<Result<T, String>, WorkerJoinError>>,
+    WorkerJoinError: std::fmt::Display,
+{
+    let cancel_flag = state.try_install().map_err(|error| error.to_string())?;
+    let result = match start_worker(cancel_flag.clone()).await {
+        Ok(result) => result,
+        Err(error) => Err(format!("Schema-v5 apply edits worker failed: {error}")),
+    };
+    state.clear_if_mine(&cancel_flag);
+    result
 }
 
 pub trait DraftPersistenceV5 {
@@ -553,6 +588,135 @@ mod tests {
     }
 
     #[test]
+    fn v5_state_acquisition_is_exclusive_and_ownership_aware() {
+        let state = ApplyEditsV5State::new();
+
+        let active = state.try_install().expect("first acquisition must succeed");
+        assert_eq!(state.try_install().unwrap_err(), ApplyEditsV5BusyError);
+
+        assert!(state.signal_cancel());
+        assert!(active.load(Ordering::Relaxed));
+
+        let unrelated = Arc::new(AtomicBool::new(false));
+        state.clear_if_mine(&unrelated);
+        assert_eq!(state.try_install().unwrap_err(), ApplyEditsV5BusyError);
+
+        state.clear_if_mine(&active);
+        let reacquired = state
+            .try_install()
+            .expect("clearing the active flag must permit reacquisition");
+        assert!(!reacquired.load(Ordering::Relaxed));
+
+        state.clear();
+        assert!(state.try_install().is_ok());
+    }
+
+    #[test]
+    fn v5_state_is_independent_from_production_apply_state() {
+        let production = crate::ApplyEditsState::new();
+        let production_flag = production.install();
+        let v5 = ApplyEditsV5State::new();
+        let v5_flag = v5.try_install().unwrap();
+
+        assert!(v5.signal_cancel());
+        assert!(v5_flag.load(Ordering::Relaxed));
+        assert!(!production_flag.load(Ordering::Relaxed));
+
+        assert!(production.signal_cancel());
+        assert!(production_flag.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn v5_busy_error_text_is_stable_and_descriptive() {
+        assert_eq!(
+            ApplyEditsV5BusyError.to_string(),
+            "A schema-v5 metadata apply operation is already running"
+        );
+    }
+
+    #[derive(Debug, Default, PartialEq, Eq)]
+    struct AdmissionEffects {
+        workers: usize,
+        loads: usize,
+        started_events: usize,
+        progress_events: usize,
+        applies: usize,
+        saves: usize,
+    }
+
+    #[tokio::test]
+    async fn busy_command_starts_no_worker_events_or_persistence_work() {
+        let state = ApplyEditsV5State::new();
+        let active = state.try_install().unwrap();
+        let effects = Arc::new(Mutex::new(AdmissionEffects::default()));
+        let effects_for_worker = effects.clone();
+
+        let result = run_apply_edits_v5_command(&state, move |_| {
+            let mut effects = effects_for_worker.lock().unwrap();
+            effects.workers += 1;
+            effects.loads += 1;
+            effects.started_events += 1;
+            effects.progress_events += 1;
+            effects.applies += 1;
+            effects.saves += 1;
+            std::future::ready::<Result<Result<(), String>, String>>(Ok(Ok(())))
+        })
+        .await;
+
+        assert_eq!(
+            result,
+            Err("A schema-v5 metadata apply operation is already running".into())
+        );
+        assert_eq!(*effects.lock().unwrap(), AdmissionEffects::default());
+        assert!(!active.load(Ordering::Relaxed));
+        state.clear_if_mine(&active);
+    }
+
+    #[tokio::test]
+    async fn command_lifecycle_releases_after_completion_and_worker_error() {
+        let state = ApplyEditsV5State::new();
+        let completed = run_apply_edits_v5_command(&state, |_| {
+            std::future::ready::<Result<Result<&'static str, String>, &'static str>>(Ok(Ok(
+                "completed",
+            )))
+        })
+        .await;
+        assert_eq!(completed, Ok("completed"));
+
+        let worker_error = run_apply_edits_v5_command(&state, |_| {
+            std::future::ready::<Result<Result<(), String>, &'static str>>(Ok(Err(
+                "worker failed".into()
+            )))
+        })
+        .await;
+        assert_eq!(worker_error, Err("worker failed".into()));
+
+        let reacquired = state
+            .try_install()
+            .expect("worker error must release command state");
+        state.clear_if_mine(&reacquired);
+    }
+
+    #[tokio::test]
+    async fn command_lifecycle_releases_after_worker_panic_join_failure() {
+        let state = ApplyEditsV5State::new();
+        let result = run_apply_edits_v5_command(&state, |_| {
+            tokio::task::spawn_blocking(|| -> Result<(), String> {
+                panic!("simulated schema-v5 worker panic")
+            })
+        })
+        .await;
+
+        assert!(result
+            .unwrap_err()
+            .starts_with("Schema-v5 apply edits worker failed:"));
+        let reacquired = state
+            .try_install()
+            .expect("join failure must release command state");
+        state.clear_if_mine(&reacquired);
+    }
+
+    #[test]
     fn strict_load_and_duplicate_validation_precede_all_events_and_work() {
         let events = FakeEvents::default();
         let apply = FakeApply::new([]);
@@ -642,9 +806,7 @@ mod tests {
         let production = crate::ApplyEditsState::new();
         let production_flag = production.install();
         let state = ApplyEditsV5State::new();
-        let old = state.install();
-        let current = state.install();
-        state.clear_if_mine(&old);
+        let current = state.try_install().unwrap();
         assert!(state.signal_cancel());
         assert!(current.load(Ordering::Relaxed));
         state.clear_if_mine(&current);

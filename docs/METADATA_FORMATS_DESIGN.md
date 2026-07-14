@@ -670,12 +670,25 @@ semantic errors do not suppress valid reconciliation; and reconciliation or
 persistence failures abort later files. Candidate state is adopted only after
 save succeeds.
 
+The command has an atomic, v5-only admission gate: at most one schema-v5 batch
+apply can hold its cancellation flag. A second invocation is rejected as busy
+before spawning a worker, loading drafts, emitting started or progress events,
+writing metadata, or saving drafts, and it cannot replace the active flag.
+Cancellation consequently targets the sole active operation. Normal
+completion, worker failure, and worker join failure release the state through
+an ownership-aware clear and permit reacquisition. Production v4 uses a
+separate state and retains its existing lifecycle.
+
 Its progress result preserves full `ImageMetadata` (authoritative occurrences
 plus compatibility metadata), complete targets and reconciliation decisions.
 `persisted_draft_entries` is null for no successful map change, empty when the
 file key was removed, and non-empty for exact retained/replaced entries. There
 is no frontend caller/listener, production state/event switch, or target-aware
 log entry. Production remains schema-v4.
+
+The v5 command still has no frontend caller and is not used by the normal
+application. Coordination with the separately callable v5 load/save commands
+and a future frontend autosave policy remains production-activation work.
 
 - **MetadataValue** — Discriminated semantic value model used inside the app for read metadata, draft edits, writes, verification, and apply logs.
 - **SchemaDefinitionId** — Exact ExifTool definition identity: `{table, tag_id, index?}` from `-listx`. It remains the key for current schema-keyed v4 drafts and their production paths. It is distinct from runtime occurrence identity and exact write targeting. `Group1:Name` is display/search text only.
