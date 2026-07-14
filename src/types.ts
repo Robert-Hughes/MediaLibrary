@@ -13,6 +13,11 @@ import type { SchemaDefinitionId } from "./types/generated/SchemaDefinitionId";
 import type { MetadataOccurrences } from "./types/generated/MetadataOccurrences";
 import type { ImageMetadata } from "./types/generated/ImageMetadata";
 import { KNOWN_METADATA_IDS as ID } from "./metadata/knownIds";
+import type {
+  TargetDraftEditsByFile,
+  TargetDraftEditsStore,
+} from "./targetDraftEdits";
+import type { TargetApplyControllerStateV5 } from "./targetApplyController";
 
 export type { PhotoInfo };
 export type { MetadataValue } from "./types/generated/MetadataValue";
@@ -166,6 +171,16 @@ export class ImageMetadataStore {
     return this.data.get(path) ?? "loading";
   }
 
+  /** Clear folder-owned data while preserving this production store instance. */
+  clear(): void {
+    const paths = Array.from(this.data.keys());
+    this.data.clear();
+    for (const path of paths) {
+      this.subscribers.get(path)?.forEach((cb) => cb());
+      this.globalSubscribers.forEach((cb) => cb(path, "loading"));
+    }
+  }
+
   subscribe(path: string, callback: () => void): () => void {
     if (!this.subscribers.has(path)) this.subscribers.set(path, new Set());
     this.subscribers.get(path)!.add(callback);
@@ -215,6 +230,15 @@ export class ImageMetadataOccurrencesStore {
 
   get(path: string): ImageMetadataOccurrencesState {
     return this.data.get(path) ?? "loading";
+  }
+
+  /** Clear folder-owned data while preserving controller/store identity. */
+  clear(): void {
+    const paths = Array.from(this.data.keys());
+    this.data.clear();
+    for (const path of paths) {
+      this.subscribers.get(path)?.forEach((callback) => callback());
+    }
   }
 
   entries(): IterableIterator<[string, ImageMetadataOccurrencesState]> {
@@ -736,6 +760,12 @@ export type AppState =
        *  worker hook subscribe directly so they hear about every mutation. */
       draftEditsStore: DraftEditsStore;
 
+      // Target-aware schema-v5 drafts. Kept separate from the temporary
+      // schema-v4 bridge above so occurrence identity is never collapsed.
+      targetDraftEdits: TargetDraftEditsByFile;
+      targetDraftEditsStore: TargetDraftEditsStore;
+      targetApplying: TargetApplyControllerStateV5;
+
       // Apply-edits in-flight state (non-null while metadata apply is running)
       applying: ApplyEditsInFlight | null;
 
@@ -755,6 +785,8 @@ export interface ApplyEditsInFlight {
   currentFile: string | null;
   failureCount: number;
   cancelling: boolean;
+  /** Active phase of the deliberately sequential v5 -> v4 bridge. */
+  phase: "target-v5" | "legacy-v4";
 }
 
 // ── AI image-description (see docs/IMAGE_ANALYSIS.md) ──────────────────────────

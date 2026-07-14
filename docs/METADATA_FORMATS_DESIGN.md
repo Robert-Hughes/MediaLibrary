@@ -730,12 +730,13 @@ identity, and occurrence order while ignoring record insertion order. A final
 result that genuinely differs still overwrites earlier progress state.
 
 Target outcomes are returned for future verification state but are not stored.
-There is no autosave, React integration, production caller, or Tauri subscription
-in this layer. Production persistence and apply remain schema v4.
+There is no autosave, React integration, or Tauri subscription in this pure
+layer. The production controller composes it for target-aware persistence and
+apply while legacy operations remain schema v4.
 
-### Inactive schema-v5 frontend controller
+### Production schema-v5 frontend controller
 
-The inactive, non-React `TargetApplyControllerV5` now composes the strict
+The framework-free `TargetApplyControllerV5` composes the strict
 transport and store-application layers as `local ownership → autosave
 suppression → versioned listeners → versioned command → incremental strict
 progress application → progress disablement → authoritative final application
@@ -744,7 +745,7 @@ progress application → progress disablement → authoritative final applicatio
 Local overlap fails before side effects. Backend exclusivity remains the
 cross-process and cross-caller authority, while a unique local generation token
 contains callbacks from older or released runs. The controller is intended to
-be the sole frontend v5 apply owner on future activation because versioned
+be the sole frontend v5 apply owner because versioned
 events have no operation ID. Progress remains supplemental; event protocol,
 progress application, state-listener, and optional callback failures are
 contained rather than thrown from event callbacks or treated as cancellation.
@@ -759,20 +760,20 @@ snapshot rollback.
 
 `TargetDraftAutosaveGateV5` is held during listener setup, every progress and
 final store mutation, and listener cleanup, then released idempotently on every
-exit path. It only models suppression ownership: it performs no persistence and
-has no store subscriber. Cancellation reuses its active signal request and does
+exit path. It only models suppression ownership: persistence is performed by
+the production store subscriber when the gate is open. Cancellation reuses its
+active signal request and does
 not release ownership or suppression before normal command settlement. Cleanup
 failure cannot strand either lifecycle resource or mask an earlier command or
 final-application failure.
 
-There is no controller instance, React hook, `useMediaLibrary` integration,
-target-aware `AppState`, or v5 autosave subscriber in the normal application.
-Production startup, persistence, apply, editing, and verification remain schema
-v4.
+`useMediaLibrary` owns the single controller instance, target-aware `AppState`,
+and v5 autosave subscriber used by Add New Property. Other editing operations
+and verification remain schema v4 during the controlled bridge.
 
 - **MetadataValue** — Discriminated semantic value model used inside the app for read metadata, draft edits, writes, verification, and apply logs.
 - **SchemaDefinitionId** — Exact ExifTool definition identity: `{table, tag_id, index?}` from `-listx`. It remains the key for current schema-keyed v4 drafts and their production paths. It is distinct from runtime occurrence identity and exact write targeting. `Group1:Name` is display/search text only.
-- **MetadataDraftTarget** — Locked future target union: an existing occurrence carries runtime occurrence, semantic schema, and exact selector snapshot; a new property carries only the selected schema. No production draft or apply path consumes it yet.
+- **MetadataDraftTarget** — Exact target union: an existing occurrence carries runtime occurrence, semantic schema, and exact selector snapshot; a new property carries only the selected schema. Add New Property consumes it in production; remaining editors are still migrating.
 - **MetadataDraftSlot** — One logical draft position within a file: occurrence identity for an existing field, schema identity for a new property. It deliberately excludes stale target snapshots and the outer file-relative path.
 - **ExifTool JSON boundary** - serde_json::Value held only at scan parsing boundaries before conversion into MetadataValue.
 - **TagKind** — The schema's classification of a tag (`Text`, `Bag<Text>`, `Enum<Integer>`, etc.). Drives which editor renders.
@@ -783,3 +784,23 @@ v4.
 - **LangAlt** — XMP alternative-language array (e.g. `Description` in multiple languages with one `x-default`).
 - **Bag / Seq / Alt** — XMP list types: unordered, ordered, alternatives.
 - **EditIntent** — `Set` / `Delete` / `ListAdd` / `ListRemove`. Determines the exiftool operator (`=`, `+=`, `-=`).
+
+## First production schema-v5 format owner
+
+Add New Property now writes `MetadataDraftEntryV5` records in production. Its
+target is `NewProperty { schema_id }`, preserving the exact schema definition
+selected by the picker. Reconciled `ExistingOccurrence` targets are retained as
+complete replacements; the UI does not reduce them to schema keys or recreate
+them as `NewProperty`.
+
+The production hook owns target drafts, strict schema-v5 loading/saving, the
+autosave suppression gate, and the sole v5 apply controller. Controller-applied
+backend persistence snapshots are authoritative and suppress frontend autosave.
+The v5 phase precedes the v4 phase deterministically, with no concurrency and
+with duplicate file/schema ownership rejected before execution.
+
+This format boundary is deliberately temporary. Existing-row, GPS, bulk,
+AI-description, geocode, normalise, and other batch edits still use schema-v4;
+there is no automatic conversion and no general schema projection that could
+collapse occurrence targets. Target-aware verification and migration of those
+remaining producers are pending.

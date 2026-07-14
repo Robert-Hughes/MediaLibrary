@@ -443,14 +443,14 @@ therefore remains able to overwrite progress state. Complete final results
 validate and prepare every file before mutating the first store and retain file
 order, cancellation, and abort status.
 
-This module has no listener, Tauri invocation, autosave, React integration, or
-production caller. It does not cause a second persistence write. Normal startup,
-persistence, apply, and `DraftEditsStore` continue to use schema v4.
+This pure module has no listener, Tauri invocation, autosave, or React
+integration of its own. The production controller calls it without causing a
+second persistence write; legacy `DraftEditsStore` operations remain schema v4.
 
-### Inactive frontend apply coordination
+### Production frontend apply coordination
 
-The inactive `TargetApplyControllerV5` composes the adapter and result engine
-without activating either in production:
+`TargetApplyControllerV5` composes the adapter and result engine for production
+target-aware applies:
 
 ```text
 local controller ownership
@@ -465,16 +465,16 @@ local controller ownership
 
 A local overlapping run is rejected before suppression, registration,
 invocation, or mutation. Backend exclusivity remains authoritative across
-processes and independent callers. Production activation must make this
-controller the sole frontend v5 apply owner: the versioned events still have
+processes and independent callers. The controller is the sole frontend v5 apply
+owner: the versioned events still have
 no backend operation ID, so a unique local generation token rejects callbacks
 from completed, failed, cancelled, or older controller runs.
 
 Progress is supplemental. Its complete validated file result updates persisted
 target drafts, authoritative occurrences, and compatibility metadata while the
-autosave gate is held. The gate exists so a future subscriber can avoid saving
-snapshots that the backend already persisted; it does not persist or subscribe
-to anything yet. Malformed event records, progress-application failures, and
+autosave gate is held. The production subscriber therefore avoids saving
+snapshots that the backend already persisted. Malformed event records,
+progress-application failures, and
 optional callback failures are contained while the command continues.
 
 Immediately after the command resolves, progress acceptance is disabled before
@@ -488,6 +488,38 @@ final-application error is not masked by cleanup failure.
 
 Cancellation calls the existing exact v5 adapter once while a signal is in
 flight and keeps controller ownership and autosave suppression until the apply
-command resolves or rejects. There is no React hook, `useMediaLibrary` caller,
-`AppState` target store, v5 autosave subscriber, or production integration.
-Production persistence and apply remain schema v4.
+command resolves or rejects. `useMediaLibrary` owns the stable production
+instance and publishes its separate target/apply state; legacy operations still
+use schema-v4 persistence and apply.
+
+## Temporary production v4/v5 editing bridge
+
+Production now owns one stable `TargetDraftEditsStore`, one
+`TargetDraftAutosaveGateV5`, and one `TargetApplyControllerV5`. Folder opening
+loads schema-v4 and strict schema-v5 persistence independently. A malformed,
+v4, or future-version payload on the v5 command is a visible application error;
+the in-memory target store starts empty, but the invalid persistence file is not
+overwritten. Folder switch and close clear the target state and keep autosave
+bound to the current folder.
+
+User target mutations save the complete schema-v5 map. Authoritative
+`persisted_draft_entries` snapshots applied by the controller still update
+React state, occurrence metadata, and the compatibility metadata store, but the
+autosave gate suppresses a duplicate frontend save while those snapshots are
+being applied. Result metadata is consumed directly by the existing strict v5
+result engine. `Clear` outcomes disappear via persisted snapshots; `Keep`,
+`Replace`, and `Blocked` remain as target drafts. They are not projected into
+the schema-v4 verification collection, because target-aware verification is a
+later slice.
+
+Combined apply runs target-aware v5 paths first and legacy v4 paths second,
+sequentially under one modal. Progress names the active phase, and cancellation
+is sent only to that phase. An exact file/schema collision rejects before either
+command. Draft counts, Apply All, Discard All, per-file commands, and
+`has:edits` aggregate both stores, while target records remain separate rather
+than being flattened into the legacy schema map.
+
+The only production v5 draft producer is Add New Property. The explicit v4
+producers are ordinary existing metadata rows, GPS editing, bulk remove-field,
+AI description, geocode, normalise, and other batch-generated drafts. Schema-v4
+persistence, apply logging, and verification remain in service for them.

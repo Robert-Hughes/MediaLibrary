@@ -17,6 +17,7 @@ import type {
 } from "../workers/searchWorkerProtocol";
 import { resolveTagInfosExact } from "./useTagInfo";
 import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
+import type { TargetDraftEditsStore } from "../targetDraftEdits";
 
 const INITIAL_REPLAY_RETRY_DELAYS_MS = [250, 1_000, 5_000] as const;
 
@@ -76,6 +77,7 @@ export interface UseSearchWorkerArgs {
   photos: PhotoInfo[];
   imageMetadataStore: ImageMetadataStore;
   draftEditsStore: DraftEditsStore;
+  targetDraftEditsStore?: TargetDraftEditsStore;
   query: string;
   /** Default 150ms.  Tests pass 0 to bypass the debounce. */
   debounceMs?: number;
@@ -155,6 +157,7 @@ export function useSearchWorker(
     photos,
     imageMetadataStore,
     draftEditsStore,
+    targetDraftEditsStore,
     query,
     debounceMs = 150,
     createWorker,
@@ -244,6 +247,10 @@ export function useSearchWorker(
         revision: draftRevisionsRef.current.get(path) ?? 0,
       }),
     );
+    w.postMessage({
+      type: "INIT_TARGET_DRAFT_PATHS",
+      paths: Object.keys(targetDraftEditsStore?.getAllMetadata() ?? {}),
+    });
     const initialMetaIds = initialMeta.flatMap(({ meta }) =>
       idsFromMetadata(meta),
     );
@@ -361,6 +368,16 @@ export function useSearchWorker(
           });
       }
     });
+    const unsubTargetDrafts = targetDraftEditsStore?.subscribe((changes) => {
+      for (const change of changes) {
+        w.postMessage({
+          type: "UPSERT_TARGET_DRAFT",
+          path: change.path,
+          hasEdits: change.edits !== undefined,
+        });
+      }
+      submitNow(queryRef.current);
+    });
     return () => {
       active = false;
       if (initialReplayRetryTimer) {
@@ -369,8 +386,9 @@ export function useSearchWorker(
       }
       unsubMeta();
       unsubDrafts();
+      unsubTargetDrafts?.();
     };
-  }, [imageMetadataStore, draftEditsStore]);
+  }, [imageMetadataStore, draftEditsStore, targetDraftEditsStore]);
 
   // ── Photo list sync + re-submit ─────────────────────────────────────
   useEffect(() => {

@@ -104,6 +104,8 @@ export class SearchIndex {
   private metadata = new Map<string, SearchMetadataState>();
   /** Kept raw so `has:edits` can answer without re-parsing the haystack. */
   private drafts = new Map<string, SearchDraftEntry[]>();
+  /** Separate boolean boundary for exact target drafts; never schema-flattened. */
+  private targetDraftPaths = new Set<string>();
   private schemaLabels = new Map<string, SearchSchemaLabel>();
   /** Pre-lowercased combined haystack, the substring search target. */
   private haystacks = new Map<string, string>();
@@ -156,10 +158,17 @@ export class SearchIndex {
     this.rebuild(path);
   }
 
+  setTargetDraftPresence(path: string, hasEdits: boolean) {
+    if (hasEdits) this.targetDraftPaths.add(path);
+    else this.targetDraftPaths.delete(path);
+    this.priorQuery = null;
+  }
+
   deletePath(path: string) {
     this.photoFields.delete(path);
     this.metadata.delete(path);
     this.drafts.delete(path);
+    this.targetDraftPaths.delete(path);
     this.haystacks.delete(path);
     this.priorQuery = null;
   }
@@ -169,6 +178,7 @@ export class SearchIndex {
     this.photoFields.clear();
     this.metadata.clear();
     this.drafts.clear();
+    this.targetDraftPaths.clear();
     this.schemaLabels.clear();
     this.haystacks.clear();
     this.priorQuery = null;
@@ -209,7 +219,12 @@ export class SearchIndex {
 
     const matched: string[] = [];
     for (const path of candidates) {
-      if (hasEditsFilter && !this.drafts.has(path)) continue;
+      if (
+        hasEditsFilter &&
+        !this.drafts.has(path) &&
+        !this.targetDraftPaths.has(path)
+      )
+        continue;
       if (!q) {
         matched.push(path);
         continue;

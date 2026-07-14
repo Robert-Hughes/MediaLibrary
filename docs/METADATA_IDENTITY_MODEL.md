@@ -556,13 +556,13 @@ occurrence order and complete identities remain significant.
 Progress and final results may repeat the same file. Exact current-store
 comparison makes an identical repeat a notification-free no-op, while a
 genuinely different final result remains authoritative and overwrites progress
-state. The engine performs no Tauri call, subscription, autosave, React update,
-or production apply. Production persistence and apply remain schema v4.
+state. The engine itself performs no Tauri call, subscription, autosave, or
+React update; the production controller composes it for target-aware apply.
 
-## Inactive frontend v5 apply controller
+## Production frontend v5 apply controller
 
-The framework-free `TargetApplyControllerV5` now coordinates the complete
-inactive frontend protocol:
+The framework-free `TargetApplyControllerV5` coordinates the complete
+production frontend protocol for target-aware operations:
 
 ```text
 local controller ownership
@@ -578,8 +578,8 @@ local controller ownership
 Local ownership rejects an overlapping `run()` before autosave suppression,
 listener registration, Tauri invocation, or store mutation. Backend admission
 remains authoritative across other controllers, callers, and processes. The
-controller is intended to become the sole frontend owner of every v5 apply
-invocation because the global versioned events still carry no operation ID.
+controller is the sole frontend owner of every v5 apply invocation because the
+global versioned events still carry no operation ID.
 Each local run also captures a unique generation token so completed, failed,
 cancelled, or older-run callbacks cannot affect a current run.
 
@@ -594,16 +594,37 @@ idempotency makes an identical progress/final pair notification-free, while a
 genuinely different final snapshot replaces progress state.
 
 `TargetDraftAutosaveGateV5` is an ownership-aware, idempotently released gate
-for a future autosave subscriber. Suppression spans listener setup, all
+for the production autosave subscriber. Suppression spans listener setup, all
 backend-persisted progress and final snapshot installation, and listener
-cleanup. The gate performs no persistence and no store subscription exists.
+cleanup. The gate performs no persistence itself; the production store
+subscriber checks it before saving.
 All exit paths attempt cleanup before releasing suppression and local
 ownership; command or final-application errors remain primary if cleanup also
 fails. Cancellation is only a deduplicated signal to the exact v5 cancel
 adapter and does not end ownership or release suppression before the apply
 command settles.
 
-This controller is not instantiated by React or `useMediaLibrary`; no v5 store
-was added to `AppState`, and there is no production caller or v5 autosave
-subscriber. Startup, persistence, apply, UI editing, and verification remain
-schema v4.
+`useMediaLibrary` owns one controller, target store, and autosave gate for its
+lifetime, and loaded `AppState` exposes the distinct target snapshot and apply
+state. Only Add New Property uses this path; verification and the remaining
+draft producers remain schema v4.
+
+## Production schema-v5 activation: Add New Property
+
+Add New Property is the first production editor to use exact target identity.
+It creates a `NewProperty` target containing the schema picker's complete
+`SchemaDefinitionId` (including the distinction between no index and index
+zero), stores it in the production `TargetDraftEditsStore`, persists it through
+schema-v5 commands, and applies it only through `TargetApplyControllerV5`.
+Backend reconciliation may replace that target with a complete
+`ExistingOccurrence`; the Details Pane continues to edit and discard that exact
+replacement target, including its occurrence ID and write selector.
+
+This is a temporary bridge organised by operation type. Ordinary metadata-row
+edits, GPS, bulk field removal, AI description, geocode, normalise, and other
+batch-generated drafts remain explicitly schema-v4. No generic
+schema-to-occurrence inference or v4-file conversion was introduced. A file and
+exact schema cannot be owned by both systems: creation and combined apply reject
+the collision without deleting or converting either draft. The narrow Add
+Property view also refuses to first-select when multiple target-aware existing
+occurrences share one schema; target-aware verification UI remains pending.

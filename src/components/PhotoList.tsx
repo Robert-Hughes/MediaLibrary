@@ -64,6 +64,7 @@ interface Props {
   /** Shown in the grid body when `photos` is empty but the folder is not (search had no hits). */
   emptySearchMessage?: string | null;
   draftEdits?: MetadataDraftEditsByFile;
+  draftCounts?: Record<string, number>;
   onDiscardAllEdits?: (fileRelativePaths: string[]) => void;
   onApplyEdits?: (fileRelativePaths: string[]) => void;
   /** Trigger AI-description flow for the given relative paths. */
@@ -336,6 +337,7 @@ export function PhotoList({
   searchQuery = "",
   emptySearchMessage = null,
   draftEdits = {},
+  draftCounts = {},
   onDiscardAllEdits,
   onApplyEdits,
   onGenerateAiDescription,
@@ -702,6 +704,7 @@ export function PhotoList({
                 imageMetadata={imageMetadata}
                 visibleColumns={visibleColumns}
                 draftEdits={draftEdits[photo.relative_path]}
+                draftCount={draftCounts[photo.relative_path]}
                 onSelect={handleRowSelect}
                 onPhotoOpen={onPhotoOpen}
                 onContextMenu={handleContextMenu}
@@ -721,6 +724,7 @@ export function PhotoList({
           selectedIndices={selectedIndices}
           photos={photos}
           draftEdits={draftEdits}
+          draftCounts={draftCounts}
           onPhotoOpen={onPhotoOpen}
           onShowInExplorer={onShowInExplorer}
           onCopyPaths={onCopyPaths}

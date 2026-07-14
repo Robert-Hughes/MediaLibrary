@@ -309,6 +309,7 @@ describe("App Select Columns metadata counts", () => {
           ),
         });
       }
+      if (cmd === "load_metadata_draft_edits_v5") return Promise.resolve({});
       if (cmd === "stop_scan") return Promise.resolve();
       if (cmd === "start_scan") return Promise.resolve();
       if (cmd === "prioritize_queues") return Promise.resolve();
@@ -409,6 +410,7 @@ describe("App Select Columns metadata counts", () => {
       if (cmd === "load_metadata_draft_edits") {
         return Promise.resolve({});
       }
+      if (cmd === "load_metadata_draft_edits_v5") return Promise.resolve({});
       if (cmd === "stop_scan") return Promise.resolve();
       if (cmd === "start_scan") return Promise.resolve();
       if (cmd === "prioritize_queues") return Promise.resolve();
@@ -550,6 +552,7 @@ describe("App occurrence wiring regression", () => {
       if (cmd === "get_cli_folder") return Promise.resolve(null);
       if (cmd === "pick_folder") return Promise.resolve("/photos");
       if (cmd === "load_metadata_draft_edits") return Promise.resolve({});
+      if (cmd === "load_metadata_draft_edits_v5") return Promise.resolve({});
       if (
         [
           "stop_scan",

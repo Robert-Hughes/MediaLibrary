@@ -196,10 +196,7 @@ export function targetDraftsToWire(
   return recordFromEntries(wireEntries);
 }
 
-/**
- * Inactive observable target-aware draft store. It is intentionally not wired
- * into AppState, React, persistence, apply, or search-worker indexing.
- */
+/** Observable production store for exact target-aware schema-v5 drafts. */
 export class TargetDraftEditsStore {
   private snapshot: TargetDraftEditsByFile = recordFromEntries([]);
   private listeners = new Set<TargetDraftEditsListener>();
@@ -309,6 +306,13 @@ export class TargetDraftEditsStore {
       currentCollection && hasOwnStringKey(currentCollection, slot)
         ? currentCollection[slot]
         : undefined;
+
+    if (
+      existing &&
+      metadataDraftEntryV5EqualsExact(existing, { target, edit })
+    ) {
+      return "redundant";
+    }
 
     if (edit.intent === "Set" && this.currentValueResolver) {
       const current = this.currentValueResolver(path, target);

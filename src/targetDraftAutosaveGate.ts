@@ -10,10 +10,7 @@ export class TargetDraftAutosaveAlreadySuspendedError extends Error {
   }
 }
 
-/**
- * Inactive ownership gate for a future target-draft autosave subscriber.
- * The gate coordinates ownership only and performs no persistence itself.
- */
+/** Production ownership gate between controller snapshots and UI autosave. */
 export class TargetDraftAutosaveGateV5 {
   private activeToken: symbol | null = null;
 
