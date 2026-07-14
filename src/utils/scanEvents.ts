@@ -8,8 +8,6 @@ import type {
   MetadataEntry,
   MetadataOccurrence,
   MetadataOccurrences,
-  TagInfo,
-  TagKind,
 } from "../types";
 import {
   metadataCollection,
@@ -19,13 +17,7 @@ import {
   compareMetadataOccurrenceIds,
   metadataOccurrenceIdToken,
 } from "./metadataOccurrenceId";
-import {
-  isMetadataOccurrenceId,
-  isMetadataValue,
-  isMetadataWriteTarget,
-  isRecord,
-  isSchemaDefinitionId,
-} from "./metadataWireGuards";
+import { isMetadataEntry, isMetadataOccurrence } from "./metadataWireGuards";
 
 export function normalizeMetadataOccurrencesFromTauri(
   raw: unknown,
@@ -56,78 +48,6 @@ export function normalizeMetadataOccurrencesFromTauri(
   return occurrences;
 }
 
-function isMetadataOccurrence(value: unknown): value is MetadataOccurrence {
-  return (
-    isRecord(value) &&
-    isMetadataOccurrenceId(value.id) &&
-    isMetadataValue(value.value) &&
-    (value.tag_info === null || isTagInfo(value.tag_info)) &&
-    (value.write_target === null || isMetadataWriteTarget(value.write_target))
-  );
-}
-
-function isTagInfo(value: unknown): value is TagInfo {
-  return (
-    isRecord(value) &&
-    isSchemaDefinitionId(value.id) &&
-    typeof value.group === "string" &&
-    typeof value.name === "string" &&
-    typeof value.writable === "boolean" &&
-    isTagKind(value.kind) &&
-    (value.description === null || typeof value.description === "string") &&
-    (value.storage_count === undefined ||
-      typeof value.storage_count === "string")
-  );
-}
-
-function isTagKind(value: unknown): value is TagKind {
-  if (!isRecord(value) || typeof value.kind !== "string") return false;
-  switch (value.kind) {
-    case "Text":
-    case "LangAlt":
-    case "Real":
-    case "Rational":
-    case "Boolean":
-    case "Date":
-    case "Time":
-    case "DateTime":
-    case "TimeOffset":
-    case "Binary":
-    case "Unknown":
-      return true;
-    case "Integer":
-      return (
-        isRecord(value.data) &&
-        (value.data.min === null ||
-          (typeof value.data.min === "number" &&
-            Number.isInteger(value.data.min))) &&
-        (value.data.max === null ||
-          (typeof value.data.max === "number" &&
-            Number.isInteger(value.data.max)))
-      );
-    case "Enum":
-      return (
-        isRecord(value.data) &&
-        (value.data.repr === "Integer" || value.data.repr === "String") &&
-        Array.isArray(value.data.options) &&
-        value.data.options.every(
-          (option) =>
-            isRecord(option) &&
-            typeof option.code === "string" &&
-            typeof option.label === "string",
-        )
-      );
-    case "Bag":
-    case "Seq":
-    case "Alt":
-      return isTagKind(value.data);
-    case "Struct":
-      return isRecord(value.data) && Object.values(value.data).every(isTagKind);
-    default:
-      return false;
-  }
-}
-
 export function normalizeMetadataFromTauri(raw: unknown): MetadataCollection {
   if (!Array.isArray(raw)) return {};
 
@@ -149,14 +69,6 @@ export function normalizeMetadataFromTauri(raw: unknown): MetadataCollection {
   }
 
   return metadataCollection(out);
-}
-
-function isMetadataEntry(value: unknown): value is MetadataEntry {
-  return (
-    isRecord(value) &&
-    isSchemaDefinitionId(value.id) &&
-    isMetadataValue(value.value)
-  );
 }
 
 /**

@@ -312,15 +312,18 @@ original target because authoritative state is unknown or unusable.
 
 The single-file result still exposes `targets_to_clear`, derived only from
 `Clear` reconciliations in input order and without duplicate logical slots.
-Replacement persistence is not implemented: no batch coordinator or frontend
-consumer removes or inserts drafts yet. The successful result retains the
-scanner's complete `ImageMetadata`, including authoritative occurrences and
-the temporary compatibility projection. Target-aware apply logging remains
-pending; the inactive path does not force targets into the schema-keyed v4 log.
+The single-file helper does not persist replacement itself; the inactive batch
+coordinator applies its structured reconciliation and persists the resulting v5
+entries. No frontend consumer removes or inserts drafts yet. The successful
+result retains the scanner's complete `ImageMetadata`, including authoritative
+occurrences and the temporary compatibility projection. Target-aware apply
+logging remains pending; the inactive path does not force targets into the
+schema-keyed v4 log.
 
-There is no Tauri apply command or production caller for this module.
-Production apply, persistence, `AppState`, frontend behavior, and logging
-remain schema v4.
+The single-file module is now composed by the registered inactive v5 batch
+command, and an inactive frontend protocol adapter can invoke that command.
+There is still no production caller. Production apply, persistence, `AppState`,
+frontend behavior, and logging remain schema v4.
 
 ## Migration status
 
@@ -404,7 +407,7 @@ The shared frontend semantic guard requires integral finite values for
 their generated no-content wire shape. These are inactive schema-v5 boundary
 guarantees only: production persistence remains schema v4, the target-aware
 store is not in `AppState`, and the occurrence-aware apply foundation has no
-production caller or command.
+production caller.
 A frontend/Tauri-contract test round-trips shared-schema IFD0/IFD1
 occurrences and existing/new targets without collapsing them.
 
@@ -447,8 +450,8 @@ v5 migration, and activating v5 apply remains pending.
 ## Inactive schema-v5 batch boundary
 
 The versioned `apply_metadata_draft_edits_v5_cmd` is registered for testing and
-future migration work but has no frontend caller. It strictly loads the v5 map
-once (never substituting an empty map for malformed, v4, or unreadable data),
+future migration work but has no production frontend caller. It strictly loads
+the v5 map once (never substituting an empty map for malformed, v4, or unreadable data),
 rejects duplicate requested paths before events or writes, retains requested
 order, and selects only files with current non-empty drafts. Its flow is:
 
@@ -483,6 +486,24 @@ change (`null`), removal (`[]`), and retained/replaced entries. The command uses
 isolated cancellation and versioned events, has no target-aware apply logging,
 and switches no production state or event; production remains schema v4.
 
-There is still no frontend caller, and the normal application continues to use
-schema v4. Coordination with the independent v5 load/save commands and the
-future frontend autosave policy remains production-activation work.
+An inactive frontend protocol adapter now wraps
+`apply_metadata_draft_edits_v5_cmd`, `cancel_apply_edits_v5`,
+`apply_edits_v5_started`, and `apply_metadata_edits_v5_progress`. Command
+results and versioned event payloads enter the adapter as `unknown`. The
+boundary strictly validates complete nested targets, outcomes, structured
+reconciliations, authoritative occurrences, compatibility metadata, and
+persisted draft entries. It also rechecks that `Replace` changes a
+`NewProperty` into an `ExistingOccurrence` with exactly the same schema identity.
+
+Listener registration is intentionally separate from invocation. Progress
+events are supplemental immediate updates and can be absent because backend
+event emission is non-fatal; the final command result is authoritative for the
+completed-file list and batch status. No operation ID is needed because backend
+admission permits only one active v5 apply and the global events describe that
+sole operation.
+
+This adapter has no `AppState`, store, React-listener, or metadata/draft
+mutation consumer. The normal application still uses schema v4 for startup,
+autosave, persistence, and apply. Coordination with the independent v5
+load/save commands and a future v5 autosave policy remains production-activation
+work.

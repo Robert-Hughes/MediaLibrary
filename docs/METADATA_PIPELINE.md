@@ -235,9 +235,10 @@ rather than rebuilding its legacy map. No batch layer persists `Replace`, and
 no frontend consumer uses reconciliation.
 
 This path deliberately does not use the schema-keyed apply log; target-aware
-logging remains pending. It has no Tauri apply command or production caller.
-Production apply, persistence, `AppState`, frontend callbacks, dialogs, and
-logging remain schema v4.
+logging remains pending. It is composed by the inactive v5 batch command and
+frontend protocol adapter but has no production caller. Production apply,
+persistence, `AppState`, frontend callbacks, dialogs, and logging remain schema
+v4.
 
 This remains foundation code only. Inactive schema-v5 Tauri load/save commands
 can parse and serialize lines with a file-relative path as outer context and
@@ -357,9 +358,10 @@ Before adding a metadata read, choose the pattern explicitly. In display context
 ## Inactive versioned v5 batch apply
 
 The backend now contains an inactive `apply_metadata_draft_edits_v5_cmd` with
-no frontend caller or listener. It performs `load v5 map once → apply selected
-file → reconcile complete target outcomes → save changed candidate map → emit
-versioned progress → continue at file boundary`. Loading is strict; malformed,
+no production frontend caller or listener. It performs `load v5 map once →
+apply selected file → reconcile complete target outcomes → save changed
+candidate map → emit versioned progress → continue at file boundary`. Loading
+is strict; malformed,
 v4, and unreadable draft files are errors rather than empty maps. Duplicate
 requested paths reject before any event, write, or save, while absent and empty
 paths are skipped without changing requested order.
@@ -384,7 +386,22 @@ target outcomes, full authoritative occurrences, compatibility metadata, and
 state. V5 cancellation and events are isolated from v4. Target-aware logging is
 still pending, and production persistence, apply, events, and UI remain v4.
 
-There is no frontend v5 caller or listener. Coordination between apply and the
-independent v5 load/save commands, together with a future frontend autosave
-policy, remains required before production activation; the application still
-uses schema v4.
+The inactive `targetApplyTauri` adapter provides a strict frontend protocol
+boundary for the apply/cancel commands and the two versioned events. Every
+command result and event payload enters as `unknown`; validation recursively
+covers semantic values, complete draft targets and edits, target outcomes,
+reconciliation, full `ImageMetadata`, and persisted entries. Frontend
+validation repeats the replacement invariant: only an original `NewProperty`
+may be replaced, its replacement must be an `ExistingOccurrence`, and both
+schemas must match exactly.
+
+Event subscription is separate from command invocation. Started/progress events
+are optional immediate notifications rather than a completion ledger: event
+emission failure is non-fatal, so the final command result is authoritative for
+completed files and batch state. The events have no operation ID because the
+backend admits only one active v5 command.
+
+No production React listener, frontend store mutation, or `AppState` consumer
+uses this adapter. Startup, autosave, persistence, and production apply remain
+schema v4. Coordination with the independent v5 load/save commands and a future
+v5 autosave policy remains required before activation.

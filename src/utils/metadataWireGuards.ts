@@ -1,13 +1,20 @@
 import type {
+  ImageMetadata,
+  MetadataDraftReconciliation,
   MetadataDraftEdit,
   MetadataDraftEntryV5,
   MetadataDraftTarget,
+  MetadataEntry,
+  MetadataOccurrence,
   MetadataOccurrenceId,
+  MetadataTargetOutcome,
   MetadataValue,
   MetadataWriteTarget,
   SchemaDefinitionId,
+  TagInfo,
   TagKind,
 } from "../types";
+import { schemaDefinitionIdEquals } from "./schemaDefinitionId";
 import { hasOwnStringKey } from "./stringRecord";
 
 const U32_MAX = 0xffff_ffff;
@@ -123,6 +130,28 @@ export function isTagKind(value: unknown): value is TagKind {
     default:
       return false;
   }
+}
+
+export function isTagInfo(value: unknown): value is TagInfo {
+  return (
+    isRecord(value) &&
+    hasOwnStringKeys(value, [
+      "id",
+      "group",
+      "name",
+      "writable",
+      "kind",
+      "description",
+    ]) &&
+    isSchemaDefinitionId(value.id) &&
+    typeof value.group === "string" &&
+    typeof value.name === "string" &&
+    typeof value.writable === "boolean" &&
+    isTagKind(value.kind) &&
+    (value.description === null || typeof value.description === "string") &&
+    (value.storage_count === undefined ||
+      typeof value.storage_count === "string")
+  );
 }
 
 export function isMetadataValue(value: unknown): value is MetadataValue {
@@ -281,6 +310,115 @@ export function isMetadataDraftEntryV5(
     hasOwnStringKeys(value, ["target", "edit"]) &&
     isMetadataDraftTarget(value.target) &&
     isMetadataDraftEdit(value.edit)
+  );
+}
+
+export function isMetadataOccurrence(
+  value: unknown,
+): value is MetadataOccurrence {
+  return (
+    isRecord(value) &&
+    hasOwnStringKeys(value, ["id", "value", "tag_info", "write_target"]) &&
+    isMetadataOccurrenceId(value.id) &&
+    isMetadataValue(value.value) &&
+    (value.tag_info === null || isTagInfo(value.tag_info)) &&
+    (value.write_target === null || isMetadataWriteTarget(value.write_target))
+  );
+}
+
+export function isMetadataEntry(value: unknown): value is MetadataEntry {
+  return (
+    isRecord(value) &&
+    hasOwnStringKeys(value, ["id", "value"]) &&
+    isSchemaDefinitionId(value.id) &&
+    isMetadataValue(value.value)
+  );
+}
+
+export function isImageMetadata(value: unknown): value is ImageMetadata {
+  return (
+    isRecord(value) &&
+    hasOwnStringKeys(value, ["relative_path", "occurrences", "metadata"]) &&
+    typeof value.relative_path === "string" &&
+    Array.isArray(value.occurrences) &&
+    value.occurrences.every(isMetadataOccurrence) &&
+    Array.isArray(value.metadata) &&
+    value.metadata.every(isMetadataEntry)
+  );
+}
+
+function hasExactlyOwnStringKeys(
+  record: Record<string, unknown>,
+  expected: readonly string[],
+): boolean {
+  const actual = Object.keys(record);
+  return (
+    actual.length === expected.length &&
+    expected.every((key) => hasOwnStringKey(record, key))
+  );
+}
+
+export function isMetadataDraftReconciliation(
+  value: unknown,
+): value is MetadataDraftReconciliation {
+  if (!isRecord(value) || typeof value.kind !== "string") return false;
+
+  switch (value.kind) {
+    case "Clear":
+    case "Keep":
+      return hasExactlyOwnStringKeys(value, ["kind"]);
+    case "Replace":
+      return (
+        hasExactlyOwnStringKeys(value, ["kind", "target"]) &&
+        isMetadataDraftTarget(value.target)
+      );
+    case "Blocked":
+      return (
+        hasExactlyOwnStringKeys(value, ["kind", "reason"]) &&
+        typeof value.reason === "string"
+      );
+    default:
+      return false;
+  }
+}
+
+export function isMetadataTargetOutcome(
+  value: unknown,
+): value is MetadataTargetOutcome {
+  if (
+    !isRecord(value) ||
+    !hasOwnStringKeys(value, [
+      "target",
+      "draft_reconciliation",
+      "display_name",
+      "kind",
+      "sent",
+      "before",
+      "observed",
+      "message",
+    ]) ||
+    !isMetadataDraftTarget(value.target) ||
+    !isMetadataDraftReconciliation(value.draft_reconciliation) ||
+    typeof value.display_name !== "string" ||
+    typeof value.kind !== "string" ||
+    !(value.sent === null || isMetadataValue(value.sent)) ||
+    !(value.before === null || isMetadataValue(value.before)) ||
+    !(value.observed === null || isMetadataValue(value.observed)) ||
+    !(value.message === null || typeof value.message === "string")
+  ) {
+    return false;
+  }
+
+  const reconciliation = value.draft_reconciliation;
+  if (reconciliation.kind !== "Replace") return true;
+
+  return (
+    value.target.kind === "NewProperty" &&
+    reconciliation.target.kind === "ExistingOccurrence" &&
+    schemaDefinitionIdEquals(
+      value.target.schema_id,
+      reconciliation.target.schema_id,
+    )
   );
 }
 
