@@ -18,10 +18,29 @@ same-schema occurrence is a substitute. Exact current-value comparison and
 verification use that same occurrence target.
 
 Already-persisted v4 drafts are displayed, discarded, and applied without
-conversion; they block ordinary row editing until resolved. Missing, multiple,
-read-only, missing-write-target, and loading occurrence states are read-only.
-Stale or incompatible v5 targets are shown separately rather than overlaid by
-schema. Additional Metadata Occurrence rows remain read-only.
+conversion; they block ordinary row editing until resolved. Missing, unowned
+multiple, read-only, missing-write-target, and loading occurrence states are
+read-only. Stale or incompatible v5 targets are shown separately rather than
+overlaid by schema. Additional Metadata Occurrence rows remain read-only.
+
+A validated existing target may nevertheless own one ordinary draft row when
+the schema-keyed compatibility projection omitted it. The presentation is
+seeded from that target's exact authoritative occurrence for every edit intent,
+including Delete, which remains individually visible and discardable. The
+supplemental view removes only the represented exact occurrence ID; a
+same-schema sibling or any occurrence without an owning target remains
+supplemental and read-only. Successfully constructed rows, rather than assumed
+schema compatibility, define which targets are absent from the unresolved
+section.
+
+Ordinary editor state captures the exact occurrence ID selected on open plus
+the complete target snapshot. Every later render resolves that ID exactly and
+requires the same embedded schema, selector, targetability, and row ownership.
+A later schema resolution can neither retarget the editor nor provide its Save
+identity. Loading, missing or duplicate IDs, a same-schema replacement, and
+changed selector/schema snapshots make the editor unavailable with an explicit
+message and no draft callback. Value-only refreshes keep the captured identity.
+GPS remains schema v4 and New Property retains its separate target-aware flow.
 
 GPS one-field and paired/map edits, group/bulk operations, AI, geocode,
 normalise, and other generated drafts continue through the schema-v4 batch

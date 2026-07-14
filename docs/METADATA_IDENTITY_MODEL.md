@@ -25,10 +25,32 @@ current occurrence value.
 
 Persisted schema-v4 drafts are not converted. A v4 draft keeps display, discard,
 and v4 apply ownership; ordinary Edit and Remove stay unavailable until it is
-applied or discarded. Missing, multiple, read-only, and missing-write-target
-occurrences remain read-only. While occurrences are loading, exact existing-row
-editing is unavailable and existing v5 targets are shown as unresolved rather
-than overlaid by schema.
+applied or discarded. Missing, unowned multiple, read-only, and
+missing-write-target occurrences remain read-only. While occurrences are
+loading, exact existing-row editing is unavailable and existing v5 targets are
+shown as unresolved rather than overlaid by schema.
+
+An already-owned, complete `ExistingOccurrence` target has one exact ordinary
+row presentation even when the compatibility projection omitted its schema.
+The row is seeded from the exact authoritative occurrence for Set, Delete,
+ListAdd, and ListRemove; Delete therefore keeps the original value struck
+through beside the staged `—` and retains its individual discard action. The
+final presentation plan records the represented `MetadataOccurrenceId` tokens.
+Only those exact occurrences are removed from **Additional Metadata
+Occurrences**. Same-schema siblings stay supplemental and read-only, and an
+omitted occurrence with no owning target never becomes an editable ordinary
+row. A target enters the unresolved section unless this final plan actually
+constructs its row.
+
+Opening an ordinary non-GPS editor captures the selected occurrence ID and its
+complete target snapshot. While open, the pane resolves that ID exactly and
+requires one authoritative match, the same embedded schema and selector, and
+compatible ordinary-row ownership. Loading, missing, duplicate-ID,
+changed-schema, changed-selector, or ownership changes replace the editor with
+a clear unavailable message and never invoke a setter. A same-schema sibling
+cannot retarget the editor. Value-only refreshes explicitly reseed the editor
+while preserving the captured ID, and Save passes that captured ID to the
+production action.
 
 GPS members (including one-field Edit and Remove), paired/map GPS writes,
 group/bulk operations, AI/geocode/normalise and other generated drafts remain
@@ -383,18 +405,26 @@ result directly, including both authoritative `occurrences` and the legacy
 parallel `ImageMetadataOccurrencesStore`, while `ImageMetadataStore` retains the
 legacy projection.
 
-The Details Pane now resolves each ordinary schema identity explicitly to
-`missing`, `unique`, or `multiple`. A unique resolution uses the authoritative
-occurrence value and its embedded `TagInfo`; a missing resolution retains the
-legacy compatibility value and schema lookup. Multiple resolutions never
-select one runtime field. Each concrete occurrence is shown separately in the
-read-only **Additional Metadata Occurrences** section, while any existing
-legacy compatibility row is marked ambiguous and cannot be edited or removed.
-Row actions resolve against the current index while their menu is open. An
-editor opened for a unique schema closes without saving if that schema becomes
-multiple; a replacement unique occurrence refreshes the editor's authoritative
-base value. Details Pane editors overlay schema-keyed drafts on that base, so a
-draft still takes precedence over the occurrence value.
+The Details Pane resolves each ordinary schema identity explicitly to
+`missing`, `unique`, or `multiple` when choosing a new editable row. A unique
+resolution uses the authoritative occurrence value and embedded `TagInfo`; a
+missing resolution retains the legacy compatibility value and schema lookup.
+Multiple resolutions never select one runtime field. Each concrete occurrence
+is shown separately in the read-only **Additional Metadata Occurrences**
+section, while any existing legacy compatibility row is marked ambiguous and
+cannot be edited or removed. The narrow exception is an already-owned complete
+v5 target: its exact occurrence may receive one ordinary draft row when the
+compatibility projection omitted it, and only that exact occurrence ID is
+suppressed from the supplemental section.
+
+An ordinary editor captures its exact occurrence ID on open and continues by
+exact-ID resolution, never by a later schema resolution. A value-only refresh
+reseeds the editor for the same occurrence. Loading, missing, duplicate,
+same-schema replacement, changed embedded schema, changed selector, or
+incompatible row ownership prevents Save and surfaces an unavailable message.
+Set drafts seed from the staged value, Delete from the exact current value, and
+list operations from the effective staged semantic value when available. GPS
+keeps compatibility-based initialization and schema-v4 callbacks.
 
 The file-level duplicate-occurrence scan failure is fixed: a lossy legacy
 projection no longer blocks transport of the successful occurrence read.
