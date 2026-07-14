@@ -1,3 +1,4 @@
+pub mod apply_batch_v5;
 pub mod apply_edits;
 pub mod apply_edits_v5;
 pub mod apply_log;
@@ -906,6 +907,33 @@ async fn apply_metadata_draft_edits_cmd(
     result
 }
 
+/// Inactive schema-v5 occurrence-aware batch apply. Production callers remain
+/// on `apply_metadata_draft_edits_cmd` and schema v4.
+#[tauri::command]
+async fn apply_metadata_draft_edits_v5_cmd(
+    folder_path: String,
+    rel_paths: Vec<String>,
+    app: AppHandle,
+    apply_state: State<'_, apply_batch_v5::ApplyEditsV5State>,
+) -> Result<apply_batch_v5::MetadataApplyEditsResultV5, String> {
+    let cancel_flag = apply_state.install();
+    let cancel_flag_for_worker = cancel_flag.clone();
+    let join = tauri::async_runtime::spawn_blocking(move || {
+        apply_batch_v5::run_apply_metadata_draft_edits_v5_blocking(
+            folder_path,
+            rel_paths,
+            app,
+            cancel_flag_for_worker,
+        )
+    });
+    let result = match join.await {
+        Ok(result) => result,
+        Err(error) => Err(format!("Schema-v5 apply edits worker failed: {error}")),
+    };
+    apply_state.clear_if_mine(&cancel_flag);
+    result
+}
+
 fn run_apply_metadata_draft_edits_blocking(
     folder_path: String,
     rel_paths: Vec<String>,
@@ -1009,6 +1037,14 @@ fn run_apply_metadata_draft_edits_blocking(
 /// file completes (so writes are never torn); subsequent files are skipped.
 #[tauri::command]
 fn cancel_apply_edits(apply_state: State<'_, ApplyEditsState>) -> Result<(), String> {
+    apply_state.signal_cancel();
+    Ok(())
+}
+
+#[tauri::command]
+fn cancel_apply_edits_v5(
+    apply_state: State<'_, apply_batch_v5::ApplyEditsV5State>,
+) -> Result<(), String> {
     apply_state.signal_cancel();
     Ok(())
 }
@@ -1506,6 +1542,7 @@ pub fn run() {
         .manage(ScanState::new())
         .manage(ActiveQueues::new())
         .manage(ApplyEditsState::new())
+        .manage(apply_batch_v5::ApplyEditsV5State::new())
         .manage(openai_describe::DescribeState::default())
         .manage(geocode::GeocodeState::default())
         .manage(normalise::NormaliseState::default())
@@ -1524,6 +1561,8 @@ pub fn run() {
             load_metadata_draft_edits_v5,
             apply_metadata_draft_edits_cmd,
             cancel_apply_edits,
+            apply_metadata_draft_edits_v5_cmd,
+            cancel_apply_edits_v5,
             get_tag_info,
             get_tag_infos,
             preload_schema,

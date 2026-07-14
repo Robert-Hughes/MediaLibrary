@@ -443,3 +443,32 @@ not reveal whether the intended operation edits an existing occurrence or
 creates a new property. Choosing an occurrence would require forbidden
 first-match logic. Pending v4 drafts must therefore be recreated after a future
 v5 migration, and activating v5 apply remains pending.
+
+## Inactive schema-v5 batch boundary
+
+The versioned `apply_metadata_draft_edits_v5_cmd` is registered for testing and
+future migration work but has no frontend caller. It strictly loads the v5 map
+once (never substituting an empty map for malformed, v4, or unreadable data),
+rejects duplicate requested paths before events or writes, retains requested
+order, and selects only files with current non-empty drafts. Its flow is:
+
+```text
+load v5 map once
+→ apply selected file
+→ reconcile complete target outcomes
+→ save changed candidate map
+→ emit versioned progress
+→ continue at file boundary
+```
+
+Cancellation is checked only between files. A hard failure with no outcomes
+leaves drafts unchanged; complete structured outcomes are reconciled even when
+semantic verification reports an error. Unchanged reconciliation is not saved,
+and changed state is adopted only after its complete candidate map saves.
+Reconciliation or persistence failure emits the affected result and aborts
+later files. Progress transports complete target outcomes and full
+`ImageMetadata`, including authoritative occurrences and the temporary
+compatibility projection. `persisted_draft_entries` distinguishes no persisted
+change (`null`), removal (`[]`), and retained/replaced entries. The command uses
+isolated cancellation and versioned events, has no target-aware apply logging,
+and switches no production state or event; production remains schema v4.
