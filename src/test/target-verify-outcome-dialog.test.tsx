@@ -112,10 +112,100 @@ describe("TargetVerifyOutcomeDialog", () => {
         name: "Accept written/current file state",
       }),
     ).toBeNull();
+    expect(screen.getByRole("button", { name: "Keep draft" })).toBeTruthy();
     expect(screen.queryByText(/repair/i)).toBeNull();
     fireEvent.click(
       screen.getByRole("button", { name: "Discard pending draft" }),
     );
     expect(onDiscard).toHaveBeenCalledWith("blocked.jpg", replacement);
   });
+
+  it.each([
+    "ReadbackFailed",
+    "ReadbackInvalid",
+    "MissingPostWrite",
+    "FutureUnknown",
+  ])(
+    "offers discard and keep, but not acceptance, for %s without observed state",
+    (kind) => {
+      const entry = targetVerifyOutcomeFromBackend("unknown.jpg", {
+        target: replacement,
+        draft_reconciliation: { kind: "Keep" },
+        display_name: "Subject",
+        kind,
+        sent: null,
+        before: null,
+        observed: null,
+        message: "authoritative state unavailable",
+      })!;
+      const onDiscard = vi.fn();
+      const onKeep = vi.fn();
+      render(
+        <TargetVerifyOutcomeDialog
+          outcomes={{
+            "unknown.jpg": {
+              [metadataDraftTargetSlotToken(replacement)]: entry,
+            },
+          }}
+          onAccept={vi.fn()}
+          onKeep={onKeep}
+          onDiscard={onDiscard}
+          onDismissAll={vi.fn()}
+        />,
+      );
+      expect(
+        screen.queryByRole("button", {
+          name: "Accept written/current file state",
+        }),
+      ).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Keep draft" }));
+      expect(onKeep).toHaveBeenCalledWith("unknown.jpg", replacement);
+      fireEvent.click(
+        screen.getByRole("button", { name: "Discard pending draft" }),
+      );
+      expect(onDiscard).toHaveBeenCalledWith("unknown.jpg", replacement);
+    },
+  );
+
+  it.each([
+    ["Mismatch", { kind: "Text", value: "observed" }],
+    ["Coerced", { kind: "Integer", value: 1 }],
+    ["DeleteLingering", { kind: "Text", value: "lingering" }],
+    ["Mismatch", { kind: "Null" }],
+  ] as const)(
+    "offers acceptance for %s with authoritative observed state",
+    (kind, observed) => {
+      const entry = targetVerifyOutcomeFromBackend("observed.jpg", {
+        target: replacement,
+        draft_reconciliation: { kind: "Keep" },
+        display_name: "Subject",
+        kind,
+        sent: null,
+        before: null,
+        observed,
+        message: null,
+      })!;
+      const onAccept = vi.fn();
+      render(
+        <TargetVerifyOutcomeDialog
+          outcomes={{
+            "observed.jpg": {
+              [metadataDraftTargetSlotToken(replacement)]: entry,
+            },
+          }}
+          onAccept={onAccept}
+          onKeep={vi.fn()}
+          onDiscard={vi.fn()}
+          onDismissAll={vi.fn()}
+        />,
+      );
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: "Accept written/current file state",
+        }),
+      );
+      expect(onAccept).toHaveBeenCalledWith("observed.jpg", replacement);
+      expect(screen.getByRole("button", { name: "Keep draft" })).toBeTruthy();
+    },
+  );
 });

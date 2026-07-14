@@ -731,10 +731,16 @@ This equality preserves rational representation, complete target/schema/runtime
 identity, and occurrence order while ignoring record insertion order. A final
 result that genuinely differs still overwrites earlier progress state.
 
-Target outcomes are returned for future verification state but are not stored.
-There is no autosave, React integration, or Tauri subscription in this pure
-layer. The production controller composes it for target-aware persistence and
-apply while legacy operations remain schema v4.
+Target verification outcomes are derived as part of pure, store-independent
+preparation. Their complete current targets are validated against an effective
+draft snapshot before application: exactly the backend candidate when persisted
+entries are non-null, or the current stored collection when they are null.
+Complete final batches prepare and validate every file before the first store
+mutation. A contract failure therefore preserves previous draft, verification,
+occurrence, and compatibility state and emits no notification. There is no
+autosave, React integration, or Tauri subscription in this pure layer. The
+production controller composes it for target-aware persistence and apply while
+legacy operations remain schema v4.
 
 ### Production schema-v5 frontend controller
 
@@ -751,6 +757,11 @@ be the sole frontend v5 apply owner because versioned
 events have no operation ID. Progress remains supplemental; event protocol,
 progress application, state-listener, and optional callback failures are
 contained rather than thrown from event callbacks or treated as cancellation.
+File errors and warnings are counted and presented independently before store
+application, so backend persistence, write, and readback diagnostics survive a
+frontend verification-contract failure. Progress/final duplicates remain
+deduplicated per path and message, while protocol errors retain a separate
+count.
 
 The final command result is authoritative. Progress is disabled before final
 application, preventing late callbacks from overwriting final state. Exact
@@ -830,16 +841,21 @@ relative path plus the logical slot token of the complete current target.
 `Clear` creates no entry; `Keep`, `Replace`, and `Blocked` remain actionable.
 For `Replace`, the persisted replacement occurrence is the only actionable
 target, including its runtime selector. Every entry is validated against the
-authoritative persisted v5 draft snapshot before insertion. Progress is
-supplemental and final per-file results authoritatively replace it.
+effective v5 draft snapshot before any store mutation. All files in a final
+batch validate before the first file is applied. Progress is supplemental and
+final per-file results authoritatively replace it.
 
 Accepting the file state or discarding removes the exact target draft and is
 persisted only through `MediaLibraryTargetDraftEdits.jsonl`; keeping the draft
 dismisses only the diagnostic. Target verification itself is never persisted
-and is not mixed with schema-v4 verification. The target dialog has modal
-precedence until empty.
+and is not mixed with schema-v4 verification. Acceptance requires an
+authoritative observed value, including an explicit `MetadataValue::Null`.
+Readback failure, invalid readback, missing state, blocked reconciliation, and
+future outcomes with no observed value offer discard rather than acceptance;
+keep remains available. The target dialog has modal precedence until empty.
 
-This format boundary is deliberately temporary. Existing-row, GPS, bulk,
+This format boundary is deliberately temporary. Target-aware verification is
+active only for production schema-v5 operations. Existing-row, GPS, bulk,
 AI-description, geocode, normalise, and other batch edits still use schema-v4;
 there is no automatic conversion and no general schema projection that could
 collapse occurrence targets. Migration of those remaining producers is pending.

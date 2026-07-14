@@ -670,19 +670,34 @@ Identity is the relative path plus
 complete original and current target snapshots. `Clear` creates no pending
 diagnostic. `Keep` and `Blocked` act through the original target; `Replace`
 acts through the exact persisted replacement `ExistingOccurrence`, preserving
-occurrence ID, schema ID, and runtime write selector. Before storage, the
-current slot must exist in the authoritative persisted draft snapshot and its
-complete target must compare equal.
+occurrence ID, schema ID, and runtime write selector. Verification outcomes are
+derived during store-independent preparation. Before storage, the current slot
+must exist in the effective draft snapshot and its complete target must compare
+equal. A non-null persisted snapshot validates against exactly that backend
+candidate; null validates against the current stored file collection. Every
+file in a final batch validates before the first store mutation, so an invalid
+contract preserves all prior draft, verification, occurrence, and compatibility
+state without notifying listeners.
 
 Progress results are supplemental; every completed file in the final command
 result authoritatively replaces that file's verification collection in final
-order. Exact repetition is a no-op. Users may accept the current file state by
-removing the exact pending target draft, keep the draft while dismissing only
-the diagnostic, or discard the exact draft and diagnostic. Blocked targets are
-never repaired or schema-resolved automatically. Draft changes prune only
-verification entries whose complete current target has disappeared or changed.
+order. Exact repetition is a no-op. Acceptance removes the exact pending target
+draft and is offered only when the backend supplied an authoritative observed
+value. An observed `MetadataValue::Null` is authoritative; an absent observed
+value is not. Readback failure, invalid readback, missing post-write state,
+blocked reconciliation, and future outcomes without observed state offer exact
+discard instead. Keep remains available and dismisses only the diagnostic.
+Blocked targets are never repaired or schema-resolved automatically. Draft
+changes prune only verification entries whose complete current target has
+disappeared or changed.
+
+Backend file errors and warnings are presented before frontend store
+application. They remain visible when pure verification validation rejects a
+progress or final result; the frontend contract error is recorded separately
+and does not replace a persistence, write, or readback diagnostic.
 
 This state is not persisted and remains separate from schema-v4 verification.
 The target dialog takes precedence while it has entries; the v4 dialog may
-appear after it empties. Ordinary existing-row editing remains v4 for the next
-migration slice.
+appear after it empties. Target-aware verification remains active only for
+production schema-v5 operations. Ordinary existing-row editing remains schema
+v4 for the next migration slice.

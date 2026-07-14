@@ -6,6 +6,7 @@ import {
   type MetadataApplyEditsResultV5,
   type MetadataApplyFileResultV5,
   type MetadataDraftEntryV5,
+  type MetadataTargetOutcome,
 } from "../types";
 import {
   TargetApplyControllerBusyError,
@@ -66,6 +67,48 @@ function fileResult(
     persisted_draft_entries: [draft()],
     ...overrides,
   };
+}
+
+const replacementTarget = {
+  kind: "ExistingOccurrence" as const,
+  occurrence_id: {
+    document: null,
+    path: "JPEG-APP1-IFD0",
+    tag_id: "282",
+    copy: 0,
+  },
+  schema_id: { table: "Exif::Main", tag_id: "282" },
+  write_target: { group1: "IFD0", tag_name: "XResolution" },
+};
+
+function invalidPersistenceResult(
+  error = "persistence failure",
+  warning: string | null = "readback warning",
+): MetadataApplyFileResultV5 {
+  const targetOutcome: MetadataTargetOutcome = {
+    target: {
+      kind: "NewProperty",
+      schema_id: { table: "Exif::Main", tag_id: "282" },
+    },
+    draft_reconciliation: {
+      kind: "Replace",
+      target: replacementTarget,
+    },
+    display_name: "XResolution",
+    kind: "ReadbackFailed",
+    sent: { kind: "Text", value: "requested" },
+    before: null,
+    observed: null,
+    message: "readback failed",
+  };
+  return fileResult({
+    applied: false,
+    error,
+    warning,
+    fresh_image_metadata: null,
+    target_outcomes: [targetOutcome],
+    persisted_draft_entries: null,
+  });
 }
 
 function batchResult(
@@ -406,6 +449,63 @@ describe("inactive TargetApplyControllerV5 errors", () => {
       path,
       "partial metadata remained",
     );
+  });
+
+  it("preserves progress diagnostics when verification application fails", async () => {
+    const onFileError = vi.fn();
+    const onFileWarning = vi.fn();
+    const onProgressApplicationError = vi.fn();
+    const { api, controller } = harness({
+      onFileError,
+      onFileWarning,
+      onProgressApplicationError,
+    });
+    const command = deferred<unknown>();
+    api.apply = () => command.promise;
+    const run = controller.run("folder", [path]);
+    await waitForApply(api);
+    const failed = invalidPersistenceResult();
+    const payload = { current: 1, total: 1, result: failed };
+    api.emit(PROGRESS_EVENT, payload);
+
+    expect(controller.getState()).toMatchObject({
+      fileFailureCount: 1,
+      progressApplicationErrorCount: 1,
+      protocolErrorCount: 0,
+    });
+    expect(onFileError).toHaveBeenCalledWith(path, "persistence failure");
+    expect(onFileWarning).toHaveBeenCalledWith(path, "readback warning");
+    expect(onProgressApplicationError).toHaveBeenCalledOnce();
+    const frontendError = onProgressApplicationError.mock.calls[0][0].error;
+    expect(frontendError.message).toMatch(/verification contract error/i);
+    expect(frontendError.message).not.toContain("persistence failure");
+
+    command.resolve(batchResult([failed]));
+    await expect(run).rejects.toThrow(/verification contract error/i);
+    expect(onFileError).toHaveBeenCalledOnce();
+    expect(onFileWarning).toHaveBeenCalledOnce();
+  });
+
+  it("presents final-only backend diagnostics before final validation fails", async () => {
+    const onFileError = vi.fn();
+    const onFileWarning = vi.fn();
+    const { api, controller } = harness({ onFileError, onFileWarning });
+    api.apply = async () =>
+      batchResult([
+        invalidPersistenceResult(
+          "backend write/readback persistence failure",
+          "backend final warning",
+        ),
+      ]);
+
+    await expect(controller.run("folder", [path])).rejects.toThrow(
+      /verification contract error/i,
+    );
+    expect(onFileError).toHaveBeenCalledWith(
+      path,
+      "backend write/readback persistence failure",
+    );
+    expect(onFileWarning).toHaveBeenCalledWith(path, "backend final warning");
   });
 
   it("does not invoke after atomic listener registration fails and releases all lifecycle state", async () => {
