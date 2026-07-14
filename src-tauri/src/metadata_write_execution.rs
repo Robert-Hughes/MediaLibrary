@@ -1,8 +1,8 @@
 //! Shared ExifTool argfile rendering and write-pass execution.
 //!
 //! This module deliberately knows nothing about draft identities or metadata
-//! targets. Both the production schema-v4 apply path and the inactive
-//! occurrence-aware schema-v5 foundation use these byte-identical mechanics.
+//! targets. Both the production schema-v4 apply path and the controlled
+//! production schema-v5 bridge use these byte-identical mechanics.
 
 use std::io::Write;
 use std::path::Path;

@@ -859,9 +859,9 @@ fn load_metadata_draft_edits(
     draft_edits::load_metadata_draft_edits(&folder_path)
 }
 
-// Inactive schema-v5 boundary.
-// No production frontend caller uses these commands yet.
-// Do not mix them with the v4 commands in one live folder session.
+// Controlled production schema-v5 boundary. Add Property uses these commands;
+// remaining producers stay on v4, and combined frontend apply is sequential.
+// Target-aware apply logging remains pending.
 #[tauri::command]
 fn save_metadata_draft_edits_v5(
     folder_path: String,
@@ -907,8 +907,8 @@ async fn apply_metadata_draft_edits_cmd(
     result
 }
 
-/// Inactive schema-v5 occurrence-aware batch apply. Production callers remain
-/// on `apply_metadata_draft_edits_cmd` and schema v4.
+/// Production schema-v5 occurrence-aware batch apply for Add Property.
+/// Remaining editing producers continue through the schema-v4 command.
 #[tauri::command]
 async fn apply_metadata_draft_edits_v5_cmd(
     folder_path: String,

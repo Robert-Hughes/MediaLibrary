@@ -799,6 +799,29 @@ backend persistence snapshots are authoritative and suppress frontend autosave.
 The v5 phase precedes the v4 phase deterministically, with no concurrency and
 with duplicate file/schema ownership rejected before execution.
 
+Target persistence availability is folder-scoped. Strict load success,
+including a missing file represented as a valid empty map, produces `ready`.
+Strict load failure produces `load-failed(error)` and makes v5 persistence
+read-only for that session: target mutations, v5 autosave, v5 apply, and Add
+Property are blocked, while the invalid file remains untouched and v4 actions
+continue. Fixing the file and reopening the folder is required to regain v5
+writability.
+
+Add Property treats every exact target-aware schema as owned. One existing
+`NewProperty` remains the editable logical slot; any `ExistingOccurrence` or
+multiple target entries rejects creation. The picker excludes all target-owned
+schemas, including ambiguous resolutions, in addition to metadata and relevant
+legacy drafts. Exact ID comparison preserves absent index versus index zero.
+
+V5 result application increments React `metadataVersion` only from the exact
+`compatibilityChanged` summary. Identical progress and final snapshots do not
+double-invalidate, while final-only or genuinely changed final metadata does.
+Schema-v4 fresh metadata cannot carry complete occurrences, so every v4 write
+result invalidates that path's authoritative occurrence cache while retaining
+its fresh compatibility projection. Consequently, mixed same-file v5-then-v4
+apply ends with unavailable occurrences, never stale pre-v4 occurrences; a
+later scan or v5 full result may repopulate them.
+
 This format boundary is deliberately temporary. Existing-row, GPS, bulk,
 AI-description, geocode, normalise, and other batch edits still use schema-v4;
 there is no automatic conversion and no general schema projection that could

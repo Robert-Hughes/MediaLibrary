@@ -496,11 +496,15 @@ use schema-v4 persistence and apply.
 
 Production now owns one stable `TargetDraftEditsStore`, one
 `TargetDraftAutosaveGateV5`, and one `TargetApplyControllerV5`. Folder opening
-loads schema-v4 and strict schema-v5 persistence independently. A malformed,
-v4, or future-version payload on the v5 command is a visible application error;
-the in-memory target store starts empty, but the invalid persistence file is not
-overwritten. Folder switch and close clear the target state and keep autosave
-bound to the current folder.
+loads schema-v4 and strict schema-v5 persistence independently. A valid empty
+v5 load is writable. A malformed, v4, or future-version payload places that
+folder in `load-failed(error)`: the error remains visible, the in-memory target
+store stays empty, and the invalid persistence file is never saved, truncated,
+or replaced. Target-aware mutation, autosave, apply, and Add Property remain
+blocked until the file is fixed and the folder is reopened. Schema-v4 actions
+remain available. A different successfully loaded folder gets its own `ready`
+state. Folder switch and close clear target state and keep autosave bound to the
+current folder.
 
 User target mutations save the complete schema-v5 map. Authoritative
 `persisted_draft_entries` snapshots applied by the controller still update
@@ -518,6 +522,28 @@ is sent only to that phase. An exact file/schema collision rejects before either
 command. Draft counts, Apply All, Discard All, per-file commands, and
 `has:edits` aggregate both stores, while target records remain separate rather
 than being flattened into the legacy schema map.
+
+Add Property creates a `NewProperty` only when no target-aware entry owns the
+exact schema. Exactly one existing `NewProperty` is replaced in the same slot.
+An `ExistingOccurrence` owner or any multiple-entry resolution rejects the
+operation without mutation or legacy fallback. The picker excludes schemas
+from metadata, applicable legacy drafts, and every target-aware draft,
+including ambiguous resolutions. All checks use complete
+`SchemaDefinitionId`; absent index and index zero stay distinct.
+
+The controller uses `compatibilityChanged` from each application summary to
+increment React `metadataVersion`, so image-field sorts respond to v5 progress
+and final-only results. Idempotent identical progress/final application does not
+double-invalidate; a genuinely changed final result does. Draft-only changes do
+not invalidate metadata sorting.
+
+Every v4 progress result containing fresh compatibility metadata invalidates
+the same path in `ImageMetadataOccurrencesStore`. The compatibility result
+remains installed, but the occurrence state becomes unavailable rather than an
+empty array. A later scan or full v5 result can restore authoritative
+occurrences. For a same-file mixed apply, the later v4 phase therefore leaves
+fresh v4 compatibility visible and invalidates the earlier v5 occurrence
+collection; the Details Pane cannot overlay a stale occurrence value.
 
 The only production v5 draft producer is Add New Property. The explicit v4
 producers are ordinary existing metadata rows, GPS editing, bulk remove-field,

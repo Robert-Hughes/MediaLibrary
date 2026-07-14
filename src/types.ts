@@ -228,6 +228,13 @@ export class ImageMetadataOccurrencesStore {
     this.subscribers.get(path)?.forEach((callback) => callback());
   }
 
+  /** Mark a file's occurrence collection unavailable without claiming it is empty. */
+  invalidate(path: string): void {
+    if (this.data.get(path) === "loading") return;
+    this.data.set(path, "loading");
+    this.subscribers.get(path)?.forEach((callback) => callback());
+  }
+
   get(path: string): ImageMetadataOccurrencesState {
     return this.data.get(path) ?? "loading";
   }
@@ -720,6 +727,9 @@ export class DraftEditsStore {
 
 // ── App state ─────────────────────────────────────────────────────────────────
 
+export type TargetDraftPersistenceStateV5 =
+  { status: "ready" } | { status: "load-failed"; error: string };
+
 export type AppState =
   | { kind: "idle" }
   | {
@@ -764,6 +774,7 @@ export type AppState =
       // schema-v4 bridge above so occurrence identity is never collapsed.
       targetDraftEdits: TargetDraftEditsByFile;
       targetDraftEditsStore: TargetDraftEditsStore;
+      targetDraftPersistence: TargetDraftPersistenceStateV5;
       targetApplying: TargetApplyControllerStateV5;
 
       // Apply-edits in-flight state (non-null while metadata apply is running)

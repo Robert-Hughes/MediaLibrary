@@ -14,6 +14,7 @@ import type {
   MetadataOccurrences,
   MetadataValue,
   MetadataDraftEntryV5,
+  MetadataApplyFileResultV5,
 } from "../types";
 import { metadataDraftsFromWire, metadataDraftsToWire } from "../types";
 import {
@@ -101,6 +102,10 @@ export interface MockTauriApi {
   warningsByPath: Record<string, string>;
   cancelApplyEditsCalled: boolean;
   cancelTargetApplyCalled: boolean;
+  /** Optional per-file v5 progress result overrides. */
+  targetApplyProgressResultsByPath: Record<string, MetadataApplyFileResultV5>;
+  /** Optional per-file v5 authoritative final result overrides. */
+  targetApplyFinalResultsByPath: Record<string, MetadataApplyFileResultV5>;
   /** Stored settings; defaults to empty API key + gpt-4o + heuristic estimates. */
   settings: {
     openai_api_key: string;
@@ -279,6 +284,8 @@ export function createMockTauriApi(): MockTauriApi {
     warningsByPath: {},
     cancelApplyEditsCalled: false,
     cancelTargetApplyCalled: false,
+    targetApplyProgressResultsByPath: {},
+    targetApplyFinalResultsByPath: {},
     settings: {
       openai_api_key: "",
       openai_model: "gpt-4o",
@@ -468,7 +475,7 @@ export function createMockTauriApi(): MockTauriApi {
         await Promise.resolve();
         emit("apply_edits_v5_started", { total: relPaths.length });
         const files = relPaths.map((relative_path, index) => {
-          const result = {
+          const fallback: MetadataApplyFileResultV5 = {
             relative_path,
             applied: true,
             error: null,
@@ -477,12 +484,16 @@ export function createMockTauriApi(): MockTauriApi {
             target_outcomes: [],
             persisted_draft_entries: [],
           };
+          const progressResult =
+            mock.targetApplyProgressResultsByPath[relative_path] ?? fallback;
           emit("apply_metadata_edits_v5_progress", {
             current: index + 1,
             total: relPaths.length,
-            result,
+            result: progressResult,
           });
-          return result;
+          return (
+            mock.targetApplyFinalResultsByPath[relative_path] ?? progressResult
+          );
         });
         const existing = mock.targetDraftEditsByFolder[folder] ?? {};
         mock.targetDraftEditsByFolder[folder] = Object.fromEntries(

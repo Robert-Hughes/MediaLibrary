@@ -265,7 +265,7 @@ pub fn reconcile_metadata_draft_entries_v5(
     Ok(reconciled)
 }
 
-/// Reconciles one file in an inactive schema-v5 draft map without persistence.
+/// Reconciles one file in the production bridge's schema-v5 draft map without persistence.
 ///
 /// The outer map is cloned only after entry reconciliation has fully validated.
 pub fn reconcile_metadata_draft_file_v5(

@@ -61,7 +61,7 @@ pub struct MetadataDraftEntry {
 
 pub type MetadataDraftEdits = HashMap<String, Vec<MetadataDraftEntry>>;
 
-// ── inactive v5 target-aware model ──────────────────────────────────────────
+// ── production bridge v5 target-aware model ─────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[cfg_attr(test, derive(ts_rs::TS))]
@@ -243,11 +243,10 @@ pub fn save_metadata_draft_edits(
     Ok(())
 }
 
-/// Loads the inactive target-aware schema-v5 format.
+/// Loads the target-aware schema-v5 format used by production Add Property.
 ///
-/// Do not mix this function with the production v4 load/save functions during
-/// one live operation: both versions use the same eventual on-disk filename,
-/// but their entry identities are intentionally incompatible.
+/// Remaining editing producers retain schema-v4 persistence during the
+/// controlled migration; the formats have intentionally incompatible identities.
 pub fn load_metadata_draft_edits_v5(folder_path: &str) -> Result<MetadataDraftEditsV5, String> {
     let path = Path::new(folder_path).join(FILE_NAME);
     let mut typed: MetadataDraftEditsV5 = HashMap::new();
@@ -325,11 +324,10 @@ pub fn load_metadata_draft_edits_v5(folder_path: &str) -> Result<MetadataDraftEd
     Ok(typed)
 }
 
-/// Saves the inactive target-aware schema-v5 format.
+/// Saves the target-aware schema-v5 format used by production Add Property.
 ///
-/// Do not mix this function with the production v4 load/save functions during
-/// one live operation. Validation intentionally completes before the shared
-/// filename is opened or truncated.
+/// Validation intentionally completes before the shared filename is opened or
+/// truncated. Remaining editing producers retain schema-v4 persistence.
 pub fn save_metadata_draft_edits_v5(
     folder_path: &str,
     data: &MetadataDraftEditsV5,

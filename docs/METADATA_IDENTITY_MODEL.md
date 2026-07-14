@@ -628,3 +628,26 @@ exact schema cannot be owned by both systems: creation and combined apply reject
 the collision without deleting or converting either draft. The narrow Add
 Property view also refuses to first-select when multiple target-aware existing
 occurrences share one schema; target-aware verification UI remains pending.
+
+The target store also enforces exact schema ownership for Add Property. With no
+target-aware entry, Add Property creates one `NewProperty` slot. One existing
+`NewProperty` is edited in that same logical slot. Any `ExistingOccurrence`, or
+multiple target entries of any kinds sharing the exact schema, blocks creation
+as already owned or ambiguous. The picker excludes every target-owned schema,
+including ambiguous sets, while exact identity continues to distinguish an
+absent index from index zero.
+
+Strict v5 loading has a folder-scoped persistence state. A valid empty load is
+`ready`. A failed load is `load-failed(error)`: the target store remains empty,
+the invalid file stays untouched, and target mutation, autosave, apply, and Add
+Property are blocked until the file is fixed and the folder is reopened. This
+does not block schema-v4 editing, persistence, or apply.
+
+V5 progress and authoritative final results invalidate React metadata sorting
+only when their application summary reports `compatibilityChanged`. Exact
+progress/final repetition is a no-op; a different final result invalidates
+again. Conversely, any v4 write result with fresh compatibility metadata marks
+that file's occurrence collection unavailable because v4 cannot transport a
+complete authoritative collection. In a mixed same-file v5-then-v4 apply, the
+final UI therefore shows fresh v4 compatibility metadata and never treats the
+pre-v4 v5 occurrences as current.

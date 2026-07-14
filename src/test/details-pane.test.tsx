@@ -757,6 +757,133 @@ describe("DetailsPane: target-aware Add Property drafts", () => {
     });
   });
 
+  it("enables Add Property when v5 persistence is ready", async () => {
+    const user = userEvent.setup();
+    _setSchemaTagNamesCache([]);
+    render(
+      <DetailsPane
+        photo={photo}
+        metadata={{}}
+        targetDraftPersistence={{ status: "ready" }}
+        onSetMetadataDraftBatch={vi.fn()}
+        onDiscardDraftBatch={vi.fn()}
+      />,
+    );
+    const button = screen.getByTestId("details-pane-add-property-btn");
+    expect(button).not.toBeDisabled();
+    await user.click(button);
+    expect(
+      screen.getByRole("dialog", { name: "Add new property" }),
+    ).toBeInTheDocument();
+  });
+
+  it("disables both Add Property stages after a failed v5 load while existing-row editing remains available", async () => {
+    const user = userEvent.setup();
+    const titleId = testId("XMP-dc:Title");
+    _setTagInfoCacheEntry("XMP-dc:Title", {
+      group: "XMP-dc",
+      name: "Title",
+      writable: true,
+      kind: { kind: "Text" },
+      description: null,
+    });
+    render(
+      <DetailsPane
+        photo={photo}
+        metadata={{
+          [schemaDefinitionIdToken(titleId)]: {
+            id: titleId,
+            kind: "Text",
+            value: "existing",
+          },
+        }}
+        targetDraftPersistence={{
+          status: "load-failed",
+          error: "malformed file",
+        }}
+        onSetMetadataDraft={vi.fn()}
+        onSetMetadataDraftBatch={vi.fn()}
+        onDiscardDraftBatch={vi.fn()}
+      />,
+    );
+    const button = screen.getByTestId("details-pane-add-property-btn");
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute("title", expect.stringMatching(/reopen/i));
+    await user.click(button);
+    expect(
+      screen.queryByRole("dialog", { name: "Add new property" }),
+    ).toBeNull();
+    expect(screen.queryByTestId("value-edit-overlay")).toBeNull();
+
+    const row = screen.getByText("Title").closest("tr")!;
+    fireEvent.contextMenu(row);
+    await user.click(screen.getByRole("button", { name: "Edit…" }));
+    expect(screen.getByTestId("value-edit-input")).toHaveValue("existing");
+  });
+
+  it("marks every ambiguous target-owned exact schema unavailable in the picker while a distinct schema remains selectable", async () => {
+    const user = userEvent.setup();
+    const distinct = testId("XMP-dc:Title");
+    _setSchemaTagNamesCache([
+      {
+        id,
+        group: "XMP-dc",
+        name: "Subject",
+        writable: true,
+        kind: { kind: "Text" },
+        description: null,
+      },
+      {
+        id: distinct,
+        group: "XMP-dc",
+        name: "Title",
+        writable: true,
+        kind: { kind: "Text" },
+        description: null,
+      },
+    ]);
+    const store = new TargetDraftEditsStore();
+    for (const copy of [0, 1]) {
+      store.setMetadataTarget(
+        "target.jpg",
+        {
+          ...target,
+          occurrence_id: { ...target.occurrence_id, copy },
+          write_target: { group1: "XMP-dc", tag_name: `Subject-${copy}` },
+        },
+        { intent: "Set", value: { kind: "Text", value: `${copy}` } },
+      );
+    }
+    render(
+      <DetailsPane
+        photo={photo}
+        metadata={{}}
+        targetDraftEdits={store.getMetadataFile("target.jpg")}
+        targetDraftPersistence={{ status: "ready" }}
+        onSetMetadataDraftBatch={vi.fn()}
+        onDiscardDraftBatch={vi.fn()}
+      />,
+    );
+    await user.click(screen.getByTestId("details-pane-add-property-btn"));
+    fireEvent.change(screen.getByTestId("new-property-key"), {
+      target: { value: "XMP-dc" },
+    });
+
+    await user.click(
+      screen.getByTestId(`schema-option-${schemaDefinitionIdToken(id)}`),
+    );
+    expect(
+      screen.getByTestId("new-property-duplicate-warning"),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("new-property-next")).toBeDisabled();
+
+    await user.click(
+      screen.getByTestId(`schema-option-${schemaDefinitionIdToken(distinct)}`),
+    );
+    expect(screen.queryByTestId("new-property-duplicate-warning")).toBeNull();
+    expect(screen.getByTestId("new-property-next")).not.toBeDisabled();
+  });
+
   it("displays, edits and discards a reconciled draft through its exact target", async () => {
     const user = userEvent.setup();
     const store = new TargetDraftEditsStore();
