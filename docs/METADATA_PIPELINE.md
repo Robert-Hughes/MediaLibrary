@@ -446,3 +446,48 @@ order, cancellation, and abort status.
 This module has no listener, Tauri invocation, autosave, React integration, or
 production caller. It does not cause a second persistence write. Normal startup,
 persistence, apply, and `DraftEditsStore` continue to use schema v4.
+
+### Inactive frontend apply coordination
+
+The inactive `TargetApplyControllerV5` composes the adapter and result engine
+without activating either in production:
+
+```text
+local controller ownership
+→ autosave suppression
+→ versioned listener setup
+→ versioned apply command
+→ incremental strict progress application
+→ disable progress acceptance
+→ authoritative final application
+→ listener cleanup and release
+```
+
+A local overlapping run is rejected before suppression, registration,
+invocation, or mutation. Backend exclusivity remains authoritative across
+processes and independent callers. Production activation must make this
+controller the sole frontend v5 apply owner: the versioned events still have
+no backend operation ID, so a unique local generation token rejects callbacks
+from completed, failed, cancelled, or older controller runs.
+
+Progress is supplemental. Its complete validated file result updates persisted
+target drafts, authoritative occurrences, and compatibility metadata while the
+autosave gate is held. The gate exists so a future subscriber can avoid saving
+snapshots that the backend already persisted; it does not persist or subscribe
+to anything yet. Malformed event records, progress-application failures, and
+optional callback failures are contained while the command continues.
+
+Immediately after the command resolves, progress acceptance is disabled before
+the final result is applied authoritatively. A late queued event therefore
+cannot overwrite final state. Exact equality suppresses duplicate store
+notifications for identical progress and final snapshots, while genuinely
+different final state replaces the progress snapshot. Command rejection does
+not fabricate a final result or roll stores back. Listener cleanup is attempted
+before suppression and ownership release on every path; an existing command or
+final-application error is not masked by cleanup failure.
+
+Cancellation calls the existing exact v5 adapter once while a signal is in
+flight and keeps controller ownership and autosave suppression until the apply
+command resolves or rejects. There is no React hook, `useMediaLibrary` caller,
+`AppState` target store, v5 autosave subscriber, or production integration.
+Production persistence and apply remain schema v4.

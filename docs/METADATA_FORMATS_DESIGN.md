@@ -733,6 +733,43 @@ Target outcomes are returned for future verification state but are not stored.
 There is no autosave, React integration, production caller, or Tauri subscription
 in this layer. Production persistence and apply remain schema v4.
 
+### Inactive schema-v5 frontend controller
+
+The inactive, non-React `TargetApplyControllerV5` now composes the strict
+transport and store-application layers as `local ownership → autosave
+suppression → versioned listeners → versioned command → incremental strict
+progress application → progress disablement → authoritative final application
+→ cleanup and release`.
+
+Local overlap fails before side effects. Backend exclusivity remains the
+cross-process and cross-caller authority, while a unique local generation token
+contains callbacks from older or released runs. The controller is intended to
+be the sole frontend v5 apply owner on future activation because versioned
+events have no operation ID. Progress remains supplemental; event protocol,
+progress application, state-listener, and optional callback failures are
+contained rather than thrown from event callbacks or treated as cancellation.
+
+The final command result is authoritative. Progress is disabled before final
+application, preventing late callbacks from overwriting final state. Exact
+structural equality makes identical progress/final snapshots no-ops without
+duplicate notifications, and genuinely different final snapshots still
+replace progress state. Command rejection preserves the exact primary error
+and retains any already-applied authoritative progress data; there is no local
+snapshot rollback.
+
+`TargetDraftAutosaveGateV5` is held during listener setup, every progress and
+final store mutation, and listener cleanup, then released idempotently on every
+exit path. It only models suppression ownership: it performs no persistence and
+has no store subscriber. Cancellation reuses its active signal request and does
+not release ownership or suppression before normal command settlement. Cleanup
+failure cannot strand either lifecycle resource or mask an earlier command or
+final-application failure.
+
+There is no controller instance, React hook, `useMediaLibrary` integration,
+target-aware `AppState`, or v5 autosave subscriber in the normal application.
+Production startup, persistence, apply, editing, and verification remain schema
+v4.
+
 - **MetadataValue** — Discriminated semantic value model used inside the app for read metadata, draft edits, writes, verification, and apply logs.
 - **SchemaDefinitionId** — Exact ExifTool definition identity: `{table, tag_id, index?}` from `-listx`. It remains the key for current schema-keyed v4 drafts and their production paths. It is distinct from runtime occurrence identity and exact write targeting. `Group1:Name` is display/search text only.
 - **MetadataDraftTarget** — Locked future target union: an existing occurrence carries runtime occurrence, semantic schema, and exact selector snapshot; a new property carries only the selected schema. No production draft or apply path consumes it yet.
