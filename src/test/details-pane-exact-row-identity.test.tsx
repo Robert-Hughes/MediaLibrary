@@ -6,6 +6,7 @@ import { GPS_IDS } from "../metadata/knownIds";
 import { TargetDraftEditsStore } from "../targetDraftEdits";
 import type {
   ImageMetadataState,
+  MetadataDraftCollection,
   MetadataDraftEdit,
   MetadataOccurrence,
   SchemaDefinitionId,
@@ -84,6 +85,10 @@ function renderPane(options: {
   metadata?: ImageMetadataState;
   occurrences?: Parameters<typeof DetailsPane>[0]["occurrences"];
   targetDraftEdits?: Parameters<typeof DetailsPane>[0]["targetDraftEdits"];
+  typedDraftEdits?: Parameters<typeof DetailsPane>[0]["typedDraftEdits"];
+  targetDraftPersistence?: Parameters<
+    typeof DetailsPane
+  >[0]["targetDraftPersistence"];
 }) {
   const callbacks = {
     onSetExistingOccurrenceDraft: vi.fn(),
@@ -98,6 +103,8 @@ function renderPane(options: {
       metadata={next.metadata ?? {}}
       occurrences={next.occurrences ?? [occurrenceA]}
       targetDraftEdits={next.targetDraftEdits}
+      typedDraftEdits={next.typedDraftEdits}
+      targetDraftPersistence={next.targetDraftPersistence}
       {...callbacks}
     />
   );
@@ -131,7 +138,7 @@ beforeEach(() => {
 });
 
 describe("DetailsPane exact target-owned row presentation", () => {
-  it("renders one compatibility-omitted Set row and excludes only its exact supplemental occurrence", () => {
+  it("keeps a multiply-resolved Set target on its exact supplemental row", () => {
     const { drafts } = targetDrafts(occurrenceA, {
       intent: "Set",
       value: { kind: "Integer", value: 301 },
@@ -142,24 +149,224 @@ describe("DetailsPane exact target-owned row presentation", () => {
       targetDraftEdits: drafts,
     });
 
-    const ordinaryRows = ordinaryMetadataRows();
-    expect(ordinaryRows).toHaveLength(1);
-    expect(ordinaryRows[0].querySelector(".draft-original")).toHaveTextContent(
-      "300",
-    );
-    expect(ordinaryRows[0].querySelector(".draft-new")).toHaveTextContent(
-      "301",
+    expect(ordinaryMetadataRows()).toHaveLength(0);
+    const supplemental = screen.getAllByTestId("details-occurrence-row");
+    expect(supplemental).toHaveLength(2);
+    const targetRow = supplemental.find(
+      (row) =>
+        row.dataset.occurrenceToken ===
+        metadataOccurrenceIdToken(occurrenceA.id),
+    )!;
+    const siblingRow = supplemental.find(
+      (row) =>
+        row.dataset.occurrenceToken ===
+        metadataOccurrenceIdToken(occurrenceB.id),
+    )!;
+    expect(targetRow.querySelector(".draft-original")).toHaveTextContent("300");
+    expect(targetRow.querySelector(".draft-new")).toHaveTextContent("301");
+    expect(targetRow).toHaveAttribute("data-has-exact-draft", "true");
+    expect(targetRow).not.toHaveAttribute("data-readonly");
+    expect(siblingRow).toHaveTextContent("72");
+    expect(siblingRow).toHaveAttribute("data-readonly", "true");
+    expect(siblingRow).toHaveAttribute(
+      "title",
+      expect.stringContaining("Another concrete occurrence currently owns"),
     );
     expect(screen.queryByTestId("details-target-drafts-ambiguous")).toBeNull();
 
-    const supplemental = screen.getAllByTestId("details-occurrence-row");
-    expect(supplemental).toHaveLength(1);
-    expect(supplemental[0]).toHaveTextContent("72");
-    expect(supplemental[0]).toHaveAttribute(
-      "data-occurrence-token",
-      metadataOccurrenceIdToken(occurrenceB.id),
+    fireEvent.contextMenu(targetRow);
+    expect(screen.getByRole("button", { name: "Edit…" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Discard edit" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Remove" })).toBeInTheDocument();
+  });
+
+  it("edits and removes a supplemental row only through A's exact callback", () => {
+    const view = renderPane({
+      metadata: {},
+      occurrences: [occurrenceA, occurrenceB],
+    });
+    const rowA = screen
+      .getAllByTestId("details-occurrence-row")
+      .find(
+        (row) =>
+          row.dataset.occurrenceToken ===
+          metadataOccurrenceIdToken(occurrenceA.id),
+      )!;
+    fireEvent.contextMenu(rowA);
+    fireEvent.click(screen.getByRole("button", { name: "Edit…" }));
+    expect(screen.getByTestId("numeric-editor-input")).toHaveValue(300);
+    fireEvent.change(screen.getByTestId("numeric-editor-input"), {
+      target: { value: "305" },
+    });
+    fireEvent.click(screen.getByTestId("numeric-editor-save"));
+    expect(view.onSetExistingOccurrenceDraft).toHaveBeenCalledWith(
+      occurrenceA.id,
+      expect.objectContaining({
+        intent: "Set",
+        value: { kind: "Integer", value: 305 },
+      }),
     );
-    fireEvent.contextMenu(ordinaryRows[0]);
+    expect(view.onSetMetadataDraftBatch).not.toHaveBeenCalled();
+
+    fireEvent.contextMenu(rowA);
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    expect(view.onSetExistingOccurrenceDraft).toHaveBeenLastCalledWith(
+      occurrenceA.id,
+      { intent: "Delete", value: null },
+    );
+    expect(view.onSetMetadataDraftBatch).not.toHaveBeenCalled();
+  });
+
+  it("shows supplemental Delete on A, filters has:edits exactly, and discards A", async () => {
+    const { target, drafts } = targetDrafts(occurrenceA, {
+      intent: "Delete",
+      value: null,
+    });
+    const view = renderPane({
+      metadata: {},
+      occurrences: [occurrenceA, occurrenceB],
+      targetDraftEdits: drafts,
+    });
+    const rowA = screen
+      .getAllByTestId("details-occurrence-row")
+      .find(
+        (row) =>
+          row.dataset.occurrenceToken ===
+          metadataOccurrenceIdToken(occurrenceA.id),
+      )!;
+    expect(rowA.querySelector(".draft-original")).toHaveTextContent("300");
+    expect(rowA.querySelector(".draft-new")).toHaveTextContent("—");
+    expect(screen.queryByTestId("details-target-drafts-ambiguous")).toBeNull();
+
+    await userEvent.type(
+      screen.getByTestId("details-search-input"),
+      "has:edits",
+    );
+    const filtered = screen.getAllByTestId("details-occurrence-row");
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0]).toHaveAttribute(
+      "data-occurrence-token",
+      metadataOccurrenceIdToken(occurrenceA.id),
+    );
+    fireEvent.contextMenu(filtered[0]);
+    fireEvent.click(screen.getByRole("button", { name: "Discard edit" }));
+    expect(view.onDiscardTargetPropertyDraft).toHaveBeenCalledWith(target);
+  });
+
+  it.each([
+    ["ListAdd", "existing, kept, staged"],
+    ["ListRemove", "kept"],
+  ] as const)(
+    "shows the effective supplemental %s value without changing intent",
+    (intent, expected) => {
+      const listInfo: TagInfo = {
+        ...tagInfo,
+        kind: { kind: "Bag", data: { kind: "Text" } },
+      };
+      const listA: MetadataOccurrence = {
+        ...occurrenceA,
+        tag_info: listInfo,
+        value: {
+          kind: "List",
+          value: {
+            list_kind: "Bag",
+            items: [
+              { kind: "Text", value: "existing" },
+              { kind: "Text", value: "kept" },
+            ],
+          },
+        },
+      };
+      const listB: MetadataOccurrence = {
+        ...occurrenceB,
+        tag_info: listInfo,
+        value: {
+          kind: "List",
+          value: {
+            list_kind: "Bag",
+            items: [{ kind: "Text", value: "sibling" }],
+          },
+        },
+      };
+      const { drafts } = targetDrafts(listA, {
+        intent,
+        value: {
+          kind: "Text",
+          value: intent === "ListAdd" ? "staged" : "existing",
+        },
+      });
+      renderPane({
+        metadata: {},
+        occurrences: [listA, listB],
+        targetDraftEdits: drafts,
+      });
+      const rowA = screen
+        .getAllByTestId("details-occurrence-row")
+        .find(
+          (row) =>
+            row.dataset.occurrenceToken === metadataOccurrenceIdToken(listA.id),
+        )!;
+      expect(rowA.querySelector(".draft-new")).toHaveTextContent(expected);
+    },
+  );
+
+  it("keeps a stale supplemental target unresolved without overlay", () => {
+    const current = existingOccurrenceTargetFromOccurrence(occurrenceA);
+    if (current.kind !== "targetable") throw new Error(current.reason);
+    const staleStore = new TargetDraftEditsStore();
+    staleStore.setMetadataTarget(
+      photo.relative_path,
+      {
+        ...current.target,
+        write_target: { ...current.target.write_target, group1: "IFD1" },
+      },
+      { intent: "Set", value: { kind: "Integer", value: 301 } },
+    );
+    renderPane({
+      metadata: {},
+      occurrences: [occurrenceA, occurrenceB],
+      targetDraftEdits: staleStore.getMetadataFile(photo.relative_path),
+    });
+    expect(
+      screen.getByTestId("details-target-drafts-ambiguous"),
+    ).toBeInTheDocument();
+    for (const row of screen.getAllByTestId("details-occurrence-row")) {
+      expect(row).not.toHaveAttribute("data-has-exact-draft");
+      expect(row.querySelector(".draft-new")).toBeNull();
+      expect(row).toHaveAttribute("data-readonly", "true");
+    }
+    expect(ordinaryMetadataRows()).toHaveLength(0);
+  });
+
+  it("makes the same-schema sibling eligible after A's owner is discarded", () => {
+    const pending = targetDrafts(occurrenceA, {
+      intent: "Set",
+      value: { kind: "Integer", value: 301 },
+    });
+    const view = renderPane({
+      metadata: {},
+      occurrences: [occurrenceA, occurrenceB],
+      targetDraftEdits: pending.drafts,
+    });
+    const siblingToken = metadataOccurrenceIdToken(occurrenceB.id);
+    expect(
+      screen
+        .getAllByTestId("details-occurrence-row")
+        .find((row) => row.dataset.occurrenceToken === siblingToken),
+    ).toHaveAttribute("data-readonly", "true");
+
+    view.rerenderPane({
+      metadata: {},
+      occurrences: [occurrenceA, occurrenceB],
+      targetDraftEdits: undefined,
+    });
+    const sibling = screen
+      .getAllByTestId("details-occurrence-row")
+      .find((row) => row.dataset.occurrenceToken === siblingToken)!;
+    expect(sibling).not.toHaveAttribute("data-readonly");
+    fireEvent.contextMenu(sibling);
     expect(screen.getByRole("button", { name: "Edit…" })).toBeInTheDocument();
   });
 
@@ -234,16 +441,141 @@ describe("DetailsPane exact target-owned row presentation", () => {
     expect(screen.queryByTestId("details-occurrence-row")).toBeNull();
   });
 
-  it("leaves compatibility-omitted occurrences without targets supplemental and read-only", () => {
+  it("makes targetable compatibility-omitted occurrences exact-edit candidates", () => {
     renderPane({ metadata: {}, occurrences: [occurrenceA, occurrenceB] });
     expect(ordinaryMetadataRows()).toHaveLength(0);
     const rows = screen.getAllByTestId("details-occurrence-row");
     expect(rows).toHaveLength(2);
     for (const row of rows) {
-      expect(row).toHaveAttribute("data-readonly", "true");
+      expect(row).not.toHaveAttribute("data-readonly");
       fireEvent.contextMenu(row);
-      expect(screen.queryByRole("menu")).toBeNull();
+      expect(screen.getByRole("button", { name: "Edit…" })).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "Remove" }),
+      ).toBeInTheDocument();
+      fireEvent.keyDown(document, { key: "Escape" });
     }
+  });
+
+  it.each([
+    ["unknown schema", { ...occurrenceA, tag_info: null }, /no exact TagInfo/i],
+    [
+      "read-only schema",
+      {
+        ...occurrenceA,
+        tag_info: { ...tagInfo, writable: false },
+      },
+      /read-only/i,
+    ],
+    [
+      "missing write target",
+      { ...occurrenceA, write_target: null },
+      /no runtime write target/i,
+    ],
+  ])("keeps a supplemental row read-only for %s", (_label, item, reason) => {
+    renderPane({ metadata: {}, occurrences: [item] });
+    const row = screen.getByTestId("details-occurrence-row");
+    expect(row).toHaveAttribute("data-readonly", "true");
+    expect(row).toHaveAttribute("title", expect.stringMatching(reason));
+    fireEvent.contextMenu(row);
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("disables supplemental actions after a v5 persistence load failure", () => {
+    renderPane({
+      metadata: {},
+      occurrences: [occurrenceA],
+      targetDraftPersistence: { status: "load-failed", error: "bad v5" },
+    });
+    const row = screen.getByTestId("details-occurrence-row");
+    expect(row).toHaveAttribute("data-readonly", "true");
+    expect(row).toHaveAttribute(
+      "title",
+      expect.stringContaining("persistence did not load safely"),
+    );
+  });
+
+  it("blocks supplemental actions for legacy and NewProperty owners", () => {
+    const legacy: MetadataDraftCollection = {
+      [JSON.stringify([schemaId.table, schemaId.tag_id, null])]: {
+        id: schemaId,
+        edit: { intent: "Set", value: { kind: "Integer", value: 301 } },
+      },
+    };
+    const legacyView = renderPane({
+      metadata: {},
+      occurrences: [occurrenceA],
+      typedDraftEdits: legacy,
+    });
+    expect(screen.getByTestId("details-occurrence-row")).toHaveAttribute(
+      "data-readonly",
+      "true",
+    );
+    legacyView.rerenderPane({
+      metadata: {},
+      occurrences: [occurrenceA],
+      typedDraftEdits: undefined,
+      targetDraftEdits: (() => {
+        const store = new TargetDraftEditsStore();
+        store.setMetadataTarget(
+          photo.relative_path,
+          { kind: "NewProperty", schema_id: schemaId },
+          { intent: "Set", value: { kind: "Integer", value: 301 } },
+        );
+        return store.getMetadataFile(photo.relative_path);
+      })(),
+    });
+    const row = screen.getByTestId("details-occurrence-row");
+    expect(row).toHaveAttribute("data-readonly", "true");
+    expect(row).toHaveAttribute(
+      "title",
+      expect.stringContaining("New Property"),
+    );
+  });
+
+  it("keeps duplicate IDs and supplemental GPS read-only", () => {
+    const duplicateView = renderPane({
+      metadata: {},
+      occurrences: [occurrenceA, structuredClone(occurrenceA)],
+    });
+    for (const row of screen.getAllByTestId("details-occurrence-row")) {
+      expect(row).toHaveAttribute("data-readonly", "true");
+      expect(row).toHaveAttribute(
+        "title",
+        expect.stringContaining("duplicated"),
+      );
+    }
+
+    const gpsInfo: TagInfo = {
+      id: GPS_IDS.latitude,
+      group: "GPS",
+      name: "GPSLatitude",
+      writable: true,
+      kind: { kind: "Real" },
+      description: null,
+    };
+    duplicateView.rerenderPane({
+      metadata: {},
+      occurrences: [
+        {
+          id: {
+            document: null,
+            path: "JPEG-APP1-GPS",
+            tag_id: "2",
+            copy: 0,
+          },
+          value: { kind: "Real", value: 51.5 },
+          tag_info: gpsInfo,
+          write_target: { group1: "GPS", tag_name: "GPSLatitude" },
+        },
+      ],
+    });
+    const gpsRow = screen.getByTestId("details-occurrence-row");
+    expect(gpsRow).toHaveAttribute("data-readonly", "true");
+    expect(gpsRow).toHaveAttribute(
+      "title",
+      expect.stringContaining("GPS supplemental occurrences remain read-only"),
+    );
   });
 });
 

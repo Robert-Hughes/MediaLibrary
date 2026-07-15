@@ -3,6 +3,7 @@ import type {
   MetadataDraftEdit,
   MetadataDraftEntryV5,
   MetadataDraftTarget,
+  MetadataOccurrence,
   SchemaDefinitionId,
 } from "./types";
 import type { TargetDraftCollection } from "./targetDraftEdits";
@@ -12,6 +13,12 @@ import {
   existingOccurrenceTargetFromOccurrence,
   metadataDraftTargetEquals,
 } from "./utils/metadataDraftTarget";
+import { metadataOccurrenceIdEquals } from "./utils/metadataOccurrenceId";
+
+type ExistingOccurrenceTarget = Extract<
+  MetadataDraftTarget,
+  { kind: "ExistingOccurrence" }
+>;
 
 export type ExistingRowDraftResolution =
   | { kind: "none" }
@@ -22,6 +29,99 @@ export type ExistingRowDraftResolution =
       reason: string;
       conflictingTargets: MetadataDraftEntryV5[];
     };
+
+export type SupplementalOccurrenceDraftResolution =
+  | { kind: "none" }
+  | {
+      kind: "target";
+      entry: MetadataDraftEntryV5 & { target: ExistingOccurrenceTarget };
+    }
+  | {
+      kind: "blocked";
+      reason: string;
+      conflictingTargets: MetadataDraftEntryV5[];
+    };
+
+/**
+ * Resolve ownership for one exact supplemental occurrence. Schema identity is
+ * used only to enforce the temporary one-owner bridge; it is never used to
+ * select an occurrence.
+ */
+export function resolveSupplementalOccurrenceDraft(
+  occurrence: MetadataOccurrence,
+  legacyDrafts: MetadataDraftCollection | undefined,
+  targetDrafts: TargetDraftCollection | undefined,
+): SupplementalOccurrenceDraftResolution {
+  const schemaId = occurrence.tag_info?.id;
+  if (schemaId === undefined) {
+    return {
+      kind: "blocked",
+      reason:
+        "This occurrence has no exact TagInfo and cannot be edited safely.",
+      conflictingTargets: [],
+    };
+  }
+
+  const legacy = Object.values(legacyDrafts ?? {}).find((entry) =>
+    schemaDefinitionIdEquals(entry.id, schemaId),
+  );
+  if (legacy) {
+    return {
+      kind: "blocked",
+      reason:
+        "This property has a legacy draft. Apply or discard it before editing the concrete occurrence.",
+      conflictingTargets: [],
+    };
+  }
+
+  const relevantTargets = Object.values(targetDrafts ?? {}).filter(
+    (entry) =>
+      schemaDefinitionIdEquals(entry.target.schema_id, schemaId) ||
+      (entry.target.kind === "ExistingOccurrence" &&
+        metadataOccurrenceIdEquals(entry.target.occurrence_id, occurrence.id)),
+  );
+  if (relevantTargets.length === 0) return { kind: "none" };
+  if (relevantTargets.length > 1) {
+    return {
+      kind: "blocked",
+      reason: "Multiple target-aware operations own this exact schema.",
+      conflictingTargets: relevantTargets,
+    };
+  }
+
+  const entry = relevantTargets[0];
+  if (entry.target.kind === "NewProperty") {
+    return {
+      kind: "blocked",
+      reason:
+        "A New Property operation currently owns the target-aware draft for this exact schema. Apply or discard it before editing this occurrence.",
+      conflictingTargets: relevantTargets,
+    };
+  }
+
+  const expected = existingOccurrenceTargetFromOccurrence(occurrence);
+  if (
+    expected.kind === "targetable" &&
+    metadataDraftTargetEquals(expected.target, entry.target)
+  ) {
+    return {
+      kind: "target",
+      entry: { ...entry, target: entry.target },
+    };
+  }
+
+  const ownsDifferentOccurrence = !metadataOccurrenceIdEquals(
+    entry.target.occurrence_id,
+    occurrence.id,
+  );
+  return {
+    kind: "blocked",
+    reason: ownsDifferentOccurrence
+      ? "Another concrete occurrence currently owns the target-aware draft for this exact schema. Apply or discard it before editing this occurrence."
+      : "The stored target no longer matches this occurrence's complete schema and runtime selector snapshot.",
+    conflictingTargets: relevantTargets,
+  };
+}
 
 /**
  * Resolve draft ownership for one compatibility row without ever selecting a

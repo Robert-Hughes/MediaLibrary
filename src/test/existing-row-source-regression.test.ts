@@ -17,4 +17,20 @@ describe("ordinary existing-row production boundary", () => {
     expect(gallery).not.toMatch(/\bonSetMetadataDraft\b/);
     expect(app).not.toContain("actions.setMetadataDraft(");
   });
+
+  it("keeps supplemental Edit and Remove on the exact v5 callback", () => {
+    const supplementalRow = details.slice(
+      details.indexOf("function DetailsOccurrenceRow"),
+      details.indexOf("function DetailsRowContextMenu"),
+    );
+    const supplementalMenu = details.slice(
+      details.indexOf("{supplementalContextMenu &&"),
+      details.indexOf("{groupContextMenu &&"),
+    );
+    expect(supplementalRow).toContain("targetDraft?: MetadataDraftEntryV5");
+    expect(supplementalMenu).toContain("onSetExistingOccurrenceDraft?.(");
+    expect(supplementalMenu).not.toContain("onSetMetadataDraftBatch");
+    expect(supplementalMenu).not.toContain("setMetadataTag(");
+    expect(supplementalMenu).not.toContain("setMetadataDraftBatch(");
+  });
 });

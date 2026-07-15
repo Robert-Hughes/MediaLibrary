@@ -135,15 +135,17 @@ describe("DetailsPane additional metadata occurrences", () => {
     );
   });
 
-  it("keeps exact-write-target rows read-only without schema actions", () => {
+  it("offers exact v5 actions for targetable supplemental rows", () => {
     const callbacks = renderPane();
     const row = screen.getAllByTestId("details-occurrence-row")[0];
-    expect(row).toHaveAttribute("data-readonly", "true");
+    expect(row).not.toHaveAttribute("data-readonly");
     fireEvent.contextMenu(row);
-    expect(screen.queryByText(/^Edit…$/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/^Remove$/)).not.toBeInTheDocument();
-    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
-    expect(callbacks.onSetExistingOccurrenceDraft).not.toHaveBeenCalled();
+    expect(screen.getByText(/^Edit…$/)).toBeInTheDocument();
+    fireEvent.click(screen.getByText(/^Remove$/));
+    expect(callbacks.onSetExistingOccurrenceDraft).toHaveBeenCalledWith(
+      collision[0].id,
+      { intent: "Delete", value: null },
+    );
     expect(callbacks.onSetMetadataDraftBatch).not.toHaveBeenCalled();
   });
 
@@ -369,7 +371,7 @@ describe("DetailsPane additional metadata occurrences", () => {
     ).toBeInTheDocument();
   });
 
-  it("closes an open editor when unique becomes multiple without firing drafts", async () => {
+  it("keeps an exact editor on A when its schema becomes multiple", async () => {
     _setTagInfoCacheEntry(schemaId, tagInfo);
     const metadata = metadataCollection([
       { id: schemaId, value: { kind: "Integer", value: 300 } },
@@ -387,10 +389,18 @@ describe("DetailsPane additional metadata occurrences", () => {
 
     view.rerenderPane({ metadata, occurrences: collision });
 
-    await waitFor(() =>
-      expect(screen.queryByTestId("numeric-editor-overlay")).toBeNull(),
+    expect(screen.getByTestId("numeric-editor-overlay")).toBeInTheDocument();
+    fireEvent.change(screen.getByTestId("numeric-editor-input"), {
+      target: { value: "302" },
+    });
+    fireEvent.click(screen.getByTestId("numeric-editor-save"));
+    expect(view.onSetExistingOccurrenceDraft).toHaveBeenCalledWith(
+      collision[0].id,
+      expect.objectContaining({
+        intent: "Set",
+        value: { kind: "Integer", value: 302 },
+      }),
     );
-    expect(view.onSetExistingOccurrenceDraft).not.toHaveBeenCalled();
     expect(view.onSetMetadataDraftBatch).not.toHaveBeenCalled();
 
     const ambiguousRow = screen.getByText("2 occurrences").closest("tr")!;

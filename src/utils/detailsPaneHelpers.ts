@@ -97,7 +97,7 @@ export interface MetadataGroup {
 export interface MetadataOccurrenceDisplayEntry {
   occurrence: MetadataOccurrence;
   identityToken: string;
-  schemaId: SchemaDefinitionId;
+  schemaId?: SchemaDefinitionId;
   label: string;
   value: string;
   origin: string;
@@ -106,13 +106,9 @@ export interface MetadataOccurrenceDisplayEntry {
 }
 
 /**
- * Build read-only rows for resolved authoritative occurrences that either
- * have no compatibility row or belong to a multiply-resolved schema.
- *
- * Unknown-schema occurrences are deliberately excluded: public occurrences
- * do not carry the scanner's temporary projection-schema candidate, so the
- * frontend cannot reliably tell whether an unknown occurrence is already in
- * the legacy collection. A full occurrence-based display will address them.
+ * Build exact rows for authoritative occurrences that either have no
+ * compatibility row, belong to a multiply-resolved schema, or have no known
+ * schema. Unknown-schema rows remain visible but cannot become write targets.
  */
 export function supplementalResolvedMetadataOccurrences(
   occurrences: readonly MetadataOccurrence[],
@@ -122,16 +118,16 @@ export function supplementalResolvedMetadataOccurrences(
   return occurrences
     .filter(
       (occurrence) =>
-        occurrence.tag_info !== null &&
-        (metadataGet(legacyMetadata, occurrence.tag_info.id) === undefined ||
-          resolutionForSchema(resolutionIndex, occurrence.tag_info.id).kind ===
-            "multiple"),
+        occurrence.tag_info === null ||
+        metadataGet(legacyMetadata, occurrence.tag_info.id) === undefined ||
+        resolutionForSchema(resolutionIndex, occurrence.tag_info.id).kind ===
+          "multiple",
     )
     .sort((a, b) => compareMetadataOccurrenceIds(a.id, b.id))
     .map((occurrence) => {
-      const tagInfo = occurrence.tag_info!;
+      const tagInfo = occurrence.tag_info;
       const runtimeGroup = occurrence.write_target?.group1;
-      const displayGroup = runtimeGroup ?? tagInfo.group;
+      const displayGroup = runtimeGroup ?? tagInfo?.group ?? "Unknown schema";
       const copy =
         occurrence.id.copy === 0 ? "primary" : `Copy${occurrence.id.copy}`;
       const document = occurrence.id.document
@@ -143,31 +139,36 @@ export function supplementalResolvedMetadataOccurrences(
         : "unavailable";
       const locationExplanation = runtimeGroup
         ? `Runtime group: ${runtimeGroup}`
-        : `Schema-group display fallback: ${tagInfo.group} (not a claimed runtime location)`;
-      const value = metadataValueToDisplayStringForTag(
-        tagInfo.id,
-        occurrence.value,
-        tagInfo,
-      );
+        : tagInfo
+          ? `Schema-group display fallback: ${tagInfo.group} (not a claimed runtime location)`
+          : "No embedded schema is available for this occurrence";
+      const value = tagInfo
+        ? metadataValueToDisplayStringForTag(
+            tagInfo.id,
+            occurrence.value,
+            tagInfo,
+          )
+        : metadataValueToDisplayString(occurrence.value);
 
       return {
         occurrence,
         identityToken: metadataOccurrenceIdToken(occurrence.id),
-        schemaId: tagInfo.id,
-        label: tagInfo.name,
+        schemaId: tagInfo?.id,
+        label: tagInfo?.name ?? occurrence.id.tag_id,
         value,
         origin,
         originTitle: [
           formatMetadataOccurrenceIdForDiagnostics(occurrence.id),
-          `Schema: ${formatSchemaDefinitionIdForDiagnostics(tagInfo.id)}`,
+          tagInfo
+            ? `Schema: ${formatSchemaDefinitionIdForDiagnostics(tagInfo.id)}`
+            : "Schema: unavailable",
           locationExplanation,
           `Exact write selector: ${selector}`,
-          "Occurrence-specific editing is not available yet.",
         ].join("\n"),
         searchText: [
-          tagInfo.name,
+          tagInfo?.name,
           value,
-          `${tagInfo.group}:${tagInfo.name}`,
+          tagInfo ? `${tagInfo.group}:${tagInfo.name}` : undefined,
           occurrence.write_target?.group1,
           selector,
           occurrence.id.document,

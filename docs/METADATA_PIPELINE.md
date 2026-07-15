@@ -4,9 +4,9 @@ This document holds operational rules for the metadata pipeline. For the full ty
 
 ## Current row-edit flow
 
-Opening a new ordinary non-GPS Details Pane editor requires a unique schema
-resolution whose authoritative occurrence carries writable embedded `TagInfo`
-plus a runtime write target. The editor captures that exact occurrence ID and
+Opening a new ordinary or supplemental non-GPS Details Pane editor requires an
+exact authoritative occurrence carrying writable embedded `TagInfo` plus a
+runtime write target. The editor captures that exact occurrence ID and
 complete target snapshot. Save passes the captured ID to the production action;
 it never re-resolves an occurrence from schema identity. The action requires v5
 persistence readiness, loaded occurrences, one exact ID match, targetability,
@@ -19,17 +19,24 @@ the current occurrence target; any `NewProperty`, different occurrence, stale
 snapshot, or multiplicity blocks the row. Overlay uses the same complete-target
 check. Incompatible targets remain visible in the unresolved target section.
 
-The presentation boundary is target-aware as well. A complete existing target
-that still matches one exact authoritative occurrence receives one ordinary
-draft row even when compatibility omitted that schema. This applies to Set,
-Delete, ListAdd, and ListRemove. The row's original value comes from the exact
-occurrence; Delete remains visible as original-value strike-through followed by
-`—` and keeps individual discard. Presented ownership is recorded by exact
-`metadataOccurrenceIdToken`, never schema, selector text, or a first sibling.
-The supplemental view excludes only those exact tokens, so same-schema
-siblings remain read-only there. No target means no ordinary-row exception.
-Unresolved classification is derived from the final constructed presentation
-plan rather than inferred from target compatibility alone.
+The presentation boundary assigns an explicit destination. New Property and a
+uniquely resolved ExistingOccurrence use the ordinary row, including a unique
+compatibility omission. An ExistingOccurrence whose schema resolves multiple
+authoritative occurrences stays on its exact supplemental row. This applies to
+Set, Delete, ListAdd, and ListRemove. The original and effective staged values
+come only from that occurrence; Delete renders exact original strike-through
+followed by `—`. Supplemental presentation identity is
+`metadataOccurrenceIdToken(target.occurrence_id)`, never schema, selector text,
+or a first sibling. No ordinary schema-keyed row is synthesized for the
+multiply-resolved target.
+
+Supplemental ownership resolution is pure and mirrors
+`setExistingOccurrenceDraft()`: an exact-schema v4 owner, NewProperty owner,
+different same-schema occurrence, stale snapshot, or multiple owners blocks
+the row. Zero owners permits editing; one identical complete ExistingOccurrence
+owner supplies the overlay and exact Discard action. Same-schema siblings stay
+visible but blocked until that owner is applied or discarded. Unresolved
+classification is derived from the constructed presentation plan.
 
 The target store's current-value resolver reads only
 `ImageMetadataOccurrencesStore`: loading, missing/duplicate IDs, changed schema
@@ -39,12 +46,12 @@ exact current value removes only that occurrence draft. V5 autosave writes only
 Legacy discard writes only `MediaLibraryDraftEdits.jsonl`.
 
 Persisted v4 row drafts remain visible and apply/discard through v4, but block
-ordinary Edit and Remove and are never converted. GPS members and paired GPS
-writes, group/bulk operations, and generated producers remain v4. Missing,
-unowned multiple, untargetable, and loading occurrences are read-only;
-supplemental duplicate-schema rows remain read-only. Combined apply remains v5
-then v4 with the exact-schema cross-system guard, and ordinary row outcomes use
-the existing target-aware verification pipeline.
+exact-schema Edit and Remove and are never converted. GPS members and paired
+GPS writes, group/bulk operations, and generated producers remain v4. Missing,
+untargetable, duplicate-ID, persistence-failed, and loading occurrences are
+read-only. GPS supplemental occurrences remain v4/read-only. Combined apply
+remains v5 then v4 with the exact-schema cross-system guard, and ordinary plus
+supplemental row outcomes use the same target-aware verification pipeline.
 
 ## Backend Scanner Result
 
@@ -61,18 +68,20 @@ schema lookup as `missing`, `unique`, or `multiple`. A unique ordinary row uses
 the authoritative occurrence value and embedded `TagInfo` without depending on
 a second schema lookup. Missing resolutions preserve the existing legacy row
 behavior. Multiple resolutions never select a preferred or first occurrence:
-all concrete values render separately in the read-only **Additional Metadata
-Occurrences** section, including identical values retained behind one legacy
-compatibility value.
+all concrete values render separately in **Additional Metadata Occurrences**,
+including identical values retained behind one legacy compatibility value.
+Targetable non-GPS rows use exact v5 actions; untargetable, GPS, or conflicting
+rows remain read-only with a focused reason.
 
 When a multiple resolution also has a compatibility row, that row is visibly
 ambiguous and offers no Edit, Edit GPS, Remove, or group Remove action. It may
 show the existing compatibility projection value, but no aggregate value is
-invented when the schema is absent. An existing schema-level draft stays only
-on that compatibility row and may be discarded; concrete occurrence rows never
-receive drafts or context-menu actions.
+invented when the schema is absent. An existing schema-v4 draft stays only on
+that compatibility row and may be discarded; it blocks the concrete
+occurrences. An exact v5 occurrence draft is instead overlaid only on its
+concrete supplemental row and exposes Edit, Discard, and Remove.
 
-An ordinary editor resolves only the exact occurrence ID captured when it was
+An ordinary or supplemental editor resolves only the exact occurrence ID captured when it was
 opened. It requires authoritative occurrences to remain loaded, exactly one ID
 match, the same embedded schema and exact write selector, continued
 targetability, and compatible row ownership. Loading, missing, duplicate-ID,
@@ -89,8 +98,8 @@ schema-keyed Delete draft, the Details Pane creates a Null-valued compatibility
 row solely to keep that draft visible and discardable. The row remains
 ambiguity-marked and excluded from individual and group Remove actions, while
 group Discard includes it. No such row is created for missing or uniquely
-resolved absent schemas. Concrete occurrence rows remain draft-free and
-read-only.
+resolved absent schemas. Concrete occurrence rows remain distinct; only an
+exact v5 target can overlay one of them.
 
 Draft identity and persistence, GPS resolution, Add Property, search-worker indexing,
 sorting, normalisation, writes, and readback verification remain schema-keyed
@@ -106,11 +115,11 @@ Compatibility omissions are logged and returned from the backend-only
 not `worker_error` events. Consumers other than the Details Pane fallback may
 show an omitted schema as blank until they migrate to occurrences. Schema-keyed apply
 and readback verification reject any partial projection rather than proceeding
-unsafely. Unknown-schema occurrences remain excluded because public occurrences
-do not carry the scanner's temporary projection-schema candidate.
-Occurrence-specific editing remains pending, and no arbitrary first occurrence
-may be selected. No apply or write command consumes occurrence identity or
-`MetadataWriteTarget` yet.
+unsafely. Unknown-schema occurrences remain visible as read-only supplemental
+rows because they cannot supply a complete target snapshot. Exact non-GPS
+occurrence edits consume `MetadataOccurrenceId` plus `MetadataWriteTarget`
+through schema v5; no arbitrary first occurrence may be selected. Other
+consumers remain on their documented compatibility boundaries.
 
 For the original IFD0/IFD1 `XResolution` collision, both authoritative values
 now remain part of a successful scan and are visible with their distinct paths

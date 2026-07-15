@@ -292,10 +292,17 @@ describe("supplementalResolvedMetadataOccurrences", () => {
     expect(entries[1].origin).toContain("Copy2");
   });
 
-  it("excludes unresolved occurrences", () => {
-    expect(
-      supplemental([occurrence(ifd0(), 300, { tag_info: null })], {}),
-    ).toEqual([]);
+  it("keeps unknown-schema occurrences visible without inventing a schema", () => {
+    const [entry] = supplemental(
+      [occurrence(ifd0(), 300, { tag_info: null })],
+      {},
+    );
+    expect(entry).toMatchObject({
+      schemaId: undefined,
+      label: "282",
+      value: "300",
+    });
+    expect(entry.originTitle).toContain("Schema: unavailable");
   });
 
   it("uses the write target runtime group and searches every occurrence coordinate", () => {

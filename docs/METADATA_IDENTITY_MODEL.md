@@ -24,25 +24,35 @@ no current value. Exact target drafts therefore clear when a Set restores the
 current occurrence value.
 
 Persisted schema-v4 drafts are not converted. A v4 draft keeps display, discard,
-and v4 apply ownership; ordinary Edit and Remove stay unavailable until it is
-applied or discarded. Missing, unowned multiple, read-only, and
-missing-write-target occurrences remain read-only. While occurrences are
-loading, exact existing-row editing is unavailable and existing v5 targets are
-shown as unresolved rather than overlaid by schema.
+and v4 apply ownership; exact-schema supplemental Edit and Remove stay
+unavailable until it is applied or discarded. Read-only, unknown-schema,
+missing-write-target, duplicate-ID, and persistence-load-failure states remain
+read-only. While occurrences are loading, exact editing is unavailable and
+existing v5 targets are shown as unresolved rather than overlaid by schema.
 
-An already-owned, complete `ExistingOccurrence` target has one exact ordinary
-row presentation even when the compatibility projection omitted its schema.
-The row is seeded from the exact authoritative occurrence for Set, Delete,
-ListAdd, and ListRemove; Delete therefore keeps the original value struck
-through beside the staged `—` and retains its individual discard action. The
-final presentation plan records the represented `MetadataOccurrenceId` tokens.
-Only those exact occurrences are removed from **Additional Metadata
-Occurrences**. Same-schema siblings stay supplemental and read-only, and an
-omitted occurrence with no owning target never becomes an editable ordinary
-row. A target enters the unresolved section unless this final plan actually
-constructs its row.
+Every safely presented v5 target has an explicit destination. `NewProperty` and
+uniquely resolved `ExistingOccurrence` targets retain ordinary-row
+presentation, including a unique occurrence omitted by the compatibility
+projection. When a schema has multiple authoritative occurrences, its complete
+`ExistingOccurrence` target remains on the concrete **Additional Metadata
+Occurrences** row instead. Its presentation key is exactly
+`metadataOccurrenceIdToken(target.occurrence_id)`, so no schema-keyed ordinary
+row is synthesized and a same-schema sibling remains a distinct supplemental
+row.
 
-Opening an ordinary non-GPS editor captures the selected occurrence ID and its
+Both destinations seed Set, Delete, ListAdd, and ListRemove from the exact
+authoritative occurrence. Delete keeps the original struck through beside the
+staged `—`; supplemental rows also expose exact Edit, Remove, and individual
+Discard actions. A target is removed from the unresolved section only after
+the final plan constructs its exact destination.
+
+The current production bridge permits zero exact-schema target owners or one
+identical complete `ExistingOccurrence` owner. Therefore, while occurrence A
+owns a schema, same-schema supplemental occurrence B remains visible but is
+blocked rather than replaced or first-selected. Discarding A makes B eligible
+again. GPS supplemental rows remain read-only and continue through v4.
+
+Opening an ordinary or supplemental non-GPS editor captures the selected occurrence ID and its
 complete target snapshot. While open, the pane resolves that ID exactly and
 requires one authoritative match, the same embedded schema and selector, and
 compatible ordinary-row ownership. Loading, missing, duplicate-ID,
@@ -54,10 +64,10 @@ production action.
 
 GPS members (including one-field Edit and Remove), paired/map GPS writes,
 group/bulk operations, AI/geocode/normalise and other generated drafts remain
-schema v4. Additional Metadata Occurrence rows remain read-only. The generic v4
-single-row producer has been deleted. Ordinary v5 outcomes use the existing
-target-aware verification pipeline; Match/DeleteOk clear only the exact slot,
-while Keep/Blocked retain it without reinterpreting a schema sibling.
+schema v4. The generic v4 single-row producer has been deleted. Ordinary and
+supplemental v5 outcomes share the existing target-aware verification pipeline;
+Match/DeleteOk clear only the exact occurrence slot, while Keep/Blocked retain
+it without reinterpreting or removing a schema sibling.
 
 ## Static schema identity
 
@@ -410,14 +420,14 @@ The Details Pane resolves each ordinary schema identity explicitly to
 resolution uses the authoritative occurrence value and embedded `TagInfo`; a
 missing resolution retains the legacy compatibility value and schema lookup.
 Multiple resolutions never select one runtime field. Each concrete occurrence
-is shown separately in the read-only **Additional Metadata Occurrences**
-section, while any existing legacy compatibility row is marked ambiguous and
-cannot be edited or removed. The narrow exception is an already-owned complete
-v5 target: its exact occurrence may receive one ordinary draft row when the
-compatibility projection omitted it, and only that exact occurrence ID is
-suppressed from the supplemental section.
+is shown separately in **Additional Metadata Occurrences**, while any existing
+legacy compatibility row is marked ambiguous and cannot be edited or removed.
+A targetable non-GPS occurrence edits through its exact v5 target. When it owns
+a draft, that draft stays on its occurrence-token row; siblings stay visible
+and blocked. A uniquely resolved compatibility omission retains the ordinary
+row exception instead.
 
-An ordinary editor captures its exact occurrence ID on open and continues by
+An ordinary or supplemental editor captures its exact occurrence ID on open and continues by
 exact-ID resolution, never by a later schema resolution. A value-only refresh
 reseeds the editor for the same occurrence. Loading, missing, duplicate,
 same-schema replacement, changed embedded schema, changed selector, or
