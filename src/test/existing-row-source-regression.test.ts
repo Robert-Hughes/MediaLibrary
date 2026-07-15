@@ -67,8 +67,15 @@ describe("ordinary existing-row production boundary", () => {
     expect(selectedField).toContain("actions.removeMetadataFieldFromFilesV5");
   });
 
-  it("retains the explicit v4 batch action for generated workflows only", () => {
-    expect(app).toContain("actions.setMetadataDraftBatch(relPath, edits)");
-    expect(actions).toContain("const setMetadataDraftBatch");
+  it("keeps every active generated workflow on the exact v5 boundary", () => {
+    expect(app).toContain("actions.applyGeneratedMetadataDraftBatchV5(");
+    expect(actions).toContain("const applyGeneratedMetadataDraftBatchV5");
+    for (const source of [app, actions]) {
+      expect(source).not.toContain("actions.setMetadataDraftBatch");
+      expect(source).not.toContain("const setMetadataDraftBatch");
+      expect(source).not.toContain(
+        "draftEditsStoreRef.current.setMetadataBatch",
+      );
+    }
   });
 });

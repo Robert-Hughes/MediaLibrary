@@ -814,7 +814,9 @@ and does not replace a persistence, write, or readback diagnostic.
 
 This state is not persisted and remains separate from schema-v4 verification.
 The target dialog takes precedence while it has entries; the v4 dialog may
-appear after it empties. Target-aware verification remains active only for
-production schema-v5 operations. Generated AI, reverse-geocode output,
-normalise, and other generated producers remain the active schema-v4 creation
-paths; target-aware apply logging remains pending.
+appear after it empties. Target-aware verification applies to every production
+schema-v5 operation, including generated AI, reverse-geocode output, and
+normalise results. Their backends remain schema-keyed semantic producers, but
+the frontend resolves exact ExistingOccurrence or NewProperty ownership using
+authoritative runtime context. Persisted legacy drafts and their verification
+remain v4 without conversion; target-aware apply logging remains pending.

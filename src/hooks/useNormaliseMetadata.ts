@@ -11,6 +11,7 @@
  */
 import { useMemo, useState } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import type { GeneratedDraftStageResultV5 } from "../generatedTargetDrafts";
 import type {
   MetadataDraftEntry,
   NormaliseEstimate,
@@ -58,7 +59,11 @@ export interface NormaliseActions {
 }
 
 export interface UseNormaliseMetadataOptions {
-  onApplyEdits?: (relativePath: string, edits: MetadataDraftEntry[]) => void;
+  onApplyEdits?: (
+    relativePath: string,
+    edits: MetadataDraftEntry[],
+    confirmedEnabledGroups: readonly NormaliseGroup[],
+  ) => GeneratedDraftStageResultV5;
 }
 
 interface StartArgs {
@@ -100,7 +105,8 @@ export function useNormaliseMetadata(
   const stash = useMemo<{
     items: NormaliseRequestItem[];
     enabledGroups: NormaliseGroup[];
-  }>(() => ({ items: [], enabledGroups: [] }), []);
+    confirmedEnabledGroups: NormaliseGroup[];
+  }>(() => ({ items: [], enabledGroups: [], confirmedEnabledGroups: [] }), []);
   const [enabledGroupsState, setEnabledGroupsState] = useState<
     NormaliseGroup[]
   >([]);
@@ -123,9 +129,10 @@ export function useNormaliseMetadata(
       buildRunArgs: (folderPath) => ({
         folderPath,
         items: stash.items,
-        enabledGroups: stash.enabledGroups,
+        enabledGroups: stash.confirmedEnabledGroups,
       }),
       totalItems: (args) => args.items.length,
+      relativePaths: (args) => args.items.map((item) => item.relPath),
       parseEstimatePayload: (raw) => raw as NormaliseEstimate,
       parseSummaryPayload: (raw) => raw as NormaliseSummary,
       subscribeExtras: async (setState) => {
@@ -206,7 +213,14 @@ export function useNormaliseMetadata(
   const job = useBatchImageJob<StartArgs, NormaliseEstimate, NormaliseSummary>(
     config,
     {
-      onApplyEdits: options.onApplyEdits,
+      onApplyEdits: options.onApplyEdits
+        ? (relativePath, edits) =>
+            options.onApplyEdits!(
+              relativePath,
+              edits,
+              structuredClone(stash.confirmedEnabledGroups),
+            )
+        : undefined,
     },
   );
 
@@ -218,7 +232,8 @@ export function useNormaliseMetadata(
   const actions: NormaliseActions = {
     start: (folderPath, items, initialEnabledGroups) => {
       stash.items = items;
-      stash.enabledGroups = initialEnabledGroups;
+      stash.enabledGroups = [...initialEnabledGroups];
+      stash.confirmedEnabledGroups = [];
       setEnabledGroupsState(initialEnabledGroups);
       job.actions.start(folderPath, {
         items,
@@ -226,11 +241,15 @@ export function useNormaliseMetadata(
       });
     },
     setEnabledGroups,
-    confirm: job.actions.confirm,
+    confirm: () => {
+      stash.confirmedEnabledGroups = structuredClone(stash.enabledGroups);
+      job.actions.confirm();
+    },
     cancel: job.actions.cancel,
     close: () => {
       stash.items = [];
       stash.enabledGroups = [];
+      stash.confirmedEnabledGroups = [];
       setEnabledGroupsState([]);
       job.actions.close();
     },

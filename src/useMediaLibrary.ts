@@ -22,6 +22,7 @@ import type {
   ApplyEditsStartedPayload,
   ApplyEditsProgressPayload,
   MetadataDraftEdit,
+  MetadataDraftEntry,
   MetadataValue,
   MetadataOccurrenceId,
   SchemaDefinitionId,
@@ -68,6 +69,11 @@ import {
 import { resolveExactMetadataOccurrence } from "./utils/metadataOccurrences";
 import { planGpsTargetDraftBatchV5 } from "./gpsTargetDrafts";
 import { planMetadataRemovalTargetsV5 } from "./metadataRemovalTargets";
+import {
+  planGeneratedTargetDraftBatchV5,
+  type GeneratedDraftStageResultV5,
+  type GeneratedMetadataProducerV5,
+} from "./generatedTargetDrafts";
 
 const TARGET_DRAFT_LOAD_BLOCKED_MESSAGE =
   "Target-aware drafts could not be loaded safely. Fix the folder's schema-v5 draft persistence file, then reopen the folder.";
@@ -100,10 +106,12 @@ export interface MediaLibraryActions {
   updateColumnWidth: (col: string, width: number) => void;
   resetColumnWidths: () => void;
   dismissError: (index: number) => void;
-  setMetadataDraftBatch: (
-    fileRelativePath: string,
-    edits: Array<{ id: SchemaDefinitionId; edit: MetadataDraftEdit }>,
-  ) => void;
+  canStageGeneratedMetadataV5: (relativePaths: string[]) => boolean;
+  applyGeneratedMetadataDraftBatchV5: (
+    relativePath: string,
+    producer: GeneratedMetadataProducerV5,
+    edits: MetadataDraftEntry[],
+  ) => GeneratedDraftStageResultV5;
   removeMetadataFieldsV5: (
     relativePath: string,
     schemaIds: SchemaDefinitionId[],
@@ -1236,17 +1244,74 @@ export function useMediaLibrary(
     });
   }, []);
 
-  const setMetadataDraftBatch = useCallback(
-    (
-      fileRelativePath: string,
-      edits: Array<{ id: SchemaDefinitionId; edit: MetadataDraftEdit }>,
-    ) => {
-      // Temporary bridge: generated AI, reverse-geocode output, normalise and
-      // other generated batch producers remain schema-v4. Manual row,
-      // supplemental, GPS, group and selected-photo removal use schema-v5.
-      draftEditsStoreRef.current.setMetadataBatch(fileRelativePath, edits);
+  const canStageGeneratedMetadataV5 = useCallback(
+    (relativePaths: string[]): boolean => {
+      const paths = [...new Set(relativePaths)];
+      if (!requireTargetDraftPersistenceReady(paths)) return false;
+      const unavailable = paths.find(
+        (relativePath) =>
+          imageMetadataOccurrencesStoreRef.current.get(relativePath) ===
+          "loading",
+      );
+      if (unavailable !== undefined) {
+        pushApplicationError(
+          "metadata-v5-generated-readiness",
+          `Authoritative metadata occurrences are still loading for '${unavailable}'. Generated metadata was not started.`,
+          [unavailable],
+        );
+        return false;
+      }
+      return true;
     },
-    [],
+    [pushApplicationError, requireTargetDraftPersistenceReady],
+  );
+
+  const applyGeneratedMetadataDraftBatchV5 = useCallback(
+    (
+      relativePath: string,
+      producer: GeneratedMetadataProducerV5,
+      edits: MetadataDraftEntry[],
+    ): GeneratedDraftStageResultV5 => {
+      if (!requireTargetDraftPersistenceReady([relativePath])) {
+        const persistence = targetDraftPersistenceRef.current;
+        return {
+          kind: "failure",
+          reason:
+            persistence.status === "load-failed"
+              ? `${TARGET_DRAFT_LOAD_BLOCKED_MESSAGE} Load error: ${persistence.error}`
+              : TARGET_DRAFT_LOAD_BLOCKED_MESSAGE,
+        };
+      }
+
+      try {
+        const plan = planGeneratedTargetDraftBatchV5({
+          producer,
+          edits,
+          occurrences:
+            imageMetadataOccurrencesStoreRef.current.get(relativePath),
+          legacyDrafts:
+            draftEditsStoreRef.current.getMetadataFile(relativePath),
+          targetDrafts:
+            targetDraftEditsStoreRef.current.getMetadataFile(relativePath),
+        });
+        const changed =
+          targetDraftEditsStoreRef.current.applyExactMutationBatch([
+            {
+              path: relativePath,
+              upserts: plan.upserts,
+              deletes: plan.deletes,
+            },
+          ]);
+        return { kind: "success", changed };
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        pushApplicationError("metadata-v5-generated-stage", reason, [
+          relativePath,
+        ]);
+        return { kind: "failure", reason };
+      }
+    },
+    [pushApplicationError, requireTargetDraftPersistenceReady],
   );
 
   const setGpsTargetDraftBatch = useCallback(
@@ -1756,7 +1821,8 @@ export function useMediaLibrary(
       updateColumnWidth,
       resetColumnWidths,
       dismissError,
-      setMetadataDraftBatch,
+      canStageGeneratedMetadataV5,
+      applyGeneratedMetadataDraftBatchV5,
       removeMetadataFieldsV5,
       removeMetadataFieldFromFilesV5,
       setGpsTargetDraftBatch,
@@ -1793,7 +1859,8 @@ export function useMediaLibrary(
       updateColumnWidth,
       resetColumnWidths,
       dismissError,
-      setMetadataDraftBatch,
+      canStageGeneratedMetadataV5,
+      applyGeneratedMetadataDraftBatchV5,
       removeMetadataFieldsV5,
       removeMetadataFieldFromFilesV5,
       setGpsTargetDraftBatch,

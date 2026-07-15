@@ -57,6 +57,7 @@ export type { MetadataApplyEditsProgressPayloadV5 } from "./types/generated/Meta
 export type { FailedFile as ApplyEditsFailedFile } from "./types/generated/FailedFile";
 export type { BatchFailureKind } from "./types/generated/BatchFailureKind";
 import type { BatchFailureKind } from "./types/generated/BatchFailureKind";
+export type BatchJobFailureKind = BatchFailureKind | "draft_stage_failed";
 
 // ── Metadata normalisation (see docs/NORMALISE_METADATA_PLAN.md) ─────────────
 export type { NormaliseGroup } from "./types/generated/NormaliseGroup";
@@ -880,7 +881,7 @@ export interface NormaliseEstimate {
 
 export interface DescribeFailure {
   relativePath: string;
-  kind: BatchFailureKind;
+  kind: BatchJobFailureKind;
   detail: string;
 }
 
@@ -1019,7 +1020,7 @@ export interface GeocodeRequestItem {
 
 export interface GeocodeFailure {
   relativePath: string;
-  kind: BatchFailureKind;
+  kind: BatchJobFailureKind;
   detail: string;
 }
 

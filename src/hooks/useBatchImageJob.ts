@@ -29,14 +29,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { BatchFailureKind } from "../types";
+import type { BatchFailureKind, BatchJobFailureKind } from "../types";
+import type { GeneratedDraftStageResultV5 } from "../generatedTargetDrafts";
 
 export type BatchJobPhase =
   "estimating" | "awaiting-confirm" | "running" | "done";
 
+export type { BatchJobFailureKind } from "../types";
+
 export interface BatchJobFailure {
   relativePath: string;
-  kind: BatchFailureKind;
+  kind: BatchJobFailureKind;
   detail: string;
 }
 
@@ -132,6 +135,8 @@ export interface BatchJobConfig<StartArgs, EstimatePayload, SummaryPayload> {
   ) => Record<string, unknown>;
   /** How many items will be processed — used to populate `total` before the first event arrives. */
   totalItems: (startArgs: StartArgs) => number;
+  /** Deterministic input order used when backend and frontend failures merge. */
+  relativePaths?: (startArgs: StartArgs) => string[];
   /**
    * Parse the `${prefix}_estimate_complete` event payload into the
    * adapter's `EstimatePayload`. Omit if no estimate phase.
@@ -173,7 +178,7 @@ export interface UseBatchImageJobOptions {
   onApplyEdits?: (
     relativePath: string,
     edits: import("../types").MetadataDraftEntry[],
-  ) => void;
+  ) => GeneratedDraftStageResultV5;
 }
 
 /**
@@ -215,6 +220,8 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
   // start() uses this to decide whether to invoke the estimate command
   // immediately (listeners ready) or defer it (will fire when ready).
   const listenersReadyRef = useRef(false);
+  const frontendStagingFailuresRef = useRef<BatchJobFailure[]>([]);
+  const runOrderRef = useRef<string[]>([]);
 
   // Subscribe to all events while open. Unsubscribe on close.
   useEffect(() => {
@@ -254,28 +261,65 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
         error: string | null;
         edits?: import("../types").MetadataDraftEntry[];
       }>(`${config.eventPrefix}_progress`, (p) => {
+        let stagingFailure: BatchJobFailure | null = null;
         if (p.status === "ok" && p.edits) {
-          onApplyEditsRef.current?.(p.relativePath, p.edits);
+          try {
+            const result = onApplyEditsRef.current?.(p.relativePath, p.edits);
+            if (result?.kind === "failure") {
+              stagingFailure = {
+                relativePath: p.relativePath,
+                kind: "draft_stage_failed",
+                detail: result.reason,
+              };
+            }
+          } catch (error) {
+            stagingFailure = {
+              relativePath: p.relativePath,
+              kind: "draft_stage_failed",
+              detail: error instanceof Error ? error.message : String(error),
+            };
+          }
         }
+
+        if (stagingFailure !== null) {
+          const duplicate = frontendStagingFailuresRef.current.some(
+            (failure) =>
+              failure.relativePath === stagingFailure!.relativePath &&
+              failure.kind === stagingFailure!.kind &&
+              failure.detail === stagingFailure!.detail,
+          );
+          if (!duplicate) {
+            frontendStagingFailuresRef.current = [
+              ...frontendStagingFailuresRef.current,
+              stagingFailure,
+            ];
+          }
+        }
+
         safeSetState((s) => {
-          const failures =
-            p.status !== "ok"
-              ? [
-                  ...s.failures,
-                  {
-                    relativePath: p.relativePath,
-                    // Backend emits status="ok" on success or a
-                    // BatchFailureKind wire string otherwise. The
-                    // wire type is asserted here rather than carried
-                    // in the event-payload Type to keep the listener
-                    // shape minimal.
-                    kind: p.status as BatchFailureKind,
-                    detail: p.error ?? "",
-                  },
-                ]
-              : s.failures;
+          let failures = s.failures;
+          if (p.status !== "ok") {
+            failures = [
+              ...failures,
+              {
+                relativePath: p.relativePath,
+                kind: p.status as BatchFailureKind,
+                detail: p.error ?? "",
+              },
+            ];
+          } else if (stagingFailure !== null) {
+            const exists = failures.some(
+              (failure) =>
+                failure.relativePath === stagingFailure!.relativePath &&
+                failure.kind === stagingFailure!.kind &&
+                failure.detail === stagingFailure!.detail,
+            );
+            if (!exists) failures = [...failures, stagingFailure];
+          }
           const succeeded =
-            p.status === "ok" ? [...s.succeeded, p.relativePath] : s.succeeded;
+            p.status === "ok" && stagingFailure === null
+              ? [...s.succeeded, p.relativePath]
+              : s.succeeded;
           return {
             ...s,
             phase: "running",
@@ -289,16 +333,50 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
       });
       await sub<{
         succeeded: string[];
-        failed: BatchJobFailure[];
+        failed: Array<{
+          relativePath: string;
+          kind: BatchFailureKind;
+          detail: string;
+        }>;
         usageSummary: unknown;
       }>(`${config.eventPrefix}_complete`, (p) => {
         const parsed = config.parseSummaryPayload(p.usageSummary);
+        const frontendFailures = frontendStagingFailuresRef.current;
+        const frontendFailedPaths = new Set(
+          frontendFailures.map((failure) => failure.relativePath),
+        );
+        const merged: BatchJobFailure[] = [];
+        for (const failure of [...p.failed, ...frontendFailures]) {
+          if (
+            !merged.some(
+              (existing) =>
+                existing.relativePath === failure.relativePath &&
+                existing.kind === failure.kind &&
+                existing.detail === failure.detail,
+            )
+          ) {
+            merged.push(failure);
+          }
+        }
+        const order = new Map(
+          runOrderRef.current.map((relativePath, index) => [
+            relativePath,
+            index,
+          ]),
+        );
+        merged.sort(
+          (left, right) =>
+            (order.get(left.relativePath) ?? Number.MAX_SAFE_INTEGER) -
+            (order.get(right.relativePath) ?? Number.MAX_SAFE_INTEGER),
+        );
         safeSetState((s) => ({
           ...s,
           phase: "done",
           cancelling: false,
-          succeeded: p.succeeded,
-          failures: p.failed,
+          succeeded: p.succeeded.filter(
+            (relativePath) => !frontendFailedPaths.has(relativePath),
+          ),
+          failures: merged,
           summary: parsed,
         }));
       });
@@ -333,6 +411,15 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
       folderRef.current = folderPath;
       startArgsRef.current = startArgs;
       const total = config.totalItems(startArgs);
+      const relativePaths = config.relativePaths
+        ? config.relativePaths(startArgs)
+        : Array.isArray(startArgs)
+          ? (startArgs as unknown as string[]).filter(
+              (value) => typeof value === "string",
+            )
+          : [];
+      runOrderRef.current = [...new Set(relativePaths)];
+      frontendStagingFailuresRef.current = [];
       // If this job has no estimate phase, jump straight to
       // awaiting-confirm. The dialog renders its confirm panel from the
       // saved relPaths/total alone.
@@ -343,11 +430,7 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
         ...initialState<EstimatePayload, SummaryPayload>(),
         phase: initialPhase,
         total,
-        relPaths: Array.isArray(startArgs)
-          ? (startArgs as unknown as string[]).filter(
-              (x) => typeof x === "string",
-            )
-          : [],
+        relPaths: relativePaths,
       });
       if (config.commands.estimate && config.buildEstimateArgs) {
         // Defer invoke until the subscription effect has attached all
@@ -430,12 +513,16 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
     if (phaseRef.current === "running") {
       setState((s) => ({ ...s, cancelling: true }));
     } else {
+      frontendStagingFailuresRef.current = [];
+      runOrderRef.current = [];
       setOpen(false);
       setState(initialState);
     }
   }, [config.commands.cancel]);
 
   const close = useCallback(() => {
+    frontendStagingFailuresRef.current = [];
+    runOrderRef.current = [];
     setOpen(false);
     setState(initialState);
   }, []);

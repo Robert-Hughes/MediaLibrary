@@ -418,3 +418,20 @@ inherited from the 2010 script and the user has confirmed it is acceptable.
   mocked Nominatim 200 / 404 / empty body.
 - `src-tauri/src/batch_job.rs` unit tests — generic loop emits expected
   events, honours cancel between items.
+
+## Current generated-draft staging boundary
+
+Reverse-geocode request coordinates are built from the shared effective metadata
+view, including valid v4 and v5 GPS edits. The backend wire result remains an
+exact schema-keyed semantic edit list for the fixed XMP/IPTC location mirror
+set. The frontend allowlist is exactly `GEOCODE_TARGET_TAGS`; arbitrary location-
+looking schemas are rejected. The current backend deliberately emits both `Set`
+and `Delete` to express coherent replacement of absent address members.
+
+Before the command starts, v5 persistence and authoritative occurrences must be
+available for every file. On each progress result, the complete output batch is
+resolved to exact ExistingOccurrence/NewProperty targets and applied atomically.
+A Delete for an already-missing schema is a no-op; a Delete for an exact staged
+NewProperty cancels that creation. Unsafe output fails only that file, remains
+visible as `draft_stage_failed`, and does not undo earlier successful files. No
+reverse-geocode result enters `MediaLibraryDraftEdits.jsonl`.

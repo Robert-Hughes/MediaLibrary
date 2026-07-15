@@ -33,7 +33,7 @@ import { useDescribeImages } from "./hooks/useDescribeImages";
 import { GeocodeProgressDialog } from "./components/GeocodeProgressDialog";
 import { useGeocodeImages } from "./hooks/useGeocodeImages";
 import { buildGeocodeRequestItemForFile } from "./utils/effectiveGps";
-import type { GeocodeRequestItem, MetadataDraftEntry } from "./types";
+import type { GeocodeRequestItem } from "./types";
 import { ALL_NORMALISE_GROUPS } from "./types";
 import { NormaliseProgressDialog } from "./components/NormaliseProgressDialog";
 import { useNormaliseMetadata } from "./hooks/useNormaliseMetadata";
@@ -44,6 +44,7 @@ import {
 } from "./utils/countOverwrites";
 import {
   buildNormaliseItems,
+  metadataOccurrencesStoreLookup,
   metadataStoreLookup,
 } from "./utils/buildNormaliseItems";
 import { sortPhotos, shouldSuspendSorting } from "./utils/sorting";
@@ -370,33 +371,42 @@ function LoadedView({
         onDiscardAllEdits={(paths) => actions.discardAllDraftEdits(paths)}
         onApplyEdits={(paths) => actions.applyDraftEdits(paths)}
         onGenerateAiDescription={(relPaths) => {
+          if (!actions.canStageGeneratedMetadataV5(relPaths)) return;
           setDescribeOverwrite(
             countDescribeOverwrites(
               relPaths,
               state.imageMetadata,
+              state.imageMetadataOccurrences,
               state.draftEdits,
+              state.targetDraftEdits,
             ),
           );
           describe.actions.start(state.folder, relPaths);
         }}
         onGeocode={(relPaths) => {
+          if (!actions.canStageGeneratedMetadataV5(relPaths)) return;
           setGeocodeOverwrite(
             countGeocodeOverwrites(
               relPaths,
               state.imageMetadata,
+              state.imageMetadataOccurrences,
               state.draftEdits,
+              state.targetDraftEdits,
             ),
           );
           geocode.actions.start(state.folder, buildGeocodeItems(relPaths));
         }}
         onNormalise={(relPaths) => {
+          if (!actions.canStageGeneratedMetadataV5(relPaths)) return;
           // Default enabled groups: every v1 group. User can untick
           // individual groups in the confirm dialog.
           const initialGroups = ALL_NORMALISE_GROUPS;
           const items = buildNormaliseItems(
             relPaths,
             metadataStoreLookup(state.imageMetadata),
+            metadataOccurrencesStoreLookup(state.imageMetadataOccurrences),
             state.draftEdits,
+            state.targetDraftEdits,
             initialGroups,
           );
           normalise.actions.start(state.folder, items, [...initialGroups]);
@@ -438,31 +448,40 @@ function LoadedView({
           onDiscardAllEdits={actions.discardAllDraftEdits}
           onApplyEdits={(path) => actions.applyDraftEdits(path)}
           onGenerateAiDescription={(relPath) => {
+            if (!actions.canStageGeneratedMetadataV5([relPath])) return;
             setDescribeOverwrite(
               countDescribeOverwrites(
                 [relPath],
                 state.imageMetadata,
+                state.imageMetadataOccurrences,
                 state.draftEdits,
+                state.targetDraftEdits,
               ),
             );
             describe.actions.start(state.folder, [relPath]);
           }}
           onGeocode={(relPath) => {
+            if (!actions.canStageGeneratedMetadataV5([relPath])) return;
             setGeocodeOverwrite(
               countGeocodeOverwrites(
                 [relPath],
                 state.imageMetadata,
+                state.imageMetadataOccurrences,
                 state.draftEdits,
+                state.targetDraftEdits,
               ),
             );
             geocode.actions.start(state.folder, buildGeocodeItems([relPath]));
           }}
           onNormalise={(relPath) => {
+            if (!actions.canStageGeneratedMetadataV5([relPath])) return;
             const initialGroups = ALL_NORMALISE_GROUPS;
             const items = buildNormaliseItems(
               [relPath],
               metadataStoreLookup(state.imageMetadata),
+              metadataOccurrencesStoreLookup(state.imageMetadataOccurrences),
               state.draftEdits,
+              state.targetDraftEdits,
               initialGroups,
             );
             normalise.actions.start(state.folder, items, [...initialGroups]);
@@ -555,17 +574,45 @@ export default function App() {
   const [geocodeOverwrite, setGeocodeOverwrite] = useState<
     OverwriteCount | undefined
   >(undefined);
-  // Temporary bridge boundary: AI description, geocode and normalise remain
-  // explicit schema-v4 producers. Each must migrate deliberately later.
-  const mergeBatchEdits = useCallback(
-    (relPath: string, edits: MetadataDraftEntry[]) => {
-      if (edits.length > 0) actions.setMetadataDraftBatch(relPath, edits);
-    },
+  const stageDescribeEdits = useCallback(
+    (relativePath: string, edits: import("./types").MetadataDraftEntry[]) =>
+      actions.applyGeneratedMetadataDraftBatchV5(
+        relativePath,
+        { kind: "describe" },
+        edits,
+      ),
     [actions],
   );
-  const describe = useDescribeImages({ onApplyEdits: mergeBatchEdits });
-  const geocode = useGeocodeImages({ onApplyEdits: mergeBatchEdits });
-  const normalise = useNormaliseMetadata({ onApplyEdits: mergeBatchEdits });
+  const stageGeocodeEdits = useCallback(
+    (relativePath: string, edits: import("./types").MetadataDraftEntry[]) =>
+      actions.applyGeneratedMetadataDraftBatchV5(
+        relativePath,
+        { kind: "geocode" },
+        edits,
+      ),
+    [actions],
+  );
+  const stageNormaliseEdits = useCallback(
+    (
+      relativePath: string,
+      edits: import("./types").MetadataDraftEntry[],
+      confirmedEnabledGroups: readonly import("./types").NormaliseGroup[],
+    ) =>
+      actions.applyGeneratedMetadataDraftBatchV5(
+        relativePath,
+        {
+          kind: "normalise",
+          enabledGroups: structuredClone(confirmedEnabledGroups),
+        },
+        edits,
+      ),
+    [actions],
+  );
+  const describe = useDescribeImages({ onApplyEdits: stageDescribeEdits });
+  const geocode = useGeocodeImages({ onApplyEdits: stageGeocodeEdits });
+  const normalise = useNormaliseMetadata({
+    onApplyEdits: stageNormaliseEdits,
+  });
 
   useEffect(() => {
     const t0 =

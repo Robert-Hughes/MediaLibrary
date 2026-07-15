@@ -495,8 +495,10 @@ operations. Successful output uses logical-slot ordering. Blocked reasons stay
 transient on outcomes for a future command and frontend to surface; they are
 not added to schema-v5 persistence. The pure file helper performs no
 persistence or metadata writes. It is composed by the v5 batch command and the
-production target-aware controller. Generated AI, reverse-geocode output,
-normalise, and other generated producers persist and apply as schema v4.
+production target-aware controller. Generated AI, reverse-geocode output, and
+normalise retain their schema-keyed backend semantic-edit wire shape, but the
+frontend now resolves every complete per-file batch through authoritative
+occurrences into exact schema-v5 targets before persistence.
 
 `targets_to_clear` is derived only from `Clear` reconciliation, by logical slot
 and in input order. Legacy projection omissions do not invalidate a v5
@@ -506,8 +508,8 @@ reconciliation results and the production target controller consumes them.
 
 The v5 path does not write the schema-keyed legacy apply log; target-aware
 logging remains pending. The registered batch command and frontend adapter are
-used for all production schema-v5 operations. Generated producers retain
-schema-v4 editing and verification; target-aware logging remains pending.
+used for all production schema-v5 operations, including generated metadata.
+Persisted legacy drafts and their verification remain schema-keyed v4.
 
 ---
 
@@ -576,9 +578,10 @@ no occurrence selector. These planners share the legacy builder's semantic
 value encoder and preserve its numeric/text pass grouping and argument order.
 
 This model, its pure planners, and the composed v5 apply foundation are used by
-Add Property, ordinary existing-row edits, manual group removal, and selected-
-photo field removal. Generated legacy producers continue using the schema-v4
-loader, saver, and apply path.
+Add Property, ordinary existing-row edits, manual group removal, selected-photo
+field removal, and generated describe/geocode/normalise results. Persisted
+legacy drafts continue using the schema-v4 loader, saver, apply, and
+verification path without conversion.
 
 V5 Tauri load/save commands define the target-aware JSONL line:
 
@@ -660,9 +663,9 @@ on the `Null` and `Binary` unit variants.
 V4 entries are not automatically converted. A schema ID does not say whether
 the operation edits an existing occurrence or creates a new property, and
 choosing a first occurrence would be forbidden first-match logic. Existing v4
-drafts remain in their independently owned file. Target-aware operations create the
-target-aware store and use the v5 adapter; legacy/generated producers and verification
-remain schema-keyed v4.
+drafts remain in their independently owned file. Target-aware operations create
+the target-aware store and use the v5 adapter; persisted legacy drafts and their
+verification remain schema-keyed v4.
 
 MediaLibrary persists v4 drafts in `MediaLibraryDraftEdits.jsonl` and v5 target
 drafts in `MediaLibraryTargetDraftEdits.jsonl`. Read metadata is **not** cached
@@ -672,9 +675,10 @@ drafts in `MediaLibraryTargetDraftEdits.jsonl`. Read metadata is **not** cached
 - The file is the canonical store. Sidecars introduce sync questions we don't want to answer.
 - exiftool startup amortizes well over batches; scan cost is acceptable.
 
-Draft schema is versioned. V4 remains the production format for legacy and
-generated producers, while target-aware operations use the explicitly versioned v5 commands,
-target-aware store, and batch apply path. Every v4
+Draft schema is versioned. V4 remains the production format only for already-
+persisted legacy drafts. Generated backends still emit schema-keyed semantic
+edit lists, but the frontend production boundary converts them to explicitly
+versioned v5 targets, the target-aware store, and the v5 batch apply path. Every v4
 draft entry carries the exact ExifTool schema-definition identity; JSON object
 keys and display labels are never used as metadata identity:
 
@@ -751,7 +755,8 @@ plus compatibility metadata), complete targets and reconciliation decisions.
 `persisted_draft_entries` is null for no successful map change, empty when the
 file key was removed, and non-empty for exact retained/replaced entries. All
 schema-v5 operations have production caller/listener and state integration;
-target-aware logging remains pending and generated producers stay schema v4.
+target-aware logging remains pending. Generated producers now stage through
+schema v5, while legacy apply logging remains schema-keyed.
 
 A frontend apply adapter accepts every command result and versioned
 event payload as `unknown`, then strictly validates complete nested targets,
@@ -775,8 +780,8 @@ authoritative protocol data.
 
 The events carry no operation ID because the backend permits only one active v5
 apply. The production target store, `AppState`, and React controller use the
-adapter for every target-aware draft; persisted legacy drafts and generated
-producers remain v4.
+adapter for every target-aware draft, including generated output. Persisted
+legacy drafts remain v4 without automatic conversion.
 
 The frontend also has a pure v5 result preparation and store-application
 layer. Its flow is `strict result → clone and prepare exact candidates → replace
@@ -844,9 +849,9 @@ final-application failure.
 
 `useMediaLibrary` owns the single controller instance, target-aware `AppState`,
 and v5 autosave subscriber used by Add New Property, exact existing rows,
-individual/composite GPS edits, manual group removal, and selected-photo field
-removal. Their verification is target-aware and separate; generated operations
-remain schema v4 during the controlled bridge.
+individual/composite GPS edits, manual group removal, selected-photo field
+removal, and generated describe/geocode/normalise output. Their verification is
+target-aware and separate; only persisted legacy drafts remain schema v4.
 
 - **MetadataValue** — Discriminated semantic value model used inside the app for read metadata, draft edits, writes, verification, and apply logs.
 - **SchemaDefinitionId** — Exact ExifTool definition identity: `{table, tag_id, index?}` from `-listx`. It remains the key for current schema-keyed v4 drafts and their production paths. It is distinct from runtime occurrence identity and exact write targeting. `Group1:Name` is display/search text only.
@@ -917,12 +922,12 @@ Readback failure, invalid readback, missing state, blocked reconciliation, and
 future outcomes with no observed value offer discard rather than acceptance;
 keep remains available. The target dialog has modal precedence until empty.
 
-This format boundary is deliberately temporary. Target-aware verification is
-active only for production schema-v5 operations. Existing-row and GPS editing
-plus manual group and selected-photo field removal use v5. AI-description,
-geocode, normalise, and other generated batch edits still use schema-v4;
-there is no automatic conversion and no general schema projection that could
-collapse occurrence targets. Migration of those remaining producers is pending.
+Target-aware verification is active for every production schema-v5 operation.
+Existing-row and GPS editing, manual group and selected-photo field removal, and
+AI-description/geocode/normalise generated batches all use v5. Generated jobs
+remain streaming across files, but each file's complete generated batch is
+validated and mutated atomically. Persisted schema-v4 drafts are not converted;
+there is no general schema projection that could collapse occurrence targets.
 
 ### Manual removal target mutations
 
