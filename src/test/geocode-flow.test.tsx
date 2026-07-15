@@ -209,7 +209,7 @@ describe("Reverse-geocoding flow", () => {
     );
   });
 
-  it("sends resolved lat/lon to the backend and merges returned edits into drafts", async () => {
+  it("sends resolved lat/lon and stages returned edits as exact v5 targets", async () => {
     mockApiInstance.geocodeSchedule = [
       {
         relativePath: "test.jpg",
@@ -263,26 +263,27 @@ describe("Reverse-geocoding flow", () => {
       /Nominatim/,
     );
 
-    // Drafts merged into the in-memory store via the semantic batch setter.
-    const folderDrafts = mockApiInstance.draftEditsByFolder["/photos"];
+    // The coherent replacement is staged only in the exact v5 store.
+    expect(mockApiInstance.draftEditsByFolder["/photos"] ?? {}).toEqual({});
+    const targetDrafts =
+      mockApiInstance.targetDraftEditsByFolder["/photos"]?.["test.jpg"] ?? {};
     expect(
-      Object.values(folderDrafts?.["test.jpg"] ?? {}).some(
-        ({ id }) => id.tag_id === "Location",
+      Object.values(targetDrafts).some(
+        ({ target }) => target.schema_id.tag_id === "Location",
       ),
     ).toBe(true);
     expect(
-      Object.values(folderDrafts?.["test.jpg"] ?? {}).some(
-        ({ id }) => id.tag_id === "City",
+      Object.values(targetDrafts).some(
+        ({ target }) => target.schema_id.tag_id === "City",
       ),
     ).toBe(true);
-    // Delete-intent drafts also land — they're how the coherent-
-    // replacement rule from plan §1 is communicated to the apply
-    // pipeline.
+    // A Delete for a genuinely missing schema is an exact no-op rather than a
+    // meaningless NewProperty Delete.
     expect(
-      Object.values(folderDrafts?.["test.jpg"] ?? {}).some(
-        ({ id }) => id.tag_id === "State",
+      Object.values(targetDrafts).some(
+        ({ target }) => target.schema_id.tag_id === "State",
       ),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it("sends raw GPS Real longitude with W ref as negative to the backend", async () => {

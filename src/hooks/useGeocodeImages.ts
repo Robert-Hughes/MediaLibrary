@@ -8,6 +8,7 @@
  * `geocode_*` events drive the rest of the state machine.
  */
 import { useMemo } from "react";
+import type { GeneratedDraftStageResultV5 } from "../generatedTargetDrafts";
 import type {
   GeocodeProgressState,
   GeocodeRequestItem,
@@ -36,7 +37,10 @@ export interface GeocodeActions {
 }
 
 export interface UseGeocodeImagesOptions {
-  onApplyEdits?: (relativePath: string, edits: MetadataDraftEntry[]) => void;
+  onApplyEdits?: (
+    relativePath: string,
+    edits: MetadataDraftEntry[],
+  ) => GeneratedDraftStageResultV5;
 }
 
 /**
@@ -100,6 +104,7 @@ export function useGeocodeImages(options: UseGeocodeImagesOptions = {}): {
       },
       buildRunArgs: (folderPath, items) => ({ folderPath, items }),
       totalItems: (items) => items.length,
+      relativePaths: (items) => items.map((item) => item.relPath),
       parseSummaryPayload: (raw) => raw as GeocodeSummary,
     }),
     [],

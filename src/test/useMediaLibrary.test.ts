@@ -6,7 +6,9 @@ import { makePhoto, makePhotos, mockDrafts, testId } from "./factories";
 import { metadataGet } from "../utils/metadataCollection";
 import { TargetDraftEditsStore } from "../targetDraftEdits";
 import type {
+  AppState,
   MetadataApplyFileResultV5,
+  MetadataDraftEntry,
   MetadataOccurrence,
   SchemaDefinitionId,
 } from "../types";
@@ -15,6 +17,17 @@ import { targetVerifyOutcomeFromBackend } from "../targetVerifyOutcomes";
 import { metadataDraftTargetSlotToken } from "../utils/metadataDraftTarget";
 import { GPS_IDS } from "../metadata/knownIds";
 import { previewMetadataRemovalFilesV5 } from "../metadataRemovalTargets";
+
+function setLegacyDraftBatch(
+  state: AppState,
+  relativePath: string,
+  edits: MetadataDraftEntry[],
+): void {
+  if (state.kind !== "loaded") {
+    throw new Error("Expected a loaded media-library state");
+  }
+  state.draftEditsStore.setMetadataBatch(relativePath, edits);
+}
 
 function targetV5Result(
   path: string,
@@ -1272,7 +1285,7 @@ describe("useMediaLibrary", () => {
     expect(Object.values(state.targetDraftEdits["a.jpg"])).toHaveLength(2);
 
     act(() => {
-      result.current[1].setMetadataDraftBatch("b.jpg", [{ id: zero, edit }]);
+      setLegacyDraftBatch(result.current[0], "b.jpg", [{ id: zero, edit }]);
       result.current[1].setNewPropertyDraft("b.jpg", zero, edit);
     });
     state = result.current[0];
@@ -1871,7 +1884,7 @@ describe("useMediaLibrary", () => {
     });
     await act(async () => vi.advanceTimersByTimeAsync(300));
     act(() => {
-      result.current[1].setMetadataDraftBatch("legacy.jpg", [{ id, edit }]);
+      setLegacyDraftBatch(result.current[0], "legacy.jpg", [{ id, edit }]);
       result.current[1].setExistingOccurrenceDraft(
         "legacy.jpg",
         occurrence.id,
@@ -2046,7 +2059,7 @@ describe("useMediaLibrary", () => {
       value: { kind: "Text" as const, value: "value" },
     };
     act(() => {
-      result.current[1].setMetadataDraftBatch("legacy.jpg", [
+      setLegacyDraftBatch(result.current[0], "legacy.jpg", [
         { id: testId("XMP-dc:Title"), edit },
       ]);
       result.current[1].setNewPropertyDraft(
@@ -2245,7 +2258,7 @@ describe("useMediaLibrary", () => {
       },
     };
     act(() =>
-      result.current[1].setMetadataDraftBatch("same.jpg", [
+      setLegacyDraftBatch(result.current[0], "same.jpg", [
         {
           id,
           edit: {
@@ -2331,7 +2344,7 @@ describe("useMediaLibrary", () => {
       fresh_metadata: {},
     };
     act(() =>
-      result.current[1].setMetadataDraftBatch("error.jpg", [
+      setLegacyDraftBatch(result.current[0], "error.jpg", [
         {
           id,
           edit: {
@@ -2363,7 +2376,7 @@ describe("useMediaLibrary", () => {
         intent: "Set",
         value: { kind: "Text", value: "target" },
       });
-      result.current[1].setMetadataDraftBatch("same.jpg", [
+      setLegacyDraftBatch(result.current[0], "same.jpg", [
         {
           id: legacyId,
           edit: {
@@ -2830,7 +2843,7 @@ describe("useMediaLibrary", () => {
     ).toHaveLength(0);
 
     act(() =>
-      result.current[1].setMetadataDraftBatch("legacy.jpg", [
+      setLegacyDraftBatch(result.current[0], "legacy.jpg", [
         { id: testId("XMP-dc:Title"), edit },
       ]),
     );

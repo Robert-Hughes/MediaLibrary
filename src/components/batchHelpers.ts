@@ -1,4 +1,4 @@
-import type { BatchFailureKind } from "../types";
+import type { BatchJobFailureKind } from "../types";
 import { assertExhaustive } from "../utils/assertExhaustive";
 
 /**
@@ -8,8 +8,12 @@ import { assertExhaustive } from "../utils/assertExhaustive";
  * telemetry. Unknown kinds fall through as the raw value so a new
  * failure mode is still legible while we add a proper label.
  */
-export function friendlyDescribeFailureLabel(kind: BatchFailureKind): string {
+export function friendlyDescribeFailureLabel(
+  kind: BatchJobFailureKind,
+): string {
   switch (kind) {
+    case "draft_stage_failed":
+      return "Generated metadata could not be staged safely";
     case "decode":
       return "Could not decode image";
     case "http":
@@ -59,8 +63,10 @@ export function friendlyDescribeFailureLabel(kind: BatchFailureKind): string {
  * AI-description equivalent so the failure-list visual idiom is
  * identical across both flows.
  */
-export function friendlyGeocodeFailureLabel(kind: BatchFailureKind): string {
+export function friendlyGeocodeFailureLabel(kind: BatchJobFailureKind): string {
   switch (kind) {
+    case "draft_stage_failed":
+      return "Generated metadata could not be staged safely";
     case "no_gps":
       return "No GPS coordinates";
     case "nominatim_empty":
@@ -100,8 +106,12 @@ export function friendlyGeocodeFailureLabel(kind: BatchFailureKind): string {
 /**
  * Map normaliser BatchFailureKind values to short labels.
  */
-export function friendlyNormaliseFailureLabel(kind: BatchFailureKind): string {
+export function friendlyNormaliseFailureLabel(
+  kind: BatchJobFailureKind,
+): string {
   switch (kind) {
+    case "draft_stage_failed":
+      return "Generated metadata could not be staged safely";
     case "ai_call_failed":
       return "AI request failed";
     case "ai_schema_invalid":

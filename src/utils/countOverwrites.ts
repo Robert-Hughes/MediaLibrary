@@ -1,62 +1,80 @@
-/**
- * Pure helpers that count how many of the selected images already
- * carry data the next batch run would overwrite. Used by App to feed
- * the inline overwrite notice rendered in each batch dialog's
- * awaiting-confirm panel. The same logic previously lived per-flow in
- * PhotoList / DetailsPane (computed at click time to drive a pre-dialog
- * `ask()`); pulling it into a single place keeps the three flows
- * consistent.
- */
+import { DESCRIBE_TARGET_TAGS } from "../generatedTargetDrafts";
+import type { TargetDraftEditsByFile } from "../targetDraftEdits";
 import { GEOCODE_TARGET_TAGS } from "../types";
-import type { ImageMetadataStore, MetadataDraftEditsByFile } from "../types";
-import { KNOWN_METADATA_IDS } from "../metadata/knownIds";
+import type {
+  ImageMetadataOccurrencesStore,
+  ImageMetadataStore,
+  MetadataDraftEditsByFile,
+} from "../types";
+import { buildEffectiveMetadataForFile } from "./effectiveMetadata";
 import { metadataHas, type MetadataCollection } from "./metadataCollection";
-import { schemaDefinitionIdToken } from "./schemaDefinitionId";
 
 export interface OverwriteCount {
   existingCount: number;
   totalCount: number;
 }
 
-function metaBag(
+function metadataForPath(
   imageMetadata: ImageMetadataStore,
   relPath: string,
 ): MetadataCollection | undefined {
-  const meta = imageMetadata.get(relPath);
-  return typeof meta === "object" && meta !== null ? meta : undefined;
+  const metadata = imageMetadata.get(relPath);
+  return typeof metadata === "object" && metadata !== null
+    ? metadata
+    : undefined;
+}
+
+function countAnyEffectiveSchema(
+  relPaths: string[],
+  schemas: readonly Parameters<typeof metadataHas>[1][],
+  imageMetadata: ImageMetadataStore,
+  occurrences: ImageMetadataOccurrencesStore,
+  legacyDrafts: MetadataDraftEditsByFile,
+  targetDrafts: TargetDraftEditsByFile,
+): OverwriteCount {
+  let existingCount = 0;
+  for (const relPath of relPaths) {
+    const effective = buildEffectiveMetadataForFile({
+      metadata: metadataForPath(imageMetadata, relPath),
+      occurrences: occurrences.get(relPath),
+      legacyDrafts: legacyDrafts[relPath],
+      targetDrafts: targetDrafts[relPath],
+    });
+    if (schemas.some((id) => metadataHas(effective, id))) existingCount += 1;
+  }
+  return { existingCount, totalCount: relPaths.length };
 }
 
 export function countDescribeOverwrites(
   relPaths: string[],
   imageMetadata: ImageMetadataStore,
-  draftEdits: MetadataDraftEditsByFile,
+  occurrences: ImageMetadataOccurrencesStore,
+  legacyDrafts: MetadataDraftEditsByFile,
+  targetDrafts: TargetDraftEditsByFile,
 ): OverwriteCount {
-  const id = KNOWN_METADATA_IDS.mlibAiDescription;
-  let existing = 0;
-  for (const p of relPaths) {
-    const m = metaBag(imageMetadata, p);
-    const inMeta = m != null && metadataHas(m, id);
-    const inDraft = schemaDefinitionIdToken(id) in (draftEdits[p] ?? {});
-    if (inMeta || inDraft) existing++;
-  }
-  return { existingCount: existing, totalCount: relPaths.length };
+  return countAnyEffectiveSchema(
+    relPaths,
+    DESCRIBE_TARGET_TAGS,
+    imageMetadata,
+    occurrences,
+    legacyDrafts,
+    targetDrafts,
+  );
 }
 
 export function countGeocodeOverwrites(
   relPaths: string[],
   imageMetadata: ImageMetadataStore,
-  draftEdits: MetadataDraftEditsByFile,
+  occurrences: ImageMetadataOccurrencesStore,
+  legacyDrafts: MetadataDraftEditsByFile,
+  targetDrafts: TargetDraftEditsByFile,
 ): OverwriteCount {
-  let existing = 0;
-  for (const p of relPaths) {
-    const m = metaBag(imageMetadata, p) ?? {};
-    const d = draftEdits[p] ?? {};
-    const hit = GEOCODE_TARGET_TAGS.some(
-      (id) =>
-        metadataHas(m as MetadataCollection, id) ||
-        schemaDefinitionIdToken(id) in d,
-    );
-    if (hit) existing++;
-  }
-  return { existingCount: existing, totalCount: relPaths.length };
+  return countAnyEffectiveSchema(
+    relPaths,
+    GEOCODE_TARGET_TAGS,
+    imageMetadata,
+    occurrences,
+    legacyDrafts,
+    targetDrafts,
+  );
 }

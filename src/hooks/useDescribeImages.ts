@@ -15,6 +15,7 @@
 import { useMemo } from "react";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { listen } from "@tauri-apps/api/event";
+import type { GeneratedDraftStageResultV5 } from "../generatedTargetDrafts";
 import type {
   DescribeEstimate,
   DescribeProgressState,
@@ -49,7 +50,10 @@ export interface UseDescribeImagesOptions {
    * directly to draft_edits.jsonl — means the UI re-renders immediately
    * and there is exactly one writer to the typed-draft store.
    */
-  onApplyEdits?: (relativePath: string, edits: MetadataDraftEntry[]) => void;
+  onApplyEdits?: (
+    relativePath: string,
+    edits: MetadataDraftEntry[],
+  ) => GeneratedDraftStageResultV5;
 }
 
 /**
@@ -96,6 +100,7 @@ export function useDescribeImages(options: UseDescribeImagesOptions = {}): {
       buildEstimateArgs: (folderPath, relPaths) => ({ folderPath, relPaths }),
       buildRunArgs: (folderPath, relPaths) => ({ folderPath, relPaths }),
       totalItems: (relPaths) => relPaths.length,
+      relativePaths: (relPaths) => [...relPaths],
       parseEstimatePayload: (raw) => raw as DescribeEstimate,
       parseSummaryPayload: (raw) => raw as DescribeUsageSummary,
       subscribeExtras: async (setState) => {

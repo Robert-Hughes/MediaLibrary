@@ -131,7 +131,7 @@ consumers remain on their documented compatibility boundaries.
 For the original IFD0/IFD1 `XResolution` collision, both authoritative values
 now remain part of a successful scan and are visible with their distinct paths
 and origins in the Details Pane. A targetable occurrence edits through its
-exact v5 target. Legacy drafts and verification remain schema-keyed.
+exact v5 target. Legacy drafts and their verification remain schema-keyed.
 
 Genuine read, parse, canonicalisation, or projection-invariant failures still
 emit empty collections to clear loading state and report details through
@@ -440,10 +440,10 @@ maps are not saved; a changed candidate becomes current only after a successful
 complete-map save. Reconciliation and persistence failures emit progress for
 the affected file and abort later files. Versioned progress carries complete
 target outcomes, full authoritative occurrences, compatibility metadata, and
-`persisted_draft_entries` as null/empty/non-empty for unchanged/removed/retained
 state. V5 cancellation and events are isolated from v4. Target-aware logging
-remains pending; generated AI, reverse-geocode output, normalise, and other
-generated producers remain v4.
+remains pending. Generated AI, reverse-geocode output, normalise, and other
+generated producers now stage and verify through v5; legacy apply logging
+remains schema-keyed.
 
 The `targetApplyTauri` adapter provides a strict frontend protocol
 boundary for the apply/cancel commands and the two versioned events. Every
@@ -667,10 +667,13 @@ collection; the Details Pane cannot overlay a stale occurrence value.
 
 The production v5 operations are Add New Property, uniquely resolved writable
 ordinary and supplemental rows, individual/composite GPS editing, manual group
-removal, and selected-photo field removal. The explicit v4 producers are AI
-description, reverse-geocode output, normalise, and other generated batches.
-Schema-v4 persistence, apply logging, and verification remain in service for
-them. Target-aware apply logging remains pending.
+removal, selected-photo field removal, and generated describe/geocode/normalise
+output. Generated backends continue emitting schema-keyed `{ id, edit }` lists;
+the frontend validates the producer contract and resolves exact targets from the
+current authoritative occurrence collection before one atomic per-file target-
+store mutation. Persisted schema-v4 drafts, their apply path, their verification,
+and legacy apply logging remain supported without conversion. Target-aware
+apply logging remains pending.
 
 ## Target-aware v5 verification flow
 
@@ -701,6 +704,5 @@ keep-draft (dismiss only the diagnostic), and discard-draft (remove the exact
 draft and diagnostic). Blocked or missing states use conservative discard
 wording and never auto-retarget. Draft removal autosaves only
 `MediaLibraryTargetDraftEdits.jsonl`; legacy verification continues to affect
-only `MediaLibraryDraftEdits.jsonl`. Target verification is session-only,
-separate from v4, and shown ahead of the v4 dialog. Ordinary row editing remains
-v4.
+only `MediaLibraryDraftEdits.jsonl`. Target verification is session-only, separate from v4, and shown ahead of the
+v4 dialog. Ordinary row editing and newly generated output use v5.

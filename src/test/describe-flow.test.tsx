@@ -233,7 +233,7 @@ describe("AI-description flow", () => {
     });
   });
 
-  it("applies backend-emitted edits into the in-memory draft store", async () => {
+  it("stages backend-emitted edits as exact v5 targets without v4 drafts", async () => {
     // Regression: the frontend used to rely on the backend writing
     // draft_edits.jsonl directly, so the UI never saw the new edits
     // after a describe run completed. The architecture now ships edits
@@ -282,17 +282,22 @@ describe("AI-description flow", () => {
     });
     await screen.findByTestId("describe-done-summary");
 
-    const folderDrafts = mockApiInstance.draftEditsByFolder["/photos"];
-    expect(folderDrafts).toBeTruthy();
-    expect(folderDrafts["test.jpg"]).toBeTruthy();
+    expect(mockApiInstance.draftEditsByFolder["/photos"] ?? {}).toEqual({});
+    const targetDrafts =
+      mockApiInstance.targetDraftEditsByFolder["/photos"]?.["test.jpg"] ?? {};
     expect(
-      Object.values(folderDrafts["test.jpg"]).some(
-        ({ id }) => id.tag_id === "AIDescription",
+      Object.values(targetDrafts).some(
+        ({ target }) => target.schema_id.tag_id === "AIDescription",
       ),
     ).toBe(true);
     expect(
-      Object.values(folderDrafts["test.jpg"]).some(
-        ({ id }) => id.tag_id === "AITags",
+      Object.values(targetDrafts).some(
+        ({ target }) => target.schema_id.tag_id === "AITags",
+      ),
+    ).toBe(true);
+    expect(
+      Object.values(targetDrafts).every(
+        ({ target }) => target.kind === "NewProperty",
       ),
     ).toBe(true);
   });
