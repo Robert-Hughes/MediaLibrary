@@ -2,9 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   MetadataRemovalTargetPlanError,
   planMetadataRemovalTargetsV5,
+  previewMetadataRemovalFilesV5,
+  previewMetadataRemovalTargetsV5,
 } from "../metadataRemovalTargets";
+import type { TargetDraftCollection } from "../targetDraftEdits";
 import type {
   MetadataDraftCollection,
+  MetadataDraftEdit,
   MetadataDraftTarget,
   MetadataOccurrence,
   SchemaDefinitionId,
@@ -48,14 +52,17 @@ function target(source = occurrence()): MetadataDraftTarget {
   };
 }
 
-function owner(currentTarget: MetadataDraftTarget) {
+function owner(
+  currentTarget: MetadataDraftTarget,
+  edit: MetadataDraftEdit = {
+    intent: "Set",
+    value: { kind: "Integer", value: 301 },
+  },
+): TargetDraftCollection {
   return {
     [metadataDraftTargetSlotToken(currentTarget)]: {
       target: currentTarget,
-      edit: {
-        intent: "Set" as const,
-        value: { kind: "Integer" as const, value: 301 },
-      },
+      edit,
     },
   };
 }
@@ -65,7 +72,7 @@ function plan(
     ids?: SchemaDefinitionId[];
     occurrences?: MetadataOccurrence[] | "loading";
     legacy?: MetadataDraftCollection;
-    targets?: ReturnType<typeof owner>;
+    targets?: TargetDraftCollection;
   } = {},
 ) {
   return planMetadataRemovalTargetsV5({
@@ -110,6 +117,48 @@ describe("planMetadataRemovalTargetsV5", () => {
     expect(result.noops[0]).not.toBe(id);
   });
 
+  it("keeps a missing exact schema as a no-op when unknown rows reuse its local tag ID", () => {
+    const unknown = occurrence({
+      id: {
+        document: null,
+        path: "QuickTime-MovieHeader",
+        tag_id: id.tag_id,
+        copy: 0,
+      },
+      tag_info: null,
+      write_target: null,
+    });
+    const before = structuredClone(unknown);
+    expect(plan({ occurrences: [unknown] })).toEqual({
+      upserts: [],
+      deletes: [],
+      noops: [id],
+    });
+    expect(unknown).toEqual(before);
+  });
+
+  it("does not select or mutate any of several unknown rows sharing a local tag ID", () => {
+    const unknowns = [
+      occurrence({
+        id: { document: null, path: "MakerNotes-A", tag_id: "282", copy: 0 },
+        tag_info: null,
+        write_target: null,
+      }),
+      occurrence({
+        id: { document: null, path: "MakerNotes-B", tag_id: "282", copy: 1 },
+        tag_info: null,
+        write_target: null,
+      }),
+    ];
+    const before = structuredClone(unknowns);
+    expect(plan({ occurrences: unknowns })).toEqual({
+      upserts: [],
+      deletes: [],
+      noops: [id],
+    });
+    expect(unknowns).toEqual(before);
+  });
+
   it("deletes the exact NewProperty owner for a missing field", () => {
     const created: MetadataDraftTarget = {
       kind: "NewProperty",
@@ -120,9 +169,30 @@ describe("planMetadataRemovalTargetsV5", () => {
     expect(result.deletes[0]).not.toBe(created);
   });
 
+  it("cancels an exact NewProperty owner despite unrelated unknown rows", () => {
+    const created: MetadataDraftTarget = {
+      kind: "NewProperty",
+      schema_id: structuredClone(id),
+    };
+    const unknown = occurrence({ tag_info: null, write_target: null });
+    const result = plan({ occurrences: [unknown], targets: owner(created) });
+    expect(result).toEqual({ upserts: [], deletes: [created], noops: [] });
+  });
+
   it("rejects stale ExistingOccurrence ownership for a missing field", () => {
     expectCode(
       () => plan({ occurrences: [], targets: owner(target()) }),
+      "stale-target-owner",
+    );
+  });
+
+  it("still rejects stale ExistingOccurrence ownership alongside unknown rows", () => {
+    expectCode(
+      () =>
+        plan({
+          occurrences: [occurrence({ tag_info: null, write_target: null })],
+          targets: owner(target()),
+        }),
       "stale-target-owner",
     );
   });
@@ -142,11 +212,12 @@ describe("planMetadataRemovalTargetsV5", () => {
     );
   });
 
-  it("rejects missing TagInfo, read-only TagInfo and a missing write target", () => {
-    expectCode(
-      () => plan({ occurrences: [occurrence({ tag_info: null })] }),
-      "untargetable-occurrence",
-    );
+  it("leaves unknown rows read-only and rejects exact read-only or untargetable rows", () => {
+    expect(plan({ occurrences: [occurrence({ tag_info: null })] })).toEqual({
+      upserts: [],
+      deletes: [],
+      noops: [id],
+    });
     expectCode(
       () =>
         plan({
@@ -184,6 +255,30 @@ describe("planMetadataRemovalTargetsV5", () => {
       target: target(source),
       edit: { intent: "Delete", value: null },
     });
+  });
+
+  it("treats an already staged exact Delete as a no-op without altering it", () => {
+    const source = occurrence();
+    const targets = owner(target(source), { intent: "Delete", value: null });
+    const before = structuredClone(targets);
+    expect(plan({ targets })).toEqual({
+      upserts: [],
+      deletes: [],
+      noops: [id],
+    });
+    expect(targets).toEqual(before);
+  });
+
+  it("replaces identical Set and list edits with Delete", () => {
+    expect(plan({ targets: owner(target()) }).upserts).toHaveLength(1);
+    expect(
+      plan({
+        targets: owner(target(), {
+          intent: "ListAdd",
+          value: { kind: "Integer", value: 301 },
+        }),
+      }).upserts,
+    ).toEqual([{ target: target(), edit: { intent: "Delete", value: null } }]);
   });
 
   it("rejects NewProperty/existing and different-occurrence ownership", () => {
@@ -242,5 +337,158 @@ describe("planMetadataRemovalTargetsV5", () => {
     result.upserts[0].target.schema_id.tag_id = "changed";
     result.upserts[0].target.write_target.group1 = "changed";
     expect({ source, ids }).toEqual(before);
+  });
+});
+
+describe("target-aware removal previews", () => {
+  it("derives delete, cancellation and no-op counts from the planner", () => {
+    const createdId: SchemaDefinitionId = {
+      table: "XMP::dc",
+      tag_id: "subject",
+    };
+    const absentId: SchemaDefinitionId = {
+      table: "XMP::dc",
+      tag_id: "description",
+    };
+    const created: MetadataDraftTarget = {
+      kind: "NewProperty",
+      schema_id: createdId,
+    };
+    expect(
+      previewMetadataRemovalTargetsV5({
+        schemaIds: [id, createdId, absentId],
+        occurrences: [occurrence()],
+        legacyDrafts: undefined,
+        targetDrafts: owner(created),
+      }),
+    ).toEqual({
+      existingFieldsToDelete: 1,
+      stagedCreationsToCancel: 1,
+      noOpFields: 1,
+      affectedCount: 2,
+    });
+  });
+
+  it("counts an existing exact Delete as a no-op", () => {
+    expect(
+      previewMetadataRemovalTargetsV5({
+        schemaIds: [id],
+        occurrences: [occurrence()],
+        legacyDrafts: undefined,
+        targetDrafts: owner(target(), { intent: "Delete", value: null }),
+      }),
+    ).toEqual({
+      existingFieldsToDelete: 0,
+      stagedCreationsToCancel: 0,
+      noOpFields: 1,
+      affectedCount: 0,
+    });
+  });
+
+  it("counts an exact existing Set draft as one Delete replacement", () => {
+    expect(
+      previewMetadataRemovalTargetsV5({
+        schemaIds: [id],
+        occurrences: [occurrence()],
+        legacyDrafts: undefined,
+        targetDrafts: owner(target()),
+      }),
+    ).toEqual({
+      existingFieldsToDelete: 1,
+      stagedCreationsToCancel: 0,
+      noOpFields: 0,
+      affectedCount: 1,
+    });
+  });
+
+  it("aggregates deduplicated files through exact plans", () => {
+    const created = { kind: "NewProperty" as const, schema_id: id };
+    const occurrencesByPath = new Map([
+      ["existing.jpg", [occurrence()]],
+      ["created.jpg", []],
+      ["absent.jpg", []],
+    ]);
+    const targetsByPath = new Map<string, TargetDraftCollection>([
+      ["created.jpg", owner(created)],
+    ]);
+    expect(
+      previewMetadataRemovalFilesV5({
+        schemaId: id,
+        relativePaths: [
+          "existing.jpg",
+          "created.jpg",
+          "absent.jpg",
+          "existing.jpg",
+        ],
+        targetDraftPersistence: { status: "ready" },
+        occurrencesForPath: (path) => occurrencesByPath.get(path) ?? [],
+        legacyDraftsForPath: () => undefined,
+        targetDraftsForPath: (path) => targetsByPath.get(path),
+      }),
+    ).toEqual({
+      kind: "ready",
+      photoCount: 3,
+      affectedPhotoCount: 2,
+      existingFieldsToDelete: 1,
+      stagedCreationsToCancel: 1,
+      noOpPhotoCount: 1,
+    });
+  });
+
+  it("blocks on the first unsafe later path and names it", () => {
+    const multiple = [
+      occurrence(),
+      occurrence({ id: { ...occurrence().id, path: "duplicate" } }),
+    ];
+    expect(
+      previewMetadataRemovalFilesV5({
+        schemaId: id,
+        relativePaths: ["safe.jpg", "ambiguous.jpg", "later.jpg"],
+        targetDraftPersistence: { status: "ready" },
+        occurrencesForPath: (path) =>
+          path === "ambiguous.jpg" ? multiple : [occurrence()],
+        legacyDraftsForPath: () => undefined,
+        targetDraftsForPath: () => undefined,
+      }),
+    ).toMatchObject({ kind: "blocked", relativePath: "ambiguous.jpg" });
+  });
+
+  it("blocks loading, legacy ownership and unready persistence", () => {
+    const legacy: MetadataDraftCollection = {
+      [schemaDefinitionIdToken(id)]: {
+        id,
+        edit: { intent: "Set", value: { kind: "Integer", value: 1 } },
+      },
+    };
+    const base = {
+      schemaId: id,
+      relativePaths: ["first.jpg", "legacy.jpg"],
+      targetDraftPersistence: { status: "ready" as const },
+      occurrencesForPath: (_path: string) => [] as MetadataOccurrence[],
+      legacyDraftsForPath: (path: string) =>
+        path === "legacy.jpg" ? legacy : undefined,
+      targetDraftsForPath: (_path: string) => undefined,
+    };
+    expect(previewMetadataRemovalFilesV5(base)).toMatchObject({
+      kind: "blocked",
+      relativePath: "legacy.jpg",
+    });
+    expect(
+      previewMetadataRemovalFilesV5({
+        ...base,
+        relativePaths: ["loading.jpg"],
+        occurrencesForPath: () => "loading" as const,
+        legacyDraftsForPath: () => undefined,
+      }),
+    ).toMatchObject({ kind: "blocked", relativePath: "loading.jpg" });
+    expect(
+      previewMetadataRemovalFilesV5({
+        ...base,
+        targetDraftPersistence: {
+          status: "load-failed" as const,
+          error: "invalid",
+        },
+      }),
+    ).toMatchObject({ kind: "blocked", relativePath: "first.jpg" });
   });
 });

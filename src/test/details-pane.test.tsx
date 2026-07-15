@@ -2322,6 +2322,11 @@ describe("DetailsPane: Group context menu", () => {
       expect(askMock).toHaveBeenCalledTimes(1);
     });
 
+    expect(askMock.mock.calls[0][0]).toContain(
+      "2 existing fields will receive pending delete edits.",
+    );
+    expect(askMock.mock.calls[0][0]).not.toContain("delete edits only");
+
     expect(onSetBatch).toHaveBeenCalledWith([
       testId("GPS:GPSLatitude"),
       testId("GPS:GPSLongitude"),
@@ -2383,7 +2388,7 @@ describe("DetailsPane: Group context menu", () => {
     fireEvent.contextMenu(heading);
 
     const removeBtn = await screen.findByRole("button", {
-      name: "Remove 1 writable GPS field…",
+      name: "Remove writable GPS fields…",
     });
     expect(removeBtn).toBeDisabled();
     expect(removeBtn).toHaveAttribute(
@@ -2395,6 +2400,54 @@ describe("DetailsPane: Group context menu", () => {
     ).toBeInTheDocument();
     expect(onSetBatch).not.toHaveBeenCalled();
     expect(onDiscardBatch).not.toHaveBeenCalled();
+  });
+
+  it("multiple exact occurrences block group Remove while retaining target Discard", async () => {
+    vi.resetModules();
+    const { DetailsPane: FreshDetailsPane } =
+      await import("../components/DetailsPane");
+    const id = testId("XMP-dc:Title");
+    const first = mockOccurrences({ "XMP-dc:Title": "first" })[0];
+    const second = structuredClone(first);
+    second.id.path = "TEST-XMP-dc-duplicate";
+    second.id.copy = 1;
+    second.value = { kind: "Text", value: "second" };
+    const targetStore = new TargetDraftEditsStore();
+    targetStore.setMetadataTarget(
+      "p.jpg",
+      {
+        kind: "ExistingOccurrence",
+        occurrence_id: first.id,
+        schema_id: id,
+        write_target: first.write_target!,
+      },
+      { intent: "Set", value: { kind: "Text", value: "edited" } },
+    );
+
+    render(
+      <FreshDetailsPane
+        photo={photo}
+        metadata={mockMetadata({ "XMP-dc:Title": "first" })}
+        occurrences={[first, second]}
+        targetDraftEdits={targetStore.getMetadataFile("p.jpg")}
+        onRemoveMetadataFieldsV5={vi.fn()}
+        onDiscardDraftBatch={vi.fn()}
+        onDiscardTargetDraftBatch={vi.fn(() => true)}
+      />,
+    );
+
+    const section = screen.getByTestId("details-section-XMP::dc");
+    fireEvent.contextMenu(
+      within(section).getByRole("heading", { name: "XMP::dc", level: 3 }),
+    );
+    const remove = await screen.findByRole("button", {
+      name: "Remove writable XMP::dc fields…",
+    });
+    expect(remove).toBeDisabled();
+    expect(remove).toHaveAttribute("title", expect.stringMatching(/Several/));
+    expect(
+      screen.getByRole("button", { name: "Discard 1 XMP::dc edit…" }),
+    ).toBeInTheDocument();
   });
 
   it("counts and discards exact group entries from both draft stores", async () => {
@@ -2501,8 +2554,52 @@ describe("DetailsPane: Group context menu", () => {
       }),
     );
     await waitFor(() => expect(askMock).toHaveBeenCalledTimes(1));
+    expect(askMock.mock.calls[0][0]).toContain(
+      "1 staged new-property addition will be cancelled.",
+    );
+    expect(askMock.mock.calls[0][0]).not.toContain("delete edits only");
     expect(remove).toHaveBeenCalledWith([id]);
     expect(discardLegacy).not.toHaveBeenCalled();
+  });
+
+  it("hides group Remove for an already staged exact Delete while retaining Discard", async () => {
+    vi.resetModules();
+    const { DetailsPane: FreshDetailsPane } =
+      await import("../components/DetailsPane");
+    const id = testId("XMP-dc:Title");
+    const occurrences = mockOccurrences({ "XMP-dc:Title": "current" });
+    const exactTarget = {
+      kind: "ExistingOccurrence" as const,
+      occurrence_id: occurrences[0].id,
+      schema_id: id,
+      write_target: occurrences[0].write_target!,
+    };
+    const targetStore = new TargetDraftEditsStore();
+    targetStore.setMetadataTarget("p.jpg", exactTarget, {
+      intent: "Delete",
+      value: null,
+    });
+
+    render(
+      <FreshDetailsPane
+        photo={photo}
+        metadata={mockMetadata({ "XMP-dc:Title": "current" })}
+        occurrences={occurrences}
+        targetDraftEdits={targetStore.getMetadataFile("p.jpg")}
+        onRemoveMetadataFieldsV5={vi.fn()}
+        onDiscardDraftBatch={vi.fn()}
+        onDiscardTargetDraftBatch={vi.fn(() => true)}
+      />,
+    );
+
+    const section = screen.getByTestId("details-section-XMP-dc");
+    fireEvent.contextMenu(
+      within(section).getByRole("heading", { name: "XMP-dc", level: 3 }),
+    );
+    expect(
+      await screen.findByRole("button", { name: "Discard 1 XMP-dc edit…" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Remove/ })).toBeNull();
   });
 
   it("Discard action calls batch discard once", async () => {

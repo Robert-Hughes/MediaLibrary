@@ -1,10 +1,11 @@
 import { render, screen } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { vi } from "vitest";
-import { ask } from "@tauri-apps/plugin-dialog";
+import { ask, message } from "@tauri-apps/plugin-dialog";
 import { PhotoList } from "../components/PhotoList";
 import { ThumbnailStore, ImageMetadataStore } from "../types";
-import type { PhotoInfo } from "../types";
+import type { PhotoInfo, SchemaDefinitionId } from "../types";
+import type { MetadataRemovalFilesPreviewV5 } from "../metadataRemovalTargets";
 import {
   _clearTagInfoCache,
   _setTagInfoCacheEntry,
@@ -13,6 +14,7 @@ import { imgCol, mockDraftsByFile, mockMetadata, testId } from "./factories";
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({
   ask: vi.fn(),
+  message: vi.fn(),
 }));
 
 const defaultSortProps = {
@@ -194,10 +196,28 @@ describe("PhotoList column header context menu", () => {
   });
 
   describe("remove field action", () => {
-    let onRemoveFieldMock: any;
+    let onRemoveFieldMock: ReturnType<
+      typeof vi.fn<(id: SchemaDefinitionId, paths: string[]) => boolean>
+    >;
+    let onPreviewFieldMock: ReturnType<
+      typeof vi.fn<
+        (
+          id: SchemaDefinitionId,
+          paths: string[],
+        ) => MetadataRemovalFilesPreviewV5
+      >
+    >;
 
     beforeEach(() => {
-      onRemoveFieldMock = vi.fn();
+      onRemoveFieldMock = vi.fn(() => true);
+      onPreviewFieldMock = vi.fn((_id: unknown, paths: string[]) => ({
+        kind: "ready" as const,
+        photoCount: paths.length,
+        affectedPhotoCount: 1,
+        existingFieldsToDelete: 1,
+        stagedCreationsToCancel: 0,
+        noOpPhotoCount: Math.max(0, paths.length - 1),
+      }));
     });
 
     afterEach(() => {
@@ -222,6 +242,7 @@ describe("PhotoList column header context menu", () => {
           onPhotoOpen={() => {}}
           onSelectColumns={onSelectColumnsMock}
           onRemoveFieldFromSelectedPhotos={onRemoveFieldMock}
+          onPreviewRemoveFieldFromSelectedPhotos={onPreviewFieldMock}
         />,
       );
 
@@ -265,6 +286,7 @@ describe("PhotoList column header context menu", () => {
           onPhotoOpen={() => {}}
           onSelectColumns={onSelectColumnsMock}
           onRemoveFieldFromSelectedPhotos={onRemoveFieldMock}
+          onPreviewRemoveFieldFromSelectedPhotos={onPreviewFieldMock}
         />,
       );
 
@@ -292,9 +314,10 @@ describe("PhotoList column header context menu", () => {
         "Stage removal of ExifIFD:DateTimeOriginal from 2 selected photos?",
       );
       expect(confirmArg).toContain(
-        "This field currently has a value on 1 of those photos.",
+        "1 existing field will receive pending delete edit.",
       );
-      expect(confirmArg).toContain("pending delete edits only");
+      expect(confirmArg).toContain("1 photo requires no change.");
+      expect(confirmArg).not.toContain("delete edits only");
       expect(confirmArg).toContain("Nothing will be written");
 
       expect(onRemoveFieldMock).not.toHaveBeenCalled();
@@ -317,6 +340,7 @@ describe("PhotoList column header context menu", () => {
           onPhotoOpen={() => {}}
           onSelectColumns={onSelectColumnsMock}
           onRemoveFieldFromSelectedPhotos={onRemoveFieldMock}
+          onPreviewRemoveFieldFromSelectedPhotos={onPreviewFieldMock}
         />,
       );
 
@@ -339,8 +363,17 @@ describe("PhotoList column header context menu", () => {
       );
     });
 
-    it("respects draft overlays for present count", async () => {
+    it("uses the target-aware preview instead of compatibility overlays", async () => {
       vi.mocked(ask).mockResolvedValue(true);
+
+      onPreviewFieldMock.mockReturnValue({
+        kind: "ready",
+        photoCount: 2,
+        affectedPhotoCount: 1,
+        existingFieldsToDelete: 0,
+        stagedCreationsToCancel: 1,
+        noOpPhotoCount: 1,
+      });
 
       // photo1 has value in metadata but Delete draft edit (effectively absent)
       metadataStore.set(
@@ -384,6 +417,7 @@ describe("PhotoList column header context menu", () => {
           onPhotoOpen={() => {}}
           onSelectColumns={onSelectColumnsMock}
           onRemoveFieldFromSelectedPhotos={onRemoveFieldMock}
+          onPreviewRemoveFieldFromSelectedPhotos={onPreviewFieldMock}
           draftEdits={mockDraftsByFile(draftEdits)}
         />,
       );
@@ -403,12 +437,90 @@ describe("PhotoList column header context menu", () => {
 
       expect(ask).toHaveBeenCalled();
       const confirmArg = vi.mocked(ask).mock.calls[0][0];
-      // photo1: effectively absent (Delete draft)
-      // photo2: effectively present (Set draft)
-      // Total present: 1
       expect(confirmArg).toContain(
-        "This field currently has a value on 1 of those photos.",
+        "1 staged new-property addition will be cancelled.",
       );
+      expect(confirmArg).toContain("1 photo requires no change.");
+      expect(confirmArg).not.toContain("currently has a value");
+    });
+
+    it("reports a blocked exact preview with its affected path and does not confirm", async () => {
+      onPreviewFieldMock.mockReturnValue({
+        kind: "blocked",
+        relativePath: "photo2.jpg",
+        reason: "Several authoritative occurrences share the exact schema.",
+      });
+      render(
+        <PhotoList
+          photos={mockPhotos}
+          thumbnails={thumbnailStore}
+          imageMetadata={metadataStore}
+          visibleColumns={[imgCol("ExifIFD:DateTimeOriginal")]}
+          {...defaultSortProps}
+          selectedIndex={null}
+          onSelect={() => {}}
+          onShowInExplorer={() => {}}
+          onVisibilityChange={() => {}}
+          onPhotoOpen={() => {}}
+          onPreviewRemoveFieldFromSelectedPhotos={onPreviewFieldMock}
+          onRemoveFieldFromSelectedPhotos={onRemoveFieldMock}
+        />,
+      );
+
+      const user = userEvent.setup();
+      await user.pointer({
+        keys: "[MouseRight]",
+        target: screen.getByText("ExifIFD:DateTimeOriginal"),
+      });
+      await user.click(screen.getByText("Remove field from all 2 photos…"));
+
+      expect(message).toHaveBeenCalledWith(
+        expect.stringMatching(/photo2\.jpg.*Several authoritative/s),
+        expect.objectContaining({ kind: "error" }),
+      );
+      expect(ask).not.toHaveBeenCalled();
+      expect(onRemoveFieldMock).not.toHaveBeenCalled();
+    });
+
+    it("reports an all-no-op exact preview without confirmation or mutation", async () => {
+      onPreviewFieldMock.mockReturnValue({
+        kind: "ready",
+        photoCount: 2,
+        affectedPhotoCount: 0,
+        existingFieldsToDelete: 0,
+        stagedCreationsToCancel: 0,
+        noOpPhotoCount: 2,
+      });
+      render(
+        <PhotoList
+          photos={mockPhotos}
+          thumbnails={thumbnailStore}
+          imageMetadata={metadataStore}
+          visibleColumns={[imgCol("ExifIFD:DateTimeOriginal")]}
+          {...defaultSortProps}
+          selectedIndex={null}
+          onSelect={() => {}}
+          onShowInExplorer={() => {}}
+          onVisibilityChange={() => {}}
+          onPhotoOpen={() => {}}
+          onPreviewRemoveFieldFromSelectedPhotos={onPreviewFieldMock}
+          onRemoveFieldFromSelectedPhotos={onRemoveFieldMock}
+        />,
+      );
+
+      const user = userEvent.setup();
+      await user.pointer({
+        keys: "[MouseRight]",
+        target: screen.getByText("ExifIFD:DateTimeOriginal"),
+      });
+      await user.click(screen.getByText("Remove field from all 2 photos…"));
+
+      expect(message).toHaveBeenCalledWith(
+        expect.stringContaining("No change is needed"),
+        expect.objectContaining({ kind: "info" }),
+      );
+      expect(ask).not.toHaveBeenCalled();
+      expect(onRemoveFieldMock).not.toHaveBeenCalled();
     });
 
     it("A/B. No selection -> operates on all photos in list, confirm message matches 'all' scope", async () => {
@@ -440,6 +552,7 @@ describe("PhotoList column header context menu", () => {
           onPhotoOpen={() => {}}
           onSelectColumns={onSelectColumnsMock}
           onRemoveFieldFromSelectedPhotos={onRemoveFieldMock}
+          onPreviewRemoveFieldFromSelectedPhotos={onPreviewFieldMock}
         />,
       );
 
@@ -459,9 +572,9 @@ describe("PhotoList column header context menu", () => {
         "Stage removal of ExifIFD:DateTimeOriginal from all 2 photos in the current list?",
       );
       expect(confirmArg).toContain(
-        "This field currently has a value on 1 of those photos.",
+        "1 existing field will receive pending delete edit.",
       );
-      expect(confirmArg).toContain("pending delete edits only");
+      expect(confirmArg).not.toContain("delete edits only");
       expect(confirmArg).toContain("Nothing will be written");
 
       // Verify it operates on ALL photos
@@ -488,6 +601,7 @@ describe("PhotoList column header context menu", () => {
           onPhotoOpen={() => {}}
           onSelectColumns={onSelectColumnsMock}
           onRemoveFieldFromSelectedPhotos={onRemoveFieldMock}
+          onPreviewRemoveFieldFromSelectedPhotos={onPreviewFieldMock}
         />,
       );
 
@@ -525,6 +639,7 @@ describe("PhotoList column header context menu", () => {
           onPhotoOpen={() => {}}
           // No onSelectColumns
           onRemoveFieldFromSelectedPhotos={onRemoveFieldMock}
+          onPreviewRemoveFieldFromSelectedPhotos={onPreviewFieldMock}
         />,
       );
 

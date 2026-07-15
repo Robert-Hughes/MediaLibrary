@@ -142,8 +142,8 @@ emit empty collections to clear loading state and report details through
 
 ## Locked Draft Target Model
 
-`MetadataDraftTarget` locks the distinction used by the production Add Property
-bridge and future producer migrations:
+`MetadataDraftTarget` locks the distinction used by production target-aware
+operations and future generated-producer migrations:
 
 - `ExistingOccurrence` carries the explicitly selected
   `MetadataOccurrenceId`, the exact semantic `SchemaDefinitionId`, and a
@@ -200,7 +200,7 @@ write target exists yet. The target-aware planners and the legacy builder share
 one semantic value encoder.
 
 The `apply_edits_v5.rs` single-file path composes those planners into the
-occurrence-aware apply flow used by production Add Property:
+occurrence-aware apply flow used by production target-aware operations:
 
 ```text
 v5 entry
@@ -289,19 +289,20 @@ command and frontend must surface rather than persist.
 
 The file-level helper clones only after validation, removes an emptied file,
 and otherwise preserves unrelated files. It performs no load, save, metadata
-write, or production-state mutation. There is no Tauri command or production
-caller for it, and production persistence and apply remain schema v4.
+write, or production-state mutation itself. The production v5 batch coordinator
+composes it before saving exact reconciled target entries.
 
 `targets_to_clear` remains as a transitional result field but is derived only
 from `Clear` reconciliations, in input order and by unique logical slot. A
 successful, invariant-valid readback returns the original full `ImageMetadata`
-rather than rebuilding its legacy map. No batch layer persists `Replace`, and
-no frontend consumer uses reconciliation.
+rather than rebuilding its legacy map. The v5 batch layer persists `Replace`,
+and the production frontend consumes the resulting authoritative snapshot.
 
 This path deliberately does not use the schema-keyed apply log; target-aware
 logging remains pending. It is composed by the v5 batch command and production
-frontend protocol adapter for Add Property. Remaining editor callbacks,
-verification, and logging remain schema v4.
+frontend protocol adapter for every schema-v5 operation. Generated AI,
+reverse-geocode output, normalise, and other generated producers remain schema
+v4; target-aware logging remains pending.
 
 Schema-v5 Tauri load/save commands parse and serialize lines with a
 file-relative path as outer context and target-aware `{ target, edit }` entries.
@@ -418,7 +419,7 @@ Before adding a metadata read, choose the pattern explicitly. In display context
 ## Versioned v5 batch apply
 
 The backend `apply_metadata_draft_edits_v5_cmd` has a production frontend
-caller and listener for Add Property. It performs `load v5 map once →
+caller and listener for all target-aware drafts. It performs `load v5 map once →
 apply selected file → reconcile complete target outcomes → save changed
 candidate map → emit versioned progress → continue at file boundary`. Loading
 is strict; malformed,
@@ -444,7 +445,8 @@ the affected file and abort later files. Versioned progress carries complete
 target outcomes, full authoritative occurrences, compatibility metadata, and
 `persisted_draft_entries` as null/empty/non-empty for unchanged/removed/retained
 state. V5 cancellation and events are isolated from v4. Target-aware logging
-and all non-Add-Property producers remain v4.
+remains pending; generated AI, reverse-geocode output, normalise, and other
+generated producers remain v4.
 
 The `targetApplyTauri` adapter provides a strict frontend protocol
 boundary for the apply/cancel commands and the two versioned events. Every
@@ -476,9 +478,10 @@ emission failure is non-fatal, so the final command result is authoritative for
 completed files and batch state. The events have no operation ID because the
 backend admits only one active v5 command.
 
-No production React listener, frontend store mutation, or `AppState` consumer
-uses this adapter. The production Add Property controller composes it with the
-independent v5 persistence and autosave gate; other operations remain schema v4.
+The adapter itself remains framework-free. The production target controller
+composes it with React listeners, `AppState`, the exact target store,
+independent v5 persistence, and the autosave gate. Persisted legacy drafts and
+generated producers retain their separate schema-v4 path.
 
 ### Frontend result application
 
@@ -574,17 +577,24 @@ still use schema-v4 persistence, apply, and verification.
 Manual group removal replans exact schema IDs against current authoritative
 occurrences immediately before mutation. Selected-photo field removal
 deduplicates paths and plans every selected file first; one unsafe file blocks
-the complete action and identifies that relative path. Missing or `loading`
+the complete action and identifies that relative path. The Details Pane and
+Photo List previews use this same target-aware planner rather than compatibility
+display values. Selected-photo execution re-plans after confirmation, so a
+state change can still reject the complete action atomically. `loading`
 occurrence state never falls back to compatibility metadata, a visible column
 value, or a schema-v4 Delete.
 
 Existing fields upsert Delete on their complete `ExistingOccurrence` target.
-One exact `NewProperty` owner for a missing field is discarded, while no owner
-is a no-op. Multiple occurrences and unsafe, stale, or multiple owners block
-instead of first-selecting. Persisted v4 ownership also blocks until applied or
-discarded and is never converted. The atomic target mutation builds every file
-candidate before one notification, yielding one v5 autosave and no v4 save; a
-complete no-op saves nothing.
+An identical exact Delete draft is a no-op and remains staged; an identical
+target carrying Set or a list edit is replaced by Delete. One exact
+`NewProperty` owner for a missing field is cancelled, while no owner is a no-op.
+Unknown occurrences remain visible through their own read-only presentation
+and never affect missing-schema planning: tag ID, path, friendly name, group,
+and value shape are not identity evidence. Multiple occurrences and unsafe,
+stale, or multiple owners block instead of first-selecting. Persisted v4
+ownership also blocks until applied or discarded and is never converted. The
+atomic target mutation builds every file candidate before one notification,
+yielding one v5 autosave and no v4 save; a complete no-op saves nothing.
 
 Group Discard counts exact group members in both stores. Confirmation sends
 exact schema IDs to the v4 discard batch and already captured complete targets
@@ -603,11 +613,11 @@ is examined. A valid empty v5 load is writable. A malformed, v4, or
 future-version payload in the new v5 file places that
 folder in `load-failed(error)`: the error remains visible, the in-memory target
 store stays empty, and the invalid persistence file is never saved, truncated,
-or replaced. Target-aware mutation, autosave, apply, and Add Property remain
-blocked until the file is fixed and the folder is reopened. Schema-v4 actions
-remain available. A different successfully loaded folder gets its own `ready`
-state. Folder switch and close clear target state and keep autosave bound to the
-current folder.
+or replaced. Target-aware mutation, autosave, apply, Add Property, manual rows,
+GPS, and removal remain blocked until the file is fixed and the folder is
+reopened. Schema-v4 actions remain available. A different successfully loaded
+folder gets its own `ready` state. Folder switch and close clear target state
+and keep autosave bound to the current folder.
 
 When the new v5 file is absent, the v5 loader classifies the old path. An
 all-v5 file is fully validated for line shape, duplicate paths, and duplicate
@@ -658,11 +668,12 @@ occurrences. For a same-file mixed apply, the later v4 phase therefore leaves
 fresh v4 compatibility visible and invalidates the earlier v5 occurrence
 collection; the Details Pane cannot overlay a stale occurrence value.
 
-The production v5 draft producers are Add New Property, uniquely resolved
-writable existing rows, and individual/composite GPS editing. The explicit v4
-producers are bulk remove-field,
-AI description, geocode, normalise, and other batch-generated drafts. Schema-v4
-persistence, apply logging, and verification remain in service for them.
+The production v5 operations are Add New Property, uniquely resolved writable
+ordinary and supplemental rows, individual/composite GPS editing, manual group
+removal, and selected-photo field removal. The explicit v4 producers are AI
+description, reverse-geocode output, normalise, and other generated batches.
+Schema-v4 persistence, apply logging, and verification remain in service for
+them. Target-aware apply logging remains pending.
 
 ## Target-aware v5 verification flow
 

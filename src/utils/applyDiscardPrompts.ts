@@ -68,15 +68,34 @@ export async function confirmDiscardEdits({
 
 export async function confirmRemoveMetadataGroupFields({
   group,
-  fieldCount,
+  existingFieldsToDelete,
+  stagedCreationsToCancel,
 }: {
   group: string;
-  fieldCount: number;
+  existingFieldsToDelete: number;
+  stagedCreationsToCancel: number;
 }): Promise<boolean> {
-  const fieldNoun = fieldCount === 1 ? "field" : "fields";
+  const affectedCount = existingFieldsToDelete + stagedCreationsToCancel;
+  const fieldNoun = affectedCount === 1 ? "field" : "fields";
+  const lines: string[] = [];
+  if (existingFieldsToDelete > 0) {
+    const existingNoun = existingFieldsToDelete === 1 ? "field" : "fields";
+    const editNoun = existingFieldsToDelete === 1 ? "edit" : "edits";
+    lines.push(
+      `${existingFieldsToDelete} existing ${existingNoun} will receive pending delete ${editNoun}.`,
+    );
+  }
+  if (stagedCreationsToCancel > 0) {
+    const additionNoun =
+      stagedCreationsToCancel === 1 ? "addition" : "additions";
+    lines.push(
+      `${stagedCreationsToCancel} staged new-property ${additionNoun} will be cancelled.`,
+    );
+  }
   return ask(
-    `Stage removal of ${fieldCount} ${group} ${fieldNoun}?\n\n` +
-      `This will create pending delete edits only. Nothing will be written to the file until you apply edits.`,
+    `Stage removal of ${affectedCount} ${group} ${fieldNoun}?\n\n` +
+      `${lines.join("\n")}\n\n` +
+      `Nothing will be written to the image file until edits are applied.`,
     { title: `Remove ${group} Fields`, kind: "warning" },
   );
 }

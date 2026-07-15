@@ -4,6 +4,7 @@ import type {
   MetadataDraftCollection,
   MetadataDraftTarget,
   SchemaDefinitionId,
+  TargetDraftPersistenceStateV5,
 } from "./types";
 import {
   existingOccurrenceTargetFromOccurrence,
@@ -18,6 +19,7 @@ import {
   schemaDefinitionIdEquals,
   schemaDefinitionIdToken,
 } from "./utils/schemaDefinitionId";
+import { wireStructuralEqual } from "./utils/wireStructuralEquality";
 
 type ExistingOccurrenceTarget = Extract<
   MetadataDraftTarget,
@@ -35,6 +37,28 @@ export interface MetadataRemovalTargetPlanV5 {
   deletes: MetadataDraftTarget[];
   noops: SchemaDefinitionId[];
 }
+
+export interface MetadataRemovalPreviewV5 {
+  existingFieldsToDelete: number;
+  stagedCreationsToCancel: number;
+  noOpFields: number;
+  affectedCount: number;
+}
+
+export type MetadataRemovalFilesPreviewV5 =
+  | {
+      kind: "ready";
+      photoCount: number;
+      affectedPhotoCount: number;
+      existingFieldsToDelete: number;
+      stagedCreationsToCancel: number;
+      noOpPhotoCount: number;
+    }
+  | {
+      kind: "blocked";
+      relativePath: string;
+      reason: string;
+    };
 
 export type MetadataRemovalTargetPlanErrorCode =
   | "occurrences-loading"
@@ -151,21 +175,6 @@ export function planMetadataRemovalTargetsV5(input: {
     }
 
     if (resolution.kind === "missing") {
-      // Unknown runtime rows are never selected, but a matching runtime tag ID
-      // makes absence unsafe to claim. This is only a conservative rejection;
-      // it is not used to construct identity or a write selector.
-      const unresolved = occurrences.some(
-        (occurrence) =>
-          occurrence.tag_info === null && occurrence.id.tag_id === id.tag_id,
-      );
-      if (unresolved) {
-        throw new MetadataRemovalTargetPlanError(
-          "untargetable-occurrence",
-          `A runtime field may correspond to ${describe(id)} but has no embedded exact TagInfo. It was not selected. Nothing was removed.`,
-          structuredClone(id),
-        );
-      }
-
       if (owners.length === 0) {
         plan.noops.push(structuredClone(id));
         continue;
@@ -206,6 +215,15 @@ export function planMetadataRemovalTargetsV5(input: {
           structuredClone(id),
         );
       }
+      if (
+        wireStructuralEqual(owner.edit, {
+          intent: "Delete",
+          value: null,
+        })
+      ) {
+        plan.noops.push(structuredClone(id));
+        continue;
+      }
     }
 
     plan.upserts.push({
@@ -215,4 +233,83 @@ export function planMetadataRemovalTargetsV5(input: {
   }
 
   return structuredClone(plan);
+}
+
+/** Derives target-aware removal counts from the exact mutation planner. */
+export function previewMetadataRemovalTargetsV5(
+  input: Parameters<typeof planMetadataRemovalTargetsV5>[0],
+): MetadataRemovalPreviewV5 {
+  const plan = planMetadataRemovalTargetsV5(input);
+  const existingFieldsToDelete = plan.upserts.length;
+  const stagedCreationsToCancel = plan.deletes.length;
+  return {
+    existingFieldsToDelete,
+    stagedCreationsToCancel,
+    noOpFields: plan.noops.length,
+    affectedCount: existingFieldsToDelete + stagedCreationsToCancel,
+  };
+}
+
+/**
+ * Previews one exact field across files without mutating any store. Each file
+ * is planned independently so the first unsafe path can be reported.
+ */
+export function previewMetadataRemovalFilesV5(input: {
+  schemaId: SchemaDefinitionId;
+  relativePaths: readonly string[];
+  targetDraftPersistence: TargetDraftPersistenceStateV5;
+  occurrencesForPath: (relativePath: string) => ImageMetadataOccurrencesState;
+  legacyDraftsForPath: (
+    relativePath: string,
+  ) => MetadataDraftCollection | undefined;
+  targetDraftsForPath: (
+    relativePath: string,
+  ) => TargetDraftCollection | undefined;
+}): MetadataRemovalFilesPreviewV5 {
+  const paths = [...new Set(input.relativePaths)];
+  if (input.targetDraftPersistence.status !== "ready") {
+    return {
+      kind: "blocked",
+      relativePath: paths[0] ?? "",
+      reason: "Schema-v5 draft persistence is not ready. Nothing was removed.",
+    };
+  }
+
+  let affectedPhotoCount = 0;
+  let existingFieldsToDelete = 0;
+  let stagedCreationsToCancel = 0;
+  let noOpPhotoCount = 0;
+
+  for (const relativePath of paths) {
+    try {
+      const preview = previewMetadataRemovalTargetsV5({
+        schemaIds: [input.schemaId],
+        occurrences: input.occurrencesForPath(relativePath),
+        legacyDrafts: input.legacyDraftsForPath(relativePath),
+        targetDrafts: input.targetDraftsForPath(relativePath),
+      });
+      existingFieldsToDelete += preview.existingFieldsToDelete;
+      stagedCreationsToCancel += preview.stagedCreationsToCancel;
+      if (preview.affectedCount === 0) {
+        noOpPhotoCount += 1;
+      } else {
+        affectedPhotoCount += 1;
+      }
+    } catch (error) {
+      return {
+        kind: "blocked",
+        relativePath,
+        reason: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  return {
+    kind: "ready",
+    photoCount: paths.length,
+    affectedPhotoCount,
+    existingFieldsToDelete,
+    stagedCreationsToCancel,
+    noOpPhotoCount,
+  };
 }

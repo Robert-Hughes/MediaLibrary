@@ -322,8 +322,8 @@ silently select the first occurrence, and there is no general conversion from
 
 ## Occurrence-aware apply foundation
 
-`apply_edits_v5.rs` implements the single-file schema-v5 foundation used by the
-production Add Property bridge:
+`apply_edits_v5.rs` implements the single-file schema-v5 foundation used by
+production target-aware operations:
 
 ```text
 MetadataDraftEntryV5[]
@@ -398,9 +398,12 @@ occurrences and the temporary compatibility projection. Target-aware apply
 logging remains pending; the target-aware path does not force targets into the
 schema-keyed v4 log.
 
-The single-file module is composed by the registered v5 batch command, and the
-production frontend protocol adapter invokes it for Add Property. Remaining
-editing producers, verification, and apply logging remain schema v4.
+The single-file module is composed by the registered v5 batch command. The
+production frontend protocol adapter applies drafts created by Add Property,
+manual ordinary and supplemental rows, GPS editors, group removal, and
+selected-photo removal. Generated AI, reverse-geocode output, normalise, and
+other generated producers remain schema v4. Target-aware apply logging remains
+pending.
 
 ## Migration status
 
@@ -491,9 +494,9 @@ identity is the target slot described above, never object-property behaviour.
 The shared frontend semantic guard requires integral finite values for
 `MetadataValue::Integer`, while `Real` continues to accept finite fractions;
 `Unknown.raw` must be recursively JSON-compatible, and unit variants must keep
-their generated no-content wire shape. Add Property uses these schema-v5
-boundary guarantees in production; the remaining producers continue through
-the schema-v4 store.
+their generated no-content wire shape. All production schema-v5 operations use
+these guarantees; only generated AI, reverse-geocode output, normalise, and
+other generated producers continue creating schema-v4 drafts.
 A frontend/Tauri-contract test round-trips shared-schema IFD0/IFD1
 occurrences and existing/new targets without collapsing them.
 
@@ -536,8 +539,8 @@ drafts.
 
 ## Schema-v5 batch boundary
 
-The versioned `apply_metadata_draft_edits_v5_cmd` is used by the production Add
-Property controller. It strictly loads
+The versioned `apply_metadata_draft_edits_v5_cmd` is used by the production
+target-aware controller. It strictly loads
 the v5 map once (never substituting an empty map for malformed, v4, or unreadable data),
 rejects duplicate requested paths before events or writes, retains requested
 order, and selects only files with current non-empty drafts. Its flow is:
@@ -571,8 +574,8 @@ later files. Progress transports complete target outcomes and full
 compatibility projection. `persisted_draft_entries` distinguishes no persisted
 change (`null`), removal (`[]`), and retained/replaced entries. The command uses
 isolated cancellation and versioned events and has no target-aware apply
-logging. Add Property consumes its state and events; other producers remain
-schema v4.
+logging. Every production schema-v5 operation consumes its state and events;
+generated producers remain schema v4.
 
 A frontend protocol adapter wraps
 `apply_metadata_draft_edits_v5_cmd`, `cancel_apply_edits_v5`,
@@ -608,11 +611,10 @@ completed-file list and batch status. No operation ID is needed because backend
 admission permits only one active v5 apply and the global events describe that
 sole operation.
 
-This adapter has no `AppState`, store, React-listener, or metadata/draft
-mutation consumer. The normal application still uses schema v4 for startup,
-autosave, persistence, and apply. Coordination with the independent v5
-load/save commands and a future v5 autosave policy remains production-activation
-work.
+The adapter itself remains framework-free. Production composes it with
+`AppState`, the target store, strict v5 load/save commands, the v5 autosave
+gate, and React listeners. Schema-v4 persistence and apply remain independently
+active for persisted legacy drafts and generated producers.
 
 ## Frontend v5 result application
 
@@ -697,7 +699,7 @@ lifetime, and loaded `AppState` exposes the distinct target snapshot and apply
 state. Add New Property and exact unique-row operations use this draft path and
 the same target-aware verification; legacy producers retain v4 verification.
 
-## Production schema-v5 activation: Add New Property and unique rows
+## Production schema-v5 activation
 
 Add New Property is the first production editor to use exact target identity.
 It creates a `NewProperty` target containing the schema picker's complete
@@ -725,19 +727,29 @@ complete persisted target selected by reconciliation.
 ### Exact manual removal
 
 Details Pane group removal and Photo List selected-photo field removal plan
-only exact schema-v5 mutations. Every requested file must have authoritative
-occurrences loaded, and a multi-file action plans every file before the target
-store mutates. A uniquely resolved writable occurrence becomes an
+only exact schema-v5 mutations. Their previews are derived from the same pure
+planner used by execution; selected-photo execution still re-plans every file
+after confirmation. Every requested file must have authoritative occurrences
+loaded, and a multi-file action plans every file before the target store
+mutates. A uniquely resolved writable occurrence becomes an
 `ExistingOccurrence` Delete using its occurrence ID, embedded schema ID, and
-runtime selector. A missing field with one exact `NewProperty` owner discards
-that creation target; a genuinely absent field is a no-op.
+runtime selector. A v5 Set or list draft on that exact target is replaced by
+Delete. An already identical exact Delete is a no-op and stays staged. A
+missing field with one exact `NewProperty` owner cancels that pending creation;
+a genuinely absent field is a no-op.
 
-Multiple authoritative occurrences, missing `TagInfo`, read-only fields,
-missing write targets, stale or incompatible ownership, multiple same-schema
-owners, and persisted schema-v4 ownership block the complete requested action.
-Nothing first-selects an occurrence or converts a persisted v4 draft. Group
-discard may clear exact group members from both stores, using schema IDs for v4
-and captured complete targets for v5. Each changed store saves only its own
+Missing exact schemas are never recovered by identity guessing. Unknown
+occurrences remain visible and read-only through their own presentation, but
+their tag ID, path, friendly name, group, or value shape is never compared to a
+missing schema. In particular, a runtime tag ID is local to its ExifTool table
+and cannot establish schema correspondence alone.
+
+Multiple authoritative occurrences, read-only exact fields, missing write
+targets, stale or incompatible ownership, multiple exact-schema owners, and
+persisted schema-v4 ownership block the complete requested action. Nothing
+first-selects an occurrence or converts a persisted v4 draft. Group discard may
+clear exact group members from both stores, using schema IDs for v4 and
+captured complete targets for v5. Each changed store saves only its own
 persistence file. Details Pane and Gallery no longer receive a generic v4
 batch setter.
 
@@ -775,7 +787,7 @@ pre-v4 v5 occurrences as current.
 
 ## Production target-aware verification
 
-Schema-v5 Add Property results now produce session-only verification state.
+Schema-v5 production results now produce session-only verification state.
 Identity is the relative path plus
 `metadataDraftTargetSlotToken(currentTarget)`, while each value retains the
 complete original and current target snapshots. `Clear` creates no pending
@@ -810,5 +822,6 @@ and does not replace a persistence, write, or readback diagnostic.
 This state is not persisted and remains separate from schema-v4 verification.
 The target dialog takes precedence while it has entries; the v4 dialog may
 appear after it empties. Target-aware verification remains active only for
-production schema-v5 operations. Ordinary existing-row editing remains schema
-v4 for the next migration slice.
+production schema-v5 operations. Generated AI, reverse-geocode output,
+normalise, and other generated producers remain the active schema-v4 creation
+paths; target-aware apply logging remains pending.

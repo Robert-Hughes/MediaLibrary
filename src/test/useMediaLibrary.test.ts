@@ -14,6 +14,7 @@ import { sortPhotos } from "../utils/sorting";
 import { targetVerifyOutcomeFromBackend } from "../targetVerifyOutcomes";
 import { metadataDraftTargetSlotToken } from "../utils/metadataDraftTarget";
 import { GPS_IDS } from "../metadata/knownIds";
+import { previewMetadataRemovalFilesV5 } from "../metadataRemovalTargets";
 
 function targetV5Result(
   path: string,
@@ -1438,6 +1439,61 @@ describe("useMediaLibrary", () => {
     ).toHaveLength(0);
   });
 
+  it("keeps an already staged exact Delete without notification or autosave", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/photos");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => result.current[1].openFolder());
+    const id = testId("XMP-dc:Title");
+    const occurrence = targetableOccurrence(id);
+    act(() => {
+      mock.emitPhotoFound(makePhoto({ relative_path: "deleted.jpg" }));
+      mock.emitImageMetadataReady(
+        "deleted.jpg",
+        { "XMP-dc:Title": { kind: "Text", value: "current" } },
+        undefined,
+        [occurrence],
+      );
+      result.current[1].setExistingOccurrenceDraft(
+        "deleted.jpg",
+        occurrence.id,
+        { intent: "Delete", value: null },
+      );
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(300));
+    let state = result.current[0];
+    if (state.kind !== "loaded") return;
+    const before = structuredClone(state.targetDraftEdits["deleted.jpg"]);
+    let notifications = 0;
+    const unsubscribe = state.targetDraftEditsStore.subscribe(() => {
+      notifications += 1;
+    });
+    mock.invocations.length = 0;
+
+    let succeeded = false;
+    act(() => {
+      succeeded = result.current[1].removeMetadataFieldFromFilesV5(id, [
+        "deleted.jpg",
+      ]);
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(300));
+    unsubscribe();
+
+    expect(succeeded).toBe(true);
+    expect(notifications).toBe(0);
+    state = result.current[0];
+    if (state.kind !== "loaded") return;
+    expect(state.targetDraftEdits["deleted.jpg"]).toEqual(before);
+    expect(
+      mock.invocations.filter(
+        ({ cmd }) => cmd === "save_metadata_draft_edits_v5",
+      ),
+    ).toHaveLength(0);
+    expect(
+      mock.invocations.filter(({ cmd }) => cmd === "save_metadata_draft_edits"),
+    ).toHaveLength(0);
+  });
+
   it("plans every selected file before mutation and reports an ambiguous later path", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/photos");
@@ -1484,6 +1540,67 @@ describe("useMediaLibrary", () => {
     expect(
       state.workerErrors[state.workerErrors.length - 1]?.error_message,
     ).toMatch(/'b\.jpg'.*Several/s);
+    expect(
+      mock.invocations.filter(
+        ({ cmd }) => cmd === "save_metadata_draft_edits_v5",
+      ),
+    ).toHaveLength(0);
+  });
+
+  it("re-plans execution after preview and mutates nothing when state becomes unsafe", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/photos");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => result.current[1].openFolder());
+    const id = testId("XMP-dc:Title");
+    const first = targetableOccurrence(id, "first", { path: "first-target" });
+    const duplicate = targetableOccurrence(id, "second", {
+      path: "second-target",
+      copy: 1,
+    });
+    act(() => {
+      mock.emitPhotoFound(makePhoto({ relative_path: "changed.jpg" }));
+      mock.emitImageMetadataReady(
+        "changed.jpg",
+        { "XMP-dc:Title": { kind: "Text", value: "first" } },
+        undefined,
+        [first],
+      );
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(300));
+    let state = result.current[0];
+    if (state.kind !== "loaded") return;
+    const loadedState = state;
+    expect(
+      previewMetadataRemovalFilesV5({
+        schemaId: id,
+        relativePaths: ["changed.jpg"],
+        targetDraftPersistence: loadedState.targetDraftPersistence,
+        occurrencesForPath: (path) =>
+          loadedState.imageMetadataOccurrences.get(path),
+        legacyDraftsForPath: (path) => loadedState.draftEdits[path],
+        targetDraftsForPath: (path) => loadedState.targetDraftEdits[path],
+      }),
+    ).toMatchObject({ kind: "ready", existingFieldsToDelete: 1 });
+
+    act(() =>
+      loadedState.imageMetadataOccurrences.set("changed.jpg", [
+        first,
+        duplicate,
+      ]),
+    );
+    mock.invocations.length = 0;
+    let succeeded = true;
+    act(() => {
+      succeeded = result.current[1].removeMetadataFieldFromFilesV5(id, [
+        "changed.jpg",
+      ]);
+    });
+
+    expect(succeeded).toBe(false);
+    state = result.current[0];
+    if (state.kind !== "loaded") return;
+    expect(state.targetDraftEdits["changed.jpg"]).toBeUndefined();
     expect(
       mock.invocations.filter(
         ({ cmd }) => cmd === "save_metadata_draft_edits_v5",
