@@ -74,6 +74,7 @@ import {
 } from "../utils/metadataOccurrences";
 import {
   resolveExistingRowDraft,
+  resolveSupplementalOccurrenceDraft,
   resolveTargetDraftByExactSchema,
   targetDraftSchemas,
 } from "../targetDraftView";
@@ -105,14 +106,17 @@ type EditDialogState =
       schemaId: SchemaDefinitionId;
     };
 
-interface PresentedExistingOccurrenceDraft {
-  token: string;
-  entry: MetadataDraftEntryV5 & { target: ExistingOccurrenceTarget };
-  occurrence: Extract<
-    ReturnType<typeof resolveExactMetadataOccurrence>,
-    { kind: "unique" }
-  >["occurrence"];
-}
+type PresentedTargetDraft =
+  | {
+      destination: "ordinary-row";
+      entry: MetadataDraftEntryV5;
+      occurrence?: MetadataOccurrence;
+    }
+  | {
+      destination: "supplemental-row";
+      entry: MetadataDraftEntryV5 & { target: ExistingOccurrenceTarget };
+      occurrence: MetadataOccurrence;
+    };
 
 interface Props {
   photo: PhotoInfo;
@@ -483,29 +487,68 @@ function DetailsImageRow({
 function DetailsOccurrenceRow({
   entry,
   searchQuery,
+  targetDraft,
+  unavailableReason,
+  onContextMenu,
 }: {
   entry: MetadataOccurrenceDisplayEntry;
   searchQuery: string;
+  targetDraft?: MetadataDraftEntryV5 & { target: ExistingOccurrenceTarget };
+  unavailableReason?: string;
+  onContextMenu?: (event: React.MouseEvent) => void;
 }) {
   const schemaInfo = schemaDatatype(entry.occurrence.tag_info?.kind);
   const valueInfo = metadataValueDatatype(entry.occurrence.value);
   const showValueBadge =
     valueInfo != null &&
     (schemaInfo == null || !datatypesMatch(valueInfo.code, schemaInfo.code));
+  const effectiveDraftValue = targetDraft
+    ? effectiveExistingDraftValue(entry.occurrence.value, targetDraft.edit)
+    : undefined;
+  const draftValue = targetDraft
+    ? targetDraft.edit.intent === "Delete"
+      ? null
+      : entry.occurrence.tag_info
+        ? metadataValueToDisplayStringForTag(
+            entry.occurrence.tag_info.id,
+            effectiveDraftValue,
+            entry.occurrence.tag_info,
+          )
+        : displayStringOfDraft(targetDraft.edit)
+    : undefined;
+  const draftInfo =
+    targetDraft && targetDraft.edit.intent !== "Delete"
+      ? metadataValueDatatype(effectiveDraftValue)
+      : null;
+  const showDraftBadge =
+    draftInfo != null &&
+    ((valueInfo != null && draftInfo.code !== valueInfo.code) ||
+      (schemaInfo != null &&
+        !datatypesMatch(draftInfo.code, schemaInfo.code)) ||
+      (schemaInfo == null && valueInfo == null));
+  const readOnly = unavailableReason !== undefined;
+  const title = [entry.originTitle, unavailableReason]
+    .filter((part): part is string => part !== undefined)
+    .join("\n");
 
   return (
     <tr
-      className="details-row details-row--readonly"
+      className={readOnly ? "details-row details-row--readonly" : "details-row"}
       data-testid="details-occurrence-row"
       data-occurrence-token={entry.identityToken}
-      data-readonly="true"
-      title={entry.originTitle}
+      data-readonly={readOnly ? "true" : undefined}
+      data-has-exact-draft={targetDraft ? "true" : undefined}
+      title={title}
       onContextMenu={(event) => {
         event.preventDefault();
         event.stopPropagation();
+        if (!readOnly) onContextMenu?.(event);
       }}
     >
-      <td className="details-key">
+      <td
+        className="details-key"
+        style={targetDraft ? { color: "var(--accent-draft)" } : undefined}
+      >
         {schemaInfo ? (
           <DatatypeBadge
             code={schemaInfo.code}
@@ -518,20 +561,14 @@ function DetailsOccurrenceRow({
           [{entry.origin}]
         </span>
       </td>
-      <td
-        className="details-value details-value--readonly"
-        data-readonly="true"
-        title={`${entry.value}\nOccurrence-specific editing is not available yet.`}
-      >
-        {showValueBadge ? (
-          <DatatypeBadge
-            code={valueInfo.code}
-            label={valueInfo.label}
-            variant="value"
-          />
-        ) : null}
-        <HighlightedText text={entry.value} searchQuery={searchQuery} />
-      </td>
+      <DetailsValueCell
+        originalValue={entry.value}
+        draftValue={draftValue}
+        searchQuery={searchQuery}
+        valueBadge={showValueBadge ? valueInfo : null}
+        draftBadge={showDraftBadge ? draftInfo : null}
+        readOnly={readOnly}
+      />
     </tr>
   );
 }
@@ -822,6 +859,11 @@ export function DetailsPane({
     originalValue: string;
     draftValue?: string | null;
   } | null>(null);
+  const [supplementalContextMenu, setSupplementalContextMenu] = useState<{
+    x: number;
+    y: number;
+    occurrenceToken: string;
+  } | null>(null);
   const [groupContextMenu, setGroupContextMenu] = useState<{
     x: number;
     y: number;
@@ -868,10 +910,9 @@ export function DetailsPane({
     return resolutions;
   }, [targetDraftEdits]);
   const presentationPlan = useMemo(() => {
-    const presented: Array<readonly [string, MetadataDraftEntryV5]> = [];
-    const existing: PresentedExistingOccurrenceDraft[] = [];
-    if (metadata === "loading") return { presented, existing };
-    for (const [token, schemaResolution] of targetSchemaResolutions) {
+    const presented: PresentedTargetDraft[] = [];
+    if (metadata === "loading" || !targetDraftsWritable) return presented;
+    for (const [, schemaResolution] of targetSchemaResolutions) {
       if (schemaResolution.kind !== "unique") continue;
       const entry = schemaResolution.entry;
       const occurrenceResolution = resolutionForSchema(
@@ -883,7 +924,7 @@ export function DetailsPane({
           occurrenceResolution.kind === "missing" &&
           metadataGet(metadata, entry.target.schema_id) === undefined
         ) {
-          presented.push([token, entry]);
+          presented.push({ destination: "ordinary-row", entry });
         }
         continue;
       }
@@ -911,23 +952,91 @@ export function DetailsPane({
       ) {
         continue;
       }
-      presented.push([token, entry]);
-      existing.push({
-        token,
-        entry: { ...entry, target: entry.target },
-        occurrence: exact.occurrence,
-      });
+      presented.push(
+        occurrenceResolution.kind === "multiple"
+          ? {
+              destination: "supplemental-row",
+              entry: entry as MetadataDraftEntryV5 & {
+                target: ExistingOccurrenceTarget;
+              },
+              occurrence: exact.occurrence,
+            }
+          : {
+              destination: "ordinary-row",
+              entry,
+              occurrence: exact.occurrence,
+            },
+      );
     }
-    return { presented, existing };
+    return presented;
   }, [
     metadata,
     occurrences,
     occurrenceResolutionIndex,
     targetSchemaResolutions,
+    targetDraftsWritable,
     typedDraftEdits,
   ]);
-  const presentedTargetDrafts = presentationPlan.presented;
-  const presentedExistingOccurrenceDrafts = presentationPlan.existing;
+  const presentedTargetDrafts = useMemo(
+    () =>
+      presentationPlan
+        .filter(
+          (
+            presented,
+          ): presented is Extract<
+            PresentedTargetDraft,
+            { destination: "ordinary-row" }
+          > => presented.destination === "ordinary-row",
+        )
+        .map(
+          (presented) =>
+            [
+              schemaDefinitionIdToken(presented.entry.target.schema_id),
+              presented.entry,
+            ] as const,
+        ),
+    [presentationPlan],
+  );
+  const presentedExistingOccurrenceDrafts = useMemo(
+    () =>
+      presentationPlan.flatMap((presented) =>
+        presented.destination === "ordinary-row" &&
+        presented.entry.target.kind === "ExistingOccurrence" &&
+        presented.occurrence
+          ? [
+              {
+                token: schemaDefinitionIdToken(
+                  presented.entry.target.schema_id,
+                ),
+                entry: {
+                  ...presented.entry,
+                  target: presented.entry.target,
+                },
+                occurrence: presented.occurrence,
+              },
+            ]
+          : [],
+      ),
+    [presentationPlan],
+  );
+  const presentedSupplementalByOccurrence = useMemo(
+    () =>
+      new Map(
+        presentationPlan.flatMap((presented) =>
+          presented.destination === "supplemental-row"
+            ? [
+                [
+                  metadataOccurrenceIdToken(
+                    presented.entry.target.occurrence_id,
+                  ),
+                  presented,
+                ] as const,
+              ]
+            : [],
+        ),
+      ),
+    [presentationPlan],
+  );
   const presentedExistingBySchema = useMemo(
     () =>
       new Map(
@@ -938,7 +1047,7 @@ export function DetailsPane({
       ),
     [presentedExistingOccurrenceDrafts],
   );
-  const presentedExistingOccurrenceTokens = useMemo(
+  const presentedOrdinaryOccurrenceTokens = useMemo(
     () =>
       new Set(
         presentedExistingOccurrenceDrafts.map((presented) =>
@@ -948,11 +1057,11 @@ export function DetailsPane({
     [presentedExistingOccurrenceDrafts],
   );
   const unresolvedTargetDrafts = useMemo(() => {
-    const presented = new Set(presentedTargetDrafts.map(([, entry]) => entry));
+    const presented = new Set(presentationPlan.map((item) => item.entry));
     return Object.values(targetDraftEdits ?? {}).filter(
       (entry) => !presented.has(entry),
     );
-  }, [presentedTargetDrafts, targetDraftEdits]);
+  }, [presentationPlan, targetDraftEdits]);
   const authoritativeBaseMetadata = useMemo(
     () =>
       metadata === "loading"
@@ -1204,6 +1313,48 @@ export function DetailsPane({
       };
     }
 
+    const schemaResolution = resolutionForSchema(
+      occurrenceResolutionIndex,
+      editDialog.schemaId,
+    );
+    const supplementalOwnership = resolveSupplementalOccurrenceDraft(
+      exact.occurrence,
+      typedDraftEdits,
+      targetDraftEdits,
+    );
+    const isSupplemental =
+      schemaResolution.kind === "multiple" ||
+      (metadata !== "loading" &&
+        metadataGet(metadata, editDialog.schemaId) === undefined);
+    if (isSupplemental) {
+      if (!targetDraftsWritable) {
+        return {
+          kind: "unavailable",
+          reason:
+            "Schema-v5 draft persistence is unavailable, so this editor was closed without saving.",
+        };
+      }
+      if (supplementalOwnership.kind === "none") {
+        return { kind: "available", occurrence: exact.occurrence };
+      }
+      if (
+        supplementalOwnership.kind === "target" &&
+        metadataDraftTargetEquals(
+          supplementalOwnership.entry.target,
+          currentTarget.target,
+        )
+      ) {
+        return { kind: "available", occurrence: exact.occurrence };
+      }
+      return {
+        kind: "unavailable",
+        reason:
+          supplementalOwnership.kind === "blocked"
+            ? supplementalOwnership.reason
+            : "This supplemental row no longer owns the exact target selected when the editor opened. Nothing was saved.",
+      };
+    }
+
     const token = schemaDefinitionIdToken(editDialog.schemaId);
     const presented = presentedExistingBySchema.get(token);
     if (presented) {
@@ -1221,10 +1372,6 @@ export function DetailsPane({
       };
     }
 
-    const schemaResolution = resolutionForSchema(
-      occurrenceResolutionIndex,
-      editDialog.schemaId,
-    );
     const rowDraft = resolveExistingRowDraft(
       editDialog.schemaId,
       schemaResolution,
@@ -1246,10 +1393,12 @@ export function DetailsPane({
     };
   }, [
     editDialog,
+    metadata,
     occurrenceResolutionIndex,
     occurrences,
     presentedExistingBySchema,
     targetDraftEdits,
+    targetDraftsWritable,
     typedDraftEdits,
   ]);
 
@@ -1272,9 +1421,13 @@ export function DetailsPane({
         : undefined;
     }
     if (ordinaryEditResolution?.kind !== "available") return undefined;
-    const presented = presentedExistingBySchema.get(
-      schemaDefinitionIdToken(editDialog.schemaId),
-    );
+    const presented =
+      presentedExistingBySchema.get(
+        schemaDefinitionIdToken(editDialog.schemaId),
+      ) ??
+      presentedSupplementalByOccurrence.get(
+        metadataOccurrenceIdToken(editDialog.occurrenceId),
+      );
     return presented
       ? effectiveExistingDraftValue(
           ordinaryEditResolution.occurrence.value,
@@ -1388,25 +1541,106 @@ export function DetailsPane({
       metadata,
       occurrenceResolutionIndex,
     ).filter(
-      (entry) => !presentedExistingOccurrenceTokens.has(entry.identityToken),
+      (entry) => !presentedOrdinaryOccurrenceTokens.has(entry.identityToken),
     );
   }, [
     metadata,
     occurrences,
     occurrenceResolutionIndex,
-    presentedExistingOccurrenceTokens,
+    presentedOrdinaryOccurrenceTokens,
   ]);
+
+  const supplementalRows = useMemo(
+    () =>
+      occurrenceEntries.map((entry, index) => {
+        const exactResolution =
+          occurrences === undefined || occurrences === "loading"
+            ? { kind: "missing" as const }
+            : resolveExactMetadataOccurrence(occurrences, entry.occurrence.id);
+        const ownership = resolveSupplementalOccurrenceDraft(
+          entry.occurrence,
+          typedDraftEdits,
+          targetDraftEdits,
+        );
+        const presented = presentedSupplementalByOccurrence.get(
+          entry.identityToken,
+        );
+        let unavailableReason: string | undefined;
+        if (
+          entry.schemaId !== undefined &&
+          gpsMemberGroup(entry.schemaId) !== null
+        ) {
+          unavailableReason =
+            "GPS supplemental occurrences remain read-only on the legacy schema-v4 editing boundary.";
+        } else if (exactResolution.kind === "duplicate") {
+          unavailableReason =
+            "This exact occurrence ID is duplicated and cannot be targeted safely.";
+        } else if (exactResolution.kind !== "unique") {
+          unavailableReason =
+            "This exact occurrence is no longer available and cannot be targeted safely.";
+        } else {
+          const targetability = existingOccurrenceTargetFromOccurrence(
+            entry.occurrence,
+          );
+          if (targetability.kind === "read-only") {
+            unavailableReason = targetability.reason;
+          } else if (!targetDraftsWritable) {
+            unavailableReason =
+              "Target-aware editing is unavailable because schema-v5 draft persistence did not load safely.";
+          } else if (ownership.kind === "blocked") {
+            unavailableReason = ownership.reason;
+          } else if (ownership.kind === "target" && !presented) {
+            unavailableReason =
+              "The stored target is unresolved and cannot be overlaid on this occurrence.";
+          }
+        }
+        const targetDraft = presented?.entry;
+        const stagedValue = targetDraft
+          ? targetDraft.edit.intent === "Delete"
+            ? "—"
+            : metadataValueToDisplayStringForTag(
+                targetDraft.target.schema_id,
+                effectiveExistingDraftValue(
+                  entry.occurrence.value,
+                  targetDraft.edit,
+                ),
+                entry.occurrence.tag_info,
+              )
+          : undefined;
+        return {
+          entry,
+          targetDraft,
+          unavailableReason,
+          stagedValue,
+          renderKey:
+            exactResolution.kind === "duplicate"
+              ? `${entry.identityToken}:duplicate:${index}`
+              : entry.identityToken,
+        };
+      }),
+    [
+      occurrenceEntries,
+      occurrences,
+      presentedSupplementalByOccurrence,
+      targetDraftEdits,
+      targetDraftsWritable,
+      typedDraftEdits,
+    ],
+  );
 
   const filteredOccurrenceEntries = useMemo(() => {
     const { query, hasEditsFilter } = splitHasEditsFilter(
       normalizedDetailsQuery,
     );
-    if (hasEditsFilter) return [];
-    if (!query) return occurrenceEntries;
-    return occurrenceEntries.filter((entry) =>
-      haystackContainsNormalized(entry.searchText, query),
-    );
-  }, [occurrenceEntries, normalizedDetailsQuery]);
+    return supplementalRows.filter(({ entry, targetDraft, stagedValue }) => {
+      if (hasEditsFilter && targetDraft === undefined) return false;
+      if (!query) return true;
+      return haystackContainsNormalized(
+        `${entry.searchText}\n${stagedValue ?? ""}`,
+        query,
+      );
+    });
+  }, [supplementalRows, normalizedDetailsQuery]);
 
   const showOsSection = !normalizedDetailsQuery || filteredOsEntries.length > 0;
 
@@ -1500,6 +1734,19 @@ export function DetailsPane({
       : undefined;
   };
 
+  const openExactOccurrenceEditor = (occurrence: MetadataOccurrence) => {
+    if (occurrence.tag_info === null) return;
+    const targetability = existingOccurrenceTargetFromOccurrence(occurrence);
+    if (targetability.kind !== "targetable") return;
+    setEditDialogUnavailableMessage(null);
+    setEditDialog({
+      kind: "existing-occurrence",
+      schemaId: structuredClone(occurrence.tag_info.id),
+      occurrenceId: structuredClone(occurrence.id),
+      openedTarget: targetability.target,
+    });
+  };
+
   const openExistingOccurrenceEditor = (schemaId: SchemaDefinitionId) => {
     const presented = presentedExistingBySchema.get(
       schemaDefinitionIdToken(schemaId),
@@ -1514,16 +1761,14 @@ export function DetailsPane({
         ? schemaResolution.occurrence
         : undefined);
     if (!occurrence) return;
-    const targetability = existingOccurrenceTargetFromOccurrence(occurrence);
-    if (targetability.kind !== "targetable") return;
-    setEditDialogUnavailableMessage(null);
-    setEditDialog({
-      kind: "existing-occurrence",
-      schemaId,
-      occurrenceId: structuredClone(occurrence.id),
-      openedTarget: targetability.target,
-    });
+    openExactOccurrenceEditor(occurrence);
   };
+  const activeSupplementalContext = supplementalContextMenu
+    ? supplementalRows.find(
+        ({ entry }) =>
+          entry.identityToken === supplementalContextMenu.occurrenceToken,
+      )
+    : undefined;
 
   return (
     <div className="details-pane" data-testid="details-pane">
@@ -1820,13 +2065,29 @@ export function DetailsPane({
                 </p>
                 <table className="details-table">
                   <tbody>
-                    {filteredOccurrenceEntries.map((entry) => (
-                      <DetailsOccurrenceRow
-                        key={entry.identityToken}
-                        entry={entry}
-                        searchQuery={detailsSearch}
-                      />
-                    ))}
+                    {filteredOccurrenceEntries.map(
+                      ({
+                        entry,
+                        targetDraft,
+                        unavailableReason,
+                        renderKey,
+                      }) => (
+                        <DetailsOccurrenceRow
+                          key={renderKey}
+                          entry={entry}
+                          searchQuery={detailsSearch}
+                          targetDraft={targetDraft}
+                          unavailableReason={unavailableReason}
+                          onContextMenu={(event) =>
+                            setSupplementalContextMenu({
+                              x: event.clientX,
+                              y: event.clientY,
+                              occurrenceToken: entry.identityToken,
+                            })
+                          }
+                        />
+                      ),
+                    )}
                   </tbody>
                 </table>
               </section>
@@ -2012,6 +2273,50 @@ export function DetailsPane({
           onClose={() => setContextMenu(null)}
         />
       )}
+
+      {supplementalContextMenu &&
+        activeSupplementalContext &&
+        activeSupplementalContext.unavailableReason === undefined && (
+          <ContextMenu
+            x={supplementalContextMenu.x}
+            y={supplementalContextMenu.y}
+            options={[
+              {
+                label: "Edit…",
+                onClick: () => {
+                  setSupplementalContextMenu(null);
+                  openExactOccurrenceEditor(
+                    activeSupplementalContext.entry.occurrence,
+                  );
+                },
+              },
+              ...(activeSupplementalContext.targetDraft
+                ? [
+                    {
+                      label: "Discard edit",
+                      onClick: () => {
+                        onDiscardTargetPropertyDraft?.(
+                          activeSupplementalContext.targetDraft!.target,
+                        );
+                        setSupplementalContextMenu(null);
+                      },
+                    },
+                  ]
+                : []),
+              {
+                label: "Remove",
+                onClick: () => {
+                  onSetExistingOccurrenceDraft?.(
+                    activeSupplementalContext.entry.occurrence.id,
+                    { intent: "Delete", value: null },
+                  );
+                  setSupplementalContextMenu(null);
+                },
+              },
+            ]}
+            onClose={() => setSupplementalContextMenu(null)}
+          />
+        )}
 
       {groupContextMenu && fullGroupForMenu && (
         <DetailsGroupContextMenu

@@ -18,29 +18,32 @@ same-schema occurrence is a substitute. Exact current-value comparison and
 verification use that same occurrence target.
 
 Already-persisted v4 drafts are displayed, discarded, and applied without
-conversion; they block ordinary row editing until resolved. Missing, unowned
-multiple, read-only, missing-write-target, and loading occurrence states are
-read-only. Stale or incompatible v5 targets are shown separately rather than
-overlaid by schema. Additional Metadata Occurrence rows remain read-only.
+conversion; they block exact-schema occurrence editing until resolved.
+Read-only, unknown-schema, missing-write-target, duplicate-ID,
+persistence-load-failure, and loading states are read-only. Stale or
+incompatible v5 targets are shown separately rather than overlaid by schema.
 
-A validated existing target may nevertheless own one ordinary draft row when
-the schema-keyed compatibility projection omitted it. The presentation is
-seeded from that target's exact authoritative occurrence for every edit intent,
-including Delete, which remains individually visible and discardable. The
-supplemental view removes only the represented exact occurrence ID; a
-same-schema sibling or any occurrence without an owning target remains
-supplemental and read-only. Successfully constructed rows, rather than assumed
-schema compatibility, define which targets are absent from the unresolved
-section.
+A validated unique existing target may own one ordinary draft row when the
+schema-keyed compatibility projection omitted it. A multiply-resolved target
+instead remains on its exact supplemental row, keyed by occurrence-ID token;
+no schema-keyed ordinary row is synthesized for it. Both destinations seed
+every edit intent from the exact occurrence, including Delete, which remains
+individually visible and discardable. Same-schema siblings remain distinct and
+are blocked—not replaced—while the current bridge's single exact-schema target
+owner exists. Successfully constructed rows define which targets are absent
+from the unresolved section.
 
-Ordinary editor state captures the exact occurrence ID selected on open plus
+Ordinary and supplemental editor state captures the exact occurrence ID selected on open plus
 the complete target snapshot. Every later render resolves that ID exactly and
 requires the same embedded schema, selector, targetability, and row ownership.
 A later schema resolution can neither retarget the editor nor provide its Save
 identity. Loading, missing or duplicate IDs, a same-schema replacement, and
 changed selector/schema snapshots make the editor unavailable with an explicit
 message and no draft callback. Value-only refreshes keep the captured identity.
-GPS remains schema v4 and New Property retains its separate target-aware flow.
+Supplemental Edit and Remove call only the exact occurrence callback. GPS
+supplemental rows remain schema-v4/read-only, and New Property retains its
+separate target-aware flow. Ordinary and supplemental v5 rows share exact-target
+verification; acceptance or discard cannot remove a same-schema sibling.
 
 GPS one-field and paired/map edits, group/bulk operations, AI, geocode,
 normalise, and other generated drafts continue through the schema-v4 batch
@@ -821,13 +824,13 @@ failure cannot strand either lifecycle resource or mask an earlier command or
 final-application failure.
 
 `useMediaLibrary` owns the single controller instance, target-aware `AppState`,
-and v5 autosave subscriber used by Add New Property and exact unique rows.
+and v5 autosave subscriber used by Add New Property and exact non-GPS rows.
 Their verification is target-aware and separate; GPS and batch/generated
 operations remain schema v4 during the controlled bridge.
 
 - **MetadataValue** — Discriminated semantic value model used inside the app for read metadata, draft edits, writes, verification, and apply logs.
 - **SchemaDefinitionId** — Exact ExifTool definition identity: `{table, tag_id, index?}` from `-listx`. It remains the key for current schema-keyed v4 drafts and their production paths. It is distinct from runtime occurrence identity and exact write targeting. `Group1:Name` is display/search text only.
-- **MetadataDraftTarget** — Exact target union: an existing occurrence carries runtime occurrence, semantic schema, and exact selector snapshot; a new property carries only the selected schema. Add New Property and uniquely resolved writable non-GPS rows consume it in production; GPS and supplemental duplicate-schema editors are still pending.
+- **MetadataDraftTarget** — Exact target union: an existing occurrence carries runtime occurrence, semantic schema, and exact selector snapshot; a new property carries only the selected schema. Add New Property, uniquely resolved writable non-GPS rows, and targetable supplemental non-GPS rows consume it in production; GPS remains pending on v4.
 - **MetadataDraftSlot** — One logical draft position within a file: occurrence identity for an existing field, schema identity for a new property. It deliberately excludes stale target snapshots and the outer file-relative path.
 - **ExifTool JSON boundary** - serde_json::Value held only at scan parsing boundaries before conversion into MetadataValue.
 - **TagKind** — The schema's classification of a tag (`Text`, `Bag<Text>`, `Enum<Integer>`, etc.). Drives which editor renders.
