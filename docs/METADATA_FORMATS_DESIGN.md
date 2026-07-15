@@ -41,7 +41,7 @@ identity. Loading, missing or duplicate IDs, a same-schema replacement, and
 changed selector/schema snapshots make the editor unavailable with an explicit
 message and no draft callback. Value-only refreshes keep the captured identity.
 Supplemental Edit and Remove call only the exact occurrence callback. GPS
-supplemental rows remain schema-v4/read-only, and New Property retains its
+supplemental rows remain read-only, and New Property retains its
 separate target-aware flow. Ordinary and supplemental v5 rows share exact-target
 verification; acceptance or discard cannot remove a same-schema sibling.
 
@@ -515,7 +515,7 @@ schema-v4 editing and verification; target-aware logging remains pending.
 
 ### Locked target model
 
-`MetadataDraftTarget` defines the distinction used by Add Property without
+`MetadataDraftTarget` defines the distinction used by target-aware operations without
 changing legacy draft identity:
 
 ```text
@@ -660,8 +660,8 @@ on the `Null` and `Binary` unit variants.
 V4 entries are not automatically converted. A schema ID does not say whether
 the operation edits an existing occurrence or creates a new property, and
 choosing a first occurrence would be forbidden first-match logic. Existing v4
-drafts remain in their independently owned file. Add Property creates the
-target-aware store and uses the v5 adapter; other producers and verification
+drafts remain in their independently owned file. Target-aware operations create the
+target-aware store and use the v5 adapter; legacy/generated producers and verification
 remain schema-keyed v4.
 
 MediaLibrary persists v4 drafts in `MediaLibraryDraftEdits.jsonl` and v5 target
@@ -672,8 +672,8 @@ drafts in `MediaLibraryTargetDraftEdits.jsonl`. Read metadata is **not** cached
 - The file is the canonical store. Sidecars introduce sync questions we don't want to answer.
 - exiftool startup amortizes well over batches; scan cost is acceptable.
 
-Draft schema is versioned. V4 remains the production format for legacy
-producers, while Add Property uses the explicitly versioned v5 commands,
+Draft schema is versioned. V4 remains the production format for legacy and
+generated producers, while target-aware operations use the explicitly versioned v5 commands,
 target-aware store, and batch apply path. Every v4
 draft entry carries the exact ExifTool schema-definition identity; JSON object
 keys and display labels are never used as metadata identity:

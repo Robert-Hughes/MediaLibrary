@@ -459,14 +459,7 @@ to the compatibility row and may be discarded, but it cannot be edited further
 or copied onto concrete occurrence rows. This includes a Delete draft when the
 ambiguous schema was omitted from the legacy projection: the pane synthesises
 only the ambiguity-marked compatibility row so the draft remains visible and
-discardable. Concrete occurrence rows remain draft-free and read-only. Draft
-identity and persistence, apply/write
-commands, verification, GPS resolution, Add Property, list columns, sorting,
-search-worker indexing, and normalisation remain schema-keyed. Unknown-schema
-occurrence display and occurrence-specific editing remain pending. No arbitrary
-first occurrence is selected, including when values are identical or one
-occurrence appears more writable or otherwise preferable, and no write command
-uses occurrence identity yet.
+discardable. Concrete occurrence rows remain draft-free and read-only. Authoritative scanner data is occurrence-aware; ordinary and supplemental manual rows use exact ExistingOccurrence targets; GPS individual and composite editors use exact v5 targets; manual group removal and selected-photo removal use exact v5 planning; Add Property uses NewProperty targets; schema-v5 apply and verification retain complete targets; unknown-schema occurrences remain visible and read-only; persisted schema-v4 drafts are not automatically converted; AI, reverse-geocode output, normalise and other generated producers remain schema v4; target-aware apply logging remains pending.
 
 `MetadataDraftTarget`, `MetadataDraftSlot`, and schema-v5 Tauri load/save
 commands define the target-aware persistence boundary. The v5 JSONL line keeps
