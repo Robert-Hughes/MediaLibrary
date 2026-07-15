@@ -57,7 +57,7 @@ import {
   metadataValueToDisplayStringForTag,
 } from "../draft";
 import { GpsMapOverview } from "./GpsMapOverview";
-import { resolveGps } from "../utils/resolveGps";
+import { resolveEffectiveGpsForFile } from "../utils/effectiveGps";
 import { buildEffectiveMetadata } from "../utils/buildNormaliseItems";
 import {
   metadataGet,
@@ -1125,31 +1125,16 @@ export function DetailsPane({
     }
     return effective;
   }, [authoritativeBaseMetadata, typedDraftEdits, presentedTargetDrafts]);
-  const resolvedGps = useMemo(() => {
-    if (effectiveMetadata === undefined) return { lat: null, lon: null };
-    const hasPresentedGpsTarget = presentedTargetDrafts.some(([, entry]) => {
-      const group = gpsMemberGroup(entry.target.schema_id);
-      return (
-        group !== null &&
-        [
-          group.latitudeId,
-          group.latitudeRefId,
-          group.longitudeId,
-          group.longitudeRefId,
-        ].some((id) => schemaDefinitionIdEquals(id, entry.target.schema_id))
-      );
-    });
-    if (!hasPresentedGpsTarget) {
-      return resolveGps(typedDraftEdits, effectiveMetadata);
-    }
-    const withoutStaleComposite = { ...effectiveMetadata };
-    for (const entry of Object.values(withoutStaleComposite)) {
-      if (entry.id.table === "Composite") {
-        delete withoutStaleComposite[schemaDefinitionIdToken(entry.id)];
-      }
-    }
-    return resolveGps(typedDraftEdits, withoutStaleComposite);
-  }, [effectiveMetadata, presentedTargetDrafts, typedDraftEdits]);
+  const resolvedGps = useMemo(
+    () =>
+      resolveEffectiveGpsForFile({
+        metadata: metadata === "loading" ? undefined : metadata,
+        occurrences,
+        legacyDrafts: typedDraftEdits,
+        targetDrafts: targetDraftEdits,
+      }),
+    [metadata, occurrences, typedDraftEdits, targetDraftEdits],
+  );
 
   const legacyDraftEdits = useMemo(
     () =>
@@ -2488,6 +2473,9 @@ export function DetailsPane({
             editorMode={editDialog.kind === "gps-composite" ? "gps" : "single"}
             initialMetadataValue={editDialogInitialValue}
             metadataForFile={effectiveMetadata}
+            effectiveGps={
+              editDialog.kind === "gps-composite" ? resolvedGps : undefined
+            }
             onSaveMetadataBatch={(edits) => {
               if (editDialog.kind !== "gps-composite") return;
               if (

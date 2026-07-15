@@ -9,9 +9,17 @@ import {
   mockMetadata,
   testFriendlyName,
 } from "./factories";
-import type { MetadataDraftEdit, MetadataOccurrence } from "../types";
+import type {
+  MetadataDraftCollection,
+  MetadataDraftEdit,
+  MetadataDraftEntryV5,
+  MetadataOccurrence,
+} from "../types";
 import { TargetDraftEditsStore } from "../targetDraftEdits";
+import type { TargetDraftCollection } from "../targetDraftEdits";
 import { existingOccurrenceTargetFromOccurrence } from "../utils/metadataDraftTarget";
+import { buildGeocodeRequestItemForFile } from "../utils/effectiveGps";
+import { GPS_IDS } from "../metadata/knownIds";
 import {
   _clearTagInfoCache,
   _setTagInfoCacheEntry,
@@ -303,6 +311,260 @@ describe("DetailsPane GPS Map integration", () => {
       />,
     );
     expect(screen.queryByTestId("gps-map-overview")).not.toBeInTheDocument();
+  });
+
+  it("keeps map-visible and generated geocode coordinates equivalent across draft states", () => {
+    const baseMetadata = () =>
+      mockMetadata({
+        "GPS:GPSLatitude": 51,
+        "GPS:GPSLatitudeRef": "N",
+        "GPS:GPSLongitude": 1,
+        "GPS:GPSLongitudeRef": "E",
+        "Composite:GPSLatitude": 51,
+        "Composite:GPSLongitude": 1,
+      });
+    const exactEntry = (
+      occurrence: MetadataOccurrence,
+      edit: MetadataDraftEdit,
+    ): MetadataDraftEntryV5 => {
+      const target = existingOccurrenceTargetFromOccurrence(occurrence);
+      if (target.kind !== "targetable") throw new Error(target.reason);
+      return { target: target.target, edit };
+    };
+    const targetCollection = (
+      ...entries: MetadataDraftEntryV5[]
+    ): TargetDraftCollection =>
+      Object.fromEntries(entries.map((entry, index) => [String(index), entry]));
+    const find = (occurrences: MetadataOccurrence[], tagId: string) =>
+      occurrences.find((item) => item.tag_info?.id.tag_id === tagId)!;
+
+    const noDraftMetadata = baseMetadata();
+    const noDraftOccurrences = occurrencesFor(noDraftMetadata);
+
+    const v4Metadata = baseMetadata();
+    const v4Occurrences = occurrencesFor(v4Metadata);
+    const v4Drafts = mockDrafts({
+      "GPS:GPSLatitude": 48,
+      "GPS:GPSLongitude": 2,
+      "GPS:GPSLongitudeRef": "W",
+    });
+
+    const v5Metadata = baseMetadata();
+    const v5Occurrences = occurrencesFor(v5Metadata);
+    const v5Targets = targetCollection(
+      exactEntry(find(v5Occurrences, GPS_IDS.latitude.tag_id), {
+        intent: "Set",
+        value: { kind: "Real", value: 52 },
+      }),
+      exactEntry(find(v5Occurrences, GPS_IDS.longitude.tag_id), {
+        intent: "Set",
+        value: { kind: "Real", value: 2 },
+      }),
+      exactEntry(find(v5Occurrences, GPS_IDS.longitudeRef.tag_id), {
+        intent: "Set",
+        value: { kind: "Text", value: "W" },
+      }),
+    );
+
+    const missingRefMetadata = mockMetadata({
+      "GPS:GPSLatitude": 51,
+      "GPS:GPSLongitude": 1,
+    });
+    const missingRefOccurrences = occurrencesFor(missingRefMetadata);
+    const missingRefTargets = targetCollection(
+      {
+        target: { kind: "NewProperty", schema_id: GPS_IDS.latitudeRef },
+        edit: { intent: "Set", value: { kind: "Text", value: "S" } },
+      },
+      {
+        target: { kind: "NewProperty", schema_id: GPS_IDS.longitudeRef },
+        edit: { intent: "Set", value: { kind: "Text", value: "W" } },
+      },
+    );
+
+    const refMetadata = baseMetadata();
+    const refOccurrences = occurrencesFor(refMetadata);
+    const refTargets = targetCollection(
+      exactEntry(find(refOccurrences, GPS_IDS.latitudeRef.tag_id), {
+        intent: "Set",
+        value: { kind: "Text", value: "S" },
+      }),
+      exactEntry(find(refOccurrences, GPS_IDS.longitudeRef.tag_id), {
+        intent: "Set",
+        value: { kind: "Text", value: "W" },
+      }),
+    );
+
+    const deleteMetadata = baseMetadata();
+    const deleteOccurrences = occurrencesFor(deleteMetadata);
+    const deleteTargets = targetCollection(
+      exactEntry(find(deleteOccurrences, GPS_IDS.latitude.tag_id), {
+        intent: "Delete",
+        value: null,
+      }),
+    );
+
+    const staleMetadata = baseMetadata();
+    const staleOccurrences = occurrencesFor(staleMetadata);
+    const stale = exactEntry(find(staleOccurrences, GPS_IDS.latitude.tag_id), {
+      intent: "Set",
+      value: { kind: "Real", value: 60 },
+    });
+    if (stale.target.kind !== "ExistingOccurrence") {
+      throw new Error("Expected ExistingOccurrence target");
+    }
+    stale.target = {
+      ...stale.target,
+      occurrence_id: { ...stale.target.occurrence_id, copy: 99 },
+    };
+
+    const multipleMetadata = baseMetadata();
+    const multipleOccurrences = occurrencesFor(multipleMetadata);
+    const latitude = find(multipleOccurrences, GPS_IDS.latitude.tag_id);
+    multipleOccurrences.push({
+      ...structuredClone(latitude),
+      id: { ...latitude.id, copy: 1 },
+      value: { kind: "Real", value: 70 },
+    });
+    const multipleTargets = targetCollection(
+      exactEntry(latitude, {
+        intent: "Set",
+        value: { kind: "Real", value: 60 },
+      }),
+    );
+
+    const mixedMetadata = baseMetadata();
+    const mixedOccurrences = occurrencesFor(mixedMetadata);
+    const mixedLegacy = mockDrafts({ "GPS:GPSLatitude": 53 });
+    const mixedTargets = targetCollection(
+      exactEntry(find(mixedOccurrences, GPS_IDS.latitude.tag_id), {
+        intent: "Set",
+        value: { kind: "Real", value: 60 },
+      }),
+      exactEntry(find(mixedOccurrences, GPS_IDS.longitude.tag_id), {
+        intent: "Set",
+        value: { kind: "Real", value: 2 },
+      }),
+    );
+
+    const scenarios: Array<{
+      name: string;
+      metadata: ReturnType<typeof mockMetadata>;
+      occurrences: MetadataOccurrence[];
+      legacyDrafts?: MetadataDraftCollection;
+      targetDrafts?: TargetDraftCollection;
+      expected: { lat: number | null; lon: number | null };
+    }> = [
+      {
+        name: "no drafts",
+        metadata: noDraftMetadata,
+        occurrences: noDraftOccurrences,
+        expected: { lat: 51, lon: 1 },
+      },
+      {
+        name: "v4 coordinate drafts",
+        metadata: v4Metadata,
+        occurrences: v4Occurrences,
+        legacyDrafts: v4Drafts,
+        expected: { lat: 48, lon: -2 },
+      },
+      {
+        name: "v5 existing-coordinate drafts",
+        metadata: v5Metadata,
+        occurrences: v5Occurrences,
+        targetDrafts: v5Targets,
+        expected: { lat: 52, lon: -2 },
+      },
+      {
+        name: "v5 missing-reference NewProperty drafts",
+        metadata: missingRefMetadata,
+        occurrences: missingRefOccurrences,
+        targetDrafts: missingRefTargets,
+        expected: { lat: -51, lon: -1 },
+      },
+      {
+        name: "southern/western reference drafts",
+        metadata: refMetadata,
+        occurrences: refOccurrences,
+        targetDrafts: refTargets,
+        expected: { lat: -51, lon: -1 },
+      },
+      {
+        name: "v5 coordinate Delete",
+        metadata: deleteMetadata,
+        occurrences: deleteOccurrences,
+        targetDrafts: deleteTargets,
+        expected: { lat: null, lon: null },
+      },
+      {
+        name: "stale v5 target",
+        metadata: staleMetadata,
+        occurrences: staleOccurrences,
+        targetDrafts: targetCollection(stale),
+        expected: { lat: 51, lon: 1 },
+      },
+      {
+        name: "multiply-resolved GPS",
+        metadata: multipleMetadata,
+        occurrences: multipleOccurrences,
+        targetDrafts: multipleTargets,
+        expected: { lat: 51, lon: 1 },
+      },
+      {
+        name: "mixed legacy/v5 ownership",
+        metadata: mixedMetadata,
+        occurrences: mixedOccurrences,
+        legacyDrafts: mixedLegacy,
+        targetDrafts: mixedTargets,
+        expected: { lat: 53, lon: 2 },
+      },
+    ];
+
+    for (const scenario of scenarios) {
+      cleanup();
+      const item = buildGeocodeRequestItemForFile(photo.relative_path, {
+        metadata: scenario.metadata,
+        occurrences: scenario.occurrences,
+        legacyDrafts: scenario.legacyDrafts,
+        targetDrafts: scenario.targetDrafts,
+      });
+      expect(item, scenario.name).toEqual({
+        relPath: photo.relative_path,
+        ...scenario.expected,
+      });
+
+      render(
+        <DetailsPane
+          onSetMetadataDraftBatch={vi.fn()}
+          onSetGpsTargetDraftBatch={vi.fn(() => true)}
+          onDiscardDraftBatch={vi.fn()}
+          photo={photo}
+          metadata={scenario.metadata}
+          occurrences={scenario.occurrences}
+          typedDraftEdits={scenario.legacyDrafts}
+          targetDraftEdits={scenario.targetDrafts}
+        />,
+      );
+      if (scenario.expected.lat === null || scenario.expected.lon === null) {
+        expect(
+          screen.queryByTestId("gps-map-overview"),
+          scenario.name,
+        ).not.toBeInTheDocument();
+      } else {
+        const maps = screen.getAllByTestId("gps-map");
+        expect(maps, scenario.name).toHaveLength(4);
+        for (const map of maps) {
+          expect(map, scenario.name).toHaveAttribute(
+            "data-lat",
+            String(item.lat),
+          );
+          expect(map, scenario.name).toHaveAttribute(
+            "data-lon",
+            String(item.lon),
+          );
+        }
+      }
+    }
   });
 
   it("verifies DOM order: GPS section heading, then map overview, then first GPS row", () => {

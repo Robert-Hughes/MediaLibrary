@@ -5,13 +5,27 @@
  * render, mocked Tauri invoke + listen). The geocode flow has no
  * estimate phase so it lands straight in awaiting-confirm.
  */
-import { render, screen, act, waitFor } from "@testing-library/react";
+import {
+  render,
+  screen,
+  act,
+  waitFor,
+  fireEvent,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import App from "../App";
 import { createMockTauriApi } from "./mockTauriApi";
 import { makePhoto, mockDrafts } from "./factories";
-import type { MetadataValue } from "../types";
+import type {
+  MetadataDraftEdit,
+  MetadataOccurrence,
+  MetadataValue,
+  SchemaDefinitionId,
+} from "../types";
+import { GPS_IDS } from "../metadata/knownIds";
+import { existingOccurrenceTargetFromOccurrence } from "../utils/metadataDraftTarget";
+import { TargetDraftEditsStore } from "../targetDraftEdits";
 
 let mockApiInstance: ReturnType<typeof createMockTauriApi>;
 
@@ -31,10 +45,86 @@ vi.mock("@tauri-apps/api/event", () => ({
 vi.mock("@tauri-apps/plugin-dialog", () => ({
   ask: vi.fn().mockResolvedValue(true),
 }));
+vi.mock("../components/GpsMap", () => ({
+  GpsMap: ({ position }: { position: { lat: number; lon: number } | null }) => (
+    <div
+      data-testid="gps-map"
+      data-lat={position === null ? "" : String(position.lat)}
+      data-lon={position === null ? "" : String(position.lon)}
+    />
+  ),
+}));
+
+function gpsOccurrence(
+  id: SchemaDefinitionId,
+  value: MetadataValue,
+): MetadataOccurrence {
+  return {
+    id: {
+      document: null,
+      path: `JPEG-APP1-GPS-${id.tag_id}`,
+      tag_id: id.tag_id,
+      copy: 0,
+    },
+    value,
+    tag_info: {
+      id,
+      group: "GPS",
+      name: id.tag_id,
+      writable: true,
+      kind: { kind: value.kind } as never,
+      description: null,
+    },
+    write_target: { group1: "GPS", tag_name: id.tag_id },
+  };
+}
+
+function rawGpsOccurrences(): MetadataOccurrence[] {
+  return [
+    gpsOccurrence(GPS_IDS.latitude, { kind: "Real", value: 51 }),
+    gpsOccurrence(GPS_IDS.latitudeRef, { kind: "Text", value: "N" }),
+    gpsOccurrence(GPS_IDS.longitude, { kind: "Real", value: 0 }),
+    gpsOccurrence(GPS_IDS.longitudeRef, { kind: "Text", value: "E" }),
+  ];
+}
+
+function rawGpsMetadata(): Record<string, MetadataValue> {
+  return {
+    "GPS:GPSLatitude": { kind: "Real", value: 51 },
+    "GPS:GPSLatitudeRef": { kind: "Text", value: "N" },
+    "GPS:GPSLongitude": { kind: "Real", value: 0 },
+    "GPS:GPSLongitudeRef": { kind: "Text", value: "E" },
+    "Composite:GPSLatitude": { kind: "Real", value: 51 },
+    "Composite:GPSLongitude": { kind: "Real", value: 0 },
+  };
+}
+
+function seedExistingGpsTargets(
+  rel: string,
+  occurrences: MetadataOccurrence[],
+  edits: Array<{ id: SchemaDefinitionId; edit: MetadataDraftEdit }>,
+) {
+  const store = new TargetDraftEditsStore();
+  store.setMetadataBatch(
+    rel,
+    edits.map(({ id, edit }) => {
+      const current = occurrences.find(
+        (item) =>
+          item.tag_info?.id === id || item.tag_info?.id.tag_id === id.tag_id,
+      );
+      if (!current) throw new Error(`Missing test occurrence ${id.tag_id}`);
+      const target = existingOccurrenceTargetFromOccurrence(current);
+      if (target.kind !== "targetable") throw new Error(target.reason);
+      return { target: target.target, edit };
+    }),
+  );
+  mockApiInstance.targetDraftEditsByFolder["/photos"] = store.getAllMetadata();
+}
 
 async function openFolderAndSelectPhoto(
   rel = "test.jpg",
   metadata: Record<string, MetadataValue> = {},
+  occurrences: MetadataOccurrence[] = [],
 ) {
   const photo = makePhoto({ relative_path: rel });
   const user = userEvent.setup();
@@ -51,7 +141,12 @@ async function openFolderAndSelectPhoto(
     mockApiInstance.emitScanComplete();
   });
   await act(async () => {
-    mockApiInstance.emitImageMetadataReady(rel, metadata);
+    mockApiInstance.emitImageMetadataReady(
+      rel,
+      metadata,
+      undefined,
+      occurrences,
+    );
   });
   await act(async () => {
     await new Promise((r) => setTimeout(r, 250));
@@ -70,6 +165,15 @@ async function openFolderAndSelectPhoto(
     await new Promise((r) => setTimeout(r, 50));
   });
   return { user, photo };
+}
+
+function expectMapCoordinates(lat: number, lon: number) {
+  const maps = screen.getAllByTestId("gps-map");
+  expect(maps).toHaveLength(4);
+  for (const map of maps) {
+    expect(map).toHaveAttribute("data-lat", String(lat));
+    expect(map).toHaveAttribute("data-lon", String(lon));
+  }
 }
 
 beforeEach(() => {
@@ -216,6 +320,107 @@ describe("Reverse-geocoding flow", () => {
       relPath: "test.jpg",
       lat: 53.983856,
       lon: -1.100918,
+    });
+  });
+
+  it("sends v5 staged coordinates from the PhotoList selection action", async () => {
+    const rel = "list-v5.jpg";
+    const occurrences = rawGpsOccurrences();
+    seedExistingGpsTargets(rel, occurrences, [
+      {
+        id: GPS_IDS.latitude,
+        edit: { intent: "Set", value: { kind: "Real", value: 52 } },
+      },
+      {
+        id: GPS_IDS.longitude,
+        edit: { intent: "Set", value: { kind: "Real", value: 1 } },
+      },
+      {
+        id: GPS_IDS.longitudeRef,
+        edit: { intent: "Set", value: { kind: "Text", value: "W" } },
+      },
+    ]);
+    const { user } = await openFolderAndSelectPhoto(
+      rel,
+      rawGpsMetadata(),
+      occurrences,
+    );
+    await user.click(screen.getByTestId("gallery-close-btn"));
+    const row = screen.getByTestId("photo-row");
+    await user.click(row);
+    fireEvent.contextMenu(row);
+    await user.click(
+      await screen.findByRole("button", { name: "Reverse Geocode…" }),
+    );
+    await user.click(await screen.findByTestId("geocode-confirm-btn"));
+
+    await waitFor(() => {
+      expect(mockApiInstance.lastGeocodeArgs?.items[0]).toEqual({
+        relPath: rel,
+        lat: 52,
+        lon: -1,
+      });
+    });
+  });
+
+  it("keeps the Gallery map and geocode payload equivalent for a v5 Delete", async () => {
+    const rel = "gallery-delete.jpg";
+    const occurrences = rawGpsOccurrences();
+    seedExistingGpsTargets(rel, occurrences, [
+      {
+        id: GPS_IDS.latitude,
+        edit: { intent: "Delete", value: null },
+      },
+    ]);
+    const { user } = await openFolderAndSelectPhoto(
+      rel,
+      rawGpsMetadata(),
+      occurrences,
+    );
+    expect(screen.queryByTestId("gps-map-overview")).not.toBeInTheDocument();
+    await user.click(screen.getByTestId("details-pane-geocode-btn"));
+    await user.click(await screen.findByTestId("geocode-confirm-btn"));
+
+    await waitFor(() => {
+      expect(mockApiInstance.lastGeocodeArgs?.items[0]).toEqual({
+        relPath: rel,
+        lat: null,
+        lon: null,
+      });
+    });
+  });
+
+  it("keeps the Gallery map and geocode payload equivalent for v5 reference changes", async () => {
+    const rel = "gallery-ref.jpg";
+    const occurrences = rawGpsOccurrences();
+    occurrences[2] = gpsOccurrence(GPS_IDS.longitude, {
+      kind: "Real",
+      value: 1,
+    });
+    seedExistingGpsTargets(rel, occurrences, [
+      {
+        id: GPS_IDS.latitudeRef,
+        edit: { intent: "Set", value: { kind: "Text", value: "S" } },
+      },
+      {
+        id: GPS_IDS.longitudeRef,
+        edit: { intent: "Set", value: { kind: "Text", value: "W" } },
+      },
+    ]);
+    const metadata = rawGpsMetadata();
+    metadata["GPS:GPSLongitude"] = { kind: "Real", value: 1 };
+    metadata["Composite:GPSLongitude"] = { kind: "Real", value: 1 };
+    const { user } = await openFolderAndSelectPhoto(rel, metadata, occurrences);
+    expectMapCoordinates(-51, -1);
+    await user.click(screen.getByTestId("details-pane-geocode-btn"));
+    await user.click(await screen.findByTestId("geocode-confirm-btn"));
+
+    await waitFor(() => {
+      expect(mockApiInstance.lastGeocodeArgs?.items[0]).toEqual({
+        relPath: rel,
+        lat: -51,
+        lon: -1,
+      });
     });
   });
 
