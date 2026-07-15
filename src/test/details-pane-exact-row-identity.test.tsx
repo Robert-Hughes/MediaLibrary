@@ -92,7 +92,7 @@ function renderPane(options: {
 }) {
   const callbacks = {
     onSetExistingOccurrenceDraft: vi.fn(),
-    onSetMetadataDraftBatch: vi.fn(),
+    onRemoveMetadataFieldsV5: vi.fn(),
     onSetGpsTargetDraftBatch: vi.fn(() => true),
     onSetNewPropertyDraft: vi.fn(),
     onDiscardTargetPropertyDraft: vi.fn(),
@@ -209,7 +209,7 @@ describe("DetailsPane exact target-owned row presentation", () => {
         value: { kind: "Integer", value: 305 },
       }),
     );
-    expect(view.onSetMetadataDraftBatch).not.toHaveBeenCalled();
+    expect(view.onRemoveMetadataFieldsV5).not.toHaveBeenCalled();
 
     fireEvent.contextMenu(rowA);
     fireEvent.click(screen.getByRole("button", { name: "Remove" }));
@@ -217,7 +217,7 @@ describe("DetailsPane exact target-owned row presentation", () => {
       occurrenceA.id,
       { intent: "Delete", value: null },
     );
-    expect(view.onSetMetadataDraftBatch).not.toHaveBeenCalled();
+    expect(view.onRemoveMetadataFieldsV5).not.toHaveBeenCalled();
   });
 
   it("shows supplemental Delete on A, filters has:edits exactly, and discards A", async () => {
@@ -663,7 +663,7 @@ describe("DetailsPane exact ordinary editor identity", () => {
       /nothing was saved|without saving/i,
     );
     expect(view.onSetExistingOccurrenceDraft).not.toHaveBeenCalled();
-    expect(view.onSetMetadataDraftBatch).not.toHaveBeenCalled();
+    expect(view.onRemoveMetadataFieldsV5).not.toHaveBeenCalled();
     expect(pending.drafts).toEqual(originalDrafts);
   });
 
@@ -679,7 +679,7 @@ describe("DetailsPane exact ordinary editor identity", () => {
           metadata={{}}
           occurrences={[occurrenceA]}
           targetDraftEdits={drafts}
-          onSetMetadataDraftBatch={vi.fn()}
+          onRemoveMetadataFieldsV5={vi.fn()}
           onDiscardDraftBatch={vi.fn()}
         />,
       );
@@ -721,7 +721,7 @@ describe("DetailsPane exact ordinary editor identity", () => {
     expect(view.onSetGpsTargetDraftBatch).toHaveBeenCalledWith([
       expect.objectContaining({ id: GPS_IDS.latitude }),
     ]);
-    expect(view.onSetMetadataDraftBatch).not.toHaveBeenCalled();
+    expect(view.onRemoveMetadataFieldsV5).not.toHaveBeenCalled();
     expect(view.onSetExistingOccurrenceDraft).not.toHaveBeenCalled();
   });
 

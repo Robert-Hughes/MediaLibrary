@@ -73,8 +73,9 @@ deliberate exact-schema `NewProperty` targets. The complete batch validates
 occurrence cardinality and v4/v5 ownership before one target-store mutation.
 The composite editor captures all six targets when it opens and refuses Save if
 any destination changes. Persisted v4 GPS drafts are not converted and block
-v5 editing for their group until applied or discarded. Generic group/bulk
-operations, AI/geocode/normalise, and other generated drafts remain schema v4.
+v5 editing for their group until applied or discarded. Manual group and
+selected-photo field removal use schema v5; AI/geocode/normalise and other
+generated drafts remain schema v4.
 Ordinary and supplemental v5 outcomes share the existing target-aware verification pipeline;
 Match/DeleteOk clear only the exact occurrence slot, while Keep/Blocked retain
 it without reinterpreting or removing a schema sibling.
@@ -520,9 +521,10 @@ performs no persistence itself; the production v5 batch coordinator persists
 its result without changing schema-v4 persistence or apply.
 
 Production creates the target-aware store and calls the v5 adapter for Add
-Property, exact unique-row edits, and individual/composite GPS edits. The v4
-file remains independently owned by group/bulk and generated producers plus
-persisted legacy drafts, including already-persisted GPS drafts;
+Property, exact unique-row edits, individual/composite GPS edits, manual group
+removal, and selected-photo field removal. The v4 file remains independently
+owned by generated producers plus persisted legacy drafts, including
+already-persisted GPS drafts;
 target-aware logging remains pending migration.
 
 V4 entries are not automatically converted: a `SchemaDefinitionId` alone does
@@ -710,14 +712,34 @@ Unique writable metadata rows, including individual GPS members, also create `Ex
 from their authoritative occurrence and use exact current-value comparison.
 
 This is a temporary bridge organised by operation type. Individual and
-composite GPS editing are v5; bulk field removal, AI description, geocode,
-normalise, and other generated drafts remain explicitly schema-v4. No generic
+composite GPS editing plus manual group and selected-photo field removal are
+v5; AI description, geocode, normalise, and other generated drafts remain
+explicitly schema-v4. No generic
 schema-to-occurrence inference or v4-file conversion was introduced. A file and
 exact schema cannot be owned by both systems: creation and combined apply reject
 the collision without deleting or converting either draft. The narrow Add
 Property view also refuses to first-select when multiple target-aware existing
 occurrences share one schema; target-aware verification acts only through the
 complete persisted target selected by reconciliation.
+
+### Exact manual removal
+
+Details Pane group removal and Photo List selected-photo field removal plan
+only exact schema-v5 mutations. Every requested file must have authoritative
+occurrences loaded, and a multi-file action plans every file before the target
+store mutates. A uniquely resolved writable occurrence becomes an
+`ExistingOccurrence` Delete using its occurrence ID, embedded schema ID, and
+runtime selector. A missing field with one exact `NewProperty` owner discards
+that creation target; a genuinely absent field is a no-op.
+
+Multiple authoritative occurrences, missing `TagInfo`, read-only fields,
+missing write targets, stale or incompatible ownership, multiple same-schema
+owners, and persisted schema-v4 ownership block the complete requested action.
+Nothing first-selects an occurrence or converts a persisted v4 draft. Group
+discard may clear exact group members from both stores, using schema IDs for v4
+and captured complete targets for v5. Each changed store saves only its own
+persistence file. Details Pane and Gallery no longer receive a generic v4
+batch setter.
 
 The target store also enforces exact schema ownership for Add Property. With no
 target-aware entry, Add Property creates one `NewProperty` slot. One existing

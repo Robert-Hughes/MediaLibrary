@@ -1377,6 +1377,146 @@ describe("useMediaLibrary", () => {
     }
   });
 
+  it("removes a group through one v5 save, discarding NewProperty and ignoring absence", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/photos");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => result.current[1].openFolder());
+    const existingId = testId("XMP-dc:Title");
+    const createdId = testId("XMP-dc:Subject");
+    const absentId = testId("XMP-dc:Description");
+    const occurrence = targetableOccurrence(existingId);
+    act(() => {
+      mock.emitPhotoFound(makePhoto({ relative_path: "group.jpg" }));
+      mock.emitImageMetadataReady(
+        "group.jpg",
+        { "XMP-dc:Title": { kind: "Text", value: "current" } },
+        undefined,
+        [occurrence],
+      );
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(300));
+    act(() =>
+      result.current[1].setNewPropertyDraft("group.jpg", createdId, {
+        intent: "Set",
+        value: { kind: "Text", value: "created" },
+      }),
+    );
+    mock.invocations.length = 0;
+
+    let succeeded = false;
+    act(() => {
+      succeeded = result.current[1].removeMetadataFieldsV5("group.jpg", [
+        existingId,
+        createdId,
+        absentId,
+      ]);
+    });
+    expect(succeeded).toBe(true);
+    const state = result.current[0];
+    if (state.kind !== "loaded") return;
+    const entries = Object.values(state.targetDraftEdits["group.jpg"]);
+    expect(entries).toEqual([
+      {
+        target: {
+          kind: "ExistingOccurrence",
+          occurrence_id: occurrence.id,
+          schema_id: existingId,
+          write_target: occurrence.write_target,
+        },
+        edit: { intent: "Delete", value: null },
+      },
+    ]);
+    expect(state.draftEdits["group.jpg"]).toBeUndefined();
+    expect(
+      mock.invocations.filter(
+        ({ cmd }) => cmd === "save_metadata_draft_edits_v5",
+      ),
+    ).toHaveLength(1);
+    expect(
+      mock.invocations.filter(({ cmd }) => cmd === "save_metadata_draft_edits"),
+    ).toHaveLength(0);
+  });
+
+  it("plans every selected file before mutation and reports an ambiguous later path", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/photos");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => result.current[1].openFolder());
+    const id = testId("XMP-dc:Title");
+    const first = targetableOccurrence(id, "a", { path: "a-target" });
+    const second = targetableOccurrence(id, "b", { path: "b-target" });
+    const duplicate = targetableOccurrence(id, "b2", {
+      path: "b-target-2",
+      copy: 1,
+    });
+    act(() => {
+      mock.emitPhotoFound(makePhoto({ relative_path: "a.jpg" }));
+      mock.emitPhotoFound(makePhoto({ relative_path: "b.jpg" }));
+      mock.emitImageMetadataReady(
+        "a.jpg",
+        { "XMP-dc:Title": { kind: "Text", value: "a" } },
+        undefined,
+        [first],
+      );
+      mock.emitImageMetadataReady(
+        "b.jpg",
+        { "XMP-dc:Title": { kind: "Text", value: "b" } },
+        undefined,
+        [second, duplicate],
+      );
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(300));
+    mock.invocations.length = 0;
+
+    let succeeded = true;
+    act(() => {
+      succeeded = result.current[1].removeMetadataFieldFromFilesV5(id, [
+        "a.jpg",
+        "b.jpg",
+      ]);
+    });
+    expect(succeeded).toBe(false);
+    const state = result.current[0];
+    if (state.kind !== "loaded") return;
+    expect(state.targetDraftEdits["a.jpg"]).toBeUndefined();
+    expect(state.targetDraftEdits["b.jpg"]).toBeUndefined();
+    expect(
+      state.workerErrors[state.workerErrors.length - 1]?.error_message,
+    ).toMatch(/'b\.jpg'.*Several/s);
+    expect(
+      mock.invocations.filter(
+        ({ cmd }) => cmd === "save_metadata_draft_edits_v5",
+      ),
+    ).toHaveLength(0);
+  });
+
+  it("deduplicates selected paths and saves nothing for an all-file no-op", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/photos");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => result.current[1].openFolder());
+    act(() => {
+      mock.emitPhotoFound(makePhoto({ relative_path: "absent.jpg" }));
+      mock.emitImageMetadataReady("absent.jpg", {}, undefined, []);
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(300));
+    mock.invocations.length = 0;
+    let succeeded = false;
+    act(() => {
+      succeeded = result.current[1].removeMetadataFieldFromFilesV5(
+        testId("XMP-dc:Title"),
+        ["absent.jpg", "absent.jpg"],
+      );
+    });
+    expect(succeeded).toBe(true);
+    expect(
+      mock.invocations.filter(
+        ({ cmd }) => cmd === "save_metadata_draft_edits_v5",
+      ),
+    ).toHaveLength(0);
+  });
+
   it("writes one atomic GPS target batch with exact existing and missing-field targets", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/photos");
@@ -2461,6 +2601,8 @@ describe("useMediaLibrary", () => {
       write_target: { group1: "XMP-dc", tag_name: "Subject" },
     };
 
+    let groupRemovalSucceeded = true;
+    let selectedRemovalSucceeded = true;
     act(() => {
       result.current[1].setNewPropertyDraft("blocked.jpg", id, edit);
       result.current[1].setExistingOccurrenceDraft(
@@ -2472,7 +2614,15 @@ describe("useMediaLibrary", () => {
         "blocked.jpg",
         existingTarget,
       );
+      groupRemovalSucceeded = result.current[1].removeMetadataFieldsV5(
+        "blocked.jpg",
+        [id],
+      );
+      selectedRemovalSucceeded =
+        result.current[1].removeMetadataFieldFromFilesV5(id, ["blocked.jpg"]);
     });
+    expect(groupRemovalSucceeded).toBe(false);
+    expect(selectedRemovalSucceeded).toBe(false);
     state = result.current[0];
     if (state.kind !== "loaded") return;
     expect(state.targetDraftEdits).toBe(targetSnapshot);

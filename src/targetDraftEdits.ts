@@ -11,7 +11,11 @@ import {
   metadataDraftTargetEquals,
   metadataDraftTargetSlotToken,
 } from "./utils/metadataDraftTarget";
-import { isMetadataDraftEntryV5, isRecord } from "./utils/metadataWireGuards";
+import {
+  isMetadataDraftEntryV5,
+  isMetadataDraftTarget,
+  isRecord,
+} from "./utils/metadataWireGuards";
 import { hasOwnStringKey, recordFromEntries } from "./utils/stringRecord";
 import { compareUnicodeScalarStrings } from "./utils/unicodeOrdering";
 import { wireStructuralEqual } from "./utils/wireStructuralEquality";
@@ -27,6 +31,12 @@ export type TargetDraftEditsByFile = Record<string, TargetDraftCollection>;
 export interface TargetDraftEditsChange {
   path: string;
   edits: TargetDraftCollection | undefined;
+}
+
+export interface ExactTargetMutationBatchItem {
+  path: string;
+  upserts: readonly MetadataDraftEntryV5[];
+  deletes: readonly MetadataDraftTarget[];
 }
 
 export type TargetDraftEditsListener = (
@@ -382,6 +392,130 @@ export class TargetDraftEditsStore {
       this.notify([{ path, edits: this.getMetadataFile(path) }]);
     }
     return results;
+  }
+
+  /**
+   * Atomically applies complete-target upserts and deletions across files.
+   * Every candidate is validated and built before the snapshot is replaced.
+   */
+  applyExactMutationBatch(
+    mutations: readonly ExactTargetMutationBatchItem[],
+  ): boolean {
+    if (mutations.length === 0) return false;
+
+    for (const mutation of mutations) {
+      for (const [index, entry] of mutation.upserts.entries()) {
+        if (!isMetadataDraftEntryV5(entry)) {
+          throw new Error(
+            `Invalid exact target upsert for '${mutation.path}' at index ${index}`,
+          );
+        }
+      }
+      for (const [index, target] of mutation.deletes.entries()) {
+        if (!isMetadataDraftTarget(target)) {
+          throw new Error(
+            `Invalid exact target deletion for '${mutation.path}' at index ${index}`,
+          );
+        }
+      }
+    }
+
+    const cloned = mutations.map((mutation) => ({
+      path: mutation.path,
+      upserts: mutation.upserts.map(cloneEntry),
+      deletes: mutation.deletes.map(cloneTarget),
+    }));
+    const paths = new Set<string>();
+    for (const mutation of cloned) {
+      if (paths.has(mutation.path)) {
+        throw new Error(
+          `Duplicate path in exact target mutation batch: '${mutation.path}'`,
+        );
+      }
+      paths.add(mutation.path);
+    }
+
+    const candidates = new Map<string, TargetDraftCollection | undefined>();
+    const changes: TargetDraftEditsChange[] = [];
+    for (const mutation of cloned) {
+      const seen = new Map<string, "upsert" | "delete">();
+      for (const entry of mutation.upserts) {
+        const slot = metadataDraftTargetSlotToken(entry.target);
+        const previous = seen.get(slot);
+        if (previous) {
+          throw new Error(
+            `Duplicate logical slot in exact target mutation for '${mutation.path}' (${slot})`,
+          );
+        }
+        seen.set(slot, "upsert");
+      }
+      for (const target of mutation.deletes) {
+        const slot = metadataDraftTargetSlotToken(target);
+        const previous = seen.get(slot);
+        if (previous === "upsert") {
+          throw new Error(
+            `A logical slot cannot be both deleted and upserted for '${mutation.path}' (${slot})`,
+          );
+        }
+        if (previous === "delete") {
+          throw new Error(
+            `Duplicate logical slot in exact target mutation for '${mutation.path}' (${slot})`,
+          );
+        }
+        seen.set(slot, "delete");
+      }
+
+      const current = this.getMetadataFile(mutation.path);
+      const updated = recordFromEntries(Object.entries(current ?? {}));
+      for (const target of mutation.deletes) {
+        const slot = metadataDraftTargetSlotToken(target);
+        const stored = hasOwnStringKey(updated, slot)
+          ? updated[slot]
+          : undefined;
+        if (
+          stored === undefined ||
+          !metadataDraftTargetEquals(stored.target, target)
+        ) {
+          throw new Error(
+            `Deletion target does not match the complete stored target snapshot for '${mutation.path}' (${slot})`,
+          );
+        }
+        delete updated[slot];
+      }
+      for (const entry of mutation.upserts) {
+        const slot = metadataDraftTargetSlotToken(entry.target);
+        const stored = hasOwnStringKey(updated, slot)
+          ? updated[slot]
+          : undefined;
+        if (
+          stored !== undefined &&
+          !metadataDraftTargetEquals(stored.target, entry.target)
+        ) {
+          throw new Error(
+            `Upsert target does not match the complete stored target snapshot for '${mutation.path}' (${slot})`,
+          );
+        }
+        updated[slot] = cloneEntry(entry);
+      }
+
+      const candidate = Object.keys(updated).length === 0 ? undefined : updated;
+      candidates.set(mutation.path, candidate);
+      if (!targetDraftCollectionEqualsExact(current, candidate)) {
+        changes.push({ path: mutation.path, edits: candidate });
+      }
+    }
+
+    if (changes.length === 0) return false;
+    const changedPaths = new Set(changes.map(({ path }) => path));
+    const nextEntries: Array<readonly [string, TargetDraftCollection]> =
+      Object.entries(this.snapshot).filter(([path]) => !changedPaths.has(path));
+    for (const { path } of changes) {
+      const candidate = candidates.get(path);
+      if (candidate !== undefined) nextEntries.push([path, candidate]);
+    }
+    this.snapshot = recordFromEntries(nextEntries);
+    this.notify(changes);
+    return true;
   }
 
   deleteTarget(path: string, target: MetadataDraftTarget): void {

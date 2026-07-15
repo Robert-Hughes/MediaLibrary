@@ -29,7 +29,7 @@ describe("ordinary existing-row production boundary", () => {
     );
     expect(supplementalRow).toContain("targetDraft?: MetadataDraftEntryV5");
     expect(supplementalMenu).toContain("onSetExistingOccurrenceDraft?.(");
-    expect(supplementalMenu).not.toContain("onSetMetadataDraftBatch");
+    expect(supplementalMenu).not.toContain("onRemoveMetadataFieldsV5");
     expect(supplementalMenu).not.toContain("setMetadataTag(");
     expect(supplementalMenu).not.toContain("setMetadataDraftBatch(");
   });
@@ -45,7 +45,30 @@ describe("ordinary existing-row production boundary", () => {
     );
     expect(ordinaryRowMenu).toContain("onSetGpsTargetDraftBatch");
     expect(editor).toContain("onSetGpsTargetDraftBatch");
-    expect(ordinaryRowMenu).not.toContain("onSetMetadataDraftBatch");
-    expect(editor).not.toContain("onSetMetadataDraftBatch");
+    expect(ordinaryRowMenu).not.toContain("onRemoveMetadataFieldsV5");
+    expect(editor).not.toContain("onRemoveMetadataFieldsV5");
+  });
+
+  it("keeps manual group and selected-photo removal off every v4 producer", () => {
+    const groupMenu = details.slice(
+      details.indexOf("function DetailsGroupContextMenu"),
+      details.indexOf("export function DetailsPane"),
+    );
+    const selectedField = app.slice(
+      app.indexOf("onRemoveFieldFromSelectedPhotos="),
+      app.indexOf("/>\n      {state.galleryIndex"),
+    );
+    for (const source of [groupMenu, selectedField]) {
+      expect(source).not.toContain("onSetMetadataDraftBatch");
+      expect(source).not.toContain("actions.setMetadataDraftBatch");
+      expect(source).not.toContain("setMetadataTag(");
+    }
+    expect(groupMenu).toContain("onRemoveMetadataFieldsV5");
+    expect(selectedField).toContain("actions.removeMetadataFieldFromFilesV5");
+  });
+
+  it("retains the explicit v4 batch action for generated workflows only", () => {
+    expect(app).toContain("actions.setMetadataDraftBatch(relPath, edits)");
+    expect(actions).toContain("const setMetadataDraftBatch");
   });
 });

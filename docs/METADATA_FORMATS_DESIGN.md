@@ -45,10 +45,11 @@ supplemental rows remain schema-v4/read-only, and New Property retains its
 separate target-aware flow. Ordinary and supplemental v5 rows share exact-target
 verification; acceptance or discard cannot remove a same-schema sibling.
 
-GPS one-field and paired/map edits, group/bulk operations, AI, geocode,
-normalise, and other generated drafts continue through the schema-v4 batch
-boundary. The generic schema-v4 single-row producer and its App/Gallery/Details
-prop plumbing no longer exist. Per-file and Apply All still run v5 before v4;
+GPS one-field and paired/map edits plus manual group and selected-photo field
+removal use schema v5. AI, geocode, normalise, and other generated drafts
+continue through the schema-v4 batch boundary. The generic schema-v4
+single-row producer and the Details/Gallery v4 batch prop plumbing no longer
+exist. Per-file and Apply All still run v5 before v4;
 the two persistence files and exact discard actions remain independent.
 
 ---
@@ -319,8 +320,8 @@ How we handle the pairing:
   `NewProperty` Remove discards that creation target rather than constructing a
   Delete creation target.
 - Persisted schema-v4 GPS drafts remain visible, apply/discard through v4, and
-  block v5 GPS editing until resolved. Generic group/bulk and generated
-  operations remain v4; GPS supplemental occurrences remain read-only.
+  block v5 GPS editing until resolved. Generated operations remain v4; manual
+  group removal is v5 and GPS supplemental occurrences remain read-only.
 - Target-aware verification retains all six GPS fields as separate outcome
   slots and never creates a v4 verification outcome for a new v5 GPS edit.
 
@@ -574,9 +575,10 @@ write destination; new-property creation remains schema-driven because it has
 no occurrence selector. These planners share the legacy builder's semantic
 value encoder and preserve its numeric/text pass grouping and argument order.
 
-This model, its pure planners, and the composed v5 single-file apply foundation
-are used by Add Property. Ordinary existing-row edits and the other legacy
-producers continue using the schema-v4 loader, saver, and apply path.
+This model, its pure planners, and the composed v5 apply foundation are used by
+Add Property, ordinary existing-row edits, manual group removal, and selected-
+photo field removal. Generated legacy producers continue using the schema-v4
+loader, saver, and apply path.
 
 V5 Tauri load/save commands define the target-aware JSONL line:
 
@@ -840,10 +842,10 @@ failure cannot strand either lifecycle resource or mask an earlier command or
 final-application failure.
 
 `useMediaLibrary` owns the single controller instance, target-aware `AppState`,
-and v5 autosave subscriber used by Add New Property, exact existing rows, and
-individual/composite GPS edits. Their verification is target-aware and
-separate; group/bulk and generated operations remain schema v4 during the
-controlled bridge.
+and v5 autosave subscriber used by Add New Property, exact existing rows,
+individual/composite GPS edits, manual group removal, and selected-photo field
+removal. Their verification is target-aware and separate; generated operations
+remain schema v4 during the controlled bridge.
 
 - **MetadataValue** — Discriminated semantic value model used inside the app for read metadata, draft edits, writes, verification, and apply logs.
 - **SchemaDefinitionId** — Exact ExifTool definition identity: `{table, tag_id, index?}` from `-listx`. It remains the key for current schema-keyed v4 drafts and their production paths. It is distinct from runtime occurrence identity and exact write targeting. `Group1:Name` is display/search text only.
@@ -916,7 +918,26 @@ keep remains available. The target dialog has modal precedence until empty.
 
 This format boundary is deliberately temporary. Target-aware verification is
 active only for production schema-v5 operations. Existing-row and GPS editing
-use v5; bulk, AI-description, geocode, normalise, and other generated batch
-edits still use schema-v4;
+plus manual group and selected-photo field removal use v5. AI-description,
+geocode, normalise, and other generated batch edits still use schema-v4;
 there is no automatic conversion and no general schema projection that could
 collapse occurrence targets. Migration of those remaining producers is pending.
+
+### Manual removal target mutations
+
+The pure manual-removal planner consumes exact schema IDs, authoritative
+occurrences, and both draft collections. It clones its plan and never invents a
+target snapshot. Unique writable occurrences yield exact `ExistingOccurrence`
+Delete upserts. A missing schema with no owner is a no-op; one exact
+`NewProperty` owner deletes that creation slot. Multiple occurrences,
+persisted v4 ownership, missing runtime targetability, and stale, incompatible,
+or multiple v5 owners reject the complete request.
+
+The mixed target mutation API validates complete deletion and replacement
+snapshots, logical-slot uniqueness, and delete/upsert conflicts for every file
+before replacing the store once. Selected-photo removal therefore has all-file
+atomicity and one autosave. Group discard may remove exact entries from both
+format versions, but each store retains exclusive persistence ownership:
+`MediaLibraryDraftEdits.jsonl` for v4 and
+`MediaLibraryTargetDraftEdits.jsonl` for v5. A discarded NewProperty creation
+has no write and produces no apply or verification outcome.
