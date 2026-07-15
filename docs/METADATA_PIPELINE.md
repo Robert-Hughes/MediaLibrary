@@ -110,9 +110,7 @@ group Discard includes it. No such row is created for missing or uniquely
 resolved absent schemas. Concrete occurrence rows remain distinct; only an
 exact v5 target can overlay one of them.
 
-Draft identity and persistence, GPS resolution, Add Property, search-worker indexing,
-sorting, normalisation, writes, and readback verification remain schema-keyed
-through `ImageMetadataStore`.
+Draft identity and persistence, GPS resolution, Add Property, writes, and readback verification are target-aware v5 operations, while search-worker indexing, sorting, normalisation, and compatibility projection remain schema-keyed through `ImageMetadataStore`.
 Identical values sharing a schema may deduplicate in the compatibility field;
 an incompatible schema group is instead omitted atomically from the legacy
 projection without affecting unrelated entries. Every concrete value remains in
@@ -132,9 +130,8 @@ consumers remain on their documented compatibility boundaries.
 
 For the original IFD0/IFD1 `XResolution` collision, both authoritative values
 now remain part of a successful scan and are visible with their distinct paths
-and origins in the Details Pane. They remain read-only there even when distinct
-write targets exist. Legacy drafts and verification remain schema-keyed; the
-Add Property bridge keeps exact target identity separately.
+and origins in the Details Pane. A targetable occurrence edits through its
+exact v5 target. Legacy drafts and verification remain schema-keyed.
 
 Genuine read, parse, canonicalisation, or projection-invariant failures still
 emit empty collections to clear loading state and report details through
