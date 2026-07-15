@@ -1241,8 +1241,9 @@ export function useMediaLibrary(
       fileRelativePath: string,
       edits: Array<{ id: SchemaDefinitionId; edit: MetadataDraftEdit }>,
     ) => {
-      // Temporary bridge: generic group/bulk and generated producers remain
-      // schema-v4; individual and composite GPS editing use schema-v5.
+      // Temporary bridge: generated AI, reverse-geocode output, normalise and
+      // other generated batch producers remain schema-v4. Manual row,
+      // supplemental, GPS, group and selected-photo removal use schema-v5.
       draftEditsStoreRef.current.setMetadataBatch(fileRelativePath, edits);
     },
     [],

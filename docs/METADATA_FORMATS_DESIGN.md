@@ -414,8 +414,8 @@ Every apply appends one line per tag to `MediaLibraryApplyLog.jsonl` next to the
 
 ### Schema-v5 single-file apply
 
-The `apply_edits_v5.rs` foundation uses the target-aware draft model for the
-production Add Property bridge:
+The `apply_edits_v5.rs` foundation uses the target-aware draft model for
+production schema-v5 operations:
 
 ```text
 v5 entry
@@ -495,8 +495,8 @@ operations. Successful output uses logical-slot ordering. Blocked reasons stay
 transient on outcomes for a future command and frontend to surface; they are
 not added to schema-v5 persistence. The pure file helper performs no
 persistence or metadata writes. It is composed by the v5 batch command and the
-production Add Property controller; remaining producers persist and apply as
-schema v4.
+production target-aware controller. Generated AI, reverse-geocode output,
+normalise, and other generated producers persist and apply as schema v4.
 
 `targets_to_clear` is derived only from `Clear` reconciliation, by logical slot
 and in input order. Legacy projection omissions do not invalidate a v5
@@ -506,8 +506,8 @@ reconciliation results and the production target controller consumes them.
 
 The v5 path does not write the schema-keyed legacy apply log; target-aware
 logging remains pending. The registered batch command and frontend adapter are
-used for Add Property; other production editing, verification, and logging
-remain schema v4.
+used for all production schema-v5 operations. Generated producers retain
+schema-v4 editing and verification; target-aware logging remains pending.
 
 ---
 
@@ -728,7 +728,7 @@ being guessed from friendly strings.
 
 ### Schema-v5 batch transport
 
-The production Add Property v5 command strictly loads one v5 map,
+The production target-aware v5 command strictly loads one v5 map,
 rejects duplicate requested paths before writing, applies selected files in
 request order, reconciles every complete target outcome vector, saves only
 changed complete candidates, emits versioned progress, and checks cancellation
@@ -749,9 +749,9 @@ separate state and retains its existing lifecycle.
 Its progress result preserves full `ImageMetadata` (authoritative occurrences
 plus compatibility metadata), complete targets and reconciliation decisions.
 `persisted_draft_entries` is null for no successful map change, empty when the
-file key was removed, and non-empty for exact retained/replaced entries. Add
-Property has the production caller/listener and state integration;
-target-aware logging remains pending and other producers stay schema v4.
+file key was removed, and non-empty for exact retained/replaced entries. All
+schema-v5 operations have production caller/listener and state integration;
+target-aware logging remains pending and generated producers stay schema v4.
 
 A frontend apply adapter accepts every command result and versioned
 event payload as `unknown`, then strictly validates complete nested targets,
@@ -775,7 +775,8 @@ authoritative protocol data.
 
 The events carry no operation ID because the backend permits only one active v5
 apply. The production target store, `AppState`, and React controller use the
-adapter for Add Property; legacy producers remain v4.
+adapter for every target-aware draft; persisted legacy drafts and generated
+producers remain v4.
 
 The frontend also has a pure v5 result preparation and store-application
 layer. Its flow is `strict result → clone and prepare exact candidates → replace
@@ -861,7 +862,7 @@ remain schema v4 during the controlled bridge.
 - **Bag / Seq / Alt** — XMP list types: unordered, ordered, alternatives.
 - **EditIntent** — `Set` / `Delete` / `ListAdd` / `ListRemove`. Determines the exiftool operator (`=`, `+=`, `-=`).
 
-## First production schema-v5 format owner
+## Production schema-v5 format ownership
 
 Add New Property now writes `MetadataDraftEntryV5` records in production. Its
 target is `NewProperty { schema_id }`, preserving the exact schema definition
@@ -878,10 +879,10 @@ with duplicate file/schema ownership rejected before execution.
 Target persistence availability is folder-scoped. Strict load success,
 including a missing file represented as a valid empty map, produces `ready`.
 Strict load failure produces `load-failed(error)` and makes v5 persistence
-read-only for that session: target mutations, v5 autosave, v5 apply, and Add
-Property are blocked, while the invalid file remains untouched and v4 actions
-continue. Fixing the file and reopening the folder is required to regain v5
-writability.
+read-only for that session: target mutations, v5 autosave, v5 apply, Add
+Property, manual rows, GPS, group removal, and selected-photo removal are
+blocked, while the invalid file remains untouched and v4 actions continue.
+Fixing the file and reopening the folder is required to regain v5 writability.
 
 Add Property treats every exact target-aware schema as owned. One existing
 `NewProperty` remains the editable logical slot; any `ExistingOccurrence` or
@@ -928,10 +929,21 @@ collapse occurrence targets. Migration of those remaining producers is pending.
 The pure manual-removal planner consumes exact schema IDs, authoritative
 occurrences, and both draft collections. It clones its plan and never invents a
 target snapshot. Unique writable occurrences yield exact `ExistingOccurrence`
-Delete upserts. A missing schema with no owner is a no-op; one exact
-`NewProperty` owner deletes that creation slot. Multiple occurrences,
-persisted v4 ownership, missing runtime targetability, and stale, incompatible,
-or multiple v5 owners reject the complete request.
+Delete upserts. An identical exact Delete remains staged as a no-op, while Set
+or list edits on the same exact target are replaced by Delete. A missing schema
+with no owner is a no-op; one exact `NewProperty` owner cancels that pending
+creation. Unknown occurrences remain read-only through their own presentation
+and never influence missing-schema planning through tag ID, path, friendly
+name, group, or value shape. Multiple occurrences, persisted v4 ownership,
+missing runtime targetability, and stale, incompatible, or multiple v5 owners
+reject the complete request.
+
+Single-file and group previews derive their counts from this planner. The
+selected-photo preview deduplicates paths, requires ready v5 persistence, and
+stops at the first unsafe path without mutating either store. Confirmation
+distinguishes exact Delete upserts from cancelled NewProperty additions and
+counts absent fields and identical Deletes as no-ops. Execution always re-plans
+after confirmation rather than treating the preview as authorisation.
 
 The mixed target mutation API validates complete deletion and replacement
 snapshots, logical-slot uniqueness, and delete/upsert conflicts for every file

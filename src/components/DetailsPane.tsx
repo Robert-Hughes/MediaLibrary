@@ -78,7 +78,7 @@ import {
 } from "../utils/metadataDraftTarget";
 import { metadataOccurrenceIdToken } from "../utils/metadataOccurrenceId";
 import { planGpsTargetDraftBatchV5 } from "../gpsTargetDrafts";
-import { planMetadataRemovalTargetsV5 } from "../metadataRemovalTargets";
+import { previewMetadataRemovalTargetsV5 } from "../metadataRemovalTargets";
 
 type ExistingOccurrenceTarget = Extract<
   MetadataDraftTarget,
@@ -750,41 +750,37 @@ function DetailsGroupContextMenu({
   const removalPreview = useMemo(() => {
     if (targetDraftPersistence.status !== "ready") {
       return {
-        count: 0,
         blocked:
           "Group removal is unavailable because schema-v5 draft persistence did not load safely.",
       };
     }
     if (!Array.isArray(occurrences)) {
       return {
-        count: 0,
         blocked:
           "Authoritative metadata occurrences are still loading. Retry after this photo has finished loading.",
       };
     }
-    if (removalIds.length === 0) return { count: 0 };
-    const plan = (schemaIds: readonly SchemaDefinitionId[]) =>
-      planMetadataRemovalTargetsV5({
-        schemaIds,
-        occurrences,
-        legacyDrafts,
-        targetDrafts: targetDraftEdits,
-      });
-    try {
-      const result = plan(removalIds);
-      return { count: result.upserts.length + result.deletes.length };
-    } catch (error) {
-      let count = 0;
-      for (const id of removalIds) {
-        try {
-          const result = plan([id]);
-          count += result.upserts.length + result.deletes.length;
-        } catch {
-          // Unsafe fields are intentionally excluded from the action count.
-        }
-      }
+    if (removalIds.length === 0) {
       return {
-        count,
+        preview: {
+          existingFieldsToDelete: 0,
+          stagedCreationsToCancel: 0,
+          noOpFields: 0,
+          affectedCount: 0,
+        },
+      };
+    }
+    try {
+      return {
+        preview: previewMetadataRemovalTargetsV5({
+          schemaIds: removalIds,
+          occurrences,
+          legacyDrafts,
+          targetDrafts: targetDraftEdits,
+        }),
+      };
+    } catch (error) {
+      return {
         blocked: error instanceof Error ? error.message : String(error),
       };
     }
@@ -796,7 +792,7 @@ function DetailsGroupContextMenu({
     targetDraftPersistence.status,
   ]);
 
-  const removeCount = removalPreview.count;
+  const removeCount = removalPreview.preview?.affectedCount ?? 0;
   const draftCount = legacyDraftKeys.length + targetDraftTargets.length;
   const showRemove =
     removalIds.length > 0 &&
@@ -815,7 +811,10 @@ function DetailsGroupContextMenu({
     }
     const confirmed = await confirmRemoveMetadataGroupFields({
       group,
-      fieldCount: removeCount,
+      existingFieldsToDelete:
+        removalPreview.preview?.existingFieldsToDelete ?? 0,
+      stagedCreationsToCancel:
+        removalPreview.preview?.stagedCreationsToCancel ?? 0,
     });
     if (confirmed) {
       onRemoveMetadataFieldsV5?.(removalIds);

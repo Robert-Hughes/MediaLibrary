@@ -14,7 +14,7 @@ import {
   type MediaLibraryActions,
 } from "./useMediaLibrary";
 import { ThumbnailStore, ImageMetadataStore } from "./types";
-import type { AppState } from "./types";
+import type { AppState, SchemaDefinitionId } from "./types";
 import { WelcomeScreen } from "./components/WelcomeScreen";
 import { MenuBar } from "./components/MenuBar";
 import { PhotoList } from "./components/PhotoList";
@@ -51,6 +51,7 @@ import { listSearchQueryIsActive } from "./utils/listSearchText";
 import { computeEffectiveMetadataKeyFrequency } from "./utils/metadataKeyFrequency";
 import { verificationDialogToShow } from "./utils/verificationDialogPolicy";
 import { useSearchWorker, createSearchWorker } from "./hooks/useSearchWorker";
+import { previewMetadataRemovalFilesV5 } from "./metadataRemovalTargets";
 import "./App.css";
 
 const tauriApi: TauriApi = {
@@ -281,6 +282,24 @@ function LoadedView({
     setListSearchQuery("has:edits");
   }, []);
 
+  const previewRemoveFieldFromPhotos = useCallback(
+    (schemaId: SchemaDefinitionId, relativePaths: string[]) =>
+      previewMetadataRemovalFilesV5({
+        schemaId,
+        relativePaths,
+        targetDraftPersistence: state.targetDraftPersistence,
+        occurrencesForPath: (path) => state.imageMetadataOccurrences.get(path),
+        legacyDraftsForPath: (path) => state.draftEdits[path],
+        targetDraftsForPath: (path) => state.targetDraftEdits[path],
+      }),
+    [
+      state.draftEdits,
+      state.imageMetadataOccurrences,
+      state.targetDraftEdits,
+      state.targetDraftPersistence,
+    ],
+  );
+
   /**
    * Resolve the GPS payload for a set of rel-paths into the shape
    * the geocode_images_cmd expects. The frontend owns the
@@ -384,8 +403,9 @@ function LoadedView({
         }}
         onCopyPaths={onCopyPaths}
         onSelectionCountChange={setSelectionCount}
+        onPreviewRemoveFieldFromSelectedPhotos={previewRemoveFieldFromPhotos}
         onRemoveFieldFromSelectedPhotos={(id, relPaths) => {
-          actions.removeMetadataFieldFromFilesV5(id, relPaths);
+          return actions.removeMetadataFieldFromFilesV5(id, relPaths);
         }}
       />
       {state.galleryIndex !== null && displayPhotos.length > 0 && (

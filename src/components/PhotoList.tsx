@@ -20,15 +20,18 @@ import {
 import { useRowSelection } from "../hooks/useRowSelection";
 import { PhotoListContextMenu } from "./PhotoListContextMenu";
 import { selectVisibleNeedingLoad } from "../utils/photoListHelpers";
-import { confirmRemoveFieldFromPhotos } from "../utils/removeFieldPrompts";
-import { metadataValueToDisplayString } from "../draft";
+import {
+  confirmRemoveFieldFromPhotos,
+  showMetadataRemovalPreviewBlocked,
+  showNoMetadataRemovalNeeded,
+} from "../utils/removeFieldPrompts";
 import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
 import { useTagInfos } from "../hooks/useTagInfo";
 import {
   visibleColumnToken,
   sortKeyMatchesColumn,
 } from "../utils/columnIdentity";
-import { metadataGet } from "../utils/metadataCollection";
+import type { MetadataRemovalFilesPreviewV5 } from "../metadataRemovalTargets";
 
 export type ColumnContextTarget =
   | { kind: "path"; key: "relative_path"; label: "Path" }
@@ -80,7 +83,11 @@ interface Props {
   onRemoveFieldFromSelectedPhotos?: (
     id: SchemaDefinitionId,
     relativePaths: string[],
-  ) => void;
+  ) => boolean;
+  onPreviewRemoveFieldFromSelectedPhotos?: (
+    id: SchemaDefinitionId,
+    relativePaths: string[],
+  ) => MetadataRemovalFilesPreviewV5;
 }
 
 const DEFAULT_PREVIEW_COL_WIDTH = 52;
@@ -346,6 +353,7 @@ export function PhotoList({
   onCopyPaths,
   onSelectionCountChange,
   onRemoveFieldFromSelectedPhotos,
+  onPreviewRemoveFieldFromSelectedPhotos,
 }: Props) {
   const listRef = useRef<HTMLDivElement>(null);
   const visibleRef = useRef<Set<string>>(new Set());
@@ -506,42 +514,6 @@ export function PhotoList({
     };
   }
 
-  function hasEffectiveFieldValue(
-    relPath: string,
-    id: SchemaDefinitionId,
-  ): boolean {
-    const fileDrafts = draftEdits[relPath];
-    const edit = fileDrafts?.[schemaDefinitionIdToken(id)]?.edit;
-    if (edit !== undefined && edit !== null) {
-      if (edit.intent === "Delete") {
-        return false;
-      }
-      if (edit.intent === "Set") {
-        if (edit.value === null) {
-          return false;
-        }
-        const displayStr =
-          edit.display ?? metadataValueToDisplayString(edit.value);
-        return displayStr !== "";
-      }
-      if (edit.intent === "ListAdd" || edit.intent === "ListRemove") {
-        if (edit.value !== null && edit.value.kind !== "Null") {
-          return true;
-        }
-      }
-    }
-
-    const meta = imageMetadata.get(relPath);
-    if (meta === "loading") {
-      return false;
-    }
-    const val = metadataGet(meta, id);
-    if (val === undefined || val === null || val.kind === "Null") {
-      return false;
-    }
-    return true;
-  }
-
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
@@ -567,12 +539,18 @@ export function PhotoList({
       e.preventDefault();
       e.stopPropagation();
       const canOpenColumnMenu =
-        Boolean(onSelectColumns) || Boolean(onRemoveFieldFromSelectedPhotos);
+        Boolean(onSelectColumns) ||
+        (Boolean(onRemoveFieldFromSelectedPhotos) &&
+          Boolean(onPreviewRemoveFieldFromSelectedPhotos));
       if (canOpenColumnMenu) {
         setColumnContextMenu({ x: e.clientX, y: e.clientY, target });
       }
     },
-    [onSelectColumns, onRemoveFieldFromSelectedPhotos],
+    [
+      onSelectColumns,
+      onRemoveFieldFromSelectedPhotos,
+      onPreviewRemoveFieldFromSelectedPhotos,
+    ],
   );
 
   const handleColumnClick = useCallback(
@@ -744,15 +722,13 @@ export function PhotoList({
             columnContextMenu.target.kind === "image"
               ? columnContextMenu.target.id
               : null;
-          const presentCount = id
-            ? scope.paths.filter((p) => hasEffectiveFieldValue(p, id)).length
-            : 0;
 
           const options = [];
           if (
             columnContextMenu.target.kind === "image" &&
             id &&
             onRemoveFieldFromSelectedPhotos &&
+            onPreviewRemoveFieldFromSelectedPhotos &&
             scope.paths.length > 0
           ) {
             const photoNoun = scope.paths.length === 1 ? "photo" : "photos";
@@ -764,10 +740,33 @@ export function PhotoList({
             options.push({
               label,
               onClick: async () => {
+                const preview = onPreviewRemoveFieldFromSelectedPhotos(
+                  id,
+                  scope.paths,
+                );
+                if (preview.kind === "blocked") {
+                  await showMetadataRemovalPreviewBlocked({
+                    tag: columnContextMenu.target.label,
+                    relativePath: preview.relativePath,
+                    reason: preview.reason,
+                  });
+                  setColumnContextMenu(null);
+                  return;
+                }
+                if (
+                  preview.existingFieldsToDelete +
+                    preview.stagedCreationsToCancel ===
+                  0
+                ) {
+                  await showNoMetadataRemovalNeeded(
+                    columnContextMenu.target.label,
+                  );
+                  setColumnContextMenu(null);
+                  return;
+                }
                 const confirmed = await confirmRemoveFieldFromPhotos({
                   tag: columnContextMenu.target.label,
-                  photoCount: scope.paths.length,
-                  presentCount,
+                  preview,
                   scope: scope.scope,
                 });
                 if (confirmed) {
