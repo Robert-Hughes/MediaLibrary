@@ -1399,6 +1399,33 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
     });
   }
 
+  function expectZeroSouthWestEdits(
+    edits: Array<{ id: SchemaDefinitionId; edit: MetadataDraftEdit }>,
+  ) {
+    const editFor = (id: SchemaDefinitionId) =>
+      edits.find(
+        (entry) =>
+          schemaDefinitionIdToken(entry.id) === schemaDefinitionIdToken(id),
+      )?.edit;
+
+    expect(editFor(testId("GPS:GPSLatitude"))).toMatchObject({
+      intent: "Set",
+      value: { kind: "Real", value: 0 },
+    });
+    expect(editFor(testId("GPS:GPSLatitudeRef"))).toMatchObject({
+      intent: "Set",
+      value: { kind: "Text", value: "S" },
+    });
+    expect(editFor(testId("GPS:GPSLongitude"))).toMatchObject({
+      intent: "Set",
+      value: { kind: "Real", value: 0 },
+    });
+    expect(editFor(testId("GPS:GPSLongitudeRef"))).toMatchObject({
+      intent: "Set",
+      value: { kind: "Text", value: "W" },
+    });
+  }
+
   it("shows both GPS edit actions while an unresolved non-GPS row stays read-only", async () => {
     const metadata = mockMetadata({
       "GPS:GPSLatitude": 51.5,
@@ -1537,6 +1564,111 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
         expect(screen.queryByTestId("gps-editor-overlay")).toBeNull();
       });
     }
+  });
+
+  it("preserves authoritative S/W references when zero GPS is opened and saved unchanged", async () => {
+    const metadata = mockMetadata({
+      "GPS:GPSLatitude": 0,
+      "GPS:GPSLatitudeRef": "S",
+      "GPS:GPSLongitude": 0,
+      "GPS:GPSLongitudeRef": "W",
+    });
+    const onSetMetadataDraftBatch = vi.fn();
+    const onSetGpsTargetDraftBatch = vi.fn(
+      (_edits: Array<{ id: SchemaDefinitionId; edit: MetadataDraftEdit }>) =>
+        true,
+    );
+    render(
+      <DetailsPane
+        onDiscardDraftBatch={vi.fn()}
+        photo={photo}
+        metadata={metadata}
+        occurrences={occurrencesFor(metadata)}
+        onSetMetadataDraftBatch={onSetMetadataDraftBatch}
+        onSetGpsTargetDraftBatch={onSetGpsTargetDraftBatch}
+      />,
+    );
+
+    openContextMenu("GPSLatitude");
+    fireEvent.click(screen.getByRole("button", { name: "Edit GPS…" }));
+
+    expect(await screen.findByTestId("gps-editor-lat-input")).toHaveValue(0);
+    expect(screen.getByTestId("gps-editor-lat-ref")).toHaveValue("S");
+    expect(screen.getByTestId("gps-editor-lon-input")).toHaveValue(0);
+    expect(screen.getByTestId("gps-editor-lon-ref")).toHaveValue("W");
+
+    fireEvent.click(screen.getByTestId("gps-editor-save"));
+
+    expect(onSetMetadataDraftBatch).not.toHaveBeenCalled();
+    expect(onSetGpsTargetDraftBatch).toHaveBeenCalledOnce();
+    expectZeroSouthWestEdits(onSetGpsTargetDraftBatch.mock.calls[0][0]);
+  });
+
+  it("preserves staged schema-v5 S/W references when zero GPS is opened and saved unchanged", async () => {
+    const metadata = mockMetadata({
+      "GPS:GPSLatitude": 0,
+      "GPS:GPSLatitudeRef": "N",
+      "GPS:GPSLongitude": 0,
+      "GPS:GPSLongitudeRef": "E",
+    });
+    const occurrences = occurrencesFor(metadata);
+    const planned = planGpsTargetDraftBatchV5(
+      [
+        {
+          id: testId("GPS:GPSLatitudeRef"),
+          edit: {
+            intent: "Set",
+            value: { kind: "Text", value: "S" },
+          },
+        },
+        {
+          id: testId("GPS:GPSLongitudeRef"),
+          edit: {
+            intent: "Set",
+            value: { kind: "Text", value: "W" },
+          },
+        },
+      ],
+      occurrences,
+      undefined,
+      undefined,
+    );
+    const targetDraftEdits: TargetDraftCollection = Object.fromEntries(
+      planned.map(({ target, edit }, index) => [
+        String(index),
+        { target, edit },
+      ]),
+    );
+    const onSetMetadataDraftBatch = vi.fn();
+    const onSetGpsTargetDraftBatch = vi.fn(
+      (_edits: Array<{ id: SchemaDefinitionId; edit: MetadataDraftEdit }>) =>
+        true,
+    );
+    render(
+      <DetailsPane
+        onDiscardDraftBatch={vi.fn()}
+        photo={photo}
+        metadata={metadata}
+        occurrences={occurrences}
+        targetDraftEdits={targetDraftEdits}
+        onSetMetadataDraftBatch={onSetMetadataDraftBatch}
+        onSetGpsTargetDraftBatch={onSetGpsTargetDraftBatch}
+      />,
+    );
+
+    openContextMenu("GPSLatitude");
+    fireEvent.click(screen.getByRole("button", { name: "Edit GPS…" }));
+
+    expect(await screen.findByTestId("gps-editor-lat-input")).toHaveValue(0);
+    expect(screen.getByTestId("gps-editor-lat-ref")).toHaveValue("S");
+    expect(screen.getByTestId("gps-editor-lon-input")).toHaveValue(0);
+    expect(screen.getByTestId("gps-editor-lon-ref")).toHaveValue("W");
+
+    fireEvent.click(screen.getByTestId("gps-editor-save"));
+
+    expect(onSetMetadataDraftBatch).not.toHaveBeenCalled();
+    expect(onSetGpsTargetDraftBatch).toHaveBeenCalledOnce();
+    expectZeroSouthWestEdits(onSetGpsTargetDraftBatch.mock.calls[0][0]);
   });
 
   it("keeps the composite editor open and saves nothing when a captured selector changes", async () => {
