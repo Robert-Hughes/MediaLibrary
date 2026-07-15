@@ -41,7 +41,7 @@ function props(
     loadImage: async () => "data:image/jpeg;base64,FAKE",
     imageMetadata,
     imageMetadataOccurrences,
-    onSetMetadataDraftBatch: vi.fn(),
+    onRemoveMetadataFieldsV5: vi.fn(),
     onDiscardDraftBatch: vi.fn(),
   };
 }

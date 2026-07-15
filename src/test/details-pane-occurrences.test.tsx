@@ -87,7 +87,7 @@ function renderPane(
 ) {
   const callbacks = {
     onSetExistingOccurrenceDraft: vi.fn(),
-    onSetMetadataDraftBatch: vi.fn(),
+    onRemoveMetadataFieldsV5: vi.fn(),
     onSetGpsTargetDraftBatch: vi.fn(() => true),
     onDiscardDraft: vi.fn(),
     onDiscardDraftBatch: vi.fn(),
@@ -151,7 +151,7 @@ describe("DetailsPane additional metadata occurrences", () => {
       collision[0].id,
       { intent: "Delete", value: null },
     );
-    expect(callbacks.onSetMetadataDraftBatch).not.toHaveBeenCalled();
+    expect(callbacks.onRemoveMetadataFieldsV5).not.toHaveBeenCalled();
   });
 
   it("uses the authoritative unique occurrence in both row and editor without duplicating it", () => {
@@ -252,7 +252,7 @@ describe("DetailsPane additional metadata occurrences", () => {
         photo={photo}
         metadata={{}}
         occurrences={collision}
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
       />,
     );
@@ -265,7 +265,7 @@ describe("DetailsPane additional metadata occurrences", () => {
         photo={photo}
         metadata={{}}
         occurrences={[]}
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
       />,
     );
@@ -409,7 +409,7 @@ describe("DetailsPane additional metadata occurrences", () => {
         value: { kind: "Integer", value: 302 },
       }),
     );
-    expect(view.onSetMetadataDraftBatch).not.toHaveBeenCalled();
+    expect(view.onRemoveMetadataFieldsV5).not.toHaveBeenCalled();
 
     const ambiguousRow = screen.getByText("2 occurrences").closest("tr")!;
     fireEvent.contextMenu(ambiguousRow);
@@ -544,7 +544,7 @@ describe("DetailsPane additional metadata occurrences", () => {
         name: /Discard 1 .* edit…/,
       }),
     ).toBeInTheDocument();
-    expect(screen.queryByText(/Remove .*writable/)).toBeNull();
+    expect(screen.getByText(/Remove .*writable/)).toBeDisabled();
 
     await userEvent.type(
       screen.getByTestId("details-search-input"),
@@ -573,12 +573,14 @@ describe("DetailsPane additional metadata occurrences", () => {
   });
 
   it("excludes ambiguous schemas from group Remove but retains group Discard", async () => {
-    const token = schemaDefinitionIdToken(schemaId);
     renderPane({
       metadata: metadataCollection([
         { id: schemaId, value: { kind: "Integer", value: 300 } },
       ]),
-      draftEdits: { [token]: "301" },
+      typedDraftEdits: draftCollection({
+        intent: "Set",
+        value: { kind: "Integer", value: 301 },
+      }),
     });
     const aggregate = screen.getByText("2 occurrences").closest("tr")!;
     fireEvent.contextMenu(aggregate.closest("section")!.querySelector("h3")!);
@@ -588,7 +590,7 @@ describe("DetailsPane additional metadata occurrences", () => {
         name: "Discard 1 Exif::Main edit…",
       }),
     ).toBeInTheDocument();
-    expect(screen.queryByText(/Remove .*writable/)).toBeNull();
+    expect(screen.getByText(/Remove .*writable/)).toBeDisabled();
   });
 
   it("searches ambiguity text and keeps only the aggregate draft for has:edits", async () => {

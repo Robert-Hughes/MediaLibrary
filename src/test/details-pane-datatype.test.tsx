@@ -78,7 +78,7 @@ describe("DetailsPane datatype badges", () => {
     );
     render(
       <DetailsPane
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={mockMetadata({ "XMP-dc:Description": "hi" })}
@@ -100,7 +100,7 @@ describe("DetailsPane datatype badges", () => {
     );
     render(
       <DetailsPane
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={mockMetadata({
@@ -130,7 +130,7 @@ describe("DetailsPane datatype badges", () => {
     };
     render(
       <DetailsPane
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={mockMetadata({ "XMP-dc:Description": "foo" })}
@@ -156,7 +156,7 @@ describe("DetailsPane datatype badges", () => {
     };
     render(
       <DetailsPane
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={mockMetadata({ "XMP-dc:Description": "foo" })}
@@ -186,7 +186,7 @@ describe("DetailsPane datatype badges", () => {
     };
     render(
       <DetailsPane
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={mockMetadata({
@@ -220,7 +220,7 @@ describe("DetailsPane datatype badges", () => {
     );
     render(
       <DetailsPane
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={mockMetadata({
@@ -246,7 +246,7 @@ describe("DetailsPane datatype badges", () => {
     );
     render(
       <DetailsPane
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={mockMetadata({ "ExifIFD:ISO": "100" })}
@@ -270,7 +270,7 @@ describe("DetailsPane datatype badges", () => {
     );
     render(
       <DetailsPane
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={mockMetadata({ "XMP-dc:Subject": ["a", "b"] })}
@@ -291,7 +291,7 @@ describe("DetailsPane datatype badges", () => {
     );
     render(
       <DetailsPane
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={mockMetadata({ "XMP-dc:Subject": "a" })}
@@ -318,7 +318,7 @@ describe("DetailsPane datatype badges", () => {
     };
     render(
       <DetailsPane
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={mockMetadata({ "XMP-dc:Subject": ["a"] })}
@@ -342,7 +342,7 @@ describe("DetailsPane datatype badges", () => {
     _setTagInfoCacheEntry("Made-Up:Thing", null);
     render(
       <DetailsPane
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={mockMetadata({ "Made-Up:Thing": "x" })}
@@ -364,7 +364,7 @@ describe("DetailsPane datatype badges", () => {
     };
     render(
       <DetailsPane
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={mockMetadata({ "Made-Up:Thing": "x" })}
@@ -388,7 +388,7 @@ describe("DetailsPane datatype badges", () => {
     };
     render(
       <DetailsPane
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={mockMetadata({ "Made-Up:Thing": "x" })}
@@ -415,7 +415,7 @@ describe("DetailsPane datatype badges", () => {
     };
     render(
       <DetailsPane
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={{} as Record<string, ImageMetadataEntry>}
@@ -442,7 +442,7 @@ describe("DetailsPane datatype badges", () => {
     };
     render(
       <DetailsPane
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={mockMetadata({ "XMP-dc:Description": "foo" })}
@@ -468,7 +468,7 @@ describe("DetailsPane datatype badges", () => {
     };
     render(
       <DetailsPane
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={{} as Record<string, ImageMetadataEntry>}
@@ -491,7 +491,7 @@ describe("DetailsPane datatype badges", () => {
     );
     render(
       <DetailsPane
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={mockMetadata({ "XMP-x:Flag": true })}
@@ -515,7 +515,7 @@ describe("DetailsPane datatype badges", () => {
     };
     render(
       <DetailsPane
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={mockMetadata({ "XMP-x:Aperture": 1.5 })}
@@ -542,7 +542,7 @@ describe("DetailsPane datatype badges", () => {
     );
     render(
       <DetailsPane
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={mockMetadata({ "IFD0:Make": "Canon" })}
@@ -561,7 +561,7 @@ describe("DetailsPane datatype badges", () => {
     );
     render(
       <DetailsPane
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={mockMetadata({ "XMP-dc:Description": "hi" })}
@@ -577,7 +577,7 @@ describe("DetailsPane datatype badges", () => {
     _setTagInfoCacheEntry("Made-Up:Thing", null);
     render(
       <DetailsPane
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={mockMetadata({ "Made-Up:Thing": "x" })}
@@ -591,7 +591,7 @@ describe("DetailsPane datatype badges", () => {
   it("OS section rows never render a schema badge", () => {
     render(
       <DetailsPane
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={{}}
@@ -609,7 +609,7 @@ describe("DetailsPane datatype badges", () => {
     );
     render(
       <DetailsPane
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={mockMetadata({ "File:FileType": "JPEG" })}
@@ -626,7 +626,7 @@ describe("DetailsPane datatype badges", () => {
   it("OS section value cells are always rendered read-only", () => {
     render(
       <DetailsPane
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={{}}

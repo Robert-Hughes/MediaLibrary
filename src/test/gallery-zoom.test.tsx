@@ -11,7 +11,7 @@ const fakeLoad = async (_path: string) => "data:image/jpeg;base64,FAKE";
 function renderGallery(
   overrides: Partial<ComponentProps<typeof GalleryView>> = {},
 ) {
-  const onSetMetadataDraftBatch = vi.fn();
+  const onRemoveMetadataFieldsV5 = vi.fn();
   const onDiscardDraftBatch = vi.fn();
 
   const props = {
@@ -27,8 +27,8 @@ function renderGallery(
   return render(
     <GalleryView
       {...props}
-      onSetMetadataDraftBatch={
-        overrides.onSetMetadataDraftBatch ?? onSetMetadataDraftBatch
+      onRemoveMetadataFieldsV5={
+        overrides.onRemoveMetadataFieldsV5 ?? onRemoveMetadataFieldsV5
       }
       onDiscardDraftBatch={overrides.onDiscardDraftBatch ?? onDiscardDraftBatch}
     />,
@@ -116,7 +116,7 @@ describe("Gallery Zoom and Pan", () => {
   it("resets zoom and pan when navigating to a different photo", async () => {
     const onClose = vi.fn();
     const onNavigate = vi.fn();
-    const onSetMetadataDraftBatch = vi.fn();
+    const onRemoveMetadataFieldsV5 = vi.fn();
     const onDiscardDraftBatch = vi.fn();
 
     const { rerender } = render(
@@ -127,7 +127,7 @@ describe("Gallery Zoom and Pan", () => {
         onClose={onClose}
         onNavigate={onNavigate}
         loadImage={fakeLoad}
-        onSetMetadataDraftBatch={onSetMetadataDraftBatch}
+        onRemoveMetadataFieldsV5={onRemoveMetadataFieldsV5}
         onDiscardDraftBatch={onDiscardDraftBatch}
       />,
     );
@@ -147,7 +147,7 @@ describe("Gallery Zoom and Pan", () => {
         onClose={onClose}
         onNavigate={onNavigate}
         loadImage={fakeLoad}
-        onSetMetadataDraftBatch={onSetMetadataDraftBatch}
+        onRemoveMetadataFieldsV5={onRemoveMetadataFieldsV5}
         onDiscardDraftBatch={onDiscardDraftBatch}
       />,
     );

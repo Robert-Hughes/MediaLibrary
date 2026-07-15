@@ -57,7 +57,7 @@ describe("DetailsPane: Reverse Geocode button", () => {
     const onGeocode = vi.fn();
     render(
       <DetailsPane
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={{}}
@@ -70,7 +70,7 @@ describe("DetailsPane: Reverse Geocode button", () => {
   it("does not render the button when onGeocode is not provided", () => {
     render(
       <DetailsPane
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={{}}
@@ -84,7 +84,7 @@ describe("DetailsPane: Reverse Geocode button", () => {
     const user = userEvent.setup();
     render(
       <DetailsPane
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={mockMetadata({
@@ -107,7 +107,7 @@ describe("DetailsPane: Reverse Geocode button", () => {
     const user = userEvent.setup();
     render(
       <DetailsPane
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={mockMetadata({ "XMP-iptcCore:Location": "Existing Place" })}
@@ -125,7 +125,7 @@ describe("DetailsPane: Reverse Geocode button", () => {
     const user = userEvent.setup();
     render(
       <DetailsPane
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={{}}

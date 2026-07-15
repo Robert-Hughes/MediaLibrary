@@ -59,14 +59,8 @@ import {
 import { GpsMapOverview } from "./GpsMapOverview";
 import { resolveEffectiveGpsForFile } from "../utils/effectiveGps";
 import { buildEffectiveMetadata } from "../utils/buildNormaliseItems";
-import {
-  metadataGet,
-  type MetadataCollection,
-} from "../utils/metadataCollection";
-import type {
-  SchemaOccurrenceResolution,
-  SchemaOccurrenceResolutionIndex,
-} from "../utils/metadataOccurrences";
+import { metadataGet } from "../utils/metadataCollection";
+import type { SchemaOccurrenceResolution } from "../utils/metadataOccurrences";
 import {
   buildSchemaOccurrenceResolutionIndex,
   resolveExactMetadataOccurrence,
@@ -84,6 +78,7 @@ import {
 } from "../utils/metadataDraftTarget";
 import { metadataOccurrenceIdToken } from "../utils/metadataOccurrenceId";
 import { planGpsTargetDraftBatchV5 } from "../gpsTargetDrafts";
+import { planMetadataRemovalTargetsV5 } from "../metadataRemovalTargets";
 
 type ExistingOccurrenceTarget = Extract<
   MetadataDraftTarget,
@@ -141,10 +136,7 @@ interface Props {
     occurrenceId: MetadataOccurrenceId,
     edit: MetadataDraftEdit,
   ) => void;
-  /** Batch setter for paired-tag editors (GPS). */
-  onSetMetadataDraftBatch: (
-    edits: Array<{ id: SchemaDefinitionId; edit: MetadataDraftEdit }>,
-  ) => void;
+  onRemoveMetadataFieldsV5?: (ids: SchemaDefinitionId[]) => boolean;
   onSetGpsTargetDraftBatch?: (
     edits: Array<{ id: SchemaDefinitionId; edit: MetadataDraftEdit }>,
   ) => boolean;
@@ -155,6 +147,7 @@ interface Props {
   onDiscardTargetPropertyDraft?: (target: MetadataDraftTarget) => void;
   onDiscardDraft?: (id: SchemaDefinitionId) => void;
   onDiscardDraftBatch: (ids: SchemaDefinitionId[]) => void;
+  onDiscardTargetDraftBatch?: (targets: MetadataDraftTarget[]) => boolean;
   onDiscardAllEdits?: () => void;
   onApplyEdits?: () => void;
   /**
@@ -683,12 +676,13 @@ function DetailsRowContextMenu({
 
 function DetailsGroupContextMenu({
   contextMenu,
-  originalMetadata,
-  draftEdits,
-  occurrenceResolutionIndex,
+  occurrences,
+  legacyDrafts,
   targetDraftEdits,
-  onSetMetadataDraftBatch,
+  targetDraftPersistence,
+  onRemoveMetadataFieldsV5,
   onDiscardDraftBatch,
+  onDiscardTargetDraftBatch,
   onBlocked,
   onClose,
 }: {
@@ -698,84 +692,124 @@ function DetailsGroupContextMenu({
     group: string;
     entries: MetadataEntry[];
   };
-  originalMetadata: MetadataCollection | undefined;
-  draftEdits: Record<string, string | null>;
-  occurrenceResolutionIndex: SchemaOccurrenceResolutionIndex;
+  occurrences: ImageMetadataOccurrencesState | undefined;
+  legacyDrafts: MetadataDraftCollection | undefined;
   targetDraftEdits: TargetDraftCollection | undefined;
-  onSetMetadataDraftBatch: (
-    edits: Array<{ id: SchemaDefinitionId; edit: MetadataDraftEdit }>,
-  ) => void;
+  targetDraftPersistence: TargetDraftPersistenceStateV5;
+  onRemoveMetadataFieldsV5?: (ids: SchemaDefinitionId[]) => boolean;
   onDiscardDraftBatch: (ids: SchemaDefinitionId[]) => void;
+  onDiscardTargetDraftBatch?: (targets: MetadataDraftTarget[]) => boolean;
   onBlocked: (message: string) => void;
   onClose: () => void;
 }) {
   const group = contextMenu.group;
   const ids = useMemo(
-    () => contextMenu.entries.map((e) => e.id),
+    () =>
+      Array.from(
+        new Map(
+          contextMenu.entries.map((entry) => [
+            schemaDefinitionIdToken(entry.id),
+            entry.id,
+          ]),
+        ).values(),
+      ),
     [contextMenu.entries],
   );
-  const schemaLookupIds = useMemo(
-    () =>
-      ids.filter(
-        (id) =>
-          resolutionForSchema(occurrenceResolutionIndex, id).kind === "missing",
-      ),
-    [ids, occurrenceResolutionIndex],
+  const idTokens = useMemo(
+    () => new Set(ids.map(schemaDefinitionIdToken)),
+    [ids],
   );
-  const tagInfos = useTagInfos(schemaLookupIds);
-
-  const isLoading = schemaLookupIds.some(
-    (id) => tagInfos[schemaDefinitionIdToken(id)] === "loading",
-  );
-
-  const removableKeys = useMemo(() => {
-    if (isLoading) return [];
+  const removalIds = useMemo(() => {
+    if (!Array.isArray(occurrences)) return ids;
+    const index = buildSchemaOccurrenceResolutionIndex(occurrences);
     return ids.filter((id) => {
-      const resolution = resolutionForSchema(occurrenceResolutionIndex, id);
-      switch (resolution.kind) {
-        case "multiple":
-          return false;
-        case "unique":
-          return resolution.occurrence.tag_info?.writable ?? false;
-        case "missing": {
-          const tag = tagInfos[schemaDefinitionIdToken(id)];
-          return tag === null || (tag !== "loading" && tag.writable);
+      const resolution = resolutionForSchema(index, id);
+      return (
+        resolution.kind !== "unique" ||
+        (resolution.occurrence.tag_info?.writable ?? false)
+      );
+    });
+  }, [ids, occurrences]);
+  const legacyDraftKeys = useMemo(
+    () =>
+      Object.values(legacyDrafts ?? {})
+        .filter((entry) => idTokens.has(schemaDefinitionIdToken(entry.id)))
+        .map((entry) => entry.id),
+    [idTokens, legacyDrafts],
+  );
+  const targetDraftTargets = useMemo(
+    () =>
+      Object.values(targetDraftEdits ?? {})
+        .filter((entry) =>
+          idTokens.has(schemaDefinitionIdToken(entry.target.schema_id)),
+        )
+        .map((entry) => structuredClone(entry.target)),
+    [idTokens, targetDraftEdits],
+  );
+
+  const removalPreview = useMemo(() => {
+    if (targetDraftPersistence.status !== "ready") {
+      return {
+        count: 0,
+        blocked:
+          "Group removal is unavailable because schema-v5 draft persistence did not load safely.",
+      };
+    }
+    if (!Array.isArray(occurrences)) {
+      return {
+        count: 0,
+        blocked:
+          "Authoritative metadata occurrences are still loading. Retry after this photo has finished loading.",
+      };
+    }
+    if (removalIds.length === 0) return { count: 0 };
+    const plan = (schemaIds: readonly SchemaDefinitionId[]) =>
+      planMetadataRemovalTargetsV5({
+        schemaIds,
+        occurrences,
+        legacyDrafts,
+        targetDrafts: targetDraftEdits,
+      });
+    try {
+      const result = plan(removalIds);
+      return { count: result.upserts.length + result.deletes.length };
+    } catch (error) {
+      let count = 0;
+      for (const id of removalIds) {
+        try {
+          const result = plan([id]);
+          count += result.upserts.length + result.deletes.length;
+        } catch {
+          // Unsafe fields are intentionally excluded from the action count.
         }
       }
-    });
-  }, [ids, tagInfos, isLoading, occurrenceResolutionIndex]);
+      return {
+        count,
+        blocked: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }, [
+    legacyDrafts,
+    occurrences,
+    removalIds,
+    targetDraftEdits,
+    targetDraftPersistence.status,
+  ]);
 
-  const draftKeys = useMemo(() => {
-    return ids.filter(
-      (id) => draftEdits[schemaDefinitionIdToken(id)] !== undefined,
-    );
-  }, [ids, draftEdits]);
-
-  const removeCount = removableKeys.length;
-  const draftCount = draftKeys.length;
-  const hasTargetAwareGpsDraft =
-    group === "GPS" &&
-    Object.values(targetDraftEdits ?? {}).some(
-      (entry) => gpsMemberGroup(entry.target.schema_id) !== null,
-    );
+  const removeCount = removalPreview.count;
+  const draftCount = legacyDraftKeys.length + targetDraftTargets.length;
+  const showRemove =
+    removalIds.length > 0 &&
+    (removeCount > 0 || removalPreview.blocked !== undefined);
 
   useEffect(() => {
-    if (!isLoading && removeCount === 0 && draftCount === 0) {
-      onClose();
-    }
-  }, [isLoading, removeCount, draftCount, onClose]);
-
-  if (isLoading) return null;
-
-  if (removeCount === 0 && draftCount === 0) {
-    return null;
-  }
+    if (!showRemove && draftCount === 0) onClose();
+  }, [draftCount, onClose, showRemove]);
+  if (!showRemove && draftCount === 0) return null;
 
   const handleRemove = async () => {
-    if (hasTargetAwareGpsDraft) {
-      onBlocked(
-        "This GPS group contains target-aware drafts. Apply or discard those exact GPS drafts before creating a legacy group Remove operation.",
-      );
+    if (removalPreview.blocked) {
+      onBlocked(removalPreview.blocked);
       onClose();
       return;
     }
@@ -784,26 +818,7 @@ function DetailsGroupContextMenu({
       fieldCount: removeCount,
     });
     if (confirmed) {
-      const originalIds = removableKeys.filter(
-        (id) =>
-          originalMetadata && metadataGet(originalMetadata, id) !== undefined,
-      );
-      const draftOnlyIds = removableKeys.filter(
-        (id) =>
-          !originalMetadata || metadataGet(originalMetadata, id) === undefined,
-      );
-
-      if (originalIds.length > 0) {
-        const deleteEdits = originalIds.map((id) => ({
-          id,
-          edit: { value: null, intent: "Delete" as const },
-        }));
-        onSetMetadataDraftBatch(deleteEdits);
-      }
-
-      if (draftOnlyIds.length > 0) {
-        onDiscardDraftBatch(draftOnlyIds);
-      }
+      onRemoveMetadataFieldsV5?.(removalIds);
     }
     onClose();
   };
@@ -814,12 +829,16 @@ function DetailsGroupContextMenu({
       editCount: draftCount,
     });
     if (confirmed) {
-      onDiscardDraftBatch(draftKeys);
+      if (legacyDraftKeys.length > 0) onDiscardDraftBatch(legacyDraftKeys);
+      if (targetDraftTargets.length > 0) {
+        onDiscardTargetDraftBatch?.(targetDraftTargets);
+      }
     }
     onClose();
   };
 
   function formatRemoveGroupLabel(count: number, group: string): string {
+    if (count === 0) return `Remove writable ${group} fields…`;
     if (count === 1) {
       return `Remove 1 writable ${group} field…`;
     }
@@ -834,11 +853,13 @@ function DetailsGroupContextMenu({
   }
 
   const options = [
-    ...(removeCount > 0
+    ...(showRemove
       ? [
           {
             label: formatRemoveGroupLabel(removeCount, group),
             onClick: handleRemove,
+            disabled: removalPreview.blocked !== undefined,
+            title: removalPreview.blocked,
           },
         ]
       : []),
@@ -871,12 +892,13 @@ export function DetailsPane({
   targetDraftEdits,
   targetDraftPersistence = { status: "ready" },
   onSetExistingOccurrenceDraft,
-  onSetMetadataDraftBatch,
+  onRemoveMetadataFieldsV5,
   onSetGpsTargetDraftBatch,
   onSetNewPropertyDraft,
   onDiscardTargetPropertyDraft,
   onDiscardDraft,
   onDiscardDraftBatch,
+  onDiscardTargetDraftBatch,
   onDiscardAllEdits,
   onApplyEdits,
   onGenerateAiDescription,
@@ -2453,12 +2475,13 @@ export function DetailsPane({
             group: groupContextMenu.group,
             entries: fullGroupForMenu.entries,
           }}
-          originalMetadata={metadata !== "loading" ? metadata : undefined}
-          draftEdits={legacyDraftEdits}
-          occurrenceResolutionIndex={occurrenceResolutionIndex}
+          occurrences={occurrences}
+          legacyDrafts={typedDraftEdits}
           targetDraftEdits={targetDraftEdits}
-          onSetMetadataDraftBatch={onSetMetadataDraftBatch}
+          targetDraftPersistence={targetDraftPersistence}
+          onRemoveMetadataFieldsV5={onRemoveMetadataFieldsV5}
           onDiscardDraftBatch={onDiscardDraftBatch}
+          onDiscardTargetDraftBatch={onDiscardTargetDraftBatch}
           onBlocked={setEditDialogUnavailableMessage}
           onClose={() => setGroupContextMenu(null)}
         />

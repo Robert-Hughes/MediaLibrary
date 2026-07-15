@@ -33,7 +33,6 @@ import { useDescribeImages } from "./hooks/useDescribeImages";
 import { GeocodeProgressDialog } from "./components/GeocodeProgressDialog";
 import { useGeocodeImages } from "./hooks/useGeocodeImages";
 import { buildGeocodeRequestItemForFile } from "./utils/effectiveGps";
-import { schemaDefinitionIdToken } from "./utils/schemaDefinitionId";
 import type { GeocodeRequestItem, MetadataDraftEntry } from "./types";
 import { ALL_NORMALISE_GROUPS } from "./types";
 import { NormaliseProgressDialog } from "./components/NormaliseProgressDialog";
@@ -386,17 +385,7 @@ function LoadedView({
         onCopyPaths={onCopyPaths}
         onSelectionCountChange={setSelectionCount}
         onRemoveFieldFromSelectedPhotos={(id, relPaths) => {
-          // Temporary bridge boundary: bulk remove-field remains schema-v4.
-          for (const relPath of relPaths) {
-            const existing =
-              state.draftEdits[relPath]?.[schemaDefinitionIdToken(id)]?.edit;
-            if (existing?.intent === "Delete" && existing?.value === null) {
-              continue;
-            }
-            actions.setMetadataDraftBatch(relPath, [
-              { id, edit: { value: null, intent: "Delete" } },
-            ]);
-          }
+          actions.removeMetadataFieldFromFilesV5(id, relPaths);
         }}
       />
       {state.galleryIndex !== null && displayPhotos.length > 0 && (
@@ -419,12 +408,13 @@ function LoadedView({
           }
           targetDraftPersistence={state.targetDraftPersistence}
           onSetExistingOccurrenceDraft={actions.setExistingOccurrenceDraft}
-          onSetMetadataDraftBatch={actions.setMetadataDraftBatch}
+          onRemoveMetadataFieldsV5={actions.removeMetadataFieldsV5}
           onSetGpsTargetDraftBatch={actions.setGpsTargetDraftBatch}
           onSetNewPropertyDraft={actions.setNewPropertyDraft}
           onDiscardTargetPropertyDraft={actions.discardTargetPropertyDraft}
           onDiscardDraft={actions.discardDraftValue}
           onDiscardDraftBatch={actions.discardDraftValues}
+          onDiscardTargetDraftBatch={actions.discardTargetDraftValues}
           onDiscardAllEdits={actions.discardAllDraftEdits}
           onApplyEdits={(path) => actions.applyDraftEdits(path)}
           onGenerateAiDescription={(relPath) => {

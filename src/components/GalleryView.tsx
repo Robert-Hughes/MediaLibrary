@@ -54,10 +54,10 @@ interface Props {
     occurrenceId: MetadataOccurrenceId,
     edit: MetadataDraftEdit,
   ) => void;
-  onSetMetadataDraftBatch: (
+  onRemoveMetadataFieldsV5?: (
     fileRelativePath: string,
-    edits: Array<{ id: SchemaDefinitionId; edit: MetadataDraftEdit }>,
-  ) => void;
+    ids: SchemaDefinitionId[],
+  ) => boolean;
   onSetGpsTargetDraftBatch?: (
     fileRelativePath: string,
     edits: Array<{ id: SchemaDefinitionId; edit: MetadataDraftEdit }>,
@@ -76,6 +76,10 @@ interface Props {
     fileRelativePath: string,
     ids: SchemaDefinitionId[],
   ) => void;
+  onDiscardTargetDraftBatch?: (
+    fileRelativePath: string,
+    targets: MetadataDraftTarget[],
+  ) => boolean;
   onDiscardAllEdits?: (fileRelativePath: string) => void;
   onApplyEdits?: (fileRelativePath: string) => void;
   /** Trigger the AI-description flow for the currently-displayed photo. */
@@ -101,12 +105,13 @@ export function GalleryView({
   targetDraftEdits,
   targetDraftPersistence,
   onSetExistingOccurrenceDraft,
-  onSetMetadataDraftBatch,
+  onRemoveMetadataFieldsV5,
   onSetGpsTargetDraftBatch,
   onSetNewPropertyDraft,
   onDiscardTargetPropertyDraft,
   onDiscardDraft,
   onDiscardDraftBatch,
+  onDiscardTargetDraftBatch,
   onDiscardAllEdits,
   onApplyEdits,
   onGenerateAiDescription,
@@ -369,8 +374,8 @@ export function GalleryView({
                 edit,
               )
             }
-            onSetMetadataDraftBatch={(edits) =>
-              onSetMetadataDraftBatch(photo.relative_path, edits)
+            onRemoveMetadataFieldsV5={(ids) =>
+              onRemoveMetadataFieldsV5?.(photo.relative_path, ids) ?? false
             }
             onSetGpsTargetDraftBatch={(edits) =>
               onSetGpsTargetDraftBatch?.(photo.relative_path, edits) ?? false
@@ -384,6 +389,9 @@ export function GalleryView({
             onDiscardDraft={(id) => onDiscardDraft?.(photo.relative_path, id)}
             onDiscardDraftBatch={(ids) =>
               onDiscardDraftBatch(photo.relative_path, ids)
+            }
+            onDiscardTargetDraftBatch={(targets) =>
+              onDiscardTargetDraftBatch?.(photo.relative_path, targets) ?? false
             }
             onDiscardAllEdits={() => onDiscardAllEdits?.(photo.relative_path)}
             onApplyEdits={() => onApplyEdits?.(photo.relative_path)}

@@ -52,8 +52,9 @@ GPS editing now use v5 exact targets. Existing GPS fields use their unique
 authoritative occurrence targets; missing paired fields deliberately use
 `NewProperty`. The whole emitted batch validates before one store mutation.
 The composite editor captures all six destinations and refuses stale saves.
-Persisted v4 GPS drafts block the group until applied or discarded. Group/bulk
-operations and generated producers remain v4. Missing, untargetable,
+Persisted v4 GPS drafts block the group until applied or discarded. Manual
+group and selected-photo field removal use exact v5 targets; generated
+producers remain v4. Missing, untargetable,
 duplicate-ID, persistence-failed, and loading occurrences are read-only. GPS
 supplemental occurrences remain read-only. Combined apply
 remains v5 then v4 with the exact-schema cross-system guard, and ordinary plus
@@ -336,8 +337,8 @@ unique existing rows, and individual/composite GPS editing.
 Startup loads its v5 persistence before the independent schema-v4 map, and
 `AppState` exposes both. Exact ordinary Details Pane rows and verification
 consume `MetadataDraftTarget`; the search-worker counts both draft systems.
-Generic group/bulk and generated producers remain schema v4. Persisted v4 GPS
-drafts remain there without conversion.
+Generated producers remain schema v4. Persisted v4 GPS drafts remain there
+without conversion. Manual group and selected-photo field removal are v5.
 
 A v4 schema ID cannot be converted automatically into an existing-occurrence
 or new-property target without authoritative runtime context. In particular,
@@ -565,10 +566,32 @@ flight and keeps controller ownership and autosave suppression until the apply
 command resolves or rejects. `useMediaLibrary` owns the stable production
 instance and publishes its separate target/apply state. Target-aware
 verification covers all production schema-v5 operations, including exact
-ordinary existing-row editing. GPS and other legacy producers still use
-schema-v4 persistence, apply, and verification.
+ordinary existing-row editing. Persisted legacy drafts and generated producers
+still use schema-v4 persistence, apply, and verification.
 
 ## Temporary production v4/v5 editing bridge
+
+Manual group removal replans exact schema IDs against current authoritative
+occurrences immediately before mutation. Selected-photo field removal
+deduplicates paths and plans every selected file first; one unsafe file blocks
+the complete action and identifies that relative path. Missing or `loading`
+occurrence state never falls back to compatibility metadata, a visible column
+value, or a schema-v4 Delete.
+
+Existing fields upsert Delete on their complete `ExistingOccurrence` target.
+One exact `NewProperty` owner for a missing field is discarded, while no owner
+is a no-op. Multiple occurrences and unsafe, stale, or multiple owners block
+instead of first-selecting. Persisted v4 ownership also blocks until applied or
+discarded and is never converted. The atomic target mutation builds every file
+candidate before one notification, yielding one v5 autosave and no v4 save; a
+complete no-op saves nothing.
+
+Group Discard counts exact group members in both stores. Confirmation sends
+exact schema IDs to the v4 discard batch and already captured complete targets
+to the v5 discard batch. Each changed store saves only its own JSONL file.
+Generated AI, reverse-geocode, normalise, and other batch producers retain the
+explicit schema-v4 batch action. Details Pane and Gallery no longer carry that
+generic v4 setter.
 
 Production now owns one stable `TargetDraftEditsStore`, one
 `TargetDraftAutosaveGateV5`, and one `TargetApplyControllerV5`. Schema v4 owns

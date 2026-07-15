@@ -28,7 +28,7 @@ describe("GalleryView", () => {
   it("renders the current photo path in the caption", async () => {
     render(
       <GalleryView
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
         photos={PHOTOS}
         currentIndex={1}
@@ -45,7 +45,7 @@ describe("GalleryView", () => {
   it("shows counter with correct position", async () => {
     render(
       <GalleryView
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
         photos={PHOTOS}
         currentIndex={1}
@@ -64,7 +64,7 @@ describe("GalleryView", () => {
   it("shows the loaded image when loadImage resolves", async () => {
     render(
       <GalleryView
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
         photos={PHOTOS}
         currentIndex={0}
@@ -82,7 +82,7 @@ describe("GalleryView", () => {
     const onClose = vi.fn();
     render(
       <GalleryView
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
         photos={PHOTOS}
         currentIndex={0}
@@ -110,7 +110,7 @@ describe("GalleryView", () => {
     const onClose = vi.fn();
     render(
       <GalleryView
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
         photos={PHOTOS}
         currentIndex={0}
@@ -129,7 +129,7 @@ describe("GalleryView", () => {
     const onClose = vi.fn();
     render(
       <GalleryView
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
         photos={PHOTOS}
         currentIndex={0}

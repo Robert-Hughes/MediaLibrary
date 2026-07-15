@@ -54,6 +54,40 @@ import type {
   SchemaDefinitionId,
 } from "../types";
 
+function mockOccurrences(
+  values: Parameters<typeof mockMetadata>[0],
+  readOnly: string[] = [],
+): MetadataOccurrence[] {
+  return Object.values(mockMetadata(values)).map((entry, index) => {
+    const friendly = testFriendlyName(entry.id);
+    const separator = friendly.indexOf(":");
+    const group = separator < 0 ? "Other" : friendly.slice(0, separator);
+    const name = separator < 0 ? friendly : friendly.slice(separator + 1);
+    const value = { ...entry } as Record<string, unknown>;
+    delete value.id;
+    return {
+      id: {
+        document: null,
+        path: `TEST-${group}-${index}`,
+        tag_id: entry.id.tag_id,
+        copy: 0,
+      },
+      value: value as MetadataOccurrence["value"],
+      tag_info: {
+        id: structuredClone(entry.id),
+        group,
+        name,
+        writable: !readOnly.includes(friendly),
+        kind: { kind: "Text" },
+        description: null,
+      },
+      write_target: readOnly.includes(friendly)
+        ? null
+        : { group1: group, tag_name: name },
+    };
+  });
+}
+
 const groupImageMetadata = (metadata: Record<string, ImageMetadataEntry>) => {
   const infos = Object.fromEntries(
     Object.values(metadata).map((entry) => {
@@ -280,7 +314,7 @@ describe("DetailsPane component", () => {
   it("renders the OS metadata section with all photo properties", () => {
     render(
       <DetailsPane
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata="loading"
@@ -302,7 +336,7 @@ describe("DetailsPane component", () => {
   it('shows a loading state when metadata is "loading"', () => {
     render(
       <DetailsPane
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata="loading"
@@ -319,7 +353,7 @@ describe("DetailsPane component", () => {
   it("shows empty state when metadata has no keys", () => {
     render(
       <DetailsPane
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={{}}
@@ -343,7 +377,7 @@ describe("DetailsPane component", () => {
 
     render(
       <DetailsPane
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={metadata}
@@ -390,7 +424,7 @@ describe("DetailsPane component", () => {
 
     render(
       <DetailsPane
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={mockMetadata({ "IFD0:Orientation": 6 })}
@@ -409,7 +443,7 @@ describe("DetailsPane component", () => {
   it("has the Properties title", () => {
     render(
       <DetailsPane
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata="loading"
@@ -421,7 +455,7 @@ describe("DetailsPane component", () => {
   it("renders the action buttons in a sticky footer outside the scrolling body", () => {
     render(
       <DetailsPane
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={{}}
@@ -447,7 +481,7 @@ describe("DetailsPane component", () => {
     const user = userEvent.setup();
     render(
       <DetailsPane
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={{}}
@@ -463,7 +497,7 @@ describe("DetailsPane component", () => {
   it("omits the Show in File Explorer button when no callback is wired", () => {
     render(
       <DetailsPane
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={{}}
@@ -514,7 +548,7 @@ describe("DetailsPane: Generate-AI button", () => {
           "XMP-mlib:AIDescription": "older description",
         })}
         onGenerateAiDescription={onGenerate}
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
       />,
     );
@@ -536,7 +570,7 @@ describe("DetailsPane: Generate-AI button", () => {
         photo={photo}
         metadata={{} as Record<string, ImageMetadataEntry>}
         onGenerateAiDescription={onGenerate}
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
       />,
     );
@@ -588,7 +622,7 @@ describe("DetailsPane: Add-Property two-step flow", () => {
 
     render(
       <DetailsPane
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={{}}
@@ -658,7 +692,7 @@ describe("DetailsPane: Add-Property two-step flow", () => {
 
     render(
       <DetailsPane
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={{}}
@@ -708,7 +742,7 @@ describe("DetailsPane: Add-Property two-step flow", () => {
 
     render(
       <DetailsPane
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={{}}
@@ -770,7 +804,7 @@ describe("DetailsPane: target-aware Add Property drafts", () => {
         photo={photo}
         metadata={{}}
         targetDraftPersistence={{ status: "ready" }}
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
       />,
     );
@@ -807,7 +841,7 @@ describe("DetailsPane: target-aware Add Property drafts", () => {
           error: "malformed file",
         }}
         onSetExistingOccurrenceDraft={vi.fn()}
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
       />,
     );
@@ -880,7 +914,7 @@ describe("DetailsPane: target-aware Add Property drafts", () => {
         ]}
         targetDraftEdits={store.getMetadataFile("target.jpg")}
         targetDraftPersistence={{ status: "ready" }}
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
       />,
     );
@@ -934,7 +968,7 @@ describe("DetailsPane: target-aware Add Property drafts", () => {
         ]}
         targetDraftEdits={store.getMetadataFile("target.jpg")}
         onSetExistingOccurrenceDraft={onSetExistingOccurrenceDraft}
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
         onDiscardTargetPropertyDraft={onDiscardTargetPropertyDraft}
       />,
@@ -982,7 +1016,7 @@ describe("DetailsPane: target-aware Add Property drafts", () => {
         photo={photo}
         metadata={{}}
         targetDraftEdits={store.getMetadataFile("target.jpg")}
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
       />,
     );
@@ -1030,7 +1064,7 @@ describe("DetailsPane: read-only row context menu", () => {
 
     render(
       <DetailsPane
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={mockMetadata({ "IFD0:Make": "Canon" })}
@@ -1084,7 +1118,7 @@ describe("DetailsPane: read-only row context menu", () => {
 
     render(
       <DetailsPane
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={mockMetadata({ "IFD0:Make": "Canon" })}
@@ -1140,7 +1174,7 @@ describe("DetailsPane: read-only row context menu", () => {
 
     render(
       <DetailsPane
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={mockMetadata({ "IFD0:Make": "Canon" })}
@@ -1201,7 +1235,7 @@ describe("DetailsPane friendly search and exact identity", () => {
         photo={photo}
         metadata={metadata}
         typedDraftEdits={typedDraftEdits}
-        onSetMetadataDraftBatch={() => {}}
+        onRemoveMetadataFieldsV5={() => true}
         onDiscardDraftBatch={() => {}}
       />,
     );
@@ -1266,7 +1300,7 @@ describe("DetailsPane: Edit reopens with pending draft as the seed", () => {
 
     render(
       <DetailsPane
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={mockMetadata({ "IFD0:Orientation": 1 })}
@@ -1303,7 +1337,7 @@ describe("DetailsPane: Edit reopens with pending draft as the seed", () => {
 
     render(
       <DetailsPane
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={mockMetadata({ "XMP-xmp:Rating": 2 })}
@@ -1444,7 +1478,7 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
         occurrences={occurrencesFor(metadata).filter(
           (occurrence) => occurrence.tag_info?.id.table === "GPS::Main",
         )}
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onSetGpsTargetDraftBatch={vi.fn(() => true)}
       />,
     );
@@ -1486,7 +1520,7 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
 
     render(
       <DetailsPane
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={mockMetadata({
@@ -1507,7 +1541,7 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
     const metadata = mockMetadata({ "GPS:GPSLatitude": 53.983856 });
     render(
       <DetailsPane
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
         photo={photo}
         metadata={metadata}
@@ -1540,7 +1574,7 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
         photo={photo}
         metadata={metadata}
         occurrences={occurrencesFor(metadata)}
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onSetGpsTargetDraftBatch={vi.fn(() => true)}
       />,
     );
@@ -1573,7 +1607,7 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
       "GPS:GPSLongitude": 0,
       "GPS:GPSLongitudeRef": "W",
     });
-    const onSetMetadataDraftBatch = vi.fn();
+    const onRemoveMetadataFieldsV5 = vi.fn();
     const onSetGpsTargetDraftBatch = vi.fn(
       (_edits: Array<{ id: SchemaDefinitionId; edit: MetadataDraftEdit }>) =>
         true,
@@ -1584,7 +1618,7 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
         photo={photo}
         metadata={metadata}
         occurrences={occurrencesFor(metadata)}
-        onSetMetadataDraftBatch={onSetMetadataDraftBatch}
+        onRemoveMetadataFieldsV5={onRemoveMetadataFieldsV5}
         onSetGpsTargetDraftBatch={onSetGpsTargetDraftBatch}
       />,
     );
@@ -1599,7 +1633,7 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
 
     fireEvent.click(screen.getByTestId("gps-editor-save"));
 
-    expect(onSetMetadataDraftBatch).not.toHaveBeenCalled();
+    expect(onRemoveMetadataFieldsV5).not.toHaveBeenCalled();
     expect(onSetGpsTargetDraftBatch).toHaveBeenCalledOnce();
     expectZeroSouthWestEdits(onSetGpsTargetDraftBatch.mock.calls[0][0]);
   });
@@ -1639,7 +1673,7 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
         { target, edit },
       ]),
     );
-    const onSetMetadataDraftBatch = vi.fn();
+    const onRemoveMetadataFieldsV5 = vi.fn();
     const onSetGpsTargetDraftBatch = vi.fn(
       (_edits: Array<{ id: SchemaDefinitionId; edit: MetadataDraftEdit }>) =>
         true,
@@ -1651,7 +1685,7 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
         metadata={metadata}
         occurrences={occurrences}
         targetDraftEdits={targetDraftEdits}
-        onSetMetadataDraftBatch={onSetMetadataDraftBatch}
+        onRemoveMetadataFieldsV5={onRemoveMetadataFieldsV5}
         onSetGpsTargetDraftBatch={onSetGpsTargetDraftBatch}
       />,
     );
@@ -1666,7 +1700,7 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
 
     fireEvent.click(screen.getByTestId("gps-editor-save"));
 
-    expect(onSetMetadataDraftBatch).not.toHaveBeenCalled();
+    expect(onRemoveMetadataFieldsV5).not.toHaveBeenCalled();
     expect(onSetGpsTargetDraftBatch).toHaveBeenCalledOnce();
     expectZeroSouthWestEdits(onSetGpsTargetDraftBatch.mock.calls[0][0]);
   });
@@ -1684,7 +1718,7 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
       onDiscardDraftBatch: vi.fn(),
       photo,
       metadata,
-      onSetMetadataDraftBatch: vi.fn(),
+      onRemoveMetadataFieldsV5: vi.fn(),
       onSetGpsTargetDraftBatch,
     };
     const rendered = render(
@@ -1740,7 +1774,7 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
             display: "West",
           },
         })}
-        onSetMetadataDraftBatch={vi.fn()}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onSetGpsTargetDraftBatch={vi.fn(() => true)}
       />,
     );
@@ -1775,7 +1809,7 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
           metadata={metadata}
           occurrences={occurrences}
           targetDraftEdits={drafts}
-          onSetMetadataDraftBatch={vi.fn()}
+          onRemoveMetadataFieldsV5={vi.fn()}
           onSetGpsTargetDraftBatch={(
             edits: Array<{ id: SchemaDefinitionId; edit: MetadataDraftEdit }>,
           ) => {
@@ -2092,7 +2126,15 @@ describe("DetailsPane: Group context menu", () => {
           "GPS:GPSLongitude": -0.1,
           "GPS:GPSVersionID": "2.2.0.0",
         })}
-        onSetMetadataDraftBatch={onSetBatch}
+        occurrences={mockOccurrences(
+          {
+            "GPS:GPSLatitude": 51.5,
+            "GPS:GPSLongitude": -0.1,
+            "GPS:GPSVersionID": "2.2.0.0",
+          },
+          ["GPS:GPSVersionID"],
+        )}
+        onRemoveMetadataFieldsV5={onSetBatch}
         onDiscardDraftBatch={onDiscardBatch}
       />,
     );
@@ -2136,7 +2178,10 @@ describe("DetailsPane: Group context menu", () => {
         metadata={mockMetadata({
           "GPS:GPSVersionID": "2.2.0.0",
         })}
-        onSetMetadataDraftBatch={vi.fn()}
+        occurrences={mockOccurrences({ "GPS:GPSVersionID": "2.2.0.0" }, [
+          "GPS:GPSVersionID",
+        ])}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
       />,
     );
@@ -2189,7 +2234,21 @@ describe("DetailsPane: Group context menu", () => {
           "IFD0:Make": "Nikon",
           "IFD0:Model": "D850",
         })}
-        onSetMetadataDraftBatch={vi.fn()}
+        typedDraftEdits={mockDrafts({
+          "IFD0:Make": {
+            intent: "Set",
+            value: { kind: "Text", value: "Nikon" },
+          },
+          "IFD0:Model": {
+            intent: "Set",
+            value: { kind: "Text", value: "D850" },
+          },
+        })}
+        occurrences={mockOccurrences({
+          "IFD0:Make": "Canon",
+          "IFD0:Model": "5D",
+        })}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
       />,
     );
@@ -2238,7 +2297,11 @@ describe("DetailsPane: Group context menu", () => {
           "GPS:GPSLatitude": 51.5,
           "GPS:GPSLongitude": -0.1,
         })}
-        onSetMetadataDraftBatch={onSetBatch}
+        occurrences={mockOccurrences({
+          "GPS:GPSLatitude": 51.5,
+          "GPS:GPSLongitude": -0.1,
+        })}
+        onRemoveMetadataFieldsV5={onSetBatch}
         onDiscardDraftBatch={vi.fn()}
       />,
     );
@@ -2260,18 +2323,12 @@ describe("DetailsPane: Group context menu", () => {
     });
 
     expect(onSetBatch).toHaveBeenCalledWith([
-      {
-        id: testId("GPS:GPSLatitude"),
-        edit: { value: null, intent: "Delete" },
-      },
-      {
-        id: testId("GPS:GPSLongitude"),
-        edit: { value: null, intent: "Delete" },
-      },
+      testId("GPS:GPSLatitude"),
+      testId("GPS:GPSLongitude"),
     ]);
   });
 
-  it("Remove action discards draft-only fields", async () => {
+  it("legacy ownership blocks group Remove while retaining Discard", async () => {
     vi.resetModules();
     const { _setTagInfoCacheEntry, _clearTagInfoCache } =
       await import("./tagInfoTestHelpers");
@@ -2303,6 +2360,7 @@ describe("DetailsPane: Group context menu", () => {
         metadata={mockMetadata({
           "GPS:GPSLatitude": 51.5,
         })}
+        occurrences={mockOccurrences({ "GPS:GPSLatitude": 51.5 })}
         draftEdits={mockDisplayDrafts({
           "GPS:GPSAltitude": "100",
         })}
@@ -2312,7 +2370,7 @@ describe("DetailsPane: Group context menu", () => {
             value: { kind: "Real", value: 100 },
           },
         })}
-        onSetMetadataDraftBatch={onSetBatch}
+        onRemoveMetadataFieldsV5={onSetBatch}
         onDiscardDraftBatch={onDiscardBatch}
       />,
     );
@@ -2325,21 +2383,126 @@ describe("DetailsPane: Group context menu", () => {
     fireEvent.contextMenu(heading);
 
     const removeBtn = await screen.findByRole("button", {
-      name: "Remove all 2 writable GPS fields…",
+      name: "Remove 1 writable GPS field…",
     });
-    fireEvent.click(removeBtn);
+    expect(removeBtn).toBeDisabled();
+    expect(removeBtn).toHaveAttribute(
+      "title",
+      expect.stringMatching(/schema-v4/i),
+    );
+    expect(
+      screen.getByRole("button", { name: "Discard 1 GPS edit…" }),
+    ).toBeInTheDocument();
+    expect(onSetBatch).not.toHaveBeenCalled();
+    expect(onDiscardBatch).not.toHaveBeenCalled();
+  });
 
-    await waitFor(() => {
-      expect(askMock).toHaveBeenCalledTimes(1);
+  it("counts and discards exact group entries from both draft stores", async () => {
+    vi.resetModules();
+    const { DetailsPane: FreshDetailsPane } =
+      await import("../components/DetailsPane");
+    const latitude = testId("GPS:GPSLatitude");
+    const longitude = testId("GPS:GPSLongitude");
+    const occurrences = mockOccurrences({
+      "GPS:GPSLatitude": 51.5,
+      "GPS:GPSLongitude": -0.1,
     });
+    const exactTarget = {
+      kind: "ExistingOccurrence" as const,
+      occurrence_id: occurrences[1].id,
+      schema_id: longitude,
+      write_target: occurrences[1].write_target!,
+    };
+    const targetStore = new TargetDraftEditsStore();
+    targetStore.setMetadataTarget("p.jpg", exactTarget, {
+      intent: "Set",
+      value: { kind: "Real", value: -0.2 },
+    });
+    const discardLegacy = vi.fn();
+    const discardTargets = vi.fn(() => true);
 
-    expect(onSetBatch).toHaveBeenCalledWith([
-      {
-        id: testId("GPS:GPSLatitude"),
-        edit: { value: null, intent: "Delete" },
-      },
-    ]);
-    expect(onDiscardBatch).toHaveBeenCalledWith([testId("GPS:GPSAltitude")]);
+    render(
+      <FreshDetailsPane
+        photo={photo}
+        metadata={mockMetadata({
+          "GPS:GPSLatitude": 51.5,
+          "GPS:GPSLongitude": -0.1,
+        })}
+        occurrences={occurrences}
+        typedDraftEdits={mockDrafts({
+          "GPS:GPSLatitude": {
+            intent: "Set",
+            value: { kind: "Real", value: 52 },
+          },
+        })}
+        targetDraftEdits={targetStore.getMetadataFile("p.jpg")}
+        onRemoveMetadataFieldsV5={vi.fn()}
+        onDiscardDraftBatch={discardLegacy}
+        onDiscardTargetDraftBatch={discardTargets}
+      />,
+    );
+
+    const section = screen.getByTestId("details-section-GPS");
+    fireEvent.contextMenu(
+      within(section).getByRole("heading", { name: "GPS", level: 3 }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Discard all 2 GPS edits…",
+      }),
+    );
+    await waitFor(() => expect(askMock).toHaveBeenCalledTimes(1));
+    expect(discardLegacy).toHaveBeenCalledWith([latitude]);
+    expect(discardTargets).toHaveBeenCalledWith([exactTarget]);
+  });
+
+  it("routes staged NewProperty removal only through the v5 group callback", async () => {
+    vi.resetModules();
+    const { _setTagInfoCacheEntry, _clearTagInfoCache } =
+      await import("./tagInfoTestHelpers");
+    const { DetailsPane: FreshDetailsPane } =
+      await import("../components/DetailsPane");
+    _clearTagInfoCache();
+    const id = testId("XMP-dc:Title");
+    _setTagInfoCacheEntry(id, {
+      id,
+      group: "XMP-dc",
+      name: "Title",
+      writable: true,
+      kind: { kind: "Text" },
+      description: null,
+    });
+    const targetStore = new TargetDraftEditsStore();
+    targetStore.setMetadataTarget(
+      "p.jpg",
+      { kind: "NewProperty", schema_id: id },
+      { intent: "Set", value: { kind: "Text", value: "new" } },
+    );
+    const remove = vi.fn(() => true);
+    const discardLegacy = vi.fn();
+
+    render(
+      <FreshDetailsPane
+        photo={photo}
+        metadata={{}}
+        occurrences={[]}
+        targetDraftEdits={targetStore.getMetadataFile("p.jpg")}
+        onRemoveMetadataFieldsV5={remove}
+        onDiscardDraftBatch={discardLegacy}
+      />,
+    );
+    const section = screen.getByTestId("details-section-XMP-dc");
+    fireEvent.contextMenu(
+      within(section).getByRole("heading", { name: "XMP-dc", level: 3 }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Remove 1 writable XMP-dc field…",
+      }),
+    );
+    await waitFor(() => expect(askMock).toHaveBeenCalledTimes(1));
+    expect(remove).toHaveBeenCalledWith([id]);
+    expect(discardLegacy).not.toHaveBeenCalled();
   });
 
   it("Discard action calls batch discard once", async () => {
@@ -2378,7 +2541,21 @@ describe("DetailsPane: Group context menu", () => {
           "GPS:GPSLatitude": "52.0",
           "GPS:GPSLongitude": "-0.2",
         })}
-        onSetMetadataDraftBatch={vi.fn()}
+        typedDraftEdits={mockDrafts({
+          "GPS:GPSLatitude": {
+            intent: "Set",
+            value: { kind: "Real", value: 52 },
+          },
+          "GPS:GPSLongitude": {
+            intent: "Set",
+            value: { kind: "Real", value: -0.2 },
+          },
+        })}
+        occurrences={mockOccurrences({
+          "GPS:GPSLatitude": 51.5,
+          "GPS:GPSLongitude": -0.1,
+        })}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={onDiscardBatch}
       />,
     );
@@ -2435,7 +2612,14 @@ describe("DetailsPane: Group context menu", () => {
         draftEdits={mockDisplayDrafts({
           "GPS:GPSLatitude": "52.0",
         })}
-        onSetMetadataDraftBatch={onSetBatch}
+        typedDraftEdits={mockDrafts({
+          "GPS:GPSLatitude": {
+            intent: "Set",
+            value: { kind: "Real", value: 52 },
+          },
+        })}
+        occurrences={mockOccurrences({ "GPS:GPSLatitude": 51.5 })}
+        onRemoveMetadataFieldsV5={onSetBatch}
         onDiscardDraftBatch={onDiscardBatch}
       />,
     );
@@ -2449,13 +2633,9 @@ describe("DetailsPane: Group context menu", () => {
     // Test Remove cancellation
     fireEvent.contextMenu(heading);
     const removeBtn = await screen.findByRole("button", {
-      name: "Remove 1 writable GPS field…",
+      name: "Remove writable GPS fields…",
     });
-    fireEvent.click(removeBtn);
-
-    await waitFor(() => {
-      expect(askMock).toHaveBeenCalledTimes(1);
-    });
+    expect(removeBtn).toBeDisabled();
     expect(onSetBatch).not.toHaveBeenCalled();
     expect(onDiscardBatch).not.toHaveBeenCalled();
 
@@ -2467,7 +2647,7 @@ describe("DetailsPane: Group context menu", () => {
     fireEvent.click(discardBtn);
 
     await waitFor(() => {
-      expect(askMock).toHaveBeenCalledTimes(2);
+      expect(askMock).toHaveBeenCalledTimes(1);
     });
     expect(onDiscardBatch).not.toHaveBeenCalled();
   });
@@ -2504,7 +2684,11 @@ describe("DetailsPane: Group context menu", () => {
           "GPS:GPSLatitude": 51.5,
           "GPS:GPSLongitude": -0.1,
         })}
-        onSetMetadataDraftBatch={onSetBatch}
+        occurrences={mockOccurrences({
+          "GPS:GPSLatitude": 51.5,
+          "GPS:GPSLongitude": -0.1,
+        })}
+        onRemoveMetadataFieldsV5={onSetBatch}
         onDiscardDraftBatch={vi.fn()}
       />,
     );
@@ -2536,14 +2720,8 @@ describe("DetailsPane: Group context menu", () => {
     });
 
     expect(onSetBatch).toHaveBeenCalledWith([
-      {
-        id: testId("GPS:GPSLatitude"),
-        edit: { value: null, intent: "Delete" },
-      },
-      {
-        id: testId("GPS:GPSLongitude"),
-        edit: { value: null, intent: "Delete" },
-      },
+      testId("GPS:GPSLatitude"),
+      testId("GPS:GPSLongitude"),
     ]);
   });
 
@@ -2570,10 +2748,8 @@ describe("DetailsPane: Group context menu", () => {
         metadata={mockMetadata({
           "File:FileSize": "1 MB",
         })}
-        draftEdits={mockDisplayDrafts({
-          "File:FileSize": "2 MB",
-        })}
-        onSetMetadataDraftBatch={vi.fn()}
+        occurrences={mockOccurrences({ "File:FileSize": "1 MB" })}
+        onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardDraftBatch={vi.fn()}
       />,
     );
@@ -2588,11 +2764,6 @@ describe("DetailsPane: Group context menu", () => {
     fireEvent.contextMenu(heading);
     await screen.findByRole("button", {
       name: "Remove 1 writable File field…",
-    });
-
-    // Check singular discard label
-    await screen.findByRole("button", {
-      name: "Discard 1 File edit…",
     });
   });
 });

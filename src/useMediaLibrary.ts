@@ -27,6 +27,7 @@ import type {
   SchemaDefinitionId,
   ImageMetadata,
   TargetDraftPersistenceStateV5,
+  MetadataDraftEntryV5,
 } from "./types";
 import { loadColumnConfig, saveColumnConfig } from "./utils/columnConfig";
 import {
@@ -66,6 +67,7 @@ import {
 } from "./utils/metadataDraftTarget";
 import { resolveExactMetadataOccurrence } from "./utils/metadataOccurrences";
 import { planGpsTargetDraftBatchV5 } from "./gpsTargetDrafts";
+import { planMetadataRemovalTargetsV5 } from "./metadataRemovalTargets";
 
 const TARGET_DRAFT_LOAD_BLOCKED_MESSAGE =
   "Target-aware drafts could not be loaded safely. Fix the folder's schema-v5 draft persistence file, then reopen the folder.";
@@ -102,6 +104,14 @@ export interface MediaLibraryActions {
     fileRelativePath: string,
     edits: Array<{ id: SchemaDefinitionId; edit: MetadataDraftEdit }>,
   ) => void;
+  removeMetadataFieldsV5: (
+    relativePath: string,
+    schemaIds: SchemaDefinitionId[],
+  ) => boolean;
+  removeMetadataFieldFromFilesV5: (
+    schemaId: SchemaDefinitionId,
+    relativePaths: string[],
+  ) => boolean;
   setGpsTargetDraftBatch: (
     relativePath: string,
     edits: Array<{ id: SchemaDefinitionId; edit: MetadataDraftEdit }>,
@@ -120,6 +130,10 @@ export interface MediaLibraryActions {
     fileRelativePath: string,
     target: MetadataDraftTarget,
   ) => void;
+  discardTargetDraftValues: (
+    fileRelativePath: string,
+    targets: MetadataDraftTarget[],
+  ) => boolean;
   discardDraftValue: (fileRelativePath: string, id: SchemaDefinitionId) => void;
   discardDraftValues: (
     fileRelativePath: string,
@@ -1260,6 +1274,81 @@ export function useMediaLibrary(
     [pushApplicationError, requireTargetDraftPersistenceReady],
   );
 
+  const removalMutation = useCallback(
+    (relativePath: string, schemaIds: readonly SchemaDefinitionId[]) => {
+      const uniqueIds = Array.from(
+        new Map(
+          schemaIds.map((id) => [
+            schemaDefinitionIdToken(id),
+            structuredClone(id),
+          ]),
+        ).values(),
+      );
+      const plan = planMetadataRemovalTargetsV5({
+        schemaIds: uniqueIds,
+        occurrences: imageMetadataOccurrencesStoreRef.current.get(relativePath),
+        legacyDrafts: draftEditsStoreRef.current.getMetadataFile(relativePath),
+        targetDrafts:
+          targetDraftEditsStoreRef.current.getMetadataFile(relativePath),
+      });
+      const upserts: MetadataDraftEntryV5[] = plan.upserts.map(
+        ({ target, edit }) => ({
+          target: structuredClone(target),
+          edit: structuredClone(edit),
+        }),
+      );
+      return {
+        path: relativePath,
+        upserts,
+        deletes: plan.deletes.map((target) => structuredClone(target)),
+      };
+    },
+    [],
+  );
+
+  const removeMetadataFieldsV5 = useCallback(
+    (relativePath: string, schemaIds: SchemaDefinitionId[]): boolean => {
+      if (!requireTargetDraftPersistenceReady([relativePath])) return false;
+      try {
+        const mutation = removalMutation(relativePath, schemaIds);
+        targetDraftEditsStoreRef.current.applyExactMutationBatch([mutation]);
+        return true;
+      } catch (error) {
+        pushApplicationError("metadata-v5-remove", error, [relativePath]);
+        return false;
+      }
+    },
+    [pushApplicationError, removalMutation, requireTargetDraftPersistenceReady],
+  );
+
+  const removeMetadataFieldFromFilesV5 = useCallback(
+    (schemaId: SchemaDefinitionId, relativePaths: string[]): boolean => {
+      const paths = [...new Set(relativePaths)];
+      if (!requireTargetDraftPersistenceReady(paths)) return false;
+      try {
+        const mutations = paths.map((path) => {
+          try {
+            return removalMutation(path, [schemaId]);
+          } catch (error) {
+            const reason =
+              error instanceof Error ? error.message : String(error);
+            const contextualError = new Error(
+              `Cannot remove metadata from '${path}': ${reason}`,
+            );
+            (contextualError as Error & { cause: unknown }).cause = error;
+            throw contextualError;
+          }
+        });
+        targetDraftEditsStoreRef.current.applyExactMutationBatch(mutations);
+        return true;
+      } catch (error) {
+        pushApplicationError("metadata-v5-remove-files", error, paths);
+        return false;
+      }
+    },
+    [pushApplicationError, removalMutation, requireTargetDraftPersistenceReady],
+  );
+
   const setExistingOccurrenceDraft = useCallback(
     (
       fileRelativePath: string,
@@ -1407,6 +1496,29 @@ export function useMediaLibrary(
       targetDraftEditsStoreRef.current.deleteTarget(fileRelativePath, target);
     },
     [requireTargetDraftPersistenceReady],
+  );
+
+  const discardTargetDraftValues = useCallback(
+    (fileRelativePath: string, targets: MetadataDraftTarget[]): boolean => {
+      if (targets.length === 0) return true;
+      if (!requireTargetDraftPersistenceReady([fileRelativePath])) return false;
+      try {
+        targetDraftEditsStoreRef.current.applyExactMutationBatch([
+          {
+            path: fileRelativePath,
+            upserts: [],
+            deletes: targets,
+          },
+        ]);
+        return true;
+      } catch (error) {
+        pushApplicationError("metadata-v5-discard-targets", error, [
+          fileRelativePath,
+        ]);
+        return false;
+      }
+    },
+    [pushApplicationError, requireTargetDraftPersistenceReady],
   );
 
   const discardDraftValue = useCallback(
@@ -1644,10 +1756,13 @@ export function useMediaLibrary(
       resetColumnWidths,
       dismissError,
       setMetadataDraftBatch,
+      removeMetadataFieldsV5,
+      removeMetadataFieldFromFilesV5,
       setGpsTargetDraftBatch,
       setExistingOccurrenceDraft,
       setNewPropertyDraft,
       discardTargetPropertyDraft,
+      discardTargetDraftValues,
       discardDraftValue,
       discardDraftValues,
       discardAllDraftEdits,
@@ -1678,10 +1793,13 @@ export function useMediaLibrary(
       resetColumnWidths,
       dismissError,
       setMetadataDraftBatch,
+      removeMetadataFieldsV5,
+      removeMetadataFieldFromFilesV5,
       setGpsTargetDraftBatch,
       setExistingOccurrenceDraft,
       setNewPropertyDraft,
       discardTargetPropertyDraft,
+      discardTargetDraftValues,
       discardDraftValue,
       discardDraftValues,
       discardAllDraftEdits,
