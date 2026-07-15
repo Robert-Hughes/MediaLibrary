@@ -548,6 +548,30 @@ describe("TypedValueEditor GPS routing", () => {
     expect(screen.getByTestId("gps-editor-lon-ref")).toHaveValue("E");
   });
 
+  it("initialises GpsEditor coordinates from the shared effective GPS result", () => {
+    render(
+      <TypedValueEditor
+        {...editorIdentity("GPS:GPSLatitude")}
+        metadataForFile={{
+          "GPS:GPSLatitude": { kind: "Real", value: 51 },
+          "GPS:GPSLatitudeRef": { kind: "Text", value: "N" },
+          "GPS:GPSLongitude": { kind: "Real", value: 1 },
+          "GPS:GPSLongitudeRef": { kind: "Text", value: "E" },
+        }}
+        effectiveGps={{ lat: -52, lon: -2 }}
+        onSaveMetadata={() => {}}
+        onSaveMetadataBatch={() => {}}
+        onCancel={() => {}}
+        editorMode="gps"
+      />,
+    );
+
+    expect(screen.getByTestId("gps-editor-lat-input")).toHaveValue(52);
+    expect(screen.getByTestId("gps-editor-lon-input")).toHaveValue(2);
+    expect(screen.getByTestId("gps-editor-lat-ref")).toHaveValue("S");
+    expect(screen.getByTestId("gps-editor-lon-ref")).toHaveValue("W");
+  });
+
   it("prefills GpsEditor from stale one-item List<Rational> GPS metadata", () => {
     render(
       <TypedValueEditor

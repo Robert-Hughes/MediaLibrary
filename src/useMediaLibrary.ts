@@ -1227,7 +1227,8 @@ export function useMediaLibrary(
       fileRelativePath: string,
       edits: Array<{ id: SchemaDefinitionId; edit: MetadataDraftEdit }>,
     ) => {
-      // Temporary bridge: GPS and every batch-generated producer remain v4.
+      // Temporary bridge: generic group/bulk and generated producers remain
+      // schema-v4; individual and composite GPS editing use schema-v5.
       draftEditsStoreRef.current.setMetadataBatch(fileRelativePath, edits);
     },
     [],

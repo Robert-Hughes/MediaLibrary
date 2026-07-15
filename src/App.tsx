@@ -32,7 +32,7 @@ import { DescribeProgressDialog } from "./components/DescribeProgressDialog";
 import { useDescribeImages } from "./hooks/useDescribeImages";
 import { GeocodeProgressDialog } from "./components/GeocodeProgressDialog";
 import { useGeocodeImages } from "./hooks/useGeocodeImages";
-import { resolveGps } from "./utils/resolveGps";
+import { buildGeocodeRequestItemForFile } from "./utils/effectiveGps";
 import { schemaDefinitionIdToken } from "./utils/schemaDefinitionId";
 import type { GeocodeRequestItem, MetadataDraftEntry } from "./types";
 import { ALL_NORMALISE_GROUPS } from "./types";
@@ -297,12 +297,20 @@ function LoadedView({
       return relPaths.map((relPath) => {
         const meta = state.imageMetadata.get(relPath);
         const metaBag = meta === "loading" ? undefined : meta;
-        const drafts = state.draftEdits[relPath];
-        const { lat, lon } = resolveGps(drafts, metaBag);
-        return { relPath, lat, lon };
+        return buildGeocodeRequestItemForFile(relPath, {
+          metadata: metaBag,
+          occurrences: state.imageMetadataOccurrences.get(relPath),
+          legacyDrafts: state.draftEdits[relPath],
+          targetDrafts: state.targetDraftEdits[relPath],
+        });
       });
     },
-    [state.imageMetadata, state.draftEdits],
+    [
+      state.imageMetadata,
+      state.imageMetadataOccurrences,
+      state.draftEdits,
+      state.targetDraftEdits,
+    ],
   );
 
   return (

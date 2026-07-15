@@ -78,6 +78,8 @@ interface Props {
   /** Parent-provided schema for synthetic nested paths such as Tag[0]. */
   schemaOverride?: InheritedEditorSchema;
   metadataForFile?: MetadataCollection;
+  /** Shared map/geocode GPS resolution, used to initialise the GPS editor. */
+  effectiveGps?: { lat: number | null; lon: number | null };
   onSaveMetadata: (edit: MetadataDraftEdit) => void;
   /** Multi-tag save, used by GpsEditor and any future paired-tag editor. */
   onSaveMetadataBatch?: (
@@ -124,6 +126,7 @@ export function TypedValueEditor({
   initialMetadataValue,
   schemaOverride,
   metadataForFile,
+  effectiveGps,
   onSaveMetadata,
   onSaveMetadataBatch,
   onCancel,
@@ -255,26 +258,44 @@ export function TypedValueEditor({
       initialAltitudeRef = "below";
     }
     const initialAltitudeMetres = gpsNumberFromMetadataValue(altVal);
+    const initialLatDecimal = effectiveGps
+      ? effectiveGps.lat === null
+        ? null
+        : Math.abs(effectiveGps.lat)
+      : gpsNumberFromMetadataValue(latVal);
+    const initialLonDecimal = effectiveGps
+      ? effectiveGps.lon === null
+        ? null
+        : Math.abs(effectiveGps.lon)
+      : gpsNumberFromMetadataValue(lonVal);
     return (
       <GpsEditor
         group={gpsGroup}
-        initialLatDecimal={gpsNumberFromMetadataValue(latVal)}
+        initialLatDecimal={initialLatDecimal}
         initialLatRef={
-          parseHemisphere(
-            gpsScalarFromMetadataValue(
-              metadataGet(metadataForFile, gpsGroup.latitudeRefId),
-            ) ?? latScalar,
-            "lat",
-          ) as "N" | "S"
+          effectiveGps?.lat !== null && effectiveGps?.lat !== undefined
+            ? effectiveGps.lat < 0
+              ? "S"
+              : "N"
+            : (parseHemisphere(
+                gpsScalarFromMetadataValue(
+                  metadataGet(metadataForFile, gpsGroup.latitudeRefId),
+                ) ?? latScalar,
+                "lat",
+              ) as "N" | "S")
         }
-        initialLonDecimal={gpsNumberFromMetadataValue(lonVal)}
+        initialLonDecimal={initialLonDecimal}
         initialLonRef={
-          parseHemisphere(
-            gpsScalarFromMetadataValue(
-              metadataGet(metadataForFile, gpsGroup.longitudeRefId),
-            ) ?? lonScalar,
-            "lon",
-          ) as "E" | "W"
+          effectiveGps?.lon !== null && effectiveGps?.lon !== undefined
+            ? effectiveGps.lon < 0
+              ? "W"
+              : "E"
+            : (parseHemisphere(
+                gpsScalarFromMetadataValue(
+                  metadataGet(metadataForFile, gpsGroup.longitudeRefId),
+                ) ?? lonScalar,
+                "lon",
+              ) as "E" | "W")
         }
         initialAltitudeMetres={
           Number.isFinite(initialAltitudeMetres as number)
