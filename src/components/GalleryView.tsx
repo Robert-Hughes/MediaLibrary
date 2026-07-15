@@ -58,6 +58,10 @@ interface Props {
     fileRelativePath: string,
     edits: Array<{ id: SchemaDefinitionId; edit: MetadataDraftEdit }>,
   ) => void;
+  onSetGpsTargetDraftBatch?: (
+    fileRelativePath: string,
+    edits: Array<{ id: SchemaDefinitionId; edit: MetadataDraftEdit }>,
+  ) => boolean;
   onSetNewPropertyDraft?: (
     fileRelativePath: string,
     id: SchemaDefinitionId,
@@ -98,6 +102,7 @@ export function GalleryView({
   targetDraftPersistence,
   onSetExistingOccurrenceDraft,
   onSetMetadataDraftBatch,
+  onSetGpsTargetDraftBatch,
   onSetNewPropertyDraft,
   onDiscardTargetPropertyDraft,
   onDiscardDraft,
@@ -366,6 +371,9 @@ export function GalleryView({
             }
             onSetMetadataDraftBatch={(edits) =>
               onSetMetadataDraftBatch(photo.relative_path, edits)
+            }
+            onSetGpsTargetDraftBatch={(edits) =>
+              onSetGpsTargetDraftBatch?.(photo.relative_path, edits) ?? false
             }
             onSetNewPropertyDraft={(id, edit) =>
               onSetNewPropertyDraft?.(photo.relative_path, id, edit)

@@ -20,7 +20,7 @@ import { ContextMenu } from "./ContextMenu";
 import { TypedValueEditor } from "./editors/TypedValueEditor";
 import { useTagInfo, useTagInfos } from "../hooks/useTagInfo";
 import { DatatypeBadge } from "./DatatypeBadge";
-import { gpsMemberGroup } from "../metadata/tag_overrides";
+import { gpsMemberGroup, type GpsTagGroup } from "../metadata/tag_overrides";
 import {
   schemaDatatype,
   metadataValueDatatype,
@@ -83,6 +83,7 @@ import {
   metadataDraftTargetEquals,
 } from "../utils/metadataDraftTarget";
 import { metadataOccurrenceIdToken } from "../utils/metadataOccurrenceId";
+import { planGpsTargetDraftBatchV5 } from "../gpsTargetDrafts";
 
 type ExistingOccurrenceTarget = Extract<
   MetadataDraftTarget,
@@ -97,13 +98,14 @@ type EditDialogState =
       openedTarget: ExistingOccurrenceTarget;
     }
   | {
-      kind: "gps";
-      schemaId: SchemaDefinitionId;
-      mode: "single" | "gps";
+      kind: "gps-composite";
+      group: GpsTagGroup;
+      openedTargets: Record<string, MetadataDraftTarget>;
     }
   | {
       kind: "new-property";
       schemaId: SchemaDefinitionId;
+      openedTarget?: MetadataDraftTarget;
     };
 
 type PresentedTargetDraft =
@@ -131,7 +133,7 @@ interface Props {
   draftEdits?: Record<string, string | null>;
   /** Semantic draft edits, keyed by metadata tag. Primary write path. */
   typedDraftEdits?: MetadataDraftCollection;
-  /** Exact-target drafts for Add Property and unique non-GPS existing rows. */
+  /** Exact-target drafts for Add Property and unique existing rows. */
   targetDraftEdits?: TargetDraftCollection;
   /** Folder-scoped safety state for the strict schema-v5 persistence file. */
   targetDraftPersistence?: TargetDraftPersistenceStateV5;
@@ -143,6 +145,9 @@ interface Props {
   onSetMetadataDraftBatch: (
     edits: Array<{ id: SchemaDefinitionId; edit: MetadataDraftEdit }>,
   ) => void;
+  onSetGpsTargetDraftBatch?: (
+    edits: Array<{ id: SchemaDefinitionId; edit: MetadataDraftEdit }>,
+  ) => boolean;
   onSetNewPropertyDraft?: (
     id: SchemaDefinitionId,
     edit: MetadataDraftEdit,
@@ -218,6 +223,17 @@ function displayStringOfDraft(
 ): string | null | undefined {
   if (edit === undefined) return undefined;
   return displayStringOfMetadataDraft(edit);
+}
+
+function gpsGroupIds(group: GpsTagGroup): SchemaDefinitionId[] {
+  return [
+    group.latitudeId,
+    group.latitudeRefId,
+    group.longitudeId,
+    group.longitudeRefId,
+    group.altitudeId,
+    group.altitudeRefId,
+  ];
 }
 
 function effectiveExistingDraftValue(
@@ -670,8 +686,10 @@ function DetailsGroupContextMenu({
   originalMetadata,
   draftEdits,
   occurrenceResolutionIndex,
+  targetDraftEdits,
   onSetMetadataDraftBatch,
   onDiscardDraftBatch,
+  onBlocked,
   onClose,
 }: {
   contextMenu: {
@@ -683,10 +701,12 @@ function DetailsGroupContextMenu({
   originalMetadata: MetadataCollection | undefined;
   draftEdits: Record<string, string | null>;
   occurrenceResolutionIndex: SchemaOccurrenceResolutionIndex;
+  targetDraftEdits: TargetDraftCollection | undefined;
   onSetMetadataDraftBatch: (
     edits: Array<{ id: SchemaDefinitionId; edit: MetadataDraftEdit }>,
   ) => void;
   onDiscardDraftBatch: (ids: SchemaDefinitionId[]) => void;
+  onBlocked: (message: string) => void;
   onClose: () => void;
 }) {
   const group = contextMenu.group;
@@ -733,6 +753,11 @@ function DetailsGroupContextMenu({
 
   const removeCount = removableKeys.length;
   const draftCount = draftKeys.length;
+  const hasTargetAwareGpsDraft =
+    group === "GPS" &&
+    Object.values(targetDraftEdits ?? {}).some(
+      (entry) => gpsMemberGroup(entry.target.schema_id) !== null,
+    );
 
   useEffect(() => {
     if (!isLoading && removeCount === 0 && draftCount === 0) {
@@ -747,6 +772,13 @@ function DetailsGroupContextMenu({
   }
 
   const handleRemove = async () => {
+    if (hasTargetAwareGpsDraft) {
+      onBlocked(
+        "This GPS group contains target-aware drafts. Apply or discard those exact GPS drafts before creating a legacy group Remove operation.",
+      );
+      onClose();
+      return;
+    }
     const confirmed = await confirmRemoveMetadataGroupFields({
       group,
       fieldCount: removeCount,
@@ -840,6 +872,7 @@ export function DetailsPane({
   targetDraftPersistence = { status: "ready" },
   onSetExistingOccurrenceDraft,
   onSetMetadataDraftBatch,
+  onSetGpsTargetDraftBatch,
   onSetNewPropertyDraft,
   onDiscardTargetPropertyDraft,
   onDiscardDraft,
@@ -919,6 +952,13 @@ export function DetailsPane({
         occurrenceResolutionIndex,
         entry.target.schema_id,
       );
+      if (
+        Object.values(typedDraftEdits ?? {}).some((legacy) =>
+          schemaDefinitionIdEquals(legacy.id, entry.target.schema_id),
+        )
+      ) {
+        continue;
+      }
       if (entry.target.kind === "NewProperty") {
         if (
           occurrenceResolution.kind === "missing" &&
@@ -929,12 +969,10 @@ export function DetailsPane({
         continue;
       }
       if (
-        gpsMemberGroup(entry.target.schema_id) !== null ||
         occurrences === undefined ||
         occurrences === "loading" ||
-        Object.values(typedDraftEdits ?? {}).some((legacy) =>
-          schemaDefinitionIdEquals(legacy.id, entry.target.schema_id),
-        )
+        (gpsMemberGroup(entry.target.schema_id) !== null &&
+          occurrenceResolution.kind === "multiple")
       ) {
         continue;
       }
@@ -1088,9 +1126,30 @@ export function DetailsPane({
     return effective;
   }, [authoritativeBaseMetadata, typedDraftEdits, presentedTargetDrafts]);
   const resolvedGps = useMemo(() => {
-    if (metadata === "loading") return { lat: null, lon: null };
-    return resolveGps(typedDraftEdits, metadata);
-  }, [typedDraftEdits, metadata]);
+    if (effectiveMetadata === undefined) return { lat: null, lon: null };
+    const hasPresentedGpsTarget = presentedTargetDrafts.some(([, entry]) => {
+      const group = gpsMemberGroup(entry.target.schema_id);
+      return (
+        group !== null &&
+        [
+          group.latitudeId,
+          group.latitudeRefId,
+          group.longitudeId,
+          group.longitudeRefId,
+        ].some((id) => schemaDefinitionIdEquals(id, entry.target.schema_id))
+      );
+    });
+    if (!hasPresentedGpsTarget) {
+      return resolveGps(typedDraftEdits, effectiveMetadata);
+    }
+    const withoutStaleComposite = { ...effectiveMetadata };
+    for (const entry of Object.values(withoutStaleComposite)) {
+      if (entry.id.table === "Composite") {
+        delete withoutStaleComposite[schemaDefinitionIdToken(entry.id)];
+      }
+    }
+    return resolveGps(typedDraftEdits, withoutStaleComposite);
+  }, [effectiveMetadata, presentedTargetDrafts, typedDraftEdits]);
 
   const legacyDraftEdits = useMemo(
     () =>
@@ -1402,11 +1461,16 @@ export function DetailsPane({
     typedDraftEdits,
   ]);
 
+  const editDialogPropertyId = editDialog
+    ? editDialog.kind === "gps-composite"
+      ? editDialog.group.latitudeId
+      : editDialog.schemaId
+    : undefined;
   const editDialogInitialValue = (() => {
     if (!editDialog) return undefined;
-    if (editDialog.kind === "gps") {
+    if (editDialog.kind === "gps-composite") {
       return effectiveMetadata
-        ? metadataGet(effectiveMetadata, editDialog.schemaId)
+        ? metadataGet(effectiveMetadata, editDialog.group.latitudeId)
         : undefined;
     }
     if (editDialog.kind === "new-property") {
@@ -1436,7 +1500,7 @@ export function DetailsPane({
       : ordinaryEditResolution.occurrence.value;
   })();
   const editDialogRenderKey = editDialog
-    ? `${editDialog.kind}:${schemaDefinitionIdToken(editDialog.schemaId)}:${JSON.stringify(
+    ? `${editDialog.kind}:${schemaDefinitionIdToken(editDialogPropertyId!)}:${JSON.stringify(
         {
           occurrence:
             editDialog.kind === "existing-occurrence"
@@ -1571,7 +1635,7 @@ export function DetailsPane({
           gpsMemberGroup(entry.schemaId) !== null
         ) {
           unavailableReason =
-            "GPS supplemental occurrences remain read-only on the legacy schema-v4 editing boundary.";
+            "GPS supplemental occurrences remain read-only; paired target-aware GPS editing is available only from an ordinary unique row.";
         } else if (exactResolution.kind === "duplicate") {
           unavailableReason =
             "This exact occurrence ID is duplicated and cannot be targeted safely.";
@@ -1677,9 +1741,9 @@ export function DetailsPane({
   const editingUnavailableReasonFor = (
     id: SchemaDefinitionId,
   ): string | undefined => {
-    // Temporary bridge: every GPS member, including generic one-field Edit
-    // and Remove, remains on the legacy schema-v4 batch boundary.
-    if (gpsMemberGroup(id) !== null) return undefined;
+    if (gpsMemberGroup(id) !== null && !onSetGpsTargetDraftBatch) {
+      return "Target-aware GPS editing is unavailable in this view.";
+    }
     const targetSchemaResolution = targetSchemaResolutions.get(
       schemaDefinitionIdToken(id),
     );
@@ -1762,6 +1826,90 @@ export function DetailsPane({
         : undefined);
     if (!occurrence) return;
     openExactOccurrenceEditor(occurrence);
+  };
+
+  const openGpsCompositeEditor = (group: GpsTagGroup) => {
+    if (!onSetGpsTargetDraftBatch) {
+      setEditDialogUnavailableMessage(
+        "Target-aware GPS editing is unavailable in this view. Nothing was saved.",
+      );
+      return;
+    }
+    try {
+      const planned = planGpsTargetDraftBatchV5(
+        gpsGroupIds(group).map((id) => ({
+          id,
+          edit: { intent: "Delete" as const, value: null },
+        })),
+        occurrences ?? "loading",
+        typedDraftEdits,
+        targetDraftEdits,
+      );
+      setEditDialogUnavailableMessage(null);
+      setEditDialog({
+        kind: "gps-composite",
+        group: structuredClone(group),
+        openedTargets: Object.fromEntries(
+          planned.map(({ id, target }) => [
+            schemaDefinitionIdToken(id),
+            structuredClone(target),
+          ]),
+        ),
+      });
+    } catch (error) {
+      setEditDialogUnavailableMessage(
+        error instanceof Error
+          ? error.message
+          : "The GPS editor could not capture exact destinations. Nothing was saved.",
+      );
+    }
+  };
+
+  const revalidateGpsEditorTargets = (
+    emittedEdits: Array<{
+      id: SchemaDefinitionId;
+      edit: MetadataDraftEdit;
+    }>,
+    openedTargets: Record<string, MetadataDraftTarget>,
+    snapshotIds: SchemaDefinitionId[],
+  ): boolean => {
+    try {
+      const emittedBySchema = new Map(
+        emittedEdits.map((entry) => [schemaDefinitionIdToken(entry.id), entry]),
+      );
+      const planned = planGpsTargetDraftBatchV5(
+        snapshotIds.map(
+          (id) =>
+            emittedBySchema.get(schemaDefinitionIdToken(id)) ?? {
+              id,
+              edit: { intent: "Delete" as const, value: null },
+            },
+        ),
+        occurrences ?? "loading",
+        typedDraftEdits,
+        targetDraftEdits,
+      );
+      const changed = planned.some(({ id, target }) => {
+        const opened = openedTargets[schemaDefinitionIdToken(id)];
+        return (
+          opened === undefined || !metadataDraftTargetEquals(opened, target)
+        );
+      });
+      if (changed) {
+        setEditDialogUnavailableMessage(
+          "A GPS destination changed while the editor was open. Nothing was saved; reopen the editor to review the current targets.",
+        );
+        return false;
+      }
+      return true;
+    } catch (error) {
+      setEditDialogUnavailableMessage(
+        error instanceof Error
+          ? error.message
+          : "The GPS destinations became stale or unavailable. Nothing was saved.",
+      );
+      return false;
+    }
   };
   const activeSupplementalContext = supplementalContextMenu
     ? supplementalRows.find(
@@ -2177,19 +2325,14 @@ export function DetailsPane({
               schemaDefinitionIdToken(contextMenu.id),
             );
             setEditDialogUnavailableMessage(null);
-            if (gpsMemberGroup(contextMenu.id) !== null) {
-              setEditDialog({
-                kind: "gps",
-                schemaId: contextMenu.id,
-                mode: "single",
-              });
-            } else if (
+            if (
               targetResolution?.kind === "unique" &&
               targetResolution.entry.target.kind === "NewProperty"
             ) {
               setEditDialog({
                 kind: "new-property",
                 schemaId: contextMenu.id,
+                openedTarget: structuredClone(targetResolution.entry.target),
               });
             } else {
               openExistingOccurrenceEditor(contextMenu.id);
@@ -2197,12 +2340,8 @@ export function DetailsPane({
             setContextMenu(null);
           }}
           onEditGps={() => {
-            setEditDialogUnavailableMessage(null);
-            setEditDialog({
-              kind: "gps",
-              schemaId: contextMenu.id,
-              mode: "gps",
-            });
+            const group = gpsMemberGroup(contextMenu.id);
+            if (group) openGpsCompositeEditor(group);
             setContextMenu(null);
           }}
           onDiscard={() => {
@@ -2232,18 +2371,21 @@ export function DetailsPane({
             const targetResolution = targetSchemaResolutions.get(
               schemaDefinitionIdToken(contextMenu.id),
             );
-            if (gpsMemberGroup(contextMenu.id) !== null) {
-              onSetMetadataDraftBatch([
+            if (
+              targetResolution?.kind === "unique" &&
+              targetResolution.entry.target.kind === "NewProperty"
+            ) {
+              onDiscardTargetPropertyDraft?.(targetResolution.entry.target);
+            } else if (
+              gpsMemberGroup(contextMenu.id) !== null &&
+              onSetGpsTargetDraftBatch
+            ) {
+              onSetGpsTargetDraftBatch([
                 {
                   id: contextMenu.id,
                   edit: { value: null, intent: "Delete" },
                 },
               ]);
-            } else if (
-              targetResolution?.kind === "unique" &&
-              targetResolution.entry.target.kind === "NewProperty"
-            ) {
-              onDiscardTargetPropertyDraft?.(targetResolution.entry.target);
             } else if (
               presentedExistingBySchema.has(
                 schemaDefinitionIdToken(contextMenu.id),
@@ -2329,8 +2471,10 @@ export function DetailsPane({
           originalMetadata={metadata !== "loading" ? metadata : undefined}
           draftEdits={legacyDraftEdits}
           occurrenceResolutionIndex={occurrenceResolutionIndex}
+          targetDraftEdits={targetDraftEdits}
           onSetMetadataDraftBatch={onSetMetadataDraftBatch}
           onDiscardDraftBatch={onDiscardDraftBatch}
+          onBlocked={setEditDialogUnavailableMessage}
           onClose={() => setGroupContextMenu(null)}
         />
       )}
@@ -2340,23 +2484,67 @@ export function DetailsPane({
           ordinaryEditResolution?.kind === "available") && (
           <TypedValueEditor
             key={editDialogRenderKey}
-            propertyId={editDialog.schemaId}
-            editorMode={editDialog.kind === "gps" ? editDialog.mode : "single"}
+            propertyId={editDialogPropertyId!}
+            editorMode={editDialog.kind === "gps-composite" ? "gps" : "single"}
             initialMetadataValue={editDialogInitialValue}
             metadataForFile={effectiveMetadata}
             onSaveMetadataBatch={(edits) => {
-              onSetMetadataDraftBatch(edits);
-              setEditDialog(null);
+              if (editDialog.kind !== "gps-composite") return;
+              if (
+                !revalidateGpsEditorTargets(
+                  edits,
+                  editDialog.openedTargets,
+                  gpsGroupIds(editDialog.group),
+                )
+              ) {
+                return;
+              }
+              if (onSetGpsTargetDraftBatch?.(edits)) {
+                setEditDialog(null);
+              } else {
+                setEditDialogUnavailableMessage(
+                  "The target-aware GPS batch could not be saved. The editor remains open and nothing was retargeted.",
+                );
+              }
             }}
             onSaveMetadata={(edit) => {
-              if (editDialog.kind === "gps") {
-                onSetMetadataDraftBatch([{ id: editDialog.schemaId, edit }]);
+              const propertyId = editDialogPropertyId!;
+              if (gpsMemberGroup(propertyId) !== null) {
+                const openedTarget =
+                  editDialog.kind === "existing-occurrence"
+                    ? editDialog.openedTarget
+                    : editDialog.kind === "new-property"
+                      ? editDialog.openedTarget
+                      : undefined;
+                if (
+                  openedTarget &&
+                  !revalidateGpsEditorTargets(
+                    [{ id: propertyId, edit }],
+                    {
+                      [schemaDefinitionIdToken(propertyId)]: openedTarget,
+                    },
+                    [propertyId],
+                  )
+                ) {
+                  return;
+                }
+                if (onSetGpsTargetDraftBatch?.([{ id: propertyId, edit }])) {
+                  setEditDialog(null);
+                } else {
+                  setEditDialogUnavailableMessage(
+                    "The exact GPS edit could not be saved. Nothing was retargeted.",
+                  );
+                }
               } else if (editDialog.kind === "new-property") {
                 onSetNewPropertyDraft?.(editDialog.schemaId, edit);
-              } else if (ordinaryEditResolution?.kind === "available") {
+                setEditDialog(null);
+              } else if (
+                editDialog.kind === "existing-occurrence" &&
+                ordinaryEditResolution?.kind === "available"
+              ) {
                 onSetExistingOccurrenceDraft?.(editDialog.occurrenceId, edit);
+                setEditDialog(null);
               }
-              setEditDialog(null);
             }}
             onCancel={() => setEditDialog(null)}
           />

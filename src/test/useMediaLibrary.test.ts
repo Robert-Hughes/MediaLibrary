@@ -13,6 +13,7 @@ import type {
 import { sortPhotos } from "../utils/sorting";
 import { targetVerifyOutcomeFromBackend } from "../targetVerifyOutcomes";
 import { metadataDraftTargetSlotToken } from "../utils/metadataDraftTarget";
+import { GPS_IDS } from "../metadata/knownIds";
 
 function targetV5Result(
   path: string,
@@ -74,6 +75,31 @@ function targetableOccurrence(
       group1: "XMP-dc",
       tag_name: options.tagName ?? "Title",
     },
+  };
+}
+
+function gpsOccurrence(
+  id: SchemaDefinitionId,
+  value: number,
+  name: string,
+): MetadataOccurrence {
+  return {
+    id: {
+      document: null,
+      path: `JPEG-APP1-GPS-${id.tag_id}`,
+      tag_id: id.tag_id,
+      copy: 0,
+    },
+    value: { kind: "Real", value },
+    tag_info: {
+      id,
+      group: "GPS",
+      name,
+      writable: true,
+      kind: { kind: "Real" },
+      description: null,
+    },
+    write_target: { group1: "GPS", tag_name: name },
   };
 }
 
@@ -1351,6 +1377,210 @@ describe("useMediaLibrary", () => {
     }
   });
 
+  it("writes one atomic GPS target batch with exact existing and missing-field targets", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/photos");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => result.current[1].openFolder());
+    const state = result.current[0];
+    if (state.kind !== "loaded") return;
+    const path = "gps.jpg";
+    const latitude = gpsOccurrence(GPS_IDS.latitude, 51.5, "GPSLatitude");
+    const longitude = gpsOccurrence(GPS_IDS.longitude, 0.12, "GPSLongitude");
+    act(() => {
+      state.imageMetadataOccurrences.set(path, [latitude, longitude]);
+    });
+    let notifications = 0;
+    const unsubscribe = state.targetDraftEditsStore.subscribe(() => {
+      notifications += 1;
+    });
+    const beforeV5 = mock.invocations.filter(
+      ({ cmd }) => cmd === "save_metadata_draft_edits_v5",
+    ).length;
+    const beforeV4 = mock.invocations.filter(
+      ({ cmd }) => cmd === "save_metadata_draft_edits",
+    ).length;
+    let saved = false;
+    act(() => {
+      saved = result.current[1].setGpsTargetDraftBatch(path, [
+        {
+          id: GPS_IDS.latitude,
+          edit: { intent: "Set", value: { kind: "Real", value: 52 } },
+        },
+        {
+          id: GPS_IDS.latitudeRef,
+          edit: { intent: "Set", value: { kind: "Text", value: "N" } },
+        },
+        {
+          id: GPS_IDS.longitude,
+          edit: { intent: "Set", value: { kind: "Real", value: 1 } },
+        },
+        {
+          id: GPS_IDS.longitudeRef,
+          edit: { intent: "Set", value: { kind: "Text", value: "E" } },
+        },
+      ]);
+    });
+    unsubscribe();
+    expect(saved).toBe(true);
+    const entries = Object.values(
+      state.targetDraftEditsStore.getMetadataFile(path) ?? {},
+    );
+    expect(entries).toHaveLength(4);
+    const targetFor = (id: SchemaDefinitionId) =>
+      entries.find(
+        (entry) =>
+          entry.target.schema_id.table === id.table &&
+          entry.target.schema_id.tag_id === id.tag_id,
+      )!.target;
+    expect(targetFor(GPS_IDS.latitude)).toMatchObject({
+      kind: "ExistingOccurrence",
+      occurrence_id: latitude.id,
+      write_target: latitude.write_target,
+    });
+    expect(targetFor(GPS_IDS.longitude)).toMatchObject({
+      kind: "ExistingOccurrence",
+      occurrence_id: longitude.id,
+      write_target: longitude.write_target,
+    });
+    expect(targetFor(GPS_IDS.latitudeRef)).toEqual({
+      kind: "NewProperty",
+      schema_id: GPS_IDS.latitudeRef,
+    });
+    expect(targetFor(GPS_IDS.longitudeRef)).toEqual({
+      kind: "NewProperty",
+      schema_id: GPS_IDS.longitudeRef,
+    });
+    expect(notifications).toBe(1);
+    expect(
+      mock.invocations.filter(
+        ({ cmd }) => cmd === "save_metadata_draft_edits_v5",
+      ),
+    ).toHaveLength(beforeV5 + 1);
+    expect(
+      mock.invocations.filter(({ cmd }) => cmd === "save_metadata_draft_edits"),
+    ).toHaveLength(beforeV4);
+
+    let altitudeNotifications = 0;
+    const unsubscribeAltitude = state.targetDraftEditsStore.subscribe(() => {
+      altitudeNotifications += 1;
+    });
+    const beforeAltitudeSave = mock.invocations.filter(
+      ({ cmd }) => cmd === "save_metadata_draft_edits_v5",
+    ).length;
+    act(() => {
+      saved = result.current[1].setGpsTargetDraftBatch(path, [
+        {
+          id: GPS_IDS.latitude,
+          edit: { intent: "Set", value: { kind: "Real", value: 52 } },
+        },
+        {
+          id: GPS_IDS.latitudeRef,
+          edit: { intent: "Set", value: { kind: "Text", value: "N" } },
+        },
+        {
+          id: GPS_IDS.longitude,
+          edit: { intent: "Set", value: { kind: "Real", value: 1 } },
+        },
+        {
+          id: GPS_IDS.longitudeRef,
+          edit: { intent: "Set", value: { kind: "Text", value: "E" } },
+        },
+        {
+          id: GPS_IDS.altitude,
+          edit: { intent: "Set", value: { kind: "Real", value: 100 } },
+        },
+        {
+          id: GPS_IDS.altitudeRef,
+          edit: { intent: "Set", value: { kind: "Integer", value: 0 } },
+        },
+      ]);
+    });
+    unsubscribeAltitude();
+    expect(saved).toBe(true);
+    expect(
+      Object.values(state.targetDraftEditsStore.getMetadataFile(path) ?? {}),
+    ).toHaveLength(6);
+    expect(altitudeNotifications).toBe(1);
+    expect(
+      mock.invocations.filter(
+        ({ cmd }) => cmd === "save_metadata_draft_edits_v5",
+      ),
+    ).toHaveLength(beforeAltitudeSave + 1);
+    expect(
+      mock.invocations.filter(({ cmd }) => cmd === "save_metadata_draft_edits"),
+    ).toHaveLength(beforeV4);
+
+    act(() => {
+      saved = result.current[1].setGpsTargetDraftBatch(path, [
+        {
+          id: GPS_IDS.latitude,
+          edit: { intent: "Set", value: { kind: "Real", value: 51.5 } },
+        },
+      ]);
+    });
+    expect(saved).toBe(true);
+    expect(
+      Object.values(
+        state.targetDraftEditsStore.getMetadataFile(path) ?? {},
+      ).some(
+        (entry) =>
+          entry.target.schema_id.table === GPS_IDS.latitude.table &&
+          entry.target.schema_id.tag_id === GPS_IDS.latitude.tag_id,
+      ),
+    ).toBe(false);
+  });
+
+  it("rejects a GPS planning failure before mutation, notification or save", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/photos");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => result.current[1].openFolder());
+    const state = result.current[0];
+    if (state.kind !== "loaded") return;
+    const path = "gps-failure.jpg";
+    state.imageMetadataOccurrences.set(path, []);
+    let notifications = 0;
+    const unsubscribe = state.targetDraftEditsStore.subscribe(() => {
+      notifications += 1;
+    });
+    const saveCount = mock.invocations.filter(
+      ({ cmd }) => cmd === "save_metadata_draft_edits_v5",
+    ).length;
+    let saved = true;
+    act(() => {
+      saved = result.current[1].setGpsTargetDraftBatch(path, [
+        {
+          id: GPS_IDS.latitude,
+          edit: { intent: "Set", value: { kind: "Text", value: "first" } },
+        },
+        {
+          id: GPS_IDS.latitude,
+          edit: {
+            intent: "Set",
+            value: { kind: "Text", value: "duplicate" },
+          },
+        },
+      ]);
+    });
+    unsubscribe();
+    expect(saved).toBe(false);
+    expect(state.targetDraftEditsStore.getMetadataFile(path)).toBeUndefined();
+    expect(notifications).toBe(0);
+    expect(
+      mock.invocations.filter(
+        ({ cmd }) => cmd === "save_metadata_draft_edits_v5",
+      ),
+    ).toHaveLength(saveCount);
+    expect(result.current[0].kind).toBe("loaded");
+    if (result.current[0].kind === "loaded") {
+      const errors = result.current[0].workerErrors;
+      expect(errors[errors.length - 1]?.error_message).toMatch(
+        /same exact schema/i,
+      );
+    }
+  });
+
   it("blocks exact-row creation while loading or when legacy/NewProperty ownership exists", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/photos");
@@ -1505,12 +1735,12 @@ describe("useMediaLibrary", () => {
       result.current[1].setExistingOccurrenceDraft(
         "gps.jpg",
         gpsOccurrence.id,
-        { intent: "Set", value: { kind: "Real", value: 51.5 } },
+        { intent: "Set", value: { kind: "Real", value: 52 } },
       );
     });
     current = result.current[0];
     if (current.kind !== "loaded") return;
-    expect(current.targetDraftEdits["gps.jpg"]).toBeUndefined();
+    expect(Object.values(current.targetDraftEdits["gps.jpg"])).toHaveLength(1);
 
     const ownerOccurrence = targetableOccurrence(id, "sibling", {
       copy: 1,

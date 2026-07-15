@@ -65,7 +65,7 @@ import {
   metadataDraftTargetSlotToken,
 } from "./utils/metadataDraftTarget";
 import { resolveExactMetadataOccurrence } from "./utils/metadataOccurrences";
-import { gpsMemberGroup } from "./metadata/tag_overrides";
+import { planGpsTargetDraftBatchV5 } from "./gpsTargetDrafts";
 
 const TARGET_DRAFT_LOAD_BLOCKED_MESSAGE =
   "Target-aware drafts could not be loaded safely. Fix the folder's schema-v5 draft persistence file, then reopen the folder.";
@@ -102,6 +102,10 @@ export interface MediaLibraryActions {
     fileRelativePath: string,
     edits: Array<{ id: SchemaDefinitionId; edit: MetadataDraftEdit }>,
   ) => void;
+  setGpsTargetDraftBatch: (
+    relativePath: string,
+    edits: Array<{ id: SchemaDefinitionId; edit: MetadataDraftEdit }>,
+  ) => boolean;
   setExistingOccurrenceDraft: (
     fileRelativePath: string,
     occurrenceId: MetadataOccurrenceId,
@@ -1229,6 +1233,32 @@ export function useMediaLibrary(
     [],
   );
 
+  const setGpsTargetDraftBatch = useCallback(
+    (
+      relativePath: string,
+      edits: Array<{ id: SchemaDefinitionId; edit: MetadataDraftEdit }>,
+    ): boolean => {
+      if (!requireTargetDraftPersistenceReady([relativePath])) return false;
+      try {
+        const planned = planGpsTargetDraftBatchV5(
+          edits,
+          imageMetadataOccurrencesStoreRef.current.get(relativePath),
+          draftEditsStoreRef.current.getMetadataFile(relativePath),
+          targetDraftEditsStoreRef.current.getMetadataFile(relativePath),
+        );
+        targetDraftEditsStoreRef.current.setMetadataBatch(
+          relativePath,
+          planned.map(({ target, edit }) => ({ target, edit })),
+        );
+        return true;
+      } catch (error) {
+        pushApplicationError("metadata-v5-gps-plan", error, [relativePath]);
+        return false;
+      }
+    },
+    [pushApplicationError, requireTargetDraftPersistenceReady],
+  );
+
   const setExistingOccurrenceDraft = useCallback(
     (
       fileRelativePath: string,
@@ -1275,14 +1305,6 @@ export function useMediaLibrary(
         return;
       }
       const target = targetResolution.target;
-      if (gpsMemberGroup(target.schema_id) !== null) {
-        pushApplicationError(
-          "metadata-v5-gps-legacy",
-          "GPS members remain on the legacy schema-v4 batch editing boundary.",
-          [fileRelativePath],
-        );
-        return;
-      }
       const legacy =
         draftEditsStoreRef.current.getMetadataFile(fileRelativePath);
       if (legacy?.[schemaDefinitionIdToken(target.schema_id)]) {
@@ -1621,6 +1643,7 @@ export function useMediaLibrary(
       resetColumnWidths,
       dismissError,
       setMetadataDraftBatch,
+      setGpsTargetDraftBatch,
       setExistingOccurrenceDraft,
       setNewPropertyDraft,
       discardTargetPropertyDraft,
@@ -1654,6 +1677,7 @@ export function useMediaLibrary(
       resetColumnWidths,
       dismissError,
       setMetadataDraftBatch,
+      setGpsTargetDraftBatch,
       setExistingOccurrenceDraft,
       setNewPropertyDraft,
       discardTargetPropertyDraft,

@@ -93,6 +93,7 @@ function renderPane(options: {
   const callbacks = {
     onSetExistingOccurrenceDraft: vi.fn(),
     onSetMetadataDraftBatch: vi.fn(),
+    onSetGpsTargetDraftBatch: vi.fn(() => true),
     onSetNewPropertyDraft: vi.fn(),
     onDiscardTargetPropertyDraft: vi.fn(),
     onDiscardDraftBatch: vi.fn(),
@@ -688,7 +689,7 @@ describe("DetailsPane exact ordinary editor identity", () => {
     }
   });
 
-  it("keeps GPS on the legacy batch callback", async () => {
+  it("routes individual GPS edits only through the target-aware GPS callback", async () => {
     const gpsInfo: TagInfo = {
       id: GPS_IDS.latitude,
       group: "GPS",
@@ -717,9 +718,10 @@ describe("DetailsPane exact ordinary editor identity", () => {
       target: { value: "52" },
     });
     fireEvent.click(screen.getByTestId("numeric-editor-save"));
-    expect(view.onSetMetadataDraftBatch).toHaveBeenCalledWith([
+    expect(view.onSetGpsTargetDraftBatch).toHaveBeenCalledWith([
       expect.objectContaining({ id: GPS_IDS.latitude }),
     ]);
+    expect(view.onSetMetadataDraftBatch).not.toHaveBeenCalled();
     expect(view.onSetExistingOccurrenceDraft).not.toHaveBeenCalled();
   });
 

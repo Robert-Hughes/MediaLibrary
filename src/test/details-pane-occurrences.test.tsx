@@ -17,6 +17,8 @@ import type {
 } from "../types";
 import { metadataCollection } from "../utils/metadataCollection";
 import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
+import { TargetDraftEditsStore } from "../targetDraftEdits";
+import { existingOccurrenceTargetFromOccurrence } from "../utils/metadataDraftTarget";
 import { makePhoto } from "./factories";
 import {
   _clearTagInfoCache,
@@ -80,11 +82,13 @@ function renderPane(
     occurrences?: Parameters<typeof DetailsPane>[0]["occurrences"];
     draftEdits?: Parameters<typeof DetailsPane>[0]["draftEdits"];
     typedDraftEdits?: Parameters<typeof DetailsPane>[0]["typedDraftEdits"];
+    targetDraftEdits?: Parameters<typeof DetailsPane>[0]["targetDraftEdits"];
   } = {},
 ) {
   const callbacks = {
     onSetExistingOccurrenceDraft: vi.fn(),
     onSetMetadataDraftBatch: vi.fn(),
+    onSetGpsTargetDraftBatch: vi.fn(() => true),
     onDiscardDraft: vi.fn(),
     onDiscardDraftBatch: vi.fn(),
   };
@@ -95,6 +99,7 @@ function renderPane(
       occurrences={paneOptions.occurrences ?? collision}
       draftEdits={paneOptions.draftEdits}
       typedDraftEdits={paneOptions.typedDraftEdits}
+      targetDraftEdits={paneOptions.targetDraftEdits}
       {...callbacks}
     />
   );
@@ -335,16 +340,19 @@ describe("DetailsPane additional metadata occurrences", () => {
     const metadata = metadataCollection([
       { id: gpsId, value: { kind: "Real", value: 51.5 } },
     ]);
-    const typedDraftEdits: MetadataDraftCollection = {
-      [schemaDefinitionIdToken(gpsId)]: {
-        id: gpsId,
-        edit: { intent: "Set", value: { kind: "Real", value: 51.6 } },
-      },
-    };
+    const uniqueGpsOccurrence = gpsOccurrence(0, 51.5);
+    const target = existingOccurrenceTargetFromOccurrence(uniqueGpsOccurrence);
+    if (target.kind !== "targetable") throw new Error(target.reason);
+    const targetStore = new TargetDraftEditsStore();
+    targetStore.setMetadataTarget(photo.relative_path, target.target, {
+      intent: "Set",
+      value: { kind: "Real", value: 51.6 },
+    });
+    const targetDraftEdits = targetStore.getMetadataFile(photo.relative_path);
     const view = renderPane({
       metadata,
-      occurrences: [gpsOccurrence(0, 51.5)],
-      typedDraftEdits,
+      occurrences: [uniqueGpsOccurrence],
+      targetDraftEdits,
     });
     const row = screen
       .getByText("GPSLatitude")
@@ -360,15 +368,15 @@ describe("DetailsPane additional metadata occurrences", () => {
     view.rerenderPane({
       metadata,
       occurrences: [gpsOccurrence(0, 51.5), gpsOccurrence(1, 51.5)],
-      typedDraftEdits,
+      targetDraftEdits,
     });
 
     expect(screen.queryByRole("button", { name: "Edit…" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Edit GPS…" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Remove" })).toBeNull();
     expect(
-      screen.getByRole("button", { name: "Discard edit" }),
-    ).toBeInTheDocument();
+      screen.getAllByRole("button", { name: "Discard edit" }).length,
+    ).toBeGreaterThan(0);
   });
 
   it("keeps an exact editor on A when its schema becomes multiple", async () => {
