@@ -4,7 +4,8 @@ This document holds operational rules for the metadata pipeline. For the full ty
 
 ## Current row-edit flow
 
-Opening a new ordinary or supplemental non-GPS Details Pane editor requires an
+Opening a new ordinary or supplemental non-GPS Details Pane editor, or an
+individual unique GPS editor, requires an
 exact authoritative occurrence carrying writable embedded `TagInfo` plus a
 runtime write target. The editor captures that exact occurrence ID and
 complete target snapshot. Save passes the captured ID to the production action;
@@ -46,10 +47,15 @@ exact current value removes only that occurrence draft. V5 autosave writes only
 Legacy discard writes only `MediaLibraryDraftEdits.jsonl`.
 
 Persisted v4 row drafts remain visible and apply/discard through v4, but block
-exact-schema Edit and Remove and are never converted. GPS members and paired
-GPS writes, group/bulk operations, and generated producers remain v4. Missing,
-untargetable, duplicate-ID, persistence-failed, and loading occurrences are
-read-only. GPS supplemental occurrences remain v4/read-only. Combined apply
+exact-schema Edit and Remove and are never converted. Individual and composite
+GPS editing now use v5 exact targets. Existing GPS fields use their unique
+authoritative occurrence targets; missing paired fields deliberately use
+`NewProperty`. The whole emitted batch validates before one store mutation.
+The composite editor captures all six destinations and refuses stale saves.
+Persisted v4 GPS drafts block the group until applied or discarded. Group/bulk
+operations and generated producers remain v4. Missing, untargetable,
+duplicate-ID, persistence-failed, and loading occurrences are read-only. GPS
+supplemental occurrences remain read-only. Combined apply
 remains v5 then v4 with the exact-schema cross-system guard, and ordinary plus
 supplemental row outcomes use the same target-aware verification pipeline.
 
@@ -70,8 +76,9 @@ a second schema lookup. Missing resolutions preserve the existing legacy row
 behavior. Multiple resolutions never select a preferred or first occurrence:
 all concrete values render separately in **Additional Metadata Occurrences**,
 including identical values retained behind one legacy compatibility value.
-Targetable non-GPS rows use exact v5 actions; untargetable, GPS, or conflicting
-rows remain read-only with a focused reason.
+Targetable ordinary rows use exact v5 actions; untargetable or conflicting rows
+remain read-only with a focused reason. GPS supplemental rows are deliberately
+read-only, and a multiply-resolved GPS target remains unresolved.
 
 When a multiple resolution also has a compatibility row, that row is visibly
 ambiguous and offers no Edit, Edit GPS, Remove, or group Remove action. It may
@@ -90,8 +97,9 @@ closes the interactive editor, shows a clear unavailable message, preserves all
 drafts, and invokes no setter. A value-only change for the same target
 explicitly refreshes the editor and still saves the captured ID. Set initializes
 from its staged value; Delete from the exact current occurrence value; list
-intents use their effective staged semantic value when available. GPS retains
-the legacy compatibility-based initialization and schema-v4 callbacks.
+intents use their effective staged semantic value when available. GPS rows and
+the map use the same effective metadata overlay. Composite GPS saves only after
+the six captured targets are re-planned unchanged.
 
 If an ambiguous schema is absent from the legacy projection but already has a
 schema-keyed Delete draft, the Details Pane creates a Null-valued compatibility
@@ -323,12 +331,13 @@ JSON-compatible, and enforces the generated unit shapes for `Null` and
 `Binary`. A tested frontend/Tauri-contract round-trip preserves full targets,
 shared-schema IFD0/IFD1 occurrences, and cross-variant same-schema entries.
 
-Production creates the target store and imports the adapter for Add Property
-and unique non-GPS existing rows.
+Production creates the target store and imports the adapter for Add Property,
+unique existing rows, and individual/composite GPS editing.
 Startup loads its v5 persistence before the independent schema-v4 map, and
 `AppState` exposes both. Exact ordinary Details Pane rows and verification
 consume `MetadataDraftTarget`; the search-worker counts both draft systems.
-GPS and batch/generated producers remain schema v4.
+Generic group/bulk and generated producers remain schema v4. Persisted v4 GPS
+drafts remain there without conversion.
 
 A v4 schema ID cannot be converted automatically into an existing-occurrence
 or new-property target without authoritative runtime context. In particular,
@@ -626,9 +635,9 @@ occurrences. For a same-file mixed apply, the later v4 phase therefore leaves
 fresh v4 compatibility visible and invalidates the earlier v5 occurrence
 collection; the Details Pane cannot overlay a stale occurrence value.
 
-The production v5 draft producers are Add New Property and uniquely resolved
-writable non-GPS existing rows. The explicit v4 producers are GPS editing,
-bulk remove-field,
+The production v5 draft producers are Add New Property, uniquely resolved
+writable existing rows, and individual/composite GPS editing. The explicit v4
+producers are bulk remove-field,
 AI description, geocode, normalise, and other batch-generated drafts. Schema-v4
 persistence, apply logging, and verification remain in service for them.
 

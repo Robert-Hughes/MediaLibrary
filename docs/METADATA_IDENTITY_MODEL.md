@@ -6,8 +6,8 @@ independent concepts and must not be substituted for one another.
 
 ## Current production editing boundary
 
-Add Property and uniquely resolved writable non-GPS existing rows use the
-schema-v5 target store. An existing row is eligible only when its authoritative
+Add Property and uniquely resolved writable existing rows, including GPS
+members, use the schema-v5 target store. An existing row is eligible only when its authoritative
 `MetadataOccurrence` has non-null embedded `TagInfo`, that `TagInfo` is
 writable, and the occurrence has a non-null runtime `MetadataWriteTarget`.
 Production receives only the occurrence ID, rereads the authoritative
@@ -34,8 +34,10 @@ Every safely presented v5 target has an explicit destination. `NewProperty` and
 uniquely resolved `ExistingOccurrence` targets retain ordinary-row
 presentation, including a unique occurrence omitted by the compatibility
 projection. When a schema has multiple authoritative occurrences, its complete
-`ExistingOccurrence` target remains on the concrete **Additional Metadata
-Occurrences** row instead. Its presentation key is exactly
+`ExistingOccurrence` target normally remains on the concrete **Additional Metadata
+Occurrences** row instead. GPS is the deliberate exception: a multiply-resolved
+GPS target stays unresolved and GPS supplemental rows remain read-only. The
+non-GPS supplemental presentation key is exactly
 `metadataOccurrenceIdToken(target.occurrence_id)`, so no schema-keyed ordinary
 row is synthesized and a same-schema sibling remains a distinct supplemental
 row.
@@ -50,9 +52,11 @@ The current production bridge permits zero exact-schema target owners or one
 identical complete `ExistingOccurrence` owner. Therefore, while occurrence A
 owns a schema, same-schema supplemental occurrence B remains visible but is
 blocked rather than replaced or first-selected. Discarding A makes B eligible
-again. GPS supplemental rows remain read-only and continue through v4.
+again. GPS supplemental rows remain read-only and are never selected by the GPS
+target planner.
 
-Opening an ordinary or supplemental non-GPS editor captures the selected occurrence ID and its
+Opening an ordinary or supplemental non-GPS editor, or an individual unique GPS
+editor, captures the selected occurrence ID and its
 complete target snapshot. While open, the pane resolves that ID exactly and
 requires one authoritative match, the same embedded schema and selector, and
 compatible ordinary-row ownership. Loading, missing, duplicate-ID,
@@ -62,10 +66,16 @@ cannot retarget the editor. Value-only refreshes explicitly reseed the editor
 while preserving the captured ID, and Save passes that captured ID to the
 production action.
 
-GPS members (including one-field Edit and Remove), paired/map GPS writes,
-group/bulk operations, AI/geocode/normalise and other generated drafts remain
-schema v4. The generic v4 single-row producer has been deleted. Ordinary and
-supplemental v5 outcomes share the existing target-aware verification pipeline;
+Individual GPS Edit and Remove and the paired/map composite GPS editor use an
+exact schema-v5 batch planner. Existing fields retain their authoritative
+occurrence ID, embedded schema, and runtime selector; missing paired fields are
+deliberate exact-schema `NewProperty` targets. The complete batch validates
+occurrence cardinality and v4/v5 ownership before one target-store mutation.
+The composite editor captures all six targets when it opens and refuses Save if
+any destination changes. Persisted v4 GPS drafts are not converted and block
+v5 editing for their group until applied or discarded. Generic group/bulk
+operations, AI/geocode/normalise, and other generated drafts remain schema v4.
+Ordinary and supplemental v5 outcomes share the existing target-aware verification pipeline;
 Match/DeleteOk clear only the exact occurrence slot, while Keep/Blocked retain
 it without reinterpreting or removing a schema sibling.
 
@@ -422,7 +432,7 @@ missing resolution retains the legacy compatibility value and schema lookup.
 Multiple resolutions never select one runtime field. Each concrete occurrence
 is shown separately in **Additional Metadata Occurrences**, while any existing
 legacy compatibility row is marked ambiguous and cannot be edited or removed.
-A targetable non-GPS occurrence edits through its exact v5 target. When it owns
+A targetable occurrence edits through its exact v5 target. When it owns
 a draft, that draft stays on its occurrence-token row; siblings stay visible
 and blocked. A uniquely resolved compatibility omission retains the ordinary
 row exception instead.
@@ -433,8 +443,10 @@ reseeds the editor for the same occurrence. Loading, missing, duplicate,
 same-schema replacement, changed embedded schema, changed selector, or
 incompatible row ownership prevents Save and surfaces an unavailable message.
 Set drafts seed from the staged value, Delete from the exact current value, and
-list operations from the effective staged semantic value when available. GPS
-keeps compatibility-based initialization and schema-v4 callbacks.
+list operations from the effective staged semantic value when available.
+Individual GPS rows use these same safeguards. The composite GPS editor instead
+captures all six planned targets and revalidates the complete snapshot before
+calling the GPS v5 batch action.
 
 The file-level duplicate-occurrence scan failure is fixed: a lossy legacy
 projection no longer blocks transport of the successful occurrence read.
@@ -508,8 +520,9 @@ performs no persistence itself; the production v5 batch coordinator persists
 its result without changing schema-v4 persistence or apply.
 
 Production creates the target-aware store and calls the v5 adapter for Add
-Property and exact unique-row edits. The v4 file remains independently owned by
-GPS, group/bulk and generated producers plus persisted legacy drafts;
+Property, exact unique-row edits, and individual/composite GPS edits. The v4
+file remains independently owned by group/bulk and generated producers plus
+persisted legacy drafts, including already-persisted GPS drafts;
 target-aware logging remains pending migration.
 
 V4 entries are not automatically converted: a `SchemaDefinitionId` alone does
@@ -693,12 +706,12 @@ Backend reconciliation may replace that target with a complete
 `ExistingOccurrence`; the Details Pane continues to edit and discard that exact
 replacement target, including its occurrence ID and write selector.
 
-Unique writable non-GPS metadata rows also create `ExistingOccurrence` targets
+Unique writable metadata rows, including individual GPS members, also create `ExistingOccurrence` targets
 from their authoritative occurrence and use exact current-value comparison.
 
-This is a temporary bridge organised by operation type. GPS, bulk field
-removal, AI description, geocode, normalise, and other batch-generated drafts
-remain explicitly schema-v4. No generic
+This is a temporary bridge organised by operation type. Individual and
+composite GPS editing are v5; bulk field removal, AI description, geocode,
+normalise, and other generated drafts remain explicitly schema-v4. No generic
 schema-to-occurrence inference or v4-file conversion was introduced. A file and
 exact schema cannot be owned by both systems: creation and combined apply reject
 the collision without deleting or converting either draft. The narrow Add

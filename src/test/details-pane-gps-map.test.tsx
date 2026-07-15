@@ -3,8 +3,15 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { DetailsPane } from "../components/DetailsPane";
 
 import { GpsMapOverview } from "../components/GpsMapOverview";
-import { makePhoto, mockDrafts, mockMetadata } from "./factories";
-import type { MetadataDraftEdit } from "../types";
+import {
+  makePhoto,
+  mockDrafts,
+  mockMetadata,
+  testFriendlyName,
+} from "./factories";
+import type { MetadataDraftEdit, MetadataOccurrence } from "../types";
+import { TargetDraftEditsStore } from "../targetDraftEdits";
+import { existingOccurrenceTargetFromOccurrence } from "../utils/metadataDraftTarget";
 import {
   _clearTagInfoCache,
   _setTagInfoCacheEntry,
@@ -67,6 +74,36 @@ describe("DetailsPane GPS Map integration", () => {
       });
     }
   });
+
+  function occurrencesFor(
+    metadata: ReturnType<typeof mockMetadata>,
+  ): MetadataOccurrence[] {
+    return Object.values(metadata).map((entry) => {
+      const { id, ...value } = entry;
+      const friendly = testFriendlyName(id);
+      const separator = friendly.indexOf(":");
+      const group = friendly.slice(0, separator);
+      const name = friendly.slice(separator + 1);
+      return {
+        id: {
+          document: null,
+          path: `JPEG-APP1-GPS-${id.tag_id}`,
+          tag_id: id.tag_id,
+          copy: 0,
+        },
+        value,
+        tag_info: {
+          id,
+          group,
+          name,
+          writable: true,
+          kind: { kind: value.kind } as any,
+          description: null,
+        },
+        write_target: { group1: group, tag_name: name },
+      };
+    });
+  }
 
   it("renders the map overview when a GPS section exists and coordinates resolve to valid values", () => {
     const metadata = mockMetadata({
@@ -200,6 +237,71 @@ describe("DetailsPane GPS Map integration", () => {
       />,
     );
 
+    expect(screen.queryByTestId("gps-map-overview")).not.toBeInTheDocument();
+  });
+
+  it("moves the marker for exact v5 GPS drafts and hides it for an exact Delete", () => {
+    const metadata = mockMetadata({
+      "GPS:GPSLatitude": 51.5001,
+      "GPS:GPSLongitude": 0.1262,
+      "GPS:GPSLatitudeRef": "N",
+      "GPS:GPSLongitudeRef": "W",
+    });
+    const occurrences = occurrencesFor(metadata);
+    const latitude = occurrences.find(
+      (item) => item.tag_info?.name === "GPSLatitude",
+    )!;
+    const longitude = occurrences.find(
+      (item) => item.tag_info?.name === "GPSLongitude",
+    )!;
+    const latitudeTarget = existingOccurrenceTargetFromOccurrence(latitude);
+    const longitudeTarget = existingOccurrenceTargetFromOccurrence(longitude);
+    if (
+      latitudeTarget.kind !== "targetable" ||
+      longitudeTarget.kind !== "targetable"
+    ) {
+      throw new Error("test GPS occurrences must be targetable");
+    }
+    const store = new TargetDraftEditsStore();
+    store.setMetadataBatch(photo.relative_path, [
+      {
+        target: latitudeTarget.target,
+        edit: { intent: "Set", value: { kind: "Real", value: 48.8584 } },
+      },
+      {
+        target: longitudeTarget.target,
+        edit: { intent: "Set", value: { kind: "Real", value: 2.2945 } },
+      },
+    ]);
+    const baseProps = {
+      onSetMetadataDraftBatch: vi.fn(),
+      onSetGpsTargetDraftBatch: vi.fn(() => true),
+      onDiscardDraftBatch: vi.fn(),
+      photo,
+      metadata,
+      occurrences,
+    };
+    const rendered = render(
+      <DetailsPane
+        {...baseProps}
+        targetDraftEdits={store.getMetadataFile(photo.relative_path)}
+      />,
+    );
+    for (const map of screen.getAllByTestId("gps-map")) {
+      expect(map).toHaveAttribute("data-lat", "48.8584");
+      expect(map).toHaveAttribute("data-lon", "-2.2945");
+    }
+
+    store.setMetadataTarget(photo.relative_path, latitudeTarget.target, {
+      intent: "Delete",
+      value: null,
+    });
+    rendered.rerender(
+      <DetailsPane
+        {...baseProps}
+        targetDraftEdits={store.getMetadataFile(photo.relative_path)}
+      />,
+    );
     expect(screen.queryByTestId("gps-map-overview")).not.toBeInTheDocument();
   });
 

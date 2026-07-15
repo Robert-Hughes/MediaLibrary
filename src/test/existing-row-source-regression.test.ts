@@ -33,4 +33,19 @@ describe("ordinary existing-row production boundary", () => {
     expect(supplementalMenu).not.toContain("setMetadataTag(");
     expect(supplementalMenu).not.toContain("setMetadataDraftBatch(");
   });
+
+  it("keeps GPS row and composite editor saves off the schema-v4 callback", () => {
+    const ordinaryRowMenu = details.slice(
+      details.indexOf("{contextMenu &&"),
+      details.indexOf("{supplementalContextMenu &&"),
+    );
+    const editor = details.slice(
+      details.indexOf("{editDialog &&"),
+      details.indexOf("{targetDraftsWritable && showNewPropertyDialog"),
+    );
+    expect(ordinaryRowMenu).toContain("onSetGpsTargetDraftBatch");
+    expect(editor).toContain("onSetGpsTargetDraftBatch");
+    expect(ordinaryRowMenu).not.toContain("onSetMetadataDraftBatch");
+    expect(editor).not.toContain("onSetMetadataDraftBatch");
+  });
 });

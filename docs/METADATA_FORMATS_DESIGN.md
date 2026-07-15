@@ -10,8 +10,8 @@ The guiding principle: **never hide behaviour from the user where it affects the
 
 ## Current v4/v5 editing boundary
 
-Uniquely resolved writable non-GPS existing rows now use schema v5 alongside
-Add Property. Their target is constructed only from the authoritative runtime
+Uniquely resolved writable existing rows, including individual GPS fields, now
+use schema v5 alongside Add Property. Their target is constructed only from the authoritative runtime
 occurrence and retains cloned occurrence-ID, embedded-schema, and runtime
 write-selector snapshots. Neither the compatibility row's schema nor any
 same-schema occurrence is a substitute. Exact current-value comparison and
@@ -303,10 +303,26 @@ Known temporal tags that `-listx` reports as `string` are promoted in the backen
 
 How we handle the pairing:
 
-- Draft store keeps each tag as a **separate entry**. No paired-edit primitive at the draft layer.
+- The target-aware draft store keeps each GPS field as a **separate exact
+  target entry**. Existing fields carry their authoritative occurrence ID,
+  embedded schema, and runtime selector; missing paired fields are deliberate
+  exact-schema `NewProperty` targets.
 - The GPS editor displays a one-line warning above the input: "Editing this location will also write `GPSLatitudeRef`, `GPSLongitudeRef`, …".
-- On save the editor writes all paired draft entries together so the numeric value and its reference can never be out of sync.
-- Discarding the location discards every paired draft entry.
+- Opening the composite editor plans and captures Latitude, LatitudeRef,
+  Longitude, LongitudeRef, Altitude, and AltitudeRef. Multiple occurrences,
+  untargetable fields, legacy ownership, or incompatible v5 ownership prevent
+  it from opening.
+- On save the editor re-plans the complete captured destination set. Any target
+  change prevents saving instead of retargeting. A valid four- or six-field
+  edit mutates the target store once and autosaves only schema v5.
+- Individual GPS Edit, Remove, and Discard use the exact target slot. A
+  `NewProperty` Remove discards that creation target rather than constructing a
+  Delete creation target.
+- Persisted schema-v4 GPS drafts remain visible, apply/discard through v4, and
+  block v5 GPS editing until resolved. Generic group/bulk and generated
+  operations remain v4; GPS supplemental occurrences remain read-only.
+- Target-aware verification retains all six GPS fields as separate outcome
+  slots and never creates a v4 verification outcome for a new v5 GPS edit.
 
 The same pattern applies to any future paired-tag editor (the warning text and the on-save write-list are the only per-editor bits).
 
@@ -824,13 +840,14 @@ failure cannot strand either lifecycle resource or mask an earlier command or
 final-application failure.
 
 `useMediaLibrary` owns the single controller instance, target-aware `AppState`,
-and v5 autosave subscriber used by Add New Property and exact non-GPS rows.
-Their verification is target-aware and separate; GPS and batch/generated
-operations remain schema v4 during the controlled bridge.
+and v5 autosave subscriber used by Add New Property, exact existing rows, and
+individual/composite GPS edits. Their verification is target-aware and
+separate; group/bulk and generated operations remain schema v4 during the
+controlled bridge.
 
 - **MetadataValue** — Discriminated semantic value model used inside the app for read metadata, draft edits, writes, verification, and apply logs.
 - **SchemaDefinitionId** — Exact ExifTool definition identity: `{table, tag_id, index?}` from `-listx`. It remains the key for current schema-keyed v4 drafts and their production paths. It is distinct from runtime occurrence identity and exact write targeting. `Group1:Name` is display/search text only.
-- **MetadataDraftTarget** — Exact target union: an existing occurrence carries runtime occurrence, semantic schema, and exact selector snapshot; a new property carries only the selected schema. Add New Property, uniquely resolved writable non-GPS rows, and targetable supplemental non-GPS rows consume it in production; GPS remains pending on v4.
+- **MetadataDraftTarget** — Exact target union: an existing occurrence carries runtime occurrence, semantic schema, and exact selector snapshot; a new property carries only the selected schema. Add New Property, uniquely resolved writable rows, targetable supplemental non-GPS rows, and individual/composite GPS editing consume it in production. GPS supplemental rows remain read-only.
 - **MetadataDraftSlot** — One logical draft position within a file: occurrence identity for an existing field, schema identity for a new property. It deliberately excludes stale target snapshots and the outer file-relative path.
 - **ExifTool JSON boundary** - serde_json::Value held only at scan parsing boundaries before conversion into MetadataValue.
 - **TagKind** — The schema's classification of a tag (`Text`, `Bag<Text>`, `Enum<Integer>`, etc.). Drives which editor renders.
@@ -898,7 +915,8 @@ future outcomes with no observed value offer discard rather than acceptance;
 keep remains available. The target dialog has modal precedence until empty.
 
 This format boundary is deliberately temporary. Target-aware verification is
-active only for production schema-v5 operations. Existing-row, GPS, bulk,
-AI-description, geocode, normalise, and other batch edits still use schema-v4;
+active only for production schema-v5 operations. Existing-row and GPS editing
+use v5; bulk, AI-description, geocode, normalise, and other generated batch
+edits still use schema-v4;
 there is no automatic conversion and no general schema projection that could
 collapse occurrence targets. Migration of those remaining producers is pending.
