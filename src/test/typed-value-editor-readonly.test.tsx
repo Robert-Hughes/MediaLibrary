@@ -19,7 +19,12 @@ import {
   _clearTagInfoCache,
   _setTagInfoCacheEntry as setExactTagInfo,
 } from "../hooks/useTagInfo";
-import type { MetadataValue, TagKind } from "../types";
+import type {
+  MetadataDraftEdit,
+  MetadataValue,
+  SchemaDefinitionId,
+  TagKind,
+} from "../types";
 import { mockMetadata, testId } from "./factories";
 
 function _setTagInfoCacheEntry(key: string, value: any) {
@@ -570,6 +575,147 @@ describe("TypedValueEditor GPS routing", () => {
     expect(screen.getByTestId("gps-editor-lon-input")).toHaveValue(2);
     expect(screen.getByTestId("gps-editor-lat-ref")).toHaveValue("S");
     expect(screen.getByTestId("gps-editor-lon-ref")).toHaveValue("W");
+  });
+
+  it.each([
+    {
+      name: "positive zero",
+      effectiveGps: { lat: 0, lon: 0 },
+      expectedLatRef: "N",
+      expectedLonRef: "E",
+    },
+    {
+      name: "negative zero",
+      effectiveGps: { lat: -0, lon: -0 },
+      expectedLatRef: "S",
+      expectedLonRef: "W",
+    },
+  ])(
+    "preserves $name references while presenting and saving zero magnitudes",
+    async ({ effectiveGps, expectedLatRef, expectedLonRef }) => {
+      _setTagInfoCacheEntry("GPS:GPSLatitude", {
+        group: "GPS",
+        name: "GPSLatitude",
+        writable: true,
+        kind: { kind: "Real" },
+        description: null,
+      });
+      const onSaveMetadata = vi.fn();
+      const onSaveMetadataBatch = vi.fn();
+      render(
+        <TypedValueEditor
+          {...editorIdentity("GPS:GPSLatitude")}
+          metadataForFile={{
+            "GPS:GPSLatitude": { kind: "Real", value: 0 },
+            "GPS:GPSLatitudeRef": { kind: "Text", value: "N" },
+            "GPS:GPSLongitude": { kind: "Real", value: 0 },
+            "GPS:GPSLongitudeRef": { kind: "Text", value: "E" },
+          }}
+          effectiveGps={effectiveGps}
+          onSaveMetadata={onSaveMetadata}
+          onSaveMetadataBatch={onSaveMetadataBatch}
+          onCancel={() => {}}
+          editorMode="gps"
+        />,
+      );
+
+      expect(screen.getByTestId("gps-editor-lat-input")).toHaveValue(0);
+      expect(screen.getByTestId("gps-editor-lon-input")).toHaveValue(0);
+      expect(screen.getByTestId("gps-editor-lat-ref")).toHaveValue(
+        expectedLatRef,
+      );
+      expect(screen.getByTestId("gps-editor-lon-ref")).toHaveValue(
+        expectedLonRef,
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId("gps-editor-save")).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByTestId("gps-editor-save"));
+
+      expect(onSaveMetadata).not.toHaveBeenCalled();
+      expect(onSaveMetadataBatch).toHaveBeenCalledOnce();
+      const edits = onSaveMetadataBatch.mock.calls[0][0] as Array<{
+        id: SchemaDefinitionId;
+        edit: MetadataDraftEdit;
+      }>;
+      expect(edits).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: testId("GPS:GPSLatitudeRef"),
+            edit: expect.objectContaining({
+              value: { kind: "Text", value: expectedLatRef },
+            }),
+          }),
+          expect.objectContaining({
+            id: testId("GPS:GPSLongitudeRef"),
+            edit: expect.objectContaining({
+              value: { kind: "Text", value: expectedLonRef },
+            }),
+          }),
+        ]),
+      );
+    },
+  );
+
+  it("keeps metadata S/W references when effective GPS is unavailable", async () => {
+    _setTagInfoCacheEntry("GPS:GPSLatitude", {
+      group: "GPS",
+      name: "GPSLatitude",
+      writable: true,
+      kind: { kind: "Real" },
+      description: null,
+    });
+    const onSaveMetadata = vi.fn();
+    const onSaveMetadataBatch = vi.fn();
+    render(
+      <TypedValueEditor
+        {...editorIdentity("GPS:GPSLatitude")}
+        metadataForFile={{
+          "GPS:GPSLatitude": { kind: "Real", value: 0 },
+          "GPS:GPSLatitudeRef": { kind: "Text", value: "S" },
+          "GPS:GPSLongitude": { kind: "Real", value: 0 },
+          "GPS:GPSLongitudeRef": { kind: "Text", value: "W" },
+        }}
+        onSaveMetadata={onSaveMetadata}
+        onSaveMetadataBatch={onSaveMetadataBatch}
+        onCancel={() => {}}
+        editorMode="gps"
+      />,
+    );
+
+    expect(screen.getByTestId("gps-editor-lat-input")).toHaveValue(0);
+    expect(screen.getByTestId("gps-editor-lon-input")).toHaveValue(0);
+    expect(screen.getByTestId("gps-editor-lat-ref")).toHaveValue("S");
+    expect(screen.getByTestId("gps-editor-lon-ref")).toHaveValue("W");
+
+    await waitFor(() => {
+      expect(screen.getByTestId("gps-editor-save")).not.toBeDisabled();
+    });
+    fireEvent.click(screen.getByTestId("gps-editor-save"));
+
+    expect(onSaveMetadata).not.toHaveBeenCalled();
+    expect(onSaveMetadataBatch).toHaveBeenCalledOnce();
+    const edits = onSaveMetadataBatch.mock.calls[0][0] as Array<{
+      id: SchemaDefinitionId;
+      edit: MetadataDraftEdit;
+    }>;
+    expect(edits).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: testId("GPS:GPSLatitudeRef"),
+          edit: expect.objectContaining({
+            value: { kind: "Text", value: "S" },
+          }),
+        }),
+        expect.objectContaining({
+          id: testId("GPS:GPSLongitudeRef"),
+          edit: expect.objectContaining({
+            value: { kind: "Text", value: "W" },
+          }),
+        }),
+      ]),
+    );
   });
 
   it("prefills GpsEditor from stale one-item List<Rational> GPS metadata", () => {

@@ -64,6 +64,18 @@ function baseOccurrences(): MetadataOccurrence[] {
   ];
 }
 
+function zeroOccurrences(
+  latitudeRef: "N" | "S" = "N",
+  longitudeRef: "E" | "W" = "E",
+): MetadataOccurrence[] {
+  return [
+    occurrence(GPS_IDS.latitude, valueFor(0)),
+    occurrence(GPS_IDS.latitudeRef, valueFor(latitudeRef)),
+    occurrence(GPS_IDS.longitude, valueFor(0)),
+    occurrence(GPS_IDS.longitudeRef, valueFor(longitudeRef)),
+  ];
+}
+
 function existingEntry(
   current: MetadataOccurrence,
   edit: MetadataDraftEdit,
@@ -107,6 +119,134 @@ function resolve(
 describe("resolveEffectiveGpsForFile", () => {
   it("resolves on-disk raw GPS normally", () => {
     expect(resolve()).toEqual({ lat: 51, lon: 1 });
+  });
+
+  it("preserves positive zero for a north latitude reference", () => {
+    const result = resolve({
+      metadata: mockMetadata({
+        "GPS:GPSLatitude": 0,
+        "GPS:GPSLatitudeRef": "N",
+        "GPS:GPSLongitude": 1,
+        "GPS:GPSLongitudeRef": "E",
+      }),
+      occurrences: zeroOccurrences("N", "E").slice(0, 2),
+    });
+
+    expect(Object.is(result.lat, 0)).toBe(true);
+    expect(Object.is(result.lat, -0)).toBe(false);
+  });
+
+  it("preserves negative zero for a south latitude reference", () => {
+    const result = resolve({
+      metadata: mockMetadata({
+        "GPS:GPSLatitude": 0,
+        "GPS:GPSLatitudeRef": "S",
+        "GPS:GPSLongitude": 1,
+        "GPS:GPSLongitudeRef": "E",
+      }),
+      occurrences: zeroOccurrences("S", "E").slice(0, 2),
+    });
+
+    expect(Object.is(result.lat, -0)).toBe(true);
+    expect(Object.is(result.lat, 0)).toBe(false);
+  });
+
+  it("preserves positive zero for an east longitude reference", () => {
+    const result = resolve({
+      metadata: mockMetadata({
+        "GPS:GPSLatitude": 1,
+        "GPS:GPSLatitudeRef": "N",
+        "GPS:GPSLongitude": 0,
+        "GPS:GPSLongitudeRef": "E",
+      }),
+      occurrences: zeroOccurrences("N", "E").slice(2),
+    });
+
+    expect(Object.is(result.lon, 0)).toBe(true);
+    expect(Object.is(result.lon, -0)).toBe(false);
+  });
+
+  it("preserves negative zero for a west longitude reference", () => {
+    const result = resolve({
+      metadata: mockMetadata({
+        "GPS:GPSLatitude": 1,
+        "GPS:GPSLatitudeRef": "N",
+        "GPS:GPSLongitude": 0,
+        "GPS:GPSLongitudeRef": "W",
+      }),
+      occurrences: zeroOccurrences("N", "W").slice(2),
+    });
+
+    expect(Object.is(result.lon, -0)).toBe(true);
+    expect(Object.is(result.lon, 0)).toBe(false);
+  });
+
+  it("preserves negative zero from schema-v5 ExistingOccurrence reference drafts", () => {
+    const metadata = mockMetadata({
+      "GPS:GPSLatitude": 0,
+      "GPS:GPSLatitudeRef": "N",
+      "GPS:GPSLongitude": 0,
+      "GPS:GPSLongitudeRef": "E",
+    });
+    const occurrences = zeroOccurrences();
+    const result = resolve({
+      metadata,
+      occurrences,
+      targetDrafts: targets(
+        existingEntry(occurrences[1], set(valueFor("S"))),
+        existingEntry(occurrences[3], set(valueFor("W"))),
+      ),
+    });
+
+    expect(Object.is(result.lat, -0)).toBe(true);
+    expect(Object.is(result.lon, -0)).toBe(true);
+  });
+
+  it("preserves negative zero from schema-v5 NewProperty reference drafts", () => {
+    const metadata = mockMetadata({
+      "GPS:GPSLatitude": 0,
+      "GPS:GPSLongitude": 0,
+    });
+    const occurrences = [
+      occurrence(GPS_IDS.latitude, valueFor(0)),
+      occurrence(GPS_IDS.longitude, valueFor(0)),
+    ];
+    const result = resolve({
+      metadata,
+      occurrences,
+      targetDrafts: targets(
+        {
+          target: { kind: "NewProperty", schema_id: GPS_IDS.latitudeRef },
+          edit: set(valueFor("S")),
+        },
+        {
+          target: { kind: "NewProperty", schema_id: GPS_IDS.longitudeRef },
+          edit: set(valueFor("W")),
+        },
+      ),
+    });
+
+    expect(Object.is(result.lat, -0)).toBe(true);
+    expect(Object.is(result.lon, -0)).toBe(true);
+  });
+
+  it("preserves negative zero from schema-v4 reference drafts", () => {
+    const result = resolve({
+      metadata: mockMetadata({
+        "GPS:GPSLatitude": 0,
+        "GPS:GPSLatitudeRef": "N",
+        "GPS:GPSLongitude": 0,
+        "GPS:GPSLongitudeRef": "E",
+      }),
+      occurrences: zeroOccurrences(),
+      legacyDrafts: mockDrafts({
+        "GPS:GPSLatitudeRef": "S",
+        "GPS:GPSLongitudeRef": "W",
+      }),
+    });
+
+    expect(Object.is(result.lat, -0)).toBe(true);
+    expect(Object.is(result.lon, -0)).toBe(true);
   });
 
   it("returns null coordinates when compatibility metadata is unavailable", () => {

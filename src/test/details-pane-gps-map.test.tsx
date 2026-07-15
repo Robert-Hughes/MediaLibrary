@@ -1,4 +1,10 @@
-import { render, screen, cleanup } from "@testing-library/react";
+import {
+  render,
+  screen,
+  cleanup,
+  fireEvent,
+  within,
+} from "@testing-library/react";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { DetailsPane } from "../components/DetailsPane";
 
@@ -565,6 +571,53 @@ describe("DetailsPane GPS Map integration", () => {
         }
       }
     }
+  });
+
+  it("keeps map and geocode at zero while the editor preserves S/W references", async () => {
+    const metadata = mockMetadata({
+      "GPS:GPSLatitude": 0,
+      "GPS:GPSLatitudeRef": "S",
+      "GPS:GPSLongitude": 0,
+      "GPS:GPSLongitudeRef": "W",
+    });
+    const occurrences = occurrencesFor(metadata);
+    const geocodeItem = buildGeocodeRequestItemForFile(photo.relative_path, {
+      metadata,
+      occurrences,
+      legacyDrafts: undefined,
+      targetDrafts: undefined,
+    });
+
+    expect(geocodeItem.lat === 0).toBe(true);
+    expect(geocodeItem.lon === 0).toBe(true);
+
+    render(
+      <DetailsPane
+        onSetMetadataDraftBatch={vi.fn()}
+        onSetGpsTargetDraftBatch={vi.fn(() => true)}
+        onDiscardDraftBatch={vi.fn()}
+        photo={photo}
+        metadata={metadata}
+        occurrences={occurrences}
+      />,
+    );
+
+    for (const map of screen.getAllByTestId("gps-map")) {
+      expect(map).toHaveAttribute("data-lat", "0");
+      expect(map).toHaveAttribute("data-lon", "0");
+    }
+
+    const latitudeRow = screen
+      .getAllByTestId("details-row")
+      .find((row) => within(row).queryByText("GPSLatitude") !== null);
+    expect(latitudeRow).toBeDefined();
+    fireEvent.contextMenu(latitudeRow!);
+    fireEvent.click(screen.getByRole("button", { name: "Edit GPS…" }));
+
+    expect(await screen.findByTestId("gps-editor-lat-input")).toHaveValue(0);
+    expect(screen.getByTestId("gps-editor-lat-ref")).toHaveValue("S");
+    expect(screen.getByTestId("gps-editor-lon-input")).toHaveValue(0);
+    expect(screen.getByTestId("gps-editor-lon-ref")).toHaveValue("W");
   });
 
   it("verifies DOM order: GPS section heading, then map overview, then first GPS row", () => {

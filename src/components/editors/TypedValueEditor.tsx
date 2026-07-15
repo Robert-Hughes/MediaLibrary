@@ -120,6 +120,10 @@ function enumKindFromTagInfo(
     : undefined;
 }
 
+function coordinateIsNegative(value: number): boolean {
+  return value < 0 || Object.is(value, -0);
+}
+
 export function TypedValueEditor({
   propertyId,
   propertyLabel: suppliedPropertyLabel,
@@ -274,7 +278,7 @@ export function TypedValueEditor({
         initialLatDecimal={initialLatDecimal}
         initialLatRef={
           effectiveGps?.lat !== null && effectiveGps?.lat !== undefined
-            ? effectiveGps.lat < 0
+            ? coordinateIsNegative(effectiveGps.lat)
               ? "S"
               : "N"
             : (parseHemisphere(
@@ -287,7 +291,7 @@ export function TypedValueEditor({
         initialLonDecimal={initialLonDecimal}
         initialLonRef={
           effectiveGps?.lon !== null && effectiveGps?.lon !== undefined
-            ? effectiveGps.lon < 0
+            ? coordinateIsNegative(effectiveGps.lon)
               ? "W"
               : "E"
             : (parseHemisphere(
