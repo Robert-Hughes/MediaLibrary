@@ -114,8 +114,7 @@ pub fn build_metadata_args(
 /// Plans a write to one exact existing occurrence after revalidating its
 /// persisted target snapshot against a freshly read authoritative occurrence.
 ///
-/// This remains unused until draft v5 and occurrence-aware readback are wired
-/// together; production apply continues to use [`build_metadata_args`].
+/// The schema-v5 single-file writer uses this planner for existing targets.
 pub fn build_existing_occurrence_args(
     target: &MetadataDraftTarget,
     fresh_occurrence: &MetadataOccurrence,
@@ -148,8 +147,7 @@ pub fn build_existing_occurrence_args(
 
 /// Plans schema-driven creation of a property that has no runtime occurrence.
 ///
-/// This remains unused until draft v5 and occurrence-aware readback are wired
-/// together; production apply continues to use [`build_metadata_args`].
+/// The schema-v5 single-file writer uses this planner for new-property targets.
 pub fn build_new_property_args(
     target: &MetadataDraftTarget,
     info: &TagInfo,

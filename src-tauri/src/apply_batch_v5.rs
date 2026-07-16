@@ -4,10 +4,8 @@
 //! occurrence-aware single-file pipeline, applies structured draft
 //! reconciliation, and persists only through the schema-v5-owned
 //! `MediaLibraryTargetDraftEdits.jsonl` file. It emits
-//! versioned events consumed by the production frontend controller. Production
-//! Add Property uses this v5 path; remaining editing producers use schema v4,
-//! and the combined frontend apply runs v5 then v4 sequentially. Target-aware
-//! apply logging remains pending.
+//! versioned events consumed by the production frontend controller.
+//! Target-aware apply logging remains pending.
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -294,6 +292,10 @@ where
             .expect("selected schema-v5 draft remains present until its own operation")
             .clone();
         let outcome = single_file_apply.apply(folder_path, &relative_path, &original_entries);
+        // The later target-aware logger will consume these internal records
+        // after reconciliation persistence has annotated them. Disk logging
+        // remains deliberately inactive in this evidence-capture slice.
+        let _target_apply_audit_records = &outcome.audit_records;
         let mut final_error = outcome.error.clone();
         let mut persisted_draft_entries = None;
         let mut fatal_reason = None;
@@ -575,6 +577,7 @@ mod tests {
             warning: Some("warning".into()),
             outcomes,
             targets_to_clear: Vec::new(),
+            audit_records: Vec::new(),
         }
     }
 
@@ -1100,6 +1103,7 @@ mod tests {
         assert!(json["files"][0].get("target_outcomes").is_some());
         assert!(json.to_string().contains("occurrences"));
         assert!(!json.to_string().contains("slot"));
+        assert!(!json.to_string().contains("audit_records"));
     }
 
     #[test]
@@ -1136,6 +1140,7 @@ mod tests {
         assert!(file.contains("Array<MetadataTargetOutcome>"));
         assert!(file.contains("Array<MetadataDraftEntryV5> | null"));
         assert!(!file.contains("any"));
+        assert!(!file.contains("audit"));
 
         let batch = include_str!("../../src/types/generated/MetadataApplyEditsResultV5.ts");
         assert!(batch.contains("files: Array<MetadataApplyFileResultV5>"));
@@ -1147,6 +1152,7 @@ mod tests {
         assert!(progress.contains("current: number"));
         assert!(progress.contains("total: number"));
         assert!(progress.contains("result: MetadataApplyFileResultV5"));
+        assert!(!progress.contains("audit"));
         let exports = include_str!("../../src/types.ts");
         for name in [
             "MetadataApplyFileResultV5",
