@@ -1,9 +1,8 @@
 //! Schema-v5, occurrence-aware single-file apply path for the controlled bridge.
 //!
-//! Production Add Property reaches this module through the versioned batch
-//! command. Remaining editing producers still use schema-v4 `apply_edits.rs`,
-//! and the frontend runs the v5 and v4 phases sequentially. Existing-occurrence targets are read,
-//! written and verified only by exact [`MetadataOccurrenceId`]. New-property
+//! Production target-aware metadata apply reaches this module through the
+//! versioned batch command. Existing-occurrence targets are read, written and
+//! verified only by exact [`MetadataOccurrenceId`]. New-property
 //! targets use explicit zero/one/multiple exact-schema resolution after the
 //! write. Choosing a first, lowest, `Copy0`, `IFD0`, writable, or otherwise
 //! preferred occurrence is forbidden.
@@ -13,6 +12,11 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
+use crate::apply_log::{
+    TargetApplyArguments, TargetApplyAuditRecord, TargetApplyObservedOccurrence,
+    TargetApplyPassStatus, TargetApplyPostWriteState, TargetApplyPostWriteUnavailableCause,
+    TargetApplyVerificationEvidence, TargetApplyWriteEvidence,
+};
 use crate::draft_edits::{EditIntent, MetadataDraftEdit, MetadataDraftEntryV5};
 use crate::metadata_draft_target::{MetadataDraftSlot, MetadataDraftTarget};
 use crate::metadata_occurrence::{MetadataOccurrence, MetadataOccurrenceId, MetadataWriteTarget};
@@ -57,6 +61,11 @@ struct TargetVerification {
     draft_reconciliation: MetadataDraftReconciliation,
 }
 
+struct VerifiedTarget {
+    verification: TargetVerification,
+    post_write: TargetApplyPostWriteState,
+}
+
 #[derive(Debug, Clone)]
 pub struct MetadataSingleFileOutcomeV5 {
     pub fresh_image_metadata: Option<scanner::ImageMetadata>,
@@ -64,6 +73,7 @@ pub struct MetadataSingleFileOutcomeV5 {
     pub warning: Option<String>,
     pub outcomes: Vec<MetadataTargetOutcome>,
     pub targets_to_clear: Vec<MetadataDraftTarget>,
+    pub(crate) audit_records: Vec<TargetApplyAuditRecord>,
 }
 
 impl MetadataSingleFileOutcomeV5 {
@@ -74,6 +84,7 @@ impl MetadataSingleFileOutcomeV5 {
             warning: None,
             outcomes: Vec::new(),
             targets_to_clear: Vec::new(),
+            audit_records: Vec::new(),
         }
     }
 }
@@ -280,6 +291,103 @@ struct PlannedBatch {
     targets: Vec<TargetPlan>,
     numeric_argfile: Option<String>,
     text_argfile: Option<String>,
+}
+
+fn target_pass_status(
+    arguments: &[String],
+    attempted: bool,
+    result: &Result<(), String>,
+    skipped_reason: impl FnOnce() -> String,
+) -> TargetApplyPassStatus {
+    if arguments.is_empty() {
+        TargetApplyPassStatus::NotApplicable
+    } else if attempted {
+        match result {
+            Ok(()) => TargetApplyPassStatus::Succeeded,
+            Err(error) => TargetApplyPassStatus::Failed {
+                error: error.clone(),
+            },
+        }
+    } else {
+        TargetApplyPassStatus::Skipped {
+            reason: skipped_reason(),
+        }
+    }
+}
+
+fn target_write_evidence(
+    plan: &TargetPlan,
+    numeric_attempted: bool,
+    numeric_result: &Result<(), String>,
+    text_attempted: bool,
+    text_result: &Result<(), String>,
+    write_diagnostic: Option<&str>,
+) -> TargetApplyWriteEvidence {
+    TargetApplyWriteEvidence {
+        selector: plan.selector.clone(),
+        arguments: TargetApplyArguments {
+            numeric: plan.args.numeric.clone(),
+            text: plan.args.text.clone(),
+        },
+        numeric_pass: target_pass_status(
+            &plan.args.numeric,
+            numeric_attempted,
+            numeric_result,
+            || "numeric pass was not attempted".to_string(),
+        ),
+        text_pass: target_pass_status(&plan.args.text, text_attempted, text_result, || {
+            match numeric_result {
+                Err(error) => {
+                    format!("text pass was skipped because the numeric pass failed: {error}")
+                }
+                Ok(()) => "text pass was not attempted".to_string(),
+            }
+        }),
+        diagnostic: write_diagnostic.map(str::to_owned),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn target_audit_record(
+    plan: &TargetPlan,
+    numeric_attempted: bool,
+    numeric_result: &Result<(), String>,
+    text_attempted: bool,
+    text_result: &Result<(), String>,
+    write_diagnostic: Option<&str>,
+    post_write: TargetApplyPostWriteState,
+    verification: &TargetVerification,
+) -> TargetApplyAuditRecord {
+    TargetApplyAuditRecord {
+        target: plan.target.clone(),
+        display_name: plan.display_name.clone(),
+        intent: plan.edit.intent.clone(),
+        sent: plan.edit.value.clone(),
+        before: plan.before.clone(),
+        write: target_write_evidence(
+            plan,
+            numeric_attempted,
+            numeric_result,
+            text_attempted,
+            text_result,
+            write_diagnostic,
+        ),
+        post_write,
+        verification: TargetApplyVerificationEvidence {
+            kind: verification.kind.clone(),
+            message: verification.message.clone(),
+            proposed_reconciliation: verification.draft_reconciliation.clone(),
+        },
+    }
+}
+
+fn observed_occurrence(occurrence: &MetadataOccurrence) -> TargetApplyObservedOccurrence {
+    TargetApplyObservedOccurrence {
+        occurrence_id: occurrence.id.clone(),
+        schema_id: occurrence.tag_info.as_ref().map(|info| info.id.clone()),
+        write_target: occurrence.write_target.clone(),
+        value: occurrence.value.clone(),
+    }
 }
 
 fn plan_batch<F>(
@@ -533,28 +641,48 @@ where
                 ),
                 None => format!("Authoritative post-write readback failed: {read_error}"),
             };
-            let outcomes = planned
-                .targets
-                .into_iter()
-                .map(|plan| MetadataTargetOutcome {
-                    target: plan.target,
-                    draft_reconciliation: MetadataDraftReconciliation::Keep,
-                    display_name: plan.display_name,
+            let mut outcomes = Vec::with_capacity(planned.targets.len());
+            let mut audit_records = Vec::with_capacity(planned.targets.len());
+            for plan in planned.targets {
+                let verification = TargetVerification {
                     kind: "ReadbackFailed".to_string(),
-                    sent: plan.edit.value,
-                    before: plan.before,
-                    observed: None,
                     message: Some(format!(
                         "Verification could not be completed because authoritative post-write readback failed: {read_error}"
                     )),
-                })
-                .collect();
+                    observed: None,
+                    draft_reconciliation: MetadataDraftReconciliation::Keep,
+                };
+                audit_records.push(target_audit_record(
+                    &plan,
+                    numeric_attempted,
+                    &numeric_result,
+                    text_attempted,
+                    &text_result,
+                    write_failure.as_deref(),
+                    TargetApplyPostWriteState::Unavailable {
+                        cause: TargetApplyPostWriteUnavailableCause::ReadbackFailed,
+                        message: read_error.clone(),
+                    },
+                    &verification,
+                ));
+                outcomes.push(MetadataTargetOutcome {
+                    target: plan.target,
+                    draft_reconciliation: verification.draft_reconciliation,
+                    display_name: plan.display_name,
+                    kind: verification.kind,
+                    sent: plan.edit.value,
+                    before: plan.before,
+                    observed: verification.observed,
+                    message: verification.message,
+                });
+            }
             return MetadataSingleFileOutcomeV5 {
                 fresh_image_metadata: None,
                 error: Some(error),
                 warning: None,
                 outcomes,
                 targets_to_clear: Vec::new(),
+                audit_records,
             };
         }
     };
@@ -569,42 +697,77 @@ where
                 ),
                 None => format!("Post-write readback was invalid: {invariant_message}"),
             };
-            let outcomes = planned
-                .targets
-                .into_iter()
-                .map(|plan| MetadataTargetOutcome {
-                    target: plan.target,
-                    draft_reconciliation: MetadataDraftReconciliation::Keep,
-                    display_name: plan.display_name,
+            let mut outcomes = Vec::with_capacity(planned.targets.len());
+            let mut audit_records = Vec::with_capacity(planned.targets.len());
+            for plan in planned.targets {
+                let verification = TargetVerification {
                     kind: "ReadbackInvalid".to_string(),
-                    sent: plan.edit.value,
-                    before: plan.before,
-                    observed: None,
                     message: Some(format!(
                         "Verification was not attempted because {invariant_message}"
                     )),
-                })
-                .collect();
+                    observed: None,
+                    draft_reconciliation: MetadataDraftReconciliation::Keep,
+                };
+                audit_records.push(target_audit_record(
+                    &plan,
+                    numeric_attempted,
+                    &numeric_result,
+                    text_attempted,
+                    &text_result,
+                    write_failure.as_deref(),
+                    TargetApplyPostWriteState::Unavailable {
+                        cause: TargetApplyPostWriteUnavailableCause::ReadbackInvalid,
+                        message: invariant_message.clone(),
+                    },
+                    &verification,
+                ));
+                outcomes.push(MetadataTargetOutcome {
+                    target: plan.target,
+                    draft_reconciliation: verification.draft_reconciliation,
+                    display_name: plan.display_name,
+                    kind: verification.kind,
+                    sent: plan.edit.value,
+                    before: plan.before,
+                    observed: verification.observed,
+                    message: verification.message,
+                });
+            }
             return MetadataSingleFileOutcomeV5 {
                 fresh_image_metadata: None,
                 error: Some(error),
                 warning: None,
                 outcomes,
                 targets_to_clear: Vec::new(),
+                audit_records,
             };
         }
     };
 
     let mut outcomes = Vec::with_capacity(planned.targets.len());
+    let mut audit_records = Vec::with_capacity(planned.targets.len());
     let mut first_mismatch = None;
 
     for plan in planned.targets {
+        let VerifiedTarget {
+            verification,
+            post_write,
+        } = verify_plan(&plan, &post_by_id);
+        audit_records.push(target_audit_record(
+            &plan,
+            numeric_attempted,
+            &numeric_result,
+            text_attempted,
+            &text_result,
+            write_failure.as_deref(),
+            post_write,
+            &verification,
+        ));
         let TargetVerification {
             kind,
             mut message,
             observed,
             draft_reconciliation,
-        } = verify_plan(&plan, &post_by_id);
+        } = verification;
         if !matches!(&draft_reconciliation, MetadataDraftReconciliation::Clear) {
             if let Some(write_error) = &write_failure {
                 message = Some(match message {
@@ -648,6 +811,7 @@ where
         warning: diagnostics.warning,
         outcomes,
         targets_to_clear,
+        audit_records,
     }
 }
 
@@ -691,10 +855,19 @@ fn build_strict_post_write_occurrence_index(
 fn verify_plan(
     plan: &TargetPlan,
     post_by_id: &BTreeMap<MetadataOccurrenceId, &MetadataOccurrence>,
-) -> TargetVerification {
+) -> VerifiedTarget {
     match &plan.target {
         MetadataDraftTarget::ExistingOccurrence { occurrence_id, .. } => {
-            verify_existing_plan(plan, post_by_id.get(occurrence_id).copied())
+            let occurrence = post_by_id.get(occurrence_id).copied();
+            VerifiedTarget {
+                verification: verify_existing_plan(plan, occurrence),
+                post_write: match occurrence {
+                    Some(occurrence) => TargetApplyPostWriteState::Unique {
+                        occurrence: Box::new(observed_occurrence(occurrence)),
+                    },
+                    None => TargetApplyPostWriteState::Missing,
+                },
+            }
         }
         MetadataDraftTarget::NewProperty { schema_id } => {
             let matches = post_by_id
@@ -707,7 +880,19 @@ fn verify_plan(
                         .is_some_and(|info| &info.id == schema_id)
                 })
                 .collect::<Vec<_>>();
-            match matches.as_slice() {
+            let post_write = match matches.as_slice() {
+                [] => TargetApplyPostWriteState::Missing,
+                [occurrence] => TargetApplyPostWriteState::Unique {
+                    occurrence: Box::new(observed_occurrence(occurrence)),
+                },
+                many => TargetApplyPostWriteState::Multiple {
+                    occurrences: many
+                        .iter()
+                        .map(|occurrence| observed_occurrence(occurrence))
+                        .collect(),
+                },
+            };
+            let verification = match matches.as_slice() {
                 [] => TargetVerification {
                     kind: "MissingPostWrite".to_string(),
                     message: Some(format!(
@@ -754,6 +939,10 @@ fn verify_plan(
                         },
                     }
                 }
+            };
+            VerifiedTarget {
+                verification,
+                post_write,
             }
         }
     }
@@ -1020,6 +1209,7 @@ mod tests {
         let empty_client = FakeClient::new(Vec::new());
         let empty = apply_fake(&[], &empty_client, &[]);
         assert!(empty.error.unwrap().contains("No edits"));
+        assert!(empty.audit_records.is_empty());
         assert!(empty_client.calls.borrow().is_empty());
 
         let info = schema("1", "XMP-test", "Name", true, TagKind::Text);
@@ -1036,6 +1226,7 @@ mod tests {
             |_| Some(info.clone()),
         );
         assert!(missing.error.unwrap().contains("File not found"));
+        assert!(missing.audit_records.is_empty());
         assert!(missing_client.calls.borrow().is_empty());
 
         let failed_client = FakeClient::new(vec![Err("pre-read boom".into())]);
@@ -1044,6 +1235,7 @@ mod tests {
         assert_eq!(&*failed_client.calls.borrow(), &["read"]);
         assert!(failed.outcomes.is_empty());
         assert!(failed.targets_to_clear.is_empty());
+        assert!(failed.audit_records.is_empty());
     }
 
     #[test]
@@ -1290,6 +1482,150 @@ mod tests {
     }
 
     #[test]
+    fn every_pre_execution_failure_path_returns_no_audit_records() {
+        let assert_no_audit = |outcome: MetadataSingleFileOutcomeV5| {
+            assert!(outcome.error.is_some());
+            assert!(outcome.outcomes.is_empty());
+            assert!(outcome.audit_records.is_empty());
+        };
+        let info = schema("1", "IFD0", "Name", true, TagKind::Text);
+        let original = occurrence(
+            occurrence_id("P", "1", 0),
+            MetadataValue::Text("before".into()),
+            Some(info.clone()),
+            Some("IFD0"),
+            "Name",
+        );
+        let existing = existing_entry(
+            &original,
+            edit(EditIntent::Set, Some(MetadataValue::Text("after".into()))),
+        );
+
+        let duplicate_slot_client = FakeClient::new(vec![Ok(image(vec![original.clone()]))]);
+        assert_no_audit(apply_fake(
+            &[existing.clone(), existing.clone()],
+            &duplicate_slot_client,
+            &[],
+        ));
+
+        let duplicate_pre_client =
+            FakeClient::new(vec![Ok(image(vec![original.clone(), original.clone()]))]);
+        assert_no_audit(apply_fake(
+            std::slice::from_ref(&existing),
+            &duplicate_pre_client,
+            &[],
+        ));
+
+        let missing_existing_client = FakeClient::new(vec![Ok(image(vec![]))]);
+        assert_no_audit(apply_fake(
+            std::slice::from_ref(&existing),
+            &missing_existing_client,
+            &[],
+        ));
+
+        let mut stale = original.clone();
+        stale.write_target.as_mut().unwrap().group1 = "IFD1".into();
+        let stale_client = FakeClient::new(vec![Ok(image(vec![stale]))]);
+        assert_no_audit(apply_fake(
+            std::slice::from_ref(&existing),
+            &stale_client,
+            &[],
+        ));
+
+        let new = new_entry(
+            &info,
+            edit(EditIntent::Set, Some(MetadataValue::Text("new".into()))),
+        );
+        let missing_schema_client = FakeClient::new(vec![Ok(image(vec![]))]);
+        assert_no_audit(apply_fake(
+            std::slice::from_ref(&new),
+            &missing_schema_client,
+            &[],
+        ));
+
+        let mut readonly = info.clone();
+        readonly.writable = false;
+        let readonly_client = FakeClient::new(vec![Ok(image(vec![]))]);
+        assert_no_audit(apply_fake(
+            std::slice::from_ref(&new),
+            &readonly_client,
+            &[readonly],
+        ));
+
+        let already_present_client = FakeClient::new(vec![Ok(image(vec![original.clone()]))]);
+        assert_no_audit(apply_fake(
+            std::slice::from_ref(&new),
+            &already_present_client,
+            std::slice::from_ref(&info),
+        ));
+
+        let unsupported = new_entry(&info, edit(EditIntent::Delete, None));
+        let unsupported_client = FakeClient::new(vec![Ok(image(vec![]))]);
+        assert_no_audit(apply_fake(
+            &[unsupported],
+            &unsupported_client,
+            std::slice::from_ref(&info),
+        ));
+
+        let colliding_info = schema("2", "ifd0", "name", true, TagKind::Text);
+        let colliding = new_entry(
+            &colliding_info,
+            edit(
+                EditIntent::Set,
+                Some(MetadataValue::Text("collision".into())),
+            ),
+        );
+        let collision_client = FakeClient::new(vec![Ok(image(vec![original.clone()]))]);
+        assert_no_audit(apply_fake(
+            &[existing.clone(), colliding],
+            &collision_client,
+            std::slice::from_ref(&colliding_info),
+        ));
+
+        let binary_info = schema("3", "XMP-test", "Binary", true, TagKind::Binary);
+        let binary = new_entry(
+            &binary_info,
+            edit(EditIntent::Set, Some(MetadataValue::Binary)),
+        );
+        let argument_failure_client = FakeClient::new(vec![Ok(image(vec![]))]);
+        assert_no_audit(apply_fake(
+            &[binary],
+            &argument_failure_client,
+            &[binary_info],
+        ));
+
+        let lang_alt_info = schema("4", "XMP-test", "Title", true, TagKind::LangAlt);
+        let no_arguments = new_entry(
+            &lang_alt_info,
+            edit(
+                EditIntent::Set,
+                Some(MetadataValue::LangAlt(BTreeMap::new())),
+            ),
+        );
+        let no_arguments_client = FakeClient::new(vec![Ok(image(vec![]))]);
+        assert_no_audit(apply_fake(
+            &[no_arguments],
+            &no_arguments_client,
+            &[lang_alt_info],
+        ));
+
+        let nul_info = schema("5", "XMP-test", "Comment", true, TagKind::Text);
+        let unrenderable = new_entry(
+            &nul_info,
+            edit(
+                EditIntent::Set,
+                Some(MetadataValue::Text("contains\0nul".into())),
+            ),
+        );
+        let rendering_failure_client = FakeClient::new(vec![Ok(image(vec![]))]);
+        assert_no_audit(apply_fake(
+            &[unrenderable],
+            &rendering_failure_client,
+            &[nul_info],
+        ));
+    }
+
+    #[test]
     fn shared_schema_occurrences_plan_and_verify_independently_by_exact_id() {
         let info = schema(
             "282",
@@ -1381,6 +1717,65 @@ mod tests {
         assert_eq!(outcome.outcomes[0].target, edits[0].target);
         assert_eq!(outcome.outcomes[1].target, edits[1].target);
         assert_eq!(outcome.targets_to_clear, vec![edits[0].target.clone()]);
+        assert_eq!(outcome.audit_records.len(), 2);
+        for (record, entry) in outcome.audit_records.iter().zip(&edits) {
+            assert_eq!(record.target, entry.target);
+            assert_eq!(record.intent, entry.edit.intent);
+            assert_eq!(record.sent, entry.edit.value);
+            assert!(record.write.diagnostic.is_none());
+            assert!(matches!(
+                record.write.numeric_pass,
+                TargetApplyPassStatus::Succeeded
+            ));
+            assert!(matches!(
+                record.write.text_pass,
+                TargetApplyPassStatus::NotApplicable
+            ));
+        }
+        assert_eq!(outcome.audit_records[0].before, Some(ifd0.value.clone()));
+        assert_eq!(outcome.audit_records[1].before, Some(ifd1.value.clone()));
+        assert_eq!(
+            outcome.audit_records[0].write.selector,
+            ifd0.write_target.clone().unwrap()
+        );
+        assert_eq!(
+            outcome.audit_records[1].write.selector,
+            ifd1.write_target.clone().unwrap()
+        );
+        assert_eq!(
+            outcome.audit_records[0].write.arguments.numeric,
+            vec!["-IFD0:XResolution=600/1"]
+        );
+        assert_eq!(
+            outcome.audit_records[1].write.arguments.numeric,
+            vec!["-IFD1:XResolution=144/1"]
+        );
+        assert!(outcome.audit_records[0].write.arguments.text.is_empty());
+        assert!(outcome.audit_records[1].write.arguments.text.is_empty());
+        for (record, expected) in outcome.audit_records.iter().zip([&after0, &after1]) {
+            let TargetApplyPostWriteState::Unique { occurrence } = &record.post_write else {
+                panic!("existing target must retain its exact post-write occurrence")
+            };
+            assert_eq!(occurrence.occurrence_id, expected.id);
+            assert_eq!(
+                occurrence.schema_id.as_ref(),
+                expected.tag_info.as_ref().map(|info| &info.id)
+            );
+            assert_eq!(occurrence.write_target, expected.write_target);
+            assert_eq!(occurrence.value, expected.value);
+        }
+        assert_eq!(
+            outcome.audit_records[0]
+                .verification
+                .proposed_reconciliation,
+            MetadataDraftReconciliation::Clear
+        );
+        assert_eq!(
+            outcome.audit_records[1]
+                .verification
+                .proposed_reconciliation,
+            MetadataDraftReconciliation::Keep
+        );
         assert!(outcome.fresh_image_metadata.unwrap().metadata.is_empty());
 
         let ordered_client = FakeClient::new(vec![
@@ -1397,6 +1792,75 @@ mod tests {
             vec!["Match", "Mismatch"]
         );
         assert_eq!(ordered.targets_to_clear, vec![edits[0].target.clone()]);
+        assert_eq!(
+            ordered
+                .audit_records
+                .iter()
+                .map(|record| record.target.clone())
+                .collect::<Vec<_>>(),
+            edits
+                .iter()
+                .map(|entry| entry.target.clone())
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn audit_new_property_resolution_keeps_none_and_zero_schema_indexes_distinct() {
+        let unindexed = schema("7", "XMP-none", "Unindexed", true, TagKind::Text);
+        let mut indexed = schema("7", "XMP-zero", "Indexed", true, TagKind::Text);
+        indexed.id.index = Some(0);
+        let entries = [
+            new_entry(
+                &unindexed,
+                edit(EditIntent::Set, Some(MetadataValue::Text("none".into()))),
+            ),
+            new_entry(
+                &indexed,
+                edit(EditIntent::Set, Some(MetadataValue::Text("zero".into()))),
+            ),
+        ];
+        let unindexed_post = occurrence(
+            occurrence_id("UNINDEXED", "7", 0),
+            MetadataValue::Text("none".into()),
+            Some(unindexed.clone()),
+            Some("XMP-none"),
+            "Unindexed",
+        );
+        let indexed_post = occurrence(
+            occurrence_id("INDEXED", "7", 0),
+            MetadataValue::Text("zero".into()),
+            Some(indexed.clone()),
+            Some("XMP-zero"),
+            "Indexed",
+        );
+        let client = FakeClient::new(vec![
+            Ok(image(vec![])),
+            Ok(image(vec![indexed_post.clone(), unindexed_post.clone()])),
+        ]);
+        let outcome = apply_fake(&entries, &client, &[unindexed.clone(), indexed.clone()]);
+
+        assert_eq!(outcome.audit_records.len(), 2);
+        assert_eq!(outcome.audit_records[0].target.schema_id().index, None);
+        assert_eq!(outcome.audit_records[1].target.schema_id().index, Some(0));
+        for (record, expected) in outcome
+            .audit_records
+            .iter()
+            .zip([&unindexed_post, &indexed_post])
+        {
+            let TargetApplyPostWriteState::Unique { occurrence } = &record.post_write else {
+                panic!("each exact schema ID must resolve uniquely")
+            };
+            assert_eq!(occurrence.occurrence_id, expected.id);
+            assert_eq!(
+                occurrence.schema_id.as_ref(),
+                Some(record.target.schema_id())
+            );
+            assert_eq!(
+                record.verification.proposed_reconciliation,
+                MetadataDraftReconciliation::Clear
+            );
+        }
     }
 
     #[test]
@@ -1612,6 +2076,21 @@ mod tests {
             }
             assert_eq!(outcome.outcomes[0].before, Some(ifd0.value.clone()));
             assert_eq!(outcome.outcomes[1].before, Some(ifd1.value.clone()));
+            assert_eq!(outcome.audit_records.len(), edits.len());
+            for (audit, entry) in outcome.audit_records.iter().zip(&edits) {
+                assert_eq!(audit.target, entry.target);
+                assert!(matches!(
+                    audit.post_write,
+                    TargetApplyPostWriteState::Unavailable {
+                        cause: TargetApplyPostWriteUnavailableCause::ReadbackInvalid,
+                        ..
+                    }
+                ));
+                assert_eq!(
+                    audit.verification.proposed_reconciliation,
+                    MetadataDraftReconciliation::Keep
+                );
+            }
             assert!(outcome.fresh_image_metadata.is_none());
             assert!(outcome.targets_to_clear.is_empty());
         }
@@ -1804,6 +2283,56 @@ mod tests {
     }
 
     #[test]
+    fn changed_existing_target_remains_unique_audit_evidence_but_is_blocked() {
+        let info = schema(
+            "1",
+            "IFD0",
+            "Number",
+            true,
+            TagKind::Integer {
+                min: None,
+                max: None,
+            },
+        );
+        let before = occurrence(
+            occurrence_id("P", "1", 0),
+            MetadataValue::Integer(1),
+            Some(info.clone()),
+            Some("IFD0"),
+            "Number",
+        );
+        let entry = existing_entry(
+            &before,
+            edit(EditIntent::Set, Some(MetadataValue::Integer(2))),
+        );
+        let changed = occurrence(
+            before.id.clone(),
+            MetadataValue::Integer(2),
+            Some(info),
+            Some("IFD1"),
+            "Number",
+        );
+        let client = FakeClient::new(vec![
+            Ok(image(vec![before])),
+            Ok(image(vec![changed.clone()])),
+        ]);
+        let outcome = apply_fake(&[entry], &client, &[]);
+
+        let audit = &outcome.audit_records[0];
+        let TargetApplyPostWriteState::Unique { occurrence } = &audit.post_write else {
+            panic!("the exact original ID must remain unique evidence")
+        };
+        assert_eq!(occurrence.occurrence_id, changed.id);
+        assert_eq!(occurrence.write_target, changed.write_target);
+        assert_eq!(occurrence.value, changed.value);
+        assert_eq!(audit.verification.kind, "TargetChangedPostWrite");
+        assert!(matches!(
+            audit.verification.proposed_reconciliation,
+            MetadataDraftReconciliation::Blocked { .. }
+        ));
+    }
+
+    #[test]
     fn existing_delete_uses_exact_absence_and_empty_equivalence_only() {
         let info = schema("1", "XMP-test", "Name", true, TagKind::Text);
         let before = occurrence(
@@ -1837,6 +2366,7 @@ mod tests {
                 "DeleteLingering",
             ),
         ] {
+            let post_is_missing = post.is_empty();
             let client = FakeClient::new(vec![Ok(image(vec![before.clone()])), Ok(image(post))]);
             let outcome = apply_fake(std::slice::from_ref(&entry), &client, &[]);
             assert_eq!(outcome.outcomes[0].kind, expected);
@@ -1853,6 +2383,22 @@ mod tests {
                 outcome.targets_to_clear.len(),
                 usize::from(expected == "DeleteOk")
             );
+            let audit = &outcome.audit_records[0];
+            assert_eq!(audit.target, entry.target);
+            assert_eq!(audit.intent, EditIntent::Delete);
+            assert_eq!(audit.sent, None);
+            assert_eq!(audit.before, Some(before.value.clone()));
+            if post_is_missing {
+                assert!(matches!(
+                    audit.post_write,
+                    TargetApplyPostWriteState::Missing
+                ));
+                assert_eq!(audit.verification.kind, "DeleteOk");
+                assert_eq!(
+                    audit.verification.proposed_reconciliation,
+                    MetadataDraftReconciliation::Clear
+                );
+            }
         }
     }
 
@@ -1927,6 +2473,7 @@ mod tests {
             (vec![], "MissingPostWrite", false),
             (vec![unique.clone()], "Match", true),
         ] {
+            let expected_occurrence = post.first().cloned();
             let client = FakeClient::new(vec![Ok(image(vec![])), Ok(image(post))]);
             let outcome = apply_fake(
                 std::slice::from_ref(&entry),
@@ -1944,6 +2491,40 @@ mod tests {
                 }
             );
             assert_eq!(!outcome.targets_to_clear.is_empty(), clear);
+            let audit = &outcome.audit_records[0];
+            assert_eq!(audit.target, entry.target);
+            assert_eq!(
+                audit.write.selector,
+                MetadataWriteTarget {
+                    group1: info.group.clone(),
+                    tag_name: info.name.clone(),
+                }
+            );
+            match expected_occurrence {
+                None => {
+                    assert!(matches!(
+                        audit.post_write,
+                        TargetApplyPostWriteState::Missing
+                    ));
+                    assert_eq!(
+                        audit.verification.proposed_reconciliation,
+                        MetadataDraftReconciliation::Keep
+                    );
+                }
+                Some(expected_occurrence) => {
+                    let TargetApplyPostWriteState::Unique { occurrence } = &audit.post_write else {
+                        panic!("successful creation must retain its exact created occurrence")
+                    };
+                    assert_eq!(occurrence.occurrence_id, expected_occurrence.id);
+                    assert_eq!(occurrence.schema_id, Some(info.id.clone()));
+                    assert_eq!(occurrence.write_target, expected_occurrence.write_target);
+                    assert_eq!(occurrence.value, expected_occurrence.value);
+                    assert_eq!(
+                        audit.verification.proposed_reconciliation,
+                        MetadataDraftReconciliation::Clear
+                    );
+                }
+            }
         }
 
         let ifd0_copy0 = occurrence(
@@ -1983,6 +2564,21 @@ mod tests {
             assert!(reason.contains("NON-IFD0"));
             ambiguity_reasons.push(reason.clone());
             assert!(outcome.targets_to_clear.is_empty());
+            let audit = &outcome.audit_records[0];
+            let TargetApplyPostWriteState::Multiple { occurrences } = &audit.post_write else {
+                panic!("ambiguous creation must retain every exact candidate")
+            };
+            assert_eq!(
+                occurrences
+                    .iter()
+                    .map(|occurrence| occurrence.occurrence_id.clone())
+                    .collect::<Vec<_>>(),
+                vec![ifd0_copy0.id.clone(), unique.id.clone()]
+            );
+            assert!(matches!(
+                audit.verification.proposed_reconciliation,
+                MetadataDraftReconciliation::Blocked { .. }
+            ));
         }
         assert_eq!(ambiguity_messages[0], ambiguity_messages[1]);
         assert_eq!(ambiguity_reasons[0], ambiguity_reasons[1]);
@@ -2089,6 +2685,20 @@ mod tests {
                 })
             );
             assert_ne!(target.write_target().unwrap().group1, info.group);
+            let audit = &outcome.audit_records[0];
+            let TargetApplyPostWriteState::Unique { occurrence } = &audit.post_write else {
+                panic!("unique mismatch must retain its exact observed occurrence")
+            };
+            assert_eq!(occurrence.occurrence_id, fresh.id);
+            assert_eq!(occurrence.schema_id, Some(info.id.clone()));
+            assert_eq!(occurrence.write_target, fresh.write_target);
+            assert_eq!(occurrence.value, fresh.value);
+            assert!(audit.write.diagnostic.is_none());
+            assert!(matches!(
+                &audit.verification.proposed_reconciliation,
+                MetadataDraftReconciliation::Replace { target: audit_target }
+                    if audit_target == target
+            ));
             assert_eq!(fresh, original_fresh);
             assert_eq!(entry, original_entry);
         }
@@ -2388,6 +2998,22 @@ mod tests {
             &*mixed.calls.borrow(),
             &["read", "write:numeric", "write:text", "read"]
         );
+        assert!(matches!(
+            outcome.audit_records[0].write.numeric_pass,
+            TargetApplyPassStatus::Succeeded
+        ));
+        assert!(matches!(
+            outcome.audit_records[0].write.text_pass,
+            TargetApplyPassStatus::NotApplicable
+        ));
+        assert!(matches!(
+            outcome.audit_records[1].write.numeric_pass,
+            TargetApplyPassStatus::NotApplicable
+        ));
+        assert!(matches!(
+            outcome.audit_records[1].write.text_pass,
+            TargetApplyPassStatus::Succeeded
+        ));
 
         let numeric_only = FakeClient::new(vec![
             Ok(image(vec![])),
@@ -2423,7 +3049,72 @@ mod tests {
             &*numeric_failure.calls.borrow(),
             &["read", "write:numeric", "read"]
         );
-        assert!(failed.error.unwrap().contains("numeric pass failed"));
+        assert!(failed
+            .error
+            .as_ref()
+            .unwrap()
+            .contains("numeric pass failed"));
+        assert!(matches!(
+            &failed.audit_records[0].write.numeric_pass,
+            TargetApplyPassStatus::Failed { error }
+                if error == "configured write failure"
+        ));
+        assert!(matches!(
+            failed.audit_records[0].write.text_pass,
+            TargetApplyPassStatus::NotApplicable
+        ));
+        assert!(matches!(
+            failed.audit_records[1].write.numeric_pass,
+            TargetApplyPassStatus::NotApplicable
+        ));
+        assert!(matches!(
+            &failed.audit_records[1].write.text_pass,
+            TargetApplyPassStatus::Skipped { reason }
+                if reason.contains("numeric pass failed")
+        ));
+        assert!(failed.audit_records.iter().all(|record| record
+            .write
+            .diagnostic
+            .as_ref()
+            .is_some_and(|diagnostic| diagnostic.contains("numeric pass failed"))));
+    }
+
+    #[test]
+    fn audit_argument_vectors_preserve_each_target_builders_order() {
+        let info = schema(
+            "1",
+            "XMP-test",
+            "Items",
+            true,
+            TagKind::Bag(Box::new(TagKind::Text)),
+        );
+        let value = MetadataValue::List {
+            list_kind: ListKind::Bag,
+            items: vec![
+                MetadataValue::Text("second".into()),
+                MetadataValue::Text("first".into()),
+            ],
+        };
+        let entry = new_entry(&info, edit(EditIntent::Set, Some(value.clone())));
+        let post = occurrence(
+            occurrence_id("CREATED", "1", 0),
+            value,
+            Some(info.clone()),
+            Some("XMP-test"),
+            "Items",
+        );
+        let client = FakeClient::new(vec![Ok(image(vec![])), Ok(image(vec![post]))]);
+        let outcome = apply_fake(&[entry], &client, &[info]);
+
+        assert_eq!(
+            outcome.audit_records[0].write.arguments.text,
+            vec![
+                "-XMP-test:Items=",
+                "-XMP-test:Items=second",
+                "-XMP-test:Items=first",
+            ]
+        );
+        assert!(outcome.audit_records[0].write.arguments.numeric.is_empty());
     }
 
     #[test]
@@ -2451,6 +3142,23 @@ mod tests {
         assert_eq!(
             outcome.targets_to_clear,
             vec![outcome.outcomes[0].target.clone()]
+        );
+        assert!(matches!(
+            &outcome.audit_records[0].write.text_pass,
+            TargetApplyPassStatus::Failed { error }
+                if error == "configured write failure"
+        ));
+        assert!(outcome.audit_records[0]
+            .write
+            .diagnostic
+            .as_ref()
+            .is_some_and(|diagnostic| diagnostic.contains("text pass failed")));
+        assert_eq!(outcome.audit_records[0].verification.kind, "Match");
+        assert_eq!(
+            outcome.audit_records[0]
+                .verification
+                .proposed_reconciliation,
+            MetadataDraftReconciliation::Clear
         );
         assert!(outcome
             .warning
@@ -2487,6 +3195,20 @@ mod tests {
         assert_eq!(outcome.outcomes[0].before, None);
         assert!(outcome.outcomes[0].observed.is_none());
         assert!(outcome.targets_to_clear.is_empty());
+        assert_eq!(outcome.audit_records.len(), 1);
+        let failed_readback_audit = &outcome.audit_records[0];
+        assert_eq!(failed_readback_audit.target, entry.target);
+        assert!(matches!(
+            &failed_readback_audit.post_write,
+            TargetApplyPostWriteState::Unavailable {
+                cause: TargetApplyPostWriteUnavailableCause::ReadbackFailed,
+                message,
+            } if message == "readback boom"
+        ));
+        assert_eq!(
+            failed_readback_audit.verification.proposed_reconciliation,
+            MetadataDraftReconciliation::Keep
+        );
 
         let duplicate = occurrence(
             occurrence_id("INVALID-READBACK", "1", 0),
@@ -2512,6 +3234,21 @@ mod tests {
         assert_ne!(invalid.outcomes[0].kind, "ReadbackFailed");
         assert!(invalid.error.unwrap().contains("readback was invalid"));
         assert!(invalid.targets_to_clear.is_empty());
+        assert_eq!(invalid.audit_records.len(), 1);
+        assert_eq!(invalid.audit_records[0].target, entry.target);
+        assert!(matches!(
+            &invalid.audit_records[0].post_write,
+            TargetApplyPostWriteState::Unavailable {
+                cause: TargetApplyPostWriteUnavailableCause::ReadbackInvalid,
+                message,
+            } if message.contains("duplicate exact occurrence ID")
+        ));
+        assert_eq!(
+            invalid.audit_records[0]
+                .verification
+                .proposed_reconciliation,
+            MetadataDraftReconciliation::Keep
+        );
 
         let write_and_read_failure = FakeClient::new(vec![
             Ok(image(vec![])),
@@ -2532,6 +3269,16 @@ mod tests {
             failed.outcomes[0].draft_reconciliation,
             MetadataDraftReconciliation::Keep
         );
+        assert!(matches!(
+            &failed.audit_records[0].write.text_pass,
+            TargetApplyPassStatus::Failed { error }
+                if error == "configured write failure"
+        ));
+        assert!(failed.audit_records[0]
+            .write
+            .diagnostic
+            .as_ref()
+            .is_some_and(|diagnostic| diagnostic.contains("text pass failed")));
     }
 
     #[test]

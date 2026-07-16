@@ -13,7 +13,10 @@
 //! See `docs/METADATA_FORMATS_DESIGN.md` §6.
 
 use crate::apply_edits::MetadataTagOutcome;
+use crate::apply_edits_v5::MetadataDraftReconciliation;
 use crate::draft_edits::{EditIntent, MetadataDraftEntry};
+use crate::metadata_draft_target::MetadataDraftTarget;
+use crate::metadata_occurrence::{MetadataOccurrenceId, MetadataWriteTarget};
 use crate::metadata_value::MetadataValue;
 use crate::scanner::MetadataMap;
 use crate::tag_schema::SchemaDefinitionId;
@@ -33,6 +36,79 @@ const LOG_FILE_NAME: &str = "MediaLibraryApplyLog.jsonl";
 const SEMANTIC_LOG_SCHEMA_VERSION: u32 = 7;
 const HEADER_COMMENT: &str =
     "// Apply-edits audit log. Append-only. Each line is one tag's outcome from one apply. schema_version=7.";
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub(crate) struct TargetApplyAuditRecord {
+    pub(crate) target: MetadataDraftTarget,
+    pub(crate) display_name: String,
+    pub(crate) intent: EditIntent,
+    pub(crate) sent: Option<MetadataValue>,
+    pub(crate) before: Option<MetadataValue>,
+    pub(crate) write: TargetApplyWriteEvidence,
+    pub(crate) post_write: TargetApplyPostWriteState,
+    pub(crate) verification: TargetApplyVerificationEvidence,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub(crate) struct TargetApplyWriteEvidence {
+    pub(crate) selector: MetadataWriteTarget,
+    pub(crate) arguments: TargetApplyArguments,
+    pub(crate) numeric_pass: TargetApplyPassStatus,
+    pub(crate) text_pass: TargetApplyPassStatus,
+    pub(crate) diagnostic: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub(crate) struct TargetApplyArguments {
+    pub(crate) numeric: Vec<String>,
+    pub(crate) text: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "PascalCase")]
+pub(crate) enum TargetApplyPassStatus {
+    NotApplicable,
+    Succeeded,
+    Failed { error: String },
+    Skipped { reason: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "PascalCase")]
+pub(crate) enum TargetApplyPostWriteState {
+    Unavailable {
+        cause: TargetApplyPostWriteUnavailableCause,
+        message: String,
+    },
+    Missing,
+    Unique {
+        occurrence: Box<TargetApplyObservedOccurrence>,
+    },
+    Multiple {
+        occurrences: Vec<TargetApplyObservedOccurrence>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub(crate) enum TargetApplyPostWriteUnavailableCause {
+    ReadbackFailed,
+    ReadbackInvalid,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub(crate) struct TargetApplyObservedOccurrence {
+    pub(crate) occurrence_id: MetadataOccurrenceId,
+    pub(crate) schema_id: Option<SchemaDefinitionId>,
+    pub(crate) write_target: Option<MetadataWriteTarget>,
+    pub(crate) value: MetadataValue,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub(crate) struct TargetApplyVerificationEvidence {
+    pub(crate) kind: String,
+    pub(crate) message: Option<String>,
+    pub(crate) proposed_reconciliation: MetadataDraftReconciliation,
+}
 
 #[derive(Serialize)]
 struct MetadataApplyLogEntry<'a> {
