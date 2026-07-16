@@ -47,11 +47,24 @@ const generated = (
 });
 
 async function loadedFile(
-  options: { occurrences?: MetadataOccurrence[]; emitMetadata?: boolean } = {},
+  options: {
+    occurrences?: MetadataOccurrence[];
+    emitMetadata?: boolean;
+    targetLoadFails?: boolean;
+  } = {},
 ) {
   const mock = createMockTauriApi();
   mock.pickFolderResolves("/photos");
-  const hook = renderHook(() => useMediaLibrary(mock.api));
+  const api = options.targetLoadFails
+    ? {
+        ...mock.api,
+        invoke: (cmd: string, args?: Record<string, unknown>) =>
+          cmd === "load_metadata_draft_edits_v5"
+            ? Promise.reject(new Error("broken target drafts"))
+            : mock.api.invoke(cmd, args),
+      }
+    : mock.api;
+  const hook = renderHook(() => useMediaLibrary(api));
   await act(async () => hook.result.current[1].openFolder());
   act(() => {
     mock.emitPhotoFound(makePhoto({ relative_path: "photo.jpg" }));
@@ -76,6 +89,99 @@ function saveCount(
 }
 
 describe("generated schema-v5 production action", () => {
+  it("treats empty edits as unchanged without errors, notifications, or saves", async () => {
+    const { mock, result } = await loadedFile();
+    const state = result.current[0];
+    if (state.kind !== "loaded") throw new Error("Expected loaded state");
+    let notifications = 0;
+    const unsubscribe = state.targetDraftEditsStore.subscribe(() => {
+      notifications += 1;
+    });
+    const errorsBefore = state.workerErrors.length;
+    const v4Before = saveCount(mock, "save_metadata_draft_edits");
+    const v5Before = saveCount(mock, "save_metadata_draft_edits_v5");
+    let stageResult;
+
+    act(() => {
+      stageResult = result.current[1].applyGeneratedMetadataDraftBatchV5(
+        "photo.jpg",
+        { kind: "describe" },
+        [],
+      );
+    });
+    unsubscribe();
+
+    expect(stageResult).toEqual({ kind: "success", changed: false });
+    expect(notifications).toBe(0);
+    expect(result.current[0].kind).toBe("loaded");
+    if (result.current[0].kind !== "loaded") return;
+    expect(result.current[0].workerErrors).toHaveLength(errorsBefore);
+    expect(saveCount(mock, "save_metadata_draft_edits") - v4Before).toBe(0);
+    expect(saveCount(mock, "save_metadata_draft_edits_v5") - v5Before).toBe(0);
+  });
+
+  it("treats empty edits as unchanged while occurrences are loading", async () => {
+    const { result } = await loadedFile({ emitMetadata: false });
+    let stageResult;
+    act(() => {
+      stageResult = result.current[1].applyGeneratedMetadataDraftBatchV5(
+        "photo.jpg",
+        { kind: "describe" },
+        [],
+      );
+    });
+    expect(stageResult).toEqual({ kind: "success", changed: false });
+  });
+
+  it("treats empty edits as unchanged when target persistence load failed", async () => {
+    const { mock, result } = await loadedFile({ targetLoadFails: true });
+    const state = result.current[0];
+    if (state.kind !== "loaded") throw new Error("Expected loaded state");
+    expect(state.targetDraftPersistence.status).toBe("load-failed");
+    const errorsBefore = state.workerErrors.length;
+    const v4Before = saveCount(mock, "save_metadata_draft_edits");
+    const v5Before = saveCount(mock, "save_metadata_draft_edits_v5");
+    let stageResult;
+    act(() => {
+      stageResult = result.current[1].applyGeneratedMetadataDraftBatchV5(
+        "photo.jpg",
+        { kind: "describe" },
+        [],
+      );
+    });
+    expect(stageResult).toEqual({ kind: "success", changed: false });
+    if (result.current[0].kind !== "loaded") return;
+    expect(result.current[0].workerErrors).toHaveLength(errorsBefore);
+    expect(saveCount(mock, "save_metadata_draft_edits") - v4Before).toBe(0);
+    expect(saveCount(mock, "save_metadata_draft_edits_v5") - v5Before).toBe(0);
+  });
+
+  it("still rejects a non-empty result when target persistence is unavailable", async () => {
+    const { result } = await loadedFile({ targetLoadFails: true });
+    let stageResult;
+    act(() => {
+      stageResult = result.current[1].applyGeneratedMetadataDraftBatchV5(
+        "photo.jpg",
+        { kind: "describe" },
+        [generated(ID.mlibAiDescription, "generated")],
+      );
+    });
+    expect(stageResult).toMatchObject({ kind: "failure" });
+  });
+
+  it("still rejects a non-empty result while occurrences are loading", async () => {
+    const { result } = await loadedFile({ emitMetadata: false });
+    let stageResult;
+    act(() => {
+      stageResult = result.current[1].applyGeneratedMetadataDraftBatchV5(
+        "photo.jpg",
+        { kind: "describe" },
+        [generated(ID.mlibAiDescription, "generated")],
+      );
+    });
+    expect(stageResult).toMatchObject({ kind: "failure" });
+  });
+
   it("stages a missing describe field only as NewProperty and autosaves v5 once", async () => {
     const { mock, result } = await loadedFile();
     const beforeV5 = saveCount(mock, "save_metadata_draft_edits_v5");

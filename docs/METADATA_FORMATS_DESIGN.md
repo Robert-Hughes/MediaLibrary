@@ -929,6 +929,13 @@ remain streaming across files, but each file's complete generated batch is
 validated and mutated atomically. Persisted schema-v4 drafts are not converted;
 there is no general schema projection that could collapse occurrence targets.
 
+Generated-workflow readiness is checked both when the workflow opens and again
+immediately before its confirmed backend run, using the immutable paths or
+request items captured by that open workflow. Per-result exact target planning
+still revalidates each non-empty result. A genuinely empty generated edit result
+is instead a successful no-op: it requires no occurrence or draft-persistence
+state, emits no target-store notification, and triggers no v4 or v5 save.
+
 ### Manual removal target mutations
 
 The pure manual-removal planner consumes exact schema IDs, authoritative

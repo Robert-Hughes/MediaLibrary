@@ -85,6 +85,7 @@ export interface MockTauriApi {
     affectedFiles?: string[],
     scanId?: number,
   ) => void;
+  invalidateMetadataOccurrences: (relativePath: string) => void;
   lastPrioritizedPaths: string[];
   lastWindowTitle: string | null;
   /** All invoke calls recorded in order. */
@@ -137,6 +138,7 @@ export interface MockTauriApi {
     /** Typed draft edits the mock backend should emit alongside an "ok" status. */
     edits?: MetadataDraftEntry[];
   }>;
+  beforeDescribeProgress: (() => void) | null;
   /** Override the usage summary emitted by describe_complete. */
   describeUsageSummary: {
     totalInputTokens: number;
@@ -192,7 +194,7 @@ export interface MockTauriApi {
     status: string;
     error?: string | null;
     /** Typed draft edits emitted on `status === "ok"`. */
-    edits?: Record<string, unknown>;
+    edits?: MetadataDraftEntry[];
   }>;
   normaliseSummary: {
     nSucceeded: number;
@@ -274,6 +276,17 @@ export function createMockTauriApi(): MockTauriApi {
         error_message,
         affected_files,
       } satisfies WorkerErrorPayload),
+    invalidateMetadataOccurrences: (relativePath) =>
+      emit("apply_metadata_edits_progress", {
+        current: 1,
+        total: 1,
+        relative_path: relativePath,
+        applied: true,
+        error: null,
+        warning: null,
+        fresh_metadata: [],
+        tag_outcomes: [],
+      }),
     draftEditsByFolder: {},
     targetDraftEditsByFolder: {},
     lastPrioritizedPaths: [],
@@ -313,6 +326,7 @@ export function createMockTauriApi(): MockTauriApi {
     cancelDescribeCalled: false,
     estimateTokenSchedule: [],
     describeSchedule: [],
+    beforeDescribeProgress: null,
     describeUsageSummary: {
       totalInputTokens: 0,
       totalCachedTokens: 0,
@@ -560,6 +574,7 @@ export function createMockTauriApi(): MockTauriApi {
         const total = relPaths.length;
         await Promise.resolve();
         emit("describe_started", { total });
+        mock.beforeDescribeProgress?.();
         const succeeded: string[] = [];
         const failed: Array<{
           relativePath: string;
@@ -732,7 +747,7 @@ export function createMockTauriApi(): MockTauriApi {
             relativePath: rp,
             status: sched.status,
             error: sched.error ?? null,
-            edits: sched.status === "ok" ? (sched.edits ?? {}) : undefined,
+            edits: sched.status === "ok" ? (sched.edits ?? []) : undefined,
           });
           if (sched.status === "ok") succeeded.push(rp);
           else
