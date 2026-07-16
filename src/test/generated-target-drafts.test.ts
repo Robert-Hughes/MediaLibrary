@@ -125,6 +125,86 @@ function expectCode(
 }
 
 describe("planGeneratedTargetDraftBatchV5", () => {
+  it("returns an empty plan for empty edits with loaded occurrences", () => {
+    expect(plan({ occurrences: [occurrence(ID.mlibAiDescription)] })).toEqual({
+      upserts: [],
+      deletes: [],
+      noops: [],
+    });
+  });
+
+  it("returns an empty plan for empty edits while occurrences are loading", () => {
+    expect(plan({ occurrences: "loading" })).toEqual({
+      upserts: [],
+      deletes: [],
+      noops: [],
+    });
+  });
+
+  it("ignores legacy owners for an empty edit batch", () => {
+    expect(
+      plan({
+        legacyDrafts: legacyCollection({
+          id: ID.mlibAiDescription,
+          edit: set("legacy"),
+        }),
+      }),
+    ).toEqual({ upserts: [], deletes: [], noops: [] });
+  });
+
+  it("ignores ambiguous target-aware owners for an empty edit batch", () => {
+    const first = occurrence(ID.mlibAiDescription, "a", { copy: 0 });
+    const second = occurrence(ID.mlibAiDescription, "b", { copy: 1 });
+    expect(
+      plan({
+        targetDrafts: targetCollection(
+          targetEntry(first, set("one")),
+          targetEntry(second, set("two")),
+        ),
+      }),
+    ).toEqual({ upserts: [], deletes: [], noops: [] });
+  });
+
+  it("does not mutate any input while returning an empty plan", () => {
+    const producer: GeneratedMetadataProducerV5 = {
+      kind: "normalise",
+      enabledGroups: ["title"],
+    };
+    const occurrences = [occurrence(ID.mlibAiDescription)];
+    const legacyDrafts = legacyCollection({
+      id: ID.mlibAiDescription,
+      edit: set("legacy"),
+    });
+    const targetDrafts = targetCollection(
+      targetEntry(occurrences[0], set("target")),
+    );
+    const before = structuredClone({
+      producer,
+      occurrences,
+      legacyDrafts,
+      targetDrafts,
+    });
+
+    expect(plan({ producer, occurrences, legacyDrafts, targetDrafts })).toEqual(
+      { upserts: [], deletes: [], noops: [] },
+    );
+    expect({ producer, occurrences, legacyDrafts, targetDrafts }).toEqual(
+      before,
+    );
+  });
+
+  it("does not construct or validate a producer allowlist for empty edits", () => {
+    expect(
+      plan({
+        producer: {
+          kind: "normalise",
+          enabledGroups: ["not-a-normalise-group" as never],
+        },
+        occurrences: "loading",
+      }),
+    ).toEqual({ upserts: [], deletes: [], noops: [] });
+  });
+
   it("creates an exact ExistingOccurrence target for a unique writable occurrence", () => {
     const item = occurrence(ID.mlibAiDescription);
     const result = plan({

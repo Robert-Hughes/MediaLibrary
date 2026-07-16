@@ -161,6 +161,14 @@ export function planGeneratedTargetDraftBatchV5(input: {
   legacyDrafts: MetadataDraftCollection | undefined;
   targetDrafts: TargetDraftCollection | undefined;
 }): GeneratedTargetDraftPlanV5 {
+  if (input.edits.length === 0) {
+    return {
+      upserts: [],
+      deletes: [],
+      noops: [],
+    };
+  }
+
   if (input.occurrences === "loading") {
     fail(
       "occurrences_loading",

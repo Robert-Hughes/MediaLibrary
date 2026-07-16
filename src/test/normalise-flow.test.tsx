@@ -24,7 +24,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import App from "../App";
 import { createMockTauriApi } from "./mockTauriApi";
-import { makePhoto } from "./factories";
+import { makePhoto, mockDrafts } from "./factories";
 import type { MetadataValue } from "../types";
 
 let mockApiInstance: ReturnType<typeof createMockTauriApi>;
@@ -134,12 +134,20 @@ describe("Metadata-normalisation flow", () => {
       {
         relativePath: "test.jpg",
         status: "ok",
-        edits: {
-          "XMP-lr:HierarchicalSubject": {
-            value: { type: "List", value: [{ type: "String", value: "a" }] },
-            intent: "Set",
-          },
-        },
+        edits: Object.values(
+          mockDrafts({
+            "XMP-lr:HierarchicalSubject": {
+              value: {
+                kind: "List",
+                value: {
+                  list_kind: "Bag",
+                  items: [{ kind: "Text", value: "a" }],
+                },
+              },
+              intent: "Set",
+            },
+          }),
+        ),
       },
     ];
     mockApiInstance.normaliseSummary = {
@@ -215,6 +223,86 @@ describe("Metadata-normalisation flow", () => {
     expect(
       screen.getByTestId("normalise-group-summary-keywords"),
     ).toHaveTextContent(/1 normalised/);
+  });
+
+  it("revalidates before group capture, preserves selection, and validates output against the confirmed subset", async () => {
+    mockApiInstance.normaliseSchedule = [
+      {
+        relativePath: "confirm.jpg",
+        status: "ok",
+        edits: Object.values(
+          mockDrafts({
+            "XMP-dc:Title": {
+              value: { kind: "Text", value: "not enabled" },
+              intent: "Set",
+            },
+          }),
+        ),
+      },
+    ];
+    await openFolderWithPhoto("confirm.jpg", {
+      "XMP-dc:Subject": {
+        kind: "List",
+        value: {
+          list_kind: "Bag",
+          items: [{ kind: "Text", value: "A" }],
+        },
+      },
+    });
+    const row = screen.getByTestId("photo-row");
+    fireEvent.click(row);
+    fireEvent.contextMenu(row);
+    fireEvent.click(
+      await screen.findByRole("button", { name: /^Normalise Metadata/ }),
+    );
+    await screen.findByTestId("normalise-group-keywords-checkbox");
+
+    for (const group of [
+      "creator",
+      "copyright",
+      "headline",
+      "title",
+      "location",
+      "dates",
+      "description",
+    ]) {
+      fireEvent.click(screen.getByTestId(`normalise-group-${group}-checkbox`));
+    }
+    const keywords = screen.getByTestId(
+      "normalise-group-keywords-checkbox",
+    ) as HTMLInputElement;
+    expect(keywords.checked).toBe(true);
+
+    act(() => mockApiInstance.invalidateMetadataOccurrences("confirm.jpg"));
+    fireEvent.click(screen.getByTestId("normalise-confirm-btn"));
+
+    expect(mockApiInstance.lastNormaliseArgs).toBeNull();
+    expect(keywords.checked).toBe(true);
+    expect(
+      screen.getByTestId("normalise-group-title-checkbox"),
+    ).not.toBeChecked();
+
+    await act(async () => {
+      mockApiInstance.emitImageMetadataReady("confirm.jpg", {});
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    });
+    fireEvent.click(screen.getByTestId("normalise-confirm-btn"));
+    await screen.findByTestId("normalise-done-summary");
+
+    expect(mockApiInstance.lastNormaliseArgs?.enabledGroups).toEqual([
+      "keywords",
+    ]);
+    expect(
+      mockApiInstance.invocations.filter(
+        ({ cmd }) => cmd === "normalise_metadata_cmd",
+      ),
+    ).toHaveLength(1);
+    expect(screen.getByTestId("normalise-failure-list")).toHaveTextContent(
+      /not allowed to generate exact schema/i,
+    );
+    expect(mockApiInstance.targetDraftEditsByFolder["/photos"] ?? {}).toEqual(
+      {},
+    );
   });
 
   it("confirm button is disabled when no groups are enabled", async () => {

@@ -1272,6 +1272,10 @@ export function useMediaLibrary(
       producer: GeneratedMetadataProducerV5,
       edits: MetadataDraftEntry[],
     ): GeneratedDraftStageResultV5 => {
+      if (edits.length === 0) {
+        return { kind: "success", changed: false };
+      }
+
       if (!requireTargetDraftPersistenceReady([relativePath])) {
         const persistence = targetDraftPersistenceRef.current;
         return {

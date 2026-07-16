@@ -613,6 +613,20 @@ export default function App() {
   const normalise = useNormaliseMetadata({
     onApplyEdits: stageNormaliseEdits,
   });
+  const confirmDescribe = () => {
+    if (!actions.canStageGeneratedMetadataV5(describe.state.relPaths)) return;
+    describe.actions.confirm();
+  };
+  const confirmGeocode = () => {
+    const paths = geocode.state.items.map((item) => item.relPath);
+    if (!actions.canStageGeneratedMetadataV5(paths)) return;
+    geocode.actions.confirm();
+  };
+  const confirmNormalise = () => {
+    const paths = normalise.state.items.map((item) => item.relPath);
+    if (!actions.canStageGeneratedMetadataV5(paths)) return;
+    normalise.actions.confirm();
+  };
 
   useEffect(() => {
     const t0 =
@@ -805,7 +819,7 @@ export default function App() {
         <DescribeProgressDialog
           state={describe.state}
           overwriteInfo={describeOverwrite}
-          onConfirm={describe.actions.confirm}
+          onConfirm={confirmDescribe}
           onCancel={describe.actions.cancel}
           onClose={describe.actions.close}
         />
@@ -815,7 +829,7 @@ export default function App() {
         <GeocodeProgressDialog
           state={geocode.state}
           overwriteInfo={geocodeOverwrite}
-          onConfirm={geocode.actions.confirm}
+          onConfirm={confirmGeocode}
           onCancel={geocode.actions.cancel}
           onClose={geocode.actions.close}
         />
@@ -824,7 +838,7 @@ export default function App() {
       {normalise.open && (
         <NormaliseProgressDialog
           state={normalise.state}
-          onConfirm={normalise.actions.confirm}
+          onConfirm={confirmNormalise}
           onCancel={normalise.actions.cancel}
           onClose={normalise.actions.close}
           onSetEnabledGroups={normalise.actions.setEnabledGroups}
