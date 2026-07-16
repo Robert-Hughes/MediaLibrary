@@ -1,9 +1,9 @@
 import type {
   ImageMetadataStore,
-  MetadataDraftEditsByFile,
   PhotoInfo,
   SchemaDefinitionId,
 } from "../types";
+import type { TargetDraftEditsByFile } from "../targetDraftEdits";
 import { metadataIds } from "./metadataCollection";
 import { schemaDefinitionIdToken } from "./schemaDefinitionId";
 
@@ -15,7 +15,7 @@ export interface MetadataIdFrequency {
 export function computeEffectiveMetadataKeyFrequency(
   photos: PhotoInfo[],
   imageMetadata: ImageMetadataStore,
-  draftEdits: MetadataDraftEditsByFile,
+  draftEdits: TargetDraftEditsByFile,
 ): MetadataIdFrequency[] {
   const counts = new Map<string, MetadataIdFrequency>();
 
@@ -33,7 +33,8 @@ export function computeEffectiveMetadataKeyFrequency(
 
     const drafts = draftEdits[photo.relative_path];
     if (drafts) {
-      for (const { id } of Object.values(drafts)) {
+      for (const { target } of Object.values(drafts)) {
+        const id = target.schema_id;
         const token = schemaDefinitionIdToken(id);
         keysForPhoto.add(token);
         counts.set(token, counts.get(token) ?? { id, count: 0 });

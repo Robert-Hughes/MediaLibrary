@@ -4,7 +4,6 @@ import { GEOCODE_TARGET_TAGS } from "../types";
 import type {
   ImageMetadataOccurrencesStore,
   ImageMetadataStore,
-  MetadataDraftEditsByFile,
 } from "../types";
 import { buildEffectiveMetadataForFile } from "./effectiveMetadata";
 import { metadataHas, type MetadataCollection } from "./metadataCollection";
@@ -29,7 +28,6 @@ function countAnyEffectiveSchema(
   schemas: readonly Parameters<typeof metadataHas>[1][],
   imageMetadata: ImageMetadataStore,
   occurrences: ImageMetadataOccurrencesStore,
-  legacyDrafts: MetadataDraftEditsByFile,
   targetDrafts: TargetDraftEditsByFile,
 ): OverwriteCount {
   let existingCount = 0;
@@ -37,7 +35,6 @@ function countAnyEffectiveSchema(
     const effective = buildEffectiveMetadataForFile({
       metadata: metadataForPath(imageMetadata, relPath),
       occurrences: occurrences.get(relPath),
-      legacyDrafts: legacyDrafts[relPath],
       targetDrafts: targetDrafts[relPath],
     });
     if (schemas.some((id) => metadataHas(effective, id))) existingCount += 1;
@@ -49,7 +46,6 @@ export function countDescribeOverwrites(
   relPaths: string[],
   imageMetadata: ImageMetadataStore,
   occurrences: ImageMetadataOccurrencesStore,
-  legacyDrafts: MetadataDraftEditsByFile,
   targetDrafts: TargetDraftEditsByFile,
 ): OverwriteCount {
   return countAnyEffectiveSchema(
@@ -57,7 +53,6 @@ export function countDescribeOverwrites(
     DESCRIBE_TARGET_TAGS,
     imageMetadata,
     occurrences,
-    legacyDrafts,
     targetDrafts,
   );
 }
@@ -66,7 +61,6 @@ export function countGeocodeOverwrites(
   relPaths: string[],
   imageMetadata: ImageMetadataStore,
   occurrences: ImageMetadataOccurrencesStore,
-  legacyDrafts: MetadataDraftEditsByFile,
   targetDrafts: TargetDraftEditsByFile,
 ): OverwriteCount {
   return countAnyEffectiveSchema(
@@ -74,7 +68,6 @@ export function countGeocodeOverwrites(
     GEOCODE_TARGET_TAGS,
     imageMetadata,
     occurrences,
-    legacyDrafts,
     targetDrafts,
   );
 }

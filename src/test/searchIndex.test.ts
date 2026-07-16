@@ -359,7 +359,7 @@ describe("SearchIndex", () => {
     });
   });
 
-  it("includes separately indexed target drafts in has:edits", () => {
+  it("uses complete target-draft projections for has:edits", () => {
     const idx = new SearchIndex();
     idx.setPhoto({
       relative_path: "target.jpg",
@@ -368,9 +368,9 @@ describe("SearchIndex", () => {
       date_created: null,
     });
     expect(matchedSet(idx, "has:edits")).toEqual(new Set());
-    idx.setTargetDraftPresence("target.jpg", true);
+    idx.setDrafts("target.jpg", drafts({ "XMP::Title": edit("draft") }));
     expect(matchedSet(idx, "has:edits")).toEqual(new Set(["target.jpg"]));
-    idx.setTargetDraftPresence("target.jpg", false);
+    idx.setDrafts("target.jpg", undefined);
     expect(matchedSet(idx, "has:edits")).toEqual(new Set());
   });
 });

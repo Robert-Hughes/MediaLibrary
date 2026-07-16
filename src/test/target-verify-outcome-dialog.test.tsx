@@ -20,6 +20,76 @@ const replacement = {
 };
 
 describe("TargetVerifyOutcomeDialog", () => {
+  it("shows friendly and diagnostic LangAlt and offset-aware Time values", () => {
+    const rights = {
+      kind: "NewProperty" as const,
+      schema_id: testId("XMP-dc:Rights"),
+    };
+    const time = {
+      kind: "NewProperty" as const,
+      schema_id: testId("IPTC:TimeCreated"),
+    };
+    const rightsEntry = targetVerifyOutcomeFromBackend("values.jpg", {
+      target: rights,
+      draft_reconciliation: { kind: "Keep" },
+      display_name: "Rights",
+      kind: "Mismatch",
+      sent: { kind: "Text", value: "Copyright 2008" },
+      before: null,
+      observed: { kind: "LangAlt", value: { "x-default": "Copyright 2008" } },
+      message: null,
+    })!;
+    const timeEntry = targetVerifyOutcomeFromBackend("values.jpg", {
+      target: time,
+      draft_reconciliation: { kind: "Keep" },
+      display_name: "Time created",
+      kind: "Mismatch",
+      sent: {
+        kind: "Time",
+        value: {
+          hour: 8,
+          minute: 6,
+          second: 49,
+          subsecond: null,
+          offset: null,
+        },
+      },
+      before: null,
+      observed: {
+        kind: "Time",
+        value: {
+          hour: 8,
+          minute: 6,
+          second: 49,
+          subsecond: null,
+          offset: { sign: "Plus", hours: 1, minutes: 0 },
+        },
+      },
+      message: null,
+    })!;
+    render(
+      <TargetVerifyOutcomeDialog
+        outcomes={{
+          "values.jpg": {
+            [metadataDraftTargetSlotToken(rights)]: rightsEntry,
+            [metadataDraftTargetSlotToken(time)]: timeEntry,
+          },
+        }}
+        onAccept={vi.fn()}
+        onKeep={vi.fn()}
+        onDiscard={vi.fn()}
+        onDismissAll={vi.fn()}
+      />,
+    );
+    expect(
+      screen.getByText('LangAlt{x-default: "Copyright 2008"}'),
+    ).toBeTruthy();
+    expect(screen.getByText('Text("Copyright 2008")')).toBeTruthy();
+    expect(screen.getByText("Time(08:06:49)")).toBeTruthy();
+    expect(screen.getByText("Time(08:06:49+01:00)")).toBeTruthy();
+    expect(screen.getByText("08:06:49+01:00")).toBeTruthy();
+  });
+
   it("renders complete replacement diagnostics and acts on the replacement target", () => {
     const entry = targetVerifyOutcomeFromBackend("replace.jpg", {
       target: { kind: "NewProperty", schema_id: id },

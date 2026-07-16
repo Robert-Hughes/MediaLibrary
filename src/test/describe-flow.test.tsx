@@ -233,37 +233,6 @@ describe("AI-description flow", () => {
     });
   });
 
-  it("revalidates immutable describe paths at confirmation and allows retry", async () => {
-    const { user, aiBtn } = await startAiDescription("confirm.jpg");
-    await user.click(aiBtn);
-    const confirm = await screen.findByTestId("describe-confirm-btn");
-
-    act(() => mockApiInstance.invalidateMetadataOccurrences("confirm.jpg"));
-    await user.click(confirm);
-    await user.click(confirm);
-
-    expect(mockApiInstance.lastDescribeArgs).toBeNull();
-    expect(screen.getByTestId("describe-confirm-summary")).toBeInTheDocument();
-    expect(screen.queryByTestId("describe-done-summary")).toBeNull();
-
-    await act(async () => {
-      mockApiInstance.emitImageMetadataReady("confirm.jpg", {});
-      await new Promise((resolve) => setTimeout(resolve, 250));
-    });
-    await user.click(confirm);
-    await screen.findByTestId("describe-done-summary");
-
-    expect(mockApiInstance.lastDescribeArgs).toEqual({
-      folderPath: "/photos",
-      relPaths: ["confirm.jpg"],
-    });
-    expect(
-      mockApiInstance.invocations.filter(
-        ({ cmd }) => cmd === "describe_images_cmd",
-      ),
-    ).toHaveLength(1);
-  });
-
   it("keeps an empty backend result successful after occurrences become unavailable", async () => {
     mockApiInstance.describeSchedule = [
       { relativePath: "empty.jpg", status: "ok", edits: [] },
@@ -272,9 +241,6 @@ describe("AI-description flow", () => {
       mockApiInstance.invalidateMetadataOccurrences("empty.jpg");
     const { user, aiBtn } = await startAiDescription("empty.jpg");
     await user.click(aiBtn);
-    const v4Before = mockApiInstance.invocations.filter(
-      ({ cmd }) => cmd === "save_metadata_draft_edits",
-    ).length;
     const v5Before = mockApiInstance.invocations.filter(
       ({ cmd }) => cmd === "save_metadata_draft_edits_v5",
     ).length;
@@ -284,15 +250,9 @@ describe("AI-description flow", () => {
 
     expect(done).toHaveTextContent(/1 succeeded/i);
     expect(screen.queryByTestId("describe-failure-list")).toBeNull();
-    expect(mockApiInstance.draftEditsByFolder["/photos"] ?? {}).toEqual({});
     expect(mockApiInstance.targetDraftEditsByFolder["/photos"] ?? {}).toEqual(
       {},
     );
-    expect(
-      mockApiInstance.invocations.filter(
-        ({ cmd }) => cmd === "save_metadata_draft_edits",
-      ).length - v4Before,
-    ).toBe(0);
     expect(
       mockApiInstance.invocations.filter(
         ({ cmd }) => cmd === "save_metadata_draft_edits_v5",
@@ -300,7 +260,7 @@ describe("AI-description flow", () => {
     ).toBe(0);
   });
 
-  it("stages backend-emitted edits as exact v5 targets without v4 drafts", async () => {
+  it("stages backend-emitted edits as exact v5 targets", async () => {
     // Regression: the frontend used to rely on the backend writing
     // draft_edits.jsonl directly, so the UI never saw the new edits
     // after a describe run completed. The architecture now ships edits
@@ -349,7 +309,6 @@ describe("AI-description flow", () => {
     });
     await screen.findByTestId("describe-done-summary");
 
-    expect(mockApiInstance.draftEditsByFolder["/photos"] ?? {}).toEqual({});
     const targetDrafts =
       mockApiInstance.targetDraftEditsByFolder["/photos"]?.["test.jpg"] ?? {};
     expect(

@@ -9,14 +9,8 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { DetailsPane } from "../components/DetailsPane";
 
 import { GpsMapOverview } from "../components/GpsMapOverview";
-import {
-  makePhoto,
-  mockDrafts,
-  mockMetadata,
-  testFriendlyName,
-} from "./factories";
+import { makePhoto, mockMetadata, testFriendlyName } from "./factories";
 import type {
-  MetadataDraftCollection,
   MetadataDraftEdit,
   MetadataDraftEntryV5,
   MetadataOccurrence,
@@ -130,7 +124,7 @@ describe("DetailsPane GPS Map integration", () => {
     render(
       <DetailsPane
         onRemoveMetadataFieldsV5={vi.fn()}
-        onDiscardDraftBatch={vi.fn()}
+        onDiscardTargetDraftBatch={vi.fn()}
         photo={photo}
         metadata={metadata}
       />,
@@ -155,7 +149,7 @@ describe("DetailsPane GPS Map integration", () => {
     render(
       <DetailsPane
         onRemoveMetadataFieldsV5={vi.fn()}
-        onDiscardDraftBatch={vi.fn()}
+        onDiscardTargetDraftBatch={vi.fn()}
         photo={photo}
         metadata={metadata}
       />,
@@ -173,81 +167,9 @@ describe("DetailsPane GPS Map integration", () => {
     render(
       <DetailsPane
         onRemoveMetadataFieldsV5={vi.fn()}
-        onDiscardDraftBatch={vi.fn()}
+        onDiscardTargetDraftBatch={vi.fn()}
         photo={photo}
         metadata={metadata}
-      />,
-    );
-
-    expect(screen.queryByTestId("gps-map-overview")).not.toBeInTheDocument();
-  });
-
-  it("uses typed draft GPS values over metadata values", () => {
-    const metadata = mockMetadata({
-      "GPS:GPSLatitude": 51.5001,
-      "GPS:GPSLongitude": -0.1262,
-      "GPS:GPSLatitudeRef": "N",
-      "GPS:GPSLongitudeRef": "W",
-    });
-
-    const typedDraftEdits: Record<string, MetadataDraftEdit> = {
-      "GPS:GPSLatitude": {
-        intent: "Set",
-        value: { kind: "Real", value: 48.8584 },
-      },
-      "GPS:GPSLongitude": {
-        intent: "Set",
-        value: { kind: "Real", value: 2.2945 },
-      },
-      "GPS:GPSLongitudeRef": {
-        intent: "Set",
-        value: { kind: "Text", value: "E" },
-      },
-    };
-
-    render(
-      <DetailsPane
-        onRemoveMetadataFieldsV5={vi.fn()}
-        onDiscardDraftBatch={vi.fn()}
-        photo={photo}
-        metadata={metadata}
-        typedDraftEdits={mockDrafts(typedDraftEdits)}
-      />,
-    );
-
-    const overview = screen.getByTestId("gps-map-overview");
-    expect(overview).toBeInTheDocument();
-
-    const maps = screen.getAllByTestId("gps-map");
-    expect(maps).toHaveLength(4);
-    for (const map of maps) {
-      expect(map.getAttribute("data-lat")).toBe("48.8584");
-      expect(map.getAttribute("data-lon")).toBe("2.2945");
-    }
-  });
-
-  it("removes/hides the map overview when typed GPS delete drafts make coordinates unavailable", () => {
-    const metadata = mockMetadata({
-      "GPS:GPSLatitude": 51.5001,
-      "GPS:GPSLongitude": -0.1262,
-      "GPS:GPSLatitudeRef": "N",
-      "GPS:GPSLongitudeRef": "W",
-    });
-
-    const typedDraftEdits: Record<string, MetadataDraftEdit> = {
-      "GPS:GPSLatitude": {
-        intent: "Delete",
-        value: null,
-      },
-    };
-
-    render(
-      <DetailsPane
-        onRemoveMetadataFieldsV5={vi.fn()}
-        onDiscardDraftBatch={vi.fn()}
-        photo={photo}
-        metadata={metadata}
-        typedDraftEdits={mockDrafts(typedDraftEdits)}
       />,
     );
 
@@ -290,7 +212,7 @@ describe("DetailsPane GPS Map integration", () => {
     const baseProps = {
       onRemoveMetadataFieldsV5: vi.fn(),
       onSetGpsTargetDraftBatch: vi.fn(() => true),
-      onDiscardDraftBatch: vi.fn(),
+      onDiscardTargetDraftBatch: vi.fn(),
       photo,
       metadata,
       occurrences,
@@ -346,14 +268,6 @@ describe("DetailsPane GPS Map integration", () => {
 
     const noDraftMetadata = baseMetadata();
     const noDraftOccurrences = occurrencesFor(noDraftMetadata);
-
-    const v4Metadata = baseMetadata();
-    const v4Occurrences = occurrencesFor(v4Metadata);
-    const v4Drafts = mockDrafts({
-      "GPS:GPSLatitude": 48,
-      "GPS:GPSLongitude": 2,
-      "GPS:GPSLongitudeRef": "W",
-    });
 
     const v5Metadata = baseMetadata();
     const v5Occurrences = occurrencesFor(v5Metadata);
@@ -439,25 +353,10 @@ describe("DetailsPane GPS Map integration", () => {
       }),
     );
 
-    const mixedMetadata = baseMetadata();
-    const mixedOccurrences = occurrencesFor(mixedMetadata);
-    const mixedLegacy = mockDrafts({ "GPS:GPSLatitude": 53 });
-    const mixedTargets = targetCollection(
-      exactEntry(find(mixedOccurrences, GPS_IDS.latitude.tag_id), {
-        intent: "Set",
-        value: { kind: "Real", value: 60 },
-      }),
-      exactEntry(find(mixedOccurrences, GPS_IDS.longitude.tag_id), {
-        intent: "Set",
-        value: { kind: "Real", value: 2 },
-      }),
-    );
-
     const scenarios: Array<{
       name: string;
       metadata: ReturnType<typeof mockMetadata>;
       occurrences: MetadataOccurrence[];
-      legacyDrafts?: MetadataDraftCollection;
       targetDrafts?: TargetDraftCollection;
       expected: { lat: number | null; lon: number | null };
     }> = [
@@ -466,13 +365,6 @@ describe("DetailsPane GPS Map integration", () => {
         metadata: noDraftMetadata,
         occurrences: noDraftOccurrences,
         expected: { lat: 51, lon: 1 },
-      },
-      {
-        name: "v4 coordinate drafts",
-        metadata: v4Metadata,
-        occurrences: v4Occurrences,
-        legacyDrafts: v4Drafts,
-        expected: { lat: 48, lon: -2 },
       },
       {
         name: "v5 existing-coordinate drafts",
@@ -516,14 +408,6 @@ describe("DetailsPane GPS Map integration", () => {
         targetDrafts: multipleTargets,
         expected: { lat: 51, lon: 1 },
       },
-      {
-        name: "mixed legacy/v5 ownership",
-        metadata: mixedMetadata,
-        occurrences: mixedOccurrences,
-        legacyDrafts: mixedLegacy,
-        targetDrafts: mixedTargets,
-        expected: { lat: 53, lon: 2 },
-      },
     ];
 
     for (const scenario of scenarios) {
@@ -531,7 +415,6 @@ describe("DetailsPane GPS Map integration", () => {
       const item = buildGeocodeRequestItemForFile(photo.relative_path, {
         metadata: scenario.metadata,
         occurrences: scenario.occurrences,
-        legacyDrafts: scenario.legacyDrafts,
         targetDrafts: scenario.targetDrafts,
       });
       expect(item, scenario.name).toEqual({
@@ -543,11 +426,10 @@ describe("DetailsPane GPS Map integration", () => {
         <DetailsPane
           onRemoveMetadataFieldsV5={vi.fn()}
           onSetGpsTargetDraftBatch={vi.fn(() => true)}
-          onDiscardDraftBatch={vi.fn()}
+          onDiscardTargetDraftBatch={vi.fn()}
           photo={photo}
           metadata={scenario.metadata}
           occurrences={scenario.occurrences}
-          typedDraftEdits={scenario.legacyDrafts}
           targetDraftEdits={scenario.targetDrafts}
         />,
       );
@@ -584,7 +466,6 @@ describe("DetailsPane GPS Map integration", () => {
     const geocodeItem = buildGeocodeRequestItemForFile(photo.relative_path, {
       metadata,
       occurrences,
-      legacyDrafts: undefined,
       targetDrafts: undefined,
     });
 
@@ -595,7 +476,7 @@ describe("DetailsPane GPS Map integration", () => {
       <DetailsPane
         onRemoveMetadataFieldsV5={vi.fn()}
         onSetGpsTargetDraftBatch={vi.fn(() => true)}
-        onDiscardDraftBatch={vi.fn()}
+        onDiscardTargetDraftBatch={vi.fn()}
         photo={photo}
         metadata={metadata}
         occurrences={occurrences}
@@ -631,7 +512,7 @@ describe("DetailsPane GPS Map integration", () => {
     render(
       <DetailsPane
         onRemoveMetadataFieldsV5={vi.fn()}
-        onDiscardDraftBatch={vi.fn()}
+        onDiscardTargetDraftBatch={vi.fn()}
         photo={photo}
         metadata={metadata}
       />,

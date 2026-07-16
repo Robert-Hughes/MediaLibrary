@@ -1,9 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type {
-  DraftEditsStore,
   ImageMetadataState,
   ImageMetadataStore,
-  MetadataDraftCollection,
   PhotoInfo,
   SchemaDefinitionId,
   TagInfo,
@@ -17,7 +15,10 @@ import type {
 } from "../workers/searchWorkerProtocol";
 import { resolveTagInfosExact } from "./useTagInfo";
 import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
-import type { TargetDraftEditsStore } from "../targetDraftEdits";
+import type {
+  TargetDraftCollection,
+  TargetDraftEditsStore,
+} from "../targetDraftEdits";
 
 const INITIAL_REPLAY_RETRY_DELAYS_MS = [250, 1_000, 5_000] as const;
 
@@ -32,10 +33,13 @@ export function toSearchMetadataState(
 }
 
 export function toSearchDraftEntries(
-  collection: MetadataDraftCollection | undefined,
+  collection: TargetDraftCollection | undefined,
 ): SearchDraftEntry[] | undefined {
   return collection
-    ? Object.values(collection).map(({ id, edit }) => ({ id, edit }))
+    ? Object.values(collection).map(({ target, edit }) => ({
+        id: target.schema_id,
+        edit,
+      }))
     : undefined;
 }
 
@@ -76,8 +80,7 @@ export interface SearchWorkerLike {
 export interface UseSearchWorkerArgs {
   photos: PhotoInfo[];
   imageMetadataStore: ImageMetadataStore;
-  draftEditsStore: DraftEditsStore;
-  targetDraftEditsStore?: TargetDraftEditsStore;
+  targetDraftEditsStore: TargetDraftEditsStore;
   query: string;
   /** Default 150ms.  Tests pass 0 to bypass the debounce. */
   debounceMs?: number;
@@ -138,7 +141,7 @@ function photoToFields(p: PhotoInfo) {
  * React bridge between the list-view search box and the off-thread
  * `SearchIndex`.  Owns:
  *  - one worker instance for the hook's lifetime;
- *  - subscriptions to ImageMetadataStore + DraftEditsStore that forward
+ *  - subscriptions to authoritative metadata and target-draft stores that forward
  *    every mutation as an `UPSERT_*` message;
  *  - photo-list diffing that posts `UPSERT_PHOTO` / `DELETE_PATH` and then
  *    re-submits the current query so the displayed results stay in sync
@@ -156,7 +159,6 @@ export function useSearchWorker(
   const {
     photos,
     imageMetadataStore,
-    draftEditsStore,
     targetDraftEditsStore,
     query,
     debounceMs = 150,
@@ -240,17 +242,13 @@ export function useSearchWorker(
         revision: metaRevisionsRef.current.get(path) ?? 0,
       }),
     );
-    const initialDrafts = Object.entries(draftEditsStore.getAllMetadata()).map(
-      ([path, edits]) => ({
-        path,
-        edits: toSearchDraftEntries(edits) ?? [],
-        revision: draftRevisionsRef.current.get(path) ?? 0,
-      }),
-    );
-    w.postMessage({
-      type: "INIT_TARGET_DRAFT_PATHS",
-      paths: Object.keys(targetDraftEditsStore?.getAllMetadata() ?? {}),
-    });
+    const initialDrafts = Object.entries(
+      targetDraftEditsStore.getAllMetadata(),
+    ).map(([path, edits]) => ({
+      path,
+      edits: toSearchDraftEntries(edits) ?? [],
+      revision: draftRevisionsRef.current.get(path) ?? 0,
+    }));
     const initialMetaIds = initialMeta.flatMap(({ meta }) =>
       idsFromMetadata(meta),
     );
@@ -342,7 +340,7 @@ export function useSearchWorker(
           // A later update retries.
         });
     });
-    const unsubDrafts = draftEditsStore.subscribe((changes) => {
+    const unsubDrafts = targetDraftEditsStore.subscribe((changes) => {
       for (const c of changes) {
         const revision = (draftRevisionsRef.current.get(c.path) ?? 0) + 1;
         draftRevisionsRef.current.set(c.path, revision);
@@ -368,16 +366,6 @@ export function useSearchWorker(
           });
       }
     });
-    const unsubTargetDrafts = targetDraftEditsStore?.subscribe((changes) => {
-      for (const change of changes) {
-        w.postMessage({
-          type: "UPSERT_TARGET_DRAFT",
-          path: change.path,
-          hasEdits: change.edits !== undefined,
-        });
-      }
-      submitNow(queryRef.current);
-    });
     return () => {
       active = false;
       if (initialReplayRetryTimer) {
@@ -386,9 +374,8 @@ export function useSearchWorker(
       }
       unsubMeta();
       unsubDrafts();
-      unsubTargetDrafts?.();
     };
-  }, [imageMetadataStore, draftEditsStore, targetDraftEditsStore]);
+  }, [imageMetadataStore, targetDraftEditsStore]);
 
   // ── Photo list sync + re-submit ─────────────────────────────────────
   useEffect(() => {

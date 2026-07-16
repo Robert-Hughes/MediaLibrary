@@ -1,7 +1,6 @@
 import type { TargetDraftCollection } from "./targetDraftEdits";
 import type {
   ImageMetadataOccurrencesState,
-  MetadataDraftCollection,
   MetadataDraftTarget,
   SchemaDefinitionId,
   TargetDraftPersistenceStateV5,
@@ -66,7 +65,6 @@ export type MetadataRemovalTargetPlanErrorCode =
   | "duplicate-schema"
   | "multiple-occurrences"
   | "untargetable-occurrence"
-  | "legacy-owner"
   | "multiple-target-owners"
   | "stale-target-owner"
   | "incompatible-target-owner";
@@ -102,10 +100,9 @@ function sameSchemaOwners(
 export function planMetadataRemovalTargetsV5(input: {
   schemaIds: readonly SchemaDefinitionId[];
   occurrences: ImageMetadataOccurrencesState;
-  legacyDrafts: MetadataDraftCollection | undefined;
   targetDrafts: TargetDraftCollection | undefined;
 }): MetadataRemovalTargetPlanV5 {
-  const { schemaIds, occurrences, legacyDrafts, targetDrafts } = input;
+  const { schemaIds, occurrences, targetDrafts } = input;
   if (!Array.isArray(occurrences)) {
     throw new MetadataRemovalTargetPlanError(
       "occurrences-loading",
@@ -131,21 +128,6 @@ export function planMetadataRemovalTargetsV5(input: {
       );
     }
     seen.add(token);
-  }
-
-  // Legacy ownership blocks the complete request before target planning.
-  for (const id of ids) {
-    if (
-      Object.values(legacyDrafts ?? {}).some((entry) =>
-        schemaDefinitionIdEquals(entry.id, id),
-      )
-    ) {
-      throw new MetadataRemovalTargetPlanError(
-        "legacy-owner",
-        `The exact field ${describe(id)} has a schema-v4 draft. Apply or discard the legacy draft first. Nothing was removed.`,
-        structuredClone(id),
-      );
-    }
   }
 
   const index = buildSchemaOccurrenceResolutionIndex(occurrences);
@@ -259,9 +241,6 @@ export function previewMetadataRemovalFilesV5(input: {
   relativePaths: readonly string[];
   targetDraftPersistence: TargetDraftPersistenceStateV5;
   occurrencesForPath: (relativePath: string) => ImageMetadataOccurrencesState;
-  legacyDraftsForPath: (
-    relativePath: string,
-  ) => MetadataDraftCollection | undefined;
   targetDraftsForPath: (
     relativePath: string,
   ) => TargetDraftCollection | undefined;
@@ -285,7 +264,6 @@ export function previewMetadataRemovalFilesV5(input: {
       const preview = previewMetadataRemovalTargetsV5({
         schemaIds: [input.schemaId],
         occurrences: input.occurrencesForPath(relativePath),
-        legacyDrafts: input.legacyDraftsForPath(relativePath),
         targetDrafts: input.targetDraftsForPath(relativePath),
       });
       existingFieldsToDelete += preview.existingFieldsToDelete;

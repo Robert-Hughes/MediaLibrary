@@ -209,44 +209,6 @@ describe("Reverse-geocoding flow", () => {
     );
   });
 
-  it("revalidates the unchanged geocode items at confirmation and allows retry", async () => {
-    const initialMetadata = {
-      "Composite:GPSLatitude": { kind: "Real" as const, value: 51.5 },
-      "Composite:GPSLongitude": { kind: "Real" as const, value: -0.1 },
-    };
-    const { user } = await openFolderAndSelectPhoto(
-      "confirm.jpg",
-      initialMetadata,
-    );
-    await user.click(screen.getByTestId("details-pane-geocode-btn"));
-    const confirm = await screen.findByTestId("geocode-confirm-btn");
-
-    act(() => mockApiInstance.invalidateMetadataOccurrences("confirm.jpg"));
-    await user.click(confirm);
-
-    expect(mockApiInstance.lastGeocodeArgs).toBeNull();
-    expect(screen.getByTestId("geocode-confirm-summary")).toBeInTheDocument();
-
-    await act(async () => {
-      mockApiInstance.emitImageMetadataReady("confirm.jpg", {
-        "Composite:GPSLatitude": { kind: "Real", value: 40 },
-        "Composite:GPSLongitude": { kind: "Real", value: 20 },
-      });
-      await new Promise((resolve) => setTimeout(resolve, 250));
-    });
-    await user.click(confirm);
-    await screen.findByTestId("geocode-done-summary");
-
-    expect(mockApiInstance.lastGeocodeArgs?.items).toEqual([
-      { relPath: "confirm.jpg", lat: 51.5, lon: -0.1 },
-    ]);
-    expect(
-      mockApiInstance.invocations.filter(
-        ({ cmd }) => cmd === "geocode_images_cmd",
-      ),
-    ).toHaveLength(1);
-  });
-
   it("sends resolved lat/lon and stages returned edits as exact v5 targets", async () => {
     mockApiInstance.geocodeSchedule = [
       {
@@ -302,7 +264,6 @@ describe("Reverse-geocoding flow", () => {
     );
 
     // The coherent replacement is staged only in the exact v5 store.
-    expect(mockApiInstance.draftEditsByFolder["/photos"] ?? {}).toEqual({});
     const targetDrafts =
       mockApiInstance.targetDraftEditsByFolder["/photos"]?.["test.jpg"] ?? {};
     expect(

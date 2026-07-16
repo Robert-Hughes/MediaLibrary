@@ -122,7 +122,7 @@ Notes:
 
 In rough order of expected impact on the 1.2 s splash-visible window:
 
-1. **Lazy-load progress dialogs and Settings.** [App.tsx](../src/App.tsx) imports `DescribeProgressDialog`, `GeocodeProgressDialog`, `NormaliseProgressDialog`, `SettingsDialog`, `ColumnSelectionDialog`, `ApplyProgressDialog`, `VerifyOutcomeDialog`, and the search worker module at the top level. All are modal / non-critical for first paint. `React.lazy()` + `Suspense` would shrink the critical module graph.
+1. **Lazy-load progress dialogs and Settings.** [App.tsx](../src/App.tsx) imports `DescribeProgressDialog`, `GeocodeProgressDialog`, `NormaliseProgressDialog`, `SettingsDialog`, `ColumnSelectionDialog`, `ApplyProgressDialog`, `TargetVerifyOutcomeDialog`, and the search worker module at the top level. All are modal / non-critical for first paint. `React.lazy()` + `Suspense` would shrink the critical module graph.
 2. **Drop `React.StrictMode` in dev launch path.** Double-invokes render and effects — confirmed in logs (every `preload_schema` invoke and post-mount effect fires twice). Keep it for tests; remove for the dev binary if iteration speed matters.
 3. **Defer `setupConsoleLogging()` until after first commit.** It wraps every `console.*` call into a Tauri `invoke()` — fine in steady state, extra work during the first burst of startup logging.
 4. **Disable source maps in dev launch profile** if not actively debugging — Vite's transform step is cheaper.

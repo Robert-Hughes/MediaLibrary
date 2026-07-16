@@ -6,7 +6,6 @@
 // cargo test --manifest-path src-tauri/Cargo.toml
 
 import type { PhotoInfo } from "./types/generated/PhotoInfo";
-import { schemaDefinitionIdToken } from "./utils/schemaDefinitionId";
 import type { MetadataValue } from "./types/generated/MetadataValue";
 import type { MetadataDraftEdit } from "./types/generated/MetadataDraftEdit";
 import type { SchemaDefinitionId } from "./types/generated/SchemaDefinitionId";
@@ -35,7 +34,6 @@ export type { MetadataEntry } from "./types/generated/MetadataEntry";
 export type { MetadataDraftEntry } from "./types/generated/MetadataDraftEntry";
 export type { MetadataDraftEntryV5 } from "./types/generated/MetadataDraftEntryV5";
 export type { MetadataDraftEdit } from "./types/generated/MetadataDraftEdit";
-export type { MetadataTagOutcome } from "./types/generated/MetadataTagOutcome";
 export type { DateValue } from "./types/generated/DateValue";
 export type { TimeValue } from "./types/generated/TimeValue";
 export type { DateTimeValue } from "./types/generated/DateTimeValue";
@@ -49,12 +47,10 @@ export type { EnumOption } from "./types/generated/EnumOption";
 export type { EnumRepr } from "./types/generated/EnumRepr";
 export type { EditIntent } from "./types/generated/EditIntent";
 export type { ImageMetadata } from "./types/generated/ImageMetadata";
-export type { MetadataApplyEditsResult } from "./types/generated/MetadataApplyEditsResult";
 export type { MetadataApplyFileResultV5 } from "./types/generated/MetadataApplyFileResultV5";
 export type { MetadataApplyEditsResultV5 } from "./types/generated/MetadataApplyEditsResultV5";
 export type { ApplyEditsV5StartedPayload } from "./types/generated/ApplyEditsV5StartedPayload";
 export type { MetadataApplyEditsProgressPayloadV5 } from "./types/generated/MetadataApplyEditsProgressPayloadV5";
-export type { FailedFile as ApplyEditsFailedFile } from "./types/generated/FailedFile";
 export type { BatchFailureKind } from "./types/generated/BatchFailureKind";
 import type { BatchFailureKind } from "./types/generated/BatchFailureKind";
 export type BatchJobFailureKind = BatchFailureKind | "draft_stage_failed";
@@ -360,51 +356,6 @@ export type MetadataDraftCollection = Record<
 >;
 export type MetadataDraftEditsByFile = Record<string, MetadataDraftCollection>;
 
-export function metadataDraftsFromWire(
-  wire: Record<
-    string,
-    import("./types/generated/MetadataDraftEntry").MetadataDraftEntry[]
-  >,
-): MetadataDraftEditsByFile {
-  return Object.fromEntries(
-    Object.entries(wire).map(([path, entries]) => [
-      path,
-      Object.fromEntries(
-        (entries ?? []).map(({ id, edit }) => [
-          schemaDefinitionIdToken(id),
-          { id, edit },
-        ]),
-      ),
-    ]),
-  );
-}
-
-export function metadataDraftsToWire(
-  drafts: MetadataDraftEditsByFile,
-): Record<
-  string,
-  import("./types/generated/MetadataDraftEntry").MetadataDraftEntry[]
-> {
-  return Object.fromEntries(
-    Object.entries(drafts).map(([path, edits]) => [
-      path,
-      Object.values(edits).map(({ id, edit }) => ({ id, edit })),
-    ]),
-  );
-}
-
-/**
- * Per-mutation change record passed to DraftEditsStore subscribers.
- * `edits` is the new per-tag map after the mutation, or `undefined` if the
- * entire file's drafts were removed.
- */
-export interface DraftEditsChange {
-  path: string;
-  edits: MetadataDraftCollection | undefined;
-}
-
-export type DraftEditsListener = (changes: DraftEditsChange[]) => void;
-
 /**
  * Outcome of a single `setTag` / `setBatch` write.
  *
@@ -478,10 +429,20 @@ function metadataEntryToComparableValue(value: MetadataValue | undefined): any {
       return value.value.denominator === 0
         ? null
         : value.value.numerator / value.value.denominator;
-    case "List":
-      return value.value.items.map(
+    case "List": {
+      const items = value.value.items.map(
         (item) => metadataEntryToComparableValue(item) ?? null,
       );
+      if (value.value.list_kind === "Bag") {
+        return {
+          bag: items
+            .map((item) => ({ item, token: stableComparableToken(item) }))
+            .sort((left, right) => left.token.localeCompare(right.token))
+            .map(({ item }) => item),
+        };
+      }
+      return { [value.value.list_kind]: items };
+    }
     case "Struct":
       return Object.fromEntries(
         Object.entries(value.value).map(([k, v]) => [
@@ -492,6 +453,22 @@ function metadataEntryToComparableValue(value: MetadataValue | undefined): any {
     default:
       return JSON.stringify(value);
   }
+}
+
+function stableComparableToken(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableComparableToken).join(",")}]`;
+  }
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(
+        ([key, child]) =>
+          `${JSON.stringify(key)}:${stableComparableToken(child)}`,
+      )
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
 }
 
 /**
@@ -510,224 +487,6 @@ function metadataEntryToComparableValue(value: MetadataValue | undefined): any {
  * removed). Callers receive a per-key outcome so they can log or aggregate
  * what was dropped (see `SetDraftOutcome`).
  */
-export class DraftEditsStore {
-  private snapshot: MetadataDraftEditsByFile = {};
-  private listeners = new Set<DraftEditsListener>();
-  private currentValueResolver?: (
-    path: string,
-    id: SchemaDefinitionId,
-  ) => MetadataValue | undefined;
-
-  /**
-   * Wire up the redundant-draft guard. Pass a function that returns
-   * the tag's current effective metadata value for the given file, or
-   * `undefined` when the file has no value for that tag. Without a
-   * resolver the store behaves as it always did (writes always land).
-   */
-  setCurrentValueResolver(
-    fn: (path: string, id: SchemaDefinitionId) => MetadataValue | undefined,
-  ) {
-    this.currentValueResolver = fn;
-  }
-
-  /** Bulk replace with semantic drafts. Silent — does not fire subscribers. */
-  resetMetadata(initial: MetadataDraftEditsByFile) {
-    this.snapshot = initial;
-  }
-
-  /** Returns the current immutable snapshot.  Reference changes on every mutation. */
-  getAllMetadata(): MetadataDraftEditsByFile {
-    return this.snapshot;
-  }
-
-  getMetadataFile(path: string): MetadataDraftCollection | undefined {
-    return this.snapshot[path];
-  }
-
-  /**
-   * Apply one write to the snapshot in-place and return its outcome.
-   * Caller is responsible for notifying subscribers exactly once after
-   * a logical mutation (single setTag, or one setBatch).
-   */
-  private applyOne(
-    path: string,
-    id: SchemaDefinitionId,
-    edit: MetadataDraftEdit,
-  ): SetDraftOutcome {
-    const token = schemaDefinitionIdToken(id);
-    const existingDraft = this.snapshot[path]?.[token];
-    // Only the Set intent can produce a "value identical to current
-    // metadata" situation worth guarding against. List add / list
-    // remove operate on the current list; Delete is the user
-    // explicitly asking to clear a tag (and we trust them).
-    if (edit.intent === "Set" && this.currentValueResolver) {
-      const current = this.currentValueResolver(path, id);
-      if (metadataValueEqual(current, edit.value ?? undefined)) {
-        if (existingDraft) {
-          // Existing draft becomes redundant — remove it so the user
-          // doesn't see a "pending change" that wouldn't actually
-          // change anything.
-          const fileEdits = { ...(this.snapshot[path] ?? {}) };
-          delete fileEdits[token];
-          const next = { ...this.snapshot };
-          if (Object.keys(fileEdits).length === 0) delete next[path];
-          else next[path] = fileEdits;
-          this.snapshot = next;
-          return "cleared";
-        }
-        return "redundant";
-      }
-    }
-    const fileEdits = {
-      ...(this.snapshot[path] ?? {}),
-      [token]: { id, edit },
-    };
-    this.snapshot = { ...this.snapshot, [path]: fileEdits };
-    return "written";
-  }
-
-  setMetadataTag(
-    path: string,
-    id: SchemaDefinitionId,
-    edit: MetadataDraftEdit,
-  ): SetDraftOutcome {
-    const outcome = this.applyOne(path, id, edit);
-    if (outcome !== "redundant") {
-      this.notify([{ path, edits: this.snapshot[path] }]);
-    }
-    return outcome;
-  }
-
-  setMetadataBatch(
-    path: string,
-    edits: Array<{ id: SchemaDefinitionId; edit: MetadataDraftEdit }>,
-  ): Array<{ id: SchemaDefinitionId; outcome: SetDraftOutcome }> {
-    if (edits.length === 0) return [];
-    const results: Array<{ id: SchemaDefinitionId; outcome: SetDraftOutcome }> =
-      [];
-    for (const { id, edit } of edits) {
-      results.push({ id, outcome: this.applyOne(path, id, edit) });
-    }
-    if (results.some((r) => r.outcome !== "redundant")) {
-      this.notify([{ path, edits: this.snapshot[path] }]);
-    }
-    return results;
-  }
-
-  deleteTag(path: string, id: SchemaDefinitionId) {
-    const tag = schemaDefinitionIdToken(id);
-    const fileEdits = this.snapshot[path];
-    if (!fileEdits || !(tag in fileEdits)) return;
-    const updated = { ...fileEdits };
-    delete updated[tag];
-    const next = { ...this.snapshot };
-    if (Object.keys(updated).length === 0) {
-      delete next[path];
-      this.snapshot = next;
-      this.notify([{ path, edits: undefined }]);
-    } else {
-      next[path] = updated;
-      this.snapshot = next;
-      this.notify([{ path, edits: updated }]);
-    }
-  }
-
-  /**
-   * User-initiated bulk draft discard (unlike pruneTags which handles backend verify updates).
-   * Drops the listed tags and notifies subscribers once.
-   */
-  deleteTags(path: string, ids: SchemaDefinitionId[]) {
-    const fileEdits = this.snapshot[path];
-    if (!fileEdits || ids.length === 0) return;
-
-    const updated = { ...fileEdits };
-    let touched = false;
-
-    for (const tag of ids.map(schemaDefinitionIdToken)) {
-      if (tag in updated) {
-        delete updated[tag];
-        touched = true;
-      }
-    }
-
-    if (!touched) return;
-
-    const next = { ...this.snapshot };
-    if (Object.keys(updated).length === 0) {
-      delete next[path];
-      this.snapshot = next;
-      this.notify([{ path, edits: undefined }]);
-    } else {
-      next[path] = updated;
-      this.snapshot = next;
-      this.notify([{ path, edits: updated }]);
-    }
-  }
-
-  deletePath(path: string) {
-    if (!this.snapshot[path]) return;
-    const next = { ...this.snapshot };
-    delete next[path];
-    this.snapshot = next;
-    this.notify([{ path, edits: undefined }]);
-  }
-
-  deletePaths(paths: string[]) {
-    const existing = paths.filter((p) => this.snapshot[p]);
-    if (existing.length === 0) return;
-    const next = { ...this.snapshot };
-    for (const p of existing) delete next[p];
-    this.snapshot = next;
-    this.notify(existing.map((p) => ({ path: p, edits: undefined })));
-  }
-
-  clear() {
-    const paths = Object.keys(this.snapshot);
-    if (paths.length === 0) return;
-    this.snapshot = {};
-    this.notify(paths.map((p) => ({ path: p, edits: undefined })));
-  }
-
-  /**
-   * Phase 8.1 apply path: drop the listed tags after backend verification said
-   * they landed cleanly.  No-op if the file or tags are missing.
-   */
-  pruneTags(path: string, idsToDelete: SchemaDefinitionId[]) {
-    const fileEdits = this.snapshot[path];
-    if (!fileEdits) return;
-    const updated = { ...fileEdits };
-    let touched = false;
-    for (const t of idsToDelete.map(schemaDefinitionIdToken)) {
-      if (t in updated) {
-        delete updated[t];
-        touched = true;
-      }
-    }
-    if (!touched) return;
-    const next = { ...this.snapshot };
-    if (Object.keys(updated).length === 0) {
-      delete next[path];
-      this.snapshot = next;
-      this.notify([{ path, edits: undefined }]);
-    } else {
-      next[path] = updated;
-      this.snapshot = next;
-      this.notify([{ path, edits: updated }]);
-    }
-  }
-
-  subscribe(fn: DraftEditsListener): () => void {
-    this.listeners.add(fn);
-    return () => {
-      this.listeners.delete(fn);
-    };
-  }
-
-  private notify(changes: DraftEditsChange[]) {
-    this.listeners.forEach((cb) => cb(changes));
-  }
-}
-
 // ── App state ─────────────────────────────────────────────────────────────────
 
 export type TargetDraftPersistenceStateV5 =
@@ -767,14 +526,7 @@ export type AppState =
       // Worker errors
       workerErrors: WorkerErrorPayload[];
 
-      // Draft Edits
-      draftEdits: MetadataDraftEditsByFile;
-      /** Observable store backing `draftEdits`; consumers like the search-
-       *  worker hook subscribe directly so they hear about every mutation. */
-      draftEditsStore: DraftEditsStore;
-
-      // Target-aware schema-v5 drafts. Kept separate from the temporary
-      // schema-v4 bridge above so occurrence identity is never collapsed.
+      // Exact target-aware metadata drafts.
       targetDraftEdits: TargetDraftEditsByFile;
       targetDraftEditsStore: TargetDraftEditsStore;
       targetDraftPersistence: TargetDraftPersistenceStateV5;
@@ -783,13 +535,7 @@ export type AppState =
       // Apply-edits in-flight state (non-null while metadata apply is running)
       applying: ApplyEditsInFlight | null;
 
-      /**
-       * Per-file verification outcomes left over from the most recent apply
-       * that need user attention (Coerced / Mismatch / MissingPostWrite /
-       * DeleteLingering).  Empty record when nothing pends.  The
-       * VerifyOutcomeDialog renders while this is non-empty.
-       */
-      verifyOutcomes: Record<string, TagOutcomeEntry[]>;
+      /** Exact-target verification outcomes that still need user attention. */
       targetVerifyOutcomes: TargetVerifyOutcomesByFileV5;
       targetVerifyOutcomesStore: TargetVerifyOutcomesStoreV5;
     };
@@ -801,8 +547,6 @@ export interface ApplyEditsInFlight {
   currentFile: string | null;
   failureCount: number;
   cancelling: boolean;
-  /** Active phase of the deliberately sequential v5 -> v4 bridge. */
-  phase: "target-v5" | "legacy-v4";
 }
 
 // ── AI image-description (see docs/IMAGE_ANALYSIS.md) ──────────────────────────
@@ -1087,25 +831,4 @@ export interface WorkerErrorPayload {
   worker_type: string;
   error_message: string;
   affected_files: string[];
-}
-
-export interface ApplyEditsStartedPayload {
-  total: number;
-}
-
-export interface ApplyEditsProgressPayload {
-  current: number;
-  total: number;
-  relative_path: string;
-  applied: boolean;
-  error: string | null;
-  warning?: string | null;
-  fresh_metadata:
-    import("./types/generated/MetadataEntry").MetadataEntry[] | null;
-  /**
-   * Per-tag verification outcomes (Phase 8.1).  The Rust side prunes
-   * Match/DeleteOk drafts on its own; the frontend mirrors those drops
-   * locally and accumulates the rest into pendingOutcomes for triage.
-   */
-  tag_outcomes: import("./types/generated/MetadataTagOutcome").MetadataTagOutcome[];
 }

@@ -3,7 +3,6 @@ import { useSpinnerSync } from "../hooks/useSpinnerSync";
 import { DetailsPane } from "./DetailsPane";
 import type {
   MetadataDraftEdit,
-  MetadataDraftCollection,
   SchemaDefinitionId,
   PhotoInfo,
   ImageMetadataStore,
@@ -46,7 +45,6 @@ interface Props {
   imageMetadata?: ImageMetadataStore;
   /** Observable authoritative occurrence store for the read-only bridge. */
   imageMetadataOccurrences?: ImageMetadataOccurrencesStore;
-  typedDraftEdits?: MetadataDraftCollection;
   targetDraftEdits?: TargetDraftCollection;
   targetDraftPersistence?: TargetDraftPersistenceStateV5;
   onSetExistingOccurrenceDraft?: (
@@ -70,11 +68,6 @@ interface Props {
   onDiscardTargetPropertyDraft?: (
     fileRelativePath: string,
     target: MetadataDraftTarget,
-  ) => void;
-  onDiscardDraft?: (fileRelativePath: string, id: SchemaDefinitionId) => void;
-  onDiscardDraftBatch: (
-    fileRelativePath: string,
-    ids: SchemaDefinitionId[],
   ) => void;
   onDiscardTargetDraftBatch?: (
     fileRelativePath: string,
@@ -101,7 +94,6 @@ export function GalleryView({
   loadImage,
   imageMetadata,
   imageMetadataOccurrences,
-  typedDraftEdits,
   targetDraftEdits,
   targetDraftPersistence,
   onSetExistingOccurrenceDraft,
@@ -109,8 +101,6 @@ export function GalleryView({
   onSetGpsTargetDraftBatch,
   onSetNewPropertyDraft,
   onDiscardTargetPropertyDraft,
-  onDiscardDraft,
-  onDiscardDraftBatch,
   onDiscardTargetDraftBatch,
   onDiscardAllEdits,
   onApplyEdits,
@@ -364,7 +354,6 @@ export function GalleryView({
             photo={photo}
             metadata={metadataState}
             occurrences={occurrencesState}
-            typedDraftEdits={typedDraftEdits}
             targetDraftEdits={targetDraftEdits}
             targetDraftPersistence={targetDraftPersistence}
             onSetExistingOccurrenceDraft={(occurrenceId, edit) =>
@@ -385,10 +374,6 @@ export function GalleryView({
             }
             onDiscardTargetPropertyDraft={(target) =>
               onDiscardTargetPropertyDraft?.(photo.relative_path, target)
-            }
-            onDiscardDraft={(id) => onDiscardDraft?.(photo.relative_path, id)}
-            onDiscardDraftBatch={(ids) =>
-              onDiscardDraftBatch(photo.relative_path, ids)
             }
             onDiscardTargetDraftBatch={(targets) =>
               onDiscardTargetDraftBatch?.(photo.relative_path, targets) ?? false

@@ -4,8 +4,9 @@
 //! versioned batch command. Existing-occurrence targets are read, written and
 //! verified only by exact [`MetadataOccurrenceId`]. New-property
 //! targets use explicit zero/one/multiple exact-schema resolution after the
-//! write. Choosing a first, lowest, `Copy0`, `IFD0`, writable, or otherwise
-//! preferred occurrence is forbidden.
+//! write. LangAlt language children are aggregated as one semantic value;
+//! choosing a first, lowest, `Copy0`, `IFD0`, writable, or otherwise preferred
+//! ordinary occurrence is forbidden.
 //! Complete target-aware audit evidence is retained for the batch coordinator,
 //! which annotates it with draft persistence and appends it best-effort.
 
@@ -937,26 +938,76 @@ fn verify_plan(
                         draft_reconciliation,
                     }
                 }
-                many => {
-                    let message = format!(
-                        "New property {schema_id} resolved to multiple exact-schema occurrences: {:?}",
-                        many.iter().map(|item| &item.id).collect::<Vec<_>>()
-                    );
+                many if matches!(plan.kind, TagKind::LangAlt) => {
+                    let Some(observed) = aggregate_lang_alt_occurrences(many) else {
+                        return VerifiedTarget {
+                            verification: ambiguous_new_property_verification(schema_id, many),
+                            post_write,
+                        };
+                    };
+                    let (kind, message) =
+                        verify_semantic(schema_id, &plan.edit, Some(&observed), Some(&plan.kind));
+                    let draft_reconciliation = if kind == "Match" {
+                        MetadataDraftReconciliation::Clear
+                    } else {
+                        MetadataDraftReconciliation::Blocked {
+                            reason: message.clone().unwrap_or_else(|| {
+                                format!("New LangAlt property {schema_id} did not verify exactly")
+                            }),
+                        }
+                    };
                     TargetVerification {
-                        kind: "AmbiguousPostWrite".to_string(),
-                        message: Some(message.clone()),
-                        observed: None,
-                        draft_reconciliation: MetadataDraftReconciliation::Blocked {
-                            reason: message,
-                        },
+                        kind,
+                        message,
+                        observed: Some(observed),
+                        draft_reconciliation,
                     }
                 }
+                many => ambiguous_new_property_verification(schema_id, many),
             };
             VerifiedTarget {
                 verification,
                 post_write,
             }
         }
+    }
+}
+
+fn aggregate_lang_alt_occurrences(occurrences: &[&MetadataOccurrence]) -> Option<MetadataValue> {
+    let mut alternatives = BTreeMap::new();
+    for occurrence in occurrences {
+        let MetadataValue::LangAlt(values) = &occurrence.value else {
+            return None;
+        };
+        for (language, text) in values {
+            match alternatives.get(language) {
+                Some(existing) if existing != text => return None,
+                Some(_) => {}
+                None => {
+                    alternatives.insert(language.clone(), text.clone());
+                }
+            }
+        }
+    }
+    Some(MetadataValue::LangAlt(alternatives))
+}
+
+fn ambiguous_new_property_verification(
+    schema_id: &SchemaDefinitionId,
+    occurrences: &[&MetadataOccurrence],
+) -> TargetVerification {
+    let message = format!(
+        "New property {schema_id} resolved to multiple exact-schema occurrences: {:?}",
+        occurrences
+            .iter()
+            .map(|occurrence| &occurrence.id)
+            .collect::<Vec<_>>()
+    );
+    TargetVerification {
+        kind: "AmbiguousPostWrite".to_string(),
+        message: Some(message.clone()),
+        observed: None,
+        draft_reconciliation: MetadataDraftReconciliation::Blocked { reason: message },
     }
 }
 
@@ -1035,17 +1086,22 @@ fn verify_semantic(
     kind: Option<&TagKind>,
 ) -> (String, Option<String>) {
     match edit.intent {
-        EditIntent::Set => {
-            crate::apply_edits::verify_set_value(schema_id, edit.value.as_ref(), observed, kind)
-        }
-        EditIntent::Delete => crate::apply_edits::verify_delete_value(schema_id, observed),
-        EditIntent::ListAdd => crate::apply_edits::verify_list_add_value(
+        EditIntent::Set => crate::metadata_verification::verify_set_value(
             schema_id,
             edit.value.as_ref(),
             observed,
             kind,
         ),
-        EditIntent::ListRemove => crate::apply_edits::verify_list_remove_value(
+        EditIntent::Delete => {
+            crate::metadata_verification::verify_delete_value(schema_id, observed)
+        }
+        EditIntent::ListAdd => crate::metadata_verification::verify_list_add_value(
+            schema_id,
+            edit.value.as_ref(),
+            observed,
+            kind,
+        ),
+        EditIntent::ListRemove => crate::metadata_verification::verify_list_remove_value(
             schema_id,
             edit.value.as_ref(),
             observed,
@@ -2636,6 +2692,54 @@ mod tests {
         let outcome = apply_fake(&[entry], &client, &[info]);
         assert_eq!(outcome.outcomes[0].kind, "Match");
         assert_eq!(outcome.outcomes[0].observed, Some(observed));
+    }
+
+    #[test]
+    fn new_lang_alt_property_aggregates_language_children_for_verification() {
+        let info = schema("4", "XMP-test", "Description", true, TagKind::LangAlt);
+        let expected = MetadataValue::LangAlt(BTreeMap::from([
+            ("fr".to_string(), "Texte exact".to_string()),
+            ("x-default".to_string(), "Exact default".to_string()),
+        ]));
+        let entry = new_entry(&info, edit(EditIntent::Set, Some(expected.clone())));
+        let default = occurrence(
+            occurrence_id("XMP", "description", 0),
+            MetadataValue::LangAlt(BTreeMap::from([(
+                "x-default".to_string(),
+                "Exact default".to_string(),
+            )])),
+            Some(info.clone()),
+            None,
+            "Description",
+        );
+        let french = occurrence(
+            occurrence_id("XMP", "description-fr", 0),
+            MetadataValue::LangAlt(BTreeMap::from([(
+                "fr".to_string(),
+                "Texte exact".to_string(),
+            )])),
+            Some(info.clone()),
+            None,
+            "Description-fr",
+        );
+        let client = FakeClient::new(vec![Ok(image(vec![])), Ok(image(vec![default, french]))]);
+
+        let outcome = apply_fake(&[entry], &client, &[info]);
+
+        assert_eq!(outcome.outcomes[0].kind, "Match");
+        assert_eq!(outcome.outcomes[0].observed, Some(expected));
+        assert_eq!(
+            outcome.outcomes[0].draft_reconciliation,
+            MetadataDraftReconciliation::Clear
+        );
+        assert_eq!(
+            outcome.targets_to_clear,
+            vec![outcome.outcomes[0].target.clone()]
+        );
+        assert!(matches!(
+            outcome.audit_records[0].post_write,
+            TargetApplyPostWriteState::Multiple { .. }
+        ));
     }
 
     #[test]

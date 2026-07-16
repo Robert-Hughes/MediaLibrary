@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import { GPS_IDS } from "../metadata/knownIds";
 import type { TargetDraftCollection } from "../targetDraftEdits";
 import type {
-  MetadataDraftCollection,
   MetadataDraftEdit,
   MetadataDraftEntryV5,
   MetadataOccurrence,
@@ -12,8 +11,7 @@ import type {
 } from "../types";
 import { resolveEffectiveGpsForFile } from "../utils/effectiveGps";
 import { existingOccurrenceTargetFromOccurrence } from "../utils/metadataDraftTarget";
-import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
-import { mockDrafts, mockMetadata } from "./factories";
+import { mockMetadata } from "./factories";
 
 const BASE_RAW = {
   "GPS:GPSLatitude": 51,
@@ -104,14 +102,12 @@ function resolve(
   overrides: {
     metadata?: ReturnType<typeof mockMetadata>;
     occurrences?: MetadataOccurrence[] | "loading";
-    legacyDrafts?: MetadataDraftCollection;
     targetDrafts?: TargetDraftCollection;
   } = {},
 ) {
   return resolveEffectiveGpsForFile({
     metadata: overrides.metadata ?? mockMetadata(BASE_RAW),
     occurrences: overrides.occurrences ?? baseOccurrences(),
-    legacyDrafts: overrides.legacyDrafts,
     targetDrafts: overrides.targetDrafts,
   });
 }
@@ -230,31 +226,11 @@ describe("resolveEffectiveGpsForFile", () => {
     expect(Object.is(result.lon, -0)).toBe(true);
   });
 
-  it("preserves negative zero from schema-v4 reference drafts", () => {
-    const result = resolve({
-      metadata: mockMetadata({
-        "GPS:GPSLatitude": 0,
-        "GPS:GPSLatitudeRef": "N",
-        "GPS:GPSLongitude": 0,
-        "GPS:GPSLongitudeRef": "E",
-      }),
-      occurrences: zeroOccurrences(),
-      legacyDrafts: mockDrafts({
-        "GPS:GPSLatitudeRef": "S",
-        "GPS:GPSLongitudeRef": "W",
-      }),
-    });
-
-    expect(Object.is(result.lat, -0)).toBe(true);
-    expect(Object.is(result.lon, -0)).toBe(true);
-  });
-
   it("returns null coordinates when compatibility metadata is unavailable", () => {
     expect(
       resolveEffectiveGpsForFile({
         metadata: undefined,
         occurrences: baseOccurrences(),
-        legacyDrafts: mockDrafts({ "GPS:GPSLatitude": 52 }),
         targetDrafts: undefined,
       }),
     ).toEqual({ lat: null, lon: null });
@@ -265,17 +241,6 @@ describe("resolveEffectiveGpsForFile", () => {
     occurrences[0] = occurrence(GPS_IDS.latitude, valueFor(52));
     occurrences[2] = occurrence(GPS_IDS.longitude, valueFor(2));
     expect(resolve({ occurrences })).toEqual({ lat: 52, lon: 2 });
-  });
-
-  it("keeps schema-v4 latitude and longitude drafts authoritative", () => {
-    expect(
-      resolve({
-        legacyDrafts: mockDrafts({
-          "GPS:GPSLatitude": 48.8584,
-          "GPS:GPSLongitude": 2.2945,
-        }),
-      }),
-    ).toEqual({ lat: 48.8584, lon: 2.2945 });
   });
 
   it("overlays valid schema-v5 ExistingOccurrence coordinate drafts", () => {
@@ -422,51 +387,24 @@ describe("resolveEffectiveGpsForFile", () => {
     ).toEqual({ lat: 51, lon: 1 });
   });
 
-  it("lets exact legacy ownership prevent the same-schema v5 overlay", () => {
-    const occurrences = baseOccurrences();
-    expect(
-      resolve({
-        occurrences,
-        legacyDrafts: mockDrafts({ "GPS:GPSLatitude": 53 }),
-        targetDrafts: targets(existingEntry(occurrences[0], set(valueFor(52)))),
-      }),
-    ).toEqual({ lat: 53, lon: 1 });
-  });
-
-  it("keeps an absent schema index distinct from index zero", () => {
-    const indexedId = { ...GPS_IDS.latitude, index: 0 };
-    const legacyDrafts: MetadataDraftCollection = {
-      [schemaDefinitionIdToken(indexedId)]: {
-        id: indexedId,
-        edit: { intent: "Delete", value: null },
-      },
-    };
-    expect(resolve({ legacyDrafts })).toEqual({ lat: 51, lon: 1 });
-  });
-
-  it("does not mutate metadata, occurrences, or either draft collection", () => {
+  it("does not mutate metadata, occurrences, or target drafts", () => {
     const metadata = mockMetadata(BASE_RAW);
     const occurrences = baseOccurrences();
-    const legacyDrafts = mockDrafts({ "GPS:GPSLongitudeRef": "W" });
     const targetDrafts = targets(
       existingEntry(occurrences[0], set(valueFor(52))),
     );
     const before = structuredClone({
       metadata,
       occurrences,
-      legacyDrafts,
       targetDrafts,
     });
 
     resolveEffectiveGpsForFile({
       metadata,
       occurrences,
-      legacyDrafts,
       targetDrafts,
     });
 
-    expect({ metadata, occurrences, legacyDrafts, targetDrafts }).toEqual(
-      before,
-    );
+    expect({ metadata, occurrences, targetDrafts }).toEqual(before);
   });
 });

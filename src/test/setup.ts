@@ -188,11 +188,6 @@ if (typeof Worker === "undefined") {
             this.index.setDrafts(e.path, e.edits);
           }
           return;
-        case "INIT_TARGET_DRAFT_PATHS":
-          for (const path of msg.paths as string[]) {
-            this.index.setTargetDraftPresence(path, true);
-          }
-          return;
         case "UPSERT_PHOTO":
           this.index.setPhoto(
             msg.photo as Parameters<
@@ -224,12 +219,6 @@ if (typeof Worker === "undefined") {
             msg.edits as Parameters<
               InstanceType<typeof SearchIndex>["setDrafts"]
             >[1],
-          );
-          return;
-        case "UPSERT_TARGET_DRAFT":
-          this.index.setTargetDraftPresence(
-            msg.path as string,
-            msg.hasEdits as boolean,
           );
           return;
         case "DELETE_PATH":

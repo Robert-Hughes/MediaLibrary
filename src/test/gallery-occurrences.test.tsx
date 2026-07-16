@@ -42,7 +42,7 @@ function props(
     imageMetadata,
     imageMetadataOccurrences,
     onRemoveMetadataFieldsV5: vi.fn(),
-    onDiscardDraftBatch: vi.fn(),
+    onDiscardTargetDraftBatch: vi.fn(),
   };
 }
 

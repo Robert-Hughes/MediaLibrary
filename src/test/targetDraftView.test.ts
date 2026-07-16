@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import type {
-  MetadataDraftCollection,
   MetadataOccurrence,
   MetadataDraftTarget,
   SchemaDefinitionId,
@@ -10,7 +9,6 @@ import {
   resolveExistingRowDraft,
   resolveSupplementalOccurrenceDraft,
 } from "../targetDraftView";
-import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
 
 const schema: SchemaDefinitionId = { table: "Exif::Main", tag_id: "282" };
 const occurrence: MetadataOccurrence = {
@@ -34,23 +32,6 @@ const target: Extract<MetadataDraftTarget, { kind: "ExistingOccurrence" }> = {
 };
 
 describe("existing row draft resolution", () => {
-  it("prefers an exact legacy owner without converting it", () => {
-    const legacy: MetadataDraftCollection = {
-      [schemaDefinitionIdToken(schema)]: {
-        id: schema,
-        edit: { intent: "Set", value: { kind: "Integer", value: 301 } },
-      },
-    };
-    expect(
-      resolveExistingRowDraft(
-        schema,
-        { kind: "unique", occurrence },
-        legacy,
-        undefined,
-      ),
-    ).toMatchObject({ kind: "legacy" });
-  });
-
   it("returns only the complete exact ExistingOccurrence target", () => {
     const store = new TargetDraftEditsStore();
     store.setMetadataTarget("a.jpg", target, {
@@ -61,7 +42,6 @@ describe("existing row draft resolution", () => {
       resolveExistingRowDraft(
         schema,
         { kind: "unique", occurrence },
-        undefined,
         store.getMetadataFile("a.jpg"),
       ),
     ).toMatchObject({ kind: "target" });
@@ -78,7 +58,6 @@ describe("existing row draft resolution", () => {
       resolveExistingRowDraft(
         schema,
         { kind: "unique", occurrence },
-        undefined,
         store.getMetadataFile("new.jpg"),
       ),
     ).toMatchObject({ kind: "blocked" });
@@ -93,7 +72,6 @@ describe("existing row draft resolution", () => {
       resolveExistingRowDraft(
         schema,
         { kind: "unique", occurrence },
-        undefined,
         stale.getMetadataFile("stale.jpg"),
       ),
     ).toMatchObject({ kind: "blocked" });
@@ -110,7 +88,6 @@ describe("existing row draft resolution", () => {
       resolveExistingRowDraft(
         schema,
         { kind: "unique", occurrence },
-        undefined,
         stale.getMetadataFile("stale.jpg"),
       ),
     ).toMatchObject({ kind: "blocked", conflictingTargets: expect.any(Array) });
@@ -132,65 +109,48 @@ describe("supplemental occurrence draft resolution", () => {
   }
 
   it("returns none when no owner exists", () => {
-    expect(
-      resolveSupplementalOccurrenceDraft(occurrence, undefined, undefined),
-    ).toEqual({ kind: "none" });
+    expect(resolveSupplementalOccurrenceDraft(occurrence, undefined)).toEqual({
+      kind: "none",
+    });
   });
 
   it("returns only an identical complete ExistingOccurrence target", () => {
     expect(
-      resolveSupplementalOccurrenceDraft(
-        occurrence,
-        undefined,
-        collection(target),
-      ),
+      resolveSupplementalOccurrenceDraft(occurrence, collection(target)),
     ).toMatchObject({ kind: "target", entry: { target } });
   });
 
-  it("blocks exact legacy and NewProperty owners", () => {
-    const legacy: MetadataDraftCollection = {
-      [schemaDefinitionIdToken(schema)]: { id: schema, edit },
-    };
-    expect(
-      resolveSupplementalOccurrenceDraft(occurrence, legacy, undefined),
-    ).toMatchObject({ kind: "blocked" });
+  it("keeps a NewProperty owner separate from an exact occurrence", () => {
     expect(
       resolveSupplementalOccurrenceDraft(
         occurrence,
-        undefined,
         collection({ kind: "NewProperty", schema_id: schema }),
       ),
-    ).toMatchObject({ kind: "blocked" });
+    ).toEqual({ kind: "none" });
   });
 
-  it("blocks a different same-schema occurrence owner", () => {
+  it("keeps a different same-schema occurrence owner separate", () => {
     expect(
       resolveSupplementalOccurrenceDraft(
         occurrence,
-        undefined,
         collection({
           ...target,
           occurrence_id: { ...target.occurrence_id, copy: 1 },
         }),
       ),
-    ).toMatchObject({
-      kind: "blocked",
-      reason: expect.stringContaining("Another concrete occurrence"),
-    });
+    ).toEqual({ kind: "none" });
   });
 
   it("blocks changed schema and selector snapshots", () => {
     expect(
       resolveSupplementalOccurrenceDraft(
         occurrence,
-        undefined,
         collection({ ...target, schema_id: { ...schema, index: 0 } }),
       ),
     ).toMatchObject({ kind: "blocked" });
     expect(
       resolveSupplementalOccurrenceDraft(
         occurrence,
-        undefined,
         collection({
           ...target,
           write_target: { ...target.write_target, group1: "IFD1" },
@@ -199,22 +159,16 @@ describe("supplemental occurrence draft resolution", () => {
     ).toMatchObject({ kind: "blocked" });
   });
 
-  it("blocks multiple same-schema target owners", () => {
+  it("selects only the exact owner among same-schema siblings", () => {
     expect(
       resolveSupplementalOccurrenceDraft(
         occurrence,
-        undefined,
         collection(target, {
           ...target,
           occurrence_id: { ...target.occurrence_id, copy: 1 },
         }),
       ),
-    ).toMatchObject({
-      kind: "blocked",
-      conflictingTargets: expect.arrayContaining([
-        expect.objectContaining({ target }),
-      ]),
-    });
+    ).toMatchObject({ kind: "target", entry: { target } });
   });
 
   it("keeps absent schema index distinct from zero", () => {
@@ -230,31 +184,23 @@ describe("supplemental occurrence draft resolution", () => {
       { kind: "ExistingOccurrence" }
     > = { ...target, schema_id: { ...schema, index: 0 } };
     expect(
-      resolveSupplementalOccurrenceDraft(
-        occurrence,
-        undefined,
-        collection(indexedTarget),
-      ),
+      resolveSupplementalOccurrenceDraft(occurrence, collection(indexedTarget)),
     ).toMatchObject({ kind: "blocked" });
     expect(
       resolveSupplementalOccurrenceDraft(
         indexedOccurrence,
-        undefined,
         collection(indexedTarget),
       ),
     ).toMatchObject({ kind: "target" });
   });
 
-  it("does not mutate occurrence, legacy drafts, or target drafts", () => {
+  it("does not mutate occurrence or target drafts", () => {
     const sourceOccurrence = structuredClone(occurrence);
-    const legacy: MetadataDraftCollection = {};
     const drafts = collection(target)!;
     const beforeOccurrence = structuredClone(sourceOccurrence);
-    const beforeLegacy = structuredClone(legacy);
     const beforeTargets = structuredClone(drafts);
-    resolveSupplementalOccurrenceDraft(sourceOccurrence, legacy, drafts);
+    resolveSupplementalOccurrenceDraft(sourceOccurrence, drafts);
     expect(sourceOccurrence).toEqual(beforeOccurrence);
-    expect(legacy).toEqual(beforeLegacy);
     expect(drafts).toEqual(beforeTargets);
   });
 });

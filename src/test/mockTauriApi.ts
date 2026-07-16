@@ -6,26 +6,22 @@ import type {
   ThumbnailReadyPayload,
   ScanErrorPayload,
   WorkerErrorPayload,
-  MetadataApplyEditsResult,
-  MetadataTagOutcome,
-  MetadataDraftEditsByFile,
-  MetadataDraftEntry,
   MetadataEntry,
   MetadataOccurrences,
   MetadataValue,
   MetadataDraftEntryV5,
+  MetadataDraftEntry,
   MetadataApplyFileResultV5,
+  TagInfo,
 } from "../types";
-import { metadataDraftsFromWire, metadataDraftsToWire } from "../types";
 import {
   targetDraftsFromWire,
   targetDraftsToWire,
   type TargetDraftEditsByFile,
 } from "../targetDraftEdits";
-import { testFriendlyName, testId } from "./testIds";
+import { testId } from "./testIds";
 type EventHandler = (payload: unknown) => void;
 
-type MockDraftEditsByFolder = Record<string, MetadataDraftEditsByFile>;
 type MockTargetDraftEditsByFolder = Record<string, TargetDraftEditsByFile>;
 
 export interface MockApplyEditsProgressGate {
@@ -61,9 +57,7 @@ export function createApplyEditsProgressGate(): MockApplyEditsProgressGate {
 export interface MockTauriApi {
   api: TauriApi;
   pickFolderResolves: (path: string | null) => void;
-  // These maps model the two independent backend JSONL files: schema-v4
-  // MediaLibraryDraftEdits and schema-v5 MediaLibraryTargetDraftEdits.
-  draftEditsByFolder: MockDraftEditsByFolder;
+  // Models the sole target-aware draft persistence file.
   targetDraftEditsByFolder: MockTargetDraftEditsByFolder;
   emitPhotoFound: (photo: PhotoInfo, scanId?: number) => void;
   emitScanComplete: (scanId?: number) => void;
@@ -92,8 +86,6 @@ export interface MockTauriApi {
   invocations: Array<{ cmd: string; args?: Record<string, unknown> }>;
   /** The scan_id returned by the most recent start_scan call. */
   currentScanId: number;
-  /** Override apply_metadata_draft_edits_cmd result. Default: success with no applied/failed. */
-  applyEditsResult: MetadataApplyEditsResult;
   /** Optional manual gate: after each progress event, apply waits for advance(). */
   applyEditsProgressGate: MockApplyEditsProgressGate | null;
   /** Progress events emitted by the apply-edits mock. */
@@ -102,13 +94,12 @@ export interface MockTauriApi {
     total: number;
     relative_path: string;
   }>;
-  warningsByPath: Record<string, string>;
-  cancelApplyEditsCalled: boolean;
   cancelTargetApplyCalled: boolean;
   /** Optional per-file v5 progress result overrides. */
   targetApplyProgressResultsByPath: Record<string, MetadataApplyFileResultV5>;
   /** Optional per-file v5 authoritative final result overrides. */
   targetApplyFinalResultsByPath: Record<string, MetadataApplyFileResultV5>;
+  tagInfos: TagInfo[];
   /** Stored settings; defaults to empty API key + gpt-4o + heuristic estimates. */
   settings: {
     openai_api_key: string;
@@ -277,30 +268,30 @@ export function createMockTauriApi(): MockTauriApi {
         affected_files,
       } satisfies WorkerErrorPayload),
     invalidateMetadataOccurrences: (relativePath) =>
-      emit("apply_metadata_edits_progress", {
+      emit("apply_metadata_edits_v5_progress", {
         current: 1,
         total: 1,
-        relative_path: relativePath,
-        applied: true,
-        error: null,
-        warning: null,
-        fresh_metadata: [],
-        tag_outcomes: [],
+        result: {
+          relative_path: relativePath,
+          applied: true,
+          error: null,
+          warning: null,
+          fresh_image_metadata: null,
+          target_outcomes: [],
+          persisted_draft_entries: null,
+        },
       }),
-    draftEditsByFolder: {},
     targetDraftEditsByFolder: {},
     lastPrioritizedPaths: [],
     lastWindowTitle: null,
     invocations: [],
     currentScanId: 1,
-    applyEditsResult: { applied: [], failed: [], fresh_metadata: {} },
     applyEditsProgressGate: null,
     applyProgressEvents: [],
-    warningsByPath: {},
-    cancelApplyEditsCalled: false,
     cancelTargetApplyCalled: false,
     targetApplyProgressResultsByPath: {},
     targetApplyFinalResultsByPath: {},
+    tagInfos: [],
     settings: {
       openai_api_key: "",
       openai_model: "gpt-4o",
@@ -388,17 +379,6 @@ export function createMockTauriApi(): MockTauriApi {
         mock.lastWindowTitle = (args?.title as string) ?? null;
         return;
       }
-      if (cmd === "load_metadata_draft_edits") {
-        const folder = args?.folderPath as string;
-        return metadataDraftsToWire(mock.draftEditsByFolder[folder] || {});
-      }
-      if (cmd === "save_metadata_draft_edits") {
-        const folder = args?.folderPath as string;
-        mock.draftEditsByFolder[folder] = metadataDraftsFromWire(
-          args?.data as Record<string, import("../types").MetadataDraftEntry[]>,
-        );
-        return;
-      }
       if (cmd === "load_metadata_draft_edits_v5") {
         const folder = args?.folderPath as string;
         return targetDraftsToWire(mock.targetDraftEditsByFolder[folder] || {});
@@ -411,86 +391,27 @@ export function createMockTauriApi(): MockTauriApi {
         return;
       }
       if (cmd === "get_tag_info") {
-        // Tests don't exercise schema-driven editors; return null so
-        // TypedValueEditor falls through to the plain text editor.
-        return null;
+        const id = args?.id;
+        return (
+          mock.tagInfos.find(
+            (info) => JSON.stringify(info.id) === JSON.stringify(id),
+          ) ?? null
+        );
       }
       if (cmd === "get_tag_infos") {
-        return [];
-      }
-      if (cmd === "apply_metadata_draft_edits_cmd") {
-        const result = mock.applyEditsResult;
-        const relPaths = (args?.relPaths as string[]) ?? [];
-        const folder = args?.folderPath as string;
-        const total = result.applied.length + result.failed.length;
-        const progressEvent = "apply_metadata_edits_progress";
-
-        // Mirror the backend: emit started, then one progress event per file
-        emit("apply_edits_started", { total });
-
-        let current = 0;
-        const applied: string[] = [];
-        const failed: MetadataApplyEditsResult["failed"] = [];
-        const fresh_metadata: MetadataApplyEditsResult["fresh_metadata"] = {};
-
-        for (const path of relPaths) {
-          if (mock.cancelApplyEditsCalled) {
-            break;
-          }
-
-          const isApplied = result.applied.includes(path);
-          const failedEntry = result.failed.find(
-            (f) => f.relative_path === path,
-          );
-          if (!isApplied && !failedEntry) continue;
-
-          current += 1;
-          const progressPayload = {
-            current,
-            total,
-            relative_path: path,
-            applied: isApplied,
-            error: failedEntry ? failedEntry.reason : null,
-            warning: mock.warningsByPath[path] ?? null,
-            fresh_metadata: result.fresh_metadata[path] ?? null,
-            tag_outcomes: isApplied
-              ? mockTagOutcomesForPath(mock, folder, path)
-              : [],
-          };
-          mock.applyProgressEvents.push({
-            current,
-            total,
-            relative_path: path,
-          });
-          emit(progressEvent, progressPayload);
-
-          if (isApplied) {
-            applied.push(path);
-            const fresh = result.fresh_metadata[path];
-            if (fresh) {
-              fresh_metadata[path] = fresh;
-            }
-          } else if (failedEntry) {
-            failed.push(failedEntry);
-          }
-
-          if (mock.applyEditsProgressGate) {
-            await mock.applyEditsProgressGate.waitForNextStep();
-          }
-        }
-
-        return { applied, failed, fresh_metadata };
-      }
-      if (cmd === "cancel_apply_edits") {
-        mock.cancelApplyEditsCalled = true;
-        return;
+        const ids = (args?.ids as unknown[]) ?? [];
+        return mock.tagInfos.filter((info) =>
+          ids.some((id) => JSON.stringify(info.id) === JSON.stringify(id)),
+        );
       }
       if (cmd === "apply_metadata_draft_edits_v5_cmd") {
         const relPaths = (args?.relPaths as string[]) ?? [];
         const folder = args?.folderPath as string;
         await Promise.resolve();
         emit("apply_edits_v5_started", { total: relPaths.length });
-        const files = relPaths.map((relative_path, index) => {
+        const files: MetadataApplyFileResultV5[] = [];
+        for (const [index, relative_path] of relPaths.entries()) {
+          if (mock.cancelTargetApplyCalled) break;
           const fallback: MetadataApplyFileResultV5 = {
             relative_path,
             applied: true,
@@ -507,13 +428,28 @@ export function createMockTauriApi(): MockTauriApi {
             total: relPaths.length,
             result: progressResult,
           });
-          return (
-            mock.targetApplyFinalResultsByPath[relative_path] ?? progressResult
+          files.push(
+            mock.targetApplyFinalResultsByPath[relative_path] ?? progressResult,
           );
-        });
+          mock.applyProgressEvents.push({
+            current: index + 1,
+            total: relPaths.length,
+            relative_path,
+          });
+          if (mock.applyEditsProgressGate) {
+            await mock.applyEditsProgressGate.waitForNextStep();
+          }
+        }
         const existing = mock.targetDraftEditsByFolder[folder] ?? {};
         mock.targetDraftEditsByFolder[folder] = Object.fromEntries(
-          Object.entries(existing).filter(([path]) => !relPaths.includes(path)),
+          Object.entries(existing).filter(([path]) =>
+            files.every(
+              (result) =>
+                result.relative_path !== path ||
+                result.persisted_draft_entries === null ||
+                result.persisted_draft_entries.length > 0,
+            ),
+          ),
         );
         return {
           files,
@@ -785,22 +721,4 @@ export function createMockTauriApi(): MockTauriApi {
 
   mock.api = api;
   return mock;
-}
-
-function mockTagOutcomesForPath(
-  mock: MockTauriApi,
-  folder: string,
-  path: string,
-): MetadataTagOutcome[] {
-  const stored = mock.draftEditsByFolder[folder];
-  if (!stored) return [];
-  return Object.values(stored[path] ?? {}).map(({ id }) => ({
-    id,
-    display_name: testFriendlyName(id),
-    kind: "Match",
-    sent: null,
-    before: null,
-    observed: null,
-    message: null,
-  }));
 }

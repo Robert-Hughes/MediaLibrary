@@ -54,7 +54,7 @@ async function renderGallery(
   overrides: Partial<ComponentProps<typeof GalleryView>> = {},
 ) {
   const onRemoveMetadataFieldsV5 = vi.fn();
-  const onDiscardDraftBatch = vi.fn();
+  const onDiscardTargetDraftBatch = vi.fn();
 
   const props = {
     photos: PHOTOS,
@@ -73,7 +73,9 @@ async function renderGallery(
       onRemoveMetadataFieldsV5={
         overrides.onRemoveMetadataFieldsV5 ?? onRemoveMetadataFieldsV5
       }
-      onDiscardDraftBatch={overrides.onDiscardDraftBatch ?? onDiscardDraftBatch}
+      onDiscardTargetDraftBatch={
+        overrides.onDiscardTargetDraftBatch ?? onDiscardTargetDraftBatch
+      }
     />,
   );
   await screen.findByTestId("gallery-image");
@@ -286,7 +288,7 @@ describe("Gallery details pane with navigation", () => {
     const onClose = vi.fn();
     const onNavigate = vi.fn();
     const onRemoveMetadataFieldsV5 = vi.fn();
-    const onDiscardDraftBatch = vi.fn();
+    const onDiscardTargetDraftBatch = vi.fn();
     const store = createPopulatedStore(PHOTOS, {
       "2024/a.jpg": { "IFD0:Make": "Canon" },
       "2024/b.jpg": { "IFD0:Make": "Nikon" },
@@ -302,7 +304,7 @@ describe("Gallery details pane with navigation", () => {
         loadImage={fakeLoad}
         imageMetadata={store}
         onRemoveMetadataFieldsV5={onRemoveMetadataFieldsV5}
-        onDiscardDraftBatch={onDiscardDraftBatch}
+        onDiscardTargetDraftBatch={onDiscardTargetDraftBatch}
       />,
     );
     await screen.findByTestId("gallery-image");
@@ -322,7 +324,7 @@ describe("Gallery details pane with navigation", () => {
         loadImage={fakeLoad}
         imageMetadata={store}
         onRemoveMetadataFieldsV5={onRemoveMetadataFieldsV5}
-        onDiscardDraftBatch={onDiscardDraftBatch}
+        onDiscardTargetDraftBatch={onDiscardTargetDraftBatch}
       />,
     );
     await screen.findByTestId("gallery-image");

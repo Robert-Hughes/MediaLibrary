@@ -2,7 +2,6 @@ import type { TargetDraftCollection } from "../targetDraftEdits";
 import type {
   ImageMetadataEntry,
   ImageMetadataOccurrencesState,
-  MetadataDraftCollection,
   MetadataDraftEdit,
   MetadataDraftEntryV5,
   MetadataValue,
@@ -113,15 +112,6 @@ function setEffectiveValue(
   } as ImageMetadataEntry;
 }
 
-function hasLegacyOwner(
-  drafts: MetadataDraftCollection | undefined,
-  id: SchemaDefinitionId,
-): boolean {
-  return Object.values(drafts ?? {}).some((entry) =>
-    schemaDefinitionIdEquals(entry.id, id),
-  );
-}
-
 /**
  * Build the schema-keyed metadata view used by generated-workflow inputs and
  * overwrite warnings. Ambiguous runtime occurrences and stale target snapshots
@@ -130,7 +120,6 @@ function hasLegacyOwner(
 export function buildEffectiveMetadataForFile(input: {
   metadata: MetadataCollection | undefined;
   occurrences: ImageMetadataOccurrencesState | undefined;
-  legacyDrafts: MetadataDraftCollection | undefined;
   targetDrafts: TargetDraftCollection | undefined;
 }): MetadataCollection {
   const effective: MetadataCollection = Object.fromEntries(
@@ -165,12 +154,6 @@ export function buildEffectiveMetadataForFile(input: {
     }
   }
 
-  for (const entry of Object.values(input.legacyDrafts ?? {})) {
-    const current = valueFromEntry(metadataGet(effective, entry.id));
-    const applied = applyMetadataDraftEditExactly(current, entry.edit);
-    if (applied.applied) setEffectiveValue(effective, entry.id, applied.value);
-  }
-
   const targetOwners = new Map<string, MetadataDraftEntryV5[]>();
   for (const entry of Object.values(input.targetDrafts ?? {})) {
     const token = schemaDefinitionIdToken(entry.target.schema_id);
@@ -183,7 +166,6 @@ export function buildEffectiveMetadataForFile(input: {
     if (owners.length !== 1) continue;
     const entry = owners[0];
     const schemaId = entry.target.schema_id;
-    if (hasLegacyOwner(input.legacyDrafts, schemaId)) continue;
     if (!loadedOccurrences || !occurrenceIndex) continue;
 
     let safe: boolean;

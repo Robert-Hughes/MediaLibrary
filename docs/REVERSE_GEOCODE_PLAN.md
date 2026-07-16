@@ -422,9 +422,9 @@ inherited from the 2010 script and the user has confirmed it is acceptable.
 ## Current generated-draft staging boundary
 
 Reverse-geocode request coordinates are built from the shared effective metadata
-view, including valid v4 and v5 GPS edits. The backend wire result remains an
-exact schema-keyed semantic edit list for the fixed XMP/IPTC location mirror
-set. The frontend allowlist is exactly `GEOCODE_TARGET_TAGS`; arbitrary location-
+view, including valid target-aware GPS edits. The backend wire result is an
+exact semantic edit list for the fixed XMP/IPTC location mirror set. The
+frontend allowlist is exactly `GEOCODE_TARGET_TAGS`; arbitrary location-
 looking schemas are rejected. The current backend deliberately emits both `Set`
 and `Delete` to express coherent replacement of absent address members.
 
@@ -434,4 +434,5 @@ resolved to exact ExistingOccurrence/NewProperty targets and applied atomically.
 A Delete for an already-missing schema is a no-op; a Delete for an exact staged
 NewProperty cancels that creation. Unsafe output fails only that file, remains
 visible as `draft_stage_failed`, and does not undo earlier successful files. No
-reverse-geocode result enters `MediaLibraryDraftEdits.jsonl`.
+reverse-geocode result enters the ignored historical draft file; results are
+staged only as target-aware entries in `MediaLibraryTargetDraftEdits.jsonl`.

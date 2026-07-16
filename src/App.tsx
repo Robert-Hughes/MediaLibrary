@@ -22,7 +22,6 @@ import { GalleryView } from "./components/GalleryView";
 import { StatusBar } from "./components/StatusBar";
 import { ColumnSelectionDialog } from "./components/ColumnSelectionDialog";
 import { ApplyProgressDialog } from "./components/ApplyProgressDialog";
-import { VerifyOutcomeDialog } from "./components/VerifyOutcomeDialog";
 import { TargetVerifyOutcomeDialog } from "./components/TargetVerifyOutcomeDialog";
 import { ModalDialog } from "./components/ModalDialog";
 import { ErrorBanner } from "./components/ErrorBanner";
@@ -50,9 +49,9 @@ import {
 import { sortPhotos, shouldSuspendSorting } from "./utils/sorting";
 import { listSearchQueryIsActive } from "./utils/listSearchText";
 import { computeEffectiveMetadataKeyFrequency } from "./utils/metadataKeyFrequency";
-import { verificationDialogToShow } from "./utils/verificationDialogPolicy";
 import { useSearchWorker, createSearchWorker } from "./hooks/useSearchWorker";
 import { previewMetadataRemovalFilesV5 } from "./metadataRemovalTargets";
+import { schemaDefinitionIdToken } from "./utils/schemaDefinitionId";
 import "./App.css";
 
 const tauriApi: TauriApi = {
@@ -171,7 +170,6 @@ function LoadedView({
   const { matched: searchMatched, pending: searchPending } = useSearchWorker({
     photos: sortedPhotos,
     imageMetadataStore: state.imageMetadata,
-    draftEditsStore: state.draftEditsStore,
     targetDraftEditsStore: state.targetDraftEditsStore,
     query: listSearchQuery,
     createWorker: createSearchWorker,
@@ -237,24 +235,33 @@ function LoadedView({
 
   const draftCounts = useMemo(() => {
     const counts: Record<string, number> = {};
-    for (const [path, edits] of Object.entries(state.draftEdits)) {
+    for (const [path, edits] of Object.entries(state.targetDraftEdits)) {
       counts[path] = Object.keys(edits).length;
     }
-    for (const [path, edits] of Object.entries(state.targetDraftEdits)) {
-      counts[path] = (counts[path] ?? 0) + Object.keys(edits).length;
-    }
     return counts;
-  }, [state.draftEdits, state.targetDraftEdits]);
+  }, [state.targetDraftEdits]);
+
+  const draftEditsForList = useMemo(
+    () =>
+      Object.fromEntries(
+        Object.entries(state.targetDraftEdits).map(([path, collection]) => [
+          path,
+          Object.fromEntries(
+            Object.values(collection).map((entry) => [
+              schemaDefinitionIdToken(entry.target.schema_id),
+              { id: entry.target.schema_id, edit: entry.edit },
+            ]),
+          ),
+        ]),
+      ),
+    [state.targetDraftEdits],
+  );
 
   const targetVerifyOutcomeCount = Object.values(
     state.targetVerifyOutcomes,
   ).reduce((count, entries) => count + Object.keys(entries).length, 0);
-  const verificationDialog = state.applying
-    ? null
-    : verificationDialogToShow(
-        targetVerifyOutcomeCount,
-        Object.keys(state.verifyOutcomes).length,
-      );
+  const showTargetVerification =
+    !state.applying && targetVerifyOutcomeCount > 0;
 
   const draftEditsSummary = useMemo(() => {
     const entries = Object.values(draftCounts).filter((count) => count > 0);
@@ -268,13 +275,13 @@ function LoadedView({
     return computeEffectiveMetadataKeyFrequency(
       state.photos,
       state.imageMetadata,
-      state.draftEdits,
+      state.targetDraftEdits,
     );
   }, [
     showColumnDialog,
     state.photos,
     state.imageMetadata,
-    state.draftEdits,
+    state.targetDraftEdits,
     state.metadataVersion,
     metadataRemaining,
   ]);
@@ -290,11 +297,9 @@ function LoadedView({
         relativePaths,
         targetDraftPersistence: state.targetDraftPersistence,
         occurrencesForPath: (path) => state.imageMetadataOccurrences.get(path),
-        legacyDraftsForPath: (path) => state.draftEdits[path],
         targetDraftsForPath: (path) => state.targetDraftEdits[path],
       }),
     [
-      state.draftEdits,
       state.imageMetadataOccurrences,
       state.targetDraftEdits,
       state.targetDraftPersistence,
@@ -319,7 +324,6 @@ function LoadedView({
         return buildGeocodeRequestItemForFile(relPath, {
           metadata: metaBag,
           occurrences: state.imageMetadataOccurrences.get(relPath),
-          legacyDrafts: state.draftEdits[relPath],
           targetDrafts: state.targetDraftEdits[relPath],
         });
       });
@@ -327,7 +331,6 @@ function LoadedView({
     [
       state.imageMetadata,
       state.imageMetadataOccurrences,
-      state.draftEdits,
       state.targetDraftEdits,
     ],
   );
@@ -366,7 +369,7 @@ function LoadedView({
         onSelectColumns={() => setShowColumnDialog(true)}
         searchQuery={listSearchQuery}
         emptySearchMessage={emptySearchMessage}
-        draftEdits={state.draftEdits}
+        draftEdits={draftEditsForList}
         draftCounts={draftCounts}
         onDiscardAllEdits={(paths) => actions.discardAllDraftEdits(paths)}
         onApplyEdits={(paths) => actions.applyDraftEdits(paths)}
@@ -377,7 +380,6 @@ function LoadedView({
               relPaths,
               state.imageMetadata,
               state.imageMetadataOccurrences,
-              state.draftEdits,
               state.targetDraftEdits,
             ),
           );
@@ -390,7 +392,6 @@ function LoadedView({
               relPaths,
               state.imageMetadata,
               state.imageMetadataOccurrences,
-              state.draftEdits,
               state.targetDraftEdits,
             ),
           );
@@ -405,7 +406,6 @@ function LoadedView({
             relPaths,
             metadataStoreLookup(state.imageMetadata),
             metadataOccurrencesStoreLookup(state.imageMetadataOccurrences),
-            state.draftEdits,
             state.targetDraftEdits,
             initialGroups,
           );
@@ -428,9 +428,6 @@ function LoadedView({
           loadImage={loadImage}
           imageMetadata={state.imageMetadata}
           imageMetadataOccurrences={state.imageMetadataOccurrences}
-          typedDraftEdits={
-            state.draftEdits[displayPhotos[state.galleryIndex].relative_path]
-          }
           targetDraftEdits={
             state.targetDraftEdits[
               displayPhotos[state.galleryIndex].relative_path
@@ -442,8 +439,6 @@ function LoadedView({
           onSetGpsTargetDraftBatch={actions.setGpsTargetDraftBatch}
           onSetNewPropertyDraft={actions.setNewPropertyDraft}
           onDiscardTargetPropertyDraft={actions.discardTargetPropertyDraft}
-          onDiscardDraft={actions.discardDraftValue}
-          onDiscardDraftBatch={actions.discardDraftValues}
           onDiscardTargetDraftBatch={actions.discardTargetDraftValues}
           onDiscardAllEdits={actions.discardAllDraftEdits}
           onApplyEdits={(path) => actions.applyDraftEdits(path)}
@@ -454,7 +449,6 @@ function LoadedView({
                 [relPath],
                 state.imageMetadata,
                 state.imageMetadataOccurrences,
-                state.draftEdits,
                 state.targetDraftEdits,
               ),
             );
@@ -467,7 +461,6 @@ function LoadedView({
                 [relPath],
                 state.imageMetadata,
                 state.imageMetadataOccurrences,
-                state.draftEdits,
                 state.targetDraftEdits,
               ),
             );
@@ -480,7 +473,6 @@ function LoadedView({
               [relPath],
               metadataStoreLookup(state.imageMetadata),
               metadataOccurrencesStoreLookup(state.imageMetadataOccurrences),
-              state.draftEdits,
               state.targetDraftEdits,
               initialGroups,
             );
@@ -512,22 +504,13 @@ function LoadedView({
           onCancel={actions.cancelApplyEdits}
         />
       )}
-      {verificationDialog === "target" && (
+      {showTargetVerification && (
         <TargetVerifyOutcomeDialog
           outcomes={state.targetVerifyOutcomes}
           onAccept={actions.acceptTargetVerifyOutcome}
           onKeep={actions.keepTargetDraftAndDismissOutcome}
           onDiscard={actions.discardTargetDraftAndOutcome}
           onDismissAll={actions.dismissAllTargetVerifyOutcomes}
-        />
-      )}
-      {verificationDialog === "legacy" && (
-        <VerifyOutcomeDialog
-          outcomes={state.verifyOutcomes}
-          onAccept={actions.acceptVerifyOutcome}
-          onRevert={actions.revertVerifyOutcome}
-          onDismiss={actions.dismissVerifyOutcome}
-          onDismissAll={actions.dismissAllVerifyOutcomes}
         />
       )}
       <StatusBar

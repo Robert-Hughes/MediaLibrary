@@ -8,7 +8,6 @@ import {
 import { KNOWN_METADATA_IDS as ID } from "../metadata/knownIds";
 import type { TargetDraftCollection } from "../targetDraftEdits";
 import type {
-  MetadataDraftCollection,
   MetadataDraftEdit,
   MetadataDraftEntry,
   MetadataDraftEntryV5,
@@ -21,7 +20,6 @@ import {
   existingOccurrenceTargetFromOccurrence,
   metadataDraftTargetSlotToken,
 } from "../utils/metadataDraftTarget";
-import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
 
 const text = (value: string): MetadataValue => ({ kind: "Text", value });
 const set = (value: string): MetadataDraftEdit => ({
@@ -87,26 +85,16 @@ function targetCollection(
   );
 }
 
-function legacyCollection(
-  ...entries: MetadataDraftEntry[]
-): MetadataDraftCollection {
-  return Object.fromEntries(
-    entries.map((entry) => [schemaDefinitionIdToken(entry.id), entry]),
-  );
-}
-
 function plan(options: {
   producer?: GeneratedMetadataProducerV5;
   edits?: MetadataDraftEntry[];
   occurrences?: MetadataOccurrence[] | "loading";
-  legacyDrafts?: MetadataDraftCollection;
   targetDrafts?: TargetDraftCollection;
 }) {
   return planGeneratedTargetDraftBatchV5({
     producer: options.producer ?? { kind: "describe" },
     edits: options.edits ?? [],
     occurrences: options.occurrences ?? [],
-    legacyDrafts: options.legacyDrafts,
     targetDrafts: options.targetDrafts,
   });
 }
@@ -141,17 +129,6 @@ describe("planGeneratedTargetDraftBatchV5", () => {
     });
   });
 
-  it("ignores legacy owners for an empty edit batch", () => {
-    expect(
-      plan({
-        legacyDrafts: legacyCollection({
-          id: ID.mlibAiDescription,
-          edit: set("legacy"),
-        }),
-      }),
-    ).toEqual({ upserts: [], deletes: [], noops: [] });
-  });
-
   it("ignores ambiguous target-aware owners for an empty edit batch", () => {
     const first = occurrence(ID.mlibAiDescription, "a", { copy: 0 });
     const second = occurrence(ID.mlibAiDescription, "b", { copy: 1 });
@@ -171,26 +148,21 @@ describe("planGeneratedTargetDraftBatchV5", () => {
       enabledGroups: ["title"],
     };
     const occurrences = [occurrence(ID.mlibAiDescription)];
-    const legacyDrafts = legacyCollection({
-      id: ID.mlibAiDescription,
-      edit: set("legacy"),
-    });
     const targetDrafts = targetCollection(
       targetEntry(occurrences[0], set("target")),
     );
     const before = structuredClone({
       producer,
       occurrences,
-      legacyDrafts,
       targetDrafts,
     });
 
-    expect(plan({ producer, occurrences, legacyDrafts, targetDrafts })).toEqual(
-      { upserts: [], deletes: [], noops: [] },
-    );
-    expect({ producer, occurrences, legacyDrafts, targetDrafts }).toEqual(
-      before,
-    );
+    expect(plan({ producer, occurrences, targetDrafts })).toEqual({
+      upserts: [],
+      deletes: [],
+      noops: [],
+    });
+    expect({ producer, occurrences, targetDrafts }).toEqual(before);
   });
 
   it("does not construct or validate a producer allowlist for empty edits", () => {
@@ -352,20 +324,6 @@ describe("planGeneratedTargetDraftBatchV5", () => {
       ],
     });
     expect(result.upserts[0].target.kind).toBe("NewProperty");
-  });
-
-  it("blocks an exact persisted legacy owner without converting either store", () => {
-    expectCode(
-      () =>
-        plan({
-          edits: [{ id: ID.mlibAiDescription, edit: set("new") }],
-          legacyDrafts: legacyCollection({
-            id: ID.mlibAiDescription,
-            edit: set("legacy"),
-          }),
-        }),
-      "legacy_owner",
-    );
   });
 
   it("allows replacing one complete equal target owner", () => {

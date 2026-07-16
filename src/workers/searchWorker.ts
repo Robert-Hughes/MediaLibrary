@@ -41,9 +41,6 @@ self.onmessage = (event: MessageEvent<SearchWorkerInbound>) => {
       index.setSchemaLabels(msg.schemaLabels);
       for (const e of msg.entries) index.setDrafts(e.path, e.edits);
       return;
-    case "INIT_TARGET_DRAFT_PATHS":
-      for (const path of msg.paths) index.setTargetDraftPresence(path, true);
-      return;
     case "UPSERT_PHOTO":
       index.setPhoto(msg.photo);
       return;
@@ -54,9 +51,6 @@ self.onmessage = (event: MessageEvent<SearchWorkerInbound>) => {
     case "UPSERT_DRAFTS":
       index.setSchemaLabels(msg.schemaLabels);
       index.setDrafts(msg.path, msg.edits);
-      return;
-    case "UPSERT_TARGET_DRAFT":
-      index.setTargetDraftPresence(msg.path, msg.hasEdits);
       return;
     case "DELETE_PATH":
       index.deletePath(msg.path);

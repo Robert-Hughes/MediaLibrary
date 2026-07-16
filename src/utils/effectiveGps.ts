@@ -4,7 +4,6 @@ import type {
   GeocodeRequestItem,
   ImageMetadataEntry,
   ImageMetadataOccurrencesState,
-  MetadataDraftCollection,
   MetadataValue,
 } from "../types";
 import { metadataValueEqual } from "../types";
@@ -16,7 +15,6 @@ import { schemaDefinitionIdToken } from "./schemaDefinitionId";
 export interface EffectiveGpsInput {
   metadata: MetadataCollection | undefined;
   occurrences: ImageMetadataOccurrencesState | undefined;
-  legacyDrafts: MetadataDraftCollection | undefined;
   targetDrafts: TargetDraftCollection | undefined;
 }
 
@@ -55,7 +53,7 @@ function rawCoordinatesChanged(
 
 /**
  * Resolve the coordinates currently presented for one file. The shared
- * effective-metadata resolver owns all general v4/v5 overlay validation; GPS
+ * effective-metadata resolver owns target-overlay validation; GPS
  * retains only its coordinate/ref interpretation and stale Composite
  * suppression.
  */
@@ -68,7 +66,6 @@ export function resolveEffectiveGpsForFile(input: EffectiveGpsInput): {
   const authoritative = buildEffectiveMetadataForFile({
     metadata: input.metadata,
     occurrences: input.occurrences,
-    legacyDrafts: undefined,
     targetDrafts: undefined,
   });
   const effective = buildEffectiveMetadataForFile(input);

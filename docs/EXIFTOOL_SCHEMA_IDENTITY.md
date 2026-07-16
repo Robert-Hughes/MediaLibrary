@@ -6,8 +6,8 @@ runtime field occurrence. The distinction from runtime occurrence identity and
 ExifTool write targeting is defined in the
 [metadata identity model](METADATA_IDENTITY_MODEL.md).
 
-The sections below describe the existing schema-keyed application pipeline,
-which will be migrated incrementally to the locked occurrence model.
+The sections below describe the exact static schema identity used inside the
+active occurrence-targeted editing model.
 
 Automated validation covers exact scan/registry joins, same-name BMP table
 collisions, a real-file repeated definition with `index: 0`, draft and column
@@ -169,13 +169,13 @@ The user searches friendly fields, but every result represents one exact
 context, and the user explicitly selects one. Arbitrary free-text properties
 cannot be written. Existing-property detection compares exact IDs.
 
-## Persistence and migration
+## Persistence
 
-Metadata and drafts cross JSON boundaries as entry arrays containing
-`{id, value}` or `{id, edit}`. Struct-valued IDs are not used as JSON object
-keys. Draft schema v4 stores exact IDs. Legacy string-key draft schemas cannot
-be migrated safely and are rejected. Legacy image-column settings without
-exact IDs are reset rather than guessed.
+Metadata crosses JSON boundaries as `{id, value}` entries. Target drafts persist
+a complete `ExistingOccurrence` or `NewProperty` target beside the semantic
+edit; struct-valued IDs are never JSON object keys. Historical draft files are
+ignored rather than parsed or migrated. Image-column settings without exact IDs
+are reset rather than guessed.
 
 ## Rejected approaches
 

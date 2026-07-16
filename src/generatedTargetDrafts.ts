@@ -9,7 +9,6 @@ import {
 } from "./types";
 import type {
   ImageMetadataOccurrencesState,
-  MetadataDraftCollection,
   MetadataDraftEntry,
   MetadataDraftEntryV5,
   MetadataDraftTarget,
@@ -26,10 +25,7 @@ import {
   isRecord,
   isSchemaDefinitionId,
 } from "./utils/metadataWireGuards";
-import {
-  schemaDefinitionIdEquals,
-  schemaDefinitionIdToken,
-} from "./utils/schemaDefinitionId";
+import { schemaDefinitionIdToken } from "./utils/schemaDefinitionId";
 export type GeneratedMetadataProducerV5 =
   | { kind: "describe" }
   | { kind: "geocode" }
@@ -54,7 +50,6 @@ export type GeneratedTargetDraftPlanErrorCode =
   | "intent_not_allowed"
   | "multiple_occurrences"
   | "occurrence_not_targetable"
-  | "legacy_owner"
   | "multiple_target_owners"
   | "target_owner_mismatch"
   | "stale_target_owner";
@@ -130,15 +125,6 @@ function intentAllowed(
   // coherent ten-field replacement set; normalisation also emits Set/Delete.
   return intent === "Set" || intent === "Delete";
 }
-function exactLegacyOwner(
-  drafts: MetadataDraftCollection | undefined,
-  schemaId: SchemaDefinitionId,
-): boolean {
-  return Object.values(drafts ?? {}).some((entry) =>
-    schemaDefinitionIdEquals(entry.id, schemaId),
-  );
-}
-
 function clonePlan(
   plan: GeneratedTargetDraftPlanV5,
 ): GeneratedTargetDraftPlanV5 {
@@ -150,7 +136,7 @@ function clonePlan(
 }
 
 /**
- * Convert one complete backend-generated schema-keyed batch into exact v5
+ * Convert one complete backend-generated semantic edit batch into exact v5
  * target mutations. The function is pure and never chooses an occurrence
  * heuristically.
  */
@@ -158,7 +144,6 @@ export function planGeneratedTargetDraftBatchV5(input: {
   producer: GeneratedMetadataProducerV5;
   edits: readonly MetadataDraftEntry[];
   occurrences: ImageMetadataOccurrencesState;
-  legacyDrafts: MetadataDraftCollection | undefined;
   targetDrafts: TargetDraftCollection | undefined;
 }): GeneratedTargetDraftPlanV5 {
   if (input.edits.length === 0) {
@@ -186,7 +171,7 @@ export function planGeneratedTargetDraftBatchV5(input: {
     ) {
       fail(
         "invalid_entry",
-        `Generated metadata entry ${index + 1} is not a valid schema-keyed semantic draft entry.`,
+        `Generated metadata entry ${index + 1} is not a valid semantic edit entry.`,
       );
     }
     const token = schemaDefinitionIdToken(candidate.id);
@@ -228,10 +213,6 @@ export function planGeneratedTargetDraftBatchV5(input: {
   // cannot mutate IDs, edits or owner snapshots while a plan is being built.
   const edits = structuredClone(Array.from(input.edits));
   const occurrences = structuredClone(input.occurrences);
-  const legacyDrafts =
-    input.legacyDrafts === undefined
-      ? undefined
-      : structuredClone(input.legacyDrafts);
   const targetDrafts =
     input.targetDrafts === undefined
       ? undefined
@@ -246,14 +227,6 @@ export function planGeneratedTargetDraftBatchV5(input: {
   for (const entry of edits) {
     const schemaId = entry.id;
     const token = schemaDefinitionIdToken(schemaId);
-
-    if (exactLegacyOwner(legacyDrafts, schemaId)) {
-      fail(
-        "legacy_owner",
-        `A persisted legacy draft already owns ${token}. Apply or discard the legacy draft before generating this field.`,
-        schemaId,
-      );
-    }
 
     const owner = resolveTargetDraftByExactSchema(targetDrafts, schemaId);
     if (owner.kind === "ambiguous") {

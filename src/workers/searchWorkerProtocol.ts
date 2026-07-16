@@ -47,7 +47,6 @@ export type SearchWorkerInbound =
       }>;
       schemaLabels: SearchSchemaLabel[];
     }
-  | { type: "INIT_TARGET_DRAFT_PATHS"; paths: string[] }
   | { type: "UPSERT_PHOTO"; photo: SearchPhotoFields }
   | {
       type: "UPSERT_META";
@@ -61,7 +60,6 @@ export type SearchWorkerInbound =
       edits: SearchDraftEntry[] | undefined;
       schemaLabels: SearchSchemaLabel[];
     }
-  | { type: "UPSERT_TARGET_DRAFT"; path: string; hasEdits: boolean }
   | { type: "DELETE_PATH"; path: string }
   | { type: "QUERY"; id: number; query: string };
 

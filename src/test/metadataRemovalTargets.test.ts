@@ -7,14 +7,12 @@ import {
 } from "../metadataRemovalTargets";
 import type { TargetDraftCollection } from "../targetDraftEdits";
 import type {
-  MetadataDraftCollection,
   MetadataDraftEdit,
   MetadataDraftTarget,
   MetadataOccurrence,
   SchemaDefinitionId,
 } from "../types";
 import { metadataDraftTargetSlotToken } from "../utils/metadataDraftTarget";
-import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
 
 const id: SchemaDefinitionId = { table: "Exif::Main", tag_id: "282" };
 const indexed: SchemaDefinitionId = { ...id, index: 0 };
@@ -71,14 +69,12 @@ function plan(
   options: {
     ids?: SchemaDefinitionId[];
     occurrences?: MetadataOccurrence[] | "loading";
-    legacy?: MetadataDraftCollection;
     targets?: TargetDraftCollection;
   } = {},
 ) {
   return planMetadataRemovalTargetsV5({
     schemaIds: options.ids ?? [id],
     occurrences: options.occurrences ?? [occurrence()],
-    legacyDrafts: options.legacy,
     targetDrafts: options.targets,
   });
 }
@@ -235,19 +231,6 @@ describe("planMetadataRemovalTargetsV5", () => {
     );
   });
 
-  it("rejects an exact legacy owner and preserves both inputs", () => {
-    const legacy: MetadataDraftCollection = {
-      [schemaDefinitionIdToken(id)]: {
-        id,
-        edit: { intent: "Delete", value: null },
-      },
-    };
-    const targets = owner(target());
-    const before = structuredClone({ legacy, targets });
-    expectCode(() => plan({ legacy, targets }), "legacy-owner");
-    expect({ legacy, targets }).toEqual(before);
-  });
-
   it("replaces an identical ExistingOccurrence owner with Delete", () => {
     const source = occurrence();
     const result = plan({ targets: owner(target(source)) });
@@ -358,7 +341,6 @@ describe("target-aware removal previews", () => {
       previewMetadataRemovalTargetsV5({
         schemaIds: [id, createdId, absentId],
         occurrences: [occurrence()],
-        legacyDrafts: undefined,
         targetDrafts: owner(created),
       }),
     ).toEqual({
@@ -374,7 +356,6 @@ describe("target-aware removal previews", () => {
       previewMetadataRemovalTargetsV5({
         schemaIds: [id],
         occurrences: [occurrence()],
-        legacyDrafts: undefined,
         targetDrafts: owner(target(), { intent: "Delete", value: null }),
       }),
     ).toEqual({
@@ -390,7 +371,6 @@ describe("target-aware removal previews", () => {
       previewMetadataRemovalTargetsV5({
         schemaIds: [id],
         occurrences: [occurrence()],
-        legacyDrafts: undefined,
         targetDrafts: owner(target()),
       }),
     ).toEqual({
@@ -422,7 +402,6 @@ describe("target-aware removal previews", () => {
         ],
         targetDraftPersistence: { status: "ready" },
         occurrencesForPath: (path) => occurrencesByPath.get(path) ?? [],
-        legacyDraftsForPath: () => undefined,
         targetDraftsForPath: (path) => targetsByPath.get(path),
       }),
     ).toEqual({
@@ -447,48 +426,8 @@ describe("target-aware removal previews", () => {
         targetDraftPersistence: { status: "ready" },
         occurrencesForPath: (path) =>
           path === "ambiguous.jpg" ? multiple : [occurrence()],
-        legacyDraftsForPath: () => undefined,
         targetDraftsForPath: () => undefined,
       }),
     ).toMatchObject({ kind: "blocked", relativePath: "ambiguous.jpg" });
-  });
-
-  it("blocks loading, legacy ownership and unready persistence", () => {
-    const legacy: MetadataDraftCollection = {
-      [schemaDefinitionIdToken(id)]: {
-        id,
-        edit: { intent: "Set", value: { kind: "Integer", value: 1 } },
-      },
-    };
-    const base = {
-      schemaId: id,
-      relativePaths: ["first.jpg", "legacy.jpg"],
-      targetDraftPersistence: { status: "ready" as const },
-      occurrencesForPath: (_path: string) => [] as MetadataOccurrence[],
-      legacyDraftsForPath: (path: string) =>
-        path === "legacy.jpg" ? legacy : undefined,
-      targetDraftsForPath: (_path: string) => undefined,
-    };
-    expect(previewMetadataRemovalFilesV5(base)).toMatchObject({
-      kind: "blocked",
-      relativePath: "legacy.jpg",
-    });
-    expect(
-      previewMetadataRemovalFilesV5({
-        ...base,
-        relativePaths: ["loading.jpg"],
-        occurrencesForPath: () => "loading" as const,
-        legacyDraftsForPath: () => undefined,
-      }),
-    ).toMatchObject({ kind: "blocked", relativePath: "loading.jpg" });
-    expect(
-      previewMetadataRemovalFilesV5({
-        ...base,
-        targetDraftPersistence: {
-          status: "load-failed" as const,
-          error: "invalid",
-        },
-      }),
-    ).toMatchObject({ kind: "blocked", relativePath: "first.jpg" });
   });
 });

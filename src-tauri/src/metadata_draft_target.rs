@@ -1,8 +1,5 @@
-//! Locked draft-target model for the upcoming occurrence-aware draft migration.
-//!
-//! Persisted and in-memory drafts remain schema-keyed v4 in this foundation
-//! change. Production draft, apply, and write paths do not consume this model
-//! yet.
+//! Exact occurrence-aware target identity for the active metadata draft and
+//! apply pipeline.
 
 use serde::{Deserialize, Serialize};
 

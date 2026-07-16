@@ -19,8 +19,10 @@ import userEvent from "@testing-library/user-event";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { DetailsPane } from "../components/DetailsPane";
 
-import { makePhoto, mockDrafts, mockMetadata } from "./factories";
+import { makePhoto, mockMetadata } from "./factories";
 import type { MetadataDraftEdit } from "../types";
+import { KNOWN_METADATA_IDS } from "../metadata/knownIds";
+import { TargetDraftEditsStore } from "../targetDraftEdits";
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({
   ask: vi.fn(() => Promise.resolve(true)),
@@ -58,7 +60,7 @@ describe("DetailsPane: Reverse Geocode button", () => {
     render(
       <DetailsPane
         onRemoveMetadataFieldsV5={vi.fn()}
-        onDiscardDraftBatch={vi.fn()}
+        onDiscardTargetDraftBatch={vi.fn()}
         photo={photo}
         metadata={{}}
         onGeocode={onGeocode}
@@ -71,7 +73,7 @@ describe("DetailsPane: Reverse Geocode button", () => {
     render(
       <DetailsPane
         onRemoveMetadataFieldsV5={vi.fn()}
-        onDiscardDraftBatch={vi.fn()}
+        onDiscardTargetDraftBatch={vi.fn()}
         photo={photo}
         metadata={{}}
       />,
@@ -85,7 +87,7 @@ describe("DetailsPane: Reverse Geocode button", () => {
     render(
       <DetailsPane
         onRemoveMetadataFieldsV5={vi.fn()}
-        onDiscardDraftBatch={vi.fn()}
+        onDiscardTargetDraftBatch={vi.fn()}
         photo={photo}
         metadata={mockMetadata({
           "Composite:GPSLatitude": 51.5,
@@ -108,7 +110,7 @@ describe("DetailsPane: Reverse Geocode button", () => {
     render(
       <DetailsPane
         onRemoveMetadataFieldsV5={vi.fn()}
-        onDiscardDraftBatch={vi.fn()}
+        onDiscardTargetDraftBatch={vi.fn()}
         photo={photo}
         metadata={mockMetadata({ "XMP-iptcCore:Location": "Existing Place" })}
         onGeocode={onGeocode}
@@ -123,15 +125,19 @@ describe("DetailsPane: Reverse Geocode button", () => {
   it("calls onGeocode directly even when a location target tag is present in drafts", async () => {
     const onGeocode = vi.fn();
     const user = userEvent.setup();
+    const drafts = new TargetDraftEditsStore();
+    drafts.setMetadataTarget(
+      photo.relative_path,
+      { kind: "NewProperty", schema_id: KNOWN_METADATA_IDS.xmpCity },
+      setDraftEdit("Manual Edit"),
+    );
     render(
       <DetailsPane
         onRemoveMetadataFieldsV5={vi.fn()}
-        onDiscardDraftBatch={vi.fn()}
+        onDiscardTargetDraftBatch={vi.fn()}
         photo={photo}
         metadata={{}}
-        typedDraftEdits={mockDrafts({
-          "XMP-photoshop:City": setDraftEdit("Manual Edit"),
-        })}
+        targetDraftEdits={drafts.getMetadataFile(photo.relative_path)}
         onGeocode={onGeocode}
       />,
     );
