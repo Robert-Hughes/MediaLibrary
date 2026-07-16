@@ -743,32 +743,24 @@ where
         }
     };
 
-    let mut outcomes = Vec::with_capacity(planned.targets.len());
-    let mut audit_records = Vec::with_capacity(planned.targets.len());
+    let verified_targets = planned
+        .targets
+        .into_iter()
+        .map(|plan| {
+            let verified = verify_plan(&plan, &post_by_id);
+            (plan, verified)
+        })
+        .collect::<Vec<_>>();
+    let mut outcomes = Vec::with_capacity(verified_targets.len());
     let mut first_mismatch = None;
 
-    for plan in planned.targets {
-        let VerifiedTarget {
-            verification,
-            post_write,
-        } = verify_plan(&plan, &post_by_id);
-        audit_records.push(target_audit_record(
-            &plan,
-            numeric_attempted,
-            &numeric_result,
-            text_attempted,
-            &text_result,
-            write_failure.as_deref(),
-            post_write,
-            &verification,
-        ));
-        let TargetVerification {
-            kind,
-            mut message,
-            observed,
-            draft_reconciliation,
-        } = verification;
-        if !matches!(&draft_reconciliation, MetadataDraftReconciliation::Clear) {
+    for (plan, verified) in &verified_targets {
+        let verification = &verified.verification;
+        let mut message = verification.message.clone();
+        if !matches!(
+            &verification.draft_reconciliation,
+            MetadataDraftReconciliation::Clear
+        ) {
             if let Some(write_error) = &write_failure {
                 message = Some(match message {
                     Some(current) => {
@@ -782,13 +774,13 @@ where
             }
         }
         outcomes.push(MetadataTargetOutcome {
-            target: plan.target,
-            draft_reconciliation,
-            display_name: plan.display_name,
-            kind,
-            sent: plan.edit.value,
-            before: plan.before,
-            observed,
+            target: plan.target.clone(),
+            draft_reconciliation: verification.draft_reconciliation.clone(),
+            display_name: plan.display_name.clone(),
+            kind: verification.kind.clone(),
+            sent: plan.edit.value.clone(),
+            before: plan.before.clone(),
+            observed: verification.observed.clone(),
             message,
         });
     }
@@ -802,6 +794,25 @@ where
         targets_to_clear.len(),
         outcomes.len(),
     );
+    let write_diagnostic = diagnostics
+        .error
+        .as_deref()
+        .or(diagnostics.warning.as_deref());
+    let audit_records = verified_targets
+        .into_iter()
+        .map(|(plan, verified)| {
+            target_audit_record(
+                &plan,
+                numeric_attempted,
+                &numeric_result,
+                text_attempted,
+                &text_result,
+                write_diagnostic,
+                verified.post_write,
+                &verified.verification,
+            )
+        })
+        .collect();
 
     // Intentionally no `apply_log::append_metadata_entries`: the production
     // log is schema-keyed. Target-aware logging remains pending activation.
@@ -1717,6 +1728,7 @@ mod tests {
         assert_eq!(outcome.outcomes[0].target, edits[0].target);
         assert_eq!(outcome.outcomes[1].target, edits[1].target);
         assert_eq!(outcome.targets_to_clear, vec![edits[0].target.clone()]);
+        assert!(outcome.error.is_some());
         assert_eq!(outcome.audit_records.len(), 2);
         for (record, entry) in outcome.audit_records.iter().zip(&edits) {
             assert_eq!(record.target, entry.target);
@@ -1775,6 +1787,11 @@ mod tests {
                 .verification
                 .proposed_reconciliation,
             MetadataDraftReconciliation::Keep
+        );
+        assert_eq!(outcome.audit_records[1].verification.kind, "Mismatch");
+        assert_eq!(
+            outcome.audit_records[1].verification.message,
+            outcome.outcomes[1].message
         );
         assert!(outcome.fresh_image_metadata.unwrap().metadata.is_empty());
 
@@ -3135,6 +3152,8 @@ mod tests {
             FakeClient::new(vec![Ok(image(vec![])), Ok(image(vec![post]))]).failing(false, true);
         let outcome = apply_fake(&[entry], &client, &[info]);
         assert!(outcome.error.is_none());
+        let warning = outcome.warning.as_deref().unwrap();
+        assert!(warning.contains("all intended tags verified"));
         assert_eq!(
             outcome.outcomes[0].draft_reconciliation,
             MetadataDraftReconciliation::Clear
@@ -3148,11 +3167,101 @@ mod tests {
             TargetApplyPassStatus::Failed { error }
                 if error == "configured write failure"
         ));
-        assert!(outcome.audit_records[0]
-            .write
-            .diagnostic
-            .as_ref()
-            .is_some_and(|diagnostic| diagnostic.contains("text pass failed")));
+        assert_eq!(
+            outcome.audit_records[0].write.diagnostic.as_deref(),
+            Some(warning)
+        );
+        assert_eq!(outcome.audit_records[0].verification.kind, "Match");
+        assert!(outcome.audit_records[0].verification.message.is_none());
+        assert_eq!(
+            outcome.audit_records[0]
+                .verification
+                .proposed_reconciliation,
+            MetadataDraftReconciliation::Clear
+        );
+    }
+
+    #[test]
+    fn failed_pass_with_partial_shared_schema_verification_uses_formatted_audit_diagnostic() {
+        let info = schema("1", "SchemaMustNotBeUsed", "Name", true, TagKind::Text);
+        let before0 = occurrence(
+            occurrence_id("P0", "1", 0),
+            MetadataValue::Text("before-0".into()),
+            Some(info.clone()),
+            Some("IFD0"),
+            "Name",
+        );
+        let before1 = occurrence(
+            occurrence_id("P1", "1", 1),
+            MetadataValue::Text("before-1".into()),
+            Some(info.clone()),
+            Some("IFD1"),
+            "Name",
+        );
+        let edits = [
+            existing_entry(
+                &before0,
+                edit(EditIntent::Set, Some(MetadataValue::Text("after-0".into()))),
+            ),
+            existing_entry(
+                &before1,
+                edit(EditIntent::Set, Some(MetadataValue::Text("after-1".into()))),
+            ),
+        ];
+        let after0 = occurrence(
+            before0.id.clone(),
+            edits[0].edit.value.clone().unwrap(),
+            Some(info.clone()),
+            Some("IFD0"),
+            "Name",
+        );
+        let after1 = occurrence(
+            before1.id.clone(),
+            MetadataValue::Text("unexpected".into()),
+            Some(info),
+            Some("IFD1"),
+            "Name",
+        );
+        let client = FakeClient::new(vec![
+            Ok(image(vec![before0, before1])),
+            Ok(image(vec![after1.clone(), after0.clone()])),
+        ])
+        .failing(false, true);
+
+        let outcome = apply_fake(&edits, &client, &[]);
+        let error = outcome.error.as_deref().unwrap();
+        assert!(error.contains("post-write verification found 1/2 tags applied"));
+        assert_eq!(outcome.audit_records.len(), edits.len());
+        assert!(outcome
+            .audit_records
+            .iter()
+            .all(|record| record.write.diagnostic.as_deref() == Some(error)));
+        for record in &outcome.audit_records {
+            assert!(matches!(
+                &record.write.text_pass,
+                TargetApplyPassStatus::Failed { error }
+                    if error == "configured write failure"
+            ));
+        }
+        assert_eq!(
+            outcome
+                .audit_records
+                .iter()
+                .map(|record| record.target.clone())
+                .collect::<Vec<_>>(),
+            edits
+                .iter()
+                .map(|entry| entry.target.clone())
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            outcome.audit_records[0].write.selector,
+            after0.write_target.clone().unwrap()
+        );
+        assert_eq!(
+            outcome.audit_records[1].write.selector,
+            after1.write_target.clone().unwrap()
+        );
         assert_eq!(outcome.audit_records[0].verification.kind, "Match");
         assert_eq!(
             outcome.audit_records[0]
@@ -3160,10 +3269,28 @@ mod tests {
                 .proposed_reconciliation,
             MetadataDraftReconciliation::Clear
         );
-        assert!(outcome
-            .warning
-            .unwrap()
-            .contains("all intended tags verified"));
+        assert_eq!(outcome.audit_records[1].verification.kind, "Mismatch");
+        assert_eq!(
+            outcome.audit_records[1]
+                .verification
+                .proposed_reconciliation,
+            MetadataDraftReconciliation::Keep
+        );
+        assert_eq!(
+            outcome.audit_records[1].verification.message,
+            outcome.outcomes[1]
+                .message
+                .as_ref()
+                .and_then(|message| message.split(" (ExifTool write failed:").next())
+                .map(str::to_owned)
+        );
+        for (record, expected) in outcome.audit_records.iter().zip([after0, after1]) {
+            let TargetApplyPostWriteState::Unique { occurrence } = &record.post_write else {
+                panic!("each same-schema target must retain its own occurrence")
+            };
+            assert_eq!(occurrence.occurrence_id, expected.id);
+            assert_eq!(occurrence.value, expected.value);
+        }
     }
 
     #[test]
@@ -3198,6 +3325,7 @@ mod tests {
         assert_eq!(outcome.audit_records.len(), 1);
         let failed_readback_audit = &outcome.audit_records[0];
         assert_eq!(failed_readback_audit.target, entry.target);
+        assert!(failed_readback_audit.write.diagnostic.is_none());
         assert!(matches!(
             &failed_readback_audit.post_write,
             TargetApplyPostWriteState::Unavailable {
@@ -3219,7 +3347,7 @@ mod tests {
         );
         let invalid_client = FakeClient::new(vec![
             Ok(image(vec![])),
-            Ok(image(vec![duplicate.clone(), duplicate])),
+            Ok(image(vec![duplicate.clone(), duplicate.clone()])),
         ]);
         let invalid = apply_fake(
             std::slice::from_ref(&entry),
@@ -3236,6 +3364,7 @@ mod tests {
         assert!(invalid.targets_to_clear.is_empty());
         assert_eq!(invalid.audit_records.len(), 1);
         assert_eq!(invalid.audit_records[0].target, entry.target);
+        assert!(invalid.audit_records[0].write.diagnostic.is_none());
         assert!(matches!(
             &invalid.audit_records[0].post_write,
             TargetApplyPostWriteState::Unavailable {
@@ -3249,6 +3378,44 @@ mod tests {
                 .proposed_reconciliation,
             MetadataDraftReconciliation::Keep
         );
+
+        let write_and_invalid_readback = FakeClient::new(vec![
+            Ok(image(vec![])),
+            Ok(image(vec![duplicate.clone(), duplicate])),
+        ])
+        .failing(false, true);
+        let invalid_after_write_failure = apply_fake(
+            std::slice::from_ref(&entry),
+            &write_and_invalid_readback,
+            std::slice::from_ref(&info),
+        );
+        let combined_error = invalid_after_write_failure.error.as_deref().unwrap();
+        assert!(combined_error.contains("text pass failed"));
+        assert!(combined_error.contains("readback was invalid"));
+        assert!(invalid_after_write_failure.outcomes[0].observed.is_none());
+        let invalid_audit = &invalid_after_write_failure.audit_records[0];
+        assert!(matches!(
+            &invalid_audit.write.text_pass,
+            TargetApplyPassStatus::Failed { error }
+                if error == "configured write failure"
+        ));
+        assert_eq!(
+            invalid_audit.write.diagnostic.as_deref(),
+            Some("text pass failed: configured write failure")
+        );
+        assert!(matches!(
+            &invalid_audit.post_write,
+            TargetApplyPostWriteState::Unavailable {
+                cause: TargetApplyPostWriteUnavailableCause::ReadbackInvalid,
+                message,
+            } if message.contains("duplicate exact occurrence ID")
+        ));
+        assert_eq!(invalid_audit.verification.kind, "ReadbackInvalid");
+        assert!(invalid_audit
+            .verification
+            .message
+            .as_ref()
+            .is_some_and(|message| !message.contains("ExifTool")));
 
         let write_and_read_failure = FakeClient::new(vec![
             Ok(image(vec![])),
@@ -3274,11 +3441,23 @@ mod tests {
             TargetApplyPassStatus::Failed { error }
                 if error == "configured write failure"
         ));
+        assert_eq!(
+            failed.audit_records[0].write.diagnostic.as_deref(),
+            Some("text pass failed: configured write failure")
+        );
+        assert!(matches!(
+            &failed.audit_records[0].post_write,
+            TargetApplyPostWriteState::Unavailable {
+                cause: TargetApplyPostWriteUnavailableCause::ReadbackFailed,
+                message,
+            } if message == "readback after failed write"
+        ));
+        assert_eq!(failed.audit_records[0].verification.kind, "ReadbackFailed");
         assert!(failed.audit_records[0]
-            .write
-            .diagnostic
+            .verification
+            .message
             .as_ref()
-            .is_some_and(|diagnostic| diagnostic.contains("text pass failed")));
+            .is_some_and(|message| !message.contains("ExifTool")));
     }
 
     #[test]
