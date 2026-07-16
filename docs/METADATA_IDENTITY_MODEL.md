@@ -74,8 +74,10 @@ occurrence cardinality and v4/v5 ownership before one target-store mutation.
 The composite editor captures all six targets when it opens and refuses Save if
 any destination changes. Persisted v4 GPS drafts are not converted and block
 v5 editing for their group until applied or discarded. Manual group and
-selected-photo field removal use schema v5; AI/geocode/normalise and other
-generated drafts remain schema v4.
+selected-photo field removal use schema v5. AI/geocode/normalise and other
+generated backends retain schema-keyed semantic results; the frontend resolves
+each complete per-file result against authoritative occurrences into exact v5
+targets before persistence.
 Ordinary and supplemental v5 outcomes share the existing target-aware verification pipeline;
 Match/DeleteOk clear only the exact occurrence slot, while Keep/Blocked retain
 it without reinterpreting or removing a schema sibling.
@@ -409,9 +411,10 @@ creation readback retains every candidate in deterministic supplied order under
 The single-file module is composed by the registered v5 batch command. The
 production frontend protocol adapter applies drafts created by Add Property,
 manual ordinary and supplemental rows, GPS editors, group removal, and
-selected-photo removal. Generated AI, reverse-geocode output, normalise, and
-other generated producers remain schema v4. Schema-v5 operations append to the
-independent target-aware apply log; schema-v4 operations retain the legacy log.
+selected-photo removal, plus fresh generated results resolved from schema-keyed
+semantic edits to exact targets using authoritative occurrences. Schema-v5
+operations append to the independent target-aware apply log; schema-v4
+operations retain the legacy log.
 
 ## Migration status
 
@@ -467,7 +470,7 @@ to the compatibility row and may be discarded, but it cannot be edited further
 or copied onto concrete occurrence rows. This includes a Delete draft when the
 ambiguous schema was omitted from the legacy projection: the pane synthesises
 only the ambiguity-marked compatibility row so the draft remains visible and
-discardable. Concrete occurrence rows remain draft-free and read-only. Authoritative scanner data is occurrence-aware; ordinary and supplemental manual rows use exact ExistingOccurrence targets; GPS individual and composite editors use exact v5 targets; manual group removal and selected-photo removal use exact v5 planning; Add Property uses NewProperty targets; schema-v5 apply, verification, and logging retain complete targets; unknown-schema occurrences remain visible and read-only; persisted schema-v4 drafts are not automatically converted; AI, reverse-geocode output, normalise and other generated producers remain schema v4; target-aware apply logging uses its own append-only file.
+discardable. Concrete occurrence rows remain draft-free and read-only. Authoritative scanner data is occurrence-aware; ordinary and supplemental manual rows use exact ExistingOccurrence targets; GPS individual and composite editors use exact v5 targets; manual group removal and selected-photo removal use exact v5 planning; Add Property uses NewProperty targets; fresh AI, reverse-geocode, normalise, and other generated results are resolved through authoritative occurrences to exact v5 targets before persistence; schema-v5 apply, verification, and logging retain complete targets; unknown-schema occurrences remain visible and read-only; already-persisted schema-v4 drafts are not automatically converted; target-aware apply logging uses its own append-only file.
 
 `MetadataDraftTarget`, `MetadataDraftSlot`, and schema-v5 Tauri load/save
 commands define the target-aware persistence boundary. The v5 JSONL line keeps
@@ -495,9 +498,9 @@ identity is the target slot described above, never object-property behaviour.
 The shared frontend semantic guard requires integral finite values for
 `MetadataValue::Integer`, while `Real` continues to accept finite fractions;
 `Unknown.raw` must be recursively JSON-compatible, and unit variants must keep
-their generated no-content wire shape. All production schema-v5 operations use
-these guarantees; only generated AI, reverse-geocode output, normalise, and
-other generated producers continue creating schema-v4 drafts.
+their generated no-content wire shape. All production schema-v5 operations,
+including fresh AI, reverse-geocode, normalise, and other generated results, use
+these guarantees before exact target resolution and v5 persistence.
 A frontend/Tauri-contract test round-trips shared-schema IFD0/IFD1
 occurrences and existing/new targets without collapsing them.
 
@@ -526,9 +529,10 @@ its result without changing schema-v4 persistence or apply.
 
 Production creates the target-aware store and calls the v5 adapter for Add
 Property, exact unique-row edits, individual/composite GPS edits, manual group
-removal, and selected-photo field removal. The v4 file remains independently
-owned by generated producers plus persisted legacy drafts, including
-already-persisted GPS drafts;
+removal, selected-photo field removal, and fresh generated results after
+authoritative target resolution. The v4 file remains independently owned by
+already-persisted legacy drafts, including GPS drafts and any generated drafts
+created before the generated-producer migration;
 target-aware logging is independently owned by the schema-v5 batch boundary.
 
 V4 entries are not automatically converted: a `SchemaDefinitionId` alone does
@@ -576,7 +580,7 @@ compatibility projection. `persisted_draft_entries` distinguishes no persisted
 change (`null`), removal (`[]`), and retained/replaced entries. The command uses
 isolated cancellation and versioned events and has no target-aware apply
 logging. Every production schema-v5 operation consumes its state and events;
-generated producers remain schema v4.
+fresh generated results join this path after authoritative target resolution.
 
 A frontend protocol adapter wraps
 `apply_metadata_draft_edits_v5_cmd`, `cancel_apply_edits_v5`,
@@ -615,7 +619,8 @@ sole operation.
 The adapter itself remains framework-free. Production composes it with
 `AppState`, the target store, strict v5 load/save commands, the v5 autosave
 gate, and React listeners. Schema-v4 persistence and apply remain independently
-active for persisted legacy drafts and generated producers.
+active only for persisted legacy drafts. Fresh generated results use the v5
+store and apply path after authoritative target resolution.
 
 ## Frontend v5 result application
 
@@ -715,10 +720,12 @@ Unique writable metadata rows, including individual GPS members, also create `Ex
 from their authoritative occurrence and use exact current-value comparison.
 
 This is a temporary bridge organised by operation type. Individual and
-composite GPS editing plus manual group and selected-photo field removal are
-v5; AI description, geocode, normalise, and other generated drafts remain
-explicitly schema-v4. No generic
-schema-to-occurrence inference or v4-file conversion was introduced. A file and
+composite GPS editing, manual group and selected-photo field removal, and fresh
+AI description, geocode, normalise, and other generated results use v5. The
+generated backends remain schema-keyed, while the frontend resolves each
+complete result against authoritative occurrences before creating exact target
+drafts. No generic schema-to-occurrence inference for persisted drafts or
+v4-file conversion was introduced. A file and
 exact schema cannot be owned by both systems: creation and combined apply reject
 the collision without deleting or converting either draft. The narrow Add
 Property view also refuses to first-select when multiple target-aware existing
