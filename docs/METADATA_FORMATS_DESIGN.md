@@ -46,11 +46,13 @@ separate target-aware flow. Ordinary and supplemental v5 rows share exact-target
 verification; acceptance or discard cannot remove a same-schema sibling.
 
 GPS one-field and paired/map edits plus manual group and selected-photo field
-removal use schema v5. AI, geocode, normalise, and other generated drafts
-continue through the schema-v4 batch boundary. The generic schema-v4
-single-row producer and the Details/Gallery v4 batch prop plumbing no longer
-exist. Per-file and Apply All still run v5 before v4;
-the two persistence files and exact discard actions remain independent.
+removal use schema v5. AI, geocode, normalise, and other generated backends
+retain schema-keyed semantic results; the frontend resolves each complete
+per-file result through authoritative occurrences into exact v5 targets before
+persistence and apply. The generic schema-v4 single-row producer and the
+Details/Gallery v4 batch prop plumbing no longer exist. Per-file and Apply All
+still run v5 before v4; the two persistence files and exact discard actions
+remain independent.
 
 ---
 
@@ -320,8 +322,9 @@ How we handle the pairing:
   `NewProperty` Remove discards that creation target rather than constructing a
   Delete creation target.
 - Persisted schema-v4 GPS drafts remain visible, apply/discard through v4, and
-  block v5 GPS editing until resolved. Generated operations remain v4; manual
-  group removal is v5 and GPS supplemental occurrences remain read-only.
+  block v5 GPS editing until resolved. Fresh generated results use authoritative
+  target resolution and v5; manual group removal is v5 and GPS supplemental
+  occurrences remain read-only.
 - Target-aware verification retains all six GPS fields as separate outcome
   slots and never creates a v4 verification outcome for a new v5 GPS edit.
 
