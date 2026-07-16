@@ -6,7 +6,6 @@ import {
 import { GPS_IDS } from "../metadata/knownIds";
 import { TargetDraftEditsStore } from "../targetDraftEdits";
 import type {
-  MetadataDraftCollection,
   MetadataDraftEdit,
   MetadataDraftTarget,
   MetadataOccurrence,
@@ -14,7 +13,6 @@ import type {
   TagInfo,
 } from "../types";
 import { metadataDraftTargetSlotToken } from "../utils/metadataDraftTarget";
-import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
 
 const setEdit = (value = 52): MetadataDraftEdit => ({
   intent: "Set",
@@ -81,7 +79,6 @@ describe("planGpsTargetDraftBatchV5", () => {
       [{ id: GPS_IDS.latitude, edit: setEdit() }],
       [source],
       undefined,
-      undefined,
     );
     expect(planned.target).toEqual({
       kind: "ExistingOccurrence",
@@ -97,7 +94,6 @@ describe("planGpsTargetDraftBatchV5", () => {
       [{ id: GPS_IDS.latitudeRef, edit: setEdit() }],
       [],
       undefined,
-      undefined,
     );
     expect(planned.target).toEqual({
       kind: "NewProperty",
@@ -107,7 +103,7 @@ describe("planGpsTargetDraftBatchV5", () => {
 
   it("rejects empty, duplicate, non-GPS and loading batches", () => {
     expectCode(
-      () => planGpsTargetDraftBatchV5([], [], undefined, undefined),
+      () => planGpsTargetDraftBatchV5([], [], undefined),
       "empty-batch",
     );
     expectCode(
@@ -118,7 +114,6 @@ describe("planGpsTargetDraftBatchV5", () => {
             { id: structuredClone(GPS_IDS.latitude), edit: setEdit() },
           ],
           [],
-          undefined,
           undefined,
         ),
       "duplicate-schema",
@@ -134,7 +129,6 @@ describe("planGpsTargetDraftBatchV5", () => {
           ],
           [],
           undefined,
-          undefined,
         ),
       "non-gps-schema",
     );
@@ -143,7 +137,6 @@ describe("planGpsTargetDraftBatchV5", () => {
         planGpsTargetDraftBatchV5(
           [{ id: GPS_IDS.latitude, edit: setEdit() }],
           "loading",
-          undefined,
           undefined,
         ),
       "occurrences-loading",
@@ -160,7 +153,6 @@ describe("planGpsTargetDraftBatchV5", () => {
             occurrence(GPS_IDS.latitude, { path: "GPS-IFD0", copy: 1 }),
           ],
           undefined,
-          undefined,
         ),
       "multiple-occurrences",
     );
@@ -173,7 +165,6 @@ describe("planGpsTargetDraftBatchV5", () => {
           [{ id: GPS_IDS.latitude, edit: setEdit() }],
           [occurrence(GPS_IDS.latitude, { tagInfo: null })],
           undefined,
-          undefined,
         ),
       "untargetable-occurrence",
     );
@@ -182,7 +173,6 @@ describe("planGpsTargetDraftBatchV5", () => {
         planGpsTargetDraftBatchV5(
           [{ id: GPS_IDS.latitude, edit: setEdit() }],
           [occurrence(GPS_IDS.latitude, { writable: false })],
-          undefined,
           undefined,
         ),
       "untargetable-occurrence",
@@ -193,31 +183,9 @@ describe("planGpsTargetDraftBatchV5", () => {
           [{ id: GPS_IDS.latitude, edit: setEdit() }],
           [occurrence(GPS_IDS.latitude, { writeTarget: null })],
           undefined,
-          undefined,
         ),
       "untargetable-occurrence",
     );
-  });
-
-  it("rejects an exact legacy owner without changing either collection", () => {
-    const legacy: MetadataDraftCollection = {
-      [schemaDefinitionIdToken(GPS_IDS.latitude)]: {
-        id: GPS_IDS.latitude,
-        edit: setEdit(1),
-      },
-    };
-    const before = structuredClone(legacy);
-    expectCode(
-      () =>
-        planGpsTargetDraftBatchV5(
-          [{ id: GPS_IDS.latitude, edit: setEdit() }],
-          [occurrence()],
-          legacy,
-          undefined,
-        ),
-      "legacy-owner",
-    );
-    expect(legacy).toEqual(before);
   });
 
   it("accepts replacing the one complete owner equal to the planned target", () => {
@@ -226,14 +194,12 @@ describe("planGpsTargetDraftBatchV5", () => {
       [{ id: GPS_IDS.latitude, edit: setEdit(1) }],
       [source],
       undefined,
-      undefined,
     )[0];
     const store = new TargetDraftEditsStore();
     store.setMetadataTarget("a.jpg", first.target, first.edit);
     const [replacement] = planGpsTargetDraftBatchV5(
       [{ id: GPS_IDS.latitude, edit: setEdit(2) }],
       [source],
-      undefined,
       store.getMetadataFile("a.jpg"),
     );
     expect(replacement.target).toEqual(first.target);
@@ -257,7 +223,6 @@ describe("planGpsTargetDraftBatchV5", () => {
         planGpsTargetDraftBatchV5(
           [{ id: GPS_IDS.latitude, edit: setEdit() }],
           [source],
-          undefined,
           newOwner,
         ),
       "incompatible-target-owner",
@@ -267,7 +232,6 @@ describe("planGpsTargetDraftBatchV5", () => {
     const otherPlan = planGpsTargetDraftBatchV5(
       [{ id: GPS_IDS.latitude, edit: setEdit() }],
       [other],
-      undefined,
       undefined,
     )[0];
     const otherOwner = {
@@ -281,7 +245,6 @@ describe("planGpsTargetDraftBatchV5", () => {
         planGpsTargetDraftBatchV5(
           [{ id: GPS_IDS.latitude, edit: setEdit() }],
           [source],
-          undefined,
           otherOwner,
         ),
       "incompatible-target-owner",
@@ -292,7 +255,6 @@ describe("planGpsTargetDraftBatchV5", () => {
     const existing = planGpsTargetDraftBatchV5(
       [{ id: GPS_IDS.latitude, edit: setEdit() }],
       [occurrence()],
-      undefined,
       undefined,
     )[0].target;
     const created: MetadataDraftTarget = {
@@ -314,7 +276,6 @@ describe("planGpsTargetDraftBatchV5", () => {
         planGpsTargetDraftBatchV5(
           [{ id: GPS_IDS.latitude, edit: setEdit() }],
           [occurrence()],
-          undefined,
           owners,
         ),
       "multiple-target-owners",
@@ -335,7 +296,6 @@ describe("planGpsTargetDraftBatchV5", () => {
     const [planned] = planGpsTargetDraftBatchV5(
       [{ id: GPS_IDS.latitude, edit: setEdit() }],
       [],
-      undefined,
       owners,
     );
     expect(planned.target).toEqual({
@@ -354,12 +314,7 @@ describe("planGpsTargetDraftBatchV5", () => {
     ];
     const beforeEdits = structuredClone(edits);
     const beforeOccurrences = structuredClone([source]);
-    const planned = planGpsTargetDraftBatchV5(
-      edits,
-      [source],
-      undefined,
-      undefined,
-    );
+    const planned = planGpsTargetDraftBatchV5(edits, [source], undefined);
     planned[0].id.tag_id = "changed";
     planned[0].edit.display = "changed";
     expect(edits).toEqual(beforeEdits);

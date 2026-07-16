@@ -6,7 +6,6 @@ import { GPS_IDS } from "../metadata/knownIds";
 import { TargetDraftEditsStore } from "../targetDraftEdits";
 import type {
   ImageMetadataState,
-  MetadataDraftCollection,
   MetadataDraftEdit,
   MetadataOccurrence,
   SchemaDefinitionId,
@@ -85,7 +84,6 @@ function renderPane(options: {
   metadata?: ImageMetadataState;
   occurrences?: Parameters<typeof DetailsPane>[0]["occurrences"];
   targetDraftEdits?: Parameters<typeof DetailsPane>[0]["targetDraftEdits"];
-  typedDraftEdits?: Parameters<typeof DetailsPane>[0]["typedDraftEdits"];
   targetDraftPersistence?: Parameters<
     typeof DetailsPane
   >[0]["targetDraftPersistence"];
@@ -96,7 +94,7 @@ function renderPane(options: {
     onSetGpsTargetDraftBatch: vi.fn(() => true),
     onSetNewPropertyDraft: vi.fn(),
     onDiscardTargetPropertyDraft: vi.fn(),
-    onDiscardDraftBatch: vi.fn(),
+    onDiscardTargetDraftBatch: vi.fn(),
   };
   const pane = (next: typeof options) => (
     <DetailsPane
@@ -104,7 +102,6 @@ function renderPane(options: {
       metadata={next.metadata ?? {}}
       occurrences={next.occurrences ?? [occurrenceA]}
       targetDraftEdits={next.targetDraftEdits}
-      typedDraftEdits={next.typedDraftEdits}
       targetDraftPersistence={next.targetDraftPersistence}
       {...callbacks}
     />
@@ -168,11 +165,7 @@ describe("DetailsPane exact target-owned row presentation", () => {
     expect(targetRow).toHaveAttribute("data-has-exact-draft", "true");
     expect(targetRow).not.toHaveAttribute("data-readonly");
     expect(siblingRow).toHaveTextContent("72");
-    expect(siblingRow).toHaveAttribute("data-readonly", "true");
-    expect(siblingRow).toHaveAttribute(
-      "title",
-      expect.stringContaining("Another concrete occurrence currently owns"),
-    );
+    expect(siblingRow).not.toHaveAttribute("data-readonly");
     expect(screen.queryByTestId("details-target-drafts-ambiguous")).toBeNull();
 
     fireEvent.contextMenu(targetRow);
@@ -333,15 +326,29 @@ describe("DetailsPane exact target-owned row presentation", () => {
     expect(
       screen.getByTestId("details-target-drafts-ambiguous"),
     ).toBeInTheDocument();
-    for (const row of screen.getAllByTestId("details-occurrence-row")) {
+    const staleRows = screen.getAllByTestId("details-occurrence-row");
+    for (const row of staleRows) {
       expect(row).not.toHaveAttribute("data-has-exact-draft");
       expect(row.querySelector(".draft-new")).toBeNull();
-      expect(row).toHaveAttribute("data-readonly", "true");
     }
+    expect(
+      staleRows.find(
+        (row) =>
+          row.dataset.occurrenceToken ===
+          metadataOccurrenceIdToken(occurrenceA.id),
+      ),
+    ).toHaveAttribute("data-readonly", "true");
+    expect(
+      staleRows.find(
+        (row) =>
+          row.dataset.occurrenceToken ===
+          metadataOccurrenceIdToken(occurrenceB.id),
+      ),
+    ).not.toHaveAttribute("data-readonly");
     expect(ordinaryMetadataRows()).toHaveLength(0);
   });
 
-  it("makes the same-schema sibling eligible after A's owner is discarded", () => {
+  it("keeps a same-schema sibling eligible before and after A is discarded", () => {
     const pending = targetDrafts(occurrenceA, {
       intent: "Set",
       value: { kind: "Integer", value: 301 },
@@ -356,7 +363,7 @@ describe("DetailsPane exact target-owned row presentation", () => {
       screen
         .getAllByTestId("details-occurrence-row")
         .find((row) => row.dataset.occurrenceToken === siblingToken),
-    ).toHaveAttribute("data-readonly", "true");
+    ).not.toHaveAttribute("data-readonly");
 
     view.rerenderPane({
       metadata: {},
@@ -496,26 +503,10 @@ describe("DetailsPane exact target-owned row presentation", () => {
     );
   });
 
-  it("blocks supplemental actions for legacy and NewProperty owners", () => {
-    const legacy: MetadataDraftCollection = {
-      [JSON.stringify([schemaId.table, schemaId.tag_id, null])]: {
-        id: schemaId,
-        edit: { intent: "Set", value: { kind: "Integer", value: 301 } },
-      },
-    };
-    const legacyView = renderPane({
+  it("keeps NewProperty and exact occurrence actions separate", () => {
+    renderPane({
       metadata: {},
       occurrences: [occurrenceA],
-      typedDraftEdits: legacy,
-    });
-    expect(screen.getByTestId("details-occurrence-row")).toHaveAttribute(
-      "data-readonly",
-      "true",
-    );
-    legacyView.rerenderPane({
-      metadata: {},
-      occurrences: [occurrenceA],
-      typedDraftEdits: undefined,
       targetDraftEdits: (() => {
         const store = new TargetDraftEditsStore();
         store.setMetadataTarget(
@@ -527,11 +518,7 @@ describe("DetailsPane exact target-owned row presentation", () => {
       })(),
     });
     const row = screen.getByTestId("details-occurrence-row");
-    expect(row).toHaveAttribute("data-readonly", "true");
-    expect(row).toHaveAttribute(
-      "title",
-      expect.stringContaining("New Property"),
-    );
+    expect(row).not.toHaveAttribute("data-readonly");
   });
 
   it("keeps duplicate IDs and supplemental GPS read-only", () => {
@@ -680,7 +667,7 @@ describe("DetailsPane exact ordinary editor identity", () => {
           occurrences={[occurrenceA]}
           targetDraftEdits={drafts}
           onRemoveMetadataFieldsV5={vi.fn()}
-          onDiscardDraftBatch={vi.fn()}
+          onDiscardTargetDraftBatch={vi.fn()}
         />,
       );
       openOrdinaryEditor();

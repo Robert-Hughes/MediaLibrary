@@ -1,8 +1,8 @@
 //! Pure application of already-computed schema-v5 draft reconciliation outcomes.
 //!
-//! This module performs no metadata writes and no draft persistence. It has no
-//! production caller or Tauri command; production draft persistence and apply
-//! remain schema-v4.
+//! This module performs no metadata writes itself. The target-aware batch
+//! pipeline calls it after readback verification and persists the resulting
+//! exact target draft map.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -295,9 +295,7 @@ mod tests {
     use super::*;
     use crate::apply_edits_v5::{MetadataDraftReconciliation, MetadataTargetOutcome};
     use crate::draft_edits::{
-        load_metadata_draft_edits, load_metadata_draft_edits_v5, save_metadata_draft_edits,
-        save_metadata_draft_edits_v5, EditIntent, MetadataDraftEdit, MetadataDraftEdits,
-        MetadataDraftEntry,
+        load_metadata_draft_edits_v5, save_metadata_draft_edits_v5, EditIntent, MetadataDraftEdit,
     };
     use crate::metadata_occurrence::{MetadataOccurrenceId, MetadataWriteTarget};
     use crate::metadata_value::MetadataValue;
@@ -946,27 +944,7 @@ mod tests {
         .unwrap();
 
         let first_dir = tempdir().unwrap();
-        let legacy_pending = MetadataDraftEntry {
-            id: schema("legacy-pending"),
-            edit: edit("legacy-still-pending"),
-        };
-        let legacy = MetadataDraftEdits::from([(
-            "album/photo.jpg".to_owned(),
-            vec![
-                MetadataDraftEntry {
-                    id: schema("legacy-cleared"),
-                    edit: edit("legacy-cleared"),
-                },
-                legacy_pending.clone(),
-            ],
-        )]);
-        save_metadata_draft_edits(first_dir.path().to_str().unwrap(), &legacy).unwrap();
-        let v4_before = fs::read(first_dir.path().join("MediaLibraryDraftEdits.jsonl")).unwrap();
         save_metadata_draft_edits_v5(first_dir.path().to_str().unwrap(), &reconciled).unwrap();
-        assert_eq!(
-            fs::read(first_dir.path().join("MediaLibraryDraftEdits.jsonl")).unwrap(),
-            v4_before
-        );
         let loaded = load_metadata_draft_edits_v5(first_dir.path().to_str().unwrap()).unwrap();
         assert_eq!(loaded, reconciled);
 
@@ -984,18 +962,6 @@ mod tests {
         let first_text =
             fs::read_to_string(first_dir.path().join("MediaLibraryTargetDraftEdits.jsonl"))
                 .unwrap();
-        let pruned_legacy =
-            MetadataDraftEdits::from([("album/photo.jpg".to_owned(), vec![legacy_pending])]);
-        save_metadata_draft_edits(first_dir.path().to_str().unwrap(), &pruned_legacy).unwrap();
-        assert_eq!(
-            fs::read_to_string(first_dir.path().join("MediaLibraryTargetDraftEdits.jsonl"))
-                .unwrap(),
-            first_text
-        );
-        assert_eq!(
-            load_metadata_draft_edits(first_dir.path().to_str().unwrap()).unwrap(),
-            pruned_legacy
-        );
         assert_eq!(
             load_metadata_draft_edits_v5(first_dir.path().to_str().unwrap()).unwrap(),
             reconciled

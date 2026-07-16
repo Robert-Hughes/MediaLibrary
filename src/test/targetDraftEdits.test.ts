@@ -547,6 +547,14 @@ describe("TargetDraftEditsStore slot replacement", () => {
 });
 
 describe("TargetDraftEditsStore redundant Set guard", () => {
+  const list = (
+    listKind: "Bag" | "Seq",
+    items: MetadataValue[],
+  ): MetadataValue => ({
+    kind: "List",
+    value: { list_kind: listKind, items },
+  });
+
   it("passes complete targets and can distinguish IFD0 from IFD1", () => {
     const store = new TargetDraftEditsStore();
     const resolver = vi.fn((_path: string, target: MetadataDraftTarget) =>
@@ -594,9 +602,105 @@ describe("TargetDraftEditsStore redundant Set guard", () => {
       );
     }
   });
+
+  it("compares every list element, with ordered Seq and unordered Bag semantics", () => {
+    const target = existing();
+    const store = new TargetDraftEditsStore();
+    store.setCurrentValueResolver(() =>
+      list("Seq", [text("one"), text("two")]),
+    );
+    expect(
+      store.setMetadataTarget(
+        "photo.jpg",
+        target,
+        setEdit(list("Seq", [text("one"), text("two")])),
+      ),
+    ).toBe("redundant");
+    expect(
+      store.setMetadataTarget(
+        "photo.jpg",
+        target,
+        setEdit(list("Seq", [text("two"), text("one")])),
+      ),
+    ).toBe("written");
+
+    const bags = new TargetDraftEditsStore();
+    bags.setCurrentValueResolver(() => list("Bag", [text("one"), text("two")]));
+    expect(
+      bags.setMetadataTarget(
+        "photo.jpg",
+        target,
+        setEdit(list("Bag", [text("two"), text("one")])),
+      ),
+    ).toBe("redundant");
+    expect(
+      bags.setMetadataTarget(
+        "photo.jpg",
+        target,
+        setEdit(list("Bag", [text("one"), text("changed")])),
+      ),
+    ).toBe("written");
+  });
+
+  it("ignores struct insertion order but detects a changed nested child", () => {
+    const current: MetadataValue = {
+      kind: "Struct",
+      value: {
+        alpha: text("a"),
+        nested: list("Seq", [text("one"), text("two")]),
+      },
+    };
+    const reordered: MetadataValue = {
+      kind: "Struct",
+      value: {
+        nested: list("Seq", [text("one"), text("two")]),
+        alpha: text("a"),
+      },
+    };
+    const changed = structuredClone(reordered);
+    if (changed.kind !== "Struct") throw new Error("Expected struct");
+    changed.value.nested = list("Seq", [text("one"), text("changed")]);
+    const store = new TargetDraftEditsStore();
+    store.setCurrentValueResolver(() => current);
+    expect(
+      store.setMetadataTarget("photo.jpg", existing(), setEdit(reordered)),
+    ).toBe("redundant");
+    expect(
+      store.setMetadataTarget("photo.jpg", existing(), setEdit(changed)),
+    ).toBe("written");
+  });
 });
 
 describe("TargetDraftEditsStore batch atomicity", () => {
+  it("returns mixed outcomes in input order, notifies once, and skips all-no-op batches", () => {
+    const store = new TargetDraftEditsStore();
+    const listener = vi.fn();
+    store.subscribe(listener);
+    const redundant = existing({ path: "redundant" });
+    const written = existing({ path: "written" });
+    store.setCurrentValueResolver((_path, target) =>
+      target.kind === "ExistingOccurrence" &&
+      target.occurrence_id.path === "redundant"
+        ? text("disk")
+        : text("other"),
+    );
+    const results = store.setMetadataBatch("photo.jpg", [
+      entry(redundant, setEdit("disk")),
+      entry(written, setEdit("draft")),
+    ]);
+    expect(results.map(({ outcome }) => outcome)).toEqual([
+      "redundant",
+      "written",
+    ]);
+    expect(listener).toHaveBeenCalledTimes(1);
+    listener.mockClear();
+    expect(store.setMetadataBatch("other.jpg", [])).toEqual([]);
+    expect(
+      store.setMetadataBatch("other.jpg", [entry(redundant, setEdit("disk"))]),
+    ).toEqual([{ target: redundant, outcome: "redundant" }]);
+    expect(listener).not.toHaveBeenCalled();
+  });
+
   it("writes a valid batch, notifies once, and preserves result input order", () => {
     const store = new TargetDraftEditsStore();
     const listener = vi.fn();

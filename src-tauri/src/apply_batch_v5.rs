@@ -74,7 +74,7 @@ pub struct MetadataApplyEditsProgressPayloadV5 {
     pub result: MetadataApplyFileResultV5,
 }
 
-/// Cancellation state isolated from production [`crate::ApplyEditsState`].
+/// Cancellation state for the sole metadata apply command.
 pub struct ApplyEditsV5State {
     cancelled: Mutex<Option<Arc<AtomicBool>>>,
 }
@@ -457,6 +457,7 @@ mod tests {
     use crate::scanner::{MetadataEntries, MetadataEntry};
     use crate::tag_schema::SchemaDefinitionId;
     use std::collections::{HashMap, VecDeque};
+    use std::fs;
 
     struct FakePersistence {
         load: Result<MetadataDraftEditsV5, String>,
@@ -823,6 +824,41 @@ mod tests {
         }
     }
 
+    #[test]
+    fn target_batch_apply_leaves_historical_apply_log_untouched() {
+        let dir = tempfile::tempdir().unwrap();
+        let historical_path = dir.path().join("MediaLibraryApplyLog.jsonl");
+        let historical_bytes = b"historical apply evidence\r\n\0kept exactly";
+        fs::write(&historical_path, historical_bytes).unwrap();
+
+        let target = new_target("270");
+        let persistence =
+            FakePersistence::new(Ok(drafts(&[("photo.jpg", entry(target.clone(), "draft"))])));
+        let apply = FakeApply::new([(
+            "photo.jpg".to_string(),
+            outcome(
+                None,
+                vec![target_outcome(&target, MetadataDraftReconciliation::Keep)],
+            ),
+        )]);
+
+        let result = run_apply_metadata_draft_edits_v5_with(
+            dir.path().to_str().unwrap(),
+            &["photo.jpg".to_string()],
+            &persistence,
+            &apply,
+            &RealDraftReconcilerV5,
+            &RealTargetApplyLoggerV5,
+            &FakeEvents::default(),
+            Arc::new(AtomicBool::new(false)),
+        )
+        .unwrap();
+
+        assert!(result.files[0].applied);
+        assert_eq!(fs::read(historical_path).unwrap(), historical_bytes);
+        assert!(dir.path().join("MediaLibraryTargetApplyLog.jsonl").exists());
+    }
+
     fn drafts(items: &[(&str, MetadataDraftEntryV5)]) -> MetadataDraftEditsV5 {
         let mut result = MetadataDraftEditsV5::new();
         for (path, item) in items {
@@ -856,21 +892,6 @@ mod tests {
 
         state.clear();
         assert!(state.try_install().is_ok());
-    }
-
-    #[test]
-    fn v5_state_is_independent_from_production_apply_state() {
-        let production = crate::ApplyEditsState::new();
-        let production_flag = production.install();
-        let v5 = ApplyEditsV5State::new();
-        let v5_flag = v5.try_install().unwrap();
-
-        assert!(v5.signal_cancel());
-        assert!(v5_flag.load(Ordering::Relaxed));
-        assert!(!production_flag.load(Ordering::Relaxed));
-
-        assert!(production.signal_cancel());
-        assert!(production_flag.load(Ordering::Relaxed));
     }
 
     #[test]
@@ -1057,18 +1078,13 @@ mod tests {
     }
 
     #[test]
-    fn cancellation_is_isolated_and_observed_only_at_file_boundaries() {
-        let production = crate::ApplyEditsState::new();
-        let production_flag = production.install();
+    fn cancellation_is_observed_only_at_file_boundaries() {
         let state = ApplyEditsV5State::new();
         let current = state.try_install().unwrap();
         assert!(state.signal_cancel());
         assert!(current.load(Ordering::Relaxed));
         state.clear_if_mine(&current);
         assert!(!state.signal_cancel());
-        assert!(!production_flag.load(Ordering::Relaxed));
-        assert!(production.signal_cancel());
-        assert!(production_flag.load(Ordering::Relaxed));
 
         let first_target = new_target("1");
         let second_target = new_target("2");
@@ -1623,17 +1639,17 @@ mod tests {
     }
 
     #[test]
-    fn event_and_command_names_leave_production_v4_names_present() {
+    fn event_and_command_names_expose_only_target_apply() {
         assert_eq!(APPLY_EDITS_V5_STARTED_EVENT, "apply_edits_v5_started");
         assert_eq!(
             APPLY_METADATA_EDITS_V5_PROGRESS_EVENT,
             "apply_metadata_edits_v5_progress"
         );
         let lib = include_str!("lib.rs");
-        assert!(lib.contains("apply_metadata_draft_edits_cmd"));
-        assert!(lib.contains("cancel_apply_edits"));
-        assert!(lib.contains("apply_edits_started"));
-        assert!(lib.contains("apply_metadata_edits_progress"));
+        assert!(!lib.contains("apply_metadata_draft_edits_cmd"));
+        assert!(!lib.contains("fn cancel_apply_edits("));
+        assert!(!lib.contains("\"apply_edits_started\""));
+        assert!(!lib.contains("\"apply_metadata_edits_progress\""));
         assert!(lib.contains("apply_metadata_draft_edits_v5_cmd"));
         assert!(lib.contains("cancel_apply_edits_v5"));
     }

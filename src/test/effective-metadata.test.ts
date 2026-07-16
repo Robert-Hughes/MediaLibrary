@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import type { TargetDraftCollection } from "../targetDraftEdits";
 import type {
   ImageMetadataEntry,
-  MetadataDraftCollection,
   MetadataDraftEntryV5,
   MetadataOccurrence,
   MetadataValue,
@@ -83,13 +82,6 @@ function targets(...entries: MetadataDraftEntryV5[]): TargetDraftCollection {
   );
 }
 
-function legacy(
-  id: SchemaDefinitionId,
-  edit: MetadataDraftCollection[string]["edit"],
-): MetadataDraftCollection {
-  return { [schemaDefinitionIdToken(id)]: { id, edit } };
-}
-
 function valueOf(
   collection: MetadataCollection,
   id = ID,
@@ -107,7 +99,6 @@ describe("buildEffectiveMetadataForFile", () => {
         buildEffectiveMetadataForFile({
           metadata: metadata([ID, text("compatibility")]),
           occurrences: undefined,
-          legacyDrafts: undefined,
           targetDrafts: undefined,
         }),
       ),
@@ -120,7 +111,6 @@ describe("buildEffectiveMetadataForFile", () => {
         buildEffectiveMetadataForFile({
           metadata: metadata([ID, text("compatibility")]),
           occurrences: [occurrence(ID, text("authoritative"))],
-          legacyDrafts: undefined,
           targetDrafts: undefined,
         }),
       ),
@@ -136,34 +126,10 @@ describe("buildEffectiveMetadataForFile", () => {
             occurrence(ID, text("first"), { copy: 0 }),
             occurrence(ID, text("second"), { copy: 1 }),
           ],
-          legacyDrafts: undefined,
           targetDrafts: undefined,
         }),
       ),
     ).toEqual(text("compatibility"));
-  });
-
-  it("applies exact legacy Set and Delete with v4 precedence", () => {
-    const item = occurrence(ID, text("disk"));
-    const target = existingEntry(item, {
-      intent: "Set",
-      value: text("v5"),
-    });
-    const setResult = buildEffectiveMetadataForFile({
-      metadata: metadata([ID, text("compatibility")]),
-      occurrences: [item],
-      legacyDrafts: legacy(ID, { intent: "Set", value: text("v4") }),
-      targetDrafts: targets(target),
-    });
-    expect(valueOf(setResult)).toEqual(text("v4"));
-
-    const deleteResult = buildEffectiveMetadataForFile({
-      metadata: metadata([ID, text("compatibility")]),
-      occurrences: [item],
-      legacyDrafts: legacy(ID, { intent: "Delete", value: null }),
-      targetDrafts: targets(target),
-    });
-    expect(valueOf(deleteResult)).toBeUndefined();
   });
 
   it("overlays valid ExistingOccurrence Set and Delete", () => {
@@ -171,7 +137,6 @@ describe("buildEffectiveMetadataForFile", () => {
     const setResult = buildEffectiveMetadataForFile({
       metadata: metadata([ID, text("compatibility")]),
       occurrences: [item],
-      legacyDrafts: undefined,
       targetDrafts: targets(
         existingEntry(item, { intent: "Set", value: text("pending") }),
       ),
@@ -181,7 +146,6 @@ describe("buildEffectiveMetadataForFile", () => {
     const deleteResult = buildEffectiveMetadataForFile({
       metadata: metadata([ID, text("compatibility")]),
       occurrences: [item],
-      legacyDrafts: undefined,
       targetDrafts: targets(
         existingEntry(item, { intent: "Delete", value: null }),
       ),
@@ -199,7 +163,6 @@ describe("buildEffectiveMetadataForFile", () => {
         buildEffectiveMetadataForFile({
           metadata: {},
           occurrences: [],
-          legacyDrafts: undefined,
           targetDrafts: targets(entry),
         }),
       ),
@@ -227,7 +190,6 @@ describe("buildEffectiveMetadataForFile", () => {
           buildEffectiveMetadataForFile({
             metadata: metadata([ID, text("compatibility")]),
             occurrences: [item],
-            legacyDrafts: undefined,
             targetDrafts,
           }),
         ),
@@ -241,7 +203,6 @@ describe("buildEffectiveMetadataForFile", () => {
     const result = buildEffectiveMetadataForFile({
       metadata: metadata([ID, text("compatibility")]),
       occurrences: [first],
-      legacyDrafts: undefined,
       targetDrafts: targets(
         existingEntry(first, { intent: "Set", value: text("one") }),
         existingEntry(second, { intent: "Set", value: text("two") }),
@@ -262,7 +223,6 @@ describe("buildEffectiveMetadataForFile", () => {
     const added = buildEffectiveMetadataForFile({
       metadata: metadata([ID, list]),
       occurrences: [item],
-      legacyDrafts: undefined,
       targetDrafts: targets(
         existingEntry(item, { intent: "ListAdd", value: text("c") }),
       ),
@@ -275,7 +235,6 @@ describe("buildEffectiveMetadataForFile", () => {
     const removed = buildEffectiveMetadataForFile({
       metadata: metadata([ID, list]),
       occurrences: [item],
-      legacyDrafts: undefined,
       targetDrafts: targets(
         existingEntry(item, { intent: "ListRemove", value: text("a") }),
       ),
@@ -296,35 +255,28 @@ describe("buildEffectiveMetadataForFile", () => {
     const result = buildEffectiveMetadataForFile({
       metadata: metadata([ID, text("compatibility")]),
       occurrences: [item],
-      legacyDrafts: undefined,
       targetDrafts: targets(newZero),
     });
     expect(valueOf(result, ID)).toEqual(text("disk"));
     expect(valueOf(result, zero)).toEqual(text("zero"));
   });
 
-  it("does not mutate metadata, occurrences, legacy drafts or target drafts", () => {
+  it("does not mutate metadata, occurrences, or target drafts", () => {
     const base = metadata([ID, text("compatibility")], [OTHER, text("other")]);
     const item = occurrence(ID, text("disk"));
-    const legacyDrafts = legacy(OTHER, {
-      intent: "Set",
-      value: text("legacy"),
-    });
     const targetDrafts = targets(
       existingEntry(item, { intent: "Set", value: text("pending") }),
     );
     const snapshots = structuredClone({
       base,
       item,
-      legacyDrafts,
       targetDrafts,
     });
     buildEffectiveMetadataForFile({
       metadata: base,
       occurrences: [item],
-      legacyDrafts,
       targetDrafts,
     });
-    expect({ base, item, legacyDrafts, targetDrafts }).toEqual(snapshots);
+    expect({ base, item, targetDrafts }).toEqual(snapshots);
   });
 });

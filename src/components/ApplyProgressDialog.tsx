@@ -8,11 +8,11 @@ interface Props {
 }
 
 /**
- * Modal shown while `apply_metadata_draft_edits_cmd` is running.
+ * Modal shown while target-aware metadata apply is running.
  *
  * Blocks the rest of the UI so users can't issue conflicting commands while
  * exiftool is rewriting files.  Updates incrementally from the per-file
- * `apply_metadata_edits_progress` events emitted by the backend.
+ * versioned target progress events emitted by the backend.
  *
  * The body shares its layout with the running phase of
  * `DescribeProgressDialog` via `RunningProgressPanel` — the testids and
@@ -31,11 +31,7 @@ export function ApplyProgressDialog({ applying, onCancel }: Props) {
           <span className="dialog-title">
             {applying.cancelling ? "Cancelling…" : "Applying edits"}
           </span>
-          <span data-testid="apply-progress-phase">
-            {applying.phase === "target-v5"
-              ? "Target-aware metadata (v5)"
-              : "Legacy metadata (v4)"}
-          </span>
+          <span data-testid="apply-progress-phase">Target-aware metadata</span>
         </div>
         <div className="dialog-body">
           <RunningProgressPanel

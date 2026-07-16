@@ -1,44 +1,25 @@
-//! Append-only audit logs for metadata apply operations.
-//!
-//! The schema-v4 path writes schema-keyed evidence to
-//! `<folder>/MediaLibraryApplyLog.jsonl`. The schema-v5 path writes exact
-//! target evidence to the independent
-//! `<folder>/MediaLibraryTargetApplyLog.jsonl` file. Both formats are JSONL,
-//! but they have separate schemas and version domains.
+//! Append-only target-aware audit log for metadata apply operations.
 //!
 //! Append-only by design: never truncated, never read by the app. The files are
 //! supplemental forensic evidence users can inspect after a write looks wrong.
 //!
 //! See `docs/METADATA_FORMATS_DESIGN.md` §6.
 
-use crate::apply_edits::MetadataTagOutcome;
 use crate::apply_edits_v5::MetadataDraftReconciliation;
-use crate::draft_edits::{EditIntent, MetadataDraftEntry};
+use crate::draft_edits::EditIntent;
 use crate::metadata_draft_target::MetadataDraftTarget;
 use crate::metadata_occurrence::{MetadataOccurrenceId, MetadataWriteTarget};
 use crate::metadata_value::MetadataValue;
-use crate::scanner::MetadataMap;
 use crate::tag_schema::SchemaDefinitionId;
 use serde::Serialize;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::Path;
 
-const LOG_FILE_NAME: &str = "MediaLibraryApplyLog.jsonl";
 const TARGET_LOG_FILE_NAME: &str = "MediaLibraryTargetApplyLog.jsonl";
 const TARGET_LOG_SCHEMA_VERSION: u32 = 1;
 const TARGET_LOG_IDENTITY_MODEL: &str = "TargetV5";
 const TARGET_HEADER_COMMENT: &str = "// Target-aware apply audit log. Append-only. Each line is one exact target outcome from one schema-v5 apply. schema_version=1.";
-/// Schema version embedded in each entry.  Bumps:
-///  - 2 (Phase 8.8): added dual pre-write semantic fields.
-///  - 3 (Phase 8 fix-up): added `before_read_failed` so a `null` before
-///    value can be distinguished from "the pre-write read itself failed".
-///    v2 readers see the new field as ignorable.
-///  - 5: canonical-only metadata values; display/raw semantic fields removed.
-///  - 6: added `write_diagnostic` field to capture ExifTool errors/warnings.
-const SEMANTIC_LOG_SCHEMA_VERSION: u32 = 7;
-const HEADER_COMMENT: &str =
-    "// Apply-edits audit log. Append-only. Each line is one tag's outcome from one apply. schema_version=7.";
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub(crate) struct TargetApplyAuditRecord {
@@ -120,32 +101,6 @@ pub(crate) struct TargetApplyVerificationEvidence {
     pub(crate) kind: String,
     pub(crate) message: Option<String>,
     pub(crate) proposed_reconciliation: MetadataDraftReconciliation,
-}
-
-#[derive(Serialize)]
-struct MetadataApplyLogEntry<'a> {
-    schema_version: u32,
-    timestamp: String,
-    relative_path: &'a str,
-    id: &'a SchemaDefinitionId,
-    display_name: &'a str,
-    intent: &'a EditIntent,
-    /// The intended semantic value sent to exiftool.
-    intended_value: &'a Option<MetadataValue>,
-    /// argv we passed to exiftool for this tag.
-    argv: &'a [String],
-    /// The file's canonical semantic value before our write.
-    before: Option<&'a MetadataValue>,
-    /// True when the pre-write metadata read failed and before-fields are not authoritative.
-    before_read_failed: bool,
-    /// The file's canonical semantic value after the write.
-    observed: Option<&'a MetadataValue>,
-    /// One of the verification outcome strings.
-    outcome: &'a str,
-    /// Free-text error message when outcome is not Match.
-    note: Option<&'a str>,
-    /// ExifTool write error or warning diagnostic (if any).
-    write_diagnostic: Option<&'a str>,
 }
 
 #[derive(Serialize)]
@@ -239,83 +194,6 @@ pub(crate) fn append_target_metadata_entries(
     })
 }
 
-#[allow(clippy::too_many_arguments)]
-pub fn append_metadata_entries(
-    folder_path: &str,
-    relative_path: &str,
-    edits: &[MetadataDraftEntry],
-    argv_by_tag: &std::collections::BTreeMap<SchemaDefinitionId, Vec<String>>,
-    before_metadata: &MetadataMap,
-    observed_metadata: &MetadataMap,
-    tag_outcomes: &[MetadataTagOutcome],
-    before_read_failed: bool,
-    write_diagnostic: Option<&str>,
-) {
-    let path = Path::new(folder_path).join(LOG_FILE_NAME);
-    let needs_header = !path.exists();
-
-    let file = match OpenOptions::new().create(true).append(true).open(&path) {
-        Ok(f) => f,
-        Err(e) => {
-            log::warn!("[apply_log] Could not open {}: {}", path.display(), e);
-            return;
-        }
-    };
-    let mut writer = std::io::BufWriter::new(file);
-
-    if needs_header && writeln!(writer, "{}", HEADER_COMMENT).is_err() {
-        return;
-    }
-
-    let timestamp = chrono_like_iso();
-    let outcome_by_tag: std::collections::BTreeMap<&SchemaDefinitionId, &MetadataTagOutcome> =
-        tag_outcomes.iter().map(|o| (&o.id, o)).collect();
-
-    let empty_argv: Vec<String> = Vec::new();
-    for edit_entry in edits {
-        let id = &edit_entry.id;
-        let edit = &edit_entry.edit;
-        let argv = argv_by_tag.get(id).unwrap_or(&empty_argv);
-        let (outcome, note, display_name) = match outcome_by_tag.get(id) {
-            Some(o) => (
-                o.kind.as_str(),
-                o.message.as_deref(),
-                o.display_name.as_str(),
-            ),
-            None => ("Match", None, "<unknown>"),
-        };
-
-        let entry = MetadataApplyLogEntry {
-            schema_version: SEMANTIC_LOG_SCHEMA_VERSION,
-            timestamp: timestamp.clone(),
-            relative_path,
-            id,
-            display_name,
-            intent: &edit.intent,
-            intended_value: &edit.value,
-            argv,
-            before: before_metadata.get(id),
-            before_read_failed,
-            observed: observed_metadata.get(id),
-            outcome,
-            note,
-            write_diagnostic,
-        };
-
-        match serde_json::to_string(&entry) {
-            Ok(line) => {
-                if writeln!(writer, "{}", line).is_err() {
-                    log::warn!(
-                        "[apply_log] write error; further entries in this apply will be skipped"
-                    );
-                    return;
-                }
-            }
-            Err(e) => log::warn!("[apply_log] serialise error for id {:?}: {}", id, e),
-        }
-    }
-}
-
 /// Tiny RFC3339-ish timestamp without pulling in `chrono`.  Format:
 /// `YYYY-MM-DDTHH:MM:SSZ` from system time, UTC.
 fn chrono_like_iso() -> String {
@@ -355,10 +233,8 @@ fn days_to_ymd(days: i64) -> (i32, u32, u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::draft_edits::MetadataDraftEdit;
     use crate::metadata_draft_target::MetadataDraftTarget;
     use crate::metadata_occurrence::{MetadataOccurrenceId, MetadataWriteTarget};
-    use std::collections::BTreeMap;
     use tempfile::tempdir;
 
     #[test]
@@ -380,23 +256,6 @@ mod tests {
         assert_eq!(s.chars().nth(4), Some('-'));
         assert_eq!(s.chars().nth(7), Some('-'));
         assert_eq!(s.chars().nth(10), Some('T'));
-    }
-
-    fn metadata_outcome(tag: &str, kind: &str) -> MetadataTagOutcome {
-        let id = SchemaDefinitionId {
-            table: "Test::Log".into(),
-            tag_id: tag.into(),
-            index: None,
-        };
-        MetadataTagOutcome {
-            id,
-            display_name: tag.to_string(),
-            kind: kind.to_string(),
-            sent: None,
-            before: None,
-            observed: None,
-            message: None,
-        }
     }
 
     fn target_schema(index: Option<u32>) -> SchemaDefinitionId {
@@ -510,110 +369,6 @@ mod tests {
             .skip(1)
             .map(|line| serde_json::from_str(line).unwrap())
             .collect()
-    }
-
-    #[test]
-    fn append_metadata_entries_records_semantic_values() {
-        let dir = tempdir().unwrap();
-        let folder = dir.path().to_str().unwrap();
-
-        let id = SchemaDefinitionId {
-            table: "IPTC::ApplicationRecord".into(),
-            tag_id: "60".into(),
-            index: None,
-        };
-        let edits = vec![MetadataDraftEntry {
-            id: id.clone(),
-            edit: MetadataDraftEdit {
-                value: Some(MetadataValue::Time(crate::metadata_value::TimeValue {
-                    hour: 10,
-                    minute: 56,
-                    second: 5,
-                    subsecond: None,
-                    offset: None,
-                })),
-                intent: EditIntent::Set,
-                display: None,
-            },
-        }];
-
-        let mut argv = BTreeMap::new();
-        argv.insert(id.clone(), vec!["-IPTC:TimeCreated=10:56:05".into()]);
-
-        let mut before = BTreeMap::new();
-        before.insert(id.clone(), MetadataValue::Text("old".into()));
-        let mut after = BTreeMap::new();
-        after.insert(
-            id,
-            MetadataValue::Time(crate::metadata_value::TimeValue {
-                hour: 10,
-                minute: 56,
-                second: 5,
-                subsecond: None,
-                offset: None,
-            }),
-        );
-
-        append_metadata_entries(
-            folder,
-            "a.jpg",
-            &edits,
-            &argv,
-            &before,
-            &after,
-            &[metadata_outcome("IPTC:TimeCreated", "Match")],
-            false,
-            Some("test diagnostic"),
-        );
-
-        let contents = std::fs::read_to_string(dir.path().join(LOG_FILE_NAME)).unwrap();
-        let lines: Vec<&str> = contents.lines().collect();
-        assert_eq!(lines.len(), 2, "expected header + one semantic entry");
-        let entry: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
-        assert_eq!(entry["schema_version"], 7);
-        assert_eq!(entry["intended_value"]["kind"], "Time");
-        assert_eq!(
-            entry["intended_value"]["value"]["offset"],
-            serde_json::Value::Null
-        );
-        assert_eq!(entry["observed"]["kind"], "Time");
-        assert_eq!(entry["argv"][0], "-IPTC:TimeCreated=10:56:05");
-        assert_eq!(entry["write_diagnostic"], "test diagnostic");
-    }
-
-    #[test]
-    fn append_entries_is_append_only_no_header_on_second_apply() {
-        let dir = tempdir().unwrap();
-        let folder = dir.path().to_str().unwrap();
-        let id = SchemaDefinitionId {
-            table: "Test::Log".into(),
-            tag_id: "Tag".into(),
-            index: None,
-        };
-        let edits = vec![MetadataDraftEntry {
-            id,
-            edit: MetadataDraftEdit {
-                value: Some(MetadataValue::Integer(1)),
-                intent: EditIntent::Set,
-                display: None,
-            },
-        }];
-        let argv = BTreeMap::new();
-        let before = BTreeMap::new();
-        let after = BTreeMap::new();
-        let outcomes = vec![metadata_outcome("Tag", "Match")];
-
-        append_metadata_entries(
-            folder, "a.jpg", &edits, &argv, &before, &after, &outcomes, false, None,
-        );
-        append_metadata_entries(
-            folder, "b.jpg", &edits, &argv, &before, &after, &outcomes, false, None,
-        );
-
-        let contents = std::fs::read_to_string(dir.path().join(LOG_FILE_NAME)).unwrap();
-        let lines: Vec<&str> = contents.lines().collect();
-        // One header line + one entry per apply.
-        assert_eq!(lines.len(), 3, "{:?}", lines);
     }
 
     #[test]
@@ -862,10 +617,10 @@ mod tests {
     }
 
     #[test]
-    fn legacy_and_target_writers_never_modify_each_others_files() {
+    fn target_writer_leaves_historical_apply_log_untouched() {
         let dir = tempdir().unwrap();
         let folder = dir.path().to_str().unwrap();
-        let legacy_path = dir.path().join(LOG_FILE_NAME);
+        let legacy_path = dir.path().join("MediaLibraryApplyLog.jsonl");
         let target_path = dir.path().join(TARGET_LOG_FILE_NAME);
         std::fs::write(&legacy_path, "legacy sentinel\n").unwrap();
 
@@ -879,23 +634,6 @@ mod tests {
         assert_eq!(
             std::fs::read_to_string(&legacy_path).unwrap(),
             "legacy sentinel\n"
-        );
-        let target_before_legacy = std::fs::read_to_string(&target_path).unwrap();
-
-        append_metadata_entries(
-            folder,
-            "legacy.jpg",
-            &[],
-            &BTreeMap::new(),
-            &BTreeMap::new(),
-            &BTreeMap::new(),
-            &[],
-            false,
-            None,
-        );
-        assert_eq!(
-            std::fs::read_to_string(&target_path).unwrap(),
-            target_before_legacy
         );
         assert!(legacy_path.exists());
         assert!(target_path.exists());

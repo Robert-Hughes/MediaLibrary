@@ -1,5 +1,4 @@
 pub mod apply_batch_v5;
-pub mod apply_edits;
 pub mod apply_edits_v5;
 pub mod apply_log;
 pub mod batch_audit_log;
@@ -16,6 +15,7 @@ pub mod known_ids;
 pub mod metadata_draft_target;
 pub mod metadata_occurrence;
 pub mod metadata_value;
+mod metadata_verification;
 pub(crate) mod metadata_write_execution;
 pub mod normalise;
 pub mod openai_describe;
@@ -171,56 +171,6 @@ impl Default for ActiveQueues {
     }
 }
 
-/// Cancellation flag for an in-flight metadata apply command. Set by
-/// cancel_apply_edits; checked by the apply loop between files so a cancel
-/// takes effect at the next per-file boundary (never mid-write).
-pub struct ApplyEditsState {
-    cancelled: Mutex<Option<Arc<AtomicBool>>>,
-}
-
-impl ApplyEditsState {
-    pub fn new() -> Self {
-        Self {
-            cancelled: Mutex::new(None),
-        }
-    }
-
-    pub fn install(&self) -> Arc<AtomicBool> {
-        let flag = Arc::new(AtomicBool::new(false));
-        *self.cancelled.lock().unwrap() = Some(flag.clone());
-        flag
-    }
-
-    pub fn clear(&self) {
-        *self.cancelled.lock().unwrap() = None;
-    }
-
-    pub fn clear_if_mine(&self, flag: &Arc<AtomicBool>) {
-        let mut installed = self.cancelled.lock().unwrap();
-        if installed
-            .as_ref()
-            .is_some_and(|current| Arc::ptr_eq(current, flag))
-        {
-            *installed = None;
-        }
-    }
-
-    pub fn signal_cancel(&self) -> bool {
-        if let Some(flag) = self.cancelled.lock().unwrap().as_ref() {
-            flag.store(true, Ordering::Relaxed);
-            true
-        } else {
-            false
-        }
-    }
-}
-
-impl Default for ApplyEditsState {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 // ── Event payloads ────────────────────────────────────────────────────────────
 
 /// Emitted in batches as the directory walk finds files.
@@ -268,25 +218,6 @@ struct ThumbnailReadyPayload {
 struct ThumbnailResult {
     relative_path: String,
     thumbnail: Option<String>,
-}
-
-#[derive(Clone, Serialize)]
-struct MetadataApplyEditsProgressPayload {
-    current: usize,
-    total: usize,
-    relative_path: String,
-    applied: bool,
-    error: Option<String>,
-    warning: Option<String>,
-    fresh_metadata: Option<Vec<scanner::MetadataEntry>>,
-    tag_outcomes: Vec<apply_edits::MetadataTagOutcome>,
-}
-
-/// Emitted by the metadata apply command before the first file is processed,
-/// so the frontend can show the modal with an accurate total upfront.
-#[derive(Clone, Serialize)]
-struct ApplyEditsStartedPayload {
-    total: usize,
 }
 
 // ── Commands ──────────────────────────────────────────────────────────────────
@@ -844,26 +775,7 @@ fn list_writable_schema_definitions() -> Result<Vec<tag_schema::TagInfo>, String
     Ok(registry.all_writable().cloned().collect())
 }
 
-#[tauri::command]
-fn save_metadata_draft_edits(
-    folder_path: String,
-    data: draft_edits::MetadataDraftEdits,
-) -> Result<(), String> {
-    draft_edits::save_metadata_draft_edits(&folder_path, &data)
-}
-
-#[tauri::command]
-fn load_metadata_draft_edits(
-    folder_path: String,
-) -> Result<draft_edits::MetadataDraftEdits, String> {
-    draft_edits::load_metadata_draft_edits(&folder_path)
-}
-
-// Controlled production schema-v5 boundary. Add Property uses the independent
-// MediaLibraryTargetDraftEdits.jsonl file; remaining producers stay on the
-// v4-owned MediaLibraryDraftEdits.jsonl file, and combined frontend apply is
-// sequential.
-// Target-aware apply logging is owned by the schema-v5 batch coordinator.
+// Target-aware draft persistence and apply are the sole metadata-editing boundary.
 #[tauri::command]
 fn save_metadata_draft_edits_v5(
     folder_path: String,
@@ -879,38 +791,7 @@ fn load_metadata_draft_edits_v5(
     draft_edits::load_metadata_draft_edits_v5(&folder_path)
 }
 
-#[tauri::command]
-async fn apply_metadata_draft_edits_cmd(
-    folder_path: String,
-    rel_paths: Vec<String>,
-    app: AppHandle,
-    apply_state: State<'_, ApplyEditsState>,
-) -> Result<apply_edits::MetadataApplyEditsResult, String> {
-    let cancel_flag = apply_state.install();
-    let app_for_worker = app.clone();
-    let cancel_flag_for_worker = cancel_flag.clone();
-
-    let join = tauri::async_runtime::spawn_blocking(move || {
-        run_apply_metadata_draft_edits_blocking(
-            folder_path,
-            rel_paths,
-            app_for_worker,
-            cancel_flag_for_worker,
-        )
-    });
-
-    let result = match join.await {
-        Ok(result) => result,
-        Err(e) => Err(format!("Apply edits worker failed: {e}")),
-    };
-
-    apply_state.clear_if_mine(&cancel_flag);
-
-    result
-}
-
-/// Production schema-v5 occurrence-aware batch apply for Add Property.
-/// Remaining editing producers continue through the schema-v4 command.
+/// Production occurrence-aware metadata apply.
 #[tauri::command]
 async fn apply_metadata_draft_edits_v5_cmd(
     folder_path: String,
@@ -929,113 +810,6 @@ async fn apply_metadata_draft_edits_v5_cmd(
         })
     })
     .await
-}
-
-fn run_apply_metadata_draft_edits_blocking(
-    folder_path: String,
-    rel_paths: Vec<String>,
-    app: AppHandle,
-    cancel_flag: Arc<AtomicBool>,
-) -> Result<apply_edits::MetadataApplyEditsResult, String> {
-    let mut all_drafts = draft_edits::load_metadata_draft_edits(&folder_path).unwrap_or_default();
-
-    let total = rel_paths
-        .iter()
-        .filter(|p| all_drafts.get(p.as_str()).is_some_and(|e| !e.is_empty()))
-        .count();
-
-    let _ = app.emit("apply_edits_started", ApplyEditsStartedPayload { total });
-
-    let mut applied = Vec::new();
-    let mut failed = Vec::new();
-    let mut fresh_metadata = std::collections::HashMap::new();
-    let mut current = 0usize;
-
-    for rel_path in &rel_paths {
-        if cancel_flag.load(Ordering::Relaxed) {
-            log::info!(
-                "[apply_edits] Semantic apply cancelled at {}/{}",
-                current,
-                total
-            );
-            break;
-        }
-
-        let edits = match all_drafts.get(rel_path.as_str()) {
-            Some(e) if !e.is_empty() => e.clone(),
-            _ => continue,
-        };
-
-        current += 1;
-
-        let outcome = apply_edits::apply_single_file_metadata(&folder_path, rel_path, &edits);
-        let was_applied = outcome.error.is_none();
-
-        if !outcome.tags_to_clear.is_empty() {
-            if let Some(file_drafts) = all_drafts.get_mut(rel_path.as_str()) {
-                file_drafts.retain(|entry| !outcome.tags_to_clear.contains(&entry.id));
-                if file_drafts.is_empty() {
-                    all_drafts.remove(rel_path.as_str());
-                }
-                if let Err(e) = draft_edits::save_metadata_draft_edits(&folder_path, &all_drafts) {
-                    log::warn!(
-                        "[apply_edits] Warning: failed to persist semantic draft removal for {}: {}",
-                        rel_path,
-                        e
-                    );
-                }
-            }
-        }
-
-        let _ = app.emit(
-            "apply_metadata_edits_progress",
-            MetadataApplyEditsProgressPayload {
-                current,
-                total,
-                relative_path: rel_path.clone(),
-                applied: was_applied,
-                error: outcome.error.clone(),
-                warning: outcome.warning.clone(),
-                fresh_metadata: outcome.fresh_metadata.clone().map(|metadata| {
-                    metadata
-                        .into_iter()
-                        .map(|(id, value)| scanner::MetadataEntry { id, value })
-                        .collect()
-                }),
-                tag_outcomes: outcome.outcomes.clone(),
-            },
-        );
-
-        if let Some(meta) = outcome.fresh_metadata {
-            fresh_metadata.insert(
-                rel_path.clone(),
-                meta.into_iter()
-                    .map(|(id, value)| scanner::MetadataEntry { id, value })
-                    .collect(),
-            );
-        }
-        match outcome.error {
-            None => applied.push(rel_path.clone()),
-            Some(reason) => failed.push(apply_edits::FailedFile {
-                relative_path: rel_path.clone(),
-                reason,
-            }),
-        }
-    }
-
-    Ok(apply_edits::MetadataApplyEditsResult {
-        applied,
-        failed,
-        fresh_metadata,
-    })
-}
-
-/// Request cancellation of an in-flight metadata apply command. The current
-/// file completes (so writes are never torn); subsequent files are skipped.
-#[tauri::command]
-fn cancel_apply_edits(apply_state: State<'_, ApplyEditsState>) -> Result<(), String> {
-    apply_state.signal_cancel();
-    Ok(())
 }
 
 #[tauri::command]
@@ -1181,53 +955,6 @@ mod tests {
     }
 
     #[test]
-    fn v4_and_v5_commands_load_independent_files() {
-        let v4_dir = tempfile::tempdir().unwrap();
-        let v4_folder = v4_dir.path().to_string_lossy().into_owned();
-        let v4_data = std::collections::HashMap::from([(
-            "photo.jpg".to_owned(),
-            vec![draft_edits::MetadataDraftEntry {
-                id: command_v5_schema(),
-                edit: command_v5_edit(metadata_value::MetadataValue::Integer(300)),
-            }],
-        )]);
-        save_metadata_draft_edits(v4_folder.clone(), v4_data.clone()).unwrap();
-        assert!(load_metadata_draft_edits_v5(v4_folder.clone())
-            .unwrap()
-            .is_empty());
-        assert_eq!(load_metadata_draft_edits(v4_folder).unwrap(), v4_data);
-
-        let v5_dir = tempfile::tempdir().unwrap();
-        let v5_folder = v5_dir.path().to_string_lossy().into_owned();
-        let data =
-            std::collections::HashMap::from([("photo.jpg".to_owned(), vec![command_v5_new()])]);
-        save_metadata_draft_edits_v5(v5_folder.clone(), data.clone()).unwrap();
-        assert!(load_metadata_draft_edits(v5_folder.clone())
-            .unwrap()
-            .is_empty());
-        assert_eq!(load_metadata_draft_edits_v5(v5_folder).unwrap(), data);
-    }
-
-    #[test]
-    fn v4_commands_still_round_trip_schema_four() {
-        let dir = tempfile::tempdir().unwrap();
-        let folder_path = dir.path().to_string_lossy().into_owned();
-        let data = std::collections::HashMap::from([(
-            "photo.jpg".to_owned(),
-            vec![draft_edits::MetadataDraftEntry {
-                id: command_v5_schema(),
-                edit: command_v5_edit(metadata_value::MetadataValue::Integer(300)),
-            }],
-        )]);
-
-        save_metadata_draft_edits(folder_path.clone(), data.clone()).unwrap();
-        assert_eq!(load_metadata_draft_edits(folder_path).unwrap(), data);
-        let bytes =
-            std::fs::read_to_string(dir.path().join("MediaLibraryDraftEdits.jsonl")).unwrap();
-        assert!(bytes.contains("\"schema_version\":4"));
-    }
-
-    #[test]
     fn mark_finished_keeps_cancellation_flag_so_late_stop_scan_can_signal_workers() {
         // After scan_complete the workers may still be draining for several seconds.
         // A stop_scan arriving in that window must still be able to flip the
@@ -1342,32 +1069,6 @@ mod tests {
     }
 
     #[test]
-    fn apply_edits_state_clear_removes_installed_cancel_flag() {
-        let state = ApplyEditsState::new();
-        let flag = state.install();
-
-        assert!(state.signal_cancel());
-        assert!(flag.load(Ordering::Relaxed));
-
-        state.clear();
-
-        assert!(!state.signal_cancel());
-    }
-
-    #[test]
-    fn apply_edits_state_clear_if_mine_leaves_newer_flag_installed() {
-        let state = ApplyEditsState::new();
-        let first = state.install();
-        let second = state.install();
-
-        state.clear_if_mine(&first);
-
-        assert!(state.signal_cancel());
-        assert!(!first.load(Ordering::Relaxed));
-        assert!(second.load(Ordering::Relaxed));
-    }
-
-    #[test]
     fn wait_until_finished_returns_immediately_when_not_running() {
         let state = ScanState::new();
         let start = std::time::Instant::now();
@@ -1473,49 +1174,6 @@ mod tests {
         assert!(!state.wait_until_finished(Duration::from_millis(50)));
         assert!(start.elapsed() >= Duration::from_millis(50));
     }
-
-    #[test]
-    fn clearing_exact_id_does_not_clear_sibling_with_same_friendly_name() {
-        use crate::draft_edits::{EditIntent, MetadataDraftEdit, MetadataDraftEntry};
-        use crate::metadata_value::MetadataValue;
-        use crate::tag_schema::SchemaDefinitionId;
-
-        let id1 = SchemaDefinitionId {
-            table: "XMP::xmp".to_string(),
-            tag_id: "Rating".to_string(),
-            index: None,
-        };
-        let id2 = SchemaDefinitionId {
-            table: "Exif::Main".to_string(),
-            tag_id: "Rating".to_string(),
-            index: None,
-        };
-
-        let mut file_drafts = vec![
-            MetadataDraftEntry {
-                id: id1.clone(),
-                edit: MetadataDraftEdit {
-                    value: Some(MetadataValue::Integer(5)),
-                    intent: EditIntent::Set,
-                    display: Some("Rating".to_string()),
-                },
-            },
-            MetadataDraftEntry {
-                id: id2.clone(),
-                edit: MetadataDraftEdit {
-                    value: Some(MetadataValue::Integer(4)),
-                    intent: EditIntent::Set,
-                    display: Some("Rating".to_string()),
-                },
-            },
-        ];
-
-        let tags_to_clear = [id1.clone()];
-        file_drafts.retain(|entry| !tags_to_clear.contains(&entry.id));
-
-        assert_eq!(file_drafts.len(), 1);
-        assert_eq!(file_drafts[0].id, id2);
-    }
 }
 
 // ── App entry point ───────────────────────────────────────────────────────────
@@ -1542,7 +1200,6 @@ pub fn run() {
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .manage(ScanState::new())
         .manage(ActiveQueues::new())
-        .manage(ApplyEditsState::new())
         .manage(apply_batch_v5::ApplyEditsV5State::new())
         .manage(openai_describe::DescribeState::default())
         .manage(geocode::GeocodeState::default())
@@ -1556,12 +1213,8 @@ pub fn run() {
             prioritize_queues,
             show_in_explorer,
             set_window_title,
-            save_metadata_draft_edits,
-            load_metadata_draft_edits,
             save_metadata_draft_edits_v5,
             load_metadata_draft_edits_v5,
-            apply_metadata_draft_edits_cmd,
-            cancel_apply_edits,
             apply_metadata_draft_edits_v5_cmd,
             cancel_apply_edits_v5,
             get_tag_info,

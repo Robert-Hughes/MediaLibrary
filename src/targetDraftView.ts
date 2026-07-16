@@ -1,6 +1,4 @@
 import type {
-  MetadataDraftCollection,
-  MetadataDraftEdit,
   MetadataDraftEntryV5,
   MetadataDraftTarget,
   MetadataOccurrence,
@@ -22,7 +20,6 @@ type ExistingOccurrenceTarget = Extract<
 
 export type ExistingRowDraftResolution =
   | { kind: "none" }
-  | { kind: "legacy"; edit: MetadataDraftEdit }
   | { kind: "target"; entry: MetadataDraftEntryV5 }
   | {
       kind: "blocked";
@@ -43,13 +40,10 @@ export type SupplementalOccurrenceDraftResolution =
     };
 
 /**
- * Resolve ownership for one exact supplemental occurrence. Schema identity is
- * used only to enforce the temporary one-owner bridge; it is never used to
- * select an occurrence.
+ * Resolve ownership for one exact supplemental occurrence.
  */
 export function resolveSupplementalOccurrenceDraft(
   occurrence: MetadataOccurrence,
-  legacyDrafts: MetadataDraftCollection | undefined,
   targetDrafts: TargetDraftCollection | undefined,
 ): SupplementalOccurrenceDraftResolution {
   const schemaId = occurrence.tag_info?.id;
@@ -62,43 +56,25 @@ export function resolveSupplementalOccurrenceDraft(
     };
   }
 
-  const legacy = Object.values(legacyDrafts ?? {}).find((entry) =>
-    schemaDefinitionIdEquals(entry.id, schemaId),
-  );
-  if (legacy) {
-    return {
-      kind: "blocked",
-      reason:
-        "This property has a legacy draft. Apply or discard it before editing the concrete occurrence.",
-      conflictingTargets: [],
-    };
-  }
-
   const relevantTargets = Object.values(targetDrafts ?? {}).filter(
-    (entry) =>
-      schemaDefinitionIdEquals(entry.target.schema_id, schemaId) ||
-      (entry.target.kind === "ExistingOccurrence" &&
-        metadataOccurrenceIdEquals(entry.target.occurrence_id, occurrence.id)),
+    (
+      entry,
+    ): entry is MetadataDraftEntryV5 & {
+      target: ExistingOccurrenceTarget;
+    } =>
+      entry.target.kind === "ExistingOccurrence" &&
+      metadataOccurrenceIdEquals(entry.target.occurrence_id, occurrence.id),
   );
   if (relevantTargets.length === 0) return { kind: "none" };
   if (relevantTargets.length > 1) {
     return {
       kind: "blocked",
-      reason: "Multiple target-aware operations own this exact schema.",
+      reason: "Multiple target-aware operations own this exact occurrence.",
       conflictingTargets: relevantTargets,
     };
   }
 
   const entry = relevantTargets[0];
-  if (entry.target.kind === "NewProperty") {
-    return {
-      kind: "blocked",
-      reason:
-        "A New Property operation currently owns the target-aware draft for this exact schema. Apply or discard it before editing this occurrence.",
-      conflictingTargets: relevantTargets,
-    };
-  }
-
   const expected = existingOccurrenceTargetFromOccurrence(occurrence);
   if (
     expected.kind === "targetable" &&
@@ -117,7 +93,7 @@ export function resolveSupplementalOccurrenceDraft(
   return {
     kind: "blocked",
     reason: ownsDifferentOccurrence
-      ? "Another concrete occurrence currently owns the target-aware draft for this exact schema. Apply or discard it before editing this occurrence."
+      ? "Another concrete occurrence owns this exact target slot."
       : "The stored target no longer matches this occurrence's complete schema and runtime selector snapshot.",
     conflictingTargets: relevantTargets,
   };
@@ -130,14 +106,8 @@ export function resolveSupplementalOccurrenceDraft(
 export function resolveExistingRowDraft(
   schemaId: SchemaDefinitionId,
   occurrenceResolution: SchemaOccurrenceResolution,
-  legacyDrafts: MetadataDraftCollection | undefined,
   targetDrafts: TargetDraftCollection | undefined,
 ): ExistingRowDraftResolution {
-  const legacy = Object.values(legacyDrafts ?? {}).find((entry) =>
-    schemaDefinitionIdEquals(entry.id, schemaId),
-  );
-  if (legacy) return { kind: "legacy", edit: legacy.edit };
-
   const sameSchema = Object.values(targetDrafts ?? {}).filter((entry) =>
     schemaDefinitionIdEquals(entry.target.schema_id, schemaId),
   );

@@ -878,17 +878,17 @@ Context menu entry: `Normalise Metadata…` next to `Reverse Geocode…` and
 ## Current generated-draft staging boundary
 
 Normalisation input bundles now use the shared effective metadata resolver:
-compatibility metadata, uniquely resolved authoritative occurrences, persisted
-v4 overlays, and safely current v5 target overlays. Valid v5 Set/NewProperty
-values therefore feed later normalisation, while v5 Delete makes the field
+compatibility metadata, uniquely resolved authoritative occurrences, and safely
+current target-draft overlays. Valid Set/NewProperty values therefore feed later
+normalisation, while Delete makes the field
 absent; stale or ambiguous targets are ignored rather than first-selected.
 Overwrite estimation consumes the same effective view.
 
-The backend continues to emit exact schema-keyed `Set`/`Delete` edits. At run
+The backend emits exact semantic `Set`/`Delete` edits. At run
 confirmation the enabled group selection is cloned and retained for that run;
 progress events are checked only against the exact union of
 `NORMALISE_TARGET_TAGS_BY_GROUP` for that immutable snapshot. Each file batch is
 validated completely, resolved through authoritative occurrences, and applied
 as one schema-v5 target-store mutation. A disabled-group field or unsafe target
 fails that file as `draft_stage_failed` without stopping later files. No active
-normalise path creates or saves schema-v4 drafts.
+normalise path creates or saves anything except exact target drafts.

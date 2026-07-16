@@ -299,10 +299,10 @@ ready and authoritative occurrences must be loaded for every selected file.
 
 Each successful backend result is revalidated against the current runtime state.
 A unique writable occurrence becomes an exact `ExistingOccurrence`; a missing
-schema becomes `NewProperty`. Legacy ownership, ambiguous occurrences, stale or
+schema becomes `NewProperty`. Ambiguous occurrences, stale or
 conflicting target ownership, and foreign schemas fail that file's complete
 batch without affecting earlier files. Changed results produce one atomic v5
 mutation and one v5 autosave; exact no-ops produce neither. A frontend staging
 failure is reported as `draft_stage_failed`, distinct from API/backend failure,
 and is retained when the backend complete event arrives. No active image-
-analysis path creates or saves a schema-v4 draft.
+analysis path creates or saves anything except exact target drafts.

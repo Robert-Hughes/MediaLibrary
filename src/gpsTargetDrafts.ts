@@ -1,6 +1,5 @@
 import type {
   ImageMetadataOccurrencesState,
-  MetadataDraftCollection,
   MetadataDraftEdit,
   MetadataDraftTarget,
   SchemaDefinitionId,
@@ -34,7 +33,6 @@ export type GpsTargetDraftPlanErrorCode =
   | "mixed-gps-groups"
   | "multiple-occurrences"
   | "untargetable-occurrence"
-  | "legacy-owner"
   | "multiple-target-owners"
   | "incompatible-target-owner";
 
@@ -73,7 +71,6 @@ export function planGpsTargetDraftBatchV5(
     edit: MetadataDraftEdit;
   }[],
   occurrences: ImageMetadataOccurrencesState,
-  legacyDrafts: MetadataDraftCollection | undefined,
   targetDrafts: TargetDraftCollection | undefined,
 ): PlannedGpsTargetDraftV5[] {
   if (occurrences === "loading") {
@@ -130,17 +127,6 @@ export function planGpsTargetDraftBatchV5(
   const occurrenceIndex = buildSchemaOccurrenceResolutionIndex(occurrences);
   const planned: PlannedGpsTargetDraftV5[] = [];
   for (const { id, edit } of cloned) {
-    const legacyOwner = Object.values(legacyDrafts ?? {}).find((entry) =>
-      schemaDefinitionIdEquals(entry.id, id),
-    );
-    if (legacyOwner) {
-      throw new GpsTargetDraftPlanError(
-        "legacy-owner",
-        "This GPS field has a legacy schema-v4 draft. Apply or discard the legacy GPS draft before editing it with target-aware drafts. Nothing was saved.",
-        id,
-      );
-    }
-
     const occurrenceResolution = resolutionForSchema(occurrenceIndex, id);
     let target: MetadataDraftTarget;
     if (occurrenceResolution.kind === "multiple") {

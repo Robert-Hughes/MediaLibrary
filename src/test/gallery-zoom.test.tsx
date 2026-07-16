@@ -12,7 +12,7 @@ function renderGallery(
   overrides: Partial<ComponentProps<typeof GalleryView>> = {},
 ) {
   const onRemoveMetadataFieldsV5 = vi.fn();
-  const onDiscardDraftBatch = vi.fn();
+  const onDiscardTargetDraftBatch = vi.fn();
 
   const props = {
     photos: PHOTOS,
@@ -30,7 +30,9 @@ function renderGallery(
       onRemoveMetadataFieldsV5={
         overrides.onRemoveMetadataFieldsV5 ?? onRemoveMetadataFieldsV5
       }
-      onDiscardDraftBatch={overrides.onDiscardDraftBatch ?? onDiscardDraftBatch}
+      onDiscardTargetDraftBatch={
+        overrides.onDiscardTargetDraftBatch ?? onDiscardTargetDraftBatch
+      }
     />,
   );
 }
@@ -117,7 +119,7 @@ describe("Gallery Zoom and Pan", () => {
     const onClose = vi.fn();
     const onNavigate = vi.fn();
     const onRemoveMetadataFieldsV5 = vi.fn();
-    const onDiscardDraftBatch = vi.fn();
+    const onDiscardTargetDraftBatch = vi.fn();
 
     const { rerender } = render(
       <GalleryView
@@ -128,7 +130,7 @@ describe("Gallery Zoom and Pan", () => {
         onNavigate={onNavigate}
         loadImage={fakeLoad}
         onRemoveMetadataFieldsV5={onRemoveMetadataFieldsV5}
-        onDiscardDraftBatch={onDiscardDraftBatch}
+        onDiscardTargetDraftBatch={onDiscardTargetDraftBatch}
       />,
     );
     const area = screen.getByTestId("gallery-image-area");
@@ -148,7 +150,7 @@ describe("Gallery Zoom and Pan", () => {
         onNavigate={onNavigate}
         loadImage={fakeLoad}
         onRemoveMetadataFieldsV5={onRemoveMetadataFieldsV5}
-        onDiscardDraftBatch={onDiscardDraftBatch}
+        onDiscardTargetDraftBatch={onDiscardTargetDraftBatch}
       />,
     );
 

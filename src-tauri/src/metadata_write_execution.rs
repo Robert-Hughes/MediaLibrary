@@ -1,8 +1,8 @@
 //! Shared ExifTool argfile rendering and write-pass execution.
 //!
 //! This module deliberately knows nothing about draft identities or metadata
-//! targets. Both the production schema-v4 apply path and the controlled
-//! production schema-v5 bridge use these byte-identical mechanics.
+//! targets. The target-aware metadata writer uses these byte-identical
+//! mechanics for both numeric and textual passes.
 
 use std::io::Write;
 use std::path::Path;
@@ -175,7 +175,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn legacy_numeric_argfile_bytes_are_stable_after_extraction() {
+    fn numeric_and_textual_passes_have_stable_distinct_layouts() {
         let args = build_exiftool_write_argfile_args(
             Path::new("photo.jpg"),
             &["-IFD0:Orientation=6".to_string()],
@@ -186,19 +186,57 @@ mod tests {
             render_exiftool_argfile(&args).unwrap(),
             "-overwrite_original\n-charset\nutf8\n-charset\nfilename=utf8\n-n\n-IFD0:Orientation=6\nphoto.jpg\n"
         );
-    }
 
-    #[test]
-    fn legacy_text_argfile_bytes_and_cstr_are_stable_after_extraction() {
-        let args = build_exiftool_write_argfile_args(
+        let text_args = build_exiftool_write_argfile_args(
             Path::new("photo.jpg"),
-            &["-XMP-dc:Title=line one\nline two".to_string()],
+            &["-XMP-dc:Title=plain".to_string()],
             false,
         )
         .unwrap();
+        assert!(!text_args.iter().any(|arg| arg == "-n"));
+        assert_eq!(text_args[5], "-XMP-dc:Title=plain");
+    }
+
+    #[test]
+    fn cstr_rendering_preserves_every_significant_text_edge() {
+        let cases = [
+            ("carriage\rreturn", "#[CSTR]carriage\\rreturn"),
+            ("line\nfeed", "#[CSTR]line\\nfeed"),
+            ("tab\tvalue", "#[CSTR]tab\\tvalue"),
+            (r"back\\slash", r"#[CSTR]back\\\\slash"),
+            ("#comment-looking", "#[CSTR]#comment-looking"),
+            (" leading", "#[CSTR] leading"),
+            ("trailing ", "#[CSTR]trailing "),
+            ("", "#[CSTR]"),
+        ];
+        for (input, expected) in cases {
+            assert_eq!(render_argfile_argument(input).unwrap(), expected);
+        }
+        assert!(render_argfile_argument("embedded\0nul")
+            .unwrap_err()
+            .contains("NUL"));
+    }
+
+    #[test]
+    fn argfile_preserves_argument_order_physical_lines_and_deterministic_bytes() {
+        let logical = build_exiftool_write_argfile_args(
+            Path::new("photo.jpg"),
+            &[
+                "-XMP-dc:Title= first ".to_string(),
+                "-XMP-dc:Description=line one\nline two".to_string(),
+                "-XMP-dc:Rights=#reserved".to_string(),
+            ],
+            false,
+        )
+        .unwrap();
+        let first = render_exiftool_argfile(&logical).unwrap();
+        let second = render_exiftool_argfile(&logical).unwrap();
+        assert_eq!(first.as_bytes(), second.as_bytes());
         assert_eq!(
-            render_exiftool_argfile(&args).unwrap(),
-            "-overwrite_original\n-charset\nutf8\n-charset\nfilename=utf8\n#[CSTR]-XMP-dc:Title=line one\\nline two\nphoto.jpg\n"
+            first,
+            "-overwrite_original\n-charset\nutf8\n-charset\nfilename=utf8\n#[CSTR]-XMP-dc:Title= first \n#[CSTR]-XMP-dc:Description=line one\\nline two\n-XMP-dc:Rights=#reserved\nphoto.jpg\n"
         );
+        assert_eq!(first.lines().count(), logical.len());
+        assert!(first.ends_with('\n'));
     }
 }

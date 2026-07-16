@@ -8,8 +8,6 @@ import type {
   ImageMetadataOccurrencesState,
   ImageMetadataOccurrencesStore,
   ImageMetadataStore,
-  MetadataDraftCollection,
-  MetadataDraftEditsByFile,
   MetadataValue,
   NormaliseGroup,
   NormaliseRequestItem,
@@ -19,8 +17,6 @@ import { metadataValueToDisplayString } from "../draft";
 import { KNOWN_METADATA_IDS as ID } from "../metadata/knownIds";
 import { buildEffectiveMetadataForFile } from "./effectiveMetadata";
 import { metadataGet, type MetadataCollection } from "./metadataCollection";
-
-export type DraftEditsByFile = MetadataDraftEditsByFile;
 
 type EffectiveMetadataEntry = MetadataValue | null;
 
@@ -37,34 +33,6 @@ function readEffectiveTag(
   id: SchemaDefinitionId,
 ): EffectiveMetadataEntry {
   return metadata ? metadataValueOnly(metadataGet(metadata, id)) : null;
-}
-
-/** Legacy-focused helper retained for existing UI/tests; new production callers
- * use buildEffectiveMetadataForFile directly through buildNormaliseItems. */
-export function resolveTag(
-  metadata: MetadataCollection | undefined,
-  drafts: MetadataDraftCollection | undefined,
-  id: SchemaDefinitionId,
-): EffectiveMetadataEntry {
-  const effective = buildEffectiveMetadataForFile({
-    metadata,
-    occurrences: undefined,
-    legacyDrafts: drafts,
-    targetDrafts: undefined,
-  });
-  return readEffectiveTag(effective, id);
-}
-
-export function buildEffectiveMetadata(
-  metadata: MetadataCollection,
-  drafts: MetadataDraftCollection | undefined,
-): MetadataCollection {
-  return buildEffectiveMetadataForFile({
-    metadata,
-    occurrences: undefined,
-    legacyDrafts: drafts,
-    targetDrafts: undefined,
-  });
 }
 
 function isMetadataValue(value: unknown): value is MetadataValue {
@@ -166,13 +134,12 @@ function list(
 }
 
 /**
- * Build one normalise item from the same effective v4/v5 metadata view shown
- * to the user. The final two inputs are optional only for legacy focused tests.
+ * Build one normalise item from the same target-aware effective metadata view
+ * shown to the user.
  */
 export function buildNormaliseItemForPhoto(
   relPath: string,
   metadata: MetadataCollection | undefined,
-  legacyDrafts: MetadataDraftCollection | undefined,
   enabledGroups: ReadonlyArray<NormaliseGroup>,
   occurrences?: ImageMetadataOccurrencesState,
   targetDrafts?: TargetDraftCollection,
@@ -180,7 +147,6 @@ export function buildNormaliseItemForPhoto(
   const effective = buildEffectiveMetadataForFile({
     metadata,
     occurrences,
-    legacyDrafts,
     targetDrafts,
   });
   const groupSet = new Set(enabledGroups);
@@ -300,45 +266,24 @@ export function buildNormaliseItemForPhoto(
 export function buildNormaliseItems(
   relPaths: ReadonlyArray<string>,
   metadata: PhotoMetadataLookup,
-  legacyDrafts: DraftEditsByFile,
-  enabledGroups: ReadonlyArray<NormaliseGroup>,
-): NormaliseRequestItem[];
-export function buildNormaliseItems(
-  relPaths: ReadonlyArray<string>,
-  metadata: PhotoMetadataLookup,
   occurrences: PhotoOccurrencesLookup,
-  legacyDrafts: DraftEditsByFile,
   targetDrafts: TargetDraftEditsByFile,
   enabledGroups: ReadonlyArray<NormaliseGroup>,
 ): NormaliseRequestItem[];
 export function buildNormaliseItems(
   relPaths: ReadonlyArray<string>,
   metadata: PhotoMetadataLookup,
-  occurrencesOrLegacy: PhotoOccurrencesLookup | DraftEditsByFile,
-  legacyOrGroups: DraftEditsByFile | ReadonlyArray<NormaliseGroup>,
-  targetDrafts?: TargetDraftEditsByFile,
-  enabledGroups?: ReadonlyArray<NormaliseGroup>,
+  occurrences: PhotoOccurrencesLookup,
+  targetDrafts: TargetDraftEditsByFile,
+  enabledGroups: ReadonlyArray<NormaliseGroup>,
 ): NormaliseRequestItem[] {
-  const legacyMode = enabledGroups === undefined;
-  const occurrences: PhotoOccurrencesLookup = legacyMode
-    ? { get: () => undefined }
-    : (occurrencesOrLegacy as PhotoOccurrencesLookup);
-  const legacyDrafts = legacyMode
-    ? (occurrencesOrLegacy as DraftEditsByFile)
-    : (legacyOrGroups as DraftEditsByFile);
-  const targets = legacyMode ? {} : (targetDrafts ?? {});
-  const groups = legacyMode
-    ? (legacyOrGroups as ReadonlyArray<NormaliseGroup>)
-    : enabledGroups;
-
   return relPaths.map((relPath) =>
     buildNormaliseItemForPhoto(
       relPath,
       metadata.get(relPath),
-      legacyDrafts[relPath],
-      groups,
+      enabledGroups,
       occurrences.get(relPath),
-      targets[relPath],
+      targetDrafts[relPath],
     ),
   );
 }

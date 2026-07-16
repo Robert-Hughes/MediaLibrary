@@ -5,7 +5,6 @@ import type {
   PhotoInfo,
   ImageMetadataState,
   ImageMetadataOccurrencesState,
-  MetadataDraftCollection,
   MetadataValue,
   MetadataDraftTarget,
   MetadataOccurrence,
@@ -58,7 +57,7 @@ import {
 } from "../draft";
 import { GpsMapOverview } from "./GpsMapOverview";
 import { resolveEffectiveGpsForFile } from "../utils/effectiveGps";
-import { buildEffectiveMetadata } from "../utils/buildNormaliseItems";
+import { buildEffectiveMetadataForFile } from "../utils/effectiveMetadata";
 import { metadataGet } from "../utils/metadataCollection";
 import type { SchemaOccurrenceResolution } from "../utils/metadataOccurrences";
 import {
@@ -120,14 +119,6 @@ interface Props {
   metadata: ImageMetadataState;
   /** Authoritative occurrences; optional for legacy/direct consumers. */
   occurrences?: ImageMetadataOccurrencesState;
-  /**
-   * Display-string view of pending edits, keyed by metadata tag.  Each value
-   * is the human-readable form of the draft (or `null` for a Delete draft).
-   * When absent, the pane derives an equivalent map from `typedDraftEdits`.
-   */
-  draftEdits?: Record<string, string | null>;
-  /** Semantic draft edits, keyed by metadata tag. Primary write path. */
-  typedDraftEdits?: MetadataDraftCollection;
   /** Exact-target drafts for Add Property and unique existing rows. */
   targetDraftEdits?: TargetDraftCollection;
   /** Folder-scoped safety state for the strict schema-v5 persistence file. */
@@ -145,8 +136,6 @@ interface Props {
     edit: MetadataDraftEdit,
   ) => void;
   onDiscardTargetPropertyDraft?: (target: MetadataDraftTarget) => void;
-  onDiscardDraft?: (id: SchemaDefinitionId) => void;
-  onDiscardDraftBatch: (ids: SchemaDefinitionId[]) => void;
   onDiscardTargetDraftBatch?: (targets: MetadataDraftTarget[]) => boolean;
   onDiscardAllEdits?: () => void;
   onApplyEdits?: () => void;
@@ -677,11 +666,9 @@ function DetailsRowContextMenu({
 function DetailsGroupContextMenu({
   contextMenu,
   occurrences,
-  legacyDrafts,
   targetDraftEdits,
   targetDraftPersistence,
   onRemoveMetadataFieldsV5,
-  onDiscardDraftBatch,
   onDiscardTargetDraftBatch,
   onBlocked,
   onClose,
@@ -693,11 +680,9 @@ function DetailsGroupContextMenu({
     entries: MetadataEntry[];
   };
   occurrences: ImageMetadataOccurrencesState | undefined;
-  legacyDrafts: MetadataDraftCollection | undefined;
   targetDraftEdits: TargetDraftCollection | undefined;
   targetDraftPersistence: TargetDraftPersistenceStateV5;
   onRemoveMetadataFieldsV5?: (ids: SchemaDefinitionId[]) => boolean;
-  onDiscardDraftBatch: (ids: SchemaDefinitionId[]) => void;
   onDiscardTargetDraftBatch?: (targets: MetadataDraftTarget[]) => boolean;
   onBlocked: (message: string) => void;
   onClose: () => void;
@@ -730,13 +715,6 @@ function DetailsGroupContextMenu({
       );
     });
   }, [ids, occurrences]);
-  const legacyDraftKeys = useMemo(
-    () =>
-      Object.values(legacyDrafts ?? {})
-        .filter((entry) => idTokens.has(schemaDefinitionIdToken(entry.id)))
-        .map((entry) => entry.id),
-    [idTokens, legacyDrafts],
-  );
   const targetDraftTargets = useMemo(
     () =>
       Object.values(targetDraftEdits ?? {})
@@ -775,7 +753,6 @@ function DetailsGroupContextMenu({
         preview: previewMetadataRemovalTargetsV5({
           schemaIds: removalIds,
           occurrences,
-          legacyDrafts,
           targetDrafts: targetDraftEdits,
         }),
       };
@@ -785,7 +762,6 @@ function DetailsGroupContextMenu({
       };
     }
   }, [
-    legacyDrafts,
     occurrences,
     removalIds,
     targetDraftEdits,
@@ -793,7 +769,7 @@ function DetailsGroupContextMenu({
   ]);
 
   const removeCount = removalPreview.preview?.affectedCount ?? 0;
-  const draftCount = legacyDraftKeys.length + targetDraftTargets.length;
+  const draftCount = targetDraftTargets.length;
   const showRemove =
     removalIds.length > 0 &&
     (removeCount > 0 || removalPreview.blocked !== undefined);
@@ -828,7 +804,6 @@ function DetailsGroupContextMenu({
       editCount: draftCount,
     });
     if (confirmed) {
-      if (legacyDraftKeys.length > 0) onDiscardDraftBatch(legacyDraftKeys);
       if (targetDraftTargets.length > 0) {
         onDiscardTargetDraftBatch?.(targetDraftTargets);
       }
@@ -886,8 +861,6 @@ export function DetailsPane({
   photo,
   metadata,
   occurrences,
-  draftEdits: displayDraftEdits,
-  typedDraftEdits,
   targetDraftEdits,
   targetDraftPersistence = { status: "ready" },
   onSetExistingOccurrenceDraft,
@@ -895,8 +868,6 @@ export function DetailsPane({
   onSetGpsTargetDraftBatch,
   onSetNewPropertyDraft,
   onDiscardTargetPropertyDraft,
-  onDiscardDraft,
-  onDiscardDraftBatch,
   onDiscardTargetDraftBatch,
   onDiscardAllEdits,
   onApplyEdits,
@@ -973,13 +944,6 @@ export function DetailsPane({
         occurrenceResolutionIndex,
         entry.target.schema_id,
       );
-      if (
-        Object.values(typedDraftEdits ?? {}).some((legacy) =>
-          schemaDefinitionIdEquals(legacy.id, entry.target.schema_id),
-        )
-      ) {
-        continue;
-      }
       if (entry.target.kind === "NewProperty") {
         if (
           occurrenceResolution.kind === "missing" &&
@@ -1034,7 +998,6 @@ export function DetailsPane({
     occurrenceResolutionIndex,
     targetSchemaResolutions,
     targetDraftsWritable,
-    typedDraftEdits,
   ]);
   const presentedTargetDrafts = useMemo(
     () =>
@@ -1130,10 +1093,11 @@ export function DetailsPane({
   );
   const effectiveMetadata = useMemo(() => {
     if (authoritativeBaseMetadata === undefined) return undefined;
-    const effective = buildEffectiveMetadata(
-      authoritativeBaseMetadata,
-      typedDraftEdits,
-    );
+    const effective = buildEffectiveMetadataForFile({
+      metadata: authoritativeBaseMetadata,
+      occurrences,
+      targetDrafts: targetDraftEdits,
+    });
     for (const [token, entry] of presentedTargetDrafts) {
       if (entry.edit.intent === "Set" && entry.edit.value) {
         effective[token] = {
@@ -1145,47 +1109,32 @@ export function DetailsPane({
       }
     }
     return effective;
-  }, [authoritativeBaseMetadata, typedDraftEdits, presentedTargetDrafts]);
+  }, [
+    authoritativeBaseMetadata,
+    occurrences,
+    targetDraftEdits,
+    presentedTargetDrafts,
+  ]);
   const resolvedGps = useMemo(
     () =>
       resolveEffectiveGpsForFile({
         metadata: metadata === "loading" ? undefined : metadata,
         occurrences,
-        legacyDrafts: typedDraftEdits,
         targetDrafts: targetDraftEdits,
       }),
-    [metadata, occurrences, typedDraftEdits, targetDraftEdits],
+    [metadata, occurrences, targetDraftEdits],
   );
 
-  const legacyDraftEdits = useMemo(
-    () =>
-      displayDraftEdits
-        ? { ...displayDraftEdits }
-        : Object.fromEntries(
-            Object.entries(typedDraftEdits ?? {})
-              .map(
-                ([key, entry]) =>
-                  [key, displayStringOfDraft(entry.edit)] as const,
-              )
-              .filter(
-                (entry): entry is readonly [string, string | null] =>
-                  entry[1] !== undefined,
-              ),
-          ),
-    [displayDraftEdits, typedDraftEdits],
-  );
   const draftEdits = useMemo(() => {
-    const combined = { ...legacyDraftEdits };
+    const combined: Record<string, string | null> = {};
     for (const [token, entry] of presentedTargetDrafts) {
       const display = displayStringOfDraft(entry.edit);
       if (display !== undefined) combined[token] = display;
     }
     return combined;
-  }, [legacyDraftEdits, presentedTargetDrafts]);
+  }, [presentedTargetDrafts]);
 
-  const totalDraftCount =
-    Object.keys(typedDraftEdits ?? {}).length +
-    Object.keys(targetDraftEdits ?? {}).length;
+  const totalDraftCount = Object.keys(targetDraftEdits ?? {}).length;
 
   const handleContextMenu = (
     e: React.MouseEvent,
@@ -1213,31 +1162,11 @@ export function DetailsPane({
     if (metadata !== "loading") {
       for (const entry of Object.values(metadata)) ids.push(entry.id);
     }
-    if (typedDraftEdits) {
-      for (const entry of Object.values(typedDraftEdits)) {
-        const absentFromLegacy =
-          metadata !== "loading" &&
-          metadataGet(metadata, entry.id) === undefined;
-        const ambiguousDelete =
-          entry.edit.intent === "Delete" &&
-          absentFromLegacy &&
-          resolutionForSchema(occurrenceResolutionIndex, entry.id).kind ===
-            "multiple";
-        if (entry.edit.intent !== "Delete" || ambiguousDelete) {
-          ids.push(entry.id);
-        }
-      }
-    }
     for (const [, entry] of presentedTargetDrafts) {
       ids.push(entry.target.schema_id);
     }
     return ids;
-  }, [
-    metadata,
-    typedDraftEdits,
-    occurrenceResolutionIndex,
-    presentedTargetDrafts,
-  ]);
+  }, [metadata, occurrenceResolutionIndex, presentedTargetDrafts]);
   const schemaLookupIds = useMemo(
     () =>
       displayIds.filter(
@@ -1277,25 +1206,6 @@ export function DetailsPane({
     const combinedMetadata: Record<string, ImageMetadataEntry> = {
       ...metadata,
     };
-    if (typedDraftEdits) {
-      for (const entry of Object.values(typedDraftEdits)) {
-        const absentFromLegacy = metadataGet(metadata, entry.id) === undefined;
-        const ambiguousDelete =
-          entry.edit.intent === "Delete" &&
-          absentFromLegacy &&
-          resolutionForSchema(occurrenceResolutionIndex, entry.id).kind ===
-            "multiple";
-        if (
-          absentFromLegacy &&
-          (entry.edit.intent !== "Delete" || ambiguousDelete)
-        ) {
-          combinedMetadata[schemaDefinitionIdToken(entry.id)] = {
-            kind: "Null",
-            id: entry.id,
-          };
-        }
-      }
-    }
     for (const [token, entry] of presentedTargetDrafts) {
       const presentedExisting = presentedExistingBySchema.get(token);
       if (presentedExisting) {
@@ -1313,7 +1223,6 @@ export function DetailsPane({
     return groupImageMetadata(combinedMetadata, displayTagInfos);
   }, [
     metadata,
-    typedDraftEdits,
     displayTagInfos,
     occurrenceResolutionIndex,
     presentedTargetDrafts,
@@ -1384,7 +1293,6 @@ export function DetailsPane({
     );
     const supplementalOwnership = resolveSupplementalOccurrenceDraft(
       exact.occurrence,
-      typedDraftEdits,
       targetDraftEdits,
     );
     const isSupplemental =
@@ -1440,7 +1348,6 @@ export function DetailsPane({
     const rowDraft = resolveExistingRowDraft(
       editDialog.schemaId,
       schemaResolution,
-      typedDraftEdits,
       targetDraftEdits,
     );
     if (
@@ -1464,7 +1371,6 @@ export function DetailsPane({
     presentedExistingBySchema,
     targetDraftEdits,
     targetDraftsWritable,
-    typedDraftEdits,
   ]);
 
   const editDialogPropertyId = editDialog
@@ -1629,7 +1535,6 @@ export function DetailsPane({
             : resolveExactMetadataOccurrence(occurrences, entry.occurrence.id);
         const ownership = resolveSupplementalOccurrenceDraft(
           entry.occurrence,
-          typedDraftEdits,
           targetDraftEdits,
         );
         const presented = presentedSupplementalByOccurrence.get(
@@ -1694,7 +1599,6 @@ export function DetailsPane({
       presentedSupplementalByOccurrence,
       targetDraftEdits,
       targetDraftsWritable,
-      typedDraftEdits,
     ],
   );
 
@@ -1725,12 +1629,7 @@ export function DetailsPane({
       occurrenceResolutionIndex,
       id,
     );
-    return resolveExistingRowDraft(
-      id,
-      occurrenceResolution,
-      typedDraftEdits,
-      targetDraftEdits,
-    );
+    return resolveExistingRowDraft(id, occurrenceResolution, targetDraftEdits);
   };
 
   const ordinaryOccurrenceResolutionFor = (
@@ -1763,12 +1662,6 @@ export function DetailsPane({
       return undefined;
     }
     const draftResolution = rowDraftResolutionFor(id);
-    if (draftResolution.kind === "legacy") {
-      return "This property has a legacy draft. Apply or discard it before editing the concrete occurrence.";
-    }
-    if (legacyDraftEdits[schemaDefinitionIdToken(id)] !== undefined) {
-      return "This property has a legacy draft. Apply or discard it before editing the concrete occurrence.";
-    }
     if (draftResolution.kind === "blocked") return draftResolution.reason;
     if (!targetDraftsWritable) {
       return "Target-aware editing is unavailable because schema-v5 draft persistence did not load safely.";
@@ -1848,7 +1741,6 @@ export function DetailsPane({
           edit: { intent: "Delete" as const, value: null },
         })),
         occurrences ?? "loading",
-        typedDraftEdits,
         targetDraftEdits,
       );
       setEditDialogUnavailableMessage(null);
@@ -1892,7 +1784,6 @@ export function DetailsPane({
             },
         ),
         occurrences ?? "loading",
-        typedDraftEdits,
         targetDraftEdits,
       );
       const changed = planned.some(({ id, target }) => {
@@ -2138,11 +2029,9 @@ export function DetailsPane({
                           ? targetResolution.entry.edit
                           : presentedExisting
                             ? presentedExisting.entry.edit
-                            : rowDraftResolution.kind === "legacy"
-                              ? rowDraftResolution.edit
-                              : rowDraftResolution.kind === "target"
-                                ? rowDraftResolution.entry.edit
-                                : undefined;
+                            : rowDraftResolution.kind === "target"
+                              ? rowDraftResolution.entry.edit
+                              : undefined;
                         return (
                           <DetailsImageRow
                             key={entry.identityToken}
@@ -2355,17 +2244,13 @@ export function DetailsPane({
             const targetResolution = targetSchemaResolutions.get(
               schemaDefinitionIdToken(contextMenu.id),
             );
-            if (rowDraftResolution.kind === "legacy") {
-              onDiscardDraft?.(contextMenu.id);
-            } else if (rowDraftResolution.kind === "target") {
+            if (rowDraftResolution.kind === "target") {
               onDiscardTargetPropertyDraft?.(rowDraftResolution.entry.target);
             } else if (
               targetResolution?.kind === "unique" &&
               targetResolution.entry.target.kind === "NewProperty"
             ) {
               onDiscardTargetPropertyDraft?.(targetResolution.entry.target);
-            } else if (contextMenu.draftValue !== undefined) {
-              onDiscardDraft?.(contextMenu.id);
             }
             setContextMenu(null);
           }}
@@ -2475,11 +2360,9 @@ export function DetailsPane({
             entries: fullGroupForMenu.entries,
           }}
           occurrences={occurrences}
-          legacyDrafts={typedDraftEdits}
           targetDraftEdits={targetDraftEdits}
           targetDraftPersistence={targetDraftPersistence}
           onRemoveMetadataFieldsV5={onRemoveMetadataFieldsV5}
-          onDiscardDraftBatch={onDiscardDraftBatch}
           onDiscardTargetDraftBatch={onDiscardTargetDraftBatch}
           onBlocked={setEditDialogUnavailableMessage}
           onClose={() => setGroupContextMenu(null)}

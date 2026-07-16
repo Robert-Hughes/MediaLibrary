@@ -29,7 +29,8 @@ open and do not use irreplaceable originals.
 8. **Edit LangAlt.** Where available, set `x-default` and another language.
    Expected: both values reread beneath the single exact LangAlt parent.
 9. **Restart with drafts.** Leave unapplied drafts, close and reopen the same
-   folder. Expected: v4 drafts reappear against the same exact definitions.
+   folder. Expected: target drafts reappear against the same exact occurrences
+   or New Property definitions.
 10. **Inspect read-only collision.** Scan or open one Windows BMP and one OS/2 BMP. Inspect `File:BMPVersion` in the Details Pane. Expected: Windows resolves to `BMP::Main/0`, OS/2 resolves to `BMP::OS2/0`, both are read-only, and identical friendly labels do not cause either definition to replace the other.
 11. **Inspect writable collision.** In Add New Property, where the current ExifTool registry contains multiple writable definitions sharing a friendly label, confirm each result displays table, tag ID and optional index separately. (If no suitable writable collision is present in that ExifTool version, record this sub-check as not applicable).
 12. **Try unknown/read-only fields.** Expected: editor and apply actions are unavailable; missing schema is never treated as writable.

@@ -1,7 +1,7 @@
 //! Tauri command handlers grouped by feature area.
 //!
 //! `lib.rs` keeps shared application state (`ScanState`, `ActiveQueues`,
-//! `ApplyEditsState`) plus the scan + drafts handlers; this module
+//! scan and metadata handlers; this module
 //! holds the larger feature flows (AI describe, reverse-geocode,
 //! metadata-normalise) and the small settings/pricing helpers, each in
 //! its own file so the per-feature surface stays under one screen.

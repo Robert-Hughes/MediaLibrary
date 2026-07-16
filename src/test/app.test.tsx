@@ -7,7 +7,7 @@ import {
 } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import App from "../App";
-import { makePhoto, mockDrafts, mockMetadataEntries } from "./factories";
+import { makePhoto, mockMetadataEntries } from "./factories";
 import type { MetadataOccurrence } from "../types";
 
 // Mock Tauri API
@@ -297,19 +297,47 @@ describe("App Select Columns metadata counts", () => {
       if (cmd === "preload_schema") return Promise.resolve();
       if (cmd === "get_cli_folder") return Promise.resolve(null);
       if (cmd === "pick_folder") return Promise.resolve("/photos");
-      if (cmd === "load_metadata_draft_edits") {
+      if (cmd === "load_metadata_draft_edits_v5") {
         return Promise.resolve({
-          "b.jpg": Object.values(
-            mockDrafts({
-              "XMP-dc:Title": {
+          "b.jpg": [
+            {
+              target: {
+                kind: "NewProperty",
+                schema_id: { table: "XMP::dc", tag_id: "title" },
+              },
+              edit: {
                 intent: "Set",
                 value: { kind: "Text", value: "Draft title" },
               },
-            }),
-          ),
+            },
+          ],
         });
       }
-      if (cmd === "load_metadata_draft_edits_v5") return Promise.resolve({});
+      if (cmd === "get_tag_info") {
+        const id = (args as { id: { table: string; tag_id: string } }).id;
+        return Promise.resolve({
+          id,
+          group: id.table === "XMP::dc" ? "XMP-dc" : id.table,
+          name: id.tag_id === "title" ? "Title" : id.tag_id,
+          writable: true,
+          kind: { kind: "Text" },
+          description: null,
+        });
+      }
+      if (cmd === "get_tag_infos") {
+        const ids = (args as { ids: Array<{ table: string; tag_id: string }> })
+          .ids;
+        return Promise.resolve(
+          ids.map((id) => ({
+            id,
+            group: id.table === "XMP::dc" ? "XMP-dc" : id.table,
+            name: id.tag_id === "title" ? "Title" : id.tag_id,
+            writable: true,
+            kind: { kind: "Text" },
+            description: null,
+          })),
+        );
+      }
       if (cmd === "stop_scan") return Promise.resolve();
       if (cmd === "start_scan") return Promise.resolve();
       if (cmd === "prioritize_queues") return Promise.resolve();
@@ -364,7 +392,7 @@ describe("App Select Columns metadata counts", () => {
               "XMP-dc:Title": "Committed title",
             }),
           },
-          { relative_path: "b.jpg", metadata: [] },
+          { relative_path: "b.jpg", occurrences: [], metadata: [] },
         ],
       });
     });
@@ -407,9 +435,6 @@ describe("App Select Columns metadata counts", () => {
       if (cmd === "preload_schema") return Promise.resolve();
       if (cmd === "get_cli_folder") return Promise.resolve(null);
       if (cmd === "pick_folder") return Promise.resolve("/photos");
-      if (cmd === "load_metadata_draft_edits") {
-        return Promise.resolve({});
-      }
       if (cmd === "load_metadata_draft_edits_v5") return Promise.resolve({});
       if (cmd === "stop_scan") return Promise.resolve();
       if (cmd === "start_scan") return Promise.resolve();
@@ -551,7 +576,6 @@ describe("App occurrence wiring regression", () => {
       if (cmd === "preload_schema") return Promise.resolve();
       if (cmd === "get_cli_folder") return Promise.resolve(null);
       if (cmd === "pick_folder") return Promise.resolve("/photos");
-      if (cmd === "load_metadata_draft_edits") return Promise.resolve({});
       if (cmd === "load_metadata_draft_edits_v5") return Promise.resolve({});
       if (
         [

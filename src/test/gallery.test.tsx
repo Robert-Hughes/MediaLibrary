@@ -29,7 +29,7 @@ describe("GalleryView", () => {
     render(
       <GalleryView
         onRemoveMetadataFieldsV5={vi.fn()}
-        onDiscardDraftBatch={vi.fn()}
+        onDiscardTargetDraftBatch={vi.fn()}
         photos={PHOTOS}
         currentIndex={1}
         folderPath="/photos"
@@ -46,7 +46,7 @@ describe("GalleryView", () => {
     render(
       <GalleryView
         onRemoveMetadataFieldsV5={vi.fn()}
-        onDiscardDraftBatch={vi.fn()}
+        onDiscardTargetDraftBatch={vi.fn()}
         photos={PHOTOS}
         currentIndex={1}
         folderPath="/photos"
@@ -65,7 +65,7 @@ describe("GalleryView", () => {
     render(
       <GalleryView
         onRemoveMetadataFieldsV5={vi.fn()}
-        onDiscardDraftBatch={vi.fn()}
+        onDiscardTargetDraftBatch={vi.fn()}
         photos={PHOTOS}
         currentIndex={0}
         folderPath="/photos"
@@ -83,7 +83,7 @@ describe("GalleryView", () => {
     render(
       <GalleryView
         onRemoveMetadataFieldsV5={vi.fn()}
-        onDiscardDraftBatch={vi.fn()}
+        onDiscardTargetDraftBatch={vi.fn()}
         photos={PHOTOS}
         currentIndex={0}
         folderPath="/photos"
@@ -111,7 +111,7 @@ describe("GalleryView", () => {
     render(
       <GalleryView
         onRemoveMetadataFieldsV5={vi.fn()}
-        onDiscardDraftBatch={vi.fn()}
+        onDiscardTargetDraftBatch={vi.fn()}
         photos={PHOTOS}
         currentIndex={0}
         folderPath="/photos"
@@ -130,7 +130,7 @@ describe("GalleryView", () => {
     render(
       <GalleryView
         onRemoveMetadataFieldsV5={vi.fn()}
-        onDiscardDraftBatch={vi.fn()}
+        onDiscardTargetDraftBatch={vi.fn()}
         photos={PHOTOS}
         currentIndex={0}
         folderPath="/photos"

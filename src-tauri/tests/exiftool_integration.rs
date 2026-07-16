@@ -23,8 +23,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use medialibrary_tauri_lib::{
-    apply_edits,
-    draft_edits::{EditIntent, MetadataDraftEdit},
+    apply_edits_v5,
+    draft_edits::{EditIntent, MetadataDraftEdit, MetadataDraftEntry, MetadataDraftEntryV5},
+    metadata_draft_target::MetadataDraftTarget,
     metadata_value::{
         DateTimeValue, DateValue, ListKind, MetadataValue, OffsetSign, TimeValue, UtcOffsetValue,
     },
@@ -66,12 +67,6 @@ fn read_one(folder: &Path, abs: &Path) -> scanner::ImageMetadata {
     if !outcome.failures.is_empty() {
         panic!("read_one failed: {}", outcome.failures[0].error_message);
     }
-    if !outcome.legacy_projection_omissions.is_empty() {
-        panic!(
-            "read_one requires a complete schema-keyed projection, but fields were omitted: {:?}",
-            outcome.legacy_projection_omissions
-        );
-    }
     outcome.results.into_iter().next().expect("one result")
 }
 
@@ -109,13 +104,92 @@ fn metadata_bag(items: &[&str]) -> MetadataValue {
     }
 }
 
-fn metadata_drafts(
+fn target_entries(
+    folder: &Path,
     rel: &str,
-    edits: Vec<medialibrary_tauri_lib::draft_edits::MetadataDraftEntry>,
-) -> medialibrary_tauri_lib::draft_edits::MetadataDraftEdits {
-    let mut drafts = std::collections::HashMap::new();
-    drafts.insert(rel.to_string(), edits);
-    drafts
+    edits: Vec<MetadataDraftEntry>,
+) -> Vec<MetadataDraftEntryV5> {
+    let image = read_one(folder, &folder.join(rel));
+    edits
+        .into_iter()
+        .map(|entry| {
+            let matches: Vec<_> = image
+                .occurrences
+                .iter()
+                .filter(|occurrence| {
+                    occurrence
+                        .tag_info
+                        .as_ref()
+                        .is_some_and(|info| info.id == entry.id)
+                })
+                .collect();
+            let target = if matches.is_empty() {
+                MetadataDraftTarget::NewProperty {
+                    schema_id: entry.id,
+                }
+            } else {
+                let writable: Vec<_> = matches
+                    .iter()
+                    .copied()
+                    .filter(|occurrence| occurrence.write_target.is_some())
+                    .collect();
+                let candidates = if writable.len() == 1 {
+                    writable
+                } else {
+                    writable
+                        .into_iter()
+                        .filter(|occurrence| occurrence.id.tag_id == entry.id.tag_id)
+                        .collect()
+                };
+                let [occurrence] = candidates.as_slice() else {
+                    panic!(
+                        "exact schema {:?} has {} occurrences but {} suitable writable targets",
+                        entry.id,
+                        matches.len(),
+                        candidates.len()
+                    )
+                };
+                MetadataDraftTarget::ExistingOccurrence {
+                    occurrence_id: occurrence.id.clone(),
+                    schema_id: entry.id,
+                    write_target: occurrence.write_target.clone().unwrap(),
+                }
+            };
+            MetadataDraftEntryV5 {
+                target,
+                edit: entry.edit,
+            }
+        })
+        .collect()
+}
+
+fn apply_v5_file(
+    folder: &str,
+    rel: &str,
+    edits: Vec<MetadataDraftEntry>,
+) -> apply_edits_v5::MetadataSingleFileOutcomeV5 {
+    let entries = target_entries(Path::new(folder), rel, edits);
+    apply_edits_v5::apply_single_file_metadata_v5(folder, rel, &entries)
+}
+
+#[derive(Debug)]
+struct V5BatchResult {
+    applied: Vec<String>,
+    failed: Vec<String>,
+}
+
+fn apply_v5_batch(folder: &str, rel: &str, edits: Vec<MetadataDraftEntry>) -> V5BatchResult {
+    let outcome = apply_v5_file(folder, rel, edits);
+    match outcome.error {
+        Some(error) => V5BatchResult {
+            applied: Vec::new(),
+            failed: vec![error],
+        },
+        None => V5BatchResult {
+            applied: vec![rel.to_string()],
+            failed: Vec::new(),
+        },
+    }
 }
 
 // ── Scanner two-pass smoke test ──────────────────────────────────────────────
@@ -153,9 +227,7 @@ fn apply_text_edit_roundtrip_iptc_city() {
         edit: metadata_set(MetadataValue::Text(value.clone())),
     }];
 
-    let drafts = metadata_drafts(&rel, edits);
-    let result =
-        apply_edits::apply_metadata_draft_edits(folder, std::slice::from_ref(&rel), &drafts);
+    let result = apply_v5_batch(folder, &rel, edits);
     assert!(
         result.failed.is_empty(),
         "expected no failures, got {:?}",
@@ -188,7 +260,7 @@ fn apply_xmp_mlib_ai_description_preserves_utf8() {
         edit: metadata_set(MetadataValue::Text("A café scene".to_string())),
     }];
 
-    let outcome = apply_edits::apply_single_file_metadata(folder, &rel, &edits);
+    let outcome = apply_v5_file(folder, &rel, edits);
     assert!(outcome.error.is_none(), "apply failed: {:?}", outcome.error);
 
     let m = read_one(dir.path(), &dst);
@@ -221,8 +293,7 @@ fn apply_delete_edit_removes_tag() {
         id: medialibrary_tauri_lib::known_ids::iptc_city(),
         edit: metadata_set(MetadataValue::Text("to-be-deleted".to_string())),
     }];
-    let drafts1 = metadata_drafts(&rel, set_edits);
-    let r1 = apply_edits::apply_metadata_draft_edits(folder, std::slice::from_ref(&rel), &drafts1);
+    let r1 = apply_v5_batch(folder, &rel, set_edits);
     assert!(r1.failed.is_empty());
 
     // Step 2: delete it.
@@ -230,8 +301,7 @@ fn apply_delete_edit_removes_tag() {
         id: medialibrary_tauri_lib::known_ids::iptc_city(),
         edit: metadata_delete(),
     }];
-    let drafts2 = metadata_drafts(&rel, del_edits);
-    let r2 = apply_edits::apply_metadata_draft_edits(folder, std::slice::from_ref(&rel), &drafts2);
+    let r2 = apply_v5_batch(folder, &rel, del_edits);
     assert!(r2.failed.is_empty(), "delete failed: {:?}", r2.failed);
 
     // Step 3: re-read; City should be absent or empty.
@@ -378,10 +448,12 @@ fn roundtrip_set_rating() {
         edit: metadata_set(MetadataValue::Integer(5)),
     }];
 
-    let drafts = metadata_drafts(&rel, edits);
-    let result =
-        apply_edits::apply_metadata_draft_edits(folder, std::slice::from_ref(&rel), &drafts);
-    assert!(result.failed.is_empty(), "failed: {:?}", result.failed);
+    let outcome = apply_v5_file(folder, &rel, edits);
+    assert_eq!(outcome.outcomes.len(), 1);
+    assert!(matches!(
+        outcome.outcomes[0].kind.as_str(),
+        "Match" | "Coerced"
+    ));
 
     let after = read_one(dir.path(), &dst);
     let raw = after.metadata.get(&rating_id);
@@ -416,9 +488,7 @@ fn roundtrip_set_orientation_via_numeric_pass() {
         edit: metadata_set(MetadataValue::Integer(3)),
     }];
 
-    let drafts = metadata_drafts(&rel, edits);
-    let result =
-        apply_edits::apply_metadata_draft_edits(folder, std::slice::from_ref(&rel), &drafts);
+    let result = apply_v5_batch(folder, &rel, edits);
     assert!(result.failed.is_empty(), "failed: {:?}", result.failed);
 
     let after = read_one(dir.path(), &dst);
@@ -577,7 +647,7 @@ fn semantic_apply_writes_bag_as_separate_items_end_to_end() {
         edit: metadata_set(metadata_bag(&["alpha", "beta", "gamma"])),
     }];
 
-    let outcome = apply_edits::apply_single_file_metadata(folder, &rel, &edits);
+    let outcome = apply_v5_file(folder, &rel, edits);
     assert!(outcome.error.is_none(), "apply failed: {:?}", outcome.error);
 
     let m = read_one(dir.path(), &dst);
@@ -605,49 +675,6 @@ fn semantic_apply_writes_bag_as_separate_items_end_to_end() {
     }
 }
 
-// ── Apply log audit file ─────────────────────────────────────────────────────
-
-#[test]
-fn apply_emits_apply_log_jsonl_entry() {
-    let Some(src) = fixture_path("rating_3.jpg") else {
-        return;
-    };
-    let (dir, dst) = copy_to_temp(&src);
-    let folder = dir.path().to_str().unwrap();
-    let rel = rel_of(dir.path(), &dst);
-
-    let rating_id = medialibrary_tauri_lib::known_ids::xmp_rating();
-    let edits = vec![medialibrary_tauri_lib::draft_edits::MetadataDraftEntry {
-        id: rating_id,
-        edit: metadata_set(MetadataValue::Integer(5)),
-    }];
-
-    let outcome = apply_edits::apply_single_file_metadata(folder, &rel, &edits);
-    assert!(outcome.error.is_none(), "{:?}", outcome.error);
-
-    let log_path = dir.path().join("MediaLibraryApplyLog.jsonl");
-    assert!(
-        log_path.exists(),
-        "apply log file should exist after semantic apply"
-    );
-
-    let contents = std::fs::read_to_string(&log_path).unwrap();
-    let lines: Vec<&str> = contents.lines().collect();
-    assert!(
-        lines.len() >= 2,
-        "expected header + at least one entry: {:?}",
-        lines
-    );
-    assert!(lines[0].starts_with("// "), "first line should be header");
-    assert!(lines[1].contains("XMP::xmp/Rating"));
-    assert!(lines[1].contains("\"Set\""));
-    assert!(
-        lines[1].contains("\"Match\"")
-            || lines[1].contains("\"Mismatch\"")
-            || lines[1].contains("\"Coerced\"")
-    );
-}
-
 // ── Coerced-write detection ──────────────────────────────────────────────────
 
 #[test]
@@ -665,13 +692,13 @@ fn semantic_apply_rating_fractional_coerces_or_rejects_cleanly() {
         edit: metadata_set(MetadataValue::Real(3.5)),
     }];
 
-    let outcome = apply_edits::apply_single_file_metadata(folder, &rel, &edits);
+    let outcome = apply_v5_file(folder, &rel, edits);
     // Coercion either yields a matched float (3.5 → 3.5 in file) or a
     // clean verification-failure message naming the tag.  We just assert
     // it didn't hard-fail.
     assert!(
-        outcome.fresh_metadata.is_some(),
-        "expected fresh_metadata available even on coerced write; error: {:?}",
+        outcome.fresh_image_metadata.is_some(),
+        "expected authoritative metadata even on coerced write; error: {:?}",
         outcome.error
     );
     println!("[rating coerce] outcome.error = {:?}", outcome.error);
@@ -700,7 +727,7 @@ fn semantic_apply_list_add_appends_items_to_bag() {
         edit: metadata_edit(metadata_bag(&["vacation"]), EditIntent::ListAdd),
     }];
 
-    let outcome = apply_edits::apply_single_file_metadata(folder, &rel, &edits);
+    let outcome = apply_v5_file(folder, &rel, edits);
     assert!(outcome.error.is_none(), "apply failed: {:?}", outcome.error);
 
     let m = read_one(dir.path(), &dst);
@@ -755,7 +782,7 @@ fn semantic_apply_list_remove_drops_items_from_bag() {
         edit: metadata_edit(metadata_bag(&["beach"]), EditIntent::ListRemove),
     }];
 
-    let outcome = apply_edits::apply_single_file_metadata(folder, &rel, &edits);
+    let outcome = apply_v5_file(folder, &rel, edits);
     assert!(outcome.error.is_none(), "apply failed: {:?}", outcome.error);
 
     let m = read_one(dir.path(), &dst);
@@ -815,9 +842,7 @@ fn apply_keywords_writes_back_as_separate_items_not_csv() {
             ],
         }),
     }];
-    let drafts = metadata_drafts(&rel, edits);
-    let result =
-        apply_edits::apply_metadata_draft_edits(folder, std::slice::from_ref(&rel), &drafts);
+    let result = apply_v5_batch(folder, &rel, edits);
     assert!(result.failed.is_empty(), "{:?}", result.failed);
 
     let m = read_one(dir.path(), &dst);
@@ -864,9 +889,7 @@ fn apply_xmp_mlib_ai_ocr_text_preserves_newlines() {
             items: vec![MetadataValue::Text(ocr_text.clone())],
         }),
     }];
-    let drafts = metadata_drafts(&rel, edits);
-    let result =
-        apply_edits::apply_metadata_draft_edits(folder, std::slice::from_ref(&rel), &drafts);
+    let result = apply_v5_batch(folder, &rel, edits);
     assert!(result.failed.is_empty(), "{:?}", result.failed);
 
     let m = read_one(dir.path(), &dst);
@@ -1031,12 +1054,14 @@ fn roundtrip_langalt_preserves_exact_parent_id_and_languages() {
         edit: metadata_set(MetadataValue::LangAlt(languages.clone())),
     }];
 
-    let outcome =
-        apply_edits::apply_single_file_metadata(dir.path().to_str().unwrap(), &rel, &edits);
+    let outcome = apply_v5_file(dir.path().to_str().unwrap(), &rel, edits);
     assert!(outcome.error.is_none(), "apply failed: {:?}", outcome.error);
     assert_eq!(outcome.outcomes.len(), 1);
-    assert_eq!(outcome.outcomes[0].id, id);
-    assert!(outcome.tags_to_clear.contains(&id));
+    assert_eq!(outcome.outcomes[0].target.schema_id(), &id);
+    assert!(outcome
+        .targets_to_clear
+        .iter()
+        .any(|target| target.schema_id() == &id));
     let reread = read_one(dir.path(), &dst);
     assert_eq!(
         reread.metadata.get(&id),
@@ -1079,14 +1104,13 @@ fn roundtrip_gps_preserves_each_exact_id() {
         )
         .collect::<Vec<_>>();
 
-    let outcome =
-        apply_edits::apply_single_file_metadata(dir.path().to_str().unwrap(), &rel, &edits);
+    let outcome = apply_v5_file(dir.path().to_str().unwrap(), &rel, edits);
     assert!(outcome.error.is_none(), "apply failed: {:?}", outcome.error);
     assert_eq!(
         outcome
             .outcomes
             .iter()
-            .map(|item| item.id.clone())
+            .map(|item| item.target.schema_id().clone())
             .collect::<Vec<_>>(),
         values.iter().map(|(id, _)| id.clone()).collect::<Vec<_>>()
     );
@@ -1136,10 +1160,9 @@ fn roundtrip_datetime_preserves_explicit_utc_offset_and_exact_id() {
         edit: metadata_set(value.clone()),
     }];
 
-    let outcome =
-        apply_edits::apply_single_file_metadata(dir.path().to_str().unwrap(), &rel, &edits);
+    let outcome = apply_v5_file(dir.path().to_str().unwrap(), &rel, edits);
     assert!(outcome.error.is_none(), "apply failed: {:?}", outcome.error);
-    assert_eq!(outcome.outcomes[0].id, id);
+    assert_eq!(outcome.outcomes[0].target.schema_id(), &id);
     let reread = read_one(dir.path(), &dst);
     assert_eq!(reread.metadata.get(&id), Some(&value));
 }
@@ -1162,9 +1185,9 @@ fn missing_exact_schema_is_rejected_before_write() {
         edit: metadata_set(MetadataValue::Text("must not write".into())),
     }];
 
-    let outcome =
-        apply_edits::apply_single_file_metadata(dir.path().to_str().unwrap(), &rel, &edits);
-    assert!(outcome.error.unwrap().contains("missing schema"));
+    let outcome = apply_v5_file(dir.path().to_str().unwrap(), &rel, edits);
+    let error = outcome.error.unwrap();
+    assert!(error.to_ascii_lowercase().contains("schema"), "{error}");
     assert!(outcome.outcomes.is_empty());
     assert_eq!(fs::read(&dst).expect("read after"), before);
 }
