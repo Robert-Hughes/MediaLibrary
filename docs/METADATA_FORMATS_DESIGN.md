@@ -410,7 +410,28 @@ The previous implementation skipped the verify check entirely for non-`String` v
 
 ### Apply log
 
-Every apply appends one line per tag to `MediaLibraryApplyLog.jsonl` next to the draft file: timestamp, file path, tag, intent, full argv, value before, value after, outcome. Append-only, never read by the app. User-inspectable for forensics or undo.
+Apply evidence is split between two independent files next to the corresponding
+draft files:
+
+```text
+MediaLibraryApplyLog.jsonl
+    legacy schema-v4/schema-keyed apply evidence
+
+MediaLibraryTargetApplyLog.jsonl
+    schema-v5 target-aware apply evidence
+```
+
+The legacy log retains its schema-version-7 entry shape and writer semantics.
+The target-aware log has its own `schema_version = 1` and
+`identity_model = "TargetV5"`. Each target entry preserves the complete original
+target; exact selector and per-target numeric/text arguments; structured
+per-pass write outcomes; before and sent values; zero, one, multiple, or
+unavailable post-write occurrence evidence; the complete proposed
+reconciliation; and the actual reconciliation-persistence result.
+
+Both logs are append-only, are never read by the application, and are written
+best-effort. A logging failure does not change an apply result or stop later
+files.
 
 ### Schema-v5 single-file apply
 
@@ -506,9 +527,11 @@ authoritative occurrence read. Successful, invariant-valid readback returns the
 complete scanner `ImageMetadata` unchanged. The batch coordinator persists
 reconciliation results and the production target controller consumes them.
 
-The v5 path does not write the schema-keyed legacy apply log; target-aware
-logging remains pending. The registered batch command and frontend adapter are
-used for all production schema-v5 operations, including generated metadata.
+The v5 path does not write the schema-keyed legacy apply log. After structured
+reconciliation and any persistence attempt, the batch coordinator appends its
+complete internal evidence to `MediaLibraryTargetApplyLog.jsonl` with the actual
+draft-persistence outcome. The registered batch command and frontend adapter
+are used for all production schema-v5 operations, including generated metadata.
 Persisted legacy drafts and their verification remain schema-keyed v4.
 
 ---
@@ -754,9 +777,9 @@ Its progress result preserves full `ImageMetadata` (authoritative occurrences
 plus compatibility metadata), complete targets and reconciliation decisions.
 `persisted_draft_entries` is null for no successful map change, empty when the
 file key was removed, and non-empty for exact retained/replaced entries. All
-schema-v5 operations have production caller/listener and state integration;
-target-aware logging remains pending. Generated producers now stage through
-schema v5, while legacy apply logging remains schema-keyed.
+schema-v5 operations have production caller/listener and state integration and
+write the separate target-aware apply log best-effort. Generated producers now
+stage through schema v5, while legacy apply logging remains schema-keyed.
 
 A frontend apply adapter accepts every command result and versioned
 event payload as `unknown`, then strictly validates complete nested targets,

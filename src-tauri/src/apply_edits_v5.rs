@@ -6,7 +6,8 @@
 //! targets use explicit zero/one/multiple exact-schema resolution after the
 //! write. Choosing a first, lowest, `Copy0`, `IFD0`, writable, or otherwise
 //! preferred occurrence is forbidden.
-//! Target-aware apply logging remains pending.
+//! Complete target-aware audit evidence is retained for the batch coordinator,
+//! which annotates it with draft persistence and appends it best-effort.
 
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -814,8 +815,8 @@ where
         })
         .collect();
 
-    // Intentionally no `apply_log::append_metadata_entries`: the production
-    // log is schema-keyed. Target-aware logging remains pending activation.
+    // The batch coordinator appends this evidence to the independent
+    // target-aware log after draft reconciliation and any persistence attempt.
     MetadataSingleFileOutcomeV5 {
         fresh_image_metadata: Some(fresh),
         error: diagnostics.error.or(first_mismatch),

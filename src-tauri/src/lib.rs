@@ -863,7 +863,7 @@ fn load_metadata_draft_edits(
 // MediaLibraryTargetDraftEdits.jsonl file; remaining producers stay on the
 // v4-owned MediaLibraryDraftEdits.jsonl file, and combined frontend apply is
 // sequential.
-// Target-aware apply logging remains pending.
+// Target-aware apply logging is owned by the schema-v5 batch coordinator.
 #[tauri::command]
 fn save_metadata_draft_edits_v5(
     folder_path: String,
