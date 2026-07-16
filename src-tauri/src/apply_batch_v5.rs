@@ -5,7 +5,8 @@
 //! reconciliation, and persists only through the schema-v5-owned
 //! `MediaLibraryTargetDraftEdits.jsonl` file. It emits
 //! versioned events consumed by the production frontend controller.
-//! Target-aware apply logging remains pending.
+//! After reconciliation and persistence, it appends target-aware audit evidence
+//! to the independent `MediaLibraryTargetApplyLog.jsonl` file.
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -16,6 +17,9 @@ use tauri::{AppHandle, Emitter};
 
 use crate::apply_edits_v5::{
     apply_single_file_metadata_v5, MetadataSingleFileOutcomeV5, MetadataTargetOutcome,
+};
+use crate::apply_log::{
+    append_target_metadata_entries, TargetApplyAuditRecord, TargetDraftPersistenceOutcome,
 };
 use crate::draft_edits::{
     load_metadata_draft_edits_v5, save_metadata_draft_edits_v5, MetadataDraftEditsV5,
@@ -166,9 +170,28 @@ pub trait SingleFileApplyV5 {
     ) -> MetadataSingleFileOutcomeV5;
 }
 
+pub(crate) trait DraftReconcilerV5 {
+    fn reconcile(
+        &self,
+        current_drafts: &MetadataDraftEditsV5,
+        relative_path: &str,
+        outcomes: &[MetadataTargetOutcome],
+    ) -> Result<MetadataDraftEditsV5, String>;
+}
+
 pub trait ApplyEventsV5 {
     fn started(&self, payload: ApplyEditsV5StartedPayload) -> Result<(), String>;
     fn progress(&self, payload: MetadataApplyEditsProgressPayloadV5) -> Result<(), String>;
+}
+
+pub(crate) trait TargetApplyLoggerV5 {
+    fn append(
+        &self,
+        folder_path: &str,
+        relative_path: &str,
+        records: &[TargetApplyAuditRecord],
+        draft_persistence: &TargetDraftPersistenceOutcome,
+    ) -> Result<(), String>;
 }
 
 struct RealDraftPersistenceV5;
@@ -193,6 +216,34 @@ impl SingleFileApplyV5 for RealSingleFileApplyV5 {
         edits: &[MetadataDraftEntryV5],
     ) -> MetadataSingleFileOutcomeV5 {
         apply_single_file_metadata_v5(folder_path, relative_path, edits)
+    }
+}
+
+struct RealDraftReconcilerV5;
+
+impl DraftReconcilerV5 for RealDraftReconcilerV5 {
+    fn reconcile(
+        &self,
+        current_drafts: &MetadataDraftEditsV5,
+        relative_path: &str,
+        outcomes: &[MetadataTargetOutcome],
+    ) -> Result<MetadataDraftEditsV5, String> {
+        reconcile_metadata_draft_file_v5(current_drafts, relative_path, outcomes)
+            .map_err(|error| error.to_string())
+    }
+}
+
+struct RealTargetApplyLoggerV5;
+
+impl TargetApplyLoggerV5 for RealTargetApplyLoggerV5 {
+    fn append(
+        &self,
+        folder_path: &str,
+        relative_path: &str,
+        records: &[TargetApplyAuditRecord],
+        draft_persistence: &TargetDraftPersistenceOutcome,
+    ) -> Result<(), String> {
+        append_target_metadata_entries(folder_path, relative_path, records, draft_persistence)
     }
 }
 
@@ -225,6 +276,8 @@ pub fn run_apply_metadata_draft_edits_v5_blocking(
         &relative_paths,
         &RealDraftPersistenceV5,
         &RealSingleFileApplyV5,
+        &RealDraftReconcilerV5,
+        &RealTargetApplyLoggerV5,
         &TauriApplyEventsV5 { app },
         cancel_flag,
     )
@@ -237,17 +290,22 @@ fn combine_errors(original: Option<String>, additional: String) -> String {
     }
 }
 
-fn run_apply_metadata_draft_edits_v5_with<P, A, E>(
+#[allow(clippy::too_many_arguments)]
+fn run_apply_metadata_draft_edits_v5_with<P, A, R, L, E>(
     folder_path: &str,
     relative_paths: &[String],
     persistence: &P,
     single_file_apply: &A,
+    reconciler: &R,
+    target_logger: &L,
     events: &E,
     cancel_flag: Arc<AtomicBool>,
 ) -> Result<MetadataApplyEditsResultV5, String>
 where
     P: DraftPersistenceV5,
     A: SingleFileApplyV5,
+    R: DraftReconcilerV5,
+    L: TargetApplyLoggerV5,
     E: ApplyEventsV5,
 {
     let mut current_drafts = persistence.load(folder_path)?;
@@ -292,29 +350,25 @@ where
             .expect("selected schema-v5 draft remains present until its own operation")
             .clone();
         let outcome = single_file_apply.apply(folder_path, &relative_path, &original_entries);
-        // The later target-aware logger will consume these internal records
-        // after reconciliation persistence has annotated them. Disk logging
-        // remains deliberately inactive in this evidence-capture slice.
-        let _target_apply_audit_records = &outcome.audit_records;
         let mut final_error = outcome.error.clone();
         let mut persisted_draft_entries = None;
         let mut fatal_reason = None;
+        let mut draft_persistence = TargetDraftPersistenceOutcome::Unchanged;
 
         if !outcome.outcomes.is_empty() {
-            match reconcile_metadata_draft_file_v5(
-                &current_drafts,
-                &relative_path,
-                &outcome.outcomes,
-            ) {
+            match reconciler.reconcile(&current_drafts, &relative_path, &outcome.outcomes) {
                 Ok(candidate) if candidate != current_drafts => {
                     if let Err(error) = persistence.save(folder_path, &candidate) {
                         let reason = format!(
                             "schema-v5 draft persistence failed for {relative_path}: {error}"
                         );
                         final_error = Some(combine_errors(final_error, reason.clone()));
-                        fatal_reason = Some(reason);
+                        fatal_reason = Some(reason.clone());
+                        draft_persistence =
+                            TargetDraftPersistenceOutcome::PersistenceFailed { error: reason };
                     } else {
                         current_drafts = candidate;
+                        draft_persistence = TargetDraftPersistenceOutcome::Persisted;
                         persisted_draft_entries = Some(
                             current_drafts
                                 .get(relative_path.as_str())
@@ -329,8 +383,23 @@ where
                         "schema-v5 draft reconciliation failed for {relative_path}: {error}"
                     );
                     final_error = Some(combine_errors(final_error, reason.clone()));
-                    fatal_reason = Some(reason);
+                    fatal_reason = Some(reason.clone());
+                    draft_persistence =
+                        TargetDraftPersistenceOutcome::ReconciliationFailed { error: reason };
                 }
+            }
+        }
+
+        if !outcome.audit_records.is_empty() {
+            if let Err(error) = target_logger.append(
+                folder_path,
+                &relative_path,
+                &outcome.audit_records,
+                &draft_persistence,
+            ) {
+                log::warn!(
+                    "[apply_batch_v5] Failed to append target apply log for {relative_path}: {error}"
+                );
             }
         }
 
@@ -363,8 +432,6 @@ where
         }
     }
 
-    // Target-aware apply logging remains pending; never write the v4
-    // schema-keyed apply log from this occurrence-aware coordinator.
     Ok(MetadataApplyEditsResultV5 {
         files,
         cancelled,
@@ -377,6 +444,10 @@ where
 mod tests {
     use super::*;
     use crate::apply_edits_v5::MetadataDraftReconciliation;
+    use crate::apply_log::{
+        TargetApplyArguments, TargetApplyObservedOccurrence, TargetApplyPassStatus,
+        TargetApplyPostWriteState, TargetApplyVerificationEvidence, TargetApplyWriteEvidence,
+    };
     use crate::draft_edits::{EditIntent, MetadataDraftEdit};
     use crate::metadata_draft_target::MetadataDraftTarget;
     use crate::metadata_occurrence::{
@@ -464,6 +535,138 @@ mod tests {
                     .store(true, Ordering::Relaxed);
             }
             result
+        }
+    }
+
+    #[derive(Debug, Clone, PartialEq)]
+    struct RecordedTargetLog {
+        folder_path: String,
+        relative_path: String,
+        records: Vec<TargetApplyAuditRecord>,
+        draft_persistence: TargetDraftPersistenceOutcome,
+    }
+
+    #[derive(Default)]
+    struct FakeTargetLogger {
+        calls: Mutex<Vec<RecordedTargetLog>>,
+        results: Mutex<VecDeque<Result<(), String>>>,
+    }
+
+    impl FakeTargetLogger {
+        fn with_results(results: impl IntoIterator<Item = Result<(), String>>) -> Self {
+            Self {
+                calls: Mutex::new(Vec::new()),
+                results: Mutex::new(results.into_iter().collect()),
+            }
+        }
+    }
+
+    impl TargetApplyLoggerV5 for FakeTargetLogger {
+        fn append(
+            &self,
+            folder_path: &str,
+            relative_path: &str,
+            records: &[TargetApplyAuditRecord],
+            draft_persistence: &TargetDraftPersistenceOutcome,
+        ) -> Result<(), String> {
+            self.calls.lock().unwrap().push(RecordedTargetLog {
+                folder_path: folder_path.to_owned(),
+                relative_path: relative_path.to_owned(),
+                records: records.to_vec(),
+                draft_persistence: draft_persistence.clone(),
+            });
+            self.results.lock().unwrap().pop_front().unwrap_or(Ok(()))
+        }
+    }
+
+    struct TracePersistence {
+        drafts: MetadataDraftEditsV5,
+        trace: Arc<Mutex<Vec<&'static str>>>,
+        save_error: bool,
+    }
+
+    impl DraftPersistenceV5 for TracePersistence {
+        fn load(&self, _folder_path: &str) -> Result<MetadataDraftEditsV5, String> {
+            Ok(self.drafts.clone())
+        }
+
+        fn save(&self, _folder_path: &str, _drafts: &MetadataDraftEditsV5) -> Result<(), String> {
+            self.trace.lock().unwrap().push("save");
+            if self.save_error {
+                Err("save failed".into())
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    struct TraceApply {
+        outcome: MetadataSingleFileOutcomeV5,
+        trace: Arc<Mutex<Vec<&'static str>>>,
+    }
+
+    impl SingleFileApplyV5 for TraceApply {
+        fn apply(
+            &self,
+            _folder_path: &str,
+            _relative_path: &str,
+            _edits: &[MetadataDraftEntryV5],
+        ) -> MetadataSingleFileOutcomeV5 {
+            self.trace.lock().unwrap().push("apply");
+            self.outcome.clone()
+        }
+    }
+
+    struct TraceReconciler {
+        trace: Arc<Mutex<Vec<&'static str>>>,
+        fail: bool,
+    }
+
+    impl DraftReconcilerV5 for TraceReconciler {
+        fn reconcile(
+            &self,
+            current_drafts: &MetadataDraftEditsV5,
+            relative_path: &str,
+            outcomes: &[MetadataTargetOutcome],
+        ) -> Result<MetadataDraftEditsV5, String> {
+            self.trace.lock().unwrap().push("reconcile");
+            if self.fail {
+                Err("reconcile failed".into())
+            } else {
+                RealDraftReconcilerV5.reconcile(current_drafts, relative_path, outcomes)
+            }
+        }
+    }
+
+    struct TraceLogger {
+        trace: Arc<Mutex<Vec<&'static str>>>,
+    }
+
+    impl TargetApplyLoggerV5 for TraceLogger {
+        fn append(
+            &self,
+            _folder_path: &str,
+            _relative_path: &str,
+            _records: &[TargetApplyAuditRecord],
+            _draft_persistence: &TargetDraftPersistenceOutcome,
+        ) -> Result<(), String> {
+            self.trace.lock().unwrap().push("log");
+            Ok(())
+        }
+    }
+
+    struct TraceEvents {
+        trace: Arc<Mutex<Vec<&'static str>>>,
+    }
+
+    impl ApplyEventsV5 for TraceEvents {
+        fn started(&self, _payload: ApplyEditsV5StartedPayload) -> Result<(), String> {
+            Ok(())
+        }
+
+        fn progress(&self, _payload: MetadataApplyEditsProgressPayloadV5) -> Result<(), String> {
+            self.trace.lock().unwrap().push("progress");
+            Ok(())
         }
     }
 
@@ -567,17 +770,56 @@ mod tests {
         }
     }
 
+    fn audit_record(
+        target: &MetadataDraftTarget,
+        proposed_reconciliation: MetadataDraftReconciliation,
+    ) -> TargetApplyAuditRecord {
+        TargetApplyAuditRecord {
+            target: target.clone(),
+            display_name: "Test".into(),
+            intent: EditIntent::Set,
+            sent: Some(MetadataValue::Text("sent".into())),
+            before: Some(MetadataValue::Text("before".into())),
+            write: TargetApplyWriteEvidence {
+                selector: target
+                    .write_target()
+                    .cloned()
+                    .unwrap_or_else(|| MetadataWriteTarget {
+                        group1: "IFD0".into(),
+                        tag_name: format!("Tag{}", target.schema_id().tag_id),
+                    }),
+                arguments: TargetApplyArguments {
+                    numeric: vec!["-numeric".into()],
+                    text: vec!["-text".into()],
+                },
+                numeric_pass: TargetApplyPassStatus::Succeeded,
+                text_pass: TargetApplyPassStatus::Succeeded,
+                diagnostic: None,
+            },
+            post_write: TargetApplyPostWriteState::Missing,
+            verification: TargetApplyVerificationEvidence {
+                kind: "Match".into(),
+                message: None,
+                proposed_reconciliation,
+            },
+        }
+    }
+
     fn outcome(
         error: Option<&str>,
         outcomes: Vec<MetadataTargetOutcome>,
     ) -> MetadataSingleFileOutcomeV5 {
+        let audit_records = outcomes
+            .iter()
+            .map(|outcome| audit_record(&outcome.target, outcome.draft_reconciliation.clone()))
+            .collect();
         MetadataSingleFileOutcomeV5 {
             fresh_image_metadata: None,
             error: error.map(str::to_owned),
             warning: Some("warning".into()),
             outcomes,
             targets_to_clear: Vec::new(),
-            audit_records: Vec::new(),
+            audit_records,
         }
     }
 
@@ -731,6 +973,8 @@ mod tests {
             &["a.jpg".into()],
             &persistence,
             &apply,
+            &RealDraftReconcilerV5,
+            &FakeTargetLogger::default(),
             &events,
             Arc::new(AtomicBool::new(false)),
         )
@@ -745,6 +989,8 @@ mod tests {
             &["a.jpg".into(), "a.jpg".into()],
             &persistence,
             &apply,
+            &RealDraftReconcilerV5,
+            &FakeTargetLogger::default(),
             &events,
             Arc::new(AtomicBool::new(false)),
         )
@@ -764,6 +1010,8 @@ mod tests {
             &["missing.jpg".into()],
             &empty,
             &FakeApply::new([]),
+            &RealDraftReconcilerV5,
+            &FakeTargetLogger::default(),
             &events,
             Arc::new(AtomicBool::new(false)),
         )
@@ -798,6 +1046,8 @@ mod tests {
                 &["absent".into(), reserved.into()],
                 &persistence,
                 &apply,
+                &RealDraftReconcilerV5,
+                &FakeTargetLogger::default(),
                 &FakeEvents::default(),
                 Arc::new(AtomicBool::new(false)),
             )
@@ -850,11 +1100,14 @@ mod tests {
             ),
         ]);
         apply.cancel_after = Some(("first.jpg".into(), flag.clone()));
+        let logger = FakeTargetLogger::default();
         let result = run_apply_metadata_draft_edits_v5_with(
             "folder",
             &["first.jpg".into(), "second.jpg".into()],
             &persistence,
             &apply,
+            &RealDraftReconcilerV5,
+            &logger,
             &FakeEvents::default(),
             flag,
         )
@@ -864,6 +1117,9 @@ mod tests {
         assert!(result.cancelled);
         assert!(!result.aborted);
         assert_eq!(result.abort_reason, None);
+        let logs = logger.calls.lock().unwrap();
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0].relative_path, "first.jpg");
     }
 
     #[test]
@@ -893,7 +1149,7 @@ mod tests {
             (
                 "keep.jpg".into(),
                 outcome(
-                    None,
+                    Some("semantic mismatch without draft change"),
                     vec![target_outcome(&keep, MetadataDraftReconciliation::Keep)],
                 ),
             ),
@@ -923,6 +1179,7 @@ mod tests {
             ),
         ]);
         let events = FakeEvents::default();
+        let logger = FakeTargetLogger::default();
         let result = run_apply_metadata_draft_edits_v5_with(
             "folder",
             &[
@@ -933,6 +1190,8 @@ mod tests {
             ],
             &persistence,
             &apply,
+            &RealDraftReconcilerV5,
+            &logger,
             &events,
             Arc::new(AtomicBool::new(false)),
         )
@@ -940,6 +1199,7 @@ mod tests {
         assert_eq!(persistence.saves.lock().unwrap().len(), 2);
         assert_eq!(result.files[0].persisted_draft_entries, Some(Vec::new()));
         assert_eq!(result.files[1].persisted_draft_entries, None);
+        assert!(!result.files[1].applied);
         assert_eq!(result.files[2].persisted_draft_entries, None);
         assert!(!result.files[3].applied);
         let replaced = result.files[3].persisted_draft_entries.as_ref().unwrap();
@@ -952,17 +1212,33 @@ mod tests {
             .last()
             .unwrap()
             .contains_key("unrelated.jpg"));
+        let logs = logger.calls.lock().unwrap();
+        assert_eq!(logs.len(), 4);
+        assert_eq!(
+            logs.iter()
+                .map(|call| call.draft_persistence.clone())
+                .collect::<Vec<_>>(),
+            vec![
+                TargetDraftPersistenceOutcome::Persisted,
+                TargetDraftPersistenceOutcome::Unchanged,
+                TargetDraftPersistenceOutcome::Unchanged,
+                TargetDraftPersistenceOutcome::Persisted,
+            ]
+        );
     }
 
     #[test]
     fn hard_failure_without_outcomes_does_not_save_or_abort() {
         let target = new_target("1");
         let persistence = FakePersistence::new(Ok(drafts(&[("a.jpg", entry(target, "x"))])));
+        let logger = FakeTargetLogger::default();
         let result = run_apply_metadata_draft_edits_v5_with(
             "folder",
             &["a.jpg".into()],
             &persistence,
             &FakeApply::new([("a.jpg".into(), outcome(Some("planning failed"), Vec::new()))]),
+            &RealDraftReconcilerV5,
+            &logger,
             &FakeEvents::default(),
             Arc::new(AtomicBool::new(false)),
         )
@@ -970,6 +1246,7 @@ mod tests {
         assert!(!result.files[0].applied);
         assert!(!result.aborted);
         assert!(persistence.saves.lock().unwrap().is_empty());
+        assert!(logger.calls.lock().unwrap().is_empty());
     }
 
     #[test]
@@ -1000,11 +1277,14 @@ mod tests {
             ),
         ]);
         let events = FakeEvents::default();
+        let reconciliation_logger = FakeTargetLogger::default();
         let result = run_apply_metadata_draft_edits_v5_with(
             "folder",
             &["first.jpg".into(), "later.jpg".into()],
             &persistence,
             &apply,
+            &RealDraftReconcilerV5,
+            &reconciliation_logger,
             &events,
             Arc::new(AtomicBool::new(false)),
         )
@@ -1024,12 +1304,22 @@ mod tests {
             .contains("reconciliation failed"));
         assert_eq!(events.events.lock().unwrap().len(), 2);
         assert!(persistence.saves.lock().unwrap().is_empty());
+        let reconciliation_logs = reconciliation_logger.calls.lock().unwrap();
+        assert_eq!(reconciliation_logs.len(), 1);
+        let TargetDraftPersistenceOutcome::ReconciliationFailed { error } =
+            &reconciliation_logs[0].draft_persistence
+        else {
+            panic!("expected reconciliation failure")
+        };
+        assert_eq!(Some(error), result.abort_reason.as_ref());
+        drop(reconciliation_logs);
 
         let mut failing = FakePersistence::new(Ok(drafts(&[
             ("first.jpg", entry(first.clone(), "x")),
             ("later.jpg", entry(later, "y")),
         ])));
         failing.save_error = Some("disk uncertain".into());
+        let persistence_logger = FakeTargetLogger::default();
         let result = run_apply_metadata_draft_edits_v5_with(
             "folder",
             &["first.jpg".into(), "later.jpg".into()],
@@ -1041,6 +1331,8 @@ mod tests {
                     vec![target_outcome(&first, MetadataDraftReconciliation::Clear)],
                 ),
             )]),
+            &RealDraftReconcilerV5,
+            &persistence_logger,
             &FakeEvents::default(),
             Arc::new(AtomicBool::new(false)),
         )
@@ -1049,6 +1341,225 @@ mod tests {
         let error = result.files[0].error.as_ref().unwrap();
         assert!(error.contains("write failed") && error.contains("disk uncertain"));
         assert_eq!(result.files[0].persisted_draft_entries, None);
+        let persistence_logs = persistence_logger.calls.lock().unwrap();
+        assert_eq!(persistence_logs.len(), 1);
+        let TargetDraftPersistenceOutcome::PersistenceFailed { error } =
+            &persistence_logs[0].draft_persistence
+        else {
+            panic!("expected persistence failure")
+        };
+        assert_eq!(Some(error), result.abort_reason.as_ref());
+    }
+
+    #[test]
+    fn mixed_same_schema_targets_log_separately_in_original_order_after_one_save() {
+        let ifd0 = existing_target("282", "JPEG-APP1-IFD0");
+        let ifd1 = existing_target("282", "JPEG-APP1-IFD1");
+        let persistence = FakePersistence::new(Ok(drafts(&[
+            ("photo.jpg", entry(ifd0.clone(), "first")),
+            ("photo.jpg", entry(ifd1.clone(), "second")),
+        ])));
+        let apply = FakeApply::new([(
+            "photo.jpg".into(),
+            outcome(
+                None,
+                vec![
+                    target_outcome(&ifd0, MetadataDraftReconciliation::Clear),
+                    target_outcome(&ifd1, MetadataDraftReconciliation::Clear),
+                ],
+            ),
+        )]);
+        let logger = FakeTargetLogger::default();
+
+        let result = run_apply_metadata_draft_edits_v5_with(
+            "folder",
+            &["photo.jpg".into()],
+            &persistence,
+            &apply,
+            &RealDraftReconcilerV5,
+            &logger,
+            &FakeEvents::default(),
+            Arc::new(AtomicBool::new(false)),
+        )
+        .unwrap();
+
+        assert_eq!(persistence.saves.lock().unwrap().len(), 1);
+        assert_eq!(result.files[0].persisted_draft_entries, Some(Vec::new()));
+        let logs = logger.calls.lock().unwrap();
+        assert_eq!(logs.len(), 1);
+        assert_eq!(
+            logs[0].draft_persistence,
+            TargetDraftPersistenceOutcome::Persisted
+        );
+        assert_eq!(logs[0].records.len(), 2);
+        assert_eq!(logs[0].records[0].target, ifd0);
+        assert_eq!(logs[0].records[1].target, ifd1);
+    }
+
+    #[test]
+    fn new_property_target_and_exact_created_occurrence_cross_logger_boundary_unchanged() {
+        let target = new_target("282");
+        let created = TargetApplyObservedOccurrence {
+            occurrence_id: MetadataOccurrenceId {
+                document: None,
+                path: "JPEG-APP1-IFD0".into(),
+                tag_id: "282".into(),
+                copy: 0,
+            },
+            schema_id: Some(schema("282")),
+            write_target: Some(MetadataWriteTarget {
+                group1: "IFD0".into(),
+                tag_name: "XResolution".into(),
+            }),
+            value: MetadataValue::Integer(300),
+        };
+        let mut applied = outcome(
+            None,
+            vec![target_outcome(&target, MetadataDraftReconciliation::Clear)],
+        );
+        applied.audit_records[0].post_write = TargetApplyPostWriteState::Unique {
+            occurrence: Box::new(created.clone()),
+        };
+        let logger = FakeTargetLogger::default();
+
+        run_apply_metadata_draft_edits_v5_with(
+            "folder",
+            &["created.jpg".into()],
+            &FakePersistence::new(Ok(drafts(&[("created.jpg", entry(target.clone(), "300"))]))),
+            &FakeApply::new([("created.jpg".into(), applied)]),
+            &RealDraftReconcilerV5,
+            &logger,
+            &FakeEvents::default(),
+            Arc::new(AtomicBool::new(false)),
+        )
+        .unwrap();
+
+        let logs = logger.calls.lock().unwrap();
+        assert_eq!(logs[0].records[0].target, target);
+        let TargetApplyPostWriteState::Unique { occurrence } = &logs[0].records[0].post_write
+        else {
+            panic!("expected unique created occurrence")
+        };
+        assert_eq!(occurrence.as_ref(), &created);
+    }
+
+    #[test]
+    fn logger_failure_is_non_fatal_and_later_files_are_still_applied_and_logged() {
+        let first = new_target("1");
+        let second = new_target("2");
+        let persistence = FakePersistence::new(Ok(drafts(&[
+            ("first.jpg", entry(first.clone(), "first")),
+            ("second.jpg", entry(second.clone(), "second")),
+        ])));
+        let apply = FakeApply::new([
+            (
+                "first.jpg".into(),
+                outcome(
+                    None,
+                    vec![target_outcome(&first, MetadataDraftReconciliation::Keep)],
+                ),
+            ),
+            (
+                "second.jpg".into(),
+                outcome(
+                    None,
+                    vec![target_outcome(&second, MetadataDraftReconciliation::Keep)],
+                ),
+            ),
+        ]);
+        let logger =
+            FakeTargetLogger::with_results([Err("log destination unavailable".into()), Ok(())]);
+
+        let result = run_apply_metadata_draft_edits_v5_with(
+            "folder",
+            &["first.jpg".into(), "second.jpg".into()],
+            &persistence,
+            &apply,
+            &RealDraftReconcilerV5,
+            &logger,
+            &FakeEvents::default(),
+            Arc::new(AtomicBool::new(false)),
+        )
+        .unwrap();
+
+        assert_eq!(result.files.len(), 2);
+        assert!(result.files.iter().all(|file| file.applied));
+        assert!(result.files.iter().all(|file| file.error.is_none()));
+        assert!(result
+            .files
+            .iter()
+            .all(|file| file.warning.as_deref() == Some("warning")));
+        assert!(!result.aborted);
+        assert_eq!(
+            apply.calls.lock().unwrap().as_slice(),
+            &["first.jpg", "second.jpg"]
+        );
+        let logs = logger.calls.lock().unwrap();
+        assert_eq!(logs.len(), 2);
+        assert_eq!(logs[0].relative_path, "first.jpg");
+        assert_eq!(logs[1].relative_path, "second.jpg");
+    }
+
+    fn run_traced_batch(
+        reconciliation_fails: bool,
+        save_fails: bool,
+    ) -> (MetadataApplyEditsResultV5, Vec<&'static str>) {
+        let trace = Arc::new(Mutex::new(Vec::new()));
+        let target = new_target("1");
+        let result = run_apply_metadata_draft_edits_v5_with(
+            "folder",
+            &["a.jpg".into()],
+            &TracePersistence {
+                drafts: drafts(&[("a.jpg", entry(target.clone(), "value"))]),
+                trace: trace.clone(),
+                save_error: save_fails,
+            },
+            &TraceApply {
+                outcome: outcome(
+                    None,
+                    vec![target_outcome(&target, MetadataDraftReconciliation::Clear)],
+                ),
+                trace: trace.clone(),
+            },
+            &TraceReconciler {
+                trace: trace.clone(),
+                fail: reconciliation_fails,
+            },
+            &TraceLogger {
+                trace: trace.clone(),
+            },
+            &TraceEvents {
+                trace: trace.clone(),
+            },
+            Arc::new(AtomicBool::new(false)),
+        )
+        .unwrap();
+        let recorded = trace.lock().unwrap().clone();
+        (result, recorded)
+    }
+
+    #[test]
+    fn apply_reconcile_save_log_and_progress_order_is_explicit_on_every_path() {
+        let (successful, successful_trace) = run_traced_batch(false, false);
+        assert!(!successful.aborted);
+        assert_eq!(
+            successful_trace,
+            ["apply", "reconcile", "save", "log", "progress"]
+        );
+
+        let (reconciliation_failed, reconciliation_trace) = run_traced_batch(true, false);
+        assert!(reconciliation_failed.aborted);
+        assert_eq!(
+            reconciliation_trace,
+            ["apply", "reconcile", "log", "progress"]
+        );
+
+        let (persistence_failed, persistence_trace) = run_traced_batch(false, true);
+        assert!(persistence_failed.aborted);
+        assert_eq!(
+            persistence_trace,
+            ["apply", "reconcile", "save", "log", "progress"]
+        );
     }
 
     #[test]
@@ -1086,6 +1597,8 @@ mod tests {
             &["a.jpg".into()],
             &FakePersistence::new(Ok(drafts(&[("a.jpg", entry(target, "x"))]))),
             &FakeApply::new([("a.jpg".into(), applied)]),
+            &RealDraftReconcilerV5,
+            &FakeTargetLogger::default(),
             &events,
             Arc::new(AtomicBool::new(false)),
         )
@@ -1104,6 +1617,9 @@ mod tests {
         assert!(json.to_string().contains("occurrences"));
         assert!(!json.to_string().contains("slot"));
         assert!(!json.to_string().contains("audit_records"));
+        assert!(!json.to_string().contains("draft_persistence"));
+        assert!(!json.to_string().contains("post_write"));
+        assert!(!json.to_string().contains("identity_model"));
     }
 
     #[test]

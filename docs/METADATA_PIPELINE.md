@@ -295,11 +295,12 @@ successful, invariant-valid readback returns the original full `ImageMetadata`
 rather than rebuilding its legacy map. The v5 batch layer persists `Replace`,
 and the production frontend consumes the resulting authoritative snapshot.
 
-This path deliberately does not use the schema-keyed apply log; target-aware
-logging remains pending. It is composed by the v5 batch command and production
-frontend protocol adapter for every schema-v5 operation. Generated AI,
-reverse-geocode output, normalise, and other generated producers remain schema
-v4; target-aware logging remains pending.
+This path deliberately does not use the schema-keyed apply log. Its complete
+records are appended to the separate target-aware log by the v5 batch command
+after reconciliation and any draft-persistence attempt. It is composed by the
+production frontend protocol adapter for every schema-v5 operation. Generated
+AI, reverse-geocode output, normalise, and other generated producers remain
+schema v4; their legacy applies retain the schema-keyed log.
 
 Schema-v5 Tauri load/save commands parse and serialize lines with a
 file-relative path as outer context and target-aware `{ target, edit }` entries.
@@ -417,8 +418,21 @@ Before adding a metadata read, choose the pattern explicitly. In display context
 
 The backend `apply_metadata_draft_edits_v5_cmd` has a production frontend
 caller and listener for all target-aware drafts. It performs `load v5 map once →
-apply selected file → reconcile complete target outcomes → save changed
-candidate map → emit versioned progress → continue at file boundary`. Loading
+apply selected file → reconcile complete target outcomes → persist a changed
+candidate map → annotate target records with the actual persistence result →
+append target records best-effort → emit versioned progress → continue at the
+file boundary`. In operation order, the per-file boundary is:
+
+```text
+write/verify
+→ reconcile
+→ persist if changed
+→ annotate log records
+→ append best-effort
+→ emit progress
+```
+
+Loading
 is strict; malformed,
 v4, and unreadable draft files are errors rather than empty maps. Duplicate
 requested paths reject before any event, write, or save, while absent and empty
@@ -438,12 +452,15 @@ outcomes leaves drafts unchanged. Non-empty structured reconciliation is still
 applied when semantic verification reports an error. Semantically unchanged
 maps are not saved; a changed candidate becomes current only after a successful
 complete-map save. Reconciliation and persistence failures emit progress for
-the affected file and abort later files. Versioned progress carries complete
+the affected file and abort later files. Metadata may already have changed when
+either failure occurs, so complete target evidence is still annotated with the
+failure, appended before progress, and retained for forensics. Target-log
+opening, serialisation, writing, or flushing failures only produce a Rust
+warning and never change apply behaviour. Versioned progress carries complete
 target outcomes, full authoritative occurrences, compatibility metadata, and
-state. V5 cancellation and events are isolated from v4. Target-aware logging
-remains pending. Generated AI, reverse-geocode output, normalise, and other
-generated producers now stage and verify through v5; legacy apply logging
-remains schema-keyed.
+state. V5 cancellation and events are isolated from v4. Generated AI,
+reverse-geocode output, normalise, and other generated producers now stage and
+verify through v5; legacy apply logging remains schema-keyed.
 
 The `targetApplyTauri` adapter provides a strict frontend protocol
 boundary for the apply/cancel commands and the two versioned events. Every
@@ -672,8 +689,9 @@ output. Generated backends continue emitting schema-keyed `{ id, edit }` lists;
 the frontend validates the producer contract and resolves exact targets from the
 current authoritative occurrence collection before one atomic per-file target-
 store mutation. Persisted schema-v4 drafts, their apply path, their verification,
-and legacy apply logging remain supported without conversion. Target-aware
-apply logging remains pending.
+and legacy apply logging remain supported without conversion. Schema-v5 applies
+write complete target evidence to the independent target-aware log after draft
+reconciliation and persistence are resolved.
 
 ## Target-aware v5 verification flow
 

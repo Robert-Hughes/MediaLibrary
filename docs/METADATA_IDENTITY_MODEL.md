@@ -394,16 +394,24 @@ coordinator applies its structured reconciliation and persists the resulting v5
 entries. The production target controller consumes those persisted snapshots.
 The successful
 result retains the scanner's complete `ImageMetadata`, including authoritative
-occurrences and the temporary compatibility projection. Target-aware apply
-logging remains pending; the target-aware path does not force targets into the
-schema-keyed v4 log.
+occurrences and the temporary compatibility projection. The target-aware apply
+log preserves schema identity, runtime occurrence identity, write selector,
+observed created occurrence, and draft-reconciliation persistence as distinct
+fields; none is collapsed into another. The target-aware path never forces
+these records into the schema-keyed v4 log.
+
+A successful `NewProperty` creation logs both the complete original creation
+target and the exact uniquely created occurrence under `post_write: Unique`,
+even when the proposed and persisted reconciliation is `Clear`. Ambiguous
+creation readback retains every candidate in deterministic supplied order under
+`post_write: Multiple` and chooses none.
 
 The single-file module is composed by the registered v5 batch command. The
 production frontend protocol adapter applies drafts created by Add Property,
 manual ordinary and supplemental rows, GPS editors, group removal, and
 selected-photo removal. Generated AI, reverse-geocode output, normalise, and
-other generated producers remain schema v4. Target-aware apply logging remains
-pending.
+other generated producers remain schema v4. Schema-v5 operations append to the
+independent target-aware apply log; schema-v4 operations retain the legacy log.
 
 ## Migration status
 
@@ -459,7 +467,7 @@ to the compatibility row and may be discarded, but it cannot be edited further
 or copied onto concrete occurrence rows. This includes a Delete draft when the
 ambiguous schema was omitted from the legacy projection: the pane synthesises
 only the ambiguity-marked compatibility row so the draft remains visible and
-discardable. Concrete occurrence rows remain draft-free and read-only. Authoritative scanner data is occurrence-aware; ordinary and supplemental manual rows use exact ExistingOccurrence targets; GPS individual and composite editors use exact v5 targets; manual group removal and selected-photo removal use exact v5 planning; Add Property uses NewProperty targets; schema-v5 apply and verification retain complete targets; unknown-schema occurrences remain visible and read-only; persisted schema-v4 drafts are not automatically converted; AI, reverse-geocode output, normalise and other generated producers remain schema v4; target-aware apply logging remains pending.
+discardable. Concrete occurrence rows remain draft-free and read-only. Authoritative scanner data is occurrence-aware; ordinary and supplemental manual rows use exact ExistingOccurrence targets; GPS individual and composite editors use exact v5 targets; manual group removal and selected-photo removal use exact v5 planning; Add Property uses NewProperty targets; schema-v5 apply, verification, and logging retain complete targets; unknown-schema occurrences remain visible and read-only; persisted schema-v4 drafts are not automatically converted; AI, reverse-geocode output, normalise and other generated producers remain schema v4; target-aware apply logging uses its own append-only file.
 
 `MetadataDraftTarget`, `MetadataDraftSlot`, and schema-v5 Tauri load/save
 commands define the target-aware persistence boundary. The v5 JSONL line keeps
@@ -521,7 +529,7 @@ Property, exact unique-row edits, individual/composite GPS edits, manual group
 removal, and selected-photo field removal. The v4 file remains independently
 owned by generated producers plus persisted legacy drafts, including
 already-persisted GPS drafts;
-target-aware logging remains pending migration.
+target-aware logging is independently owned by the schema-v5 batch boundary.
 
 V4 entries are not automatically converted: a `SchemaDefinitionId` alone does
 not reveal whether the intended operation edits an existing occurrence or
@@ -819,4 +827,5 @@ schema-v5 operation, including generated AI, reverse-geocode output, and
 normalise results. Their backends remain schema-keyed semantic producers, but
 the frontend resolves exact ExistingOccurrence or NewProperty ownership using
 authoritative runtime context. Persisted legacy drafts and their verification
-remain v4 without conversion; target-aware apply logging remains pending.
+remain v4 without conversion; schema-v5 apply evidence uses the separate
+target-aware log.
