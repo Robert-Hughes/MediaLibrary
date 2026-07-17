@@ -22,6 +22,7 @@ import type {
   ImageMetadata,
   TargetDraftPersistenceStateV5,
   MetadataDraftEntryV5,
+  TagInfo,
 } from "./types";
 import { loadColumnConfig, saveColumnConfig } from "./utils/columnConfig";
 import {
@@ -38,7 +39,10 @@ import {
   saveTargetDraftEditsV5,
 } from "./targetDraftTauri";
 import type { MetadataDraftTarget } from "./types";
-import { schemaDefinitionIdToken } from "./utils/schemaDefinitionId";
+import {
+  schemaDefinitionIdEquals,
+  schemaDefinitionIdToken,
+} from "./utils/schemaDefinitionId";
 import { resolveTargetDraftByExactSchema } from "./targetDraftView";
 import { TargetVerifyOutcomesStoreV5 } from "./targetVerifyOutcomesStore";
 import {
@@ -46,7 +50,9 @@ import {
   existingOccurrenceTargetFromOccurrence,
   metadataDraftTargetEquals,
   metadataDraftTargetSlotToken,
+  newPropertyDraftTarget,
 } from "./utils/metadataDraftTarget";
+import { tagInfoSupportsMetadataWrite } from "./utils/metadataWriteSupport";
 import { resolveExactMetadataOccurrence } from "./utils/metadataOccurrences";
 import { planGpsTargetDraftBatchV5 } from "./gpsTargetDrafts";
 import { planMetadataRemovalTargetsV5 } from "./metadataRemovalTargets";
@@ -114,7 +120,7 @@ export interface MediaLibraryActions {
     fileRelativePath: string,
     id: SchemaDefinitionId,
     edit: MetadataDraftEdit,
-  ) => void;
+  ) => Promise<void>;
   discardTargetPropertyDraft: (
     fileRelativePath: string,
     target: MetadataDraftTarget,
@@ -1210,31 +1216,122 @@ export function useMediaLibrary(
   );
 
   const setNewPropertyDraft = useCallback(
-    (
+    async (
       fileRelativePath: string,
       id: SchemaDefinitionId,
       edit: MetadataDraftEdit,
     ) => {
       if (!requireTargetDraftPersistenceReady([fileRelativePath])) return;
-      const ownership = resolveTargetDraftByExactSchema(
-        targetDraftEditsStoreRef.current.getMetadataFile(fileRelativePath),
-        id,
-      );
-      if (
-        ownership.kind === "ambiguous" ||
-        (ownership.kind === "unique" &&
-          ownership.entry.target.kind === "ExistingOccurrence")
-      ) {
+
+      const validateAuthoritativeStateAndOwnership = (): boolean => {
+        const occurrenceState =
+          imageMetadataOccurrencesStoreRef.current.get(fileRelativePath);
+        if (occurrenceState === "loading") {
+          pushApplicationError(
+            "metadata-v5-new-property-occurrences-loading",
+            "Authoritative metadata occurrences are still loading. No new-property draft was staged.",
+            [fileRelativePath],
+          );
+          return false;
+        }
+        if (
+          occurrenceState.some((occurrence) =>
+            schemaDefinitionIdEquals(occurrence.schema_id, id),
+          )
+        ) {
+          pushApplicationError(
+            "metadata-v5-new-property-already-exists",
+            "This exact schema already exists in the authoritative metadata occurrences. No new-property draft was staged.",
+            [fileRelativePath],
+          );
+          return false;
+        }
+
+        const ownership = resolveTargetDraftByExactSchema(
+          targetDraftEditsStoreRef.current.getMetadataFile(fileRelativePath),
+          id,
+        );
+        if (ownership.kind === "ambiguous") {
+          pushApplicationError(
+            "metadata-v5-new-property-ambiguous-ownership",
+            "Multiple target-aware drafts own this exact schema. Apply or discard those drafts before adding the property.",
+            [fileRelativePath],
+          );
+          return false;
+        }
+        if (
+          ownership.kind === "unique" &&
+          ownership.entry.target.kind === "ExistingOccurrence"
+        ) {
+          pushApplicationError(
+            "metadata-v5-new-property-existing-target",
+            "An ExistingOccurrence target already owns this exact schema. It was not replaced with a NewProperty target.",
+            [fileRelativePath],
+          );
+          return false;
+        }
+        return true;
+      };
+
+      if (!validateAuthoritativeStateAndOwnership()) return;
+
+      let info: TagInfo | null;
+      try {
+        info = (await apiRef.current.invoke("get_tag_info", {
+          id,
+        })) as TagInfo | null;
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
         pushApplicationError(
-          "metadata-v5-conflict",
-          "This exact schema already has target-aware ownership. Apply or discard the owning target-aware draft before adding the property again.",
+          "metadata-v5-new-property-schema-lookup",
+          `The exact schema definition could not be resolved: ${detail}. No new-property draft was staged.`,
+          [fileRelativePath],
+        );
+        return;
+      }
+
+      // The async schema lookup may race with a rescan or draft mutation. Recheck
+      // every mutable eligibility condition immediately before staging.
+      if (!requireTargetDraftPersistenceReady([fileRelativePath])) return;
+      if (!validateAuthoritativeStateAndOwnership()) return;
+
+      if (!info || !schemaDefinitionIdEquals(info.id, id)) {
+        pushApplicationError(
+          "metadata-v5-new-property-schema-missing",
+          "The exact schema definition could not be resolved. No new-property draft was staged.",
+          [fileRelativePath],
+        );
+        return;
+      }
+      if (!info.writable) {
+        pushApplicationError(
+          "metadata-v5-new-property-read-only",
+          "This exact schema is read-only. No new-property draft was staged.",
+          [fileRelativePath],
+        );
+        return;
+      }
+      if (!tagInfoSupportsMetadataWrite(info)) {
+        pushApplicationError(
+          "metadata-v5-new-property-unsupported-kind",
+          "Binary and Unknown schema kinds are not supported by the metadata write pipeline. No new-property draft was staged.",
+          [fileRelativePath],
+        );
+        return;
+      }
+
+      const targetResolution = newPropertyDraftTarget(info);
+      if (targetResolution.kind !== "available") {
+        pushApplicationError(
+          "metadata-v5-new-property-ineligible",
+          "This exact schema is not eligible for a NewProperty target. No draft was staged.",
           [fileRelativePath],
         );
         return;
       }
       targetDraftEditsStoreRef.current.setMetadataTarget(
         fileRelativePath,
-        { kind: "NewProperty", schema_id: structuredClone(id) },
+        targetResolution.target,
         edit,
       );
     },

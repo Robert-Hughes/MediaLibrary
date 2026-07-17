@@ -761,15 +761,13 @@ fn preload_schema() -> Result<(), String> {
     r
 }
 
-/// Returns the writable exact tag definitions in the schema registry.
+/// Returns exact definitions supported by the metadata write pipeline.
 /// Iteration is deterministic by `SchemaDefinitionId` as guaranteed by the underlying `BTreeMap`.
-/// Used by the "Add New Property" dialog for autocomplete — listing
-/// read-only tags would only let the user pick a key that ExifTool would
-/// then refuse to write.
+/// Used by the "Add New Property" dialog for autocomplete.
 #[tauri::command]
 fn list_writable_schema_definitions() -> Result<Vec<tag_schema::TagInfo>, String> {
     let registry = tag_schema::get_registry().map_err(|e| e.to_string())?;
-    Ok(registry.all_writable().cloned().collect())
+    Ok(registry.all_supported_writable().cloned().collect())
 }
 
 // Target-aware draft persistence and apply are the sole metadata-editing boundary.

@@ -98,6 +98,4 @@ projection does not change `MetadataDraftTarget`, target slot tokens, the
 schema-v5 command or event names, reconciliation kinds,
 `MediaLibraryTargetDraftEdits.jsonl`, or `MediaLibraryTargetApplyLog.jsonl`.
 `ExistingOccurrence` targets persist their own schema snapshot and compare it
-with the authoritative occurrence field.
-`ExistingOccurrence` targets already persist their own schema snapshot and now
-compare that snapshot with the authoritative occurrence field.
+directly with the authoritative occurrence field.

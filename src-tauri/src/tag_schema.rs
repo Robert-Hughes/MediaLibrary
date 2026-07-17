@@ -238,12 +238,12 @@ impl TagRegistry {
         self.tags.iter()
     }
 
-    /// Iterator over `TagInfo` definitions for writable tags only.
+    /// Iterator over exact definitions supported by the metadata write pipeline.
     /// Iteration is deterministic by `SchemaDefinitionId` as guaranteed by the underlying `BTreeMap`.
-    /// Used by the autocomplete command: surfacing read-only entries lets
-    /// users pick a key that ExifTool will subsequently refuse to set.
-    pub fn all_writable(&self) -> impl Iterator<Item = &TagInfo> {
-        self.tags.values().filter(|info| info.writable)
+    pub fn all_supported_writable(&self) -> impl Iterator<Item = &TagInfo> {
+        self.tags
+            .values()
+            .filter(|info| info.supports_metadata_write())
     }
 
     /// Build from raw `exiftool -listx -f -lang en` XML output.
@@ -950,6 +950,78 @@ mod tests {
         assert!(!info(TagKind::Text, false).supports_metadata_write());
         assert!(!info(TagKind::Binary, true).supports_metadata_write());
         assert!(!info(TagKind::Unknown, true).supports_metadata_write());
+    }
+
+    #[test]
+    fn supported_writable_iterator_filters_every_kind_and_preserves_id_order() {
+        let cases = vec![
+            ("01", TagKind::Text, true),
+            ("02", TagKind::LangAlt, true),
+            (
+                "03",
+                TagKind::Integer {
+                    min: None,
+                    max: None,
+                },
+                true,
+            ),
+            ("04", TagKind::Real, true),
+            ("05", TagKind::Rational, true),
+            ("06", TagKind::Boolean, true),
+            ("07", TagKind::Date, true),
+            ("08", TagKind::Time, true),
+            ("09", TagKind::DateTime, true),
+            ("10", TagKind::TimeOffset, true),
+            (
+                "11",
+                TagKind::Enum {
+                    repr: EnumRepr::String,
+                    options: Vec::new(),
+                },
+                true,
+            ),
+            ("12", TagKind::Bag(Box::new(TagKind::Text)), true),
+            ("13", TagKind::Seq(Box::new(TagKind::Text)), true),
+            ("14", TagKind::Alt(Box::new(TagKind::Text)), true),
+            ("15", TagKind::Struct(BTreeMap::new()), true),
+            ("90", TagKind::Text, false),
+            ("91", TagKind::Binary, true),
+            ("92", TagKind::Unknown, true),
+        ];
+        let tags = cases
+            .into_iter()
+            .map(|(tag_id, kind, writable)| {
+                let id = SchemaDefinitionId {
+                    table: "Test::Main".into(),
+                    tag_id: tag_id.into(),
+                    index: None,
+                };
+                let info = TagInfo {
+                    id: id.clone(),
+                    group: "Test".into(),
+                    name: format!("Field{tag_id}"),
+                    writable,
+                    kind,
+                    description: None,
+                    storage_count: None,
+                };
+                (id, info)
+            })
+            .collect();
+        let registry = TagRegistry { tags };
+
+        let supported = registry.all_supported_writable().collect::<Vec<_>>();
+        assert!(supported.iter().all(|info| info.supports_metadata_write()));
+        assert_eq!(
+            supported
+                .iter()
+                .map(|info| info.id.tag_id.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                "01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12", "13", "14",
+                "15",
+            ]
+        );
     }
 
     const SAMPLE_LISTX: &str = r#"<?xml version='1.0' encoding='UTF-8'?>

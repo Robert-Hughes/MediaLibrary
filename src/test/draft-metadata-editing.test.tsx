@@ -86,16 +86,16 @@ describe("Draft Metadata Editing Integration", () => {
       kind: { kind: "Text" },
       description: null,
     });
-    _setWritableSchemaDefinitionsCache([
-      {
-        id: descriptionId,
-        group: "XMP-dc",
-        name: "Description",
-        writable: true,
-        kind: { kind: "Text" },
-        description: "Description",
-      },
-    ]);
+    const descriptionInfo = {
+      id: descriptionId,
+      group: "XMP-dc",
+      name: "Description",
+      writable: true,
+      kind: { kind: "Text" as const },
+      description: "Description",
+    };
+    mockApiInstance.tagInfos = [descriptionInfo];
+    _setWritableSchemaDefinitionsCache([descriptionInfo]);
   });
 
   afterEach(() => {
@@ -286,7 +286,9 @@ describe("Draft Metadata Editing Integration", () => {
     await user.click(screen.getByTestId("value-edit-save"));
 
     // Draft badge present: 1 edit on this photo
-    expect(screen.getByTitle("Show only edited fields")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByTitle("Show only edited fields")).toBeInTheDocument();
+    });
 
     // The new property row should now appear under XMP-dc
     const xmpSection = screen.getByTestId("details-section-XMP-dc");

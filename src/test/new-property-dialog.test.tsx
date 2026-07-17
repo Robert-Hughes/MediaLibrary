@@ -361,6 +361,46 @@ describe("NewPropertyDialog exact-ID selection flow", () => {
     expect(screen.queryByTestId(`schema-option-${audioToken}`)).toBeNull();
   });
 
+  it("filters writable Binary and Unknown definitions from malformed caches", () => {
+    const supported = testDefinitions[0];
+    const binary: TagInfo = {
+      id: { table: "Test::Main", tag_id: "binary" },
+      group: "XMP-test",
+      name: "UnsupportedBinary",
+      writable: true,
+      kind: { kind: "Binary" },
+      description: null,
+    };
+    const unknown: TagInfo = {
+      id: { table: "Test::Main", tag_id: "unknown" },
+      group: "XMP-test",
+      name: "UnsupportedUnknown",
+      writable: true,
+      kind: { kind: "Unknown" },
+      description: null,
+    };
+    _setWritableSchemaDefinitionsCache([supported, binary, unknown]);
+    render(<NewPropertyDialog onSave={() => {}} onCancel={() => {}} />);
+
+    fireEvent.change(screen.getByTestId("new-property-key"), {
+      target: { value: "Unsupported" },
+    });
+
+    expect(
+      screen.queryByTestId(
+        `schema-option-${schemaDefinitionIdToken(binary.id)}`,
+      ),
+    ).toBeNull();
+    expect(
+      screen.queryByTestId(
+        `schema-option-${schemaDefinitionIdToken(unknown.id)}`,
+      ),
+    ).toBeNull();
+    expect(
+      screen.getByText("No matching writable schema definitions found."),
+    ).toBeInTheDocument();
+  });
+
   it("shows no raw text/unknown property warnings", () => {
     _setWritableSchemaDefinitionsCache(testDefinitions);
     render(<NewPropertyDialog onSave={() => {}} onCancel={() => {}} />);

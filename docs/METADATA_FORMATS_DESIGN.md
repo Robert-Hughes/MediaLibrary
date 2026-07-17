@@ -29,8 +29,6 @@ shape therefore requires no target-format migration.
 
 ## Transient occurrence format
 
-## Transient occurrence format
-
 Scan and readback payloads use the required shape
 `{ id, schema_id, value, tag_info, write_target }`. Unknown local schemas retain
 their exact table, tag ID and optional index with null interpretation and write

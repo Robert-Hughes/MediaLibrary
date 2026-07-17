@@ -841,6 +841,228 @@ describe("DetailsPane: target-aware Add Property drafts", () => {
     expect(row).toHaveAttribute("data-readonly", "true");
   });
 
+  it.each([
+    ["conflicting", "first", "second"],
+    ["identical", "same", "same"],
+  ])(
+    "marks %s same-schema authoritative duplicates as already existing",
+    async (_caseName, firstValue, secondValue) => {
+      const user = userEvent.setup();
+      const info = {
+        id,
+        group: "XMP-dc",
+        name: "Subject",
+        writable: true,
+        kind: { kind: "Text" as const },
+        description: null,
+      };
+      _setSchemaTagNamesCache([info]);
+      render(
+        <DetailsPane
+          photo={photo}
+          occurrences={[
+            {
+              id: { ...target.occurrence_id, copy: 0 },
+              schema_id: structuredClone(id),
+              value: { kind: "Text", value: firstValue },
+              tag_info: info,
+              write_target: target.write_target,
+            },
+            {
+              id: { ...target.occurrence_id, copy: 1 },
+              schema_id: structuredClone(id),
+              value: { kind: "Text", value: secondValue },
+              tag_info: info,
+              write_target: target.write_target,
+            },
+          ]}
+          targetDraftPersistence={{ status: "ready" }}
+          onRemoveMetadataFieldsV5={vi.fn()}
+          onDiscardTargetDraftBatch={vi.fn()}
+        />,
+      );
+
+      await user.click(screen.getByTestId("details-pane-add-property-btn"));
+      fireEvent.change(screen.getByTestId("new-property-key"), {
+        target: { value: "Subject" },
+      });
+      await user.click(
+        screen.getByTestId(`schema-option-${schemaDefinitionIdToken(id)}`),
+      );
+
+      expect(
+        screen.getByTestId("new-property-duplicate-warning"),
+      ).toBeInTheDocument();
+      expect(screen.getByTestId("new-property-next")).toBeDisabled();
+    },
+  );
+
+  it("marks an unresolved authoritative schema as already existing", async () => {
+    const user = userEvent.setup();
+    const info = {
+      id,
+      group: "XMP-dc",
+      name: "Subject",
+      writable: true,
+      kind: { kind: "Text" as const },
+      description: null,
+    };
+    _setSchemaTagNamesCache([info]);
+    render(
+      <DetailsPane
+        photo={photo}
+        occurrences={[
+          {
+            id: target.occurrence_id,
+            schema_id: structuredClone(id),
+            value: { kind: "Text", value: "unresolved" },
+            tag_info: null,
+            write_target: null,
+          },
+        ]}
+        targetDraftPersistence={{ status: "ready" }}
+        onRemoveMetadataFieldsV5={vi.fn()}
+        onDiscardTargetDraftBatch={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByTestId("details-pane-add-property-btn"));
+    fireEvent.change(screen.getByTestId("new-property-key"), {
+      target: { value: "Subject" },
+    });
+    await user.click(
+      screen.getByTestId(`schema-option-${schemaDefinitionIdToken(id)}`),
+    );
+    expect(
+      screen.getByTestId("new-property-duplicate-warning"),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("new-property-next")).toBeDisabled();
+  });
+
+  it("keeps absent index, index zero and same tag IDs in other tables separate", async () => {
+    const user = userEvent.setup();
+    const existingId: SchemaDefinitionId = {
+      table: "Exif::Main",
+      tag_id: "271",
+    };
+    const indexZero: SchemaDefinitionId = {
+      table: "Exif::Main",
+      tag_id: "271",
+      index: 0,
+    };
+    const otherTable: SchemaDefinitionId = {
+      table: "Exif::Other",
+      tag_id: "271",
+    };
+    const definitions = [
+      {
+        id: indexZero,
+        group: "IFD0",
+        name: "Collision",
+        writable: true,
+        kind: { kind: "Text" as const },
+        description: null,
+      },
+      {
+        id: otherTable,
+        group: "IFD0",
+        name: "Collision",
+        writable: true,
+        kind: { kind: "Text" as const },
+        description: null,
+      },
+    ];
+    _setSchemaTagNamesCache(definitions);
+    render(
+      <DetailsPane
+        photo={photo}
+        occurrences={[
+          {
+            id: {
+              document: null,
+              path: "JPEG-APP1-IFD0",
+              tag_id: "271",
+              copy: 0,
+            },
+            schema_id: existingId,
+            value: { kind: "Text", value: "existing" },
+            tag_info: {
+              id: existingId,
+              group: "IFD0",
+              name: "Make",
+              writable: true,
+              kind: { kind: "Text" },
+              description: null,
+            },
+            write_target: { group1: "IFD0", tag_name: "Make" },
+          },
+        ]}
+        targetDraftPersistence={{ status: "ready" }}
+        onRemoveMetadataFieldsV5={vi.fn()}
+        onDiscardTargetDraftBatch={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByTestId("details-pane-add-property-btn"));
+    fireEvent.change(screen.getByTestId("new-property-key"), {
+      target: { value: "Collision" },
+    });
+    await user.click(
+      screen.getByTestId(`schema-option-${schemaDefinitionIdToken(indexZero)}`),
+    );
+    expect(screen.queryByTestId("new-property-duplicate-warning")).toBeNull();
+    expect(screen.getByTestId("new-property-next")).toBeEnabled();
+
+    await user.click(
+      screen.getByTestId(
+        `schema-option-${schemaDefinitionIdToken(otherTable)}`,
+      ),
+    );
+    expect(screen.queryByTestId("new-property-duplicate-warning")).toBeNull();
+    expect(screen.getByTestId("new-property-next")).toBeEnabled();
+  });
+
+  it("recognises a draft-only NewProperty schema as already owned", async () => {
+    const user = userEvent.setup();
+    const info = {
+      id,
+      group: "XMP-dc",
+      name: "Subject",
+      writable: true,
+      kind: { kind: "Text" as const },
+      description: null,
+    };
+    _setSchemaTagNamesCache([info]);
+    const store = new TargetDraftEditsStore();
+    store.setMetadataTarget(
+      "target.jpg",
+      { kind: "NewProperty", schema_id: structuredClone(id) },
+      { intent: "Set", value: { kind: "Text", value: "draft" } },
+    );
+    render(
+      <DetailsPane
+        photo={photo}
+        occurrences={[]}
+        targetDraftEdits={store.getMetadataFile("target.jpg")}
+        targetDraftPersistence={{ status: "ready" }}
+        onRemoveMetadataFieldsV5={vi.fn()}
+        onDiscardTargetDraftBatch={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByTestId("details-pane-add-property-btn"));
+    fireEvent.change(screen.getByTestId("new-property-key"), {
+      target: { value: "Subject" },
+    });
+    await user.click(
+      screen.getByTestId(`schema-option-${schemaDefinitionIdToken(id)}`),
+    );
+    expect(
+      screen.getByTestId("new-property-duplicate-warning"),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("new-property-next")).toBeDisabled();
+  });
+
   it("marks every ambiguous target-owned exact schema unavailable in the picker while a distinct schema remains selectable", async () => {
     const user = userEvent.setup();
     const distinct = testId("XMP-dc:Title");
