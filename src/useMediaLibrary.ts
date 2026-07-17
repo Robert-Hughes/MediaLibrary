@@ -473,7 +473,7 @@ export function useMediaLibrary(
       });
     };
 
-    // Flush both authoritative occurrences and the legacy compatibility view.
+    // Flush authoritative occurrences and the schema-keyed display projection.
     const flushMetadataBatch = () => {
       const batch = [...metadataBufferRef.current];
       metadataBufferRef.current = [];

@@ -1,12 +1,24 @@
 import type {
+  ImageMetadataOccurrencesState,
+  MetadataDraftCollection,
   MetadataDraftEntryV5,
   MetadataDraftTarget,
   MetadataOccurrence,
   SchemaDefinitionId,
 } from "./types";
 import type { TargetDraftCollection } from "./targetDraftEdits";
-import { schemaDefinitionIdEquals } from "./utils/schemaDefinitionId";
+import {
+  schemaDefinitionIdEquals,
+  schemaDefinitionIdToken,
+} from "./utils/schemaDefinitionId";
+import type { MetadataCollection } from "./utils/metadataCollection";
+import { metadataGet } from "./utils/metadataCollection";
 import type { SchemaOccurrenceResolution } from "./utils/metadataOccurrences";
+import {
+  buildSchemaOccurrenceResolutionIndex,
+  resolveExactMetadataOccurrence,
+  resolutionForSchema,
+} from "./utils/metadataOccurrences";
 import {
   existingOccurrenceTargetFromOccurrence,
   metadataDraftTargetEquals,
@@ -17,6 +29,170 @@ type ExistingOccurrenceTarget = Extract<
   MetadataDraftTarget,
   { kind: "ExistingOccurrence" }
 >;
+
+export type SchemaDraftPresentationResolution =
+  | { kind: "none" }
+  | { kind: "target"; entry: MetadataDraftEntryV5 }
+  | {
+      kind: "blocked";
+      reason: string;
+      conflictingTargets: MetadataDraftEntryV5[];
+    };
+
+interface LoadedPresentationContext {
+  occurrences: MetadataOccurrence[];
+  occurrenceIndex: ReturnType<typeof buildSchemaOccurrenceResolutionIndex>;
+}
+
+function loadedPresentationContext(
+  occurrences: ImageMetadataOccurrencesState | undefined,
+): LoadedPresentationContext | undefined {
+  if (!Array.isArray(occurrences)) return undefined;
+  return {
+    occurrences,
+    occurrenceIndex: buildSchemaOccurrenceResolutionIndex(occurrences),
+  };
+}
+
+function resolveSchemaDraftWithContext(
+  schemaId: SchemaDefinitionId,
+  compatibilityMetadata: MetadataCollection | undefined,
+  context: LoadedPresentationContext | undefined,
+  targetDrafts: TargetDraftCollection | undefined,
+): SchemaDraftPresentationResolution {
+  const sameSchema = Object.values(targetDrafts ?? {}).filter((entry) =>
+    schemaDefinitionIdEquals(entry.target.schema_id, schemaId),
+  );
+  if (sameSchema.length === 0) return { kind: "none" };
+  if (sameSchema.length > 1) {
+    return {
+      kind: "blocked",
+      reason: "Multiple exact targets own this schema.",
+      conflictingTargets: sameSchema,
+    };
+  }
+  if (!context) {
+    return {
+      kind: "blocked",
+      reason: "Authoritative occurrences are not loaded.",
+      conflictingTargets: sameSchema,
+    };
+  }
+
+  const entry = sameSchema[0];
+  const schemaResolution = resolutionForSchema(
+    context.occurrenceIndex,
+    schemaId,
+  );
+
+  if (entry.target.kind === "NewProperty") {
+    if (schemaResolution.kind !== "missing") {
+      return {
+        kind: "blocked",
+        reason: "The authoritative schema is already present.",
+        conflictingTargets: sameSchema,
+      };
+    }
+    if (
+      compatibilityMetadata === undefined ||
+      metadataGet(compatibilityMetadata, schemaId) !== undefined
+    ) {
+      return {
+        kind: "blocked",
+        reason:
+          "The schema-keyed display projection is unavailable or occupied.",
+        conflictingTargets: sameSchema,
+      };
+    }
+    return { kind: "target", entry };
+  }
+
+  if (schemaResolution.kind !== "unique") {
+    return {
+      kind: "blocked",
+      reason:
+        schemaResolution.kind === "multiple"
+          ? "The schema has multiple authoritative occurrences."
+          : "The schema has no authoritative occurrence.",
+      conflictingTargets: sameSchema,
+    };
+  }
+
+  const exact = resolveExactMetadataOccurrence(
+    context.occurrences,
+    entry.target.occurrence_id,
+  );
+  if (exact.kind !== "unique") {
+    return {
+      kind: "blocked",
+      reason:
+        exact.kind === "duplicate"
+          ? "The exact occurrence ID is duplicated."
+          : "The exact occurrence is missing.",
+      conflictingTargets: sameSchema,
+    };
+  }
+
+  const expected = existingOccurrenceTargetFromOccurrence(exact.occurrence);
+  if (
+    exact.occurrence.tag_info === null ||
+    !schemaDefinitionIdEquals(exact.occurrence.tag_info.id, schemaId) ||
+    expected.kind !== "targetable" ||
+    !metadataDraftTargetEquals(expected.target, entry.target)
+  ) {
+    return {
+      kind: "blocked",
+      reason:
+        "The stored target no longer matches the complete occurrence target snapshot.",
+      conflictingTargets: sameSchema,
+    };
+  }
+
+  return { kind: "target", entry };
+}
+
+/**
+ * Resolve one schema-keyed display cell without selecting or collapsing exact
+ * targets. A staged value is returned only after the authoritative occurrence
+ * and complete target snapshot have been verified.
+ */
+export function resolveSchemaDraftForPresentation(input: {
+  schemaId: SchemaDefinitionId;
+  compatibilityMetadata: MetadataCollection | undefined;
+  occurrences: ImageMetadataOccurrencesState | undefined;
+  targetDrafts: TargetDraftCollection | undefined;
+}): SchemaDraftPresentationResolution {
+  return resolveSchemaDraftWithContext(
+    input.schemaId,
+    input.compatibilityMetadata,
+    loadedPresentationContext(input.occurrences),
+    input.targetDrafts,
+  );
+}
+
+/** Build the safe schema-keyed display projection for one file. */
+export function buildSchemaDraftDisplayProjection(input: {
+  compatibilityMetadata: MetadataCollection | undefined;
+  occurrences: ImageMetadataOccurrencesState | undefined;
+  targetDrafts: TargetDraftCollection | undefined;
+}): MetadataDraftCollection {
+  const projection: MetadataDraftCollection = {};
+  const context = loadedPresentationContext(input.occurrences);
+  for (const schemaId of targetDraftSchemas(input.targetDrafts)) {
+    const resolution = resolveSchemaDraftWithContext(
+      schemaId,
+      input.compatibilityMetadata,
+      context,
+      input.targetDrafts,
+    );
+    if (resolution.kind !== "target") continue;
+    projection[schemaDefinitionIdToken(schemaId)] = {
+      id: structuredClone(schemaId),
+      edit: structuredClone(resolution.entry.edit),
+    };
+  }
+  return projection;
+}
 
 export type ExistingRowDraftResolution =
   | { kind: "none" }

@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ThumbnailStore, ImageMetadataStore } from "../types";
+import {
+  ThumbnailStore,
+  ImageMetadataStore,
+  ImageMetadataOccurrencesStore,
+} from "../types";
 import type {
   MetadataDraftEditsByFile,
   PhotoInfo,
@@ -8,6 +12,7 @@ import type {
   SortConfig,
   VisibleColumn,
 } from "../types";
+import type { TargetDraftEditsByFile } from "../targetDraftEdits";
 import { ContextMenu } from "./ContextMenu";
 import { PhotoRow } from "./PhotoRow";
 import { ResizeHandle } from "./ResizeHandle";
@@ -47,6 +52,8 @@ interface Props {
   photos: PhotoInfo[];
   thumbnails: ThumbnailStore;
   imageMetadata: ImageMetadataStore;
+  imageMetadataOccurrences?: ImageMetadataOccurrencesStore;
+  targetDraftEdits?: TargetDraftEditsByFile;
   visibleColumns: VisibleColumn[];
   columnWidths?: Record<string, number>;
   onColumnWidthChange?: (col: string, width: number) => void;
@@ -328,6 +335,8 @@ export function PhotoList({
   photos,
   thumbnails,
   imageMetadata,
+  imageMetadataOccurrences,
+  targetDraftEdits,
   visibleColumns,
   columnWidths = {},
   onColumnWidthChange,
@@ -680,6 +689,8 @@ export function PhotoList({
                 selected={selectedIndices.has(virtualRow.index)}
                 thumbnails={thumbnails}
                 imageMetadata={imageMetadata}
+                imageMetadataOccurrences={imageMetadataOccurrences}
+                targetDraftEdits={targetDraftEdits?.[photo.relative_path]}
                 visibleColumns={visibleColumns}
                 draftEdits={draftEdits[photo.relative_path]}
                 draftCount={draftCounts[photo.relative_path]}

@@ -1,6 +1,7 @@
-import { memo, useCallback, useSyncExternalStore } from "react";
+import { memo, useCallback, useMemo, useSyncExternalStore } from "react";
 import type {
   ImageMetadataEntry,
+  ImageMetadataOccurrencesStore,
   ImageMetadataStore,
   MetadataDraftCollection,
   MetadataDraftEdit,
@@ -9,6 +10,7 @@ import type {
   VisibleColumn,
   SchemaDefinitionId,
 } from "../types";
+import type { TargetDraftCollection } from "../targetDraftEdits";
 import { formatPhotoRowDate } from "../utils/photoDate";
 import { HighlightedText } from "./HighlightedText";
 import { Spinner } from "./Spinner";
@@ -19,6 +21,7 @@ import {
 import { useTagInfo } from "../hooks/useTagInfo";
 import { metadataGet } from "../utils/metadataCollection";
 import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
+import { buildSchemaDraftDisplayProjection } from "../targetDraftView";
 
 const EMPTY_CELL = "—";
 const ERROR_CELL = "✗";
@@ -95,6 +98,8 @@ interface RowProps {
   selected: boolean;
   thumbnails: ThumbnailStore;
   imageMetadata: ImageMetadataStore;
+  imageMetadataOccurrences?: ImageMetadataOccurrencesStore;
+  targetDraftEdits?: TargetDraftCollection;
   visibleColumns: VisibleColumn[];
   draftEdits?: MetadataDraftCollection;
   draftCount?: number;
@@ -107,13 +112,14 @@ interface RowProps {
   virtualStart: number;
   searchQuery?: string;
 }
-
 export const PhotoRow = memo(function PhotoRow({
   photo,
   index,
   selected,
   thumbnails,
   imageMetadata,
+  imageMetadataOccurrences,
+  targetDraftEdits,
   visibleColumns,
   draftEdits = {},
   draftCount,
@@ -143,6 +149,32 @@ export const PhotoRow = memo(function PhotoRow({
   );
   const metadata = useSyncExternalStore(subscribeMeta, getMetaSnapshot);
 
+  const subscribeOccurrences = useCallback(
+    (callback: () => void) =>
+      imageMetadataOccurrences?.subscribe(photo.relative_path, callback) ??
+      (() => {}),
+    [imageMetadataOccurrences, photo.relative_path],
+  );
+  const getOccurrencesSnapshot = useCallback(
+    () => imageMetadataOccurrences?.get(photo.relative_path) ?? "loading",
+    [imageMetadataOccurrences, photo.relative_path],
+  );
+  const occurrences = useSyncExternalStore(
+    subscribeOccurrences,
+    getOccurrencesSnapshot,
+  );
+  const presentedDraftEdits = useMemo(
+    () =>
+      targetDraftEdits === undefined
+        ? draftEdits
+        : buildSchemaDraftDisplayProjection({
+            compatibilityMetadata:
+              metadata === "loading" ? undefined : metadata,
+            occurrences,
+            targetDrafts: targetDraftEdits,
+          }),
+    [draftEdits, metadata, occurrences, targetDraftEdits],
+  );
   const isLoading = thumbnail === "loading";
   const hasSrc = thumbnail !== "loading" && thumbnail !== "failed";
   const src = hasSrc ? `data:image/jpeg;base64,${thumbnail}` : null;
@@ -167,7 +199,8 @@ export const PhotoRow = memo(function PhotoRow({
     [onContextMenu, index],
   );
 
-  const effectiveDraftCount = draftCount ?? Object.keys(draftEdits).length;
+  const effectiveDraftCount =
+    draftCount ?? Object.keys(targetDraftEdits ?? draftEdits).length;
   const hasDrafts = effectiveDraftCount > 0;
   const rowClass = `photo-row ${index % 2 === 0 ? "photo-row--even" : "photo-row--odd"} ${selected ? "photo-row--selected" : ""}`;
 
@@ -287,7 +320,9 @@ export const PhotoRow = memo(function PhotoRow({
               <MetadataCellContent
                 id={col.id}
                 value={metadataGet(metadata, col.id)}
-                draft={draftEdits[schemaDefinitionIdToken(col.id)]?.edit}
+                draft={
+                  presentedDraftEdits[schemaDefinitionIdToken(col.id)]?.edit
+                }
                 searchQuery={searchQuery}
               />
             )}

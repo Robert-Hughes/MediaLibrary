@@ -1,4 +1,4 @@
-//! Versioned schema-v5 batch metadata apply coordinator for the controlled bridge.
+//! Versioned schema-v5 batch metadata apply coordinator for the target-aware metadata pipeline.
 //!
 //! This module consumes [`MetadataDraftEntryV5`] values, invokes the
 //! occurrence-aware single-file pipeline, applies structured draft
