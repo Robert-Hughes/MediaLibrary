@@ -4,7 +4,6 @@ import type {
   MetadataDraftEdit,
   MetadataDraftEntryV5,
   MetadataDraftTarget,
-  MetadataEntry,
   MetadataOccurrence,
   MetadataOccurrenceId,
   MetadataTargetOutcome,
@@ -21,7 +20,6 @@ import {
 import {
   formatSchemaDefinitionIdForDiagnostics,
   schemaDefinitionIdEquals,
-  schemaDefinitionIdToken,
 } from "./schemaDefinitionId";
 import { hasOwnStringKey } from "./stringRecord";
 
@@ -365,17 +363,8 @@ export function isMetadataOccurrence(
   );
 }
 
-export function isMetadataEntry(value: unknown): value is MetadataEntry {
-  return (
-    isRecord(value) &&
-    hasOwnStringKeys(value, ["id", "value"]) &&
-    isSchemaDefinitionId(value.id) &&
-    isMetadataValue(value.value)
-  );
-}
-
 export type ImageMetadataDuplicateIdentity = {
-  kind: "occurrence" | "schema";
+  kind: "occurrence";
   token: string;
   firstIndex: number;
   secondIndex: number;
@@ -415,24 +404,17 @@ export function findImageMetadataDuplicateIdentity(
     if (duplicate) return duplicate;
   }
 
-  if (Array.isArray(value.metadata) && value.metadata.every(isMetadataEntry)) {
-    return findDuplicateIdentity(value.metadata, "schema", (entry) =>
-      schemaDefinitionIdToken(entry.id),
-    );
-  }
-
   return null;
 }
 
 export function isImageMetadata(value: unknown): value is ImageMetadata {
   return (
     isRecord(value) &&
-    hasOwnStringKeys(value, ["relative_path", "occurrences", "metadata"]) &&
+    hasExactlyOwnStringKeys(value, ["relative_path", "occurrences"]) &&
     typeof value.relative_path === "string" &&
+    value.relative_path.length > 0 &&
     Array.isArray(value.occurrences) &&
     value.occurrences.every(isMetadataOccurrence) &&
-    Array.isArray(value.metadata) &&
-    value.metadata.every(isMetadataEntry) &&
     findImageMetadataDuplicateIdentity(value) === null
   );
 }

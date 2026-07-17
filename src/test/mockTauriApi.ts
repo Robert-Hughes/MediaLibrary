@@ -6,7 +6,6 @@ import type {
   ThumbnailReadyPayload,
   ScanErrorPayload,
   WorkerErrorPayload,
-  MetadataEntry,
   MetadataOccurrences,
   MetadataValue,
   MetadataDraftEntryV5,
@@ -227,21 +226,26 @@ export function createMockTauriApi(): MockTauriApi {
       } satisfies PhotoFoundPayload),
     emitScanComplete: (scanId) =>
       emit("scan_complete", { scan_id: scanId ?? mock.currentScanId }),
-    emitImageMetadataReady: (
-      relative_path,
-      metadata,
-      scanId,
-      occurrences = [],
-    ) =>
+    emitImageMetadataReady: (relative_path, metadata, scanId, occurrences) =>
       emit("image_metadata_ready", {
         scan_id: scanId ?? mock.currentScanId,
         results: [
           {
             relative_path,
-            occurrences,
-            metadata: Object.entries(metadata).map(
-              ([name, value]): MetadataEntry => ({ id: testId(name), value }),
-            ),
+            occurrences:
+              occurrences ??
+              Object.entries(metadata).map(([name, value], index) => ({
+                id: {
+                  document: null,
+                  path: `TestFixture-${index}`,
+                  tag_id: testId(name).tag_id,
+                  copy: 0,
+                },
+                schema_id: testId(name),
+                value,
+                tag_info: null,
+                write_target: null,
+              })),
           },
         ],
       } satisfies ImageMetadataReadyPayload),

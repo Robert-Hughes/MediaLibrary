@@ -10,7 +10,7 @@
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { PhotoList } from "../components/PhotoList";
-import { ThumbnailStore, ImageMetadataStore } from "../types";
+import { ThumbnailStore, ImageMetadataOccurrencesStore } from "../types";
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({
   ask: vi.fn(() => Promise.resolve(true)),
@@ -33,7 +33,7 @@ function setup(opts: SetupOptions = {}) {
     date_created: null,
   }));
   const thumbnails = new ThumbnailStore();
-  const imageMetadata = new ImageMetadataStore();
+  const imageMetadata = new ImageMetadataOccurrencesStore();
   for (const p of photos) {
     thumbnails.add(p.relative_path);
     imageMetadata.add(p.relative_path);
@@ -43,7 +43,7 @@ function setup(opts: SetupOptions = {}) {
     <PhotoList
       photos={photos}
       thumbnails={thumbnails}
-      imageMetadata={imageMetadata}
+      imageMetadataOccurrences={imageMetadata}
       visibleColumns={[]}
       sortConfig={{ primary: null, secondary: null }}
       onSortChange={() => {}}
@@ -116,7 +116,7 @@ describe("PhotoList: Normalise Metadata context-menu entry", () => {
       date_created: null,
     }));
     const thumbnails = new ThumbnailStore();
-    const imageMetadata = new ImageMetadataStore();
+    const imageMetadata = new ImageMetadataOccurrencesStore();
     for (const p of photos) {
       thumbnails.add(p.relative_path);
       imageMetadata.add(p.relative_path);
@@ -125,7 +125,7 @@ describe("PhotoList: Normalise Metadata context-menu entry", () => {
       <PhotoList
         photos={photos}
         thumbnails={thumbnails}
-        imageMetadata={imageMetadata}
+        imageMetadataOccurrences={imageMetadata}
         visibleColumns={[]}
         sortConfig={{ primary: null, secondary: null }}
         onSortChange={() => {}}

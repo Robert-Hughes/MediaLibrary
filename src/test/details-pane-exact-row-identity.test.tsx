@@ -5,14 +5,12 @@ import { DetailsPane } from "../components/DetailsPane";
 import { GPS_IDS } from "../metadata/knownIds";
 import { TargetDraftEditsStore } from "../targetDraftEdits";
 import type {
-  ImageMetadataState,
   MetadataDraftEdit,
   MetadataOccurrence,
   SchemaDefinitionId,
   TagInfo,
 } from "../types";
 import { existingOccurrenceTargetFromOccurrence } from "../utils/metadataDraftTarget";
-import { metadataCollection } from "../utils/metadataCollection";
 import { metadataOccurrenceIdToken } from "../utils/metadataOccurrenceId";
 import { makePhoto } from "./factories";
 import {
@@ -82,7 +80,6 @@ function targetDrafts(source: MetadataOccurrence, edit: MetadataDraftEdit) {
 }
 
 function renderPane(options: {
-  metadata?: ImageMetadataState;
   occurrences?: Parameters<typeof DetailsPane>[0]["occurrences"];
   targetDraftEdits?: Parameters<typeof DetailsPane>[0]["targetDraftEdits"];
   targetDraftPersistence?: Parameters<
@@ -100,7 +97,7 @@ function renderPane(options: {
   const pane = (next: typeof options) => (
     <DetailsPane
       photo={photo}
-      metadata={next.metadata ?? {}}
+
       occurrences={next.occurrences ?? [occurrenceA]}
       targetDraftEdits={next.targetDraftEdits}
       targetDraftPersistence={next.targetDraftPersistence}
@@ -143,7 +140,6 @@ describe("DetailsPane exact target-owned row presentation", () => {
       value: { kind: "Integer", value: 301 },
     });
     renderPane({
-      metadata: {},
       occurrences: [occurrenceA, occurrenceB],
       targetDraftEdits: drafts,
     });
@@ -179,7 +175,6 @@ describe("DetailsPane exact target-owned row presentation", () => {
 
   it("edits and removes a supplemental row only through A's exact callback", () => {
     const view = renderPane({
-      metadata: {},
       occurrences: [occurrenceA, occurrenceB],
     });
     const rowA = screen
@@ -220,7 +215,6 @@ describe("DetailsPane exact target-owned row presentation", () => {
       value: null,
     });
     const view = renderPane({
-      metadata: {},
       occurrences: [occurrenceA, occurrenceB],
       targetDraftEdits: drafts,
     });
@@ -293,7 +287,6 @@ describe("DetailsPane exact target-owned row presentation", () => {
         },
       });
       renderPane({
-        metadata: {},
         occurrences: [listA, listB],
         targetDraftEdits: drafts,
       });
@@ -320,7 +313,6 @@ describe("DetailsPane exact target-owned row presentation", () => {
       { intent: "Set", value: { kind: "Integer", value: 301 } },
     );
     renderPane({
-      metadata: {},
       occurrences: [occurrenceA, occurrenceB],
       targetDraftEdits: staleStore.getMetadataFile(photo.relative_path),
     });
@@ -355,7 +347,6 @@ describe("DetailsPane exact target-owned row presentation", () => {
       value: { kind: "Integer", value: 301 },
     });
     const view = renderPane({
-      metadata: {},
       occurrences: [occurrenceA, occurrenceB],
       targetDraftEdits: pending.drafts,
     });
@@ -367,7 +358,6 @@ describe("DetailsPane exact target-owned row presentation", () => {
     ).not.toHaveAttribute("data-readonly");
 
     view.rerenderPane({
-      metadata: {},
       occurrences: [occurrenceA, occurrenceB],
       targetDraftEdits: undefined,
     });
@@ -385,7 +375,6 @@ describe("DetailsPane exact target-owned row presentation", () => {
       value: null,
     });
     const view = renderPane({
-      metadata: {},
       occurrences: [occurrenceA],
       targetDraftEdits: drafts,
     });
@@ -425,7 +414,6 @@ describe("DetailsPane exact target-owned row presentation", () => {
         value: { kind: "Text", value: "staged" },
       });
       renderPane({
-        metadata: {},
         occurrences: [listOccurrence],
         targetDraftEdits: drafts,
       });
@@ -440,9 +428,6 @@ describe("DetailsPane exact target-owned row presentation", () => {
       value: { kind: "Integer", value: 301 },
     });
     renderPane({
-      metadata: metadataCollection([
-        { id: schemaId, value: occurrenceA.value },
-      ]),
       occurrences: [occurrenceA],
       targetDraftEdits: drafts,
     });
@@ -451,7 +436,7 @@ describe("DetailsPane exact target-owned row presentation", () => {
   });
 
   it("makes targetable compatibility-omitted occurrences exact-edit candidates", () => {
-    renderPane({ metadata: {}, occurrences: [occurrenceA, occurrenceB] });
+    renderPane({ occurrences: [occurrenceA, occurrenceB] });
     expect(ordinaryMetadataRows()).toHaveLength(0);
     const rows = screen.getAllByTestId("details-occurrence-row");
     expect(rows).toHaveLength(2);
@@ -470,10 +455,7 @@ describe("DetailsPane exact target-owned row presentation", () => {
     ["unknown schema", { ...occurrenceA, tag_info: null }, /no exact TagInfo/i],
     [
       "read-only schema",
-      {
-        ...occurrenceA,
-        tag_info: { ...tagInfo, writable: false },
-      },
+      { ...occurrenceA, tag_info: { ...tagInfo, writable: false } },
       /read-only/i,
     ],
     [
@@ -481,9 +463,12 @@ describe("DetailsPane exact target-owned row presentation", () => {
       { ...occurrenceA, write_target: null },
       /no runtime write target/i,
     ],
-  ])("keeps a supplemental row read-only for %s", (_label, item, reason) => {
-    renderPane({ metadata: {}, occurrences: [item] });
-    const row = screen.getByTestId("details-occurrence-row");
+  ])("keeps a derived row read-only for %s", (label, item, reason) => {
+    renderPane({ occurrences: [item] });
+    const row =
+      label === "unknown schema"
+        ? screen.getByTestId("details-occurrence-row")
+        : ordinaryMetadataRows()[0];
     expect(row).toHaveAttribute("data-readonly", "true");
     expect(row).toHaveAttribute("title", expect.stringMatching(reason));
     fireEvent.contextMenu(row);
@@ -492,11 +477,10 @@ describe("DetailsPane exact target-owned row presentation", () => {
 
   it("disables supplemental actions after a v5 persistence load failure", () => {
     renderPane({
-      metadata: {},
       occurrences: [occurrenceA],
       targetDraftPersistence: { status: "load-failed", error: "bad v5" },
     });
-    const row = screen.getByTestId("details-occurrence-row");
+    const row = ordinaryMetadataRows()[0];
     expect(row).toHaveAttribute("data-readonly", "true");
     expect(row).toHaveAttribute(
       "title",
@@ -506,7 +490,6 @@ describe("DetailsPane exact target-owned row presentation", () => {
 
   it("keeps NewProperty and exact occurrence actions separate", () => {
     renderPane({
-      metadata: {},
       occurrences: [occurrenceA],
       targetDraftEdits: (() => {
         const store = new TargetDraftEditsStore();
@@ -518,13 +501,12 @@ describe("DetailsPane exact target-owned row presentation", () => {
         return store.getMetadataFile(photo.relative_path);
       })(),
     });
-    const row = screen.getByTestId("details-occurrence-row");
-    expect(row).not.toHaveAttribute("data-readonly");
+    const row = ordinaryMetadataRows()[0];
+    expect(row).toHaveAttribute("data-readonly", "true");
   });
 
   it("keeps duplicate IDs and supplemental GPS read-only", () => {
     const duplicateView = renderPane({
-      metadata: {},
       occurrences: [occurrenceA, structuredClone(occurrenceA)],
     });
     for (const row of screen.getAllByTestId("details-occurrence-row")) {
@@ -544,7 +526,6 @@ describe("DetailsPane exact target-owned row presentation", () => {
       description: null,
     };
     duplicateView.rerenderPane({
-      metadata: {},
       occurrences: [
         {
           id: {
@@ -560,21 +541,15 @@ describe("DetailsPane exact target-owned row presentation", () => {
         },
       ],
     });
-    const gpsRow = screen.getByTestId("details-occurrence-row");
-    expect(gpsRow).toHaveAttribute("data-readonly", "true");
-    expect(gpsRow).toHaveAttribute(
-      "title",
-      expect.stringContaining("GPS supplemental occurrences remain read-only"),
-    );
+    expect(screen.queryByTestId("details-occurrence-row")).toBeNull();
+    const [gpsRow] = ordinaryMetadataRows();
+    expect(gpsRow).toBeInTheDocument();
   });
 });
 
 describe("DetailsPane exact ordinary editor identity", () => {
   it("captures occurrence A, saves A, and refreshes A's changed value explicitly", async () => {
     const view = renderPane({
-      metadata: metadataCollection([
-        { id: schemaId, value: occurrenceA.value },
-      ]),
       occurrences: [occurrenceA],
     });
     openOrdinaryEditor();
@@ -585,7 +560,6 @@ describe("DetailsPane exact ordinary editor identity", () => {
       value: { kind: "Integer", value: 302 },
     };
     view.rerenderPane({
-      metadata: metadataCollection([{ id: schemaId, value: changedA.value }]),
       occurrences: [changedA],
     });
     expect(screen.getByTestId("numeric-editor-input")).toHaveValue(302);
@@ -632,7 +606,6 @@ describe("DetailsPane exact ordinary editor identity", () => {
     });
     const originalDrafts = structuredClone(pending.drafts);
     const view = renderPane({
-      metadata: {},
       occurrences: [occurrenceA],
       targetDraftEdits: pending.drafts,
     });
@@ -640,7 +613,6 @@ describe("DetailsPane exact ordinary editor identity", () => {
     expect(screen.getByTestId("numeric-editor-save")).toBeInTheDocument();
 
     view.rerenderPane({
-      metadata: {},
       occurrences: nextOccurrences,
       targetDraftEdits: pending.drafts,
     });
@@ -665,7 +637,7 @@ describe("DetailsPane exact ordinary editor identity", () => {
       const rendered = render(
         <DetailsPane
           photo={photo}
-          metadata={{}}
+
           occurrences={[occurrenceA]}
           targetDraftEdits={drafts}
           onRemoveMetadataFieldsV5={vi.fn()}
@@ -696,9 +668,6 @@ describe("DetailsPane exact ordinary editor identity", () => {
       write_target: { group1: "GPS", tag_name: "GPSLatitude" },
     };
     const view = renderPane({
-      metadata: metadataCollection([
-        { id: GPS_IDS.latitude, value: gpsOccurrence.value },
-      ]),
       occurrences: [gpsOccurrence],
     });
     const row = screen.getByText("GPSLatitude").closest("tr")!;
@@ -736,7 +705,6 @@ describe("DetailsPane exact ordinary editor identity", () => {
       { intent: "Set", value: { kind: "Text", value: "draft title" } },
     );
     const view = renderPane({
-      metadata: {},
       occurrences: [],
       targetDraftEdits: store.getMetadataFile(photo.relative_path),
     });

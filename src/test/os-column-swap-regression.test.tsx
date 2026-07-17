@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, it, expect } from "vitest";
 import { PhotoList } from "../components/PhotoList";
-import { ThumbnailStore, ImageMetadataStore } from "../types";
+import { ThumbnailStore, ImageMetadataOccurrencesStore } from "../types";
 import type { PhotoInfo, VisibleColumn } from "../types";
 
 const photos: PhotoInfo[] = [
@@ -16,7 +16,7 @@ const photos: PhotoInfo[] = [
 
 function makeStores() {
   const thumbnails = new ThumbnailStore();
-  const imageMetadata = new ImageMetadataStore();
+  const imageMetadata = new ImageMetadataOccurrencesStore();
   photos.forEach((p) => {
     thumbnails.add(p.relative_path);
     imageMetadata.add(p.relative_path);
@@ -30,7 +30,7 @@ function renderWith(visibleColumns: VisibleColumn[]) {
     <PhotoList
       photos={photos}
       thumbnails={thumbnails}
-      imageMetadata={imageMetadata}
+      imageMetadataOccurrences={imageMetadata}
       visibleColumns={visibleColumns}
       sortConfig={{ primary: null, secondary: null }}
       onSortChange={() => {}}

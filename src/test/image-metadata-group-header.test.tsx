@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { vi } from "vitest";
 import { PhotoList } from "../components/PhotoList";
-import { ThumbnailStore, ImageMetadataStore } from "../types";
+import { ThumbnailStore, ImageMetadataOccurrencesStore } from "../types";
 import type { PhotoInfo } from "../types";
 import { imgCol, osCol } from "./factories";
 
@@ -22,7 +22,7 @@ const mockPhotos: PhotoInfo[] = [
 
 function makeStores(photos: PhotoInfo[]) {
   const thumbnails = new ThumbnailStore();
-  const imageMetadata = new ImageMetadataStore();
+  const imageMetadata = new ImageMetadataOccurrencesStore();
   photos.forEach((p) => {
     thumbnails.add(p.relative_path);
     imageMetadata.add(p.relative_path);
@@ -37,7 +37,7 @@ describe("PhotoList per-column kind labels", () => {
       <PhotoList
         photos={mockPhotos}
         thumbnails={thumbnails}
-        imageMetadata={imageMetadata}
+        imageMetadataOccurrences={imageMetadata}
         visibleColumns={[
           osCol("date_modified"),
           imgCol("ExifIFD:DateTimeOriginal"),
@@ -60,7 +60,7 @@ describe("PhotoList per-column kind labels", () => {
       <PhotoList
         photos={mockPhotos}
         thumbnails={thumbnails}
-        imageMetadata={imageMetadata}
+        imageMetadataOccurrences={imageMetadata}
         visibleColumns={[osCol("date_modified")]}
         selectedIndex={null}
         onSelect={() => {}}
@@ -75,12 +75,12 @@ describe("PhotoList per-column kind labels", () => {
 
   it("renders only the Path OS kind label in empty-state when no metadata columns are enabled", () => {
     const thumbnails = new ThumbnailStore();
-    const imageMetadata = new ImageMetadataStore();
+    const imageMetadata = new ImageMetadataOccurrencesStore();
     render(
       <PhotoList
         photos={[]}
         thumbnails={thumbnails}
-        imageMetadata={imageMetadata}
+        imageMetadataOccurrences={imageMetadata}
         visibleColumns={[]}
         selectedIndex={null}
         onSelect={() => {}}
@@ -100,7 +100,7 @@ describe("PhotoList per-column kind labels", () => {
       <PhotoList
         photos={mockPhotos}
         thumbnails={thumbnails}
-        imageMetadata={imageMetadata}
+        imageMetadataOccurrences={imageMetadata}
         visibleColumns={[imgCol("ExifIFD:DateTimeOriginal")]}
         selectedIndex={null}
         onSelect={() => {}}
@@ -136,7 +136,7 @@ describe("PhotoList per-column kind labels", () => {
       <PhotoList
         photos={mockPhotos}
         thumbnails={thumbnails}
-        imageMetadata={imageMetadata}
+        imageMetadataOccurrences={imageMetadata}
         visibleColumns={[
           imgCol("ExifIFD:DateTimeOriginal"),
           imgCol("IFD0:Model"),
@@ -161,7 +161,7 @@ describe("PhotoList kind-label context menu", () => {
       <PhotoList
         photos={mockPhotos}
         thumbnails={thumbnails}
-        imageMetadata={imageMetadata}
+        imageMetadataOccurrences={imageMetadata}
         visibleColumns={[
           osCol("date_modified"),
           imgCol("ExifIFD:DateTimeOriginal"),
@@ -188,7 +188,7 @@ describe("PhotoList kind-label context menu", () => {
       <PhotoList
         photos={mockPhotos}
         thumbnails={thumbnails}
-        imageMetadata={imageMetadata}
+        imageMetadataOccurrences={imageMetadata}
         visibleColumns={[imgCol("ExifIFD:DateTimeOriginal")]}
         selectedIndex={null}
         onSelect={() => {}}
@@ -214,7 +214,7 @@ describe("PhotoList kind-label context menu", () => {
       <PhotoList
         photos={mockPhotos}
         thumbnails={thumbnails}
-        imageMetadata={imageMetadata}
+        imageMetadataOccurrences={imageMetadata}
         visibleColumns={[
           osCol("date_modified"),
           imgCol("ExifIFD:DateTimeOriginal"),

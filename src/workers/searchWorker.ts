@@ -1,15 +1,5 @@
 /// <reference lib="WebWorker" />
-/**
- * Thin Worker shell around `SearchIndex`.  All search logic lives in the
- * pure index module — this file only translates postMessage payloads into
- * method calls and posts results back.
- *
- * Spawned from `useSearchWorker` via:
- *   new Worker(new URL("./searchWorker.ts", import.meta.url), { type: "module" })
- *
- * Vite handles bundling; tests bypass this file entirely by exercising
- * `SearchIndex` directly.
- */
+/** Thin Worker shell around the pure incremental SearchIndex. */
 import { SearchIndex } from "../search/searchIndex";
 import type {
   SearchWorkerInbound,
@@ -31,22 +21,24 @@ self.onmessage = (event: MessageEvent<SearchWorkerInbound>) => {
       index.clear();
       return;
     case "INIT_PHOTOS":
-      for (const p of msg.photos) index.setPhoto(p);
+      for (const photo of msg.photos) index.setPhoto(photo);
       return;
-    case "INIT_META":
+    case "INIT_OCCURRENCES":
       index.setSchemaLabels(msg.schemaLabels);
-      for (const e of msg.entries) index.setMeta(e.path, e.meta);
+      for (const entry of msg.entries) {
+        index.setOccurrences(entry.path, entry.occurrences);
+      }
       return;
     case "INIT_DRAFTS":
       index.setSchemaLabels(msg.schemaLabels);
-      for (const e of msg.entries) index.setDrafts(e.path, e.edits);
+      for (const entry of msg.entries) index.setDrafts(entry.path, entry.edits);
       return;
     case "UPSERT_PHOTO":
       index.setPhoto(msg.photo);
       return;
-    case "UPSERT_META":
+    case "UPSERT_OCCURRENCES":
       index.setSchemaLabels(msg.schemaLabels);
-      index.setMeta(msg.path, msg.meta);
+      index.setOccurrences(msg.path, msg.occurrences);
       return;
     case "UPSERT_DRAFTS":
       index.setSchemaLabels(msg.schemaLabels);
@@ -56,12 +48,12 @@ self.onmessage = (event: MessageEvent<SearchWorkerInbound>) => {
       index.deletePath(msg.path);
       return;
     case "QUERY": {
-      const r = index.query(msg.query);
+      const result = index.query(msg.query);
       post({
         type: "RESULT",
         id: msg.id,
-        matched: r.matched,
-        hasEditsFilter: r.hasEditsFilter,
+        matched: result.matched,
+        hasEditsFilter: result.hasEditsFilter,
       });
       return;
     }

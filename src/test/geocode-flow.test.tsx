@@ -125,7 +125,7 @@ function seedExistingGpsTargets(
 async function openFolderAndSelectPhoto(
   rel = "test.jpg",
   metadata: Record<string, MetadataValue> = {},
-  occurrences: MetadataOccurrence[] = [],
+  occurrences?: MetadataOccurrence[],
 ) {
   const photo = makePhoto({ relative_path: rel });
   const user = userEvent.setup();
@@ -152,9 +152,6 @@ async function openFolderAndSelectPhoto(
   await act(async () => {
     await new Promise((r) => setTimeout(r, 250));
   });
-  // Same flow as the describe tests: double-click the row to open
-  // gallery view, then toggle the details pane on so the Reverse
-  // Geocode button appears.
   const row = screen.getByTestId("photo-row");
   await user.dblClick(row);
   await act(async () => {
@@ -167,7 +164,6 @@ async function openFolderAndSelectPhoto(
   });
   return { user, photo };
 }
-
 function expectMapCoordinates(lat: number, lon: number) {
   const maps = screen.getAllByTestId("gps-map");
   expect(maps).toHaveLength(4);

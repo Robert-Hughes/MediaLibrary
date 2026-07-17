@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { KNOWN_METADATA_IDS as ID } from "../metadata/knownIds";
 import { TargetDraftEditsStore } from "../targetDraftEdits";
-import type { ImageMetadataEntry, NormaliseGroup } from "../types";
+import type { NormaliseGroup } from "../types";
 import {
   buildNormaliseItemForPhoto,
   buildNormaliseItems,
 } from "../utils/buildNormaliseItems";
 import { mockMetadata } from "./factories";
+import { occurrencesFromMetadataCollection } from "./occurrenceFixtures";
 
 const ALL_GROUPS: NormaliseGroup[] = [
   "keywords",
@@ -20,8 +21,7 @@ const ALL_GROUPS: NormaliseGroup[] = [
 
 describe("target-aware normalise inputs", () => {
   it("packs semantic metadata without flattening LangAlt or list values", () => {
-    const item = buildNormaliseItemForPhoto(
-      "x.jpg",
+    const occurrences = occurrencesFromMetadataCollection(
       mockMetadata({
         "XMP-dc:Subject": ["one", "two"],
         "XMP-dc:Description": {
@@ -29,7 +29,11 @@ describe("target-aware normalise inputs", () => {
           value: { "x-default": "Caption", fr: "Légende" },
         },
       }),
+    );
+    const item = buildNormaliseItemForPhoto(
+      "x.jpg",
       ["keywords", "description"],
+      occurrences,
     );
     expect(item.groupInputs.keywords?.dcSubject).toEqual(["one", "two"]);
     expect(item.groupInputs.description?.description).toBe("Caption");
@@ -44,9 +48,6 @@ describe("target-aware normalise inputs", () => {
     );
     const items = buildNormaliseItems(
       ["a.jpg"],
-      {
-        get: () => ({}) as Record<string, ImageMetadataEntry>,
-      },
       { get: () => [] },
       store.getAllMetadata(),
       ["title"],
@@ -57,7 +58,6 @@ describe("target-aware normalise inputs", () => {
   it("keeps missing groups populated with neutral values", () => {
     const items = buildNormaliseItems(
       ["unknown.jpg"],
-      { get: () => undefined },
       { get: () => [] },
       {},
       ALL_GROUPS,

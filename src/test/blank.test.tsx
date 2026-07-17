@@ -1,13 +1,13 @@
 import { render } from "@testing-library/react";
 import { describe, it, vi } from "vitest";
 import { PhotoList } from "../components/PhotoList";
-import { ThumbnailStore, ImageMetadataStore } from "../types";
+import { ThumbnailStore, ImageMetadataOccurrencesStore } from "../types";
 import { imgCol } from "./factories";
 
 describe("PhotoList", () => {
   it("renders without crashing", () => {
     const thumbnails = new ThumbnailStore();
-    const metadata = new ImageMetadataStore();
+    const metadata = new ImageMetadataOccurrencesStore();
 
     const photos = [
       {
@@ -22,7 +22,7 @@ describe("PhotoList", () => {
       <PhotoList
         photos={photos}
         thumbnails={thumbnails}
-        imageMetadata={metadata}
+        imageMetadataOccurrences={metadata}
         visibleColumns={[
           { key: "date_modified", kind: "os" },
           { key: "date_created", kind: "os" },

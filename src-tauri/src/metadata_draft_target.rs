@@ -140,7 +140,7 @@ impl MetadataDraftTarget {
             .tag_info
             .as_ref()
             .ok_or(MetadataDraftTargetError::UnknownSchema)?;
-        if !info.writable {
+        if !info.supports_metadata_write() {
             return Err(MetadataDraftTargetError::ReadOnlySchema);
         }
         let write_target = occurrence
@@ -158,7 +158,7 @@ impl MetadataDraftTarget {
     /// Creates a schema-driven property target from one exactly resolved,
     /// writable schema definition.
     pub fn from_new_property(info: &TagInfo) -> Result<Self, MetadataDraftTargetError> {
-        if !info.writable {
+        if !info.supports_metadata_write() {
             return Err(MetadataDraftTargetError::ReadOnlySchema);
         }
 
@@ -195,7 +195,7 @@ impl MetadataDraftTarget {
             .tag_info
             .as_ref()
             .ok_or(MetadataDraftTargetError::UnknownSchema)?;
-        if !info.writable {
+        if !info.supports_metadata_write() {
             return Err(MetadataDraftTargetError::ReadOnlySchema);
         }
         let fresh_write_target = occurrence
@@ -294,6 +294,25 @@ mod tests {
             MetadataDraftTarget::from_existing_occurrence(&occurrence),
             Err(MetadataDraftTargetError::ReadOnlySchema)
         );
+    }
+
+    #[test]
+    fn existing_and_new_targets_reject_unsupported_schema_kinds() {
+        for kind in [TagKind::Binary, TagKind::Unknown] {
+            let mut occurrence = occurrence();
+            occurrence.tag_info.as_mut().unwrap().kind = kind.clone();
+            assert_eq!(
+                MetadataDraftTarget::from_existing_occurrence(&occurrence),
+                Err(MetadataDraftTargetError::ReadOnlySchema)
+            );
+
+            let mut schema = info(true, None);
+            schema.kind = kind;
+            assert_eq!(
+                MetadataDraftTarget::from_new_property(&schema),
+                Err(MetadataDraftTargetError::ReadOnlySchema)
+            );
+        }
     }
 
     #[test]

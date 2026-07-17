@@ -30,7 +30,6 @@ export type { MetadataOccurrences } from "./types/generated/MetadataOccurrences"
 export type { MetadataDraftTarget } from "./types/generated/MetadataDraftTarget";
 export type { MetadataDraftReconciliation } from "./types/generated/MetadataDraftReconciliation";
 export type { MetadataTargetOutcome } from "./types/generated/MetadataTargetOutcome";
-export type { MetadataEntry } from "./types/generated/MetadataEntry";
 export type { MetadataDraftEntry } from "./types/generated/MetadataDraftEntry";
 export type { MetadataDraftEntryV5 } from "./types/generated/MetadataDraftEntryV5";
 export type { MetadataDraftEdit } from "./types/generated/MetadataDraftEdit";
@@ -121,110 +120,40 @@ export class ThumbnailStore {
   }
 }
 
-// ── Image Metadata store ──────────────────────────────────────────────────────
+// ── Authoritative metadata occurrence store ──────────────────────────────────
 
 /**
- * Image metadata state for a single photo (EXIF, etc):
- *  - "loading"                 — metadata read is in progress (show spinner in cells)
- *  - MetadataCollection — exact-ID metadata has arrived
+ * One schema-level value in a pure derived read-only view. This shape remains
+ * useful to schema-oriented UI helpers, but it is never scanner wire data or
+ * authoritative occurrence state and must not be used to select an occurrence.
  */
 export type ImageMetadataEntry = MetadataValue & {
   readonly id: import("./types/generated/SchemaDefinitionId").SchemaDefinitionId;
 };
-export type ImageMetadataState =
-  "loading" | import("./utils/metadataCollection").MetadataCollection;
-
-/**
- * Observable store for image-level metadata, keyed by relative_path.
- * Updates only re-render the affected row.
- */
-export type ImageMetadataListener = (
-  path: string,
-  value: ImageMetadataState,
-) => void;
-
-export class ImageMetadataStore {
-  private data = new Map<string, ImageMetadataState>();
-  private subscribers = new Map<string, Set<() => void>>();
-  private globalSubscribers = new Set<ImageMetadataListener>();
-
-  add(path: string) {
-    if (!this.data.has(path)) {
-      this.data.set(path, "loading");
-      this.globalSubscribers.forEach((cb) => cb(path, "loading"));
-    }
-  }
-
-  set(path: string, value: ImageMetadataState) {
-    this.data.set(path, value);
-    this.subscribers.get(path)?.forEach((cb) => cb());
-    this.globalSubscribers.forEach((cb) => cb(path, value));
-  }
-
-  /** Iterate every (path, value) pair currently in the store. */
-  entries(): IterableIterator<[string, ImageMetadataState]> {
-    return this.data.entries();
-  }
-
-  get(path: string): ImageMetadataState {
-    return this.data.get(path) ?? "loading";
-  }
-
-  /** Clear folder-owned data while preserving this production store instance. */
-  clear(): void {
-    const paths = Array.from(this.data.keys());
-    this.data.clear();
-    for (const path of paths) {
-      this.subscribers.get(path)?.forEach((cb) => cb());
-      this.globalSubscribers.forEach((cb) => cb(path, "loading"));
-    }
-  }
-
-  subscribe(path: string, callback: () => void): () => void {
-    if (!this.subscribers.has(path)) this.subscribers.set(path, new Set());
-    this.subscribers.get(path)!.add(callback);
-    return () => {
-      const set = this.subscribers.get(path);
-      if (!set) return;
-      set.delete(callback);
-      if (set.size === 0) this.subscribers.delete(path);
-    };
-  }
-
-  /**
-   * Subscribe to every mutation in the store.  Used by cross-cutting consumers
-   * (e.g. the search-worker index) that need to track all paths without
-   * per-row subscription bookkeeping.  Fires from both `add()` (with
-   * "loading") and `set()`.
-   */
-  subscribeAll(callback: ImageMetadataListener): () => void {
-    this.globalSubscribers.add(callback);
-    return () => {
-      this.globalSubscribers.delete(callback);
-    };
-  }
-
-  getSnapshot(path: string): () => ImageMetadataState {
-    return () => this.get(path);
-  }
-}
-
-// ── Authoritative metadata occurrence store ──────────────────────────────────
 
 export type ImageMetadataOccurrencesState = "loading" | MetadataOccurrences;
+export type ImageMetadataOccurrencesListener = (
+  path: string,
+  value: ImageMetadataOccurrencesState,
+) => void;
 
-/** Observable occurrence collection keyed by file-relative path. */
+/** Observable authoritative occurrence collection keyed by file-relative path. */
 export class ImageMetadataOccurrencesStore {
   private data = new Map<string, ImageMetadataOccurrencesState>();
   private subscribers = new Map<string, Set<() => void>>();
+  private globalSubscribers = new Set<ImageMetadataOccurrencesListener>();
 
   add(path: string): void {
-    if (!this.data.has(path)) this.data.set(path, "loading");
+    if (this.data.has(path)) return;
+    this.data.set(path, "loading");
+    this.globalSubscribers.forEach((callback) => callback(path, "loading"));
   }
 
   set(path: string, value: ImageMetadataOccurrencesState): void {
+    if (Object.is(this.data.get(path), value)) return;
     this.data.set(path, value);
     this.subscribers.get(path)?.forEach((callback) => callback());
+    this.globalSubscribers.forEach((callback) => callback(path, value));
   }
 
   /** Mark a file's occurrence collection unavailable without claiming it is empty. */
@@ -232,6 +161,7 @@ export class ImageMetadataOccurrencesStore {
     if (this.data.get(path) === "loading") return;
     this.data.set(path, "loading");
     this.subscribers.get(path)?.forEach((callback) => callback());
+    this.globalSubscribers.forEach((callback) => callback(path, "loading"));
   }
 
   get(path: string): ImageMetadataOccurrencesState {
@@ -241,9 +171,11 @@ export class ImageMetadataOccurrencesStore {
   /** Clear folder-owned data while preserving controller/store identity. */
   clear(): void {
     const paths = Array.from(this.data.keys());
+    if (paths.length === 0) return;
     this.data.clear();
     for (const path of paths) {
       this.subscribers.get(path)?.forEach((callback) => callback());
+      this.globalSubscribers.forEach((callback) => callback(path, "loading"));
     }
   }
 
@@ -259,6 +191,14 @@ export class ImageMetadataOccurrencesStore {
       if (!callbacks) return;
       callbacks.delete(callback);
       if (callbacks.size === 0) this.subscribers.delete(path);
+    };
+  }
+
+  /** Subscribe to every changed path for cross-cutting incremental consumers. */
+  subscribeAll(callback: ImageMetadataOccurrencesListener): () => void {
+    this.globalSubscribers.add(callback);
+    return () => {
+      this.globalSubscribers.delete(callback);
     };
   }
 
@@ -506,7 +446,6 @@ export type AppState =
       folder: string;
       photos: PhotoInfo[];
       thumbnails: ThumbnailStore;
-      imageMetadata: ImageMetadataStore;
       imageMetadataOccurrences: ImageMetadataOccurrencesStore;
       metadataProgress: MetadataProgressStore;
       scanning: boolean; // true while the directory walk is still running

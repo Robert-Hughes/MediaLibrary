@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { ImageMetadataStore } from "../types";
+import { ImageMetadataOccurrencesStore } from "../types";
 import type {
   MetadataDraftEdit,
   MetadataDraftTarget,
@@ -12,6 +12,7 @@ import { metadataCollection } from "../utils/metadataCollection";
 import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
 import { makePhotos, testId } from "./factories";
 
+import { occurrencesFromMetadataCollection } from "./occurrenceFixtures";
 const title = testId("XMP-dc:Title");
 const model = testId("IFD0:Model");
 const setDraft = (value: string): MetadataDraftEdit => ({
@@ -55,7 +56,7 @@ function existing(
 }
 
 function setup(paths: string[]) {
-  const metadata = new ImageMetadataStore();
+  const metadata = new ImageMetadataOccurrencesStore();
   for (const path of paths) metadata.add(path);
   const drafts = new TargetDraftEditsStore();
   return { metadata, drafts };
@@ -63,7 +64,7 @@ function setup(paths: string[]) {
 
 function counts(
   paths: string[],
-  metadata: ImageMetadataStore,
+  metadata: ImageMetadataOccurrencesStore,
   drafts: TargetDraftEditsStore,
 ) {
   return new Map(
@@ -78,8 +79,16 @@ function counts(
 describe("computeEffectiveMetadataKeyFrequency", () => {
   it("counts committed keys across files", () => {
     const { metadata, drafts } = setup(["a.jpg", "b.jpg"]);
-    metadata.set("a.jpg", committed([model, "Canon"]));
-    metadata.set("b.jpg", committed([model, "Nikon"], [title, "Two"]));
+    metadata.set(
+      "a.jpg",
+      occurrencesFromMetadataCollection(committed([model, "Canon"])),
+    );
+    metadata.set(
+      "b.jpg",
+      occurrencesFromMetadataCollection(
+        committed([model, "Nikon"], [title, "Two"]),
+      ),
+    );
 
     const result = counts(["a.jpg", "b.jpg"], metadata, drafts);
     expect(result.get(schemaDefinitionIdToken(model))).toBe(2);
@@ -88,7 +97,7 @@ describe("computeEffectiveMetadataKeyFrequency", () => {
 
   it("counts draft-only NewProperty keys", () => {
     const { metadata, drafts } = setup(["a.jpg"]);
-    metadata.set("a.jpg", committed());
+    metadata.set("a.jpg", occurrencesFromMetadataCollection(committed()));
     drafts.setMetadataTarget("a.jpg", newProperty(title), setDraft("Draft"));
 
     expect(
@@ -98,7 +107,7 @@ describe("computeEffectiveMetadataKeyFrequency", () => {
 
   it("counts exact ExistingOccurrence draft keys", () => {
     const { metadata, drafts } = setup(["a.jpg"]);
-    metadata.set("a.jpg", committed());
+    metadata.set("a.jpg", occurrencesFromMetadataCollection(committed()));
     drafts.setMetadataTarget(
       "a.jpg",
       existing(title, "JPEG-APP1-XMP"),
@@ -112,7 +121,10 @@ describe("computeEffectiveMetadataKeyFrequency", () => {
 
   it("counts committed and drafted copies once per file", () => {
     const { metadata, drafts } = setup(["a.jpg"]);
-    metadata.set("a.jpg", committed([title, "Committed"]));
+    metadata.set(
+      "a.jpg",
+      occurrencesFromMetadataCollection(committed([title, "Committed"])),
+    );
     drafts.setMetadataTarget(
       "a.jpg",
       existing(title, "JPEG-APP1-XMP"),
@@ -126,8 +138,11 @@ describe("computeEffectiveMetadataKeyFrequency", () => {
 
   it("counts the same schema across different files", () => {
     const { metadata, drafts } = setup(["a.jpg", "b.jpg"]);
-    metadata.set("a.jpg", committed([title, "Committed"]));
-    metadata.set("b.jpg", committed());
+    metadata.set(
+      "a.jpg",
+      occurrencesFromMetadataCollection(committed([title, "Committed"])),
+    );
+    metadata.set("b.jpg", occurrencesFromMetadataCollection(committed()));
     drafts.setMetadataTarget("b.jpg", newProperty(title), setDraft("Draft"));
 
     expect(
@@ -139,7 +154,7 @@ describe("computeEffectiveMetadataKeyFrequency", () => {
 
   it("counts multiple exact same-schema targets once for one file", () => {
     const { metadata, drafts } = setup(["a.jpg"]);
-    metadata.set("a.jpg", committed());
+    metadata.set("a.jpg", occurrencesFromMetadataCollection(committed()));
     drafts.setMetadataTarget(
       "a.jpg",
       existing(title, "JPEG-APP1-IFD0", 0),
@@ -156,10 +171,9 @@ describe("computeEffectiveMetadataKeyFrequency", () => {
       counts(["a.jpg"], metadata, drafts).get(schemaDefinitionIdToken(title)),
     ).toBe(1);
   });
-
-  it("counts pending Delete targets", () => {
+  it("omits a schema after a safe unique ExistingOccurrence Delete", () => {
     const { metadata, drafts } = setup(["a.jpg"]);
-    metadata.set("a.jpg", committed());
+    metadata.set("a.jpg", occurrencesFromMetadataCollection(committed()));
     drafts.setMetadataTarget(
       "a.jpg",
       existing(title, "JPEG-APP1-XMP"),
@@ -168,7 +182,7 @@ describe("computeEffectiveMetadataKeyFrequency", () => {
 
     expect(
       counts(["a.jpg"], metadata, drafts).get(schemaDefinitionIdToken(title)),
-    ).toBe(1);
+    ).toBeUndefined();
   });
 
   it("counts drafts while committed metadata is loading", () => {
@@ -182,7 +196,7 @@ describe("computeEffectiveMetadataKeyFrequency", () => {
 
   it("ignores stale drafts outside the current photo list", () => {
     const { metadata, drafts } = setup(["a.jpg"]);
-    metadata.set("a.jpg", committed());
+    metadata.set("a.jpg", occurrencesFromMetadataCollection(committed()));
     drafts.setMetadataTarget(
       "stale.jpg",
       newProperty(title),
@@ -196,9 +210,15 @@ describe("computeEffectiveMetadataKeyFrequency", () => {
 
   it("reflects metadata updates after apply", () => {
     const { metadata, drafts } = setup(["a.jpg", "b.jpg"]);
-    metadata.set("a.jpg", committed([title, "One"]));
-    metadata.set("b.jpg", committed());
-    metadata.set("b.jpg", committed([title, "Two"]));
+    metadata.set(
+      "a.jpg",
+      occurrencesFromMetadataCollection(committed([title, "One"])),
+    );
+    metadata.set("b.jpg", occurrencesFromMetadataCollection(committed()));
+    metadata.set(
+      "b.jpg",
+      occurrencesFromMetadataCollection(committed([title, "Two"])),
+    );
 
     expect(
       counts(["a.jpg", "b.jpg"], metadata, drafts).get(
@@ -210,7 +230,10 @@ describe("computeEffectiveMetadataKeyFrequency", () => {
   it("keeps an absent schema index distinct from index zero", () => {
     const zero = { ...title, index: 0 };
     const { metadata, drafts } = setup(["a.jpg"]);
-    metadata.set("a.jpg", committed([title, "Absent index"]));
+    metadata.set(
+      "a.jpg",
+      occurrencesFromMetadataCollection(committed([title, "Absent index"])),
+    );
     drafts.setMetadataTarget("a.jpg", newProperty(zero), setDraft("Zero"));
 
     const result = counts(["a.jpg"], metadata, drafts);

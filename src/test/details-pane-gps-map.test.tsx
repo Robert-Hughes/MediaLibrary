@@ -25,6 +25,7 @@ import {
   _setTagInfoCacheEntry,
 } from "./tagInfoTestHelpers";
 
+import { occurrencesFromMetadataCollection } from "./occurrenceFixtures";
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(() => Promise.resolve(null)),
 }));
@@ -127,7 +128,7 @@ describe("DetailsPane GPS Map integration", () => {
         onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}
         photo={photo}
-        metadata={metadata}
+        occurrences={occurrencesFromMetadataCollection(metadata)}
       />,
     );
 
@@ -152,7 +153,7 @@ describe("DetailsPane GPS Map integration", () => {
         onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}
         photo={photo}
-        metadata={metadata}
+        occurrences={occurrencesFromMetadataCollection(metadata)}
       />,
     );
 
@@ -170,7 +171,7 @@ describe("DetailsPane GPS Map integration", () => {
         onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}
         photo={photo}
-        metadata={metadata}
+        occurrences={occurrencesFromMetadataCollection(metadata)}
       />,
     );
 
@@ -215,7 +216,6 @@ describe("DetailsPane GPS Map integration", () => {
       onSetGpsTargetDraftBatch: vi.fn(() => true),
       onDiscardTargetDraftBatch: vi.fn(),
       photo,
-      metadata,
       occurrences,
     };
     const rendered = render(
@@ -414,7 +414,6 @@ describe("DetailsPane GPS Map integration", () => {
     for (const scenario of scenarios) {
       cleanup();
       const item = buildGeocodeRequestItemForFile(photo.relative_path, {
-        metadata: scenario.metadata,
         occurrences: scenario.occurrences,
         targetDrafts: scenario.targetDrafts,
       });
@@ -429,7 +428,7 @@ describe("DetailsPane GPS Map integration", () => {
           onSetGpsTargetDraftBatch={vi.fn(() => true)}
           onDiscardTargetDraftBatch={vi.fn()}
           photo={photo}
-          metadata={scenario.metadata}
+
           occurrences={scenario.occurrences}
           targetDraftEdits={scenario.targetDrafts}
         />,
@@ -465,7 +464,6 @@ describe("DetailsPane GPS Map integration", () => {
     });
     const occurrences = occurrencesFor(metadata);
     const geocodeItem = buildGeocodeRequestItemForFile(photo.relative_path, {
-      metadata,
       occurrences,
       targetDrafts: undefined,
     });
@@ -479,7 +477,7 @@ describe("DetailsPane GPS Map integration", () => {
         onSetGpsTargetDraftBatch={vi.fn(() => true)}
         onDiscardTargetDraftBatch={vi.fn()}
         photo={photo}
-        metadata={metadata}
+
         occurrences={occurrences}
       />,
     );
@@ -515,7 +513,7 @@ describe("DetailsPane GPS Map integration", () => {
         onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}
         photo={photo}
-        metadata={metadata}
+        occurrences={occurrencesFromMetadataCollection(metadata)}
       />,
     );
 

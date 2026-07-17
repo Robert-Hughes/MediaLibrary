@@ -4,9 +4,10 @@ import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { PhotoList } from "../components/PhotoList";
-import { ThumbnailStore, ImageMetadataStore } from "../types";
+import { ThumbnailStore, ImageMetadataOccurrencesStore } from "../types";
 import type { MetadataDraftEdit } from "../types";
 
+import { occurrencesFromMetadataCollection } from "./occurrenceFixtures";
 vi.mock("@tauri-apps/plugin-dialog", () => ({
   ask: vi.fn(() => Promise.resolve(true)),
 }));
@@ -34,7 +35,7 @@ type SetupProps = Omit<
 function setup(props: SetupProps = {}) {
   const { draftEdits, ...componentProps } = props;
   const thumbnails = new ThumbnailStore();
-  const imageMetadata = new ImageMetadataStore();
+  const imageMetadata = new ImageMetadataOccurrencesStore();
   const photos = props.photos ?? makePhotos(5);
   for (const p of photos) {
     thumbnails.add(p.relative_path);
@@ -51,7 +52,7 @@ function setup(props: SetupProps = {}) {
     <PhotoList
       photos={photos}
       thumbnails={thumbnails}
-      imageMetadata={imageMetadata}
+      imageMetadataOccurrences={imageMetadata}
       visibleColumns={[]}
       sortConfig={{ primary: null, secondary: null }}
       onSortChange={() => {}}
@@ -99,7 +100,7 @@ function setupStateful(
   } = {},
 ) {
   const thumbnails = new ThumbnailStore();
-  const imageMetadata = new ImageMetadataStore();
+  const imageMetadata = new ImageMetadataOccurrencesStore();
   const photos = makePhotos(opts.photoCount ?? 5);
   for (const p of photos) {
     thumbnails.add(p.relative_path);
@@ -114,7 +115,7 @@ function setupStateful(
       <PhotoList
         photos={photos}
         thumbnails={thumbnails}
-        imageMetadata={imageMetadata}
+        imageMetadataOccurrences={imageMetadata}
         visibleColumns={[]}
         sortConfig={{ primary: null, secondary: null }}
         onSortChange={() => {}}
@@ -303,7 +304,7 @@ describe("PhotoList context menu (multi-select)", () => {
     vi.mocked(ask).mockClear();
 
     const thumbnails = new ThumbnailStore();
-    const imageMetadata = new ImageMetadataStore();
+    const imageMetadata = new ImageMetadataOccurrencesStore();
     const photos = makePhotos(5);
     for (const p of photos) {
       thumbnails.add(p.relative_path);
@@ -311,14 +312,16 @@ describe("PhotoList context menu (multi-select)", () => {
     }
     imageMetadata.set(
       "2.jpg",
-      mockMetadata({ "XMP-mlib:AIDescription": "old text" }),
+      occurrencesFromMetadataCollection(
+        mockMetadata({ "XMP-mlib:AIDescription": "old text" }),
+      ),
     );
     const onGenerateAiDescription = vi.fn();
     render(
       <PhotoList
         photos={photos}
         thumbnails={thumbnails}
-        imageMetadata={imageMetadata}
+        imageMetadataOccurrences={imageMetadata}
         visibleColumns={[]}
         sortConfig={{ primary: null, secondary: null }}
         onSortChange={() => {}}

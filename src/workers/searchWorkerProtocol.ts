@@ -1,10 +1,10 @@
 /**
- * Wire types shared between the main thread (`useSearchWorker`) and the
- * search worker.  Importing this file is safe from both sides — it contains
- * only `type` / `interface` declarations.
+ * Wire types shared between the main thread (`useSearchWorker`) and the search
+ * worker. Importing this file is safe from both sides.
  */
 import type {
   MetadataDraftEdit,
+  MetadataOccurrenceId,
   MetadataValue,
   SchemaDefinitionId,
 } from "../types";
@@ -17,26 +17,28 @@ export interface SearchSchemaLabel {
   description: string | null;
 }
 
-export interface SearchMetadataEntry {
-  id: SchemaDefinitionId;
+export interface SearchOccurrenceEntry {
+  schemaId: SchemaDefinitionId;
   value: MetadataValue;
+  occurrenceId: MetadataOccurrenceId;
 }
 
-export type SearchMetadataState = "loading" | SearchMetadataEntry[];
+export type SearchOccurrencesState = "loading" | SearchOccurrenceEntry[];
 
 export interface SearchDraftEntry {
   id: SchemaDefinitionId;
   edit: MetadataDraftEdit;
 }
 
-// ── Main → worker ────────────────────────────────────────────────────────
-
 export type SearchWorkerInbound =
   | { type: "CLEAR" }
   | { type: "INIT_PHOTOS"; photos: SearchPhotoFields[] }
   | {
-      type: "INIT_META";
-      entries: Array<{ path: string; meta: SearchMetadataState }>;
+      type: "INIT_OCCURRENCES";
+      entries: Array<{
+        path: string;
+        occurrences: SearchOccurrencesState;
+      }>;
       schemaLabels: SearchSchemaLabel[];
     }
   | {
@@ -49,9 +51,9 @@ export type SearchWorkerInbound =
     }
   | { type: "UPSERT_PHOTO"; photo: SearchPhotoFields }
   | {
-      type: "UPSERT_META";
+      type: "UPSERT_OCCURRENCES";
       path: string;
-      meta: SearchMetadataState;
+      occurrences: SearchOccurrencesState;
       schemaLabels: SearchSchemaLabel[];
     }
   | {
@@ -62,8 +64,6 @@ export type SearchWorkerInbound =
     }
   | { type: "DELETE_PATH"; path: string }
   | { type: "QUERY"; id: number; query: string };
-
-// ── Worker → main ────────────────────────────────────────────────────────
 
 export type SearchWorkerOutbound = {
   type: "RESULT";

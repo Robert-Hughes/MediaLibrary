@@ -14,6 +14,7 @@ import {
   schemaDefinitionIdEquals,
 } from "./schemaDefinitionId";
 import { resolveExactMetadataOccurrence } from "./metadataOccurrences";
+import { tagInfoSupportsMetadataWrite } from "./metadataWriteSupport";
 
 type ExistingOccurrenceDraftTarget = Extract<
   MetadataDraftTarget,
@@ -36,6 +37,7 @@ export type ExistingOccurrenceDraftTargetResolution =
         | "unknown_schema"
         | "schema_mismatch"
         | "read_only_schema"
+        | "unsupported_schema_kind"
         | "missing_write_target";
     };
 
@@ -56,7 +58,7 @@ export type NewPropertyDraftTargetResolution =
     }
   | {
       kind: "unavailable";
-      reason: "read_only_schema";
+      reason: "read_only_schema" | "unsupported_schema_kind";
     };
 
 /** Returns the exact schema identity carried by either target variant. */
@@ -180,6 +182,9 @@ export function existingOccurrenceDraftTarget(
   if (!info.writable) {
     return { kind: "unavailable", reason: "read_only_schema" };
   }
+  if (!tagInfoSupportsMetadataWrite(info)) {
+    return { kind: "unavailable", reason: "unsupported_schema_kind" };
+  }
   if (occurrence.write_target == null) {
     return { kind: "unavailable", reason: "missing_write_target" };
   }
@@ -212,6 +217,13 @@ export function existingOccurrenceTargetFromOccurrence(
     return {
       kind: "read-only",
       reason: "This occurrence's TagInfo is read-only.",
+    };
+  }
+  if (!tagInfoSupportsMetadataWrite(occurrence.tag_info)) {
+    return {
+      kind: "read-only",
+      reason:
+        "This occurrence's schema kind is unsupported for metadata writes.",
     };
   }
   if (occurrence.write_target === null) {
@@ -264,6 +276,9 @@ export function newPropertyDraftTarget(
 ): NewPropertyDraftTargetResolution {
   if (!info.writable) {
     return { kind: "unavailable", reason: "read_only_schema" };
+  }
+  if (!tagInfoSupportsMetadataWrite(info)) {
+    return { kind: "unavailable", reason: "unsupported_schema_kind" };
   }
 
   return {

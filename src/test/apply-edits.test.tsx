@@ -215,12 +215,6 @@ describe("target-aware progress and results", () => {
         fresh_image_metadata: {
           relative_path: "test.jpg",
           occurrences: [],
-          metadata: [
-            {
-              id: descriptionId,
-              value: { kind: "Text", value: "Applied value" },
-            },
-          ],
         },
       },
     );

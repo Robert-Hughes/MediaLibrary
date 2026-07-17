@@ -3,7 +3,7 @@ import type {
   MetadataDraftCollection,
   MetadataDraftEdit,
   MetadataDraftEditsByFile,
-  MetadataEntry,
+  MetadataOccurrence,
   MetadataValue,
   EditIntent,
   OsColumnKey,
@@ -15,6 +15,7 @@ import type {
 } from "../types";
 import type { MetadataCollection } from "../utils/metadataCollection";
 import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
+import { occurrencesFromMetadataCollection } from "./occurrenceFixtures";
 import { testFriendlyName, testId } from "./testIds";
 import { _ensureTagInfoCacheEntry } from "../hooks/useTagInfo";
 
@@ -64,13 +65,10 @@ export function mockMetadata(raw: Record<string, unknown>): MetadataCollection {
   );
 }
 
-export function mockMetadataEntries(
+export function mockOccurrences(
   raw: Record<string, unknown>,
-): MetadataEntry[] {
-  return Object.values(mockMetadata(raw)).map(({ id, ...value }) => ({
-    id,
-    value,
-  }));
+): MetadataOccurrence[] {
+  return occurrencesFromMetadataCollection(mockMetadata(raw));
 }
 
 export function mockDrafts(

@@ -194,16 +194,18 @@ IDs are never JSON object keys. Historical draft files are ignored rather than
 parsed or migrated. Image-column settings without exact IDs are reset rather
 than guessed.
 
-## Temporary schema projection
+## Derived schema-oriented views
 
-The read-only schema-keyed `ImageMetadata.metadata` projection remains a
-migration boundary. It groups authoritative occurrences by
-`MetadataOccurrence.schema_id`, conservatively collapses identical ordinary
-values, merges compatible LangAlt children under their exact parent schema, and
-omits conflicts with complete occurrence-ID evidence. Projection omissions do
-not invalidate authoritative extraction. Because unknown occurrences now retain
-exact schema identity independently of `TagInfo`, the next migration can remove
-this projection without losing their identity.
+`ImageMetadata` now carries only authoritative `occurrences`; the scanner no
+longer emits or stores a schema-keyed metadata projection. Schema-oriented UI
+and generated-workflow consumers derive a fresh read-only view from occurrences
+when needed. The derivation groups by `MetadataOccurrence.schema_id`,
+conservatively collapses identical ordinary values, merges compatible LangAlt
+values, and omits conflicts without affecting authoritative occurrence state.
+Schema presence is resolved separately from value representability, so an
+ambiguous value remains known to exist without selecting an arbitrary
+occurrence. Derived views are never retained as a second store and must never be
+used to choose a runtime target.
 
 ## Rejected approaches
 
@@ -223,14 +225,18 @@ MediaLibrary deliberately has:
 
 ## Search indexing
 
-Metadata and draft entries cross the search-worker boundary with structured
-exact `SchemaDefinitionId` values. Before posting them, the main thread resolves
-`TagInfo` through the existing exact-ID cache and projects only the searchable
-label subset: group, name, and description. Entries and their deduplicated
-labels are sent together in one combined message.
+## Search indexing
 
-The worker matches labels to entries by exact ID and adds the friendly fields to
-its haystack, but labels never become identity. Exact table, tag ID, optional
-index, and a readable diagnostic form remain searchable when a schema is
-missing. The internal JSON token used for JavaScript map keys is not
-user-facing searchable text.
+Every authoritative occurrence crosses the search-worker boundary with its
+structured exact `SchemaDefinitionId`, semantic value, and complete runtime
+`MetadataOccurrenceId`. Draft entries carry their exact target schema and
+semantic edit. Before posting either stream, the main thread resolves `TagInfo`
+through the existing exact-ID cache and sends only the searchable label subset:
+group, name, and description.
+
+The worker indexes all same-schema occurrences independently, including runtime
+document, path, tag ID, and copy coordinates, while labels remain presentation
+text rather than identity. Exact table, schema tag ID, optional index, and a
+readable diagnostic form remain searchable when registry interpretation is
+missing. Internal JSON tokens used for JavaScript map keys are not user-facing
+searchable text.

@@ -366,10 +366,9 @@ fn start_scan(
                         match scanner::read_image_metadata_batch(&rel_paths, &abs_paths) {
                             Ok(outcome) => {
                                 log::debug!(
-                                    "[metadata] Read {} successes, {} failures, {} schema-keyed display projection omissions",
+                                    "[metadata] Read {} successes and {} failures",
                                     outcome.results.len(),
-                                    outcome.failures.len(),
-                                    outcome.schema_projection_omissions.len()
+                                    outcome.failures.len()
                                 );
 
                                 batch_results.extend(outcome.results);
@@ -393,7 +392,6 @@ fn start_scan(
                                         relative_path: fail.relative_path,
                                         occurrences:
                                             crate::metadata_occurrence::MetadataOccurrences::default(),
-                                        metadata: scanner::MetadataEntries::default(),
                                     });
                                 }
                             }
@@ -411,13 +409,12 @@ fn start_scan(
                                     },
                                 );
 
-                                // Send empty results for failed files so both frontend stores clear loading.
+                                // Send empty occurrence results for failed files so the frontend clears loading.
                                 for rel_path in rel_paths {
                                     batch_results.push(scanner::ImageMetadata {
                                         relative_path: rel_path,
                                         occurrences:
                                             crate::metadata_occurrence::MetadataOccurrences::default(),
-                                        metadata: scanner::MetadataEntries::default(),
                                     });
                                 }
                             }
@@ -1028,10 +1025,6 @@ mod tests {
                 occurrence("JPEG-APP1-IFD0", 0, "IFD0"),
                 occurrence("JPEG-APP1-IFD1", 2, "IFD1"),
             ]),
-            metadata: scanner::MetadataEntries(vec![scanner::MetadataEntry {
-                id: schema_id,
-                value: MetadataValue::Integer(300),
-            }]),
         };
 
         let json = serde_json::to_value(ImageMetadataReadyPayload {
@@ -1040,33 +1033,32 @@ mod tests {
         })
         .unwrap();
         let result = json["results"][0].as_object().unwrap();
-        assert_eq!(result.len(), 3);
+        assert_eq!(result.len(), 2);
         assert_eq!(
             result
                 .keys()
                 .map(String::as_str)
                 .collect::<std::collections::BTreeSet<_>>(),
-            std::collections::BTreeSet::from(["metadata", "occurrences", "relative_path"])
+            std::collections::BTreeSet::from(["occurrences", "relative_path"])
         );
         assert_eq!(result["occurrences"].as_array().unwrap().len(), 2);
         assert_eq!(result["occurrences"][1]["id"]["copy"], 2);
         assert_eq!(result["occurrences"][0]["tag_info"]["id"]["tag_id"], "282");
         assert_eq!(result["occurrences"][0]["value"]["kind"], "Integer");
         assert_eq!(result["occurrences"][0]["write_target"]["group1"], "IFD0");
-        assert_eq!(result["metadata"].as_array().unwrap().len(), 1);
+        assert!(!result.contains_key("metadata"));
     }
 
     #[test]
-    fn metadata_ready_failed_placeholder_serializes_both_empty_collections() {
+    fn metadata_ready_failed_placeholder_serializes_empty_occurrences_only() {
         let result = scanner::ImageMetadata {
             relative_path: "failed.jpg".into(),
             occurrences: crate::metadata_occurrence::MetadataOccurrences::default(),
-            metadata: scanner::MetadataEntries::default(),
         };
         let json = serde_json::to_value(result).unwrap();
-        assert_eq!(json.as_object().unwrap().len(), 3);
+        assert_eq!(json.as_object().unwrap().len(), 2);
         assert_eq!(json["occurrences"], serde_json::json!([]));
-        assert_eq!(json["metadata"], serde_json::json!([]));
+        assert!(json.get("metadata").is_none());
     }
 
     #[test]

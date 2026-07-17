@@ -2,7 +2,6 @@ import { memo, useCallback, useMemo, useSyncExternalStore } from "react";
 import type {
   ImageMetadataEntry,
   ImageMetadataOccurrencesStore,
-  ImageMetadataStore,
   MetadataDraftCollection,
   MetadataDraftEdit,
   PhotoInfo,
@@ -22,9 +21,9 @@ import { useTagInfo } from "../hooks/useTagInfo";
 import { metadataGet } from "../utils/metadataCollection";
 import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
 import { buildSchemaDraftDisplayProjection } from "../targetDraftView";
+import { schemaMetadataCollectionFromOccurrences } from "../utils/schemaMetadataProjection";
 
 const EMPTY_CELL = "—";
-const ERROR_CELL = "✗";
 
 function CellContent({
   text,
@@ -97,8 +96,7 @@ interface RowProps {
   index: number;
   selected: boolean;
   thumbnails: ThumbnailStore;
-  imageMetadata: ImageMetadataStore;
-  imageMetadataOccurrences?: ImageMetadataOccurrencesStore;
+  imageMetadataOccurrences: ImageMetadataOccurrencesStore;
   targetDraftEdits?: TargetDraftCollection;
   visibleColumns: VisibleColumn[];
   draftEdits?: MetadataDraftCollection;
@@ -117,7 +115,6 @@ export const PhotoRow = memo(function PhotoRow({
   index,
   selected,
   thumbnails,
-  imageMetadata,
   imageMetadataOccurrences,
   targetDraftEdits,
   visibleColumns,
@@ -139,51 +136,41 @@ export const PhotoRow = memo(function PhotoRow({
   );
   const thumbnail = useSyncExternalStore(subscribeThumb, getThumbSnapshot);
 
-  const subscribeMeta = useCallback(
-    (cb: () => void) => imageMetadata.subscribe(photo.relative_path, cb),
-    [imageMetadata, photo.relative_path],
-  );
-  const getMetaSnapshot = useCallback(
-    () => imageMetadata.get(photo.relative_path),
-    [imageMetadata, photo.relative_path],
-  );
-  const metadata = useSyncExternalStore(subscribeMeta, getMetaSnapshot);
-
   const subscribeOccurrences = useCallback(
     (callback: () => void) =>
-      imageMetadataOccurrences?.subscribe(photo.relative_path, callback) ??
-      (() => {}),
+      imageMetadataOccurrences.subscribe(photo.relative_path, callback),
     [imageMetadataOccurrences, photo.relative_path],
   );
   const getOccurrencesSnapshot = useCallback(
-    () => imageMetadataOccurrences?.get(photo.relative_path) ?? "loading",
+    () => imageMetadataOccurrences.get(photo.relative_path),
     [imageMetadataOccurrences, photo.relative_path],
   );
   const occurrences = useSyncExternalStore(
     subscribeOccurrences,
     getOccurrencesSnapshot,
   );
+  const metadata = useMemo(
+    () =>
+      occurrences === "loading"
+        ? undefined
+        : schemaMetadataCollectionFromOccurrences(occurrences),
+    [occurrences],
+  );
   const presentedDraftEdits = useMemo(
     () =>
       targetDraftEdits === undefined
         ? draftEdits
         : buildSchemaDraftDisplayProjection({
-            compatibilityMetadata:
-              metadata === "loading" ? undefined : metadata,
             occurrences,
             targetDrafts: targetDraftEdits,
           }),
-    [draftEdits, metadata, occurrences, targetDraftEdits],
+    [draftEdits, occurrences, targetDraftEdits],
   );
   const isLoading = thumbnail === "loading";
   const hasSrc = thumbnail !== "loading" && thumbnail !== "failed";
   const src = hasSrc ? `data:image/jpeg;base64,${thumbnail}` : null;
 
-  const metadataLoading = metadata === "loading";
-  const metadataFailed =
-    metadata !== "loading" &&
-    typeof metadata === "object" &&
-    "_error" in metadata;
+  const metadataLoading = occurrences === "loading";
 
   const handleSelect = useCallback(
     (e: React.MouseEvent) =>
@@ -312,14 +299,10 @@ export const PhotoRow = memo(function PhotoRow({
                   {EMPTY_CELL}
                 </span>
               )
-            ) : metadataFailed ? (
-              <span className="metadata-error" title="Failed to load metadata">
-                {ERROR_CELL}
-              </span>
             ) : (
               <MetadataCellContent
                 id={col.id}
-                value={metadataGet(metadata, col.id)}
+                value={metadata ? metadataGet(metadata, col.id) : undefined}
                 draft={
                   presentedDraftEdits[schemaDefinitionIdToken(col.id)]?.edit
                 }

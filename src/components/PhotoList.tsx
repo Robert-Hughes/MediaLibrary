@@ -1,10 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import {
-  ThumbnailStore,
-  ImageMetadataStore,
-  ImageMetadataOccurrencesStore,
-} from "../types";
+import { ThumbnailStore, ImageMetadataOccurrencesStore } from "../types";
 import type {
   MetadataDraftEditsByFile,
   PhotoInfo,
@@ -51,8 +47,7 @@ export type HeaderActionScope = {
 interface Props {
   photos: PhotoInfo[];
   thumbnails: ThumbnailStore;
-  imageMetadata: ImageMetadataStore;
-  imageMetadataOccurrences?: ImageMetadataOccurrencesStore;
+  imageMetadataOccurrences: ImageMetadataOccurrencesStore;
   targetDraftEdits?: TargetDraftEditsByFile;
   visibleColumns: VisibleColumn[];
   columnWidths?: Record<string, number>;
@@ -334,7 +329,6 @@ function PhotoListHeader(props: HeaderProps) {
 export function PhotoList({
   photos,
   thumbnails,
-  imageMetadata,
   imageMetadataOccurrences,
   targetDraftEdits,
   visibleColumns,
@@ -411,14 +405,13 @@ export function PhotoList({
   }, [rowHeight, rowVirtualizer]);
 
   const virtualItems = rowVirtualizer.getVirtualItems();
-
   // Track visibility for prioritization
   useEffect(() => {
     const notify = () => {
       const visibleOrdered = selectVisibleNeedingLoad(
         visibleRef.current,
         thumbnails,
-        imageMetadata,
+        imageMetadataOccurrences,
       );
       if (visibleOrdered.length > 0) {
         onVisibilityChangeRef.current(visibleOrdered);
@@ -446,7 +439,7 @@ export function PhotoList({
     };
 
     updateVisible();
-  }, [virtualItems, thumbnails, imageMetadata]);
+  }, [virtualItems, thumbnails, imageMetadataOccurrences]);
 
   // Defensive kickstart: when photos first appear in a scan, notify about the
   // first 30 paths that still need loading.  This runs once per scan so the
@@ -468,7 +461,7 @@ export function PhotoList({
       const path = photos[i].relative_path;
       if (
         thumbnails.get(path) === "loading" ||
-        imageMetadata.get(path) === "loading"
+        imageMetadataOccurrences.get(path) === "loading"
       ) {
         initialPaths.push(path);
       }
@@ -477,7 +470,7 @@ export function PhotoList({
     if (initialPaths.length > 0) {
       onVisibilityChange(initialPaths);
     }
-  }, [photos, thumbnails, imageMetadata, onVisibilityChange]);
+  }, [photos, thumbnails, imageMetadataOccurrences, onVisibilityChange]);
 
   useEffect(() => {
     if (selectedIndex !== null && listRef.current) {
@@ -688,7 +681,6 @@ export function PhotoList({
                 index={virtualRow.index}
                 selected={selectedIndices.has(virtualRow.index)}
                 thumbnails={thumbnails}
-                imageMetadata={imageMetadata}
                 imageMetadataOccurrences={imageMetadataOccurrences}
                 targetDraftEdits={targetDraftEdits?.[photo.relative_path]}
                 visibleColumns={visibleColumns}

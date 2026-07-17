@@ -7,7 +7,6 @@ import type {
   ImageMetadataEntry,
   ImageMetadataOccurrencesState,
   ImageMetadataOccurrencesStore,
-  ImageMetadataStore,
   MetadataValue,
   NormaliseGroup,
   NormaliseRequestItem,
@@ -77,25 +76,8 @@ function metadataEntryToStringList(v: EffectiveMetadataEntry): string[] {
   return scalar != null && scalar !== "" ? [scalar] : [];
 }
 
-export interface PhotoMetadataLookup {
-  get(relPath: string): MetadataCollection | undefined;
-}
-
 export interface PhotoOccurrencesLookup {
   get(relPath: string): ImageMetadataOccurrencesState | undefined;
-}
-
-export function metadataStoreLookup(
-  store: ImageMetadataStore,
-): PhotoMetadataLookup {
-  return {
-    get(relPath) {
-      const metadata = store.get(relPath);
-      return typeof metadata === "object" && metadata !== null
-        ? metadata
-        : undefined;
-    },
-  };
 }
 
 export function metadataOccurrencesStoreLookup(
@@ -139,13 +121,11 @@ function list(
  */
 export function buildNormaliseItemForPhoto(
   relPath: string,
-  metadata: MetadataCollection | undefined,
   enabledGroups: ReadonlyArray<NormaliseGroup>,
   occurrences?: ImageMetadataOccurrencesState,
   targetDrafts?: TargetDraftCollection,
 ): NormaliseRequestItem {
   const effective = buildEffectiveMetadataForFile({
-    metadata,
     occurrences,
     targetDrafts,
   });
@@ -265,14 +245,6 @@ export function buildNormaliseItemForPhoto(
 
 export function buildNormaliseItems(
   relPaths: ReadonlyArray<string>,
-  metadata: PhotoMetadataLookup,
-  occurrences: PhotoOccurrencesLookup,
-  targetDrafts: TargetDraftEditsByFile,
-  enabledGroups: ReadonlyArray<NormaliseGroup>,
-): NormaliseRequestItem[];
-export function buildNormaliseItems(
-  relPaths: ReadonlyArray<string>,
-  metadata: PhotoMetadataLookup,
   occurrences: PhotoOccurrencesLookup,
   targetDrafts: TargetDraftEditsByFile,
   enabledGroups: ReadonlyArray<NormaliseGroup>,
@@ -280,7 +252,6 @@ export function buildNormaliseItems(
   return relPaths.map((relPath) =>
     buildNormaliseItemForPhoto(
       relPath,
-      metadata.get(relPath),
       enabledGroups,
       occurrences.get(relPath),
       targetDrafts[relPath],

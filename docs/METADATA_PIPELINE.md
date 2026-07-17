@@ -17,16 +17,16 @@ Unknown registry schemas therefore remain in authoritative occurrence state as
 an exact schema ID with null `TagInfo` and null write target. They can be shown
 and diagnosed by table, tag ID and optional index, but remain read-only. Schema
 identity alone cannot authorise a write.
+`ImageMetadata` contains only authoritative occurrences. Schema-oriented list,
+Details Pane, GPS, normalisation, overwrite, and column-frequency consumers
+derive safe read-only schema views on demand. Identical ordinary values may be
+collapsed and compatible LangAlt values merged; conflicting same-schema values
+remain unavailable without affecting exact occurrence visibility. Schema
+presence is resolved separately from value projection. No schema-keyed scan
+wire field or second frontend metadata store remains.
 
-Compatibility `ImageMetadata.metadata` may still support read-only consumers,
-but editing decisions use exact occurrences. Its temporary schema-keyed
-projection groups by `occurrence.schema_id`; conservative collapsing, LangAlt
-merging and omission behaviour are unchanged. Details Pane rows show exact
-pending target values, reopen editors from staged semantic values, and keep
-same-schema siblings separate.
-
-Manual row editing, New Property, GPS editing, removal, AI description,
-reverse geocoding, and normalisation all resolve their generated edits to
+Details Pane rows show exact pending target values, reopen editors from staged
+semantic values, and keep same-schema siblings separate.
 `ExistingOccurrence` or `NewProperty` targets before staging. Ambiguous and
 read-only inputs fail without partial mutation.
 
@@ -71,15 +71,17 @@ historical `MediaLibraryApplyLog.jsonl` is ignored and left unchanged.
 
 ## Search projection
 
-The list-search worker receives full target-draft search entries: exact schema
-ID plus complete semantic edit. Resolved group, name, and description labels
-enrich the indexed text. Initial snapshots, incremental changes, deletion of a
-path's last draft, retries, stale-result protection, and reserved property-like
-paths are supported.
+The list-search worker receives authoritative occurrence entries with exact
+schema ID, semantic value, and runtime occurrence coordinates, plus full
+target-draft search entries with exact schema ID and semantic edit. Resolved
+group, name, and description labels enrich the indexed text. Initial snapshots,
+incremental changes, deletion of a path's last draft, retries, stale-result
+protection, and reserved property-like paths are supported.
 
-This projection supports exact schema, friendly label, description, staged
-value, and `has:edits` queries. It is not an execution adapter and never merges
-or selects targets by schema.
+This projection supports exact schema, runtime path/document/tag/copy fields,
+friendly label, description, current value, staged value, and `has:edits`
+queries. It is not an execution adapter and never merges or selects targets by
+schema.
 
 ## Removed pipeline
 
@@ -90,9 +92,12 @@ or conversion branch for that pipeline.
 
 ## Transient and persisted wire formats
 
-Adding `MetadataOccurrence.schema_id` changes only transient scan and readback
-payloads. It does not change `MetadataDraftTarget`, target slot tokens, the
+Scan and readback `ImageMetadata` payloads contain `relative_path` and the
+authoritative occurrence collection only. Removing the schema-keyed scan
+projection does not change `MetadataDraftTarget`, target slot tokens, the
 schema-v5 command or event names, reconciliation kinds,
 `MediaLibraryTargetDraftEdits.jsonl`, or `MediaLibraryTargetApplyLog.jsonl`.
+`ExistingOccurrence` targets persist their own schema snapshot and compare it
+with the authoritative occurrence field.
 `ExistingOccurrence` targets already persist their own schema snapshot and now
 compare that snapshot with the authoritative occurrence field.

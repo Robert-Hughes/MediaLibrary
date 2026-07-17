@@ -3,7 +3,7 @@ import { userEvent } from "@testing-library/user-event";
 import { vi } from "vitest";
 import { ask, message } from "@tauri-apps/plugin-dialog";
 import { PhotoList } from "../components/PhotoList";
-import { ThumbnailStore, ImageMetadataStore } from "../types";
+import { ThumbnailStore, ImageMetadataOccurrencesStore } from "../types";
 import type { PhotoInfo, SchemaDefinitionId } from "../types";
 import type { MetadataRemovalFilesPreviewV5 } from "../metadataRemovalTargets";
 import {
@@ -11,6 +11,7 @@ import {
   _setTagInfoCacheEntry,
 } from "./tagInfoTestHelpers";
 import { imgCol, mockDraftsByFile, mockMetadata, testId } from "./factories";
+import { occurrencesFromMetadataCollection } from "./occurrenceFixtures";
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({
   ask: vi.fn(),
@@ -39,12 +40,12 @@ describe("PhotoList column header context menu", () => {
   ];
 
   let thumbnailStore: ThumbnailStore;
-  let metadataStore: ImageMetadataStore;
+  let metadataStore: ImageMetadataOccurrencesStore;
   let onSelectColumnsMock: () => void;
 
   beforeEach(() => {
     thumbnailStore = new ThumbnailStore();
-    metadataStore = new ImageMetadataStore();
+    metadataStore = new ImageMetadataOccurrencesStore();
     onSelectColumnsMock = vi.fn();
 
     mockPhotos.forEach((photo) => {
@@ -74,7 +75,7 @@ describe("PhotoList column header context menu", () => {
       <PhotoList
         photos={mockPhotos}
         thumbnails={thumbnailStore}
-        imageMetadata={metadataStore}
+        imageMetadataOccurrences={metadataStore}
         visibleColumns={[
           { key: "date_modified", kind: "os" },
           { key: "date_created", kind: "os" },
@@ -103,7 +104,7 @@ describe("PhotoList column header context menu", () => {
       <PhotoList
         photos={mockPhotos}
         thumbnails={thumbnailStore}
-        imageMetadata={metadataStore}
+        imageMetadataOccurrences={metadataStore}
         visibleColumns={[
           { key: "date_modified", kind: "os" },
           { key: "date_created", kind: "os" },
@@ -135,7 +136,7 @@ describe("PhotoList column header context menu", () => {
       <PhotoList
         photos={mockPhotos}
         thumbnails={thumbnailStore}
-        imageMetadata={metadataStore}
+        imageMetadataOccurrences={metadataStore}
         visibleColumns={[
           { key: "date_modified", kind: "os" },
           { key: "date_created", kind: "os" },
@@ -171,7 +172,7 @@ describe("PhotoList column header context menu", () => {
       <PhotoList
         photos={mockPhotos}
         thumbnails={thumbnailStore}
-        imageMetadata={metadataStore}
+        imageMetadataOccurrences={metadataStore}
         visibleColumns={[
           { key: "date_modified", kind: "os" },
           { key: "date_created", kind: "os" },
@@ -229,7 +230,7 @@ describe("PhotoList column header context menu", () => {
         <PhotoList
           photos={mockPhotos}
           thumbnails={thumbnailStore}
-          imageMetadata={metadataStore}
+          imageMetadataOccurrences={metadataStore}
           visibleColumns={[
             { key: "date_modified", kind: "os" },
             imgCol("ExifIFD:DateTimeOriginal"),
@@ -263,20 +264,22 @@ describe("PhotoList column header context menu", () => {
       // Setup metadata: photo1 has ExifIFD:DateTimeOriginal, photo2 does not
       metadataStore.set(
         "photo1.jpg",
-        mockMetadata({
-          "ExifIFD:DateTimeOriginal": {
-            kind: "Text",
-            value: "2022:01:01 12:00:00",
-          },
-        }),
+        occurrencesFromMetadataCollection(
+          mockMetadata({
+            "ExifIFD:DateTimeOriginal": {
+              kind: "Text",
+              value: "2022:01:01 12:00:00",
+            },
+          }),
+        ),
       );
-      metadataStore.set("photo2.jpg", {});
+      metadataStore.set("photo2.jpg", []);
 
       render(
         <PhotoList
           photos={mockPhotos}
           thumbnails={thumbnailStore}
-          imageMetadata={metadataStore}
+          imageMetadataOccurrences={metadataStore}
           visibleColumns={[imgCol("ExifIFD:DateTimeOriginal")]}
           {...defaultSortProps}
           selectedIndex={0} // photo1 is selected
@@ -330,7 +333,7 @@ describe("PhotoList column header context menu", () => {
         <PhotoList
           photos={mockPhotos}
           thumbnails={thumbnailStore}
-          imageMetadata={metadataStore}
+          imageMetadataOccurrences={metadataStore}
           visibleColumns={[imgCol("ExifIFD:DateTimeOriginal")]}
           {...defaultSortProps}
           selectedIndex={0}
@@ -378,15 +381,17 @@ describe("PhotoList column header context menu", () => {
       // photo1 has value in metadata but Delete draft edit (effectively absent)
       metadataStore.set(
         "photo1.jpg",
-        mockMetadata({
-          "ExifIFD:DateTimeOriginal": {
-            kind: "Text",
-            value: "2022:01:01 12:00:00",
-          },
-        }),
+        occurrencesFromMetadataCollection(
+          mockMetadata({
+            "ExifIFD:DateTimeOriginal": {
+              kind: "Text",
+              value: "2022:01:01 12:00:00",
+            },
+          }),
+        ),
       );
       // photo2 has no value in metadata but Set draft edit (effectively present)
-      metadataStore.set("photo2.jpg", {});
+      metadataStore.set("photo2.jpg", []);
 
       const draftEdits = {
         "photo1.jpg": {
@@ -407,7 +412,7 @@ describe("PhotoList column header context menu", () => {
         <PhotoList
           photos={mockPhotos}
           thumbnails={thumbnailStore}
-          imageMetadata={metadataStore}
+          imageMetadataOccurrences={metadataStore}
           visibleColumns={[imgCol("ExifIFD:DateTimeOriginal")]}
           {...defaultSortProps}
           selectedIndex={0}
@@ -454,7 +459,7 @@ describe("PhotoList column header context menu", () => {
         <PhotoList
           photos={mockPhotos}
           thumbnails={thumbnailStore}
-          imageMetadata={metadataStore}
+          imageMetadataOccurrences={metadataStore}
           visibleColumns={[imgCol("ExifIFD:DateTimeOriginal")]}
           {...defaultSortProps}
           selectedIndex={null}
@@ -495,7 +500,7 @@ describe("PhotoList column header context menu", () => {
         <PhotoList
           photos={mockPhotos}
           thumbnails={thumbnailStore}
-          imageMetadata={metadataStore}
+          imageMetadataOccurrences={metadataStore}
           visibleColumns={[imgCol("ExifIFD:DateTimeOriginal")]}
           {...defaultSortProps}
           selectedIndex={null}
@@ -529,20 +534,22 @@ describe("PhotoList column header context menu", () => {
       // Setup metadata: photo1 has value, photo2 does not
       metadataStore.set(
         "photo1.jpg",
-        mockMetadata({
-          "ExifIFD:DateTimeOriginal": {
-            kind: "Text",
-            value: "2022:01:01 12:00:00",
-          },
-        }),
+        occurrencesFromMetadataCollection(
+          mockMetadata({
+            "ExifIFD:DateTimeOriginal": {
+              kind: "Text",
+              value: "2022:01:01 12:00:00",
+            },
+          }),
+        ),
       );
-      metadataStore.set("photo2.jpg", {});
+      metadataStore.set("photo2.jpg", []);
 
       render(
         <PhotoList
           photos={mockPhotos}
           thumbnails={thumbnailStore}
-          imageMetadata={metadataStore}
+          imageMetadataOccurrences={metadataStore}
           visibleColumns={[imgCol("ExifIFD:DateTimeOriginal")]}
           {...defaultSortProps}
           selectedIndex={null} // NO selected photo
@@ -591,7 +598,7 @@ describe("PhotoList column header context menu", () => {
         <PhotoList
           photos={mockPhotos}
           thumbnails={thumbnailStore}
-          imageMetadata={metadataStore}
+          imageMetadataOccurrences={metadataStore}
           visibleColumns={[imgCol("ExifIFD:DateTimeOriginal")]}
           {...defaultSortProps}
           selectedIndex={0} // Photo 1 is selected
@@ -629,7 +636,7 @@ describe("PhotoList column header context menu", () => {
         <PhotoList
           photos={mockPhotos}
           thumbnails={thumbnailStore}
-          imageMetadata={metadataStore}
+          imageMetadataOccurrences={metadataStore}
           visibleColumns={[imgCol("ExifIFD:DateTimeOriginal")]}
           {...defaultSortProps}
           selectedIndex={0}
@@ -663,7 +670,7 @@ describe("PhotoList column header context menu", () => {
         <PhotoList
           photos={mockPhotos}
           thumbnails={thumbnailStore}
-          imageMetadata={metadataStore}
+          imageMetadataOccurrences={metadataStore}
           visibleColumns={[{ key: "date_modified", kind: "os" }]}
           {...defaultSortProps}
           selectedIndex={null}
@@ -690,7 +697,7 @@ describe("PhotoList column header context menu", () => {
         <PhotoList
           photos={mockPhotos}
           thumbnails={thumbnailStore}
-          imageMetadata={metadataStore}
+          imageMetadataOccurrences={metadataStore}
           visibleColumns={[imgCol("ExifIFD:DateTimeOriginal")]}
           {...defaultSortProps}
           selectedIndex={null}

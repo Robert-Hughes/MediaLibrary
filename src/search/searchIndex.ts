@@ -1,14 +1,7 @@
-/**
- * Pure, framework-free search index for the list view.  Owns per-path
- * haystacks built from photo fields + image metadata + draft edits, and
- * answers substring queries with a single-step prefix-narrowing cache.
- *
- * Lives in its own module so it can be unit-tested directly (without a
- * Worker harness) and reused as the body of `src/workers/searchWorker.ts`.
- */
+/** Pure, framework-free incremental search index for the list view. */
 import type {
   SearchDraftEntry,
-  SearchMetadataState,
+  SearchOccurrencesState,
   SearchSchemaLabel,
 } from "../workers/searchWorkerProtocol";
 import {
@@ -29,12 +22,13 @@ export interface SearchPhotoFields {
 }
 
 export interface SearchQueryResult {
-  /** Paths that match, in arbitrary order. */
   matched: string[];
   hasEditsFilter: boolean;
 }
 
 const HAS_EDITS_TOKEN = "has:edits";
+
+type SearchSchemaId = SearchSchemaLabel["id"];
 
 function photoChunk(fields: SearchPhotoFields): string {
   return [
@@ -45,7 +39,7 @@ function photoChunk(fields: SearchPhotoFields): string {
   ].join("\n");
 }
 
-function exactIdChunk(id: SearchMetadataEntryId): string[] {
+function exactIdChunk(id: SearchSchemaId): string[] {
   return [
     id.table,
     id.tag_id,
@@ -54,10 +48,8 @@ function exactIdChunk(id: SearchMetadataEntryId): string[] {
   ];
 }
 
-type SearchMetadataEntryId = SearchSchemaLabel["id"];
-
 function labelChunk(
-  id: SearchMetadataEntryId,
+  id: SearchSchemaId,
   labels: Map<string, SearchSchemaLabel>,
 ): string[] {
   const label = labels.get(schemaDefinitionIdToken(id));
@@ -66,17 +58,25 @@ function labelChunk(
     : [];
 }
 
-function metaChunk(
-  meta: SearchMetadataState | undefined,
+function occurrencesChunk(
+  occurrences: SearchOccurrencesState | undefined,
   labels: Map<string, SearchSchemaLabel>,
 ): string {
-  if (!meta || meta === "loading") return "";
+  if (!occurrences || occurrences === "loading") return "";
   const parts: string[] = [];
-  for (const entry of meta) {
+  for (const entry of occurrences) {
     parts.push(
-      ...labelChunk(entry.id, labels),
-      ...exactIdChunk(entry.id),
+      ...labelChunk(entry.schemaId, labels),
+      ...exactIdChunk(entry.schemaId),
       metadataEntryToDisplayString(entry.value),
+      entry.occurrenceId.document ?? "",
+      entry.occurrenceId.path,
+      entry.occurrenceId.tag_id,
+      String(entry.occurrenceId.copy),
+      `document:${entry.occurrenceId.document ?? ""}`,
+      `path:${entry.occurrenceId.path}`,
+      `tag:${entry.occurrenceId.tag_id}`,
+      `copy:${entry.occurrenceId.copy}`,
     );
   }
   return parts.join("\n");
@@ -101,21 +101,11 @@ function draftsChunk(
 
 export class SearchIndex {
   private photoFields = new Map<string, SearchPhotoFields>();
-  private metadata = new Map<string, SearchMetadataState>();
-  /** Kept raw so `has:edits` can answer without re-parsing the haystack. */
+  private occurrences = new Map<string, SearchOccurrencesState>();
   private drafts = new Map<string, SearchDraftEntry[]>();
   private schemaLabels = new Map<string, SearchSchemaLabel>();
-  /** Pre-lowercased combined haystack, the substring search target. */
   private haystacks = new Map<string, string>();
-
-  /**
-   * One-step prefix cache.  Any mutation invalidates it because the
-   * underlying haystack set may have changed.  We retain it across pure
-   * query→query calls so typing "foo" → "foob" narrows from prior results.
-   */
   private priorQuery: { norm: string; matched: string[] } | null = null;
-
-  // ── Ingest ────────────────────────────────────────────────────────────
 
   setPhoto(fields: SearchPhotoFields) {
     this.photoFields.set(fields.relative_path, fields);
@@ -128,17 +118,14 @@ export class SearchIndex {
     }
   }
 
-  setMeta(
+  setOccurrences(
     path: string,
-    meta: SearchMetadataState | undefined,
+    occurrences: SearchOccurrencesState | undefined,
     schemaLabels: readonly SearchSchemaLabel[] = [],
   ) {
     if (schemaLabels.length > 0) this.setSchemaLabels(schemaLabels);
-    if (meta === undefined) {
-      this.metadata.delete(path);
-    } else {
-      this.metadata.set(path, meta);
-    }
+    if (occurrences === undefined) this.occurrences.delete(path);
+    else this.occurrences.set(path, occurrences);
     this.rebuild(path);
   }
 
@@ -148,45 +135,36 @@ export class SearchIndex {
     schemaLabels: readonly SearchSchemaLabel[] = [],
   ) {
     if (schemaLabels.length > 0) this.setSchemaLabels(schemaLabels);
-    if (edits === undefined || edits.length === 0) {
-      this.drafts.delete(path);
-    } else {
-      this.drafts.set(path, edits);
-    }
+    if (edits === undefined || edits.length === 0) this.drafts.delete(path);
+    else this.drafts.set(path, edits);
     this.rebuild(path);
   }
 
   deletePath(path: string) {
     this.photoFields.delete(path);
-    this.metadata.delete(path);
+    this.occurrences.delete(path);
     this.drafts.delete(path);
     this.haystacks.delete(path);
     this.priorQuery = null;
   }
 
-  /** Drop everything.  Used on scan reset. */
   clear() {
     this.photoFields.clear();
-    this.metadata.clear();
+    this.occurrences.clear();
     this.drafts.clear();
     this.schemaLabels.clear();
     this.haystacks.clear();
     this.priorQuery = null;
   }
 
-  /** Number of indexed photos.  Mainly for tests / diagnostics. */
   size(): number {
     return this.photoFields.size;
   }
 
-  // ── Query ─────────────────────────────────────────────────────────────
-
   query(rawQuery: string): SearchQueryResult {
     let q = rawQuery.trim().toLowerCase();
     const hasEditsFilter = q.includes(HAS_EDITS_TOKEN);
-    if (hasEditsFilter) {
-      q = q.replace(HAS_EDITS_TOKEN, "").trim();
-    }
+    if (hasEditsFilter) q = q.replace(HAS_EDITS_TOKEN, "").trim();
 
     if (!q && !hasEditsFilter) {
       const matched = Array.from(this.photoFields.keys());
@@ -194,15 +172,10 @@ export class SearchIndex {
       return { matched, hasEditsFilter: false };
     }
 
-    // Prefix narrowing: when the new query strictly extends the prior one
-    // (and the prior was also a plain substring query), restrict the
-    // candidate set to the prior matches.  `has:edits` flips the filter
-    // semantic so we don't reuse a cache produced with the opposite flag.
     const canNarrow =
       this.priorQuery !== null &&
       q.length >= this.priorQuery.norm.length &&
       q.startsWith(this.priorQuery.norm);
-
     const candidates: Iterable<string> = canNarrow
       ? this.priorQuery!.matched
       : this.photoFields.keys();
@@ -214,18 +187,13 @@ export class SearchIndex {
         matched.push(path);
         continue;
       }
-      const hay = this.haystacks.get(path);
-      if (hay && hay.includes(q)) matched.push(path);
+      const haystack = this.haystacks.get(path);
+      if (haystack?.includes(q)) matched.push(path);
     }
 
-    // Only cache plain substring queries — `has:edits` interacts with the
-    // separate drafts map, so re-narrowing under a different filter would
-    // be unsound.
     this.priorQuery = hasEditsFilter ? null : { norm: q, matched };
     return { matched, hasEditsFilter };
   }
-
-  // ── Internal ──────────────────────────────────────────────────────────
 
   private rebuild(path: string) {
     const fields = this.photoFields.get(path);
@@ -236,7 +204,7 @@ export class SearchIndex {
     }
     const combined = [
       photoChunk(fields),
-      metaChunk(this.metadata.get(path), this.schemaLabels),
+      occurrencesChunk(this.occurrences.get(path), this.schemaLabels),
       draftsChunk(this.drafts.get(path), this.schemaLabels),
     ]
       .filter(Boolean)

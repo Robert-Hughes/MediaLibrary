@@ -1,6 +1,5 @@
 import {
   ImageMetadataOccurrencesStore,
-  ImageMetadataStore,
   type MetadataApplyFileResultV5,
   type MetadataTargetOutcome,
   type MetadataOccurrences,
@@ -11,14 +10,7 @@ import {
   type TargetDraftCollection,
   type TargetDraftEditsByFile,
 } from "./targetDraftEdits";
-import {
-  metadataCollection,
-  type MetadataCollection,
-} from "./utils/metadataCollection";
-import {
-  metadataCollectionsEqualExact,
-  metadataOccurrencesEqualExact,
-} from "./utils/imageMetadataEquality";
+import { metadataOccurrencesEqualExact } from "./utils/imageMetadataEquality";
 import { recordFromEntries } from "./utils/stringRecord";
 import {
   targetVerifyOutcomesFromBackend,
@@ -34,7 +26,6 @@ import {
 export interface TargetApplyResultStores {
   drafts: TargetDraftEditsStore;
   occurrences: ImageMetadataOccurrencesStore;
-  compatibility: ImageMetadataStore;
   verification: TargetVerifyOutcomesStoreV5;
 }
 
@@ -42,7 +33,6 @@ export interface TargetApplyFileApplicationV5 {
   relativePath: string;
   draftsChanged: boolean;
   occurrencesChanged: boolean;
-  compatibilityChanged: boolean;
   targetOutcomes: MetadataTargetOutcome[];
   targetVerifyOutcomes: TargetVerifyOutcomeV5[];
   error: string | null;
@@ -61,7 +51,6 @@ export interface PreparedTargetApplyFileResultV5 {
   readonly persistedDraftEntries: MetadataApplyFileResultV5["persisted_draft_entries"];
   readonly persistedDraftCollection: TargetDraftCollection | undefined | null;
   readonly occurrences: MetadataOccurrences | null;
-  readonly compatibility: MetadataCollection | null;
   readonly targetOutcomes: MetadataTargetOutcome[];
   readonly targetVerifyOutcomes: TargetVerifyOutcomeV5[];
   readonly error: string | null;
@@ -87,27 +76,14 @@ function prepareValidatedTargetApplyFileResultV5(
     )[parsed.relative_path];
   }
 
-  if (parsed.fresh_image_metadata === null) {
-    return {
-      relativePath: parsed.relative_path,
-      persistedDraftEntries,
-      persistedDraftCollection,
-      occurrences: null,
-      compatibility: null,
-      targetOutcomes,
-      targetVerifyOutcomes,
-      error: parsed.error,
-      warning: parsed.warning,
-    };
-  }
-
-  const fresh = structuredClone(parsed.fresh_image_metadata);
   return {
     relativePath: parsed.relative_path,
     persistedDraftEntries,
     persistedDraftCollection,
-    occurrences: fresh.occurrences,
-    compatibility: metadataCollection(fresh.metadata),
+    occurrences:
+      parsed.fresh_image_metadata === null
+        ? null
+        : structuredClone(parsed.fresh_image_metadata.occurrences),
     targetOutcomes,
     targetVerifyOutcomes,
     error: parsed.error,
@@ -165,8 +141,7 @@ export function applyPreparedTargetApplyFileResultV5(
   );
 
   let occurrencesChanged = false;
-  let compatibilityChanged = false;
-  if (prepared.occurrences !== null && prepared.compatibility !== null) {
+  if (prepared.occurrences !== null) {
     const currentOccurrences = stores.occurrences.get(prepared.relativePath);
     occurrencesChanged =
       currentOccurrences === "loading" ||
@@ -174,26 +149,12 @@ export function applyPreparedTargetApplyFileResultV5(
     if (occurrencesChanged) {
       stores.occurrences.set(prepared.relativePath, prepared.occurrences);
     }
-
-    const currentCompatibility = stores.compatibility.get(
-      prepared.relativePath,
-    );
-    compatibilityChanged =
-      currentCompatibility === "loading" ||
-      !metadataCollectionsEqualExact(
-        currentCompatibility,
-        prepared.compatibility,
-      );
-    if (compatibilityChanged) {
-      stores.compatibility.set(prepared.relativePath, prepared.compatibility);
-    }
   }
 
   return {
     relativePath: prepared.relativePath,
     draftsChanged,
     occurrencesChanged,
-    compatibilityChanged,
     targetOutcomes: structuredClone(prepared.targetOutcomes),
     targetVerifyOutcomes: structuredClone(prepared.targetVerifyOutcomes),
     error: prepared.error,

@@ -4,7 +4,7 @@ import { useState } from "react";
 import { PhotoList } from "../components/PhotoList";
 import { imgCol, testId } from "./factories";
 import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
-import { ThumbnailStore, ImageMetadataStore } from "../types";
+import { ThumbnailStore, ImageMetadataOccurrencesStore } from "../types";
 import type { PhotoInfo } from "../types";
 
 const mockPhotos: PhotoInfo[] = [
@@ -23,7 +23,7 @@ const defaultSortProps = {
 
 function makeStores() {
   const thumbnails = new ThumbnailStore();
-  const imageMetadata = new ImageMetadataStore();
+  const imageMetadata = new ImageMetadataOccurrencesStore();
   mockPhotos.forEach((p) => {
     thumbnails.add(p.relative_path);
     imageMetadata.add(p.relative_path);
@@ -38,7 +38,7 @@ describe("column resize handles", () => {
       <PhotoList
         photos={mockPhotos}
         thumbnails={thumbnails}
-        imageMetadata={imageMetadata}
+        imageMetadataOccurrences={imageMetadata}
         visibleColumns={[{ key: "date_modified", kind: "os" }]}
         {...defaultSortProps}
         selectedIndex={null}
@@ -59,7 +59,7 @@ describe("column resize handles", () => {
       <PhotoList
         photos={mockPhotos}
         thumbnails={thumbnails}
-        imageMetadata={imageMetadata}
+        imageMetadataOccurrences={imageMetadata}
         visibleColumns={[{ key: "date_modified", kind: "os" }]}
         {...defaultSortProps}
         selectedIndex={null}
@@ -80,7 +80,7 @@ describe("column resize handles", () => {
       <PhotoList
         photos={mockPhotos}
         thumbnails={thumbnails}
-        imageMetadata={imageMetadata}
+        imageMetadataOccurrences={imageMetadata}
         visibleColumns={[
           { key: "date_modified", kind: "os" },
           { key: "date_created", kind: "os" },
@@ -107,7 +107,7 @@ describe("column resize handles", () => {
       <PhotoList
         photos={mockPhotos}
         thumbnails={thumbnails}
-        imageMetadata={imageMetadata}
+        imageMetadataOccurrences={imageMetadata}
         visibleColumns={[imgCol("IFD0:Model")]}
         {...defaultSortProps}
         selectedIndex={null}
@@ -131,7 +131,7 @@ describe("column resize handles", () => {
       <PhotoList
         photos={mockPhotos}
         thumbnails={thumbnails}
-        imageMetadata={imageMetadata}
+        imageMetadataOccurrences={imageMetadata}
         visibleColumns={[{ key: "date_modified", kind: "os" }]}
         columnWidths={{}}
         onColumnWidthChange={onColumnWidthChange}
@@ -166,7 +166,7 @@ describe("column resize handles", () => {
       <PhotoList
         photos={mockPhotos}
         thumbnails={thumbnails}
-        imageMetadata={imageMetadata}
+        imageMetadataOccurrences={imageMetadata}
         visibleColumns={[{ key: "date_modified", kind: "os" }]}
         columnWidths={{ preview: 52 }}
         onColumnWidthChange={onColumnWidthChange}
@@ -233,7 +233,7 @@ describe("column resize handles", () => {
         <PhotoList
           photos={mockPhotos}
           thumbnails={thumbnails}
-          imageMetadata={imageMetadata}
+          imageMetadataOccurrences={imageMetadata}
           visibleColumns={[{ key: "date_modified", kind: "os" }]}
           columnWidths={columnWidths}
           onColumnWidthChange={(col, width) => {
@@ -285,7 +285,7 @@ describe("column resize handles", () => {
       <PhotoList
         photos={mockPhotos}
         thumbnails={thumbnails}
-        imageMetadata={imageMetadata}
+        imageMetadataOccurrences={imageMetadata}
         visibleColumns={[{ key: "date_modified", kind: "os" }]}
         sortConfig={{ primary: null, secondary: null }}
         onSortChange={onSortChange}
@@ -307,12 +307,12 @@ describe("column resize handles", () => {
 
   it("renders resize handles on empty-state (zero photos) headers too", () => {
     const thumbnails = new ThumbnailStore();
-    const imageMetadata = new ImageMetadataStore();
+    const imageMetadata = new ImageMetadataOccurrencesStore();
     render(
       <PhotoList
         photos={[]}
         thumbnails={thumbnails}
-        imageMetadata={imageMetadata}
+        imageMetadataOccurrences={imageMetadata}
         visibleColumns={[{ key: "date_modified", kind: "os" }]}
         {...defaultSortProps}
         selectedIndex={null}
@@ -341,7 +341,7 @@ describe("buildGridTemplate (via rendered styles)", () => {
       <PhotoList
         photos={mockPhotos}
         thumbnails={thumbnails}
-        imageMetadata={imageMetadata}
+        imageMetadataOccurrences={imageMetadata}
         visibleColumns={[{ key: "date_modified", kind: "os" }]}
         columnWidths={{ preview: 84, relative_path: 350, date_modified: 140 }}
         onColumnWidthChange={() => {}}
@@ -372,7 +372,7 @@ describe("buildGridTemplate (via rendered styles)", () => {
       <PhotoList
         photos={photos}
         thumbnails={thumbnails}
-        imageMetadata={imageMetadata}
+        imageMetadataOccurrences={imageMetadata}
         visibleColumns={[{ key: "date_modified", kind: "os" }]}
         columnWidths={{ preview: 84 }}
         onColumnWidthChange={() => {}}
@@ -400,7 +400,7 @@ describe("buildGridTemplate (via rendered styles)", () => {
       <PhotoList
         photos={mockPhotos}
         thumbnails={thumbnails}
-        imageMetadata={imageMetadata}
+        imageMetadataOccurrences={imageMetadata}
         visibleColumns={[{ key: "date_modified", kind: "os" }]}
         {...defaultSortProps}
         selectedIndex={null}

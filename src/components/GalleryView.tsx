@@ -5,7 +5,6 @@ import type {
   MetadataDraftEdit,
   SchemaDefinitionId,
   PhotoInfo,
-  ImageMetadataStore,
   ImageMetadataOccurrencesState,
   ImageMetadataOccurrencesStore,
   MetadataOccurrenceId,
@@ -41,10 +40,8 @@ interface Props {
   onNavigate: (delta: -1 | 1) => void;
   /** Injectable for testing — defaults to the real Tauri invoke */
   loadImage?: (path: string) => Promise<string | null>;
-  /** Observable store for image metadata (EXIF, XMP, etc.) */
-  imageMetadata?: ImageMetadataStore;
-  /** Observable authoritative occurrence store for the read-only bridge. */
-  imageMetadataOccurrences?: ImageMetadataOccurrencesStore;
+  /** Observable authoritative occurrence store. */
+  imageMetadataOccurrences: ImageMetadataOccurrencesStore;
   targetDraftEdits?: TargetDraftCollection;
   targetDraftPersistence?: TargetDraftPersistenceStateV5;
   onSetExistingOccurrenceDraft?: (
@@ -92,7 +89,6 @@ export function GalleryView({
   onClose,
   onNavigate,
   loadImage,
-  imageMetadata,
   imageMetadataOccurrences,
   targetDraftEdits,
   targetDraftPersistence,
@@ -137,21 +133,11 @@ export function GalleryView({
     setPan({ x: 0, y: 0 });
   }, [currentIndex]);
 
-  // Subscribe to this photo's metadata reactively via useSyncExternalStore.
-  const metadataState = useSyncExternalStore(
-    (cb) =>
-      imageMetadata?.subscribe(photo?.relative_path ?? "", cb) ?? (() => {}),
-    () => imageMetadata?.get(photo?.relative_path ?? "") ?? "loading",
-  );
-
   // This hook is unconditional so navigation changes the subscribed path and
   // unsubscribes from the previously displayed photo.
   const occurrencesState: ImageMetadataOccurrencesState = useSyncExternalStore(
-    (cb) =>
-      imageMetadataOccurrences?.subscribe(photo?.relative_path ?? "", cb) ??
-      (() => {}),
-    () =>
-      imageMetadataOccurrences?.get(photo?.relative_path ?? "") ?? "loading",
+    (cb) => imageMetadataOccurrences.subscribe(photo?.relative_path ?? "", cb),
+    () => imageMetadataOccurrences.get(photo?.relative_path ?? ""),
   );
 
   // Load the full image whenever the current photo changes.
@@ -352,7 +338,6 @@ export function GalleryView({
         {detailsVisible && (
           <DetailsPane
             photo={photo}
-            metadata={metadataState}
             occurrences={occurrencesState}
             targetDraftEdits={targetDraftEdits}
             targetDraftPersistence={targetDraftPersistence}

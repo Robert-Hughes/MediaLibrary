@@ -4,21 +4,12 @@
  * Kept free of React + Tauri so the hook stays a thin orchestrator and
  * these bits can be unit-tested without a render harness.
  */
-import type {
-  MetadataEntry,
-  MetadataOccurrence,
-  MetadataOccurrences,
-} from "../types";
-import {
-  metadataCollection,
-  type MetadataCollection,
-} from "./metadataCollection";
+import type { MetadataOccurrence, MetadataOccurrences } from "../types";
 import {
   compareMetadataOccurrenceIds,
   metadataOccurrenceIdToken,
 } from "./metadataOccurrenceId";
 import {
-  isMetadataEntry,
   isMetadataOccurrence,
   metadataOccurrenceSchemaIdentityError,
 } from "./metadataWireGuards";
@@ -57,29 +48,6 @@ export function normalizeMetadataOccurrencesFromTauri(
   }
   occurrences.sort((a, b) => compareMetadataOccurrenceIds(a.id, b.id));
   return occurrences;
-}
-
-export function normalizeMetadataFromTauri(raw: unknown): MetadataCollection {
-  if (!Array.isArray(raw)) return {};
-
-  const out: MetadataEntry[] = [];
-  let dropped = 0;
-
-  for (const entry of raw) {
-    if (isMetadataEntry(entry)) {
-      out.push(entry);
-    } else {
-      dropped += 1;
-    }
-  }
-
-  if (dropped > 0) {
-    console.warn(
-      `[metadata] Dropped ${dropped} non-semantic metadata payload value(s)`,
-    );
-  }
-
-  return metadataCollection(out);
 }
 
 /**

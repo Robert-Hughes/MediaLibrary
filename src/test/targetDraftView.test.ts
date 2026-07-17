@@ -243,7 +243,6 @@ describe("schema-keyed target draft presentation", () => {
   it("presents one safe NewProperty target", () => {
     const drafts = draftsInOrder({ kind: "NewProperty", schema_id: schema });
     const projection = buildSchemaDraftDisplayProjection({
-      compatibilityMetadata: {},
       occurrences: [],
       targetDrafts: drafts,
     });
@@ -252,7 +251,6 @@ describe("schema-keyed target draft presentation", () => {
 
   it("presents one safe ExistingOccurrence target", () => {
     const projection = buildSchemaDraftDisplayProjection({
-      compatibilityMetadata: {},
       occurrences: [occurrence],
       targetDrafts: draftsInOrder(target),
     });
@@ -264,7 +262,6 @@ describe("schema-keyed target draft presentation", () => {
     expect(Object.keys(drafts)).toHaveLength(2);
     expect(
       buildSchemaDraftDisplayProjection({
-        compatibilityMetadata: {},
         occurrences: [occurrence, siblingOccurrence],
         targetDrafts: drafts,
       }),
@@ -273,12 +270,10 @@ describe("schema-keyed target draft presentation", () => {
 
   it("is independent of same-schema target insertion order", () => {
     const forward = buildSchemaDraftDisplayProjection({
-      compatibilityMetadata: {},
       occurrences: [occurrence, siblingOccurrence],
       targetDrafts: draftsInOrder(target, siblingTarget),
     });
     const reverse = buildSchemaDraftDisplayProjection({
-      compatibilityMetadata: {},
       occurrences: [occurrence, siblingOccurrence],
       targetDrafts: draftsInOrder(siblingTarget, target),
     });
@@ -293,7 +288,6 @@ describe("schema-keyed target draft presentation", () => {
     };
     expect(
       buildSchemaDraftDisplayProjection({
-        compatibilityMetadata: {},
         occurrences: [occurrence],
         targetDrafts: draftsInOrder(stale),
       }),
@@ -303,7 +297,6 @@ describe("schema-keyed target draft presentation", () => {
   it("does not present a missing or duplicated exact occurrence", () => {
     const missing = resolveSchemaDraftForPresentation({
       schemaId: schema,
-      compatibilityMetadata: {},
       occurrences: [],
       targetDrafts: draftsInOrder(target),
     });
@@ -316,7 +309,6 @@ describe("schema-keyed target draft presentation", () => {
     };
     const duplicated = resolveSchemaDraftForPresentation({
       schemaId: schema,
-      compatibilityMetadata: {},
       occurrences: [occurrence, duplicateExactId],
       targetDrafts: draftsInOrder(target),
     });
@@ -329,20 +321,15 @@ describe("schema-keyed target draft presentation", () => {
   it("does not present an unverified target while occurrences are loading", () => {
     expect(
       buildSchemaDraftDisplayProjection({
-        compatibilityMetadata: {},
         occurrences: "loading",
         targetDrafts: draftsInOrder(target),
       }),
     ).toEqual({});
   });
-
-  it("does not present a NewProperty target over compatibility metadata", () => {
+  it("does not present a NewProperty target over an authoritative occurrence", () => {
     expect(
       buildSchemaDraftDisplayProjection({
-        compatibilityMetadata: {
-          [token]: { id: schema, kind: "Integer", value: 300 },
-        },
-        occurrences: [],
+        occurrences: [occurrence],
         targetDrafts: draftsInOrder({ kind: "NewProperty", schema_id: schema }),
       }),
     ).toEqual({});

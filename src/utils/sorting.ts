@@ -1,26 +1,74 @@
-import type { PhotoInfo, SortConfig, SortKey } from "../types";
-import type { ImageMetadataStore } from "../types";
+import type {
+  ImageMetadataOccurrencesStore,
+  MetadataValue,
+  PhotoInfo,
+  SchemaDefinitionId,
+  SortConfig,
+  SortKey,
+} from "../types";
 import { metadataEntryToDisplayString as metadataValueToDisplayString } from "../draft";
-import { metadataGet } from "./metadataCollection";
-import { schemaDefinitionIdEquals } from "./schemaDefinitionId";
+import {
+  schemaDefinitionIdEquals,
+  schemaDefinitionIdToken,
+} from "./schemaDefinitionId";
+import { buildSchemaValueResolutionIndex } from "./schemaMetadataProjection";
 
 export type SortTarget =
   | { kind: "path" }
   | { kind: "os"; key: "date_modified" | "date_created" }
-  | { kind: "image"; id: import("../types").SchemaDefinitionId };
+  | { kind: "image"; id: SchemaDefinitionId };
 
-function getMetadataValueAsString(
-  v: import("../types").MetadataValue | undefined,
-): string {
-  if (v === undefined || v === null) return "";
+function getMetadataValueAsString(v: MetadataValue | undefined): string {
+  if (v === undefined) return "";
   return metadataValueToDisplayString(v);
+}
+
+type PrecomputedImageSortValues = Map<string, Map<string, string>>;
+
+function activeImageSortIds(sortConfig: SortConfig): SchemaDefinitionId[] {
+  const ids = [sortConfig.primary, sortConfig.secondary]
+    .filter(
+      (key): key is Extract<SortKey, { kind: "image" }> =>
+        key?.kind === "image",
+    )
+    .map((key) => key.id);
+  return [
+    ...new Map(ids.map((id) => [schemaDefinitionIdToken(id), id])).values(),
+  ];
+}
+
+function precomputeImageSortValues(
+  photos: readonly PhotoInfo[],
+  sortConfig: SortConfig,
+  occurrencesStore: ImageMetadataOccurrencesStore,
+): PrecomputedImageSortValues {
+  const ids = activeImageSortIds(sortConfig);
+  const values: PrecomputedImageSortValues = new Map();
+  if (ids.length === 0) return values;
+
+  for (const photo of photos) {
+    const occurrences = occurrencesStore.get(photo.relative_path);
+    const fileValues = new Map<string, string>();
+    if (occurrences !== "loading") {
+      const projection = buildSchemaValueResolutionIndex(occurrences);
+      for (const id of ids) {
+        const token = schemaDefinitionIdToken(id);
+        const resolution = projection.get(token);
+        if (resolution?.kind === "value") {
+          fileValues.set(token, getMetadataValueAsString(resolution.value));
+        }
+      }
+    }
+    values.set(photo.relative_path, fileValues);
+  }
+  return values;
 }
 
 function compareByKey(
   a: PhotoInfo,
   b: PhotoInfo,
   key: SortKey,
-  imageMetadata: ImageMetadataStore,
+  imageValues: PrecomputedImageSortValues,
 ): number {
   let valA: string | number | null;
   let valB: string | number | null;
@@ -31,19 +79,13 @@ function compareByKey(
   } else if (key.kind === "os") {
     valA = key.key === "date_modified" ? a.date_modified : a.date_created;
     valB = key.key === "date_modified" ? b.date_modified : b.date_created;
-    // Nulls sort to the end regardless of direction
     if (valA === null && valB === null) return 0;
     if (valA === null) return 1;
     if (valB === null) return -1;
   } else {
-    // image metadata — look up from store; photos still loading sort to the end
-    const metaA = imageMetadata.get(a.relative_path);
-    const metaB = imageMetadata.get(b.relative_path);
-    const rawA = metaA === "loading" ? undefined : metadataGet(metaA, key.id);
-    const rawB = metaB === "loading" ? undefined : metadataGet(metaB, key.id);
-    valA = getMetadataValueAsString(rawA);
-    valB = getMetadataValueAsString(rawB);
-    // Empty strings (no value or still loading) sort to the end
+    const token = schemaDefinitionIdToken(key.id);
+    valA = imageValues.get(a.relative_path)?.get(token) ?? "";
+    valB = imageValues.get(b.relative_path)?.get(token) ?? "";
     if (valA === "" && valB === "") return 0;
     if (valA === "") return 1;
     if (valB === "") return -1;
@@ -65,37 +107,22 @@ function compareByKey(
 export function sortPhotos(
   photos: PhotoInfo[],
   sortConfig: SortConfig,
-  imageMetadata: ImageMetadataStore,
+  occurrencesStore: ImageMetadataOccurrencesStore,
 ): PhotoInfo[] {
   if (!sortConfig.primary) return photos;
+  const imageValues = precomputeImageSortValues(
+    photos,
+    sortConfig,
+    occurrencesStore,
+  );
 
   return [...photos].sort((a, b) => {
-    const primary = compareByKey(a, b, sortConfig.primary!, imageMetadata);
+    const primary = compareByKey(a, b, sortConfig.primary!, imageValues);
     if (primary !== 0 || !sortConfig.secondary) return primary;
-    return compareByKey(a, b, sortConfig.secondary, imageMetadata);
+    return compareByKey(a, b, sortConfig.secondary, imageValues);
   });
 }
 
-/**
- * Decide whether sorting should be suspended right now.
- *
- * Suspended means: the photos list is shown in arrival order and the
- * column-header indicators are hidden in the UI.  Clicks on column headers
- * are *not* blocked — the user must always be able to change the sort, even
- * if the resulting sort is itself suspended.
- *
- * Two conditions trigger suspension:
- *  - the directory walk is still running, OR
- *  - the *primary* sort is by an image-metadata column and ExifTool data
- *    hasn't fully arrived yet.
- *
- * Only the primary is consulted: a secondary image sort is a tiebreaker, and
- * during loading it just degrades gracefully (rows missing the secondary
- * value sort to the end).  Checking secondary too made the user-visible
- * behaviour confusing — clicking an OS column to escape an image sort would
- * demote the image sort to secondary (per `nextSortConfig`) and still leave
- * the UI suspended.
- */
 export function shouldSuspendSorting(
   scanning: boolean,
   sortConfig: SortConfig,
@@ -106,7 +133,6 @@ export function shouldSuspendSorting(
   return primaryNeedsMetadata && metadataRemaining > 0;
 }
 
-/** Returns the next SortConfig when a column header is clicked. */
 export function nextSortConfig(
   current: SortConfig,
   target: SortTarget,
@@ -114,7 +140,6 @@ export function nextSortConfig(
   const { primary } = current;
 
   if (primary && sortKeyMatches(primary, target)) {
-    // Toggle direction on the current primary column
     return {
       primary: {
         ...primary,
@@ -124,7 +149,6 @@ export function nextSortConfig(
     };
   }
 
-  // New column: becomes primary asc; old primary demoted to secondary
   return {
     primary: { ...target, direction: "asc" } as SortKey,
     secondary: primary ?? null,

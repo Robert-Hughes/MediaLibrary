@@ -1,13 +1,14 @@
 import { render } from "@testing-library/react";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { PhotoList } from "../components/PhotoList";
-import { ThumbnailStore, ImageMetadataStore } from "../types";
+import { ThumbnailStore, ImageMetadataOccurrencesStore } from "../types";
 import type { PhotoInfo } from "../types";
 import { imgCol, makePhotos, mockMetadata } from "./factories";
 import {
   _clearTagInfoCache,
   _setTagInfoCacheEntry,
 } from "./tagInfoTestHelpers";
+import { occurrencesFromMetadataCollection } from "./occurrenceFixtures";
 
 const defaultSortProps = {
   sortConfig: { primary: null, secondary: null } as const,
@@ -26,14 +27,14 @@ describe("PhotoList prioritization optimization", () => {
   }));
 
   let thumbnailStore: ThumbnailStore;
-  let metadataStore: ImageMetadataStore;
+  let metadataStore: ImageMetadataOccurrencesStore;
   let onVisibilityChangeMock: ReturnType<
     typeof vi.fn<(paths: string[]) => void>
   >;
 
   beforeEach(() => {
     thumbnailStore = new ThumbnailStore();
-    metadataStore = new ImageMetadataStore();
+    metadataStore = new ImageMetadataOccurrencesStore();
     onVisibilityChangeMock = vi.fn<(paths: string[]) => void>();
 
     // Add all photos to stores (they start in "loading" state)
@@ -51,7 +52,7 @@ describe("PhotoList prioritization optimization", () => {
       <PhotoList
         photos={mockPhotos}
         thumbnails={thumbnailStore}
-        imageMetadata={metadataStore}
+        imageMetadataOccurrences={metadataStore}
         visibleColumns={[
           { key: "date_modified", kind: "os" },
           { key: "date_created", kind: "os" },
@@ -78,16 +79,18 @@ describe("PhotoList prioritization optimization", () => {
     thumbnailStore.set("photo1.jpg", "base64thumbnaildata");
     metadataStore.set(
       "photo1.jpg",
-      mockMetadata({
-        "ExifIFD:DateTimeOriginal": "2022:01:01 12:00:00",
-      }),
+      occurrencesFromMetadataCollection(
+        mockMetadata({
+          "ExifIFD:DateTimeOriginal": "2022:01:01 12:00:00",
+        }),
+      ),
     );
 
     render(
       <PhotoList
         photos={mockPhotos}
         thumbnails={thumbnailStore}
-        imageMetadata={metadataStore}
+        imageMetadataOccurrences={metadataStore}
         visibleColumns={[
           { key: "date_modified", kind: "os" },
           { key: "date_created", kind: "os" },
@@ -121,7 +124,7 @@ describe("PhotoList prioritization optimization", () => {
       <PhotoList
         photos={mockPhotos}
         thumbnails={thumbnailStore}
-        imageMetadata={metadataStore}
+        imageMetadataOccurrences={metadataStore}
         visibleColumns={[
           { key: "date_modified", kind: "os" },
           { key: "date_created", kind: "os" },
@@ -152,7 +155,7 @@ describe("PhotoList prioritization optimization", () => {
       <PhotoList
         photos={mockPhotos}
         thumbnails={thumbnailStore}
-        imageMetadata={metadataStore}
+        imageMetadataOccurrences={metadataStore}
         visibleColumns={[
           { key: "date_modified", kind: "os" },
           { key: "date_created", kind: "os" },
@@ -180,16 +183,18 @@ describe("PhotoList prioritization optimization", () => {
     thumbnailStore.set("photo2.jpg", "data");
     metadataStore.set(
       "photo2.jpg",
-      mockMetadata({
-        "ExifIFD:DateTimeOriginal": "2022:01:01 12:00:00",
-      }),
+      occurrencesFromMetadataCollection(
+        mockMetadata({
+          "ExifIFD:DateTimeOriginal": "2022:01:01 12:00:00",
+        }),
+      ),
     );
 
     render(
       <PhotoList
         photos={mockPhotos}
         thumbnails={thumbnailStore}
-        imageMetadata={metadataStore}
+        imageMetadataOccurrences={metadataStore}
         visibleColumns={[
           { key: "date_modified", kind: "os" },
           { key: "date_created", kind: "os" },
@@ -214,9 +219,11 @@ describe("PhotoList prioritization optimization", () => {
     // Mark first photo as having metadata but no thumbnail
     metadataStore.set(
       "photo1.jpg",
-      mockMetadata({
-        "ExifIFD:DateTimeOriginal": "2022:01:01 12:00:00",
-      }),
+      occurrencesFromMetadataCollection(
+        mockMetadata({
+          "ExifIFD:DateTimeOriginal": "2022:01:01 12:00:00",
+        }),
+      ),
     );
     // thumbnail still in "loading" state
 
@@ -224,7 +231,7 @@ describe("PhotoList prioritization optimization", () => {
       <PhotoList
         photos={mockPhotos}
         thumbnails={thumbnailStore}
-        imageMetadata={metadataStore}
+        imageMetadataOccurrences={metadataStore}
         visibleColumns={[
           { key: "date_modified", kind: "os" },
           { key: "date_created", kind: "os" },
@@ -251,16 +258,18 @@ describe("PhotoList prioritization optimization", () => {
     thumbnailStore.set("photo1.jpg", "failed");
     metadataStore.set(
       "photo1.jpg",
-      mockMetadata({
-        "ExifIFD:DateTimeOriginal": "2022:01:01 12:00:00",
-      }),
+      occurrencesFromMetadataCollection(
+        mockMetadata({
+          "ExifIFD:DateTimeOriginal": "2022:01:01 12:00:00",
+        }),
+      ),
     );
 
     render(
       <PhotoList
         photos={mockPhotos}
         thumbnails={thumbnailStore}
-        imageMetadata={metadataStore}
+        imageMetadataOccurrences={metadataStore}
         visibleColumns={[
           { key: "date_modified", kind: "os" },
           { key: "date_created", kind: "os" },
@@ -292,10 +301,13 @@ describe("initial-kickstart prioritization fires once per scan", () => {
   function makeProps(
     photos: PhotoInfo[],
     onVisibilityChange: (paths: string[]) => void,
-    stores?: { thumbnails: ThumbnailStore; metadata: ImageMetadataStore },
+    stores?: {
+      thumbnails: ThumbnailStore;
+      metadata: ImageMetadataOccurrencesStore;
+    },
   ) {
     const thumbs = stores?.thumbnails ?? new ThumbnailStore();
-    const metadata = stores?.metadata ?? new ImageMetadataStore();
+    const metadata = stores?.metadata ?? new ImageMetadataOccurrencesStore();
     photos.forEach((p) => {
       thumbs.add(p.relative_path);
       metadata.add(p.relative_path);
@@ -307,7 +319,7 @@ describe("initial-kickstart prioritization fires once per scan", () => {
         <PhotoList
           photos={photos}
           thumbnails={thumbs}
-          imageMetadata={metadata}
+          imageMetadataOccurrences={metadata}
           visibleColumns={[]}
           {...defaultSortProps}
           selectedIndex={null}

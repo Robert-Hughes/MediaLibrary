@@ -11,7 +11,6 @@ import type {
   TagKind,
 } from "../types";
 import { existingOccurrenceTargetFromOccurrence } from "../utils/metadataDraftTarget";
-import { metadataCollection } from "../utils/metadataCollection";
 import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
 import { makePhoto } from "./factories";
 import {
@@ -92,7 +91,7 @@ function renderExisting(options: {
   render(
     <DetailsPane
       photo={photo}
-      metadata={metadataCollection([{ id: options.id, value: options.value }])}
+
       occurrences={[item]}
       targetDraftEdits={
         options.edit === undefined ? undefined : exactDraft(item, options.edit)
@@ -118,7 +117,7 @@ function renderNewProperty(options: {
   render(
     <DetailsPane
       photo={photo}
-      metadata={{}}
+
       occurrences={[]}
       targetDraftEdits={newPropertyDraft(options.id, options.edit)}
       targetDraftPersistence={{ status: "ready" }}

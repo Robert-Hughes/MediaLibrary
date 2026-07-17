@@ -2,7 +2,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   ImageMetadataOccurrencesStore,
-  ImageMetadataStore,
   type MetadataApplyEditsResultV5,
   type MetadataApplyFileResultV5,
   type MetadataDraftEntryV5,
@@ -61,7 +60,6 @@ function fileResult(
     fresh_image_metadata: {
       relative_path: path,
       occurrences: [],
-      metadata: [],
     },
     target_outcomes: [],
     persisted_draft_entries: [draft()],
@@ -186,7 +184,6 @@ function makeStores(): TargetApplyResultStores {
   return {
     drafts: new TargetDraftEditsStore(),
     occurrences: new ImageMetadataOccurrencesStore(),
-    compatibility: new ImageMetadataStore(),
     verification: new TargetVerifyOutcomesStoreV5(),
   };
 }
@@ -286,10 +283,8 @@ describe("inactive TargetApplyControllerV5 lifecycle", () => {
     api.apply = () => command.promise;
     const draftListener = vi.fn();
     const occurrenceListener = vi.fn();
-    const compatibilityListener = vi.fn();
     stores.drafts.subscribe(draftListener);
     stores.occurrences.subscribe(path, occurrenceListener);
-    stores.compatibility.subscribe(path, compatibilityListener);
 
     const run = controller.run("folder", [path]);
     await waitForApply(api);
@@ -311,7 +306,6 @@ describe("inactive TargetApplyControllerV5 lifecycle", () => {
         relativePath: path,
         draftsChanged: true,
         occurrencesChanged: true,
-        compatibilityChanged: true,
       }),
     );
     command.resolve(batchResult([progressResult]));
@@ -319,13 +313,12 @@ describe("inactive TargetApplyControllerV5 lifecycle", () => {
     expect(result.application.files[0]).toMatchObject({
       draftsChanged: false,
       occurrencesChanged: false,
-      compatibilityChanged: false,
     });
     expect(
-      [draftListener, occurrenceListener, compatibilityListener].map(
+      [draftListener, occurrenceListener].map(
         (listener) => listener.mock.calls.length,
       ),
-    ).toEqual([1, 1, 1]);
+    ).toEqual([1, 1]);
     expect(controller.getState()).toEqual({ status: "idle" });
   });
 
@@ -345,11 +338,18 @@ describe("inactive TargetApplyControllerV5 lifecycle", () => {
       persisted_draft_entries: [draft("authoritative")],
       fresh_image_metadata: {
         relative_path: path,
-        occurrences: [],
-        metadata: [
+        occurrences: [
           {
-            id: { table: "Exif::Main", tag_id: "282" },
+            id: {
+              document: null,
+              path: "JPEG-APP1-IFD0",
+              tag_id: "282",
+              copy: 0,
+            },
+            schema_id: { table: "Exif::Main", tag_id: "282" },
             value: { kind: "Text", value: "authoritative" },
+            tag_info: null,
+            write_target: null,
           },
         ],
       },
@@ -358,7 +358,6 @@ describe("inactive TargetApplyControllerV5 lifecycle", () => {
     const result = await run;
     expect(result.application.files[0]).toMatchObject({
       draftsChanged: true,
-      compatibilityChanged: true,
     });
     expect(
       Object.values(stores.drafts.getMetadataFile(path)!)[0].edit.display,

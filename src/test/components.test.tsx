@@ -9,7 +9,7 @@ import { WelcomeScreen } from "../components/WelcomeScreen";
 import { MenuBar } from "../components/MenuBar";
 import { PhotoList } from "../components/PhotoList";
 import { ColumnSelectionDialog } from "../components/ColumnSelectionDialog";
-import { ThumbnailStore, ImageMetadataStore } from "../types";
+import { ThumbnailStore, ImageMetadataOccurrencesStore } from "../types";
 import type { PhotoInfo } from "../types";
 import {
   imgCol,
@@ -20,6 +20,7 @@ import {
   testId,
 } from "./factories";
 
+import { occurrencesFromMetadataCollection } from "./occurrenceFixtures";
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function makeStores(
@@ -29,7 +30,7 @@ function makeStores(
   const thumbs = new ThumbnailStore();
   thumbs.reset(photos.map((p) => p.relative_path));
   for (const [k, v] of Object.entries(thumbOverrides)) thumbs.set(k, v);
-  const imageMetadata = new ImageMetadataStore();
+  const imageMetadata = new ImageMetadataOccurrencesStore();
   photos.forEach((p) => imageMetadata.add(p.relative_path));
   return { thumbs, imageMetadata };
 }
@@ -54,7 +55,7 @@ function renderList(
     <PhotoList
       photos={photos}
       thumbnails={thumbs}
-      imageMetadata={imageMetadata}
+      imageMetadataOccurrences={imageMetadata}
       visibleColumns={
         opts.visibleColumns ?? [
           { key: "date_modified", kind: "os" },
@@ -184,7 +185,7 @@ describe("PhotoList", () => {
       <PhotoList
         photos={[]}
         thumbnails={thumbs}
-        imageMetadata={imageMetadata}
+        imageMetadataOccurrences={imageMetadata}
         visibleColumns={[
           { key: "date_modified", kind: "os" },
           { key: "date_created", kind: "os" },
@@ -227,14 +228,16 @@ describe("PhotoList", () => {
     act(() => {
       imageMetadata.set(
         "a.jpg",
-        mockMetadata({ "IFD0:Model": "Canon EOS R5" }),
+        occurrencesFromMetadataCollection(
+          mockMetadata({ "IFD0:Model": "Canon EOS R5" }),
+        ),
       );
     });
     render(
       <PhotoList
         photos={photos}
         thumbnails={thumbs}
-        imageMetadata={imageMetadata}
+        imageMetadataOccurrences={imageMetadata}
         visibleColumns={[
           { key: "date_modified", kind: "os" },
           { key: "date_created", kind: "os" },

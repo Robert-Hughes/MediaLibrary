@@ -1,10 +1,9 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { GalleryView } from "../components/GalleryView";
-import { ImageMetadataOccurrencesStore, ImageMetadataStore } from "../types";
+import { ImageMetadataOccurrencesStore } from "../types";
 import type { MetadataOccurrence, TagInfo } from "../types";
 import { makePhotos } from "./factories";
-import { metadataCollection } from "../utils/metadataCollection";
 
 const photos = makePhotos(["a.jpg", "b.jpg"]);
 const tagInfo: TagInfo = {
@@ -14,6 +13,7 @@ const tagInfo: TagInfo = {
   writable: true,
   kind: { kind: "Integer", data: { min: null, max: null } },
   description: null,
+  storage_count: undefined,
 };
 
 function occurrence(
@@ -25,22 +25,18 @@ function occurrence(
     id: { document: null, path, tag_id: "282", copy: 0 },
     schema_id: structuredClone(tagInfo.id),
     value: { kind: "Integer", value },
-    tag_info: tagInfo,
+    tag_info: { ...tagInfo, group: group1 },
     write_target: { group1, tag_name: "XResolution" },
   };
 }
 
-function props(
-  imageMetadata: ImageMetadataStore,
-  imageMetadataOccurrences: ImageMetadataOccurrencesStore,
-) {
+function props(imageMetadataOccurrences: ImageMetadataOccurrencesStore) {
   return {
     photos,
     folderPath: "/photos",
     onClose: vi.fn(),
     onNavigate: vi.fn(),
     loadImage: async () => "data:image/jpeg;base64,FAKE",
-    imageMetadata,
     imageMetadataOccurrences,
     onRemoveMetadataFieldsV5: vi.fn(),
     onDiscardTargetDraftBatch: vi.fn(),
@@ -53,15 +49,11 @@ describe("Gallery occurrence-store subscription", () => {
   });
 
   it("rerenders from the current path and follows navigation subscriptions", async () => {
-    const legacy = new ImageMetadataStore();
     const occurrences = new ImageMetadataOccurrencesStore();
-    for (const photo of photos) {
-      legacy.set(photo.relative_path, {});
-      occurrences.add(photo.relative_path);
-    }
+    for (const photo of photos) occurrences.add(photo.relative_path);
 
     const subscribe = vi.spyOn(occurrences, "subscribe");
-    const base = props(legacy, occurrences);
+    const base = props(occurrences);
     const { rerender } = render(<GalleryView {...base} currentIndex={0} />);
     await screen.findByTestId("gallery-image");
     expect(subscribe).toHaveBeenCalledWith("a.jpg", expect.any(Function));
@@ -84,38 +76,29 @@ describe("Gallery occurrence-store subscription", () => {
     expect(screen.getByText("72")).toBeInTheDocument();
   });
 
-  it("keeps the legacy metadata subscription reactive", async () => {
-    const legacy = new ImageMetadataStore();
-    legacy.add("a.jpg");
+  it("reacts when loading changes to an empty authoritative set", async () => {
     const occurrences = new ImageMetadataOccurrencesStore();
-    occurrences.set("a.jpg", []);
+    occurrences.add("a.jpg");
     render(
       <GalleryView
-        {...props(legacy, occurrences)}
+        {...props(occurrences)}
         photos={[photos[0]]}
         currentIndex={0}
       />,
     );
     await screen.findByTestId("gallery-image");
     expect(screen.getByText("Loading metadata…")).toBeInTheDocument();
-    act(() => legacy.set("a.jpg", {}));
+    act(() => occurrences.set("a.jpg", []));
     expect(screen.getByText("No image metadata available")).toBeInTheDocument();
   });
 
-  it("reacts when the current photo changes from unique to multiple", async () => {
-    const legacy = new ImageMetadataStore();
-    legacy.set(
-      "a.jpg",
-      metadataCollection([
-        { id: tagInfo.id, value: { kind: "Integer", value: 300 } },
-      ]),
-    );
+  it("reacts when the current schema changes from unique to multiple", async () => {
     const occurrences = new ImageMetadataOccurrencesStore();
     occurrences.set("a.jpg", [occurrence("JPEG-APP1-IFD0", 301, "IFD0")]);
 
     render(
       <GalleryView
-        {...props(legacy, occurrences)}
+        {...props(occurrences)}
         photos={[photos[0]]}
         currentIndex={0}
       />,
@@ -136,8 +119,8 @@ describe("Gallery occurrence-store subscription", () => {
       ]);
     });
 
-    const ambiguousRow = await screen.findByText("2 occurrences");
-    expect(ambiguousRow.closest("tr")).toHaveAttribute(
+    const multipleRow = await screen.findByText("2 occurrences");
+    expect(multipleRow.closest("tr")).toHaveAttribute(
       "data-occurrence-resolution",
       "multiple",
     );
@@ -147,7 +130,7 @@ describe("Gallery occurrence-store subscription", () => {
     expect(
       within(supplemental).getAllByTestId("details-occurrence-row"),
     ).toHaveLength(2);
-    fireEvent.contextMenu(ambiguousRow.closest("tr")!);
+    fireEvent.contextMenu(multipleRow.closest("tr")!);
     expect(screen.queryByRole("button", { name: "Edit…" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Remove" })).toBeNull();
   });

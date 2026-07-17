@@ -1,3 +1,4 @@
+import { occurrencesFromMetadataCollection } from "./occurrenceFixtures";
 /**
  * Coverage for the DetailsPane "Reverse Geocode…" button (single-image
  * variant).
@@ -62,7 +63,7 @@ describe("DetailsPane: Reverse Geocode button", () => {
         onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}
         photo={photo}
-        metadata={{}}
+        occurrences={[]}
         onGeocode={onGeocode}
       />,
     );
@@ -75,7 +76,7 @@ describe("DetailsPane: Reverse Geocode button", () => {
         onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}
         photo={photo}
-        metadata={{}}
+        occurrences={[]}
       />,
     );
     expect(screen.queryByTestId("details-pane-geocode-btn")).toBeNull();
@@ -89,10 +90,12 @@ describe("DetailsPane: Reverse Geocode button", () => {
         onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}
         photo={photo}
-        metadata={mockMetadata({
-          "Composite:GPSLatitude": 51.5,
-          "Composite:GPSLongitude": -0.1,
-        })}
+        occurrences={occurrencesFromMetadataCollection(
+          mockMetadata({
+            "Composite:GPSLatitude": 51.5,
+            "Composite:GPSLongitude": -0.1,
+          }),
+        )}
         onGeocode={onGeocode}
       />,
     );
@@ -112,7 +115,9 @@ describe("DetailsPane: Reverse Geocode button", () => {
         onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}
         photo={photo}
-        metadata={mockMetadata({ "XMP-iptcCore:Location": "Existing Place" })}
+        occurrences={occurrencesFromMetadataCollection(
+          mockMetadata({ "XMP-iptcCore:Location": "Existing Place" }),
+        )}
         onGeocode={onGeocode}
       />,
     );
@@ -136,7 +141,7 @@ describe("DetailsPane: Reverse Geocode button", () => {
         onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}
         photo={photo}
-        metadata={{}}
+        occurrences={[]}
         targetDraftEdits={drafts.getMetadataFile(photo.relative_path)}
         onGeocode={onGeocode}
       />,

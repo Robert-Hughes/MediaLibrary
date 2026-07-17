@@ -99,7 +99,7 @@ pub fn build_metadata_args(
             info.id
         ));
     }
-    if !info.writable {
+    if !info.supports_metadata_write() {
         return Err(format!("{} ({id:?}) is read-only", info.display_name()));
     }
     let tag = info.exiftool_write_name();
@@ -159,7 +159,7 @@ pub fn build_new_property_args(
     if target.schema_id() != &info.id {
         return Err(MetadataTargetWriteError::SchemaIdMismatch);
     }
-    if !info.writable {
+    if !info.supports_metadata_write() {
         return Err(MetadataTargetWriteError::TargetValidation(
             MetadataDraftTargetError::ReadOnlySchema,
         ));
@@ -911,10 +911,11 @@ mod tests {
     }
 
     #[test]
-    fn binary_tag_yields_no_args() {
-        let i = info(TagKind::Binary);
-        let err = build_fixture_args("Thumbnail:Bin", &i, &metadata_set(text("x"))).unwrap_err();
-        assert!(err.contains("binary"));
+    fn binary_schema_is_rejected_before_argument_rendering() {
+        let info = info(TagKind::Binary);
+        let error =
+            build_fixture_args("Thumbnail:Bin", &info, &metadata_set(text("x"))).unwrap_err();
+        assert!(error.contains("read-only"));
     }
 
     #[test]
@@ -1224,18 +1225,18 @@ mod tests {
     }
 
     #[test]
-    fn semantic_writer_blocks_binary_and_unknown() {
+    fn semantic_writer_blocks_unsupported_schemas_and_unparsed_values() {
         let binary = info(TagKind::Binary);
-        let err = build_fixture_args(
+        let error = build_fixture_args(
             "File:PreviewImage",
             &binary,
             &metadata_set(MetadataValue::Binary),
         )
         .unwrap_err();
-        assert!(err.contains("binary"));
+        assert!(error.contains("read-only"));
 
         let text = info(TagKind::Text);
-        let err = build_fixture_args(
+        let error = build_fixture_args(
             "X:Bad",
             &text,
             &metadata_set(MetadataValue::Unknown {
@@ -1245,7 +1246,7 @@ mod tests {
             }),
         )
         .unwrap_err();
-        assert!(err.contains("unparsed"));
+        assert!(error.contains("unparsed"));
     }
 
     #[test]
