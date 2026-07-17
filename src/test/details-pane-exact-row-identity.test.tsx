@@ -54,6 +54,7 @@ function occurrence(
       tag_id: "282",
       copy: options.copy ?? 0,
     },
+    schema_id: (options.info ?? tagInfo).id,
     value: { kind: "Integer", value },
     tag_info: options.info ?? tagInfo,
     write_target: {
@@ -552,6 +553,7 @@ describe("DetailsPane exact target-owned row presentation", () => {
             tag_id: "2",
             copy: 0,
           },
+          schema_id: gpsInfo.id,
           value: { kind: "Real", value: 51.5 },
           tag_info: gpsInfo,
           write_target: { group1: "GPS", tag_name: "GPSLatitude" },
@@ -688,6 +690,7 @@ describe("DetailsPane exact ordinary editor identity", () => {
     _setTagInfoCacheEntry(GPS_IDS.latitude, gpsInfo);
     const gpsOccurrence: MetadataOccurrence = {
       id: { document: null, path: "JPEG-APP1-GPS", tag_id: "2", copy: 0 },
+      schema_id: gpsInfo.id,
       value: { kind: "Real", value: 51.5 },
       tag_info: gpsInfo,
       write_target: { group1: "GPS", tag_name: "GPSLatitude" },

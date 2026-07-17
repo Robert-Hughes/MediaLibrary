@@ -37,6 +37,7 @@ function occurrence(
     writable?: boolean;
     tagInfo?: boolean;
     writeTarget?: boolean;
+    schemaId?: SchemaDefinitionId;
   } = {},
 ): MetadataOccurrence {
   return {
@@ -46,6 +47,7 @@ function occurrence(
       tag_id: id.tag_id,
       copy: options.copy ?? 0,
     },
+    schema_id: structuredClone(options.schemaId ?? id),
     value: text(value),
     tag_info:
       options.tagInfo === false
@@ -320,7 +322,13 @@ describe("planGeneratedTargetDraftBatchV5", () => {
     const result = plan({
       edits: [{ id: ID.mlibAiDescription, edit: set("x") }],
       occurrences: [
-        occurrence(ID.mlibAiDescription, "unknown", { tagInfo: false }),
+        occurrence(ID.mlibAiDescription, "unknown", {
+          tagInfo: false,
+          schemaId: {
+            table: "Unknown::Runtime",
+            tag_id: ID.mlibAiDescription.tag_id,
+          },
+        }),
       ],
     });
     expect(result.upserts[0].target.kind).toBe("NewProperty");

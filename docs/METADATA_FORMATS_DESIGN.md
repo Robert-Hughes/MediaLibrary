@@ -4,30 +4,47 @@ MediaLibrary has one active metadata-edit format: schema-v5 target drafts. A
 draft always contains a complete `MetadataDraftTarget` and a semantic
 `MetadataDraftEdit`.
 
-## Identity layers
+## Occurrence concerns and identity layers
 
-Metadata uses three deliberately different identities:
+Authoritative `MetadataOccurrence` state carries four independent concerns:
 
-- Friendly labels (`group`, `name`, and description) are presentation and
-  search text only.
-- `SchemaDefinitionId` identifies the ExifTool schema definition, including
-  the distinction between an absent index and index zero.
-- `MetadataOccurrenceId` identifies one concrete value in one file. An
-  `ExistingOccurrence` target also snapshots its schema ID and runtime
-  `MetadataWriteTarget`; `NewProperty` identifies a deliberate creation by
-  exact schema ID.
+1. `MetadataOccurrenceId` identifies one concrete value in one file.
+2. Required `schema_id: SchemaDefinitionId` identifies the exact ExifTool
+   definition, including the distinction between an absent index and index
+   zero. Several occurrences may share it.
+3. Nullable `tag_info` supplies registry interpretation and friendly group,
+   name and description metadata. When present, `TagInfo.id` must exactly match
+   `schema_id`.
+4. Nullable `write_target` supplies a proven exact runtime selector.
 
-Schema identity is never sufficient to select an existing value when several
-occurrences share a definition. Same-schema occurrences remain independent
-targets.
+Friendly labels are presentation and search text only. A missing `TagInfo` does
+not mean schema identity is missing, and a schema ID or selector alone does not
+make an occurrence writable. Same-schema occurrences remain independent
+runtime targets and are never first-selected.
+
+An `ExistingOccurrence` target already snapshots its occurrence ID, schema ID
+and runtime `MetadataWriteTarget`; `NewProperty` identifies a deliberate
+creation by exact schema ID. Adding schema identity to the transient occurrence
+shape therefore requires no target-format migration.
+
+## Transient occurrence format
+
+Scan and readback payloads use the required shape
+`{ id, schema_id, value, tag_info, write_target }`. Unknown local schemas retain
+their exact table, tag ID and optional index with null interpretation and write
+target. The temporary read-only `ImageMetadata.metadata` schema projection now
+groups from `occurrence.schema_id` and remains separately removable later.
 
 ## Draft and audit persistence
 
 `MediaLibraryTargetDraftEdits.jsonl` is the only draft file read or written.
+Its schema-v5 shape and version are unchanged by the transient occurrence
+migration.
 Each JSONL record retains the full target and edit. Duplicate logical target
 slots and malformed entries are rejected before a save can truncate the file.
 
-`MediaLibraryTargetApplyLog.jsonl` is the only apply audit written. Audit rows
+`MediaLibraryTargetApplyLog.jsonl` is the only apply audit written. Its
+schema version and target-aware record shape are unchanged. Audit rows
 retain complete targets, semantic values, verification results, and
 reconciliation decisions.
 

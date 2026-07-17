@@ -1357,6 +1357,7 @@ mod tests {
     }
 
     fn target_test_occurrence(group1: &str) -> MetadataOccurrence {
+        let tag_info = target_test_info(None);
         MetadataOccurrence {
             id: MetadataOccurrenceId {
                 document: None,
@@ -1364,8 +1365,9 @@ mod tests {
                 tag_id: "Family7TagIdMustNotBeUsed".to_owned(),
                 copy: 4,
             },
+            schema_id: tag_info.id.clone(),
             value: text("old"),
-            tag_info: Some(target_test_info(None)),
+            tag_info: Some(tag_info),
             write_target: Some(MetadataWriteTarget {
                 group1: group1.to_owned(),
                 tag_name: "XResolution".to_owned(),

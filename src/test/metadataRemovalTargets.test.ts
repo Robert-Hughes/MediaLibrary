@@ -38,6 +38,8 @@ function occurrence(
     },
     write_target: { group1: "IFD0", tag_name: "XResolution" },
     ...overrides,
+    schema_id:
+      overrides.schema_id ?? overrides.tag_info?.id ?? structuredClone(id),
   };
 }
 
@@ -45,7 +47,7 @@ function target(source = occurrence()): MetadataDraftTarget {
   return {
     kind: "ExistingOccurrence",
     occurrence_id: structuredClone(source.id),
-    schema_id: structuredClone(source.tag_info!.id),
+    schema_id: structuredClone(source.schema_id),
     write_target: structuredClone(source.write_target!),
   };
 }
@@ -123,6 +125,7 @@ describe("planMetadataRemovalTargetsV5", () => {
       },
       tag_info: null,
       write_target: null,
+      schema_id: { table: "Unknown::Runtime", tag_id: id.tag_id },
     });
     const before = structuredClone(unknown);
     expect(plan({ occurrences: [unknown] })).toEqual({
@@ -139,11 +142,13 @@ describe("planMetadataRemovalTargetsV5", () => {
         id: { document: null, path: "MakerNotes-A", tag_id: "282", copy: 0 },
         tag_info: null,
         write_target: null,
+        schema_id: { table: "Unknown::MakerA", tag_id: id.tag_id },
       }),
       occurrence({
         id: { document: null, path: "MakerNotes-B", tag_id: "282", copy: 1 },
         tag_info: null,
         write_target: null,
+        schema_id: { table: "Unknown::MakerB", tag_id: id.tag_id },
       }),
     ];
     const before = structuredClone(unknowns);
@@ -170,7 +175,11 @@ describe("planMetadataRemovalTargetsV5", () => {
       kind: "NewProperty",
       schema_id: structuredClone(id),
     };
-    const unknown = occurrence({ tag_info: null, write_target: null });
+    const unknown = occurrence({
+      tag_info: null,
+      write_target: null,
+      schema_id: { table: "Unknown::Runtime", tag_id: id.tag_id },
+    });
     const result = plan({ occurrences: [unknown], targets: owner(created) });
     expect(result).toEqual({ upserts: [], deletes: [created], noops: [] });
   });
@@ -186,7 +195,13 @@ describe("planMetadataRemovalTargetsV5", () => {
     expectCode(
       () =>
         plan({
-          occurrences: [occurrence({ tag_info: null, write_target: null })],
+          occurrences: [
+            occurrence({
+              tag_info: null,
+              write_target: null,
+              schema_id: { table: "Unknown::Runtime", tag_id: id.tag_id },
+            }),
+          ],
           targets: owner(target()),
         }),
       "stale-target-owner",
@@ -209,11 +224,10 @@ describe("planMetadataRemovalTargetsV5", () => {
   });
 
   it("leaves unknown rows read-only and rejects exact read-only or untargetable rows", () => {
-    expect(plan({ occurrences: [occurrence({ tag_info: null })] })).toEqual({
-      upserts: [],
-      deletes: [],
-      noops: [id],
-    });
+    expectCode(
+      () => plan({ occurrences: [occurrence({ tag_info: null })] }),
+      "untargetable-occurrence",
+    );
     expectCode(
       () =>
         plan({

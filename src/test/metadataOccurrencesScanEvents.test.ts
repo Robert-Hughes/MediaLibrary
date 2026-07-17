@@ -35,6 +35,7 @@ const occurrence = (
   tag_info: null,
   write_target: null,
   ...overrides,
+  schema_id: overrides.schema_id ?? { table: "Exif::Main", tag_id: "282" },
 });
 
 describe("normalizeMetadataOccurrencesFromTauri", () => {
@@ -50,6 +51,36 @@ describe("normalizeMetadataOccurrencesFromTauri", () => {
       write_target: { group1: "IFD0", tag_name: "XResolution" },
     });
     expect(normalizeMetadataOccurrencesFromTauri([value])).toEqual([value]);
+  });
+
+  it("rejects the complete payload when TagInfo conflicts with the occurrence schema", () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const valid = occurrence({ id: id({ copy: 1 }) });
+    const mismatched = occurrence({
+      tag_info: tagInfo(),
+      schema_id: { table: "Exif::Other", tag_id: "282" },
+    });
+
+    expect(normalizeMetadataOccurrencesFromTauri([valid, mismatched])).toEqual(
+      [],
+    );
+    expect(error).toHaveBeenCalledWith(
+      expect.stringMatching(
+        /occurrence ID.*JPEG-APP1-IFD0.*occurrence schema.*Exif::Other.*TagInfo schema.*Exif::Main/,
+      ),
+    );
+    error.mockRestore();
+  });
+
+  it("keeps distinct occurrence IDs that share one exact schema", () => {
+    const first = occurrence({ id: id({ path: "JPEG-APP1-IFD0" }) });
+    const second = occurrence({
+      id: id({ path: "JPEG-APP1-IFD1", copy: 2 }),
+    });
+    expect(normalizeMetadataOccurrencesFromTauri([second, first])).toEqual([
+      first,
+      second,
+    ]);
   });
 
   it("keeps valid shared-guard variants while isolating malformed siblings", () => {

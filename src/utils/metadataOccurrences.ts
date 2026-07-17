@@ -61,10 +61,8 @@ export function resolveOccurrencesForSchema(
   schemaId: SchemaDefinitionId,
 ): SchemaOccurrenceResolution {
   return resolutionFromMatches(
-    occurrences.filter(
-      (occurrence) =>
-        occurrence.tag_info !== null &&
-        schemaDefinitionIdEquals(occurrence.tag_info.id, schemaId),
+    occurrences.filter((occurrence) =>
+      schemaDefinitionIdEquals(occurrence.schema_id, schemaId),
     ),
   );
 }
@@ -74,8 +72,7 @@ export function buildSchemaOccurrenceResolutionIndex(
 ): SchemaOccurrenceResolutionIndex {
   const grouped = new Map<string, MetadataOccurrence[]>();
   for (const occurrence of occurrences) {
-    if (occurrence.tag_info === null) continue;
-    const token = schemaDefinitionIdToken(occurrence.tag_info.id);
+    const token = schemaDefinitionIdToken(occurrence.schema_id);
     const matches = grouped.get(token);
     if (matches) matches.push(occurrence);
     else grouped.set(token, [occurrence]);

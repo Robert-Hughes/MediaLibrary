@@ -62,6 +62,7 @@ const occurrence = (
   tag_info: tagInfo(),
   write_target: writeTarget(),
   ...overrides,
+  schema_id: overrides.schema_id ?? overrides.tag_info?.id ?? tagInfo().id,
 });
 
 function availableExisting(
@@ -142,11 +143,11 @@ describe("metadata draft target construction", () => {
     expect(target).toEqual({
       kind: "ExistingOccurrence",
       occurrence_id: source.id,
-      schema_id: source.tag_info!.id,
+      schema_id: source.schema_id,
       write_target: source.write_target,
     });
     expect(target.occurrence_id).not.toBe(source.id);
-    expect(target.schema_id).not.toBe(source.tag_info!.id);
+    expect(target.schema_id).not.toBe(source.schema_id);
     expect(target.write_target).not.toBe(source.write_target);
   });
 
@@ -154,6 +155,21 @@ describe("metadata draft target construction", () => {
     expect(
       existingOccurrenceDraftTarget(occurrence({ tag_info: null })),
     ).toEqual({ kind: "unavailable", reason: "unknown_schema" });
+  });
+
+  it("rejects conflicting occurrence and TagInfo schema identities", () => {
+    const source = occurrence({
+      schema_id: schemaId(0),
+      tag_info: tagInfo(true, schemaId(1)),
+    });
+    expect(existingOccurrenceDraftTarget(source)).toEqual({
+      kind: "unavailable",
+      reason: "schema_mismatch",
+    });
+    expect(existingOccurrenceTargetFromOccurrence(source)).toMatchObject({
+      kind: "read-only",
+      reason: expect.stringMatching(/conflicts/),
+    });
   });
 
   it("rejects a read-only existing occurrence", () => {

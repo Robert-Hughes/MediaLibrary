@@ -42,6 +42,7 @@ function occurrence(
     tag_info: tagInfo(),
     write_target: null,
     ...overrides,
+    schema_id: overrides.schema_id ?? overrides.tag_info?.id ?? schemaId,
   };
 }
 
@@ -69,16 +70,18 @@ describe("schema occurrence resolution", () => {
     }
   });
 
-  it("ignores unknown-schema occurrences", () => {
+  it("resolves unknown-schema occurrences by their explicit schema identity", () => {
     const unknown = occurrence(id("IFD0"), 300, { tag_info: null });
     expect(resolveOccurrencesForSchema([unknown], schemaId)).toEqual({
-      kind: "missing",
+      kind: "unique",
+      occurrence: unknown,
     });
   });
 
   it("does not match a different schema index", () => {
     const indexed = { ...schemaId, index: 1 };
     const value = occurrence(id("IFD0"), 300, {
+      schema_id: indexed,
       tag_info: tagInfo(indexed),
     });
     expect(resolveOccurrencesForSchema([value], schemaId)).toEqual({
@@ -173,7 +176,7 @@ describe("schema occurrence resolution index", () => {
     expect(resolutionForSchema(index, schemaId)).toEqual({ kind: "missing" });
   });
 
-  it("ignores unknown-schema occurrences and does not mutate the input", () => {
+  it("includes unknown-schema occurrences and does not mutate the input", () => {
     const unknown = occurrence(id("unknown"), 1, { tag_info: null });
     const known = occurrence(id("known"), 2);
     const input = [unknown, known];
@@ -183,8 +186,8 @@ describe("schema occurrence resolution index", () => {
     expect(input).toEqual(before);
     expect(index.size).toBe(1);
     expect(resolutionForSchema(index, schemaId)).toEqual({
-      kind: "unique",
-      occurrence: known,
+      kind: "multiple",
+      occurrences: [known, unknown],
     });
   });
 });

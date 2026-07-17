@@ -42,6 +42,7 @@ const draft = (numerator = 1, denominator = 2): MetadataDraftEntryV5 => ({
 });
 const occurrence = (numerator = 1, denominator = 2): MetadataOccurrence => ({
   id: { ...target().occurrence_id },
+  schema_id: schema(),
   value: { kind: "Rational", value: { numerator, denominator } },
   tag_info: {
     id: schema(),

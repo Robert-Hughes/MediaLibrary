@@ -116,12 +116,20 @@ For each static definition it:
 6. rejects duplicate reconstructed `SchemaDefinitionId` values rather than
    overwriting or choosing between them.
 
-## One identity throughout the application
+## Exact schema identity alongside runtime identity
 
-`SchemaDefinitionId` is retained for registry lookup, scanner results,
-raw/pretty pass joining, frontend metadata state, React and JavaScript
-collection values, columns and sorting, draft edits, writes, readback
-verification, apply outcomes and logs, and Add New Property.
+`SchemaDefinitionId` is retained structurally for registry lookup, raw/pretty
+pass joining, `MetadataOccurrence.schema_id`, frontend occurrence state,
+columns and sorting, target snapshots, readback verification, apply outcomes
+and logs, and Add New Property. It is always present on an authoritative
+`MetadataOccurrence`, even when the local registry has no matching `TagInfo`.
+
+It is not the identity of a concrete runtime field. `MetadataOccurrenceId`
+continues to identify the occurrence, and several occurrence IDs may share one
+schema ID. The occurrence also carries optional resolved `TagInfo` and an
+optional exact `MetadataWriteTarget`; these four concerns are not interchangeable.
+When `TagInfo` exists, its `id` must equal `MetadataOccurrence.schema_id`.
+Schema identity alone does not establish writability.
 
 JavaScript uses `schemaDefinitionIdToken(id)` only to make stable keys for
 `Map`, object and React collection mechanics. Every collection value retains
@@ -155,8 +163,11 @@ This is not a general suffix heuristic or a secondary registry index.
 
 ## Missing and duplicate identities
 
-Missing exact schema definitions remain unknown and read-only. MediaLibrary
-does not guess a table from Make, Model, file type, enum values or value shape.
+Missing exact schema definitions remain unknown and read-only. Their
+`MetadataOccurrence.schema_id` still preserves the exact ExifTool table, tag ID
+and optional index, while `tag_info` and `write_target` remain null. MediaLibrary
+does not guess a table from Make, Model, file type, enum values, value shape,
+occurrence path, runtime tag ID or selector coordinates.
 
 Conflicting duplicate runtime IDs must never silently overwrite one another.
 LangAlt children are merged deliberately as described above; other duplicate
@@ -169,13 +180,30 @@ The user searches friendly fields, but every result represents one exact
 context, and the user explicitly selects one. Arbitrary free-text properties
 cannot be written. Existing-property detection compares exact IDs.
 
-## Persistence
+## Wire formats and persistence
 
-Metadata crosses JSON boundaries as `{id, value}` entries. Target drafts persist
-a complete `ExistingOccurrence` or `NewProperty` target beside the semantic
-edit; struct-valued IDs are never JSON object keys. Historical draft files are
-ignored rather than parsed or migrated. Image-column settings without exact IDs
-are reset rather than guessed.
+Transient scan and readback occurrences cross the Rust/TypeScript boundary as
+`{ id, schema_id, value, tag_info, write_target }`. `schema_id` is required;
+`tag_info` and `write_target` are nullable. A present `TagInfo.id` must exactly
+match `schema_id`.
+
+Target drafts continue to persist a complete `ExistingOccurrence` or
+`NewProperty` target beside the semantic edit; their JSONL shape and schema
+version are unchanged. Apply-log records are likewise unchanged. Struct-valued
+IDs are never JSON object keys. Historical draft files are ignored rather than
+parsed or migrated. Image-column settings without exact IDs are reset rather
+than guessed.
+
+## Temporary schema projection
+
+The read-only schema-keyed `ImageMetadata.metadata` projection remains a
+migration boundary. It groups authoritative occurrences by
+`MetadataOccurrence.schema_id`, conservatively collapses identical ordinary
+values, merges compatible LangAlt children under their exact parent schema, and
+omits conflicts with complete occurrence-ID evidence. Projection omissions do
+not invalidate authoritative extraction. Because unknown occurrences now retain
+exact schema identity independently of `TagInfo`, the next migration can remove
+this projection without losing their identity.
 
 ## Rejected approaches
 

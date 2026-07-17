@@ -15,6 +15,7 @@ import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
 const schema: SchemaDefinitionId = { table: "Exif::Main", tag_id: "282" };
 const occurrence: MetadataOccurrence = {
   id: { document: null, path: "JPEG-APP1-IFD0", tag_id: "282", copy: 0 },
+  schema_id: structuredClone(schema),
   value: { kind: "Integer", value: 300 },
   tag_info: {
     id: schema,
@@ -176,6 +177,7 @@ describe("supplemental occurrence draft resolution", () => {
   it("keeps absent schema index distinct from zero", () => {
     const indexedOccurrence: MetadataOccurrence = {
       ...occurrence,
+      schema_id: { ...schema, index: 0 },
       tag_info: {
         ...occurrence.tag_info!,
         id: { ...schema, index: 0 },

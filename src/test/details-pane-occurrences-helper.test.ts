@@ -33,6 +33,7 @@ function occurrence(
 ): MetadataOccurrence {
   return {
     id,
+    schema_id: tagInfo.id,
     value: { kind: "Integer", value },
     tag_info: tagInfo,
     write_target: { group1: "IFD0", tag_name: "XResolution" },
@@ -71,6 +72,7 @@ function occurrenceWithValue(
 ): MetadataOccurrence {
   return {
     id,
+    schema_id: info?.id ?? tagInfo.id,
     value,
     tag_info: info,
     write_target: null,
@@ -151,14 +153,18 @@ describe("overlayUniqueOccurrenceValues", () => {
     expect(metadataGet(result, schemaId)).toBeUndefined();
   });
 
-  it("ignores unknown-schema occurrences", () => {
+  it("overlays unknown-schema occurrences by their explicit schema identity", () => {
     const legacy = metadataCollection([
       { id: schemaId, value: { kind: "Integer", value: 300 } },
     ]);
     const result = overlay(legacy, [
       occurrenceWithValue(ifd0(), { kind: "Integer", value: 999 }, null),
     ]);
-    expect(result).toEqual(legacy);
+    expect(metadataGet(result, schemaId)).toEqual({
+      id: schemaId,
+      kind: "Integer",
+      value: 999,
+    });
   });
 
   it("keeps absent and zero schema indexes distinct", () => {
@@ -298,11 +304,11 @@ describe("supplementalResolvedMetadataOccurrences", () => {
       {},
     );
     expect(entry).toMatchObject({
-      schemaId: undefined,
-      label: "282",
+      schemaId,
+      label: "Exif::Main / 282",
       value: "300",
     });
-    expect(entry.originTitle).toContain("Schema: unavailable");
+    expect(entry.originTitle).toContain("Schema: Exif::Main / 282");
   });
 
   it("uses the write target runtime group and searches every occurrence coordinate", () => {

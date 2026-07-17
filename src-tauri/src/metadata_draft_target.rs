@@ -133,6 +133,9 @@ impl MetadataDraftTarget {
     pub fn from_existing_occurrence(
         occurrence: &MetadataOccurrence,
     ) -> Result<Self, MetadataDraftTargetError> {
+        occurrence
+            .validate_schema_identity()
+            .map_err(|_| MetadataDraftTargetError::SchemaIdMismatch)?;
         let info = occurrence
             .tag_info
             .as_ref()
@@ -147,7 +150,7 @@ impl MetadataDraftTarget {
 
         Ok(Self::ExistingOccurrence {
             occurrence_id: occurrence.id.clone(),
-            schema_id: info.id.clone(),
+            schema_id: occurrence.schema_id.clone(),
             write_target: write_target.clone(),
         })
     }
@@ -182,13 +185,16 @@ impl MetadataDraftTarget {
         if occurrence_id != &occurrence.id {
             return Err(MetadataDraftTargetError::OccurrenceIdMismatch);
         }
+        if schema_id != &occurrence.schema_id {
+            return Err(MetadataDraftTargetError::SchemaIdMismatch);
+        }
+        occurrence
+            .validate_schema_identity()
+            .map_err(|_| MetadataDraftTargetError::SchemaIdMismatch)?;
         let info = occurrence
             .tag_info
             .as_ref()
             .ok_or(MetadataDraftTargetError::UnknownSchema)?;
-        if schema_id != &info.id {
-            return Err(MetadataDraftTargetError::SchemaIdMismatch);
-        }
         if !info.writable {
             return Err(MetadataDraftTargetError::ReadOnlySchema);
         }
@@ -249,6 +255,7 @@ mod tests {
     fn occurrence() -> MetadataOccurrence {
         MetadataOccurrence {
             id: occurrence_id(),
+            schema_id: schema_id(None),
             value: MetadataValue::Integer(300),
             tag_info: Some(info(true, None)),
             write_target: Some(write_target()),
@@ -261,10 +268,7 @@ mod tests {
         let target = MetadataDraftTarget::from_existing_occurrence(&occurrence).unwrap();
 
         assert_eq!(target.occurrence_id(), Some(&occurrence.id));
-        assert_eq!(
-            target.schema_id(),
-            &occurrence.tag_info.as_ref().unwrap().id
-        );
+        assert_eq!(target.schema_id(), &occurrence.schema_id);
         assert_eq!(target.write_target(), occurrence.write_target.as_ref());
         assert!(target.is_existing_occurrence());
         assert!(!target.is_new_property());
@@ -345,7 +349,21 @@ mod tests {
     }
 
     #[test]
-    fn validation_rejects_a_schema_id_mismatch() {
+    fn validation_compares_the_target_snapshot_with_the_occurrence_schema_field() {
+        let original = occurrence();
+        let target = MetadataDraftTarget::from_existing_occurrence(&original).unwrap();
+        let mut fresh = original;
+        fresh.schema_id.index = Some(0);
+        fresh.tag_info.as_mut().unwrap().id.index = Some(0);
+
+        assert_eq!(
+            target.validate_existing_occurrence(&fresh),
+            Err(MetadataDraftTargetError::SchemaIdMismatch)
+        );
+    }
+
+    #[test]
+    fn validation_rejects_conflicting_occurrence_and_tag_info_schema_ids() {
         let original = occurrence();
         let target = MetadataDraftTarget::from_existing_occurrence(&original).unwrap();
         let mut fresh = original;
@@ -356,7 +374,6 @@ mod tests {
             Err(MetadataDraftTargetError::SchemaIdMismatch)
         );
     }
-
     #[test]
     fn validation_rejects_a_changed_write_target() {
         let original = occurrence();

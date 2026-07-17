@@ -369,7 +369,7 @@ fn start_scan(
                                     "[metadata] Read {} successes, {} failures, {} schema-keyed display projection omissions",
                                     outcome.results.len(),
                                     outcome.failures.len(),
-                                    outcome.legacy_projection_omissions.len()
+                                    outcome.schema_projection_omissions.len()
                                 );
 
                                 batch_results.extend(outcome.results);
@@ -1014,6 +1014,7 @@ mod tests {
                 tag_id: "282".into(),
                 copy,
             },
+            schema_id: schema_id.clone(),
             value: MetadataValue::Integer(300),
             tag_info: Some(tag_info.clone()),
             write_target: Some(MetadataWriteTarget {

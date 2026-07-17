@@ -50,6 +50,7 @@ function occurrence(
     },
     write_target: { group1: "GPS", tag_name: id.tag_id },
     ...overrides,
+    schema_id: overrides.schema_id ?? structuredClone(id),
   };
 }
 

@@ -38,14 +38,9 @@ export function overlayUniqueOccurrenceValues(
   const authoritative = { ...schemaProjection };
 
   for (const resolution of resolutionIndex.values()) {
-    if (
-      resolution.kind !== "unique" ||
-      resolution.occurrence.tag_info === null
-    ) {
-      continue;
-    }
+    if (resolution.kind !== "unique") continue;
 
-    const id = resolution.occurrence.tag_info.id;
+    const id = resolution.occurrence.schema_id;
     authoritative[schemaDefinitionIdToken(id)] = {
       ...resolution.occurrence.value,
       id,
@@ -97,7 +92,7 @@ export interface MetadataGroup {
 export interface MetadataOccurrenceDisplayEntry {
   occurrence: MetadataOccurrence;
   identityToken: string;
-  schemaId?: SchemaDefinitionId;
+  schemaId: SchemaDefinitionId;
   label: string;
   value: string;
   origin: string;
@@ -118,10 +113,10 @@ export function supplementalResolvedMetadataOccurrences(
   return occurrences
     .filter(
       (occurrence) =>
-        occurrence.tag_info === null ||
-        metadataGet(schemaProjection, occurrence.tag_info.id) === undefined ||
-        resolutionForSchema(resolutionIndex, occurrence.tag_info.id).kind ===
-          "multiple",
+        metadataGet(schemaProjection, occurrence.schema_id) === undefined ||
+        resolutionForSchema(resolutionIndex, occurrence.schema_id).kind ===
+          "multiple" ||
+        occurrence.tag_info === null,
     )
     .sort((a, b) => compareMetadataOccurrenceIds(a.id, b.id))
     .map((occurrence) => {
@@ -141,10 +136,10 @@ export function supplementalResolvedMetadataOccurrences(
         ? `Runtime group: ${runtimeGroup}`
         : tagInfo
           ? `Schema-group display fallback: ${tagInfo.group} (not a claimed runtime location)`
-          : "No embedded schema is available for this occurrence";
+          : "The exact schema is unresolved in the local registry";
       const value = tagInfo
         ? metadataValueToDisplayStringForTag(
-            tagInfo.id,
+            occurrence.schema_id,
             occurrence.value,
             tagInfo,
           )
@@ -153,20 +148,28 @@ export function supplementalResolvedMetadataOccurrences(
       return {
         occurrence,
         identityToken: metadataOccurrenceIdToken(occurrence.id),
-        schemaId: tagInfo?.id,
-        label: tagInfo?.name ?? occurrence.id.tag_id,
+        schemaId: occurrence.schema_id,
+        label:
+          tagInfo?.name ??
+          formatSchemaDefinitionIdForDiagnostics(occurrence.schema_id),
         value,
         origin,
         originTitle: [
           formatMetadataOccurrenceIdForDiagnostics(occurrence.id),
-          tagInfo
-            ? `Schema: ${formatSchemaDefinitionIdForDiagnostics(tagInfo.id)}`
-            : "Schema: unavailable",
+          `Schema: ${formatSchemaDefinitionIdForDiagnostics(
+            occurrence.schema_id,
+          )}`,
           locationExplanation,
           `Exact write selector: ${selector}`,
         ].join("\n"),
         searchText: [
           tagInfo?.name,
+          formatSchemaDefinitionIdForDiagnostics(occurrence.schema_id),
+          occurrence.schema_id.table,
+          occurrence.schema_id.tag_id,
+          occurrence.schema_id.index == null
+            ? undefined
+            : String(occurrence.schema_id.index),
           value,
           tagInfo ? `${tagInfo.group}:${tagInfo.name}` : undefined,
           occurrence.write_target?.group1,

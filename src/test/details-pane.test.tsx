@@ -64,6 +64,7 @@ function mockOccurrences(
         tag_id: entry.id.tag_id,
         copy: 0,
       },
+      schema_id: structuredClone(entry.id),
       value: value as MetadataOccurrence["value"],
       tag_info: {
         id: structuredClone(entry.id),
@@ -860,6 +861,7 @@ describe("DetailsPane: target-aware Add Property drafts", () => {
         occurrences={[
           {
             id: target.occurrence_id,
+            schema_id: structuredClone(id),
             value: { kind: "Text", value: "original" },
             tag_info: {
               id,
@@ -914,6 +916,7 @@ describe("DetailsPane: target-aware Add Property drafts", () => {
         occurrences={[
           {
             id: target.occurrence_id,
+            schema_id: structuredClone(id),
             value: { kind: "Text", value: "original" },
             tag_info: {
               id,
@@ -1035,6 +1038,7 @@ describe("DetailsPane: read-only row context menu", () => {
               tag_id: "Make",
               copy: 0,
             },
+            schema_id: testId("IFD0:Make"),
             value: { kind: "Text", value: "Canon" },
             tag_info: {
               id: testId("IFD0:Make"),
@@ -1087,6 +1091,7 @@ describe("DetailsPane: read-only row context menu", () => {
               tag_id: "Make",
               copy: 0,
             },
+            schema_id: testId("IFD0:Make"),
             value: { kind: "Text", value: "Canon" },
             tag_info: {
               id: testId("IFD0:Make"),
@@ -1186,6 +1191,7 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
           tag_id: id.tag_id,
           copy: index,
         },
+        schema_id: structuredClone(id),
         value,
         tag_info: {
           id,

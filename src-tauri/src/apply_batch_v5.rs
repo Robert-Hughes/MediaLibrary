@@ -1590,6 +1590,7 @@ mod tests {
                     tag_id: "1".into(),
                     copy: 0,
                 },
+                schema_id: schema("1"),
                 value: MetadataValue::Text("authoritative".into()),
                 tag_info: None,
                 write_target: None,

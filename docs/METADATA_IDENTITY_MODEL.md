@@ -17,20 +17,39 @@ Exact comparison includes the optional index, so an omitted index is distinct
 from index zero. A schema ID is suitable for choosing a New Property definition
 and for text search, but not for choosing among existing occurrences.
 
-## Occurrence identity
+## Authoritative occurrence state
 
-`MetadataOccurrenceId { document, path, tag_id, copy }` identifies one concrete
-runtime occurrence. Scanner output retains this ID, its semantic value,
-resolved `TagInfo`, and its exact runtime write selector.
+Every scanner result keeps four independent concerns:
 
-An existing occurrence can be edited only when it has:
+1. `MetadataOccurrenceId { document, path, tag_id, copy }` identifies one
+   concrete runtime occurrence.
+2. `MetadataOccurrence.schema_id` always stores the exact
+   `SchemaDefinitionId { table, tag_id, index? }` reported by ExifTool. Several
+   runtime occurrences may share it.
+3. `MetadataOccurrence.tag_info` is optional resolved registry interpretation
+   and presentation metadata. When present, `TagInfo.id` must exactly equal the
+   occurrence's `schema_id`; a mismatch is rejected rather than repaired.
+4. `MetadataOccurrence.write_target` is an optional proven exact runtime write
+   selector.
 
-- an unambiguous occurrence ID;
-- exact writable schema information; and
-- an exact runtime `MetadataWriteTarget`.
+Runtime occurrence identity and schema identity are deliberately separate. A
+schema ID is not part of `MetadataOccurrenceId`, and neither friendly labels,
+runtime path nor selector coordinates may be used to infer one from the other.
 
-Unknown-schema, read-only, selector-less, duplicated, or otherwise ambiguous
-occurrences remain visible but cannot be mutated.
+An existing occurrence can be edited only when it has an unambiguous occurrence
+ID, matching resolved writable and supported `TagInfo`, and an exact
+`MetadataWriteTarget`. Schema identity alone never proves writability.
+
+An occurrence absent from the local registry still retains its exact
+`schema_id`, with `tag_info: null` and `write_target: null`. It remains visible,
+distinguishable and diagnosable, but read-only. Duplicated or otherwise
+ambiguous occurrences also remain unavailable to mutation without selecting an
+arbitrary representative.
+
+The schema-keyed `ImageMetadata.metadata` projection remains temporarily for
+read-only consumers. It now derives identity from `occurrence.schema_id`, so a
+later migration can remove the projection without losing unknown-schema
+identity from authoritative occurrence state.
 
 ## Draft target identity
 

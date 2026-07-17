@@ -26,6 +26,7 @@ function targetV5Result(
       tag_id: id.tag_id,
       copy: options.occurrenceCopy ?? 0,
     },
+    schema_id: structuredClone(id),
     value: { kind: "Text", value: value ?? "" },
     tag_info: null,
     write_target: null,
@@ -527,7 +528,7 @@ describe("useMediaLibrary", () => {
     }
   });
 
-  it("workerErrors is capped ÔÇö keeps the most recent N and drops older ones", async () => {
+  it("workerErrors is capped — keeps the most recent N and drops older ones", async () => {
     // Without a cap, a folder with thousands of metadata failures grows the
     // array (and React state) without bound.  Cap at 20 and keep the most
     // recent ones since they're the ones the user can act on.
@@ -756,7 +757,7 @@ describe("useMediaLibrary", () => {
   it("sortConfig persists across scan_complete (App applies sort once scanning ends)", async () => {
     // We assert at the hook level that scanning flips false on scan_complete
     // and sortConfig is preserved.  App.tsx skips sortPhotos while scanning
-    // is true and runs it once when scanning becomes false ÔÇö the test in
+    // is true and runs it once when scanning becomes false — the test in
     // column-sorting verifies the PhotoList side of that contract.
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/photos");
@@ -925,7 +926,7 @@ describe("useMediaLibrary", () => {
       await result.current[1].openFolder();
     });
 
-    // Get past the loadingÔåÆloaded transition so we're in a state with timers.
+    // Get past the loading→loaded transition so we're in a state with timers.
     act(() => {
       mock.emitPhotoFound(makePhoto({ relative_path: "a.jpg" }));
     });
@@ -947,7 +948,7 @@ describe("useMediaLibrary", () => {
     });
     expect(result.current[0].kind).toBe("idle");
 
-    // Advance well past any timer interval ÔÇö nothing should happen.
+    // Advance well past any timer interval — nothing should happen.
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1000);
     });
@@ -990,7 +991,7 @@ describe("useMediaLibrary", () => {
 
     const oldScanId = mock.currentScanId;
 
-    // Start a new scan via openRecent ÔÇö clears photo list and gets a new scan_id
+    // Start a new scan via openRecent — clears photo list and gets a new scan_id
     mock.invocations.length = 0;
     await act(async () => {
       await result.current[1].openRecent("/photos/second");
@@ -1041,6 +1042,7 @@ describe("useMediaLibrary", () => {
     const schemaId = testId("IFD0:XResolution");
     const occurrence = {
       id: { document: null, path: "JPEG-APP1-IFD0", tag_id: "282", copy: 0 },
+      schema_id: structuredClone(schemaId),
       value: { kind: "Integer" as const, value: 300 },
       tag_info: {
         id: schemaId,
@@ -1121,6 +1123,7 @@ describe("useMediaLibrary", () => {
         [
           {
             id: { document: null, path: "IFD0", tag_id: "272", copy: 0 },
+            schema_id: { table: "Exif::Main", tag_id: "272" },
             value: { kind: "Text", value: "stale" },
             tag_info: null,
             write_target: null,

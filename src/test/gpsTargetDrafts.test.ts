@@ -50,6 +50,7 @@ function occurrence(
       tag_id: id.tag_id,
       copy: options.copy ?? 0,
     },
+    schema_id: structuredClone(id),
     value: { kind: "Real", value: 51.5 },
     tag_info:
       options.tagInfo === undefined

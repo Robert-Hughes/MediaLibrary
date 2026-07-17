@@ -55,6 +55,7 @@ function occurrence(
       tag_id: tagInfo.id.tag_id,
       copy: 0,
     },
+    schema_id: tagInfo.id,
     value,
     tag_info: tagInfo,
     write_target: { group1: "Test", tag_name: tagInfo.name },
