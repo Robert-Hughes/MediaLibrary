@@ -1,7 +1,14 @@
 /**
  * Integration tests for Draft Metadata Editing
  */
-import { render, screen, act, within, waitFor } from "@testing-library/react";
+import {
+  render,
+  screen,
+  act,
+  within,
+  waitFor,
+  fireEvent,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import App from "../App";
@@ -15,6 +22,7 @@ import {
 import { testIdForFriendlyName } from "./testIds";
 import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
 import type { MetadataOccurrence } from "../types";
+import { TargetDraftEditsStore } from "../targetDraftEdits";
 
 let mockApiInstance: ReturnType<typeof createMockTauriApi>;
 
@@ -555,5 +563,165 @@ describe("Draft Metadata Editing Integration", () => {
 
     // Verify edits are gone (no draft badge in header)
     expect(screen.queryByText(/draft edit/)).toBeNull();
+  });
+  it("reacts to authoritative occurrence loading before presenting one safe exact target", async () => {
+    const user = userEvent.setup();
+    const schema = testIdForFriendlyName("XMP-dc:Description");
+    const item: MetadataOccurrence = {
+      id: {
+        document: null,
+        path: "JPEG-APP1-XMP",
+        tag_id: schema.tag_id,
+        copy: 0,
+      },
+      value: { kind: "Text", value: "Committed" },
+      tag_info: {
+        id: schema,
+        group: "XMP-dc",
+        name: "Description",
+        writable: true,
+        kind: { kind: "Text" },
+        description: null,
+      },
+      write_target: { group1: "XMP-dc", tag_name: "Description" },
+    };
+    const store = new TargetDraftEditsStore();
+    store.setMetadataTarget(
+      "test.jpg",
+      {
+        kind: "ExistingOccurrence",
+        occurrence_id: item.id,
+        schema_id: schema,
+        write_target: item.write_target!,
+      },
+      { intent: "Set", value: { kind: "Text", value: "Pending" } },
+    );
+    mockApiInstance.targetDraftEditsByFolder["/photos"] =
+      store.getAllMetadata();
+    mockApiInstance.pickFolderResolves("/photos");
+    render(<App />);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    await user.click(screen.getByTestId("open-folder-btn"));
+
+    const photo = makePhoto({ relative_path: "test.jpg" });
+    act(() => mockApiInstance.emitPhotoFound(photo));
+    const row = await screen.findByTestId("photo-row");
+    expect(row.querySelector(".draft-new")).toBeNull();
+
+    act(() => {
+      mockApiInstance.emitImageMetadataReady(
+        photo.relative_path,
+        { "XMP-dc:Description": { kind: "Text", value: "Committed" } },
+        undefined,
+        [item],
+      );
+    });
+    await waitFor(() => {
+      expect(row.querySelector(".draft-new")).toHaveTextContent("Pending");
+    });
+  });
+
+  it("keeps same-schema exact target counts while suppressing ordinary-cell presentation", async () => {
+    const user = userEvent.setup();
+    const schema = testIdForFriendlyName("XMP-dc:Description");
+    const occurrenceA: MetadataOccurrence = {
+      id: {
+        document: null,
+        path: "JPEG-APP1-IFD0",
+        tag_id: schema.tag_id,
+        copy: 0,
+      },
+      value: { kind: "Text", value: "IFD0 value" },
+      tag_info: {
+        id: schema,
+        group: "XMP-dc",
+        name: "Description",
+        writable: true,
+        kind: { kind: "Text" },
+        description: null,
+      },
+      write_target: { group1: "IFD0", tag_name: "Description" },
+    };
+    const occurrenceB: MetadataOccurrence = {
+      ...occurrenceA,
+      id: { ...occurrenceA.id, path: "JPEG-APP1-IFD1", copy: 1 },
+      value: { kind: "Text", value: "IFD1 value" },
+      write_target: { group1: "IFD1", tag_name: "Description" },
+    };
+    const store = new TargetDraftEditsStore();
+    store.setMetadataTarget(
+      "test.jpg",
+      {
+        kind: "ExistingOccurrence",
+        occurrence_id: occurrenceA.id,
+        schema_id: schema,
+        write_target: occurrenceA.write_target!,
+      },
+      { intent: "Set", value: { kind: "Text", value: "Pending IFD0" } },
+    );
+    store.setMetadataTarget(
+      "test.jpg",
+      {
+        kind: "ExistingOccurrence",
+        occurrence_id: occurrenceB.id,
+        schema_id: schema,
+        write_target: occurrenceB.write_target!,
+      },
+      { intent: "Set", value: { kind: "Text", value: "Pending IFD1" } },
+    );
+
+    mockApiInstance.targetDraftEditsByFolder["/photos"] =
+      store.getAllMetadata();
+    mockApiInstance.pickFolderResolves("/photos");
+    render(<App />);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    await user.click(screen.getByTestId("open-folder-btn"));
+
+    const photo = makePhoto({ relative_path: "test.jpg" });
+    act(() => {
+      mockApiInstance.emitPhotoFound(photo);
+      mockApiInstance.emitImageMetadataReady(
+        photo.relative_path,
+        {
+          "XMP-dc:Description": {
+            kind: "Text",
+            value: "Compatibility value",
+          },
+        },
+        undefined,
+        [occurrenceA, occurrenceB],
+      );
+    });
+
+    const row = await screen.findByTestId("photo-row");
+    await waitFor(() => {
+      expect(within(row).getByText("2 draft edits")).toBeInTheDocument();
+    });
+    const token = schemaDefinitionIdToken(schema);
+    const cell = Array.from(
+      row.querySelectorAll<HTMLElement>(".grid-cell-metadata"),
+    ).find((candidate) => candidate.getAttribute("data-col") === token);
+    expect(cell).toBeDefined();
+    expect(cell).toHaveTextContent("Compatibility value");
+    expect(cell?.querySelector(".draft-new")).toBeNull();
+
+    const { ask } = await import("@tauri-apps/plugin-dialog");
+    vi.mocked(ask).mockResolvedValue(false);
+    fireEvent.contextMenu(row);
+    await user.click(screen.getByText("Apply edits…"));
+    expect(ask).toHaveBeenLastCalledWith(
+      expect.stringContaining("Apply 2 edits"),
+      expect.anything(),
+    );
+    fireEvent.contextMenu(row);
+    await user.click(screen.getByText("Discard all edits…"));
+    expect(ask).toHaveBeenLastCalledWith(
+      expect.stringContaining("discard 2 edits"),
+      expect.anything(),
+    );
   });
 });

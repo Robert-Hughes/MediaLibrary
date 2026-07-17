@@ -117,7 +117,7 @@ type PresentedTargetDraft =
 interface Props {
   photo: PhotoInfo;
   metadata: ImageMetadataState;
-  /** Authoritative occurrences; optional for legacy/direct consumers. */
+  /** Authoritative occurrences; optional for read-only or direct consumers. */
   occurrences?: ImageMetadataOccurrencesState;
   /** Exact-target drafts for Add Property and unique existing rows. */
   targetDraftEdits?: TargetDraftCollection;
@@ -382,7 +382,7 @@ function DetailsImageRow({
       readOnly = true;
       break;
     case "missing":
-      // Preserve the compatibility path for unresolved and legacy callers.
+      // Preserve the compatibility path for unresolved read-only or direct callers.
       break;
   }
 

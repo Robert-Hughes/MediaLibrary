@@ -280,7 +280,7 @@ fn read_os_metadata(path: &Path) -> (Option<i64>, Option<i64>) {
 /// outcome contains all three outer-result collections: `results`, `failures`
 /// and `legacy_projection_omissions`. A file may appear successfully in
 /// `results` while contributing one or more omissions. Those omissions report
-/// compatibility loss in the legacy schema-keyed projection, not failed
+/// compatibility loss in the schema-keyed display projection, not failed
 /// metadata extraction; the authoritative occurrences remain complete. Only
 /// genuine parsing, canonicalisation or invariant failures appear in
 /// `failures`.
@@ -438,7 +438,7 @@ pub struct MetadataBatchReadOutcome {
     pub legacy_projection_omissions: Vec<LegacyProjectionOmission>,
 }
 
-/// A legacy schema-keyed compatibility entry intentionally omitted because
+/// A schema-keyed display entry intentionally omitted because
 /// it could not represent every authoritative runtime occurrence.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct LegacyProjectionOmission {
@@ -835,7 +835,7 @@ fn assemble_batch_outcome(
                 Err(error) => {
                     failures.push(MetadataReadFailure {
                         relative_path: rel_path.clone(),
-                        error_message: format!("Legacy schema projection failed:\n{error}"),
+                        error_message: format!("Schema-keyed display projection failed:\n{error}"),
                     });
                     continue;
                 }
@@ -1135,7 +1135,7 @@ struct CanonicalRuntimeOccurrence {
     // identifies its static schema, and the write target identifies the
     // supported ExifTool selector.
     occurrence: MetadataOccurrence,
-    /// Temporary exact schema identity used by the legacy schema-keyed
+    /// Temporary exact schema identity used by the schema-keyed display
     /// projection, including unresolved schemas where `occurrence.tag_info`
     /// is `None`.
     projection_schema_id: SchemaDefinitionId,
@@ -1341,7 +1341,7 @@ fn project_occurrences_to_legacy_metadata(
     // Deliberate migration scaffolding: application consumers are still keyed
     // by schema identity, so occurrence values must temporarily be projected.
     // Runtime LangAlt children remain distinct occurrences even though this
-    // legacy projection merges their semantic values under the parent schema.
+    // the schema-keyed display projection merges their semantic values under the parent schema.
     let mut groups: BTreeMap<SchemaDefinitionId, Vec<&CanonicalRuntimeOccurrence>> =
         BTreeMap::new();
     for occurrence in occurrences {
@@ -1401,7 +1401,7 @@ fn project_occurrences_to_legacy_metadata(
                 schema_id,
                 occurrence_ids,
                 message: format!(
-                    "legacy schema-keyed representation cannot mix ordinary and LangAlt occurrences: {details}"
+                    "schema-keyed display projection cannot mix ordinary and LangAlt occurrences: {details}"
                 ),
             });
             continue;
@@ -1429,7 +1429,7 @@ fn project_occurrences_to_legacy_metadata(
                     schema_id,
                     occurrence_ids,
                     message: format!(
-                        "legacy schema-keyed LangAlt representation cannot express conflicting text for the same language: {details}"
+                        "schema-keyed LangAlt display projection cannot express conflicting text for the same language: {details}"
                     ),
                 });
             } else {
@@ -1456,7 +1456,7 @@ fn project_occurrences_to_legacy_metadata(
                 schema_id,
                 occurrence_ids,
                 message: format!(
-                    "legacy schema-keyed representation cannot express different values for these runtime occurrences: {details}"
+                    "schema-keyed display projection cannot express different values for these runtime occurrences: {details}"
                 ),
             });
         }
@@ -4419,7 +4419,7 @@ mod tests {
         // - first source is valid
         // - second has two occurrence IDs which share one schema identity
         // - third is valid
-        // All three sources parse; the legacy projection owns any later collision.
+        // All three sources parse; the schema-keyed display projection owns any later collision.
         let json = r#"[
             {
                 "SourceFile": "D:/path/Image1.jpg",

@@ -1,4 +1,4 @@
-//! Schema-v5, occurrence-aware single-file apply path for the controlled bridge.
+//! Schema-v5, occurrence-aware single-file apply path for the target-aware metadata pipeline.
 //!
 //! Production target-aware metadata apply reaches this module through the
 //! versioned batch command. Existing-occurrence targets are read, written and
@@ -124,7 +124,7 @@ impl MetadataTargetWriteClient for RealMetadataTargetWriteClient {
             ));
         }
         if let Some(result) = result {
-            // Legacy projection omissions are intentionally ignored: the
+            // Schema-keyed display projection omissions are intentionally ignored: the
             // authoritative occurrence collection above remains complete.
             return Ok(result);
         }

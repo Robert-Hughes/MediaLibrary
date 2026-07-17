@@ -51,7 +51,6 @@ import { listSearchQueryIsActive } from "./utils/listSearchText";
 import { computeEffectiveMetadataKeyFrequency } from "./utils/metadataKeyFrequency";
 import { useSearchWorker, createSearchWorker } from "./hooks/useSearchWorker";
 import { previewMetadataRemovalFilesV5 } from "./metadataRemovalTargets";
-import { schemaDefinitionIdToken } from "./utils/schemaDefinitionId";
 import "./App.css";
 
 const tauriApi: TauriApi = {
@@ -241,22 +240,6 @@ function LoadedView({
     return counts;
   }, [state.targetDraftEdits]);
 
-  const draftEditsForList = useMemo(
-    () =>
-      Object.fromEntries(
-        Object.entries(state.targetDraftEdits).map(([path, collection]) => [
-          path,
-          Object.fromEntries(
-            Object.values(collection).map((entry) => [
-              schemaDefinitionIdToken(entry.target.schema_id),
-              { id: entry.target.schema_id, edit: entry.edit },
-            ]),
-          ),
-        ]),
-      ),
-    [state.targetDraftEdits],
-  );
-
   const targetVerifyOutcomeCount = Object.values(
     state.targetVerifyOutcomes,
   ).reduce((count, entries) => count + Object.keys(entries).length, 0);
@@ -354,6 +337,8 @@ function LoadedView({
         photos={displayPhotos}
         thumbnails={state.thumbnails}
         imageMetadata={state.imageMetadata}
+        imageMetadataOccurrences={state.imageMetadataOccurrences}
+        targetDraftEdits={state.targetDraftEdits}
         visibleColumns={state.visibleColumns}
         columnWidths={state.columnWidths}
         onColumnWidthChange={actions.updateColumnWidth}
@@ -369,7 +354,6 @@ function LoadedView({
         onSelectColumns={() => setShowColumnDialog(true)}
         searchQuery={listSearchQuery}
         emptySearchMessage={emptySearchMessage}
-        draftEdits={draftEditsForList}
         draftCounts={draftCounts}
         onDiscardAllEdits={(paths) => actions.discardAllDraftEdits(paths)}
         onApplyEdits={(paths) => actions.applyDraftEdits(paths)}

@@ -3,25 +3,14 @@ import type {
   ImageMetadataEntry,
   ImageMetadataOccurrencesState,
   MetadataDraftEdit,
-  MetadataDraftEntryV5,
   MetadataValue,
   SchemaDefinitionId,
 } from "../types";
 import { metadataValueEqual } from "../types";
-import {
-  existingOccurrenceTargetFromOccurrence,
-  metadataDraftTargetEquals,
-} from "./metadataDraftTarget";
-import {
-  buildSchemaOccurrenceResolutionIndex,
-  resolveExactMetadataOccurrence,
-  resolutionForSchema,
-} from "./metadataOccurrences";
+import { buildSchemaDraftDisplayProjection } from "../targetDraftView";
+import { buildSchemaOccurrenceResolutionIndex } from "./metadataOccurrences";
 import { metadataGet, type MetadataCollection } from "./metadataCollection";
-import {
-  schemaDefinitionIdEquals,
-  schemaDefinitionIdToken,
-} from "./schemaDefinitionId";
+import { schemaDefinitionIdToken } from "./schemaDefinitionId";
 
 function valueFromEntry(
   entry: ImageMetadataEntry | undefined,
@@ -154,47 +143,15 @@ export function buildEffectiveMetadataForFile(input: {
     }
   }
 
-  const targetOwners = new Map<string, MetadataDraftEntryV5[]>();
-  for (const entry of Object.values(input.targetDrafts ?? {})) {
-    const token = schemaDefinitionIdToken(entry.target.schema_id);
-    const owners = targetOwners.get(token);
-    if (owners) owners.push(entry);
-    else targetOwners.set(token, [entry]);
-  }
-
-  for (const owners of targetOwners.values()) {
-    if (owners.length !== 1) continue;
-    const entry = owners[0];
-    const schemaId = entry.target.schema_id;
-    if (!loadedOccurrences || !occurrenceIndex) continue;
-
-    let safe: boolean;
-    if (entry.target.kind === "ExistingOccurrence") {
-      const schemaResolution = resolutionForSchema(occurrenceIndex, schemaId);
-      if (schemaResolution.kind !== "unique") continue;
-      const exact = resolveExactMetadataOccurrence(
-        loadedOccurrences,
-        entry.target.occurrence_id,
-      );
-      if (exact.kind !== "unique") continue;
-      const currentTarget = existingOccurrenceTargetFromOccurrence(
-        exact.occurrence,
-      );
-      safe =
-        currentTarget.kind === "targetable" &&
-        metadataDraftTargetEquals(currentTarget.target, entry.target) &&
-        exact.occurrence.tag_info !== null &&
-        schemaDefinitionIdEquals(exact.occurrence.tag_info.id, schemaId);
-    } else {
-      safe =
-        resolutionForSchema(occurrenceIndex, schemaId).kind === "missing" &&
-        metadataGet(input.metadata ?? {}, schemaId) === undefined;
-    }
-    if (!safe) continue;
-
-    const current = valueFromEntry(metadataGet(effective, schemaId));
-    const applied = applyMetadataDraftEditExactly(current, entry.edit);
-    if (applied.applied) setEffectiveValue(effective, schemaId, applied.value);
+  const displayDrafts = buildSchemaDraftDisplayProjection({
+    compatibilityMetadata: input.metadata,
+    occurrences: input.occurrences,
+    targetDrafts: input.targetDrafts,
+  });
+  for (const { id, edit } of Object.values(displayDrafts)) {
+    const current = valueFromEntry(metadataGet(effective, id));
+    const applied = applyMetadataDraftEditExactly(current, edit);
+    if (applied.applied) setEffectiveValue(effective, id, applied.value);
   }
 
   return effective;

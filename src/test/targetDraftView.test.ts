@@ -6,10 +6,12 @@ import type {
 } from "../types";
 import { TargetDraftEditsStore } from "../targetDraftEdits";
 import {
+  buildSchemaDraftDisplayProjection,
   resolveExistingRowDraft,
+  resolveSchemaDraftForPresentation,
   resolveSupplementalOccurrenceDraft,
 } from "../targetDraftView";
-
+import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
 const schema: SchemaDefinitionId = { table: "Exif::Main", tag_id: "282" };
 const occurrence: MetadataOccurrence = {
   id: { document: null, path: "JPEG-APP1-IFD0", tag_id: "282", copy: 0 },
@@ -202,5 +204,145 @@ describe("supplemental occurrence draft resolution", () => {
     resolveSupplementalOccurrenceDraft(sourceOccurrence, drafts);
     expect(sourceOccurrence).toEqual(beforeOccurrence);
     expect(drafts).toEqual(beforeTargets);
+  });
+});
+
+describe("schema-keyed target draft presentation", () => {
+  const token = schemaDefinitionIdToken(schema);
+  const pending = {
+    intent: "Set" as const,
+    value: { kind: "Integer" as const, value: 301 },
+  };
+  const siblingOccurrence: MetadataOccurrence = {
+    ...occurrence,
+    id: { ...occurrence.id, path: "JPEG-APP1-IFD1", copy: 1 },
+    value: { kind: "Integer", value: 72 },
+    tag_info: { ...occurrence.tag_info!, group: "IFD1" },
+    write_target: { group1: "IFD1", tag_name: "XResolution" },
+  };
+  const siblingTarget: Extract<
+    MetadataDraftTarget,
+    { kind: "ExistingOccurrence" }
+  > = {
+    kind: "ExistingOccurrence",
+    occurrence_id: siblingOccurrence.id,
+    schema_id: schema,
+    write_target: siblingOccurrence.write_target!,
+  };
+
+  function draftsInOrder(...orderedTargets: MetadataDraftTarget[]) {
+    const store = new TargetDraftEditsStore();
+    for (const candidate of orderedTargets) {
+      store.setMetadataTarget("a.jpg", candidate, pending);
+    }
+    return store.getMetadataFile("a.jpg");
+  }
+
+  it("presents one safe NewProperty target", () => {
+    const drafts = draftsInOrder({ kind: "NewProperty", schema_id: schema });
+    const projection = buildSchemaDraftDisplayProjection({
+      compatibilityMetadata: {},
+      occurrences: [],
+      targetDrafts: drafts,
+    });
+    expect(projection[token]?.edit).toEqual(pending);
+  });
+
+  it("presents one safe ExistingOccurrence target", () => {
+    const projection = buildSchemaDraftDisplayProjection({
+      compatibilityMetadata: {},
+      occurrences: [occurrence],
+      targetDrafts: draftsInOrder(target),
+    });
+    expect(projection[token]?.edit).toEqual(pending);
+  });
+
+  it("retains two same-schema exact targets but presents neither", () => {
+    const drafts = draftsInOrder(target, siblingTarget)!;
+    expect(Object.keys(drafts)).toHaveLength(2);
+    expect(
+      buildSchemaDraftDisplayProjection({
+        compatibilityMetadata: {},
+        occurrences: [occurrence, siblingOccurrence],
+        targetDrafts: drafts,
+      }),
+    ).toEqual({});
+  });
+
+  it("is independent of same-schema target insertion order", () => {
+    const forward = buildSchemaDraftDisplayProjection({
+      compatibilityMetadata: {},
+      occurrences: [occurrence, siblingOccurrence],
+      targetDrafts: draftsInOrder(target, siblingTarget),
+    });
+    const reverse = buildSchemaDraftDisplayProjection({
+      compatibilityMetadata: {},
+      occurrences: [occurrence, siblingOccurrence],
+      targetDrafts: draftsInOrder(siblingTarget, target),
+    });
+    expect(forward).toEqual({});
+    expect(reverse).toEqual(forward);
+  });
+
+  it("does not present a stale selector snapshot", () => {
+    const stale = {
+      ...target,
+      write_target: { ...target.write_target, group1: "IFD1" },
+    };
+    expect(
+      buildSchemaDraftDisplayProjection({
+        compatibilityMetadata: {},
+        occurrences: [occurrence],
+        targetDrafts: draftsInOrder(stale),
+      }),
+    ).toEqual({});
+  });
+
+  it("does not present a missing or duplicated exact occurrence", () => {
+    const missing = resolveSchemaDraftForPresentation({
+      schemaId: schema,
+      compatibilityMetadata: {},
+      occurrences: [],
+      targetDrafts: draftsInOrder(target),
+    });
+    expect(missing).toMatchObject({ kind: "blocked" });
+
+    const otherSchema = { ...schema, table: "Exif::Other" };
+    const duplicateExactId: MetadataOccurrence = {
+      ...occurrence,
+      tag_info: { ...occurrence.tag_info!, id: otherSchema },
+    };
+    const duplicated = resolveSchemaDraftForPresentation({
+      schemaId: schema,
+      compatibilityMetadata: {},
+      occurrences: [occurrence, duplicateExactId],
+      targetDrafts: draftsInOrder(target),
+    });
+    expect(duplicated).toMatchObject({
+      kind: "blocked",
+      reason: "The exact occurrence ID is duplicated.",
+    });
+  });
+
+  it("does not present an unverified target while occurrences are loading", () => {
+    expect(
+      buildSchemaDraftDisplayProjection({
+        compatibilityMetadata: {},
+        occurrences: "loading",
+        targetDrafts: draftsInOrder(target),
+      }),
+    ).toEqual({});
+  });
+
+  it("does not present a NewProperty target over compatibility metadata", () => {
+    expect(
+      buildSchemaDraftDisplayProjection({
+        compatibilityMetadata: {
+          [token]: { id: schema, kind: "Integer", value: 300 },
+        },
+        occurrences: [],
+        targetDrafts: draftsInOrder({ kind: "NewProperty", schema_id: schema }),
+      }),
+    ).toEqual({});
   });
 });

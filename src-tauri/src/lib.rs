@@ -366,7 +366,7 @@ fn start_scan(
                         match scanner::read_image_metadata_batch(&rel_paths, &abs_paths) {
                             Ok(outcome) => {
                                 log::debug!(
-                                    "[metadata] Read {} successes, {} failures, {} legacy projection omissions",
+                                    "[metadata] Read {} successes, {} failures, {} schema-keyed display projection omissions",
                                     outcome.results.len(),
                                     outcome.failures.len(),
                                     outcome.legacy_projection_omissions.len()
@@ -986,7 +986,7 @@ mod tests {
     }
 
     #[test]
-    fn metadata_ready_payload_serializes_authoritative_and_legacy_results() {
+    fn metadata_ready_payload_serializes_authoritative_occurrences_and_schema_projection() {
         use crate::metadata_occurrence::{
             MetadataOccurrence, MetadataOccurrenceId, MetadataOccurrences, MetadataWriteTarget,
         };

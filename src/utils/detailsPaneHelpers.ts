@@ -27,15 +27,15 @@ import { resolutionForSchema } from "./metadataOccurrences";
 export const formatMetadataValue = metadataValueToDisplayString;
 
 /**
- * Overlay uniquely resolved authoritative occurrence values onto the legacy
+ * Overlay uniquely resolved authoritative occurrence values onto the schema-keyed
  * compatibility collection used by Details Pane editors. Missing and
- * multiply-resolved schemas deliberately retain the legacy projection.
+ * multiply-resolved schemas deliberately retain the display projection.
  */
 export function overlayUniqueOccurrenceValues(
-  legacyMetadata: MetadataCollection,
+  schemaProjection: MetadataCollection,
   resolutionIndex: SchemaOccurrenceResolutionIndex,
 ): MetadataCollection {
-  const authoritative = { ...legacyMetadata };
+  const authoritative = { ...schemaProjection };
 
   for (const resolution of resolutionIndex.values()) {
     if (
@@ -112,14 +112,14 @@ export interface MetadataOccurrenceDisplayEntry {
  */
 export function supplementalResolvedMetadataOccurrences(
   occurrences: readonly MetadataOccurrence[],
-  legacyMetadata: MetadataCollection,
+  schemaProjection: MetadataCollection,
   resolutionIndex: SchemaOccurrenceResolutionIndex,
 ): MetadataOccurrenceDisplayEntry[] {
   return occurrences
     .filter(
       (occurrence) =>
         occurrence.tag_info === null ||
-        metadataGet(legacyMetadata, occurrence.tag_info.id) === undefined ||
+        metadataGet(schemaProjection, occurrence.tag_info.id) === undefined ||
         resolutionForSchema(resolutionIndex, occurrence.tag_info.id).kind ===
           "multiple",
     )
