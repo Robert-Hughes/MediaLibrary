@@ -22,7 +22,13 @@ function occurrence(
   group1: string,
 ): MetadataOccurrence {
   return {
-    id: { document: null, path, tag_id: "282", copy: 0 },
+    id: {
+      document: null,
+      path,
+      runtime_tag_id: "282",
+      tag_id_scope: { table: "Exif::Main", tag_id: "282", index: null },
+      copy: 0,
+    },
     schema_id: structuredClone(tagInfo.id),
     value: { kind: "Integer", value },
     tag_info: { ...tagInfo, group: group1 },

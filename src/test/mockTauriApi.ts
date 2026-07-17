@@ -238,7 +238,12 @@ export function createMockTauriApi(): MockTauriApi {
                 id: {
                   document: null,
                   path: `TestFixture-${index}`,
-                  tag_id: testId(name).tag_id,
+                  runtime_tag_id: testId(name).tag_id,
+                  tag_id_scope: {
+                    table: "TestFixture::Runtime",
+                    tag_id: testId(name).tag_id,
+                    index: null,
+                  },
                   copy: 0,
                 },
                 schema_id: testId(name),

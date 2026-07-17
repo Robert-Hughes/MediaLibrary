@@ -70,7 +70,12 @@ export function occurrenceFromSchemaValue(
     id: {
       document: null,
       path: `TestFixture-${ordinal}`,
-      tag_id: id.tag_id,
+      runtime_tag_id: id.tag_id,
+      tag_id_scope: {
+        table: "TestFixture::Runtime",
+        tag_id: id.tag_id,
+        index: null,
+      },
       copy: ordinal,
     },
     schema_id: structuredClone(id),

@@ -14,7 +14,13 @@ import {
 import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
 const schema: SchemaDefinitionId = { table: "Exif::Main", tag_id: "282" };
 const occurrence: MetadataOccurrence = {
-  id: { document: null, path: "JPEG-APP1-IFD0", tag_id: "282", copy: 0 },
+  id: {
+    document: null,
+    path: "JPEG-APP1-IFD0",
+    runtime_tag_id: "282",
+    tag_id_scope: { table: "TestFixture::Runtime", tag_id: "282", index: null },
+    copy: 0,
+  },
   schema_id: structuredClone(schema),
   value: { kind: "Integer", value: 300 },
   tag_info: {

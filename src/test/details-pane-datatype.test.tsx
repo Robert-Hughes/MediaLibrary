@@ -51,7 +51,12 @@ function occurrence(
     id: {
       document: null,
       path: `TEST-${tagInfo.id.tag_id}`,
-      tag_id: tagInfo.id.tag_id,
+      runtime_tag_id: tagInfo.id.tag_id,
+      tag_id_scope: {
+        table: "TestFixture::Runtime",
+        tag_id: tagInfo.id.tag_id,
+        index: null,
+      },
       copy: 0,
     },
     schema_id: tagInfo.id,

@@ -21,8 +21,10 @@ and for text search, but not for choosing among existing occurrences.
 
 Every scanner result keeps four independent concerns:
 
-1. `MetadataOccurrenceId { document, path, tag_id, copy }` identifies one
-   concrete runtime occurrence.
+1. `MetadataOccurrenceId { document, path, runtime_tag_id, tag_id_scope,
+copy }` identifies one concrete runtime occurrence. `tag_id_scope` is the
+   wrapped `{ table, tag_id, index? }` discriminator that namespaces the
+   family-7 runtime ID.
 2. `MetadataOccurrence.schema_id` always stores the exact
    `SchemaDefinitionId { table, tag_id, index? }` reported by ExifTool. Several
    runtime occurrences may share it.
@@ -32,9 +34,36 @@ Every scanner result keeps four independent concerns:
 4. `MetadataOccurrence.write_target` is an optional proven exact runtime write
    selector.
 
-Runtime occurrence identity and schema identity are deliberately separate. A
-schema ID is not part of `MetadataOccurrenceId`, and neither friendly labels,
-runtime path nor selector coordinates may be used to infer one from the other.
+Runtime occurrence identity and schema identity are deliberately separate. The
+raw wrapped scope resembles a `SchemaDefinitionId`, and can be converted to its
+structurally equivalent raw discriminator, but it is not the occurrence's
+authoritative interpretation identity. LangAlt child extraction retains its raw
+child scope while `MetadataOccurrence.schema_id` may resolve to the confirmed
+canonical parent. Neither friendly labels, runtime tag names nor selector
+coordinates may be used to infer either identity.
+
+The full runtime occurrence identity is:
+
+```text
+family-3 document/sample
++ family-5 metadata path
++ family-7 runtime tag ID
++ wrapped table/tag-ID/optional-index scope
++ family-4 copy
+```
+
+The wrapped discriminator is required because real IPTC-IIM JPEGs can expose
+both `EnvelopeRecordVersion` and `ApplicationRecordVersion`. Both occupy the
+family-5 path `JPEG-APP13-Photoshop-IPTC`, both have family-7 ID `0`, and both
+have wrapped ID `0`, but their wrapped tables are respectively
+`IPTC::EnvelopeRecord` and `IPTC::ApplicationRecord`. Family 5 stops at the
+shared IPTC block, so it cannot distinguish those records. The runtime tag name
+is extraction and write-target information, not occurrence identity.
+
+Within one ExifTool pass, conflicting duplicates of the complete occurrence ID
+are rejected. Completely identical duplicates remain diagnosed and
+deduplicated temporarily; this policy will be tightened after validation
+against real files.
 
 An existing occurrence can be edited only when it has an unambiguous occurrence
 ID, matching resolved writable and supported `TagInfo`, and an exact
@@ -85,7 +114,8 @@ is not migrated.
 
 ## Search does not own identity
 
-Search indexes `target.schema_id`, friendly labels, descriptions, and the
-complete draft edit's displayable value. This is a read-only text projection.
+Search indexes `target.schema_id`, every structured occurrence-ID component,
+friendly labels, descriptions, and the complete draft edit's displayable value.
+This is a read-only text projection.
 Search updates never use schema equality to select or mutate a target; all
 mutation stays exact-target based.

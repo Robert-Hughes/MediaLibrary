@@ -848,7 +848,12 @@ mod tests {
                 occurrence_id: metadata_occurrence::MetadataOccurrenceId {
                     document: Some("Doc1".to_owned()),
                     path: path.to_owned(),
-                    tag_id: "282".to_owned(),
+                    runtime_tag_id: "282".to_owned(),
+                    tag_id_scope: metadata_occurrence::RuntimeTagIdScope {
+                        table: "Exif::Main".to_owned(),
+                        tag_id: "282".to_owned(),
+                        index: None,
+                    },
                     copy: 2,
                 },
                 schema_id: command_v5_schema(),
@@ -1006,7 +1011,12 @@ mod tests {
             id: MetadataOccurrenceId {
                 document: None,
                 path: path.into(),
-                tag_id: "282".into(),
+                runtime_tag_id: "282".into(),
+                tag_id_scope: crate::metadata_occurrence::RuntimeTagIdScope {
+                    table: "Exif::Main".into(),
+                    tag_id: "282".into(),
+                    index: None,
+                },
                 copy,
             },
             schema_id: schema_id.clone(),

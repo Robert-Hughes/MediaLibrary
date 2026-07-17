@@ -627,7 +627,12 @@ describe("App occurrence wiring regression", () => {
       id: {
         document: null,
         path: "JPEG-APP1-IFD0",
-        tag_id: "282",
+        runtime_tag_id: "282",
+        tag_id_scope: {
+          table: "TestFixture::Runtime",
+          tag_id: "282",
+          index: null,
+        },
         copy: 0,
       },
       schema_id: info.id,
@@ -640,7 +645,12 @@ describe("App occurrence wiring regression", () => {
         id: {
           document: null,
           path: "JPEG-APP1-IFD0",
-          tag_id: "282",
+          runtime_tag_id: "282",
+          tag_id_scope: {
+            table: "TestFixture::Runtime",
+            tag_id: "282",
+            index: null,
+          },
           copy: 0,
         },
         schema_id: info.id,
@@ -652,7 +662,12 @@ describe("App occurrence wiring regression", () => {
         id: {
           document: null,
           path: "JPEG-APP1-IFD1",
-          tag_id: "282",
+          runtime_tag_id: "282",
+          tag_id_scope: {
+            table: "TestFixture::Runtime",
+            tag_id: "282",
+            index: null,
+          },
           copy: 2,
         },
         schema_id: info.id,

@@ -20,7 +20,13 @@ const schema = (tagId = "282"): SchemaDefinitionId => ({
 
 const target = (path = "JPEG-APP1-IFD0"): MetadataDraftTarget => ({
   kind: "ExistingOccurrence",
-  occurrence_id: { document: null, path, tag_id: "282", copy: 0 },
+  occurrence_id: {
+    document: null,
+    path,
+    runtime_tag_id: "282",
+    tag_id_scope: { table: "Exif::Main", tag_id: "282", index: null },
+    copy: 0,
+  },
   schema_id: schema(),
   write_target: { group1: "IFD0", tag_name: "XResolution" },
 });

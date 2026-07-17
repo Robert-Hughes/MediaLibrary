@@ -59,7 +59,13 @@ describe("ImageMetadataOccurrencesStore", () => {
 
 describe("exact occurrence lookup", () => {
   const value = {
-    id: { document: null, path: "IFD0", tag_id: "1", copy: 0 },
+    id: {
+      document: null,
+      path: "IFD0",
+      runtime_tag_id: "1",
+      tag_id_scope: { table: "TestFixture::Runtime", tag_id: "1", index: null },
+      copy: 0,
+    },
     schema_id: { table: "Unknown::Table", tag_id: "1" },
     value: { kind: "Text" as const, value: "value" },
     tag_info: null,

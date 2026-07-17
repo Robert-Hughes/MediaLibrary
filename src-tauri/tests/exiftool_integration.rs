@@ -168,14 +168,7 @@ fn target_entries(
                     .copied()
                     .filter(|occurrence| occurrence.write_target.is_some())
                     .collect();
-                let candidates = if writable.len() == 1 {
-                    writable
-                } else {
-                    writable
-                        .into_iter()
-                        .filter(|occurrence| occurrence.id.tag_id == entry.id.tag_id)
-                        .collect()
-                };
+                let candidates = writable;
                 let [occurrence] = candidates.as_slice() else {
                     panic!(
                         "exact schema {:?} has {} occurrences but {} suitable writable targets",

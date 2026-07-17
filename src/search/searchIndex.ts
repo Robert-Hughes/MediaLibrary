@@ -71,11 +71,19 @@ function occurrencesChunk(
       metadataEntryToDisplayString(entry.value),
       entry.occurrenceId.document ?? "",
       entry.occurrenceId.path,
-      entry.occurrenceId.tag_id,
+      entry.occurrenceId.runtime_tag_id,
+      entry.occurrenceId.tag_id_scope.table,
+      entry.occurrenceId.tag_id_scope.tag_id,
+      entry.occurrenceId.tag_id_scope.index == null
+        ? ""
+        : String(entry.occurrenceId.tag_id_scope.index),
       String(entry.occurrenceId.copy),
       `document:${entry.occurrenceId.document ?? ""}`,
       `path:${entry.occurrenceId.path}`,
-      `tag:${entry.occurrenceId.tag_id}`,
+      `runtime-tag:${entry.occurrenceId.runtime_tag_id}`,
+      `wrapped-table:${entry.occurrenceId.tag_id_scope.table}`,
+      `wrapped-tag:${entry.occurrenceId.tag_id_scope.tag_id}`,
+      `wrapped-index:${entry.occurrenceId.tag_id_scope.index ?? ""}`,
       `copy:${entry.occurrenceId.copy}`,
     );
   }

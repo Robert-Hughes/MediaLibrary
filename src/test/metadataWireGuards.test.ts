@@ -34,7 +34,8 @@ const existing = (): Extract<
   occurrence_id: {
     document: null,
     path: "JPEG-APP1-IFD0",
-    tag_id: "282",
+    runtime_tag_id: "282",
+    tag_id_scope: { table: "TestFixture::Runtime", tag_id: "282", index: null },
     copy: 0,
   },
   schema_id: schema(),

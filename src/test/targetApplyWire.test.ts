@@ -40,7 +40,13 @@ const occurrence = (
   path = "JPEG-APP1-IFD0",
   value = 300,
 ): MetadataOccurrence => ({
-  id: { document: null, path, tag_id: "282", copy: 0 },
+  id: {
+    document: null,
+    path,
+    runtime_tag_id: "282",
+    tag_id_scope: { table: "Exif::Main", tag_id: "282", index: null },
+    copy: 0,
+  },
   schema_id: schema(),
   value: { kind: "Rational", value: { numerator: value, denominator: 1 } },
   tag_info: tagInfo(),

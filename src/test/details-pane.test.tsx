@@ -62,7 +62,12 @@ function mockOccurrences(
       id: {
         document: null,
         path: `TEST-${group}-${index}`,
-        tag_id: entry.id.tag_id,
+        runtime_tag_id: entry.id.tag_id,
+        tag_id_scope: {
+          table: "TestFixture::Runtime",
+          tag_id: entry.id.tag_id,
+          index: null,
+        },
         copy: 0,
       },
       schema_id: structuredClone(entry.id),
@@ -758,7 +763,12 @@ describe("DetailsPane: target-aware Add Property drafts", () => {
     occurrence_id: {
       document: null,
       path: "JPEG-APP1-XMP",
-      tag_id: "subject",
+      runtime_tag_id: "subject",
+      tag_id_scope: {
+        table: "TestFixture::Runtime",
+        tag_id: "subject",
+        index: null,
+      },
       copy: 0,
     },
     schema_id: id,
@@ -981,7 +991,12 @@ describe("DetailsPane: target-aware Add Property drafts", () => {
             id: {
               document: null,
               path: "JPEG-APP1-IFD0",
-              tag_id: "271",
+              runtime_tag_id: "271",
+              tag_id_scope: {
+                table: "TestFixture::Runtime",
+                tag_id: "271",
+                index: null,
+              },
               copy: 0,
             },
             schema_id: existingId,
@@ -1277,7 +1292,12 @@ describe("DetailsPane: read-only row context menu", () => {
             id: {
               document: null,
               path: "JPEG-APP1-IFD0",
-              tag_id: "Make",
+              runtime_tag_id: "Make",
+              tag_id_scope: {
+                table: "TestFixture::Runtime",
+                tag_id: "Make",
+                index: null,
+              },
               copy: 0,
             },
             schema_id: testId("IFD0:Make"),
@@ -1330,7 +1350,12 @@ describe("DetailsPane: read-only row context menu", () => {
             id: {
               document: null,
               path: "JPEG-APP1-IFD0",
-              tag_id: "Make",
+              runtime_tag_id: "Make",
+              tag_id_scope: {
+                table: "TestFixture::Runtime",
+                tag_id: "Make",
+                index: null,
+              },
               copy: 0,
             },
             schema_id: testId("IFD0:Make"),
@@ -1430,7 +1455,12 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
         id: {
           document: null,
           path: `JPEG-APP1-GPS-${id.tag_id}`,
-          tag_id: id.tag_id,
+          runtime_tag_id: id.tag_id,
+          tag_id_scope: {
+            table: "TestFixture::Runtime",
+            tag_id: id.tag_id,
+            index: null,
+          },
           copy: index,
         },
         schema_id: structuredClone(id),

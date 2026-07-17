@@ -30,7 +30,12 @@ function occurrence(
     id: {
       document: null,
       path: options.path ?? `XMP-${options.copy ?? 0}`,
-      tag_id: id.tag_id,
+      runtime_tag_id: id.tag_id,
+      tag_id_scope: {
+        table: "TestFixture::Runtime",
+        tag_id: id.tag_id,
+        index: null,
+      },
       copy: options.copy ?? 0,
     },
     schema_id: structuredClone(id),
@@ -83,8 +88,8 @@ describe("schemaMetadataProjection", () => {
       value: text("same"),
     });
     expect(resolutionOccurrenceTokens(forward)).toEqual([
-      '[null,"A","title",0]',
-      '[null,"B","title",2]',
+      '[null,"A","title",["TestFixture::Runtime","title",null],0]',
+      '[null,"B","title",["TestFixture::Runtime","title",null],2]',
     ]);
   });
 

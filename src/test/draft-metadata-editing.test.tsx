@@ -32,7 +32,12 @@ function makeOccurrence(value = "Canon"): MetadataOccurrence {
     id: {
       document: null,
       path: "JPEG-APP1-IFD0",
-      tag_id: "Make",
+      runtime_tag_id: "Make",
+      tag_id_scope: {
+        table: "TestFixture::Runtime",
+        tag_id: "Make",
+        index: null,
+      },
       copy: 0,
     },
     schema_id: structuredClone(id),
@@ -574,7 +579,12 @@ describe("Draft Metadata Editing Integration", () => {
       id: {
         document: null,
         path: "JPEG-APP1-XMP",
-        tag_id: schema.tag_id,
+        runtime_tag_id: schema.tag_id,
+        tag_id_scope: {
+          table: "TestFixture::Runtime",
+          tag_id: schema.tag_id,
+          index: null,
+        },
         copy: 0,
       },
       schema_id: structuredClone(schema),
@@ -634,7 +644,12 @@ describe("Draft Metadata Editing Integration", () => {
       id: {
         document: null,
         path: "JPEG-APP1-IFD0",
-        tag_id: schema.tag_id,
+        runtime_tag_id: schema.tag_id,
+        tag_id_scope: {
+          table: "TestFixture::Runtime",
+          tag_id: schema.tag_id,
+          index: null,
+        },
         copy: 0,
       },
       schema_id: structuredClone(schema),

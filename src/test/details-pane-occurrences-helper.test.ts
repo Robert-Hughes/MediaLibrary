@@ -44,13 +44,15 @@ function occurrence(
 const ifd0 = (copy = 0): MetadataOccurrenceId => ({
   document: null,
   path: "JPEG-APP1-IFD0",
-  tag_id: "282",
+  runtime_tag_id: "282",
+  tag_id_scope: { table: "Exif::Main", tag_id: "282", index: null },
   copy,
 });
 const ifd1 = (copy = 2): MetadataOccurrenceId => ({
   document: null,
   path: "JPEG-APP1-IFD1",
-  tag_id: "282",
+  runtime_tag_id: "282",
+  tag_id_scope: { table: "Exif::Main", tag_id: "282", index: null },
   copy,
 });
 
@@ -318,7 +320,12 @@ describe("supplementalResolvedMetadataOccurrences", () => {
           {
             document: "Doc1",
             path: "JPEG-APP1-IFD1",
-            tag_id: "282",
+            runtime_tag_id: "282",
+            tag_id_scope: {
+              table: "TestFixture::Runtime",
+              tag_id: "282",
+              index: null,
+            },
             copy: 2,
           },
           72,

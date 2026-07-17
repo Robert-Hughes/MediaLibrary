@@ -49,7 +49,8 @@ function occurrence(
     id: {
       document: null,
       path,
-      tag_id: "282",
+      runtime_tag_id: "282",
+      tag_id_scope: { table: "Exif::Main", tag_id: "282", index: null },
       copy: options.copy ?? 0,
     },
     schema_id: (options.info ?? tagInfo).id,
@@ -531,7 +532,12 @@ describe("DetailsPane exact target-owned row presentation", () => {
           id: {
             document: null,
             path: "JPEG-APP1-GPS",
-            tag_id: "2",
+            runtime_tag_id: "2",
+            tag_id_scope: {
+              table: "TestFixture::Runtime",
+              tag_id: "2",
+              index: null,
+            },
             copy: 0,
           },
           schema_id: gpsInfo.id,
@@ -661,7 +667,17 @@ describe("DetailsPane exact ordinary editor identity", () => {
     };
     _setTagInfoCacheEntry(GPS_IDS.latitude, gpsInfo);
     const gpsOccurrence: MetadataOccurrence = {
-      id: { document: null, path: "JPEG-APP1-GPS", tag_id: "2", copy: 0 },
+      id: {
+        document: null,
+        path: "JPEG-APP1-GPS",
+        runtime_tag_id: "2",
+        tag_id_scope: {
+          table: "TestFixture::Runtime",
+          tag_id: "2",
+          index: null,
+        },
+        copy: 0,
+      },
       schema_id: gpsInfo.id,
       value: { kind: "Real", value: 51.5 },
       tag_info: gpsInfo,

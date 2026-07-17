@@ -24,7 +24,12 @@ function occurrence(
     id: {
       document: null,
       path: "JPEG-APP1-IFD0",
-      tag_id: "282",
+      runtime_tag_id: "282",
+      tag_id_scope: {
+        table: "TestFixture::Runtime",
+        tag_id: "282",
+        index: null,
+      },
       copy: 0,
     },
     value: { kind: "Integer", value: 300 },
@@ -96,7 +101,17 @@ function expectCode(
 describe("planMetadataRemovalTargetsV5", () => {
   it("plans a writable occurrence with its exact ID, embedded schema and runtime selector", () => {
     const source = occurrence({
-      id: { document: "Doc1", path: "custom", tag_id: "runtime", copy: 7 },
+      id: {
+        document: "Doc1",
+        path: "custom",
+        runtime_tag_id: "runtime",
+        tag_id_scope: {
+          table: "TestFixture::Runtime",
+          tag_id: "runtime",
+          index: null,
+        },
+        copy: 7,
+      },
       tag_info: {
         ...occurrence().tag_info!,
         id: { ...id, index: 0 },
@@ -120,7 +135,12 @@ describe("planMetadataRemovalTargetsV5", () => {
       id: {
         document: null,
         path: "QuickTime-MovieHeader",
-        tag_id: id.tag_id,
+        runtime_tag_id: id.tag_id,
+        tag_id_scope: {
+          table: "TestFixture::Runtime",
+          tag_id: id.tag_id,
+          index: null,
+        },
         copy: 0,
       },
       tag_info: null,
@@ -139,13 +159,33 @@ describe("planMetadataRemovalTargetsV5", () => {
   it("does not select or mutate any of several unknown rows sharing a local tag ID", () => {
     const unknowns = [
       occurrence({
-        id: { document: null, path: "MakerNotes-A", tag_id: "282", copy: 0 },
+        id: {
+          document: null,
+          path: "MakerNotes-A",
+          runtime_tag_id: "282",
+          tag_id_scope: {
+            table: "TestFixture::Runtime",
+            tag_id: "282",
+            index: null,
+          },
+          copy: 0,
+        },
         tag_info: null,
         write_target: null,
         schema_id: { table: "Unknown::MakerA", tag_id: id.tag_id },
       }),
       occurrence({
-        id: { document: null, path: "MakerNotes-B", tag_id: "282", copy: 1 },
+        id: {
+          document: null,
+          path: "MakerNotes-B",
+          runtime_tag_id: "282",
+          tag_id_scope: {
+            table: "TestFixture::Runtime",
+            tag_id: "282",
+            index: null,
+          },
+          copy: 1,
+        },
         tag_info: null,
         write_target: null,
         schema_id: { table: "Unknown::MakerB", tag_id: id.tag_id },

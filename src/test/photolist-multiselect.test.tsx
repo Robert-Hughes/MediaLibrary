@@ -427,7 +427,12 @@ describe("PhotoList context menu (multi-select)", () => {
             occurrence_id: {
               document: null,
               path: "JPEG-APP1-IFD0",
-              tag_id: schema.tag_id,
+              runtime_tag_id: schema.tag_id,
+              tag_id_scope: {
+                table: "TestFixture::Runtime",
+                tag_id: schema.tag_id,
+                index: null,
+              },
               copy: 0,
             },
             schema_id: schema,
