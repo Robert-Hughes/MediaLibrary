@@ -91,6 +91,28 @@ function occurrenceFor(id: SchemaDefinitionId, copy = 0): MetadataOccurrence {
   };
 }
 
+function deferNextTagInfoLookup(mock: MockTauriApi): {
+  resolve: (info: TagInfo | null) => void;
+  reject: (error: unknown) => void;
+} {
+  let resolve!: (info: TagInfo | null) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<TagInfo | null>(
+    (resolvePromise, rejectPromise) => {
+      resolve = resolvePromise;
+      reject = rejectPromise;
+    },
+  );
+  const invoke = mock.api.invoke;
+  mock.api.invoke = async (cmd, args) => {
+    if (cmd !== "get_tag_info") return invoke(cmd, args);
+    mock.api.invoke = invoke;
+    mock.invocations.push({ cmd, args });
+    return promise;
+  };
+  return { resolve, reject };
+}
+
 describe("useMediaLibrary", () => {
   beforeEach(() => {
     localStorage.clear();
@@ -1586,6 +1608,361 @@ describe("useMediaLibrary", () => {
       kind: "NewProperty",
       schema_id: supportedId,
     });
+  });
+
+  it("abandons a deferred new-property lookup after switching folders", async () => {
+    const mock = createMockTauriApi();
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    const id: SchemaDefinitionId = {
+      table: "XMP::test",
+      tag_id: "shared",
+      index: 0,
+    };
+    const edit = {
+      intent: "Set" as const,
+      value: { kind: "Text" as const, value: "stale" },
+    };
+
+    await act(async () => result.current[1].openRecent("/folder-a"));
+    act(() => mock.emitScanComplete());
+    await publishOccurrences(mock, "shared.jpg");
+    const deferred = deferNextTagInfoLookup(mock);
+    let request!: Promise<void>;
+    act(() => {
+      request = result.current[1].setNewPropertyDraft("shared.jpg", id, edit);
+    });
+
+    await act(async () => result.current[1].openRecent("/folder-b"));
+    act(() => mock.emitScanComplete());
+    await publishOccurrences(mock, "shared.jpg");
+    await act(async () => {
+      deferred.resolve(tagInfoFor(id));
+      await request;
+    });
+
+    const state = result.current[0];
+    expect(state.kind).toBe("loaded");
+    if (state.kind !== "loaded") return;
+    expect(state.folder).toBe("/folder-b");
+    expect(
+      state.targetDraftEditsStore.getMetadataFile("shared.jpg"),
+    ).toBeUndefined();
+    expect(state.imageMetadataOccurrences.get("shared.jpg")).toEqual([]);
+    expect(state.targetVerifyOutcomes).toEqual({});
+    expect(
+      state.workerErrors.filter(({ worker_type }) =>
+        worker_type.includes("new-property"),
+      ),
+    ).toEqual([]);
+    expect(
+      mock.invocations
+        .filter(({ cmd }) => cmd === "save_metadata_draft_edits_v5")
+        .map(({ args }) => args?.folderPath),
+    ).toEqual([]);
+  });
+
+  it("abandons a deferred new-property lookup after replacing the same folder scan", async () => {
+    const mock = createMockTauriApi();
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    const id: SchemaDefinitionId = {
+      table: "XMP::test",
+      tag_id: "same-folder",
+      index: 1,
+    };
+    const edit = {
+      intent: "Set" as const,
+      value: { kind: "Text" as const, value: "stale" },
+    };
+
+    await act(async () => result.current[1].openRecent("/photos"));
+    act(() => mock.emitScanComplete());
+    await publishOccurrences(mock, "shared.jpg");
+    const deferred = deferNextTagInfoLookup(mock);
+    let request!: Promise<void>;
+    act(() => {
+      request = result.current[1].setNewPropertyDraft("shared.jpg", id, edit);
+    });
+
+    await act(async () => result.current[1].openRecent("/photos"));
+    act(() => mock.emitScanComplete());
+    await publishOccurrences(mock, "shared.jpg");
+    await act(async () => {
+      deferred.resolve(tagInfoFor(id));
+      await request;
+    });
+
+    const state = result.current[0];
+    expect(state.kind).toBe("loaded");
+    if (state.kind !== "loaded") return;
+    expect(state.folder).toBe("/photos");
+    expect(
+      state.targetDraftEditsStore.getMetadataFile("shared.jpg"),
+    ).toBeUndefined();
+    expect(state.targetVerifyOutcomes).toEqual({});
+    expect(
+      state.workerErrors.filter(({ worker_type }) =>
+        worker_type.includes("new-property"),
+      ),
+    ).toEqual([]);
+    expect(
+      mock.invocations.filter(
+        ({ cmd }) => cmd === "save_metadata_draft_edits_v5",
+      ),
+    ).toEqual([]);
+  });
+
+  it("keeps closed state untouched when a deferred new-property lookup resolves", async () => {
+    const mock = createMockTauriApi();
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    const id = testId("XMP-test:ClosePending");
+    const edit = {
+      intent: "Set" as const,
+      value: { kind: "Text" as const, value: "stale" },
+    };
+
+    await act(async () => result.current[1].openRecent("/photos"));
+    act(() => mock.emitScanComplete());
+    await publishOccurrences(mock, "closed.jpg");
+    const deferred = deferNextTagInfoLookup(mock);
+    let request!: Promise<void>;
+    act(() => {
+      request = result.current[1].setNewPropertyDraft("closed.jpg", id, edit);
+      result.current[1].closeFolder();
+    });
+    await act(async () => {
+      deferred.resolve(tagInfoFor(id));
+      await request;
+    });
+
+    expect(result.current[0].kind).toBe("idle");
+    expect(
+      mock.invocations.filter(
+        ({ cmd }) => cmd === "save_metadata_draft_edits_v5",
+      ),
+    ).toEqual([]);
+    expect(mock.targetDraftEditsByFolder).toEqual({});
+  });
+
+  it("does not report a rejected stale lookup in the replacement folder", async () => {
+    const mock = createMockTauriApi();
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    const id = testId("XMP-test:RejectedAfterSwitch");
+    const edit = {
+      intent: "Set" as const,
+      value: { kind: "Text" as const, value: "stale" },
+    };
+
+    await act(async () => result.current[1].openRecent("/folder-a"));
+    act(() => mock.emitScanComplete());
+    await publishOccurrences(mock, "shared.jpg");
+    const deferred = deferNextTagInfoLookup(mock);
+    let request!: Promise<void>;
+    act(() => {
+      request = result.current[1].setNewPropertyDraft("shared.jpg", id, edit);
+    });
+
+    await act(async () => result.current[1].openRecent("/folder-b"));
+    act(() => mock.emitScanComplete());
+    await publishOccurrences(mock, "shared.jpg");
+    await act(async () => {
+      deferred.reject(new Error("old folder lookup failed"));
+      await request;
+    });
+
+    const state = result.current[0];
+    expect(state.kind).toBe("loaded");
+    if (state.kind !== "loaded") return;
+    expect(state.folder).toBe("/folder-b");
+    expect(
+      state.workerErrors.filter(
+        ({ worker_type }) =>
+          worker_type === "metadata-v5-new-property-schema-lookup",
+      ),
+    ).toEqual([]);
+    expect(
+      state.targetDraftEditsStore.getMetadataFile("shared.jpg"),
+    ).toBeUndefined();
+    expect(
+      mock.invocations.filter(
+        ({ cmd }) => cmd === "save_metadata_draft_edits_v5",
+      ),
+    ).toEqual([]);
+  });
+
+  it("stages and autosaves one indexed NewProperty in the current lifecycle", async () => {
+    const mock = createMockTauriApi();
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    const id: SchemaDefinitionId = {
+      table: "XMP::test",
+      tag_id: "current-indexed",
+      index: 2,
+    };
+    const edit = {
+      intent: "Set" as const,
+      value: { kind: "Text" as const, value: "current" },
+    };
+
+    await act(async () => result.current[1].openRecent("/photos"));
+    act(() => mock.emitScanComplete());
+    await publishOccurrences(mock, "current.jpg");
+    const deferred = deferNextTagInfoLookup(mock);
+    let request!: Promise<void>;
+    act(() => {
+      request = result.current[1].setNewPropertyDraft("current.jpg", id, edit);
+    });
+    await act(async () => {
+      deferred.resolve(tagInfoFor(id));
+      await request;
+    });
+
+    const state = result.current[0];
+    expect(state.kind).toBe("loaded");
+    if (state.kind !== "loaded") return;
+    expect(
+      Object.values(
+        state.targetDraftEditsStore.getMetadataFile("current.jpg") ?? {},
+      ),
+    ).toEqual([
+      {
+        target: { kind: "NewProperty", schema_id: id },
+        edit,
+      },
+    ]);
+    expect(
+      mock.invocations.filter(
+        ({ cmd }) => cmd === "save_metadata_draft_edits_v5",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("retains same-lifecycle eligibility rechecks after a deferred lookup", async () => {
+    const mock = createMockTauriApi();
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    const edit = {
+      intent: "Set" as const,
+      value: { kind: "Text" as const, value: "pending" },
+    };
+    const saveCount = () =>
+      mock.invocations.filter(
+        ({ cmd }) => cmd === "save_metadata_draft_edits_v5",
+      ).length;
+    const startDeferredRequest = (path: string, id: SchemaDefinitionId) => {
+      const deferred = deferNextTagInfoLookup(mock);
+      let request!: Promise<void>;
+      act(() => {
+        request = result.current[1].setNewPropertyDraft(path, id, edit);
+      });
+      return { deferred, request };
+    };
+    const store = () => {
+      const state = result.current[0];
+      if (state.kind !== "loaded") throw new Error("expected loaded state");
+      return state.targetDraftEditsStore;
+    };
+
+    await act(async () => result.current[1].openRecent("/photos"));
+    act(() => mock.emitScanComplete());
+
+    const appearedId = testId("XMP-test:AppearedDuringLookup");
+    await publishOccurrences(mock, "appeared.jpg");
+    const appeared = startDeferredRequest("appeared.jpg", appearedId);
+    await publishOccurrences(mock, "appeared.jpg", [occurrenceFor(appearedId)]);
+    const appearedSaves = saveCount();
+    await act(async () => {
+      appeared.deferred.resolve(tagInfoFor(appearedId));
+      await appeared.request;
+    });
+    expect(store().getMetadataFile("appeared.jpg")).toBeUndefined();
+    expect(saveCount()).toBe(appearedSaves);
+
+    const ownedId = testId("XMP-test:OwnedDuringLookup");
+    await publishOccurrences(mock, "owned-race.jpg");
+    const owned = startDeferredRequest("owned-race.jpg", ownedId);
+    const ownedTarget = {
+      kind: "ExistingOccurrence" as const,
+      occurrence_id: {
+        document: null,
+        path: "JPEG-APP1-XMP",
+        tag_id: ownedId.tag_id,
+        copy: 0,
+      },
+      schema_id: structuredClone(ownedId),
+      write_target: { group1: "XMP-test", tag_name: "OwnedDuringLookup" },
+    };
+    act(() => {
+      store().setMetadataTarget("owned-race.jpg", ownedTarget, edit);
+    });
+    const ownedSaves = saveCount();
+    await act(async () => {
+      owned.deferred.resolve(tagInfoFor(ownedId));
+      await owned.request;
+    });
+    expect(saveCount()).toBe(ownedSaves);
+    expect(
+      Object.values(store().getMetadataFile("owned-race.jpg") ?? {}).map(
+        ({ target }) => target,
+      ),
+    ).toEqual([ownedTarget]);
+
+    const ambiguousId = testId("XMP-test:AmbiguousDuringLookup");
+    await publishOccurrences(mock, "ambiguous-race.jpg");
+    const ambiguous = startDeferredRequest("ambiguous-race.jpg", ambiguousId);
+    act(() => {
+      for (const copy of [0, 1]) {
+        store().setMetadataTarget(
+          "ambiguous-race.jpg",
+          {
+            kind: "ExistingOccurrence",
+            occurrence_id: {
+              document: null,
+              path: "JPEG-APP1-XMP",
+              tag_id: ambiguousId.tag_id,
+              copy,
+            },
+            schema_id: structuredClone(ambiguousId),
+            write_target: {
+              group1: "XMP-test",
+              tag_name: `AmbiguousDuringLookup-${copy}`,
+            },
+          },
+          edit,
+        );
+      }
+    });
+    const ambiguousSaves = saveCount();
+    await act(async () => {
+      ambiguous.deferred.resolve(tagInfoFor(ambiguousId));
+      await ambiguous.request;
+    });
+    expect(saveCount()).toBe(ambiguousSaves);
+    expect(
+      Object.values(store().getMetadataFile("ambiguous-race.jpg") ?? {}),
+    ).toHaveLength(2);
+
+    const unavailableId = testId("XMP-test:UnavailableDuringLookup");
+    await publishOccurrences(mock, "unavailable-race.jpg");
+    const unavailable = startDeferredRequest(
+      "unavailable-race.jpg",
+      unavailableId,
+    );
+    const state = result.current[0];
+    if (state.kind !== "loaded") return;
+    Object.assign(state.targetDraftPersistence, {
+      status: "load-failed",
+      error: "persistence became unavailable",
+    });
+    const unavailableSaves = saveCount();
+    await act(async () => {
+      unavailable.deferred.resolve(tagInfoFor(unavailableId));
+      await unavailable.request;
+    });
+    expect(store().getMetadataFile("unavailable-race.jpg")).toBeUndefined();
+    expect(saveCount()).toBe(unavailableSaves);
+    const finalState = result.current[0];
+    if (finalState.kind !== "loaded") return;
+    expect(
+      finalState.workerErrors[finalState.workerErrors.length - 1]?.worker_type,
+    ).toBe("metadata-v5-unavailable");
   });
 
   it("target verification actions use the exact replacement slot and v5 persistence only", async () => {

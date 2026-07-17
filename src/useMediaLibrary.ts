@@ -164,6 +164,10 @@ export function useMediaLibrary(
   // The scan_id of the most recently started scan. Events with a different
   // scan_id are stale (from a previous scan) and are discarded.
   const activeScanIdRef = useRef<number>(-1);
+  // Monotonic frontend lifecycle identity. Unlike scan_id, this also changes
+  // immediately when replacing or closing a scan and cannot collide when the
+  // same folder is reopened within one clock tick.
+  const scanLifecycleGenerationRef = useRef(0);
   const targetDraftEditsStoreRef = useRef<TargetDraftEditsStore>(
     new TargetDraftEditsStore(),
   );
@@ -329,6 +333,9 @@ export function useMediaLibrary(
 
   const startScan = useCallback(
     async (folder: string) => {
+      // Invalidate work from the previous folder/scan before any asynchronous
+      // shutdown or setup step can yield.
+      scanLifecycleGenerationRef.current += 1;
       // Wait for event listeners to be registered before starting the scan so
       // photo_found / scan_complete events are never missed.  The latch is a
       // plain Promise (no setTimeout) so it works correctly with vi.useFakeTimers().
@@ -704,6 +711,7 @@ export function useMediaLibrary(
   );
 
   const closeFolder = useCallback(() => {
+    scanLifecycleGenerationRef.current += 1;
     activeScanIdRef.current = -1;
     activeFolderRef.current = null;
     targetDraftPersistenceRef.current = TARGET_DRAFT_NOT_LOADED_STATE;
@@ -1221,6 +1229,12 @@ export function useMediaLibrary(
       id: SchemaDefinitionId,
       edit: MetadataDraftEdit,
     ) => {
+      const openedFolder = activeFolderRef.current;
+      const openedLifecycleGeneration = scanLifecycleGenerationRef.current;
+      const lifecycleIsCurrent = () =>
+        activeFolderRef.current === openedFolder &&
+        scanLifecycleGenerationRef.current === openedLifecycleGeneration;
+
       if (!requireTargetDraftPersistenceReady([fileRelativePath])) return;
 
       const validateAuthoritativeStateAndOwnership = (): boolean => {
@@ -1281,6 +1295,7 @@ export function useMediaLibrary(
           id,
         })) as TagInfo | null;
       } catch (error) {
+        if (!lifecycleIsCurrent()) return;
         const detail = error instanceof Error ? error.message : String(error);
         pushApplicationError(
           "metadata-v5-new-property-schema-lookup",
@@ -1290,8 +1305,10 @@ export function useMediaLibrary(
         return;
       }
 
-      // The async schema lookup may race with a rescan or draft mutation. Recheck
-      // every mutable eligibility condition immediately before staging.
+      if (!lifecycleIsCurrent()) return;
+
+      // The async schema lookup may race with mutable same-scan eligibility.
+      // Recheck every independent condition immediately before staging.
       if (!requireTargetDraftPersistenceReady([fileRelativePath])) return;
       if (!validateAuthoritativeStateAndOwnership()) return;
 
