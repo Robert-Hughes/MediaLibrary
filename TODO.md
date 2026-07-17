@@ -2,11 +2,19 @@ Current
 =======
 
 - SchemaDefinitionId and MetadataOccurence work. 
+  - @GitHub MediaLibrary repo
+  
+    Look at the commits between 0b4cef3f9458b59a8dadc59a8a4b974346375dd6 and the latest. There have been some big changes in how we identify property keys.
+    
+    Do a full review of these changes to see if everything has been migrated over sensibly. In particular I would like confidence that:
+    * The docs are super-clear about why there are separate definitions of "Property name/ID" - user-facing nice string, schema definition and occurrences in the file.
+    * The test coverage has not regressed as part of the migrations
+    * There is not any legacy code. adapters, irrelevant tests or anything half-done
+    * All the code is now using the appropriate property identifiers
+  - 'Additional Metadata Occurrences' section in Details panel - it shouldn't be "schema oriented"! Check other places too?
+    - Include tooltips for field names that show the details of the Occurence ID (or new property info), schema etc., so an advanced user can go beyond the friendly display name
   - Then work through manual checklist (which will prob first need updating from the occurence work). 
     - How does Add Property work, esp. for properties like ThumbnailX that are in IFD0 and IFD1 but have the same schema ID
-  - Verify independently against docs\SchemaDefinitionId PLAN.md (except this plan predates the occurence changes, so not sure what can validate against)
-  - Verify that the docs are super-clear about why there are separate definitions of "Property name/ID" - user-facing nice string, schema definition and occurences in the file.
-  - Include tooltips for field names that show the details of the Occurence ID (or new property info), schema etc., so an advanced user can go beyond the friendly display name
 
 - Right click on the property list maps should show edit (opens group editor) and "remove all GPS", "discard all GPS"? Have prompt ready to go.
 - GPS editor sets lat/long to different string format than the one from exiftool. How does this work? Do we store separate display string? I thoiught we used semantic MetadataValue for everything now?
