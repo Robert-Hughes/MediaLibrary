@@ -182,10 +182,6 @@ impl TagInfo {
     pub fn display_name(&self) -> String {
         format!("{}:{}", self.group, self.name)
     }
-
-    pub fn exiftool_write_name(&self) -> String {
-        self.display_name()
-    }
 }
 
 /// Errors that can occur while building the registry.

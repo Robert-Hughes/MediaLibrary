@@ -848,10 +848,7 @@ fn parse_exiftool_pass_json_raw_with_registry(
     json: &str,
     registry: Option<&TagRegistry>,
 ) -> HashMap<String, HashMap<String, serde_json::Value>> {
-    let Ok(json) = complete_test_runtime_json(json) else {
-        return HashMap::new();
-    };
-    try_parse_exiftool_pass_json_raw_with_registry(&json, registry)
+    try_parse_exiftool_pass_json_raw_with_registry(json, registry)
         .unwrap_or_else(|_| ExifToolPassOutput {
             values_by_source: HashMap::new(),
             failures_by_source: HashMap::new(),
@@ -861,14 +858,7 @@ fn parse_exiftool_pass_json_raw_with_registry(
         .map(|(source, properties)| {
             let values = properties
                 .into_values()
-                .map(|property| {
-                    let name = if property.group1 == "TestFixture" {
-                        property.tag_name
-                    } else {
-                        property.friendly_name
-                    };
-                    (name, property.value)
-                })
+                .map(|property| (property.friendly_name, property.value))
                 .collect();
             (source, values)
         })
@@ -876,7 +866,7 @@ fn parse_exiftool_pass_json_raw_with_registry(
 }
 
 #[cfg(test)]
-fn test_runtime_property_name(
+fn runtime_property_key(
     group1: &str,
     document: &str,
     copy: &str,
@@ -885,49 +875,6 @@ fn test_runtime_property_name(
     tag_name: &str,
 ) -> String {
     format!("{group1}:{document}:{copy}:{path}:ID-{family7_tag_id}:{tag_name}")
-}
-
-#[cfg(test)]
-fn complete_test_runtime_json(json: &str) -> Result<String, serde_json::Error> {
-    let mut entries: serde_json::Value = serde_json::from_str(json)?;
-    let Some(entries) = entries.as_array_mut() else {
-        return serde_json::to_string(&entries);
-    };
-    for entry in entries.iter_mut() {
-        let Some(object) = entry.as_object_mut() else {
-            continue;
-        };
-        let old = std::mem::take(object);
-        for (key, value) in old {
-            if key == "SourceFile" || key.splitn(6, ':').count() == 6 {
-                object.insert(key, value);
-                continue;
-            }
-            let (group1, tag_name) = key
-                .split_once(':')
-                .map_or(("TestFixture", key.as_str()), |parts| parts);
-            let path = match group1 {
-                "IFD0" | "IFD1" => format!("JPEG-APP1-{group1}"),
-                "ExifIFD" => "JPEG-APP1-IFD0-ExifIFD".to_string(),
-                "GPS" => "JPEG-APP1-IFD0-GPS".to_string(),
-                "IPTC" => "JPEG-APP13-Photoshop-IPTC".to_string(),
-                group if group.starts_with("XMP-") => "XMP".to_string(),
-                group => format!("TestFixture-{group}"),
-            };
-            let runtime_id = value
-                .get("id")
-                .map(|id| {
-                    id.as_str()
-                        .map(str::to_owned)
-                        .unwrap_or_else(|| id.to_string())
-                })
-                .unwrap_or_else(|| tag_name.to_string());
-            let complete_key =
-                test_runtime_property_name(group1, "Main", "Copy0", &path, &runtime_id, tag_name);
-            object.insert(complete_key, value);
-        }
-    }
-    serde_json::to_string(&entries)
 }
 
 #[derive(Debug, Clone)]
@@ -1479,9 +1426,8 @@ fn parse_exiftool_batch_json(
     abs_paths: &[std::path::PathBuf],
 ) -> Vec<ImageMetadata> {
     let registry = crate::tag_schema::get_registry().ok();
-    let mut map_by_source = complete_test_runtime_json(json)
+    let mut map_by_source = try_parse_exiftool_pass_json_raw_with_registry(json, registry)
         .ok()
-        .and_then(|json| try_parse_exiftool_pass_json_raw_with_registry(&json, registry).ok())
         .unwrap_or_default();
     let mut results = Vec::with_capacity(rel_paths.len());
     for (i, rel_path) in rel_paths.iter().enumerate() {
@@ -1866,10 +1812,10 @@ mod tests {
 
     #[test]
     fn parsed_source_property_constructs_complete_occurrence_id_from_both_sources() {
-        let key = test_runtime_property_name(
+        let key = runtime_property_key(
             "IFD0",
-            "Main",
-            "Copy0",
+            "Doc2-3",
+            "Copy4",
             "JPEG-APP1-IFD0",
             "runtime-AbC",
             "XResolution",
@@ -1894,7 +1840,7 @@ mod tests {
             index: Some(7),
         };
         let occurrence_id = MetadataOccurrenceId {
-            document: None,
+            document: Some("Doc2-3".into()),
             path: "JPEG-APP1-IFD0".into(),
             runtime_tag_id: "runtime-AbC".into(),
             tag_id_scope: RuntimeTagIdScope {
@@ -1902,7 +1848,7 @@ mod tests {
                 tag_id: "282".into(),
                 index: Some(7),
             },
-            copy: 0,
+            copy: 4,
         };
         let property = parsed.get(&occurrence_id).unwrap();
         assert_eq!(
@@ -3371,9 +3317,9 @@ mod tests {
     #[test]
     fn parse_exiftool_preserves_nested_objects() {
         let json = r#"[
-            {"SourceFile": "D:/a.jpg", "Tag": {"table":"TestFixture::Unknown","id":"Tag","val":"ok"}},
-            {"SourceFile": "D:/b.mov", "Keys": {"table":"TestFixture::Unknown","id":"Keys","val":{"creator":"alice","year":2024}}},
-            {"SourceFile": "D:/c.jpg", "Tag": {"table":"TestFixture::Unknown","id":"Tag","val":"ok"}}
+            {"SourceFile": "D:/a.jpg", "Fixture:Main:Copy0:Fixture-Metadata:ID-Tag:Tag": {"table":"TestFixture::Unknown","id":"Tag","val":"ok"}},
+            {"SourceFile": "D:/b.mov", "Fixture:Main:Copy0:Fixture-Metadata:ID-Keys:Keys": {"table":"TestFixture::Unknown","id":"Keys","val":{"creator":"alice","year":2024}}},
+            {"SourceFile": "D:/c.jpg", "Fixture:Main:Copy0:Fixture-Metadata:ID-Tag:Tag": {"table":"TestFixture::Unknown","id":"Tag","val":"ok"}}
         ]"#;
         let rel = vec![
             "a.jpg".to_string(),
@@ -3407,9 +3353,9 @@ mod tests {
         // An entry that isn't a JSON object can't deserialize to a HashMap.
         // Per-entry isolation means the others must still come through.
         let json = r#"[
-            {"SourceFile": "D:/a.jpg", "Tag": {"table":"TestFixture::Unknown","id":"Tag","val":"ok"}},
+            {"SourceFile": "D:/a.jpg", "Fixture:Main:Copy0:Fixture-Metadata:ID-Tag:Tag": {"table":"TestFixture::Unknown","id":"Tag","val":"ok"}},
             [1, 2, 3],
-            {"SourceFile": "D:/c.jpg", "Tag": {"table":"TestFixture::Unknown","id":"Tag","val":"ok"}}
+            {"SourceFile": "D:/c.jpg", "Fixture:Main:Copy0:Fixture-Metadata:ID-Tag:Tag": {"table":"TestFixture::Unknown","id":"Tag","val":"ok"}}
         ]"#;
         let rel = vec!["a.jpg".to_string(), "c.jpg".to_string()];
         let abs = vec![
@@ -3438,49 +3384,65 @@ mod tests {
     #[test]
     fn parse_pass_json_keys_results_by_normalized_source() {
         let json = r#"[
-            {"SourceFile": "D:\\a.jpg", "Tag": {"table":"TestFixture::Unknown","id":"Tag","val":"X"}},
-            {"SourceFile": "D:/b.jpg", "Tag": {"table":"TestFixture::Unknown","id":"Tag","val":"Y"}}
+            {"SourceFile": "D:\\a.jpg", "Fixture:Main:Copy0:Fixture-Metadata:ID-Tag:Tag": {"table":"TestFixture::Unknown","id":"Tag","val":"X"}},
+            {"SourceFile": "D:/b.jpg", "Fixture:Main:Copy0:Fixture-Metadata:ID-Tag:Tag": {"table":"TestFixture::Unknown","id":"Tag","val":"Y"}}
         ]"#;
         let map = parse_exiftool_pass_json_raw(json);
         assert_eq!(map.len(), 2);
         assert_eq!(
-            map.get("D:/a.jpg").and_then(|m| m.get("Tag")),
+            map.get("D:/a.jpg").and_then(|m| m.get("Fixture:Tag")),
             Some(&serde_json::json!("X"))
         );
         assert_eq!(
-            map.get("D:/b.jpg").and_then(|m| m.get("Tag")),
+            map.get("D:/b.jpg").and_then(|m| m.get("Fixture:Tag")),
             Some(&serde_json::json!("Y"))
         );
     }
 
     #[test]
+    fn value_projection_does_not_upgrade_incomplete_friendly_keys() {
+        let json = r#"[{
+            "SourceFile": "D:/a.jpg",
+            "IFD0:XResolution": {"table":"Exif::Main","id":"282","val":300}
+        }]"#;
+
+        assert!(parse_exiftool_pass_json_raw(json).is_empty());
+        let parsed = try_parse_exiftool_pass_json_raw(json).unwrap();
+        assert!(parsed.values_by_source.is_empty());
+        assert!(parsed.failures_by_source.contains_key("D:/a.jpg"));
+    }
+
+    #[test]
     fn parse_pass_json_handles_struct_values() {
         // Pass A typically returns nested Keys / regions structs.
-        let json = r#"[{"SourceFile":"D:/a.mov","Keys":{"table":"TestFixture::Unknown","id":"Keys","val":{"creator":"alice"}}}]"#;
+        let json = r#"[{"SourceFile":"D:/a.mov","Fixture:Main:Copy0:Fixture-Metadata:ID-Keys:Keys":{"table":"TestFixture::Unknown","id":"Keys","val":{"creator":"alice"}}}]"#;
         let map = parse_exiftool_pass_json_raw(json);
         assert_eq!(
-            map.get("D:/a.mov").and_then(|m| m.get("Keys")),
+            map.get("D:/a.mov").and_then(|m| m.get("Fixture:Keys")),
             Some(&serde_json::json!({"creator": "alice"}))
         );
     }
 
     #[test]
     fn parse_pass_json_raw_keeps_exiftool_boundary_as_json() {
-        let json = r#"[{"SourceFile":"D:/a.jpg","Int":{"table":"TestFixture::Unknown","id":"Int","val":5},"Real":{"table":"TestFixture::Unknown","id":"Real","val":1.5},"Obj":{"table":"TestFixture::Unknown","id":"Obj","val":{"x":true}}}]"#;
+        let json = r#"[{"SourceFile":"D:/a.jpg","Fixture:Main:Copy0:Fixture-Metadata:ID-Int:Int":{"table":"TestFixture::Unknown","id":"Int","val":5},"Fixture:Main:Copy0:Fixture-Metadata:ID-Real:Real":{"table":"TestFixture::Unknown","id":"Real","val":1.5},"Fixture:Main:Copy0:Fixture-Metadata:ID-Obj:Obj":{"table":"TestFixture::Unknown","id":"Obj","val":{"x":true}}}]"#;
         let map = parse_exiftool_pass_json_raw(json);
         let entry = map.get("D:/a.jpg").expect("entry");
-        assert_eq!(entry.get("Int"), Some(&serde_json::json!(5)));
-        assert_eq!(entry.get("Real"), Some(&serde_json::json!(1.5)));
-        assert_eq!(entry.get("Obj"), Some(&serde_json::json!({"x": true})));
+        assert_eq!(entry.get("Fixture:Int"), Some(&serde_json::json!(5)));
+        assert_eq!(entry.get("Fixture:Real"), Some(&serde_json::json!(1.5)));
+        assert_eq!(
+            entry.get("Fixture:Obj"),
+            Some(&serde_json::json!({"x": true}))
+        );
     }
 
     #[test]
     fn parse_batch_populates_semantic_occurrences() {
         let json = r#"[{
             "SourceFile": "D:/a.jpg",
-            "IPTC:TimeCreated": {"table": "IPTC::ApplicationRecord", "id": "60", "val": "10:56:05"},
-            "ExifIFD:OffsetTimeOriginal": {"table": "Exif::Main", "id": "36881", "val": "+01:00"},
-            "MadeUp:Thing": {"table": "TestFixture::Unknown", "id": "MadeUp:Thing", "val": 5}
+            "IPTC:Main:Copy0:JPEG-APP13-Photoshop-IPTC:ID-60:TimeCreated": {"table": "IPTC::ApplicationRecord", "id": "60", "val": "10:56:05"},
+            "ExifIFD:Main:Copy0:JPEG-APP1-IFD0-ExifIFD:ID-36881:OffsetTimeOriginal": {"table": "Exif::Main", "id": "36881", "val": "+01:00"},
+            "MadeUp:Main:Copy0:Fixture-Metadata:ID-MadeUpThing:Thing": {"table": "TestFixture::Unknown", "id": "MadeUp:Thing", "val": 5}
         }]"#;
         let rel = vec!["a.jpg".to_string()];
         let abs = vec![std::path::PathBuf::from("D:/a.jpg")];
@@ -3916,8 +3878,8 @@ mod tests {
     fn binary_tag_values_are_replaced_with_placeholder() {
         let json = r#"[{
             "SourceFile": "D:/a.jpg",
-            "IFD1:ThumbnailImage": {"table":"Exif::Main","id":"513","val":"(Binary data 3965 bytes, use -b option to extract)"},
-            "EXIF:Make": {"table":"Exif::Main","id":"271","val":"Canon"}
+            "IFD1:Main:Copy0:JPEG-APP1-IFD1:ID-513:ThumbnailImage": {"table":"Exif::Main","id":"513","val":"(Binary data 3965 bytes, use -b option to extract)"},
+            "IFD0:Main:Copy0:JPEG-APP1-IFD0:ID-271:Make": {"table":"Exif::Main","id":"271","val":"Canon"}
         }]"#;
         let reg = binary_registry();
         let map = parse_exiftool_pass_json_raw_with_registry(json, Some(&reg));
@@ -3927,7 +3889,7 @@ mod tests {
             Some(&serde_json::json!("<binary>"))
         );
         // Non-binary tag passes through untouched.
-        assert_eq!(entry.get("EXIF:Make"), Some(&serde_json::json!("Canon")));
+        assert_eq!(entry.get("IFD0:Make"), Some(&serde_json::json!("Canon")));
     }
 
     #[test]
@@ -3938,7 +3900,7 @@ mod tests {
         // fallback is the only thing that catches them.
         let json = r#"[{
             "SourceFile": "D:/a.jpg",
-            "File:PreviewImage": {"table":"File::Main","id":"PreviewImage","val":"(Binary data 105557 bytes, use -b option to extract)"}
+            "File:Main:Copy0:File-Metadata:ID-PreviewImage:PreviewImage": {"table":"File::Main","id":"PreviewImage","val":"(Binary data 105557 bytes, use -b option to extract)"}
         }]"#;
         let reg = binary_registry();
         let map = parse_exiftool_pass_json_raw_with_registry(json, Some(&reg));
@@ -3954,7 +3916,7 @@ mod tests {
         // No schema available: regex alone must still catch the placeholder.
         let json = r#"[{
             "SourceFile": "D:/a.jpg",
-            "IFD1:ThumbnailImage": {"table":"Exif::Main","id":"513","val":"(Binary data 3965 bytes, use -b option to extract)"}
+            "IFD1:Main:Copy0:JPEG-APP1-IFD1:ID-513:ThumbnailImage": {"table":"Exif::Main","id":"513","val":"(Binary data 3965 bytes, use -b option to extract)"}
         }]"#;
         let map = parse_exiftool_pass_json_raw_with_registry(json, None);
         let entry = map.get("D:/a.jpg").expect("entry present");
@@ -3971,12 +3933,12 @@ mod tests {
         // protects descriptions and other prose fields.
         let json = r#"[{
             "SourceFile": "D:/a.jpg",
-            "EXIF:ImageDescription": {"table":"Exif::Main","id":"270","val":"Note: the exiftool stub reads \"(Binary data 99 bytes, use -b option to extract)\" in this field."}
+            "IFD0:Main:Copy0:JPEG-APP1-IFD0:ID-270:ImageDescription": {"table":"Exif::Main","id":"270","val":"Note: the exiftool stub reads \"(Binary data 99 bytes, use -b option to extract)\" in this field."}
         }]"#;
         let reg = binary_registry();
         let map = parse_exiftool_pass_json_raw_with_registry(json, Some(&reg));
         let entry = map.get("D:/a.jpg").expect("entry present");
-        match entry.get("EXIF:ImageDescription") {
+        match entry.get("IFD0:ImageDescription") {
             Some(serde_json::Value::String(s)) => {
                 assert!(s.starts_with("Note: the exiftool stub"));
                 assert!(!s.contains("<binary>"));
@@ -4268,7 +4230,7 @@ mod tests {
         let json = r#"[
             {
                 "SourceFile": "D:/path/Image1.jpg",
-                "IFD0:XResolution": {
+                "IFD0:Main:Copy0:JPEG-APP1-IFD0:ID-282:XResolution": {
                     "table": "Exif::Main",
                     "id": "282",
                     "val": "300"
@@ -4276,12 +4238,12 @@ mod tests {
             },
             {
                 "SourceFile": "D:/path/Image2.jpg",
-                "IFD0:XResolution": {
+                "IFD0:Main:Copy0:JPEG-APP1-IFD0:ID-282:XResolution": {
                     "table": "Exif::Main",
                     "id": "282",
                     "val": "300"
                 },
-                "IFD1:XResolution": {
+                "IFD1:Main:Copy0:JPEG-APP1-IFD1:ID-282:XResolution": {
                     "table": "Exif::Main",
                     "id": "282",
                     "val": "72"
@@ -4289,7 +4251,7 @@ mod tests {
             },
             {
                 "SourceFile": "D:/path/Image3.jpg",
-                "IFD0:XResolution": {
+                "IFD0:Main:Copy0:JPEG-APP1-IFD0:ID-282:XResolution": {
                     "table": "Exif::Main",
                     "id": "282",
                     "val": "150"
@@ -4297,8 +4259,7 @@ mod tests {
             }
         ]"#;
 
-        let json = complete_test_runtime_json(json).unwrap();
-        let res = try_parse_exiftool_pass_json_raw_with_registry(&json, registry).unwrap();
+        let res = try_parse_exiftool_pass_json_raw_with_registry(json, registry).unwrap();
 
         assert_eq!(res.values_by_source.len(), 3);
         assert!(res.values_by_source.contains_key("D:/path/Image1.jpg"));
@@ -4316,7 +4277,7 @@ mod tests {
         let json_malformed_val = r#"[
             {
                 "SourceFile": "D:/path/Image1.jpg",
-                "IFD0:XResolution": {
+                "IFD0:Main:Copy0:JPEG-APP1-IFD0:ID-282:XResolution": {
                     "table": "Exif::Main",
                     "id": "282",
                     "val": "300"
@@ -4324,12 +4285,11 @@ mod tests {
             },
             {
                 "SourceFile": "D:/path/Image2.jpg",
-                "IFD0:XResolution": "not-an-object"
+                "IFD0:Main:Copy0:JPEG-APP1-IFD0:ID-282:XResolution": "not-an-object"
             }
         ]"#;
-        let json_malformed_val = complete_test_runtime_json(json_malformed_val).unwrap();
         let res_malformed =
-            try_parse_exiftool_pass_json_raw_with_registry(&json_malformed_val, registry).unwrap();
+            try_parse_exiftool_pass_json_raw_with_registry(json_malformed_val, registry).unwrap();
         assert_eq!(res_malformed.values_by_source.len(), 1);
         assert!(res_malformed
             .values_by_source
@@ -4373,7 +4333,7 @@ mod tests {
         let json_invalid_index = r#"[
             {
                 "SourceFile": "D:/path/Image1.jpg",
-                "IFD0:XResolution": {
+                "IFD0:Main:Copy0:JPEG-APP1-IFD0:ID-282:XResolution": {
                     "table": "Exif::Main",
                     "id": "282",
                     "index": "invalid",
@@ -4381,9 +4341,8 @@ mod tests {
                 }
             }
         ]"#;
-        let json_invalid_index = complete_test_runtime_json(json_invalid_index).unwrap();
         let res_invalid_index =
-            try_parse_exiftool_pass_json_raw_with_registry(&json_invalid_index, registry).unwrap();
+            try_parse_exiftool_pass_json_raw_with_registry(json_invalid_index, registry).unwrap();
         assert_eq!(res_invalid_index.values_by_source.len(), 0);
         assert_eq!(res_invalid_index.failures_by_source.len(), 1);
         let fail_msg = res_invalid_index
@@ -4397,21 +4356,20 @@ mod tests {
         let json_duplicates = r#"[
             {
                 "SourceFile": "D:/path/Image1.jpg",
-                "IFD0:XResolution": {
+                "IFD0:Main:Copy0:JPEG-APP1-IFD0:ID-282:XResolution": {
                     "table": "Exif::Main",
                     "id": "282",
                     "val": "300"
                 },
-                "IFD1:XResolution": {
+                "IFD1:Main:Copy0:JPEG-APP1-IFD1:ID-282:XResolution": {
                     "table": "Exif::Main",
                     "id": "282",
                     "val": "300"
                 }
             }
         ]"#;
-        let json_duplicates = complete_test_runtime_json(json_duplicates).unwrap();
         let res_duplicates =
-            try_parse_exiftool_pass_json_raw_with_registry(&json_duplicates, registry).unwrap();
+            try_parse_exiftool_pass_json_raw_with_registry(json_duplicates, registry).unwrap();
         assert_eq!(res_duplicates.values_by_source.len(), 1);
         assert_eq!(res_duplicates.failures_by_source.len(), 0);
 
@@ -4425,7 +4383,7 @@ mod tests {
         let json_non_obj = r#"[
             {
                 "SourceFile": "D:/path/Image1.jpg",
-                "IFD0:XResolution": {
+                "IFD0:Main:Copy0:JPEG-APP1-IFD0:ID-282:XResolution": {
                     "table": "Exif::Main",
                     "id": "282",
                     "val": "300"
@@ -4434,16 +4392,15 @@ mod tests {
             "not-an-object",
             {
                 "SourceFile": "D:/path/Image2.jpg",
-                "IFD0:XResolution": {
+                "IFD0:Main:Copy0:JPEG-APP1-IFD0:ID-282:XResolution": {
                     "table": "Exif::Main",
                     "id": "282",
                     "val": "150"
                 }
             }
         ]"#;
-        let json_non_obj = complete_test_runtime_json(json_non_obj).unwrap();
         let res_non_obj =
-            try_parse_exiftool_pass_json_raw_with_registry(&json_non_obj, registry).unwrap();
+            try_parse_exiftool_pass_json_raw_with_registry(json_non_obj, registry).unwrap();
         assert_eq!(res_non_obj.values_by_source.len(), 2);
         assert!(res_non_obj
             .values_by_source
@@ -4456,16 +4413,15 @@ mod tests {
         // 10. A source-less object is logged/skipped without being assigned to another file
         let json_sourceless = r#"[
             {
-                "IFD0:XResolution": {
+                "IFD0:Main:Copy0:JPEG-APP1-IFD0:ID-282:XResolution": {
                     "table": "Exif::Main",
                     "id": "282",
                     "val": "300"
                 }
             }
         ]"#;
-        let json_sourceless = complete_test_runtime_json(json_sourceless).unwrap();
         let res_sourceless =
-            try_parse_exiftool_pass_json_raw_with_registry(&json_sourceless, registry).unwrap();
+            try_parse_exiftool_pass_json_raw_with_registry(json_sourceless, registry).unwrap();
         assert_eq!(res_sourceless.values_by_source.len(), 0);
         assert_eq!(res_sourceless.failures_by_source.len(), 0);
     }
