@@ -16,6 +16,25 @@ text/list/LangAlt/GPS/DateTime write-readback. See
 [Exact-ID manual validation](EXACT_ID_MANUAL_VALIDATION.md) for UI cases that
 remain intentionally manual.
 
+## Five distinct metadata concepts
+
+MediaLibrary keeps the following concepts separate. Similar-looking property
+names in diagnostics do not make them interchangeable.
+
+| Concept                                              | What it identifies                                                                             | Source                                                      | User-facing?                          | Shared by several occurrences?         | Usable for writing?                                                               |
+| ---------------------------------------------------- | ---------------------------------------------------------------------------------------------- | ----------------------------------------------------------- | ------------------------------------- | -------------------------------------- | --------------------------------------------------------------------------------- |
+| Friendly property label                              | A human-readable group/name such as `IFD0:XResolution`                                         | ExifTool group/tag names and `TagInfo`                      | Yes: display, search and explanations | Yes                                    | No; it is not stable execution identity                                           |
+| Runtime tag-ID scope (`RuntimeTagIdScope`)           | The wrapped table, tag ID and optional index associated with the extracted family-7 runtime ID | Wrapped ExifTool JSON                                       | Diagnostic only                       | Yes                                    | No; it is one component of occurrence identity, not a mutation selector           |
+| Schema definition identity (`SchemaDefinitionId`)    | One exact static ExifTool definition used to interpret a semantic value                        | Exact registry resolution, normally from wrapped scope      | Diagnostic context                    | Yes                                    | For schema-driven New Property only; never to first-select an existing occurrence |
+| Runtime occurrence identity (`MetadataOccurrenceId`) | One concrete field/value in one file                                                           | Parsed ExifTool property-key coordinates plus wrapped scope | Diagnostic context                    | No                                     | It selects the occurrence to validate, but is not itself ExifTool argv            |
+| Runtime write target (`MetadataWriteTarget`)         | A separately proven ExifTool mutation selector                                                 | Scanner validation of the concrete runtime occurrence       | Shown where useful for diagnostics    | It must be unambiguous within the file | Yes, after the complete existing-occurrence snapshot is revalidated               |
+
+`MetadataOccurrenceId.document` is the family-3 document/sample coordinate,
+`path` is the family-5 metadata path, `runtime_tag_id` is the family-7 runtime
+ID, `tag_id_scope` is the wrapped table/ID/index scope, and `copy` is the
+family-4 copy number. Together they identify a concrete occurrence; none of
+those fields may be replaced by a friendly label or schema lookup.
+
 ## Problem: friendly ExifTool names are not identities
 
 Names such as `IFD0:Orientation`, `File:BMPVersion` and
@@ -50,7 +69,7 @@ These figures describe the investigation fixture set. They are evidence for
 the design, not a claim that every possible ExifTool file format was tested
 exhaustively.
 
-## ExifTool's exact runtime identity
+## ExifTool's wrapped runtime tag-ID scope
 
 MediaLibrary requests JSON values with table and decimal-ID output:
 
@@ -76,6 +95,10 @@ Each wrapped runtime value has this shape:
   in the same table.
 - `val` is the value for that occurrence. Its representation depends on the
   other pass flags, including `-n`.
+
+The `{table, id, index?}` tuple is retained as
+`MetadataOccurrenceId.tag_id_scope`. It scopes the extracted runtime tag ID,
+but it is not automatically the final semantic schema identity.
 
 ## Canonical application identity
 
@@ -132,6 +155,19 @@ optional exact `MetadataWriteTarget`; these concerns are not interchangeable.
 When `TagInfo` exists, its `id` must equal `MetadataOccurrence.schema_id`.
 Schema identity alone does not establish writability.
 
+The raw wrapped scope and resolved schema are deliberately both retained:
+
+- `MetadataOccurrenceId.tag_id_scope` records what the runtime wrapper
+  supplied for that extracted occurrence;
+- `MetadataOccurrence.schema_id` records the authoritative static definition
+  used to interpret its semantic value.
+
+They normally agree, but agreement is not an invariant. LangAlt child
+extraction is the key exception: a language-specific runtime child retains its
+child scope in `tag_id_scope`, while `schema_id` resolves to the exact LangAlt
+parent definition. Documentation and diagnostics must not describe
+`schema_id` as merely an untouched copy of the wrapped tuple.
+
 JavaScript uses `schemaDefinitionIdToken(id)` only to make stable keys for
 `Map`, object and React collection mechanics. Every collection value retains
 the structured ID. The token is not a second metadata identity and is not a
@@ -184,6 +220,20 @@ The user searches friendly fields, but every result represents one exact
 `TagInfo`. Same-name definitions appear separately with table, ID and index
 context, and the user explicitly selects one. Arbitrary free-text properties
 cannot be written. Existing-property detection compares exact IDs.
+
+## Draft target variants
+
+`ExistingOccurrence` snapshots the complete `MetadataOccurrenceId`, resolved
+`SchemaDefinitionId`, and proven `MetadataWriteTarget`. Apply rereads the file
+and revalidates all three before rendering the stored runtime selector. It
+does not reconstruct that selector from a friendly label and never uses the
+schema ID to choose among same-schema occurrences.
+
+`NewProperty` has no runtime occurrence or proven runtime selector to snapshot,
+so it remains schema-driven and uses the exact selected definition's current
+selector behaviour. Same-schema, multiple-destination creation semantics are
+intentionally outside this patch and require a separate design decision; this
+document does not claim that question is settled.
 
 ## Wire formats and persistence
 

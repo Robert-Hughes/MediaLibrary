@@ -13,6 +13,7 @@ import {
   targetDraftsFromWire,
   targetDraftsFromUnknownWire,
   targetDraftsToWire,
+  validateTargetDraftCollection,
   type TargetDraftEditsByFile,
 } from "../targetDraftEdits";
 import {
@@ -807,18 +808,36 @@ describe("TargetDraftEditsStore notifications and immutability", () => {
     ]);
   });
 
-  it("does not mutate source targets and isolates stored target snapshots", () => {
+  it("deeply isolates complete targets, slot identity, and wire snapshots", () => {
     const store = new TargetDraftEditsStore();
-    const target = existing();
+    const target = existing({ document: "Doc1", copy: 2, index: 3 });
     const before = structuredClone(target);
+    const originalSlot = metadataDraftTargetSlotToken(before);
     store.setMetadataTarget("photo.jpg", target, setEdit("one"));
     expect(target).toEqual(before);
 
+    target.occurrence_id.document = "Doc2";
     target.occurrence_id.path = "changed";
+    target.occurrence_id.runtime_tag_id = "changed";
+    target.occurrence_id.tag_id_scope.table = "Changed::Runtime";
+    target.occurrence_id.tag_id_scope.tag_id = "changed";
+    target.occurrence_id.tag_id_scope.index = 99;
+    target.occurrence_id.copy = 99;
     target.schema_id.table = "changed";
+    target.schema_id.tag_id = "changed";
+    target.schema_id.index = 99;
     target.write_target.group1 = "changed";
-    const stored = Object.values(store.getMetadataFile("photo.jpg")!)[0].target;
-    expect(stored).toEqual(before);
+    target.write_target.tag_name = "changed";
+
+    const collection = store.getMetadataFile("photo.jpg")!;
+    expect(Object.keys(collection)).toEqual([originalSlot]);
+    expect(collection[originalSlot].target).toEqual(before);
+    expect(() =>
+      validateTargetDraftCollection("photo.jpg", collection),
+    ).not.toThrow();
+    expect(targetDraftsToWire(store.getAllMetadata())).toEqual({
+      "photo.jpg": [entry(before, setEdit("one"))],
+    });
   });
 
   it("replaces snapshot references while retaining unrelated file references", () => {

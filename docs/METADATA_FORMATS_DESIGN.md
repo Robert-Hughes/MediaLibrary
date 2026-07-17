@@ -6,18 +6,26 @@ draft always contains a complete `MetadataDraftTarget` and a semantic
 
 ## Occurrence concerns and identity layers
 
-Authoritative `MetadataOccurrence` state carries four independent concerns:
+The editing model distinguishes five concepts:
 
-1. `MetadataOccurrenceId` identifies one concrete value in one file using its
-   document, metadata path, family-7 runtime ID, wrapped table/ID/index scope,
-   and copy.
-2. Required `schema_id: SchemaDefinitionId` identifies the exact ExifTool
-   definition, including the distinction between an absent index and index
-   zero. Several occurrences may share it.
-3. Nullable `tag_info` supplies registry interpretation and friendly group,
-   name and description metadata. When present, `TagInfo.id` must exactly match
-   `schema_id`.
-4. Nullable `write_target` supplies a proven exact runtime selector.
+1. A friendly property label (`TagInfo.group` plus `TagInfo.name`) is human
+   display, search and explanation text, not execution identity.
+2. `RuntimeTagIdScope` retains the wrapped table, tag ID and optional index
+   associated with the family-7 runtime ID. It is part of occurrence identity,
+   not necessarily the resolved semantic definition.
+3. Required `schema_id: SchemaDefinitionId` identifies one exact static
+   ExifTool definition, including absent index versus index zero. Several
+   occurrences may share it, so it must not first-select an occurrence.
+4. `MetadataOccurrenceId` identifies one concrete value using family-3
+   document/sample, family-5 metadata path, family-7 runtime ID, wrapped scope,
+   and family-4 copy.
+5. Nullable `write_target: MetadataWriteTarget` is a separately proven runtime
+   mutation selector, not schema identity and not a reconstruction from the
+   friendly label.
+
+Nullable `tag_info` supplies registry interpretation, friendly labels and
+description metadata. When present, `TagInfo.id` must exactly match
+`schema_id`.
 
 Friendly labels are presentation and search text only. A missing `TagInfo` does
 not mean schema identity is missing, and a schema ID or selector alone does not
@@ -26,12 +34,17 @@ runtime targets and are never first-selected.
 
 The wrapped runtime scope is not a replacement for `schema_id`. It namespaces
 the runtime tag ID, while `schema_id` remains authoritative interpretation and
-may resolve to a different LangAlt parent.
+may resolve to a different LangAlt parent. In that case the child runtime tuple
+remains in `occurrence.id.tag_id_scope` and the parent definition is stored in
+`occurrence.schema_id`.
 
-An `ExistingOccurrence` target already snapshots its occurrence ID, schema ID
-and runtime `MetadataWriteTarget`; `NewProperty` identifies a deliberate
-creation by exact schema ID. Adding schema identity to the transient occurrence
-shape therefore requires no target-format migration.
+An `ExistingOccurrence` target snapshots its occurrence ID, schema ID and
+runtime `MetadataWriteTarget`, then revalidates all three before apply.
+`NewProperty` identifies a deliberate creation by exact schema ID because no
+runtime occurrence exists yet. Its same-schema/multiple-destination semantics
+are deliberately deferred to a separate design decision and are not changed
+here. Adding schema identity to the transient occurrence shape therefore
+requires no target-format migration.
 
 ## Transient occurrence format
 

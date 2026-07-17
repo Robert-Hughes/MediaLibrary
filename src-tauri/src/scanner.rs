@@ -1282,81 +1282,23 @@ fn canonical_values_from_exiftool_pair_exact(
 }
 
 #[cfg(test)]
-fn canonical_values_from_exiftool_pair(
-    raw_values: &HashMap<String, serde_json::Value>,
-    display_values: &HashMap<String, serde_json::Value>,
+fn canonical_values_from_explicit_runtime_pair(
+    raw_values: &RuntimeMap,
+    display_values: &RuntimeMap,
     registry: Option<&TagRegistry>,
     rel_path: &str,
     warnings: Option<&mut Vec<ParseWarning>>,
 ) -> HashMap<String, MetadataValue> {
-    fn runtime(
-        values: &HashMap<String, serde_json::Value>,
-        registry: Option<&TagRegistry>,
-    ) -> RuntimeMap {
-        values
-            .iter()
-            .map(|(name, value)| {
-                let id = registry
-                    .and_then(|registry| {
-                        registry
-                            .iter()
-                            .find(|(_, info)| info.display_name() == *name)
-                            .map(|(_, info)| info)
-                    })
-                    .map(|info| info.id.clone())
-                    .unwrap_or_else(|| SchemaDefinitionId {
-                        table: "TestFixture::Unknown".into(),
-                        tag_id: name.clone(),
-                        index: None,
-                    });
-                let occurrence_id = MetadataOccurrenceId {
-                    document: None,
-                    path: "TestFixture".into(),
-                    runtime_tag_id: id.tag_id.clone(),
-                    tag_id_scope: RuntimeTagIdScope {
-                        table: id.table.clone(),
-                        tag_id: id.tag_id.clone(),
-                        index: id.index,
-                    },
-                    copy: 0,
-                };
-                (
-                    occurrence_id.clone(),
-                    RuntimeProperty {
-                        occurrence_id,
-                        group1: name
-                            .split_once(':')
-                            .map_or("TestFixture", |(group, _)| group)
-                            .into(),
-                        tag_name: name
-                            .split_once(':')
-                            .map_or(name.as_str(), |(_, tag)| tag)
-                            .into(),
-                        friendly_name: name.clone(),
-                        language: None,
-                        value: value.clone(),
-                    },
-                )
-            })
-            .collect()
-    }
     canonical_values_from_exiftool_pair_exact(
-        &runtime(raw_values, registry),
-        &runtime(display_values, registry),
+        raw_values,
+        display_values,
         registry,
         rel_path,
         warnings,
     )
     .expect("test fixture canonicalisation")
     .into_iter()
-    .map(|canonical| {
-        let id = canonical.occurrence.schema_id;
-        let name = registry
-            .and_then(|registry| registry.lookup(&id))
-            .map(|info| info.display_name())
-            .unwrap_or_else(|| id.tag_id.clone());
-        (name, canonical.occurrence.value)
-    })
+    .map(|canonical| (canonical.friendly_name, canonical.occurrence.value))
     .collect()
 }
 
@@ -2289,11 +2231,8 @@ mod tests {
 </taginfo>"#,
         )
         .expect("build controlled IFD resolution registry");
-        let info = registry
-            .iter()
-            .find_map(|(_, info)| (info.name == "XResolution").then_some(info))
-            .unwrap();
-        let schema = info.id.clone();
+        let schema = test_schema_id("EXIF::Main", "282", None);
+        let info = registry.lookup(&schema).unwrap();
         let ifd0 = test_occurrence_id_for_schema("JPEG-APP1-IFD0", "282", &schema);
         let mut ifd1 = test_occurrence_id_for_schema("JPEG-APP1-IFD1", "282", &schema);
         ifd1.copy = 2;
@@ -3658,6 +3597,40 @@ mod tests {
         .expect("build canonical test registry")
     }
 
+    #[allow(clippy::too_many_arguments)]
+    fn explicit_runtime_property(
+        document: Option<&str>,
+        path: &str,
+        copy: u32,
+        runtime_tag_id: &str,
+        wrapped_table: &str,
+        wrapped_tag_id: &str,
+        wrapped_index: Option<u32>,
+        group1: &str,
+        tag_name: &str,
+        value: serde_json::Value,
+    ) -> RuntimeProperty {
+        let occurrence_id = MetadataOccurrenceId {
+            document: document.map(str::to_owned),
+            path: path.to_owned(),
+            runtime_tag_id: runtime_tag_id.to_owned(),
+            tag_id_scope: RuntimeTagIdScope {
+                table: wrapped_table.to_owned(),
+                tag_id: wrapped_tag_id.to_owned(),
+                index: wrapped_index,
+            },
+            copy,
+        };
+        RuntimeProperty {
+            occurrence_id,
+            group1: group1.to_owned(),
+            tag_name: tag_name.to_owned(),
+            friendly_name: format!("{group1}:{tag_name}"),
+            language: None,
+            value,
+        }
+    }
+
     fn lang_alt_registry() -> crate::tag_schema::TagRegistry {
         crate::tag_schema::TagRegistry::from_listx_xml(
             r#"<?xml version='1.0' encoding='UTF-8'?>
@@ -3717,17 +3690,36 @@ mod tests {
     #[test]
     fn canonical_prefers_raw_primary_and_uses_display_only_as_hint() {
         let reg = canonical_registry();
-        let raw = HashMap::from([
-            ("EXIF:Make".to_string(), serde_json::json!("Canon raw")),
-            ("EXIF:ExposureTime".to_string(), serde_json::json!(0.015625)),
+        let property = |runtime_tag_id: &str, tag_name: &str, value| {
+            explicit_runtime_property(
+                Some("Main"),
+                "JPEG-APP1-IFD0",
+                0,
+                runtime_tag_id,
+                "EXIF::Main",
+                runtime_tag_id,
+                None,
+                "EXIF",
+                tag_name,
+                value,
+            )
+        };
+        let raw = runtime_map(vec![
+            property("Make", "Make", serde_json::json!("Canon raw")),
+            property("ExposureTime", "ExposureTime", serde_json::json!(0.015625)),
         ]);
-        let display = HashMap::from([
-            ("EXIF:Make".to_string(), serde_json::json!("Canon display")),
-            ("EXIF:ExposureTime".to_string(), serde_json::json!("1/64")),
+        let display = runtime_map(vec![
+            property("Make", "Make", serde_json::json!("Canon display")),
+            property("ExposureTime", "ExposureTime", serde_json::json!("1/64")),
         ]);
 
-        let values =
-            canonical_values_from_exiftool_pair(&raw, &display, Some(&reg), "photo.jpg", None);
+        let values = canonical_values_from_explicit_runtime_pair(
+            &raw,
+            &display,
+            Some(&reg),
+            "photo.jpg",
+            None,
+        );
 
         assert_eq!(
             values.get("EXIF:Make"),
@@ -3747,11 +3739,30 @@ mod tests {
     #[test]
     fn canonical_recovers_exact_rational_from_display_hint() {
         let reg = canonical_registry();
-        let raw = HashMap::from([("EXIF:ExposureTime".to_string(), serde_json::json!(0.015625))]);
-        let display = HashMap::from([("EXIF:ExposureTime".to_string(), serde_json::json!("1/64"))]);
+        let property = |value| {
+            explicit_runtime_property(
+                Some("Main"),
+                "JPEG-APP1-IFD0",
+                0,
+                "ExposureTime",
+                "EXIF::Main",
+                "ExposureTime",
+                None,
+                "EXIF",
+                "ExposureTime",
+                value,
+            )
+        };
+        let raw = runtime_map(vec![property(serde_json::json!(0.015625))]);
+        let display = runtime_map(vec![property(serde_json::json!("1/64"))]);
 
-        let values =
-            canonical_values_from_exiftool_pair(&raw, &display, Some(&reg), "photo.jpg", None);
+        let values = canonical_values_from_explicit_runtime_pair(
+            &raw,
+            &display,
+            Some(&reg),
+            "photo.jpg",
+            None,
+        );
 
         match values.get("EXIF:ExposureTime") {
             Some(MetadataValue::Rational(r)) => {
@@ -3765,12 +3776,25 @@ mod tests {
     #[test]
     fn canonical_gps_version_id_is_text_without_warning() {
         let reg = canonical_registry();
-        let raw = HashMap::from([("GPS:GPSVersionID".to_string(), serde_json::json!("2 2 0 0"))]);
-        let display =
-            HashMap::from([("GPS:GPSVersionID".to_string(), serde_json::json!("2.2.0.0"))]);
+        let property = |value| {
+            explicit_runtime_property(
+                Some("Main"),
+                "JPEG-APP1-IFD0-GPS",
+                0,
+                "0",
+                "EXIF::GPS",
+                "0",
+                None,
+                "GPS",
+                "GPSVersionID",
+                value,
+            )
+        };
+        let raw = runtime_map(vec![property(serde_json::json!("2 2 0 0"))]);
+        let display = runtime_map(vec![property(serde_json::json!("2.2.0.0"))]);
         let mut warnings = Vec::new();
 
-        let values = canonical_values_from_exiftool_pair(
+        let values = canonical_values_from_explicit_runtime_pair(
             &raw,
             &display,
             Some(&reg),
@@ -3788,11 +3812,27 @@ mod tests {
     #[test]
     fn canonical_includes_display_only_fallback_value() {
         let reg = canonical_registry();
-        let raw = HashMap::new();
-        let display = HashMap::from([("EXIF:Model".to_string(), serde_json::json!("X100V"))]);
+        let raw = runtime_map(vec![]);
+        let display = runtime_map(vec![explicit_runtime_property(
+            Some("Main"),
+            "JPEG-APP1-IFD0",
+            0,
+            "Model",
+            "EXIF::Main",
+            "Model",
+            None,
+            "EXIF",
+            "Model",
+            serde_json::json!("X100V"),
+        )]);
 
-        let values =
-            canonical_values_from_exiftool_pair(&raw, &display, Some(&reg), "photo.jpg", None);
+        let values = canonical_values_from_explicit_runtime_pair(
+            &raw,
+            &display,
+            Some(&reg),
+            "photo.jpg",
+            None,
+        );
 
         assert_eq!(
             values.get("EXIF:Model"),
@@ -3803,11 +3843,27 @@ mod tests {
     #[test]
     fn canonical_includes_raw_only_value() {
         let reg = canonical_registry();
-        let raw = HashMap::from([("EXIF:ISO".to_string(), serde_json::json!(400))]);
-        let display = HashMap::new();
+        let raw = runtime_map(vec![explicit_runtime_property(
+            Some("Main"),
+            "JPEG-APP1-IFD0",
+            0,
+            "ISO",
+            "EXIF::Main",
+            "ISO",
+            None,
+            "EXIF",
+            "ISO",
+            serde_json::json!(400),
+        )]);
+        let display = runtime_map(vec![]);
 
-        let values =
-            canonical_values_from_exiftool_pair(&raw, &display, Some(&reg), "photo.jpg", None);
+        let values = canonical_values_from_explicit_runtime_pair(
+            &raw,
+            &display,
+            Some(&reg),
+            "photo.jpg",
+            None,
+        );
 
         assert_eq!(values.get("EXIF:ISO"), Some(&MetadataValue::Integer(400)));
     }
@@ -3815,17 +3871,36 @@ mod tests {
     #[test]
     fn canonical_iterates_union_of_raw_and_display_keys() {
         let reg = canonical_registry();
-        let raw = HashMap::from([
-            ("EXIF:Make".to_string(), serde_json::json!("Raw make")),
-            ("EXIF:ISO".to_string(), serde_json::json!(200)),
+        let property = |runtime_tag_id: &str, tag_name: &str, value| {
+            explicit_runtime_property(
+                Some("Main"),
+                "JPEG-APP1-IFD0",
+                0,
+                runtime_tag_id,
+                "EXIF::Main",
+                runtime_tag_id,
+                None,
+                "EXIF",
+                tag_name,
+                value,
+            )
+        };
+        let raw = runtime_map(vec![
+            property("Make", "Make", serde_json::json!("Raw make")),
+            property("ISO", "ISO", serde_json::json!(200)),
         ]);
-        let display = HashMap::from([
-            ("EXIF:Make".to_string(), serde_json::json!("Display make")),
-            ("EXIF:LensModel".to_string(), serde_json::json!("35mm f/2")),
+        let display = runtime_map(vec![
+            property("Make", "Make", serde_json::json!("Display make")),
+            property("LensModel", "LensModel", serde_json::json!("35mm f/2")),
         ]);
 
-        let values =
-            canonical_values_from_exiftool_pair(&raw, &display, Some(&reg), "photo.jpg", None);
+        let values = canonical_values_from_explicit_runtime_pair(
+            &raw,
+            &display,
+            Some(&reg),
+            "photo.jpg",
+            None,
+        );
 
         assert_eq!(values.len(), 3);
         assert!(values.contains_key("EXIF:Make"));
@@ -4667,10 +4742,7 @@ mod tests {
             .map(|name| std::path::PathBuf::from(format!("D:/batch/{name}")))
             .collect();
         let registry = canonical_registry();
-        let schema = registry
-            .iter()
-            .find_map(|(_, info)| (info.name == "XResolution").then(|| info.id.clone()))
-            .unwrap();
+        let schema = test_schema_id("EXIF::Main", "282", None);
         let unrelated_schema = test_schema_id("Exif::Main", "283", None);
         let property = |path: &str, group: &str, value| {
             test_runtime_property(
@@ -4760,10 +4832,7 @@ mod tests {
         let rel_paths = vec!["shared-schema.jpg".to_string()];
         let abs_paths = vec![std::path::PathBuf::from("D:/batch/shared-schema.jpg")];
         let registry = canonical_registry();
-        let schema = registry
-            .iter()
-            .find_map(|(_, info)| (info.name == "XResolution").then(|| info.id.clone()))
-            .unwrap();
+        let schema = test_schema_id("EXIF::Main", "282", None);
         let mut ifd1_id = test_occurrence_id_for_schema("JPEG-APP1-IFD1", "282", &schema);
         ifd1_id.copy = 2;
         let unknown_id = MetadataOccurrenceId {

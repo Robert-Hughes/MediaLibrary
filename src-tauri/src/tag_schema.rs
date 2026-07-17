@@ -1104,27 +1104,7 @@ mod tests {
 </table>
 </taginfo>"#;
 
-    fn test_id_in(r: &TagRegistry, display_name: &str) -> SchemaDefinitionId {
-        let matches: Vec<_> = r
-            .iter()
-            .filter_map(|(id, info)| (info.display_name() == display_name).then_some(id.clone()))
-            .collect();
-        assert_eq!(
-            matches.len(),
-            1,
-            "expected exactly one schema definition named {display_name:?}, found {}",
-            matches.len(),
-        );
-        matches.into_iter().next().unwrap()
-    }
-
-    fn dummy_id(display_name: &str) -> SchemaDefinitionId {
-        let parts: Vec<&str> = display_name.split(':').collect();
-        let (table, tag_id) = if parts.len() == 2 {
-            (parts[0], parts[1])
-        } else {
-            ("UnknownTable", display_name)
-        };
+    fn test_id(table: &str, tag_id: &str) -> SchemaDefinitionId {
         SchemaDefinitionId {
             table: table.to_string(),
             tag_id: tag_id.to_string(),
@@ -1233,17 +1213,19 @@ mod tests {
     #[test]
     fn registry_parses_basic_tags() {
         let r = fixture_registry();
-        assert!(r.lookup(&test_id_in(&r, "IFD0:Orientation")).is_some());
-        assert!(r.lookup(&test_id_in(&r, "IFD0:ModifyDate")).is_some());
-        assert!(r.lookup(&test_id_in(&r, "IPTC:Keywords")).is_some());
-        assert!(r.lookup(&test_id_in(&r, "XMP-dc:Subject")).is_some());
-        assert!(r.lookup(&test_id_in(&r, "XMP-dc:Description")).is_some());
+        assert!(r.lookup(&test_id("EXIF::Main", "274")).is_some());
+        assert!(r.lookup(&test_id("EXIF::Main", "306")).is_some());
+        assert!(r
+            .lookup(&test_id("IPTC::ApplicationRecord", "25"))
+            .is_some());
+        assert!(r.lookup(&test_id("XMP::dc", "subject")).is_some());
+        assert!(r.lookup(&test_id("XMP::dc", "description")).is_some());
     }
 
     #[test]
     fn orientation_is_enum_with_all_options() {
         let r = fixture_registry();
-        let t = r.lookup(&test_id_in(&r, "IFD0:Orientation")).unwrap();
+        let t = r.lookup(&test_id("EXIF::Main", "274")).unwrap();
         assert!(t.writable);
         match &t.kind {
             TagKind::Enum { repr, options } => {
@@ -1261,7 +1243,7 @@ mod tests {
     #[test]
     fn iptc_keywords_override_yields_bag() {
         let r = fixture_registry();
-        let t = r.lookup(&test_id_in(&r, "IPTC:Keywords")).unwrap();
+        let t = r.lookup(&test_id("IPTC::ApplicationRecord", "25")).unwrap();
         match &t.kind {
             TagKind::Bag(inner) => assert!(matches!(**inner, TagKind::Text)),
             other => panic!("expected Bag<Text>, got {:?}", other),
@@ -1271,13 +1253,13 @@ mod tests {
     #[test]
     fn iptc_sublocation_count_is_not_bag() {
         let r = fixture_registry();
-        let t = r.lookup(&test_id_in(&r, "IPTC:Sub-location")).unwrap();
+        let t = r.lookup(&test_id("IPTC::ApplicationRecord", "92")).unwrap();
         assert!(
             matches!(t.kind, TagKind::Text),
             "Sub-location must be scalar Text, got {:?}",
             t.kind
         );
-        let c = r.lookup(&test_id_in(&r, "IPTC:City")).unwrap();
+        let c = r.lookup(&test_id("IPTC::ApplicationRecord", "90")).unwrap();
         assert!(
             matches!(c.kind, TagKind::Text),
             "City must be scalar Text, got {:?}",
@@ -1288,19 +1270,19 @@ mod tests {
     #[test]
     fn exif_gps_coordinates_are_app_facing_reals() {
         let r = fixture_registry();
-        let lat = r.lookup(&test_id_in(&r, "GPS:GPSLatitude")).unwrap();
+        let lat = r.lookup(&test_id("EXIF::GPS", "2")).unwrap();
         assert!(
             matches!(lat.kind, TagKind::Real),
             "GPSLatitude must be scalar Real, got {:?}",
             lat.kind
         );
-        let lon = r.lookup(&test_id_in(&r, "GPS:GPSLongitude")).unwrap();
+        let lon = r.lookup(&test_id("EXIF::GPS", "4")).unwrap();
         assert!(
             matches!(lon.kind, TagKind::Real),
             "GPSLongitude must be scalar Real, got {:?}",
             lon.kind
         );
-        let alt = r.lookup(&test_id_in(&r, "GPS:GPSAltitude")).unwrap();
+        let alt = r.lookup(&test_id("EXIF::GPS", "6")).unwrap();
         assert!(
             matches!(alt.kind, TagKind::Real),
             "GPSAltitude must be scalar Real, got {:?}",
@@ -1312,7 +1294,7 @@ mod tests {
     fn gps_version_id_is_app_facing_text() {
         let r = fixture_registry();
         let version = r
-            .lookup(&test_id_in(&r, "GPS:GPSVersionID"))
+            .lookup(&test_id("EXIF::GPS", "0"))
             .expect("GPSVersionID override should add the tag");
         assert!(
             matches!(version.kind, TagKind::Text),
@@ -1324,8 +1306,8 @@ mod tests {
     #[test]
     fn gps_reference_storage_width_remains_scalar_enum() {
         let r = fixture_registry();
-        for key in ["GPS:GPSLatitudeRef", "GPS:GPSLongitudeRef"] {
-            let tag = r.lookup(&test_id_in(&r, key)).unwrap();
+        for id in [test_id("EXIF::GPS", "1"), test_id("EXIF::GPS", "3")] {
+            let tag = r.lookup(&id).unwrap();
             assert!(matches!(
                 tag.kind,
                 TagKind::Enum {
@@ -1340,29 +1322,31 @@ mod tests {
     #[test]
     fn numeric_storage_count_does_not_create_a_collection() {
         let r = fixture_registry();
-        let t = r.lookup(&test_id_in(&r, "ExifIFD:ThreeRationals")).unwrap();
+        let t = r.lookup(&test_id("EXIF::Other", "39321")).unwrap();
         assert!(matches!(t.kind, TagKind::Rational));
         assert_eq!(t.storage_count.as_deref(), Some("3"));
     }
 
     #[test]
     fn explicit_list_flags_define_collection_shape() {
-        let xml = r#"<taginfo><table g1='Test'>
-          <tag name='Generic' type='string' count='64' writable='true' flags='List'><desc lang='en'>Generic</desc></tag>
-          <tag name='Ordered' type='int32u' count='4' writable='true' flags='List,Seq'><desc lang='en'>Ordered</desc></tag>
-          <tag name='Alternative' type='string' writable='true' flags='List,Alt'><desc lang='en'>Alternative</desc></tag>
+        let xml = r#"<taginfo><table name='Test::Main' g1='Test'>
+          <tag id='generic' name='Generic' type='string' count='64' writable='true' flags='List'><desc lang='en'>Generic</desc></tag>
+          <tag id='ordered' name='Ordered' type='int32u' count='4' writable='true' flags='List,Seq'><desc lang='en'>Ordered</desc></tag>
+          <tag id='alternative' name='Alternative' type='string' writable='true' flags='List,Alt'><desc lang='en'>Alternative</desc></tag>
         </table></taginfo>"#;
         let r = TagRegistry::from_listx_xml(xml).unwrap();
         assert!(matches!(
-            r.lookup(&test_id_in(&r, "Test:Generic")).unwrap().kind,
+            r.lookup(&test_id("Test::Main", "generic")).unwrap().kind,
             TagKind::Bag(_)
         ));
         assert!(matches!(
-            r.lookup(&test_id_in(&r, "Test:Ordered")).unwrap().kind,
+            r.lookup(&test_id("Test::Main", "ordered")).unwrap().kind,
             TagKind::Seq(_)
         ));
         assert!(matches!(
-            r.lookup(&test_id_in(&r, "Test:Alternative")).unwrap().kind,
+            r.lookup(&test_id("Test::Main", "alternative"))
+                .unwrap()
+                .kind,
             TagKind::Alt(_)
         ));
     }
@@ -1370,7 +1354,7 @@ mod tests {
     #[test]
     fn xmp_dc_subject_list_flag_derives_bag() {
         let r = fixture_registry();
-        let t = r.lookup(&test_id_in(&r, "XMP-dc:Subject")).unwrap();
+        let t = r.lookup(&test_id("XMP::dc", "subject")).unwrap();
         match &t.kind {
             TagKind::Bag(inner) => assert!(matches!(**inner, TagKind::Text)),
             other => panic!("expected Bag<Text>, got {:?}", other),
@@ -1380,7 +1364,7 @@ mod tests {
     #[test]
     fn xmp_dc_creator_list_flag_derives_seq() {
         let r = fixture_registry();
-        let t = r.lookup(&test_id_in(&r, "XMP-dc:Creator")).unwrap();
+        let t = r.lookup(&test_id("XMP::dc", "creator")).unwrap();
         match &t.kind {
             TagKind::Seq(inner) => assert!(matches!(**inner, TagKind::Text)),
             other => panic!("expected Seq<Text>, got {:?}", other),
@@ -1390,7 +1374,7 @@ mod tests {
     #[test]
     fn xmp_dc_description_is_langalt() {
         let r = fixture_registry();
-        let t = r.lookup(&test_id_in(&r, "XMP-dc:Description")).unwrap();
+        let t = r.lookup(&test_id("XMP::dc", "description")).unwrap();
         assert!(matches!(t.kind, TagKind::LangAlt));
     }
 
@@ -1411,7 +1395,7 @@ mod tests {
     #[test]
     fn modify_date_is_datetime() {
         let r = fixture_registry();
-        let t = r.lookup(&test_id_in(&r, "IFD0:ModifyDate")).unwrap();
+        let t = r.lookup(&test_id("EXIF::Main", "306")).unwrap();
         assert!(matches!(t.kind, TagKind::DateTime));
     }
 
@@ -1428,9 +1412,9 @@ mod tests {
     #[test]
     fn iptc_split_date_time_kinds_are_schema_derived() {
         let r = fixture_registry();
-        let date = r.lookup(&test_id_in(&r, "IPTC:DateCreated")).unwrap();
+        let date = r.lookup(&test_id("IPTC::ApplicationRecord", "55")).unwrap();
         assert!(matches!(date.kind, TagKind::Date));
-        let time = r.lookup(&test_id_in(&r, "IPTC:TimeCreated")).unwrap();
+        let time = r.lookup(&test_id("IPTC::ApplicationRecord", "60")).unwrap();
         assert!(matches!(time.kind, TagKind::Time));
     }
 
@@ -1462,14 +1446,16 @@ mod tests {
     #[test]
     fn xmp_datetime_overrides_promote_string_tags_to_datetime() {
         let r = fixture_registry();
-        assert!(r.lookup(&dummy_id("XMP-xmp:CreateDate")).is_none());
-        assert!(r.lookup(&dummy_id("XMP-photoshop:DateCreated")).is_none());
+        assert!(r.lookup(&test_id("XMP::xmp", "CreateDate")).is_none());
+        assert!(r
+            .lookup(&test_id("XMP::photoshop", "DateCreated"))
+            .is_none());
     }
 
     #[test]
     fn xmp_rating_is_real() {
         let r = fixture_registry();
-        let t = r.lookup(&test_id_in(&r, "XMP-xmp:Rating")).unwrap();
+        let t = r.lookup(&test_id("XMP::xmp", "Rating")).unwrap();
         assert!(matches!(t.kind, TagKind::Real));
     }
 
@@ -1510,7 +1496,7 @@ mod tests {
 </table>
 </taginfo>"#;
         let r = TagRegistry::from_listx_xml(xml).expect("parse XPKeywords fixture");
-        let t = r.lookup(&test_id_in(&r, "IFD0:XPKeywords")).unwrap();
+        let t = r.lookup(&test_id("EXIF::Main", "40094")).unwrap();
         assert!(
             matches!(t.kind, TagKind::Text),
             "XPKeywords must be semantic Text, got {:?}",
@@ -1524,14 +1510,14 @@ mod tests {
             "<?xml version='1.0' encoding='UTF-8'?><taginfo></taginfo>",
         )
         .expect("parse empty fixture");
-        for key in [
-            "IFD0:XPTitle",
-            "IFD0:XPComment",
-            "IFD0:XPAuthor",
-            "IFD0:XPKeywords",
-            "IFD0:XPSubject",
+        for tag_id in [
+            "40091", // XPTitle
+            "40092", // XPComment
+            "40093", // XPAuthor
+            "40094", // XPKeywords
+            "40095", // XPSubject
         ] {
-            assert!(r.lookup(&dummy_id(key)).is_none());
+            assert!(r.lookup(&test_id("EXIF::Main", tag_id)).is_none());
         }
     }
 
@@ -1546,7 +1532,7 @@ mod tests {
 </table>
 </taginfo>"#;
         let r = TagRegistry::from_listx_xml(xml).expect("parse UserComment fixture");
-        let t = r.lookup(&test_id_in(&r, "ExifIFD:UserComment")).unwrap();
+        let t = r.lookup(&test_id("EXIF::Exif", "37510")).unwrap();
         assert!(
             matches!(t.kind, TagKind::Text),
             "UserComment must be semantic Text, got {:?}",
@@ -1627,7 +1613,7 @@ mod tests {
     #[test]
     fn undef_type_is_unknown() {
         let r = fixture_registry();
-        let t = r.lookup(&test_id_in(&r, "Foo:BinaryThing")).unwrap();
+        let t = r.lookup(&test_id("ReadOnly::Stuff", "Bin")).unwrap();
         assert!(matches!(t.kind, TagKind::Unknown));
         assert!(!t.writable);
     }
@@ -1635,8 +1621,8 @@ mod tests {
     #[test]
     fn missing_tag_returns_none() {
         let r = fixture_registry();
-        assert!(r.lookup(&dummy_id("Nonexistent:Tag")).is_none());
-        assert!(r.lookup(&dummy_id("XMP-dc:NotARealField")).is_none());
+        assert!(r.lookup(&test_id("Nonexistent::Table", "Tag")).is_none());
+        assert!(r.lookup(&test_id("XMP::dc", "NotARealField")).is_none());
     }
 
     #[test]
@@ -1644,22 +1630,22 @@ mod tests {
         let original = fixture_registry();
         let json = serde_json::to_string(&original).expect("serialize");
         let restored: TagRegistry = serde_json::from_str(&json).expect("deserialize");
-        for key in [
-            "IFD0:Orientation",
-            "IPTC:Keywords",
-            "XMP-dc:Subject",
-            "XMP-dc:Description",
-            "XMP-xmp:Rating",
-            "Foo:BinaryThing",
+        for (table, tag_id) in [
+            ("EXIF::Main", "274"),
+            ("IPTC::ApplicationRecord", "25"),
+            ("XMP::dc", "subject"),
+            ("XMP::dc", "description"),
+            ("XMP::xmp", "Rating"),
+            ("ReadOnly::Stuff", "Bin"),
         ] {
-            let id = test_id_in(&original, key);
+            let id = test_id(table, tag_id);
             let a = original.lookup(&id);
             let b = restored.lookup(&id);
-            assert_eq!(a, b, "lookup mismatch after roundtrip for {}", key);
+            assert_eq!(a, b, "lookup mismatch after roundtrip for {id:?}");
         }
 
         // Regions is absent in the fixture registry, but let's check it roundtrips None
-        let regions_id = dummy_id("XMP-mwg-rs:Regions");
+        let regions_id = test_id("XMP::mwg-rs", "Regions");
         assert_eq!(original.lookup(&regions_id), None);
         assert_eq!(restored.lookup(&regions_id), None);
 
@@ -1690,6 +1676,6 @@ mod tests {
     #[test]
     fn mwg_regions_override_present_even_without_listx_entry() {
         let r = fixture_registry();
-        assert!(r.lookup(&dummy_id("XMP-mwg-rs:Regions")).is_none());
+        assert!(r.lookup(&test_id("XMP::mwg-rs", "Regions")).is_none());
     }
 }
