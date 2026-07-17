@@ -172,9 +172,10 @@ and optional index, while `tag_info` and `write_target` remain null. MediaLibrar
 does not guess a table from Make, Model, file type, enum values, value shape,
 occurrence path, runtime tag ID or selector coordinates.
 
-Conflicting duplicate complete runtime IDs must never silently overwrite one
-another. Completely identical duplicates are temporarily diagnosed and
-deduplicated pending real-file validation before the invariant is tightened.
+Any second property with the same complete runtime ID within one source and
+one ExifTool pass is an invariant violation. It is rejected even when its
+diagnostic fields and extracted value are identical. The same ID appearing
+once in each of the raw and display passes remains the expected join key.
 LangAlt children are merged deliberately as described above.
 
 ## Add New Property
