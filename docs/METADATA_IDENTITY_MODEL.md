@@ -60,9 +60,10 @@ have wrapped ID `0`, but their wrapped tables are respectively
 shared IPTC block, so it cannot distinguish those records. The runtime tag name
 is extraction and write-target information, not occurrence identity.
 
-Within one ExifTool pass, conflicting duplicates of the complete occurrence ID
-are rejected. Completely identical duplicates remain diagnosed and
-deduplicated temporarily; this policy will be tightened after validation
+Within one ExifTool pass, every attempted second insertion of the complete
+occurrence ID is rejected as an invariant violation, including a completely
+identical property. One raw and one display property with the same complete ID
+remain valid because that cross-pass correspondence is the join mechanism
 against real files.
 
 An existing occurrence can be edited only when it has an unambiguous occurrence

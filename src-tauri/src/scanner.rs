@@ -329,7 +329,11 @@ fn run_exiftool_pass(
             failures_by_source: HashMap::new(),
         });
     }
-    try_parse_exiftool_pass_json_raw(&json)
+    try_parse_exiftool_pass_json_raw_with_registry_and_context(
+        &json,
+        crate::tag_schema::get_registry().ok(),
+        Some(pass_label),
+    )
 }
 
 fn exiftool_read_args(numeric: bool) -> Vec<&'static str> {
@@ -515,9 +519,74 @@ fn parse_runtime_value(value: serde_json::Value) -> Result<ExifToolRuntimeValue,
     })
 }
 
+#[cfg(test)]
 fn parse_single_source_object(
     obj: serde_json::Map<String, serde_json::Value>,
     registry: Option<&crate::tag_schema::TagRegistry>,
+) -> Result<RuntimeMap, String> {
+    parse_single_source_object_with_context(obj, registry, "<direct source object>", None)
+}
+
+fn safe_value_diagnostic(value: &serde_json::Value) -> String {
+    fn bounded_text(text: &str) -> String {
+        const MAX_CHARS: usize = 160;
+        let mut chars = text.chars();
+        let preview = chars.by_ref().take(MAX_CHARS).collect::<String>();
+        if chars.next().is_some() {
+            format!("{preview}…<truncated>")
+        } else {
+            preview
+        }
+    }
+
+    fn describe(value: &serde_json::Value, depth: usize) -> String {
+        match value {
+            serde_json::Value::Null => "null".to_string(),
+            serde_json::Value::Bool(value) => format!("boolean {value}"),
+            serde_json::Value::Number(value) => format!("number {value}"),
+            serde_json::Value::String(text) => format!(
+                "string(len={}) {}",
+                text.chars().count(),
+                serde_json::to_string(&bounded_text(text))
+                    .unwrap_or_else(|_| "\"<unprintable>\"".to_string())
+            ),
+            serde_json::Value::Array(items) => {
+                if depth >= 2 {
+                    return format!("array(len={})", items.len());
+                }
+                let preview = items
+                    .iter()
+                    .take(3)
+                    .map(|item| describe(item, depth + 1))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("array(len={}, preview=[{}])", items.len(), preview)
+            }
+            serde_json::Value::Object(fields) => {
+                if depth >= 2 {
+                    return format!("object(fields={})", fields.len());
+                }
+                let preview = fields
+                    .iter()
+                    .take(3)
+                    .map(|(key, value)| {
+                        format!("{}: {}", bounded_text(key), describe(value, depth + 1))
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("object(fields={}, preview={{{}}})", fields.len(), preview)
+            }
+        }
+    }
+
+    describe(value, 0)
+}
+
+fn parse_single_source_object_with_context(
+    obj: serde_json::Map<String, serde_json::Value>,
+    registry: Option<&crate::tag_schema::TagRegistry>,
+    source_context: &str,
+    pass_context: Option<&str>,
 ) -> Result<RuntimeMap, String> {
     let mut map = RuntimeMap::new();
     for (key, val) in obj {
@@ -557,40 +626,22 @@ fn parse_single_source_object(
             format!("{}:{}", property.group1, property.tag_name)
         );
         if let Some(previous) = map.get(&property.occurrence_id) {
-            let conflict =
-                if previous.group1 != property.group1 || previous.tag_name != property.tag_name {
-                    Some("different family-1 group or tag name")
-                } else if previous.friendly_name != property.friendly_name {
-                    Some("different canonical friendly name")
-                } else if previous.language != property.language {
-                    Some("different language")
-                } else if previous.value != property.value {
-                    Some("different value")
-                } else {
-                    None
-                };
-            if let Some(conflict) = conflict {
-                return Err(format!(
-                    "same occurrence ID, {conflict}: {occurrence:#?}\nfirst: schema={first_schema:#?} friendly={first_name:?} group1={first_group:?} tag_name={first_tag:?} language={first_language:?} value={first_value}\nsecond: schema={second_schema:#?} friendly={second_name:?} group1={second_group:?} tag_name={second_tag:?} language={second_language:?} value={second_value}",
-                    occurrence = property.occurrence_id,
-                    first_schema = previous.occurrence_id.tag_id_scope,
-                    first_name = previous.friendly_name,
-                    first_group = previous.group1,
-                    first_tag = previous.tag_name,
-                    first_language = previous.language,
-                    first_value = previous.value,
-                    second_schema = property.occurrence_id.tag_id_scope,
-                    second_name = property.friendly_name,
-                    second_group = property.group1,
-                    second_tag = property.tag_name,
-                    second_language = property.language,
-                    second_value = property.value,
-                ));
-            }
-            log::warn!(
-                "deduplicated identical occurrence ID {:?}",
-                property.occurrence_id
-            );
+            return Err(format!(
+                "duplicate complete runtime occurrence ID {occurrence:#?} within one ExifTool pass; source={source:?} pass={pass:?}\nfirst: group1={first_group:?} tag_name={first_tag:?} raw_scope={first_scope:#?} language={first_language:?} value={first_value}\nsecond: group1={second_group:?} tag_name={second_tag:?} raw_scope={second_scope:#?} language={second_language:?} value={second_value}",
+                occurrence = property.occurrence_id,
+                source = source_context,
+                pass = pass_context.unwrap_or("<unknown pass>"),
+                first_group = previous.group1,
+                first_tag = previous.tag_name,
+                first_scope = previous.occurrence_id.tag_id_scope,
+                first_language = previous.language,
+                first_value = safe_value_diagnostic(&previous.value),
+                second_group = property.group1,
+                second_tag = property.tag_name,
+                second_scope = property.occurrence_id.tag_id_scope,
+                second_language = property.language,
+                second_value = safe_value_diagnostic(&property.value),
+            ));
         } else {
             map.insert(property.occurrence_id.clone(), property);
         }
@@ -598,13 +649,23 @@ fn parse_single_source_object(
     Ok(map)
 }
 
+#[cfg(test)]
 fn try_parse_exiftool_pass_json_raw(json: &str) -> Result<ExifToolPassOutput, String> {
     try_parse_exiftool_pass_json_raw_with_registry(json, crate::tag_schema::get_registry().ok())
 }
 
+#[cfg(test)]
 fn try_parse_exiftool_pass_json_raw_with_registry(
     json: &str,
     registry: Option<&crate::tag_schema::TagRegistry>,
+) -> Result<ExifToolPassOutput, String> {
+    try_parse_exiftool_pass_json_raw_with_registry_and_context(json, registry, None)
+}
+
+fn try_parse_exiftool_pass_json_raw_with_registry_and_context(
+    json: &str,
+    registry: Option<&crate::tag_schema::TagRegistry>,
+    pass_context: Option<&str>,
 ) -> Result<ExifToolPassOutput, String> {
     let raw_entries: Vec<serde_json::Value> = match serde_json::from_str(json) {
         Ok(v) => v,
@@ -651,7 +712,8 @@ fn try_parse_exiftool_pass_json_raw_with_registry(
 
         let normalized_path = s.replace('\\', "/");
 
-        match parse_single_source_object(obj, registry) {
+        match parse_single_source_object_with_context(obj, registry, &normalized_path, pass_context)
+        {
             Ok(map) => {
                 values_by_source.insert(normalized_path, map);
             }
@@ -2043,42 +2105,47 @@ mod tests {
     }
 
     #[test]
-    fn parser_deduplicates_only_identical_repeated_occurrence_ids() {
+    fn parser_rejects_every_repeated_complete_occurrence_id() {
         let primary = "IFD0:Main::JPEG-APP1-IFD0:ID-282:XResolution";
         let explicit = "IFD0:Main:Copy0:JPEG-APP1-IFD0:ID-282:XResolution";
-        let identical = serde_json::json!({
-            primary: {"table":"Exif::Main","id":"282","lang":"en","val":300},
-            explicit: {"table":"Exif::Main","id":"282","lang":"en","val":300}
-        })
-        .as_object()
-        .unwrap()
-        .clone();
-        assert_eq!(
-            parse_single_source_object(identical, None).unwrap().len(),
-            1
-        );
-
-        for (second, expected) in [
+        for (second_key, second, expected) in [
             (
-                serde_json::json!({"table":"Exif::Main","id":"282","lang":"en","val":72}),
-                "different value",
+                explicit,
+                serde_json::json!({"table":"Exif::Main","id":"282","lang":"en","val":300}),
+                "number 300",
             ),
             (
+                explicit,
+                serde_json::json!({"table":"Exif::Main","id":"282","lang":"en","val":72}),
+                "number 72",
+            ),
+            (
+                "IFD0:Main:Copy0:JPEG-APP1-IFD0:ID-282:ResolutionAlias",
+                serde_json::json!({"table":"Exif::Main","id":"282","lang":"en","val":300}),
+                "ResolutionAlias",
+            ),
+            (
+                "Alias:Main:Copy0:JPEG-APP1-IFD0:ID-282:XResolution",
                 serde_json::json!({"table":"Exif::Main","id":"282","lang":"fr","val":300}),
-                "different language",
+                "Alias",
             ),
         ] {
-            let object = serde_json::json!({
-                primary: {"table":"Exif::Main","id":"282","lang":"en","val":300},
-                explicit: second
-            })
-            .as_object()
-            .unwrap()
-            .clone();
+            let mut object = serde_json::Map::new();
+            object.insert(
+                primary.to_string(),
+                serde_json::json!({"table":"Exif::Main","id":"282","lang":"en","val":300}),
+            );
+            object.insert(second_key.to_string(), second);
             let error = parse_single_source_object(object, None).unwrap_err();
+            assert!(error.contains("duplicate complete runtime occurrence ID"));
             assert!(error.contains(expected), "unexpected error: {error}");
+            assert!(error.contains("<direct source object>"));
+            assert!(error.contains("<unknown pass>"));
             assert!(error.contains("Exif::Main"));
-            assert!(error.contains("IFD0:XResolution"));
+            assert!(error.contains("first: group1="));
+            assert!(error.contains("second: group1="));
+            assert!(error.contains("raw_scope="));
+            assert!(error.contains("language="));
             assert!(error.contains("value="));
         }
 
@@ -2098,18 +2165,88 @@ mod tests {
                 .collect::<BTreeSet<_>>(),
             BTreeSet::from(["Exif::Main", "Exif::Other"])
         );
+    }
 
-        let renamed = serde_json::json!({
-            primary: {"table":"Exif::Main","id":"282","val":300},
-            "Alias:Main:Copy0:JPEG-APP1-IFD0:ID-282:ResolutionAlias": {"table":"Exif::Main","id":"282","val":300}
-        })
-        .as_object()
-        .unwrap()
-        .clone();
-        let error = parse_single_source_object(renamed, None).unwrap_err();
-        assert!(error.contains("different family-1 group or tag name"));
-        assert!(error.contains("IFD0:XResolution"));
-        assert!(error.contains("Alias:ResolutionAlias"));
+    #[test]
+    fn duplicate_failure_is_source_specific_and_neighbours_are_assembled() {
+        let display_json = r#"[
+            {
+                "SourceFile":"D:/path/Image1.jpg",
+                "IFD0:Main::JPEG-APP1-IFD0:ID-282:XResolution":{"table":"Exif::Main","id":"282","val":"300 dpi"}
+            },
+            {
+                "SourceFile":"D:/path/Image2.jpg",
+                "IFD0:Main::JPEG-APP1-IFD0:ID-282:XResolution":{"table":"Exif::Main","id":"282","val":"300 dpi"},
+                "IFD0:Main:Copy0:JPEG-APP1-IFD0:ID-282:XResolution":{"table":"Exif::Main","id":"282","val":"300 dpi"}
+            },
+            {
+                "SourceFile":"D:/path/Image3.jpg",
+                "IFD0:Main::JPEG-APP1-IFD0:ID-282:XResolution":{"table":"Exif::Main","id":"282","val":"72 dpi"}
+            }
+        ]"#;
+        let raw_json = r#"[
+            {
+                "SourceFile":"D:/path/Image1.jpg",
+                "IFD0:Main::JPEG-APP1-IFD0:ID-282:XResolution":{"table":"Exif::Main","id":"282","val":300}
+            },
+            {
+                "SourceFile":"D:/path/Image2.jpg",
+                "IFD0:Main::JPEG-APP1-IFD0:ID-282:XResolution":{"table":"Exif::Main","id":"282","val":300}
+            },
+            {
+                "SourceFile":"D:/path/Image3.jpg",
+                "IFD0:Main::JPEG-APP1-IFD0:ID-282:XResolution":{"table":"Exif::Main","id":"282","val":72}
+            }
+        ]"#;
+
+        let display = try_parse_exiftool_pass_json_raw_with_registry_and_context(
+            display_json,
+            None,
+            Some("display pass"),
+        )
+        .unwrap();
+        let raw = try_parse_exiftool_pass_json_raw_with_registry_and_context(
+            raw_json,
+            None,
+            Some("raw (-n) pass"),
+        )
+        .unwrap();
+        assert_eq!(display.values_by_source.len(), 2);
+        assert_eq!(display.failures_by_source.len(), 1);
+        let failure = &display.failures_by_source["D:/path/Image2.jpg"];
+        assert!(failure.contains("D:/path/Image2.jpg"));
+        assert!(failure.contains("display pass"));
+        assert!(display.values_by_source.contains_key("D:/path/Image1.jpg"));
+        assert!(display.values_by_source.contains_key("D:/path/Image3.jpg"));
+
+        let outcome = assemble_batch_outcome(
+            &[
+                "Image1.jpg".into(),
+                "Image2.jpg".into(),
+                "Image3.jpg".into(),
+            ],
+            &[
+                "D:/path/Image1.jpg".into(),
+                "D:/path/Image2.jpg".into(),
+                "D:/path/Image3.jpg".into(),
+            ],
+            display,
+            raw,
+            None,
+            &mut Vec::new(),
+        )
+        .unwrap();
+        assert_eq!(outcome.results.len(), 2);
+        assert_eq!(outcome.failures.len(), 1);
+        assert_eq!(outcome.failures[0].relative_path, "Image2.jpg");
+        assert_eq!(
+            outcome
+                .results
+                .iter()
+                .map(|result| result.relative_path.as_str())
+                .collect::<BTreeSet<_>>(),
+            BTreeSet::from(["Image1.jpg", "Image3.jpg"])
+        );
     }
 
     #[test]
@@ -4181,7 +4318,7 @@ mod tests {
         assert!(fail_msg.contains("invalid"));
         assert!(!fail_msg.contains("D:/path/Image1.jpg"));
 
-        // 7. Identical duplicate values retain the current deduplication behaviour
+        // 7. Identical values at distinct physical paths remain separate occurrences.
         let json_duplicates = r#"[
             {
                 "SourceFile": "D:/path/Image1.jpg",
