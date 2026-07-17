@@ -719,6 +719,11 @@ mod tests {
     fn new_target(tag_id: &str) -> MetadataDraftTarget {
         MetadataDraftTarget::NewProperty {
             schema_id: schema(tag_id),
+            write_target: MetadataWriteTarget {
+                group1: "XMP-test".into(),
+                group7: format!("ID-{tag_id}"),
+                tag_name: format!("Tag{tag_id}"),
+            },
         }
     }
 
@@ -743,6 +748,7 @@ mod tests {
                     "IFD0"
                 }
                 .into(),
+                group7: format!("ID-{tag_id}"),
                 tag_name: format!("Tag{tag_id}"),
             },
         }
@@ -791,6 +797,7 @@ mod tests {
                     .cloned()
                     .unwrap_or_else(|| MetadataWriteTarget {
                         group1: "IFD0".into(),
+                        group7: format!("ID-{}", target.schema_id().tag_id),
                         tag_name: format!("Tag{}", target.schema_id().tag_id),
                     }),
                 arguments: TargetApplyArguments {
@@ -1434,6 +1441,7 @@ mod tests {
             schema_id: Some(schema("282")),
             write_target: Some(MetadataWriteTarget {
                 group1: "IFD0".into(),
+                group7: "ID-282".into(),
                 tag_name: "XResolution".into(),
             }),
             value: MetadataValue::Integer(300),

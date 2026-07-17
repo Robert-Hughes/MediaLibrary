@@ -82,7 +82,7 @@ function mockOccurrences(
       },
       write_target: readOnly.includes(friendly)
         ? null
-        : { group1: group, tag_name: name },
+        : { group1: group, group7: "ID-Test", tag_name: name },
     };
   });
 }
@@ -439,7 +439,11 @@ describe("DetailsPane component", () => {
       description: null,
       storage_count: undefined,
     };
-    orientation.write_target = { group1: "IFD0", tag_name: "Orientation" };
+    orientation.write_target = {
+      group1: "IFD0",
+      group7: "ID-Test",
+      tag_name: "Orientation",
+    };
     render(
       <DetailsPane
         onRemoveMetadataFieldsV5={vi.fn()}
@@ -639,11 +643,19 @@ describe("DetailsPane: Add-Property two-step flow", () => {
 
     expect(onSetExistingOccurrenceDraft).not.toHaveBeenCalled();
     expect(onSetNewPropertyDraft).toHaveBeenCalledTimes(1);
-    const [idArg, editArg] = onSetNewPropertyDraft.mock.calls[0] as [
-      SchemaDefinitionId,
+    const [targetArg, editArg] = onSetNewPropertyDraft.mock.calls[0] as [
+      unknown,
       MetadataDraftEdit,
     ];
-    expect(idArg).toEqual(testId("XMP-dc:Subject"));
+    expect(targetArg).toEqual({
+      kind: "NewProperty",
+      schema_id: testId("XMP-dc:Subject"),
+      write_target: {
+        group1: "XMP-dc",
+        group7: "ID-subject",
+        tag_name: "Subject",
+      },
+    });
     expect(editArg.intent).toBe("Set");
     expect(editArg.value).toEqual({
       kind: "List",
@@ -772,7 +784,7 @@ describe("DetailsPane: target-aware Add Property drafts", () => {
       copy: 0,
     },
     schema_id: id,
-    write_target: { group1: "XMP-dc", tag_name: "Subject" },
+    write_target: { group1: "XMP-dc", group7: "ID-Test", tag_name: "Subject" },
   };
 
   beforeEach(() => {
@@ -855,7 +867,7 @@ describe("DetailsPane: target-aware Add Property drafts", () => {
     ["conflicting", "first", "second"],
     ["identical", "same", "same"],
   ])(
-    "marks %s same-schema authoritative duplicates as already existing",
+    "allows %s same-schema authoritative occurrences at a different destination",
     async (_caseName, firstValue, secondValue) => {
       const user = userEvent.setup();
       const info = {
@@ -900,10 +912,8 @@ describe("DetailsPane: target-aware Add Property drafts", () => {
         screen.getByTestId(`schema-option-${schemaDefinitionIdToken(id)}`),
       );
 
-      expect(
-        screen.getByTestId("new-property-duplicate-warning"),
-      ).toBeInTheDocument();
-      expect(screen.getByTestId("new-property-next")).toBeDisabled();
+      expect(screen.queryByTestId("new-property-duplicate-warning")).toBeNull();
+      expect(screen.getByTestId("new-property-next")).toBeEnabled();
     },
   );
 
@@ -1009,7 +1019,11 @@ describe("DetailsPane: target-aware Add Property drafts", () => {
               kind: { kind: "Text" },
               description: null,
             },
-            write_target: { group1: "IFD0", tag_name: "Make" },
+            write_target: {
+              group1: "IFD0",
+              group7: "ID-Test",
+              tag_name: "Make",
+            },
           },
         ]}
         targetDraftPersistence={{ status: "ready" }}
@@ -1037,7 +1051,7 @@ describe("DetailsPane: target-aware Add Property drafts", () => {
     expect(screen.getByTestId("new-property-next")).toBeEnabled();
   });
 
-  it("recognises a draft-only NewProperty schema as already owned", async () => {
+  it("does not schema-block a draft-only NewProperty at another destination", async () => {
     const user = userEvent.setup();
     const info = {
       id,
@@ -1051,7 +1065,15 @@ describe("DetailsPane: target-aware Add Property drafts", () => {
     const store = new TargetDraftEditsStore();
     store.setMetadataTarget(
       "target.jpg",
-      { kind: "NewProperty", schema_id: structuredClone(id) },
+      {
+        kind: "NewProperty",
+        schema_id: structuredClone(id),
+        write_target: {
+          group1: "XMP-test",
+          group7: "ID-Test",
+          tag_name: "TestTag",
+        },
+      },
       { intent: "Set", value: { kind: "Text", value: "draft" } },
     );
     render(
@@ -1072,13 +1094,11 @@ describe("DetailsPane: target-aware Add Property drafts", () => {
     await user.click(
       screen.getByTestId(`schema-option-${schemaDefinitionIdToken(id)}`),
     );
-    expect(
-      screen.getByTestId("new-property-duplicate-warning"),
-    ).toBeInTheDocument();
-    expect(screen.getByTestId("new-property-next")).toBeDisabled();
+    expect(screen.queryByTestId("new-property-duplicate-warning")).toBeNull();
+    expect(screen.getByTestId("new-property-next")).toBeEnabled();
   });
 
-  it("marks every ambiguous target-owned exact schema unavailable in the picker while a distinct schema remains selectable", async () => {
+  it("allows an exact schema whose target-owned drafts use other destinations", async () => {
     const user = userEvent.setup();
     const distinct = testId("XMP-dc:Title");
     _setSchemaTagNamesCache([
@@ -1106,7 +1126,11 @@ describe("DetailsPane: target-aware Add Property drafts", () => {
         {
           ...target,
           occurrence_id: { ...target.occurrence_id, copy },
-          write_target: { group1: "XMP-dc", tag_name: `Subject-${copy}` },
+          write_target: {
+            group1: "XMP-dc",
+            group7: "ID-Test",
+            tag_name: `Subject-${copy}`,
+          },
         },
         { intent: "Set", value: { kind: "Text", value: `${copy}` } },
       );
@@ -1145,10 +1169,8 @@ describe("DetailsPane: target-aware Add Property drafts", () => {
     await user.click(
       screen.getByTestId(`schema-option-${schemaDefinitionIdToken(id)}`),
     );
-    expect(
-      screen.getByTestId("new-property-duplicate-warning"),
-    ).toBeInTheDocument();
-    expect(screen.getByTestId("new-property-next")).toBeDisabled();
+    expect(screen.queryByTestId("new-property-duplicate-warning")).toBeNull();
+    expect(screen.getByTestId("new-property-next")).toBeEnabled();
 
     await user.click(
       screen.getByTestId(`schema-option-${schemaDefinitionIdToken(distinct)}`),
@@ -1227,7 +1249,11 @@ describe("DetailsPane: target-aware Add Property drafts", () => {
       {
         ...target,
         occurrence_id: { ...target.occurrence_id, copy: 1 },
-        write_target: { group1: "XMP-dc", tag_name: "Subject-2" },
+        write_target: {
+          group1: "XMP-dc",
+          group7: "ID-Test",
+          tag_name: "Subject-2",
+        },
       },
       { intent: "Set", value: { kind: "Text", value: "second" } },
     );
@@ -1245,6 +1271,47 @@ describe("DetailsPane: target-aware Add Property drafts", () => {
     ).toBeInTheDocument();
     expect(screen.queryByText("first")).not.toBeInTheDocument();
     expect(screen.queryByText("second")).not.toBeInTheDocument();
+  });
+
+  it("presents same-schema NewProperty drafts as separate complete destinations", () => {
+    const store = new TargetDraftEditsStore();
+    for (const [group1, value] of [
+      ["IFD0", "primary"],
+      ["IFD1", "thumbnail"],
+    ] as const) {
+      store.setMetadataTarget(
+        "target.jpg",
+        {
+          kind: "NewProperty",
+          schema_id: structuredClone(id),
+          write_target: {
+            group1,
+            group7: "ID-Test",
+            tag_name: "Subject",
+          },
+        },
+        { intent: "Set", value: { kind: "Text", value } },
+      );
+    }
+
+    render(
+      <DetailsPane
+        photo={photo}
+        occurrences={[]}
+        targetDraftEdits={store.getMetadataFile("target.jpg")}
+        onDiscardTargetPropertyDraft={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getAllByTestId("details-unresolved-target-item"),
+    ).toHaveLength(2);
+    expect(
+      screen.getByText(/1IFD0:7ID-Test:Subject.*primary/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/1IFD1:7ID-Test:Subject.*thumbnail/),
+    ).toBeInTheDocument();
   });
 });
 
@@ -1310,7 +1377,11 @@ describe("DetailsPane: read-only row context menu", () => {
               kind: { kind: "Text" },
               description: null,
             },
-            write_target: { group1: "IFD0", tag_name: "Make" },
+            write_target: {
+              group1: "IFD0",
+              group7: "ID-Test",
+              tag_name: "Make",
+            },
           },
         ]}
         onSetExistingOccurrenceDraft={onSetExistingOccurrenceDraft}
@@ -1368,7 +1439,11 @@ describe("DetailsPane: read-only row context menu", () => {
               kind: { kind: "Text" },
               description: null,
             },
-            write_target: { group1: "IFD0", tag_name: "Make" },
+            write_target: {
+              group1: "IFD0",
+              group7: "ID-Test",
+              tag_name: "Make",
+            },
           },
         ]}
         onSetExistingOccurrenceDraft={onSetExistingOccurrenceDraft}
@@ -1473,7 +1548,7 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
           kind: { kind: value.kind } as any,
           description: null,
         },
-        write_target: { group1: group, tag_name: name },
+        write_target: { group1: group, group7: "ID-Test", tag_name: name },
       };
     });
   }
@@ -2335,7 +2410,15 @@ describe("DetailsPane: Group context menu", () => {
     const targetStore = new TargetDraftEditsStore();
     targetStore.setMetadataTarget(
       "p.jpg",
-      { kind: "NewProperty", schema_id: id },
+      {
+        kind: "NewProperty",
+        schema_id: id,
+        write_target: {
+          group1: "XMP-test",
+          group7: "ID-Test",
+          tag_name: "TestTag",
+        },
+      },
       { intent: "Set", value: { kind: "Text", value: "new" } },
     );
     const remove = vi.fn(() => true);

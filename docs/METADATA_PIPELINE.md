@@ -42,11 +42,29 @@ semantic values, and keep same-schema siblings separate. Editors resolve complet
 `ExistingOccurrence` or `NewProperty` targets before staging. Ambiguous and
 read-only inputs fail without partial mutation.
 
-`ExistingOccurrence` snapshots occurrence ID, resolved schema ID and runtime
-write target and revalidates the complete snapshot before apply. `NewProperty`
-remains schema-driven because no runtime occurrence exists. This pipeline does
-not settle same-schema/multiple-destination creation semantics; that question
-is intentionally reserved for a separate design change.
+`ExistingOccurrence` snapshots occurrence ID, resolved schema ID and a proven
+runtime write target, then revalidates the complete snapshot before apply.
+`NewProperty` stores the exact selected schema plus an intended complete
+`MetadataWriteTarget { group1, group7, tag_name }`. Only family 1 is editable;
+family 7 and tag name are generated from and validated against the selected
+schema. A `MetadataWriteTarget` is the ExifTool selector; it is not proof that
+ExifTool will instantiate the exact indexed definition selected by the user.
+
+Runtime family 7 is not necessarily identical to the static schema tag ID.
+Existing targets restore the complete family-7 group from the observed runtime
+ID after the scanner's one-prefix removal. New targets derive it from the exact
+static schema tag ID because no runtime occurrence exists yet. That schema
+derivation preserves ASCII letters, digits, hyphen, and underscore and encodes
+every other UTF-8 byte as two lowercase hexadecimal digits, matching ExifTool's
+[`GetGroup` family-7 rules](https://exiftool.org/ExifTool.html#GetGroup).
+
+New Property draft identity includes schema and complete destination. Multiple
+same-schema destinations therefore coexist; unoverlayable destinations appear
+as separate target-aware rows. Exact selector occupancy uses case-insensitive
+family 1 + family 7 + tag name. A proven same-schema occurrence elsewhere is
+allowed, while a same-schema occurrence without a proven target blocks creation
+conservatively. The dialog's destination suggestions are advisory and unknown
+valid family-1 tokens remain enterable.
 
 ## Draft state and persistence
 
@@ -72,8 +90,8 @@ For each requested file, the backend:
 2. resolves exact writable occurrences or deliberate creations;
 3. separates numeric and textual ExifTool passes;
 4. writes a deterministic escaped UTF-8 argfile;
-5. rereads authoritative metadata occurrences and compares exact target
-   schema snapshots against `occurrence.schema_id`;
+5. rereads authoritative metadata occurrences and compares exact schema plus
+   intended family-1/family-7/tag-name selector identity;
 6. verifies each semantic edit;
 7. reconciles exact targets as Clear, Keep, Replace, or Blocked;
 8. persists the reconciled target map; and
@@ -83,6 +101,18 @@ Successful files update authoritative frontend metadata incrementally. Failed
 files retain drafts. Warnings are shown but are not failures. Verification rows
 that need attention retain their complete target and allow accepting current
 file state, keeping the draft, or discarding the pending draft where safe.
+
+New Property verification succeeds only for exactly one occurrence with the
+selected exact schema, intended family-1 destination, runtime-derived family 7,
+canonical tag name, and expected semantic value. A changed schema index,
+redirected destination, missing or duplicate exact result, silent ignore, or
+semantic mismatch preserves the draft. Audit evidence retains the attempted
+complete selector, selected schema, observed occurrence/schema identities, and
+separates execution errors from readback-only verification failures.
+
+ExifTool documents numeric group-family qualification and permits leading
+family 1 and family 7 groups in its official
+[tag-operations documentation](https://exiftool.org/exiftool_pod2.html#Tag-operations).
 
 `MediaLibraryTargetApplyLog.jsonl` is the only active apply audit. The
 historical `MediaLibraryApplyLog.jsonl` is ignored and left unchanged.
@@ -115,5 +145,7 @@ authoritative occurrence collection only. Removing the schema-keyed scan
 projection does not change `MetadataDraftTarget`, target slot tokens, the
 schema-v5 command or event names, reconciliation kinds,
 `MediaLibraryTargetDraftEdits.jsonl`, or `MediaLibraryTargetApplyLog.jsonl`.
-`ExistingOccurrence` targets persist their own schema snapshot and compare it
-directly with the authoritative occurrence field.
+`ExistingOccurrence` targets persist their own schema/selector snapshot and
+compare it directly with the authoritative occurrence. `NewProperty` persists
+both schema and intended selector. The v5 shape changed in place with no draft
+version migration or old-shape adapter.

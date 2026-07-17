@@ -73,10 +73,11 @@ import {
 import {
   existingOccurrenceTargetFromOccurrence,
   metadataDraftTargetEquals,
+  newPropertyDraftTarget,
 } from "../utils/metadataDraftTarget";
 import { metadataOccurrenceIdToken } from "../utils/metadataOccurrenceId";
 import { tagInfoSupportsMetadataWrite } from "../utils/metadataWriteSupport";
-import { effectiveSchemaPresenceForFile } from "../utils/effectiveSchemaPresence";
+import { metadataWriteSelector } from "../utils/metadataWriteTarget";
 import { planGpsTargetDraftBatchV5 } from "../gpsTargetDrafts";
 import { previewMetadataRemovalTargetsV5 } from "../metadataRemovalTargets";
 
@@ -84,6 +85,7 @@ type ExistingOccurrenceTarget = Extract<
   MetadataDraftTarget,
   { kind: "ExistingOccurrence" }
 >;
+type NewPropertyTarget = Extract<MetadataDraftTarget, { kind: "NewProperty" }>;
 
 type EditDialogState =
   | {
@@ -100,7 +102,7 @@ type EditDialogState =
   | {
       kind: "new-property";
       schemaId: SchemaDefinitionId;
-      openedTarget?: MetadataDraftTarget;
+      openedTarget: NewPropertyTarget;
     };
 
 type PresentedTargetDraft =
@@ -132,7 +134,7 @@ interface Props {
     edits: Array<{ id: SchemaDefinitionId; edit: MetadataDraftEdit }>,
   ) => boolean;
   onSetNewPropertyDraft?: (
-    id: SchemaDefinitionId,
+    target: NewPropertyTarget,
     edit: MetadataDraftEdit,
   ) => void;
   onDiscardTargetPropertyDraft?: (target: MetadataDraftTarget) => void;
@@ -907,8 +909,10 @@ export function DetailsPane({
   const [showNewPropertyDialog, setShowNewPropertyDialog] = useState(false);
   // Stage 2 of the new-property flow: key picked, now show a TypedValueEditor
   // for that key.  null when no flow is active or we're still on stage 1.
-  const [newPropertyKey, setNewPropertyKey] =
-    useState<SchemaDefinitionId | null>(null);
+  const [newPropertyTarget, setNewPropertyTarget] =
+    useState<NewPropertyTarget | null>(null);
+  const [newPropertyDestinationInitial, setNewPropertyDestinationInitial] =
+    useState<NewPropertyTarget | null>(null);
 
   const targetDraftsWritable = targetDraftPersistence.status === "ready";
   const addPropertyUnavailableTitle = targetDraftsWritable
@@ -918,7 +922,8 @@ export function DetailsPane({
   useEffect(() => {
     if (targetDraftsWritable) return;
     setShowNewPropertyDialog(false);
-    setNewPropertyKey(null);
+    setNewPropertyTarget(null);
+    setNewPropertyDestinationInitial(null);
   }, [targetDraftsWritable]);
 
   const occurrenceResolutionIndex = useMemo(
@@ -1087,6 +1092,17 @@ export function DetailsPane({
       (entry) => !presented.has(entry),
     );
   }, [presentationPlan, targetDraftEdits]);
+  const activeNewPropertyDraft = useMemo(
+    () =>
+      newPropertyTarget === null
+        ? undefined
+        : Object.values(targetDraftEdits ?? {}).find(
+            (entry) =>
+              entry.target.kind === "NewProperty" &&
+              metadataDraftTargetEquals(entry.target, newPropertyTarget),
+          ),
+    [newPropertyTarget, targetDraftEdits],
+  );
   const effectiveMetadata = useMemo(
     () =>
       metadata === undefined
@@ -1369,14 +1385,11 @@ export function DetailsPane({
         : undefined;
     }
     if (editDialog.kind === "new-property") {
-      const target = resolveTargetDraftByExactSchema(
-        targetDraftEdits,
-        editDialog.schemaId,
+      const entry = Object.values(targetDraftEdits ?? {}).find((candidate) =>
+        metadataDraftTargetEquals(candidate.target, editDialog.openedTarget),
       );
-      return target.kind === "unique" &&
-        target.entry.target.kind === "NewProperty" &&
-        target.entry.edit.intent === "Set"
-        ? (target.entry.edit.value ?? undefined)
+      return entry?.edit.intent === "Set"
+        ? (entry.edit.value ?? undefined)
         : undefined;
     }
     if (ordinaryEditResolution?.kind !== "available") return undefined;
@@ -1420,17 +1433,6 @@ export function DetailsPane({
     if (!groupContextMenu) return null;
     return imageGroups.find((g) => g.prefix === groupContextMenu.group) ?? null;
   }, [groupContextMenu, imageGroups]);
-
-  const existingMetadataKeys = useMemo(
-    () =>
-      Array.from(
-        effectiveSchemaPresenceForFile(
-          occurrences,
-          targetDraftEdits,
-        ).ids.values(),
-      ),
-    [occurrences, targetDraftEdits],
-  );
 
   const filteredOsEntries = useMemo(() => {
     const { query, hasEditsFilter } = splitHasEditsFilter(
@@ -2049,16 +2051,40 @@ export function DetailsPane({
                 data-testid="details-target-drafts-ambiguous"
               >
                 <h3 className="details-section-header">
-                  Unresolved target-aware edits
+                  Additional target-aware edits
                 </h3>
                 <p className="details-section-subtitle">
-                  These drafts do not match one complete authoritative row
-                  target. They were not overlaid or reinterpreted by schema.
+                  These complete destination-specific drafts cannot be overlaid
+                  on one ordinary schema row. They remain separate and are not
+                  selected arbitrarily.
                 </p>
                 <ul data-testid="details-unresolved-target-list">
                   {unresolvedTargetDrafts.map((entry) => (
-                    <li key={JSON.stringify(entry.target)}>
-                      <span>{entry.target.kind}</span>{" "}
+                    <li
+                      key={JSON.stringify(entry.target)}
+                      data-testid="details-unresolved-target-item"
+                    >
+                      <span>
+                        {entry.target.kind === "NewProperty"
+                          ? `${entry.target.schema_id.table}/${entry.target.schema_id.tag_id} — ${metadataWriteSelector(entry.target.write_target)} — ${displayStringOfDraft(entry.edit) ?? "—"}`
+                          : entry.target.kind}
+                      </span>{" "}
+                      {entry.target.kind === "NewProperty" && (
+                        <button
+                          className="button button--secondary"
+                          disabled={!targetDraftsWritable}
+                          onClick={() => {
+                            setNewPropertyDestinationInitial(
+                              structuredClone(
+                                entry.target as NewPropertyTarget,
+                              ),
+                            );
+                            setShowNewPropertyDialog(true);
+                          }}
+                        >
+                          Edit destination…
+                        </button>
+                      )}{" "}
                       <button
                         className="button button--secondary"
                         disabled={!targetDraftsWritable}
@@ -2203,11 +2229,10 @@ export function DetailsPane({
               targetResolution?.kind === "unique" &&
               targetResolution.entry.target.kind === "NewProperty"
             ) {
-              setEditDialog({
-                kind: "new-property",
-                schemaId: contextMenu.id,
-                openedTarget: structuredClone(targetResolution.entry.target),
-              });
+              setNewPropertyDestinationInitial(
+                structuredClone(targetResolution.entry.target),
+              );
+              setShowNewPropertyDialog(true);
             } else {
               openExistingOccurrenceEditor(contextMenu.id);
             }
@@ -2408,7 +2433,7 @@ export function DetailsPane({
                   );
                 }
               } else if (editDialog.kind === "new-property") {
-                onSetNewPropertyDraft?.(editDialog.schemaId, edit);
+                onSetNewPropertyDraft?.(editDialog.openedTarget, edit);
                 setEditDialog(null);
               } else if (
                 editDialog.kind === "existing-occurrence" &&
@@ -2424,33 +2449,57 @@ export function DetailsPane({
 
       {targetDraftsWritable && showNewPropertyDialog && (
         <NewPropertyDialog
-          onSave={(key) => {
+          onSave={(target) => {
             setShowNewPropertyDialog(false);
-            setNewPropertyKey(key);
+            setNewPropertyDestinationInitial(null);
+            setNewPropertyTarget(target);
           }}
-          onCancel={() => setShowNewPropertyDialog(false)}
-          existingIds={existingMetadataKeys}
+          onCancel={() => {
+            setShowNewPropertyDialog(false);
+            setNewPropertyDestinationInitial(null);
+          }}
+          existingOccurrences={
+            occurrences === undefined || occurrences === "loading"
+              ? undefined
+              : occurrences
+          }
           filename={photo.filename}
+          initialTarget={newPropertyDestinationInitial ?? undefined}
         />
       )}
 
-      {newPropertyKey !== null && targetDraftsWritable && (
+      {newPropertyTarget !== null && targetDraftsWritable && (
         <TypedValueEditor
-          propertyId={newPropertyKey}
+          propertyId={newPropertyTarget.schema_id}
           editorMode="single"
-          initialMetadataValue={undefined}
+          initialMetadataValue={
+            activeNewPropertyDraft?.edit.intent === "Set"
+              ? (activeNewPropertyDraft.edit.value ?? undefined)
+              : undefined
+          }
           metadataForFile={effectiveMetadata}
           onSaveMetadataBatch={(edits) => {
             for (const { id, edit } of edits) {
-              onSetNewPropertyDraft?.(id, edit);
+              if (schemaDefinitionIdEquals(id, newPropertyTarget.schema_id)) {
+                onSetNewPropertyDraft?.(newPropertyTarget, edit);
+                continue;
+              }
+              const info = displayTagInfos[schemaDefinitionIdToken(id)];
+              const resolution =
+                info && info !== "loading"
+                  ? newPropertyDraftTarget(info)
+                  : null;
+              if (resolution?.kind === "available") {
+                onSetNewPropertyDraft?.(resolution.target, edit);
+              }
             }
-            setNewPropertyKey(null);
+            setNewPropertyTarget(null);
           }}
           onSaveMetadata={(edit) => {
-            onSetNewPropertyDraft?.(newPropertyKey, edit);
-            setNewPropertyKey(null);
+            onSetNewPropertyDraft?.(newPropertyTarget, edit);
+            setNewPropertyTarget(null);
           }}
-          onCancel={() => setNewPropertyKey(null)}
+          onCancel={() => setNewPropertyTarget(null)}
         />
       )}
     </div>

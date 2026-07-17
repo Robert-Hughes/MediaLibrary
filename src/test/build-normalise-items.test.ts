@@ -43,7 +43,15 @@ describe("target-aware normalise inputs", () => {
     const store = new TargetDraftEditsStore();
     store.setMetadataTarget(
       "a.jpg",
-      { kind: "NewProperty", schema_id: ID.xmpTitle },
+      {
+        kind: "NewProperty",
+        schema_id: ID.xmpTitle,
+        write_target: {
+          group1: "XMP-test",
+          group7: "ID-Test",
+          tag_name: "TestTag",
+        },
+      },
       { intent: "Set", value: { kind: "Text", value: "from-target" } },
     );
     const items = buildNormaliseItems(

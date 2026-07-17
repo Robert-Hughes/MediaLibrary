@@ -16,6 +16,7 @@ import {
 import type { TagInfoCacheEntry } from "../hooks/useTagInfo";
 import type { MetadataCollection } from "./metadataCollection";
 import { metadataGet } from "./metadataCollection";
+import { metadataWriteSelector } from "./metadataWriteTarget";
 import {
   compareMetadataOccurrenceIds,
   formatMetadataOccurrenceIdForDiagnostics,
@@ -132,7 +133,7 @@ export function supplementalResolvedMetadataOccurrences(
         : "";
       const origin = `${displayGroup} · ${occurrence.id.path} · ${copy}${document}`;
       const selector = occurrence.write_target
-        ? `${occurrence.write_target.group1}:${occurrence.write_target.tag_name}`
+        ? metadataWriteSelector(occurrence.write_target)
         : "unavailable";
       const locationExplanation = runtimeGroup
         ? `Runtime group: ${runtimeGroup}`
@@ -175,6 +176,9 @@ export function supplementalResolvedMetadataOccurrences(
           value,
           tagInfo ? `${tagInfo.group}:${tagInfo.name}` : undefined,
           occurrence.write_target?.group1,
+          occurrence.write_target
+            ? `${occurrence.write_target.group1}:${occurrence.write_target.tag_name}`
+            : undefined,
           selector,
           occurrence.id.document,
           occurrence.id.path,

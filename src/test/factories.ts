@@ -127,7 +127,15 @@ export function newPropertyTargetDraft(
 ): MetadataDraftEntryV5 {
   const schema_id = fixtureId(name);
   return {
-    target: { kind: "NewProperty", schema_id },
+    target: {
+      kind: "NewProperty",
+      schema_id,
+      write_target: {
+        group1: "XMP-test",
+        group7: `ID-${schema_id.tag_id}`,
+        tag_name: name,
+      },
+    },
     edit: isMetadataDraftEdit(value) ? value : fixtureValueToDraftEdit(value),
   };
 }

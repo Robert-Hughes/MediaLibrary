@@ -133,7 +133,15 @@ describe("DetailsPane: Reverse Geocode button", () => {
     const drafts = new TargetDraftEditsStore();
     drafts.setMetadataTarget(
       photo.relative_path,
-      { kind: "NewProperty", schema_id: KNOWN_METADATA_IDS.xmpCity },
+      {
+        kind: "NewProperty",
+        schema_id: KNOWN_METADATA_IDS.xmpCity,
+        write_target: {
+          group1: "XMP-test",
+          group7: "ID-Test",
+          tag_name: "TestTag",
+        },
+      },
       setDraftEdit("Manual Edit"),
     );
     render(

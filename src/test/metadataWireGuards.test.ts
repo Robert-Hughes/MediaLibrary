@@ -39,12 +39,13 @@ const existing = (): Extract<
     copy: 0,
   },
   schema_id: schema(),
-  write_target: { group1: "IFD0", tag_name: "XResolution" },
+  write_target: { group1: "IFD0", group7: "ID-282", tag_name: "XResolution" },
 });
 
 const created = (): Extract<MetadataDraftTarget, { kind: "NewProperty" }> => ({
   kind: "NewProperty",
   schema_id: schema(),
+  write_target: { group1: "IFD0", group7: "ID-282", tag_name: "XResolution" },
 });
 
 const edit = (overrides: Record<string, unknown> = {}): MetadataDraftEdit =>
@@ -86,6 +87,9 @@ describe("metadata identity wire guards", () => {
       false,
     );
     expect(isMetadataWriteTarget({ group1: "IFD0" })).toBe(false);
+    expect(
+      isMetadataWriteTarget({ group1: "IFD0", tag_name: "XResolution" }),
+    ).toBe(false);
     expect(isMetadataWriteTarget({ group1: 1, tag_name: "XResolution" })).toBe(
       false,
     );
@@ -105,7 +109,7 @@ describe("metadata occurrence wire guard", () => {
       kind: { kind: "Integer", data: { min: null, max: null } },
       description: null,
     },
-    write_target: { group1: "IFD0", tag_name: "XResolution" },
+    write_target: { group1: "IFD0", group7: "ID-282", tag_name: "XResolution" },
   });
 
   it("requires exactly the complete transient occurrence shape", () => {

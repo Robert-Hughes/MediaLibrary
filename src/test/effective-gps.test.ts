@@ -54,7 +54,7 @@ function occurrence(
       kind: { kind: value.kind } as never,
       description: null,
     },
-    write_target: { group1: "GPS", tag_name: id.tag_id },
+    write_target: { group1: "GPS", group7: "ID-Test", tag_name: id.tag_id },
     ...overrides,
     schema_id: overrides.schema_id ?? structuredClone(id),
   };
@@ -210,11 +210,27 @@ describe("resolveEffectiveGpsForFile", () => {
       occurrences,
       targetDrafts: targets(
         {
-          target: { kind: "NewProperty", schema_id: GPS_IDS.latitudeRef },
+          target: {
+            kind: "NewProperty",
+            schema_id: GPS_IDS.latitudeRef,
+            write_target: {
+              group1: "XMP-test",
+              group7: "ID-Test",
+              tag_name: "TestTag",
+            },
+          },
           edit: set(valueFor("S")),
         },
         {
-          target: { kind: "NewProperty", schema_id: GPS_IDS.longitudeRef },
+          target: {
+            kind: "NewProperty",
+            schema_id: GPS_IDS.longitudeRef,
+            write_target: {
+              group1: "XMP-test",
+              group7: "ID-Test",
+              tag_name: "TestTag",
+            },
+          },
           edit: set(valueFor("W")),
         },
       ),
@@ -276,11 +292,27 @@ describe("resolveEffectiveGpsForFile", () => {
         occurrences,
         targetDrafts: targets(
           {
-            target: { kind: "NewProperty", schema_id: GPS_IDS.latitudeRef },
+            target: {
+              kind: "NewProperty",
+              schema_id: GPS_IDS.latitudeRef,
+              write_target: {
+                group1: "XMP-test",
+                group7: "ID-Test",
+                tag_name: "TestTag",
+              },
+            },
             edit: set(valueFor("S")),
           },
           {
-            target: { kind: "NewProperty", schema_id: GPS_IDS.longitudeRef },
+            target: {
+              kind: "NewProperty",
+              schema_id: GPS_IDS.longitudeRef,
+              write_target: {
+                group1: "XMP-test",
+                group7: "ID-Test",
+                tag_name: "TestTag",
+              },
+            },
             edit: set(valueFor("W")),
           },
         ),

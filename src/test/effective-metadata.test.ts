@@ -49,7 +49,7 @@ function occurrence(
       description: null,
       storage_count: undefined,
     },
-    write_target: { group1: "XMP-dc", tag_name: "Title" },
+    write_target: { group1: "XMP-dc", group7: "ID-Test", tag_name: "Title" },
   };
 }
 
@@ -127,7 +127,15 @@ describe("buildEffectiveMetadataForFile", () => {
 
   it("overlays a valid missing NewProperty Set", () => {
     const entry: MetadataDraftEntryV5 = {
-      target: { kind: "NewProperty", schema_id: ID },
+      target: {
+        kind: "NewProperty",
+        schema_id: ID,
+        write_target: {
+          group1: "XMP-test",
+          group7: "ID-Test",
+          tag_name: "TestTag",
+        },
+      },
       edit: { intent: "Set", value: text("new") },
     };
     expect(

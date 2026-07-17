@@ -29,4 +29,4 @@ schema_id: SchemaDefinitionId,
  * validate the schema and selector snapshot, reject stale or ambiguous
  * targets, and only then construct the ExifTool write.
  */
-write_target: MetadataWriteTarget, } | { "kind": "NewProperty", schema_id: SchemaDefinitionId, };
+write_target: MetadataWriteTarget, } | { "kind": "NewProperty", schema_id: SchemaDefinitionId, write_target: MetadataWriteTarget, };

@@ -38,7 +38,15 @@ describe("list search target-draft projection", () => {
     const drafts = new TargetDraftEditsStore();
     drafts.setMetadataTarget(
       "draft.jpg",
-      { kind: "NewProperty", schema_id: cityId },
+      {
+        kind: "NewProperty",
+        schema_id: cityId,
+        write_target: {
+          group1: "XMP-test",
+          group7: "ID-Test",
+          tag_name: "TestTag",
+        },
+      },
       { intent: "Set", value: { kind: "Text", value: "Reykjavik draft" } },
     );
     mockApi.targetDraftEditsByFolder["/photos"] = drafts.getAllMetadata();

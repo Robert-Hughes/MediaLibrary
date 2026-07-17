@@ -283,6 +283,7 @@ mod tests {
     fn selector(group1: &str) -> MetadataWriteTarget {
         MetadataWriteTarget {
             group1: group1.into(),
+            group7: "ID-282".into(),
             tag_name: "XResolution".into(),
         }
     }
@@ -343,6 +344,7 @@ mod tests {
         TargetApplyAuditRecord {
             target: MetadataDraftTarget::NewProperty {
                 schema_id: target_schema(None),
+                write_target: selector("IFD0"),
             },
             display_name: "X Resolution".into(),
             intent: EditIntent::Set,

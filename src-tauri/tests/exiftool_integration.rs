@@ -26,12 +26,39 @@ use medialibrary_tauri_lib::{
     apply_edits_v5,
     draft_edits::{EditIntent, MetadataDraftEdit, MetadataDraftEntry, MetadataDraftEntryV5},
     metadata_draft_target::MetadataDraftTarget,
+    metadata_occurrence::{
+        family7_group_from_schema_id, validate_family1_group, MetadataWriteTarget,
+    },
     metadata_value::{
         DateTimeValue, DateValue, ListKind, MetadataValue, OffsetSign, TimeValue, UtcOffsetValue,
     },
     scanner,
-    tag_schema::SchemaDefinitionId,
+    tag_schema::{get_registry, SchemaDefinitionId},
 };
+
+#[test]
+fn writable_registry_groups_and_schema_family7_ids_fit_the_selector_grammar() {
+    let registry = get_registry().expect("load the real ExifTool schema registry");
+    let failures = registry
+        .all_supported_writable()
+        .filter_map(|info| {
+            let group7 = family7_group_from_schema_id(&info.id);
+            let valid_group7 = group7.starts_with("ID-")
+                && group7.len() > 3
+                && group7.chars().all(|character| {
+                    character.is_ascii_alphanumeric() || matches!(character, '-' | '_')
+                });
+            (validate_family1_group(&info.group).is_err() || !valid_group7)
+                .then(|| format!("{:?} -> group1={:?} group7={group7:?}", info.id, info.group))
+        })
+        .collect::<Vec<_>>();
+
+    assert!(
+        failures.is_empty(),
+        "writable registry entries outside the selector grammar:\n{}",
+        failures.join("\n")
+    );
+}
 fn fixture_path(name: &str) -> Option<PathBuf> {
     let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).parent()?;
     let p = workspace_root.join("test_images").join(name);
@@ -159,9 +186,11 @@ fn target_entries(
                 })
                 .collect();
             let target = if matches.is_empty() {
-                MetadataDraftTarget::NewProperty {
-                    schema_id: entry.id,
-                }
+                let info = medialibrary_tauri_lib::tag_schema::get_registry()
+                    .expect("registry")
+                    .lookup(&entry.id)
+                    .expect("exact integration schema");
+                MetadataDraftTarget::from_new_property(info).expect("writable integration schema")
             } else {
                 let writable: Vec<_> = matches
                     .iter()
@@ -300,6 +329,64 @@ fn apply_xmp_mlib_ai_description_preserves_utf8() {
         ),
         other => panic!("expected XMP-mlib:AIDescription text, got {:?}", other),
     }
+}
+
+#[test]
+fn new_property_default_destination_roundtrip_is_family7_qualified() {
+    let Some(src) = fixture_path("real_with_exif.jpg") else {
+        return;
+    };
+    let (dir, dst) = copy_to_temp(&src);
+    let rel = rel_of(dir.path(), &dst);
+    let id = medialibrary_tauri_lib::known_ids::mlib_ai_description();
+    let before = read_one(dir.path(), &dst);
+    assert_eq!(
+        before.occurrences.for_schema(&id).count(),
+        0,
+        "fixture must exercise NewProperty rather than an existing occurrence"
+    );
+
+    let registry = get_registry().expect("registry");
+    let info = registry.lookup(&id).expect("exact writable schema");
+    let target = MetadataDraftTarget::from_new_property(info).expect("NewProperty target");
+    let MetadataDraftTarget::NewProperty { write_target, .. } = &target else {
+        unreachable!("from_new_property returned an existing target")
+    };
+    assert_eq!(
+        write_target.selector(),
+        format!(
+            "1{}:7{}:{}",
+            info.group,
+            family7_group_from_schema_id(&id),
+            info.name
+        )
+    );
+
+    let expected = MetadataValue::Text("family-7-qualified integration write".into());
+    let entries = vec![MetadataDraftEntryV5 {
+        target: target.clone(),
+        edit: metadata_set(expected.clone()),
+    }];
+    let outcome =
+        apply_edits_v5::apply_single_file_metadata_v5(dir.path().to_str().unwrap(), &rel, &entries);
+    assert!(outcome.error.is_none(), "apply failed: {:?}", outcome.error);
+    assert_eq!(outcome.outcomes.len(), 1);
+    assert_eq!(outcome.outcomes[0].target, target);
+    assert!(matches!(
+        outcome.outcomes[0].kind.as_str(),
+        "Match" | "Coerced"
+    ));
+
+    let reread = read_one(dir.path(), &dst);
+    let matches = reread.occurrences.for_schema(&id).collect::<Vec<_>>();
+    let [created] = matches.as_slice() else {
+        panic!(
+            "expected one exact-schema occurrence, got {}",
+            matches.len()
+        )
+    };
+    assert_eq!(created.value, expected);
+    assert_eq!(created.write_target.as_ref(), Some(write_target));
 }
 
 // ── apply_edits delete round-trip ────────────────────────────────────────────
@@ -1173,12 +1260,20 @@ fn missing_exact_schema_is_rejected_before_write() {
         tag_id: "Title".into(),
         index: None,
     };
-    let edits = vec![medialibrary_tauri_lib::draft_edits::MetadataDraftEntry {
-        id: missing,
+    let entries = vec![MetadataDraftEntryV5 {
+        target: MetadataDraftTarget::NewProperty {
+            schema_id: missing.clone(),
+            write_target: MetadataWriteTarget {
+                group1: "XMP-test".into(),
+                group7: family7_group_from_schema_id(&missing),
+                tag_name: "Title".into(),
+            },
+        },
         edit: metadata_set(MetadataValue::Text("must not write".into())),
     }];
 
-    let outcome = apply_v5_file(dir.path().to_str().unwrap(), &rel, edits);
+    let outcome =
+        apply_edits_v5::apply_single_file_metadata_v5(dir.path().to_str().unwrap(), &rel, &entries);
     let error = outcome.error.unwrap();
     assert!(error.to_ascii_lowercase().contains("schema"), "{error}");
     assert!(outcome.outcomes.is_empty());

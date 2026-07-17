@@ -4,15 +4,28 @@ import { useWritableSchemaDefinitions } from "../hooks/useWritableSchemaDefiniti
 import { describeKind } from "./editors/editorHelpers";
 import { filterTagInfosByFilename } from "../utils/tagGroupApplicability";
 import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
-import type { SchemaDefinitionId, TagInfo } from "../types";
+import type {
+  MetadataDraftTarget,
+  MetadataOccurrence,
+  TagInfo,
+} from "../types";
+import {
+  family7GroupFromSchemaId,
+  metadataWriteSelector,
+  validateFamily1Group,
+} from "../utils/metadataWriteTarget";
+import { schemaDefinitionIdEquals } from "../utils/schemaDefinitionId";
 
 interface Props {
   /**
    * Called once the user has chosen a writable key definition.
    */
-  onSave: (id: SchemaDefinitionId) => void;
+  onSave: (
+    target: Extract<MetadataDraftTarget, { kind: "NewProperty" }>,
+  ) => void;
   onCancel: () => void;
-  existingIds?: readonly SchemaDefinitionId[];
+  existingOccurrences?: readonly MetadataOccurrence[];
+  initialTarget?: Extract<MetadataDraftTarget, { kind: "NewProperty" }>;
   /** Filename of the photo being edited. Drives file-type filtering of
    * the suggestions so a JPEG doesn't surface Vorbis tags. */
   filename?: string;
@@ -23,11 +36,15 @@ const MAX_VISIBLE_RESULTS = 100;
 export function NewPropertyDialog({
   onSave,
   onCancel,
-  existingIds,
+  existingOccurrences,
+  initialTarget,
   filename,
 }: Props) {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTag, setSelectedTag] = useState<TagInfo | null>(null);
+  const [destinationGroup, setDestinationGroup] = useState(
+    initialTarget?.write_target.group1 ?? "",
+  );
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const writableDefinitions = useWritableSchemaDefinitions();
@@ -35,6 +52,7 @@ export function NewPropertyDialog({
   const handleSearchChange = (val: string) => {
     setSearchQuery(val);
     setSelectedTag(null);
+    setDestinationGroup("");
   };
 
   const suggestions = useMemo(() => {
@@ -67,21 +85,78 @@ export function NewPropertyDialog({
     searchInputRef.current?.focus();
   }, [writableDefinitions]);
 
-  const existingTokens = useMemo(() => {
-    return new Set(
-      (existingIds ?? []).map((id) => schemaDefinitionIdToken(id)),
+  useEffect(() => {
+    if (!initialTarget || writableDefinitions === "loading") return;
+    const info = writableDefinitions.find((candidate) =>
+      schemaDefinitionIdEquals(candidate.id, initialTarget.schema_id),
     );
-  }, [existingIds]);
+    if (!info) return;
+    setSelectedTag(info);
+    setDestinationGroup(initialTarget.write_target.group1);
+    setSearchQuery(`${info.group}:${info.name}`);
+  }, [initialTarget, writableDefinitions]);
 
-  const isSelectedDuplicate = selectedTag
-    ? existingTokens.has(schemaDefinitionIdToken(selectedTag.id))
-    : false;
+  const writeTarget = selectedTag
+    ? {
+        group1: destinationGroup,
+        group7: family7GroupFromSchemaId(selectedTag.id),
+        tag_name: selectedTag.name,
+      }
+    : null;
+  const destinationError = validateFamily1Group(destinationGroup);
+  const occupiedOccurrence =
+    selectedTag && writeTarget
+      ? (existingOccurrences ?? []).find((occurrence) => {
+          const observed = occurrence.write_target;
+          if (observed) {
+            return (
+              observed.group1.toLowerCase() ===
+                writeTarget.group1.toLowerCase() &&
+              observed.group7.toLowerCase() ===
+                writeTarget.group7.toLowerCase() &&
+              observed.tag_name.toLowerCase() ===
+                writeTarget.tag_name.toLowerCase()
+            );
+          }
+          return schemaDefinitionIdEquals(occurrence.schema_id, selectedTag.id);
+        })
+      : undefined;
+  const isSelectedDuplicate = occupiedOccurrence !== undefined;
 
-  const disabled = !selectedTag || isSelectedDuplicate;
+  const groupSuggestions = useMemo(() => {
+    if (!selectedTag || writableDefinitions === "loading") return [];
+    const applicable = filterTagInfosByFilename(writableDefinitions, filename);
+    const values = new Set<string>([
+      selectedTag.group,
+      ...applicable.map((info) => info.group),
+      ...(existingOccurrences ?? []).flatMap((occurrence) =>
+        occurrence.write_target ? [occurrence.write_target.group1] : [],
+      ),
+    ]);
+    return [
+      selectedTag.group,
+      ...Array.from(values)
+        .filter((group) => group !== selectedTag.group)
+        .sort((left, right) => left.localeCompare(right)),
+    ];
+  }, [existingOccurrences, filename, selectedTag, writableDefinitions]);
+
+  const save = () => {
+    if (!selectedTag || !writeTarget || destinationError || isSelectedDuplicate)
+      return;
+    onSave({
+      kind: "NewProperty",
+      schema_id: structuredClone(selectedTag.id),
+      write_target: structuredClone(writeTarget),
+    });
+  };
+
+  const disabled =
+    !selectedTag || destinationError !== null || isSelectedDuplicate;
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !disabled && selectedTag) {
-      onSave(selectedTag.id);
+      save();
     }
   };
 
@@ -178,7 +253,10 @@ export function NewPropertyDialog({
                       <button
                         type="button"
                         key={token}
-                        onClick={() => setSelectedTag(info)}
+                        onClick={() => {
+                          setSelectedTag(info);
+                          setDestinationGroup(info.group);
+                        }}
                         aria-pressed={isSelected}
                         style={{
                           padding: "10px 14px",
@@ -275,9 +353,60 @@ export function NewPropertyDialog({
                       ? `${selectedTag.group}:${selectedTag.name}`
                       : ""}
                   </code>{" "}
-                  already exists in this image&apos;s metadata.
+                  already occupies the intended destination. Edit the existing
+                  occurrence instead.
                 </p>
               )}
+              {selectedTag ? (
+                <div style={{ marginTop: "12px" }}>
+                  <label htmlFor="new-property-destination-group">
+                    Destination group
+                  </label>
+                  <div style={{ fontSize: "12px", opacity: 0.8 }}>
+                    Default: <code>{selectedTag.group}</code>
+                  </div>
+                  <input
+                    id="new-property-destination-group"
+                    role="combobox"
+                    aria-autocomplete="list"
+                    aria-controls="new-property-group-suggestions"
+                    list="new-property-group-suggestions"
+                    className="dialog-input"
+                    value={destinationGroup}
+                    onChange={(event) =>
+                      setDestinationGroup(event.currentTarget.value)
+                    }
+                    data-testid="new-property-destination-group"
+                    style={{ width: "100%", boxSizing: "border-box" }}
+                  />
+                  <datalist id="new-property-group-suggestions">
+                    {groupSuggestions.map((group) => (
+                      <option key={group} value={group} />
+                    ))}
+                  </datalist>
+                  {destinationError ? (
+                    <p
+                      role="alert"
+                      data-testid="new-property-destination-error"
+                      style={{ color: "var(--accent-error, #e06c75)" }}
+                    >
+                      {destinationError}
+                    </p>
+                  ) : null}
+                  <p style={{ fontSize: "12px", opacity: 0.8 }}>
+                    You may enter another ExifTool family-1 group. Custom
+                    destinations are checked when the edit is applied and may be
+                    rejected by ExifTool. Suggestions do not guarantee that this
+                    schema is writable there.
+                  </p>
+                  {writeTarget ? (
+                    <div data-testid="new-property-write-selector">
+                      Write selector:{" "}
+                      <code>{metadataWriteSelector(writeTarget)}</code>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           )}
         </div>
@@ -290,7 +419,7 @@ export function NewPropertyDialog({
           </button>
           <button
             className="dialog-btn dialog-btn-primary"
-            onClick={() => selectedTag && onSave(selectedTag.id)}
+            onClick={save}
             disabled={disabled}
             data-testid="new-property-next"
           >

@@ -34,7 +34,15 @@ function committed(...entries: Array<[SchemaDefinitionId, string]>) {
 }
 
 function newProperty(id: SchemaDefinitionId): MetadataDraftTarget {
-  return { kind: "NewProperty", schema_id: id };
+  return {
+    kind: "NewProperty",
+    schema_id: id,
+    write_target: {
+      group1: "XMP-test",
+      group7: "ID-Test",
+      tag_name: "TestTag",
+    },
+  };
 }
 
 function existing(
@@ -56,7 +64,7 @@ function existing(
       copy,
     },
     schema_id: id,
-    write_target: { group1: "Test", tag_name: id.tag_id },
+    write_target: { group1: "Test", group7: "ID-Test", tag_name: id.tag_id },
   };
 }
 

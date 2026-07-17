@@ -119,10 +119,80 @@ pub struct MetadataOccurrenceId {
     pub copy: u32,
 }
 
-/// Describes an exact ExifTool selector for safely writing one metadata field.
+/// Reconstructs the complete ExifTool family-7 group from the runtime ID stored
+/// in [`MetadataOccurrenceId`]. The scanner removes exactly one transport-level
+/// `ID-` prefix, so this is its exact inverse and deliberately preserves values
+/// such as `ID-AbC` as `ID-ID-AbC`.
+pub fn family7_group_from_runtime_tag_id(runtime_tag_id: &str) -> String {
+    format!("ID-{runtime_tag_id}")
+}
+
+/// Constructs the canonical family-7 write group for one exact static schema
+/// definition. Runtime family 7 is not necessarily identical to the static
+/// schema tag ID, so existing occurrences must use
+/// [`family7_group_from_runtime_tag_id`] instead.
+pub fn family7_group_from_schema_id(schema_id: &SchemaDefinitionId) -> String {
+    // ExifTool family-7 names hex-encode every byte outside its group-name
+    // alphabet. Encoding here is required for IDs such as `AAPL:Keywords`,
+    // `Creation Time`, and four-character QuickTime IDs with trailing spaces;
+    // leaving those characters literal would change selector components.
+    let mut encoded = String::with_capacity(schema_id.tag_id.len());
+    for byte in schema_id.tag_id.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_') {
+            encoded.push(char::from(byte));
+        } else {
+            use std::fmt::Write as _;
+            write!(&mut encoded, "{byte:02x}").expect("writing to a String cannot fail");
+        }
+    }
+    format!("ID-{encoded}")
+}
+
+/// Returns the runtime ID represented by a complete family-7 group, removing
+/// exactly one transport-level prefix.
+pub fn runtime_tag_id_from_family7_group(group7: &str) -> Option<&str> {
+    group7.strip_prefix("ID-").filter(|value| !value.is_empty())
+}
+
+/// Validates an unprefixed ExifTool family-1 group entered by a user.
 ///
-/// This type is present only when the application can target the intended
-/// occurrence unambiguously using ExifTool's supported write syntax.
+/// The grammar is intentionally conservative and covers every family-1 group
+/// exposed by the current writable registry: `[A-Za-z_#][A-Za-z0-9_#-]*`.
+/// Family numbers are added only at the final selector-rendering boundary.
+pub fn validate_family1_group(group1: &str) -> Result<(), String> {
+    if group1.is_empty() {
+        return Err("Destination group is required.".to_string());
+    }
+    if group1.trim() != group1 {
+        return Err("Destination group must not have leading or trailing whitespace.".to_string());
+    }
+    let mut characters = group1.chars();
+    let Some(first) = characters.next() else {
+        return Err("Destination group is required.".to_string());
+    };
+    if !(first.is_ascii_alphabetic() || matches!(first, '_' | '#')) {
+        return Err(
+            "Destination group must begin with an ASCII letter, underscore, or #; do not enter a numeric family prefix such as 1IFD0."
+                .to_string(),
+        );
+    }
+    if characters.any(|character| {
+        !(character.is_ascii_alphanumeric() || matches!(character, '_' | '#' | '-'))
+    }) {
+        return Err(
+            "Destination group may contain only ASCII letters, digits, underscore, #, and hyphen."
+                .to_string(),
+        );
+    }
+    Ok(())
+}
+
+/// Describes an exact ExifTool selector for writing one metadata field.
+///
+/// Existing occurrences receive this type only when the application can target
+/// the intended occurrence unambiguously. A New Property stores an intended
+/// selector which must still be validated at apply time and verified by exact
+/// readback.
 ///
 /// The selector components are stored separately rather than as a preformatted
 /// command-line argument. This avoids parsing strings and allows the final
@@ -136,20 +206,25 @@ pub struct MetadataOccurrenceId {
 /// demonstrated, including cases such as:
 ///
 /// - occurrences whose only distinguishing coordinates are unsupported by
-///   the available family-1/tag-name selector, including several occurrences
-///   that share that one selector;
+///   the available family-1/family-7/tag-name selector, including several
+///   occurrences that share that complete selector;
 /// - unsupported embedded documents or timed-metadata samples;
 /// - unknown or read-only schema definitions;
 /// - ambiguous runtime locations.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// A `MetadataWriteTarget` is the ExifTool selector; it is not proof that
+/// ExifTool will instantiate the exact indexed definition selected by the user.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
 pub struct MetadataWriteTarget {
-    /// ExifTool family-1 group identifying the concrete write destination,
-    /// such as `IFD0`, `IFD1`, `ExifIFD`, `GPS` or `XMP-dc`.
+    /// ExifTool family-1 destination without a numeric family prefix.
     pub group1: String,
 
-    /// ExifTool tag name to qualify with `group1`.
+    /// Complete ExifTool family-7 group name, including the `ID-` prefix.
+    pub group7: String,
+
+    /// Canonical ExifTool writable tag name.
     ///
     /// This should be the canonical writable tag name retained from runtime
     /// extraction or derived from an exactly resolved `TagInfo`.
@@ -162,12 +237,12 @@ impl MetadataWriteTarget {
     /// Examples:
     ///
     /// ```text
-    /// IFD0:XResolution
-    /// IFD1:XResolution
-    /// XMP-dc:Description
+    /// 1IFD0:7ID-282:XResolution
+    /// 1IFD1:7ID-282:XResolution
+    /// 1XMP-dc:7ID-title:Description
     /// ```
     pub fn selector(&self) -> String {
-        format!("{}:{}", self.group1, self.tag_name)
+        format!("1{}:7{}:{}", self.group1, self.group7, self.tag_name)
     }
 }
 
@@ -392,6 +467,7 @@ mod tests {
     fn target(group1: &str) -> MetadataWriteTarget {
         MetadataWriteTarget {
             group1: group1.to_owned(),
+            group7: "ID-282".to_owned(),
             tag_name: "XResolution".to_owned(),
         }
     }
@@ -538,8 +614,80 @@ mod tests {
     }
 
     #[test]
-    fn write_target_selector_is_group_qualified_without_dash() {
-        assert_eq!(target("IFD1").selector(), "IFD1:XResolution");
+    fn write_target_selector_has_explicit_family_1_and_7_qualification() {
+        assert_eq!(target("IFD1").selector(), "1IFD1:7ID-282:XResolution");
+    }
+
+    #[test]
+    fn write_target_json_round_trip_requires_and_preserves_all_three_components() {
+        let target = MetadataWriteTarget {
+            group1: "ItemList".into(),
+            group7: "ID-ID-AbC".into(),
+            tag_name: "Title".into(),
+        };
+        let json = serde_json::to_value(&target).unwrap();
+        assert_eq!(json["group1"], "ItemList");
+        assert_eq!(json["group7"], "ID-ID-AbC");
+        assert_eq!(json["tag_name"], "Title");
+        assert_eq!(
+            serde_json::from_value::<MetadataWriteTarget>(json).unwrap(),
+            target
+        );
+        assert!(
+            serde_json::from_value::<MetadataWriteTarget>(serde_json::json!({
+                "group1": "ItemList",
+                "tag_name": "Title"
+            }))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn family7_helpers_preserve_the_exact_single_prefix_inverse() {
+        assert_eq!(family7_group_from_runtime_tag_id("282"), "ID-282");
+        assert_eq!(family7_group_from_runtime_tag_id("a9nam"), "ID-a9nam");
+        assert_eq!(family7_group_from_runtime_tag_id("ID-AbC"), "ID-ID-AbC");
+        assert_eq!(
+            runtime_tag_id_from_family7_group("ID-ID-AbC"),
+            Some("ID-AbC")
+        );
+        for (tag_id, expected) in [
+            ("xid ", "ID-xid20"),
+            ("AAPL:Keywords", "ID-AAPL3aKeywords"),
+            ("Creation Time", "ID-Creation20Time"),
+        ] {
+            assert_eq!(
+                family7_group_from_schema_id(&SchemaDefinitionId {
+                    table: "Test::Main".into(),
+                    tag_id: tag_id.into(),
+                    index: None,
+                }),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn family1_validation_accepts_registry_shapes_and_rejects_argument_syntax() {
+        for accepted in ["IFD0", "ItemList", "XMP-dc", "ICC_Profile#", "M-RAW"] {
+            assert!(validate_family1_group(accepted).is_ok(), "{accepted}");
+        }
+        for rejected in [
+            "",
+            " ",
+            " IFD0",
+            "IFD0 ",
+            "IFD 0",
+            "IFD0:EXIF",
+            "IFD0=bad",
+            "1IFD0",
+            "IFD0\0",
+            "IFD0\n",
+            "IFD0\r",
+            "-IFD0",
+        ] {
+            assert!(validate_family1_group(rejected).is_err(), "{rejected:?}");
+        }
     }
 
     #[test]

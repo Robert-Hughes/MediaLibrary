@@ -68,7 +68,7 @@ function occurrence(
     write_target:
       options.writeTarget === false
         ? null
-        : { group1: "XMP-test", tag_name: id.tag_id },
+        : { group1: "XMP-test", group7: "ID-Test", tag_name: id.tag_id },
   };
 }
 
@@ -206,6 +206,11 @@ describe("planGeneratedTargetDraftBatchV5", () => {
     expect(result.upserts[0].target).toEqual({
       kind: "NewProperty",
       schema_id: ID.mlibAiDescription,
+      write_target: {
+        group1: "XMP-mlib",
+        group7: "ID-AIDescription",
+        tag_name: "AIDescription",
+      },
     });
   });
 
@@ -372,6 +377,11 @@ describe("planGeneratedTargetDraftBatchV5", () => {
             target: {
               kind: "NewProperty",
               schema_id: ID.mlibAiDescription,
+              write_target: {
+                group1: "XMP-test",
+                group7: "ID-Test",
+                tag_name: "TestTag",
+              },
             },
             edit: set("old"),
           }),
@@ -443,7 +453,15 @@ describe("planGeneratedTargetDraftBatchV5", () => {
     expect(noOwner.noops).toEqual([schema]);
 
     const owner: MetadataDraftEntryV5 = {
-      target: { kind: "NewProperty", schema_id: schema },
+      target: {
+        kind: "NewProperty",
+        schema_id: schema,
+        write_target: {
+          group1: "XMP-test",
+          group7: "ID-Test",
+          tag_name: "TestTag",
+        },
+      },
       edit: set("pending"),
     };
     const cancellation = plan({

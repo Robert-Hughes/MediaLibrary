@@ -64,6 +64,7 @@ function existing(
     schema_id: schema(options.table, options.schemaTag, options.index),
     write_target: {
       group1: options.group1 ?? "IFD0",
+      group7: "ID-Test",
       tag_name: options.tagName ?? "XResolution",
     },
   };
@@ -72,7 +73,15 @@ function existing(
 function created(
   id: SchemaDefinitionId = schema(),
 ): Extract<MetadataDraftTarget, { kind: "NewProperty" }> {
-  return { kind: "NewProperty", schema_id: id };
+  return {
+    kind: "NewProperty",
+    schema_id: id,
+    write_target: {
+      group1: "XMP-test",
+      group7: "ID-Test",
+      tag_name: "TestTag",
+    },
+  };
 }
 
 function text(value: string): MetadataValue {

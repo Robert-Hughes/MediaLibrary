@@ -21,7 +21,11 @@ const replacement = {
     copy: 4,
   },
   schema_id: id,
-  write_target: { group1: "XMP-dc", tag_name: "SubjectRuntime" },
+  write_target: {
+    group1: "XMP-dc",
+    group7: "ID-Test",
+    tag_name: "SubjectRuntime",
+  },
 };
 
 describe("TargetVerifyOutcomeDialog", () => {
@@ -29,10 +33,20 @@ describe("TargetVerifyOutcomeDialog", () => {
     const rights = {
       kind: "NewProperty" as const,
       schema_id: testId("XMP-dc:Rights"),
+      write_target: {
+        group1: "XMP-test",
+        group7: "ID-Test",
+        tag_name: "TestTag",
+      },
     };
     const time = {
       kind: "NewProperty" as const,
       schema_id: testId("IPTC:TimeCreated"),
+      write_target: {
+        group1: "XMP-test",
+        group7: "ID-Test",
+        tag_name: "TestTag",
+      },
     };
     const rightsEntry = targetVerifyOutcomeFromBackend("values.jpg", {
       target: rights,
@@ -97,7 +111,15 @@ describe("TargetVerifyOutcomeDialog", () => {
 
   it("renders complete replacement diagnostics and acts on the replacement target", () => {
     const entry = targetVerifyOutcomeFromBackend("replace.jpg", {
-      target: { kind: "NewProperty", schema_id: id },
+      target: {
+        kind: "NewProperty",
+        schema_id: id,
+        write_target: {
+          group1: "XMP-test",
+          group7: "ID-Test",
+          tag_name: "TestTag",
+        },
+      },
       draft_reconciliation: { kind: "Replace", target: replacement },
       display_name: "Hierarchical subject",
       kind: "Mismatch",

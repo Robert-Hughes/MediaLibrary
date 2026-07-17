@@ -28,7 +28,7 @@ const target = (path = "JPEG-APP1-IFD0"): MetadataDraftTarget => ({
     copy: 0,
   },
   schema_id: schema(),
-  write_target: { group1: "IFD0", tag_name: "XResolution" },
+  write_target: { group1: "IFD0", group7: "ID-Test", tag_name: "XResolution" },
 });
 
 const entry = (valueTarget = target()): MetadataDraftEntryV5 => ({

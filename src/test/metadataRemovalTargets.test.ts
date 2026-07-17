@@ -41,7 +41,11 @@ function occurrence(
       kind: { kind: "Integer", data: { min: null, max: null } },
       description: null,
     },
-    write_target: { group1: "IFD0", tag_name: "XResolution" },
+    write_target: {
+      group1: "IFD0",
+      group7: "ID-Test",
+      tag_name: "XResolution",
+    },
     ...overrides,
     schema_id:
       overrides.schema_id ?? overrides.tag_info?.id ?? structuredClone(id),
@@ -116,7 +120,11 @@ describe("planMetadataRemovalTargetsV5", () => {
         ...occurrence().tag_info!,
         id: { ...id, index: 0 },
       },
-      write_target: { group1: "IFD1", tag_name: "ExactName" },
+      write_target: {
+        group1: "IFD1",
+        group7: "ID-Test",
+        tag_name: "ExactName",
+      },
     });
     const result = plan({ ids: [indexed], occurrences: [source] });
     expect(result.upserts).toEqual([
@@ -204,6 +212,11 @@ describe("planMetadataRemovalTargetsV5", () => {
     const created: MetadataDraftTarget = {
       kind: "NewProperty",
       schema_id: structuredClone(id),
+      write_target: {
+        group1: "XMP-test",
+        group7: "ID-Test",
+        tag_name: "TestTag",
+      },
     };
     const result = plan({ occurrences: [], targets: owner(created) });
     expect(result.deletes).toEqual([created]);
@@ -214,6 +227,11 @@ describe("planMetadataRemovalTargetsV5", () => {
     const created: MetadataDraftTarget = {
       kind: "NewProperty",
       schema_id: structuredClone(id),
+      write_target: {
+        group1: "XMP-test",
+        group7: "ID-Test",
+        tag_name: "TestTag",
+      },
     };
     const unknown = occurrence({
       tag_info: null,
@@ -322,6 +340,11 @@ describe("planMetadataRemovalTargetsV5", () => {
     const created: MetadataDraftTarget = {
       kind: "NewProperty",
       schema_id: id,
+      write_target: {
+        group1: "XMP-test",
+        group7: "ID-Test",
+        tag_name: "TestTag",
+      },
     };
     expectCode(
       () => plan({ targets: owner(created) }),
@@ -341,6 +364,11 @@ describe("planMetadataRemovalTargetsV5", () => {
     const created: MetadataDraftTarget = {
       kind: "NewProperty",
       schema_id: id,
+      write_target: {
+        group1: "XMP-test",
+        group7: "ID-Test",
+        tag_name: "TestTag",
+      },
     };
     const targets = { ...owner(existing), ...owner(created) };
     expectCode(() => plan({ targets }), "multiple-target-owners");
@@ -354,6 +382,11 @@ describe("planMetadataRemovalTargetsV5", () => {
     const created: MetadataDraftTarget = {
       kind: "NewProperty",
       schema_id: indexed,
+      write_target: {
+        group1: "XMP-test",
+        group7: "ID-Test",
+        tag_name: "TestTag",
+      },
     };
     expect(plan({ occurrences: [], targets: owner(created) }).noops).toEqual([
       id,
@@ -390,6 +423,11 @@ describe("target-aware removal previews", () => {
     const created: MetadataDraftTarget = {
       kind: "NewProperty",
       schema_id: createdId,
+      write_target: {
+        group1: "XMP-test",
+        group7: "ID-Test",
+        tag_name: "TestTag",
+      },
     };
     expect(
       previewMetadataRemovalTargetsV5({
@@ -436,7 +474,15 @@ describe("target-aware removal previews", () => {
   });
 
   it("aggregates deduplicated files through exact plans", () => {
-    const created = { kind: "NewProperty" as const, schema_id: id };
+    const created = {
+      kind: "NewProperty" as const,
+      schema_id: id,
+      write_target: {
+        group1: "XMP-test",
+        group7: "ID-Test",
+        tag_name: "TestTag",
+      },
+    };
     const occurrencesByPath = new Map([
       ["existing.jpg", [occurrence()]],
       ["created.jpg", []],

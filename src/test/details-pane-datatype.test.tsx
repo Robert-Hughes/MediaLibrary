@@ -62,7 +62,7 @@ function occurrence(
     schema_id: tagInfo.id,
     value,
     tag_info: tagInfo,
-    write_target: { group1: "Test", tag_name: tagInfo.name },
+    write_target: { group1: "Test", group7: "ID-Test", tag_name: tagInfo.name },
   };
 }
 
@@ -78,7 +78,15 @@ function newPropertyDraft(id: SchemaDefinitionId, edit: MetadataDraftEdit) {
   const store = new TargetDraftEditsStore();
   store.setMetadataTarget(
     photo.relative_path,
-    { kind: "NewProperty", schema_id: id },
+    {
+      kind: "NewProperty",
+      schema_id: id,
+      write_target: {
+        group1: "XMP-test",
+        group7: "ID-Test",
+        tag_name: "TestTag",
+      },
+    },
     edit,
   );
   return store.getMetadataFile(photo.relative_path);

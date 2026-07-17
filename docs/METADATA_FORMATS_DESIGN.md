@@ -19,9 +19,10 @@ The editing model distinguishes five concepts:
 4. `MetadataOccurrenceId` identifies one concrete value using family-3
    document/sample, family-5 metadata path, family-7 runtime ID, wrapped scope,
    and family-4 copy.
-5. Nullable `write_target: MetadataWriteTarget` is a separately proven runtime
-   mutation selector, not schema identity and not a reconstruction from the
-   friendly label.
+5. `MetadataWriteTarget { group1, group7, tag_name }` is the structured
+   ExifTool write selector. It is nullable on occurrences because existing
+   occurrences require proof, and required on New Property drafts because they
+   carry an intended destination.
 
 Nullable `tag_info` supplies registry interpretation, friendly labels and
 description metadata. When present, `TagInfo.id` must exactly match
@@ -40,11 +41,20 @@ remains in `occurrence.id.tag_id_scope` and the parent definition is stored in
 
 An `ExistingOccurrence` target snapshots its occurrence ID, schema ID and
 runtime `MetadataWriteTarget`, then revalidates all three before apply.
-`NewProperty` identifies a deliberate creation by exact schema ID because no
-runtime occurrence exists yet. Its same-schema/multiple-destination semantics
-are deliberately deferred to a separate design decision and are not changed
-here. Adding schema identity to the transient occurrence shape therefore
-requires no target-format migration.
+`NewProperty` identifies a deliberate creation by exact schema ID and complete
+intended selector because no runtime occurrence exists yet. A
+`MetadataWriteTarget` is the ExifTool selector; it is not proof that ExifTool
+will instantiate the exact indexed definition selected by the user. Exact
+schema identity remains alongside the selector for post-write verification.
+
+Runtime family 7 is not necessarily identical to the static schema tag ID.
+Existing occurrence targets derive the complete `ID-...` group from observed
+`runtime_tag_id`; New Property derives it from the selected static tag ID using
+ExifTool's family-7 byte encoding (ASCII letters, digits, hyphen, and underscore
+are retained; every other UTF-8 byte becomes two lowercase hexadecimal digits).
+See [`GetGroup`](https://exiftool.org/ExifTool.html#GetGroup). Only New Property
+family 1 may be overridden. Family 7 and canonical tag name remain
+schema-controlled.
 
 ## Transient occurrence format
 
@@ -58,9 +68,10 @@ schema-keyed scan store or wire field exists.
 ## Draft and audit persistence
 
 `MediaLibraryTargetDraftEdits.jsonl` is the only draft file read or written.
-Its occurrence object is updated in place with the new required identity fields
+Its New Property target shape is updated in place to include `write_target`
 while `schema_version` remains 5. There is no old-shape compatibility reader or
-migration.
+migration. New Property logical slots contain both exact schema and exact
+destination, so same-schema IFD0 and IFD1 drafts do not overwrite one another.
 Each JSONL record retains the full target and edit. Duplicate logical target
 slots and malformed entries are rejected before a save can truncate the file.
 
@@ -90,14 +101,18 @@ suppressed as redundant.
 
 The active pipeline is:
 
-1. Validate the persisted target against authoritative occurrences and schema.
-2. Render numeric and textual ExifTool argument passes with stable UTF-8
+1. Validate the persisted target against authoritative occurrences and schema,
+   including the family-1 grammar and schema-locked family 7/tag name.
+2. Render `1<group1>:7<group7>:<tag_name>` only at the final write boundary,
+   then produce numeric and textual ExifTool argument passes with stable UTF-8
    argfile escaping.
 3. Write the file.
 4. Read authoritative occurrences again.
-5. Verify semantic results, including rational equivalence, floating-point/GPS
-   tolerance, list semantics, nested values, dates, times, UTC offsets, and the
-   narrow IPTC country-code padding rule.
+5. For New Property, require exactly one readback match for exact schema,
+   family 1, runtime family 7, and tag name; then verify semantic results,
+   including rational equivalence, floating-point/GPS tolerance, list
+   semantics, nested values, dates, times, UTC offsets, and the narrow IPTC
+   country-code padding rule.
 6. Reconcile each exact target as `Clear`, `Keep`, `Replace`, or `Blocked`.
 7. Persist the reconciled target drafts atomically.
 8. Append the target-aware audit record.
@@ -105,6 +120,18 @@ The active pipeline is:
 Clear results require no attention row. Keep, Replace, Blocked, unavailable
 readback, missing values, mismatches, coercions, lingering deletes, and
 observed nulls retain exact target context for review.
+
+Selector occupancy and planned-write collision keys compare family 1, family 7,
+and tag name case-insensitively. A proven same-schema occurrence at a different
+selector is allowed. A same-schema occurrence with no exact target blocks
+creation conservatively because absence of proof is not proof that a
+destination is free. Families 3, 4, and 5 remain extraction identity rather
+than supported direct-write coordinates.
+
+The numeric family qualification follows ExifTool's official
+[tag-operations documentation](https://exiftool.org/exiftool_pod2.html#Tag-operations),
+which describes family-number prefixes and permits family 1 and 7 groups in
+write tags.
 
 ## Search projection
 

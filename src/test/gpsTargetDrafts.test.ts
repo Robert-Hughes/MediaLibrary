@@ -40,7 +40,7 @@ function occurrence(
     copy?: number;
     tagInfo?: TagInfo | null;
     writable?: boolean;
-    writeTarget?: { group1: string; tag_name: string } | null;
+    writeTarget?: { group1: string; group7: string; tag_name: string } | null;
   } = {},
 ): MetadataOccurrence {
   return {
@@ -63,7 +63,7 @@ function occurrence(
         : options.tagInfo,
     write_target:
       options.writeTarget === undefined
-        ? { group1: "GPS", tag_name: "GPSLatitude" }
+        ? { group1: "GPS", group7: "ID-Test", tag_name: "GPSLatitude" }
         : options.writeTarget,
   };
 }
@@ -104,6 +104,11 @@ describe("planGpsTargetDraftBatchV5", () => {
     expect(planned.target).toEqual({
       kind: "NewProperty",
       schema_id: GPS_IDS.latitudeRef,
+      write_target: {
+        group1: "GPS",
+        group7: "ID-1",
+        tag_name: "GPSLatitudeRef",
+      },
     });
   });
 
@@ -217,6 +222,11 @@ describe("planGpsTargetDraftBatchV5", () => {
     const newTarget: MetadataDraftTarget = {
       kind: "NewProperty",
       schema_id: GPS_IDS.latitude,
+      write_target: {
+        group1: "GPS",
+        group7: "ID-2",
+        tag_name: "GPSLatitude",
+      },
     };
     const newOwner = {
       [metadataDraftTargetSlotToken(newTarget)]: {
@@ -266,6 +276,11 @@ describe("planGpsTargetDraftBatchV5", () => {
     const created: MetadataDraftTarget = {
       kind: "NewProperty",
       schema_id: GPS_IDS.latitude,
+      write_target: {
+        group1: "XMP-test",
+        group7: "ID-Test",
+        tag_name: "TestTag",
+      },
     };
     const owners = {
       [metadataDraftTargetSlotToken(existing)]: {
@@ -292,6 +307,11 @@ describe("planGpsTargetDraftBatchV5", () => {
     const indexedTarget: MetadataDraftTarget = {
       kind: "NewProperty",
       schema_id: { ...GPS_IDS.latitude, index: 0 },
+      write_target: {
+        group1: "XMP-test",
+        group7: "ID-Test",
+        tag_name: "TestTag",
+      },
     };
     const owners = {
       [metadataDraftTargetSlotToken(indexedTarget)]: {
@@ -307,6 +327,11 @@ describe("planGpsTargetDraftBatchV5", () => {
     expect(planned.target).toEqual({
       kind: "NewProperty",
       schema_id: GPS_IDS.latitude,
+      write_target: {
+        group1: "GPS",
+        group7: "ID-2",
+        tag_name: "GPSLatitude",
+      },
     });
   });
 

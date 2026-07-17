@@ -15,7 +15,10 @@
 
 use crate::draft_edits::{EditIntent, MetadataDraftEdit};
 use crate::metadata_draft_target::{MetadataDraftTarget, MetadataDraftTargetError};
-use crate::metadata_occurrence::MetadataOccurrence;
+use crate::metadata_occurrence::{
+    runtime_tag_id_from_family7_group, validate_family1_group, MetadataOccurrence,
+    MetadataWriteTarget,
+};
 use crate::metadata_value::{
     DateTimeValue, DateValue, MetadataValue, OffsetSign, TimeValue, UtcOffsetValue,
 };
@@ -116,7 +119,7 @@ pub fn build_existing_occurrence_args(
     let write_target = fresh_occurrence.write_target.as_ref().ok_or(
         MetadataTargetWriteError::TargetValidation(MetadataDraftTargetError::MissingWriteTarget),
     )?;
-    let selector = validated_selector(&write_target.group1, &write_target.tag_name)?;
+    let selector = validated_selector(write_target)?;
 
     build_metadata_args_for_selector(&selector, info, edit)
         .map_err(MetadataTargetWriteError::ValueEncoding)
@@ -136,31 +139,38 @@ pub fn build_new_property_args(
     if target.schema_id() != &info.id {
         return Err(MetadataTargetWriteError::SchemaIdMismatch);
     }
-    if !info.supports_metadata_write() {
-        return Err(MetadataTargetWriteError::TargetValidation(
-            MetadataDraftTargetError::ReadOnlySchema,
-        ));
-    }
-    let selector = validated_selector(&info.group, &info.name)?;
+    target
+        .validate_new_property(info)
+        .map_err(MetadataTargetWriteError::TargetValidation)?;
+    let selector = validated_selector(
+        target
+            .write_target()
+            .ok_or(MetadataTargetWriteError::NewPropertyRequired)?,
+    )?;
 
     build_metadata_args_for_selector(&selector, info, edit)
         .map_err(MetadataTargetWriteError::ValueEncoding)
 }
 
-fn validated_selector(group: &str, tag_name: &str) -> Result<String, MetadataTargetWriteError> {
-    let unsafe_group = group.is_empty()
-        || group
+/// Constructs the fully family-qualified selector only at the final write
+/// boundary. Persisted drafts retain structured components, never a command
+/// line argument.
+fn validated_selector(target: &MetadataWriteTarget) -> Result<String, MetadataTargetWriteError> {
+    let unsafe_group1 = validate_family1_group(&target.group1).is_err();
+    let unsafe_group7 = runtime_tag_id_from_family7_group(&target.group7).is_none()
+        || target.group7.chars().any(|character| {
+            character.is_control() || character.is_whitespace() || matches!(character, '=' | ':')
+        });
+    let unsafe_tag_name = target.tag_name.is_empty()
+        || target
+            .tag_name
             .chars()
-            .any(|character| matches!(character, '\0' | '\r' | '\n' | '='));
-    let unsafe_tag_name = tag_name.is_empty()
-        || tag_name
-            .chars()
-            .any(|character| matches!(character, '\0' | '\r' | '\n' | '=' | ':'));
-    if unsafe_group || unsafe_tag_name {
+            .any(|character| character.is_control() || matches!(character, '=' | ':'));
+    if unsafe_group1 || unsafe_group7 || unsafe_tag_name {
         return Err(MetadataTargetWriteError::UnsafeWriteTarget);
     }
 
-    Ok(format!("{group}:{tag_name}"))
+    Ok(target.selector())
 }
 
 fn build_metadata_args_for_selector(
@@ -631,6 +641,11 @@ mod tests {
         info.name = tag_name.to_string();
         let target = MetadataDraftTarget::NewProperty {
             schema_id: info.id.clone(),
+            write_target: MetadataWriteTarget {
+                group1: info.group.clone(),
+                group7: crate::metadata_occurrence::family7_group_from_schema_id(&info.id),
+                tag_name: info.name.clone(),
+            },
         };
         super::build_new_property_args(&target, &info, edit).map_err(|error| error.to_string())
     }
@@ -686,7 +701,7 @@ mod tests {
             build_new_property_fixture_args("XMP-dc", "Title", &i, &metadata_set(text("hi")))
                 .unwrap();
         assert!(args.numeric.is_empty());
-        assert_eq!(args.text, vec!["-XMP-dc:Title=hi"]);
+        assert_eq!(args.text, vec!["-1XMP-dc:7ID-Y:Title=hi"]);
     }
 
     #[test]
@@ -699,7 +714,10 @@ mod tests {
             &metadata_set(text("2 3 0 0")),
         )
         .unwrap();
-        assert_eq!(args.text, vec!["-GPS:GPSVersionID=2 3 0 0"]);
+        assert_eq!(
+            args.text,
+            vec!["-1GPS:7ID-GPSVersionID:GPSVersionID=2 3 0 0"]
+        );
         assert!(args.numeric.is_empty());
     }
 
@@ -717,7 +735,7 @@ mod tests {
         )
         .unwrap();
         assert!(args.text.is_empty());
-        assert_eq!(args.numeric, vec!["-XMP-xmp:Rating=5"]);
+        assert_eq!(args.numeric, vec!["-1XMP-xmp:7ID-Y:Rating=5"]);
     }
 
     #[test]
@@ -730,7 +748,7 @@ mod tests {
             &metadata_set(MetadataValue::Bool(true)),
         )
         .unwrap();
-        assert_eq!(args.numeric, vec!["-XMP-xmpRights:Marked=1"]);
+        assert_eq!(args.numeric, vec!["-1XMP-xmpRights:7ID-Y:Marked=1"]);
         assert!(args.text.is_empty());
     }
 
@@ -756,7 +774,7 @@ mod tests {
             &metadata_set(MetadataValue::Integer(6)),
         )
         .unwrap();
-        assert_eq!(args.numeric, vec!["-IFD0:Orientation=6"]);
+        assert_eq!(args.numeric, vec!["-1IFD0:7ID-Y:Orientation=6"]);
     }
 
     #[test]
@@ -772,9 +790,9 @@ mod tests {
         assert_eq!(
             args.text,
             vec![
-                "-XMP-dc:Subject=",
-                "-XMP-dc:Subject=beach",
-                "-XMP-dc:Subject=sunset"
+                "-1XMP-dc:7ID-Y:Subject=",
+                "-1XMP-dc:7ID-Y:Subject=beach",
+                "-1XMP-dc:7ID-Y:Subject=sunset"
             ]
         );
         assert!(args.numeric.is_empty());
@@ -793,9 +811,9 @@ mod tests {
         assert_eq!(
             args.text,
             vec![
-                "-XMP-dc:Creator=",
-                "-XMP-dc:Creator=Ada",
-                "-XMP-dc:Creator=Bea"
+                "-1XMP-dc:7ID-Y:Creator=",
+                "-1XMP-dc:7ID-Y:Creator=Ada",
+                "-1XMP-dc:7ID-Y:Creator=Bea"
             ]
         );
     }
@@ -806,7 +824,10 @@ mod tests {
         let args =
             build_new_property_fixture_args("XMP-dc", "Subject", &i, &metadata_set(text("only")))
                 .unwrap();
-        assert_eq!(args.text, vec!["-XMP-dc:Subject=", "-XMP-dc:Subject=only"]);
+        assert_eq!(
+            args.text,
+            vec!["-1XMP-dc:7ID-Y:Subject=", "-1XMP-dc:7ID-Y:Subject=only"]
+        );
     }
 
     #[test]
@@ -827,12 +848,15 @@ mod tests {
         assert!(args
             .text
             .iter()
-            .any(|a| a == "-XMP-dc:Description-x-default=Hi"));
-        assert!(args.text.iter().any(|a| a == "-XMP-dc:Description-en=Hi"));
+            .any(|a| a == "-1XMP-dc:7ID-Y:Description-x-default=Hi"));
         assert!(args
             .text
             .iter()
-            .any(|a| a == "-XMP-dc:Description-fr=Salut"));
+            .any(|a| a == "-1XMP-dc:7ID-Y:Description-en=Hi"));
+        assert!(args
+            .text
+            .iter()
+            .any(|a| a == "-1XMP-dc:7ID-Y:Description-fr=Salut"));
         assert_eq!(args.text.len(), 3);
     }
 
@@ -851,11 +875,11 @@ mod tests {
         assert!(args
             .text
             .iter()
-            .any(|a| a == "-XMP-dc:Description-en=Hello"));
+            .any(|a| a == "-1XMP-dc:7ID-Y:Description-en=Hello"));
         assert!(args
             .text
             .iter()
-            .any(|a| a == "-XMP-dc:Description-x-default=Hello"));
+            .any(|a| a == "-1XMP-dc:7ID-Y:Description-x-default=Hello"));
     }
 
     #[test]
@@ -863,7 +887,7 @@ mod tests {
         let i = info(TagKind::Text);
         let args =
             build_new_property_fixture_args("XMP-dc", "Title", &i, &metadata_delete()).unwrap();
-        assert_eq!(args.text, vec!["-XMP-dc:Title="]);
+        assert_eq!(args.text, vec!["-1XMP-dc:7ID-Y:Title="]);
         assert!(args.numeric.is_empty());
     }
 
@@ -877,7 +901,10 @@ mod tests {
             &metadata_list_add(bag_text(&["a", "b"])),
         )
         .unwrap();
-        assert_eq!(args.text, vec!["-XMP-dc:Subject+=a", "-XMP-dc:Subject+=b"]);
+        assert_eq!(
+            args.text,
+            vec!["-1XMP-dc:7ID-Y:Subject+=a", "-1XMP-dc:7ID-Y:Subject+=b"]
+        );
     }
 
     #[test]
@@ -890,7 +917,7 @@ mod tests {
             &metadata_list_remove(text("old")),
         )
         .unwrap();
-        assert_eq!(args.text, vec!["-XMP-dc:Subject-=old"]);
+        assert_eq!(args.text, vec!["-1XMP-dc:7ID-Y:Subject-=old"]);
     }
 
     #[test]
@@ -900,7 +927,7 @@ mod tests {
         let args =
             build_new_property_fixture_args("XMP-dc", "Title", &i, &metadata_list_add(text("hi")))
                 .unwrap();
-        assert_eq!(args.text, vec!["-XMP-dc:Title=hi"]);
+        assert_eq!(args.text, vec!["-1XMP-dc:7ID-Y:Title=hi"]);
         // ListRemove on a Text tag becomes a Delete.
         let args = build_new_property_fixture_args(
             "XMP-dc",
@@ -909,7 +936,7 @@ mod tests {
             &metadata_list_remove(text("hi")),
         )
         .unwrap();
-        assert_eq!(args.text, vec!["-XMP-dc:Title="]);
+        assert_eq!(args.text, vec!["-1XMP-dc:7ID-Y:Title="]);
     }
 
     #[test]
@@ -927,10 +954,10 @@ mod tests {
         let error =
             build_new_property_fixture_args("bad\nname", "Tag", &i, &metadata_set(text("x")))
                 .unwrap_err();
-        assert!(error.contains("unsafe"));
+        assert!(error.contains("invalid") || error.contains("unsafe"));
         let error =
             build_new_property_fixture_args("", "", &i, &metadata_set(text("x"))).unwrap_err();
-        assert!(error.contains("unsafe"));
+        assert!(error.contains("invalid") || error.contains("unsafe"));
     }
 
     #[test]
@@ -941,6 +968,11 @@ mod tests {
                 table: "Other::dc".into(),
                 tag_id: selected.id.tag_id.clone(),
                 index: None,
+            },
+            write_target: MetadataWriteTarget {
+                group1: selected.group.clone(),
+                group7: "ID-Title".into(),
+                tag_name: selected.name.clone(),
             },
         };
         assert_eq!(
@@ -955,7 +987,7 @@ mod tests {
         let target = new_property_target(&selected);
         let args = super::build_new_property_args(&target, &selected, &metadata_set(text("value")))
             .unwrap();
-        assert_eq!(args.text, vec!["-XMP-dc:Title=value"]);
+        assert_eq!(args.text, vec!["-1XMP-dc:7ID-Title:Title=value"]);
     }
 
     #[test]
@@ -964,6 +996,11 @@ mod tests {
         selected.writable = false;
         let target = MetadataDraftTarget::NewProperty {
             schema_id: selected.id.clone(),
+            write_target: MetadataWriteTarget {
+                group1: selected.group.clone(),
+                group7: crate::metadata_occurrence::family7_group_from_schema_id(&selected.id),
+                tag_name: selected.name.clone(),
+            },
         };
         assert_eq!(
             super::build_new_property_args(&target, &selected, &metadata_set(text("Windows V3")),),
@@ -983,7 +1020,7 @@ mod tests {
             &metadata_set(MetadataValue::Real(123.45)),
         )
         .unwrap();
-        assert_eq!(args.numeric, vec!["-Composite:GPSAltitude=123.45"]);
+        assert_eq!(args.numeric, vec!["-1Composite:7ID-Y:GPSAltitude=123.45"]);
     }
 
     #[test]
@@ -993,15 +1030,15 @@ mod tests {
                 "GPS",
                 "GPSLatitude",
                 52.2037391662611,
-                "-GPS:GPSLatitude=52.2037391662611",
+                "-1GPS:7ID-Y:GPSLatitude=52.2037391662611",
             ),
             (
                 "GPS",
                 "GPSLongitude",
                 1.236557,
-                "-GPS:GPSLongitude=1.236557",
+                "-1GPS:7ID-Y:GPSLongitude=1.236557",
             ),
-            ("GPS", "GPSAltitude", 123.4, "-GPS:GPSAltitude=123.4"),
+            ("GPS", "GPSAltitude", 123.4, "-1GPS:7ID-Y:GPSAltitude=123.4"),
         ] {
             let i = info(TagKind::Real);
             let args = build_new_property_fixture_args(
@@ -1043,7 +1080,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             args.numeric,
-            vec!["-ExifIFD:DateTimeOriginal=2026:05:15 10:30:00"]
+            vec!["-1ExifIFD:7ID-Y:DateTimeOriginal=2026:05:15 10:30:00"]
         );
         assert!(args.text.is_empty());
     }
@@ -1077,7 +1114,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             args.numeric,
-            vec!["-XMP-mlib:AIGeneratedAt=2026:07:06 21:43:08+01:00"]
+            vec!["-1XMP-mlib:7ID-AIGeneratedAt:AIGeneratedAt=2026:07:06 21:43:08+01:00"]
         );
         assert!(args.text.is_empty());
     }
@@ -1096,7 +1133,10 @@ mod tests {
             })),
         )
         .unwrap();
-        assert_eq!(args.numeric, vec!["-IPTC:DateCreated=2026:05:15"]);
+        assert_eq!(
+            args.numeric,
+            vec!["-1IPTC:7ID-DateCreated:DateCreated=2026:05:15"]
+        );
     }
 
     #[test]
@@ -1115,7 +1155,10 @@ mod tests {
             })),
         )
         .unwrap();
-        assert_eq!(args.numeric, vec!["-IPTC:TimeCreated=10:30:00"]);
+        assert_eq!(
+            args.numeric,
+            vec!["-1IPTC:7ID-TimeCreated:TimeCreated=10:30:00"]
+        );
         assert!(args.text.is_empty());
     }
 
@@ -1187,9 +1230,9 @@ mod tests {
         assert_eq!(
             args.text,
             vec![
-                "-XMP-dc:Subject=",
-                "-XMP-dc:Subject=beach",
-                "-XMP-dc:Subject=sunset"
+                "-1XMP-dc:7ID-Y:Subject=",
+                "-1XMP-dc:7ID-Y:Subject=beach",
+                "-1XMP-dc:7ID-Y:Subject=sunset"
             ]
         );
         assert!(!args.text.iter().any(|arg| arg.contains("beach, sunset")));
@@ -1213,7 +1256,11 @@ mod tests {
         .unwrap();
         assert_eq!(
             args.text,
-            vec!["-XMP-dc:Title=", "-XMP-dc:Title=one", "-XMP-dc:Title=two"]
+            vec![
+                "-1XMP-dc:7ID-Y:Title=",
+                "-1XMP-dc:7ID-Y:Title=one",
+                "-1XMP-dc:7ID-Y:Title=two"
+            ]
         );
     }
 
@@ -1236,7 +1283,11 @@ mod tests {
         assert_eq!(args.text, Vec::<String>::new());
         assert_eq!(
             args.numeric,
-            vec!["-X:Numbers=", "-X:Numbers=1", "-X:Numbers=2"]
+            vec![
+                "-1X:7ID-Y:Numbers=",
+                "-1X:7ID-Y:Numbers=1",
+                "-1X:7ID-Y:Numbers=2"
+            ]
         );
     }
 
@@ -1255,7 +1306,7 @@ mod tests {
             )),
         )
         .unwrap();
-        assert_eq!(args.numeric, vec!["-EXIF:ExposureTime=1/250"]);
+        assert_eq!(args.numeric, vec!["-1EXIF:7ID-Y:ExposureTime=1/250"]);
     }
 
     #[test]
@@ -1300,7 +1351,7 @@ mod tests {
             )),
         )
         .unwrap();
-        assert_eq!(args.numeric, vec!["-EXIF:ExposureTime=1/250"]);
+        assert_eq!(args.numeric, vec!["-1EXIF:7ID-Y:ExposureTime=1/250"]);
     }
 
     // ── Phase 8 fix: struct argv uses exiftool -struct syntax, not JSON ──
@@ -1319,7 +1370,10 @@ mod tests {
         )
         .unwrap();
         // Brace form, not JSON.  Field ordering is alphabetic via BTreeMap.
-        assert_eq!(args.text, vec!["-XMP-mwg-rs:Region={Name=John,Type=Face}"]);
+        assert_eq!(
+            args.text,
+            vec!["-1XMP-mwg-rs:7ID-Y:Region={Name=John,Type=Face}"]
+        );
         // Critically: should NOT contain JSON quotes.
         assert!(
             !args.text[0].contains("\""),
@@ -1344,7 +1398,10 @@ mod tests {
             &metadata_set(MetadataValue::Struct(region)),
         )
         .unwrap();
-        assert_eq!(args.text, vec!["-X:R={Area={X=0.5,Y=0.5},Names=[a,b]}"]);
+        assert_eq!(
+            args.text,
+            vec!["-1X:7ID-Y:R={Area={X=0.5,Y=0.5},Names=[a,b]}"]
+        );
     }
 
     #[test]
@@ -1356,7 +1413,7 @@ mod tests {
         let args =
             build_new_property_fixture_args("X", "S", &i, &metadata_set(MetadataValue::Struct(o)))
                 .unwrap();
-        assert_eq!(args.text, vec![r"-X:S={k=a\,b\{c\}d\[e\]f\=g\\h}"]);
+        assert_eq!(args.text, vec![r"-1X:7ID-Y:S={k=a\,b\{c\}d\[e\]f\=g\\h}"]);
     }
 
     #[test]
@@ -1369,7 +1426,7 @@ mod tests {
             &metadata_set(MetadataValue::Struct(BTreeMap::new())),
         )
         .unwrap();
-        assert_eq!(args.text, vec!["-X:S={}"]);
+        assert_eq!(args.text, vec!["-1X:7ID-Y:S={}"]);
     }
 
     #[test]
@@ -1422,6 +1479,7 @@ mod tests {
             tag_info: Some(tag_info),
             write_target: Some(MetadataWriteTarget {
                 group1: group1.to_owned(),
+                group7: "ID-Family7TagIdMustNotBeUsed".to_owned(),
                 tag_name: "XResolution".to_owned(),
             }),
         }
@@ -1444,7 +1502,7 @@ mod tests {
             build_existing_occurrence_args(&target, &occurrence, &metadata_set(text("value")))
                 .unwrap()
                 .text,
-            vec!["-IFD0:XResolution=value"]
+            vec!["-1IFD0:7ID-Family7TagIdMustNotBeUsed:XResolution=value"]
         );
     }
 
@@ -1456,14 +1514,16 @@ mod tests {
             build_existing_occurrence_args(&target, &occurrence, &metadata_set(text("value")))
                 .unwrap();
 
-        assert_eq!(args.text, vec!["-IFD1:XResolution=value"]);
+        assert_eq!(
+            args.text,
+            vec!["-1IFD1:7ID-Family7TagIdMustNotBeUsed:XResolution=value"]
+        );
         for forbidden in [
             "SchemaGroupMustNotBeUsed",
             "FriendlyNameMustNotBeUsed",
             "SchemaTableMustNotBeUsed",
             "SchemaTagIdMustNotBeUsed",
             "Family5PathMustNotBeUsed",
-            "Family7TagIdMustNotBeUsed",
             "Copy4",
         ] {
             assert!(!args.text[0].contains(forbidden));
@@ -1483,8 +1543,14 @@ mod tests {
             build_existing_occurrence_args(&existing_target(&ifd1), &ifd1, &edit).unwrap();
 
         assert_eq!(ifd0.tag_info, ifd1.tag_info);
-        assert_eq!(ifd0_args.text, vec!["-IFD0:XResolution=value"]);
-        assert_eq!(ifd1_args.text, vec!["-IFD1:XResolution=value"]);
+        assert_eq!(
+            ifd0_args.text,
+            vec!["-1IFD0:7ID-Family7TagIdMustNotBeUsed:XResolution=value"]
+        );
+        assert_eq!(
+            ifd1_args.text,
+            vec!["-1IFD1:7ID-Family7TagIdMustNotBeUsed:XResolution=value"]
+        );
         assert_ne!(ifd0_args, ifd1_args);
     }
 
@@ -1646,7 +1712,10 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(args.numeric, vec!["-IFD0:XResolution=5"]);
+        assert_eq!(
+            args.numeric,
+            vec!["-1IFD0:7ID-Family7TagIdMustNotBeUsed:XResolution=5"]
+        );
         assert!(args.text.is_empty());
     }
 
@@ -1659,9 +1728,64 @@ mod tests {
 
         let args = build_new_property_args(&target, &info, &metadata_set(text("value"))).unwrap();
 
-        assert_eq!(args.text, vec!["-XMP-dc:Title=value"]);
+        assert_eq!(
+            args.text,
+            vec!["-1XMP-dc:7ID-SchemaTagIdMustNotBeUsed:Title=value"]
+        );
         assert_eq!(target.occurrence_id(), None);
-        assert_eq!(target.write_target(), None);
+        assert_eq!(target.write_target().unwrap().group1, "XMP-dc");
+    }
+
+    #[test]
+    fn new_property_builder_preserves_the_stored_custom_family1_destination() {
+        let info = info_named(
+            "IFD0",
+            "XResolution",
+            TagKind::Integer {
+                min: None,
+                max: None,
+            },
+        );
+        let mut target = new_property_target(&info);
+        let MetadataDraftTarget::NewProperty { write_target, .. } = &mut target else {
+            unreachable!()
+        };
+        write_target.group1 = "IFD1".into();
+
+        let args =
+            build_new_property_args(&target, &info, &metadata_set(MetadataValue::Integer(72)))
+                .unwrap();
+
+        assert_eq!(args.numeric, vec!["-1IFD1:7ID-XResolution:XResolution=72"]);
+    }
+
+    #[test]
+    fn new_property_builder_rejects_frontend_tampering_of_schema_locked_components() {
+        let info = info_named("XMP-dc", "Title", TagKind::Text);
+        let base = new_property_target(&info);
+        for (target, expected) in [
+            {
+                let mut target = base.clone();
+                let MetadataDraftTarget::NewProperty { write_target, .. } = &mut target else {
+                    unreachable!()
+                };
+                write_target.group7 = "ID-other".into();
+                (target, MetadataDraftTargetError::NewPropertyGroup7Mismatch)
+            },
+            {
+                let mut target = base.clone();
+                let MetadataDraftTarget::NewProperty { write_target, .. } = &mut target else {
+                    unreachable!()
+                };
+                write_target.tag_name = "Other".into();
+                (target, MetadataDraftTargetError::NewPropertyTagNameMismatch)
+            },
+        ] {
+            assert_eq!(
+                build_new_property_args(&target, &info, &metadata_set(text("value"))),
+                Err(MetadataTargetWriteError::TargetValidation(expected))
+            );
+        }
     }
 
     #[test]
@@ -1671,6 +1795,11 @@ mod tests {
             schema_id: SchemaDefinitionId {
                 index: Some(0),
                 ..info.id.clone()
+            },
+            write_target: MetadataWriteTarget {
+                group1: info.group.clone(),
+                group7: crate::metadata_occurrence::family7_group_from_schema_id(&info.id),
+                tag_name: info.name.clone(),
             },
         };
 
@@ -1717,7 +1846,9 @@ mod tests {
             let target = new_property_target(&info);
             assert_eq!(
                 build_new_property_args(&target, &info, &metadata_set(text("value"))),
-                Err(MetadataTargetWriteError::UnsafeWriteTarget),
+                Err(MetadataTargetWriteError::TargetValidation(
+                    MetadataDraftTargetError::InvalidFamily1Group,
+                )),
                 "group {group:?} should be rejected"
             );
         }
@@ -1809,22 +1940,22 @@ mod tests {
                 "delete",
                 TagKind::Text,
                 metadata_delete(),
-                ok(&[], &["-IFD1:RuntimeValue="]),
-                ok(&[], &["-XMP-test:SchemaValue="]),
+                ok(&[], &["-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue="]),
+                ok(&[], &["-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue="]),
             ),
             (
                 "integer set",
                 integer_kind.clone(),
                 metadata_set(MetadataValue::Integer(5)),
-                ok(&["-IFD1:RuntimeValue=5"], &[]),
-                ok(&["-XMP-test:SchemaValue=5"], &[]),
+                ok(&["-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue=5"], &[]),
+                ok(&["-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue=5"], &[]),
             ),
             (
                 "real set",
                 TagKind::Real,
                 metadata_set(MetadataValue::Real(1.25)),
-                ok(&["-IFD1:RuntimeValue=1.25"], &[]),
-                ok(&["-XMP-test:SchemaValue=1.25"], &[]),
+                ok(&["-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue=1.25"], &[]),
+                ok(&["-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue=1.25"], &[]),
             ),
             (
                 "rational set",
@@ -1833,15 +1964,15 @@ mod tests {
                     numerator: 1,
                     denominator: 250,
                 })),
-                ok(&["-IFD1:RuntimeValue=1/250"], &[]),
-                ok(&["-XMP-test:SchemaValue=1/250"], &[]),
+                ok(&["-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue=1/250"], &[]),
+                ok(&["-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue=1/250"], &[]),
             ),
             (
                 "boolean set",
                 TagKind::Boolean,
                 metadata_set(MetadataValue::Bool(true)),
-                ok(&["-IFD1:RuntimeValue=1"], &[]),
-                ok(&["-XMP-test:SchemaValue=1"], &[]),
+                ok(&["-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue=1"], &[]),
+                ok(&["-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue=1"], &[]),
             ),
             (
                 "integer enum set",
@@ -1850,8 +1981,8 @@ mod tests {
                     options: vec![],
                 },
                 metadata_set(MetadataValue::Integer(6)),
-                ok(&["-IFD1:RuntimeValue=6"], &[]),
-                ok(&["-XMP-test:SchemaValue=6"], &[]),
+                ok(&["-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue=6"], &[]),
+                ok(&["-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue=6"], &[]),
             ),
             (
                 "text enum set",
@@ -1860,15 +1991,15 @@ mod tests {
                     options: vec![],
                 },
                 metadata_set(text("active")),
-                ok(&[], &["-IFD1:RuntimeValue=active"]),
-                ok(&[], &["-XMP-test:SchemaValue=active"]),
+                ok(&[], &["-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue=active"]),
+                ok(&[], &["-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue=active"]),
             ),
             (
                 "text set",
                 TagKind::Text,
                 metadata_set(text("value")),
-                ok(&[], &["-IFD1:RuntimeValue=value"]),
-                ok(&[], &["-XMP-test:SchemaValue=value"]),
+                ok(&[], &["-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue=value"]),
+                ok(&[], &["-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue=value"]),
             ),
             (
                 "lang-alt set",
@@ -1877,15 +2008,15 @@ mod tests {
                 ok(
                     &[],
                     &[
-                        "-IFD1:RuntimeValue-en=Hello",
-                        "-IFD1:RuntimeValue-x-default=Hello",
+                        "-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue-en=Hello",
+                        "-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue-x-default=Hello",
                     ],
                 ),
                 ok(
                     &[],
                     &[
-                        "-XMP-test:SchemaValue-en=Hello",
-                        "-XMP-test:SchemaValue-x-default=Hello",
+                        "-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue-en=Hello",
+                        "-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue-x-default=Hello",
                     ],
                 ),
             ),
@@ -1896,17 +2027,17 @@ mod tests {
                 ok(
                     &[],
                     &[
-                        "-IFD1:RuntimeValue=",
-                        "-IFD1:RuntimeValue=a",
-                        "-IFD1:RuntimeValue=b",
+                        "-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue=",
+                        "-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue=a",
+                        "-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue=b",
                     ],
                 ),
                 ok(
                     &[],
                     &[
-                        "-XMP-test:SchemaValue=",
-                        "-XMP-test:SchemaValue=a",
-                        "-XMP-test:SchemaValue=b",
+                        "-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue=",
+                        "-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue=a",
+                        "-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue=b",
                     ],
                 ),
             ),
@@ -1920,17 +2051,17 @@ mod tests {
                 ok(
                     &[],
                     &[
-                        "-IFD1:RuntimeValue=",
-                        "-IFD1:RuntimeValue=a",
-                        "-IFD1:RuntimeValue=b",
+                        "-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue=",
+                        "-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue=a",
+                        "-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue=b",
                     ],
                 ),
                 ok(
                     &[],
                     &[
-                        "-XMP-test:SchemaValue=",
-                        "-XMP-test:SchemaValue=a",
-                        "-XMP-test:SchemaValue=b",
+                        "-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue=",
+                        "-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue=a",
+                        "-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue=b",
                     ],
                 ),
             ),
@@ -1943,17 +2074,17 @@ mod tests {
                 }),
                 ok(
                     &[
-                        "-IFD1:RuntimeValue=",
-                        "-IFD1:RuntimeValue=1",
-                        "-IFD1:RuntimeValue=2",
+                        "-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue=",
+                        "-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue=1",
+                        "-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue=2",
                     ],
                     &[],
                 ),
                 ok(
                     &[
-                        "-XMP-test:SchemaValue=",
-                        "-XMP-test:SchemaValue=1",
-                        "-XMP-test:SchemaValue=2",
+                        "-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue=",
+                        "-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue=1",
+                        "-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue=2",
                     ],
                     &[],
                 ),
@@ -1964,13 +2095,13 @@ mod tests {
                 metadata_list_add(bag_text(&["a", "b"])),
                 ok(
                     &[],
-                    &["-IFD1:RuntimeValue+=a", "-IFD1:RuntimeValue+=b"],
+                    &["-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue+=a", "-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue+=b"],
                 ),
                 ok(
                     &[],
                     &[
-                        "-XMP-test:SchemaValue+=a",
-                        "-XMP-test:SchemaValue+=b",
+                        "-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue+=a",
+                        "-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue+=b",
                     ],
                 ),
             ),
@@ -1978,33 +2109,39 @@ mod tests {
                 "list remove",
                 TagKind::Bag(Box::new(TagKind::Text)),
                 metadata_list_remove(text("old")),
-                ok(&[], &["-IFD1:RuntimeValue-=old"]),
-                ok(&[], &["-XMP-test:SchemaValue-=old"]),
+                ok(
+                    &[],
+                    &["-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue-=old"],
+                ),
+                ok(
+                    &[],
+                    &["-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue-=old"],
+                ),
             ),
             (
                 "date",
                 TagKind::Date,
                 metadata_set(MetadataValue::Date(date.clone())),
-                ok(&["-IFD1:RuntimeValue=2026:07:13"], &[]),
-                ok(&["-XMP-test:SchemaValue=2026:07:13"], &[]),
+                ok(&["-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue=2026:07:13"], &[]),
+                ok(&["-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue=2026:07:13"], &[]),
             ),
             (
                 "time",
                 TagKind::Time,
                 metadata_set(MetadataValue::Time(time.clone())),
-                ok(&["-IFD1:RuntimeValue=12:34:56.789+01:30"], &[]),
-                ok(&["-XMP-test:SchemaValue=12:34:56.789+01:30"], &[]),
+                ok(&["-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue=12:34:56.789+01:30"], &[]),
+                ok(&["-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue=12:34:56.789+01:30"], &[]),
             ),
             (
                 "date-time",
                 TagKind::DateTime,
                 metadata_set(MetadataValue::DateTime(DateTimeValue { date, time })),
                 ok(
-                    &["-IFD1:RuntimeValue=2026:07:13 12:34:56.789+01:30"],
+                    &["-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue=2026:07:13 12:34:56.789+01:30"],
                     &[],
                 ),
                 ok(
-                    &["-XMP-test:SchemaValue=2026:07:13 12:34:56.789+01:30"],
+                    &["-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue=2026:07:13 12:34:56.789+01:30"],
                     &[],
                 ),
             ),
@@ -2012,32 +2149,32 @@ mod tests {
                 "time offset",
                 TagKind::TimeOffset,
                 metadata_set(MetadataValue::TimeOffset(offset)),
-                ok(&["-IFD1:RuntimeValue=+01:30"], &[]),
-                ok(&["-XMP-test:SchemaValue=+01:30"], &[]),
+                ok(&["-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue=+01:30"], &[]),
+                ok(&["-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue=+01:30"], &[]),
             ),
             (
                 "struct",
                 TagKind::Struct(BTreeMap::new()),
                 metadata_set(MetadataValue::Struct(structure)),
-                ok(&[], &["-IFD1:RuntimeValue={Name=Ada}"]),
-                ok(&[], &["-XMP-test:SchemaValue={Name=Ada}"]),
+                ok(&[], &["-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue={Name=Ada}"]),
+                ok(&[], &["-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue={Name=Ada}"]),
             ),
             (
                 "null set",
                 TagKind::Text,
                 metadata_set(MetadataValue::Null),
-                ok(&[], &["-IFD1:RuntimeValue="]),
-                ok(&[], &["-XMP-test:SchemaValue="]),
+                ok(&[], &["-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue="]),
+                ok(&[], &["-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue="]),
             ),
             (
                 "binary rejection",
                 TagKind::Text,
                 metadata_set(MetadataValue::Binary),
                 error(
-                    "value encoding failed: IFD1:RuntimeValue is binary and is not writable",
+                    "value encoding failed: 1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue is binary and is not writable",
                 ),
                 error(
-                    "value encoding failed: XMP-test:SchemaValue is binary and is not writable",
+                    "value encoding failed: 1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue is binary and is not writable",
                 ),
             ),
             (
@@ -2049,10 +2186,10 @@ mod tests {
                     reason: Some("test reason".to_owned()),
                 }),
                 error(
-                    "value encoding failed: IFD1:RuntimeValue is unparsed and cannot be written: test reason",
+                    "value encoding failed: 1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue is unparsed and cannot be written: test reason",
                 ),
                 error(
-                    "value encoding failed: XMP-test:SchemaValue is unparsed and cannot be written: test reason",
+                    "value encoding failed: 1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue is unparsed and cannot be written: test reason",
                 ),
             ),
         ];
@@ -2066,6 +2203,9 @@ mod tests {
             occurrence.tag_info = Some(info.clone());
             occurrence.write_target = Some(MetadataWriteTarget {
                 group1: "IFD1".to_owned(),
+                group7: crate::metadata_occurrence::family7_group_from_runtime_tag_id(
+                    &occurrence.id.runtime_tag_id,
+                ),
                 tag_name: "RuntimeValue".to_owned(),
             });
             let existing = existing_target(&occurrence);

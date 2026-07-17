@@ -3,10 +3,10 @@
 //! Production target-aware metadata apply reaches this module through the
 //! versioned batch command. Existing-occurrence targets are read, written and
 //! verified only by exact [`MetadataOccurrenceId`]. New-property
-//! targets use explicit zero/one/multiple exact-schema resolution after the
-//! write. LangAlt language children are aggregated as one semantic value;
-//! choosing a first, lowest, `Copy0`, `IFD0`, writable, or otherwise preferred
-//! ordinary occurrence is forbidden.
+//! targets require exactly one post-write occurrence matching both the selected
+//! schema definition and the complete attempted selector. Choosing a first,
+//! lowest, `Copy0`, `IFD0`, writable, or otherwise preferred occurrence is
+//! forbidden.
 //! Complete target-aware audit evidence is retained for the batch coordinator,
 //! which annotates it with draft persistence and appends it best-effort.
 
@@ -182,7 +182,8 @@ pub(crate) enum ApplyV5Error {
         intent: EditIntent,
     },
     WriteSelectorCollision {
-        group: String,
+        group1: String,
+        group7: String,
         tag_name: String,
         first: Box<MetadataDraftTarget>,
         second: Box<MetadataDraftTarget>,
@@ -241,13 +242,14 @@ impl std::fmt::Display for ApplyV5Error {
                 "New-property target {target:?} does not support creation intent {intent:?}"
             ),
             Self::WriteSelectorCollision {
-                group,
+                group1,
+                group7,
                 tag_name,
                 first,
                 second,
             } => write!(
                 formatter,
-                "Write-selector collision for {group}:{tag_name}: targets {first:?} and {second:?}"
+                "Write-selector collision for 1{group1}:7{group7}:{tag_name}: targets {first:?} and {second:?}"
             ),
             Self::ArgumentPlanningFailure { target, reason } => write!(
                 formatter,
@@ -265,17 +267,23 @@ impl std::fmt::Display for ApplyV5Error {
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 struct SelectorKey {
-    group: String,
+    group1: String,
+    group7: String,
     tag_name: String,
 }
 
 impl SelectorKey {
-    fn new(group: &str, tag_name: &str) -> Self {
+    fn new(target: &MetadataWriteTarget) -> Self {
         Self {
-            group: group.to_ascii_lowercase(),
-            tag_name: tag_name.to_ascii_lowercase(),
+            group1: target.group1.to_ascii_lowercase(),
+            group7: target.group7.to_ascii_lowercase(),
+            tag_name: target.tag_name.to_ascii_lowercase(),
         }
     }
+}
+
+fn selectors_equal(left: &MetadataWriteTarget, right: &MetadataWriteTarget) -> bool {
+    SelectorKey::new(left) == SelectorKey::new(right)
 }
 
 #[derive(Clone)]
@@ -466,24 +474,52 @@ where
                     args,
                 }
             }
-            MetadataDraftTarget::NewProperty { schema_id } => {
+            MetadataDraftTarget::NewProperty {
+                schema_id,
+                write_target,
+            } => {
                 let info = schema_lookup(schema_id).ok_or_else(|| {
                     ApplyV5Error::NewPropertySchemaMissing(Box::new(entry.target.clone()))
                 })?;
-                if !info.writable {
+                if !info.supports_metadata_write() {
                     return Err(ApplyV5Error::NewPropertySchemaReadOnly(Box::new(
                         entry.target.clone(),
                     )));
                 }
-                let existing = before
+                entry.target.validate_new_property(&info).map_err(|error| {
+                    ApplyV5Error::ArgumentPlanningFailure {
+                        target: Box::new(entry.target.clone()),
+                        reason: error.to_string(),
+                    }
+                })?;
+                let same_schema_ambiguous = before
                     .occurrences
                     .for_schema(schema_id)
+                    .any(|occurrence| occurrence.write_target.is_none());
+                let occupied = before
+                    .occurrences
+                    .iter()
+                    .filter(|occurrence| {
+                        occurrence
+                            .write_target
+                            .as_ref()
+                            .is_some_and(|existing| selectors_equal(existing, write_target))
+                    })
                     .map(|occurrence| occurrence.id.clone())
                     .collect::<Vec<_>>();
-                if !existing.is_empty() {
+                if same_schema_ambiguous || !occupied.is_empty() {
+                    let occurrences = if occupied.is_empty() {
+                        before
+                            .occurrences
+                            .for_schema(schema_id)
+                            .map(|occurrence| occurrence.id.clone())
+                            .collect()
+                    } else {
+                        occupied
+                    };
                     return Err(ApplyV5Error::NewPropertyAlreadyExists {
                         target: Box::new(entry.target.clone()),
-                        occurrences: existing,
+                        occurrences,
                     });
                 }
                 if matches!(
@@ -507,19 +543,17 @@ where
                     display_name: info.display_name(),
                     kind: info.kind.clone(),
                     before: None,
-                    selector: MetadataWriteTarget {
-                        group1: info.group,
-                        tag_name: info.name,
-                    },
+                    selector: write_target.clone(),
                     args,
                 }
             }
         };
 
-        let selector_key = SelectorKey::new(&plan.selector.group1, &plan.selector.tag_name);
+        let selector_key = SelectorKey::new(&plan.selector);
         if let Some(first) = selectors.insert(selector_key, plan.target.clone()) {
             return Err(ApplyV5Error::WriteSelectorCollision {
-                group: plan.selector.group1.clone(),
+                group1: plan.selector.group1.clone(),
+                group7: plan.selector.group7.clone(),
                 tag_name: plan.selector.tag_name.clone(),
                 first: Box::new(first),
                 second: Box::new(plan.target.clone()),
@@ -865,6 +899,37 @@ fn build_strict_post_write_occurrence_index(
     Ok(occurrences)
 }
 
+fn merged_lang_alt_readback(
+    schema_id: &SchemaDefinitionId,
+    primary: &MetadataOccurrence,
+    candidates: &[&MetadataOccurrence],
+) -> Option<MetadataValue> {
+    let mut languages = BTreeMap::new();
+    let child_prefix = format!("{}-", primary.id.runtime_tag_id);
+    for occurrence in candidates.iter().copied().filter(|occurrence| {
+        &occurrence.schema_id == schema_id
+            && occurrence.id.document == primary.id.document
+            && occurrence.id.path == primary.id.path
+            && occurrence.id.copy == primary.id.copy
+            && (occurrence.id.runtime_tag_id == primary.id.runtime_tag_id
+                || occurrence.id.runtime_tag_id.starts_with(&child_prefix))
+    }) {
+        let MetadataValue::LangAlt(observed) = &occurrence.value else {
+            return None;
+        };
+        for (language, value) in observed {
+            match languages.get(language) {
+                Some(existing) if existing != value => return None,
+                Some(_) => {}
+                None => {
+                    languages.insert(language.clone(), value.clone());
+                }
+            }
+        }
+    }
+    (!languages.is_empty()).then_some(MetadataValue::LangAlt(languages))
+}
+
 fn verify_plan(
     plan: &TargetPlan,
     post_by_id: &BTreeMap<MetadataOccurrenceId, &MetadataOccurrence>,
@@ -882,13 +947,43 @@ fn verify_plan(
                 },
             }
         }
-        MetadataDraftTarget::NewProperty { schema_id } => {
-            let matches = post_by_id
+        MetadataDraftTarget::NewProperty {
+            schema_id,
+            write_target,
+        } => {
+            // Inspect both the selected schema and the attempted destination so
+            // a different schema index or a redirected destination is retained
+            // as verification evidence instead of being mistaken for absence.
+            let candidates = post_by_id
                 .values()
                 .copied()
-                .filter(|occurrence| &occurrence.schema_id == schema_id)
+                .filter(|occurrence| {
+                    &occurrence.schema_id == schema_id
+                        || occurrence
+                            .write_target
+                            .as_ref()
+                            .is_some_and(|observed| selectors_equal(observed, write_target))
+                })
                 .collect::<Vec<_>>();
-            let post_write = match matches.as_slice() {
+            let matches = candidates
+                .iter()
+                .copied()
+                .filter(|occurrence| {
+                    &occurrence.schema_id == schema_id
+                        && occurrence.write_target.as_ref().is_some_and(|observed| {
+                            selectors_equal(observed, write_target)
+                                && crate::metadata_occurrence::family7_group_from_runtime_tag_id(
+                                    &occurrence.id.runtime_tag_id,
+                                ) == write_target.group7
+                        })
+                })
+                .collect::<Vec<_>>();
+            let post_write_occurrences = if matches.is_empty() {
+                &candidates
+            } else {
+                &matches
+            };
+            let post_write = match post_write_occurrences.as_slice() {
                 [] => TargetApplyPostWriteState::Missing,
                 [occurrence] => TargetApplyPostWriteState::Unique {
                     occurrence: Box::new(observed_occurrence(occurrence)),
@@ -902,18 +997,31 @@ fn verify_plan(
             };
             let verification = match matches.as_slice() {
                 [] => TargetVerification {
-                    kind: "MissingPostWrite".to_string(),
+                    kind: if candidates.is_empty() {
+                        "MissingPostWrite".to_string()
+                    } else {
+                        "TargetChangedPostWrite".to_string()
+                    },
                     message: Some(format!(
-                        "New property {schema_id} has zero exact-schema occurrences after write"
+                        "New property {schema_id} has no occurrence at attempted selector {}; observed candidates: {:?}",
+                        write_target.selector(),
+                        candidates
+                            .iter()
+                            .map(|occurrence| (&occurrence.id, &occurrence.schema_id))
+                            .collect::<Vec<_>>()
                     )),
                     observed: None,
                     draft_reconciliation: MetadataDraftReconciliation::Keep,
                 },
                 [occurrence] => {
+                    let merged_lang_alt = matches!(plan.kind, TagKind::LangAlt)
+                        .then(|| merged_lang_alt_readback(schema_id, occurrence, &candidates))
+                        .flatten();
+                    let observed = merged_lang_alt.as_ref().unwrap_or(&occurrence.value);
                     let (kind, message) = verify_semantic(
                         schema_id,
                         &plan.edit,
-                        Some(&occurrence.value),
+                        Some(observed),
                         Some(&plan.kind),
                     );
                     let draft_reconciliation = if kind == "Match" {
@@ -929,36 +1037,11 @@ fn verify_plan(
                     TargetVerification {
                         kind,
                         message,
-                        observed: Some(occurrence.value.clone()),
+                        observed: Some(observed.clone()),
                         draft_reconciliation,
                     }
                 }
-                many if matches!(plan.kind, TagKind::LangAlt) => {
-                    let Some(observed) = aggregate_lang_alt_occurrences(many) else {
-                        return VerifiedTarget {
-                            verification: ambiguous_new_property_verification(schema_id, many),
-                            post_write,
-                        };
-                    };
-                    let (kind, message) =
-                        verify_semantic(schema_id, &plan.edit, Some(&observed), Some(&plan.kind));
-                    let draft_reconciliation = if kind == "Match" {
-                        MetadataDraftReconciliation::Clear
-                    } else {
-                        MetadataDraftReconciliation::Blocked {
-                            reason: message.clone().unwrap_or_else(|| {
-                                format!("New LangAlt property {schema_id} did not verify exactly")
-                            }),
-                        }
-                    };
-                    TargetVerification {
-                        kind,
-                        message,
-                        observed: Some(observed),
-                        draft_reconciliation,
-                    }
-                }
-                many => ambiguous_new_property_verification(schema_id, many),
+                many => ambiguous_new_property_verification(schema_id, write_target, many),
             };
             VerifiedTarget {
                 verification,
@@ -968,31 +1051,14 @@ fn verify_plan(
     }
 }
 
-fn aggregate_lang_alt_occurrences(occurrences: &[&MetadataOccurrence]) -> Option<MetadataValue> {
-    let mut alternatives = BTreeMap::new();
-    for occurrence in occurrences {
-        let MetadataValue::LangAlt(values) = &occurrence.value else {
-            return None;
-        };
-        for (language, text) in values {
-            match alternatives.get(language) {
-                Some(existing) if existing != text => return None,
-                Some(_) => {}
-                None => {
-                    alternatives.insert(language.clone(), text.clone());
-                }
-            }
-        }
-    }
-    Some(MetadataValue::LangAlt(alternatives))
-}
-
 fn ambiguous_new_property_verification(
     schema_id: &SchemaDefinitionId,
+    write_target: &MetadataWriteTarget,
     occurrences: &[&MetadataOccurrence],
 ) -> TargetVerification {
     let message = format!(
-        "New property {schema_id} resolved to multiple exact-schema occurrences: {:?}",
+        "New property {schema_id} at attempted selector {} resolved to multiple exact schema-and-selector occurrences: {:?}",
+        write_target.selector(),
         occurrences
             .iter()
             .map(|occurrence| &occurrence.id)
@@ -1219,13 +1285,19 @@ mod tests {
         group: Option<&str>,
         name: &str,
     ) -> MetadataOccurrence {
+        let group7 =
+            crate::metadata_occurrence::family7_group_from_runtime_tag_id(&id.runtime_tag_id);
+        let write_group = group
+            .map(str::to_owned)
+            .or_else(|| info.as_ref().map(|tag_info| tag_info.group.clone()));
         MetadataOccurrence {
             id,
             schema_id,
             value,
             tag_info: info,
-            write_target: group.map(|group1| MetadataWriteTarget {
-                group1: group1.to_string(),
+            write_target: write_group.map(|group1| MetadataWriteTarget {
+                group1,
+                group7,
                 tag_name: name.to_string(),
             }),
         }
@@ -1515,7 +1587,8 @@ mod tests {
     #[test]
     fn selector_collisions_are_ascii_case_insensitive_and_cross_variant() {
         let info_a = schema("1", "Schema", "A", true, TagKind::Text);
-        let info_b = schema("2", "ifd0", "same", true, TagKind::Text);
+        let mut info_b = schema("1", "ifd0", "same", true, TagKind::Text);
+        info_b.id.index = Some(1);
         let existing = occurrence(
             occurrence_id("P", "1", 0),
             MetadataValue::Text("old".into()),
@@ -1537,10 +1610,11 @@ mod tests {
             plan_batch(Path::new("p"), &entries, &image(vec![existing]), |_| Some(
                 info_b.clone()
             )),
-            Err(ApplyV5Error::WriteSelectorCollision { .. })
+            Err(ApplyV5Error::NewPropertyAlreadyExists { .. })
         ));
 
-        let info_c = schema("3", "IFD0", "Same", true, TagKind::Text);
+        let mut info_c = schema("1", "IFD0", "Same", true, TagKind::Text);
+        info_c.id.index = Some(2);
         let two_new = [
             new_entry(
                 &info_b,
@@ -1559,6 +1633,64 @@ mod tests {
             .into_iter()
             .find(|info| &info.id == id)),
             Err(ApplyV5Error::WriteSelectorCollision { .. })
+        ));
+    }
+
+    #[test]
+    fn new_property_occupancy_is_destination_aware_and_conservative_without_a_target() {
+        let info = schema(
+            "282",
+            "IFD1",
+            "XResolution",
+            true,
+            TagKind::Integer {
+                min: None,
+                max: None,
+            },
+        );
+        let entry = new_entry(
+            &info,
+            edit(EditIntent::Set, Some(MetadataValue::Integer(72))),
+        );
+        let existing_elsewhere = occurrence(
+            occurrence_id("EXISTING-IFD0", "282", 0),
+            MetadataValue::Integer(300),
+            Some(info.clone()),
+            Some("IFD0"),
+            "XResolution",
+        );
+        assert!(plan_batch(
+            Path::new("p"),
+            std::slice::from_ref(&entry),
+            &image(vec![existing_elsewhere.clone()]),
+            |_| Some(info.clone()),
+        )
+        .is_ok());
+
+        let exact = occurrence(
+            occurrence_id("EXISTING-IFD1", "282", 0),
+            MetadataValue::Integer(72),
+            Some(info.clone()),
+            Some("IFD1"),
+            "XResolution",
+        );
+        assert!(matches!(
+            plan_batch(
+                Path::new("p"),
+                std::slice::from_ref(&entry),
+                &image(vec![exact]),
+                |_| Some(info.clone()),
+            ),
+            Err(ApplyV5Error::NewPropertyAlreadyExists { .. })
+        ));
+
+        let mut ambiguous = existing_elsewhere;
+        ambiguous.write_target = None;
+        assert!(matches!(
+            plan_batch(Path::new("p"), &[entry], &image(vec![ambiguous]), |_| Some(
+                info.clone()
+            ),),
+            Err(ApplyV5Error::NewPropertyAlreadyExists { .. })
         ));
     }
 
@@ -1648,7 +1780,8 @@ mod tests {
             std::slice::from_ref(&info),
         ));
 
-        let colliding_info = schema("2", "ifd0", "name", true, TagKind::Text);
+        let mut colliding_info = schema("1", "ifd0", "name", true, TagKind::Text);
+        colliding_info.id.index = Some(1);
         let colliding = new_entry(
             &colliding_info,
             edit(
@@ -1667,6 +1800,13 @@ mod tests {
         let binary = MetadataDraftEntryV5 {
             target: MetadataDraftTarget::NewProperty {
                 schema_id: binary_info.id.clone(),
+                write_target: MetadataWriteTarget {
+                    group1: binary_info.group.clone(),
+                    group7: crate::metadata_occurrence::family7_group_from_schema_id(
+                        &binary_info.id,
+                    ),
+                    tag_name: binary_info.name.clone(),
+                },
             },
             edit: edit(EditIntent::Set, Some(MetadataValue::Binary)),
         };
@@ -1782,8 +1922,8 @@ mod tests {
         ]);
         let outcome = apply_fake(&edits, &client, &[]);
         let rendered = &client.writes.borrow()[0].1;
-        assert!(rendered.contains("-IFD0:XResolution=600"));
-        assert!(rendered.contains("-IFD1:XResolution=144"));
+        assert!(rendered.contains("-1IFD0:7ID-282:XResolution=600"));
+        assert!(rendered.contains("-1IFD1:7ID-282:XResolution=144"));
         assert!(!rendered.contains("SchemaMustNotBeUsed:XResolution"));
         assert_eq!(outcome.outcomes[0].before, Some(ifd0.value.clone()));
         assert_eq!(outcome.outcomes[1].before, Some(ifd1.value.clone()));
@@ -1828,11 +1968,11 @@ mod tests {
         );
         assert_eq!(
             outcome.audit_records[0].write.arguments.numeric,
-            vec!["-IFD0:XResolution=600/1"]
+            vec!["-1IFD0:7ID-282:XResolution=600/1"]
         );
         assert_eq!(
             outcome.audit_records[1].write.arguments.numeric,
-            vec!["-IFD1:XResolution=144/1"]
+            vec!["-1IFD1:7ID-282:XResolution=144/1"]
         );
         assert!(outcome.audit_records[0].write.arguments.text.is_empty());
         assert!(outcome.audit_records[1].write.arguments.text.is_empty());
@@ -2589,6 +2729,7 @@ mod tests {
                 audit.write.selector,
                 MetadataWriteTarget {
                     group1: info.group.clone(),
+                    group7: crate::metadata_occurrence::family7_group_from_schema_id(&info.id),
                     tag_name: info.name.clone(),
                 }
             );
@@ -2626,8 +2767,8 @@ mod tests {
             Some("IFD0"),
             "Name",
         );
-        let mut ambiguity_messages = Vec::new();
-        let mut ambiguity_reasons = Vec::new();
+        // A same-schema occurrence at a different proven destination is not a
+        // duplicate of the exact intended result.
         for post in [
             vec![ifd0_copy0.clone(), unique.clone()],
             vec![unique.clone(), ifd0_copy0.clone()],
@@ -2638,42 +2779,179 @@ mod tests {
                 &client,
                 std::slice::from_ref(&info),
             );
-            assert_eq!(outcome.outcomes[0].kind, "AmbiguousPostWrite");
-            assert!(matches!(
-                outcome.outcomes[0].draft_reconciliation,
-                MetadataDraftReconciliation::Blocked { .. }
-            ));
-            let message = outcome.outcomes[0].message.as_ref().unwrap();
-            assert!(message.contains("IFD0"));
-            assert!(message.contains("NON-IFD0"));
-            ambiguity_messages.push(message.clone());
-            let MetadataDraftReconciliation::Blocked { reason } =
-                &outcome.outcomes[0].draft_reconciliation
-            else {
-                panic!("ambiguous creation must be blocked")
-            };
-            assert!(reason.contains("IFD0"));
-            assert!(reason.contains("NON-IFD0"));
-            ambiguity_reasons.push(reason.clone());
-            assert!(outcome.targets_to_clear.is_empty());
-            let audit = &outcome.audit_records[0];
-            let TargetApplyPostWriteState::Multiple { occurrences } = &audit.post_write else {
-                panic!("ambiguous creation must retain every exact candidate")
-            };
+            assert_eq!(outcome.outcomes[0].kind, "Match");
             assert_eq!(
-                occurrences
-                    .iter()
-                    .map(|occurrence| occurrence.occurrence_id.clone())
-                    .collect::<Vec<_>>(),
-                vec![ifd0_copy0.id.clone(), unique.id.clone()]
+                outcome.outcomes[0].draft_reconciliation,
+                MetadataDraftReconciliation::Clear
             );
-            assert!(matches!(
-                audit.verification.proposed_reconciliation,
-                MetadataDraftReconciliation::Blocked { .. }
-            ));
+            let audit = &outcome.audit_records[0];
+            let TargetApplyPostWriteState::Unique { occurrence } = &audit.post_write else {
+                panic!("the exact destination must retain only its exact match")
+            };
+            assert_eq!(occurrence.occurrence_id, unique.id);
         }
-        assert_eq!(ambiguity_messages[0], ambiguity_messages[1]);
-        assert_eq!(ambiguity_reasons[0], ambiguity_reasons[1]);
+
+        let mut duplicate = unique.clone();
+        duplicate.id.path = "DUPLICATE-EXACT".into();
+        duplicate.id.copy = 10;
+        let client = FakeClient::new(vec![
+            Ok(image(vec![])),
+            Ok(image(vec![unique.clone(), duplicate.clone()])),
+        ]);
+        let outcome = apply_fake(
+            std::slice::from_ref(&entry),
+            &client,
+            std::slice::from_ref(&info),
+        );
+        assert_eq!(outcome.outcomes[0].kind, "AmbiguousPostWrite");
+        assert!(matches!(
+            outcome.outcomes[0].draft_reconciliation,
+            MetadataDraftReconciliation::Blocked { .. }
+        ));
+        let TargetApplyPostWriteState::Multiple { occurrences } =
+            &outcome.audit_records[0].post_write
+        else {
+            panic!("duplicate exact results must retain every exact candidate")
+        };
+        assert_eq!(occurrences.len(), 2);
+    }
+
+    #[test]
+    fn same_schema_new_properties_at_different_destinations_plan_and_verify_independently() {
+        let info = schema(
+            "282",
+            "IFD0",
+            "XResolution",
+            true,
+            TagKind::Integer {
+                min: None,
+                max: None,
+            },
+        );
+        let mut ifd0 = new_entry(
+            &info,
+            edit(EditIntent::Set, Some(MetadataValue::Integer(300))),
+        );
+        let mut ifd1 = new_entry(
+            &info,
+            edit(EditIntent::Set, Some(MetadataValue::Integer(72))),
+        );
+        let MetadataDraftTarget::NewProperty { write_target, .. } = &mut ifd0.target else {
+            unreachable!()
+        };
+        write_target.group1 = "IFD0".into();
+        let MetadataDraftTarget::NewProperty { write_target, .. } = &mut ifd1.target else {
+            unreachable!()
+        };
+        write_target.group1 = "IFD1".into();
+
+        let post0 = occurrence(
+            occurrence_id("CREATED-IFD0", "282", 0),
+            MetadataValue::Integer(300),
+            Some(info.clone()),
+            Some("IFD0"),
+            "XResolution",
+        );
+        let post1 = occurrence(
+            occurrence_id("CREATED-IFD1", "282", 1),
+            MetadataValue::Integer(72),
+            Some(info.clone()),
+            Some("IFD1"),
+            "XResolution",
+        );
+        let client = FakeClient::new(vec![
+            Ok(image(vec![])),
+            Ok(image(vec![post1.clone(), post0.clone()])),
+        ]);
+
+        let outcome = apply_fake(&[ifd0.clone(), ifd1.clone()], &client, &[info]);
+        assert!(outcome.error.is_none(), "{:?}", outcome.error);
+        assert_eq!(outcome.targets_to_clear, vec![ifd0.target, ifd1.target]);
+        assert!(outcome.outcomes.iter().all(|item| item.kind == "Match"));
+        assert_eq!(
+            outcome
+                .audit_records
+                .iter()
+                .map(|record| record.write.selector.group1.as_str())
+                .collect::<Vec<_>>(),
+            vec!["IFD0", "IFD1"]
+        );
+    }
+
+    #[test]
+    fn new_property_readback_rejects_changed_schema_index_and_each_selector_component() {
+        let info = schema(
+            "282",
+            "IFD0",
+            "XResolution",
+            true,
+            TagKind::Integer {
+                min: None,
+                max: None,
+            },
+        );
+        let entry = new_entry(
+            &info,
+            edit(EditIntent::Set, Some(MetadataValue::Integer(300))),
+        );
+        let mut indexed_info = info.clone();
+        indexed_info.id.index = Some(0);
+        let cases = [
+            occurrence(
+                occurrence_id("INDEXED", "282", 0),
+                MetadataValue::Integer(300),
+                Some(indexed_info),
+                Some("IFD0"),
+                "XResolution",
+            ),
+            occurrence(
+                occurrence_id("OTHER-GROUP", "282", 0),
+                MetadataValue::Integer(300),
+                Some(info.clone()),
+                Some("IFD1"),
+                "XResolution",
+            ),
+            occurrence(
+                occurrence_id("OTHER-FAMILY7", "ID-AbC", 0),
+                MetadataValue::Integer(300),
+                Some(info.clone()),
+                Some("IFD0"),
+                "XResolution",
+            ),
+            occurrence(
+                occurrence_id("OTHER-NAME", "282", 0),
+                MetadataValue::Integer(300),
+                Some(info.clone()),
+                Some("IFD0"),
+                "OtherName",
+            ),
+        ];
+
+        for post in cases {
+            let client = FakeClient::new(vec![Ok(image(vec![])), Ok(image(vec![post.clone()]))]);
+            let outcome = apply_fake(
+                std::slice::from_ref(&entry),
+                &client,
+                std::slice::from_ref(&info),
+            );
+            assert_eq!(outcome.outcomes[0].kind, "TargetChangedPostWrite");
+            assert_eq!(
+                outcome.outcomes[0].draft_reconciliation,
+                MetadataDraftReconciliation::Keep
+            );
+            assert!(outcome.targets_to_clear.is_empty());
+            assert_eq!(
+                outcome.audit_records[0].write.selector,
+                entry.target.write_target().unwrap().clone()
+            );
+            let TargetApplyPostWriteState::Unique { occurrence } =
+                &outcome.audit_records[0].post_write
+            else {
+                panic!("changed target evidence must retain the observed candidate")
+            };
+            assert_eq!(occurrence.occurrence_id, post.id);
+            assert_eq!(occurrence.schema_id.as_ref(), Some(&post.schema_id));
+        }
     }
 
     #[test]
@@ -2707,14 +2985,20 @@ mod tests {
             "Items",
         );
         let client = FakeClient::new(vec![Ok(image(vec![])), Ok(image(vec![post]))]);
-        let outcome = apply_fake(&[entry], &client, &[info]);
+        let outcome = apply_fake(std::slice::from_ref(&entry), &client, &[info]);
         assert_eq!(outcome.outcomes[0].kind, "Match");
         assert_eq!(outcome.outcomes[0].observed, Some(observed));
     }
 
     #[test]
-    fn new_lang_alt_property_aggregates_language_children_for_verification() {
-        let info = schema("4", "XMP-test", "Description", true, TagKind::LangAlt);
+    fn new_lang_alt_property_merges_child_extraction_occurrences_under_one_exact_parent() {
+        let info = schema(
+            "description",
+            "XMP-test",
+            "Description",
+            true,
+            TagKind::LangAlt,
+        );
         let expected = MetadataValue::LangAlt(BTreeMap::from([
             ("fr".to_string(), "Texte exact".to_string()),
             ("x-default".to_string(), "Exact default".to_string()),
@@ -2727,7 +3011,7 @@ mod tests {
                 "Exact default".to_string(),
             )])),
             Some(info.clone()),
-            None,
+            Some("XMP-test"),
             "Description",
         );
         let french = occurrence(
@@ -2742,7 +3026,7 @@ mod tests {
         );
         let client = FakeClient::new(vec![Ok(image(vec![])), Ok(image(vec![default, french]))]);
 
-        let outcome = apply_fake(&[entry], &client, &[info]);
+        let outcome = apply_fake(std::slice::from_ref(&entry), &client, &[info]);
 
         assert_eq!(outcome.outcomes[0].kind, "Match");
         assert_eq!(outcome.outcomes[0].observed, Some(expected));
@@ -2750,13 +3034,10 @@ mod tests {
             outcome.outcomes[0].draft_reconciliation,
             MetadataDraftReconciliation::Clear
         );
-        assert_eq!(
-            outcome.targets_to_clear,
-            vec![outcome.outcomes[0].target.clone()]
-        );
+        assert_eq!(outcome.targets_to_clear, vec![entry.target]);
         assert!(matches!(
             outcome.audit_records[0].post_write,
-            TargetApplyPostWriteState::Multiple { .. }
+            TargetApplyPostWriteState::Unique { .. }
         ));
     }
 
@@ -2794,7 +3075,7 @@ mod tests {
                 occurrence_id("JPEG-APP1-IFD1", "282", 7),
                 observed.clone(),
                 Some(info.clone()),
-                Some("IFD1"),
+                Some(&info.group),
                 "XResolution",
             );
             let original_fresh = fresh.clone();
@@ -2820,11 +3101,11 @@ mod tests {
             assert_eq!(
                 target.write_target(),
                 Some(&MetadataWriteTarget {
-                    group1: "IFD1".into(),
+                    group1: info.group.clone(),
+                    group7: "ID-282".into(),
                     tag_name: "XResolution".into(),
                 })
             );
-            assert_ne!(target.write_target().unwrap().group1, info.group);
             let audit = &outcome.audit_records[0];
             let TargetApplyPostWriteState::Unique { occurrence } = &audit.post_write else {
                 panic!("unique mismatch must retain its exact observed occurrence")
@@ -2866,7 +3147,7 @@ mod tests {
             occurrence_id("LIST-PATH", "1", 4),
             value(&["different"]),
             Some(info.clone()),
-            Some("XMP-runtime"),
+            Some(&info.group),
             "Items",
         );
         let client = FakeClient::new(vec![Ok(image(vec![])), Ok(image(vec![fresh.clone()]))]);
@@ -2903,7 +3184,7 @@ mod tests {
             occurrence_id("CREATED", "1", 0),
             MetadataValue::Integer(3),
             Some(info.clone()),
-            Some("XMP-runtime"),
+            Some(&info.group),
             "Number",
         );
         let mut read_only = base.clone();
@@ -2911,25 +3192,31 @@ mod tests {
         let mut no_selector = base.clone();
         no_selector.write_target = None;
 
-        for (fresh, expected_reason) in [
-            (read_only, "read-only"),
-            (no_selector, "no exact write target"),
-        ] {
-            let client = FakeClient::new(vec![Ok(image(vec![])), Ok(image(vec![fresh]))]);
-            let outcome = apply_fake(
-                std::slice::from_ref(&entry),
-                &client,
-                std::slice::from_ref(&info),
-            );
-            assert_eq!(outcome.outcomes[0].kind, "Mismatch");
-            assert!(matches!(
-                &outcome.outcomes[0].draft_reconciliation,
-                MetadataDraftReconciliation::Blocked { reason }
-                    if reason.contains(expected_reason)
-            ));
-            assert_eq!(outcome.outcomes[0].target, entry.target);
-            assert!(outcome.targets_to_clear.is_empty());
-        }
+        let client = FakeClient::new(vec![Ok(image(vec![])), Ok(image(vec![read_only]))]);
+        let outcome = apply_fake(
+            std::slice::from_ref(&entry),
+            &client,
+            std::slice::from_ref(&info),
+        );
+        assert_eq!(outcome.outcomes[0].kind, "Mismatch");
+        assert!(matches!(
+            &outcome.outcomes[0].draft_reconciliation,
+            MetadataDraftReconciliation::Blocked { reason } if reason.contains("read-only")
+        ));
+        assert!(outcome.targets_to_clear.is_empty());
+
+        let client = FakeClient::new(vec![Ok(image(vec![])), Ok(image(vec![no_selector]))]);
+        let outcome = apply_fake(
+            std::slice::from_ref(&entry),
+            &client,
+            std::slice::from_ref(&info),
+        );
+        assert_eq!(outcome.outcomes[0].kind, "TargetChangedPostWrite");
+        assert_eq!(
+            outcome.outcomes[0].draft_reconciliation,
+            MetadataDraftReconciliation::Keep
+        );
+        assert!(outcome.targets_to_clear.is_empty());
     }
 
     #[test]
@@ -3009,7 +3296,7 @@ mod tests {
                 occurrence_id("CREATED-4", "4", 0),
                 MetadataValue::Integer(3),
                 Some(infos[3].clone()),
-                Some("IFD1"),
+                Some("IFD0"),
                 "Replace",
             ),
             occurrence(
@@ -3249,9 +3536,9 @@ mod tests {
         assert_eq!(
             outcome.audit_records[0].write.arguments.text,
             vec![
-                "-XMP-test:Items=",
-                "-XMP-test:Items=second",
-                "-XMP-test:Items=first",
+                "-1XMP-test:7ID-1:Items=",
+                "-1XMP-test:7ID-1:Items=second",
+                "-1XMP-test:7ID-1:Items=first",
             ]
         );
         assert!(outcome.audit_records[0].write.arguments.numeric.is_empty());
@@ -3597,6 +3884,11 @@ mod tests {
         let bad = MetadataDraftEntryV5 {
             target: MetadataDraftTarget::NewProperty {
                 schema_id: bad_info.id.clone(),
+                write_target: MetadataWriteTarget {
+                    group1: bad_info.group.clone(),
+                    group7: crate::metadata_occurrence::family7_group_from_schema_id(&bad_info.id),
+                    tag_name: bad_info.name.clone(),
+                },
             },
             edit: edit(EditIntent::Set, Some(MetadataValue::Text("bad".into()))),
         };
@@ -3619,7 +3911,7 @@ mod tests {
         let client = FakeClient::new(vec![Ok(image(vec![])), Ok(image(vec![post]))]);
         apply_fake(&[good], &client, &[info]);
         let rendered = &client.writes.borrow()[0].1;
-        assert!(rendered.contains("#[CSTR]-XMP-test:Name=café\\nsecond"));
+        assert!(rendered.contains("#[CSTR]-1XMP-test:7ID-1:Name=café\\nsecond"));
     }
 
     #[test]

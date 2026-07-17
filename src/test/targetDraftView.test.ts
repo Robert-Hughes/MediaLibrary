@@ -31,7 +31,7 @@ const occurrence: MetadataOccurrence = {
     kind: { kind: "Integer", data: { min: null, max: null } },
     description: null,
   },
-  write_target: { group1: "IFD0", tag_name: "XResolution" },
+  write_target: { group1: "IFD0", group7: "ID-Test", tag_name: "XResolution" },
 };
 const target: Extract<MetadataDraftTarget, { kind: "ExistingOccurrence" }> = {
   kind: "ExistingOccurrence",
@@ -60,7 +60,15 @@ describe("existing row draft resolution", () => {
     const store = new TargetDraftEditsStore();
     store.setMetadataTarget(
       "new.jpg",
-      { kind: "NewProperty", schema_id: schema },
+      {
+        kind: "NewProperty",
+        schema_id: schema,
+        write_target: {
+          group1: "XMP-test",
+          group7: "ID-Test",
+          tag_name: "TestTag",
+        },
+      },
       { intent: "Set", value: { kind: "Integer", value: 301 } },
     );
     expect(
@@ -74,7 +82,14 @@ describe("existing row draft resolution", () => {
     const stale = new TargetDraftEditsStore();
     stale.setMetadataTarget(
       "stale.jpg",
-      { ...target, write_target: { group1: "IFD1", tag_name: "Changed" } },
+      {
+        ...target,
+        write_target: {
+          group1: "IFD1",
+          group7: "ID-Test",
+          tag_name: "Changed",
+        },
+      },
       { intent: "Set", value: { kind: "Integer", value: 301 } },
     );
     expect(
@@ -133,7 +148,15 @@ describe("supplemental occurrence draft resolution", () => {
     expect(
       resolveSupplementalOccurrenceDraft(
         occurrence,
-        collection({ kind: "NewProperty", schema_id: schema }),
+        collection({
+          kind: "NewProperty",
+          schema_id: schema,
+          write_target: {
+            group1: "XMP-test",
+            group7: "ID-Test",
+            tag_name: "TestTag",
+          },
+        }),
       ),
     ).toEqual({ kind: "none" });
   });
@@ -226,7 +249,11 @@ describe("schema-keyed target draft presentation", () => {
     id: { ...occurrence.id, path: "JPEG-APP1-IFD1", copy: 1 },
     value: { kind: "Integer", value: 72 },
     tag_info: { ...occurrence.tag_info!, group: "IFD1" },
-    write_target: { group1: "IFD1", tag_name: "XResolution" },
+    write_target: {
+      group1: "IFD1",
+      group7: "ID-Test",
+      tag_name: "XResolution",
+    },
   };
   const siblingTarget: Extract<
     MetadataDraftTarget,
@@ -256,7 +283,15 @@ describe("schema-keyed target draft presentation", () => {
   });
 
   it("presents one safe NewProperty target", () => {
-    const drafts = draftsInOrder({ kind: "NewProperty", schema_id: schema });
+    const drafts = draftsInOrder({
+      kind: "NewProperty",
+      schema_id: schema,
+      write_target: {
+        group1: "XMP-test",
+        group7: "ID-Test",
+        tag_name: "TestTag",
+      },
+    });
     const projection = buildSchemaDraftDisplayProjection({
       occurrences: [],
       targetDrafts: drafts,
@@ -342,7 +377,15 @@ describe("schema-keyed target draft presentation", () => {
     ).toEqual({});
   });
   it("returns detached display-projection snapshots", () => {
-    const drafts = draftsInOrder({ kind: "NewProperty", schema_id: schema })!;
+    const drafts = draftsInOrder({
+      kind: "NewProperty",
+      schema_id: schema,
+      write_target: {
+        group1: "XMP-test",
+        group7: "ID-Test",
+        tag_name: "TestTag",
+      },
+    })!;
     const beforeDrafts = structuredClone(drafts);
     const projection = buildSchemaDraftDisplayProjection({
       occurrences: [],
@@ -364,7 +407,15 @@ describe("schema-keyed target draft presentation", () => {
     expect(
       buildSchemaDraftDisplayProjection({
         occurrences: [occurrence],
-        targetDrafts: draftsInOrder({ kind: "NewProperty", schema_id: schema }),
+        targetDrafts: draftsInOrder({
+          kind: "NewProperty",
+          schema_id: schema,
+          write_target: {
+            group1: "XMP-test",
+            group7: "ID-Test",
+            tag_name: "TestTag",
+          },
+        }),
       }),
     ).toEqual({});
   });

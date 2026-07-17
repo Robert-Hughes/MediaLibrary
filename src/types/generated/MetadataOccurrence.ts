@@ -43,7 +43,7 @@ id: MetadataOccurrenceId,
  * This is independent of runtime occurrence identity. Multiple occurrences
  * may share one schema definition.
  */
-schema_id: SchemaDefinitionId,
+schema_id: SchemaDefinitionId, 
 /**
  * Current canonical semantic value read from the file.
  */

@@ -10,6 +10,7 @@ import {
 import { formatMetadataOccurrenceIdForDiagnostics } from "../utils/metadataOccurrenceId";
 import { formatSchemaDefinitionIdForDiagnostics } from "../utils/schemaDefinitionId";
 import { metadataDraftTargetSlotToken } from "../utils/metadataDraftTarget";
+import { metadataWriteSelector } from "../utils/metadataWriteTarget";
 import { ModalDialog } from "./ModalDialog";
 
 interface Props {
@@ -39,6 +40,9 @@ function TargetDescription({ target }: { target: MetadataDraftTarget }) {
       <div>
         <strong>New Property</strong>
         <div className="verify-value-diagnostic">Schema: {schema}</div>
+        <div className="verify-value-diagnostic">
+          Write target: {metadataWriteSelector(target.write_target)}
+        </div>
       </div>
     );
   }
@@ -50,8 +54,7 @@ function TargetDescription({ target }: { target: MetadataDraftTarget }) {
       </div>
       <div className="verify-value-diagnostic">Schema: {schema}</div>
       <div className="verify-value-diagnostic">
-        Write target: {target.write_target.group1}:
-        {target.write_target.tag_name}
+        Write target: {metadataWriteSelector(target.write_target)}
       </div>
     </div>
   );
