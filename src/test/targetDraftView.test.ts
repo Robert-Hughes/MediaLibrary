@@ -240,6 +240,15 @@ describe("schema-keyed target draft presentation", () => {
     return store.getMetadataFile("a.jpg");
   }
 
+  it("returns no display draft for an empty exact-target collection", () => {
+    expect(
+      buildSchemaDraftDisplayProjection({
+        occurrences: [],
+        targetDrafts: {},
+      }),
+    ).toEqual({});
+  });
+
   it("presents one safe NewProperty target", () => {
     const drafts = draftsInOrder({ kind: "NewProperty", schema_id: schema });
     const projection = buildSchemaDraftDisplayProjection({
@@ -326,6 +335,25 @@ describe("schema-keyed target draft presentation", () => {
       }),
     ).toEqual({});
   });
+  it("returns detached display-projection snapshots", () => {
+    const drafts = draftsInOrder({ kind: "NewProperty", schema_id: schema })!;
+    const beforeDrafts = structuredClone(drafts);
+    const projection = buildSchemaDraftDisplayProjection({
+      occurrences: [],
+      targetDrafts: drafts,
+    });
+
+    projection[token].id.table = "Mutated";
+    if (projection[token].edit.value?.kind === "Integer") {
+      projection[token].edit.value.value = 999;
+    }
+
+    expect(drafts).toEqual(beforeDrafts);
+    expect(drafts[Object.keys(drafts)[0]].target.schema_id.table).toBe(
+      "Exif::Main",
+    );
+  });
+
   it("does not present a NewProperty target over an authoritative occurrence", () => {
     expect(
       buildSchemaDraftDisplayProjection({

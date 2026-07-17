@@ -7,7 +7,8 @@
  * the union of selected rows. Apply/Discard further filter to rows
  * that actually carry drafts.
  */
-import type { MetadataDraftEditsByFile, PhotoInfo } from "../types";
+import type { PhotoInfo } from "../types";
+import type { TargetDraftEditsByFile } from "../targetDraftEdits";
 import { ContextMenu } from "./ContextMenu";
 import {
   confirmApplyEdits,
@@ -20,8 +21,7 @@ interface Props {
   contextMenuIndex: number;
   selectedIndices: Set<number>;
   photos: PhotoInfo[];
-  draftEdits: MetadataDraftEditsByFile;
-  draftCounts?: Record<string, number>;
+  targetDraftEdits: TargetDraftEditsByFile;
   onPhotoOpen: (index: number) => void;
   onShowInExplorer: (index: number) => void;
   onCopyPaths?: (relativePaths: string[]) => void;
@@ -39,8 +39,7 @@ export function PhotoListContextMenu({
   contextMenuIndex,
   selectedIndices,
   photos,
-  draftEdits,
-  draftCounts = {},
+  targetDraftEdits,
   onPhotoOpen,
   onShowInExplorer,
   onCopyPaths,
@@ -57,11 +56,10 @@ export function PhotoListContextMenu({
     .map((i) => photos[i]?.relative_path)
     .filter((p): p is string => typeof p === "string");
   const editablePaths = selectedPaths.filter(
-    (p) => (draftCounts[p] ?? Object.keys(draftEdits[p] ?? {}).length) > 0,
+    (path) => Object.keys(targetDraftEdits[path] ?? {}).length > 0,
   );
   const totalEdits = editablePaths.reduce(
-    (sum, p) =>
-      sum + (draftCounts[p] ?? Object.keys(draftEdits[p] ?? {}).length),
+    (sum, path) => sum + Object.keys(targetDraftEdits[path] ?? {}).length,
     0,
   );
   const count = selectedPaths.length;

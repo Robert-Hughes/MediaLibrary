@@ -16,7 +16,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import App from "../App";
 import { createMockTauriApi } from "./mockTauriApi";
-import { makePhoto, mockDrafts } from "./factories";
+import { makePhoto, mockGeneratedDraftEntries } from "./factories";
 import type {
   MetadataDraftEdit,
   MetadataOccurrence,
@@ -211,19 +211,17 @@ describe("Reverse-geocoding flow", () => {
       {
         relativePath: "test.jpg",
         status: "ok",
-        edits: Object.values(
-          mockDrafts({
-            "XMP-iptcCore:Location": {
-              value: { kind: "Text", value: "Big Ben" },
-              intent: "Set",
-            },
-            "XMP-photoshop:City": {
-              value: { kind: "Text", value: "London" },
-              intent: "Set",
-            },
-            "XMP-photoshop:State": { value: null, intent: "Delete" },
-          }),
-        ),
+        edits: mockGeneratedDraftEntries({
+          "XMP-iptcCore:Location": {
+            value: { kind: "Text", value: "Big Ben" },
+            intent: "Set",
+          },
+          "XMP-photoshop:City": {
+            value: { kind: "Text", value: "London" },
+            intent: "Set",
+          },
+          "XMP-photoshop:State": { value: null, intent: "Delete" },
+        }),
       },
     ];
     mockApiInstance.geocodeSummary = {

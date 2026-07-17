@@ -11,10 +11,13 @@
 import { describe, it, expect } from "vitest";
 import { resolveGps as exactResolveGps } from "../utils/resolveGps";
 import type { MetadataDraftEdit, MetadataValue } from "../types";
-import { mockDrafts, mockMetadata } from "./factories";
+import { mockMetadata, mockSchemaDraftDisplayProjection } from "./factories";
 
 const resolveGps = (drafts: any, metadata: any) =>
-  exactResolveGps(drafts ? mockDrafts(drafts) : undefined, metadata);
+  exactResolveGps(
+    drafts ? mockSchemaDraftDisplayProjection(drafts) : undefined,
+    metadata,
+  );
 
 function setEdit(value: MetadataValue): MetadataDraftEdit {
   return { value, intent: "Set" };

@@ -2,7 +2,6 @@ import { memo, useCallback, useMemo, useSyncExternalStore } from "react";
 import type {
   ImageMetadataEntry,
   ImageMetadataOccurrencesStore,
-  MetadataDraftCollection,
   MetadataDraftEdit,
   PhotoInfo,
   ThumbnailStore,
@@ -20,7 +19,10 @@ import {
 import { useTagInfo } from "../hooks/useTagInfo";
 import { metadataGet } from "../utils/metadataCollection";
 import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
-import { buildSchemaDraftDisplayProjection } from "../targetDraftView";
+import {
+  buildSchemaDraftDisplayProjection,
+  type SchemaDraftDisplayProjection,
+} from "../targetDraftView";
 import { schemaMetadataCollectionFromOccurrences } from "../utils/schemaMetadataProjection";
 
 const EMPTY_CELL = "—";
@@ -97,10 +99,8 @@ interface RowProps {
   selected: boolean;
   thumbnails: ThumbnailStore;
   imageMetadataOccurrences: ImageMetadataOccurrencesStore;
-  targetDraftEdits?: TargetDraftCollection;
+  targetDraftEdits: TargetDraftCollection;
   visibleColumns: VisibleColumn[];
-  draftEdits?: MetadataDraftCollection;
-  draftCount?: number;
   onSelect: (
     index: number,
     modifiers: { ctrl: boolean; shift: boolean },
@@ -118,8 +118,6 @@ export const PhotoRow = memo(function PhotoRow({
   imageMetadataOccurrences,
   targetDraftEdits,
   visibleColumns,
-  draftEdits = {},
-  draftCount,
   onSelect,
   onPhotoOpen,
   onContextMenu,
@@ -156,15 +154,13 @@ export const PhotoRow = memo(function PhotoRow({
         : schemaMetadataCollectionFromOccurrences(occurrences),
     [occurrences],
   );
-  const presentedDraftEdits = useMemo(
+  const presentedDraftEdits: SchemaDraftDisplayProjection = useMemo(
     () =>
-      targetDraftEdits === undefined
-        ? draftEdits
-        : buildSchemaDraftDisplayProjection({
-            occurrences,
-            targetDrafts: targetDraftEdits,
-          }),
-    [draftEdits, occurrences, targetDraftEdits],
+      buildSchemaDraftDisplayProjection({
+        occurrences,
+        targetDrafts: targetDraftEdits,
+      }),
+    [occurrences, targetDraftEdits],
   );
   const isLoading = thumbnail === "loading";
   const hasSrc = thumbnail !== "loading" && thumbnail !== "failed";
@@ -186,9 +182,8 @@ export const PhotoRow = memo(function PhotoRow({
     [onContextMenu, index],
   );
 
-  const effectiveDraftCount =
-    draftCount ?? Object.keys(targetDraftEdits ?? draftEdits).length;
-  const hasDrafts = effectiveDraftCount > 0;
+  const targetDraftCount = Object.keys(targetDraftEdits).length;
+  const hasDrafts = targetDraftCount > 0;
   const rowClass = `photo-row ${index % 2 === 0 ? "photo-row--even" : "photo-row--odd"} ${selected ? "photo-row--selected" : ""}`;
 
   // Index of the first image-metadata cell — used to place exactly one spinner
@@ -251,10 +246,10 @@ export const PhotoRow = memo(function PhotoRow({
         {hasDrafts && (
           <span
             className="row-draft-badge"
-            title={`${effectiveDraftCount} pending edit(s)`}
+            title={`${targetDraftCount} pending edit(s)`}
           >
-            {effectiveDraftCount} draft edit
-            {effectiveDraftCount === 1 ? "" : "s"}
+            {targetDraftCount} draft edit
+            {targetDraftCount === 1 ? "" : "s"}
           </span>
         )}
       </div>

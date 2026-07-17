@@ -12,11 +12,8 @@
  * backend never has to read the typed-draft store — it just trusts
  * the lat/lon it receives in `GeocodeRequestItem`.
  */
-import type {
-  MetadataDraftCollection,
-  MetadataValue,
-  SchemaDefinitionId,
-} from "../types";
+import type { MetadataValue, SchemaDefinitionId } from "../types";
+import type { SchemaDraftDisplayProjection } from "../targetDraftView";
 import { GPS_IDS, KNOWN_METADATA_IDS } from "../metadata/knownIds";
 import { metadataGet, type MetadataCollection } from "./metadataCollection";
 import { schemaDefinitionIdToken } from "./schemaDefinitionId";
@@ -111,7 +108,7 @@ function gpsScalarFromMetadataValue(
 
 function extractValue(
   ids: readonly SchemaDefinitionId[],
-  drafts: MetadataDraftCollection | undefined,
+  drafts: SchemaDraftDisplayProjection | undefined,
   metadata: MetadataBag | undefined,
 ): SelectedGpsValue | null {
   // Drafts win whether they are Set or Delete — a Delete-intent draft
@@ -135,7 +132,7 @@ function extractValue(
 
 function extractScalar(
   ids: readonly SchemaDefinitionId[],
-  drafts: MetadataDraftCollection | undefined,
+  drafts: SchemaDraftDisplayProjection | undefined,
   metadata: MetadataBag | undefined,
 ): GpsScalar | null {
   return extractValue(ids, drafts, metadata)?.value ?? null;
@@ -154,7 +151,7 @@ function isCompositeGpsId(id: SchemaDefinitionId): boolean {
  * failing the whole batch.
  */
 export function resolveGps(
-  drafts: MetadataDraftCollection | undefined,
+  drafts: SchemaDraftDisplayProjection | undefined,
   metadata: MetadataBag | undefined,
 ): { lat: number | null; lon: number | null } {
   const rawLat = extractValue(LAT_IDS, drafts, metadata);

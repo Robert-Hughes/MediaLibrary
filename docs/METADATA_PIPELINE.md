@@ -26,7 +26,7 @@ presence is resolved separately from value projection. No schema-keyed scan
 wire field or second frontend metadata store remains.
 
 Details Pane rows show exact pending target values, reopen editors from staged
-semantic values, and keep same-schema siblings separate.
+semantic values, and keep same-schema siblings separate. Editors resolve complete
 `ExistingOccurrence` or `NewProperty` targets before staging. Ambiguous and
 read-only inputs fail without partial mutation.
 

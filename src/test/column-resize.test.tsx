@@ -36,6 +36,7 @@ describe("column resize handles", () => {
     const { thumbnails, imageMetadata } = makeStores();
     render(
       <PhotoList
+        targetDraftEdits={{}}
         photos={mockPhotos}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
@@ -57,6 +58,7 @@ describe("column resize handles", () => {
     const { thumbnails, imageMetadata } = makeStores();
     render(
       <PhotoList
+        targetDraftEdits={{}}
         photos={mockPhotos}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
@@ -78,6 +80,7 @@ describe("column resize handles", () => {
     const { thumbnails, imageMetadata } = makeStores();
     render(
       <PhotoList
+        targetDraftEdits={{}}
         photos={mockPhotos}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
@@ -105,6 +108,7 @@ describe("column resize handles", () => {
     const { thumbnails, imageMetadata } = makeStores();
     render(
       <PhotoList
+        targetDraftEdits={{}}
         photos={mockPhotos}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
@@ -129,6 +133,7 @@ describe("column resize handles", () => {
     const { thumbnails, imageMetadata } = makeStores();
     render(
       <PhotoList
+        targetDraftEdits={{}}
         photos={mockPhotos}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
@@ -164,6 +169,7 @@ describe("column resize handles", () => {
     const { thumbnails, imageMetadata } = makeStores();
     render(
       <PhotoList
+        targetDraftEdits={{}}
         photos={mockPhotos}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
@@ -231,6 +237,7 @@ describe("column resize handles", () => {
       });
       return (
         <PhotoList
+          targetDraftEdits={{}}
           photos={mockPhotos}
           thumbnails={thumbnails}
           imageMetadataOccurrences={imageMetadata}
@@ -283,6 +290,7 @@ describe("column resize handles", () => {
     const { thumbnails, imageMetadata } = makeStores();
     render(
       <PhotoList
+        targetDraftEdits={{}}
         photos={mockPhotos}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
@@ -310,6 +318,7 @@ describe("column resize handles", () => {
     const imageMetadata = new ImageMetadataOccurrencesStore();
     render(
       <PhotoList
+        targetDraftEdits={{}}
         photos={[]}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
@@ -339,6 +348,7 @@ describe("buildGridTemplate (via rendered styles)", () => {
     const { thumbnails, imageMetadata } = makeStores();
     render(
       <PhotoList
+        targetDraftEdits={{}}
         photos={mockPhotos}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
@@ -370,6 +380,7 @@ describe("buildGridTemplate (via rendered styles)", () => {
 
     render(
       <PhotoList
+        targetDraftEdits={{}}
         photos={photos}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
@@ -398,6 +409,7 @@ describe("buildGridTemplate (via rendered styles)", () => {
     const { thumbnails, imageMetadata } = makeStores();
     render(
       <PhotoList
+        targetDraftEdits={{}}
         photos={mockPhotos}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}

@@ -28,6 +28,7 @@ function renderWith(visibleColumns: VisibleColumn[]) {
   const { thumbnails, imageMetadata } = makeStores();
   return render(
     <PhotoList
+      targetDraftEdits={{}}
       photos={photos}
       thumbnails={thumbnails}
       imageMetadataOccurrences={imageMetadata}

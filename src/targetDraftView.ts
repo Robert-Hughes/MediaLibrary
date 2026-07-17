@@ -1,6 +1,6 @@
 import type {
   ImageMetadataOccurrencesState,
-  MetadataDraftCollection,
+  MetadataDraftEdit,
   MetadataDraftEntryV5,
   MetadataDraftTarget,
   MetadataOccurrence,
@@ -26,6 +26,20 @@ import { metadataOccurrenceIdEquals } from "./utils/metadataOccurrenceId";
 type ExistingOccurrenceTarget = Extract<
   MetadataDraftTarget,
   { kind: "ExistingOccurrence" }
+>;
+
+export interface SchemaDraftDisplayEntry {
+  id: SchemaDefinitionId;
+  edit: MetadataDraftEdit;
+}
+
+/**
+ * Derived schema-row presentation only. Record keys exist for JavaScript
+ * collection mechanics; entries are not persisted state or mutation inputs.
+ */
+export type SchemaDraftDisplayProjection = Record<
+  string,
+  SchemaDraftDisplayEntry
 >;
 
 export type SchemaDraftPresentationResolution =
@@ -162,8 +176,8 @@ export function resolveSchemaDraftForPresentation(input: {
 export function buildSchemaDraftDisplayProjection(input: {
   occurrences: ImageMetadataOccurrencesState | undefined;
   targetDrafts: TargetDraftCollection | undefined;
-}): MetadataDraftCollection {
-  const projection: MetadataDraftCollection = {};
+}): SchemaDraftDisplayProjection {
+  const projection: SchemaDraftDisplayProjection = {};
   const context = loadedPresentationContext(input.occurrences);
   for (const schemaId of targetDraftSchemas(input.targetDrafts)) {
     const resolution = resolveSchemaDraftWithContext(
@@ -273,8 +287,8 @@ export function resolveSupplementalOccurrenceDraft(
 }
 
 /**
- * Resolve draft ownership for one compatibility row without ever selecting a
- * target merely because its schema matches.
+ * Resolve draft ownership for one ordinary schema-oriented row without ever
+ * selecting a target merely because its schema matches.
  */
 export function resolveExistingRowDraft(
   schemaId: SchemaDefinitionId,
@@ -352,8 +366,9 @@ export function findNewPropertyDraftByExactSchema(
 }
 
 /**
- * Temporary Add Property view: a schema may resolve to at most one exact
- * target draft. Never first-select when reconciled occurrences are ambiguous.
+ * Resolve exact-schema target ownership for a derived display projection. A
+ * schema may resolve to at most one exact target; never first-select when
+ * reconciled occurrences are ambiguous.
  */
 export function resolveTargetDraftByExactSchema(
   drafts: TargetDraftCollection | undefined,

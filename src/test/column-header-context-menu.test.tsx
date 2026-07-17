@@ -10,8 +10,15 @@ import {
   _clearTagInfoCache,
   _setTagInfoCacheEntry,
 } from "./tagInfoTestHelpers";
-import { imgCol, mockDraftsByFile, mockMetadata, testId } from "./factories";
+import {
+  imgCol,
+  mockMetadata,
+  mockTargetDraftsByFile,
+  newPropertyTargetDraft,
+  testId,
+} from "./factories";
 import { occurrencesFromMetadataCollection } from "./occurrenceFixtures";
+import { existingOccurrenceTargetFromOccurrence } from "../utils/metadataDraftTarget";
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({
   ask: vi.fn(),
@@ -73,6 +80,7 @@ describe("PhotoList column header context menu", () => {
   it("shows context menu when right-clicking on column headers", async () => {
     render(
       <PhotoList
+        targetDraftEdits={{}}
         photos={mockPhotos}
         thumbnails={thumbnailStore}
         imageMetadataOccurrences={metadataStore}
@@ -102,6 +110,7 @@ describe("PhotoList column header context menu", () => {
   it("calls onSelectColumns when clicking 'Select Columns...' in context menu", async () => {
     render(
       <PhotoList
+        targetDraftEdits={{}}
         photos={mockPhotos}
         thumbnails={thumbnailStore}
         imageMetadataOccurrences={metadataStore}
@@ -134,6 +143,7 @@ describe("PhotoList column header context menu", () => {
   it("works on image metadata column headers too", async () => {
     render(
       <PhotoList
+        targetDraftEdits={{}}
         photos={mockPhotos}
         thumbnails={thumbnailStore}
         imageMetadataOccurrences={metadataStore}
@@ -170,6 +180,7 @@ describe("PhotoList column header context menu", () => {
   it("does not show context menu when onSelectColumns is not provided", async () => {
     render(
       <PhotoList
+        targetDraftEdits={{}}
         photos={mockPhotos}
         thumbnails={thumbnailStore}
         imageMetadataOccurrences={metadataStore}
@@ -228,6 +239,7 @@ describe("PhotoList column header context menu", () => {
     it("does not show remove field option on Path or OS columns", async () => {
       render(
         <PhotoList
+          targetDraftEdits={{}}
           photos={mockPhotos}
           thumbnails={thumbnailStore}
           imageMetadataOccurrences={metadataStore}
@@ -277,6 +289,7 @@ describe("PhotoList column header context menu", () => {
 
       render(
         <PhotoList
+          targetDraftEdits={{}}
           photos={mockPhotos}
           thumbnails={thumbnailStore}
           imageMetadataOccurrences={metadataStore}
@@ -331,6 +344,7 @@ describe("PhotoList column header context menu", () => {
 
       render(
         <PhotoList
+          targetDraftEdits={{}}
           photos={mockPhotos}
           thumbnails={thumbnailStore}
           imageMetadataOccurrences={metadataStore}
@@ -366,7 +380,7 @@ describe("PhotoList column header context menu", () => {
       );
     });
 
-    it("uses the target-aware preview instead of compatibility overlays", async () => {
+    it("uses the target-aware preview instead of schema overlays", async () => {
       vi.mocked(ask).mockResolvedValue(true);
 
       onPreviewFieldMock.mockReturnValue({
@@ -393,23 +407,34 @@ describe("PhotoList column header context menu", () => {
       // photo2 has no value in metadata but Set draft edit (effectively present)
       metadataStore.set("photo2.jpg", []);
 
-      const draftEdits = {
-        "photo1.jpg": {
-          "ExifIFD:DateTimeOriginal": {
-            intent: "Delete" as const,
-            value: null,
+      const photo1Occurrences = metadataStore.get("photo1.jpg");
+      if (!Array.isArray(photo1Occurrences) || photo1Occurrences.length !== 1) {
+        throw new Error("Expected one authoritative photo1 occurrence");
+      }
+      const existingTarget = existingOccurrenceTargetFromOccurrence(
+        photo1Occurrences[0],
+      );
+      if (existingTarget.kind !== "targetable") {
+        throw new Error("Expected targetable photo1 occurrence");
+      }
+      const targetDraftEdits = mockTargetDraftsByFile({
+        "photo1.jpg": [
+          {
+            target: existingTarget.target,
+            edit: { intent: "Delete", value: null },
           },
-        },
-        "photo2.jpg": {
-          "ExifIFD:DateTimeOriginal": {
-            intent: "Set" as const,
-            value: { kind: "Text" as const, value: "2022:02:02 12:00:00" },
-          },
-        },
-      };
+        ],
+        "photo2.jpg": [
+          newPropertyTargetDraft("ExifIFD:DateTimeOriginal", {
+            intent: "Set",
+            value: { kind: "Text", value: "2022:02:02 12:00:00" },
+          }),
+        ],
+      });
 
       render(
         <PhotoList
+          targetDraftEdits={targetDraftEdits}
           photos={mockPhotos}
           thumbnails={thumbnailStore}
           imageMetadataOccurrences={metadataStore}
@@ -423,7 +448,6 @@ describe("PhotoList column header context menu", () => {
           onSelectColumns={onSelectColumnsMock}
           onRemoveFieldFromSelectedPhotos={onRemoveFieldMock}
           onPreviewRemoveFieldFromSelectedPhotos={onPreviewFieldMock}
-          draftEdits={mockDraftsByFile(draftEdits)}
         />,
       );
 
@@ -457,6 +481,7 @@ describe("PhotoList column header context menu", () => {
       });
       render(
         <PhotoList
+          targetDraftEdits={{}}
           photos={mockPhotos}
           thumbnails={thumbnailStore}
           imageMetadataOccurrences={metadataStore}
@@ -498,6 +523,7 @@ describe("PhotoList column header context menu", () => {
       });
       render(
         <PhotoList
+          targetDraftEdits={{}}
           photos={mockPhotos}
           thumbnails={thumbnailStore}
           imageMetadataOccurrences={metadataStore}
@@ -547,6 +573,7 @@ describe("PhotoList column header context menu", () => {
 
       render(
         <PhotoList
+          targetDraftEdits={{}}
           photos={mockPhotos}
           thumbnails={thumbnailStore}
           imageMetadataOccurrences={metadataStore}
@@ -596,6 +623,7 @@ describe("PhotoList column header context menu", () => {
 
       render(
         <PhotoList
+          targetDraftEdits={{}}
           photos={mockPhotos}
           thumbnails={thumbnailStore}
           imageMetadataOccurrences={metadataStore}
@@ -634,6 +662,7 @@ describe("PhotoList column header context menu", () => {
 
       render(
         <PhotoList
+          targetDraftEdits={{}}
           photos={mockPhotos}
           thumbnails={thumbnailStore}
           imageMetadataOccurrences={metadataStore}
@@ -668,6 +697,7 @@ describe("PhotoList column header context menu", () => {
     it("F. Existing Select Columns behaviour remains", async () => {
       render(
         <PhotoList
+          targetDraftEdits={{}}
           photos={mockPhotos}
           thumbnails={thumbnailStore}
           imageMetadataOccurrences={metadataStore}
@@ -695,6 +725,7 @@ describe("PhotoList column header context menu", () => {
     it("G. If neither callback exists, context menu does not open", async () => {
       render(
         <PhotoList
+          targetDraftEdits={{}}
           photos={mockPhotos}
           thumbnails={thumbnailStore}
           imageMetadataOccurrences={metadataStore}

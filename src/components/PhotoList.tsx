@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ThumbnailStore, ImageMetadataOccurrencesStore } from "../types";
 import type {
-  MetadataDraftEditsByFile,
   PhotoInfo,
   SchemaDefinitionId,
   SortConfig,
@@ -48,7 +47,7 @@ interface Props {
   photos: PhotoInfo[];
   thumbnails: ThumbnailStore;
   imageMetadataOccurrences: ImageMetadataOccurrencesStore;
-  targetDraftEdits?: TargetDraftEditsByFile;
+  targetDraftEdits: TargetDraftEditsByFile;
   visibleColumns: VisibleColumn[];
   columnWidths?: Record<string, number>;
   onColumnWidthChange?: (col: string, width: number) => void;
@@ -68,8 +67,6 @@ interface Props {
   searchQuery?: string;
   /** Shown in the grid body when `photos` is empty but the folder is not (search had no hits). */
   emptySearchMessage?: string | null;
-  draftEdits?: MetadataDraftEditsByFile;
-  draftCounts?: Record<string, number>;
   onDiscardAllEdits?: (fileRelativePaths: string[]) => void;
   onApplyEdits?: (fileRelativePaths: string[]) => void;
   /** Trigger AI-description flow for the given relative paths. */
@@ -346,8 +343,6 @@ export function PhotoList({
   onSelectColumns,
   searchQuery = "",
   emptySearchMessage = null,
-  draftEdits = {},
-  draftCounts = {},
   onDiscardAllEdits,
   onApplyEdits,
   onGenerateAiDescription,
@@ -682,10 +677,8 @@ export function PhotoList({
                 selected={selectedIndices.has(virtualRow.index)}
                 thumbnails={thumbnails}
                 imageMetadataOccurrences={imageMetadataOccurrences}
-                targetDraftEdits={targetDraftEdits?.[photo.relative_path]}
+                targetDraftEdits={targetDraftEdits[photo.relative_path] ?? {}}
                 visibleColumns={visibleColumns}
-                draftEdits={draftEdits[photo.relative_path]}
-                draftCount={draftCounts[photo.relative_path]}
                 onSelect={handleRowSelect}
                 onPhotoOpen={onPhotoOpen}
                 onContextMenu={handleContextMenu}
@@ -704,8 +697,7 @@ export function PhotoList({
           contextMenuIndex={contextMenu.index}
           selectedIndices={selectedIndices}
           photos={photos}
-          draftEdits={draftEdits}
-          draftCounts={draftCounts}
+          targetDraftEdits={targetDraftEdits}
           onPhotoOpen={onPhotoOpen}
           onShowInExplorer={onShowInExplorer}
           onCopyPaths={onCopyPaths}

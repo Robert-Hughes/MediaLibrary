@@ -53,6 +53,7 @@ function renderList(
   );
   render(
     <PhotoList
+      targetDraftEdits={{}}
       photos={photos}
       thumbnails={thumbs}
       imageMetadataOccurrences={imageMetadata}
@@ -183,6 +184,7 @@ describe("PhotoList", () => {
     const { thumbs, imageMetadata } = makeStores([]);
     render(
       <PhotoList
+        targetDraftEdits={{}}
         photos={[]}
         thumbnails={thumbs}
         imageMetadataOccurrences={imageMetadata}
@@ -235,6 +237,7 @@ describe("PhotoList", () => {
     });
     render(
       <PhotoList
+        targetDraftEdits={{}}
         photos={photos}
         thumbnails={thumbs}
         imageMetadataOccurrences={imageMetadata}

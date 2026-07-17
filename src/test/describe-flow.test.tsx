@@ -17,7 +17,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import App from "../App";
 import { createMockTauriApi } from "./mockTauriApi";
-import { makePhoto, mockDrafts } from "./factories";
+import { makePhoto, mockGeneratedDraftEntries } from "./factories";
 
 let mockApiInstance: ReturnType<typeof createMockTauriApi>;
 
@@ -277,24 +277,22 @@ describe("AI-description flow", () => {
       {
         relativePath: "test.jpg",
         status: "ok",
-        edits: Object.values(
-          mockDrafts({
-            "XMP-mlib:AIDescription": {
-              value: { kind: "Text", value: "a calm beach scene" },
-              intent: "Set",
-            },
-            "XMP-mlib:AITags": {
+        edits: mockGeneratedDraftEntries({
+          "XMP-mlib:AIDescription": {
+            value: { kind: "Text", value: "a calm beach scene" },
+            intent: "Set",
+          },
+          "XMP-mlib:AITags": {
+            value: {
+              kind: "List",
               value: {
-                kind: "List",
-                value: {
-                  list_kind: "Bag",
-                  items: [{ kind: "Text", value: "beach" }],
-                },
+                list_kind: "Bag",
+                items: [{ kind: "Text", value: "beach" }],
               },
-              intent: "Set",
             },
-          }),
-        ),
+            intent: "Set",
+          },
+        }),
       },
     ];
 

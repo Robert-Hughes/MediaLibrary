@@ -24,7 +24,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import App from "../App";
 import { createMockTauriApi } from "./mockTauriApi";
-import { makePhoto, mockDrafts } from "./factories";
+import { makePhoto, mockGeneratedDraftEntries } from "./factories";
 import type { MetadataValue } from "../types";
 
 let mockApiInstance: ReturnType<typeof createMockTauriApi>;
@@ -134,20 +134,18 @@ describe("Metadata-normalisation flow", () => {
       {
         relativePath: "test.jpg",
         status: "ok",
-        edits: Object.values(
-          mockDrafts({
-            "XMP-lr:HierarchicalSubject": {
+        edits: mockGeneratedDraftEntries({
+          "XMP-lr:HierarchicalSubject": {
+            value: {
+              kind: "List",
               value: {
-                kind: "List",
-                value: {
-                  list_kind: "Bag",
-                  items: [{ kind: "Text", value: "a" }],
-                },
+                list_kind: "Bag",
+                items: [{ kind: "Text", value: "a" }],
               },
-              intent: "Set",
             },
-          }),
-        ),
+            intent: "Set",
+          },
+        }),
       },
     ];
     mockApiInstance.normaliseSummary = {

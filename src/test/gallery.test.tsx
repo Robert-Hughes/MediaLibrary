@@ -226,6 +226,7 @@ describe("PhotoList interaction", () => {
     photos.forEach((p) => imageMetadata.add(p.relative_path));
     render(
       <PhotoList
+        targetDraftEdits={{}}
         photos={photos}
         thumbnails={thumbs}
         imageMetadataOccurrences={imageMetadata}
