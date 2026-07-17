@@ -7,7 +7,7 @@ import {
 } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import App from "../App";
-import { makePhoto, mockMetadataEntries } from "./factories";
+import { makePhoto, mockOccurrences } from "./factories";
 import type { MetadataOccurrence } from "../types";
 
 // Mock Tauri API
@@ -387,12 +387,11 @@ describe("App Select Columns metadata counts", () => {
         results: [
           {
             relative_path: "a.jpg",
-            occurrences: [],
-            metadata: mockMetadataEntries({
+            occurrences: mockOccurrences({
               "XMP-dc:Title": "Committed title",
             }),
           },
-          { relative_path: "b.jpg", occurrences: [], metadata: [] },
+          { relative_path: "b.jpg", occurrences: [] },
         ],
       });
     });
@@ -501,8 +500,7 @@ describe("App Select Columns metadata counts", () => {
         results: [
           {
             relative_path: "a.jpg",
-            occurrences: [],
-            metadata: mockMetadataEntries({ "XMP-dc:Title": "Title A" }),
+            occurrences: mockOccurrences({ "XMP-dc:Title": "Title A" }),
           },
         ],
       });
@@ -526,8 +524,7 @@ describe("App Select Columns metadata counts", () => {
         results: [
           {
             relative_path: "b.jpg",
-            occurrences: [],
-            metadata: mockMetadataEntries({ "XMP-dc:Title": "Title B" }),
+            occurrences: mockOccurrences({ "XMP-dc:Title": "Title B" }),
           },
         ],
       });

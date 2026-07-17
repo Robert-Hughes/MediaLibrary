@@ -1,7 +1,7 @@
 import { render, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import { PhotoList } from "../components/PhotoList";
-import { ThumbnailStore, ImageMetadataStore } from "../types";
+import { ThumbnailStore, ImageMetadataOccurrencesStore } from "../types";
 import type { PhotoInfo, VisibleColumn } from "../types";
 import { imgCol, osCol } from "./factories";
 
@@ -37,7 +37,7 @@ const defaultSortProps = {
 
 function makeStores() {
   const thumbnails = new ThumbnailStore();
-  const imageMetadata = new ImageMetadataStore();
+  const imageMetadata = new ImageMetadataOccurrencesStore();
   mockPhotos.forEach((p) => {
     thumbnails.add(p.relative_path);
     imageMetadata.add(p.relative_path);
@@ -55,7 +55,7 @@ describe("column header draggable attribute", () => {
       <PhotoList
         photos={mockPhotos}
         thumbnails={thumbnails}
-        imageMetadata={imageMetadata}
+        imageMetadataOccurrences={imageMetadata}
         visibleColumns={[img("IFD0:Model"), img("ExifIFD:DateTimeOriginal")]}
         {...defaultSortProps}
         selectedIndex={null}
@@ -76,7 +76,7 @@ describe("column header draggable attribute", () => {
       <PhotoList
         photos={mockPhotos}
         thumbnails={thumbnails}
-        imageMetadata={imageMetadata}
+        imageMetadataOccurrences={imageMetadata}
         visibleColumns={[os("date_modified"), os("date_created")]}
         {...defaultSortProps}
         selectedIndex={null}
@@ -97,7 +97,7 @@ describe("column header draggable attribute", () => {
       <PhotoList
         photos={mockPhotos}
         thumbnails={thumbnails}
-        imageMetadata={imageMetadata}
+        imageMetadataOccurrences={imageMetadata}
         visibleColumns={[]}
         {...defaultSortProps}
         selectedIndex={null}
@@ -120,7 +120,7 @@ describe("metadata column reorder insertion", () => {
       <PhotoList
         photos={mockPhotos}
         thumbnails={thumbnails}
-        imageMetadata={imageMetadata}
+        imageMetadataOccurrences={imageMetadata}
         visibleColumns={[
           img("IFD0:Model"),
           img("ExifIFD:DateTimeOriginal"),
@@ -208,7 +208,7 @@ describe("OS metadata column reorder insertion", () => {
       <PhotoList
         photos={mockPhotos}
         thumbnails={thumbnails}
-        imageMetadata={imageMetadata}
+        imageMetadataOccurrences={imageMetadata}
         visibleColumns={[os("date_modified"), os("date_created")]}
         onColumnsReorder={onColumnsReorder}
         {...defaultSortProps}
@@ -258,7 +258,7 @@ describe("metadata column header gridColumn positions follow visibleColumns orde
       <PhotoList
         photos={mockPhotos}
         thumbnails={thumbnails}
-        imageMetadata={imageMetadata}
+        imageMetadataOccurrences={imageMetadata}
         visibleColumns={visibleColumns}
         {...defaultSortProps}
         selectedIndex={null}
@@ -313,7 +313,7 @@ describe("cross-kind drop is allowed (unified columns)", () => {
       <PhotoList
         photos={mockPhotos}
         thumbnails={thumbnails}
-        imageMetadata={imageMetadata}
+        imageMetadataOccurrences={imageMetadata}
         visibleColumns={[
           os("date_modified"),
           os("date_created"),
@@ -354,7 +354,7 @@ describe("drag-over drop indicator", () => {
       <PhotoList
         photos={mockPhotos}
         thumbnails={thumbnails}
-        imageMetadata={imageMetadata}
+        imageMetadataOccurrences={imageMetadata}
         visibleColumns={[img("IFD0:Model"), img("ExifIFD:DateTimeOriginal")]}
         onColumnsReorder={() => {}}
         {...defaultSortProps}
@@ -465,7 +465,7 @@ describe("combined metadata header interactions", () => {
       <PhotoList
         photos={mockPhotos}
         thumbnails={thumbnails}
-        imageMetadata={imageMetadata}
+        imageMetadataOccurrences={imageMetadata}
         visibleColumns={[
           os("date_modified"),
           img("IFD0:Model"),

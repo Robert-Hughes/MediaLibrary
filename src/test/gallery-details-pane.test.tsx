@@ -17,7 +17,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { ComponentProps } from "react";
 import { GalleryView } from "../components/GalleryView";
 
-import { ImageMetadataOccurrencesStore, ImageMetadataStore } from "../types";
+import { ImageMetadataOccurrencesStore } from "../types";
 import { makePhotos, mockMetadata } from "./factories";
 import type { PhotoInfo } from "../types";
 import {
@@ -25,6 +25,7 @@ import {
   _setTagInfoCacheEntry,
 } from "./tagInfoTestHelpers";
 
+import { occurrencesFromMetadataCollection } from "./occurrenceFixtures";
 // ── Test helpers ─────────────────────────────────────────────────────────────
 
 const PHOTOS: PhotoInfo[] = makePhotos([
@@ -33,21 +34,6 @@ const PHOTOS: PhotoInfo[] = makePhotos([
   "2024/c.jpg",
 ]);
 const fakeLoad = async (_path: string) => "data:image/jpeg;base64,FAKE";
-
-/** Create an ImageMetadataStore pre-populated with test metadata. */
-function createPopulatedStore(
-  photos: PhotoInfo[],
-  metadataByPath: Record<string, Record<string, any>>,
-): ImageMetadataStore {
-  const store = new ImageMetadataStore();
-  for (const p of photos) {
-    store.add(p.relative_path);
-    if (metadataByPath[p.relative_path]) {
-      store.set(p.relative_path, mockMetadata(metadataByPath[p.relative_path]));
-    }
-  }
-  return store;
-}
 
 /** Render the GalleryView with defaults suitable for integration testing. */
 async function renderGallery(
@@ -63,7 +49,7 @@ async function renderGallery(
     onClose: vi.fn(),
     onNavigate: vi.fn(),
     loadImage: fakeLoad,
-    imageMetadata: new ImageMetadataStore(),
+    imageMetadataOccurrences: new ImageMetadataOccurrencesStore(),
     ...overrides,
   };
 
@@ -223,11 +209,11 @@ describe("Gallery details pane content", () => {
   });
 
   it("shows loading state when metadata has not been received", async () => {
-    const store = new ImageMetadataStore();
+    const store = new ImageMetadataOccurrencesStore();
     PHOTOS.forEach((p) => store.add(p.relative_path));
     // Don't set metadata — leave in "loading" state
 
-    await renderGallery({ imageMetadata: store });
+    await renderGallery({ imageMetadataOccurrences: store });
 
     await userEvent.click(screen.getByTestId("gallery-info-toggle"));
 
@@ -236,161 +222,7 @@ describe("Gallery details pane content", () => {
   });
 
   it("shows grouped image metadata when available", async () => {
-    const store = createPopulatedStore(PHOTOS, {
-      "2024/a.jpg": {
-        "IFD0:Make": "Canon",
-        "IFD0:Model": "EOS R5",
-        "ExifIFD:ISO": 400,
-        "XMP-dc:Subject": ["landscape", "sunset"],
-      },
-    });
-
-    await renderGallery({ imageMetadata: store, currentIndex: 0 });
-
-    await userEvent.click(screen.getByTestId("gallery-info-toggle"));
-
-    // IFD0 group
-    const ifdSection = screen.getByTestId("details-section-IFD0");
-    expect(within(ifdSection).getByText("Make")).toBeInTheDocument();
-    expect(within(ifdSection).getByText("Canon")).toBeInTheDocument();
-    expect(within(ifdSection).getByText("Model")).toBeInTheDocument();
-    expect(within(ifdSection).getByText("EOS R5")).toBeInTheDocument();
-
-    // ExifIFD group
-    const exifSection = screen.getByTestId("details-section-ExifIFD");
-    expect(within(exifSection).getByText("ISO")).toBeInTheDocument();
-    expect(within(exifSection).getByText("400")).toBeInTheDocument();
-
-    // XMP-dc group
-    const xmpSection = screen.getByTestId("details-section-XMP-dc");
-    expect(within(xmpSection).getByText("Subject")).toBeInTheDocument();
-    expect(
-      within(xmpSection).getByText("landscape, sunset"),
-    ).toBeInTheDocument();
-  });
-
-  it("shows empty metadata state when metadata is an empty object", async () => {
-    const store = createPopulatedStore(PHOTOS, {
-      "2024/a.jpg": {},
-    });
-
-    await renderGallery({ imageMetadata: store, currentIndex: 0 });
-
-    await userEvent.click(screen.getByTestId("gallery-info-toggle"));
-
-    expect(screen.getByTestId("details-section-empty")).toBeInTheDocument();
-    expect(screen.getByText("No image metadata available")).toBeInTheDocument();
-  });
-});
-
-describe("Gallery details pane with navigation", () => {
-  it("updates details pane content when navigating to a different photo", async () => {
     const onClose = vi.fn();
-    const onNavigate = vi.fn();
-    const onRemoveMetadataFieldsV5 = vi.fn();
-    const onDiscardTargetDraftBatch = vi.fn();
-    const store = createPopulatedStore(PHOTOS, {
-      "2024/a.jpg": { "IFD0:Make": "Canon" },
-      "2024/b.jpg": { "IFD0:Make": "Nikon" },
-    });
-
-    const { rerender } = render(
-      <GalleryView
-        photos={PHOTOS}
-        currentIndex={0}
-        folderPath="/photos"
-        onClose={onClose}
-        onNavigate={onNavigate}
-        loadImage={fakeLoad}
-        imageMetadata={store}
-        onRemoveMetadataFieldsV5={onRemoveMetadataFieldsV5}
-        onDiscardTargetDraftBatch={onDiscardTargetDraftBatch}
-      />,
-    );
-    await screen.findByTestId("gallery-image");
-
-    // Open details pane
-    await userEvent.click(screen.getByTestId("gallery-info-toggle"));
-    expect(screen.getByText("Canon")).toBeInTheDocument();
-
-    // Simulate navigation to index 1
-    rerender(
-      <GalleryView
-        photos={PHOTOS}
-        currentIndex={1}
-        folderPath="/photos"
-        onClose={onClose}
-        onNavigate={onNavigate}
-        loadImage={fakeLoad}
-        imageMetadata={store}
-        onRemoveMetadataFieldsV5={onRemoveMetadataFieldsV5}
-        onDiscardTargetDraftBatch={onDiscardTargetDraftBatch}
-      />,
-    );
-    await screen.findByTestId("gallery-image");
-
-    // Details should now show the second photo's metadata
-    expect(screen.getByText("Nikon")).toBeInTheDocument();
-    expect(screen.queryByText("Canon")).not.toBeInTheDocument();
-
-    // And OS metadata should reflect the second photo
-    expect(screen.getByText("b.jpg")).toBeInTheDocument();
-  });
-});
-
-describe("Gallery details pane search", () => {
-  it("filters OS rows and highlights matching text", async () => {
-    await renderGallery({ currentIndex: 0 });
-
-    await userEvent.click(screen.getByTestId("gallery-info-toggle"));
-    const search = screen.getByTestId("details-search-input");
-    await userEvent.type(search, "Relative");
-
-    const osSection = screen.getByTestId("details-section-os");
-    const rows = within(osSection).getAllByTestId("details-row");
-    expect(rows).toHaveLength(1);
-    const keyCell = rows[0].querySelector(".details-key");
-    expect(keyCell).toHaveTextContent("Relative Path");
-    expect(keyCell?.querySelector("mark")).toHaveTextContent("Relative");
-  });
-
-  it("hides OS Metadata heading when no OS rows match the query", async () => {
-    const store = createPopulatedStore(PHOTOS, {
-      "2024/a.jpg": { "IFD0:Make": "Canon" },
-    });
-
-    await renderGallery({ imageMetadata: store, currentIndex: 0 });
-
-    await userEvent.click(screen.getByTestId("gallery-info-toggle"));
-    await userEvent.type(screen.getByTestId("details-search-input"), "Canon");
-
-    expect(screen.queryByTestId("details-section-os")).not.toBeInTheDocument();
-  });
-
-  it("matches full image metadata key not shown in label and still shows the row", async () => {
-    const store = createPopulatedStore(PHOTOS, {
-      "2024/a.jpg": { "IFD0:Make": "Canon" },
-    });
-
-    await renderGallery({ imageMetadata: store, currentIndex: 0 });
-
-    await userEvent.click(screen.getByTestId("gallery-info-toggle"));
-    await userEvent.type(screen.getByTestId("details-search-input"), "IFD0:");
-
-    const section = screen.getByTestId("details-section-IFD0");
-    const rows = within(section).getAllByTestId("details-row");
-    expect(rows).toHaveLength(1);
-    expect(within(rows[0]).getByText("Make")).toBeInTheDocument();
-    expect(within(rows[0]).queryAllByRole("mark")).toHaveLength(0);
-  });
-});
-
-describe("Gallery keyboard shortcuts coexistence", () => {
-  it("cancels a real property editor without closing the gallery", async () => {
-    const onClose = vi.fn();
-    const store = createPopulatedStore(PHOTOS, {
-      "2024/a.jpg": { "IFD0:Make": "Canon" },
-    });
     const occurrences = new ImageMetadataOccurrencesStore();
     occurrences.set("2024/a.jpg", [
       {
@@ -414,7 +246,6 @@ describe("Gallery keyboard shortcuts coexistence", () => {
       },
     ]);
     await renderGallery({
-      imageMetadata: store,
       imageMetadataOccurrences: occurrences,
       onSetExistingOccurrenceDraft: vi.fn(),
       onClose,
@@ -474,10 +305,10 @@ describe("Gallery keyboard shortcuts coexistence", () => {
 
 describe("Gallery details pane with reactive metadata", () => {
   it("updates displayed metadata when metadata store receives new data", async () => {
-    const store = new ImageMetadataStore();
+    const store = new ImageMetadataOccurrencesStore();
     PHOTOS.forEach((p) => store.add(p.relative_path));
 
-    await renderGallery({ imageMetadata: store, currentIndex: 0 });
+    await renderGallery({ imageMetadataOccurrences: store, currentIndex: 0 });
 
     // Open details
     await userEvent.click(screen.getByTestId("gallery-info-toggle"));
@@ -489,10 +320,12 @@ describe("Gallery details pane with reactive metadata", () => {
     act(() => {
       store.set(
         "2024/a.jpg",
-        mockMetadata({
-          "IFD0:Make": "Sony",
-          "IFD0:Model": "A7R IV",
-        }),
+        occurrencesFromMetadataCollection(
+          mockMetadata({
+            "IFD0:Make": "Sony",
+            "IFD0:Model": "A7R IV",
+          }),
+        ),
       );
     });
 

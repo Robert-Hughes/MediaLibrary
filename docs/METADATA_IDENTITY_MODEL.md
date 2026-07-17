@@ -46,10 +46,12 @@ distinguishable and diagnosable, but read-only. Duplicated or otherwise
 ambiguous occurrences also remain unavailable to mutation without selecting an
 arbitrary representative.
 
-The schema-keyed `ImageMetadata.metadata` projection remains temporarily for
-read-only consumers. It now derives identity from `occurrence.schema_id`, so a
-later migration can remove the projection without losing unknown-schema
-identity from authoritative occurrence state.
+`ImageMetadata` now stores only authoritative occurrences. Schema-oriented
+read-only consumers derive a safe value view on demand from
+`occurrence.schema_id`; identical values may collapse, compatible LangAlt values
+may merge, and conflicts remain unavailable without selecting an occurrence.
+Schema presence is tracked separately from value representability, and no
+schema-keyed scan store or wire field remains.
 
 ## Draft target identity
 

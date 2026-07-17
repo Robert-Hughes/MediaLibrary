@@ -30,8 +30,8 @@ use medialibrary_tauri_lib::{
         DateTimeValue, DateValue, ListKind, MetadataValue, OffsetSign, TimeValue, UtcOffsetValue,
     },
     scanner,
+    tag_schema::SchemaDefinitionId,
 };
-
 fn fixture_path(name: &str) -> Option<PathBuf> {
     let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).parent()?;
     let p = workspace_root.join("test_images").join(name);
@@ -70,6 +70,41 @@ fn read_one(folder: &Path, abs: &Path) -> scanner::ImageMetadata {
     outcome.results.into_iter().next().expect("one result")
 }
 
+fn schema_value(image: &scanner::ImageMetadata, id: &SchemaDefinitionId) -> Option<MetadataValue> {
+    let values = image
+        .occurrences
+        .for_schema(id)
+        .map(|occurrence| &occurrence.value)
+        .collect::<Vec<_>>();
+    let first = values.first().copied()?;
+
+    if values
+        .iter()
+        .all(|value| matches!(value, MetadataValue::LangAlt(_)))
+    {
+        let mut merged = BTreeMap::new();
+        for value in values {
+            let MetadataValue::LangAlt(languages) = value else {
+                unreachable!("all values were checked as LangAlt")
+            };
+            for (language, text) in languages {
+                match merged.get(language) {
+                    Some(existing) if existing != text => return None,
+                    Some(_) => {}
+                    None => {
+                        merged.insert(language.clone(), text.clone());
+                    }
+                }
+            }
+        }
+        return Some(MetadataValue::LangAlt(merged));
+    }
+
+    values
+        .iter()
+        .all(|value| *value == first)
+        .then(|| first.clone())
+}
 fn metadata_set(value: MetadataValue) -> MetadataDraftEdit {
     MetadataDraftEdit {
         value: Some(value),
@@ -195,19 +230,19 @@ fn apply_v5_batch(folder: &str, rel: &str, edits: Vec<MetadataDraftEntry>) -> V5
 // ── Scanner two-pass smoke test ──────────────────────────────────────────────
 
 #[test]
-fn scanner_two_pass_returns_display_and_canonical() {
+fn scanner_two_pass_returns_authoritative_occurrences() {
     let Some(src) = fixture_path("real_with_exif.jpg") else {
         return;
     };
     let (_dir, dst) = copy_to_temp(&src);
-    let m = read_one(_dir.path(), &dst);
+    let metadata = read_one(_dir.path(), &dst);
     assert!(
-        !m.metadata.is_empty(),
-        "display metadata should be non-empty"
+        !metadata.occurrences.is_empty(),
+        "authoritative occurrences should be non-empty"
     );
-    // Canonical may be empty if the two-pass read produced no usable values,
-    // but the field must exist and parse. This sanity-checks the struct shape.
-    let _ = m.metadata;
+    let wire = serde_json::to_value(&metadata).expect("serialise ImageMetadata");
+    assert_eq!(wire.as_object().unwrap().len(), 2);
+    assert!(wire.get("metadata").is_none());
 }
 
 // ── apply_edits text round-trip ──────────────────────────────────────────────
@@ -236,10 +271,7 @@ fn apply_text_edit_roundtrip_iptc_city() {
     assert_eq!(result.applied, vec![rel.clone()]);
 
     let m = read_one(dir.path(), &dst);
-    let got = m
-        .metadata
-        .get(&medialibrary_tauri_lib::known_ids::iptc_city())
-        .cloned();
+    let got = schema_value(&m, &medialibrary_tauri_lib::known_ids::iptc_city());
     match got {
         Some(MetadataValue::Text(s)) => assert_eq!(s, value),
         other => panic!("expected IPTC City set, got {:?}", other),
@@ -264,10 +296,10 @@ fn apply_xmp_mlib_ai_description_preserves_utf8() {
     assert!(outcome.error.is_none(), "apply failed: {:?}", outcome.error);
 
     let m = read_one(dir.path(), &dst);
-    match m
-        .metadata
-        .get(&medialibrary_tauri_lib::known_ids::mlib_ai_description())
-    {
+    match schema_value(
+        &m,
+        &medialibrary_tauri_lib::known_ids::mlib_ai_description(),
+    ) {
         Some(MetadataValue::Text(s)) => assert!(
             s.contains('é'),
             "expected semantic readback to preserve é, got {:?}",
@@ -306,9 +338,7 @@ fn apply_delete_edit_removes_tag() {
 
     // Step 3: re-read; City should be absent or empty.
     let m = read_one(dir.path(), &dst);
-    let got = m
-        .metadata
-        .get(&medialibrary_tauri_lib::known_ids::iptc_city());
+    let got = schema_value(&m, &medialibrary_tauri_lib::known_ids::iptc_city());
     match got {
         None => {}
         Some(MetadataValue::Text(s)) => assert!(s.is_empty(), "expected empty, got {:?}", s),
@@ -326,10 +356,7 @@ fn fixture_keywords_basic_has_two_keywords() {
     };
     let (_dir, dst) = copy_to_temp(&src);
     let m = read_one(_dir.path(), &dst);
-    match m
-        .metadata
-        .get(&medialibrary_tauri_lib::known_ids::xmp_subject())
-    {
+    match schema_value(&m, &medialibrary_tauri_lib::known_ids::xmp_subject()) {
         Some(MetadataValue::List { items, .. }) => {
             assert_eq!(items.len(), 2, "expected two subjects, got {:?}", items);
             let strs: Vec<String> = items
@@ -365,8 +392,8 @@ fn fixture_orientation_rotate90_pretty_and_raw_match_design() {
         tag_id: "274".to_string(),
         index: None,
     };
-    match m.metadata.get(&orientation_id) {
-        Some(MetadataValue::Integer(n)) => assert_eq!(*n, 6),
+    match schema_value(&m, &orientation_id) {
+        Some(MetadataValue::Integer(n)) => assert_eq!(n, 6),
         Some(MetadataValue::Text(s)) if s == "6" => {} // some exiftool builds emit "6" as string under -n
         other => panic!("expected raw Orientation=6, got {:?}", other),
     }
@@ -379,10 +406,7 @@ fn fixture_langalt_description_pretty_and_raw_match_design() {
     };
     let (_dir, dst) = copy_to_temp(&src);
     let m = read_one(_dir.path(), &dst);
-    let desc = m
-        .metadata
-        .get(&medialibrary_tauri_lib::known_ids::xmp_description())
-        .unwrap();
+    let desc = schema_value(&m, &medialibrary_tauri_lib::known_ids::xmp_description()).unwrap();
     let map = match desc {
         MetadataValue::LangAlt(m) => m,
         other => panic!("expected LangAlt, got {:?}", other),
@@ -403,22 +427,20 @@ fn fixture_rating_5_pretty_and_raw_match_design() {
     let (_dir, dst) = copy_to_temp(&src);
     let m = read_one(_dir.path(), &dst);
     let rating_id = medialibrary_tauri_lib::known_ids::xmp_rating();
-    let display = m.metadata.get(&rating_id);
-    let raw = m.metadata.get(&rating_id);
-    let display_ok = match display {
+    let rating = schema_value(&m, &rating_id);
+    let display_ok = match rating.as_ref() {
         Some(MetadataValue::Integer(5)) => true,
         Some(MetadataValue::Real(f)) => (f - 5.0).abs() < 1e-9,
         Some(MetadataValue::Text(s)) if s == "5" || s == "5.0" => true,
         _ => false,
     };
-    let raw_ok = matches!(raw, Some(MetadataValue::Integer(5)))
-        || matches!(raw, Some(MetadataValue::Real(f)) if (f - 5.0).abs() < 1e-9)
-        || matches!(raw, Some(MetadataValue::Text(s)) if s == "5");
+    let raw_ok = matches!(rating.as_ref(), Some(MetadataValue::Integer(5)))
+        || matches!(rating.as_ref(), Some(MetadataValue::Real(f)) if (f - 5.0).abs() < 1e-9)
+        || matches!(rating.as_ref(), Some(MetadataValue::Text(s)) if s == "5");
     assert!(
         display_ok || raw_ok,
-        "expected Rating=5 in some form; display={:?}, raw={:?}",
-        display,
-        raw
+        "expected Rating=5 in some form; value={:?}",
+        rating
     );
 }
 
@@ -437,7 +459,7 @@ fn roundtrip_set_rating() {
 
     // Confirm starting state.
     let before = read_one(dir.path(), &dst);
-    let starting_rating = before.metadata.get(&rating_id).cloned();
+    let starting_rating = schema_value(&before, &rating_id);
     assert!(
         starting_rating.is_some(),
         "fixture should start with a Rating"
@@ -456,16 +478,11 @@ fn roundtrip_set_rating() {
     ));
 
     let after = read_one(dir.path(), &dst);
-    let raw = after.metadata.get(&rating_id);
-    let display = after.metadata.get(&rating_id);
-    let ok = matches!(raw, Some(MetadataValue::Integer(5)))
-        || matches!(raw, Some(MetadataValue::Real(f)) if (f - 5.0).abs() < 1e-6)
-        || matches!(display, Some(MetadataValue::Text(s)) if s == "5" || s == "5.0");
-    assert!(
-        ok,
-        "Rating not updated; display={:?}, raw={:?}",
-        display, raw
-    );
+    let rating = schema_value(&after, &rating_id);
+    let ok = matches!(rating.as_ref(), Some(MetadataValue::Integer(5)))
+        || matches!(rating.as_ref(), Some(MetadataValue::Real(f)) if (f - 5.0).abs() < 1e-6)
+        || matches!(rating.as_ref(), Some(MetadataValue::Text(s)) if s == "5" || s == "5.0");
+    assert!(ok, "Rating not updated; value={rating:?}");
 }
 
 #[test]
@@ -492,8 +509,8 @@ fn roundtrip_set_orientation_via_numeric_pass() {
     assert!(result.failed.is_empty(), "failed: {:?}", result.failed);
 
     let after = read_one(dir.path(), &dst);
-    match after.metadata.get(&orientation_id) {
-        Some(MetadataValue::Integer(n)) => assert_eq!(*n, 3),
+    match schema_value(&after, &orientation_id) {
+        Some(MetadataValue::Integer(n)) => assert_eq!(n, 3),
         other => panic!("expected canonical Orientation 3, got {:?}", other),
     }
 }
@@ -511,9 +528,7 @@ fn face_regions_round_trip_through_struct_variant() {
     let (dir, dst) = copy_to_temp(&src);
     let m = read_one(dir.path(), &dst);
 
-    let region_info = m
-        .metadata
-        .get(&medialibrary_tauri_lib::known_ids::xmp_region_info());
+    let region_info = schema_value(&m, &medialibrary_tauri_lib::known_ids::xmp_region_info());
     let region_info = match region_info {
         Some(MetadataValue::Struct(map)) => map,
         other => panic!("expected RegionInfo as Object, got {:?}", other),
@@ -570,7 +585,7 @@ fn unicode_filename_does_not_crash_scanner() {
             // If exiftool found the file, sanity-check metadata; otherwise
             // accept the empty case (Windows path-encoding limitation).
             if let Some(r) = outcome.results.into_iter().next() {
-                if !r.metadata.is_empty() {
+                if !r.occurrences.is_empty() {
                     println!("[unicode test] exiftool read metadata: ok");
                 }
             } else if let Some(fail) = outcome.failures.into_iter().next() {
@@ -614,7 +629,9 @@ fn malformed_truncated_does_not_kill_batch() {
         .iter()
         .find(|r| r.relative_path == "good.jpg");
     assert!(
-        good_result.map(|r| !r.metadata.is_empty()).unwrap_or(false),
+        good_result
+            .map(|r| !r.occurrences.is_empty())
+            .unwrap_or(false),
         "good file must still have metadata"
     );
 
@@ -651,10 +668,7 @@ fn semantic_apply_writes_bag_as_separate_items_end_to_end() {
     assert!(outcome.error.is_none(), "apply failed: {:?}", outcome.error);
 
     let m = read_one(dir.path(), &dst);
-    match m
-        .metadata
-        .get(&medialibrary_tauri_lib::known_ids::xmp_subject())
-    {
+    match schema_value(&m, &medialibrary_tauri_lib::known_ids::xmp_subject()) {
         Some(MetadataValue::List { items, .. }) => {
             assert_eq!(items.len(), 3, "expected 3 subjects, got {:?}", items);
             let strs: Vec<String> = items
@@ -705,9 +719,7 @@ fn semantic_apply_rating_fractional_coerces_or_rejects_cleanly() {
 
     // Re-read should still parse without panic.
     let m = read_one(dir.path(), &dst);
-    let _ = m
-        .metadata
-        .get(&medialibrary_tauri_lib::known_ids::xmp_rating());
+    let _ = schema_value(&m, &medialibrary_tauri_lib::known_ids::xmp_rating());
 }
 
 // ── ListAdd / ListRemove intents ─────────────────────────────────────────────
@@ -731,10 +743,7 @@ fn semantic_apply_list_add_appends_items_to_bag() {
     assert!(outcome.error.is_none(), "apply failed: {:?}", outcome.error);
 
     let m = read_one(dir.path(), &dst);
-    match m
-        .metadata
-        .get(&medialibrary_tauri_lib::known_ids::xmp_subject())
-    {
+    match schema_value(&m, &medialibrary_tauri_lib::known_ids::xmp_subject()) {
         Some(MetadataValue::List { items, .. }) => {
             let strs: Vec<String> = items
                 .iter()
@@ -786,10 +795,7 @@ fn semantic_apply_list_remove_drops_items_from_bag() {
     assert!(outcome.error.is_none(), "apply failed: {:?}", outcome.error);
 
     let m = read_one(dir.path(), &dst);
-    match m
-        .metadata
-        .get(&medialibrary_tauri_lib::known_ids::xmp_subject())
-    {
+    match schema_value(&m, &medialibrary_tauri_lib::known_ids::xmp_subject()) {
         Some(MetadataValue::List { items, .. }) => {
             let strs: Vec<String> = items
                 .iter()
@@ -846,10 +852,7 @@ fn apply_keywords_writes_back_as_separate_items_not_csv() {
     assert!(result.failed.is_empty(), "{:?}", result.failed);
 
     let m = read_one(dir.path(), &dst);
-    match m
-        .metadata
-        .get(&medialibrary_tauri_lib::known_ids::xmp_subject())
-    {
+    match schema_value(&m, &medialibrary_tauri_lib::known_ids::xmp_subject()) {
         Some(MetadataValue::Text(s)) => assert!(s == "alpha" || s == "beta"),
         Some(MetadataValue::List { items, .. }) => {
             assert_eq!(items.len(), 2);
@@ -893,10 +896,7 @@ fn apply_xmp_mlib_ai_ocr_text_preserves_newlines() {
     assert!(result.failed.is_empty(), "{:?}", result.failed);
 
     let m = read_one(dir.path(), &dst);
-    match m
-        .metadata
-        .get(&medialibrary_tauri_lib::known_ids::mlib_ai_ocr_text())
-    {
+    match schema_value(&m, &medialibrary_tauri_lib::known_ids::mlib_ai_ocr_text()) {
         Some(MetadataValue::Text(s)) => {
             assert_eq!(s.as_str(), ocr_text.as_str());
         }
@@ -958,16 +958,16 @@ fn scanner_runtime_ids_resolve_exactly_or_remain_unknown() {
     let metadata = read_one(dir.path(), &dst);
     let registry = medialibrary_tauri_lib::tag_schema::get_registry().expect("schema registry");
     let mut resolved = 0;
-    for entry in metadata.metadata.0 {
-        match registry.lookup(&entry.id) {
+    for occurrence in metadata.occurrences {
+        match registry.lookup(&occurrence.schema_id) {
             Some(info) => {
-                assert_eq!(info.id, entry.id);
+                assert_eq!(info.id, occurrence.schema_id);
                 resolved += 1;
             }
             None => assert!(
-                matches!(entry.value, MetadataValue::Unknown { .. }),
+                matches!(occurrence.value, MetadataValue::Unknown { .. }),
                 "missing exact schema must remain unknown/read-only: {:?}",
-                entry.id
+                occurrence.schema_id
             ),
         }
     }
@@ -998,10 +998,13 @@ fn bmp_collision_files_retain_distinct_exact_tables() {
         index: None,
     };
 
-    assert!(windows_metadata.metadata.get(&windows_id).is_some());
-    assert!(windows_metadata.metadata.get(&os2_id).is_none());
-    assert!(os2_metadata.metadata.get(&os2_id).is_some());
-    assert!(os2_metadata.metadata.get(&windows_id).is_none());
+    assert_eq!(
+        windows_metadata.occurrences.for_schema(&windows_id).count(),
+        1
+    );
+    assert_eq!(windows_metadata.occurrences.for_schema(&os2_id).count(), 0);
+    assert_eq!(os2_metadata.occurrences.for_schema(&os2_id).count(), 1);
+    assert_eq!(os2_metadata.occurrences.for_schema(&windows_id).count(), 0);
 
     let registry = medialibrary_tauri_lib::tag_schema::get_registry().expect("schema registry");
     let windows_info = registry.lookup(&windows_id).expect("Windows BMP schema");
@@ -1028,8 +1031,8 @@ fn real_fixture_retains_repeated_definition_index_zero() {
         ..indexed.clone()
     };
 
-    assert!(metadata.metadata.get(&indexed).is_some());
-    assert!(metadata.metadata.get(&unindexed).is_none());
+    assert_eq!(metadata.occurrences.for_schema(&indexed).count(), 1);
+    assert_eq!(metadata.occurrences.for_schema(&unindexed).count(), 0);
     assert_ne!(indexed, unindexed);
     let registry = medialibrary_tauri_lib::tag_schema::get_registry().expect("schema registry");
     assert_eq!(
@@ -1064,8 +1067,8 @@ fn roundtrip_langalt_preserves_exact_parent_id_and_languages() {
         .any(|target| target.schema_id() == &id));
     let reread = read_one(dir.path(), &dst);
     assert_eq!(
-        reread.metadata.get(&id),
-        Some(&MetadataValue::LangAlt(languages))
+        schema_value(&reread, &id),
+        Some(MetadataValue::LangAlt(languages))
     );
 }
 
@@ -1116,15 +1119,12 @@ fn roundtrip_gps_preserves_each_exact_id() {
     );
     let reread = read_one(dir.path(), &dst);
     for (id, expected) in values {
-        let actual = reread
-            .metadata
-            .get(&id)
-            .unwrap_or_else(|| panic!("missing {id:?}"));
-        match (&expected, actual) {
+        let actual = schema_value(&reread, &id).unwrap_or_else(|| panic!("missing {id:?}"));
+        match (&expected, &actual) {
             (MetadataValue::Real(expected), MetadataValue::Real(actual)) => {
                 assert!((actual - expected).abs() < 1e-8, "{id:?}: {actual}");
             }
-            _ => assert_eq!(actual, &expected, "{id:?}"),
+            _ => assert_eq!(actual, expected, "{id:?}"),
         }
     }
 }
@@ -1164,7 +1164,7 @@ fn roundtrip_datetime_preserves_explicit_utc_offset_and_exact_id() {
     assert!(outcome.error.is_none(), "apply failed: {:?}", outcome.error);
     assert_eq!(outcome.outcomes[0].target.schema_id(), &id);
     let reread = read_one(dir.path(), &dst);
-    assert_eq!(reread.metadata.get(&id), Some(&value));
+    assert_eq!(schema_value(&reread, &id), Some(value));
 }
 
 #[test]

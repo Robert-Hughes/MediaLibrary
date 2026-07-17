@@ -1,14 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import type {
-  ImageMetadataState,
-  ImageMetadataStore,
+  ImageMetadataOccurrencesState,
+  ImageMetadataOccurrencesStore,
   PhotoInfo,
   SchemaDefinitionId,
   TagInfo,
 } from "../types";
 import type {
   SearchDraftEntry,
-  SearchMetadataState,
+  SearchOccurrencesState,
   SearchSchemaLabel,
   SearchWorkerInbound,
   SearchWorkerOutbound,
@@ -22,14 +22,15 @@ import type {
 
 const INITIAL_REPLAY_RETRY_DELAYS_MS = [250, 1_000, 5_000] as const;
 
-export function toSearchMetadataState(
-  meta: ImageMetadataState,
-): SearchMetadataState {
-  if (meta === "loading") return "loading";
-  return Object.values(meta).map((entry) => {
-    const { id, ...value } = entry;
-    return { id, value };
-  });
+export function toSearchOccurrencesState(
+  occurrences: ImageMetadataOccurrencesState,
+): SearchOccurrencesState {
+  if (occurrences === "loading") return "loading";
+  return occurrences.map((occurrence) => ({
+    schemaId: structuredClone(occurrence.schema_id),
+    value: structuredClone(occurrence.value),
+    occurrenceId: structuredClone(occurrence.id),
+  }));
 }
 
 export function toSearchDraftEntries(
@@ -43,8 +44,12 @@ export function toSearchDraftEntries(
     : undefined;
 }
 
-function idsFromMetadata(meta: SearchMetadataState): SchemaDefinitionId[] {
-  return meta === "loading" ? [] : meta.map(({ id }) => id);
+function idsFromOccurrences(
+  occurrences: SearchOccurrencesState,
+): SchemaDefinitionId[] {
+  return occurrences === "loading"
+    ? []
+    : occurrences.map(({ schemaId }) => schemaId);
 }
 
 function labelsFromResolved(
@@ -79,7 +84,7 @@ export interface SearchWorkerLike {
 
 export interface UseSearchWorkerArgs {
   photos: PhotoInfo[];
-  imageMetadataStore: ImageMetadataStore;
+  imageMetadataOccurrencesStore: ImageMetadataOccurrencesStore;
   targetDraftEditsStore: TargetDraftEditsStore;
   query: string;
   /** Default 150ms.  Tests pass 0 to bypass the debounce. */
@@ -149,16 +154,15 @@ function photoToFields(p: PhotoInfo) {
  *    while results refresh);
  *  - a request-id ratchet that drops stale `RESULT` messages.
  *
- * The store-instance refs are watched (re-init on change) so that scan
- * reset — which swaps in a fresh `ImageMetadataStore` — also resets the
- * worker's index.
+ * The occurrence-store reference is watched for defensive re-initialisation,
+ * although production preserves its identity across folder scans.
  */
 export function useSearchWorker(
   args: UseSearchWorkerArgs,
 ): UseSearchWorkerResult {
   const {
     photos,
-    imageMetadataStore,
+    imageMetadataOccurrencesStore,
     targetDraftEditsStore,
     query,
     debounceMs = 150,
@@ -172,7 +176,7 @@ export function useSearchWorker(
   queryRef.current = query;
   const prevPhotosRef = useRef<PhotoInfo[]>([]);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const metaRevisionsRef = useRef(new Map<string, number>());
+  const occurrenceRevisionsRef = useRef(new Map<string, number>());
   const draftRevisionsRef = useRef(new Map<string, number>());
 
   const [matched, setMatched] = useState<Set<string> | null>(null);
@@ -211,7 +215,7 @@ export function useSearchWorker(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── Subscribe to metadata store + cold-start replay ─────────────────
+  // ── Subscribe to occurrence store + cold-start replay ───────────────
   useEffect(() => {
     const w = workerRef.current;
     if (!w) return;
@@ -235,13 +239,13 @@ export function useSearchWorker(
     // Exact IDs cross the worker boundary. The existing main-thread cache
     // resolves labels first, then sends entries and search-only labels atomically;
     // labels enrich the haystack but never become identity.
-    const initialMeta = Array.from(imageMetadataStore.entries()).map(
-      ([path, meta]) => ({
-        path,
-        meta: toSearchMetadataState(meta),
-        revision: metaRevisionsRef.current.get(path) ?? 0,
-      }),
-    );
+    const initialOccurrences = Array.from(
+      imageMetadataOccurrencesStore.entries(),
+    ).map(([path, occurrences]) => ({
+      path,
+      occurrences: toSearchOccurrencesState(occurrences),
+      revision: occurrenceRevisionsRef.current.get(path) ?? 0,
+    }));
     const initialDrafts = Object.entries(
       targetDraftEditsStore.getAllMetadata(),
     ).map(([path, edits]) => ({
@@ -249,8 +253,8 @@ export function useSearchWorker(
       edits: toSearchDraftEntries(edits) ?? [],
       revision: draftRevisionsRef.current.get(path) ?? 0,
     }));
-    const initialMetaIds = initialMeta.flatMap(({ meta }) =>
-      idsFromMetadata(meta),
+    const initialOccurrenceIds = initialOccurrences.flatMap(({ occurrences }) =>
+      idsFromOccurrences(occurrences),
     );
     const initialDraftIds = initialDrafts.flatMap(({ edits }) =>
       edits.map(({ id }) => id),
@@ -274,7 +278,7 @@ export function useSearchWorker(
       if (!isCurrentWorker() || initialReplayComplete || initialReplayInFlight)
         return;
       initialReplayInFlight = true;
-      void resolveTagInfosExact([...initialMetaIds, ...initialDraftIds])
+      void resolveTagInfosExact([...initialOccurrenceIds, ...initialDraftIds])
         .then((resolved) => {
           if (!isCurrentWorker() || initialReplayComplete) return;
           initialReplayComplete = true;
@@ -283,16 +287,16 @@ export function useSearchWorker(
             clearTimeout(initialReplayRetryTimer);
             initialReplayRetryTimer = null;
           }
-          const metaEntries = initialMeta
+          const occurrenceEntries = initialOccurrences
             .filter(
               ({ path, revision }) =>
-                (metaRevisionsRef.current.get(path) ?? 0) === revision,
+                (occurrenceRevisionsRef.current.get(path) ?? 0) === revision,
             )
-            .map(({ path, meta }) => ({ path, meta }));
+            .map(({ path, occurrences }) => ({ path, occurrences }));
           w.postMessage({
-            type: "INIT_META",
-            entries: metaEntries,
-            schemaLabels: labelsFromResolved(initialMetaIds, resolved),
+            type: "INIT_OCCURRENCES",
+            entries: occurrenceEntries,
+            schemaLabels: labelsFromResolved(initialOccurrenceIds, resolved),
           });
           const draftEntries = initialDrafts
             .filter(
@@ -316,30 +320,32 @@ export function useSearchWorker(
     };
     replayInitialSnapshot();
 
-    const unsubMeta = imageMetadataStore.subscribeAll((path, meta) => {
-      const revision = (metaRevisionsRef.current.get(path) ?? 0) + 1;
-      metaRevisionsRef.current.set(path, revision);
-      const searchMeta = toSearchMetadataState(meta);
-      const ids = idsFromMetadata(searchMeta);
-      void resolveTagInfosExact(ids)
-        .then((resolved) => {
-          if (
-            !isCurrentWorker() ||
-            metaRevisionsRef.current.get(path) !== revision
-          )
-            return;
-          w.postMessage({
-            type: "UPSERT_META",
-            path,
-            meta: searchMeta,
-            schemaLabels: labelsFromResolved(ids, resolved),
+    const unsubOccurrences = imageMetadataOccurrencesStore.subscribeAll(
+      (path, occurrences) => {
+        const revision = (occurrenceRevisionsRef.current.get(path) ?? 0) + 1;
+        occurrenceRevisionsRef.current.set(path, revision);
+        const searchOccurrences = toSearchOccurrencesState(occurrences);
+        const ids = idsFromOccurrences(searchOccurrences);
+        void resolveTagInfosExact(ids)
+          .then((resolved) => {
+            if (
+              !isCurrentWorker() ||
+              occurrenceRevisionsRef.current.get(path) !== revision
+            )
+              return;
+            w.postMessage({
+              type: "UPSERT_OCCURRENCES",
+              path,
+              occurrences: searchOccurrences,
+              schemaLabels: labelsFromResolved(ids, resolved),
+            });
+            submitNow(queryRef.current);
+          })
+          .catch(() => {
+            // A later update retries.
           });
-          submitNow(queryRef.current);
-        })
-        .catch(() => {
-          // A later update retries.
-        });
-    });
+      },
+    );
     const unsubDrafts = targetDraftEditsStore.subscribe((changes) => {
       for (const c of changes) {
         const revision = (draftRevisionsRef.current.get(c.path) ?? 0) + 1;
@@ -372,10 +378,10 @@ export function useSearchWorker(
         clearTimeout(initialReplayRetryTimer);
         initialReplayRetryTimer = null;
       }
-      unsubMeta();
+      unsubOccurrences();
       unsubDrafts();
     };
-  }, [imageMetadataStore, targetDraftEditsStore]);
+  }, [imageMetadataOccurrencesStore, targetDraftEditsStore]);
 
   // ── Photo list sync + re-submit ─────────────────────────────────────
   useEffect(() => {

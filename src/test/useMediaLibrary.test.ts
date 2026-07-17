@@ -3,7 +3,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { useMediaLibrary } from "../useMediaLibrary";
 import { createMockTauriApi } from "./mockTauriApi";
 import { makePhoto, makePhotos, testId } from "./factories";
-import { metadataGet } from "../utils/metadataCollection";
 import { TargetDraftEditsStore } from "../targetDraftEdits";
 import type {
   MetadataApplyFileResultV5,
@@ -42,7 +41,6 @@ function targetV5Result(
         : {
             relative_path: path,
             occurrences: [occurrence],
-            metadata: [{ id, value: { kind: "Text", value } }],
           },
     target_outcomes: [],
     persisted_draft_entries: options.persistedDraftEntries ?? [],
@@ -177,14 +175,16 @@ describe("useMediaLibrary", () => {
 
     const state = result.current[0];
     if (state.kind === "loaded") {
-      const metadata = state.imageMetadata.get("a.jpg");
+      const metadata = state.imageMetadataOccurrences.get("a.jpg");
       expect(metadata).not.toBe("loading");
       if (metadata !== "loading") {
-        expect(metadataGet(metadata, testId("IFD0:Orientation"))).toEqual({
-          id: testId("IFD0:Orientation"),
-          kind: "Integer",
-          value: 6,
-        });
+        expect(
+          metadata.find(
+            (item) =>
+              item.schema_id.table === testId("IFD0:Orientation").table &&
+              item.schema_id.tag_id === testId("IFD0:Orientation").tag_id,
+          )?.value,
+        ).toEqual({ kind: "Integer", value: 6 });
       }
     }
   });
@@ -649,7 +649,7 @@ describe("useMediaLibrary", () => {
     const state = result.current[0];
     if (state.kind === "loaded") {
       // Stale events should not have written to the stores
-      expect(state.imageMetadata.get("a.jpg")).toBe("loading");
+      expect(state.imageMetadataOccurrences.get("a.jpg")).toBe("loading");
       expect(state.thumbnails.get("a.jpg")).toBe("loading");
       expect(state.metadataProgress.getRemaining()).toBe(1);
     }
@@ -1075,17 +1075,23 @@ describe("useMediaLibrary", () => {
         occurrence,
         secondOccurrence,
       ]);
-      const projection = state.imageMetadata.get("a.jpg");
-      expect(projection).not.toBe("loading");
-      if (projection !== "loading") {
-        expect(metadataGet(projection, schemaId)).toBeUndefined();
+      const loaded = state.imageMetadataOccurrences.get("a.jpg");
+      expect(loaded).not.toBe("loading");
+      if (loaded !== "loading") {
+        expect(
+          loaded.filter(
+            (item) =>
+              item.schema_id.table === schemaId.table &&
+              item.schema_id.tag_id === schemaId.tag_id,
+          ),
+        ).toHaveLength(2);
       }
       expect(state.metadataProgress.getRemaining()).toBe(0);
       expect(state.workerErrors).toEqual([]);
     }
   });
 
-  it("empty failed-file payloads clear loading in both stores", async () => {
+  it("empty failed-file payloads clear occurrence loading", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/photos");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
@@ -1098,11 +1104,10 @@ describe("useMediaLibrary", () => {
     const state = result.current[0];
     if (state.kind === "loaded") {
       expect(state.imageMetadataOccurrences.get("failed.jpg")).toEqual([]);
-      expect(state.imageMetadata.get("failed.jpg")).toEqual({});
     }
   });
 
-  it("stale metadata updates neither store and a replacement scan discards occurrences", async () => {
+  it("stale metadata does not update occurrences and a replacement scan clears them", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/first");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
@@ -1133,7 +1138,7 @@ describe("useMediaLibrary", () => {
     );
     await act(async () => vi.advanceTimersByTimeAsync(250));
     expect(oldStore.get("a.jpg")).toBe("loading");
-    expect(firstState.imageMetadata.get("a.jpg")).toBe("loading");
+    expect(firstState.imageMetadataOccurrences.get("a.jpg")).toBe("loading");
 
     await act(async () => result.current[1].openRecent("/second"));
     act(() => mock.emitPhotoFound(makePhoto({ relative_path: "b.jpg" })));
@@ -1204,9 +1209,11 @@ describe("useMediaLibrary", () => {
     let state = result.current[0];
     if (state.kind !== "loaded") return;
     expect(
-      sortPhotos(state.photos, state.sortConfig, state.imageMetadata).map(
-        (photo) => photo.relative_path,
-      ),
+      sortPhotos(
+        state.photos,
+        state.sortConfig,
+        state.imageMetadataOccurrences,
+      ).map((photo) => photo.relative_path),
     ).toEqual(["b.jpg", "a.jpg"]);
     const resultV5 = targetV5Result(
       "a.jpg",
@@ -1227,9 +1234,11 @@ describe("useMediaLibrary", () => {
     if (state.kind !== "loaded") return;
     expect(state.metadataVersion).toBe(1);
     expect(
-      sortPhotos(state.photos, state.sortConfig, state.imageMetadata).map(
-        (photo) => photo.relative_path,
-      ),
+      sortPhotos(
+        state.photos,
+        state.sortConfig,
+        state.imageMetadataOccurrences,
+      ).map((photo) => photo.relative_path),
     ).toEqual(["a.jpg", "b.jpg"]);
   });
 

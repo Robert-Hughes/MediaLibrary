@@ -70,8 +70,12 @@ describe("Performance: Large folder handling", () => {
 
     expect(state.metadataProgress.getRemaining()).toBe(0);
     // Spot-check that metadata is actually stored
-    expect(state.imageMetadata.get("photo-0.jpg")).not.toBe("loading");
-    expect(state.imageMetadata.get("photo-999.jpg")).not.toBe("loading");
+    expect(state.imageMetadataOccurrences.get("photo-0.jpg")).not.toBe(
+      "loading",
+    );
+    expect(state.imageMetadataOccurrences.get("photo-999.jpg")).not.toBe(
+      "loading",
+    );
   });
 
   it("batches photo_found events correctly", async () => {

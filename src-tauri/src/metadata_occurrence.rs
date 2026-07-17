@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::metadata_value::MetadataValue;
-use crate::tag_schema::{SchemaDefinitionId, TagInfo, TagKind};
+use crate::tag_schema::{SchemaDefinitionId, TagInfo};
 
 /// Identifies one concrete metadata field occurrence within a single source
 /// file.
@@ -240,11 +240,10 @@ impl MetadataOccurrence {
     /// Returns true only when matching resolved schema interpretation and this
     /// concrete occurrence both permit an exact supported write.
     pub fn is_writable(&self) -> bool {
-        self.tag_info.as_ref().is_some_and(|info| {
-            info.id == self.schema_id
-                && info.writable
-                && !matches!(info.kind, TagKind::Binary | TagKind::Unknown)
-        }) && self.write_target.is_some()
+        self.tag_info
+            .as_ref()
+            .is_some_and(|info| info.id == self.schema_id && info.supports_metadata_write())
+            && self.write_target.is_some()
     }
 }
 
@@ -535,11 +534,15 @@ mod tests {
             !occurrence(schema_id.clone(), Some(mismatched), Some(target("IFD0"))).is_writable()
         );
 
-        let mut binary = tag_info(true);
-        binary.kind = TagKind::Binary;
-        assert!(!occurrence(schema_id, Some(binary), Some(target("IFD0"))).is_writable());
+        for kind in [TagKind::Binary, TagKind::Unknown] {
+            let mut unsupported = tag_info(true);
+            unsupported.kind = kind;
+            assert!(
+                !occurrence(schema_id.clone(), Some(unsupported), Some(target("IFD0")),)
+                    .is_writable()
+            );
+        }
     }
-
     #[test]
     fn shared_schema_does_not_collapse_occurrence_identity_or_write_target() {
         let schema = tag_info(true);

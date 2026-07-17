@@ -8,7 +8,7 @@ This document describes the performance optimizations implemented to handle larg
 
 The original implementation had good architecture with:
 
-- ✅ External stores (`ThumbnailStore`, `ImageMetadataStore`) using `useSyncExternalStore`
+- ✅ External stores (`ThumbnailStore`, `ImageMetadataOccurrencesStore`) using `useSyncExternalStore`
 - ✅ Event batching for `photo_found`, `image_metadata_ready`, and `thumbnail_ready`
 - ✅ Per-row subscriptions to avoid unnecessary re-renders
 
@@ -170,7 +170,7 @@ class MetadataProgressStore {
 
 - All external APIs unchanged
 - Tauri event payloads unchanged
-- Store interfaces unchanged (ThumbnailStore, ImageMetadataStore)
+- Metadata rows subscribe to the authoritative `ImageMetadataOccurrencesStore`; schema-oriented values are derived on demand.
 
 ## Future Optimizations
 

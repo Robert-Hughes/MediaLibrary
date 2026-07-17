@@ -6,9 +6,8 @@ import userEvent from "@testing-library/user-event";
 import { renderHook, act } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { GalleryView } from "../components/GalleryView";
-
 import { PhotoList } from "../components/PhotoList";
-import { ThumbnailStore, ImageMetadataStore } from "../types";
+import { ThumbnailStore, ImageMetadataOccurrencesStore } from "../types";
 import { useMediaLibrary } from "../useMediaLibrary";
 import { createMockTauriApi } from "./mockTauriApi";
 import { makePhotos } from "./factories";
@@ -35,6 +34,7 @@ describe("GalleryView", () => {
         folderPath="/photos"
         onClose={() => {}}
         onNavigate={() => {}}
+        imageMetadataOccurrences={new ImageMetadataOccurrencesStore()}
         loadImage={fakeLoad}
       />,
     );
@@ -52,6 +52,7 @@ describe("GalleryView", () => {
         folderPath="/photos"
         onClose={() => {}}
         onNavigate={() => {}}
+        imageMetadataOccurrences={new ImageMetadataOccurrencesStore()}
         loadImage={fakeLoad}
       />,
     );
@@ -71,6 +72,7 @@ describe("GalleryView", () => {
         folderPath="/photos"
         onClose={() => {}}
         onNavigate={() => {}}
+        imageMetadataOccurrences={new ImageMetadataOccurrencesStore()}
         loadImage={fakeLoad}
       />,
     );
@@ -89,6 +91,7 @@ describe("GalleryView", () => {
         folderPath="/photos"
         onClose={onClose}
         onNavigate={vi.fn()}
+        imageMetadataOccurrences={new ImageMetadataOccurrencesStore()}
         loadImage={fakeLoad}
       />,
     );
@@ -117,6 +120,7 @@ describe("GalleryView", () => {
         folderPath="/photos"
         onClose={onClose}
         onNavigate={vi.fn()}
+        imageMetadataOccurrences={new ImageMetadataOccurrencesStore()}
         loadImage={fakeLoad}
       />,
     );
@@ -136,6 +140,7 @@ describe("GalleryView", () => {
         folderPath="/photos"
         onClose={onClose}
         onNavigate={vi.fn()}
+        imageMetadataOccurrences={new ImageMetadataOccurrencesStore()}
         loadImage={fakeLoad}
       />,
     );
@@ -217,13 +222,13 @@ describe("PhotoList interaction", () => {
     onSelect: (i: number | null) => void,
   ) {
     const thumbs = makeStore(photos);
-    const imageMetadata = new ImageMetadataStore();
+    const imageMetadata = new ImageMetadataOccurrencesStore();
     photos.forEach((p) => imageMetadata.add(p.relative_path));
     render(
       <PhotoList
         photos={photos}
         thumbnails={thumbs}
-        imageMetadata={imageMetadata}
+        imageMetadataOccurrences={imageMetadata}
         visibleColumns={[
           { key: "date_modified", kind: "os" },
           { key: "date_created", kind: "os" },

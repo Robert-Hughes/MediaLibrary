@@ -55,6 +55,13 @@ pub enum TagKind {
     Unknown,
 }
 
+impl TagKind {
+    /// Whether this schema kind is supported by the metadata write pipeline.
+    pub fn supports_metadata_write(&self) -> bool {
+        !matches!(self, Self::Binary | Self::Unknown)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
@@ -167,6 +174,11 @@ pub struct TagInfo {
 }
 
 impl TagInfo {
+    /// Whether this exact schema is both writable and supported by the app.
+    pub fn supports_metadata_write(&self) -> bool {
+        self.writable && self.kind.supports_metadata_write()
+    }
+
     pub fn display_name(&self) -> String {
         format!("{}:{}", self.group, self.name)
     }
@@ -891,6 +903,54 @@ pub fn get_registry() -> Result<&'static TagRegistry, &'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn metadata_write_support_matrix_rejects_only_binary_unknown_and_read_only() {
+        let supported = vec![
+            TagKind::Text,
+            TagKind::LangAlt,
+            TagKind::Integer {
+                min: None,
+                max: None,
+            },
+            TagKind::Real,
+            TagKind::Rational,
+            TagKind::Boolean,
+            TagKind::Date,
+            TagKind::Time,
+            TagKind::DateTime,
+            TagKind::TimeOffset,
+            TagKind::Enum {
+                repr: EnumRepr::String,
+                options: Vec::new(),
+            },
+            TagKind::Bag(Box::new(TagKind::Text)),
+            TagKind::Seq(Box::new(TagKind::Text)),
+            TagKind::Alt(Box::new(TagKind::Text)),
+            TagKind::Struct(BTreeMap::new()),
+        ];
+        assert!(supported.iter().all(TagKind::supports_metadata_write));
+        assert!(!TagKind::Binary.supports_metadata_write());
+        assert!(!TagKind::Unknown.supports_metadata_write());
+
+        let info = |kind, writable| TagInfo {
+            id: SchemaDefinitionId {
+                table: "Test::Main".into(),
+                tag_id: "1".into(),
+                index: None,
+            },
+            group: "Test".into(),
+            name: "Field".into(),
+            writable,
+            kind,
+            description: None,
+            storage_count: None,
+        };
+        assert!(info(TagKind::Text, true).supports_metadata_write());
+        assert!(!info(TagKind::Text, false).supports_metadata_write());
+        assert!(!info(TagKind::Binary, true).supports_metadata_write());
+        assert!(!info(TagKind::Unknown, true).supports_metadata_write());
+    }
 
     const SAMPLE_LISTX: &str = r#"<?xml version='1.0' encoding='UTF-8'?>
 <taginfo>

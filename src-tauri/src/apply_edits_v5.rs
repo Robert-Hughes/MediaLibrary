@@ -1230,7 +1230,6 @@ mod tests {
         scanner::ImageMetadata {
             relative_path: "photo.jpg".to_string(),
             occurrences: MetadataOccurrences(occurrences),
-            metadata: scanner::MetadataEntries::default(),
         }
     }
 
@@ -1660,10 +1659,12 @@ mod tests {
         ));
 
         let binary_info = schema("3", "XMP-test", "Binary", true, TagKind::Binary);
-        let binary = new_entry(
-            &binary_info,
-            edit(EditIntent::Set, Some(MetadataValue::Binary)),
-        );
+        let binary = MetadataDraftEntryV5 {
+            target: MetadataDraftTarget::NewProperty {
+                schema_id: binary_info.id.clone(),
+            },
+            edit: edit(EditIntent::Set, Some(MetadataValue::Binary)),
+        };
         let argument_failure_client = FakeClient::new(vec![Ok(image(vec![]))]);
         assert_no_audit(apply_fake(
             &[binary],
@@ -1856,7 +1857,8 @@ mod tests {
             outcome.audit_records[1].verification.message,
             outcome.outcomes[1].message
         );
-        assert!(outcome.fresh_image_metadata.unwrap().metadata.is_empty());
+        let fresh = outcome.fresh_image_metadata.unwrap();
+        assert_eq!(fresh.occurrences.0, vec![after1.clone(), after0.clone()]);
 
         let ordered_client = FakeClient::new(vec![
             Ok(image(vec![ifd0, ifd1])),

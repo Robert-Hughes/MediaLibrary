@@ -22,9 +22,8 @@ import { metadataGet, type MetadataCollection } from "./metadataCollection";
 import { schemaDefinitionIdToken } from "./schemaDefinitionId";
 
 /**
- * Flat metadata bag — same shape as the `ImageMetadataStore.get()`
- * payload when present. The store also surfaces `"loading"`, which
- * callers must filter out before calling `resolveGps`.
+ * Flat schema-view bag derived from authoritative occurrences. Callers must
+ * exclude loading state before constructing it.
  */
 type MetadataBag = MetadataCollection;
 type GpsScalar = string | number;

@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { describe, it, expect, vi } from "vitest";
 import { PhotoList } from "../components/PhotoList";
-import { ThumbnailStore, ImageMetadataStore } from "../types";
+import { ThumbnailStore, ImageMetadataOccurrencesStore } from "../types";
 import type { PhotoInfo, SortConfig } from "../types";
 import {
   sortPhotos,
@@ -17,8 +17,14 @@ import {
   osCol,
   osSort as osSortKey,
   pathSort as pathSortKey,
+  testId,
 } from "./factories";
+import {
+  occurrenceFromSchemaValue,
+  occurrencesFromMetadataCollection,
+} from "./occurrenceFixtures";
 
+// ── shouldSuspendSorting ──────────────────────────────────────────────────────
 // ── shouldSuspendSorting ──────────────────────────────────────────────────────
 
 describe("shouldSuspendSorting", () => {
@@ -134,7 +140,7 @@ describe("nextSortConfig", () => {
 });
 
 describe("sortPhotos", () => {
-  const imageMetadata = new ImageMetadataStore();
+  const imageMetadata = new ImageMetadataOccurrencesStore();
 
   it("returns the same order when no sort is configured", () => {
     const photos = [
@@ -201,11 +207,21 @@ describe("sortPhotos", () => {
   });
 
   it("sorts by image metadata value ascending, missing values last", () => {
-    const store = new ImageMetadataStore();
+    const store = new ImageMetadataOccurrencesStore();
     store.add("b.jpg");
-    store.set("b.jpg", mockMetadata({ "IFD0:Model": "Canon" }));
+    store.set(
+      "b.jpg",
+      occurrencesFromMetadataCollection(
+        mockMetadata({ "IFD0:Model": "Canon" }),
+      ),
+    );
     store.add("a.jpg");
-    store.set("a.jpg", mockMetadata({ "IFD0:Model": "Nikon" }));
+    store.set(
+      "a.jpg",
+      occurrencesFromMetadataCollection(
+        mockMetadata({ "IFD0:Model": "Nikon" }),
+      ),
+    );
     store.add("c.jpg"); // still loading → sorts to end
     const photos = [
       makePhoto({ relative_path: "b.jpg" }),
@@ -264,8 +280,98 @@ describe("sortPhotos", () => {
     sortPhotos(photos, sort, imageMetadata);
     expect(photos).toEqual(original);
   });
-});
+  it("sorts identical same-schema occurrences and leaves conflicts last", () => {
+    const id = testId("IFD0:Model");
+    const store = new ImageMetadataOccurrencesStore();
+    const identical = occurrenceFromSchemaValue(id, {
+      kind: "Text",
+      value: "Nikon",
+    });
+    const identicalSibling = structuredClone(identical);
+    identicalSibling.id.path = "IFD1";
+    identicalSibling.id.copy = 1;
+    store.set("a.jpg", [identical, identicalSibling]);
+    store.set("b.jpg", [
+      occurrenceFromSchemaValue(id, { kind: "Text", value: "Canon" }),
+    ]);
+    const conflict = occurrenceFromSchemaValue(id, {
+      kind: "Text",
+      value: "Fuji",
+    });
+    const conflictSibling = structuredClone(conflict);
+    conflictSibling.id.path = "IFD1";
+    conflictSibling.id.copy = 1;
+    conflictSibling.value = { kind: "Text", value: "Sony" };
+    store.set("c.jpg", [conflict, conflictSibling]);
 
+    const photos = ["c.jpg", "a.jpg", "b.jpg"].map((relative_path) =>
+      makePhoto({ relative_path }),
+    );
+    const ascending = sortPhotos(
+      photos,
+      {
+        primary: imageSortKey("IFD0:Model", "asc"),
+        secondary: null,
+      },
+      store,
+    );
+    const descending = sortPhotos(
+      photos,
+      {
+        primary: imageSortKey("IFD0:Model", "desc"),
+        secondary: null,
+      },
+      store,
+    );
+
+    expect(ascending.map((photo) => photo.relative_path)).toEqual([
+      "b.jpg",
+      "a.jpg",
+      "c.jpg",
+    ]);
+    expect(descending.map((photo) => photo.relative_path)).toEqual([
+      "a.jpg",
+      "b.jpg",
+      "c.jpg",
+    ]);
+  });
+
+  it("sorts absent schema index and index zero independently", () => {
+    const absent = testId("IFD0:Model");
+    const zero = { ...absent, index: 0 };
+    const store = new ImageMetadataOccurrencesStore();
+    store.set("absent.jpg", [
+      occurrenceFromSchemaValue(absent, { kind: "Text", value: "A" }),
+    ]);
+    store.set("zero.jpg", [
+      occurrenceFromSchemaValue(zero, { kind: "Text", value: "B" }),
+    ]);
+    const photos = ["zero.jpg", "absent.jpg"].map((relative_path) =>
+      makePhoto({ relative_path }),
+    );
+
+    expect(
+      sortPhotos(
+        photos,
+        {
+          primary: { kind: "image", id: absent, direction: "asc" },
+          secondary: null,
+        },
+        store,
+      ).map((photo) => photo.relative_path),
+    ).toEqual(["absent.jpg", "zero.jpg"]);
+    expect(
+      sortPhotos(
+        photos,
+        {
+          primary: { kind: "image", id: zero, direction: "asc" },
+          secondary: null,
+        },
+        store,
+      ).map((photo) => photo.relative_path),
+    ).toEqual(["zero.jpg", "absent.jpg"]);
+  });
+});
 // ── PhotoList sort indicator UI tests ─────────────────────────────────────────
 
 const mockPhotos: PhotoInfo[] = [
@@ -285,7 +391,7 @@ const mockPhotos: PhotoInfo[] = [
 
 function makeSortStores() {
   const thumbnails = new ThumbnailStore();
-  const imageMetadata = new ImageMetadataStore();
+  const imageMetadata = new ImageMetadataOccurrencesStore();
   mockPhotos.forEach((p) => {
     thumbnails.add(p.relative_path);
     imageMetadata.add(p.relative_path);
@@ -300,7 +406,7 @@ describe("PhotoList sort indicator", () => {
       <PhotoList
         photos={mockPhotos}
         thumbnails={thumbnails}
-        imageMetadata={imageMetadata}
+        imageMetadataOccurrences={imageMetadata}
         visibleColumns={[{ key: "date_modified", kind: "os" }]}
         sortConfig={{ primary: null, secondary: null }}
         onSortChange={() => {}}
@@ -320,7 +426,7 @@ describe("PhotoList sort indicator", () => {
       <PhotoList
         photos={mockPhotos}
         thumbnails={thumbnails}
-        imageMetadata={imageMetadata}
+        imageMetadataOccurrences={imageMetadata}
         visibleColumns={[{ key: "date_modified", kind: "os" }]}
         sortConfig={{
           primary: osSortKey("date_modified", "asc"),
@@ -345,7 +451,7 @@ describe("PhotoList sort indicator", () => {
       <PhotoList
         photos={mockPhotos}
         thumbnails={thumbnails}
-        imageMetadata={imageMetadata}
+        imageMetadataOccurrences={imageMetadata}
         visibleColumns={[{ key: "date_modified", kind: "os" }]}
         sortConfig={{
           primary: osSortKey("date_modified", "desc"),
@@ -371,7 +477,7 @@ describe("PhotoList sort indicator", () => {
       <PhotoList
         photos={mockPhotos}
         thumbnails={thumbnails}
-        imageMetadata={imageMetadata}
+        imageMetadataOccurrences={imageMetadata}
         visibleColumns={[{ key: "date_modified", kind: "os" }]}
         sortConfig={{ primary: null, secondary: null }}
         onSortChange={onSortChange}
@@ -396,7 +502,7 @@ describe("PhotoList sort indicator", () => {
       <PhotoList
         photos={mockPhotos}
         thumbnails={thumbnails}
-        imageMetadata={imageMetadata}
+        imageMetadataOccurrences={imageMetadata}
         visibleColumns={[{ key: "date_modified", kind: "os" }]}
         sortConfig={{
           primary: osSortKey("date_modified", "asc"),
@@ -423,7 +529,7 @@ describe("PhotoList sort indicator", () => {
       <PhotoList
         photos={mockPhotos}
         thumbnails={thumbnails}
-        imageMetadata={imageMetadata}
+        imageMetadataOccurrences={imageMetadata}
         visibleColumns={[
           { key: "date_modified", kind: "os" },
           { key: "date_created", kind: "os" },
@@ -461,7 +567,7 @@ describe("PhotoList sortingDisabled", () => {
       <PhotoList
         photos={mockPhotos}
         thumbnails={thumbnails}
-        imageMetadata={imageMetadata}
+        imageMetadataOccurrences={imageMetadata}
         visibleColumns={[{ key: "date_modified", kind: "os" }]}
         sortConfig={sortConfig}
         onSortChange={() => {}}
@@ -482,7 +588,7 @@ describe("PhotoList sortingDisabled", () => {
     const props = {
       photos: mockPhotos,
       thumbnails,
-      imageMetadata,
+      imageMetadataOccurrences: imageMetadata,
       visibleColumns: [osCol("date_modified")],
       sortConfig,
       onSortChange: () => {},
@@ -516,7 +622,7 @@ describe("PhotoList sortingDisabled", () => {
       <PhotoList
         photos={mockPhotos}
         thumbnails={thumbnails}
-        imageMetadata={imageMetadata}
+        imageMetadataOccurrences={imageMetadata}
         visibleColumns={[
           { key: "date_modified", kind: "os" },
           imgCol("IFD0:Model"),

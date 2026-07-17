@@ -11,8 +11,6 @@ import {
   schemaDefinitionIdEquals,
   schemaDefinitionIdToken,
 } from "./utils/schemaDefinitionId";
-import type { MetadataCollection } from "./utils/metadataCollection";
-import { metadataGet } from "./utils/metadataCollection";
 import type { SchemaOccurrenceResolution } from "./utils/metadataOccurrences";
 import {
   buildSchemaOccurrenceResolutionIndex,
@@ -56,7 +54,6 @@ function loadedPresentationContext(
 
 function resolveSchemaDraftWithContext(
   schemaId: SchemaDefinitionId,
-  compatibilityMetadata: MetadataCollection | undefined,
   context: LoadedPresentationContext | undefined,
   targetDrafts: TargetDraftCollection | undefined,
 ): SchemaDraftPresentationResolution {
@@ -90,17 +87,6 @@ function resolveSchemaDraftWithContext(
       return {
         kind: "blocked",
         reason: "The authoritative schema is already present.",
-        conflictingTargets: sameSchema,
-      };
-    }
-    if (
-      compatibilityMetadata === undefined ||
-      metadataGet(compatibilityMetadata, schemaId) !== undefined
-    ) {
-      return {
-        kind: "blocked",
-        reason:
-          "The schema-keyed display projection is unavailable or occupied.",
         conflictingTargets: sameSchema,
       };
     }
@@ -162,13 +148,11 @@ function resolveSchemaDraftWithContext(
  */
 export function resolveSchemaDraftForPresentation(input: {
   schemaId: SchemaDefinitionId;
-  compatibilityMetadata: MetadataCollection | undefined;
   occurrences: ImageMetadataOccurrencesState | undefined;
   targetDrafts: TargetDraftCollection | undefined;
 }): SchemaDraftPresentationResolution {
   return resolveSchemaDraftWithContext(
     input.schemaId,
-    input.compatibilityMetadata,
     loadedPresentationContext(input.occurrences),
     input.targetDrafts,
   );
@@ -176,7 +160,6 @@ export function resolveSchemaDraftForPresentation(input: {
 
 /** Build the safe schema-keyed display projection for one file. */
 export function buildSchemaDraftDisplayProjection(input: {
-  compatibilityMetadata: MetadataCollection | undefined;
   occurrences: ImageMetadataOccurrencesState | undefined;
   targetDrafts: TargetDraftCollection | undefined;
 }): MetadataDraftCollection {
@@ -185,7 +168,6 @@ export function buildSchemaDraftDisplayProjection(input: {
   for (const schemaId of targetDraftSchemas(input.targetDrafts)) {
     const resolution = resolveSchemaDraftWithContext(
       schemaId,
-      input.compatibilityMetadata,
       context,
       input.targetDrafts,
     );

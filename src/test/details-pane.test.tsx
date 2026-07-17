@@ -1,3 +1,4 @@
+import { occurrencesFromMetadataCollection } from "./occurrenceFixtures";
 /**
  * DetailsPane component tests.
  *
@@ -310,7 +311,7 @@ describe("DetailsPane component", () => {
         onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}
         photo={photo}
-        metadata="loading"
+        occurrences="loading"
       />,
     );
 
@@ -332,7 +333,7 @@ describe("DetailsPane component", () => {
         onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}
         photo={photo}
-        metadata="loading"
+        occurrences="loading"
       />,
     );
 
@@ -349,7 +350,7 @@ describe("DetailsPane component", () => {
         onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}
         photo={photo}
-        metadata={{}}
+        occurrences={[]}
       />,
     );
 
@@ -373,7 +374,7 @@ describe("DetailsPane component", () => {
         onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}
         photo={photo}
-        metadata={metadata}
+        occurrences={occurrencesFromMetadataCollection(metadata)}
       />,
     );
 
@@ -415,12 +416,31 @@ describe("DetailsPane component", () => {
       description: null,
     });
 
+    const [orientation] = occurrencesFromMetadataCollection(
+      mockMetadata({ "IFD0:Orientation": 6 }),
+    );
+    orientation.tag_info = {
+      id: structuredClone(orientation.schema_id),
+      group: "IFD0",
+      name: "Orientation",
+      writable: true,
+      kind: {
+        kind: "Enum",
+        data: {
+          repr: "Integer",
+          options: [{ code: "6", label: "Rotate 90 CW" }],
+        },
+      },
+      description: null,
+      storage_count: undefined,
+    };
+    orientation.write_target = { group1: "IFD0", tag_name: "Orientation" };
     render(
       <DetailsPane
         onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}
         photo={photo}
-        metadata={mockMetadata({ "IFD0:Orientation": 6 })}
+        occurrences={[orientation]}
       />,
     );
 
@@ -439,7 +459,7 @@ describe("DetailsPane component", () => {
         onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}
         photo={photo}
-        metadata="loading"
+        occurrences="loading"
       />,
     );
     expect(screen.getByText("Properties")).toBeInTheDocument();
@@ -451,7 +471,7 @@ describe("DetailsPane component", () => {
         onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}
         photo={photo}
-        metadata={{}}
+        occurrences={[]}
         onGenerateAiDescription={() => {}}
       />,
     );
@@ -477,7 +497,7 @@ describe("DetailsPane component", () => {
         onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}
         photo={photo}
-        metadata={{}}
+        occurrences={[]}
         onShowInFileExplorer={onShow}
       />,
     );
@@ -493,7 +513,7 @@ describe("DetailsPane component", () => {
         onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}
         photo={photo}
-        metadata={{}}
+        occurrences={[]}
       />,
     );
     expect(
@@ -529,7 +549,7 @@ describe("DetailsPane: Generate-AI button", () => {
     render(
       <Fresh
         photo={photo}
-        metadata={{} as Record<string, ImageMetadataEntry>}
+        occurrences={[]}
         onGenerateAiDescription={onGenerate}
         onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}
@@ -586,7 +606,7 @@ describe("DetailsPane: Add-Property two-step flow", () => {
         onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}
         photo={photo}
-        metadata={{}}
+        occurrences={[]}
         onSetExistingOccurrenceDraft={onSetExistingOccurrenceDraft}
         onSetNewPropertyDraft={onSetNewPropertyDraft}
       />,
@@ -656,7 +676,7 @@ describe("DetailsPane: Add-Property two-step flow", () => {
         onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}
         photo={photo}
-        metadata={{}}
+        occurrences={[]}
         onSetExistingOccurrenceDraft={onSetExistingOccurrenceDraft}
         onSetNewPropertyDraft={onSetNewPropertyDraft}
       />,
@@ -706,7 +726,7 @@ describe("DetailsPane: Add-Property two-step flow", () => {
         onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}
         photo={photo}
-        metadata={{}}
+        occurrences={[]}
         onSetExistingOccurrenceDraft={onSetExistingOccurrenceDraft}
         onSetNewPropertyDraft={onSetNewPropertyDraft}
       />,
@@ -763,7 +783,7 @@ describe("DetailsPane: target-aware Add Property drafts", () => {
     render(
       <DetailsPane
         photo={photo}
-        metadata={{}}
+        occurrences={[]}
         targetDraftPersistence={{ status: "ready" }}
         onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}
@@ -790,13 +810,13 @@ describe("DetailsPane: target-aware Add Property drafts", () => {
     render(
       <DetailsPane
         photo={photo}
-        metadata={{
+        occurrences={occurrencesFromMetadataCollection({
           [schemaDefinitionIdToken(titleId)]: {
             id: titleId,
             kind: "Text",
             value: "existing",
           },
-        }}
+        })}
         targetDraftPersistence={{
           status: "load-failed",
           error: "malformed file",
@@ -857,7 +877,7 @@ describe("DetailsPane: target-aware Add Property drafts", () => {
     render(
       <DetailsPane
         photo={photo}
-        metadata={mockMetadata({ "XMP-dc:Subject": "original" })}
+
         occurrences={[
           {
             id: target.occurrence_id,
@@ -912,7 +932,7 @@ describe("DetailsPane: target-aware Add Property drafts", () => {
     render(
       <DetailsPane
         photo={photo}
-        metadata={mockMetadata({ "XMP-dc:Subject": "original" })}
+
         occurrences={[
           {
             id: target.occurrence_id,
@@ -977,7 +997,7 @@ describe("DetailsPane: target-aware Add Property drafts", () => {
     render(
       <DetailsPane
         photo={photo}
-        metadata={{}}
+        occurrences={[]}
         targetDraftEdits={store.getMetadataFile("target.jpg")}
         onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}
@@ -1029,7 +1049,7 @@ describe("DetailsPane: read-only row context menu", () => {
         onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}
         photo={photo}
-        metadata={mockMetadata({ "IFD0:Make": "Canon" })}
+
         occurrences={[
           {
             id: {
@@ -1082,7 +1102,7 @@ describe("DetailsPane: read-only row context menu", () => {
         onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}
         photo={photo}
-        metadata={mockMetadata({ "IFD0:Make": "Canon" })}
+
         occurrences={[
           {
             id: {
@@ -1243,14 +1263,17 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
       "GPS:GPSAltitudeRef": 0,
       "XMP-dc:Subject": "test",
     });
+    const occurrences = occurrencesFor(metadata);
+    const subject = occurrences.find(
+      (occurrence) => occurrence.tag_info?.name === "Subject",
+    )!;
+    subject.tag_info = null;
+    subject.write_target = null;
     render(
       <DetailsPane
         onDiscardTargetDraftBatch={vi.fn()}
         photo={photo}
-        metadata={metadata}
-        occurrences={occurrencesFor(metadata).filter(
-          (occurrence) => occurrence.tag_info?.id.table === "GPS::Main",
-        )}
+        occurrences={occurrences}
         onRemoveMetadataFieldsV5={vi.fn()}
         onSetGpsTargetDraftBatch={vi.fn(() => true)}
       />,
@@ -1296,9 +1319,11 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
         onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}
         photo={photo}
-        metadata={mockMetadata({
-          "GPS:GPSLatitude": 51.5,
-        })}
+        occurrences={occurrencesFromMetadataCollection(
+          mockMetadata({
+            "GPS:GPSLatitude": 51.5,
+          }),
+        )}
       />,
     );
 
@@ -1317,7 +1342,7 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
         onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}
         photo={photo}
-        metadata={metadata}
+
         occurrences={occurrencesFor(metadata)}
         onSetGpsTargetDraftBatch={vi.fn(() => true)}
       />,
@@ -1345,7 +1370,7 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
       <DetailsPane
         onDiscardTargetDraftBatch={vi.fn()}
         photo={photo}
-        metadata={metadata}
+
         occurrences={occurrencesFor(metadata)}
         onRemoveMetadataFieldsV5={vi.fn()}
         onSetGpsTargetDraftBatch={vi.fn(() => true)}
@@ -1389,7 +1414,7 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
       <DetailsPane
         onDiscardTargetDraftBatch={vi.fn()}
         photo={photo}
-        metadata={metadata}
+
         occurrences={occurrencesFor(metadata)}
         onRemoveMetadataFieldsV5={onRemoveMetadataFieldsV5}
         onSetGpsTargetDraftBatch={onSetGpsTargetDraftBatch}
@@ -1454,7 +1479,7 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
       <DetailsPane
         onDiscardTargetDraftBatch={vi.fn()}
         photo={photo}
-        metadata={metadata}
+
         occurrences={occurrences}
         targetDraftEdits={targetDraftEdits}
         onRemoveMetadataFieldsV5={onRemoveMetadataFieldsV5}
@@ -1540,7 +1565,7 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
         </div>
         <DetailsPane
           photo={photo}
-          metadata={metadata}
+
           occurrences={occurrences}
           targetDraftEdits={drafts}
           onRemoveMetadataFieldsV5={vi.fn()}
@@ -1854,11 +1879,7 @@ describe("DetailsPane: Group context menu", () => {
     render(
       <FreshDetailsPane
         photo={photo}
-        metadata={mockMetadata({
-          "GPS:GPSLatitude": 51.5,
-          "GPS:GPSLongitude": -0.1,
-          "GPS:GPSVersionID": "2.2.0.0",
-        })}
+
         occurrences={mockOccurrences(
           {
             "GPS:GPSLatitude": 51.5,
@@ -1908,9 +1929,7 @@ describe("DetailsPane: Group context menu", () => {
     render(
       <FreshDetailsPane
         photo={photo}
-        metadata={mockMetadata({
-          "GPS:GPSVersionID": "2.2.0.0",
-        })}
+
         occurrences={mockOccurrences({ "GPS:GPSVersionID": "2.2.0.0" }, [
           "GPS:GPSVersionID",
         ])}
@@ -1961,10 +1980,7 @@ describe("DetailsPane: Group context menu", () => {
     render(
       <FreshDetailsPane
         photo={photo}
-        metadata={mockMetadata({
-          "GPS:GPSLatitude": 51.5,
-          "GPS:GPSLongitude": -0.1,
-        })}
+
         occurrences={mockOccurrences({
           "GPS:GPSLatitude": 51.5,
           "GPS:GPSLongitude": -0.1,
@@ -2001,7 +2017,7 @@ describe("DetailsPane: Group context menu", () => {
     ]);
   });
 
-  it("multiple exact occurrences block group Remove while retaining target Discard", async () => {
+  it("uses exact supplemental Remove and Discard actions for multiple occurrences", async () => {
     vi.resetModules();
     const { DetailsPane: FreshDetailsPane } =
       await import("../components/DetailsPane");
@@ -2026,7 +2042,6 @@ describe("DetailsPane: Group context menu", () => {
     render(
       <FreshDetailsPane
         photo={photo}
-        metadata={mockMetadata({ "XMP-dc:Title": "first" })}
         occurrences={[first, second]}
         targetDraftEdits={targetStore.getMetadataFile("p.jpg")}
         onRemoveMetadataFieldsV5={vi.fn()}
@@ -2034,17 +2049,18 @@ describe("DetailsPane: Group context menu", () => {
       />,
     );
 
-    const section = screen.getByTestId("details-section-XMP::dc");
-    fireEvent.contextMenu(
-      within(section).getByRole("heading", { name: "XMP::dc", level: 3 }),
-    );
-    const remove = await screen.findByRole("button", {
-      name: "Remove writable XMP::dc fields…",
-    });
-    expect(remove).toBeDisabled();
-    expect(remove).toHaveAttribute("title", expect.stringMatching(/Several/));
+    expect(screen.queryByTestId("details-section-XMP::dc")).toBeNull();
+    const rows = screen.getAllByTestId("details-occurrence-row");
+    expect(rows).toHaveLength(2);
+    const edited = rows.find((row) =>
+      row.hasAttribute("data-has-exact-draft"),
+    )!;
+    fireEvent.contextMenu(edited);
     expect(
-      screen.getByRole("button", { name: "Discard 1 XMP::dc edit…" }),
+      await screen.findByRole("button", { name: "Remove" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Discard edit" }),
     ).toBeInTheDocument();
   });
 
@@ -2054,8 +2070,8 @@ describe("DetailsPane: Group context menu", () => {
       await import("./tagInfoTestHelpers");
     const { DetailsPane: FreshDetailsPane } =
       await import("../components/DetailsPane");
-    _clearTagInfoCache();
     const id = testId("XMP-dc:Title");
+    _clearTagInfoCache();
     _setTagInfoCacheEntry(id, {
       id,
       group: "XMP-dc",
@@ -2076,7 +2092,7 @@ describe("DetailsPane: Group context menu", () => {
     render(
       <FreshDetailsPane
         photo={photo}
-        metadata={{}}
+
         occurrences={[]}
         targetDraftEdits={targetStore.getMetadataFile("p.jpg")}
         onRemoveMetadataFieldsV5={remove}
@@ -2122,7 +2138,7 @@ describe("DetailsPane: Group context menu", () => {
     render(
       <FreshDetailsPane
         photo={photo}
-        metadata={mockMetadata({ "XMP-dc:Title": "current" })}
+
         occurrences={occurrences}
         targetDraftEdits={targetStore.getMetadataFile("p.jpg")}
         onRemoveMetadataFieldsV5={vi.fn()}
@@ -2168,10 +2184,7 @@ describe("DetailsPane: Group context menu", () => {
     render(
       <FreshDetailsPane
         photo={photo}
-        metadata={mockMetadata({
-          "GPS:GPSLatitude": 51.5,
-          "GPS:GPSLongitude": -0.1,
-        })}
+
         occurrences={mockOccurrences({
           "GPS:GPSLatitude": 51.5,
           "GPS:GPSLongitude": -0.1,
@@ -2233,9 +2246,7 @@ describe("DetailsPane: Group context menu", () => {
     render(
       <FreshDetailsPane
         photo={photo}
-        metadata={mockMetadata({
-          "File:FileSize": "1 MB",
-        })}
+
         occurrences={mockOccurrences({ "File:FileSize": "1 MB" })}
         onRemoveMetadataFieldsV5={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}

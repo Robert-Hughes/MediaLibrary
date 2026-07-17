@@ -156,23 +156,25 @@ if (typeof Worker === "undefined") {
           this.index.clear();
           return;
         case "INIT_PHOTOS":
-          for (const p of msg.photos as Parameters<
+          for (const photo of msg.photos as Parameters<
             InstanceType<typeof SearchIndex>["setPhoto"]
           >[0][]) {
-            this.index.setPhoto(p);
+            this.index.setPhoto(photo);
           }
           return;
-        case "INIT_META":
+        case "INIT_OCCURRENCES":
           this.index.setSchemaLabels(
             msg.schemaLabels as Parameters<
               InstanceType<typeof SearchIndex>["setSchemaLabels"]
             >[0],
           );
-          for (const e of msg.entries as {
+          for (const entry of msg.entries as Array<{
             path: string;
-            meta: Parameters<InstanceType<typeof SearchIndex>["setMeta"]>[1];
-          }[]) {
-            this.index.setMeta(e.path, e.meta);
+            occurrences: Parameters<
+              InstanceType<typeof SearchIndex>["setOccurrences"]
+            >[1];
+          }>) {
+            this.index.setOccurrences(entry.path, entry.occurrences);
           }
           return;
         case "INIT_DRAFTS":
@@ -181,11 +183,11 @@ if (typeof Worker === "undefined") {
               InstanceType<typeof SearchIndex>["setSchemaLabels"]
             >[0],
           );
-          for (const e of msg.entries as {
+          for (const entry of msg.entries as Array<{
             path: string;
             edits: Parameters<InstanceType<typeof SearchIndex>["setDrafts"]>[1];
-          }[]) {
-            this.index.setDrafts(e.path, e.edits);
+          }>) {
+            this.index.setDrafts(entry.path, entry.edits);
           }
           return;
         case "UPSERT_PHOTO":
@@ -195,18 +197,19 @@ if (typeof Worker === "undefined") {
             >[0],
           );
           return;
-        case "UPSERT_META":
+        case "UPSERT_OCCURRENCES":
           this.index.setSchemaLabels(
             msg.schemaLabels as Parameters<
               InstanceType<typeof SearchIndex>["setSchemaLabels"]
             >[0],
           );
-          this.index.setMeta(
+          this.index.setOccurrences(
             msg.path as string,
-            msg.meta as Parameters<
-              InstanceType<typeof SearchIndex>["setMeta"]
+            msg.occurrences as Parameters<
+              InstanceType<typeof SearchIndex>["setOccurrences"]
             >[1],
           );
+          return;
           return;
         case "UPSERT_DRAFTS":
           this.index.setSchemaLabels(

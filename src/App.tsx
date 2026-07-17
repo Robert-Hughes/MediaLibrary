@@ -13,7 +13,7 @@ import {
   type TauriApi,
   type MediaLibraryActions,
 } from "./useMediaLibrary";
-import { ThumbnailStore, ImageMetadataStore } from "./types";
+import { ThumbnailStore, ImageMetadataOccurrencesStore } from "./types";
 import type { AppState, SchemaDefinitionId } from "./types";
 import { WelcomeScreen } from "./components/WelcomeScreen";
 import { MenuBar } from "./components/MenuBar";
@@ -44,7 +44,6 @@ import {
 import {
   buildNormaliseItems,
   metadataOccurrencesStoreLookup,
-  metadataStoreLookup,
 } from "./utils/buildNormaliseItems";
 import { sortPhotos, shouldSuspendSorting } from "./utils/sorting";
 import { listSearchQueryIsActive } from "./utils/listSearchText";
@@ -118,14 +117,18 @@ function LoadedView({
     () =>
       sortingDisabled
         ? state.photos
-        : sortPhotos(state.photos, state.sortConfig, state.imageMetadata),
+        : sortPhotos(
+            state.photos,
+            state.sortConfig,
+            state.imageMetadataOccurrences,
+          ),
     // metadataVersion is the invalidation signal for image-metadata sorts
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [
       state.photos,
       state.sortConfig,
       state.metadataVersion,
-      state.imageMetadata,
+      state.imageMetadataOccurrences,
       sortingDisabled,
     ],
   );
@@ -168,7 +171,7 @@ function LoadedView({
   // forward each change.  See `src/hooks/useSearchWorker.ts`.
   const { matched: searchMatched, pending: searchPending } = useSearchWorker({
     photos: sortedPhotos,
-    imageMetadataStore: state.imageMetadata,
+    imageMetadataOccurrencesStore: state.imageMetadataOccurrences,
     targetDraftEditsStore: state.targetDraftEditsStore,
     query: listSearchQuery,
     createWorker: createSearchWorker,
@@ -257,13 +260,13 @@ function LoadedView({
     if (!showColumnDialog) return [];
     return computeEffectiveMetadataKeyFrequency(
       state.photos,
-      state.imageMetadata,
+      state.imageMetadataOccurrences,
       state.targetDraftEdits,
     );
   }, [
     showColumnDialog,
     state.photos,
-    state.imageMetadata,
+    state.imageMetadataOccurrences,
     state.targetDraftEdits,
     state.metadataVersion,
     metadataRemaining,
@@ -301,21 +304,14 @@ function LoadedView({
    */
   const buildGeocodeItems = useCallback(
     (relPaths: string[]): GeocodeRequestItem[] => {
-      return relPaths.map((relPath) => {
-        const meta = state.imageMetadata.get(relPath);
-        const metaBag = meta === "loading" ? undefined : meta;
-        return buildGeocodeRequestItemForFile(relPath, {
-          metadata: metaBag,
+      return relPaths.map((relPath) =>
+        buildGeocodeRequestItemForFile(relPath, {
           occurrences: state.imageMetadataOccurrences.get(relPath),
           targetDrafts: state.targetDraftEdits[relPath],
-        });
-      });
+        }),
+      );
     },
-    [
-      state.imageMetadata,
-      state.imageMetadataOccurrences,
-      state.targetDraftEdits,
-    ],
+    [state.imageMetadataOccurrences, state.targetDraftEdits],
   );
 
   return (
@@ -336,7 +332,6 @@ function LoadedView({
       <PhotoList
         photos={displayPhotos}
         thumbnails={state.thumbnails}
-        imageMetadata={state.imageMetadata}
         imageMetadataOccurrences={state.imageMetadataOccurrences}
         targetDraftEdits={state.targetDraftEdits}
         visibleColumns={state.visibleColumns}
@@ -362,7 +357,6 @@ function LoadedView({
           setDescribeOverwrite(
             countDescribeOverwrites(
               relPaths,
-              state.imageMetadata,
               state.imageMetadataOccurrences,
               state.targetDraftEdits,
             ),
@@ -374,7 +368,6 @@ function LoadedView({
           setGeocodeOverwrite(
             countGeocodeOverwrites(
               relPaths,
-              state.imageMetadata,
               state.imageMetadataOccurrences,
               state.targetDraftEdits,
             ),
@@ -388,7 +381,6 @@ function LoadedView({
           const initialGroups = ALL_NORMALISE_GROUPS;
           const items = buildNormaliseItems(
             relPaths,
-            metadataStoreLookup(state.imageMetadata),
             metadataOccurrencesStoreLookup(state.imageMetadataOccurrences),
             state.targetDraftEdits,
             initialGroups,
@@ -410,7 +402,6 @@ function LoadedView({
           onClose={actions.closeGallery}
           onNavigate={onGalleryNavigate}
           loadImage={loadImage}
-          imageMetadata={state.imageMetadata}
           imageMetadataOccurrences={state.imageMetadataOccurrences}
           targetDraftEdits={
             state.targetDraftEdits[
@@ -431,7 +422,6 @@ function LoadedView({
             setDescribeOverwrite(
               countDescribeOverwrites(
                 [relPath],
-                state.imageMetadata,
                 state.imageMetadataOccurrences,
                 state.targetDraftEdits,
               ),
@@ -443,7 +433,6 @@ function LoadedView({
             setGeocodeOverwrite(
               countGeocodeOverwrites(
                 [relPath],
-                state.imageMetadata,
                 state.imageMetadataOccurrences,
                 state.targetDraftEdits,
               ),
@@ -455,7 +444,6 @@ function LoadedView({
             const initialGroups = ALL_NORMALISE_GROUPS;
             const items = buildNormaliseItems(
               [relPath],
-              metadataStoreLookup(state.imageMetadata),
               metadataOccurrencesStoreLookup(state.imageMetadataOccurrences),
               state.targetDraftEdits,
               initialGroups,
@@ -740,7 +728,7 @@ export default function App() {
           <PhotoList
             photos={[]}
             thumbnails={new ThumbnailStore()}
-            imageMetadata={new ImageMetadataStore()}
+            imageMetadataOccurrences={new ImageMetadataOccurrencesStore()}
             visibleColumns={state.visibleColumns}
             columnWidths={state.columnWidths}
             sortConfig={state.sortConfig}

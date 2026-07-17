@@ -12,6 +12,7 @@ import type {
 import { resolveEffectiveGpsForFile } from "../utils/effectiveGps";
 import { existingOccurrenceTargetFromOccurrence } from "../utils/metadataDraftTarget";
 import { mockMetadata } from "./factories";
+import { occurrencesFromMetadataCollection } from "./occurrenceFixtures";
 
 const BASE_RAW = {
   "GPS:GPSLatitude": 51,
@@ -107,8 +108,11 @@ function resolve(
   } = {},
 ) {
   return resolveEffectiveGpsForFile({
-    metadata: overrides.metadata ?? mockMetadata(BASE_RAW),
-    occurrences: overrides.occurrences ?? baseOccurrences(),
+    occurrences:
+      overrides.occurrences ??
+      occurrencesFromMetadataCollection(
+        overrides.metadata ?? mockMetadata(BASE_RAW),
+      ),
     targetDrafts: overrides.targetDrafts,
   });
 }
@@ -126,7 +130,7 @@ describe("resolveEffectiveGpsForFile", () => {
         "GPS:GPSLongitude": 1,
         "GPS:GPSLongitudeRef": "E",
       }),
-      occurrences: zeroOccurrences("N", "E").slice(0, 2),
+      occurrences: zeroOccurrences("N", "E"),
     });
 
     expect(Object.is(result.lat, 0)).toBe(true);
@@ -141,7 +145,7 @@ describe("resolveEffectiveGpsForFile", () => {
         "GPS:GPSLongitude": 1,
         "GPS:GPSLongitudeRef": "E",
       }),
-      occurrences: zeroOccurrences("S", "E").slice(0, 2),
+      occurrences: zeroOccurrences("S", "E"),
     });
 
     expect(Object.is(result.lat, -0)).toBe(true);
@@ -156,7 +160,7 @@ describe("resolveEffectiveGpsForFile", () => {
         "GPS:GPSLongitude": 0,
         "GPS:GPSLongitudeRef": "E",
       }),
-      occurrences: zeroOccurrences("N", "E").slice(2),
+      occurrences: zeroOccurrences("N", "E"),
     });
 
     expect(Object.is(result.lon, 0)).toBe(true);
@@ -171,7 +175,7 @@ describe("resolveEffectiveGpsForFile", () => {
         "GPS:GPSLongitude": 0,
         "GPS:GPSLongitudeRef": "W",
       }),
-      occurrences: zeroOccurrences("N", "W").slice(2),
+      occurrences: zeroOccurrences("N", "W"),
     });
 
     expect(Object.is(result.lon, -0)).toBe(true);
@@ -179,15 +183,8 @@ describe("resolveEffectiveGpsForFile", () => {
   });
 
   it("preserves negative zero from schema-v5 ExistingOccurrence reference drafts", () => {
-    const metadata = mockMetadata({
-      "GPS:GPSLatitude": 0,
-      "GPS:GPSLatitudeRef": "N",
-      "GPS:GPSLongitude": 0,
-      "GPS:GPSLongitudeRef": "E",
-    });
     const occurrences = zeroOccurrences();
     const result = resolve({
-      metadata,
       occurrences,
       targetDrafts: targets(
         existingEntry(occurrences[1], set(valueFor("S"))),
@@ -200,16 +197,11 @@ describe("resolveEffectiveGpsForFile", () => {
   });
 
   it("preserves negative zero from schema-v5 NewProperty reference drafts", () => {
-    const metadata = mockMetadata({
-      "GPS:GPSLatitude": 0,
-      "GPS:GPSLongitude": 0,
-    });
     const occurrences = [
       occurrence(GPS_IDS.latitude, valueFor(0)),
       occurrence(GPS_IDS.longitude, valueFor(0)),
     ];
     const result = resolve({
-      metadata,
       occurrences,
       targetDrafts: targets(
         {
@@ -227,11 +219,10 @@ describe("resolveEffectiveGpsForFile", () => {
     expect(Object.is(result.lon, -0)).toBe(true);
   });
 
-  it("returns null coordinates when compatibility metadata is unavailable", () => {
+  it("returns null coordinates while authoritative occurrences are loading", () => {
     expect(
       resolveEffectiveGpsForFile({
-        metadata: undefined,
-        occurrences: baseOccurrences(),
+        occurrences: "loading",
         targetDrafts: undefined,
       }),
     ).toEqual({ lat: null, lon: null });
@@ -271,17 +262,12 @@ describe("resolveEffectiveGpsForFile", () => {
   });
 
   it("uses missing reference fields represented by NewProperty targets", () => {
-    const metadata = mockMetadata({
-      "GPS:GPSLatitude": 51,
-      "GPS:GPSLongitude": 1,
-    });
     const occurrences = [
       occurrence(GPS_IDS.latitude, valueFor(51)),
       occurrence(GPS_IDS.longitude, valueFor(1)),
     ];
     expect(
       resolve({
-        metadata,
         occurrences,
         targetDrafts: targets(
           {
@@ -299,14 +285,8 @@ describe("resolveEffectiveGpsForFile", () => {
 
   it("turns a valid schema-v5 coordinate Delete into null coordinates", () => {
     const occurrences = baseOccurrences();
-    const metadata = mockMetadata({
-      ...BASE_RAW,
-      "Composite:GPSLatitude": 51,
-      "Composite:GPSLongitude": 1,
-    });
     expect(
       resolve({
-        metadata,
         occurrences,
         targetDrafts: targets(
           existingEntry(occurrences[0], { intent: "Delete", value: null }),
@@ -316,15 +296,19 @@ describe("resolveEffectiveGpsForFile", () => {
   });
 
   it("does not suppress valid Composite coordinates for altitude-only targets", () => {
-    const altitude = occurrence(GPS_IDS.altitude, valueFor(10));
+    const occurrences = occurrencesFromMetadataCollection(
+      mockMetadata({
+        "Composite:GPSLatitude": 51,
+        "Composite:GPSLongitude": -1,
+        "GPS:GPSAltitude": 10,
+      }),
+    );
+    const altitude = occurrences.find(
+      (entry) => entry.schema_id.tag_id === GPS_IDS.altitude.tag_id,
+    )!;
     expect(
       resolve({
-        metadata: mockMetadata({
-          "Composite:GPSLatitude": 51,
-          "Composite:GPSLongitude": -1,
-          "GPS:GPSAltitude": 10,
-        }),
-        occurrences: [altitude],
+        occurrences,
         targetDrafts: targets(existingEntry(altitude, set(valueFor(20)))),
       }),
     ).toEqual({ lat: 51, lon: -1 });
@@ -376,7 +360,7 @@ describe("resolveEffectiveGpsForFile", () => {
         occurrences: [...occurrences, duplicate],
         targetDrafts: targets(existingEntry(occurrences[0], set(valueFor(52)))),
       }),
-    ).toEqual({ lat: 51, lon: 1 });
+    ).toEqual({ lat: null, lon: null });
   });
 
   it("never selects among multiple exact-schema target owners", () => {
@@ -388,24 +372,15 @@ describe("resolveEffectiveGpsForFile", () => {
     ).toEqual({ lat: 51, lon: 1 });
   });
 
-  it("does not mutate metadata, occurrences, or target drafts", () => {
-    const metadata = mockMetadata(BASE_RAW);
+  it("does not mutate occurrences or target drafts", () => {
     const occurrences = baseOccurrences();
     const targetDrafts = targets(
       existingEntry(occurrences[0], set(valueFor(52))),
     );
-    const before = structuredClone({
-      metadata,
-      occurrences,
-      targetDrafts,
-    });
+    const before = structuredClone({ occurrences, targetDrafts });
 
-    resolveEffectiveGpsForFile({
-      metadata,
-      occurrences,
-      targetDrafts,
-    });
+    resolveEffectiveGpsForFile({ occurrences, targetDrafts });
 
-    expect({ metadata, occurrences, targetDrafts }).toEqual(before);
+    expect({ occurrences, targetDrafts }).toEqual(before);
   });
 });

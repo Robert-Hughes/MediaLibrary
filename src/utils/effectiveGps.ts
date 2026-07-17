@@ -13,7 +13,6 @@ import { resolveGps } from "./resolveGps";
 import { schemaDefinitionIdToken } from "./schemaDefinitionId";
 
 export interface EffectiveGpsInput {
-  metadata: MetadataCollection | undefined;
   occurrences: ImageMetadataOccurrencesState | undefined;
   targetDrafts: TargetDraftCollection | undefined;
 }
@@ -51,20 +50,13 @@ function rawCoordinatesChanged(
   );
 }
 
-/**
- * Resolve the coordinates currently presented for one file. The shared
- * effective-metadata resolver owns target-overlay validation; GPS
- * retains only its coordinate/ref interpretation and stale Composite
- * suppression.
- */
 export function resolveEffectiveGpsForFile(input: EffectiveGpsInput): {
   lat: number | null;
   lon: number | null;
 } {
-  if (input.metadata === undefined) return { lat: null, lon: null };
+  if (!Array.isArray(input.occurrences)) return { lat: null, lon: null };
 
   const authoritative = buildEffectiveMetadataForFile({
-    metadata: input.metadata,
     occurrences: input.occurrences,
     targetDrafts: undefined,
   });

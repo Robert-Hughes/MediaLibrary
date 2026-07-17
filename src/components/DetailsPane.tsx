@@ -3,7 +3,6 @@ import type {
   ImageMetadataEntry,
   MetadataDraftEdit,
   PhotoInfo,
-  ImageMetadataState,
   ImageMetadataOccurrencesState,
   MetadataValue,
   MetadataDraftTarget,
@@ -33,7 +32,6 @@ import type {
 import {
   groupImageMetadata,
   getOsEntries,
-  overlayUniqueOccurrenceValues,
   supplementalResolvedMetadataOccurrences,
 } from "../utils/detailsPaneHelpers";
 import {
@@ -59,6 +57,7 @@ import { GpsMapOverview } from "./GpsMapOverview";
 import { resolveEffectiveGpsForFile } from "../utils/effectiveGps";
 import { buildEffectiveMetadataForFile } from "../utils/effectiveMetadata";
 import { metadataGet } from "../utils/metadataCollection";
+import { schemaMetadataCollectionFromOccurrences } from "../utils/schemaMetadataProjection";
 import type { SchemaOccurrenceResolution } from "../utils/metadataOccurrences";
 import {
   buildSchemaOccurrenceResolutionIndex,
@@ -76,6 +75,7 @@ import {
   metadataDraftTargetEquals,
 } from "../utils/metadataDraftTarget";
 import { metadataOccurrenceIdToken } from "../utils/metadataOccurrenceId";
+import { tagInfoSupportsMetadataWrite } from "../utils/metadataWriteSupport";
 import { planGpsTargetDraftBatchV5 } from "../gpsTargetDrafts";
 import { previewMetadataRemovalTargetsV5 } from "../metadataRemovalTargets";
 
@@ -116,9 +116,8 @@ type PresentedTargetDraft =
 
 interface Props {
   photo: PhotoInfo;
-  metadata: ImageMetadataState;
-  /** Authoritative occurrences; optional for read-only or direct consumers. */
-  occurrences?: ImageMetadataOccurrencesState;
+  /** Authoritative occurrences are the sole metadata state. */
+  occurrences: ImageMetadataOccurrencesState;
   /** Exact-target drafts for Add Property and unique existing rows. */
   targetDraftEdits?: TargetDraftCollection;
   /** Folder-scoped safety state for the strict schema-v5 persistence file. */
@@ -417,7 +416,7 @@ function DetailsImageRow({
   const ambiguityTitle = ambiguous
     ? [
         "Several runtime metadata occurrences share this schema identity.",
-        "The schema-keyed compatibility row cannot identify one occurrence.",
+        "The ordinary schema row cannot identify one occurrence.",
         "See Additional Metadata Occurrences for the concrete values.",
         ...(draftValue !== undefined
           ? [
@@ -711,7 +710,8 @@ function DetailsGroupContextMenu({
       const resolution = resolutionForSchema(index, id);
       return (
         resolution.kind !== "unique" ||
-        (resolution.occurrence.tag_info?.writable ?? false)
+        (resolution.occurrence.tag_info !== null &&
+          tagInfoSupportsMetadataWrite(resolution.occurrence.tag_info))
       );
     });
   }, [ids, occurrences]);
@@ -859,7 +859,6 @@ function DetailsGroupContextMenu({
 
 export function DetailsPane({
   photo,
-  metadata,
   occurrences,
   targetDraftEdits,
   targetDraftPersistence = { status: "ready" },
@@ -876,6 +875,13 @@ export function DetailsPane({
   onNormalise,
   onShowInFileExplorer,
 }: Props) {
+  const metadata = useMemo(
+    () =>
+      occurrences === "loading"
+        ? undefined
+        : schemaMetadataCollectionFromOccurrences(occurrences),
+    [occurrences],
+  );
   const [detailsSearch, setDetailsSearch] = useState("");
   const [contextMenu, setContextMenu] = useState<{
     x: number;
@@ -936,7 +942,7 @@ export function DetailsPane({
   }, [targetDraftEdits]);
   const presentationPlan = useMemo(() => {
     const presented: PresentedTargetDraft[] = [];
-    if (metadata === "loading" || !targetDraftsWritable) return presented;
+    if (metadata === undefined || !targetDraftsWritable) return presented;
     for (const [, schemaResolution] of targetSchemaResolutions) {
       if (schemaResolution.kind !== "unique") continue;
       const entry = schemaResolution.entry;
@@ -945,10 +951,7 @@ export function DetailsPane({
         entry.target.schema_id,
       );
       if (entry.target.kind === "NewProperty") {
-        if (
-          occurrenceResolution.kind === "missing" &&
-          metadataGet(metadata, entry.target.schema_id) === undefined
-        ) {
+        if (occurrenceResolution.kind === "missing") {
           presented.push({ destination: "ordinary-row", entry });
         }
         continue;
@@ -993,7 +996,6 @@ export function DetailsPane({
     }
     return presented;
   }, [
-    metadata,
     occurrences,
     occurrenceResolutionIndex,
     targetSchemaResolutions,
@@ -1084,45 +1086,23 @@ export function DetailsPane({
       (entry) => !presented.has(entry),
     );
   }, [presentationPlan, targetDraftEdits]);
-  const authoritativeBaseMetadata = useMemo(
+  const effectiveMetadata = useMemo(
     () =>
-      metadata === "loading"
+      metadata === undefined
         ? undefined
-        : overlayUniqueOccurrenceValues(metadata, occurrenceResolutionIndex),
-    [metadata, occurrenceResolutionIndex],
+        : buildEffectiveMetadataForFile({
+            occurrences,
+            targetDrafts: targetDraftEdits,
+          }),
+    [metadata, occurrences, targetDraftEdits],
   );
-  const effectiveMetadata = useMemo(() => {
-    if (authoritativeBaseMetadata === undefined) return undefined;
-    const effective = buildEffectiveMetadataForFile({
-      metadata: authoritativeBaseMetadata,
-      occurrences,
-      targetDrafts: targetDraftEdits,
-    });
-    for (const [token, entry] of presentedTargetDrafts) {
-      if (entry.edit.intent === "Set" && entry.edit.value) {
-        effective[token] = {
-          ...entry.edit.value,
-          id: entry.target.schema_id,
-        } as ImageMetadataEntry;
-      } else if (entry.edit.intent === "Delete") {
-        delete effective[token];
-      }
-    }
-    return effective;
-  }, [
-    authoritativeBaseMetadata,
-    occurrences,
-    targetDraftEdits,
-    presentedTargetDrafts,
-  ]);
   const resolvedGps = useMemo(
     () =>
       resolveEffectiveGpsForFile({
-        metadata: metadata === "loading" ? undefined : metadata,
         occurrences,
         targetDrafts: targetDraftEdits,
       }),
-    [metadata, occurrences, targetDraftEdits],
+    [occurrences, targetDraftEdits],
   );
 
   const draftEdits = useMemo(() => {
@@ -1159,7 +1139,7 @@ export function DetailsPane({
   const osEntries = useMemo(() => getOsEntries(photo), [photo]);
   const displayIds = useMemo(() => {
     const ids: SchemaDefinitionId[] = [];
-    if (metadata !== "loading") {
+    if (metadata !== undefined) {
       for (const entry of Object.values(metadata)) ids.push(entry.id);
     }
     for (const [, entry] of presentedTargetDrafts) {
@@ -1201,7 +1181,7 @@ export function DetailsPane({
     presentedExistingOccurrenceDrafts,
   ]);
   const imageGroups = useMemo(() => {
-    if (metadata === "loading") return [];
+    if (metadata === undefined) return [];
 
     const combinedMetadata: Record<string, ImageMetadataEntry> = {
       ...metadata,
@@ -1222,7 +1202,6 @@ export function DetailsPane({
     }
     return groupImageMetadata(combinedMetadata, displayTagInfos);
   }, [
-    metadata,
     displayTagInfos,
     occurrenceResolutionIndex,
     presentedTargetDrafts,
@@ -1301,7 +1280,7 @@ export function DetailsPane({
     );
     const isSupplemental =
       schemaResolution.kind === "multiple" ||
-      (metadata !== "loading" &&
+      (metadata !== undefined &&
         metadataGet(metadata, editDialog.schemaId) === undefined);
     if (isSupplemental) {
       if (!targetDraftsWritable) {
@@ -1369,7 +1348,6 @@ export function DetailsPane({
     };
   }, [
     editDialog,
-    metadata,
     occurrenceResolutionIndex,
     occurrences,
     presentedExistingBySchema,
@@ -1509,11 +1487,7 @@ export function DetailsPane({
   ]);
 
   const occurrenceEntries = useMemo(() => {
-    if (
-      metadata === "loading" ||
-      occurrences === undefined ||
-      occurrences === "loading"
-    ) {
+    if (metadata === undefined || occurrences === "loading") {
       return [];
     }
     return supplementalResolvedMetadataOccurrences(
@@ -1529,7 +1503,6 @@ export function DetailsPane({
     occurrenceResolutionIndex,
     presentedOrdinaryOccurrenceTokens,
   ]);
-
   const supplementalRows = useMemo(
     () =>
       occurrenceEntries.map((entry, index) => {
@@ -1949,7 +1922,7 @@ export function DetailsPane({
         )}
 
         {/* Image Metadata */}
-        {metadata === "loading" ? (
+        {metadata === undefined ? (
           <section
             className="details-section"
             data-testid="details-section-loading"
@@ -2041,7 +2014,7 @@ export function DetailsPane({
                             key={entry.identityToken}
                             entry={entry}
                             rawValue={
-                              typeof metadata === "object"
+                              metadata !== undefined
                                 ? metadataGet(metadata, entry.id)
                                 : undefined
                             }
@@ -2108,7 +2081,7 @@ export function DetailsPane({
                 </h3>
                 <p className="details-section-subtitle">
                   Concrete metadata fields that cannot be represented uniquely
-                  by the schema-keyed compatibility view.
+                  by the ordinary schema-oriented view.
                 </p>
                 <table className="details-table">
                   <tbody>
@@ -2143,7 +2116,7 @@ export function DetailsPane({
         )}
       </div>
 
-      {metadata !== "loading" && (
+      {metadata !== undefined && (
         <div className="details-pane-footer" data-testid="details-pane-footer">
           <button
             className="button button--secondary"

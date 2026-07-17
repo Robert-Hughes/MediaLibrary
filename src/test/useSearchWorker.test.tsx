@@ -7,7 +7,11 @@ import {
 import { _clearTagInfoCache } from "../hooks/useTagInfo";
 import { SearchIndex } from "../search/searchIndex";
 import { TargetDraftEditsStore } from "../targetDraftEdits";
-import { ImageMetadataStore, type PhotoInfo, type TagInfo } from "../types";
+import {
+  ImageMetadataOccurrencesStore,
+  type PhotoInfo,
+  type TagInfo,
+} from "../types";
 import type {
   SearchWorkerInbound,
   SearchWorkerOutbound,
@@ -33,10 +37,10 @@ class FakeWorker implements SearchWorkerLike {
       case "INIT_PHOTOS":
         message.photos.forEach((photo) => this.index.setPhoto(photo));
         break;
-      case "INIT_META":
+      case "INIT_OCCURRENCES":
         this.index.setSchemaLabels(message.schemaLabels);
-        message.entries.forEach(({ path, meta }) =>
-          this.index.setMeta(path, meta),
+        message.entries.forEach(({ path, occurrences }) =>
+          this.index.setOccurrences(path, occurrences),
         );
         break;
       case "INIT_DRAFTS":
@@ -48,8 +52,12 @@ class FakeWorker implements SearchWorkerLike {
       case "UPSERT_PHOTO":
         this.index.setPhoto(message.photo);
         break;
-      case "UPSERT_META":
-        this.index.setMeta(message.path, message.meta, message.schemaLabels);
+      case "UPSERT_OCCURRENCES":
+        this.index.setOccurrences(
+          message.path,
+          message.occurrences,
+          message.schemaLabels,
+        );
         break;
       case "UPSERT_DRAFTS":
         this.index.setDrafts(message.path, message.edits, message.schemaLabels);
@@ -76,7 +84,7 @@ class FakeWorker implements SearchWorkerLike {
 
 interface HookArgs {
   photos: PhotoInfo[];
-  imageMetadataStore: ImageMetadataStore;
+  imageMetadataOccurrencesStore: ImageMetadataOccurrencesStore;
   targetDraftEditsStore: TargetDraftEditsStore;
   query: string;
 }
@@ -85,7 +93,9 @@ function setup(initial: Partial<HookArgs> = {}) {
   const fake = new FakeWorker();
   const props: HookArgs = {
     photos: initial.photos ?? [],
-    imageMetadataStore: initial.imageMetadataStore ?? new ImageMetadataStore(),
+    imageMetadataOccurrencesStore:
+      initial.imageMetadataOccurrencesStore ??
+      new ImageMetadataOccurrencesStore(),
     targetDraftEditsStore:
       initial.targetDraftEditsStore ?? new TargetDraftEditsStore(),
     query: initial.query ?? "",

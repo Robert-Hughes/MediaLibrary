@@ -8,8 +8,8 @@ import type {
 } from "../types";
 import { metadataValueEqual } from "../types";
 import { buildSchemaDraftDisplayProjection } from "../targetDraftView";
-import { buildSchemaOccurrenceResolutionIndex } from "./metadataOccurrences";
 import { metadataGet, type MetadataCollection } from "./metadataCollection";
+import { schemaMetadataCollectionFromOccurrences } from "./schemaMetadataProjection";
 import { schemaDefinitionIdToken } from "./schemaDefinitionId";
 
 function valueFromEntry(
@@ -102,46 +102,18 @@ function setEffectiveValue(
 }
 
 /**
- * Build the schema-keyed metadata view used by generated-workflow inputs and
- * overwrite warnings. Ambiguous runtime occurrences and stale target snapshots
- * are never first-selected.
+ * Build a schema-keyed read-only view from authoritative occurrences and exact
+ * target drafts. Ambiguous values and stale targets are never first-selected.
  */
 export function buildEffectiveMetadataForFile(input: {
-  metadata: MetadataCollection | undefined;
   occurrences: ImageMetadataOccurrencesState | undefined;
   targetDrafts: TargetDraftCollection | undefined;
 }): MetadataCollection {
-  const effective: MetadataCollection = Object.fromEntries(
-    Object.entries(input.metadata ?? {}).map(([token, entry]) => [
-      token,
-      structuredClone(entry),
-    ]),
-  );
-
-  const loadedOccurrences = Array.isArray(input.occurrences)
-    ? input.occurrences
-    : undefined;
-  const occurrenceIndex = loadedOccurrences
-    ? buildSchemaOccurrenceResolutionIndex(loadedOccurrences)
-    : undefined;
-
-  if (occurrenceIndex) {
-    for (const resolution of occurrenceIndex.values()) {
-      if (resolution.kind === "unique") {
-        setEffectiveValue(
-          effective,
-          resolution.occurrence.schema_id,
-          resolution.occurrence.value,
-        );
-      }
-      // Missing or multiply-resolved schemas retain the compatibility
-      // projection. No authoritative sibling is selected or collapsed into
-      // this schema-keyed view.
-    }
-  }
+  const effective = Array.isArray(input.occurrences)
+    ? schemaMetadataCollectionFromOccurrences(input.occurrences)
+    : {};
 
   const displayDrafts = buildSchemaDraftDisplayProjection({
-    compatibilityMetadata: input.metadata,
     occurrences: input.occurrences,
     targetDrafts: input.targetDrafts,
   });

@@ -16,7 +16,6 @@ const fileResult = (relativePath = "photo.jpg"): MetadataApplyFileResultV5 => ({
   fresh_image_metadata: {
     relative_path: relativePath,
     occurrences: [],
-    metadata: [],
   },
   target_outcomes: [],
   persisted_draft_entries: [],

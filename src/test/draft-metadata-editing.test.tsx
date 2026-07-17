@@ -708,8 +708,8 @@ describe("Draft Metadata Editing Integration", () => {
     const cell = Array.from(
       row.querySelectorAll<HTMLElement>(".grid-cell-metadata"),
     ).find((candidate) => candidate.getAttribute("data-col") === token);
-    expect(cell).toBeDefined();
-    expect(cell).toHaveTextContent("Compatibility value");
+    expect(cell).toHaveTextContent("—");
+    expect(cell).not.toHaveTextContent("Compatibility value");
     expect(cell?.querySelector(".draft-new")).toBeNull();
 
     const { ask } = await import("@tauri-apps/plugin-dialog");

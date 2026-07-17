@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ThumbnailStore,
-  ImageMetadataStore,
   ImageMetadataOccurrencesStore,
   MetadataProgressStore,
 } from "./types";
@@ -27,7 +26,6 @@ import type {
 import { loadColumnConfig, saveColumnConfig } from "./utils/columnConfig";
 import {
   MAX_WORKER_ERRORS,
-  normalizeMetadataFromTauri,
   normalizeMetadataOccurrencesFromTauri,
   scheduleBatchedFlush,
 } from "./utils/scanEvents";
@@ -152,9 +150,6 @@ export function useMediaLibrary(
   const [recentFolders, pushRecentFolder] = useRecentFolders();
 
   const thumbnailStoreRef = useRef<ThumbnailStore>(new ThumbnailStore());
-  const imageMetadataStoreRef = useRef<ImageMetadataStore>(
-    new ImageMetadataStore(),
-  );
   const imageMetadataOccurrencesStoreRef =
     useRef<ImageMetadataOccurrencesStore>(new ImageMetadataOccurrencesStore());
   const metadataProgressStoreRef = useRef<MetadataProgressStore>(
@@ -253,14 +248,13 @@ export function useMediaLibrary(
           stores: {
             drafts: targetDraftEditsStoreRef.current,
             occurrences: imageMetadataOccurrencesStoreRef.current,
-            compatibility: imageMetadataStoreRef.current,
             verification: targetVerifyOutcomesStoreRef.current,
           },
           autosaveGate: targetDraftAutosaveGateRef.current,
         },
         {
           onProgress: (_payload, application) => {
-            if (!application.compatibilityChanged) return;
+            if (!application.occurrencesChanged) return;
             setAppState((prev) =>
               prev.kind === "loaded"
                 ? { ...prev, metadataVersion: prev.metadataVersion + 1 }
@@ -268,7 +262,7 @@ export function useMediaLibrary(
             );
           },
           onFinalApplied: (_result, application) => {
-            if (!application.files.some((file) => file.compatibilityChanged)) {
+            if (!application.files.some((file) => file.occurrencesChanged)) {
               return;
             }
             setAppState((prev) =>
@@ -367,7 +361,6 @@ export function useMediaLibrary(
       }
 
       thumbnailStoreRef.current = new ThumbnailStore();
-      imageMetadataStoreRef.current.clear();
       imageMetadataOccurrencesStoreRef.current.clear();
       metadataProgressStoreRef.current = new MetadataProgressStore();
       activeFolderRef.current = folder;
@@ -438,7 +431,6 @@ export function useMediaLibrary(
             folder: prev.folder,
             photos: batch,
             thumbnails: thumbnailStoreRef.current,
-            imageMetadata: imageMetadataStoreRef.current,
             imageMetadataOccurrences: imageMetadataOccurrencesStoreRef.current,
             metadataProgress: metadataProgressStoreRef.current,
             scanning: true,
@@ -473,7 +465,7 @@ export function useMediaLibrary(
       });
     };
 
-    // Flush authoritative occurrences and the schema-keyed display projection.
+    // Flush authoritative occurrences.
     const flushMetadataBatch = () => {
       const batch = [...metadataBufferRef.current];
       metadataBufferRef.current = [];
@@ -485,10 +477,6 @@ export function useMediaLibrary(
         imageMetadataOccurrencesStoreRef.current.set(
           res.relative_path,
           normalizeMetadataOccurrencesFromTauri(res.occurrences),
-        );
-        imageMetadataStoreRef.current.set(
-          res.relative_path,
-          normalizeMetadataFromTauri(res.metadata),
         );
       }
 
@@ -540,7 +528,6 @@ export function useMediaLibrary(
 
         for (const photo of photos) {
           thumbnailStoreRef.current.add(photo.relative_path);
-          imageMetadataStoreRef.current.add(photo.relative_path);
           imageMetadataOccurrencesStoreRef.current.add(photo.relative_path);
           photoBufferRef.current.push(photo);
         }
@@ -584,7 +571,6 @@ export function useMediaLibrary(
               folder: prev.folder,
               photos: [],
               thumbnails: thumbnailStoreRef.current,
-              imageMetadata: imageMetadataStoreRef.current,
               imageMetadataOccurrences:
                 imageMetadataOccurrencesStoreRef.current,
               metadataProgress: metadataProgressStoreRef.current,
@@ -743,7 +729,6 @@ export function useMediaLibrary(
     thumbnailBufferRef.current = [];
     targetDraftEditsStoreRef.current.resetMetadata({});
     targetVerifyOutcomesStoreRef.current.clear();
-    imageMetadataStoreRef.current.clear();
     imageMetadataOccurrencesStoreRef.current.clear();
 
     setAppState({ kind: "idle" });

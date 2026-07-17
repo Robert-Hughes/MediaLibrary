@@ -454,7 +454,6 @@ mod tests {
         MetadataOccurrence, MetadataOccurrenceId, MetadataOccurrences, MetadataWriteTarget,
     };
     use crate::metadata_value::MetadataValue;
-    use crate::scanner::{MetadataEntries, MetadataEntry};
     use crate::tag_schema::SchemaDefinitionId;
     use std::collections::{HashMap, VecDeque};
     use std::fs;
@@ -1594,10 +1593,6 @@ mod tests {
                 value: MetadataValue::Text("authoritative".into()),
                 tag_info: None,
                 write_target: None,
-            }]),
-            metadata: MetadataEntries(vec![MetadataEntry {
-                id: schema("1"),
-                value: MetadataValue::Text("compatibility".into()),
             }]),
         };
         let mut applied = outcome(

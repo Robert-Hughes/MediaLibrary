@@ -29,11 +29,14 @@ shape therefore requires no target-format migration.
 
 ## Transient occurrence format
 
+## Transient occurrence format
+
 Scan and readback payloads use the required shape
 `{ id, schema_id, value, tag_info, write_target }`. Unknown local schemas retain
 their exact table, tag ID and optional index with null interpretation and write
-target. The temporary read-only `ImageMetadata.metadata` schema projection now
-groups from `occurrence.schema_id` and remains separately removable later.
+target. `ImageMetadata` contains only this authoritative occurrence collection.
+Schema-oriented read-only consumers derive safe values on demand; no second
+schema-keyed scan store or wire field exists.
 
 ## Draft and audit persistence
 
@@ -86,11 +89,13 @@ observed nulls retain exact target context for review.
 
 ## Search projection
 
-List search receives every target draft's exact `target.schema_id` and complete
-semantic edit. The main thread resolves friendly group, name, and description
-labels, and the worker indexes those labels together with the exact schema and
-staged value. This supports `has:edits`, initial replay, incremental updates,
-last-draft deletion, retry, stale-enrichment protection, and reserved paths.
+List search receives every authoritative occurrence's exact schema identity,
+semantic value, and runtime occurrence coordinates. It also receives every
+target draft's exact `target.schema_id` and complete semantic edit. The main
+thread resolves friendly group, name, and description labels, and the worker
+indexes them alongside exact schema and occurrence fields. This supports
+`has:edits`, initial replay, incremental updates, last-draft deletion, retry,
+stale-enrichment protection, and reserved paths.
 
 Search is only a text projection. It never selects, replaces, merges, or
 mutates targets by schema identity; execution identity stays in

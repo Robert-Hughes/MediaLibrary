@@ -18,45 +18,6 @@ use crate::metadata_occurrence::{
 use crate::metadata_value::{parse_metadata_value, MetadataValue};
 use crate::tag_schema::{normalize_runtime_tag_id, SchemaDefinitionId, TagKind, TagRegistry};
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
-pub struct MetadataEntry {
-    pub id: SchemaDefinitionId,
-    pub value: MetadataValue,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
-#[serde(transparent)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
-pub struct MetadataEntries(pub Vec<MetadataEntry>);
-
-impl MetadataEntries {
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-
-    pub fn len(&self) -> usize {
-        self.0.len()
-    }
-
-    pub fn get(&self, id: &SchemaDefinitionId) -> Option<&MetadataValue> {
-        self.0
-            .iter()
-            .find(|entry| entry.id == *id)
-            .map(|entry| &entry.value)
-    }
-}
-
-impl IntoIterator for MetadataEntries {
-    type Item = MetadataEntry;
-    type IntoIter = std::vec::IntoIter<MetadataEntry>;
-    fn into_iter(self) -> Self::IntoIter {
-        self.0.into_iter()
-    }
-}
-
 // ── ExifTool executable name ──────────────────────────────────────────────────
 
 pub(crate) fn find_exiftool() -> &'static str {
@@ -106,25 +67,6 @@ pub struct ImageMetadata {
     /// resolved schema information and exact write target. Several occurrences
     /// may share one schema definition without losing their runtime identity.
     pub occurrences: MetadataOccurrences,
-
-    /// Temporary schema-keyed compatibility projection.
-    ///
-    /// This field is retained for schema-keyed consumers while they migrate to
-    /// occurrence identity. It cannot represent every valid occurrence set,
-    /// and an entry here must not be assumed to identify one unique runtime
-    /// occurrence.
-    pub metadata: MetadataEntries,
-}
-
-pub type MetadataMap = BTreeMap<SchemaDefinitionId, MetadataValue>;
-
-fn metadata_entries(values: MetadataMap) -> MetadataEntries {
-    MetadataEntries(
-        values
-            .into_iter()
-            .map(|(id, value)| MetadataEntry { id, value })
-            .collect(),
-    )
 }
 
 fn metadata_occurrences_from_canonical(
@@ -276,14 +218,10 @@ fn read_os_metadata(path: &Path) -> (Option<i64>, Option<i64>) {
 /// Top-level or batch-wide failures (such as ExifTool not launching, process exiting
 /// unsuccessfully, or stdout not being valid top-level JSON array) remain batch-wide.
 ///
-/// The function can return successful and failed files together. A successful
-/// outcome contains all three outer-result collections: `results`, `failures`
-/// and `schema_projection_omissions`. A file may appear successfully in
-/// `results` while contributing one or more omissions. Those omissions report
-/// compatibility loss in the schema-keyed display projection, not failed
-/// metadata extraction; the authoritative occurrences remain complete. Only
-/// genuine parsing, canonicalisation or invariant failures appear in
-/// `failures`.
+/// The function can return successful and failed files together. Successful
+/// files contain the complete authoritative occurrence set. Only genuine
+/// parsing, canonicalisation or invariant failures appear in `failures`; a
+/// schema-keyed ambiguity is never a scanner failure.
 ///
 /// Returns Ok(MetadataBatchReadOutcome) when ExifTool executes successfully.
 /// Returns Err(error_message) only for genuine batch-wide process/parsing
@@ -304,7 +242,6 @@ pub fn read_image_metadata_batch(
         return Ok(MetadataBatchReadOutcome {
             results: Vec::new(),
             failures: Vec::new(),
-            schema_projection_omissions: Vec::new(),
         });
     }
 
@@ -435,17 +372,6 @@ pub struct MetadataReadFailure {
 pub struct MetadataBatchReadOutcome {
     pub results: Vec<ImageMetadata>,
     pub failures: Vec<MetadataReadFailure>,
-    pub schema_projection_omissions: Vec<SchemaProjectionOmission>,
-}
-
-/// A schema-keyed display entry intentionally omitted because
-/// it could not represent every authoritative runtime occurrence.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct SchemaProjectionOmission {
-    pub relative_path: String,
-    pub schema_id: SchemaDefinitionId,
-    pub occurrence_ids: Vec<MetadataOccurrenceId>,
-    pub message: String,
 }
 
 #[derive(Debug, Clone)]
@@ -764,7 +690,6 @@ fn assemble_batch_outcome(
 
     let mut results = Vec::new();
     let mut failures = Vec::new();
-    let mut schema_projection_omissions = Vec::new();
 
     for (i, rel_path) in rel_paths.iter().enumerate() {
         let abs_path = &abs_paths[i];
@@ -828,56 +753,14 @@ fn assemble_batch_outcome(
                 }
             };
 
-            let public_occurrences = metadata_occurrences_from_canonical(&occurrences);
-
-            let projection = match project_occurrences_to_schema_metadata(&occurrences) {
-                Ok(projection) => projection,
-                Err(error) => {
-                    failures.push(MetadataReadFailure {
-                        relative_path: rel_path.clone(),
-                        error_message: format!("Schema-keyed display projection failed:\n{error}"),
-                    });
-                    continue;
-                }
-            };
-
-            for issue in projection.omissions {
-                log::debug!(
-                    "[metadata] Schema projection omission: file={} schema_id={:?} occurrence_ids={:?} reason={}",
-                    rel_path,
-                    issue.schema_id,
-                    issue.occurrence_ids,
-                    issue.message
-                );
-                log::warn!(
-                    "[metadata] Omitted ambiguous schema projection entry: file={} schema_id={:?} occurrences={} occurrence_ids={:?} reason={}",
-                    rel_path,
-                    issue.schema_id,
-                    issue.occurrence_ids.len(),
-                    issue.occurrence_ids,
-                    issue.message
-                );
-                schema_projection_omissions.push(SchemaProjectionOmission {
-                    relative_path: rel_path.clone(),
-                    schema_id: issue.schema_id,
-                    occurrence_ids: issue.occurrence_ids,
-                    message: issue.message,
-                });
-            }
-
             results.push(ImageMetadata {
                 relative_path: rel_path.clone(),
-                occurrences: public_occurrences,
-                metadata: metadata_entries(projection.metadata),
+                occurrences: metadata_occurrences_from_canonical(&occurrences),
             });
         }
     }
 
-    Ok(MetadataBatchReadOutcome {
-        results,
-        failures,
-        schema_projection_omissions,
-    })
+    Ok(MetadataBatchReadOutcome { results, failures })
 }
 
 pub(crate) fn group_metadata_failures(
@@ -1141,19 +1024,6 @@ struct CanonicalRuntimeOccurrence {
     is_lang_alt: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct SchemaProjectionIssue {
-    schema_id: SchemaDefinitionId,
-    occurrence_ids: Vec<MetadataOccurrenceId>,
-    message: String,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-struct SchemaProjectionOutcome {
-    metadata: MetadataMap,
-    omissions: Vec<SchemaProjectionIssue>,
-}
-
 fn selector_component_is_safe(component: &str, reject_colon: bool) -> bool {
     !component.is_empty()
         && !component.chars().any(|character| {
@@ -1181,8 +1051,7 @@ fn assign_exact_write_targets(occurrences: &mut [CanonicalRuntimeOccurrence]) {
         let Some(tag_info) = canonical.occurrence.tag_info.as_ref() else {
             continue;
         };
-        if !tag_info.writable
-            || matches!(tag_info.kind, TagKind::Binary | TagKind::Unknown)
+        if !tag_info.supports_metadata_write()
             || canonical.occurrence.id.document.is_some()
             || canonical.is_lang_alt
             || canonical.language.is_some()
@@ -1335,139 +1204,6 @@ fn canonical_occurrences_from_exiftool_pair(
     Ok(values)
 }
 
-fn project_occurrences_to_schema_metadata(
-    occurrences: &[CanonicalRuntimeOccurrence],
-) -> Result<SchemaProjectionOutcome, String> {
-    // Deliberate migration scaffolding: application consumers are still keyed
-    // by schema identity, so occurrence values must temporarily be projected.
-    // Runtime LangAlt children remain distinct occurrences even though the
-    // schema-keyed display projection merges their semantic values under the parent schema.
-    let mut groups: BTreeMap<SchemaDefinitionId, Vec<&CanonicalRuntimeOccurrence>> =
-        BTreeMap::new();
-    for occurrence in occurrences {
-        groups
-            .entry(occurrence.occurrence.schema_id.clone())
-            .or_default()
-            .push(occurrence);
-    }
-
-    let mut metadata = MetadataMap::new();
-    let mut omissions = Vec::new();
-    for (schema_id, mut group) in groups {
-        group.sort_by(|left, right| left.occurrence.id.cmp(&right.occurrence.id));
-        let occurrence_ids = group
-            .iter()
-            .map(|item| item.occurrence.id.clone())
-            .collect::<Vec<_>>();
-        let details = group
-            .iter()
-            .map(|item| {
-                format!(
-                    "{:?} {} = {:?}",
-                    item.occurrence.id, item.friendly_name, item.occurrence.value
-                )
-            })
-            .collect::<Vec<_>>()
-            .join("; ");
-        let lang_alt_count = group.iter().filter(|item| item.is_lang_alt).count();
-
-        for item in group.iter().filter(|item| item.is_lang_alt) {
-            let language = item.language.as_deref().ok_or_else(|| {
-                format!(
-                    "LangAlt occurrence {:?} ({}) has no language",
-                    item.occurrence.id, item.friendly_name
-                )
-            })?;
-            let MetadataValue::LangAlt(value) = &item.occurrence.value else {
-                return Err(format!(
-                    "LangAlt occurrence {:?} ({}) does not contain a LangAlt value",
-                    item.occurrence.id, item.friendly_name
-                ));
-            };
-            if value.len() != 1 || value.get(language).is_none() {
-                return Err(format!(
-                    "LangAlt occurrence {:?} ({}) must contain exactly its language {:?}",
-                    item.occurrence.id, item.friendly_name, language
-                ));
-            }
-        }
-
-        if lang_alt_count != 0
-            && group.iter().any(|item| {
-                !item.is_lang_alt && !matches!(item.occurrence.value, MetadataValue::LangAlt(_))
-            })
-        {
-            omissions.push(SchemaProjectionIssue {
-                schema_id,
-                occurrence_ids,
-                message: format!(
-                    "schema-keyed display projection cannot mix ordinary and LangAlt occurrences: {details}"
-                ),
-            });
-            continue;
-        }
-
-        if lang_alt_count != 0 {
-            let mut alternatives = BTreeMap::new();
-            let mut conflict = false;
-            for item in &group {
-                let MetadataValue::LangAlt(value) = &item.occurrence.value else {
-                    unreachable!("mixed non-LangAlt values were omitted above");
-                };
-                for (language, text) in value {
-                    match alternatives.get(language) {
-                        Some(existing) if existing != text => conflict = true,
-                        Some(_) => {}
-                        None => {
-                            alternatives.insert(language.clone(), text.clone());
-                        }
-                    }
-                }
-            }
-            if conflict {
-                omissions.push(SchemaProjectionIssue {
-                    schema_id,
-                    occurrence_ids,
-                    message: format!(
-                        "schema-keyed LangAlt display projection cannot express conflicting text for the same language: {details}"
-                    ),
-                });
-            } else {
-                metadata.insert(schema_id, MetadataValue::LangAlt(alternatives));
-            }
-            continue;
-        }
-
-        let first_value = &group[0].occurrence.value;
-        if group
-            .iter()
-            .all(|item| &item.occurrence.value == first_value)
-        {
-            if group.len() > 1 {
-                log::warn!(
-                    "deduplicating identical runtime values in schema projection: schema_id={:?} occurrence_ids={:?}",
-                    schema_id,
-                    occurrence_ids
-                );
-            }
-            metadata.insert(schema_id, first_value.clone());
-        } else {
-            omissions.push(SchemaProjectionIssue {
-                schema_id,
-                occurrence_ids,
-                message: format!(
-                    "schema-keyed display projection cannot express different values for these runtime occurrences: {details}"
-                ),
-            });
-        }
-    }
-
-    Ok(SchemaProjectionOutcome {
-        metadata,
-        omissions,
-    })
-}
-
 #[cfg(test)]
 fn canonical_values_from_exiftool_pair_exact(
     raw_values: &RuntimeMap,
@@ -1475,15 +1211,14 @@ fn canonical_values_from_exiftool_pair_exact(
     registry: Option<&TagRegistry>,
     rel_path: &str,
     warnings_accumulator: Option<&mut Vec<ParseWarning>>,
-) -> Result<MetadataMap, String> {
-    let occurrences = canonical_occurrences_from_exiftool_pair(
+) -> Result<Vec<CanonicalRuntimeOccurrence>, String> {
+    canonical_occurrences_from_exiftool_pair(
         raw_values,
         display_values,
         registry,
         rel_path,
         warnings_accumulator,
-    )?;
-    Ok(project_occurrences_to_schema_metadata(&occurrences)?.metadata)
+    )
 }
 
 #[cfg(test)]
@@ -1555,12 +1290,13 @@ fn canonical_values_from_exiftool_pair(
     )
     .expect("test fixture canonicalisation")
     .into_iter()
-    .map(|(id, value)| {
+    .map(|canonical| {
+        let id = canonical.occurrence.schema_id;
         let name = registry
             .and_then(|registry| registry.lookup(&id))
             .map(|info| info.display_name())
-            .unwrap_or(id.tag_id);
-        (name, value)
+            .unwrap_or_else(|| id.tag_id.clone());
+        (name, canonical.occurrence.value)
     })
     .collect()
 }
@@ -1758,14 +1494,9 @@ fn parse_exiftool_batch_json(
             None,
         )
         .unwrap_or_default();
-        let occurrences = metadata_occurrences_from_canonical(&canonical);
-        let metadata = project_occurrences_to_schema_metadata(&canonical)
-            .expect("test helper requires internally valid canonical occurrences")
-            .metadata;
         results.push(ImageMetadata {
             relative_path: rel_path.clone(),
-            occurrences,
-            metadata: metadata_entries(metadata),
+            occurrences: metadata_occurrences_from_canonical(&canonical),
         });
     }
     results
@@ -2371,10 +2102,6 @@ mod tests {
         );
         assert!(canonical[0].occurrence.is_writable());
         assert!(canonical[1].occurrence.is_writable());
-
-        let projection = project_occurrences_to_schema_metadata(&canonical).unwrap();
-        assert!(projection.metadata.is_empty());
-        assert_eq!(projection.omissions.len(), 1);
     }
 
     #[test]
@@ -2781,10 +2508,6 @@ mod tests {
             MetadataValue::Unknown { raw, expected: None, .. }
                 if raw == &serde_json::json!({"nested": true})
         ));
-
-        let projected = project_occurrences_to_schema_metadata(&canonical).unwrap();
-        assert!(projected.metadata.contains_key(&schema_id));
-        assert!(projected.omissions.is_empty());
     }
 
     #[test]
@@ -2879,254 +2602,6 @@ mod tests {
         assert_eq!(canonical.len(), 2);
     }
 
-    fn canonical_occurrence(
-        occurrence_id: MetadataOccurrenceId,
-        schema_id: SchemaDefinitionId,
-        friendly_name: &str,
-        value: MetadataValue,
-    ) -> CanonicalRuntimeOccurrence {
-        CanonicalRuntimeOccurrence {
-            occurrence: MetadataOccurrence {
-                id: occurrence_id,
-                schema_id,
-                value,
-                tag_info: None,
-                write_target: None,
-            },
-            friendly_name: friendly_name.into(),
-            runtime_group1: friendly_name.split(':').next().unwrap_or_default().into(),
-            runtime_tag_name: friendly_name.split(':').nth(1).unwrap_or_default().into(),
-            language: None,
-            is_lang_alt: false,
-        }
-    }
-
-    #[test]
-    fn schema_projection_handles_unique_and_identical_occurrences() {
-        let schema_a = test_schema_id("Exif::Main", "282", None);
-        let schema_b = test_schema_id("Exif::Main", "283", None);
-        let first = canonical_occurrence(
-            test_occurrence_id("IFD0", "282"),
-            schema_a.clone(),
-            "IFD0:XResolution",
-            MetadataValue::Integer(300),
-        );
-        let second_schema = canonical_occurrence(
-            test_occurrence_id("IFD0", "283"),
-            schema_b.clone(),
-            "IFD0:YResolution",
-            MetadataValue::Integer(72),
-        );
-        let identical = canonical_occurrence(
-            test_occurrence_id("IFD1", "282"),
-            schema_a.clone(),
-            "IFD1:XResolution",
-            MetadataValue::Integer(300),
-        );
-        let authoritative = vec![first.clone(), second_schema, identical];
-        let untouched = authoritative.clone();
-        let projected = project_occurrences_to_schema_metadata(&authoritative).unwrap();
-        assert_eq!(authoritative, untouched);
-        assert_eq!(projected.metadata.len(), 2);
-        assert_eq!(projected.metadata[&schema_a], MetadataValue::Integer(300));
-        assert_eq!(projected.metadata[&schema_b], MetadataValue::Integer(72));
-        assert!(projected.omissions.is_empty());
-
-        let single = project_occurrences_to_schema_metadata(&[first]).unwrap();
-        assert_eq!(single.metadata.len(), 1);
-        assert!(single.omissions.is_empty());
-    }
-
-    #[test]
-    fn schema_projection_reports_conflicting_occurrences() {
-        let schema = test_schema_id("Exif::Main", "282", None);
-        let unrelated_schema = test_schema_id("Exif::Main", "283", None);
-        let ifd0 = test_occurrence_id("JPEG-APP1-IFD0", "282");
-        let ifd1 = test_occurrence_id("JPEG-APP1-IFD1", "282");
-        let occurrences = vec![
-            canonical_occurrence(
-                ifd0.clone(),
-                schema.clone(),
-                "IFD0:XResolution",
-                MetadataValue::Integer(300),
-            ),
-            canonical_occurrence(
-                ifd1.clone(),
-                schema.clone(),
-                "IFD1:XResolution",
-                MetadataValue::Integer(72),
-            ),
-            canonical_occurrence(
-                test_occurrence_id("JPEG-APP1-IFD0", "283"),
-                unrelated_schema.clone(),
-                "IFD0:YResolution",
-                MetadataValue::Integer(300),
-            ),
-        ];
-        let projected = project_occurrences_to_schema_metadata(&occurrences).unwrap();
-        let mut reversed = occurrences;
-        reversed.reverse();
-        assert_eq!(
-            projected,
-            project_occurrences_to_schema_metadata(&reversed).unwrap()
-        );
-        assert!(!projected.metadata.contains_key(&schema));
-        assert_eq!(
-            projected.metadata[&unrelated_schema],
-            MetadataValue::Integer(300)
-        );
-        assert_eq!(projected.omissions.len(), 1);
-        let issue = &projected.omissions[0];
-        assert_eq!(issue.schema_id, schema);
-        assert_eq!(issue.occurrence_ids, vec![ifd0.clone(), ifd1.clone()]);
-        assert!(issue.message.contains("IFD0:XResolution"));
-        assert!(issue.message.contains("IFD1:XResolution"));
-        assert!(issue.message.contains("Integer(300)"));
-        assert!(issue.message.contains("Integer(72)"));
-        assert_ne!(ifd0, ifd1);
-    }
-
-    #[test]
-    fn schema_projection_preserves_lang_alt_without_broadening_collisions() {
-        let schema = test_schema_id("XMP::dc", "title", None);
-        let lang = |path: &str, language: &str, text: &str| CanonicalRuntimeOccurrence {
-            occurrence: MetadataOccurrence {
-                id: test_occurrence_id(path, "title"),
-                schema_id: schema.clone(),
-                value: MetadataValue::LangAlt(BTreeMap::from([(language.into(), text.into())])),
-                tag_info: None,
-                write_target: None,
-            },
-            friendly_name: "XMP-dc:Title".into(),
-            runtime_group1: "XMP-dc".into(),
-            runtime_tag_name: "Title".into(),
-            language: Some(language.into()),
-            is_lang_alt: true,
-        };
-        let projected = project_occurrences_to_schema_metadata(&[
-            lang("XMP-en", "en", "Hello"),
-            lang("XMP-fr", "fr", "Bonjour"),
-        ])
-        .unwrap();
-        assert!(matches!(
-            &projected.metadata[&schema],
-            MetadataValue::LangAlt(values)
-                if values.get("en").map(String::as_str) == Some("Hello")
-                    && values.get("fr").map(String::as_str) == Some("Bonjour")
-        ));
-        assert!(projected.omissions.is_empty());
-
-        let duplicate = project_occurrences_to_schema_metadata(&[
-            lang("XMP-a", "en", "Hello"),
-            lang("XMP-b", "en", "Hello"),
-        ])
-        .unwrap();
-        assert!(duplicate.omissions.is_empty());
-        assert!(matches!(
-            &duplicate.metadata[&schema],
-            MetadataValue::LangAlt(values) if values.len() == 1
-        ));
-
-        let duplicate_conflict = project_occurrences_to_schema_metadata(&[
-            lang("XMP-a", "en", "Hello"),
-            lang("XMP-b", "en", "Different"),
-        ])
-        .unwrap();
-        assert!(duplicate_conflict.metadata.is_empty());
-        assert_eq!(duplicate_conflict.omissions.len(), 1);
-
-        let mixed = project_occurrences_to_schema_metadata(&[
-            lang("XMP-a", "en", "Hello"),
-            canonical_occurrence(
-                test_occurrence_id("XMP-parent", "title"),
-                schema.clone(),
-                "XMP-dc:Title",
-                MetadataValue::Text("ordinary".into()),
-            ),
-        ])
-        .unwrap();
-        assert!(mixed.metadata.is_empty());
-        assert_eq!(mixed.omissions.len(), 1);
-
-        let mut malformed = lang("XMP-bad", "en", "Hello");
-        malformed.language = None;
-        assert!(project_occurrences_to_schema_metadata(&[malformed]).is_err());
-
-        let ordinary = project_occurrences_to_schema_metadata(&[
-            canonical_occurrence(
-                test_occurrence_id("A", "title"),
-                schema.clone(),
-                "A:Title",
-                MetadataValue::Text("Hello".into()),
-            ),
-            canonical_occurrence(
-                test_occurrence_id("B", "title"),
-                schema.clone(),
-                "B:Title",
-                MetadataValue::Text("Bonjour".into()),
-            ),
-        ])
-        .unwrap();
-        assert!(ordinary.metadata.is_empty());
-        assert_eq!(ordinary.omissions.len(), 1);
-    }
-
-    #[test]
-    fn schema_projection_distinguishes_schema_indexes_and_is_deterministic() {
-        let none = test_schema_id("Exif::Main", "282", None);
-        let zero = test_schema_id("Exif::Main", "282", Some(0));
-        let occurrences = vec![
-            canonical_occurrence(
-                test_occurrence_id("B", "282"),
-                zero.clone(),
-                "B:XResolution",
-                MetadataValue::Integer(72),
-            ),
-            canonical_occurrence(
-                test_occurrence_id("A", "282"),
-                none.clone(),
-                "A:XResolution",
-                MetadataValue::Integer(300),
-            ),
-        ];
-        let first = project_occurrences_to_schema_metadata(&occurrences).unwrap();
-        let mut reversed = occurrences;
-        reversed.reverse();
-        let second = project_occurrences_to_schema_metadata(&reversed).unwrap();
-        assert_eq!(first, second);
-        assert_eq!(first.metadata.len(), 2);
-        assert!(first.metadata.contains_key(&none));
-        assert!(first.metadata.contains_key(&zero));
-        assert!(first.omissions.is_empty());
-    }
-
-    #[test]
-    fn unknown_schema_occurrences_follow_ordinary_collision_rules() {
-        let schema = test_schema_id("Unknown::Runtime", "mystery", None);
-        let unknown = |path: &str, raw: i32| {
-            canonical_occurrence(
-                test_occurrence_id(path, "mystery"),
-                schema.clone(),
-                &format!("{path}:Mystery"),
-                MetadataValue::Unknown {
-                    raw: serde_json::json!(raw),
-                    expected: None,
-                    reason: Some("no schema entry for tag".into()),
-                },
-            )
-        };
-        let identical =
-            project_occurrences_to_schema_metadata(&[unknown("A", 1), unknown("B", 1)]).unwrap();
-        assert!(identical.metadata.contains_key(&schema));
-        assert!(identical.omissions.is_empty());
-
-        let conflicting =
-            project_occurrences_to_schema_metadata(&[unknown("A", 1), unknown("B", 2)]).unwrap();
-        assert!(!conflicting.metadata.contains_key(&schema));
-        assert_eq!(conflicting.omissions.len(), 1);
-    }
-
-    #[cfg(feature = "integration")]
     #[test]
     fn production_exiftool_arguments_emit_parseable_occurrence_coordinates() {
         let temp = tempdir().unwrap();
@@ -3199,10 +2674,9 @@ mod tests {
             assert!(runtime_map.contains_key(&runtime_resolutions[1].occurrence_id));
         }
     }
-
     #[cfg(feature = "integration")]
     #[test]
-    fn public_batch_read_retains_occurrences_when_schema_projection_is_lossy() {
+    fn public_batch_read_exposes_only_authoritative_shared_schema_occurrences() {
         let temp = tempdir().unwrap();
         let source = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("..")
@@ -3233,24 +2707,22 @@ mod tests {
         let absolute_paths = [copy.clone()];
         let outcome = read_image_metadata_batch(&relative_paths, &absolute_paths).unwrap();
         assert!(outcome.failures.is_empty(), "{:#?}", outcome.failures);
-        assert!(outcome.schema_projection_omissions.is_empty());
         assert_eq!(outcome.results.len(), 1);
         let result = &outcome.results[0];
         assert!(!result.occurrences.is_empty());
-        assert!(!result.metadata.is_empty());
         assert!(result
             .occurrences
             .0
             .windows(2)
             .all(|pair| pair[0].id <= pair[1].id));
+
         let wire = serde_json::to_value(result).unwrap();
         let wire_object = wire.as_object().unwrap();
-        assert_eq!(wire_object.len(), 3);
+        assert_eq!(wire_object.len(), 2);
         assert!(wire_object.contains_key("relative_path"));
         assert!(wire_object.contains_key("occurrences"));
-        assert!(wire_object.contains_key("metadata"));
+        assert!(!wire_object.contains_key("metadata"));
         assert!(!wire["occurrences"].as_array().unwrap().is_empty());
-        assert!(!wire["metadata"].as_array().unwrap().is_empty());
 
         let resolutions: Vec<_> = result
             .occurrences
@@ -3295,9 +2767,8 @@ mod tests {
             ifd1.write_target.as_ref().unwrap().selector(),
             "IFD1:XResolution"
         );
-        let schema = &ifd0.schema_id;
-        assert_eq!(result.occurrences.for_schema(schema).count(), 2);
-        assert!(result.metadata.get(schema).is_some());
+        let schema = ifd0.schema_id.clone();
+        assert_eq!(result.occurrences.for_schema(&schema).count(), 2);
 
         let mut make_conflict = crate::exiftool_config::exiftool_command();
         let conflict_output = make_conflict
@@ -3318,9 +2789,8 @@ mod tests {
             conflicting.failures
         );
         assert_eq!(conflicting.results.len(), 1);
-        assert_eq!(conflicting.schema_projection_omissions.len(), 1);
         let result = &conflicting.results[0];
-        let resolutions = result.occurrences.for_schema(schema).collect::<Vec<_>>();
+        let resolutions = result.occurrences.for_schema(&schema).collect::<Vec<_>>();
         assert_eq!(resolutions.len(), 2);
         assert_ne!(resolutions[0].id, resolutions[1].id);
         let whole_number = |item: &MetadataOccurrence| match &item.value {
@@ -3335,27 +2805,18 @@ mod tests {
             whole_number(item) == 72
                 && item.write_target.as_ref().unwrap().selector() == "IFD1:XResolution"
         }));
-        assert!(result.metadata.get(schema).is_none());
-        assert!(!result.metadata.is_empty());
-        let omission = &conflicting.schema_projection_omissions[0];
-        assert_eq!(omission.relative_path, relative_paths[0]);
-        assert_eq!(&omission.schema_id, schema);
-        assert_eq!(omission.occurrence_ids.len(), 2);
 
         let wire = serde_json::to_value(result).unwrap();
+        assert_eq!(wire.as_object().unwrap().len(), 2);
+        assert!(wire.get("metadata").is_none());
         let transported = wire["occurrences"].as_array().unwrap();
         assert!(
             transported
                 .iter()
-                .filter(|item| { item["tag_info"]["id"] == serde_json::to_value(schema).unwrap() })
+                .filter(|item| { item["tag_info"]["id"] == serde_json::to_value(&schema).unwrap() })
                 .count()
                 >= 2
         );
-        assert!(wire["metadata"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .all(|entry| { entry["id"] != serde_json::to_value(schema).unwrap() }));
     }
 
     #[cfg(feature = "integration")]
@@ -3689,8 +3150,9 @@ mod tests {
             tag_id: "Keys".into(),
             index: None,
         };
-        match b.metadata.get(&keys_id) {
-            Some(MetadataValue::Unknown { raw, .. }) => {
+        let keys = b.occurrences.for_schema(&keys_id).next().unwrap();
+        match &keys.value {
+            MetadataValue::Unknown { raw, .. } => {
                 assert_eq!(raw, &serde_json::json!({"creator": "alice", "year": 2024}));
             }
             other => panic!("expected unknown raw object for Keys, got {:?}", other),
@@ -3721,12 +3183,12 @@ mod tests {
             index: None,
         };
         assert!(matches!(
-            a.metadata.get(&tag_id),
-            Some(MetadataValue::Unknown { raw, .. }) if raw == &serde_json::json!("ok")
+            &a.occurrences.for_schema(&tag_id).next().unwrap().value,
+            MetadataValue::Unknown { raw, .. } if raw == &serde_json::json!("ok")
         ));
         assert!(matches!(
-            c.metadata.get(&tag_id),
-            Some(MetadataValue::Unknown { raw, .. }) if raw == &serde_json::json!("ok")
+            &c.occurrences.for_schema(&tag_id).next().unwrap().value,
+            MetadataValue::Unknown { raw, .. } if raw == &serde_json::json!("ok")
         ));
     }
 
@@ -3770,7 +3232,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_batch_populates_transitional_semantic_maps() {
+    fn parse_batch_populates_semantic_occurrences() {
         let json = r#"[{
             "SourceFile": "D:/a.jpg",
             "IPTC:TimeCreated": {"table": "IPTC::ApplicationRecord", "id": "60", "val": "10:56:05"},
@@ -3781,31 +3243,39 @@ mod tests {
         let abs = vec![std::path::PathBuf::from("D:/a.jpg")];
         let results = parse_exiftool_batch_json(json, &rel, &abs);
         let image = &results[0];
-        assert!(!image.occurrences.is_empty());
-        let iptc_value = image
-            .metadata
-            .get(&crate::known_ids::iptc_time_created())
-            .unwrap();
-        assert!(image.occurrences.iter().any(|occurrence| {
-            occurrence
-                .tag_info
-                .as_ref()
-                .is_some_and(|info| info.id == crate::known_ids::iptc_time_created())
-                && &occurrence.value == iptc_value
-        }));
+        assert_eq!(image.occurrences.len(), 3);
         assert!(matches!(
-            image.metadata.get(&crate::known_ids::iptc_time_created()),
-            Some(MetadataValue::Time(t)) if t.offset.is_none()
+            &image
+                .occurrences
+                .for_schema(&crate::known_ids::iptc_time_created())
+                .next()
+                .unwrap()
+                .value,
+            MetadataValue::Time(t) if t.offset.is_none()
         ));
         assert!(matches!(
-            image
-                .metadata
-                .get(&crate::known_ids::offset_time_original()),
-            Some(MetadataValue::TimeOffset(_))
+            &image
+                .occurrences
+                .for_schema(&crate::known_ids::offset_time_original())
+                .next()
+                .unwrap()
+                .value,
+            MetadataValue::TimeOffset(_)
         ));
+        let unknown_schema = SchemaDefinitionId {
+            table: "TestFixture::Unknown".into(),
+            tag_id: "MadeUp:Thing".into(),
+            index: None,
+        };
         assert!(matches!(
-            image.metadata.get(&SchemaDefinitionId { table: "TestFixture::Unknown".into(), tag_id: "MadeUp:Thing".into(), index: None }),
-            Some(MetadataValue::Unknown { expected: None, raw, .. }) if raw == &serde_json::json!(5)
+            &image
+                .occurrences
+                .for_schema(&unknown_schema)
+                .next()
+                .unwrap()
+                .value,
+            MetadataValue::Unknown { expected: None, raw, .. }
+                if raw == &serde_json::json!(5)
         ));
     }
 
@@ -3934,14 +3404,6 @@ mod tests {
                 MetadataValue::LangAlt(values) if values.len() == 1
             ));
         }
-
-        let projected = project_occurrences_to_schema_metadata(&canonical).unwrap();
-        assert!(matches!(
-            &projected.metadata[&parent_id],
-            MetadataValue::LangAlt(values)
-                if values.get("en").map(String::as_str) == Some("Hello")
-                    && values.get("fr").map(String::as_str) == Some("Bonjour")
-        ));
     }
 
     #[test]
@@ -4141,13 +3603,13 @@ mod tests {
     }
 
     #[test]
-    fn parse_exiftool_malformed_outer_json_logs_and_returns_empty_metadata() {
+    fn parse_exiftool_malformed_outer_json_logs_and_returns_empty_occurrences() {
         let json = "not json at all";
         let rel = vec!["x.jpg".to_string()];
         let abs = vec![std::path::PathBuf::from("D:/x.jpg")];
         let results = parse_exiftool_batch_json(json, &rel, &abs);
         assert_eq!(results.len(), 1);
-        assert!(results[0].metadata.is_empty());
+        assert!(results[0].occurrences.is_empty());
     }
 
     #[test]
@@ -4886,7 +4348,7 @@ mod tests {
     }
 
     #[test]
-    fn schema_projection_collision_is_non_fatal_and_isolated_per_file() {
+    fn same_schema_conflicting_occurrences_are_successful_and_isolated_per_file() {
         let rel_paths = vec![
             "good-before.jpg".to_string(),
             "collision.jpg".to_string(),
@@ -4956,55 +4418,37 @@ mod tests {
         )
         .expect("individual files remain classifiable");
         assert_eq!(outcome.results.len(), 3);
-        assert!(outcome
-            .results
-            .iter()
-            .any(|result| result.relative_path == "good-before.jpg"
-                && !result.occurrences.is_empty()
-                && !result.metadata.is_empty()));
-        assert!(outcome
-            .results
-            .iter()
-            .any(|result| result.relative_path == "good-after.jpg"
-                && !result.occurrences.is_empty()
-                && !result.metadata.is_empty()));
         assert!(outcome.failures.is_empty());
-        assert_eq!(outcome.schema_projection_omissions.len(), 1);
-        let omission = &outcome.schema_projection_omissions[0];
-        assert_eq!(omission.relative_path, "collision.jpg");
-        assert_eq!(omission.schema_id, schema);
-        assert_eq!(omission.occurrence_ids.len(), 2);
-        assert!(omission.message.contains("IFD0:XResolution"));
-        assert!(omission.message.contains("IFD1:XResolution"));
+        assert!(outcome
+            .results
+            .iter()
+            .all(|result| !result.occurrences.is_empty()));
+
         let collision = outcome
             .results
             .iter()
             .find(|result| result.relative_path == "collision.jpg")
             .unwrap();
-        assert_eq!(collision.occurrences.for_schema(&schema).count(), 2);
-        assert!(collision.metadata.get(&schema).is_none());
-        assert!(collision.metadata.get(&unrelated_schema).is_some());
+        let shared = collision
+            .occurrences
+            .for_schema(&schema)
+            .collect::<Vec<_>>();
+        assert_eq!(shared.len(), 2);
+        assert_eq!(shared[0].value, MetadataValue::Integer(300));
+        assert_eq!(shared[1].value, MetadataValue::Integer(72));
+        assert_eq!(
+            collision.occurrences.for_schema(&unrelated_schema).count(),
+            1
+        );
 
         let wire = serde_json::to_value(collision).unwrap();
-        let schema_json = serde_json::to_value(&schema).unwrap();
-        assert_eq!(
-            wire["occurrences"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .filter(|item| item["tag_info"]["id"] == schema_json)
-                .count(),
-            2
-        );
-        assert!(wire["metadata"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .all(|entry| entry["id"] != schema_json));
+        assert_eq!(wire.as_object().unwrap().len(), 2);
+        assert!(wire.get("metadata").is_none());
+        assert_eq!(wire["occurrences"].as_array().unwrap().len(), 3);
     }
 
     #[test]
-    fn successful_batch_result_exposes_occurrences_and_lossy_schema_projection() {
+    fn successful_batch_result_exposes_only_authoritative_occurrences() {
         let rel_paths = vec!["shared-schema.jpg".to_string()];
         let abs_paths = vec![std::path::PathBuf::from("D:/batch/shared-schema.jpg")];
         let registry = canonical_registry();
@@ -5070,7 +4514,6 @@ mod tests {
         let result = &outcome.results[0];
         assert_eq!(result.relative_path, "shared-schema.jpg");
         assert_eq!(result.occurrences.len(), 3);
-        assert_eq!(result.metadata.len(), 2);
         assert!(result
             .occurrences
             .iter()
@@ -5105,18 +4548,8 @@ mod tests {
                     && reason.as_deref() == Some("no schema entry for tag")
         ));
 
-        assert!(result.metadata.get(&schema).is_some());
-        assert!(result.metadata.get(&unknown_schema).is_some());
         assert_eq!(result.occurrences.for_schema(&schema).count(), 2);
-        assert_eq!(
-            result
-                .metadata
-                .0
-                .iter()
-                .filter(|entry| entry.id == schema)
-                .count(),
-            1
-        );
+        assert_eq!(result.occurrences.for_schema(&unknown_schema).count(), 1);
     }
 
     #[test]
@@ -5249,12 +4682,10 @@ mod tests {
                 ImageMetadata {
                     relative_path: "good1.jpg".to_string(),
                     occurrences: MetadataOccurrences::default(),
-                    metadata: MetadataEntries(vec![]),
                 },
                 ImageMetadata {
                     relative_path: "good2.jpg".to_string(),
                     occurrences: MetadataOccurrences::default(),
-                    metadata: MetadataEntries(vec![]),
                 },
             ],
             failures: vec![
@@ -5271,7 +4702,6 @@ mod tests {
                     error_message: "Error A".to_string(),
                 },
             ],
-            schema_projection_omissions: Vec::new(),
         };
 
         assert_eq!(outcome.results[0].relative_path, "good1.jpg");

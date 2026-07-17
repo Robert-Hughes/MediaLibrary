@@ -1,65 +1,79 @@
 // @vitest-environment node
-import { describe, it, expect, vi } from "vitest";
-import { ThumbnailStore, ImageMetadataStore } from "../types";
+import { describe, expect, it, vi } from "vitest";
+import { ImageMetadataOccurrencesStore, ThumbnailStore } from "../types";
+import { occurrenceFromSchemaValue } from "./occurrenceFixtures";
+
+const occurrence = occurrenceFromSchemaValue(
+  { table: "XMP::dc", tag_id: "title" },
+  { kind: "Text", value: "Title" },
+);
 
 describe("ThumbnailStore subscriber lifecycle", () => {
-  it("notifies the subscriber when set is called", () => {
+  it("notifies until unsubscribed and cleans the final subscriber set", () => {
     const store = new ThumbnailStore();
     store.add("a.jpg");
-    const cb = vi.fn();
-    store.subscribe("a.jpg", cb);
+    const callback = vi.fn();
+    const unsubscribe = store.subscribe("a.jpg", callback);
     store.set("a.jpg", "data");
-    expect(cb).toHaveBeenCalledOnce();
-  });
-
-  it("does not notify after unsubscribe", () => {
-    const store = new ThumbnailStore();
-    store.add("a.jpg");
-    const cb = vi.fn();
-    const unsubscribe = store.subscribe("a.jpg", cb);
+    expect(callback).toHaveBeenCalledOnce();
     unsubscribe();
-    store.set("a.jpg", "data");
-    expect(cb).not.toHaveBeenCalled();
-  });
-
-  it("unsubscribing the last subscriber removes the empty Set from the map", () => {
-    const store = new ThumbnailStore();
-    store.add("a.jpg");
-    const unsubscribe = store.subscribe("a.jpg", () => {});
-    unsubscribe();
-
-    // Without the cleanup, an empty Set lingers per path — for a 10k-photo
-    // library after the user has scrolled through, this is 10k empty Sets.
+    store.set("a.jpg", "replacement");
+    expect(callback).toHaveBeenCalledOnce();
     const internal = (
       store as unknown as { subscribers: Map<string, Set<unknown>> }
     ).subscribers;
-    expect(internal.has("a.jpg")).toBe(false);
-  });
-
-  it("only the last unsubscribe removes the entry", () => {
-    const store = new ThumbnailStore();
-    store.add("a.jpg");
-    const u1 = store.subscribe("a.jpg", () => {});
-    const u2 = store.subscribe("a.jpg", () => {});
-    u1();
-    const internal = (
-      store as unknown as { subscribers: Map<string, Set<unknown>> }
-    ).subscribers;
-    expect(internal.has("a.jpg")).toBe(true);
-    u2();
     expect(internal.has("a.jpg")).toBe(false);
   });
 });
 
-describe("ImageMetadataStore subscriber lifecycle", () => {
-  it("unsubscribing the last subscriber removes the empty Set from the map", () => {
-    const store = new ImageMetadataStore();
+describe("ImageMetadataOccurrencesStore subscriptions", () => {
+  it("preserves per-path subscriptions and cleans the final subscriber set", () => {
+    const store = new ImageMetadataOccurrencesStore();
     store.add("a.jpg");
-    const unsubscribe = store.subscribe("a.jpg", () => {});
+    const callback = vi.fn();
+    const unsubscribe = store.subscribe("a.jpg", callback);
+    store.set("a.jpg", [occurrence]);
+    expect(callback).toHaveBeenCalledOnce();
     unsubscribe();
+    store.invalidate("a.jpg");
+    expect(callback).toHaveBeenCalledOnce();
     const internal = (
       store as unknown as { subscribers: Map<string, Set<unknown>> }
     ).subscribers;
     expect(internal.has("a.jpg")).toBe(false);
+  });
+
+  it("notifies global subscribers for add, set, invalidate and each clear path", () => {
+    const store = new ImageMetadataOccurrencesStore();
+    const callback = vi.fn();
+    store.subscribeAll(callback);
+
+    store.add("a.jpg");
+    store.add("a.jpg");
+    store.set("a.jpg", [occurrence]);
+    store.set("a.jpg", store.get("a.jpg"));
+    store.invalidate("a.jpg");
+    store.invalidate("a.jpg");
+    store.add("b.jpg");
+    store.clear();
+    store.clear();
+
+    expect(callback.mock.calls).toEqual([
+      ["a.jpg", "loading"],
+      ["a.jpg", [occurrence]],
+      ["a.jpg", "loading"],
+      ["b.jpg", "loading"],
+      ["a.jpg", "loading"],
+      ["b.jpg", "loading"],
+    ]);
+  });
+
+  it("stops global notifications after unsubscribe", () => {
+    const store = new ImageMetadataOccurrencesStore();
+    const callback = vi.fn();
+    const unsubscribe = store.subscribeAll(callback);
+    unsubscribe();
+    store.add("a.jpg");
+    expect(callback).not.toHaveBeenCalled();
   });
 });

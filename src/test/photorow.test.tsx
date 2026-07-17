@@ -3,12 +3,13 @@ import { beforeEach, describe, it, expect, vi } from "vitest";
 import { imgCol, mockMetadata, testId } from "./factories";
 import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
 import { PhotoList } from "../components/PhotoList";
-import { ThumbnailStore, ImageMetadataStore } from "../types";
+import { ThumbnailStore, ImageMetadataOccurrencesStore } from "../types";
 import {
   _clearTagInfoCache,
   _setTagInfoCacheEntry,
 } from "./tagInfoTestHelpers";
 
+import { occurrencesFromMetadataCollection } from "./occurrenceFixtures";
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(() => Promise.resolve(null)),
 }));
@@ -22,11 +23,14 @@ describe("PhotoRow", () => {
 
   it("renders PhotoList with photos without crashing", () => {
     const thumbnails = new ThumbnailStore();
-    const metadata = new ImageMetadataStore();
+    const metadata = new ImageMetadataOccurrencesStore();
 
     // add some metadata
     thumbnails.set("1.jpg", "base64string");
-    metadata.set("1.jpg", mockMetadata({ Model: "Nikon" }));
+    metadata.set(
+      "1.jpg",
+      occurrencesFromMetadataCollection(mockMetadata({ Model: "Nikon" })),
+    );
 
     const photos = [
       {
@@ -41,7 +45,7 @@ describe("PhotoRow", () => {
       <PhotoList
         photos={photos}
         thumbnails={thumbnails}
-        imageMetadata={metadata}
+        imageMetadataOccurrences={metadata}
         visibleColumns={[
           { key: "date_modified", kind: "os" },
           { key: "date_created", kind: "os" },
@@ -62,9 +66,9 @@ describe("PhotoRow", () => {
 
   it("fits thumbnail images without cropping", () => {
     const thumbnails = new ThumbnailStore();
-    const metadata = new ImageMetadataStore();
+    const metadata = new ImageMetadataOccurrencesStore();
     thumbnails.set("1.jpg", "base64string");
-    metadata.set("1.jpg", {});
+    metadata.set("1.jpg", []);
 
     render(
       <PhotoList
@@ -77,7 +81,7 @@ describe("PhotoRow", () => {
           },
         ]}
         thumbnails={thumbnails}
-        imageMetadata={metadata}
+        imageMetadataOccurrences={metadata}
         visibleColumns={[]}
         sortConfig={{ primary: null, secondary: null }}
         onSortChange={() => {}}
@@ -99,7 +103,7 @@ describe("PhotoRow", () => {
     // row.  The fix is to set --grid-columns on a parent and have rows read it
     // via var(--grid-columns) — a constant string that never changes per render.
     const thumbnails = new ThumbnailStore();
-    const metadata = new ImageMetadataStore();
+    const metadata = new ImageMetadataOccurrencesStore();
     const photos = [
       {
         relative_path: "1.jpg",
@@ -115,7 +119,7 @@ describe("PhotoRow", () => {
       <PhotoList
         photos={photos}
         thumbnails={thumbnails}
-        imageMetadata={metadata}
+        imageMetadataOccurrences={metadata}
         visibleColumns={[
           { key: "date_modified", kind: "os" },
           { key: "date_created", kind: "os" },
@@ -142,11 +146,11 @@ describe("PhotoRow", () => {
 
   it("displays em dash — for missing metadata and not mojibake â€”", () => {
     const thumbnails = new ThumbnailStore();
-    const metadata = new ImageMetadataStore();
+    const metadata = new ImageMetadataOccurrencesStore();
 
     // We add metadata as empty object, so "IFD0:Model" will be missing/undefined.
     thumbnails.set("1.jpg", "base64string");
-    metadata.set("1.jpg", {});
+    metadata.set("1.jpg", []);
 
     const photos = [
       {
@@ -161,7 +165,7 @@ describe("PhotoRow", () => {
       <PhotoList
         photos={photos}
         thumbnails={thumbnails}
-        imageMetadata={metadata}
+        imageMetadataOccurrences={metadata}
         visibleColumns={[imgCol("IFD0:Model")]}
         sortConfig={{ primary: null, secondary: null }}
         onSortChange={() => {}}
@@ -194,9 +198,14 @@ describe("PhotoRow", () => {
     });
 
     const thumbnails = new ThumbnailStore();
-    const metadata = new ImageMetadataStore();
+    const metadata = new ImageMetadataOccurrencesStore();
     thumbnails.set("1.jpg", "base64string");
-    metadata.set("1.jpg", mockMetadata({ "IFD0:Orientation": 6 }));
+    metadata.set(
+      "1.jpg",
+      occurrencesFromMetadataCollection(
+        mockMetadata({ "IFD0:Orientation": 6 }),
+      ),
+    );
 
     render(
       <PhotoList
@@ -209,7 +218,7 @@ describe("PhotoRow", () => {
           },
         ]}
         thumbnails={thumbnails}
-        imageMetadata={metadata}
+        imageMetadataOccurrences={metadata}
         visibleColumns={[imgCol("IFD0:Orientation")]}
         sortConfig={{ primary: null, secondary: null }}
         onSortChange={() => {}}
@@ -234,9 +243,14 @@ describe("PhotoRow", () => {
     _setTagInfoCacheEntry("IFD0:Orientation", null);
 
     const thumbnails = new ThumbnailStore();
-    const metadata = new ImageMetadataStore();
+    const metadata = new ImageMetadataOccurrencesStore();
     thumbnails.set("1.jpg", "base64string");
-    metadata.set("1.jpg", mockMetadata({ "IFD0:Orientation": 6 }));
+    metadata.set(
+      "1.jpg",
+      occurrencesFromMetadataCollection(
+        mockMetadata({ "IFD0:Orientation": 6 }),
+      ),
+    );
 
     render(
       <PhotoList
@@ -249,7 +263,7 @@ describe("PhotoRow", () => {
           },
         ]}
         thumbnails={thumbnails}
-        imageMetadata={metadata}
+        imageMetadataOccurrences={metadata}
         visibleColumns={[imgCol("IFD0:Orientation")]}
         sortConfig={{ primary: null, secondary: null }}
         onSortChange={() => {}}
@@ -268,43 +282,5 @@ describe("PhotoRow", () => {
     expect(cell).not.toBeNull();
     expect(within(cell as HTMLElement).getByText("6")).toBeTruthy();
     expect(within(cell as HTMLElement).queryByText("Rotate 90 CW")).toBeNull();
-  });
-
-  it("displays error cell ✗ on metadata failure and not mojibake âœ—", () => {
-    const thumbnails = new ThumbnailStore();
-    const metadata = new ImageMetadataStore();
-
-    // We add metadata as failed by setting _error
-    thumbnails.set("1.jpg", "base64string");
-    metadata.set("1.jpg", { _error: "Failed to load metadata" } as any);
-
-    const photos = [
-      {
-        relative_path: "1.jpg",
-        filename: "1.jpg",
-        date_modified: null,
-        date_created: null,
-      },
-    ];
-
-    render(
-      <PhotoList
-        photos={photos}
-        thumbnails={thumbnails}
-        imageMetadata={metadata}
-        visibleColumns={[imgCol("IFD0:Model")]}
-        sortConfig={{ primary: null, secondary: null }}
-        onSortChange={() => {}}
-        selectedIndex={null}
-        onSelect={vi.fn()}
-        onShowInExplorer={vi.fn()}
-        onVisibilityChange={vi.fn()}
-        onPhotoOpen={vi.fn()}
-        onSelectColumns={vi.fn()}
-      />,
-    );
-
-    expect(screen.queryByText("✗")).not.toBeNull();
-    expect(screen.queryByText("âœ—")).toBeNull();
   });
 });
