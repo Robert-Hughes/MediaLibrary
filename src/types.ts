@@ -7,7 +7,6 @@
 
 import type { PhotoInfo } from "./types/generated/PhotoInfo";
 import type { MetadataValue } from "./types/generated/MetadataValue";
-import type { MetadataDraftEdit } from "./types/generated/MetadataDraftEdit";
 import type { SchemaDefinitionId } from "./types/generated/SchemaDefinitionId";
 import type { MetadataOccurrences } from "./types/generated/MetadataOccurrences";
 import type { ImageMetadata } from "./types/generated/ImageMetadata";
@@ -282,44 +281,7 @@ export interface SortConfig {
   secondary: SortKey | null;
 }
 
-// ── Draft Edits ───────────────────────────────────────────────────────────────
-
-export interface MetadataDraftCollectionEntry {
-  id: SchemaDefinitionId;
-  edit: MetadataDraftEdit;
-}
-
-/** Token-keyed only for JS collection mechanics; every value retains its domain ID. */
-export type MetadataDraftCollection = Record<
-  string,
-  MetadataDraftCollectionEntry
->;
-export type MetadataDraftEditsByFile = Record<string, MetadataDraftCollection>;
-
-/**
- * Outcome of a single `setTag` / `setBatch` write.
- *
- * - "written" — value differs from current metadata, draft was added
- *   or replaced an existing draft.
- * - "redundant" — Set intent whose value equals current metadata and
- *   no existing draft was present; nothing changed.
- * - "cleared" — Set intent whose value equals current metadata, but an
- *   existing draft was present for this tag; the existing draft was
- *   removed so the UI no longer shows a confusing same-as-current
- *   draft.
- *
- * Non-Set intents (Delete / ListAdd / ListRemove) always return
- * "written"; the store can't cheaply compare list-mutation semantics
- * against current metadata, so those go through unchanged.
- */
-export type SetDraftOutcome = "written" | "redundant" | "cleared";
-
-/**
- * Deep structural equality for semantic `MetadataValue` entries.  Used by
- * the redundant-draft guard to compare a proposed Set value against the
- * tag's current effective value. Object keys are compared
- * order-independently.
- */
+/** Deep structural equality for semantic `MetadataValue` entries. */
 export function metadataValueEqual(
   a: MetadataValue | undefined,
   b: MetadataValue | undefined,
@@ -411,22 +373,6 @@ function stableComparableToken(value: unknown): string {
   return JSON.stringify(value);
 }
 
-/**
- * Single source of truth for draft edits.  All user-initiated mutations funnel
- * through methods on this class so subscribers (React-state sync, persistence,
- * future search-worker index) stay in sync without per-call-site discipline.
- *
- * `resetMetadata()` is silent — used during scan initialization to seed the
- * store from disk. Every other mutator notifies subscribers exactly once with
- * the list of changed paths (undefined-valued edits = path deleted).
- *
- * Redundant-draft guard: when a `currentValueResolver` is registered
- * (via `setCurrentValueResolver`), `setMetadataTag` / `setMetadataBatch`
- * compare each Set-intent value against the tag's current metadata. Same
- * value → no draft is written (and any existing draft for that tag is
- * removed). Callers receive a per-key outcome so they can log or aggregate
- * what was dropped (see `SetDraftOutcome`).
- */
 // ── App state ─────────────────────────────────────────────────────────────────
 
 export type TargetDraftPersistenceStateV5 =

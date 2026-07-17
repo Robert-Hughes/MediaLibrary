@@ -349,7 +349,6 @@ function LoadedView({
         onSelectColumns={() => setShowColumnDialog(true)}
         searchQuery={listSearchQuery}
         emptySearchMessage={emptySearchMessage}
-        draftCounts={draftCounts}
         onDiscardAllEdits={(paths) => actions.discardAllDraftEdits(paths)}
         onApplyEdits={(paths) => actions.applyDraftEdits(paths)}
         onGenerateAiDescription={(relPaths) => {
@@ -726,6 +725,7 @@ export default function App() {
             onOpenSettings={() => setShowSettingsDialog(true)}
           />
           <PhotoList
+            targetDraftEdits={{}}
             photos={[]}
             thumbnails={new ThumbnailStore()}
             imageMetadataOccurrences={new ImageMetadataOccurrencesStore()}

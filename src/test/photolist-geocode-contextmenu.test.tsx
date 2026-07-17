@@ -16,8 +16,12 @@ import userEvent from "@testing-library/user-event";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { PhotoList } from "../components/PhotoList";
 import { ThumbnailStore, ImageMetadataOccurrencesStore } from "../types";
-import type { MetadataDraftEdit } from "../types";
-import { mockDraftsByFile, mockMetadata } from "./factories";
+import type { MetadataDraftEntryV5 } from "../types";
+import {
+  mockMetadata,
+  mockTargetDraftsByFile,
+  newPropertyTargetDraft,
+} from "./factories";
 
 import { occurrencesFromMetadataCollection } from "./occurrenceFixtures";
 vi.mock("@tauri-apps/plugin-dialog", () => ({
@@ -35,7 +39,7 @@ async function getAskMock() {
 interface SetupOptions {
   photoCount?: number;
   metadataByPath?: Record<string, Record<string, any>>;
-  draftEditsByPath?: Record<string, Record<string, MetadataDraftEdit>>;
+  targetDraftEntriesByPath?: Record<string, MetadataDraftEntryV5[]>;
   onGeocode?: (paths: string[]) => void;
 }
 
@@ -67,6 +71,9 @@ function setup(opts: SetupOptions = {}) {
 
   render(
     <PhotoList
+      targetDraftEdits={mockTargetDraftsByFile(
+        opts.targetDraftEntriesByPath ?? {},
+      )}
       photos={photos}
       thumbnails={thumbnails}
       imageMetadataOccurrences={imageMetadata}
@@ -82,7 +89,6 @@ function setup(opts: SetupOptions = {}) {
       onDiscardAllEdits={() => {}}
       onGenerateAiDescription={() => {}}
       onGeocode={onGeocode}
-      draftEdits={mockDraftsByFile(opts.draftEditsByPath ?? {})}
     />,
   );
 
@@ -138,6 +144,7 @@ describe("PhotoList: Reverse Geocode context-menu entry", () => {
     }
     render(
       <PhotoList
+        targetDraftEdits={{}}
         photos={photos}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
@@ -214,13 +221,13 @@ describe("PhotoList: Reverse Geocode context-menu entry", () => {
 
   it("invokes onGeocode directly when a draft-only location tag is present", async () => {
     const { onGeocode } = setup({
-      draftEditsByPath: {
-        "0.jpg": {
-          "XMP-photoshop:State": {
+      targetDraftEntriesByPath: {
+        "0.jpg": [
+          newPropertyTargetDraft("XMP-photoshop:State", {
             intent: "Set",
             value: { kind: "Text", value: "Bavaria" },
-          },
-        },
+          }),
+        ],
       },
     });
     fireEvent.click(rows()[0]);

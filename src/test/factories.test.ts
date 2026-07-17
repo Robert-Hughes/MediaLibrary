@@ -2,7 +2,11 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { renderHook } from "@testing-library/react";
 import type { MetadataDraftEdit } from "../types";
 import { _clearTagInfoCache, useTagInfo } from "../hooks/useTagInfo";
-import { mockDrafts, mockMetadata, testId } from "./factories";
+import {
+  mockMetadata,
+  mockSchemaDraftDisplayProjection,
+  testId,
+} from "./factories";
 import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
 
 beforeEach(() => {
@@ -10,7 +14,7 @@ beforeEach(() => {
 });
 
 describe("exact-ID test factories", () => {
-  it("preserves every draft edit intent and optional display text", () => {
+  it("preserves every display-projection edit intent and optional display text", () => {
     const edits = {
       "Test:Set": {
         intent: "Set",
@@ -41,7 +45,7 @@ describe("exact-ID test factories", () => {
       },
     } satisfies Record<string, MetadataDraftEdit>;
 
-    const drafts = mockDrafts(edits);
+    const drafts = mockSchemaDraftDisplayProjection(edits);
 
     for (const [name, edit] of Object.entries(edits)) {
       expect(drafts[schemaDefinitionIdToken(testId(name))].edit).toEqual(edit);

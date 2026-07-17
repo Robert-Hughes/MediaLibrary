@@ -1,18 +1,64 @@
 import { render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, it, expect, vi } from "vitest";
-import { imgCol, mockMetadata, testId } from "./factories";
+import {
+  imgCol,
+  mockMetadata,
+  mockTargetDraftsByFile,
+  newPropertyTargetDraft,
+  testId,
+} from "./factories";
 import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
 import { PhotoList } from "../components/PhotoList";
 import { ThumbnailStore, ImageMetadataOccurrencesStore } from "../types";
+import type { MetadataDraftEntryV5, MetadataOccurrence } from "../types";
 import {
   _clearTagInfoCache,
   _setTagInfoCacheEntry,
 } from "./tagInfoTestHelpers";
 
-import { occurrencesFromMetadataCollection } from "./occurrenceFixtures";
+import {
+  occurrenceFromSchemaValue,
+  occurrencesFromMetadataCollection,
+} from "./occurrenceFixtures";
+import { existingOccurrenceTargetFromOccurrence } from "../utils/metadataDraftTarget";
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(() => Promise.resolve(null)),
 }));
+
+function renderTargetDraftRow(
+  occurrences: MetadataOccurrence[] | "loading",
+  entries: MetadataDraftEntryV5[],
+) {
+  const thumbnails = new ThumbnailStore();
+  const metadata = new ImageMetadataOccurrencesStore();
+  thumbnails.set("1.jpg", "base64string");
+  if (occurrences === "loading") metadata.add("1.jpg");
+  else metadata.set("1.jpg", occurrences);
+
+  render(
+    <PhotoList
+      targetDraftEdits={mockTargetDraftsByFile({ "1.jpg": entries })}
+      photos={[
+        {
+          relative_path: "1.jpg",
+          filename: "1.jpg",
+          date_modified: null,
+          date_created: null,
+        },
+      ]}
+      thumbnails={thumbnails}
+      imageMetadataOccurrences={metadata}
+      visibleColumns={[imgCol("IFD0:Model")]}
+      sortConfig={{ primary: null, secondary: null }}
+      onSortChange={() => {}}
+      selectedIndex={null}
+      onSelect={vi.fn()}
+      onShowInExplorer={vi.fn()}
+      onVisibilityChange={vi.fn()}
+      onPhotoOpen={vi.fn()}
+    />,
+  );
+}
 
 describe("PhotoRow", () => {
   beforeEach(() => {
@@ -43,6 +89,7 @@ describe("PhotoRow", () => {
 
     render(
       <PhotoList
+        targetDraftEdits={{}}
         photos={photos}
         thumbnails={thumbnails}
         imageMetadataOccurrences={metadata}
@@ -72,6 +119,7 @@ describe("PhotoRow", () => {
 
     render(
       <PhotoList
+        targetDraftEdits={{}}
         photos={[
           {
             relative_path: "1.jpg",
@@ -117,6 +165,7 @@ describe("PhotoRow", () => {
 
     render(
       <PhotoList
+        targetDraftEdits={{}}
         photos={photos}
         thumbnails={thumbnails}
         imageMetadataOccurrences={metadata}
@@ -163,6 +212,7 @@ describe("PhotoRow", () => {
 
     render(
       <PhotoList
+        targetDraftEdits={{}}
         photos={photos}
         thumbnails={thumbnails}
         imageMetadataOccurrences={metadata}
@@ -209,6 +259,7 @@ describe("PhotoRow", () => {
 
     render(
       <PhotoList
+        targetDraftEdits={{}}
         photos={[
           {
             relative_path: "1.jpg",
@@ -254,6 +305,7 @@ describe("PhotoRow", () => {
 
     render(
       <PhotoList
+        targetDraftEdits={{}}
         photos={[
           {
             relative_path: "1.jpg",
@@ -282,5 +334,89 @@ describe("PhotoRow", () => {
     expect(cell).not.toBeNull();
     expect(within(cell as HTMLElement).getByText("6")).toBeTruthy();
     expect(within(cell as HTMLElement).queryByText("Rotate 90 CW")).toBeNull();
+  });
+
+  it("renders no staged value for an empty exact-target collection", () => {
+    renderTargetDraftRow([], []);
+    expect(screen.queryByText(/draft edit/)).toBeNull();
+    expect(document.querySelector(".draft-new")).toBeNull();
+  });
+
+  it("renders a valid NewProperty target on an absent schema row", () => {
+    renderTargetDraftRow(
+      [],
+      [
+        newPropertyTargetDraft("IFD0:Model", {
+          intent: "Set",
+          value: { kind: "Text", value: "Canon R5" },
+        }),
+      ],
+    );
+    expect(screen.getByText("Canon R5")).toBeInTheDocument();
+    expect(screen.getByText("1 draft edit")).toBeInTheDocument();
+  });
+
+  it("renders a valid ExistingOccurrence target on its ordinary row", () => {
+    const occurrence = occurrenceFromSchemaValue(testId("IFD0:Model"), {
+      kind: "Text",
+      value: "Nikon Z8",
+    });
+    const resolved = existingOccurrenceTargetFromOccurrence(occurrence);
+    if (resolved.kind !== "targetable") {
+      throw new Error("Expected targetable occurrence fixture");
+    }
+    renderTargetDraftRow(
+      [occurrence],
+      [
+        {
+          target: resolved.target,
+          edit: {
+            intent: "Set",
+            value: { kind: "Text", value: "Canon R5" },
+          },
+        },
+      ],
+    );
+    expect(screen.getByText("Nikon Z8")).toBeInTheDocument();
+    expect(screen.getByText("Canon R5")).toBeInTheDocument();
+  });
+
+  it("does not render a stale ExistingOccurrence target", () => {
+    const occurrence = occurrenceFromSchemaValue(testId("IFD0:Model"), {
+      kind: "Text",
+      value: "Nikon Z8",
+    });
+    const resolved = existingOccurrenceTargetFromOccurrence(occurrence);
+    if (resolved.kind !== "targetable") {
+      throw new Error("Expected targetable occurrence fixture");
+    }
+    renderTargetDraftRow(
+      [occurrence],
+      [
+        {
+          target: {
+            ...resolved.target,
+            write_target: { ...resolved.target.write_target, group1: "IFD1" },
+          },
+          edit: {
+            intent: "Set",
+            value: { kind: "Text", value: "Canon R5" },
+          },
+        },
+      ],
+    );
+    expect(screen.getByText("Nikon Z8")).toBeInTheDocument();
+    expect(screen.queryByText("Canon R5")).toBeNull();
+  });
+
+  it("does not render target drafts while occurrences are loading", () => {
+    renderTargetDraftRow("loading", [
+      newPropertyTargetDraft("IFD0:Model", {
+        intent: "Set",
+        value: { kind: "Text", value: "Canon R5" },
+      }),
+    ]);
+    expect(screen.getByTestId("metadata-loading")).toBeInTheDocument();
+    expect(screen.queryByText("Canon R5")).toBeNull();
   });
 });

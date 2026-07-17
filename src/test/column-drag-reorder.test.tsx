@@ -53,6 +53,7 @@ describe("column header draggable attribute", () => {
     const { thumbnails, imageMetadata } = makeStores();
     render(
       <PhotoList
+        targetDraftEdits={{}}
         photos={mockPhotos}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
@@ -74,6 +75,7 @@ describe("column header draggable attribute", () => {
     const { thumbnails, imageMetadata } = makeStores();
     render(
       <PhotoList
+        targetDraftEdits={{}}
         photos={mockPhotos}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
@@ -95,6 +97,7 @@ describe("column header draggable attribute", () => {
     const { thumbnails, imageMetadata } = makeStores();
     render(
       <PhotoList
+        targetDraftEdits={{}}
         photos={mockPhotos}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
@@ -118,6 +121,7 @@ describe("metadata column reorder insertion", () => {
     const { thumbnails, imageMetadata } = makeStores();
     render(
       <PhotoList
+        targetDraftEdits={{}}
         photos={mockPhotos}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
@@ -206,6 +210,7 @@ describe("OS metadata column reorder insertion", () => {
     const { thumbnails, imageMetadata } = makeStores();
     render(
       <PhotoList
+        targetDraftEdits={{}}
         photos={mockPhotos}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
@@ -256,6 +261,7 @@ describe("metadata column header gridColumn positions follow visibleColumns orde
     const { thumbnails, imageMetadata } = makeStores();
     render(
       <PhotoList
+        targetDraftEdits={{}}
         photos={mockPhotos}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
@@ -311,6 +317,7 @@ describe("cross-kind drop is allowed (unified columns)", () => {
     const { thumbnails, imageMetadata } = makeStores();
     render(
       <PhotoList
+        targetDraftEdits={{}}
         photos={mockPhotos}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
@@ -352,6 +359,7 @@ describe("drag-over drop indicator", () => {
     const { thumbnails, imageMetadata } = makeStores();
     render(
       <PhotoList
+        targetDraftEdits={{}}
         photos={mockPhotos}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
@@ -463,6 +471,7 @@ describe("combined metadata header interactions", () => {
     const { thumbnails, imageMetadata } = makeStores();
     render(
       <PhotoList
+        targetDraftEdits={{}}
         photos={mockPhotos}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}

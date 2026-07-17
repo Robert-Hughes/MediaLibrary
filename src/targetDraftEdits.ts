@@ -3,7 +3,6 @@ import type {
   MetadataDraftEntryV5,
   MetadataDraftTarget,
   MetadataValue,
-  SetDraftOutcome,
 } from "./types";
 import { metadataValueEqual } from "./types";
 import {
@@ -27,6 +26,8 @@ import { wireStructuralEqual } from "./utils/wireStructuralEquality";
 export type TargetDraftCollection = Record<string, MetadataDraftEntryV5>;
 
 export type TargetDraftEditsByFile = Record<string, TargetDraftCollection>;
+
+type TargetDraftSetOutcome = "written" | "redundant" | "cleared";
 
 export interface TargetDraftEditsChange {
   path: string;
@@ -307,7 +308,7 @@ export class TargetDraftEditsStore {
     path: string,
     target: MetadataDraftTarget,
     edit: MetadataDraftEdit,
-  ): SetDraftOutcome {
+  ): TargetDraftSetOutcome {
     const slot = metadataDraftTargetSlotToken(target);
     const currentCollection = hasOwnStringKey(this.snapshot, path)
       ? this.snapshot[path]
@@ -354,7 +355,7 @@ export class TargetDraftEditsStore {
     path: string,
     target: MetadataDraftTarget,
     edit: MetadataDraftEdit,
-  ): SetDraftOutcome {
+  ): TargetDraftSetOutcome {
     const outcome = this.applyOne(path, target, edit);
     if (outcome !== "redundant") {
       this.notify([{ path, edits: this.getMetadataFile(path) }]);
@@ -369,7 +370,7 @@ export class TargetDraftEditsStore {
   setMetadataBatch(
     path: string,
     entries: MetadataDraftEntryV5[],
-  ): Array<{ target: MetadataDraftTarget; outcome: SetDraftOutcome }> {
+  ): Array<{ target: MetadataDraftTarget; outcome: TargetDraftSetOutcome }> {
     if (entries.length === 0) return [];
 
     const seen = new Map<string, MetadataDraftTarget>();

@@ -20,6 +20,7 @@ describe("PhotoList", () => {
 
     render(
       <PhotoList
+        targetDraftEdits={{}}
         photos={photos}
         thumbnails={thumbnails}
         imageMetadataOccurrences={metadata}

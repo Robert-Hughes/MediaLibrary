@@ -102,7 +102,7 @@ export interface MetadataOccurrenceDisplayEntry {
 
 /**
  * Build exact rows for authoritative occurrences that either have no
- * compatibility row, belong to a multiply-resolved schema, or have no known
+ * ordinary schema-oriented row, belong to a multiply-resolved schema, or have no known
  * schema. Unknown-schema rows remain visible but cannot become write targets.
  */
 export function supplementalResolvedMetadataOccurrences(

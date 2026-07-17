@@ -404,6 +404,7 @@ describe("PhotoList sort indicator", () => {
     const { thumbnails, imageMetadata } = makeSortStores();
     render(
       <PhotoList
+        targetDraftEdits={{}}
         photos={mockPhotos}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
@@ -424,6 +425,7 @@ describe("PhotoList sort indicator", () => {
     const { thumbnails, imageMetadata } = makeSortStores();
     render(
       <PhotoList
+        targetDraftEdits={{}}
         photos={mockPhotos}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
@@ -449,6 +451,7 @@ describe("PhotoList sort indicator", () => {
     const { thumbnails, imageMetadata } = makeSortStores();
     render(
       <PhotoList
+        targetDraftEdits={{}}
         photos={mockPhotos}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
@@ -475,6 +478,7 @@ describe("PhotoList sort indicator", () => {
     const { thumbnails, imageMetadata } = makeSortStores();
     render(
       <PhotoList
+        targetDraftEdits={{}}
         photos={mockPhotos}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
@@ -500,6 +504,7 @@ describe("PhotoList sort indicator", () => {
     const { thumbnails, imageMetadata } = makeSortStores();
     render(
       <PhotoList
+        targetDraftEdits={{}}
         photos={mockPhotos}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
@@ -527,6 +532,7 @@ describe("PhotoList sort indicator", () => {
     const { thumbnails, imageMetadata } = makeSortStores();
     render(
       <PhotoList
+        targetDraftEdits={{}}
         photos={mockPhotos}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
@@ -565,6 +571,7 @@ describe("PhotoList sortingDisabled", () => {
     const { thumbnails, imageMetadata } = makeSortStores();
     render(
       <PhotoList
+        targetDraftEdits={{}}
         photos={mockPhotos}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
@@ -597,6 +604,7 @@ describe("PhotoList sortingDisabled", () => {
       onShowInExplorer: () => {},
       onVisibilityChange: () => {},
       onPhotoOpen: () => {},
+      targetDraftEdits: {},
     };
     const { rerender } = render(<PhotoList {...props} sortingDisabled />);
     expect(document.querySelector(".sort-indicator--primary")).toBeNull();
@@ -620,6 +628,7 @@ describe("PhotoList sortingDisabled", () => {
     };
     render(
       <PhotoList
+        targetDraftEdits={{}}
         photos={mockPhotos}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}

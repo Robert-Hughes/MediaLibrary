@@ -50,6 +50,7 @@ describe("PhotoList prioritization optimization", () => {
   it("should prioritize all photos when none are loaded", () => {
     render(
       <PhotoList
+        targetDraftEdits={{}}
         photos={mockPhotos}
         thumbnails={thumbnailStore}
         imageMetadataOccurrences={metadataStore}
@@ -88,6 +89,7 @@ describe("PhotoList prioritization optimization", () => {
 
     render(
       <PhotoList
+        targetDraftEdits={{}}
         photos={mockPhotos}
         thumbnails={thumbnailStore}
         imageMetadataOccurrences={metadataStore}
@@ -122,6 +124,7 @@ describe("PhotoList prioritization optimization", () => {
 
     render(
       <PhotoList
+        targetDraftEdits={{}}
         photos={mockPhotos}
         thumbnails={thumbnailStore}
         imageMetadataOccurrences={metadataStore}
@@ -153,6 +156,7 @@ describe("PhotoList prioritization optimization", () => {
     // This test asserts the order is still display order, not Set-mutation order.
     render(
       <PhotoList
+        targetDraftEdits={{}}
         photos={mockPhotos}
         thumbnails={thumbnailStore}
         imageMetadataOccurrences={metadataStore}
@@ -192,6 +196,7 @@ describe("PhotoList prioritization optimization", () => {
 
     render(
       <PhotoList
+        targetDraftEdits={{}}
         photos={mockPhotos}
         thumbnails={thumbnailStore}
         imageMetadataOccurrences={metadataStore}
@@ -229,6 +234,7 @@ describe("PhotoList prioritization optimization", () => {
 
     render(
       <PhotoList
+        targetDraftEdits={{}}
         photos={mockPhotos}
         thumbnails={thumbnailStore}
         imageMetadataOccurrences={metadataStore}
@@ -267,6 +273,7 @@ describe("PhotoList prioritization optimization", () => {
 
     render(
       <PhotoList
+        targetDraftEdits={{}}
         photos={mockPhotos}
         thumbnails={thumbnailStore}
         imageMetadataOccurrences={metadataStore}
@@ -317,6 +324,7 @@ describe("initial-kickstart prioritization fires once per scan", () => {
       metadata,
       element: (
         <PhotoList
+          targetDraftEdits={{}}
           photos={photos}
           thumbnails={thumbs}
           imageMetadataOccurrences={metadata}

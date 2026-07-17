@@ -1,6 +1,17 @@
 import { useState } from "react";
-import { mockDraftsByFile, mockMetadata } from "./factories";
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import {
+  mockMetadata,
+  mockTargetDraftsByFile,
+  newPropertyTargetDraft,
+  testId,
+} from "./factories";
+import {
+  render,
+  screen,
+  fireEvent,
+  cleanup,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { PhotoList } from "../components/PhotoList";
@@ -25,15 +36,10 @@ function makePhotos(n: number) {
   return photos;
 }
 
-type SetupProps = Omit<
-  Partial<React.ComponentProps<typeof PhotoList>>,
-  "draftEdits"
-> & {
-  draftEdits?: Record<string, Record<string, MetadataDraftEdit>>;
-};
+type SetupProps = Partial<React.ComponentProps<typeof PhotoList>>;
 
 function setup(props: SetupProps = {}) {
-  const { draftEdits, ...componentProps } = props;
+  const { targetDraftEdits = {}, ...componentProps } = props;
   const thumbnails = new ThumbnailStore();
   const imageMetadata = new ImageMetadataOccurrencesStore();
   const photos = props.photos ?? makePhotos(5);
@@ -50,6 +56,7 @@ function setup(props: SetupProps = {}) {
 
   render(
     <PhotoList
+      targetDraftEdits={targetDraftEdits}
       photos={photos}
       thumbnails={thumbnails}
       imageMetadataOccurrences={imageMetadata}
@@ -65,7 +72,6 @@ function setup(props: SetupProps = {}) {
       onDiscardAllEdits={onDiscardAllEdits}
       onGenerateAiDescription={onGenerateAiDescription}
       {...componentProps}
-      draftEdits={draftEdits ? mockDraftsByFile(draftEdits) : undefined}
     />,
   );
   return {
@@ -113,6 +119,7 @@ function setupStateful(
     );
     return (
       <PhotoList
+        targetDraftEdits={{}}
         photos={photos}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
@@ -319,6 +326,7 @@ describe("PhotoList context menu (multi-select)", () => {
     const onGenerateAiDescription = vi.fn();
     render(
       <PhotoList
+        targetDraftEdits={{}}
         photos={photos}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
@@ -355,10 +363,15 @@ describe("PhotoList context menu (multi-select)", () => {
     vi.mocked(ask).mockClear();
 
     const onGenerateAiDescription = vi.fn();
-    const draftEdits = {
-      "1.jpg": { "XMP-mlib:AIDescription": textDraft("draft text") },
-    };
-    setup({ draftEdits, onGenerateAiDescription });
+    const targetDraftEdits = mockTargetDraftsByFile({
+      "1.jpg": [
+        newPropertyTargetDraft(
+          "XMP-mlib:AIDescription",
+          textDraft("draft text"),
+        ),
+      ],
+    });
+    setup({ targetDraftEdits, onGenerateAiDescription });
     fireEvent.click(rows()[1]);
     fireEvent.contextMenu(rows()[1]);
     await userEvent.click(
@@ -384,11 +397,11 @@ describe("PhotoList context menu (multi-select)", () => {
   });
 
   it("Apply edits passes the array of edited selected paths", async () => {
-    const draftEdits = {
-      "1.jpg": { "IFD0:Make": textDraft("Canon") },
-      "3.jpg": { "IFD0:Model": textDraft("R5") },
-    };
-    const { onApplyEdits } = setup({ draftEdits });
+    const targetDraftEdits = mockTargetDraftsByFile({
+      "1.jpg": [newPropertyTargetDraft("IFD0:Make", textDraft("Canon"))],
+      "3.jpg": [newPropertyTargetDraft("IFD0:Model", textDraft("R5"))],
+    });
+    const { onApplyEdits } = setup({ targetDraftEdits });
     fireEvent.click(rows()[1]);
     fireEvent.click(rows()[2], { ctrlKey: true });
     fireEvent.click(rows()[3], { ctrlKey: true });
@@ -401,12 +414,53 @@ describe("PhotoList context menu (multi-select)", () => {
     expect(onApplyEdits).toHaveBeenCalledWith(["1.jpg", "3.jpg"]);
   });
 
+  it("counts multiple same-schema exact targets independently in badges and prompts", async () => {
+    const { ask } = await import("@tauri-apps/plugin-dialog");
+    vi.mocked(ask).mockClear();
+    const schema = testId("IFD0:Make");
+    const targetDraftEdits = mockTargetDraftsByFile({
+      "1.jpg": [
+        newPropertyTargetDraft("IFD0:Make", textDraft("Canon")),
+        {
+          target: {
+            kind: "ExistingOccurrence",
+            occurrence_id: {
+              document: null,
+              path: "JPEG-APP1-IFD0",
+              tag_id: schema.tag_id,
+              copy: 0,
+            },
+            schema_id: schema,
+            write_target: { group1: "IFD0", tag_name: "Make" },
+          },
+          edit: textDraft("Nikon"),
+        },
+      ],
+    });
+    const { onApplyEdits } = setup({ targetDraftEdits });
+
+    const row = rows()[1];
+    expect(within(row).getByText("2 draft edits")).toBeInTheDocument();
+    fireEvent.click(row);
+    fireEvent.contextMenu(row);
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Apply edits/ }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(ask).toHaveBeenCalledWith(
+      expect.stringContaining("Apply 2 edits"),
+      expect.anything(),
+    );
+    expect(onApplyEdits).toHaveBeenCalledWith(["1.jpg"]);
+  });
+
   it("Discard all edits passes the array of edited selected paths", async () => {
-    const draftEdits = {
-      "0.jpg": { "IFD0:Make": textDraft("Canon") },
-      "2.jpg": { "IFD0:Model": textDraft("R5") },
-    };
-    const { onDiscardAllEdits } = setup({ draftEdits });
+    const targetDraftEdits = mockTargetDraftsByFile({
+      "0.jpg": [newPropertyTargetDraft("IFD0:Make", textDraft("Canon"))],
+      "2.jpg": [newPropertyTargetDraft("IFD0:Model", textDraft("R5"))],
+    });
+    const { onDiscardAllEdits } = setup({ targetDraftEdits });
     fireEvent.click(rows()[0]);
     fireEvent.click(rows()[2], { ctrlKey: true });
     fireEvent.contextMenu(rows()[2]);
@@ -420,7 +474,7 @@ describe("PhotoList context menu (multi-select)", () => {
   });
 
   it("hides Apply/Discard items when no selected photos have edits", () => {
-    setup({ draftEdits: {} });
+    setup({ targetDraftEdits: {} });
     fireEvent.click(rows()[1]);
     fireEvent.contextMenu(rows()[1]);
     expect(screen.queryByRole("button", { name: /Apply edits/ })).toBeNull();

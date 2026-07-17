@@ -35,6 +35,7 @@ describe("PhotoList per-column kind labels", () => {
     const { thumbnails, imageMetadata } = makeStores(mockPhotos);
     render(
       <PhotoList
+        targetDraftEdits={{}}
         photos={mockPhotos}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
@@ -58,6 +59,7 @@ describe("PhotoList per-column kind labels", () => {
     const { thumbnails, imageMetadata } = makeStores(mockPhotos);
     render(
       <PhotoList
+        targetDraftEdits={{}}
         photos={mockPhotos}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
@@ -78,6 +80,7 @@ describe("PhotoList per-column kind labels", () => {
     const imageMetadata = new ImageMetadataOccurrencesStore();
     render(
       <PhotoList
+        targetDraftEdits={{}}
         photos={[]}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
@@ -98,6 +101,7 @@ describe("PhotoList per-column kind labels", () => {
     const { thumbnails, imageMetadata } = makeStores(mockPhotos);
     render(
       <PhotoList
+        targetDraftEdits={{}}
         photos={mockPhotos}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
@@ -134,6 +138,7 @@ describe("PhotoList per-column kind labels", () => {
     const { thumbnails, imageMetadata } = makeStores(mockPhotos);
     render(
       <PhotoList
+        targetDraftEdits={{}}
         photos={mockPhotos}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
@@ -159,6 +164,7 @@ describe("PhotoList kind-label context menu", () => {
     const { thumbnails, imageMetadata } = makeStores(mockPhotos);
     render(
       <PhotoList
+        targetDraftEdits={{}}
         photos={mockPhotos}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
@@ -186,6 +192,7 @@ describe("PhotoList kind-label context menu", () => {
     const { thumbnails, imageMetadata } = makeStores(mockPhotos);
     render(
       <PhotoList
+        targetDraftEdits={{}}
         photos={mockPhotos}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
@@ -212,6 +219,7 @@ describe("PhotoList kind-label context menu", () => {
     const { thumbnails, imageMetadata } = makeStores(mockPhotos);
     render(
       <PhotoList
+        targetDraftEdits={{}}
         photos={mockPhotos}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}

@@ -41,6 +41,7 @@ function setup(opts: SetupOptions = {}) {
   const onNormalise = vi.fn(opts.onNormalise ?? (() => {}));
   render(
     <PhotoList
+      targetDraftEdits={{}}
       photos={photos}
       thumbnails={thumbnails}
       imageMetadataOccurrences={imageMetadata}
@@ -57,7 +58,6 @@ function setup(opts: SetupOptions = {}) {
       onGenerateAiDescription={() => {}}
       onGeocode={() => {}}
       onNormalise={onNormalise}
-      draftEdits={{}}
     />,
   );
   return { onNormalise };
@@ -123,6 +123,7 @@ describe("PhotoList: Normalise Metadata context-menu entry", () => {
     }
     render(
       <PhotoList
+        targetDraftEdits={{}}
         photos={photos}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}

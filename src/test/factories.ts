@@ -1,8 +1,8 @@
 import type {
   ImageMetadataEntry,
-  MetadataDraftCollection,
   MetadataDraftEdit,
-  MetadataDraftEditsByFile,
+  MetadataDraftEntry,
+  MetadataDraftEntryV5,
   MetadataOccurrence,
   MetadataValue,
   EditIntent,
@@ -13,7 +13,10 @@ import type {
   SortKey,
   VisibleColumn,
 } from "../types";
+import type { TargetDraftEditsByFile } from "../targetDraftEdits";
+import type { SchemaDraftDisplayProjection } from "../targetDraftView";
 import type { MetadataCollection } from "../utils/metadataCollection";
+import { metadataDraftTargetSlotToken } from "../utils/metadataDraftTarget";
 import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
 import { occurrencesFromMetadataCollection } from "./occurrenceFixtures";
 import { testFriendlyName, testId } from "./testIds";
@@ -71,9 +74,9 @@ export function mockOccurrences(
   return occurrencesFromMetadataCollection(mockMetadata(raw));
 }
 
-export function mockDrafts(
+export function mockSchemaDraftDisplayProjection(
   raw: Record<string, MetadataDraftEdit | unknown>,
-): MetadataDraftCollection {
+): SchemaDraftDisplayProjection {
   return Object.fromEntries(
     Object.entries(raw).map(([name, value]) => {
       const id = fixtureId(name);
@@ -85,12 +88,48 @@ export function mockDrafts(
   );
 }
 
-export function mockDraftsByFile(
-  raw: Record<string, Record<string, MetadataDraftEdit | unknown>>,
-): MetadataDraftEditsByFile {
+export function mockGeneratedDraftEntries(
+  raw: Record<string, MetadataDraftEdit | unknown>,
+): MetadataDraftEntry[] {
+  return Object.entries(raw).map(([name, value]) => {
+    const id = fixtureId(name);
+    const edit = isMetadataDraftEdit(value)
+      ? value
+      : fixtureValueToDraftEdit(value);
+    return { id, edit };
+  });
+}
+
+export function mockTargetDraftsByFile(
+  raw: Record<string, readonly MetadataDraftEntryV5[]>,
+): TargetDraftEditsByFile {
   return Object.fromEntries(
-    Object.entries(raw).map(([path, drafts]) => [path, mockDrafts(drafts)]),
+    Object.entries(raw).flatMap(([path, entries]) => {
+      if (entries.length === 0) return [];
+      return [
+        [
+          path,
+          Object.fromEntries(
+            entries.map((entry) => [
+              metadataDraftTargetSlotToken(entry.target),
+              structuredClone(entry),
+            ]),
+          ),
+        ],
+      ];
+    }),
   );
+}
+
+export function newPropertyTargetDraft(
+  name: string,
+  value: MetadataDraftEdit | unknown,
+): MetadataDraftEntryV5 {
+  const schema_id = fixtureId(name);
+  return {
+    target: { kind: "NewProperty", schema_id },
+    edit: isMetadataDraftEdit(value) ? value : fixtureValueToDraftEdit(value),
+  };
 }
 
 export function mockDisplayDrafts(
