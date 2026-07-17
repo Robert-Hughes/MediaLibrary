@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { TagInfo } from "../types";
+import { tagInfoSupportsMetadataWrite } from "../utils/metadataWriteSupport";
 
 type State = "loading" | TagInfo[];
 
@@ -16,7 +17,7 @@ async function fetchDefinitions(): Promise<void> {
   try {
     const result = (await invoke("list_writable_schema_definitions")) as
       TagInfo[] | null;
-    cached = result ?? [];
+    cached = (result ?? []).filter(tagInfoSupportsMetadataWrite);
   } catch (e) {
     console.error("[useWritableSchemaDefinitions] schema lookup failed:", e);
     cached = [];
@@ -24,7 +25,7 @@ async function fetchDefinitions(): Promise<void> {
   notify();
 }
 
-/** Returns every exact writable definition for the Add New Property picker. */
+/** Returns every exact supported writable definition for Add New Property. */
 export function useWritableSchemaDefinitions(): State {
   const [, setTick] = useState(0);
 
@@ -51,7 +52,7 @@ export function _resetWritableSchemaDefinitionsCache(): void {
 }
 
 export function _setWritableSchemaDefinitionsCache(tags: TagInfo[]): void {
-  cached = tags;
+  cached = tags.filter(tagInfoSupportsMetadataWrite);
   fetched = true;
   notify();
 }

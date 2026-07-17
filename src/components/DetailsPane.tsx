@@ -76,6 +76,7 @@ import {
 } from "../utils/metadataDraftTarget";
 import { metadataOccurrenceIdToken } from "../utils/metadataOccurrenceId";
 import { tagInfoSupportsMetadataWrite } from "../utils/metadataWriteSupport";
+import { effectiveSchemaPresenceForFile } from "../utils/effectiveSchemaPresence";
 import { planGpsTargetDraftBatchV5 } from "../gpsTargetDrafts";
 import { previewMetadataRemovalTargetsV5 } from "../metadataRemovalTargets";
 
@@ -1420,15 +1421,16 @@ export function DetailsPane({
     return imageGroups.find((g) => g.prefix === groupContextMenu.group) ?? null;
   }, [groupContextMenu, imageGroups]);
 
-  const existingMetadataKeys = useMemo(() => {
-    const ids = [...displayIds];
-    for (const id of targetDraftSchemas(targetDraftEdits)) {
-      if (!ids.some((candidate) => schemaDefinitionIdEquals(candidate, id))) {
-        ids.push(id);
-      }
-    }
-    return ids;
-  }, [displayIds, targetDraftEdits]);
+  const existingMetadataKeys = useMemo(
+    () =>
+      Array.from(
+        effectiveSchemaPresenceForFile(
+          occurrences,
+          targetDraftEdits,
+        ).ids.values(),
+      ),
+    [occurrences, targetDraftEdits],
+  );
 
   const filteredOsEntries = useMemo(() => {
     const { query, hasEditsFilter } = splitHasEditsFilter(

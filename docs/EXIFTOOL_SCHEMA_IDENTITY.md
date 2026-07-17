@@ -225,8 +225,6 @@ MediaLibrary deliberately has:
 
 ## Search indexing
 
-## Search indexing
-
 Every authoritative occurrence crosses the search-worker boundary with its
 structured exact `SchemaDefinitionId`, semantic value, and complete runtime
 `MetadataOccurrenceId`. Draft entries carry their exact target schema and

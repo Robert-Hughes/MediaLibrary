@@ -1,13 +1,15 @@
 import { renderHook, act } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { useMediaLibrary } from "../useMediaLibrary";
-import { createMockTauriApi } from "./mockTauriApi";
+import { createMockTauriApi, type MockTauriApi } from "./mockTauriApi";
 import { makePhoto, makePhotos, testId } from "./factories";
 import { TargetDraftEditsStore } from "../targetDraftEdits";
 import type {
   MetadataApplyFileResultV5,
   MetadataOccurrence,
   SchemaDefinitionId,
+  TagInfo,
+  TagKind,
 } from "../types";
 import { targetVerifyOutcomeFromBackend } from "../targetVerifyOutcomes";
 import { metadataDraftTargetSlotToken } from "../utils/metadataDraftTarget";
@@ -44,6 +46,48 @@ function targetV5Result(
           },
     target_outcomes: [],
     persisted_draft_entries: options.persistedDraftEntries ?? [],
+  };
+}
+
+function tagInfoFor(
+  id: SchemaDefinitionId,
+  options: { writable?: boolean; kind?: TagKind; name?: string } = {},
+): TagInfo {
+  return {
+    id: structuredClone(id),
+    group: "XMP-test",
+    name: options.name ?? "TestField",
+    writable: options.writable ?? true,
+    kind: options.kind ?? { kind: "Text" },
+    description: null,
+  };
+}
+
+async function publishOccurrences(
+  mock: MockTauriApi,
+  relativePath: string,
+  occurrences: MetadataOccurrence[] = [],
+): Promise<void> {
+  act(() => {
+    mock.emitImageMetadataReady(relativePath, {}, undefined, occurrences);
+  });
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(250);
+  });
+}
+
+function occurrenceFor(id: SchemaDefinitionId, copy = 0): MetadataOccurrence {
+  return {
+    id: {
+      document: null,
+      path: "JPEG-APP1-XMP",
+      tag_id: id.tag_id,
+      copy,
+    },
+    schema_id: structuredClone(id),
+    value: { kind: "Text", value: `existing-${copy}` },
+    tag_info: tagInfoFor(id),
+    write_target: { group1: "XMP-test", tag_name: "TestField" },
   };
 }
 
@@ -1222,12 +1266,14 @@ describe("useMediaLibrary", () => {
     );
     mock.targetApplyProgressResultsByPath["a.jpg"] = resultV5;
     mock.targetApplyFinalResultsByPath["a.jpg"] = structuredClone(resultV5);
-    act(() =>
-      result.current[1].setNewPropertyDraft("a.jpg", testId("XMP-dc:Subject"), {
+    const subjectId = testId("XMP-dc:Subject");
+    mock.tagInfos = [tagInfoFor(subjectId)];
+    await act(async () => {
+      await result.current[1].setNewPropertyDraft("a.jpg", subjectId, {
         intent: "Set",
         value: { kind: "Text", value: "draft" },
-      }),
-    );
+      });
+    });
     await act(async () => result.current[1].applyDraftEdits("a.jpg"));
 
     state = result.current[0];
@@ -1254,10 +1300,12 @@ describe("useMediaLibrary", () => {
       intent: "Set" as const,
       value: { kind: "Text" as const, value: "draft" },
     };
+    mock.tagInfos = [tagInfoFor(draftId)];
 
-    act(() =>
-      result.current[1].setNewPropertyDraft("final.jpg", draftId, edit),
-    );
+    await publishOccurrences(mock, "final.jpg");
+    await act(async () => {
+      await result.current[1].setNewPropertyDraft("final.jpg", draftId, edit);
+    });
     mock.targetApplyProgressResultsByPath["final.jpg"] = targetV5Result(
       "final.jpg",
       metadataId,
@@ -1273,9 +1321,10 @@ describe("useMediaLibrary", () => {
     if (state.kind !== "loaded") return;
     expect(state.metadataVersion).toBe(1);
 
-    act(() =>
-      result.current[1].setNewPropertyDraft("changed.jpg", draftId, edit),
-    );
+    await publishOccurrences(mock, "changed.jpg");
+    await act(async () => {
+      await result.current[1].setNewPropertyDraft("changed.jpg", draftId, edit);
+    });
     mock.targetApplyProgressResultsByPath["changed.jpg"] = targetV5Result(
       "changed.jpg",
       metadataId,
@@ -1299,12 +1348,14 @@ describe("useMediaLibrary", () => {
     await act(async () => result.current[1].openFolder());
     act(() => mock.emitScanComplete());
     const id = testId("XMP-dc:Subject");
-    act(() =>
-      result.current[1].setNewPropertyDraft("draft-only.jpg", id, {
+    mock.tagInfos = [tagInfoFor(id)];
+    await publishOccurrences(mock, "draft-only.jpg");
+    await act(async () => {
+      await result.current[1].setNewPropertyDraft("draft-only.jpg", id, {
         intent: "Set",
         value: { kind: "Text", value: "draft" },
-      }),
-    );
+      });
+    });
     await act(async () => result.current[1].applyDraftEdits("draft-only.jpg"));
     const state = result.current[0];
     if (state.kind === "loaded") expect(state.metadataVersion).toBe(0);
@@ -1322,12 +1373,15 @@ describe("useMediaLibrary", () => {
     if (state.kind !== "loaded") return;
     expect(state.targetDraftPersistence).toEqual({ status: "ready" });
 
-    act(() =>
-      result.current[1].setNewPropertyDraft("new.jpg", testId("XMP-dc:Title"), {
+    const titleId = testId("XMP-dc:Title");
+    mock.tagInfos = [tagInfoFor(titleId)];
+    await publishOccurrences(mock, "new.jpg");
+    await act(async () => {
+      await result.current[1].setNewPropertyDraft("new.jpg", titleId, {
         intent: "Set",
         value: { kind: "Text", value: "writable" },
-      }),
-    );
+      });
+    });
     expect(
       state.targetDraftEditsStore.getMetadataFile("new.jpg"),
     ).toBeDefined();
@@ -1336,6 +1390,202 @@ describe("useMediaLibrary", () => {
         ({ cmd }) => cmd === "save_metadata_draft_edits_v5",
       ),
     ).toHaveLength(1);
+  });
+
+  it("enforces the complete direct NewProperty mutation boundary", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/photos");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => result.current[1].openFolder());
+    act(() => mock.emitScanComplete());
+    const edit = {
+      intent: "Set" as const,
+      value: { kind: "Text" as const, value: "draft" },
+    };
+    const saveCount = () =>
+      mock.invocations.filter(
+        ({ cmd }) => cmd === "save_metadata_draft_edits_v5",
+      ).length;
+    const stateStore = () => {
+      const state = result.current[0];
+      if (state.kind !== "loaded") throw new Error("expected loaded state");
+      return state.targetDraftEditsStore;
+    };
+    const lastErrorType = () => {
+      const state = result.current[0];
+      if (state.kind !== "loaded") throw new Error("expected loaded state");
+      return state.workerErrors[state.workerErrors.length - 1]?.worker_type;
+    };
+    const expectRejected = async (
+      path: string,
+      id: SchemaDefinitionId,
+      expectedErrorType: string,
+    ) => {
+      const before = saveCount();
+      await act(async () => {
+        await result.current[1].setNewPropertyDraft(path, id, edit);
+      });
+      expect(stateStore().getMetadataFile(path)).toBeUndefined();
+      expect(saveCount()).toBe(before);
+      expect(lastErrorType()).toBe(expectedErrorType);
+    };
+
+    const loadingId = testId("XMP-test:Loading");
+    mock.tagInfos = [tagInfoFor(loadingId)];
+    await expectRejected(
+      "loading.jpg",
+      loadingId,
+      "metadata-v5-new-property-occurrences-loading",
+    );
+
+    const presentId = testId("XMP-test:Present");
+    await publishOccurrences(mock, "present.jpg", [occurrenceFor(presentId)]);
+    mock.tagInfos = [tagInfoFor(presentId)];
+    await expectRejected(
+      "present.jpg",
+      presentId,
+      "metadata-v5-new-property-already-exists",
+    );
+
+    const repeatedId = testId("XMP-test:Repeated");
+    await publishOccurrences(mock, "repeated.jpg", [
+      occurrenceFor(repeatedId, 0),
+      occurrenceFor(repeatedId, 1),
+    ]);
+    mock.tagInfos = [tagInfoFor(repeatedId)];
+    await expectRejected(
+      "repeated.jpg",
+      repeatedId,
+      "metadata-v5-new-property-already-exists",
+    );
+
+    const missingId = testId("XMP-test:MissingDefinition");
+    await publishOccurrences(mock, "missing.jpg");
+    mock.tagInfos = [tagInfoFor(testId("XMP-test:Other"))];
+    await expectRejected(
+      "missing.jpg",
+      missingId,
+      "metadata-v5-new-property-schema-missing",
+    );
+
+    const readOnlyId = testId("XMP-test:ReadOnly");
+    await publishOccurrences(mock, "read-only.jpg");
+    mock.tagInfos = [tagInfoFor(readOnlyId, { writable: false })];
+    await expectRejected(
+      "read-only.jpg",
+      readOnlyId,
+      "metadata-v5-new-property-read-only",
+    );
+
+    const binaryId = testId("XMP-test:Binary");
+    await publishOccurrences(mock, "binary.jpg");
+    mock.tagInfos = [tagInfoFor(binaryId, { kind: { kind: "Binary" } })];
+    await expectRejected(
+      "binary.jpg",
+      binaryId,
+      "metadata-v5-new-property-unsupported-kind",
+    );
+
+    const unknownId = testId("XMP-test:Unknown");
+    await publishOccurrences(mock, "unknown.jpg");
+    mock.tagInfos = [tagInfoFor(unknownId, { kind: { kind: "Unknown" } })];
+    await expectRejected(
+      "unknown.jpg",
+      unknownId,
+      "metadata-v5-new-property-unsupported-kind",
+    );
+
+    const ownedId = testId("XMP-test:Owned");
+    await publishOccurrences(mock, "owned.jpg");
+    mock.tagInfos = [tagInfoFor(ownedId)];
+    const existingTarget = {
+      kind: "ExistingOccurrence" as const,
+      occurrence_id: {
+        document: null,
+        path: "JPEG-APP1-XMP",
+        tag_id: ownedId.tag_id,
+        copy: 0,
+      },
+      schema_id: structuredClone(ownedId),
+      write_target: { group1: "XMP-test", tag_name: "Owned" },
+    };
+    act(() => {
+      stateStore().setMetadataTarget("owned.jpg", existingTarget, edit);
+    });
+    const ownedSaveCount = saveCount();
+    await act(async () => {
+      await result.current[1].setNewPropertyDraft("owned.jpg", ownedId, edit);
+    });
+    expect(saveCount()).toBe(ownedSaveCount);
+    expect(
+      Object.values(stateStore().getMetadataFile("owned.jpg") ?? {})[0]?.target,
+    ).toEqual(existingTarget);
+    expect(lastErrorType()).toBe("metadata-v5-new-property-existing-target");
+
+    const ambiguousId = testId("XMP-test:AmbiguousOwnership");
+    await publishOccurrences(mock, "ambiguous.jpg");
+    mock.tagInfos = [tagInfoFor(ambiguousId)];
+    act(() => {
+      for (const copy of [0, 1]) {
+        stateStore().setMetadataTarget(
+          "ambiguous.jpg",
+          {
+            kind: "ExistingOccurrence",
+            occurrence_id: {
+              document: null,
+              path: "JPEG-APP1-XMP",
+              tag_id: ambiguousId.tag_id,
+              copy,
+            },
+            schema_id: structuredClone(ambiguousId),
+            write_target: {
+              group1: "XMP-test",
+              tag_name: `Ambiguous-${copy}`,
+            },
+          },
+          edit,
+        );
+      }
+    });
+    const ambiguousSaveCount = saveCount();
+    await act(async () => {
+      await result.current[1].setNewPropertyDraft(
+        "ambiguous.jpg",
+        ambiguousId,
+        edit,
+      );
+    });
+    expect(saveCount()).toBe(ambiguousSaveCount);
+    expect(
+      Object.values(stateStore().getMetadataFile("ambiguous.jpg") ?? {}),
+    ).toHaveLength(2);
+    expect(lastErrorType()).toBe(
+      "metadata-v5-new-property-ambiguous-ownership",
+    );
+
+    const supportedId: SchemaDefinitionId = {
+      table: "XMP::test",
+      tag_id: "supported",
+      index: 0,
+    };
+    await publishOccurrences(mock, "supported.jpg");
+    mock.tagInfos = [tagInfoFor(supportedId)];
+    const supportedSaveCount = saveCount();
+    await act(async () => {
+      await result.current[1].setNewPropertyDraft(
+        "supported.jpg",
+        supportedId,
+        edit,
+      );
+    });
+    expect(saveCount()).toBe(supportedSaveCount + 1);
+    expect(
+      Object.values(stateStore().getMetadataFile("supported.jpg") ?? {})[0]
+        ?.target,
+    ).toEqual({
+      kind: "NewProperty",
+      schema_id: supportedId,
+    });
   });
 
   it("target verification actions use the exact replacement slot and v5 persistence only", async () => {
@@ -1565,8 +1815,10 @@ describe("useMediaLibrary", () => {
 
     let groupRemovalSucceeded = true;
     let selectedRemovalSucceeded = true;
+    await act(async () => {
+      await result.current[1].setNewPropertyDraft("blocked.jpg", id, edit);
+    });
     act(() => {
-      result.current[1].setNewPropertyDraft("blocked.jpg", id, edit);
       result.current[1].setExistingOccurrenceDraft(
         "blocked.jpg",
         existingTarget.occurrence_id,
@@ -1707,12 +1959,15 @@ describe("useMediaLibrary", () => {
     if (secondState.kind !== "loaded") return;
     expect(secondState.folder).toBe("/second");
     expect(secondState.targetDraftPersistence).toEqual({ status: "ready" });
-    act(() =>
-      result.current[1].setNewPropertyDraft("new.jpg", testId("XMP-dc:Title"), {
+    const newFolderId = testId("XMP-dc:Title");
+    mock.tagInfos = [tagInfoFor(newFolderId)];
+    await publishOccurrences(mock, "new.jpg");
+    await act(async () => {
+      await result.current[1].setNewPropertyDraft("new.jpg", newFolderId, {
         intent: "Set",
         value: { kind: "Text", value: "new folder" },
-      }),
-    );
+      });
+    });
     expect(
       mock.invocations.find(({ cmd }) => cmd === "save_metadata_draft_edits_v5")
         ?.args?.folderPath,
@@ -1737,11 +1992,18 @@ describe("useMediaLibrary", () => {
       intent: "Set" as const,
       value: { kind: "Text" as const, value: "value" },
     };
-    act(() => result.current[1].setNewPropertyDraft("a.jpg", id, edit));
+    mock.tagInfos = [tagInfoFor(id)];
+    await publishOccurrences(mock, "a.jpg");
+    await act(async () => {
+      await result.current[1].setNewPropertyDraft("a.jpg", id, edit);
+    });
     await act(async () => result.current[1].applyDraftEdits("a.jpg"));
     await act(async () => result.current[1].openRecent("/second"));
     act(() => mock.emitScanComplete());
-    act(() => result.current[1].setNewPropertyDraft("b.jpg", id, edit));
+    await publishOccurrences(mock, "b.jpg");
+    await act(async () => {
+      await result.current[1].setNewPropertyDraft("b.jpg", id, edit);
+    });
     const saveFolders = mock.invocations
       .filter(({ cmd }) => cmd === "save_metadata_draft_edits_v5")
       .map(({ args }) => args?.folderPath);

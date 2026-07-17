@@ -124,8 +124,7 @@ impl MetadataTargetWriteClient for RealMetadataTargetWriteClient {
             ));
         }
         if let Some(result) = result {
-            // Schema-keyed display projection omissions are intentionally ignored: the
-            // authoritative occurrence collection above remains complete.
+            // The authoritative occurrence collection above is the complete readback.
             return Ok(result);
         }
 
