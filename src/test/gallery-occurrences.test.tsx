@@ -23,6 +23,7 @@ function occurrence(
 ): MetadataOccurrence {
   return {
     id: { document: null, path, tag_id: "282", copy: 0 },
+    schema_id: structuredClone(tagInfo.id),
     value: { kind: "Integer", value },
     tag_info: tagInfo,
     write_target: { group1, tag_name: "XResolution" },

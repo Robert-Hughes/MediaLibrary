@@ -137,19 +137,6 @@ export function planGpsTargetDraftBatchV5(
       );
     }
     if (occurrenceResolution.kind === "missing") {
-      const unresolvedRuntimeMatches = occurrences.filter(
-        (occurrence) =>
-          occurrence.tag_info === null &&
-          occurrence.id.tag_id === id.tag_id &&
-          occurrence.write_target?.group1 === "GPS",
-      );
-      if (unresolvedRuntimeMatches.length > 0) {
-        throw new GpsTargetDraftPlanError(
-          "untargetable-occurrence",
-          "A runtime GPS occurrence may correspond to this field but has no embedded exact TagInfo. It was not selected and nothing was saved.",
-          id,
-        );
-      }
       target = {
         kind: "NewProperty",
         schema_id: structuredClone(id),

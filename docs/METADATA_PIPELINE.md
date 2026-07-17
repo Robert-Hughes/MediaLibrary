@@ -5,10 +5,25 @@ target-aware, and occurrence-based from draft creation through audit.
 
 ## Scan and presentation
 
-The scanner returns authoritative `MetadataOccurrence` values. Compatibility
-metadata may still support read-only consumers, but editing decisions use exact
-occurrences. Details Pane rows show exact pending target values, reopen editors
-from staged semantic values, and keep same-schema siblings separate.
+The scanner returns authoritative `MetadataOccurrence` values with a semantic
+`value` plus four independent identity, interpretation and targeting concerns:
+runtime `id`, always-present exact `schema_id`, optional resolved `tag_info`, and
+optional proven `write_target`. `TagInfo` supplies interpretation and labels; it
+is not the source of occurrence schema identity. When present, `tag_info.id`
+must exactly match `schema_id`, and malformed wire payloads are rejected rather
+than repaired.
+
+Unknown registry schemas therefore remain in authoritative occurrence state as
+an exact schema ID with null `TagInfo` and null write target. They can be shown
+and diagnosed by table, tag ID and optional index, but remain read-only. Schema
+identity alone cannot authorise a write.
+
+Compatibility `ImageMetadata.metadata` may still support read-only consumers,
+but editing decisions use exact occurrences. Its temporary schema-keyed
+projection groups by `occurrence.schema_id`; conservative collapsing, LangAlt
+merging and omission behaviour are unchanged. Details Pane rows show exact
+pending target values, reopen editors from staged semantic values, and keep
+same-schema siblings separate.
 
 Manual row editing, New Property, GPS editing, removal, AI description,
 reverse geocoding, and normalisation all resolve their generated edits to
@@ -39,7 +54,8 @@ For each requested file, the backend:
 2. resolves exact writable occurrences or deliberate creations;
 3. separates numeric and textual ExifTool passes;
 4. writes a deterministic escaped UTF-8 argfile;
-5. rereads authoritative metadata occurrences;
+5. rereads authoritative metadata occurrences and compares exact target
+   schema snapshots against `occurrence.schema_id`;
 6. verifies each semantic edit;
 7. reconciles exact targets as Clear, Keep, Replace, or Blocked;
 8. persists the reconciled target map; and
@@ -71,3 +87,12 @@ The unversioned schema-keyed draft loader/saver, apply and cancel commands,
 progress events, verification dialog, outcome reducer, batch orchestration, and
 historical apply-log writer have been removed. Production contains no fallback
 or conversion branch for that pipeline.
+
+## Transient and persisted wire formats
+
+Adding `MetadataOccurrence.schema_id` changes only transient scan and readback
+payloads. It does not change `MetadataDraftTarget`, target slot tokens, the
+schema-v5 command or event names, reconciliation kinds,
+`MediaLibraryTargetDraftEdits.jsonl`, or `MediaLibraryTargetApplyLog.jsonl`.
+`ExistingOccurrence` targets already persist their own schema snapshot and now
+compare that snapshot with the authoritative occurrence field.

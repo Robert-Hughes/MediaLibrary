@@ -32,7 +32,11 @@ export type ExistingOccurrenceDraftTargetResolution =
     }
   | {
       kind: "unavailable";
-      reason: "unknown_schema" | "read_only_schema" | "missing_write_target";
+      reason:
+        | "unknown_schema"
+        | "schema_mismatch"
+        | "read_only_schema"
+        | "missing_write_target";
     };
 
 export type ExistingOccurrenceTargetResolution =
@@ -170,6 +174,9 @@ export function existingOccurrenceDraftTarget(
   if (info == null) {
     return { kind: "unavailable", reason: "unknown_schema" };
   }
+  if (!schemaDefinitionIdEquals(info.id, occurrence.schema_id)) {
+    return { kind: "unavailable", reason: "schema_mismatch" };
+  }
   if (!info.writable) {
     return { kind: "unavailable", reason: "read_only_schema" };
   }
@@ -194,6 +201,13 @@ export function existingOccurrenceTargetFromOccurrence(
         "This occurrence has no exact TagInfo and cannot be edited safely.",
     };
   }
+  if (!schemaDefinitionIdEquals(occurrence.tag_info.id, occurrence.schema_id)) {
+    return {
+      kind: "read-only",
+      reason:
+        "This occurrence's exact schema ID conflicts with its TagInfo and cannot be edited safely.",
+    };
+  }
   if (!occurrence.tag_info.writable) {
     return {
       kind: "read-only",
@@ -213,7 +227,7 @@ export function existingOccurrenceTargetFromOccurrence(
     target: {
       kind: "ExistingOccurrence",
       occurrence_id: structuredClone(occurrence.id),
-      schema_id: structuredClone(occurrence.tag_info.id),
+      schema_id: structuredClone(occurrence.schema_id),
       write_target: structuredClone(occurrence.write_target),
     },
   };

@@ -2,30 +2,35 @@
 import type { MetadataOccurrenceId } from "./MetadataOccurrenceId";
 import type { MetadataValue } from "./MetadataValue";
 import type { MetadataWriteTarget } from "./MetadataWriteTarget";
+import type { SchemaDefinitionId } from "./SchemaDefinitionId";
 import type { TagInfo } from "./TagInfo";
 
 /**
  * One concrete metadata field occurrence read from a source file.
  *
- * The occurrence combines four independent concerns:
+ * The occurrence combines five independent concerns:
  *
- * - `id` identifies which runtime field in the file this is;
- * - `value` contains its current canonical semantic value;
- * - `tag_info` describes how the value is interpreted when exact schema
- *   resolution succeeds;
+ * - `id` identifies which concrete runtime field in the file this is;
+ * - `schema_id` identifies the exact static schema definition reported by
+ *   ExifTool;
+ * - `value` contains the current canonical semantic value;
+ * - `tag_info` contains registry interpretation and presentation metadata when
+ *   that exact schema resolves;
  * - `write_target` describes how the occurrence can be written safely when an
  *   exact ExifTool selector is available.
  *
+ * Runtime occurrence identity and schema identity are independent. Several
+ * concrete occurrences may share one `schema_id`, and the same runtime tag ID
+ * text does not imply the same schema.
+ *
  * `tag_info` is optional because ExifTool may return runtime fields that do not
- * resolve to the static schema registry. Such occurrences must still be
- * retained and displayed, but are treated as unknown and read-only.
+ * resolve to the static schema registry. `None` does not mean the exact schema
+ * identity is unknown: `schema_id` remains authoritative. When `tag_info` is
+ * present, `TagInfo::id` must exactly equal `schema_id`.
  *
- * `TagInfo::id` is the sole schema identity. A separate
- * `SchemaDefinitionId` is intentionally not duplicated here.
- *
- * `write_target` is also optional and is stricter than schema writability.
- * A writable schema definition does not by itself prove that a particular
- * runtime occurrence can be targeted unambiguously.
+ * Neither schema identity nor a runtime selector alone proves writability.
+ * `write_target` is optional and stricter than schema writability; an unknown
+ * or unsupported schema remains read-only even if runtime coordinates exist.
  */
 export type MetadataOccurrence = { 
 /**
@@ -33,14 +38,22 @@ export type MetadataOccurrence = {
  */
 id: MetadataOccurrenceId, 
 /**
+ * Exact static schema identity reported by ExifTool.
+ *
+ * This is independent of runtime occurrence identity. Multiple occurrences
+ * may share one schema definition.
+ */
+schema_id: SchemaDefinitionId,
+/**
  * Current canonical semantic value read from the file.
  */
 value: MetadataValue, 
 /**
  * Exactly resolved static schema information.
  *
- * `None` means that no exact schema definition was found. Consumers must
- * not guess a schema from friendly names or related definitions.
+ * `None` means that the exact schema did not resolve in the local registry.
+ * Consumers must not guess interpretation from friendly names or related
+ * definitions. When present, `TagInfo::id` must equal `schema_id`.
  */
 tag_info: TagInfo | null, 
 /**

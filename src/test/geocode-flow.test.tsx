@@ -66,6 +66,7 @@ function gpsOccurrence(
       tag_id: id.tag_id,
       copy: 0,
     },
+    schema_id: structuredClone(id),
     value,
     tag_info: {
       id,

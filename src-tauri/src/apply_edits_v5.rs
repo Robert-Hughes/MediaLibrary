@@ -386,7 +386,7 @@ fn target_audit_record(
 fn observed_occurrence(occurrence: &MetadataOccurrence) -> TargetApplyObservedOccurrence {
     TargetApplyObservedOccurrence {
         occurrence_id: occurrence.id.clone(),
-        schema_id: occurrence.tag_info.as_ref().map(|info| info.id.clone()),
+        schema_id: Some(occurrence.schema_id.clone()),
         write_target: occurrence.write_target.clone(),
         value: occurrence.value.clone(),
     }
@@ -886,12 +886,7 @@ fn verify_plan(
             let matches = post_by_id
                 .values()
                 .copied()
-                .filter(|occurrence| {
-                    occurrence
-                        .tag_info
-                        .as_ref()
-                        .is_some_and(|info| &info.id == schema_id)
-                })
+                .filter(|occurrence| &occurrence.schema_id == schema_id)
                 .collect::<Vec<_>>();
             let post_write = match matches.as_slice() {
                 [] => TargetApplyPostWriteState::Missing,
@@ -1043,10 +1038,7 @@ fn verify_existing_plan(
             draft_reconciliation: MetadataDraftReconciliation::Blocked { reason },
         };
     };
-    let schema_unchanged = occurrence
-        .tag_info
-        .as_ref()
-        .is_some_and(|info| &info.id == schema_id);
+    let schema_unchanged = &occurrence.schema_id == schema_id;
     if !schema_unchanged || occurrence.write_target.as_ref() != Some(write_target) {
         let reason = format!(
             "Exact occurrence {occurrence_id:?} changed schema or selector; the stored target snapshot is stale"
@@ -1206,8 +1198,25 @@ mod tests {
         group: Option<&str>,
         name: &str,
     ) -> MetadataOccurrence {
+        let schema_id = info
+            .as_ref()
+            .expect("tests without TagInfo must use occurrence_with_schema")
+            .id
+            .clone();
+        occurrence_with_schema(id, schema_id, value, info, group, name)
+    }
+
+    fn occurrence_with_schema(
+        id: MetadataOccurrenceId,
+        schema_id: SchemaDefinitionId,
+        value: MetadataValue,
+        info: Option<TagInfo>,
+        group: Option<&str>,
+        name: &str,
+    ) -> MetadataOccurrence {
         MetadataOccurrence {
             id,
+            schema_id,
             value,
             tag_info: info,
             write_target: group.map(|group1| MetadataWriteTarget {
@@ -1826,10 +1835,7 @@ mod tests {
                 panic!("existing target must retain its exact post-write occurrence")
             };
             assert_eq!(occurrence.occurrence_id, expected.id);
-            assert_eq!(
-                occurrence.schema_id.as_ref(),
-                expected.tag_info.as_ref().map(|info| &info.id)
-            );
+            assert_eq!(occurrence.schema_id.as_ref(), Some(&expected.schema_id));
             assert_eq!(occurrence.write_target, expected.write_target);
             assert_eq!(occurrence.value, expected.value);
         }
@@ -2200,8 +2206,13 @@ mod tests {
             Some("IFD0"),
             "Number",
         );
-        let unrelated = occurrence(
+        let unrelated = occurrence_with_schema(
             occurrence_id("UNRELATED-DUPLICATE", "999", 4),
+            SchemaDefinitionId {
+                table: "Unknown::Table".to_owned(),
+                tag_id: "999".to_owned(),
+                index: None,
+            },
             MetadataValue::Text("unrelated".into()),
             None,
             None,

@@ -11,11 +11,13 @@ import {
   isMetadataDraftEdit,
   isMetadataDraftEntryV5,
   isMetadataDraftTarget,
+  isMetadataOccurrence,
   isMetadataOccurrenceId,
   isJsonValue,
   isMetadataValue,
   isMetadataWriteTarget,
   isSchemaDefinitionId,
+  metadataOccurrenceSchemaIdentityError,
 } from "../utils/metadataWireGuards";
 
 const schema = (index?: number): SchemaDefinitionId => ({
@@ -86,6 +88,66 @@ describe("metadata identity wire guards", () => {
     expect(isMetadataWriteTarget({ group1: 1, tag_name: "XResolution" })).toBe(
       false,
     );
+  });
+});
+
+describe("metadata occurrence wire guard", () => {
+  const validOccurrence = () => ({
+    id: existing().occurrence_id,
+    schema_id: schema(),
+    value: { kind: "Integer", value: 300 },
+    tag_info: {
+      id: schema(),
+      group: "IFD0",
+      name: "XResolution",
+      writable: true,
+      kind: { kind: "Integer", data: { min: null, max: null } },
+      description: null,
+    },
+    write_target: { group1: "IFD0", tag_name: "XResolution" },
+  });
+
+  it("requires exactly the complete transient occurrence shape", () => {
+    const value = validOccurrence();
+    expect(isMetadataOccurrence(value)).toBe(true);
+    const { schema_id: _missing, ...withoutSchema } = value;
+    expect(isMetadataOccurrence(withoutSchema)).toBe(false);
+    expect(isMetadataOccurrence({ ...value, schema_id: { table: 1 } })).toBe(
+      false,
+    );
+    expect(isMetadataOccurrence({ ...value, extra: true })).toBe(false);
+  });
+
+  it("rejects conflicting TagInfo and reports the occurrence and both schema IDs", () => {
+    const value = {
+      ...validOccurrence(),
+      tag_info: {
+        ...validOccurrence().tag_info,
+        id: { table: "Exif::Other", tag_id: "282", index: 0 },
+      },
+    };
+    expect(isMetadataOccurrence(value)).toBe(false);
+    expect(metadataOccurrenceSchemaIdentityError(value)).toEqual(
+      expect.stringMatching(
+        /JPEG-APP1-IFD0.*Exif::Main \/ 282.*Exif::Other \/ 282 \/ index 0/,
+      ),
+    );
+  });
+
+  it("accepts unresolved occurrences and duplicate schemas with distinct occurrence IDs", () => {
+    const unresolved = {
+      ...validOccurrence(),
+      tag_info: null,
+      write_target: null,
+    };
+    const sibling = {
+      ...unresolved,
+      id: { ...unresolved.id, path: "JPEG-APP1-IFD1", copy: 2 },
+    };
+    expect(isMetadataOccurrence(unresolved)).toBe(true);
+    expect(isMetadataOccurrence(sibling)).toBe(true);
+    expect(unresolved.schema_id).toEqual(sibling.schema_id);
+    expect(unresolved.id).not.toEqual(sibling.id);
   });
 });
 

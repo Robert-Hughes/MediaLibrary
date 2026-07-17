@@ -508,7 +508,7 @@ function DetailsOccurrenceRow({
       ? null
       : entry.occurrence.tag_info
         ? metadataValueToDisplayStringForTag(
-            entry.occurrence.tag_info.id,
+            entry.occurrence.schema_id,
             effectiveDraftValue,
             entry.occurrence.tag_info,
           )
@@ -1261,10 +1261,14 @@ export function DetailsPane({
       };
     }
     if (
+      !schemaDefinitionIdEquals(
+        exact.occurrence.schema_id,
+        editDialog.schemaId,
+      ) ||
       exact.occurrence.tag_info === null ||
       !schemaDefinitionIdEquals(
         exact.occurrence.tag_info.id,
-        editDialog.schemaId,
+        exact.occurrence.schema_id,
       )
     ) {
       return {
@@ -1704,7 +1708,7 @@ export function DetailsPane({
     setEditDialogUnavailableMessage(null);
     setEditDialog({
       kind: "existing-occurrence",
-      schemaId: structuredClone(occurrence.tag_info.id),
+      schemaId: structuredClone(occurrence.schema_id),
       occurrenceId: structuredClone(occurrence.id),
       openedTarget: targetability.target,
     });

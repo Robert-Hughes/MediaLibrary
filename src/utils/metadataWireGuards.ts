@@ -14,8 +14,12 @@ import type {
   TagInfo,
   TagKind,
 } from "../types";
-import { metadataOccurrenceIdToken } from "./metadataOccurrenceId";
 import {
+  formatMetadataOccurrenceIdForDiagnostics,
+  metadataOccurrenceIdToken,
+} from "./metadataOccurrenceId";
+import {
+  formatSchemaDefinitionIdForDiagnostics,
   schemaDefinitionIdEquals,
   schemaDefinitionIdToken,
 } from "./schemaDefinitionId";
@@ -317,15 +321,46 @@ export function isMetadataDraftEntryV5(
   );
 }
 
+export function metadataOccurrenceSchemaIdentityError(
+  value: unknown,
+): string | null {
+  if (
+    !isRecord(value) ||
+    !isMetadataOccurrenceId(value.id) ||
+    !isSchemaDefinitionId(value.schema_id) ||
+    value.tag_info === null ||
+    !isTagInfo(value.tag_info) ||
+    schemaDefinitionIdEquals(value.tag_info.id, value.schema_id)
+  ) {
+    return null;
+  }
+
+  return [
+    "Metadata occurrence schema mismatch:",
+    `occurrence ID ${formatMetadataOccurrenceIdForDiagnostics(value.id)}`,
+    `occurrence schema ${formatSchemaDefinitionIdForDiagnostics(value.schema_id)}`,
+    `TagInfo schema ${formatSchemaDefinitionIdForDiagnostics(value.tag_info.id)}`,
+  ].join(" ");
+}
+
 export function isMetadataOccurrence(
   value: unknown,
 ): value is MetadataOccurrence {
   return (
     isRecord(value) &&
-    hasOwnStringKeys(value, ["id", "value", "tag_info", "write_target"]) &&
+    hasExactlyOwnStringKeys(value, [
+      "id",
+      "schema_id",
+      "value",
+      "tag_info",
+      "write_target",
+    ]) &&
     isMetadataOccurrenceId(value.id) &&
+    isSchemaDefinitionId(value.schema_id) &&
     isMetadataValue(value.value) &&
     (value.tag_info === null || isTagInfo(value.tag_info)) &&
+    (value.tag_info === null ||
+      schemaDefinitionIdEquals(value.tag_info.id, value.schema_id)) &&
     (value.write_target === null || isMetadataWriteTarget(value.write_target))
   );
 }

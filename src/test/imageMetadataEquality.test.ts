@@ -9,6 +9,7 @@ import {
 
 const occurrence = (): MetadataOccurrence => ({
   id: { document: null, path: "IFD0", tag_id: "282", copy: 0 },
+  schema_id: { table: "Exif::Main", tag_id: "282" },
   value: { kind: "Rational", value: { numerator: 1, denominator: 2 } },
   tag_info: {
     id: { table: "Exif::Main", tag_id: "282" },

@@ -53,6 +53,7 @@ const occurrence = (): MetadataOccurrence => ({
     tag_id: "282",
     copy: 0,
   },
+  schema_id: schema(),
   value: { kind: "Rational", value: { numerator: 300, denominator: 1 } },
   tag_info: tagInfo(),
   write_target: { group1: "IFD0", tag_name: "XResolution" },

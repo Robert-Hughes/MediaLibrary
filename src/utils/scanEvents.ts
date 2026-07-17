@@ -17,7 +17,11 @@ import {
   compareMetadataOccurrenceIds,
   metadataOccurrenceIdToken,
 } from "./metadataOccurrenceId";
-import { isMetadataEntry, isMetadataOccurrence } from "./metadataWireGuards";
+import {
+  isMetadataEntry,
+  isMetadataOccurrence,
+  metadataOccurrenceSchemaIdentityError,
+} from "./metadataWireGuards";
 
 export function normalizeMetadataOccurrencesFromTauri(
   raw: unknown,
@@ -28,6 +32,13 @@ export function normalizeMetadataOccurrencesFromTauri(
   const seen = new Set<string>();
   let dropped = 0;
   for (const value of raw) {
+    const schemaIdentityError = metadataOccurrenceSchemaIdentityError(value);
+    if (schemaIdentityError !== null) {
+      console.error(
+        `[metadata] Rejected occurrence payload: ${schemaIdentityError}`,
+      );
+      return [];
+    }
     if (!isMetadataOccurrence(value)) {
       dropped += 1;
       continue;

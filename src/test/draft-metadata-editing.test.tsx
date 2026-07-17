@@ -35,6 +35,7 @@ function makeOccurrence(value = "Canon"): MetadataOccurrence {
       tag_id: "Make",
       copy: 0,
     },
+    schema_id: structuredClone(id),
     value: { kind: "Text", value },
     tag_info: {
       id,
@@ -574,6 +575,7 @@ describe("Draft Metadata Editing Integration", () => {
         tag_id: schema.tag_id,
         copy: 0,
       },
+      schema_id: structuredClone(schema),
       value: { kind: "Text", value: "Committed" },
       tag_info: {
         id: schema,
@@ -633,6 +635,7 @@ describe("Draft Metadata Editing Integration", () => {
         tag_id: schema.tag_id,
         copy: 0,
       },
+      schema_id: structuredClone(schema),
       value: { kind: "Text", value: "IFD0 value" },
       tag_info: {
         id: schema,

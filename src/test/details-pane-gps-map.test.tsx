@@ -99,6 +99,7 @@ describe("DetailsPane GPS Map integration", () => {
           tag_id: id.tag_id,
           copy: 0,
         },
+        schema_id: id,
         value,
         tag_info: {
           id,

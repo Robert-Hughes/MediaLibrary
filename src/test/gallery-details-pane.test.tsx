@@ -400,6 +400,7 @@ describe("Gallery keyboard shortcuts coexistence", () => {
           tag_id: "Make",
           copy: 0,
         },
+        schema_id: { table: "Test::Fixture", tag_id: "IFD0:Make" },
         value: { kind: "Text", value: "Canon" },
         tag_info: {
           id: { table: "Test::Fixture", tag_id: "IFD0:Make" },

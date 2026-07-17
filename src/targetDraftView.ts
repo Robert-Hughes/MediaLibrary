@@ -107,17 +107,6 @@ function resolveSchemaDraftWithContext(
     return { kind: "target", entry };
   }
 
-  if (schemaResolution.kind !== "unique") {
-    return {
-      kind: "blocked",
-      reason:
-        schemaResolution.kind === "multiple"
-          ? "The schema has multiple authoritative occurrences."
-          : "The schema has no authoritative occurrence.",
-      conflictingTargets: sameSchema,
-    };
-  }
-
   const exact = resolveExactMetadataOccurrence(
     context.occurrences,
     entry.target.occurrence_id,
@@ -133,10 +122,25 @@ function resolveSchemaDraftWithContext(
     };
   }
 
+  if (schemaResolution.kind !== "unique") {
+    return {
+      kind: "blocked",
+      reason:
+        schemaResolution.kind === "multiple"
+          ? "The schema has multiple authoritative occurrences."
+          : "The schema has no authoritative occurrence.",
+      conflictingTargets: sameSchema,
+    };
+  }
+
   const expected = existingOccurrenceTargetFromOccurrence(exact.occurrence);
   if (
+    !schemaDefinitionIdEquals(exact.occurrence.schema_id, schemaId) ||
     exact.occurrence.tag_info === null ||
-    !schemaDefinitionIdEquals(exact.occurrence.tag_info.id, schemaId) ||
+    !schemaDefinitionIdEquals(
+      exact.occurrence.tag_info.id,
+      exact.occurrence.schema_id,
+    ) ||
     expected.kind !== "targetable" ||
     !metadataDraftTargetEquals(expected.target, entry.target)
   ) {
@@ -222,13 +226,24 @@ export function resolveSupplementalOccurrenceDraft(
   occurrence: MetadataOccurrence,
   targetDrafts: TargetDraftCollection | undefined,
 ): SupplementalOccurrenceDraftResolution {
-  const schemaId = occurrence.tag_info?.id;
-  if (schemaId === undefined) {
+  const schemaId = occurrence.schema_id;
+  const sameSchemaTargets = Object.values(targetDrafts ?? {}).filter((entry) =>
+    schemaDefinitionIdEquals(entry.target.schema_id, schemaId),
+  );
+  if (occurrence.tag_info === null) {
     return {
       kind: "blocked",
       reason:
-        "This occurrence has no exact TagInfo and cannot be edited safely.",
-      conflictingTargets: [],
+        "This occurrence retains an exact schema ID but has no resolved TagInfo and is read-only.",
+      conflictingTargets: sameSchemaTargets,
+    };
+  }
+  if (!schemaDefinitionIdEquals(occurrence.tag_info.id, schemaId)) {
+    return {
+      kind: "blocked",
+      reason:
+        "This occurrence's exact schema ID conflicts with its TagInfo and is read-only.",
+      conflictingTargets: sameSchemaTargets,
     };
   }
 

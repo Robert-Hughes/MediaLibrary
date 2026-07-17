@@ -127,13 +127,10 @@ export function buildEffectiveMetadataForFile(input: {
 
   if (occurrenceIndex) {
     for (const resolution of occurrenceIndex.values()) {
-      if (
-        resolution.kind === "unique" &&
-        resolution.occurrence.tag_info !== null
-      ) {
+      if (resolution.kind === "unique") {
         setEffectiveValue(
           effective,
-          resolution.occurrence.tag_info.id,
+          resolution.occurrence.schema_id,
           resolution.occurrence.value,
         );
       }
