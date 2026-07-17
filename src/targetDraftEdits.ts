@@ -45,19 +45,7 @@ export type TargetDraftEditsListener = (
 ) => void;
 
 function cloneTarget(target: MetadataDraftTarget): MetadataDraftTarget {
-  if (target.kind === "NewProperty") {
-    return {
-      kind: "NewProperty",
-      schema_id: { ...target.schema_id },
-    };
-  }
-
-  return {
-    kind: "ExistingOccurrence",
-    occurrence_id: { ...target.occurrence_id },
-    schema_id: { ...target.schema_id },
-    write_target: { ...target.write_target },
-  };
+  return structuredClone(target);
 }
 
 function cloneEntry(entry: MetadataDraftEntryV5): MetadataDraftEntryV5 {

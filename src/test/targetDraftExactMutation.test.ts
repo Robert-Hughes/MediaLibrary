@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { TargetDraftEditsStore } from "../targetDraftEdits";
+import {
+  TargetDraftEditsStore,
+  targetDraftsToWire,
+  validateTargetDraftCollection,
+} from "../targetDraftEdits";
 import type { MetadataDraftEntryV5, MetadataDraftTarget } from "../types";
+import { metadataDraftTargetSlotToken } from "../utils/metadataDraftTarget";
 
 function target(
   path: string,
@@ -140,18 +145,47 @@ describe("TargetDraftEditsStore.applyExactMutationBatch", () => {
     expect(store.getAllMetadata()).toEqual(before);
   });
 
-  it("defensively clones inputs and supports reserved paths", () => {
+  it("deeply isolates upsert and deletion inputs while preserving unrelated files", () => {
     const store = new TargetDraftEditsStore();
+    const retained = entry(target("retained"));
+    store.setMetadataBatch("retained.jpg", [retained]);
+    const retainedCollection = store.getMetadataFile("retained.jpg");
+
+    const deletedTarget = target("deleted");
+    store.setMetadataTarget(
+      "deleted.jpg",
+      deletedTarget,
+      entry(deletedTarget).edit,
+    );
+    const deletionInput = structuredClone(deletedTarget);
     const input = entry(target("reserved"));
+    const expected = structuredClone(input);
+    const originalSlot = metadataDraftTargetSlotToken(input.target);
     store.applyExactMutationBatch([
       { path: "__proto__", upserts: [input], deletes: [] },
+      { path: "deleted.jpg", upserts: [], deletes: [deletionInput] },
     ]);
+
+    if (input.target.kind !== "ExistingOccurrence") throw new Error();
+    input.target.occurrence_id.tag_id_scope.table = "Changed::Runtime";
+    input.target.occurrence_id.tag_id_scope.tag_id = "changed";
+    input.target.occurrence_id.tag_id_scope.index = 7;
     input.target.schema_id.tag_id = "changed";
     input.edit.intent = "Delete";
-    expect(store.getMetadataFile("__proto__")).toBeDefined();
-    expect(
-      Object.values(store.getMetadataFile("__proto__")!)[0].target.schema_id
-        .tag_id,
-    ).toBe("282");
+    deletionInput.occurrence_id.tag_id_scope.table = "Changed::Deletion";
+    deletionInput.occurrence_id.tag_id_scope.tag_id = "changed";
+    deletionInput.occurrence_id.tag_id_scope.index = 8;
+
+    const collection = store.getMetadataFile("__proto__")!;
+    expect(Object.keys(collection)).toEqual([originalSlot]);
+    expect(collection[originalSlot]).toEqual(expected);
+    expect(() =>
+      validateTargetDraftCollection("__proto__", collection),
+    ).not.toThrow();
+    expect(targetDraftsToWire(store.getAllMetadata()).__proto__).toEqual([
+      expected,
+    ]);
+    expect(store.getMetadataFile("deleted.jpg")).toBeUndefined();
+    expect(store.getMetadataFile("retained.jpg")).toBe(retainedCollection);
   });
 });

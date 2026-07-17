@@ -19,7 +19,7 @@ use crate::metadata_occurrence::MetadataOccurrence;
 use crate::metadata_value::{
     DateTimeValue, DateValue, MetadataValue, OffsetSign, TimeValue, UtcOffsetValue,
 };
-use crate::tag_schema::{EnumRepr, SchemaDefinitionId, TagInfo, TagKind};
+use crate::tag_schema::{EnumRepr, TagInfo, TagKind};
 
 /// Output of `build_args` for one draft edit.
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -86,29 +86,6 @@ impl std::error::Error for MetadataTargetWriteError {
             _ => None,
         }
     }
-}
-
-pub fn build_metadata_args(
-    id: &SchemaDefinitionId,
-    info: &TagInfo,
-    edit: &MetadataDraftEdit,
-) -> Result<BuiltArgs, String> {
-    if info.id != *id {
-        return Err(format!(
-            "schema identity mismatch: requested {id:?}, got {:?}",
-            info.id
-        ));
-    }
-    if !info.supports_metadata_write() {
-        return Err(format!("{} ({id:?}) is read-only", info.display_name()));
-    }
-    let tag = info.exiftool_write_name();
-    let tag = tag.as_str();
-    if info.group.is_empty() || info.name.is_empty() || tag.contains('\n') || tag.contains('\0') {
-        return Ok(BuiltArgs::default());
-    }
-
-    build_metadata_args_for_selector(tag, info, edit)
 }
 
 /// Plans a write to one exact existing occurrence after revalidating its
@@ -620,7 +597,7 @@ mod tests {
     use super::*;
     use crate::metadata_occurrence::{MetadataOccurrenceId, MetadataWriteTarget};
     use crate::metadata_value::{ListKind, RationalValue};
-    use crate::tag_schema::{EnumOption, EnumRepr};
+    use crate::tag_schema::{EnumOption, EnumRepr, SchemaDefinitionId};
     use std::collections::BTreeMap;
 
     fn info(kind: TagKind) -> TagInfo {
@@ -643,24 +620,19 @@ mod tests {
         }
     }
 
-    /// Friendly selectors are concise test-fixture shorthand only. Each call
-    /// immediately constructs an exact ID-bearing TagInfo before exercising
-    /// the production exact-ID API.
-    fn build_fixture_args(
-        selector: &str,
+    fn build_new_property_fixture_args(
+        group: &str,
+        tag_name: &str,
         template: &TagInfo,
         edit: &MetadataDraftEdit,
     ) -> Result<BuiltArgs, String> {
-        let (group, name) = selector.split_once(':').unwrap_or((selector, ""));
         let mut info = template.clone();
-        info.id = SchemaDefinitionId {
-            table: format!("TestFixture::{group}"),
-            tag_id: name.to_string(),
-            index: None,
-        };
         info.group = group.to_string();
-        info.name = name.to_string();
-        super::build_metadata_args(&info.id, &info, edit)
+        info.name = tag_name.to_string();
+        let target = MetadataDraftTarget::NewProperty {
+            schema_id: info.id.clone(),
+        };
+        super::build_new_property_args(&target, &info, edit).map_err(|error| error.to_string())
     }
 
     fn metadata_set(v: MetadataValue) -> MetadataDraftEdit {
@@ -710,7 +682,9 @@ mod tests {
     #[test]
     fn set_text_yields_single_text_arg() {
         let i = info(TagKind::Text);
-        let args = build_fixture_args("XMP-dc:Title", &i, &metadata_set(text("hi"))).unwrap();
+        let args =
+            build_new_property_fixture_args("XMP-dc", "Title", &i, &metadata_set(text("hi")))
+                .unwrap();
         assert!(args.numeric.is_empty());
         assert_eq!(args.text, vec!["-XMP-dc:Title=hi"]);
     }
@@ -718,8 +692,13 @@ mod tests {
     #[test]
     fn gps_version_id_text_uses_spaced_raw_value() {
         let i = info_named("GPS", "GPSVersionID", TagKind::Text);
-        let args =
-            build_fixture_args("GPS:GPSVersionID", &i, &metadata_set(text("2 3 0 0"))).unwrap();
+        let args = build_new_property_fixture_args(
+            "GPS",
+            "GPSVersionID",
+            &i,
+            &metadata_set(text("2 3 0 0")),
+        )
+        .unwrap();
         assert_eq!(args.text, vec!["-GPS:GPSVersionID=2 3 0 0"]);
         assert!(args.numeric.is_empty());
     }
@@ -730,8 +709,9 @@ mod tests {
             min: None,
             max: None,
         });
-        let args = build_fixture_args(
-            "XMP-xmp:Rating",
+        let args = build_new_property_fixture_args(
+            "XMP-xmp",
+            "Rating",
             &i,
             &metadata_set(MetadataValue::Integer(5)),
         )
@@ -743,8 +723,9 @@ mod tests {
     #[test]
     fn set_boolean_uses_1_0_in_numeric_group() {
         let i = info(TagKind::Boolean);
-        let args = build_fixture_args(
-            "XMP-xmpRights:Marked",
+        let args = build_new_property_fixture_args(
+            "XMP-xmpRights",
+            "Marked",
             &i,
             &metadata_set(MetadataValue::Bool(true)),
         )
@@ -768,8 +749,9 @@ mod tests {
                 },
             ],
         });
-        let args = build_fixture_args(
-            "IFD0:Orientation",
+        let args = build_new_property_fixture_args(
+            "IFD0",
+            "Orientation",
             &i,
             &metadata_set(MetadataValue::Integer(6)),
         )
@@ -780,8 +762,9 @@ mod tests {
     #[test]
     fn set_bag_emits_clear_then_repeated_args() {
         let i = info(TagKind::Bag(Box::new(TagKind::Text)));
-        let args = build_fixture_args(
-            "XMP-dc:Subject",
+        let args = build_new_property_fixture_args(
+            "XMP-dc",
+            "Subject",
             &i,
             &metadata_set(bag_text(&["beach", "sunset"])),
         )
@@ -800,8 +783,9 @@ mod tests {
     #[test]
     fn set_seq_emits_clear_then_ordered_args() {
         let i = info(TagKind::Seq(Box::new(TagKind::Text)));
-        let args = build_fixture_args(
-            "XMP-dc:Creator",
+        let args = build_new_property_fixture_args(
+            "XMP-dc",
+            "Creator",
             &i,
             &metadata_set(seq_text(&["Ada", "Bea"])),
         )
@@ -819,7 +803,9 @@ mod tests {
     #[test]
     fn set_bag_with_scalar_treats_as_single_element() {
         let i = info(TagKind::Bag(Box::new(TagKind::Text)));
-        let args = build_fixture_args("XMP-dc:Subject", &i, &metadata_set(text("only"))).unwrap();
+        let args =
+            build_new_property_fixture_args("XMP-dc", "Subject", &i, &metadata_set(text("only")))
+                .unwrap();
         assert_eq!(args.text, vec!["-XMP-dc:Subject=", "-XMP-dc:Subject=only"]);
     }
 
@@ -830,8 +816,9 @@ mod tests {
         langs.insert("x-default".to_string(), "Hi".to_string());
         langs.insert("en".to_string(), "Hi".to_string());
         langs.insert("fr".to_string(), "Salut".to_string());
-        let args = build_fixture_args(
-            "XMP-dc:Description",
+        let args = build_new_property_fixture_args(
+            "XMP-dc",
+            "Description",
             &i,
             &metadata_set(MetadataValue::LangAlt(langs)),
         )
@@ -854,8 +841,9 @@ mod tests {
         let i = info(TagKind::LangAlt);
         let mut langs = BTreeMap::new();
         langs.insert("en".to_string(), "Hello".to_string());
-        let args = build_fixture_args(
-            "XMP-dc:Description",
+        let args = build_new_property_fixture_args(
+            "XMP-dc",
+            "Description",
             &i,
             &metadata_set(MetadataValue::LangAlt(langs)),
         )
@@ -873,7 +861,8 @@ mod tests {
     #[test]
     fn delete_emits_empty_assignment() {
         let i = info(TagKind::Text);
-        let args = build_fixture_args("XMP-dc:Title", &i, &metadata_delete()).unwrap();
+        let args =
+            build_new_property_fixture_args("XMP-dc", "Title", &i, &metadata_delete()).unwrap();
         assert_eq!(args.text, vec!["-XMP-dc:Title="]);
         assert!(args.numeric.is_empty());
     }
@@ -881,8 +870,9 @@ mod tests {
     #[test]
     fn listadd_on_bag_emits_plus_equal_per_item() {
         let i = info(TagKind::Bag(Box::new(TagKind::Text)));
-        let args = build_fixture_args(
-            "XMP-dc:Subject",
+        let args = build_new_property_fixture_args(
+            "XMP-dc",
+            "Subject",
             &i,
             &metadata_list_add(bag_text(&["a", "b"])),
         )
@@ -893,8 +883,13 @@ mod tests {
     #[test]
     fn listremove_on_bag_emits_minus_equal_per_item() {
         let i = info(TagKind::Bag(Box::new(TagKind::Text)));
-        let args =
-            build_fixture_args("XMP-dc:Subject", &i, &metadata_list_remove(text("old"))).unwrap();
+        let args = build_new_property_fixture_args(
+            "XMP-dc",
+            "Subject",
+            &i,
+            &metadata_list_remove(text("old")),
+        )
+        .unwrap();
         assert_eq!(args.text, vec!["-XMP-dc:Subject-=old"]);
     }
 
@@ -902,11 +897,18 @@ mod tests {
     fn list_op_on_non_list_tag_degrades_safely() {
         let i = info(TagKind::Text);
         // ListAdd on a Text tag becomes a Set.
-        let args = build_fixture_args("XMP-dc:Title", &i, &metadata_list_add(text("hi"))).unwrap();
+        let args =
+            build_new_property_fixture_args("XMP-dc", "Title", &i, &metadata_list_add(text("hi")))
+                .unwrap();
         assert_eq!(args.text, vec!["-XMP-dc:Title=hi"]);
         // ListRemove on a Text tag becomes a Delete.
-        let args =
-            build_fixture_args("XMP-dc:Title", &i, &metadata_list_remove(text("hi"))).unwrap();
+        let args = build_new_property_fixture_args(
+            "XMP-dc",
+            "Title",
+            &i,
+            &metadata_list_remove(text("hi")),
+        )
+        .unwrap();
         assert_eq!(args.text, vec!["-XMP-dc:Title="]);
     }
 
@@ -914,38 +916,45 @@ mod tests {
     fn binary_schema_is_rejected_before_argument_rendering() {
         let info = info(TagKind::Binary);
         let error =
-            build_fixture_args("Thumbnail:Bin", &info, &metadata_set(text("x"))).unwrap_err();
+            build_new_property_fixture_args("Thumbnail", "Bin", &info, &metadata_set(text("x")))
+                .unwrap_err();
         assert!(error.contains("read-only"));
     }
 
     #[test]
-    fn invalid_tag_name_yields_no_args() {
+    fn unsafe_new_property_selector_is_rejected() {
         let i = info(TagKind::Text);
-        let args = build_fixture_args("bad\nname", &i, &metadata_set(text("x"))).unwrap();
-        assert!(args.is_empty());
-        let args = build_fixture_args("", &i, &metadata_set(text("x"))).unwrap();
-        assert!(args.is_empty());
+        let error =
+            build_new_property_fixture_args("bad\nname", "Tag", &i, &metadata_set(text("x")))
+                .unwrap_err();
+        assert!(error.contains("unsafe"));
+        let error =
+            build_new_property_fixture_args("", "", &i, &metadata_set(text("x"))).unwrap_err();
+        assert!(error.contains("unsafe"));
     }
 
     #[test]
     fn exact_identity_and_selected_tag_info_must_match() {
         let selected = info_named("XMP-dc", "Title", TagKind::Text);
-        let sibling_id = SchemaDefinitionId {
-            table: "Other::dc".into(),
-            tag_id: selected.id.tag_id.clone(),
-            index: None,
+        let target = MetadataDraftTarget::NewProperty {
+            schema_id: SchemaDefinitionId {
+                table: "Other::dc".into(),
+                tag_id: selected.id.tag_id.clone(),
+                index: None,
+            },
         };
-        let err = super::build_metadata_args(&sibling_id, &selected, &metadata_set(text("value")))
-            .unwrap_err();
-        assert!(err.contains("schema identity mismatch"));
+        assert_eq!(
+            super::build_new_property_args(&target, &selected, &metadata_set(text("value"))),
+            Err(MetadataTargetWriteError::SchemaIdMismatch)
+        );
     }
 
     #[test]
     fn write_selector_is_derived_from_exact_selected_tag_info() {
         let selected = info_named("XMP-dc", "Title", TagKind::Text);
-        let args =
-            super::build_metadata_args(&selected.id, &selected, &metadata_set(text("value")))
-                .unwrap();
+        let target = new_property_target(&selected);
+        let args = super::build_new_property_args(&target, &selected, &metadata_set(text("value")))
+            .unwrap();
         assert_eq!(args.text, vec!["-XMP-dc:Title=value"]);
     }
 
@@ -953,17 +962,23 @@ mod tests {
     fn exact_read_only_definition_is_rejected() {
         let mut selected = info_named("File", "BMPVersion", TagKind::Text);
         selected.writable = false;
-        let err =
-            super::build_metadata_args(&selected.id, &selected, &metadata_set(text("Windows V3")))
-                .unwrap_err();
-        assert!(err.contains("read-only"));
+        let target = MetadataDraftTarget::NewProperty {
+            schema_id: selected.id.clone(),
+        };
+        assert_eq!(
+            super::build_new_property_args(&target, &selected, &metadata_set(text("Windows V3")),),
+            Err(MetadataTargetWriteError::TargetValidation(
+                MetadataDraftTargetError::ReadOnlySchema,
+            ))
+        );
     }
 
     #[test]
     fn float_renders_decimal_in_numeric_group() {
         let i = info(TagKind::Real);
-        let args = build_fixture_args(
-            "Composite:GPSAltitude",
+        let args = build_new_property_fixture_args(
+            "Composite",
+            "GPSAltitude",
             &i,
             &metadata_set(MetadataValue::Real(123.45)),
         )
@@ -973,18 +988,29 @@ mod tests {
 
     #[test]
     fn gps_reals_render_as_scalar_numeric_args() {
-        for (tag, value, expected) in [
+        for (group, tag_name, value, expected) in [
             (
-                "GPS:GPSLatitude",
+                "GPS",
+                "GPSLatitude",
                 52.2037391662611,
                 "-GPS:GPSLatitude=52.2037391662611",
             ),
-            ("GPS:GPSLongitude", 1.236557, "-GPS:GPSLongitude=1.236557"),
-            ("GPS:GPSAltitude", 123.4, "-GPS:GPSAltitude=123.4"),
+            (
+                "GPS",
+                "GPSLongitude",
+                1.236557,
+                "-GPS:GPSLongitude=1.236557",
+            ),
+            ("GPS", "GPSAltitude", 123.4, "-GPS:GPSAltitude=123.4"),
         ] {
             let i = info(TagKind::Real);
-            let args =
-                build_fixture_args(tag, &i, &metadata_set(MetadataValue::Real(value))).unwrap();
+            let args = build_new_property_fixture_args(
+                group,
+                tag_name,
+                &i,
+                &metadata_set(MetadataValue::Real(value)),
+            )
+            .unwrap();
             assert_eq!(args.numeric, vec![expected]);
             assert!(args.text.is_empty());
         }
@@ -995,8 +1021,9 @@ mod tests {
         // Phase 8.7: design §6 puts DateTime in the -n group so the literal
         // YYYY:MM:DD HH:MM:SS±ZZ:ZZ form bypasses PrintConv re-parsing.
         let i = info(TagKind::DateTime);
-        let args = build_fixture_args(
-            "ExifIFD:DateTimeOriginal",
+        let args = build_new_property_fixture_args(
+            "ExifIFD",
+            "DateTimeOriginal",
             &i,
             &metadata_set(MetadataValue::DateTime(DateTimeValue {
                 date: DateValue {
@@ -1024,8 +1051,9 @@ mod tests {
     #[test]
     fn ai_generated_at_datetime_uses_numeric_group_with_offset() {
         let i = info_named("XMP-mlib", "AIGeneratedAt", TagKind::DateTime);
-        let args = build_fixture_args(
-            "XMP-mlib:AIGeneratedAt",
+        let args = build_new_property_fixture_args(
+            "XMP-mlib",
+            "AIGeneratedAt",
             &i,
             &metadata_set(MetadataValue::DateTime(DateTimeValue {
                 date: DateValue {
@@ -1057,8 +1085,9 @@ mod tests {
     #[test]
     fn iptc_date_renders_storage_format() {
         let i = info_named("IPTC", "DateCreated", TagKind::Date);
-        let args = build_fixture_args(
-            "IPTC:DateCreated",
+        let args = build_new_property_fixture_args(
+            "IPTC",
+            "DateCreated",
             &i,
             &metadata_set(MetadataValue::Date(DateValue {
                 year: 2026,
@@ -1073,8 +1102,9 @@ mod tests {
     #[test]
     fn iptc_time_without_offset_stays_offsetless() {
         let i = info_named("IPTC", "TimeCreated", TagKind::Time);
-        let args = build_fixture_args(
-            "IPTC:TimeCreated",
+        let args = build_new_property_fixture_args(
+            "IPTC",
+            "TimeCreated",
             &i,
             &metadata_set(MetadataValue::Time(TimeValue {
                 hour: 10,
@@ -1141,8 +1171,9 @@ mod tests {
     #[test]
     fn semantic_writer_never_comma_joins_text_lists() {
         let i = info(TagKind::Bag(Box::new(TagKind::Text)));
-        let args = build_fixture_args(
-            "XMP-dc:Subject",
+        let args = build_new_property_fixture_args(
+            "XMP-dc",
+            "Subject",
             &i,
             &metadata_set(MetadataValue::List {
                 list_kind: ListKind::Bag,
@@ -1167,8 +1198,9 @@ mod tests {
     #[test]
     fn semantic_writer_handles_alt_lists() {
         let i = info(TagKind::Alt(Box::new(TagKind::Text)));
-        let args = build_fixture_args(
-            "XMP-dc:Title",
+        let args = build_new_property_fixture_args(
+            "XMP-dc",
+            "Title",
             &i,
             &metadata_set(MetadataValue::List {
                 list_kind: ListKind::Alt,
@@ -1191,8 +1223,9 @@ mod tests {
             min: None,
             max: None,
         })));
-        let args = build_fixture_args(
-            "X:Numbers",
+        let args = build_new_property_fixture_args(
+            "X",
+            "Numbers",
             &i,
             &metadata_set(MetadataValue::List {
                 list_kind: ListKind::Bag,
@@ -1210,8 +1243,9 @@ mod tests {
     #[test]
     fn semantic_writer_renders_exact_rational() {
         let i = info(TagKind::Rational);
-        let args = build_fixture_args(
-            "EXIF:ExposureTime",
+        let args = build_new_property_fixture_args(
+            "EXIF",
+            "ExposureTime",
             &i,
             &metadata_set(MetadataValue::Rational(
                 crate::metadata_value::RationalValue {
@@ -1227,8 +1261,9 @@ mod tests {
     #[test]
     fn semantic_writer_blocks_unsupported_schemas_and_unparsed_values() {
         let binary = info(TagKind::Binary);
-        let error = build_fixture_args(
-            "File:PreviewImage",
+        let error = build_new_property_fixture_args(
+            "File",
+            "PreviewImage",
             &binary,
             &metadata_set(MetadataValue::Binary),
         )
@@ -1236,8 +1271,9 @@ mod tests {
         assert!(error.contains("read-only"));
 
         let text = info(TagKind::Text);
-        let error = build_fixture_args(
-            "X:Bad",
+        let error = build_new_property_fixture_args(
+            "X",
+            "Bad",
             &text,
             &metadata_set(MetadataValue::Unknown {
                 expected: Some(TagKind::Text),
@@ -1252,8 +1288,9 @@ mod tests {
     #[test]
     fn rational_uses_numeric_group() {
         let i = info(TagKind::Rational);
-        let args = build_fixture_args(
-            "EXIF:ExposureTime",
+        let args = build_new_property_fixture_args(
+            "EXIF",
+            "ExposureTime",
             &i,
             &metadata_set(MetadataValue::Rational(
                 crate::metadata_value::RationalValue {
@@ -1274,8 +1311,9 @@ mod tests {
         inner.insert("Name".to_string(), text("John"));
         inner.insert("Type".to_string(), text("Face"));
         let i = info(TagKind::Struct(BTreeMap::new()));
-        let args = build_fixture_args(
-            "XMP-mwg-rs:Region",
+        let args = build_new_property_fixture_args(
+            "XMP-mwg-rs",
+            "Region",
             &i,
             &metadata_set(MetadataValue::Struct(inner)),
         )
@@ -1299,8 +1337,13 @@ mod tests {
         region.insert("Area".to_string(), MetadataValue::Struct(area));
         region.insert("Names".to_string(), bag_text(&["a", "b"]));
         let i = info(TagKind::Struct(BTreeMap::new()));
-        let args =
-            build_fixture_args("X:R", &i, &metadata_set(MetadataValue::Struct(region))).unwrap();
+        let args = build_new_property_fixture_args(
+            "X",
+            "R",
+            &i,
+            &metadata_set(MetadataValue::Struct(region)),
+        )
+        .unwrap();
         assert_eq!(args.text, vec!["-X:R={Area={X=0.5,Y=0.5},Names=[a,b]}"]);
     }
 
@@ -1310,15 +1353,18 @@ mod tests {
         // Value containing every metachar exiftool struct parser cares about.
         o.insert("k".to_string(), text("a,b{c}d[e]f=g\\h"));
         let i = info(TagKind::Struct(BTreeMap::new()));
-        let args = build_fixture_args("X:S", &i, &metadata_set(MetadataValue::Struct(o))).unwrap();
+        let args =
+            build_new_property_fixture_args("X", "S", &i, &metadata_set(MetadataValue::Struct(o)))
+                .unwrap();
         assert_eq!(args.text, vec![r"-X:S={k=a\,b\{c\}d\[e\]f\=g\\h}"]);
     }
 
     #[test]
     fn struct_render_empty_object_and_list() {
         let i = info(TagKind::Struct(BTreeMap::new()));
-        let args = build_fixture_args(
-            "X:S",
+        let args = build_new_property_fixture_args(
+            "X",
+            "S",
             &i,
             &metadata_set(MetadataValue::Struct(BTreeMap::new())),
         )
@@ -1725,7 +1771,7 @@ mod tests {
     }
 
     #[test]
-    fn target_aware_builders_have_legacy_semantic_parity() {
+    fn target_aware_builders_cover_the_semantic_matrix_directly() {
         let mut langs = BTreeMap::new();
         langs.insert("en".to_owned(), "Hello".to_owned());
         let mut structure = BTreeMap::new();
@@ -1751,17 +1797,34 @@ mod tests {
             min: None,
             max: None,
         };
+        let ok = |numeric: &[&str], text: &[&str]| {
+            Ok(BuiltArgs {
+                numeric: numeric.iter().map(|value| (*value).to_owned()).collect(),
+                text: text.iter().map(|value| (*value).to_owned()).collect(),
+            })
+        };
+        let error = |message: &str| Err(message.to_owned());
         let cases = vec![
-            ("delete", TagKind::Text, metadata_delete()),
+            (
+                "delete",
+                TagKind::Text,
+                metadata_delete(),
+                ok(&[], &["-IFD1:RuntimeValue="]),
+                ok(&[], &["-XMP-test:SchemaValue="]),
+            ),
             (
                 "integer set",
                 integer_kind.clone(),
                 metadata_set(MetadataValue::Integer(5)),
+                ok(&["-IFD1:RuntimeValue=5"], &[]),
+                ok(&["-XMP-test:SchemaValue=5"], &[]),
             ),
             (
                 "real set",
                 TagKind::Real,
                 metadata_set(MetadataValue::Real(1.25)),
+                ok(&["-IFD1:RuntimeValue=1.25"], &[]),
+                ok(&["-XMP-test:SchemaValue=1.25"], &[]),
             ),
             (
                 "rational set",
@@ -1770,11 +1833,15 @@ mod tests {
                     numerator: 1,
                     denominator: 250,
                 })),
+                ok(&["-IFD1:RuntimeValue=1/250"], &[]),
+                ok(&["-XMP-test:SchemaValue=1/250"], &[]),
             ),
             (
                 "boolean set",
                 TagKind::Boolean,
                 metadata_set(MetadataValue::Bool(true)),
+                ok(&["-IFD1:RuntimeValue=1"], &[]),
+                ok(&["-XMP-test:SchemaValue=1"], &[]),
             ),
             (
                 "integer enum set",
@@ -1783,6 +1850,8 @@ mod tests {
                     options: vec![],
                 },
                 metadata_set(MetadataValue::Integer(6)),
+                ok(&["-IFD1:RuntimeValue=6"], &[]),
+                ok(&["-XMP-test:SchemaValue=6"], &[]),
             ),
             (
                 "text enum set",
@@ -1791,17 +1860,55 @@ mod tests {
                     options: vec![],
                 },
                 metadata_set(text("active")),
+                ok(&[], &["-IFD1:RuntimeValue=active"]),
+                ok(&[], &["-XMP-test:SchemaValue=active"]),
             ),
-            ("text set", TagKind::Text, metadata_set(text("value"))),
+            (
+                "text set",
+                TagKind::Text,
+                metadata_set(text("value")),
+                ok(&[], &["-IFD1:RuntimeValue=value"]),
+                ok(&[], &["-XMP-test:SchemaValue=value"]),
+            ),
             (
                 "lang-alt set",
                 TagKind::LangAlt,
                 metadata_set(MetadataValue::LangAlt(langs)),
+                ok(
+                    &[],
+                    &[
+                        "-IFD1:RuntimeValue-en=Hello",
+                        "-IFD1:RuntimeValue-x-default=Hello",
+                    ],
+                ),
+                ok(
+                    &[],
+                    &[
+                        "-XMP-test:SchemaValue-en=Hello",
+                        "-XMP-test:SchemaValue-x-default=Hello",
+                    ],
+                ),
             ),
             (
                 "text-list set",
                 TagKind::Bag(Box::new(TagKind::Text)),
                 metadata_set(bag_text(&["a", "b"])),
+                ok(
+                    &[],
+                    &[
+                        "-IFD1:RuntimeValue=",
+                        "-IFD1:RuntimeValue=a",
+                        "-IFD1:RuntimeValue=b",
+                    ],
+                ),
+                ok(
+                    &[],
+                    &[
+                        "-XMP-test:SchemaValue=",
+                        "-XMP-test:SchemaValue=a",
+                        "-XMP-test:SchemaValue=b",
+                    ],
+                ),
             ),
             (
                 "alternate-list set",
@@ -1810,6 +1917,22 @@ mod tests {
                     list_kind: ListKind::Alt,
                     items: vec![text("a"), text("b")],
                 }),
+                ok(
+                    &[],
+                    &[
+                        "-IFD1:RuntimeValue=",
+                        "-IFD1:RuntimeValue=a",
+                        "-IFD1:RuntimeValue=b",
+                    ],
+                ),
+                ok(
+                    &[],
+                    &[
+                        "-XMP-test:SchemaValue=",
+                        "-XMP-test:SchemaValue=a",
+                        "-XMP-test:SchemaValue=b",
+                    ],
+                ),
             ),
             (
                 "numeric-list set",
@@ -1818,47 +1941,104 @@ mod tests {
                     list_kind: ListKind::Seq,
                     items: vec![MetadataValue::Integer(1), MetadataValue::Integer(2)],
                 }),
+                ok(
+                    &[
+                        "-IFD1:RuntimeValue=",
+                        "-IFD1:RuntimeValue=1",
+                        "-IFD1:RuntimeValue=2",
+                    ],
+                    &[],
+                ),
+                ok(
+                    &[
+                        "-XMP-test:SchemaValue=",
+                        "-XMP-test:SchemaValue=1",
+                        "-XMP-test:SchemaValue=2",
+                    ],
+                    &[],
+                ),
             ),
             (
                 "list add",
                 TagKind::Bag(Box::new(TagKind::Text)),
                 metadata_list_add(bag_text(&["a", "b"])),
+                ok(
+                    &[],
+                    &["-IFD1:RuntimeValue+=a", "-IFD1:RuntimeValue+=b"],
+                ),
+                ok(
+                    &[],
+                    &[
+                        "-XMP-test:SchemaValue+=a",
+                        "-XMP-test:SchemaValue+=b",
+                    ],
+                ),
             ),
             (
                 "list remove",
                 TagKind::Bag(Box::new(TagKind::Text)),
                 metadata_list_remove(text("old")),
+                ok(&[], &["-IFD1:RuntimeValue-=old"]),
+                ok(&[], &["-XMP-test:SchemaValue-=old"]),
             ),
             (
                 "date",
                 TagKind::Date,
                 metadata_set(MetadataValue::Date(date.clone())),
+                ok(&["-IFD1:RuntimeValue=2026:07:13"], &[]),
+                ok(&["-XMP-test:SchemaValue=2026:07:13"], &[]),
             ),
             (
                 "time",
                 TagKind::Time,
                 metadata_set(MetadataValue::Time(time.clone())),
+                ok(&["-IFD1:RuntimeValue=12:34:56.789+01:30"], &[]),
+                ok(&["-XMP-test:SchemaValue=12:34:56.789+01:30"], &[]),
             ),
             (
                 "date-time",
                 TagKind::DateTime,
                 metadata_set(MetadataValue::DateTime(DateTimeValue { date, time })),
+                ok(
+                    &["-IFD1:RuntimeValue=2026:07:13 12:34:56.789+01:30"],
+                    &[],
+                ),
+                ok(
+                    &["-XMP-test:SchemaValue=2026:07:13 12:34:56.789+01:30"],
+                    &[],
+                ),
             ),
             (
                 "time offset",
                 TagKind::TimeOffset,
                 metadata_set(MetadataValue::TimeOffset(offset)),
+                ok(&["-IFD1:RuntimeValue=+01:30"], &[]),
+                ok(&["-XMP-test:SchemaValue=+01:30"], &[]),
             ),
             (
                 "struct",
                 TagKind::Struct(BTreeMap::new()),
                 metadata_set(MetadataValue::Struct(structure)),
+                ok(&[], &["-IFD1:RuntimeValue={Name=Ada}"]),
+                ok(&[], &["-XMP-test:SchemaValue={Name=Ada}"]),
             ),
-            ("null set", TagKind::Text, metadata_set(MetadataValue::Null)),
+            (
+                "null set",
+                TagKind::Text,
+                metadata_set(MetadataValue::Null),
+                ok(&[], &["-IFD1:RuntimeValue="]),
+                ok(&[], &["-XMP-test:SchemaValue="]),
+            ),
             (
                 "binary rejection",
                 TagKind::Text,
                 metadata_set(MetadataValue::Binary),
+                error(
+                    "value encoding failed: IFD1:RuntimeValue is binary and is not writable",
+                ),
+                error(
+                    "value encoding failed: XMP-test:SchemaValue is binary and is not writable",
+                ),
             ),
             (
                 "unknown rejection",
@@ -1868,40 +2048,35 @@ mod tests {
                     raw: serde_json::json!({ "raw": true }),
                     reason: Some("test reason".to_owned()),
                 }),
+                error(
+                    "value encoding failed: IFD1:RuntimeValue is unparsed and cannot be written: test reason",
+                ),
+                error(
+                    "value encoding failed: XMP-test:SchemaValue is unparsed and cannot be written: test reason",
+                ),
             ),
         ];
 
-        for (case, kind, edit) in cases {
+        for (case, kind, edit, expected_existing, expected_new) in cases {
             let mut info = target_test_info(None);
-            info.group = "IFD0".to_owned();
-            info.name = "XResolution".to_owned();
+            info.group = "XMP-test".to_owned();
+            info.name = "SchemaValue".to_owned();
             info.kind = kind;
-            let mut occurrence = target_test_occurrence("IFD0");
+            let mut occurrence = target_test_occurrence("IFD1");
             occurrence.tag_info = Some(info.clone());
+            occurrence.write_target = Some(MetadataWriteTarget {
+                group1: "IFD1".to_owned(),
+                tag_name: "RuntimeValue".to_owned(),
+            });
             let existing = existing_target(&occurrence);
             let new_property = new_property_target(&info);
-            let legacy = build_metadata_args(&info.id, &info, &edit);
-            let existing_result = build_existing_occurrence_args(&existing, &occurrence, &edit);
-            let new_result = build_new_property_args(&new_property, &info, &edit);
+            let existing_result = build_existing_occurrence_args(&existing, &occurrence, &edit)
+                .map_err(|error| error.to_string());
+            let new_result = build_new_property_args(&new_property, &info, &edit)
+                .map_err(|error| error.to_string());
 
-            match legacy {
-                Ok(expected) => {
-                    assert_eq!(existing_result, Ok(expected.clone()), "existing {case}");
-                    assert_eq!(new_result, Ok(expected), "new property {case}");
-                }
-                Err(expected) => {
-                    assert_eq!(
-                        existing_result,
-                        Err(MetadataTargetWriteError::ValueEncoding(expected.clone())),
-                        "existing {case}"
-                    );
-                    assert_eq!(
-                        new_result,
-                        Err(MetadataTargetWriteError::ValueEncoding(expected)),
-                        "new property {case}"
-                    );
-                }
-            }
+            assert_eq!(existing_result, expected_existing, "existing {case}");
+            assert_eq!(new_result, expected_new, "new property {case}");
         }
     }
 }

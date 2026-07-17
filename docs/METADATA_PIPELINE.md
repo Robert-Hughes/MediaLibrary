@@ -13,6 +13,18 @@ is not the source of occurrence schema identity. When present, `tag_info.id`
 must exactly match `schema_id`, and malformed wire payloads are rejected rather
 than repaired.
 
+The names are intentionally precise: the friendly property label is for
+people; `id.tag_id_scope` is the raw wrapped runtime table/ID/index scope;
+`schema_id` is the resolved static semantic definition; `id` is the complete
+runtime occurrence identity (document/sample, path, family-7 ID, wrapped scope
+and copy); and `write_target` is the separately proven mutation selector.
+Multiple occurrences may share a schema. No path may use that shared schema to
+first-select one of them.
+
+Usually wrapped scope and resolved schema are the same. LangAlt child
+extraction demonstrates why both fields exist: the child scope remains in the
+occurrence ID while `schema_id` resolves to the exact LangAlt parent.
+
 Unknown registry schemas therefore remain in authoritative occurrence state as
 an exact schema ID with null `TagInfo` and null write target. They can be shown
 and diagnosed by table, tag ID and optional index, but remain read-only. Schema
@@ -29,6 +41,12 @@ Details Pane rows show exact pending target values, reopen editors from staged
 semantic values, and keep same-schema siblings separate. Editors resolve complete
 `ExistingOccurrence` or `NewProperty` targets before staging. Ambiguous and
 read-only inputs fail without partial mutation.
+
+`ExistingOccurrence` snapshots occurrence ID, resolved schema ID and runtime
+write target and revalidates the complete snapshot before apply. `NewProperty`
+remains schema-driven because no runtime occurrence exists. This pipeline does
+not settle same-schema/multiple-destination creation semantics; that question
+is intentionally reserved for a separate design change.
 
 ## Draft state and persistence
 
