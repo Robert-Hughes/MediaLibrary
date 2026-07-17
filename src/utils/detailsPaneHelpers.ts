@@ -178,7 +178,12 @@ export function supplementalResolvedMetadataOccurrences(
           selector,
           occurrence.id.document,
           occurrence.id.path,
-          occurrence.id.tag_id,
+          occurrence.id.runtime_tag_id,
+          occurrence.id.tag_id_scope.table,
+          occurrence.id.tag_id_scope.tag_id,
+          occurrence.id.tag_id_scope.index == null
+            ? undefined
+            : String(occurrence.id.tag_id_scope.index),
           String(occurrence.id.copy),
           copy,
         ]

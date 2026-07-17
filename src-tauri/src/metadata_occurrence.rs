@@ -3,6 +3,42 @@ use serde::{Deserialize, Serialize};
 use crate::metadata_value::MetadataValue;
 use crate::tag_schema::{SchemaDefinitionId, TagInfo};
 
+/// Namespaces an ExifTool family-7 runtime tag ID with the complete raw
+/// definition discriminator carried by the wrapped extraction value.
+///
+/// This is runtime occurrence scope, not authoritative interpreted schema
+/// identity. In particular, LangAlt child extraction may retain this raw scope
+/// while [`MetadataOccurrence::schema_id`] resolves to the canonical parent.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
+pub struct RuntimeTagIdScope {
+    /// Raw ExifTool table name, preserving canonical scanner case and text.
+    pub table: String,
+
+    /// Normalised wrapped ExifTool tag ID.
+    pub tag_id: String,
+
+    /// Optional wrapped definition index. `None` and `Some(0)` are distinct.
+    #[cfg_attr(test, ts(type = "number | null"))]
+    pub index: Option<u32>,
+}
+
+impl RuntimeTagIdScope {
+    /// Returns the structurally equivalent raw schema discriminator.
+    ///
+    /// Callers must not assume that this is the occurrence's final interpreted
+    /// schema identity; LangAlt canonicalisation may deliberately resolve a
+    /// different [`MetadataOccurrence::schema_id`].
+    pub fn as_schema_definition_id(&self) -> SchemaDefinitionId {
+        SchemaDefinitionId {
+            table: self.table.clone(),
+            tag_id: self.tag_id.clone(),
+            index: self.index,
+        }
+    }
+}
+
 /// Identifies one concrete metadata field occurrence within a single source
 /// file.
 ///
@@ -15,6 +51,7 @@ use crate::tag_schema::{SchemaDefinitionId, TagInfo};
 /// - family 3: embedded document or timed-metadata sample;
 /// - family 5: complete metadata container path;
 /// - family 7: the tag's runtime ID;
+/// - wrapped table, tag ID and optional index: namespace for that runtime ID;
 /// - family 4: ExifTool extraction instance/copy number for a same-named
 ///   runtime tag.
 ///
@@ -27,7 +64,10 @@ use crate::tag_schema::{SchemaDefinitionId, TagInfo};
 /// - the empty primary family-4 position (and explicit `Copy0`) is stored as
 ///   `copy = 0`;
 /// - family-4 `CopyN` values retain their numeric `N` exactly;
-/// - the family-7 transport prefix `ID-` is omitted from stored `tag_id`.
+/// - the family-7 transport prefix `ID-` is omitted from stored
+///   `runtime_tag_id`;
+/// - the wrapped tag ID is normalised independently and stored in
+///   `tag_id_scope`.
 ///
 /// Family-4 numbering may span different family-1 groups and family-5 paths.
 /// It is runtime occurrence identity, not an "Nth copy within this path"
@@ -61,7 +101,13 @@ pub struct MetadataOccurrenceId {
     /// path, with ExifTool's `ID-` group-name prefix omitted. This is runtime
     /// occurrence information and is not necessarily identical to the tag ID
     /// used by the static schema registry.
-    pub tag_id: String,
+    pub runtime_tag_id: String,
+
+    /// Complete wrapped definition discriminator for the family-7 runtime ID.
+    ///
+    /// This namespaces otherwise colliding runtime IDs without turning raw
+    /// occurrence location into interpreted schema identity.
+    pub tag_id_scope: RuntimeTagIdScope,
 
     /// ExifTool family 4 extraction instance/copy number.
     ///
@@ -317,7 +363,12 @@ mod tests {
         MetadataOccurrenceId {
             document: document.map(str::to_owned),
             path: path.to_owned(),
-            tag_id: tag_id.to_owned(),
+            runtime_tag_id: tag_id.to_owned(),
+            tag_id_scope: RuntimeTagIdScope {
+                table: "Exif::Main".to_owned(),
+                tag_id: tag_id.to_owned(),
+                index: None,
+            },
             copy,
         }
     }
@@ -390,6 +441,18 @@ mod tests {
         assert_ne!(base, occurrence_id(None, "JPEG-APP1-IFD1", "282", 0));
         assert_ne!(base, occurrence_id(None, "JPEG-APP1-IFD0", "283", 0));
         assert_ne!(base, occurrence_id(None, "JPEG-APP1-IFD0", "282", 1));
+
+        let mut other_table = base.clone();
+        other_table.tag_id_scope.table = "Exif::Other".to_owned();
+        assert_ne!(base, other_table);
+
+        let mut other_wrapped_id = base.clone();
+        other_wrapped_id.tag_id_scope.tag_id = "0x011B".to_owned();
+        assert_ne!(base, other_wrapped_id);
+
+        let mut index_zero = base.clone();
+        index_zero.tag_id_scope.index = Some(0);
+        assert_ne!(base, index_zero);
     }
 
     #[test]
@@ -412,6 +475,25 @@ mod tests {
                 occurrence_id(Some("Doc1"), "A", "1", 0),
             ]
         );
+
+        let base = occurrence_id(None, "A", "1", 0);
+        let mut table = base.clone();
+        table.tag_id_scope.table = "Z".to_owned();
+        let mut wrapped_id = base.clone();
+        wrapped_id.tag_id_scope.tag_id = "2".to_owned();
+        let mut index_zero = base.clone();
+        index_zero.tag_id_scope.index = Some(0);
+        let mut copy = base.clone();
+        copy.copy = 1;
+        let mut scoped = vec![
+            copy.clone(),
+            index_zero.clone(),
+            wrapped_id.clone(),
+            table.clone(),
+            base.clone(),
+        ];
+        scoped.sort();
+        assert_eq!(scoped, vec![base, copy, index_zero, wrapped_id, table]);
     }
 
     #[test]
@@ -419,10 +501,39 @@ mod tests {
         let id = occurrence_id(None, "JPEG-APP1-IFD0", "282", 0);
         let json = serde_json::to_value(&id).unwrap();
         assert_eq!(json["document"], serde_json::Value::Null);
+        assert_eq!(json["runtime_tag_id"], "282");
+        assert_eq!(json["tag_id_scope"]["table"], "Exif::Main");
+        assert_eq!(json["tag_id_scope"]["tag_id"], "282");
+        assert_eq!(json["tag_id_scope"]["index"], serde_json::Value::Null);
         assert_eq!(json["copy"], 0);
         assert_eq!(
             serde_json::from_value::<MetadataOccurrenceId>(json).unwrap(),
             id
+        );
+
+        let old_shape = serde_json::json!({
+            "document": null,
+            "path": "JPEG-APP1-IFD0",
+            "tag_id": "282",
+            "copy": 0
+        });
+        assert!(serde_json::from_value::<MetadataOccurrenceId>(old_shape).is_err());
+    }
+
+    #[test]
+    fn runtime_scope_converts_to_raw_schema_discriminator() {
+        let scope = RuntimeTagIdScope {
+            table: "IPTC::ApplicationRecord".to_owned(),
+            tag_id: "0".to_owned(),
+            index: Some(0),
+        };
+        assert_eq!(
+            scope.as_schema_definition_id(),
+            SchemaDefinitionId {
+                table: "IPTC::ApplicationRecord".to_owned(),
+                tag_id: "0".to_owned(),
+                index: Some(0),
+            }
         );
     }
 
@@ -596,7 +707,12 @@ mod tests {
             index: None,
         };
         let mut unknown = occurrence(unknown_schema.clone(), None, None);
-        unknown.id.tag_id = schema_id.tag_id.clone();
+        unknown.id.runtime_tag_id = schema_id.tag_id.clone();
+        unknown.id.tag_id_scope = RuntimeTagIdScope {
+            table: unknown_schema.table.clone(),
+            tag_id: unknown_schema.tag_id.clone(),
+            index: unknown_schema.index,
+        };
         unknown.id.path = "UNKNOWN".to_owned();
         occurrences.0.push(unknown);
 

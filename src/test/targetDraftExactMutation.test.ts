@@ -8,7 +8,13 @@ function target(
 ): Extract<MetadataDraftTarget, { kind: "ExistingOccurrence" }> {
   return {
     kind: "ExistingOccurrence",
-    occurrence_id: { document: null, path, tag_id: schema, copy: 0 },
+    occurrence_id: {
+      document: null,
+      path,
+      runtime_tag_id: schema,
+      tag_id_scope: { table: "Exif::Main", tag_id: schema, index: null },
+      copy: 0,
+    },
     schema_id: { table: "Exif::Main", tag_id: schema },
     write_target: { group1: "IFD0", tag_name: `Tag${schema}` },
   };

@@ -35,6 +35,7 @@ use crate::write_args::BuiltArgs;
 #[serde(tag = "kind", rename_all = "PascalCase")]
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
+#[allow(clippy::large_enum_variant)]
 pub enum MetadataDraftReconciliation {
     Clear,
     Keep,
@@ -1185,7 +1186,12 @@ mod tests {
         MetadataOccurrenceId {
             document: None,
             path: path.to_string(),
-            tag_id: tag_id.to_string(),
+            runtime_tag_id: tag_id.to_string(),
+            tag_id_scope: crate::metadata_occurrence::RuntimeTagIdScope {
+                table: "Exif::Main".to_string(),
+                tag_id: tag_id.to_string(),
+                index: None,
+            },
             copy,
         }
     }

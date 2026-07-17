@@ -26,7 +26,12 @@ const existing = (
   occurrence_id: {
     document: null,
     path: "JPEG-APP1-XMP",
-    tag_id: "dc:subject",
+    runtime_tag_id: "dc:subject",
+    tag_id_scope: {
+      table: "Xmp::Main",
+      tag_id: "dc:subject",
+      index: null,
+    },
     copy,
   },
   schema_id: schema(),

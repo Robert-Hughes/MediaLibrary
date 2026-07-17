@@ -8,7 +8,9 @@ draft always contains a complete `MetadataDraftTarget` and a semantic
 
 Authoritative `MetadataOccurrence` state carries four independent concerns:
 
-1. `MetadataOccurrenceId` identifies one concrete value in one file.
+1. `MetadataOccurrenceId` identifies one concrete value in one file using its
+   document, metadata path, family-7 runtime ID, wrapped table/ID/index scope,
+   and copy.
 2. Required `schema_id: SchemaDefinitionId` identifies the exact ExifTool
    definition, including the distinction between an absent index and index
    zero. Several occurrences may share it.
@@ -21,6 +23,10 @@ Friendly labels are presentation and search text only. A missing `TagInfo` does
 not mean schema identity is missing, and a schema ID or selector alone does not
 make an occurrence writable. Same-schema occurrences remain independent
 runtime targets and are never first-selected.
+
+The wrapped runtime scope is not a replacement for `schema_id`. It namespaces
+the runtime tag ID, while `schema_id` remains authoritative interpretation and
+may resolve to a different LangAlt parent.
 
 An `ExistingOccurrence` target already snapshots its occurrence ID, schema ID
 and runtime `MetadataWriteTarget`; `NewProperty` identifies a deliberate
@@ -39,14 +45,16 @@ schema-keyed scan store or wire field exists.
 ## Draft and audit persistence
 
 `MediaLibraryTargetDraftEdits.jsonl` is the only draft file read or written.
-Its schema-v5 shape and version are unchanged by the transient occurrence
+Its occurrence object is updated in place with the new required identity fields
+while `schema_version` remains 5. There is no old-shape compatibility reader or
 migration.
 Each JSONL record retains the full target and edit. Duplicate logical target
 slots and malformed entries are rejected before a save can truncate the file.
 
-`MediaLibraryTargetApplyLog.jsonl` is the only apply audit written. Its
-schema version and target-aware record shape are unchanged. Audit rows
-retain complete targets, semantic values, verification results, and
+`MediaLibraryTargetApplyLog.jsonl` is the only apply audit written. Its schema
+version and identity-model marker are unchanged. Newly appended rows naturally
+carry the complete occurrence ID; existing append-only rows are not rewritten.
+Audit rows retain complete targets, semantic values, verification results, and
 reconciliation decisions.
 
 The historical files `MediaLibraryDraftEdits.jsonl` and

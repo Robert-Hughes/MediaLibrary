@@ -270,7 +270,12 @@ mod tests {
         MetadataOccurrenceId {
             document: None,
             path: path.into(),
-            tag_id: "282".into(),
+            runtime_tag_id: "282".into(),
+            tag_id_scope: crate::metadata_occurrence::RuntimeTagIdScope {
+                table: "Exif::Main".into(),
+                tag_id: "282".into(),
+                index: None,
+            },
             copy,
         }
     }

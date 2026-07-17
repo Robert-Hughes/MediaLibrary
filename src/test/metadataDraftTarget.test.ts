@@ -41,7 +41,8 @@ const occurrenceId = (
 ): MetadataOccurrenceId => ({
   document: null,
   path: "JPEG-APP1-IFD0",
-  tag_id: "282",
+  runtime_tag_id: "282",
+  tag_id_scope: { table: "TestFixture::Runtime", tag_id: "282", index: null },
   copy: 0,
   ...overrides,
 });
@@ -316,7 +317,7 @@ describe("metadata draft target access and identity helpers", () => {
     );
     expect(JSON.parse(metadataDraftTargetToken(existing))).toEqual([
       "ExistingOccurrence",
-      [null, "JPEG-APP1-IFD0", "282", 0],
+      [null, "JPEG-APP1-IFD0", "282", ["TestFixture::Runtime", "282", null], 0],
       ["Exif::Main", "282", null],
       ["IFD0", "XResolution"],
     ]);
@@ -344,14 +345,17 @@ describe("metadata draft target access and identity helpers", () => {
   it("keeps non-BMP and control-character strings unambiguous", () => {
     const left = availableExisting(
       occurrence({
-        id: occurrenceId({ path: "\u{1f4f7}\u0000/path", tag_id: "tag\nname" }),
+        id: occurrenceId({
+          path: "\u{1f4f7}\u0000/path",
+          runtime_tag_id: "tag\nname",
+        }),
       }),
     );
     const right = availableExisting(
       occurrence({
         id: occurrenceId({
           path: "\u{1f4f7}",
-          tag_id: "\u0000/path/tag\nname",
+          runtime_tag_id: "\u0000/path/tag\nname",
         }),
       }),
     );
@@ -362,6 +366,7 @@ describe("metadata draft target access and identity helpers", () => {
       null,
       "\u{1f4f7}\u0000/path",
       "tag\nname",
+      ["TestFixture::Runtime", "282", null],
       0,
     ]);
   });
@@ -406,7 +411,7 @@ describe("metadata draft slot token identity", () => {
     );
     expect(JSON.parse(metadataDraftTargetSlotToken(target))).toEqual([
       "ExistingOccurrence",
-      [null, "JPEG-APP1-IFD0", "282", 0],
+      [null, "JPEG-APP1-IFD0", "282", ["TestFixture::Runtime", "282", null], 0],
     ]);
   });
 
@@ -501,14 +506,17 @@ describe("metadata draft slot token identity", () => {
   it("keeps non-BMP and control-character slot values unambiguous", () => {
     const left = availableExisting(
       occurrence({
-        id: occurrenceId({ path: "\u{1f4f7}\u0000/path", tag_id: "tag\nname" }),
+        id: occurrenceId({
+          path: "\u{1f4f7}\u0000/path",
+          runtime_tag_id: "tag\nname",
+        }),
       }),
     );
     const right = availableExisting(
       occurrence({
         id: occurrenceId({
           path: "\u{1f4f7}",
-          tag_id: "\u0000/path/tag\nname",
+          runtime_tag_id: "\u0000/path/tag\nname",
         }),
       }),
     );
@@ -520,6 +528,7 @@ describe("metadata draft slot token identity", () => {
       null,
       "\u{1f4f7}\u0000/path",
       "tag\nname",
+      ["TestFixture::Runtime", "282", null],
       0,
     ]);
   });

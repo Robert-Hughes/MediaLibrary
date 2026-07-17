@@ -23,6 +23,7 @@ export type { PhotoInfo };
 export type { MetadataValue } from "./types/generated/MetadataValue";
 export type { SchemaDefinitionId } from "./types/generated/SchemaDefinitionId";
 export type { MetadataOccurrenceId } from "./types/generated/MetadataOccurrenceId";
+export type { RuntimeTagIdScope } from "./types/generated/RuntimeTagIdScope";
 export type { MetadataWriteTarget } from "./types/generated/MetadataWriteTarget";
 export type { MetadataOccurrence } from "./types/generated/MetadataOccurrence";
 export type { MetadataOccurrences } from "./types/generated/MetadataOccurrences";

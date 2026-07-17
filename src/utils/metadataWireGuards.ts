@@ -6,6 +6,7 @@ import type {
   MetadataDraftTarget,
   MetadataOccurrence,
   MetadataOccurrenceId,
+  RuntimeTagIdScope,
   MetadataTargetOutcome,
   MetadataValue,
   MetadataWriteTarget,
@@ -62,11 +63,30 @@ export function isMetadataOccurrenceId(
 ): value is MetadataOccurrenceId {
   return (
     isRecord(value) &&
-    hasOwnStringKeys(value, ["document", "path", "tag_id", "copy"]) &&
+    hasOwnStringKeys(value, [
+      "document",
+      "path",
+      "runtime_tag_id",
+      "tag_id_scope",
+      "copy",
+    ]) &&
     (value.document === null || typeof value.document === "string") &&
     typeof value.path === "string" &&
-    typeof value.tag_id === "string" &&
+    typeof value.runtime_tag_id === "string" &&
+    isRuntimeTagIdScope(value.tag_id_scope) &&
     isU32(value.copy)
+  );
+}
+
+export function isRuntimeTagIdScope(
+  value: unknown,
+): value is RuntimeTagIdScope {
+  return (
+    isRecord(value) &&
+    hasOwnStringKeys(value, ["table", "tag_id", "index"]) &&
+    typeof value.table === "string" &&
+    typeof value.tag_id === "string" &&
+    (value.index === null || isU32(value.index))
   );
 }
 

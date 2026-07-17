@@ -727,7 +727,12 @@ mod tests {
             occurrence_id: MetadataOccurrenceId {
                 document: None,
                 path: path.into(),
-                tag_id: tag_id.into(),
+                runtime_tag_id: tag_id.into(),
+                tag_id_scope: crate::metadata_occurrence::RuntimeTagIdScope {
+                    table: "Exif::Main".into(),
+                    tag_id: tag_id.into(),
+                    index: None,
+                },
                 copy: 0,
             },
             schema_id: schema(tag_id),
@@ -1418,7 +1423,12 @@ mod tests {
             occurrence_id: MetadataOccurrenceId {
                 document: None,
                 path: "JPEG-APP1-IFD0".into(),
-                tag_id: "282".into(),
+                runtime_tag_id: "282".into(),
+                tag_id_scope: crate::metadata_occurrence::RuntimeTagIdScope {
+                    table: "Exif::Main".into(),
+                    tag_id: "282".into(),
+                    index: None,
+                },
                 copy: 0,
             },
             schema_id: Some(schema("282")),
@@ -1586,7 +1596,12 @@ mod tests {
                 id: MetadataOccurrenceId {
                     document: None,
                     path: "JPEG-APP1-IFD0".into(),
-                    tag_id: "1".into(),
+                    runtime_tag_id: "1".into(),
+                    tag_id_scope: crate::metadata_occurrence::RuntimeTagIdScope {
+                        table: "Exif::Main".into(),
+                        tag_id: "1".into(),
+                        index: None,
+                    },
                     copy: 0,
                 },
                 schema_id: schema("1"),

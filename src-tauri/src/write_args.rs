@@ -1363,7 +1363,12 @@ mod tests {
             id: MetadataOccurrenceId {
                 document: None,
                 path: format!("Family5PathMustNotBeUsed-{group1}"),
-                tag_id: "Family7TagIdMustNotBeUsed".to_owned(),
+                runtime_tag_id: "Family7TagIdMustNotBeUsed".to_owned(),
+                tag_id_scope: crate::metadata_occurrence::RuntimeTagIdScope {
+                    table: "WrappedTableMustNotBeUsed".to_owned(),
+                    tag_id: "WrappedTagIdMustNotBeUsed".to_owned(),
+                    index: Some(7),
+                },
                 copy: 4,
             },
             schema_id: tag_info.id.clone(),

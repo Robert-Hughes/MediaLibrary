@@ -47,7 +47,12 @@ function occurrence(
     id: {
       document: null,
       path: options.path ?? "JPEG-APP1-GPS",
-      tag_id: id.tag_id,
+      runtime_tag_id: id.tag_id,
+      tag_id_scope: {
+        table: "TestFixture::Runtime",
+        tag_id: id.tag_id,
+        index: null,
+      },
       copy: options.copy ?? 0,
     },
     schema_id: structuredClone(id),

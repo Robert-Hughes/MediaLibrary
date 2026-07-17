@@ -28,7 +28,13 @@ function info(kind: TagKind, writable = true): TagInfo {
 
 function occurrence(kind: TagKind): MetadataOccurrence {
   return {
-    id: { document: null, path: "Test", tag_id: "1", copy: 0 },
+    id: {
+      document: null,
+      path: "Test",
+      runtime_tag_id: "1",
+      tag_id_scope: { table: "TestFixture::Runtime", tag_id: "1", index: null },
+      copy: 0,
+    },
     schema_id: structuredClone(id),
     value: { kind: "Text", value: "value" },
     tag_info: info(kind),

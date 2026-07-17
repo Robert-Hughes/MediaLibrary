@@ -229,7 +229,12 @@ describe("Gallery details pane content", () => {
         id: {
           document: null,
           path: "JPEG-APP1-IFD0",
-          tag_id: "Make",
+          runtime_tag_id: "Make",
+          tag_id_scope: {
+            table: "TestFixture::Runtime",
+            tag_id: "Make",
+            index: null,
+          },
           copy: 0,
         },
         schema_id: { table: "Test::Fixture", tag_id: "IFD0:Make" },

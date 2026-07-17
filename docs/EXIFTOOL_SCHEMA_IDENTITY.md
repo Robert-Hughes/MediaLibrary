@@ -118,16 +118,17 @@ For each static definition it:
 
 ## Exact schema identity alongside runtime identity
 
-`SchemaDefinitionId` is retained structurally for registry lookup, raw/pretty
-pass joining, `MetadataOccurrence.schema_id`, frontend occurrence state,
+`SchemaDefinitionId` is retained structurally for registry lookup,
+`MetadataOccurrence.schema_id`, frontend occurrence state,
 columns and sorting, target snapshots, readback verification, apply outcomes
 and logs, and Add New Property. It is always present on an authoritative
 `MetadataOccurrence`, even when the local registry has no matching `TagInfo`.
 
 It is not the identity of a concrete runtime field. `MetadataOccurrenceId`
-continues to identify the occurrence, and several occurrence IDs may share one
+identifies the occurrence using document, metadata path, family-7 runtime tag
+ID, wrapped table/ID/index scope, and copy. Several occurrence IDs may share one
 schema ID. The occurrence also carries optional resolved `TagInfo` and an
-optional exact `MetadataWriteTarget`; these four concerns are not interchangeable.
+optional exact `MetadataWriteTarget`; these concerns are not interchangeable.
 When `TagInfo` exists, its `id` must equal `MetadataOccurrence.schema_id`.
 Schema identity alone does not establish writability.
 
@@ -144,9 +145,11 @@ write selectors. They must never be used to recover or guess identity.
 
 ## Raw/pretty pass joining
 
-Both ExifTool passes carry `table`, `id` and optional `index`. MediaLibrary
-joins them by exact `SchemaDefinitionId`. The original JSON property key is
-retained only as diagnostic and display context; it is not the join key.
+Both ExifTool passes carry property-key runtime coordinates and wrapped
+`table`, `id` and optional `index`. MediaLibrary parses both sources before
+constructing the complete `MetadataOccurrenceId`, then joins raw and display
+properties by that ID. The runtime tag name is retained as extraction and
+write-target context, but is not part of the join identity.
 
 ## LangAlt special case
 
@@ -169,9 +172,10 @@ and optional index, while `tag_info` and `write_target` remain null. MediaLibrar
 does not guess a table from Make, Model, file type, enum values, value shape,
 occurrence path, runtime tag ID or selector coordinates.
 
-Conflicting duplicate runtime IDs must never silently overwrite one another.
-LangAlt children are merged deliberately as described above; other duplicate
-or conflicting occurrences must be diagnosed or rejected.
+Conflicting duplicate complete runtime IDs must never silently overwrite one
+another. Completely identical duplicates are temporarily diagnosed and
+deduplicated pending real-file validation before the invariant is tightened.
+LangAlt children are merged deliberately as described above.
 
 ## Add New Property
 
@@ -188,11 +192,13 @@ Transient scan and readback occurrences cross the Rust/TypeScript boundary as
 match `schema_id`.
 
 Target drafts continue to persist a complete `ExistingOccurrence` or
-`NewProperty` target beside the semantic edit; their JSONL shape and schema
-version are unchanged. Apply-log records are likewise unchanged. Struct-valued
-IDs are never JSON object keys. Historical draft files are ignored rather than
-parsed or migrated. Image-column settings without exact IDs are reset rather
-than guessed.
+`NewProperty` target beside the semantic edit. The occurrence object gains the
+required runtime tag ID and wrapped scope fields in place while draft
+`schema_version` remains 5. Old occurrence objects may fail strict
+deserialisation; no compatibility reader or migration is provided. Apply-log
+schema version and identity marker remain unchanged, and existing append-only
+rows are never rewritten. Struct-valued IDs are never JSON object keys.
+Historical draft files are ignored rather than parsed or migrated.
 
 ## Derived schema-oriented views
 
@@ -220,8 +226,7 @@ MediaLibrary deliberately has:
 - no file-type inference;
 - no enum or value-shape inference;
 - no “prefer writable candidate” fallback; and
-- no Family 5 identity extension unless later runtime evidence proves it is
-  necessary.
+- no friendly tag-name contribution to occurrence identity.
 
 ## Search indexing
 
@@ -233,8 +238,8 @@ through the existing exact-ID cache and sends only the searchable label subset:
 group, name, and description.
 
 The worker indexes all same-schema occurrences independently, including runtime
-document, path, tag ID, and copy coordinates, while labels remain presentation
-text rather than identity. Exact table, schema tag ID, optional index, and a
-readable diagnostic form remain searchable when registry interpretation is
-missing. Internal JSON tokens used for JavaScript map keys are not user-facing
-searchable text.
+document, path, family-7 tag ID, wrapped table/tag-ID/index scope, and copy,
+while labels remain presentation text rather than identity. Exact interpreted
+schema fields and a readable diagnostic form remain searchable when registry
+interpretation is missing. Internal JSON tokens used for JavaScript map keys
+are not user-facing searchable text.

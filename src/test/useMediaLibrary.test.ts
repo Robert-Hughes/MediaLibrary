@@ -24,7 +24,12 @@ function targetV5Result(
     id: {
       document: null,
       path: "JPEG-APP1-XMP",
-      tag_id: id.tag_id,
+      runtime_tag_id: id.tag_id,
+      tag_id_scope: {
+        table: "TestFixture::Runtime",
+        tag_id: id.tag_id,
+        index: null,
+      },
       copy: options.occurrenceCopy ?? 0,
     },
     schema_id: structuredClone(id),
@@ -81,7 +86,12 @@ function occurrenceFor(id: SchemaDefinitionId, copy = 0): MetadataOccurrence {
     id: {
       document: null,
       path: "JPEG-APP1-XMP",
-      tag_id: id.tag_id,
+      runtime_tag_id: id.tag_id,
+      tag_id_scope: {
+        table: id.table,
+        tag_id: id.tag_id,
+        index: id.index ?? null,
+      },
       copy,
     },
     schema_id: structuredClone(id),
@@ -1107,7 +1117,17 @@ describe("useMediaLibrary", () => {
 
     const schemaId = testId("IFD0:XResolution");
     const occurrence = {
-      id: { document: null, path: "JPEG-APP1-IFD0", tag_id: "282", copy: 0 },
+      id: {
+        document: null,
+        path: "JPEG-APP1-IFD0",
+        runtime_tag_id: "282",
+        tag_id_scope: {
+          table: "TestFixture::Runtime",
+          tag_id: "282",
+          index: null,
+        },
+        copy: 0,
+      },
       schema_id: structuredClone(schemaId),
       value: { kind: "Integer" as const, value: 300 },
       tag_info: {
@@ -1122,7 +1142,17 @@ describe("useMediaLibrary", () => {
     };
     const secondOccurrence = {
       ...occurrence,
-      id: { document: null, path: "JPEG-APP1-IFD1", tag_id: "282", copy: 1 },
+      id: {
+        document: null,
+        path: "JPEG-APP1-IFD1",
+        runtime_tag_id: "282",
+        tag_id_scope: {
+          table: "TestFixture::Runtime",
+          tag_id: "282",
+          index: null,
+        },
+        copy: 1,
+      },
       value: { kind: "Integer" as const, value: 72 },
       write_target: { group1: "IFD1", tag_name: "XResolution" },
     };
@@ -1193,7 +1223,17 @@ describe("useMediaLibrary", () => {
         oldScanId - 1,
         [
           {
-            id: { document: null, path: "IFD0", tag_id: "272", copy: 0 },
+            id: {
+              document: null,
+              path: "IFD0",
+              runtime_tag_id: "272",
+              tag_id_scope: {
+                table: "TestFixture::Runtime",
+                tag_id: "272",
+                index: null,
+              },
+              copy: 0,
+            },
             schema_id: { table: "Exif::Main", tag_id: "272" },
             value: { kind: "Text", value: "stale" },
             tag_info: null,
@@ -1525,7 +1565,12 @@ describe("useMediaLibrary", () => {
       occurrence_id: {
         document: null,
         path: "JPEG-APP1-XMP",
-        tag_id: ownedId.tag_id,
+        runtime_tag_id: ownedId.tag_id,
+        tag_id_scope: {
+          table: "TestFixture::Runtime",
+          tag_id: ownedId.tag_id,
+          index: null,
+        },
         copy: 0,
       },
       schema_id: structuredClone(ownedId),
@@ -1556,7 +1601,12 @@ describe("useMediaLibrary", () => {
             occurrence_id: {
               document: null,
               path: "JPEG-APP1-XMP",
-              tag_id: ambiguousId.tag_id,
+              runtime_tag_id: ambiguousId.tag_id,
+              tag_id_scope: {
+                table: ambiguousId.table,
+                tag_id: ambiguousId.tag_id,
+                index: ambiguousId.index ?? null,
+              },
               copy,
             },
             schema_id: structuredClone(ambiguousId),
@@ -1883,7 +1933,12 @@ describe("useMediaLibrary", () => {
       occurrence_id: {
         document: null,
         path: "JPEG-APP1-XMP",
-        tag_id: ownedId.tag_id,
+        runtime_tag_id: ownedId.tag_id,
+        tag_id_scope: {
+          table: "TestFixture::Runtime",
+          tag_id: ownedId.tag_id,
+          index: null,
+        },
         copy: 0,
       },
       schema_id: structuredClone(ownedId),
@@ -1916,7 +1971,12 @@ describe("useMediaLibrary", () => {
             occurrence_id: {
               document: null,
               path: "JPEG-APP1-XMP",
-              tag_id: ambiguousId.tag_id,
+              runtime_tag_id: ambiguousId.tag_id,
+              tag_id_scope: {
+                table: ambiguousId.table,
+                tag_id: ambiguousId.tag_id,
+                index: ambiguousId.index ?? null,
+              },
               copy,
             },
             schema_id: structuredClone(ambiguousId),
@@ -1982,7 +2042,12 @@ describe("useMediaLibrary", () => {
       occurrence_id: {
         document: null,
         path: "JPEG-APP1-XMP",
-        tag_id: id.tag_id,
+        runtime_tag_id: id.tag_id,
+        tag_id_scope: {
+          table: "TestFixture::Runtime",
+          tag_id: id.tag_id,
+          index: null,
+        },
         copy: 0,
       },
       schema_id: id,
@@ -2081,7 +2146,12 @@ describe("useMediaLibrary", () => {
       occurrence_id: {
         document: null,
         path: "JPEG-APP1-XMP",
-        tag_id: id.tag_id,
+        runtime_tag_id: id.tag_id,
+        tag_id_scope: {
+          table: "TestFixture::Runtime",
+          tag_id: id.tag_id,
+          index: null,
+        },
         copy: 2,
       },
       schema_id: id,
@@ -2183,7 +2253,12 @@ describe("useMediaLibrary", () => {
       occurrence_id: {
         document: null,
         path: "JPEG-APP1-XMP",
-        tag_id: id.tag_id,
+        runtime_tag_id: id.tag_id,
+        tag_id_scope: {
+          table: "TestFixture::Runtime",
+          tag_id: id.tag_id,
+          index: null,
+        },
         copy: 0,
       },
       schema_id: id,

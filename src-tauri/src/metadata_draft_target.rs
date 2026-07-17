@@ -240,7 +240,12 @@ mod tests {
         MetadataOccurrenceId {
             document: None,
             path: "JPEG-APP1-IFD0".to_owned(),
-            tag_id: "282".to_owned(),
+            runtime_tag_id: "282".to_owned(),
+            tag_id_scope: crate::metadata_occurrence::RuntimeTagIdScope {
+                table: "Exif::Main".to_owned(),
+                tag_id: "282".to_owned(),
+                index: None,
+            },
             copy: 2,
         }
     }

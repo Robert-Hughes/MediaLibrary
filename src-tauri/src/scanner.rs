@@ -14,6 +14,7 @@ use walkdir::WalkDir;
 
 use crate::metadata_occurrence::{
     MetadataOccurrence, MetadataOccurrenceId, MetadataOccurrences, MetadataWriteTarget,
+    RuntimeTagIdScope,
 };
 use crate::metadata_value::{parse_metadata_value, MetadataValue};
 use crate::tag_schema::{normalize_runtime_tag_id, SchemaDefinitionId, TagKind, TagRegistry};
@@ -376,9 +377,7 @@ pub struct MetadataBatchReadOutcome {
 
 #[derive(Debug, Clone)]
 struct ExifToolRuntimeValue {
-    pub table: String,
-    pub tag_id: String,
-    pub index: Option<u32>,
+    pub tag_id_scope: RuntimeTagIdScope,
     pub language: Option<String>,
     pub value: serde_json::Value,
 }
@@ -386,13 +385,11 @@ struct ExifToolRuntimeValue {
 #[derive(Debug, Clone)]
 struct RuntimeProperty {
     pub occurrence_id: MetadataOccurrenceId,
-    // Runtime occurrence coordinates and static schema identity come from
-    // independent ExifTool fields and must never be inferred from each other.
-    pub schema_id: SchemaDefinitionId,
     pub group1: String,
     pub tag_name: String,
     pub friendly_name: String,
-    pub runtime: ExifToolRuntimeValue,
+    pub language: Option<String>,
+    pub value: serde_json::Value,
 }
 
 type RuntimeMap = BTreeMap<MetadataOccurrenceId, RuntimeProperty>;
@@ -405,7 +402,10 @@ struct ExifToolPassOutput {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ParsedRuntimePropertyKey {
-    occurrence_id: MetadataOccurrenceId,
+    document: Option<String>,
+    path: String,
+    runtime_tag_id: String,
+    copy: u32,
     group1: String,
     tag_name: String,
 }
@@ -463,18 +463,16 @@ fn parse_runtime_property_key(key: &str) -> Result<ParsedRuntimePropertyKey, Str
             .parse::<u32>()
             .map_err(|_| format!("invalid family-4 copy group `{value}`"))?,
     };
-    let tag_id = family7
+    let runtime_tag_id = family7
         .strip_prefix("ID-")
         .filter(|id| !id.is_empty())
         .ok_or_else(|| format!("invalid family-7 runtime tag ID `{family7}`"))?;
 
     Ok(ParsedRuntimePropertyKey {
-        occurrence_id: MetadataOccurrenceId {
-            document: (document_group != "Main").then(|| document_group.to_string()),
-            path: path.to_string(),
-            tag_id: tag_id.to_string(),
-            copy,
-        },
+        document: (document_group != "Main").then(|| document_group.to_string()),
+        path: path.to_string(),
+        runtime_tag_id: runtime_tag_id.to_string(),
+        copy,
         group1: group1.to_string(),
         tag_name: tag_name.to_string(),
     })
@@ -507,9 +505,11 @@ fn parse_runtime_value(value: serde_json::Value) -> Result<ExifToolRuntimeValue,
         .remove("val")
         .ok_or_else(|| "runtime value is missing field `val`".to_string())?;
     Ok(ExifToolRuntimeValue {
-        table,
-        tag_id,
-        index,
+        tag_id_scope: RuntimeTagIdScope {
+            table,
+            tag_id,
+            index,
+        },
         language,
         value,
     })
@@ -527,64 +527,64 @@ fn parse_single_source_object(
         let parsed_key =
             parse_runtime_property_key(&key).map_err(|error| format!("property {key}: {error}"))?;
         let friendly_name = parsed_key.friendly_name();
-        let mut runtime = parse_runtime_value(val)
+        let runtime = parse_runtime_value(val)
             .map_err(|error| format!("property {friendly_name}: {error}"))?;
-
-        let schema_id = SchemaDefinitionId {
-            table: runtime.table.clone(),
-            tag_id: runtime.tag_id.clone(),
-            index: runtime.index,
+        let occurrence_id = MetadataOccurrenceId {
+            document: parsed_key.document,
+            path: parsed_key.path,
+            runtime_tag_id: parsed_key.runtime_tag_id,
+            tag_id_scope: runtime.tag_id_scope,
+            copy: parsed_key.copy,
         };
-        let value = if is_binary_tag(&schema_id, registry)
+        let raw_schema_id = occurrence_id.tag_id_scope.as_schema_definition_id();
+        let value = if is_binary_tag(&raw_schema_id, registry)
             || is_exiftool_binary_placeholder(&runtime.value)
         {
             serde_json::Value::String("<binary>".to_string())
         } else {
             runtime.value
         };
-        runtime.value = value;
         let property = RuntimeProperty {
-            occurrence_id: parsed_key.occurrence_id.clone(),
-            schema_id,
+            occurrence_id,
             group1: parsed_key.group1,
             tag_name: parsed_key.tag_name,
             friendly_name,
-            runtime,
+            language: runtime.language,
+            value,
         };
         debug_assert_eq!(
             property.friendly_name,
             format!("{}:{}", property.group1, property.tag_name)
         );
         if let Some(previous) = map.get(&property.occurrence_id) {
-            let conflict = if previous.schema_id != property.schema_id {
-                Some("different schema identity")
-            } else if previous.group1 != property.group1 || previous.tag_name != property.tag_name {
-                Some("different family-1 group or tag name")
-            } else if previous.friendly_name != property.friendly_name {
-                Some("different canonical friendly name")
-            } else if previous.runtime.language != property.runtime.language {
-                Some("different language")
-            } else if previous.runtime.value != property.runtime.value {
-                Some("different value")
-            } else {
-                None
-            };
+            let conflict =
+                if previous.group1 != property.group1 || previous.tag_name != property.tag_name {
+                    Some("different family-1 group or tag name")
+                } else if previous.friendly_name != property.friendly_name {
+                    Some("different canonical friendly name")
+                } else if previous.language != property.language {
+                    Some("different language")
+                } else if previous.value != property.value {
+                    Some("different value")
+                } else {
+                    None
+                };
             if let Some(conflict) = conflict {
                 return Err(format!(
                     "same occurrence ID, {conflict}: {occurrence:#?}\nfirst: schema={first_schema:#?} friendly={first_name:?} group1={first_group:?} tag_name={first_tag:?} language={first_language:?} value={first_value}\nsecond: schema={second_schema:#?} friendly={second_name:?} group1={second_group:?} tag_name={second_tag:?} language={second_language:?} value={second_value}",
                     occurrence = property.occurrence_id,
-                    first_schema = previous.schema_id,
+                    first_schema = previous.occurrence_id.tag_id_scope,
                     first_name = previous.friendly_name,
                     first_group = previous.group1,
                     first_tag = previous.tag_name,
-                    first_language = previous.runtime.language,
-                    first_value = previous.runtime.value,
-                    second_schema = property.schema_id,
+                    first_language = previous.language,
+                    first_value = previous.value,
+                    second_schema = property.occurrence_id.tag_id_scope,
                     second_name = property.friendly_name,
                     second_group = property.group1,
                     second_tag = property.tag_name,
-                    second_language = property.runtime.language,
-                    second_value = property.runtime.value,
+                    second_language = property.language,
+                    second_value = property.value,
                 ));
             }
             log::warn!(
@@ -805,7 +805,7 @@ fn parse_exiftool_pass_json_raw_with_registry(
                     } else {
                         property.friendly_name
                     };
-                    (name, property.runtime.value)
+                    (name, property.value)
                 })
                 .collect();
             (source, values)
@@ -1102,19 +1102,17 @@ fn canonical_occurrences_from_exiftool_pair(
                 rel_path,
                 raw_property.map(|p| p.friendly_name.as_str()),
                 display_property.map(|p| p.friendly_name.as_str()),
-                raw_property.map(|p| &p.schema_id),
-                display_property.map(|p| &p.schema_id),
+                raw_property.map(|p| &p.occurrence_id.tag_id_scope),
+                display_property.map(|p| &p.occurrence_id.tag_id_scope),
                 if raw_property.is_none() { "raw" } else { "pretty" }
             );
         }
         if let (Some(raw), Some(pretty)) = (raw_property, display_property) {
-            let conflict = if raw.schema_id != pretty.schema_id {
-                Some("schema identity")
-            } else if raw.group1 != pretty.group1 || raw.tag_name != pretty.tag_name {
+            let conflict = if raw.group1 != pretty.group1 || raw.tag_name != pretty.tag_name {
                 Some("family-1 group or tag name")
             } else if raw.friendly_name != pretty.friendly_name {
                 Some("canonical friendly name")
-            } else if raw.runtime.language != pretty.runtime.language {
+            } else if raw.language != pretty.language {
                 Some("language")
             } else {
                 None
@@ -1122,22 +1120,22 @@ fn canonical_occurrences_from_exiftool_pair(
             if let Some(conflict) = conflict {
                 return Err(format!(
                     "pretty/raw extraction disagrees on {conflict} for occurrence ID {occurrence_id:#?}\nraw: schema={raw_schema:#?} friendly={raw_name:?} group1={raw_group:?} tag_name={raw_tag:?} language={raw_language:?}\npretty: schema={pretty_schema:#?} friendly={pretty_name:?} group1={pretty_group:?} tag_name={pretty_tag:?} language={pretty_language:?}",
-                    raw_schema = raw.schema_id,
+                    raw_schema = raw.occurrence_id.tag_id_scope,
                     raw_name = raw.friendly_name,
                     raw_group = raw.group1,
                     raw_tag = raw.tag_name,
-                    raw_language = raw.runtime.language,
-                    pretty_schema = pretty.schema_id,
+                    raw_language = raw.language,
+                    pretty_schema = pretty.occurrence_id.tag_id_scope,
                     pretty_name = pretty.friendly_name,
                     pretty_group = pretty.group1,
                     pretty_tag = pretty.tag_name,
-                    pretty_language = pretty.runtime.language,
+                    pretty_language = pretty.language,
                 ));
             }
         }
         let (id, info, language) = resolve_schema_identity(property, registry);
-        let primary = &raw_property.unwrap_or(property).runtime.value;
-        let display_hint = display_property.map(|p| &p.runtime.value);
+        let primary = &raw_property.unwrap_or(property).value;
+        let display_hint = display_property.map(|p| &p.value);
         if let (Some(language), Some(info)) = (language, info) {
             if matches!(info.kind, TagKind::LangAlt) {
                 let text = primary
@@ -1252,14 +1250,18 @@ fn canonical_values_from_exiftool_pair(
                 let occurrence_id = MetadataOccurrenceId {
                     document: None,
                     path: "TestFixture".into(),
-                    tag_id: id.tag_id.clone(),
+                    runtime_tag_id: id.tag_id.clone(),
+                    tag_id_scope: RuntimeTagIdScope {
+                        table: id.table.clone(),
+                        tag_id: id.tag_id.clone(),
+                        index: id.index,
+                    },
                     copy: 0,
                 };
                 (
                     occurrence_id.clone(),
                     RuntimeProperty {
                         occurrence_id,
-                        schema_id: id.clone(),
                         group1: name
                             .split_once(':')
                             .map_or("TestFixture", |(group, _)| group)
@@ -1269,13 +1271,8 @@ fn canonical_values_from_exiftool_pair(
                             .map_or(name.as_str(), |(_, tag)| tag)
                             .into(),
                         friendly_name: name.clone(),
-                        runtime: ExifToolRuntimeValue {
-                            table: id.table.clone(),
-                            tag_id: id.tag_id.clone(),
-                            index: id.index,
-                            language: None,
-                            value: value.clone(),
-                        },
+                        language: None,
+                        value: value.clone(),
                     },
                 )
             })
@@ -1310,22 +1307,32 @@ fn resolve_schema_identity<'a>(
     Option<String>,
 ) {
     let Some(registry) = registry else {
-        return (property.schema_id.clone(), None, None);
+        return (
+            property
+                .occurrence_id
+                .tag_id_scope
+                .as_schema_definition_id(),
+            None,
+            None,
+        );
     };
-    let schema_candidate = &property.schema_id;
-    if let Some(info) = registry.lookup(schema_candidate) {
-        return (schema_candidate.clone(), Some(info), None);
+    let schema_candidate = property
+        .occurrence_id
+        .tag_id_scope
+        .as_schema_definition_id();
+    if let Some(info) = registry.lookup(&schema_candidate) {
+        return (schema_candidate, Some(info), None);
     }
-    let language = property.runtime.language.clone().or_else(|| {
+    let language = property.language.clone().or_else(|| {
         let (_, suffix) = schema_candidate.tag_id.rsplit_once('-')?;
         is_language_code(suffix).then(|| suffix.to_string())
     });
     let Some(language) = language else {
-        return (schema_candidate.clone(), None, None);
+        return (schema_candidate, None, None);
     };
     let suffix = format!("-{language}");
     let Some(base_tag_id) = schema_candidate.tag_id.strip_suffix(&suffix) else {
-        return (schema_candidate.clone(), None, None);
+        return (schema_candidate, None, None);
     };
     let base_id = SchemaDefinitionId {
         table: schema_candidate.table.clone(),
@@ -1336,7 +1343,7 @@ fn resolve_schema_identity<'a>(
         Some(info) if matches!(info.kind, TagKind::LangAlt) => {
             (base_id, Some(info), Some(language))
         }
-        _ => (schema_candidate.clone(), None, None),
+        _ => (schema_candidate, None, None),
     }
 }
 
@@ -1649,32 +1656,50 @@ mod tests {
         MetadataOccurrenceId {
             document: None,
             path: path.into(),
-            tag_id: tag_id.into(),
+            runtime_tag_id: tag_id.into(),
+            tag_id_scope: RuntimeTagIdScope {
+                table: "Exif::Main".into(),
+                tag_id: tag_id.into(),
+                index: None,
+            },
             copy: 0,
         }
     }
 
+    fn test_occurrence_id_for_schema(
+        path: &str,
+        runtime_tag_id: &str,
+        schema_id: &SchemaDefinitionId,
+    ) -> MetadataOccurrenceId {
+        let mut id = test_occurrence_id(path, runtime_tag_id);
+        id.tag_id_scope = RuntimeTagIdScope {
+            table: schema_id.table.clone(),
+            tag_id: schema_id.tag_id.clone(),
+            index: schema_id.index,
+        };
+        id
+    }
+
     fn test_runtime_property(
-        occurrence_id: MetadataOccurrenceId,
+        mut occurrence_id: MetadataOccurrenceId,
         schema_id: SchemaDefinitionId,
         group1: &str,
         tag_name: &str,
         language: Option<&str>,
         value: serde_json::Value,
     ) -> RuntimeProperty {
+        occurrence_id.tag_id_scope = RuntimeTagIdScope {
+            table: schema_id.table,
+            tag_id: schema_id.tag_id,
+            index: schema_id.index,
+        };
         RuntimeProperty {
             occurrence_id,
-            schema_id: schema_id.clone(),
             group1: group1.into(),
             tag_name: tag_name.into(),
             friendly_name: format!("{group1}:{tag_name}"),
-            runtime: ExifToolRuntimeValue {
-                table: schema_id.table,
-                tag_id: schema_id.tag_id,
-                index: schema_id.index,
-                language: language.map(str::to_owned),
-                value,
-            },
+            language: language.map(str::to_owned),
+            value,
         }
     }
 
@@ -1710,12 +1735,18 @@ mod tests {
             .as_ref()
             .map(|info| info.id.clone())
             .unwrap_or_else(|| test_schema_id("Unknown::Table", tag_name, None));
+        let tag_id_scope = RuntimeTagIdScope {
+            table: schema_id.table.clone(),
+            tag_id: schema_id.tag_id.clone(),
+            index: schema_id.index,
+        };
         CanonicalRuntimeOccurrence {
             occurrence: MetadataOccurrence {
                 id: MetadataOccurrenceId {
                     document: document.map(str::to_owned),
                     path: path.into(),
-                    tag_id: "282".into(),
+                    runtime_tag_id: "282".into(),
+                    tag_id_scope,
                     copy,
                 },
                 schema_id,
@@ -1769,48 +1800,43 @@ mod tests {
         let primary =
             parse_runtime_property_key("IFD0:Main:Copy0:JPEG-APP1-IFD0:ID-282:XResolution")
                 .unwrap();
-        assert_eq!(
-            primary.occurrence_id,
-            MetadataOccurrenceId {
-                document: None,
-                path: "JPEG-APP1-IFD0".into(),
-                tag_id: "282".into(),
-                copy: 0,
-            }
-        );
+        assert_eq!(primary.document, None);
+        assert_eq!(primary.path, "JPEG-APP1-IFD0");
+        assert_eq!(primary.runtime_tag_id, "282");
+        assert_eq!(primary.copy, 0);
         assert_eq!(primary.group1, "IFD0");
         assert_eq!(primary.tag_name, "XResolution");
         assert_eq!(primary.friendly_name(), "IFD0:XResolution");
 
         let observed_primary =
             parse_runtime_property_key("IFD0:Main::JPEG-APP1-IFD0:ID-282:XResolution").unwrap();
-        assert_eq!(observed_primary.occurrence_id, primary.occurrence_id);
+        assert_eq!(observed_primary, primary);
 
         let doc1 = parse_runtime_property_key("IFD0:Doc1:Copy0:JPEG-APP1-IFD0:ID-282:XResolution")
             .unwrap();
-        assert_eq!(doc1.occurrence_id.document.as_deref(), Some("Doc1"));
+        assert_eq!(doc1.document.as_deref(), Some("Doc1"));
         let nested =
             parse_runtime_property_key("Track1:Doc2-3:Copy0:QuickTime-Movie:ID-AbC:Tag").unwrap();
-        assert_eq!(nested.occurrence_id.document.as_deref(), Some("Doc2-3"));
-        assert_eq!(nested.occurrence_id.tag_id, "AbC");
+        assert_eq!(nested.document.as_deref(), Some("Doc2-3"));
+        assert_eq!(nested.runtime_tag_id, "AbC");
 
         let copy1 = parse_runtime_property_key("IFD0:Main:Copy1:JPEG-APP1-IFD0:ID-282:XResolution")
             .unwrap();
-        assert_ne!(copy1.occurrence_id, primary.occurrence_id);
-        assert_eq!(copy1.occurrence_id.copy, 1);
+        assert_ne!(copy1, primary);
+        assert_eq!(copy1.copy, 1);
 
         let ifd1 = parse_runtime_property_key("IFD1:Main:Copy0:JPEG-APP1-IFD1:ID-282:XResolution")
             .unwrap();
-        assert_ne!(ifd1.occurrence_id, primary.occurrence_id);
+        assert_ne!(ifd1, primary);
         let other_id =
             parse_runtime_property_key("IFD0:Main:Copy0:JPEG-APP1-IFD0:ID-283:XResolution")
                 .unwrap();
-        assert_ne!(other_id.occurrence_id, primary.occurrence_id);
+        assert_ne!(other_id, primary);
 
         let prefixed =
             parse_runtime_property_key("IFD0:Main:Copy0:JPEG-APP1-IFD0:ID-ID-AbC:Tag:With:Colons")
                 .unwrap();
-        assert_eq!(prefixed.occurrence_id.tag_id, "ID-AbC");
+        assert_eq!(prefixed.runtime_tag_id, "ID-AbC");
         assert_eq!(prefixed.tag_name, "Tag:With:Colons");
     }
 
@@ -1835,7 +1861,7 @@ mod tests {
     }
 
     #[test]
-    fn parsed_source_property_keeps_runtime_and_schema_identity_separate() {
+    fn parsed_source_property_constructs_complete_occurrence_id_from_both_sources() {
         let key = test_runtime_property_name(
             "IFD0",
             "Main",
@@ -1866,20 +1892,28 @@ mod tests {
         let occurrence_id = MetadataOccurrenceId {
             document: None,
             path: "JPEG-APP1-IFD0".into(),
-            tag_id: "runtime-AbC".into(),
+            runtime_tag_id: "runtime-AbC".into(),
+            tag_id_scope: RuntimeTagIdScope {
+                table: "Exif::Main".into(),
+                tag_id: "282".into(),
+                index: Some(7),
+            },
             copy: 0,
         };
         let property = parsed.get(&occurrence_id).unwrap();
-        assert_eq!(property.schema_id, schema_id);
-        assert_eq!(property.occurrence_id.tag_id, "runtime-AbC");
+        assert_eq!(
+            property
+                .occurrence_id
+                .tag_id_scope
+                .as_schema_definition_id(),
+            schema_id
+        );
+        assert_eq!(property.occurrence_id.runtime_tag_id, "runtime-AbC");
         assert_eq!(property.group1, "IFD0");
         assert_eq!(property.tag_name, "XResolution");
         assert_eq!(property.friendly_name, "IFD0:XResolution");
-        assert_eq!(property.runtime.table, "Exif::Main");
-        assert_eq!(property.runtime.tag_id, "282");
-        assert_eq!(property.runtime.index, Some(7));
-        assert_eq!(property.runtime.language.as_deref(), Some("en"));
-        assert_eq!(property.runtime.value, serde_json::json!(300));
+        assert_eq!(property.language.as_deref(), Some("en"));
+        assert_eq!(property.value, serde_json::json!(300));
     }
 
     #[test]
@@ -1901,8 +1935,11 @@ mod tests {
         assert!(parsed.contains_key(&ifd0));
         assert!(parsed.contains_key(&ifd1));
         assert_ne!(ifd0, ifd1);
-        assert_eq!(parsed[&ifd0].schema_id, parsed[&ifd1].schema_id);
-        assert_ne!(parsed[&ifd0].runtime.value, parsed[&ifd1].runtime.value);
+        assert_eq!(
+            parsed[&ifd0].occurrence_id.tag_id_scope,
+            parsed[&ifd1].occurrence_id.tag_id_scope
+        );
+        assert_ne!(parsed[&ifd0].value, parsed[&ifd1].value);
 
         let identical = serde_json::json!({
             ifd0_key: {"table":"Exif::Main","id":"282","val":300},
@@ -1915,6 +1952,94 @@ mod tests {
             parse_single_source_object(identical, None).unwrap().len(),
             2
         );
+    }
+
+    #[test]
+    fn iptc_dataset_zero_records_survive_parse_join_and_batch_assembly() {
+        let source = "D:/batch/iptc-record-versions.jpg";
+        let display_json = serde_json::json!([{
+            "SourceFile": source,
+            "IPTC:Main::JPEG-APP13-Photoshop-IPTC:ID-0:EnvelopeRecordVersion": {
+                "table": "IPTC::EnvelopeRecord", "id": 0, "val": "4"
+            },
+            "IPTC:Main::JPEG-APP13-Photoshop-IPTC:ID-0:ApplicationRecordVersion": {
+                "table": "IPTC::ApplicationRecord", "id": 0, "val": "4"
+            }
+        }])
+        .to_string();
+        let raw_json = serde_json::json!([{
+            "SourceFile": source,
+            "IPTC:Main::JPEG-APP13-Photoshop-IPTC:ID-0:EnvelopeRecordVersion": {
+                "table": "IPTC::EnvelopeRecord", "id": 0, "val": 4
+            },
+            "IPTC:Main::JPEG-APP13-Photoshop-IPTC:ID-0:ApplicationRecordVersion": {
+                "table": "IPTC::ApplicationRecord", "id": 0, "val": 4
+            }
+        }])
+        .to_string();
+        let registry = crate::tag_schema::get_registry().ok();
+        let display = try_parse_exiftool_pass_json_raw_with_registry(&display_json, registry)
+            .expect("display pass parses");
+        let raw = try_parse_exiftool_pass_json_raw_with_registry(&raw_json, registry)
+            .expect("raw pass parses");
+
+        assert!(display.failures_by_source.is_empty());
+        assert!(raw.failures_by_source.is_empty());
+        let display_properties = &display.values_by_source[source];
+        let raw_properties = &raw.values_by_source[source];
+        assert_eq!(display_properties.len(), 2);
+        assert_eq!(raw_properties.len(), 2);
+        assert_eq!(
+            display_properties.keys().collect::<Vec<_>>(),
+            raw_properties.keys().collect::<Vec<_>>()
+        );
+
+        let ids = display_properties.keys().cloned().collect::<Vec<_>>();
+        assert_ne!(ids[0], ids[1]);
+        assert!(ids.iter().all(|id| {
+            id.document.is_none()
+                && id.path == "JPEG-APP13-Photoshop-IPTC"
+                && id.runtime_tag_id == "0"
+                && id.tag_id_scope.tag_id == "0"
+                && id.tag_id_scope.index.is_none()
+                && id.copy == 0
+        }));
+        assert_eq!(
+            ids.iter()
+                .map(|id| id.tag_id_scope.table.as_str())
+                .collect::<BTreeSet<_>>(),
+            BTreeSet::from(["IPTC::ApplicationRecord", "IPTC::EnvelopeRecord"])
+        );
+
+        let canonical = canonical_occurrences_from_exiftool_pair(
+            raw_properties,
+            display_properties,
+            registry,
+            "iptc-record-versions.jpg",
+            None,
+        )
+        .expect("raw and display properties join");
+        assert_eq!(canonical.len(), 2);
+        assert_eq!(
+            canonical
+                .iter()
+                .map(|item| item.occurrence.schema_id.table.as_str())
+                .collect::<BTreeSet<_>>(),
+            BTreeSet::from(["IPTC::ApplicationRecord", "IPTC::EnvelopeRecord"])
+        );
+
+        let outcome = assemble_batch_outcome(
+            &["iptc-record-versions.jpg".to_owned()],
+            &[std::path::PathBuf::from(source)],
+            display,
+            raw,
+            registry,
+            &mut Vec::new(),
+        )
+        .expect("batch assembly remains classifiable");
+        assert!(outcome.failures.is_empty());
+        assert_eq!(outcome.results.len(), 1);
+        assert_eq!(outcome.results[0].occurrences.len(), 2);
     }
 
     #[test]
@@ -1939,10 +2064,6 @@ mod tests {
                 "different value",
             ),
             (
-                serde_json::json!({"table":"Exif::Other","id":"282","lang":"en","val":300}),
-                "different schema identity",
-            ),
-            (
                 serde_json::json!({"table":"Exif::Main","id":"282","lang":"fr","val":300}),
                 "different language",
             ),
@@ -1960,6 +2081,23 @@ mod tests {
             assert!(error.contains("IFD0:XResolution"));
             assert!(error.contains("value="));
         }
+
+        let different_table = serde_json::json!({
+            primary: {"table":"Exif::Main","id":"282","lang":"en","val":300},
+            explicit: {"table":"Exif::Other","id":"282","lang":"en","val":300}
+        })
+        .as_object()
+        .unwrap()
+        .clone();
+        let different_table = parse_single_source_object(different_table, None).unwrap();
+        assert_eq!(different_table.len(), 2);
+        assert_eq!(
+            different_table
+                .keys()
+                .map(|id| id.tag_id_scope.table.as_str())
+                .collect::<BTreeSet<_>>(),
+            BTreeSet::from(["Exif::Main", "Exif::Other"])
+        );
 
         let renamed = serde_json::json!({
             primary: {"table":"Exif::Main","id":"282","val":300},
@@ -2019,8 +2157,8 @@ mod tests {
             .find_map(|(_, info)| (info.name == "XResolution").then_some(info))
             .unwrap();
         let schema = info.id.clone();
-        let ifd0 = test_occurrence_id("JPEG-APP1-IFD0", "282");
-        let mut ifd1 = test_occurrence_id("JPEG-APP1-IFD1", "282");
+        let ifd0 = test_occurrence_id_for_schema("JPEG-APP1-IFD0", "282", &schema);
+        let mut ifd1 = test_occurrence_id_for_schema("JPEG-APP1-IFD1", "282", &schema);
         ifd1.copy = 2;
         let raw = runtime_map(vec![
             test_runtime_property(
@@ -2477,8 +2615,9 @@ mod tests {
 
     #[test]
     fn unresolved_canonical_occurrence_preserves_runtime_identity_and_unknown_value() {
-        let occurrence_id = test_occurrence_id("Custom-Container", "runtime-unknown");
         let schema_id = test_schema_id("Custom::Unknown", "schema-candidate", Some(0));
+        let occurrence_id =
+            test_occurrence_id_for_schema("Custom-Container", "runtime-unknown", &schema_id);
         let property = test_runtime_property(
             occurrence_id.clone(),
             schema_id.clone(),
@@ -2511,7 +2650,7 @@ mod tests {
     }
 
     #[test]
-    fn pretty_raw_join_rejects_cross_pass_coordinate_or_schema_inconsistency() {
+    fn pretty_raw_join_rejects_cross_pass_property_inconsistency() {
         let occurrence = test_occurrence_id("JPEG-APP1-IFD0", "282");
         let base_schema = test_schema_id("Exif::Main", "282", None);
         let raw_property = test_runtime_property(
@@ -2524,17 +2663,6 @@ mod tests {
         );
 
         let cases = [
-            (
-                test_runtime_property(
-                    occurrence.clone(),
-                    test_schema_id("Exif::Other", "282", None),
-                    "IFD0",
-                    "XResolution",
-                    None,
-                    serde_json::json!("300 dpi"),
-                ),
-                "schema identity",
-            ),
             (
                 test_runtime_property(
                     occurrence.clone(),
@@ -2570,6 +2698,38 @@ mod tests {
             assert!(error.contains(expected), "unexpected error: {error}");
             assert!(error.contains("JPEG-APP1-IFD0"));
         }
+    }
+
+    #[test]
+    fn pretty_raw_properties_with_different_scopes_do_not_false_join() {
+        let occurrence = test_occurrence_id("JPEG-APP1-IFD0", "282");
+        let raw_property = test_runtime_property(
+            occurrence.clone(),
+            test_schema_id("Exif::Main", "282", None),
+            "IFD0",
+            "XResolution",
+            None,
+            serde_json::json!(300),
+        );
+        let pretty_property = test_runtime_property(
+            occurrence,
+            test_schema_id("Exif::Other", "282", None),
+            "IFD0",
+            "XResolution",
+            None,
+            serde_json::json!("300 dpi"),
+        );
+
+        let canonical = canonical_occurrences_from_exiftool_pair(
+            &runtime_map(vec![raw_property]),
+            &runtime_map(vec![pretty_property]),
+            None,
+            "different-scopes.jpg",
+            None,
+        )
+        .unwrap();
+        assert_eq!(canonical.len(), 2);
+        assert_ne!(canonical[0].occurrence.id, canonical[1].occurrence.id);
     }
 
     #[test]
@@ -2632,13 +2792,11 @@ mod tests {
             .collect();
 
         assert!(!parsed.is_empty());
-        assert!(parsed.iter().any(|key| !key.occurrence_id.path.is_empty()));
+        assert!(parsed.iter().any(|key| !key.path.is_empty()));
+        assert!(parsed.iter().any(|key| !key.runtime_tag_id.is_empty()));
         assert!(parsed
             .iter()
-            .any(|key| !key.occurrence_id.tag_id.is_empty()));
-        assert!(parsed
-            .iter()
-            .any(|key| { key.occurrence_id.document.is_none() && key.occurrence_id.copy == 0 }));
+            .any(|key| { key.document.is_none() && key.copy == 0 }));
         assert!(parsed
             .iter()
             .all(|key| key.friendly_name() == format!("{}:{}", key.group1, key.tag_name)));
@@ -2650,7 +2808,7 @@ mod tests {
             })
             .collect();
         if resolutions.len() >= 2 {
-            assert_ne!(resolutions[0].occurrence_id, resolutions[1].occurrence_id);
+            assert_ne!(resolutions[0].path, resolutions[1].path);
         }
 
         let runtime_map = parse_single_source_object(object.clone(), None).unwrap();
@@ -2663,8 +2821,8 @@ mod tests {
             .collect();
         if runtime_resolutions.len() >= 2 {
             assert_eq!(
-                runtime_resolutions[0].schema_id,
-                runtime_resolutions[1].schema_id
+                runtime_resolutions[0].occurrence_id.tag_id_scope,
+                runtime_resolutions[1].occurrence_id.tag_id_scope
             );
             assert_ne!(
                 runtime_resolutions[0].occurrence_id,
@@ -2752,11 +2910,20 @@ mod tests {
             .unwrap();
         assert_eq!(ifd0.id.document, None);
         assert_eq!(ifd0.id.path, "JPEG-APP1-IFD0");
-        assert_eq!(ifd0.id.tag_id, "282");
+        assert_eq!(ifd0.id.runtime_tag_id, "282");
+        assert_eq!(
+            ifd0.id.tag_id_scope,
+            RuntimeTagIdScope {
+                table: "Exif::Main".into(),
+                tag_id: "282".into(),
+                index: None,
+            }
+        );
         assert_eq!(ifd0.id.copy, 0);
         assert_eq!(ifd1.id.document, None);
         assert_eq!(ifd1.id.path, "JPEG-APP1-IFD1");
-        assert_eq!(ifd1.id.tag_id, "282");
+        assert_eq!(ifd1.id.runtime_tag_id, "282");
+        assert_eq!(ifd1.id.tag_id_scope, ifd0.id.tag_id_scope);
         assert!(ifd1.id.copy > 0);
         assert_eq!(ifd0.tag_info, ifd1.tag_info);
         assert_eq!(
@@ -3397,6 +3564,10 @@ mod tests {
         assert_ne!(canonical[0].occurrence.id, canonical[1].occurrence.id);
         for item in &canonical {
             assert_eq!(item.occurrence.schema_id, parent_id);
+            assert_ne!(
+                item.occurrence.id.tag_id_scope.as_schema_definition_id(),
+                item.occurrence.schema_id
+            );
             assert_eq!(item.occurrence.tag_info.as_ref(), Some(parent_info));
             assert!(item.occurrence.write_target.is_none());
             assert!(matches!(
@@ -3927,7 +4098,7 @@ mod tests {
             .unwrap();
         let ifd1 = parse_runtime_property_key("IFD1:Main:Copy0:JPEG-APP1-IFD1:ID-282:XResolution")
             .unwrap();
-        assert_ne!(ifd0.occurrence_id, ifd1.occurrence_id);
+        assert_ne!(ifd0.path, ifd1.path);
 
         // 5. A malformed wrapped property in one source is isolated similarly
         let json_malformed_val = r#"[
@@ -4456,12 +4627,17 @@ mod tests {
             .iter()
             .find_map(|(_, info)| (info.name == "XResolution").then(|| info.id.clone()))
             .unwrap();
-        let mut ifd1_id = test_occurrence_id("JPEG-APP1-IFD1", "282");
+        let mut ifd1_id = test_occurrence_id_for_schema("JPEG-APP1-IFD1", "282", &schema);
         ifd1_id.copy = 2;
         let unknown_id = MetadataOccurrenceId {
             document: None,
             path: "ZZZ-UNKNOWN".into(),
-            tag_id: "runtime-unknown".into(),
+            runtime_tag_id: "runtime-unknown".into(),
+            tag_id_scope: RuntimeTagIdScope {
+                table: "Unknown::Runtime".into(),
+                tag_id: "runtime-unknown".into(),
+                index: None,
+            },
             copy: 0,
         };
         let unknown_schema = test_schema_id("Unknown::Runtime", "runtime-unknown", None);
@@ -4611,9 +4787,9 @@ mod tests {
         );
         let mismatched_pretty = test_runtime_property(
             occurrence_id,
-            test_schema_id("Exif::Other", "282", None),
-            "IFD0",
-            "XResolution",
+            test_schema_id("Exif::Main", "282", None),
+            "IFD1",
+            "ResolutionAlias",
             None,
             serde_json::json!("300 dpi"),
         );

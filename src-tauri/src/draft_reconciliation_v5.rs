@@ -16,17 +16,17 @@ use crate::tag_schema::SchemaDefinitionId;
 #[derive(Debug, Clone, PartialEq)]
 pub enum DraftReconciliationV5Error {
     DuplicateOriginalSlot {
-        slot: MetadataDraftSlot,
+        slot: Box<MetadataDraftSlot>,
         first: Box<MetadataDraftTarget>,
         second: Box<MetadataDraftTarget>,
     },
     DuplicateOutcomeSlot {
-        slot: MetadataDraftSlot,
+        slot: Box<MetadataDraftSlot>,
         first: Box<MetadataDraftTarget>,
         second: Box<MetadataDraftTarget>,
     },
     MissingOutcome {
-        slot: MetadataDraftSlot,
+        slot: Box<MetadataDraftSlot>,
         original: Box<MetadataDraftTarget>,
     },
     UnexpectedOutcome {
@@ -47,7 +47,7 @@ pub enum DraftReconciliationV5Error {
         replacement_schema: Box<SchemaDefinitionId>,
     },
     ReplacementSlotCollision {
-        slot: MetadataDraftSlot,
+        slot: Box<MetadataDraftSlot>,
         first: Box<MetadataDraftTarget>,
         second: Box<MetadataDraftTarget>,
     },
@@ -139,7 +139,7 @@ pub fn reconcile_metadata_draft_entries_v5(
         let slot = entry.target.slot();
         if let Some(first) = originals_by_slot.insert(slot.clone(), entry) {
             return Err(DraftReconciliationV5Error::DuplicateOriginalSlot {
-                slot,
+                slot: Box::new(slot),
                 first: Box::new(first.target.clone()),
                 second: Box::new(entry.target.clone()),
             });
@@ -151,7 +151,7 @@ pub fn reconcile_metadata_draft_entries_v5(
         let slot = outcome.target.slot();
         if let Some(first) = outcomes_by_slot.insert(slot.clone(), outcome) {
             return Err(DraftReconciliationV5Error::DuplicateOutcomeSlot {
-                slot,
+                slot: Box::new(slot),
                 first: Box::new(first.target.clone()),
                 second: Box::new(outcome.target.clone()),
             });
@@ -169,7 +169,7 @@ pub fn reconcile_metadata_draft_entries_v5(
     for (slot, entry) in &originals_by_slot {
         if !outcomes_by_slot.contains_key(slot) {
             return Err(DraftReconciliationV5Error::MissingOutcome {
-                slot: slot.clone(),
+                slot: Box::new(slot.clone()),
                 original: Box::new(entry.target.clone()),
             });
         }
@@ -227,7 +227,7 @@ pub fn reconcile_metadata_draft_entries_v5(
         let replacement_slot = replacement.slot();
         if let Some(first) = originals_by_slot.get(&replacement_slot) {
             return Err(DraftReconciliationV5Error::ReplacementSlotCollision {
-                slot: replacement_slot,
+                slot: Box::new(replacement_slot),
                 first: Box::new(first.target.clone()),
                 second: Box::new(replacement.clone()),
             });
@@ -235,7 +235,7 @@ pub fn reconcile_metadata_draft_entries_v5(
         if let Some(first) = replacement_slots.insert(replacement_slot.clone(), replacement.clone())
         {
             return Err(DraftReconciliationV5Error::ReplacementSlotCollision {
-                slot: replacement_slot,
+                slot: Box::new(replacement_slot),
                 first: Box::new(first),
                 second: Box::new(replacement.clone()),
             });
@@ -319,7 +319,12 @@ mod tests {
             occurrence_id: MetadataOccurrenceId {
                 document: None,
                 path: path.to_owned(),
-                tag_id: schema_id.tag_id.clone(),
+                runtime_tag_id: schema_id.tag_id.clone(),
+                tag_id_scope: crate::metadata_occurrence::RuntimeTagIdScope {
+                    table: schema_id.table.clone(),
+                    tag_id: schema_id.tag_id.clone(),
+                    index: schema_id.index,
+                },
                 copy: 1,
             },
             schema_id,
@@ -340,7 +345,7 @@ mod tests {
         let MetadataDraftTarget::ExistingOccurrence { occurrence_id, .. } = &mut target else {
             unreachable!()
         };
-        occurrence_id.tag_id = occurrence_tag_id.to_owned();
+        occurrence_id.runtime_tag_id = occurrence_tag_id.to_owned();
         target
     }
 
@@ -731,12 +736,27 @@ mod tests {
             "IFD0",
             schema("282"),
         );
-        let second_replacement = existing_target_with_occurrence_tag(
+        let mut second_replacement = existing_target_with_occurrence_tag(
             "shared-slot",
             "shared-runtime-id",
             "IFD1",
             schema("283"),
         );
+        let MetadataDraftTarget::ExistingOccurrence {
+            occurrence_id: first_occurrence,
+            ..
+        } = &first_replacement
+        else {
+            unreachable!()
+        };
+        let MetadataDraftTarget::ExistingOccurrence {
+            occurrence_id: second_occurrence,
+            ..
+        } = &mut second_replacement
+        else {
+            unreachable!()
+        };
+        second_occurrence.tag_id_scope = first_occurrence.tag_id_scope.clone();
 
         assert!(matches!(
             reconcile_metadata_draft_entries_v5(

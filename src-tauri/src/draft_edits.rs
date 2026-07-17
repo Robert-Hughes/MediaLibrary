@@ -222,7 +222,12 @@ mod tests {
                 occurrence_id: MetadataOccurrenceId {
                     document: None,
                     path: path.to_string(),
-                    tag_id: "Title".to_string(),
+                    runtime_tag_id: "Title".to_string(),
+                    tag_id_scope: crate::metadata_occurrence::RuntimeTagIdScope {
+                        table: "XMP::dc".to_string(),
+                        tag_id: "Title".to_string(),
+                        index,
+                    },
                     copy: 0,
                 },
                 schema_id: schema(index),

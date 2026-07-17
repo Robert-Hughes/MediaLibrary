@@ -47,7 +47,12 @@ function existing(
     occurrence_id: {
       document: null,
       path,
-      tag_id: id.tag_id,
+      runtime_tag_id: id.tag_id,
+      tag_id_scope: {
+        table: id.table,
+        tag_id: id.tag_id,
+        index: id.index ?? null,
+      },
       copy,
     },
     schema_id: id,

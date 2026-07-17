@@ -12,7 +12,8 @@ const id = (
 ): MetadataOccurrenceId => ({
   document: null,
   path: "JPEG-APP1-IFD0",
-  tag_id: "282",
+  runtime_tag_id: "282",
+  tag_id_scope: { table: "TestFixture::Runtime", tag_id: "282", index: null },
   copy: 0,
   ...overrides,
 });
@@ -206,7 +207,7 @@ describe("normalizeMetadataOccurrencesFromTauri", () => {
     const values = [
       occurrence({ id: id({ document: "b" }) }),
       occurrence({ id: id({ copy: 2 }) }),
-      occurrence({ id: id({ tag_id: "100" }) }),
+      occurrence({ id: id({ runtime_tag_id: "100" }) }),
       occurrence({ id: id({ path: "A" }) }),
       occurrence({ id: id({ document: "a" }) }),
     ];
@@ -214,7 +215,7 @@ describe("normalizeMetadataOccurrencesFromTauri", () => {
       normalizeMetadataOccurrencesFromTauri(values).map((v) => v.id),
     ).toEqual([
       id({ path: "A" }),
-      id({ tag_id: "100" }),
+      id({ runtime_tag_id: "100" }),
       id({ copy: 2 }),
       id({ document: "a" }),
       id({ document: "b" }),
@@ -222,8 +223,8 @@ describe("normalizeMetadataOccurrencesFromTauri", () => {
   });
 
   it("does not collide delimiter-like identity components", () => {
-    const first = occurrence({ id: id({ path: "a|b", tag_id: "c" }) });
-    const second = occurrence({ id: id({ path: "a", tag_id: "b|c" }) });
+    const first = occurrence({ id: id({ path: "a|b", runtime_tag_id: "c" }) });
+    const second = occurrence({ id: id({ path: "a", runtime_tag_id: "b|c" }) });
     expect(normalizeMetadataOccurrencesFromTauri([first, second])).toHaveLength(
       2,
     );

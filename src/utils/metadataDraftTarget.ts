@@ -8,6 +8,7 @@ import type {
 import {
   compareMetadataOccurrenceIds,
   metadataOccurrenceIdEquals,
+  metadataOccurrenceIdToken,
 } from "./metadataOccurrenceId";
 import {
   compareSchemaDefinitionIds,
@@ -85,12 +86,7 @@ export function metadataDraftTargetToken(target: MetadataDraftTarget): string {
 
   return JSON.stringify([
     "ExistingOccurrence",
-    [
-      target.occurrence_id.document ?? null,
-      target.occurrence_id.path,
-      target.occurrence_id.tag_id,
-      target.occurrence_id.copy,
-    ],
+    JSON.parse(metadataOccurrenceIdToken(target.occurrence_id)),
     schema,
     [target.write_target.group1, target.write_target.tag_name],
   ]);
@@ -117,12 +113,7 @@ export function metadataDraftTargetSlotToken(
 
   return JSON.stringify([
     "ExistingOccurrence",
-    [
-      target.occurrence_id.document ?? null,
-      target.occurrence_id.path,
-      target.occurrence_id.tag_id,
-      target.occurrence_id.copy,
-    ],
+    JSON.parse(metadataOccurrenceIdToken(target.occurrence_id)),
   ]);
 }
 

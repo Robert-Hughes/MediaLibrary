@@ -52,7 +52,12 @@ function existing(
     occurrence_id: {
       document: options.document ?? null,
       path: options.path ?? "JPEG-APP1-IFD0",
-      tag_id: options.occurrenceTag ?? "282",
+      runtime_tag_id: options.occurrenceTag ?? "282",
+      tag_id_scope: {
+        table: "TestFixture::Runtime",
+        tag_id: options.occurrenceTag ?? "282",
+        index: null,
+      },
       copy: options.copy ?? 0,
     },
     schema_id: schema(options.table, options.schemaTag, options.index),

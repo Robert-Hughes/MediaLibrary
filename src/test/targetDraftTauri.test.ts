@@ -30,7 +30,8 @@ const existing = (
   occurrence_id: {
     document: "Doc1",
     path,
-    tag_id: "282",
+    runtime_tag_id: "282",
+    tag_id_scope: { table: "Exif::Main", tag_id: "282", index: null },
     copy: 2,
   },
   schema_id: schema(),

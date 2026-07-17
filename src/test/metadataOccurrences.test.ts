@@ -28,7 +28,13 @@ function tagInfo(id: SchemaDefinitionId = schemaId, writable = true): TagInfo {
 }
 
 function id(path: string, copy = 0): MetadataOccurrenceId {
-  return { document: null, path, tag_id: "282", copy };
+  return {
+    document: null,
+    path,
+    runtime_tag_id: "282",
+    tag_id_scope: { table: "Exif::Main", tag_id: "282", index: null },
+    copy,
+  };
 }
 
 function occurrence(
