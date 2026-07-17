@@ -13,6 +13,10 @@ import type {
 } from "../types";
 import { targetVerifyOutcomeFromBackend } from "../targetVerifyOutcomes";
 import { metadataDraftTargetSlotToken } from "../utils/metadataDraftTarget";
+import {
+  family7GroupFromRuntimeTagId,
+  family7GroupFromSchemaId,
+} from "../utils/metadataWriteTarget";
 import { sortPhotos } from "../utils/sorting";
 function targetV5Result(
   path: string,
@@ -68,6 +72,18 @@ function tagInfoFor(
   };
 }
 
+function newPropertyTargetFor(id: SchemaDefinitionId) {
+  return {
+    kind: "NewProperty" as const,
+    schema_id: structuredClone(id),
+    write_target: {
+      group1: "XMP-test",
+      group7: family7GroupFromSchemaId(id),
+      tag_name: "TestField",
+    },
+  };
+}
+
 async function publishOccurrences(
   mock: MockTauriApi,
   relativePath: string,
@@ -82,11 +98,12 @@ async function publishOccurrences(
 }
 
 function occurrenceFor(id: SchemaDefinitionId, copy = 0): MetadataOccurrence {
+  const runtimeTagId = family7GroupFromSchemaId(id).slice("ID-".length);
   return {
     id: {
       document: null,
       path: "JPEG-APP1-XMP",
-      runtime_tag_id: id.tag_id,
+      runtime_tag_id: runtimeTagId,
       tag_id_scope: {
         table: id.table,
         tag_id: id.tag_id,
@@ -97,7 +114,11 @@ function occurrenceFor(id: SchemaDefinitionId, copy = 0): MetadataOccurrence {
     schema_id: structuredClone(id),
     value: { kind: "Text", value: `existing-${copy}` },
     tag_info: tagInfoFor(id),
-    write_target: { group1: "XMP-test", tag_name: "TestField" },
+    write_target: {
+      group1: "XMP-test",
+      group7: family7GroupFromRuntimeTagId(runtimeTagId),
+      tag_name: "TestField",
+    },
   };
 }
 
@@ -1138,7 +1159,11 @@ describe("useMediaLibrary", () => {
         kind: { kind: "Rational" as const },
         description: "X resolution",
       },
-      write_target: { group1: "IFD0", tag_name: "XResolution" },
+      write_target: {
+        group1: "IFD0",
+        group7: "ID-Test",
+        tag_name: "XResolution",
+      },
     };
     const secondOccurrence = {
       ...occurrence,
@@ -1154,7 +1179,11 @@ describe("useMediaLibrary", () => {
         copy: 1,
       },
       value: { kind: "Integer" as const, value: 72 },
-      write_target: { group1: "IFD1", tag_name: "XResolution" },
+      write_target: {
+        group1: "IFD1",
+        group7: "ID-Test",
+        tag_name: "XResolution",
+      },
     };
     act(() => {
       mock.emitImageMetadataReady("a.jpg", {}, undefined, [
@@ -1263,7 +1292,15 @@ describe("useMediaLibrary", () => {
     const store = new TargetDraftEditsStore();
     store.setMetadataTarget(
       "drafted.jpg",
-      { kind: "NewProperty", schema_id: id },
+      {
+        kind: "NewProperty",
+        schema_id: id,
+        write_target: {
+          group1: "XMP-test",
+          group7: "ID-Test",
+          tag_name: "TestTag",
+        },
+      },
       { intent: "Set", value: { kind: "Text", value: "pending" } },
     );
     mock.targetDraftEditsByFolder["/photos"] = store.getAllMetadata();
@@ -1276,7 +1313,15 @@ describe("useMediaLibrary", () => {
     if (state.kind !== "loaded") return;
     expect(Object.values(state.targetDraftEdits["drafted.jpg"])).toEqual([
       expect.objectContaining({
-        target: { kind: "NewProperty", schema_id: id },
+        target: {
+          kind: "NewProperty",
+          schema_id: id,
+          write_target: {
+            group1: "XMP-test",
+            group7: "ID-Test",
+            tag_name: "TestTag",
+          },
+        },
       }),
     ]);
     expect(state.targetDraftPersistence).toEqual({ status: "ready" });
@@ -1331,10 +1376,14 @@ describe("useMediaLibrary", () => {
     const subjectId = testId("XMP-dc:Subject");
     mock.tagInfos = [tagInfoFor(subjectId)];
     await act(async () => {
-      await result.current[1].setNewPropertyDraft("a.jpg", subjectId, {
-        intent: "Set",
-        value: { kind: "Text", value: "draft" },
-      });
+      await result.current[1].setNewPropertyDraft(
+        "a.jpg",
+        newPropertyTargetFor(subjectId),
+        {
+          intent: "Set",
+          value: { kind: "Text", value: "draft" },
+        },
+      );
     });
     await act(async () => result.current[1].applyDraftEdits("a.jpg"));
 
@@ -1366,7 +1415,11 @@ describe("useMediaLibrary", () => {
 
     await publishOccurrences(mock, "final.jpg");
     await act(async () => {
-      await result.current[1].setNewPropertyDraft("final.jpg", draftId, edit);
+      await result.current[1].setNewPropertyDraft(
+        "final.jpg",
+        newPropertyTargetFor(draftId),
+        edit,
+      );
     });
     mock.targetApplyProgressResultsByPath["final.jpg"] = targetV5Result(
       "final.jpg",
@@ -1385,7 +1438,11 @@ describe("useMediaLibrary", () => {
 
     await publishOccurrences(mock, "changed.jpg");
     await act(async () => {
-      await result.current[1].setNewPropertyDraft("changed.jpg", draftId, edit);
+      await result.current[1].setNewPropertyDraft(
+        "changed.jpg",
+        newPropertyTargetFor(draftId),
+        edit,
+      );
     });
     mock.targetApplyProgressResultsByPath["changed.jpg"] = targetV5Result(
       "changed.jpg",
@@ -1413,10 +1470,14 @@ describe("useMediaLibrary", () => {
     mock.tagInfos = [tagInfoFor(id)];
     await publishOccurrences(mock, "draft-only.jpg");
     await act(async () => {
-      await result.current[1].setNewPropertyDraft("draft-only.jpg", id, {
-        intent: "Set",
-        value: { kind: "Text", value: "draft" },
-      });
+      await result.current[1].setNewPropertyDraft(
+        "draft-only.jpg",
+        newPropertyTargetFor(id),
+        {
+          intent: "Set",
+          value: { kind: "Text", value: "draft" },
+        },
+      );
     });
     await act(async () => result.current[1].applyDraftEdits("draft-only.jpg"));
     const state = result.current[0];
@@ -1439,10 +1500,14 @@ describe("useMediaLibrary", () => {
     mock.tagInfos = [tagInfoFor(titleId)];
     await publishOccurrences(mock, "new.jpg");
     await act(async () => {
-      await result.current[1].setNewPropertyDraft("new.jpg", titleId, {
-        intent: "Set",
-        value: { kind: "Text", value: "writable" },
-      });
+      await result.current[1].setNewPropertyDraft(
+        "new.jpg",
+        newPropertyTargetFor(titleId),
+        {
+          intent: "Set",
+          value: { kind: "Text", value: "writable" },
+        },
+      );
     });
     expect(
       state.targetDraftEditsStore.getMetadataFile("new.jpg"),
@@ -1485,7 +1550,11 @@ describe("useMediaLibrary", () => {
     ) => {
       const before = saveCount();
       await act(async () => {
-        await result.current[1].setNewPropertyDraft(path, id, edit);
+        await result.current[1].setNewPropertyDraft(
+          path,
+          newPropertyTargetFor(id),
+          edit,
+        );
       });
       expect(stateStore().getMetadataFile(path)).toBeUndefined();
       expect(saveCount()).toBe(before);
@@ -1574,20 +1643,31 @@ describe("useMediaLibrary", () => {
         copy: 0,
       },
       schema_id: structuredClone(ownedId),
-      write_target: { group1: "XMP-test", tag_name: "Owned" },
+      write_target: {
+        group1: "XMP-test",
+        group7: "ID-Test",
+        tag_name: "Owned",
+      },
     };
     act(() => {
       stateStore().setMetadataTarget("owned.jpg", existingTarget, edit);
     });
     const ownedSaveCount = saveCount();
     await act(async () => {
-      await result.current[1].setNewPropertyDraft("owned.jpg", ownedId, edit);
+      await result.current[1].setNewPropertyDraft(
+        "owned.jpg",
+        newPropertyTargetFor(ownedId),
+        edit,
+      );
     });
-    expect(saveCount()).toBe(ownedSaveCount);
+    expect(saveCount()).toBe(ownedSaveCount + 1);
     expect(
-      Object.values(stateStore().getMetadataFile("owned.jpg") ?? {})[0]?.target,
-    ).toEqual(existingTarget);
-    expect(lastErrorType()).toBe("metadata-v5-new-property-existing-target");
+      Object.values(stateStore().getMetadataFile("owned.jpg") ?? {}).map(
+        ({ target }) => target,
+      ),
+    ).toEqual(
+      expect.arrayContaining([existingTarget, newPropertyTargetFor(ownedId)]),
+    );
 
     const ambiguousId = testId("XMP-test:AmbiguousOwnership");
     await publishOccurrences(mock, "ambiguous.jpg");
@@ -1612,6 +1692,7 @@ describe("useMediaLibrary", () => {
             schema_id: structuredClone(ambiguousId),
             write_target: {
               group1: "XMP-test",
+              group7: "ID-Test",
               tag_name: `Ambiguous-${copy}`,
             },
           },
@@ -1623,17 +1704,50 @@ describe("useMediaLibrary", () => {
     await act(async () => {
       await result.current[1].setNewPropertyDraft(
         "ambiguous.jpg",
-        ambiguousId,
+        newPropertyTargetFor(ambiguousId),
         edit,
       );
     });
-    expect(saveCount()).toBe(ambiguousSaveCount);
+    expect(saveCount()).toBe(ambiguousSaveCount + 1);
     expect(
       Object.values(stateStore().getMetadataFile("ambiguous.jpg") ?? {}),
-    ).toHaveLength(2);
-    expect(lastErrorType()).toBe(
-      "metadata-v5-new-property-ambiguous-ownership",
-    );
+    ).toHaveLength(3);
+
+    const collisionId = testId("XMP-test:PendingCollision");
+    const collisionTarget = newPropertyTargetFor(collisionId);
+    await publishOccurrences(mock, "pending-collision.jpg");
+    act(() => {
+      stateStore().setMetadataTarget(
+        "pending-collision.jpg",
+        {
+          kind: "ExistingOccurrence",
+          occurrence_id: {
+            document: null,
+            path: "PENDING-OTHER-SCHEMA",
+            runtime_tag_id: collisionId.tag_id,
+            tag_id_scope: {
+              table: "Other::Schema",
+              tag_id: "other",
+              index: null,
+            },
+            copy: 0,
+          },
+          schema_id: testId("Other:Schema"),
+          write_target: structuredClone(collisionTarget.write_target),
+        },
+        edit,
+      );
+    });
+    const collisionSaveCount = saveCount();
+    await act(async () => {
+      await result.current[1].setNewPropertyDraft(
+        "pending-collision.jpg",
+        collisionTarget,
+        edit,
+      );
+    });
+    expect(saveCount()).toBe(collisionSaveCount);
+    expect(lastErrorType()).toBe("metadata-v5-new-property-selector-collision");
 
     const supportedId: SchemaDefinitionId = {
       table: "XMP::test",
@@ -1646,7 +1760,7 @@ describe("useMediaLibrary", () => {
     await act(async () => {
       await result.current[1].setNewPropertyDraft(
         "supported.jpg",
-        supportedId,
+        newPropertyTargetFor(supportedId),
         edit,
       );
     });
@@ -1654,10 +1768,7 @@ describe("useMediaLibrary", () => {
     expect(
       Object.values(stateStore().getMetadataFile("supported.jpg") ?? {})[0]
         ?.target,
-    ).toEqual({
-      kind: "NewProperty",
-      schema_id: supportedId,
-    });
+    ).toEqual(newPropertyTargetFor(supportedId));
   });
 
   it("abandons a deferred new-property lookup after switching folders", async () => {
@@ -1679,7 +1790,11 @@ describe("useMediaLibrary", () => {
     const deferred = deferNextTagInfoLookup(mock);
     let request!: Promise<void>;
     act(() => {
-      request = result.current[1].setNewPropertyDraft("shared.jpg", id, edit);
+      request = result.current[1].setNewPropertyDraft(
+        "shared.jpg",
+        newPropertyTargetFor(id),
+        edit,
+      );
     });
 
     await act(async () => result.current[1].openRecent("/folder-b"));
@@ -1730,7 +1845,11 @@ describe("useMediaLibrary", () => {
     const deferred = deferNextTagInfoLookup(mock);
     let request!: Promise<void>;
     act(() => {
-      request = result.current[1].setNewPropertyDraft("shared.jpg", id, edit);
+      request = result.current[1].setNewPropertyDraft(
+        "shared.jpg",
+        newPropertyTargetFor(id),
+        edit,
+      );
     });
 
     await act(async () => result.current[1].openRecent("/photos"));
@@ -1776,7 +1895,11 @@ describe("useMediaLibrary", () => {
     const deferred = deferNextTagInfoLookup(mock);
     let request!: Promise<void>;
     act(() => {
-      request = result.current[1].setNewPropertyDraft("closed.jpg", id, edit);
+      request = result.current[1].setNewPropertyDraft(
+        "closed.jpg",
+        newPropertyTargetFor(id),
+        edit,
+      );
       result.current[1].closeFolder();
     });
     await act(async () => {
@@ -1808,7 +1931,11 @@ describe("useMediaLibrary", () => {
     const deferred = deferNextTagInfoLookup(mock);
     let request!: Promise<void>;
     act(() => {
-      request = result.current[1].setNewPropertyDraft("shared.jpg", id, edit);
+      request = result.current[1].setNewPropertyDraft(
+        "shared.jpg",
+        newPropertyTargetFor(id),
+        edit,
+      );
     });
 
     await act(async () => result.current[1].openRecent("/folder-b"));
@@ -1858,7 +1985,11 @@ describe("useMediaLibrary", () => {
     const deferred = deferNextTagInfoLookup(mock);
     let request!: Promise<void>;
     act(() => {
-      request = result.current[1].setNewPropertyDraft("current.jpg", id, edit);
+      request = result.current[1].setNewPropertyDraft(
+        "current.jpg",
+        newPropertyTargetFor(id),
+        edit,
+      );
     });
     await act(async () => {
       deferred.resolve(tagInfoFor(id));
@@ -1874,7 +2005,7 @@ describe("useMediaLibrary", () => {
       ),
     ).toEqual([
       {
-        target: { kind: "NewProperty", schema_id: id },
+        target: newPropertyTargetFor(id),
         edit,
       },
     ]);
@@ -1900,7 +2031,11 @@ describe("useMediaLibrary", () => {
       const deferred = deferNextTagInfoLookup(mock);
       let request!: Promise<void>;
       act(() => {
-        request = result.current[1].setNewPropertyDraft(path, id, edit);
+        request = result.current[1].setNewPropertyDraft(
+          path,
+          newPropertyTargetFor(id),
+          edit,
+        );
       });
       return { deferred, request };
     };
@@ -1942,7 +2077,11 @@ describe("useMediaLibrary", () => {
         copy: 0,
       },
       schema_id: structuredClone(ownedId),
-      write_target: { group1: "XMP-test", tag_name: "OwnedDuringLookup" },
+      write_target: {
+        group1: "XMP-test",
+        group7: "ID-Test",
+        tag_name: "OwnedDuringLookup",
+      },
     };
     act(() => {
       store().setMetadataTarget("owned-race.jpg", ownedTarget, edit);
@@ -1952,12 +2091,14 @@ describe("useMediaLibrary", () => {
       owned.deferred.resolve(tagInfoFor(ownedId));
       await owned.request;
     });
-    expect(saveCount()).toBe(ownedSaves);
+    expect(saveCount()).toBe(ownedSaves + 1);
     expect(
       Object.values(store().getMetadataFile("owned-race.jpg") ?? {}).map(
         ({ target }) => target,
       ),
-    ).toEqual([ownedTarget]);
+    ).toEqual(
+      expect.arrayContaining([ownedTarget, newPropertyTargetFor(ownedId)]),
+    );
 
     const ambiguousId = testId("XMP-test:AmbiguousDuringLookup");
     await publishOccurrences(mock, "ambiguous-race.jpg");
@@ -1982,6 +2123,7 @@ describe("useMediaLibrary", () => {
             schema_id: structuredClone(ambiguousId),
             write_target: {
               group1: "XMP-test",
+              group7: "ID-Test",
               tag_name: `AmbiguousDuringLookup-${copy}`,
             },
           },
@@ -1994,10 +2136,10 @@ describe("useMediaLibrary", () => {
       ambiguous.deferred.resolve(tagInfoFor(ambiguousId));
       await ambiguous.request;
     });
-    expect(saveCount()).toBe(ambiguousSaves);
+    expect(saveCount()).toBe(ambiguousSaves + 1);
     expect(
       Object.values(store().getMetadataFile("ambiguous-race.jpg") ?? {}),
-    ).toHaveLength(2);
+    ).toHaveLength(3);
 
     const unavailableId = testId("XMP-test:UnavailableDuringLookup");
     await publishOccurrences(mock, "unavailable-race.jpg");
@@ -2051,12 +2193,20 @@ describe("useMediaLibrary", () => {
         copy: 0,
       },
       schema_id: id,
-      write_target: { group1: "XMP-dc", tag_name: "SubjectPrimary" },
+      write_target: {
+        group1: "XMP-dc",
+        group7: "ID-Test",
+        tag_name: "SubjectPrimary",
+      },
     };
     const sibling = {
       ...structuredClone(replacement),
       occurrence_id: { ...replacement.occurrence_id, copy: 1 },
-      write_target: { group1: "XMP-dc", tag_name: "SubjectSibling" },
+      write_target: {
+        group1: "XMP-dc",
+        group7: "ID-Test",
+        tag_name: "SubjectSibling",
+      },
     };
     const edit = {
       intent: "Set" as const,
@@ -2067,7 +2217,15 @@ describe("useMediaLibrary", () => {
       targetDraftStore.setMetadataTarget("replace.jpg", sibling, edit);
     });
     const entry = targetVerifyOutcomeFromBackend("replace.jpg", {
-      target: { kind: "NewProperty", schema_id: id },
+      target: {
+        kind: "NewProperty",
+        schema_id: id,
+        write_target: {
+          group1: "XMP-test",
+          group7: "ID-Test",
+          tag_name: "TestTag",
+        },
+      },
       draft_reconciliation: { kind: "Replace", target: replacement },
       display_name: "Subject",
       kind: "Mismatch",
@@ -2140,7 +2298,15 @@ describe("useMediaLibrary", () => {
     const mock = createMockTauriApi();
     const path = "add-property.jpg";
     const id = testId("XMP-dc:Subject");
-    const original = { kind: "NewProperty" as const, schema_id: id };
+    const original = {
+      kind: "NewProperty" as const,
+      schema_id: id,
+      write_target: {
+        group1: "XMP-test",
+        group7: "ID-Test",
+        tag_name: "TestTag",
+      },
+    };
     const replacement = {
       kind: "ExistingOccurrence" as const,
       occurrence_id: {
@@ -2155,7 +2321,11 @@ describe("useMediaLibrary", () => {
         copy: 2,
       },
       schema_id: id,
-      write_target: { group1: "XMP-dc", tag_name: "SubjectRuntime" },
+      write_target: {
+        group1: "XMP-dc",
+        group7: "ID-Test",
+        tag_name: "SubjectRuntime",
+      },
     };
     const store = new TargetDraftEditsStore();
     store.setMetadataTarget(path, original, {
@@ -2262,13 +2432,21 @@ describe("useMediaLibrary", () => {
         copy: 0,
       },
       schema_id: id,
-      write_target: { group1: "XMP-dc", tag_name: "Subject" },
+      write_target: {
+        group1: "XMP-dc",
+        group7: "ID-Test",
+        tag_name: "Subject",
+      },
     };
 
     let groupRemovalSucceeded = true;
     let selectedRemovalSucceeded = true;
     await act(async () => {
-      await result.current[1].setNewPropertyDraft("blocked.jpg", id, edit);
+      await result.current[1].setNewPropertyDraft(
+        "blocked.jpg",
+        newPropertyTargetFor(id),
+        edit,
+      );
     });
     act(() => {
       result.current[1].setExistingOccurrenceDraft(
@@ -2363,7 +2541,15 @@ describe("useMediaLibrary", () => {
     act(() =>
       state.targetDraftEditsStore.setMetadataTarget(
         "forced.jpg",
-        { kind: "NewProperty", schema_id: id },
+        {
+          kind: "NewProperty",
+          schema_id: id,
+          write_target: {
+            group1: "XMP-test",
+            group7: "ID-Test",
+            tag_name: "TestTag",
+          },
+        },
         edit,
       ),
     );
@@ -2415,10 +2601,14 @@ describe("useMediaLibrary", () => {
     mock.tagInfos = [tagInfoFor(newFolderId)];
     await publishOccurrences(mock, "new.jpg");
     await act(async () => {
-      await result.current[1].setNewPropertyDraft("new.jpg", newFolderId, {
-        intent: "Set",
-        value: { kind: "Text", value: "new folder" },
-      });
+      await result.current[1].setNewPropertyDraft(
+        "new.jpg",
+        newPropertyTargetFor(newFolderId),
+        {
+          intent: "Set",
+          value: { kind: "Text", value: "new folder" },
+        },
+      );
     });
     expect(
       mock.invocations.find(({ cmd }) => cmd === "save_metadata_draft_edits_v5")
@@ -2447,14 +2637,22 @@ describe("useMediaLibrary", () => {
     mock.tagInfos = [tagInfoFor(id)];
     await publishOccurrences(mock, "a.jpg");
     await act(async () => {
-      await result.current[1].setNewPropertyDraft("a.jpg", id, edit);
+      await result.current[1].setNewPropertyDraft(
+        "a.jpg",
+        newPropertyTargetFor(id),
+        edit,
+      );
     });
     await act(async () => result.current[1].applyDraftEdits("a.jpg"));
     await act(async () => result.current[1].openRecent("/second"));
     act(() => mock.emitScanComplete());
     await publishOccurrences(mock, "b.jpg");
     await act(async () => {
-      await result.current[1].setNewPropertyDraft("b.jpg", id, edit);
+      await result.current[1].setNewPropertyDraft(
+        "b.jpg",
+        newPropertyTargetFor(id),
+        edit,
+      );
     });
     const saveFolders = mock.invocations
       .filter(({ cmd }) => cmd === "save_metadata_draft_edits_v5")

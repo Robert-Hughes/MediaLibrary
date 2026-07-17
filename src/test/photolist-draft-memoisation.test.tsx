@@ -118,6 +118,11 @@ describe("PhotoList draft-free row memoisation", () => {
     const target: MetadataDraftTarget = {
       kind: "NewProperty",
       schema_id: { table: "XMP::Main", tag_id: "title" },
+      write_target: {
+        group1: "XMP-test",
+        group7: "ID-Test",
+        tag_name: "TestTag",
+      },
     };
     const realCollection: TargetDraftCollection = {
       [metadataDraftTargetSlotToken(target)]: {

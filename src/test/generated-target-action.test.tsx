@@ -40,7 +40,7 @@ function occurrence(
     write_target:
       options.writeTarget === false
         ? null
-        : { group1: "XMP-mlib", tag_name: id.tag_id },
+        : { group1: "XMP-mlib", group7: "ID-Test", tag_name: id.tag_id },
   };
 }
 
@@ -267,6 +267,11 @@ describe("generated schema-v5 production action", () => {
     expect(entries[0].target).toEqual({
       kind: "NewProperty",
       schema_id: ID.mlibAiDescription,
+      write_target: {
+        group1: "XMP-mlib",
+        group7: "ID-AIDescription",
+        tag_name: "AIDescription",
+      },
     });
     expect(saveCount(mock, "save_metadata_draft_edits_v5") - beforeV5).toBe(1);
   });

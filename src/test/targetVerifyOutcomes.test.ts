@@ -35,12 +35,13 @@ const existing = (
     copy,
   },
   schema_id: schema(),
-  write_target: { group1: "XMP-dc", tag_name: selector },
+  write_target: { group1: "XMP-dc", group7: "ID-Test", tag_name: selector },
 });
 
 const newProperty = (index?: number): MetadataDraftTarget => ({
   kind: "NewProperty",
   schema_id: schema(index),
+  write_target: { group1: "XMP-test", group7: "ID-Test", tag_name: "TestTag" },
 });
 
 const backend = (
@@ -150,7 +151,11 @@ describe("target-aware verification model", () => {
     expect(replace.currentTarget).toMatchObject({
       occurrence_id: { copy: 2 },
       schema_id: schema(),
-      write_target: { group1: "XMP-dc", tag_name: "RuntimeReplacement" },
+      write_target: {
+        group1: "XMP-dc",
+        group7: "ID-Test",
+        tag_name: "RuntimeReplacement",
+      },
     });
 
     const blocked = targetVerifyOutcomeFromBackend(

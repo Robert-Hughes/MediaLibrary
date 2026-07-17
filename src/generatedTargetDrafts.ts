@@ -1,4 +1,7 @@
-import { KNOWN_METADATA_IDS } from "./metadata/knownIds";
+import {
+  KNOWN_METADATA_IDS,
+  knownMetadataWriteTarget,
+} from "./metadata/knownIds";
 import type { TargetDraftCollection } from "./targetDraftEdits";
 import { metadataDraftEntryV5EqualsExact } from "./targetDraftEdits";
 import { resolveTargetDraftByExactSchema } from "./targetDraftView";
@@ -264,9 +267,18 @@ export function planGeneratedTargetDraftBatchV5(input: {
 
     let plannedTarget: MetadataDraftTarget;
     if (occurrence.kind === "missing") {
+      const writeTarget = knownMetadataWriteTarget(schemaId);
+      if (!writeTarget) {
+        fail(
+          "schema_not_allowed",
+          `No exact default write destination is registered for ${token}.`,
+          schemaId,
+        );
+      }
       plannedTarget = {
         kind: "NewProperty",
         schema_id: structuredClone(schemaId),
+        write_target: writeTarget,
       };
     } else {
       const target = existingOccurrenceTargetFromOccurrence(

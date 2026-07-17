@@ -21,7 +21,7 @@ const occurrence = (): MetadataOccurrence => ({
     kind: { kind: "Rational" },
     description: null,
   },
-  write_target: { group1: "IFD0", tag_name: "XResolution" },
+  write_target: { group1: "IFD0", group7: "ID-Test", tag_name: "XResolution" },
 });
 
 describe("exact image metadata equality", () => {
@@ -54,7 +54,11 @@ describe("exact image metadata equality", () => {
       [
         {
           ...occurrence(),
-          write_target: { group1: "IFD1", tag_name: "XResolution" },
+          write_target: {
+            group1: "IFD1",
+            group7: "ID-Test",
+            tag_name: "XResolution",
+          },
         },
       ],
     ])

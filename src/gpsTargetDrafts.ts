@@ -6,6 +6,7 @@ import type {
 } from "./types";
 import type { TargetDraftCollection } from "./targetDraftEdits";
 import { gpsMemberGroup, type GpsTagGroup } from "./metadata/tag_overrides";
+import { knownMetadataWriteTarget } from "./metadata/knownIds";
 import {
   schemaDefinitionIdEquals,
   schemaDefinitionIdToken,
@@ -137,9 +138,18 @@ export function planGpsTargetDraftBatchV5(
       );
     }
     if (occurrenceResolution.kind === "missing") {
+      const writeTarget = knownMetadataWriteTarget(id);
+      if (!writeTarget) {
+        throw new GpsTargetDraftPlanError(
+          "non-gps-schema",
+          "The exact GPS schema has no registered default write destination. Nothing was saved.",
+          id,
+        );
+      }
       target = {
         kind: "NewProperty",
         schema_id: structuredClone(id),
+        write_target: writeTarget,
       };
     } else {
       const targetability = existingOccurrenceTargetFromOccurrence(

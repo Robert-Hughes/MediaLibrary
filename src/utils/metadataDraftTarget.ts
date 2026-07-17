@@ -16,6 +16,11 @@ import {
 } from "./schemaDefinitionId";
 import { resolveExactMetadataOccurrence } from "./metadataOccurrences";
 import { tagInfoSupportsMetadataWrite } from "./metadataWriteSupport";
+import {
+  family7GroupFromSchemaId,
+  metadataWriteTargetEquals,
+  metadataWriteTargetToken,
+} from "./metadataWriteTarget";
 
 type ExistingOccurrenceDraftTarget = Extract<
   MetadataDraftTarget,
@@ -81,14 +86,18 @@ export function metadataDraftTargetToken(target: MetadataDraftTarget): string {
   ];
 
   if (target.kind === "NewProperty") {
-    return JSON.stringify(["NewProperty", schema]);
+    return JSON.stringify([
+      "NewProperty",
+      schema,
+      JSON.parse(metadataWriteTargetToken(target.write_target)),
+    ]);
   }
 
   return JSON.stringify([
     "ExistingOccurrence",
     JSON.parse(metadataOccurrenceIdToken(target.occurrence_id)),
     schema,
-    [target.write_target.group1, target.write_target.tag_name],
+    JSON.parse(metadataWriteTargetToken(target.write_target)),
   ]);
 }
 
@@ -108,6 +117,7 @@ export function metadataDraftTargetSlotToken(
         target.schema_id.tag_id,
         target.schema_id.index ?? null,
       ],
+      JSON.parse(metadataWriteTargetToken(target.write_target)),
     ]);
   }
 
@@ -131,7 +141,14 @@ export function compareMetadataDraftTargetsBySlot(
   }
 
   if (right.kind === "ExistingOccurrence") return 1;
-  return compareSchemaDefinitionIds(left.schema_id, right.schema_id);
+  const schemaComparison = compareSchemaDefinitionIds(
+    left.schema_id,
+    right.schema_id,
+  );
+  if (schemaComparison !== 0) return schemaComparison;
+  return metadataWriteTargetToken(left.write_target).localeCompare(
+    metadataWriteTargetToken(right.write_target),
+  );
 }
 
 export function metadataDraftTargetEquals(
@@ -141,13 +158,17 @@ export function metadataDraftTargetEquals(
   if (left.kind !== right.kind) return false;
   if (!schemaDefinitionIdEquals(left.schema_id, right.schema_id)) return false;
 
-  if (left.kind === "NewProperty") return true;
+  if (left.kind === "NewProperty") {
+    return (
+      right.kind === "NewProperty" &&
+      metadataWriteTargetEquals(left.write_target, right.write_target)
+    );
+  }
   if (right.kind === "NewProperty") return false;
 
   return (
     metadataOccurrenceIdEquals(left.occurrence_id, right.occurrence_id) &&
-    left.write_target.group1 === right.write_target.group1 &&
-    left.write_target.tag_name === right.write_target.tag_name
+    metadataWriteTargetEquals(left.write_target, right.write_target)
   );
 }
 
@@ -277,6 +298,11 @@ export function newPropertyDraftTarget(
     target: {
       kind: "NewProperty",
       schema_id: { ...info.id },
+      write_target: {
+        group1: info.group,
+        group7: family7GroupFromSchemaId(info.id),
+        tag_name: info.name,
+      },
     },
   };
 }

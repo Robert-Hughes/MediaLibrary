@@ -32,7 +32,7 @@ function occurrence(
     schema_id: structuredClone(tagInfo.id),
     value: { kind: "Integer", value },
     tag_info: { ...tagInfo, group: group1 },
-    write_target: { group1, tag_name: "XResolution" },
+    write_target: { group1, group7: "ID-282", tag_name: "XResolution" },
   };
 }
 

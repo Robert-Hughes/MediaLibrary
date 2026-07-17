@@ -36,7 +36,11 @@ function occurrence(
     schema_id: tagInfo.id,
     value: { kind: "Integer", value },
     tag_info: tagInfo,
-    write_target: { group1: "IFD0", tag_name: "XResolution" },
+    write_target: {
+      group1: "IFD0",
+      group7: "ID-Test",
+      tag_name: "XResolution",
+    },
     ...overrides,
   };
 }
@@ -254,7 +258,11 @@ describe("supplementalResolvedMetadataOccurrences", () => {
   it("retains shared-schema occurrences, distinct or identical values, and domain IDs", () => {
     const a = occurrence(ifd0(), 300);
     const b = occurrence(ifd1(), 72, {
-      write_target: { group1: "IFD1", tag_name: "XResolution" },
+      write_target: {
+        group1: "IFD1",
+        group7: "ID-Test",
+        tag_name: "XResolution",
+      },
     });
     const distinct = supplemental([b, a], {});
     expect(distinct.map((entry) => entry.value)).toEqual(["300", "72"]);
@@ -285,7 +293,11 @@ describe("supplementalResolvedMetadataOccurrences", () => {
     const entries = supplemental(
       [
         occurrence(ifd1(), 72, {
-          write_target: { group1: "IFD1", tag_name: "XResolution" },
+          write_target: {
+            group1: "IFD1",
+            group7: "ID-Test",
+            tag_name: "XResolution",
+          },
         }),
         occurrence(ifd0(), 300),
       ],
@@ -329,7 +341,13 @@ describe("supplementalResolvedMetadataOccurrences", () => {
             copy: 2,
           },
           72,
-          { write_target: { group1: "IFD1", tag_name: "XResolution" } },
+          {
+            write_target: {
+              group1: "IFD1",
+              group7: "ID-Test",
+              tag_name: "XResolution",
+            },
+          },
         ),
       ],
       {},

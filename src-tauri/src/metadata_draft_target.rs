@@ -3,7 +3,10 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::metadata_occurrence::{MetadataOccurrence, MetadataOccurrenceId, MetadataWriteTarget};
+use crate::metadata_occurrence::{
+    family7_group_from_schema_id, validate_family1_group, MetadataOccurrence, MetadataOccurrenceId,
+    MetadataWriteTarget,
+};
 use crate::tag_schema::{SchemaDefinitionId, TagInfo};
 
 /// Distinguishes editing one existing runtime occurrence from creating a new
@@ -33,20 +36,35 @@ pub enum MetadataDraftTarget {
         write_target: MetadataWriteTarget,
     },
 
-    /// Creation of a property selected from one exact static schema definition.
-    /// No runtime occurrence or exact occurrence selector exists yet.
-    NewProperty { schema_id: SchemaDefinitionId },
+    /// Creation of a property selected from one exact static schema definition
+    /// at one intended write destination. This target is not an observed or
+    /// previously proven occurrence selector.
+    ///
+    /// A `MetadataWriteTarget` is the ExifTool selector; it is not proof that
+    /// ExifTool will instantiate the exact indexed definition selected by the
+    /// user. The exact schema remains authoritative during readback.
+    NewProperty {
+        schema_id: SchemaDefinitionId,
+        write_target: MetadataWriteTarget,
+    },
 }
 
 /// One logical draft position within a source file.
 ///
 /// The source file's relative path remains outer collection context. Unlike a
 /// [`MetadataDraftTarget`], this identity deliberately excludes target
-/// snapshots which may become stale while still referring to the same draft.
+/// snapshots which may become stale while still referring to the same existing
+/// occurrence. New Property identity includes its exact intended destination,
+/// because same-schema writes to different destinations are distinct drafts.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum MetadataDraftSlot {
-    ExistingOccurrence { occurrence_id: MetadataOccurrenceId },
-    NewProperty { schema_id: SchemaDefinitionId },
+    ExistingOccurrence {
+        occurrence_id: MetadataOccurrenceId,
+    },
+    NewProperty {
+        schema_id: SchemaDefinitionId,
+        write_target: MetadataWriteTarget,
+    },
 }
 
 /// A specific reason a draft target cannot be constructed or revalidated.
@@ -59,6 +77,9 @@ pub enum MetadataDraftTargetError {
     OccurrenceIdMismatch,
     SchemaIdMismatch,
     WriteTargetMismatch,
+    InvalidFamily1Group,
+    NewPropertyGroup7Mismatch,
+    NewPropertyTagNameMismatch,
 }
 
 impl std::fmt::Display for MetadataDraftTargetError {
@@ -74,6 +95,13 @@ impl std::fmt::Display for MetadataDraftTargetError {
             Self::SchemaIdMismatch => "stored schema ID does not match the fresh occurrence",
             Self::WriteTargetMismatch => {
                 "stored write-target snapshot does not match the fresh occurrence"
+            }
+            Self::InvalidFamily1Group => "new-property family-1 destination is invalid",
+            Self::NewPropertyGroup7Mismatch => {
+                "new-property family-7 destination does not match the selected schema"
+            }
+            Self::NewPropertyTagNameMismatch => {
+                "new-property tag name does not match the selected schema"
             }
         };
         formatter.write_str(message)
@@ -92,15 +120,19 @@ impl MetadataDraftTarget {
                     occurrence_id: occurrence_id.clone(),
                 }
             }
-            Self::NewProperty { schema_id } => MetadataDraftSlot::NewProperty {
+            Self::NewProperty {
+                schema_id,
+                write_target,
+            } => MetadataDraftSlot::NewProperty {
                 schema_id: schema_id.clone(),
+                write_target: write_target.clone(),
             },
         }
     }
 
     pub fn schema_id(&self) -> &SchemaDefinitionId {
         match self {
-            Self::ExistingOccurrence { schema_id, .. } | Self::NewProperty { schema_id } => {
+            Self::ExistingOccurrence { schema_id, .. } | Self::NewProperty { schema_id, .. } => {
                 schema_id
             }
         }
@@ -115,8 +147,8 @@ impl MetadataDraftTarget {
 
     pub fn write_target(&self) -> Option<&MetadataWriteTarget> {
         match self {
-            Self::ExistingOccurrence { write_target, .. } => Some(write_target),
-            Self::NewProperty { .. } => None,
+            Self::ExistingOccurrence { write_target, .. }
+            | Self::NewProperty { write_target, .. } => Some(write_target),
         }
     }
 
@@ -164,7 +196,39 @@ impl MetadataDraftTarget {
 
         Ok(Self::NewProperty {
             schema_id: info.id.clone(),
+            write_target: MetadataWriteTarget {
+                group1: info.group.clone(),
+                group7: family7_group_from_schema_id(&info.id),
+                tag_name: info.name.clone(),
+            },
         })
+    }
+
+    /// Validates a stored New Property destination against the exact selected
+    /// schema. Only family 1 may differ from the schema default.
+    pub fn validate_new_property(&self, info: &TagInfo) -> Result<(), MetadataDraftTargetError> {
+        let Self::NewProperty {
+            schema_id,
+            write_target,
+        } = self
+        else {
+            return Err(MetadataDraftTargetError::WrongTargetKind);
+        };
+        if schema_id != &info.id {
+            return Err(MetadataDraftTargetError::SchemaIdMismatch);
+        }
+        if !info.supports_metadata_write() {
+            return Err(MetadataDraftTargetError::ReadOnlySchema);
+        }
+        validate_family1_group(&write_target.group1)
+            .map_err(|_| MetadataDraftTargetError::InvalidFamily1Group)?;
+        if write_target.group7 != family7_group_from_schema_id(schema_id) {
+            return Err(MetadataDraftTargetError::NewPropertyGroup7Mismatch);
+        }
+        if write_target.tag_name != info.name {
+            return Err(MetadataDraftTargetError::NewPropertyTagNameMismatch);
+        }
+        Ok(())
     }
 
     /// Revalidates an existing-occurrence target against a freshly read exact
@@ -253,6 +317,7 @@ mod tests {
     fn write_target() -> MetadataWriteTarget {
         MetadataWriteTarget {
             group1: "IFD0".to_owned(),
+            group7: "ID-282".to_owned(),
             tag_name: "XResolution".to_owned(),
         }
     }
@@ -338,7 +403,14 @@ mod tests {
 
         assert_eq!(target.schema_id(), &info.id);
         assert_eq!(target.occurrence_id(), None);
-        assert_eq!(target.write_target(), None);
+        assert_eq!(
+            target.write_target(),
+            Some(&MetadataWriteTarget {
+                group1: info.group.clone(),
+                group7: "ID-282".into(),
+                tag_name: info.name.clone(),
+            })
+        );
         assert!(!target.is_existing_occurrence());
         assert!(target.is_new_property());
     }
@@ -404,6 +476,19 @@ mod tests {
         let target = MetadataDraftTarget::from_existing_occurrence(&original).unwrap();
         let mut fresh = original;
         fresh.write_target.as_mut().unwrap().group1 = "IFD1".to_owned();
+
+        assert_eq!(
+            target.validate_existing_occurrence(&fresh),
+            Err(MetadataDraftTargetError::WriteTargetMismatch)
+        );
+    }
+
+    #[test]
+    fn existing_validation_rejects_a_changed_runtime_family7_snapshot() {
+        let original = occurrence();
+        let target = MetadataDraftTarget::from_existing_occurrence(&original).unwrap();
+        let mut fresh = original;
+        fresh.write_target.as_mut().unwrap().group7 = "ID-ID-AbC".to_owned();
 
         assert_eq!(
             target.validate_existing_occurrence(&fresh),
@@ -518,15 +603,70 @@ mod tests {
     }
 
     #[test]
-    fn new_property_slot_contains_only_the_schema_id() {
+    fn new_property_slot_contains_the_schema_and_complete_destination() {
         let target = MetadataDraftTarget::from_new_property(&info(true, Some(3))).unwrap();
 
         assert_eq!(
             target.slot(),
             MetadataDraftSlot::NewProperty {
-                schema_id: schema_id(Some(3))
+                schema_id: schema_id(Some(3)),
+                write_target: target.write_target().unwrap().clone(),
             }
         );
+    }
+
+    #[test]
+    fn new_property_validation_locks_group7_and_tag_name_but_allows_custom_group1() {
+        let info = info(true, None);
+        let mut target = MetadataDraftTarget::from_new_property(&info).unwrap();
+        let MetadataDraftTarget::NewProperty { write_target, .. } = &mut target else {
+            unreachable!()
+        };
+        write_target.group1 = "IFD1".into();
+        assert_eq!(target.validate_new_property(&info), Ok(()));
+
+        let mut wrong_group7 = target.clone();
+        let MetadataDraftTarget::NewProperty { write_target, .. } = &mut wrong_group7 else {
+            unreachable!()
+        };
+        write_target.group7 = "ID-other".into();
+        assert_eq!(
+            wrong_group7.validate_new_property(&info),
+            Err(MetadataDraftTargetError::NewPropertyGroup7Mismatch)
+        );
+
+        let mut wrong_name = target.clone();
+        let MetadataDraftTarget::NewProperty { write_target, .. } = &mut wrong_name else {
+            unreachable!()
+        };
+        write_target.tag_name = "OtherName".into();
+        assert_eq!(
+            wrong_name.validate_new_property(&info),
+            Err(MetadataDraftTargetError::NewPropertyTagNameMismatch)
+        );
+
+        let mut invalid_group1 = target;
+        let MetadataDraftTarget::NewProperty { write_target, .. } = &mut invalid_group1 else {
+            unreachable!()
+        };
+        write_target.group1 = "1IFD1".into();
+        assert_eq!(
+            invalid_group1.validate_new_property(&info),
+            Err(MetadataDraftTargetError::InvalidFamily1Group)
+        );
+    }
+
+    #[test]
+    fn same_schema_new_properties_at_different_destinations_have_distinct_slots() {
+        let first = MetadataDraftTarget::from_new_property(&info(true, None)).unwrap();
+        let mut second = first.clone();
+        let MetadataDraftTarget::NewProperty { write_target, .. } = &mut second else {
+            unreachable!()
+        };
+        write_target.group1 = "IFD1".into();
+
+        assert_eq!(first.schema_id(), second.schema_id());
+        assert_ne!(first.slot(), second.slot());
     }
 
     #[test]

@@ -51,6 +51,7 @@ const writeTarget = (
   overrides: Partial<MetadataWriteTarget> = {},
 ): MetadataWriteTarget => ({
   group1: "IFD0",
+  group7: "ID-Test",
   tag_name: "XResolution",
   ...overrides,
 });
@@ -189,7 +190,15 @@ describe("metadata draft target construction", () => {
     const info = tagInfo(true, schemaId(0));
     expect(newPropertyDraftTarget(info)).toEqual({
       kind: "available",
-      target: { kind: "NewProperty", schema_id: info.id },
+      target: {
+        kind: "NewProperty",
+        schema_id: info.id,
+        write_target: {
+          group1: info.group,
+          group7: "ID-282",
+          tag_name: info.name,
+        },
+      },
     });
   });
 
@@ -319,11 +328,16 @@ describe("metadata draft target access and identity helpers", () => {
       "ExistingOccurrence",
       [null, "JPEG-APP1-IFD0", "282", ["TestFixture::Runtime", "282", null], 0],
       ["Exif::Main", "282", null],
-      ["IFD0", "XResolution"],
+      ["IFD0", "ID-Test", "XResolution"],
     ]);
     expect(JSON.parse(metadataDraftTargetToken(created))).toEqual([
       "NewProperty",
       ["Exif::Main", "282", null],
+      [
+        created.write_target.group1,
+        created.write_target.group7,
+        created.write_target.tag_name,
+      ],
     ]);
     expect(metadataDraftTargetToken(existing)).not.toBe(
       metadataDraftTargetToken(created),
@@ -423,6 +437,11 @@ describe("metadata draft slot token identity", () => {
     expect(JSON.parse(metadataDraftTargetSlotToken(target))).toEqual([
       "NewProperty",
       ["Exif::Main", "282", 2],
+      [
+        target.write_target.group1,
+        target.write_target.group7,
+        target.write_target.tag_name,
+      ],
     ]);
   });
 
@@ -442,7 +461,11 @@ describe("metadata draft slot token identity", () => {
   it("keeps the same occurrence slot when the selector snapshot changes", () => {
     const first = availableExisting();
     const second = structuredClone(first);
-    second.write_target = { group1: "IFD1", tag_name: "YResolution" };
+    second.write_target = {
+      group1: "IFD1",
+      group7: "ID-Test",
+      tag_name: "YResolution",
+    };
 
     expect(metadataDraftTargetSlotToken(first)).toBe(
       metadataDraftTargetSlotToken(second),

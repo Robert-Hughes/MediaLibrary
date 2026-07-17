@@ -95,8 +95,9 @@ export function isMetadataWriteTarget(
 ): value is MetadataWriteTarget {
   return (
     isRecord(value) &&
-    hasOwnStringKeys(value, ["group1", "tag_name"]) &&
+    hasOwnStringKeys(value, ["group1", "group7", "tag_name"]) &&
     typeof value.group1 === "string" &&
+    typeof value.group7 === "string" &&
     typeof value.tag_name === "string"
   );
 }
@@ -305,8 +306,9 @@ export function isMetadataDraftTarget(
   }
   if (value.kind === "NewProperty") {
     return (
-      hasOwnStringKey(value, "schema_id") &&
-      isSchemaDefinitionId(value.schema_id)
+      hasOwnStringKeys(value, ["schema_id", "write_target"]) &&
+      isSchemaDefinitionId(value.schema_id) &&
+      isMetadataWriteTarget(value.write_target)
     );
   }
   return false;

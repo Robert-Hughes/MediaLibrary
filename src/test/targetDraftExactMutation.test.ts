@@ -21,7 +21,11 @@ function target(
       copy: 0,
     },
     schema_id: { table: "Exif::Main", tag_id: schema },
-    write_target: { group1: "IFD0", tag_name: `Tag${schema}` },
+    write_target: {
+      group1: "IFD0",
+      group7: "ID-Test",
+      tag_name: `Tag${schema}`,
+    },
   };
 }
 

@@ -859,6 +859,7 @@ mod tests {
                 schema_id: command_v5_schema(),
                 write_target: metadata_occurrence::MetadataWriteTarget {
                     group1: group1.to_owned(),
+                    group7: "ID-282".to_owned(),
                     tag_name: "XResolution".to_owned(),
                 },
             },
@@ -878,6 +879,11 @@ mod tests {
         draft_edits::MetadataDraftEntryV5 {
             target: metadata_draft_target::MetadataDraftTarget::NewProperty {
                 schema_id: command_v5_schema(),
+                write_target: metadata_occurrence::MetadataWriteTarget {
+                    group1: "IFD0".to_owned(),
+                    group7: "ID-282".to_owned(),
+                    tag_name: "XResolution".to_owned(),
+                },
             },
             edit: command_v5_edit(metadata_value::MetadataValue::Null),
         }
@@ -1024,6 +1030,7 @@ mod tests {
             tag_info: Some(tag_info.clone()),
             write_target: Some(MetadataWriteTarget {
                 group1: group1.into(),
+                group7: "ID-282".into(),
                 tag_name: "XResolution".into(),
             }),
         };

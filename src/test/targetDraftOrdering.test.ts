@@ -39,7 +39,7 @@ const existing = (
   kind: "ExistingOccurrence",
   occurrence_id: occurrence(),
   schema_id: schema("Exif::Main", "282"),
-  write_target: { group1: "IFD0", tag_name: "XResolution" },
+  write_target: { group1: "IFD0", group7: "ID-Test", tag_name: "XResolution" },
   ...overrides,
 });
 
@@ -48,6 +48,7 @@ const created = (
 ): Extract<MetadataDraftTarget, { kind: "NewProperty" }> => ({
   kind: "NewProperty",
   schema_id: id,
+  write_target: { group1: "XMP-test", group7: "ID-Test", tag_name: "TestTag" },
 });
 
 describe("compareSchemaDefinitionIds", () => {
@@ -115,7 +116,11 @@ describe("compareMetadataDraftTargetsBySlot", () => {
       schema_id: schema("Other", "999", 3),
     });
     const changedSelector = existing({
-      write_target: { group1: "IFD1", tag_name: "YResolution" },
+      write_target: {
+        group1: "IFD1",
+        group7: "ID-Test",
+        tag_name: "YResolution",
+      },
     });
 
     expect(compareMetadataDraftTargetsBySlot(first, changedSchema)).toBe(0);

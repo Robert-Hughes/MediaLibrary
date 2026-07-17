@@ -436,7 +436,11 @@ describe("PhotoList context menu (multi-select)", () => {
               copy: 0,
             },
             schema_id: schema,
-            write_target: { group1: "IFD0", tag_name: "Make" },
+            write_target: {
+              group1: "IFD0",
+              group7: "ID-Test",
+              tag_name: "Make",
+            },
           },
           edit: textDraft("Nikon"),
         },

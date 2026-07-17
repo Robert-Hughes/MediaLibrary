@@ -81,7 +81,7 @@ function gpsOccurrence(
       kind: { kind: value.kind } as never,
       description: null,
     },
-    write_target: { group1: "GPS", tag_name: id.tag_id },
+    write_target: { group1: "GPS", group7: "ID-Test", tag_name: id.tag_id },
   };
 }
 

@@ -17,6 +17,10 @@ import {
   _clearTagInfoCache,
   _setTagInfoCacheEntry,
 } from "./tagInfoTestHelpers";
+import {
+  _resetWritableSchemaDefinitionsCache,
+  _setWritableSchemaDefinitionsCache,
+} from "../hooks/useWritableSchemaDefinitions";
 
 const photo = makePhoto({ relative_path: "exact-row.jpg" });
 const schemaId: SchemaDefinitionId = {
@@ -58,6 +62,7 @@ function occurrence(
     tag_info: options.info ?? tagInfo,
     write_target: {
       group1: options.group1 ?? "IFD0",
+      group7: "ID-Test",
       tag_name: "XResolution",
     },
   };
@@ -132,6 +137,7 @@ function ordinaryMetadataRows() {
 beforeEach(() => {
   _clearTagInfoCache();
   _setTagInfoCacheEntry(schemaId, tagInfo);
+  _resetWritableSchemaDefinitionsCache();
 });
 
 describe("DetailsPane exact target-owned row presentation", () => {
@@ -496,7 +502,15 @@ describe("DetailsPane exact target-owned row presentation", () => {
         const store = new TargetDraftEditsStore();
         store.setMetadataTarget(
           photo.relative_path,
-          { kind: "NewProperty", schema_id: schemaId },
+          {
+            kind: "NewProperty",
+            schema_id: schemaId,
+            write_target: {
+              group1: "XMP-test",
+              group7: "ID-Test",
+              tag_name: "TestTag",
+            },
+          },
           { intent: "Set", value: { kind: "Integer", value: 301 } },
         );
         return store.getMetadataFile(photo.relative_path);
@@ -543,7 +557,11 @@ describe("DetailsPane exact target-owned row presentation", () => {
           schema_id: gpsInfo.id,
           value: { kind: "Real", value: 51.5 },
           tag_info: gpsInfo,
-          write_target: { group1: "GPS", tag_name: "GPSLatitude" },
+          write_target: {
+            group1: "GPS",
+            group7: "ID-Test",
+            tag_name: "GPSLatitude",
+          },
         },
       ],
     });
@@ -681,7 +699,11 @@ describe("DetailsPane exact ordinary editor identity", () => {
       schema_id: gpsInfo.id,
       value: { kind: "Real", value: 51.5 },
       tag_info: gpsInfo,
-      write_target: { group1: "GPS", tag_name: "GPSLatitude" },
+      write_target: {
+        group1: "GPS",
+        group7: "ID-Test",
+        tag_name: "GPSLatitude",
+      },
     };
     const view = renderPane({
       occurrences: [gpsOccurrence],
@@ -714,12 +736,21 @@ describe("DetailsPane exact ordinary editor identity", () => {
       description: null,
     };
     _setTagInfoCacheEntry(newId, newInfo);
+    _setWritableSchemaDefinitionsCache([newInfo]);
     const store = new TargetDraftEditsStore();
-    store.setMetadataTarget(
-      photo.relative_path,
-      { kind: "NewProperty", schema_id: newId },
-      { intent: "Set", value: { kind: "Text", value: "draft title" } },
-    );
+    const newTarget = {
+      kind: "NewProperty" as const,
+      schema_id: newId,
+      write_target: {
+        group1: "XMP-custom",
+        group7: "ID-title",
+        tag_name: "Title",
+      },
+    };
+    store.setMetadataTarget(photo.relative_path, newTarget, {
+      intent: "Set",
+      value: { kind: "Text", value: "draft title" },
+    });
     const view = renderPane({
       occurrences: [],
       targetDraftEdits: store.getMetadataFile(photo.relative_path),
@@ -727,13 +758,19 @@ describe("DetailsPane exact ordinary editor identity", () => {
     const row = screen.getByText("draft title").closest("tr")!;
     fireEvent.contextMenu(row);
     await userEvent.click(screen.getByRole("button", { name: "Edit…" }));
+    await waitFor(() => {
+      expect(screen.getByTestId("new-property-destination-group")).toHaveValue(
+        "XMP-custom",
+      );
+    });
+    await userEvent.click(screen.getByTestId("new-property-next"));
     const input = screen.getByTestId("value-edit-input");
     expect(input).toHaveValue("draft title");
     await userEvent.clear(input);
     await userEvent.type(input, "updated title");
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
     expect(view.onSetNewPropertyDraft).toHaveBeenCalledWith(
-      newId,
+      newTarget,
       expect.objectContaining({
         intent: "Set",
         value: { kind: "Text", value: "updated title" },

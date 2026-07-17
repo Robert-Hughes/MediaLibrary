@@ -21,19 +21,33 @@ remain intentionally manual.
 MediaLibrary keeps the following concepts separate. Similar-looking property
 names in diagnostics do not make them interchangeable.
 
-| Concept                                              | What it identifies                                                                             | Source                                                      | User-facing?                          | Shared by several occurrences?         | Usable for writing?                                                               |
-| ---------------------------------------------------- | ---------------------------------------------------------------------------------------------- | ----------------------------------------------------------- | ------------------------------------- | -------------------------------------- | --------------------------------------------------------------------------------- |
-| Friendly property label                              | A human-readable group/name such as `IFD0:XResolution`                                         | ExifTool group/tag names and `TagInfo`                      | Yes: display, search and explanations | Yes                                    | No; it is not stable execution identity                                           |
-| Runtime tag-ID scope (`RuntimeTagIdScope`)           | The wrapped table, tag ID and optional index associated with the extracted family-7 runtime ID | Wrapped ExifTool JSON                                       | Diagnostic only                       | Yes                                    | No; it is one component of occurrence identity, not a mutation selector           |
-| Schema definition identity (`SchemaDefinitionId`)    | One exact static ExifTool definition used to interpret a semantic value                        | Exact registry resolution, normally from wrapped scope      | Diagnostic context                    | Yes                                    | For schema-driven New Property only; never to first-select an existing occurrence |
-| Runtime occurrence identity (`MetadataOccurrenceId`) | One concrete field/value in one file                                                           | Parsed ExifTool property-key coordinates plus wrapped scope | Diagnostic context                    | No                                     | It selects the occurrence to validate, but is not itself ExifTool argv            |
-| Runtime write target (`MetadataWriteTarget`)         | A separately proven ExifTool mutation selector                                                 | Scanner validation of the concrete runtime occurrence       | Shown where useful for diagnostics    | It must be unambiguous within the file | Yes, after the complete existing-occurrence snapshot is revalidated               |
+| Concept                                              | What it identifies                                                                             | Source                                                                                          | User-facing?                          | Shared by several occurrences?                                              | Usable for writing?                                                               |
+| ---------------------------------------------------- | ---------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- | ------------------------------------- | --------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| Friendly property label                              | A human-readable group/name such as `IFD0:XResolution`                                         | ExifTool group/tag names and `TagInfo`                                                          | Yes: display, search and explanations | Yes                                                                         | No; it is not stable execution identity                                           |
+| Runtime tag-ID scope (`RuntimeTagIdScope`)           | The wrapped table, tag ID and optional index associated with the extracted family-7 runtime ID | Wrapped ExifTool JSON                                                                           | Diagnostic only                       | Yes                                                                         | No; it is one component of occurrence identity, not a mutation selector           |
+| Schema definition identity (`SchemaDefinitionId`)    | One exact static ExifTool definition used to interpret a semantic value                        | Exact registry resolution, normally from wrapped scope                                          | Diagnostic context                    | Yes                                                                         | For schema-driven New Property only; never to first-select an existing occurrence |
+| Runtime occurrence identity (`MetadataOccurrenceId`) | One concrete field/value in one file                                                           | Parsed ExifTool property-key coordinates plus wrapped scope                                     | Diagnostic context                    | No                                                                          | It selects the occurrence to validate, but is not itself ExifTool argv            |
+| Writable selector identity (`MetadataWriteTarget`)   | Family 1 + family 7 + canonical tag name used as an ExifTool mutation selector                 | Proven runtime coordinates for existing fields; intended schema-locked coordinates for creation | Shown where useful for diagnostics    | Existing selectors must be unambiguous; intended selectors require readback | Yes, after authoritative validation                                               |
 
 `MetadataOccurrenceId.document` is the family-3 document/sample coordinate,
 `path` is the family-5 metadata path, `runtime_tag_id` is the family-7 runtime
 ID, `tag_id_scope` is the wrapped table/ID/index scope, and `copy` is the
 family-4 copy number. Together they identify a concrete occurrence; none of
 those fields may be replaced by a friendly label or schema lookup.
+
+`MetadataWriteTarget` stores `group1 + group7 + tag_name`. For example,
+`{ group1: "IFD1", group7: "ID-282", tag_name: "XResolution" }` renders
+only at the final write boundary as `1IFD1:7ID-282:XResolution`. ExifTool's
+official documentation states that group names may be prefixed with their
+family number and that a write tag may contain leading family 0, 1, 2, or 7
+groups. See [ExifTool tag operations](https://exiftool.org/exiftool_pod2.html#Tag-operations),
+especially the `-TAG` and `-TAG[+-^]=[VALUE]` sections. MediaLibrary qualifies
+families 1 and 7 explicitly so an entered destination cannot be interpreted as
+another family.
+
+Families 3, 4, and 5 remain extraction-occurrence coordinates. They can
+distinguish documents, copies, and physical paths, but this application does
+not use them as direct-write coordinates.
 
 ## Problem: friendly ExifTool names are not identities
 
@@ -168,6 +182,20 @@ child scope in `tag_id_scope`, while `schema_id` resolves to the exact LangAlt
 parent definition. Documentation and diagnostics must not describe
 `schema_id` as merely an untouched copy of the wrapped tuple.
 
+Runtime family 7 is not necessarily identical to the static schema tag ID.
+The scanner removes exactly one transport-level `ID-` prefix from an observed
+family-7 group. Existing targets restore exactly that prefix from
+`MetadataOccurrenceId.runtime_tag_id`; they never derive family 7 from the
+static schema. Thus runtime `ID-AbC` becomes complete group `ID-ID-AbC`. New
+Property has no runtime occurrence, so its schema-controlled family 7 is
+derived instead from the exact selected `SchemaDefinitionId.tag_id`. That
+schema derivation follows ExifTool's documented family-7 encoding: ASCII
+letters, digits, hyphen, and underscore are retained, while every other UTF-8
+byte becomes two lowercase hexadecimal digits. For example, `AAPL:Keywords`
+becomes `ID-AAPL3aKeywords`, `Creation Time` becomes `ID-Creation20Time`, and
+`xid ` becomes `ID-xid20`. See ExifTool's
+[`GetGroup` family documentation](https://exiftool.org/ExifTool.html#GetGroup).
+
 JavaScript uses `schemaDefinitionIdToken(id)` only to make stable keys for
 `Map`, object and React collection mechanics. Every collection value retains
 the structured ID. The token is not a second metadata identity and is not a
@@ -218,8 +246,17 @@ LangAlt children are merged deliberately as described above.
 
 The user searches friendly fields, but every result represents one exact
 `TagInfo`. Same-name definitions appear separately with table, ID and index
-context, and the user explicitly selects one. Arbitrary free-text properties
-cannot be written. Existing-property detection compares exact IDs.
+context, and the user explicitly selects one. The default target uses family 1
+from `info.group`, family 7 from `info.id.tag_id`, and tag name from
+`info.name`. Only family 1 is editable.
+
+The editable combobox suggests the schema default first, then applicable
+writable schema groups and proven groups observed in the file. Suggestions are
+advisory, not an exhaustive or guaranteed list of legal destinations. Unknown
+tokens remain enterable when they match `[A-Za-z_#][A-Za-z0-9_#-]*`. Numeric
+family prefixes, whitespace, colons, equals signs, controls, and argument
+syntax are rejected. The backend repeats this validation and locks family 7
+and tag name to the selected schema.
 
 ## Draft target variants
 
@@ -229,11 +266,19 @@ and revalidates all three before rendering the stored runtime selector. It
 does not reconstruct that selector from a friendly label and never uses the
 schema ID to choose among same-schema occurrences.
 
-`NewProperty` has no runtime occurrence or proven runtime selector to snapshot,
-so it remains schema-driven and uses the exact selected definition's current
-selector behaviour. Same-schema, multiple-destination creation semantics are
-intentionally outside this patch and require a separate design decision; this
-document does not claim that question is settled.
+`NewProperty` stores both the exact `SchemaDefinitionId` and a complete intended
+`MetadataWriteTarget`. A `MetadataWriteTarget` is the ExifTool selector; it is
+not proof that ExifTool will instantiate the exact indexed definition selected
+by the user. Apply re-resolves the schema, validates the family-1 destination
+and schema-locked family 7/name, writes the stored target, and verifies exact
+authoritative readback.
+
+New Property draft slots include both schema and destination. Same-schema
+drafts for IFD0 and IFD1 coexist and are presented separately when one ordinary
+schema row cannot represent both. An existing proven selector blocks only the
+same complete destination; another proven same-schema destination does not.
+Because an occurrence without `write_target` has no proven free destination, a
+same-schema unresolved occurrence conservatively blocks creation.
 
 ## Wire formats and persistence
 
@@ -243,10 +288,10 @@ Transient scan and readback occurrences cross the Rust/TypeScript boundary as
 match `schema_id`.
 
 Target drafts continue to persist a complete `ExistingOccurrence` or
-`NewProperty` target beside the semantic edit. The occurrence object gains the
-required runtime tag ID and wrapped scope fields in place while draft
-`schema_version` remains 5. Old occurrence objects may fail strict
-deserialisation; no compatibility reader or migration is provided. Apply-log
+`NewProperty { schema_id, write_target }` beside the semantic edit. New Property
+group 1 is therefore preserved across persistence and reopening. The v5 shape
+is updated in place while draft `schema_version` remains 5; no compatibility
+reader or migration is provided. Apply-log
 schema version and identity marker remain unchanged, and existing append-only
 rows are never rewritten. Struct-valued IDs are never JSON object keys.
 Historical draft files are ignored rather than parsed or migrated.

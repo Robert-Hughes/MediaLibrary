@@ -83,6 +83,7 @@ export function occurrenceFromSchemaValue(
     tag_info: info,
     write_target: {
       group1: info.group,
+      group7: "ID-Test",
       tag_name: info.name,
     },
   };

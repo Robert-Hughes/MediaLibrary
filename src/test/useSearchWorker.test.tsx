@@ -140,7 +140,15 @@ describe("useSearchWorker target-draft projection", () => {
     const drafts = new TargetDraftEditsStore();
     drafts.setMetadataTarget(
       path,
-      { kind: "NewProperty", schema_id: cityId },
+      {
+        kind: "NewProperty",
+        schema_id: cityId,
+        write_target: {
+          group1: "XMP-test",
+          group7: "ID-Test",
+          tag_name: "TestTag",
+        },
+      },
       { intent: "Set", value: { kind: "Text", value: "Reykjavik draft" } },
     );
     const photo = makePhoto({ relative_path: path, filename: "reserved.jpg" });
@@ -175,7 +183,15 @@ describe("useSearchWorker target-draft projection", () => {
       query: "has:edits",
     });
     await waitFor(() => expect(result.current.matched).toEqual(new Set()));
-    const target = { kind: "NewProperty" as const, schema_id: cityId };
+    const target = {
+      kind: "NewProperty" as const,
+      schema_id: cityId,
+      write_target: {
+        group1: "XMP-test",
+        group7: "ID-Test",
+        tag_name: "TestTag",
+      },
+    };
     act(() => {
       drafts.setMetadataTarget("a.jpg", target, {
         intent: "Set",
@@ -193,7 +209,15 @@ describe("useSearchWorker target-draft projection", () => {
     const drafts = new TargetDraftEditsStore();
     drafts.setMetadataTarget(
       "a.jpg",
-      { kind: "NewProperty", schema_id: cityId },
+      {
+        kind: "NewProperty",
+        schema_id: cityId,
+        write_target: {
+          group1: "XMP-test",
+          group7: "ID-Test",
+          tag_name: "TestTag",
+        },
+      },
       { intent: "Set", value: { kind: "Text", value: "retry value" } },
     );
     vi.mocked(invoke)
@@ -231,7 +255,15 @@ describe("useSearchWorker target-draft projection", () => {
       ),
     );
     fake.inbound.length = 0;
-    const target = { kind: "NewProperty" as const, schema_id: cityId };
+    const target = {
+      kind: "NewProperty" as const,
+      schema_id: cityId,
+      write_target: {
+        group1: "XMP-test",
+        group7: "ID-Test",
+        tag_name: "TestTag",
+      },
+    };
     act(() => {
       drafts.setMetadataTarget("a.jpg", target, {
         intent: "Set",

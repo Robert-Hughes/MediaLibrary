@@ -40,6 +40,11 @@ function draft(value = "draft"): MetadataDraftEntryV5 {
     target: {
       kind: "NewProperty",
       schema_id: { table: "Exif::Main", tag_id: "282" },
+      write_target: {
+        group1: "XMP-test",
+        group7: "ID-Test",
+        tag_name: "TestTag",
+      },
     },
     edit: {
       intent: "Set",
@@ -77,7 +82,7 @@ const replacementTarget = {
     copy: 0,
   },
   schema_id: { table: "Exif::Main", tag_id: "282" },
-  write_target: { group1: "IFD0", tag_name: "XResolution" },
+  write_target: { group1: "IFD0", group7: "ID-Test", tag_name: "XResolution" },
 };
 
 function invalidPersistenceResult(
@@ -88,6 +93,11 @@ function invalidPersistenceResult(
     target: {
       kind: "NewProperty",
       schema_id: { table: "Exif::Main", tag_id: "282" },
+      write_target: {
+        group1: "XMP-test",
+        group7: "ID-Test",
+        tag_name: "TestTag",
+      },
     },
     draft_reconciliation: {
       kind: "Replace",

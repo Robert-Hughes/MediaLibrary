@@ -165,7 +165,7 @@ describe("NewPropertyDialog exact-ID selection flow", () => {
     expect(screen.getByTestId("new-property-next")).toBeDisabled();
   });
 
-  it("clicking one result enables Next and onSave returns the selected ID", async () => {
+  it("clicking one result enables Next and returns the complete default target", async () => {
     const user = userEvent.setup();
     const onSave = vi.fn();
     _setWritableSchemaDefinitionsCache(testDefinitions);
@@ -183,7 +183,15 @@ describe("NewPropertyDialog exact-ID selection flow", () => {
     expect(screen.getByTestId("new-property-next")).not.toBeDisabled();
 
     await user.click(screen.getByTestId("new-property-next"));
-    expect(onSave).toHaveBeenCalledWith(testDefinitions[0].id);
+    expect(onSave).toHaveBeenCalledWith({
+      kind: "NewProperty",
+      schema_id: testDefinitions[0].id,
+      write_target: {
+        group1: testDefinitions[0].group,
+        group7: `ID-${testDefinitions[0].id.tag_id}`,
+        tag_name: testDefinitions[0].name,
+      },
+    });
   });
 
   it("pressing Enter submits only after an explicit selection", async () => {
@@ -204,7 +212,86 @@ describe("NewPropertyDialog exact-ID selection flow", () => {
     await user.click(screen.getByTestId(`schema-option-${titleToken}`));
 
     fireEvent.keyDown(input, { key: "Enter" });
-    expect(onSave).toHaveBeenCalledWith(testDefinitions[0].id);
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({ schema_id: testDefinitions[0].id }),
+    );
+  });
+
+  it("accepts an unknown valid destination and returns the schema-locked selector", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn();
+    _setWritableSchemaDefinitionsCache(testDefinitions);
+    render(<NewPropertyDialog onSave={onSave} onCancel={() => {}} />);
+
+    await user.type(screen.getByTestId("new-property-key"), "Title");
+    await user.click(
+      screen.getByTestId(
+        `schema-option-${schemaDefinitionIdToken(testDefinitions[0].id)}`,
+      ),
+    );
+    const destination = screen.getByTestId("new-property-destination-group");
+    await user.clear(destination);
+    await user.type(destination, "Custom-IFD");
+    expect(screen.getByTestId("new-property-write-selector")).toHaveTextContent(
+      "1Custom-IFD:7ID-title:Title",
+    );
+    await user.click(screen.getByTestId("new-property-next"));
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        write_target: {
+          group1: "Custom-IFD",
+          group7: "ID-title",
+          tag_name: "Title",
+        },
+      }),
+    );
+  });
+
+  it("rejects family prefixes and selector syntax with a precise message", async () => {
+    const user = userEvent.setup();
+    _setWritableSchemaDefinitionsCache(testDefinitions);
+    render(<NewPropertyDialog onSave={() => {}} onCancel={() => {}} />);
+    await user.type(screen.getByTestId("new-property-key"), "Title");
+    await user.click(
+      screen.getByTestId(
+        `schema-option-${schemaDefinitionIdToken(testDefinitions[0].id)}`,
+      ),
+    );
+    const destination = screen.getByTestId("new-property-destination-group");
+    await user.clear(destination);
+    await user.type(destination, "1IFD0");
+    expect(
+      screen.getByTestId("new-property-destination-error"),
+    ).toHaveTextContent("numeric family prefix");
+    expect(screen.getByTestId("new-property-next")).toBeDisabled();
+  });
+
+  it("puts the default first, deduplicates suggestions, and restores a custom target", async () => {
+    _setWritableSchemaDefinitionsCache(testDefinitions);
+    const info = testDefinitions[0];
+    render(
+      <NewPropertyDialog
+        onSave={() => {}}
+        onCancel={() => {}}
+        initialTarget={{
+          kind: "NewProperty",
+          schema_id: info.id,
+          write_target: {
+            group1: "Saved-Custom",
+            group7: `ID-${info.id.tag_id}`,
+            tag_name: info.name,
+          },
+        }}
+      />,
+    );
+    expect(await screen.findByDisplayValue("Saved-Custom")).toBeInTheDocument();
+    const options = Array.from(
+      document.querySelectorAll<HTMLDataListElement>(
+        "#new-property-group-suggestions option",
+      ),
+    ).map((option) => option.getAttribute("value"));
+    expect(options[0]).toBe(info.group);
+    expect(new Set(options).size).toBe(options.length);
   });
 
   it("selects a focused search result with the keyboard", async () => {
@@ -279,21 +366,43 @@ describe("NewPropertyDialog exact-ID selection flow", () => {
     await user.click(screen.getByTestId(`schema-option-${canon5DToken}`));
 
     await user.click(screen.getByTestId("new-property-next"));
-    expect(onSave).toHaveBeenCalledWith(testDefinitions[3].id);
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({ schema_id: testDefinitions[3].id }),
+    );
   });
 
-  it("exact duplicate detection blocks only the matching ID and keeps sibling selectable", async () => {
+  it("allows a same-schema occurrence at another proven selector and blocks its exact selector", async () => {
     const user = userEvent.setup();
     const onSave = vi.fn();
     _setWritableSchemaDefinitionsCache(testDefinitions);
-
-    const existingIds = [testDefinitions[2].id]; // 40D is duplicate, 5D is not
 
     render(
       <NewPropertyDialog
         onSave={onSave}
         onCancel={() => {}}
-        existingIds={existingIds}
+        existingOccurrences={[
+          {
+            id: {
+              document: null,
+              path: "JPEG-APP1-MakerNotes",
+              runtime_tag_id: "4",
+              tag_id_scope: {
+                table: testDefinitions[2].id.table,
+                tag_id: "4",
+                index: null,
+              },
+              copy: 0,
+            },
+            schema_id: testDefinitions[2].id,
+            value: { kind: "Text", value: "Auto" },
+            tag_info: testDefinitions[2],
+            write_target: {
+              group1: "MakerNotes",
+              group7: "ID-4",
+              tag_name: "WhiteBalance",
+            },
+          },
+        ]}
       />,
     );
 
@@ -302,22 +411,18 @@ describe("NewPropertyDialog exact-ID selection flow", () => {
     });
 
     const canon40DToken = schemaDefinitionIdToken(testDefinitions[2].id);
-    const canon5DToken = schemaDefinitionIdToken(testDefinitions[3].id);
-
-    // Select 40D (duplicate)
     await user.click(screen.getByTestId(`schema-option-${canon40DToken}`));
-    expect(
-      screen.getByTestId("new-property-duplicate-warning"),
-    ).toBeInTheDocument();
-    expect(screen.getByTestId("new-property-next")).toBeDisabled();
-
-    // Select 5D (sibling, not duplicate)
-    await user.click(screen.getByTestId(`schema-option-${canon5DToken}`));
     expect(screen.queryByTestId("new-property-duplicate-warning")).toBeNull();
     expect(screen.getByTestId("new-property-next")).not.toBeDisabled();
 
-    await user.click(screen.getByTestId("new-property-next"));
-    expect(onSave).toHaveBeenCalledWith(testDefinitions[3].id);
+    await user.clear(screen.getByTestId("new-property-destination-group"));
+    await user.type(
+      screen.getByTestId("new-property-destination-group"),
+      "MakerNotes",
+    );
+    expect(screen.getByTestId("new-property-duplicate-warning")).toBeVisible();
+    expect(screen.getByTestId("new-property-next")).toBeDisabled();
+    expect(onSave).not.toHaveBeenCalled();
   });
 
   it("shows and distinguishes index: Some(0) from omitted index", () => {

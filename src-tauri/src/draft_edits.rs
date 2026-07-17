@@ -5,6 +5,9 @@
 //! are deliberately neither read nor modified.
 
 use crate::metadata_draft_target::{MetadataDraftSlot, MetadataDraftTarget};
+use crate::metadata_occurrence::{
+    family7_group_from_runtime_tag_id, family7_group_from_schema_id, validate_family1_group,
+};
 use crate::metadata_value::MetadataValue;
 use crate::tag_schema::SchemaDefinitionId;
 use serde::{Deserialize, Serialize};
@@ -179,6 +182,39 @@ fn validate_slots(
 ) -> Result<(), String> {
     let mut slots: HashSet<MetadataDraftSlot> = HashSet::new();
     for entry in entries {
+        match &entry.target {
+            MetadataDraftTarget::ExistingOccurrence {
+                occurrence_id,
+                write_target,
+                ..
+            } => {
+                validate_family1_group(&write_target.group1).map_err(|error| {
+                    format!(
+                        "Invalid existing-occurrence destination for '{relative_path}': {error}"
+                    )
+                })?;
+                if write_target.group7
+                    != family7_group_from_runtime_tag_id(&occurrence_id.runtime_tag_id)
+                {
+                    return Err(format!(
+                        "Invalid existing-occurrence family-7 destination for '{relative_path}'"
+                    ));
+                }
+            }
+            MetadataDraftTarget::NewProperty {
+                schema_id,
+                write_target,
+            } => {
+                validate_family1_group(&write_target.group1).map_err(|error| {
+                    format!("Invalid new-property destination for '{relative_path}': {error}")
+                })?;
+                if write_target.group7 != family7_group_from_schema_id(schema_id) {
+                    return Err(format!(
+                        "Invalid new-property family-7 destination for '{relative_path}'"
+                    ));
+                }
+            }
+        }
         let slot = entry.target.slot();
         if !slots.insert(slot.clone()) {
             return Err(match line_number {
@@ -233,6 +269,7 @@ mod tests {
                 schema_id: schema(index),
                 write_target: MetadataWriteTarget {
                     group1: "XMP-dc".to_string(),
+                    group7: "ID-Title".to_string(),
                     tag_name: "Title".to_string(),
                 },
             },
@@ -244,6 +281,11 @@ mod tests {
         MetadataDraftEntryV5 {
             target: MetadataDraftTarget::NewProperty {
                 schema_id: schema(index),
+                write_target: MetadataWriteTarget {
+                    group1: "XMP-dc".to_string(),
+                    group7: "ID-Title".to_string(),
+                    tag_name: "Title".to_string(),
+                },
             },
             edit: edit(display),
         }

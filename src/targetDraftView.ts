@@ -354,17 +354,6 @@ export function targetDraftSchemaId(
   return target.schema_id;
 }
 
-export function findNewPropertyDraftByExactSchema(
-  drafts: TargetDraftCollection | undefined,
-  schemaId: SchemaDefinitionId,
-): MetadataDraftEntryV5 | undefined {
-  return Object.values(drafts ?? {}).find(
-    (entry) =>
-      entry.target.kind === "NewProperty" &&
-      schemaDefinitionIdEquals(entry.target.schema_id, schemaId),
-  );
-}
-
 /**
  * Resolve exact-schema target ownership for a derived display projection. A
  * schema may resolve to at most one exact target; never first-select when

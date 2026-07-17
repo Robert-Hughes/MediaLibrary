@@ -304,6 +304,11 @@ describe("App Select Columns metadata counts", () => {
               target: {
                 kind: "NewProperty",
                 schema_id: { table: "XMP::dc", tag_id: "title" },
+                write_target: {
+                  group1: "XMP-test",
+                  group7: "ID-Test",
+                  tag_name: "TestTag",
+                },
               },
               edit: {
                 intent: "Set",
@@ -638,7 +643,11 @@ describe("App occurrence wiring regression", () => {
       schema_id: info.id,
       value: { kind: "Integer", value: 301 },
       tag_info: info,
-      write_target: { group1: "IFD0", tag_name: "XResolution" },
+      write_target: {
+        group1: "IFD0",
+        group7: "ID-Test",
+        tag_name: "XResolution",
+      },
     };
     const duplicateOccurrences: MetadataOccurrence[] = [
       {
@@ -656,7 +665,11 @@ describe("App occurrence wiring regression", () => {
         schema_id: info.id,
         value: { kind: "Integer", value: 300 },
         tag_info: info,
-        write_target: { group1: "IFD0", tag_name: "XResolution" },
+        write_target: {
+          group1: "IFD0",
+          group7: "ID-Test",
+          tag_name: "XResolution",
+        },
       },
       {
         id: {
@@ -673,7 +686,11 @@ describe("App occurrence wiring regression", () => {
         schema_id: info.id,
         value: { kind: "Integer", value: 300 },
         tag_info: info,
-        write_target: { group1: "IFD1", tag_name: "XResolution" },
+        write_target: {
+          group1: "IFD1",
+          group7: "ID-Test",
+          tag_name: "XResolution",
+        },
       },
     ];
     act(() => {

@@ -202,6 +202,7 @@ pub fn reconcile_metadata_draft_entries_v5(
         let (
             MetadataDraftTarget::NewProperty {
                 schema_id: original_schema,
+                ..
             },
             MetadataDraftTarget::ExistingOccurrence {
                 schema_id: replacement_schema,
@@ -315,6 +316,7 @@ mod tests {
         group1: &str,
         schema_id: SchemaDefinitionId,
     ) -> MetadataDraftTarget {
+        let group7 = format!("ID-{}", schema_id.tag_id);
         MetadataDraftTarget::ExistingOccurrence {
             occurrence_id: MetadataOccurrenceId {
                 document: None,
@@ -330,6 +332,7 @@ mod tests {
             schema_id,
             write_target: MetadataWriteTarget {
                 group1: group1.to_owned(),
+                group7,
                 tag_name: "XResolution".to_owned(),
             },
         }
@@ -350,7 +353,14 @@ mod tests {
     }
 
     fn new_target(schema_id: SchemaDefinitionId) -> MetadataDraftTarget {
-        MetadataDraftTarget::NewProperty { schema_id }
+        MetadataDraftTarget::NewProperty {
+            write_target: MetadataWriteTarget {
+                group1: "IFD0".to_owned(),
+                group7: format!("ID-{}", schema_id.tag_id),
+                tag_name: "XResolution".to_owned(),
+            },
+            schema_id,
+        }
     }
 
     fn edit(label: &str) -> MetadataDraftEdit {

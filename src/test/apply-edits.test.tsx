@@ -37,7 +37,15 @@ function seedTargetDrafts(paths: string[]): MetadataDraftEntryV5[] {
   const store = new TargetDraftEditsStore();
   const entries: MetadataDraftEntryV5[] = [];
   for (const path of paths) {
-    const target = { kind: "NewProperty" as const, schema_id: descriptionId };
+    const target = {
+      kind: "NewProperty" as const,
+      schema_id: descriptionId,
+      write_target: {
+        group1: "XMP-test",
+        group7: "ID-Test",
+        tag_name: "TestTag",
+      },
+    };
     const edit = {
       intent: "Set" as const,
       value: { kind: "Text" as const, value: `Draft ${path}` },

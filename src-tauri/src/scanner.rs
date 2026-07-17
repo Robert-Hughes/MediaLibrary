@@ -13,8 +13,8 @@ use std::sync::Arc;
 use walkdir::WalkDir;
 
 use crate::metadata_occurrence::{
-    MetadataOccurrence, MetadataOccurrenceId, MetadataOccurrences, MetadataWriteTarget,
-    RuntimeTagIdScope,
+    family7_group_from_runtime_tag_id, MetadataOccurrence, MetadataOccurrenceId,
+    MetadataOccurrences, MetadataWriteTarget, RuntimeTagIdScope,
 };
 use crate::metadata_value::{parse_metadata_value, MetadataValue};
 use crate::tag_schema::{normalize_runtime_tag_id, SchemaDefinitionId, TagKind, TagRegistry};
@@ -1043,9 +1043,11 @@ fn selector_component_is_safe(component: &str, reject_colon: bool) -> bool {
 fn assign_exact_write_targets(occurrences: &mut [CanonicalRuntimeOccurrence]) {
     let mut selector_counts = BTreeMap::new();
     for occurrence in occurrences.iter() {
+        let group7 = family7_group_from_runtime_tag_id(&occurrence.occurrence.id.runtime_tag_id);
         *selector_counts
             .entry((
                 occurrence.runtime_group1.to_ascii_lowercase(),
+                group7.to_ascii_lowercase(),
                 occurrence.runtime_tag_name.to_ascii_lowercase(),
             ))
             .or_insert(0usize) += 1;
@@ -1053,8 +1055,14 @@ fn assign_exact_write_targets(occurrences: &mut [CanonicalRuntimeOccurrence]) {
 
     for canonical in occurrences {
         canonical.occurrence.write_target = None;
+        // The scanner removed exactly one transport-level `ID-` prefix while
+        // parsing this concrete occurrence. Restore it here from runtime
+        // identity, never from static schema identity. Runtime family 7 is not
+        // necessarily identical to the static schema tag ID.
+        let group7 = family7_group_from_runtime_tag_id(&canonical.occurrence.id.runtime_tag_id);
         let selector_key = (
             canonical.runtime_group1.to_ascii_lowercase(),
+            group7.to_ascii_lowercase(),
             canonical.runtime_tag_name.to_ascii_lowercase(),
         );
         let Some(tag_info) = canonical.occurrence.tag_info.as_ref() else {
@@ -1066,20 +1074,20 @@ fn assign_exact_write_targets(occurrences: &mut [CanonicalRuntimeOccurrence]) {
             || canonical.language.is_some()
             || canonical.runtime_tag_name != tag_info.name
             || !selector_component_is_safe(&canonical.runtime_group1, false)
+            || !selector_component_is_safe(&group7, true)
             || !selector_component_is_safe(&canonical.runtime_tag_name, true)
             || selector_counts.get(&selector_key) != Some(&1)
         {
             continue;
         }
 
-        // Family 4 is an extraction instance number in MetadataOccurrenceId,
-        // not a write coordinate. Exactness comes from the supported family-1
-        // and tag-name selector identifying one runtime occurrence.
-        // Runtime family 1 and the validated runtime tag name are the only
-        // write coordinates. Schema table/ID/index and TagInfo::group are not
-        // occurrence destinations.
+        // Families 3, 4 and 5 remain extraction identity rather than supported
+        // direct-write coordinates. Exactness comes from the complete
+        // family-1/family-7/tag-name selector identifying one occurrence.
+        // Schema table/index and TagInfo::group are not occurrence destinations.
         canonical.occurrence.write_target = Some(MetadataWriteTarget {
             group1: canonical.runtime_group1.clone(),
+            group7,
             tag_name: canonical.runtime_tag_name.clone(),
         });
     }
@@ -2250,8 +2258,8 @@ mod tests {
         let ifd1_target = canonical[1].occurrence.write_target.as_ref().unwrap();
         assert_eq!(ifd0_target.group1, "IFD0");
         assert_eq!(ifd1_target.group1, "IFD1");
-        assert_eq!(ifd0_target.selector(), "IFD0:XResolution");
-        assert_eq!(ifd1_target.selector(), "IFD1:XResolution");
+        assert_eq!(ifd0_target.selector(), "1IFD0:7ID-282:XResolution");
+        assert_eq!(ifd1_target.selector(), "1IFD1:7ID-282:XResolution");
         assert_eq!(
             canonical[0].occurrence.tag_info.as_ref().unwrap().group,
             "IFD0"
@@ -2345,7 +2353,7 @@ mod tests {
         assign_exact_write_targets(std::slice::from_mut(&mut occurrence));
 
         let target = occurrence.occurrence.write_target.as_ref().unwrap();
-        assert_eq!(target.selector(), "IFD1:XResolution");
+        assert_eq!(target.selector(), "1IFD1:7ID-282:XResolution");
         assert!(occurrence.occurrence.is_writable());
     }
 
@@ -2392,7 +2400,48 @@ mod tests {
                     item.occurrence.write_target.as_ref().unwrap().selector()
                 })
                 .collect::<Vec<_>>(),
-            ["JFIF:XResolution", "IFD0:XResolution", "IFD1:XResolution"]
+            [
+                "1JFIF:7ID-282:XResolution",
+                "1IFD0:7ID-282:XResolution",
+                "1IFD1:7ID-282:XResolution"
+            ]
+        );
+    }
+
+    #[test]
+    fn same_group_and_name_with_different_runtime_family7_ids_are_distinct_targets() {
+        let mut info = write_target_test_info(true, TagKind::Rational);
+        info.name = "SharedName".into();
+        let mut first = write_target_test_occurrence(
+            "IFD0",
+            "SharedName",
+            "first",
+            0,
+            None,
+            Some(info.clone()),
+            MetadataValue::Integer(1),
+        );
+        first.occurrence.id.runtime_tag_id = "282".into();
+        let mut second = write_target_test_occurrence(
+            "IFD0",
+            "SharedName",
+            "second",
+            1,
+            None,
+            Some(info),
+            MetadataValue::Integer(2),
+        );
+        second.occurrence.id.runtime_tag_id = "ID-AbC".into();
+        let mut occurrences = vec![first, second];
+
+        assign_exact_write_targets(&mut occurrences);
+
+        assert_eq!(
+            occurrences
+                .iter()
+                .map(|item| item.occurrence.write_target.as_ref().unwrap().selector())
+                .collect::<Vec<_>>(),
+            ["1IFD0:7ID-282:SharedName", "1IFD0:7ID-ID-AbC:SharedName"]
         );
     }
 
@@ -2583,7 +2632,7 @@ mod tests {
                 .write_target
                 .as_ref()
                 .map(MetadataWriteTarget::selector),
-            Some("IFD0:XResolution".into())
+            Some("1IFD0:7ID-282:XResolution".into())
         );
         assert!(occurrence.occurrence.is_writable());
     }
@@ -2950,11 +2999,11 @@ mod tests {
         assert_eq!(ifd0.tag_info, ifd1.tag_info);
         assert_eq!(
             ifd0.write_target.as_ref().unwrap().selector(),
-            "IFD0:XResolution"
+            "1IFD0:7ID-282:XResolution"
         );
         assert_eq!(
             ifd1.write_target.as_ref().unwrap().selector(),
-            "IFD1:XResolution"
+            "1IFD1:7ID-282:XResolution"
         );
         let schema = ifd0.schema_id.clone();
         assert_eq!(result.occurrences.for_schema(&schema).count(), 2);
@@ -2988,11 +3037,11 @@ mod tests {
         };
         assert!(resolutions.iter().any(|item| {
             whole_number(item) == 300
-                && item.write_target.as_ref().unwrap().selector() == "IFD0:XResolution"
+                && item.write_target.as_ref().unwrap().selector() == "1IFD0:7ID-282:XResolution"
         }));
         assert!(resolutions.iter().any(|item| {
             whole_number(item) == 72
-                && item.write_target.as_ref().unwrap().selector() == "IFD1:XResolution"
+                && item.write_target.as_ref().unwrap().selector() == "1IFD1:7ID-282:XResolution"
         }));
 
         let wire = serde_json::to_value(result).unwrap();
@@ -3094,9 +3143,9 @@ mod tests {
         let ifd1_id = ifd1.occurrence.id.clone();
         let ifd0_target = ifd0.occurrence.write_target.clone().unwrap();
         let ifd1_target = ifd1.occurrence.write_target.clone().unwrap();
-        assert_eq!(ifd0_target.selector(), "IFD0:XResolution");
+        assert_eq!(ifd0_target.selector(), "1IFD0:7ID-282:XResolution");
         assert!(ifd1.occurrence.id.copy > 0);
-        assert_eq!(ifd1_target.selector(), "IFD1:XResolution");
+        assert_eq!(ifd1_target.selector(), "1IFD1:7ID-282:XResolution");
         assert_eq!(rational_integer_value(ifd0), 300);
         assert_eq!(rational_integer_value(ifd1), 72);
 
@@ -4869,11 +4918,11 @@ mod tests {
         }));
         assert_eq!(
             shared[0].write_target.as_ref().unwrap().selector(),
-            "IFD0:XResolution"
+            "1IFD0:7ID-282:XResolution"
         );
         assert_eq!(
             shared[1].write_target.as_ref().unwrap().selector(),
-            "IFD1:XResolution"
+            "1IFD1:7ID-282:XResolution"
         );
 
         let unknown = result.occurrences.get(&unknown_id).unwrap();
@@ -4904,6 +4953,7 @@ mod tests {
         );
         ifd1.occurrence.write_target = Some(MetadataWriteTarget {
             group1: "IFD1".into(),
+            group7: "ID-282".into(),
             tag_name: "XResolution".into(),
         });
         let mut ifd0 = write_target_test_occurrence(
@@ -4917,6 +4967,7 @@ mod tests {
         );
         ifd0.occurrence.write_target = Some(MetadataWriteTarget {
             group1: "IFD0".into(),
+            group7: "ID-282".into(),
             tag_name: "XResolution".into(),
         });
 

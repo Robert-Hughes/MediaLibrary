@@ -43,7 +43,6 @@ import {
   schemaDefinitionIdEquals,
   schemaDefinitionIdToken,
 } from "./utils/schemaDefinitionId";
-import { resolveTargetDraftByExactSchema } from "./targetDraftView";
 import { TargetVerifyOutcomesStoreV5 } from "./targetVerifyOutcomesStore";
 import {
   currentValueForMetadataDraftTarget,
@@ -52,6 +51,7 @@ import {
   metadataDraftTargetSlotToken,
   newPropertyDraftTarget,
 } from "./utils/metadataDraftTarget";
+import { validateFamily1Group } from "./utils/metadataWriteTarget";
 import { tagInfoSupportsMetadataWrite } from "./utils/metadataWriteSupport";
 import { resolveExactMetadataOccurrence } from "./utils/metadataOccurrences";
 import { planGpsTargetDraftBatchV5 } from "./gpsTargetDrafts";
@@ -118,7 +118,7 @@ export interface MediaLibraryActions {
   ) => void;
   setNewPropertyDraft: (
     fileRelativePath: string,
-    id: SchemaDefinitionId,
+    target: Extract<MetadataDraftTarget, { kind: "NewProperty" }>,
     edit: MetadataDraftEdit,
   ) => Promise<void>;
   discardTargetPropertyDraft: (
@@ -1226,9 +1226,10 @@ export function useMediaLibrary(
   const setNewPropertyDraft = useCallback(
     async (
       fileRelativePath: string,
-      id: SchemaDefinitionId,
+      target: Extract<MetadataDraftTarget, { kind: "NewProperty" }>,
       edit: MetadataDraftEdit,
     ) => {
+      const id = target.schema_id;
       const openedFolder = activeFolderRef.current;
       const openedLifecycleGeneration = scanLifecycleGenerationRef.current;
       const lifecycleIsCurrent = () =>
@@ -1248,42 +1249,53 @@ export function useMediaLibrary(
           );
           return false;
         }
-        if (
-          occurrenceState.some((occurrence) =>
-            schemaDefinitionIdEquals(occurrence.schema_id, id),
-          )
-        ) {
+        const occupied = occurrenceState.find((occurrence) => {
+          const observed = occurrence.write_target;
+          if (observed !== null) {
+            return (
+              observed.group1.toLowerCase() ===
+                target.write_target.group1.toLowerCase() &&
+              observed.group7.toLowerCase() ===
+                target.write_target.group7.toLowerCase() &&
+              observed.tag_name.toLowerCase() ===
+                target.write_target.tag_name.toLowerCase()
+            );
+          }
+          return schemaDefinitionIdEquals(occurrence.schema_id, id);
+        });
+        if (occupied) {
           pushApplicationError(
             "metadata-v5-new-property-already-exists",
-            "This exact schema already exists in the authoritative metadata occurrences. No new-property draft was staged.",
+            "The intended destination is already occupied, or a same-schema occurrence has no proven selector. No new-property draft was staged.",
             [fileRelativePath],
           );
           return false;
         }
 
-        const ownership = resolveTargetDraftByExactSchema(
-          targetDraftEditsStoreRef.current.getMetadataFile(fileRelativePath),
-          id,
-        );
-        if (ownership.kind === "ambiguous") {
+        const pendingCollision = Object.values(
+          targetDraftEditsStoreRef.current.getMetadataFile(fileRelativePath) ??
+            {},
+        ).find((entry) => {
+          if (metadataDraftTargetEquals(entry.target, target)) return false;
+          const pending = entry.target.write_target;
+          return (
+            pending.group1.toLowerCase() ===
+              target.write_target.group1.toLowerCase() &&
+            pending.group7.toLowerCase() ===
+              target.write_target.group7.toLowerCase() &&
+            pending.tag_name.toLowerCase() ===
+              target.write_target.tag_name.toLowerCase()
+          );
+        });
+        if (pendingCollision) {
           pushApplicationError(
-            "metadata-v5-new-property-ambiguous-ownership",
-            "Multiple target-aware drafts own this exact schema. Apply or discard those drafts before adding the property.",
+            "metadata-v5-new-property-selector-collision",
+            "Another pending draft already uses the intended complete selector. No new-property draft was staged.",
             [fileRelativePath],
           );
           return false;
         }
-        if (
-          ownership.kind === "unique" &&
-          ownership.entry.target.kind === "ExistingOccurrence"
-        ) {
-          pushApplicationError(
-            "metadata-v5-new-property-existing-target",
-            "An ExistingOccurrence target already owns this exact schema. It was not replaced with a NewProperty target.",
-            [fileRelativePath],
-          );
-          return false;
-        }
+
         return true;
       };
 
@@ -1346,9 +1358,31 @@ export function useMediaLibrary(
         );
         return;
       }
+      if (
+        target.write_target.group7 !==
+          targetResolution.target.write_target.group7 ||
+        target.write_target.tag_name !==
+          targetResolution.target.write_target.tag_name
+      ) {
+        pushApplicationError(
+          "metadata-v5-new-property-target-tampered",
+          "The schema-controlled family-7 group or tag name changed. No draft was staged.",
+          [fileRelativePath],
+        );
+        return;
+      }
+      const family1Error = validateFamily1Group(target.write_target.group1);
+      if (family1Error) {
+        pushApplicationError(
+          "metadata-v5-new-property-invalid-destination",
+          `${family1Error} No draft was staged.`,
+          [fileRelativePath],
+        );
+        return;
+      }
       targetDraftEditsStoreRef.current.setMetadataTarget(
         fileRelativePath,
-        targetResolution.target,
+        structuredClone(target),
         edit,
       );
     },

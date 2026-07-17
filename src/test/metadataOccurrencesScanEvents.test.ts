@@ -49,7 +49,11 @@ describe("normalizeMetadataOccurrencesFromTauri", () => {
     const value = occurrence({
       value: { kind: "Integer", value: 300 },
       tag_info: tagInfo({ kind: "Integer", data: { min: 0, max: null } }),
-      write_target: { group1: "IFD0", tag_name: "XResolution" },
+      write_target: {
+        group1: "IFD0",
+        group7: "ID-Test",
+        tag_name: "XResolution",
+      },
     });
     expect(normalizeMetadataOccurrencesFromTauri([value])).toEqual([value]);
   });

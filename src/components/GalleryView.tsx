@@ -59,7 +59,7 @@ interface Props {
   ) => boolean;
   onSetNewPropertyDraft?: (
     fileRelativePath: string,
-    id: SchemaDefinitionId,
+    target: Extract<MetadataDraftTarget, { kind: "NewProperty" }>,
     edit: MetadataDraftEdit,
   ) => void;
   onDiscardTargetPropertyDraft?: (
@@ -354,8 +354,8 @@ export function GalleryView({
             onSetGpsTargetDraftBatch={(edits) =>
               onSetGpsTargetDraftBatch?.(photo.relative_path, edits) ?? false
             }
-            onSetNewPropertyDraft={(id, edit) =>
-              onSetNewPropertyDraft?.(photo.relative_path, id, edit)
+            onSetNewPropertyDraft={(target, edit) =>
+              onSetNewPropertyDraft?.(photo.relative_path, target, edit)
             }
             onDiscardTargetPropertyDraft={(target) =>
               onDiscardTargetPropertyDraft?.(photo.relative_path, target)

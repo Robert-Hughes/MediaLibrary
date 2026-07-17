@@ -35,7 +35,7 @@ const existing = (
     copy: 2,
   },
   schema_id: schema(),
-  write_target: { group1, tag_name: "XResolution" },
+  write_target: { group1, group7: "ID-282", tag_name: "XResolution" },
 });
 
 const created = (
@@ -43,6 +43,7 @@ const created = (
 ): Extract<MetadataDraftTarget, { kind: "NewProperty" }> => ({
   kind: "NewProperty",
   schema_id: id,
+  write_target: { group1: "XMP-test", group7: "ID-Test", tag_name: "TestTag" },
 });
 
 const setEdit = (value: string): MetadataDraftEdit => ({
@@ -255,7 +256,11 @@ describe("target draft frontend/Tauri contract round-trip", () => {
     const changedSnapshot = {
       ...ifd0,
       schema_id: schema("Changed::Schema", "999"),
-      write_target: { group1: "IFD0", tag_name: "ChangedName" },
+      write_target: {
+        group1: "IFD0",
+        group7: "ID-Test",
+        tag_name: "ChangedName",
+      },
     };
     store.setMetadataTarget("photo.jpg", changedSnapshot, setEdit("changed"));
     const source = store.getAllMetadata();
