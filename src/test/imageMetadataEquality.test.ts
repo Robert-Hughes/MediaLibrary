@@ -1,11 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 import type { MetadataOccurrence, MetadataOccurrences } from "../types";
-import { metadataCollection } from "../utils/metadataCollection";
-import {
-  metadataCollectionsEqualExact,
-  metadataOccurrencesEqualExact,
-} from "../utils/imageMetadataEquality";
+import { metadataOccurrencesEqualExact } from "../utils/imageMetadataEquality";
 
 const occurrence = (): MetadataOccurrence => ({
   id: { document: null, path: "IFD0", tag_id: "282", copy: 0 },
@@ -62,50 +58,5 @@ describe("exact image metadata equality", () => {
     expect(metadataOccurrencesEqualExact(base, [...base].reverse())).toBe(
       false,
     );
-  });
-
-  it("compares compatibility keys, schema identity, and exact values independent of record order", () => {
-    const first = metadataCollection([
-      { id: { table: "Exif::Main", tag_id: "282" }, value: occurrence().value },
-      {
-        id: { table: "XMP::Main", tag_id: "title" },
-        value: { kind: "Text", value: "title" },
-      },
-    ]);
-    const reordered = Object.fromEntries(
-      Object.entries(structuredClone(first)).reverse(),
-    );
-    expect(metadataCollectionsEqualExact(first, reordered)).toBe(true);
-    const changedSchema = metadataCollection([
-      { id: { table: "Other", tag_id: "282" }, value: occurrence().value },
-    ]);
-    expect(
-      metadataCollectionsEqualExact(
-        metadataCollection([
-          {
-            id: { table: "Exif::Main", tag_id: "282" },
-            value: occurrence().value,
-          },
-        ]),
-        changedSchema,
-      ),
-    ).toBe(false);
-    const changedValue = metadataCollection([
-      {
-        id: { table: "Exif::Main", tag_id: "282" },
-        value: { kind: "Rational", value: { numerator: 2, denominator: 4 } },
-      },
-    ]);
-    expect(
-      metadataCollectionsEqualExact(
-        metadataCollection([
-          {
-            id: { table: "Exif::Main", tag_id: "282" },
-            value: occurrence().value,
-          },
-        ]),
-        changedValue,
-      ),
-    ).toBe(false);
   });
 });

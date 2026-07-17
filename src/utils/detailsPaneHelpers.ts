@@ -27,9 +27,11 @@ import { resolutionForSchema } from "./metadataOccurrences";
 export const formatMetadataValue = metadataValueToDisplayString;
 
 /**
- * Overlay uniquely resolved authoritative occurrence values onto the schema-keyed
- * compatibility collection used by Details Pane editors. Missing and
- * multiply-resolved schemas deliberately retain the display projection.
+ * Overlay unique authoritative occurrence values onto the read-only,
+ * schema-oriented value collection derived from occurrences for Details Pane
+ * editors. Missing and ambiguous schemas retain only the conservative
+ * projection. This is neither authoritative occurrence state nor a
+ * target-selection mechanism.
  */
 export function overlayUniqueOccurrenceValues(
   schemaProjection: MetadataCollection,

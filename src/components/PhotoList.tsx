@@ -7,7 +7,10 @@ import type {
   SortConfig,
   VisibleColumn,
 } from "../types";
-import type { TargetDraftEditsByFile } from "../targetDraftEdits";
+import type {
+  TargetDraftCollection,
+  TargetDraftEditsByFile,
+} from "../targetDraftEdits";
 import { ContextMenu } from "./ContextMenu";
 import { PhotoRow } from "./PhotoRow";
 import { ResizeHandle } from "./ResizeHandle";
@@ -88,6 +91,8 @@ interface Props {
     relativePaths: string[],
   ) => MetadataRemovalFilesPreviewV5;
 }
+
+const EMPTY_TARGET_DRAFT_COLLECTION: TargetDraftCollection = {};
 
 const DEFAULT_PREVIEW_COL_WIDTH = 52;
 const MIN_ROW_HEIGHT = 44;
@@ -677,7 +682,10 @@ export function PhotoList({
                 selected={selectedIndices.has(virtualRow.index)}
                 thumbnails={thumbnails}
                 imageMetadataOccurrences={imageMetadataOccurrences}
-                targetDraftEdits={targetDraftEdits[photo.relative_path] ?? {}}
+                targetDraftEdits={
+                  targetDraftEdits[photo.relative_path] ??
+                  EMPTY_TARGET_DRAFT_COLLECTION
+                }
                 visibleColumns={visibleColumns}
                 onSelect={handleRowSelect}
                 onPhotoOpen={onPhotoOpen}
