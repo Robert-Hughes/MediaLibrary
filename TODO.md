@@ -9,8 +9,8 @@ Current
     Do a full review of these changes to see if everything has been migrated over sensibly. In particular I would like confidence that:
     * The docs are super-clear about why there are separate definitions of "Property name/ID" - user-facing nice string, schema definition and occurrences in the file.
     * The test coverage has not regressed as part of the migrations
-    * There is not any legacy code. adapters, irrelevant tests or anything half-done
-    * All the code is now using the appropriate property identifiers
+    * There is not any legacy code. adapters, irrelevant tests or anything half-done. For example files or identifiers that are suspicious might be "v4", "v5", legacy
+    * All the code is now using the appropriate property identifiers (schema definition is used where appropriate and occurrence ID is used where appropriate)
   - 'Additional Metadata Occurrences' section in Details panel - it shouldn't be "schema oriented"! Check other places too?
     - Include tooltips for field names that show the details of the Occurence ID (or new property info), schema etc., so an advanced user can go beyond the friendly display name
   - Then work through manual checklist (which will prob first need updating from the occurence work). 
