@@ -51,7 +51,7 @@ tempfile = "3.0"
 
 
 [dev-dependencies]
-ts-rs = "10"
+ts-rs = { version = "10", features = ["no-serde-warnings"] }
 wiremock = "0.6"
 
 [features]

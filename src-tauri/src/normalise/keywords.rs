@@ -16,7 +16,7 @@ use super::{
     bag_edit, join_hierarchical_path, normalise_keyword, split_hierarchical_path, GroupOutput,
     KeywordsInput,
 };
-use crate::draft_edits::MetadataDraftMap;
+use crate::draft_edits::SchemaMetadataEditMap;
 use crate::known_ids;
 use std::collections::HashSet;
 
@@ -162,7 +162,7 @@ pub fn normalise_keywords_with_canonical(
     if keywords_is_normalised(input, canonical_paths, canonical_leaves) {
         return None;
     }
-    let mut edits = MetadataDraftMap::new();
+    let mut edits = SchemaMetadataEditMap::new();
     edits.insert(
         known_ids::xmp_hierarchical_subject(),
         bag_edit(canonical_paths),

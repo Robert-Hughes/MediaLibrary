@@ -67,11 +67,13 @@ const ifd1 = (copy = 2): MetadataOccurrenceId => ({
 
 function supplemental(
   occurrences: readonly MetadataOccurrence[],
-  legacyMetadata: Parameters<typeof supplementalResolvedMetadataOccurrences>[1],
+  schemaProjection: Parameters<
+    typeof supplementalResolvedMetadataOccurrences
+  >[1],
 ) {
   return supplementalResolvedMetadataOccurrences(
     occurrences,
-    legacyMetadata,
+    schemaProjection,
     buildSchemaOccurrenceResolutionIndex(occurrences),
   );
 }
@@ -92,24 +94,24 @@ function occurrenceWithValue(
 }
 
 function overlay(
-  legacyMetadata: Parameters<typeof overlayUniqueOccurrenceValues>[0],
+  schemaProjection: Parameters<typeof overlayUniqueOccurrenceValues>[0],
   occurrences: readonly MetadataOccurrence[],
 ) {
   return overlayUniqueOccurrenceValues(
-    legacyMetadata,
+    schemaProjection,
     buildSchemaOccurrenceResolutionIndex(occurrences),
   );
 }
 
 describe("overlayUniqueOccurrenceValues", () => {
-  it("replaces a differing legacy value for a unique occurrence", () => {
-    const legacy = metadataCollection([
+  it("replaces a differing schema-projection value for a unique occurrence", () => {
+    const schemaProjection = metadataCollection([
       { id: schemaId, value: { kind: "Integer", value: 300 } },
     ]);
 
     expect(
       metadataGet(
-        overlay(legacy, [
+        overlay(schemaProjection, [
           occurrenceWithValue(ifd0(), { kind: "Integer", value: 301 }),
         ]),
         schemaId,
@@ -117,7 +119,7 @@ describe("overlayUniqueOccurrenceValues", () => {
     ).toEqual({ kind: "Integer", value: 301, id: schemaId });
   });
 
-  it("adds a unique occurrence that is absent from legacy metadata", () => {
+  it("adds a unique occurrence that is absent from the schema projection", () => {
     expect(
       metadataGet(
         overlay({}, [
@@ -128,27 +130,29 @@ describe("overlayUniqueOccurrenceValues", () => {
     ).toEqual({ kind: "Integer", value: 301, id: schemaId });
   });
 
-  it("retains the legacy value for a missing resolution", () => {
-    const legacy = metadataCollection([
+  it("retains the schema-projection value for a missing resolution", () => {
+    const schemaProjection = metadataCollection([
       { id: schemaId, value: { kind: "Integer", value: 300 } },
     ]);
-    expect(metadataGet(overlay(legacy, []), schemaId)).toBe(
-      metadataGet(legacy, schemaId),
+    expect(metadataGet(overlay(schemaProjection, []), schemaId)).toBe(
+      metadataGet(schemaProjection, schemaId),
     );
   });
 
-  it("retains the compatibility aggregate for a multiple resolution", () => {
-    const legacy = metadataCollection([
+  it("retains the schema projection for a multiple resolution", () => {
+    const schemaProjection = metadataCollection([
       { id: schemaId, value: { kind: "Integer", value: 300 } },
     ]);
-    const result = overlay(legacy, [
+    const result = overlay(schemaProjection, [
       occurrenceWithValue(ifd0(), { kind: "Integer", value: 301 }),
       occurrenceWithValue(ifd1(), { kind: "Integer", value: 302 }),
     ]);
-    expect(metadataGet(result, schemaId)).toBe(metadataGet(legacy, schemaId));
+    expect(metadataGet(result, schemaId)).toBe(
+      metadataGet(schemaProjection, schemaId),
+    );
   });
 
-  it("adds nothing for a multiple resolution without a legacy entry", () => {
+  it("adds nothing for a multiple resolution without a schema-projection entry", () => {
     const result = overlay({}, [
       occurrenceWithValue(ifd0(), { kind: "Integer", value: 301 }),
       occurrenceWithValue(ifd1(), { kind: "Integer", value: 302 }),
@@ -166,10 +170,10 @@ describe("overlayUniqueOccurrenceValues", () => {
   });
 
   it("overlays unknown-schema occurrences by their explicit schema identity", () => {
-    const legacy = metadataCollection([
+    const schemaProjection = metadataCollection([
       { id: schemaId, value: { kind: "Integer", value: 300 } },
     ]);
-    const result = overlay(legacy, [
+    const result = overlay(schemaProjection, [
       occurrenceWithValue(ifd0(), { kind: "Integer", value: 999 }, null),
     ]);
     expect(metadataGet(result, schemaId)).toEqual({
@@ -210,20 +214,20 @@ describe("overlayUniqueOccurrenceValues", () => {
     expect(Object.keys(result)).toHaveLength(2);
   });
 
-  it("does not mutate legacy metadata or occurrences", () => {
-    const legacy = metadataCollection([
+  it("does not mutate the schema projection or occurrences", () => {
+    const schemaProjection = metadataCollection([
       { id: schemaId, value: { kind: "Integer", value: 300 } },
     ]);
     const occurrences = [
       occurrenceWithValue(ifd0(), { kind: "Integer", value: 301 }),
     ];
-    const legacySnapshot = structuredClone(legacy);
+    const schemaProjectionSnapshot = structuredClone(schemaProjection);
     const occurrencesSnapshot = structuredClone(occurrences);
 
-    const result = overlay(legacy, occurrences);
+    const result = overlay(schemaProjection, occurrences);
 
-    expect(result).not.toBe(legacy);
-    expect(legacy).toEqual(legacySnapshot);
+    expect(result).not.toBe(schemaProjection);
+    expect(schemaProjection).toEqual(schemaProjectionSnapshot);
     expect(occurrences).toEqual(occurrencesSnapshot);
   });
 
@@ -255,10 +259,10 @@ describe("supplementalResolvedMetadataOccurrences", () => {
     const value = occurrence(ifd0(), 300);
     expect(supplemental([value], {})).toHaveLength(1);
 
-    const legacy = metadataCollection([
+    const schemaProjection = metadataCollection([
       { id: schemaId, value: { kind: "Integer", value: 300 } },
     ]);
-    expect(supplemental([value], legacy)).toEqual([]);
+    expect(supplemental([value], schemaProjection)).toEqual([]);
   });
 
   it("retains shared-schema occurrences, distinct or identical values, and domain IDs", () => {
@@ -282,14 +286,14 @@ describe("supplementalResolvedMetadataOccurrences", () => {
     expect(identical).toHaveLength(2);
   });
 
-  it("includes every multiple occurrence even when legacy metadata has the schema", () => {
+  it("includes every multiple occurrence even when the schema projection has the schema", () => {
     const a = occurrence(ifd0(), 300);
     const b = occurrence(ifd1(), 300);
-    const legacy = metadataCollection([
+    const schemaProjection = metadataCollection([
       { id: schemaId, value: { kind: "Integer", value: 300 } },
     ]);
 
-    const entries = supplemental([b, a], legacy);
+    const entries = supplemental([b, a], schemaProjection);
 
     expect(entries).toHaveLength(2);
     expect(entries.map((entry) => entry.occurrence)).toEqual([a, b]);

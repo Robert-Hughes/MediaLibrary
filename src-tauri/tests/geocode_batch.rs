@@ -23,7 +23,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
 use medialibrary_tauri_lib::batch_job::{BatchFailureKind, BatchFailureRow};
-use medialibrary_tauri_lib::draft_edits::MetadataDraftMap;
+use medialibrary_tauri_lib::draft_edits::SchemaMetadataEditMap;
 use medialibrary_tauri_lib::geocode::{
     self, GeocodeBatchOutcome, GeocodeClient, GeocodeEventSink, GeocodeRequestItem, GeocodeSummary,
 };
@@ -59,7 +59,7 @@ enum SinkEvent {
         relative_path: String,
         status: String,
         error: Option<String>,
-        edits: Option<MetadataDraftMap>,
+        edits: Option<SchemaMetadataEditMap>,
     },
     Complete {
         succeeded: Vec<String>,
@@ -102,7 +102,7 @@ impl GeocodeEventSink for RecordingSink {
         relative_path: &str,
         status: &str,
         error: Option<&str>,
-        edits: Option<&medialibrary_tauri_lib::draft_edits::MetadataDraftMap>,
+        edits: Option<&medialibrary_tauri_lib::draft_edits::SchemaMetadataEditMap>,
     ) {
         self.events.lock().unwrap().push(SinkEvent::Progress {
             current,

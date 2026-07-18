@@ -62,16 +62,16 @@ pub type MetadataTargetDraftsByFile = HashMap<String, Vec<MetadataTargetDraftEnt
 
 /// Schema-addressed generation output which the frontend resolves to exact
 /// targets before it enters the production draft store.
-pub type MetadataDraftMap = BTreeMap<SchemaDefinitionId, MetadataDraftEdit>;
+pub type SchemaMetadataEditMap = BTreeMap<SchemaDefinitionId, MetadataDraftEdit>;
 
-pub(crate) fn draft_entries(map: MetadataDraftMap) -> Vec<SchemaMetadataEdit> {
+pub(crate) fn schema_metadata_edit_entries(map: SchemaMetadataEditMap) -> Vec<SchemaMetadataEdit> {
     map.into_iter()
         .map(|(schema_id, edit)| SchemaMetadataEdit { schema_id, edit })
         .collect()
 }
 
 #[derive(Serialize, Deserialize)]
-struct TargetDraftLineV5 {
+struct TargetDraftLine {
     schema_version: u32,
     relative_path: String,
     edits: Vec<MetadataTargetDraftEntry>,
@@ -122,7 +122,7 @@ pub fn load_metadata_draft_edits(folder_path: &str) -> Result<MetadataTargetDraf
             });
         }
 
-        let parsed = serde_json::from_str::<TargetDraftLineV5>(trimmed).map_err(|error| {
+        let parsed = serde_json::from_str::<TargetDraftLine>(trimmed).map_err(|error| {
             format!("Invalid draft schema version 5 line {line_number}: {error}")
         })?;
         if let Some(first_line) = seen_paths.insert(parsed.relative_path.clone(), line_number) {
@@ -165,7 +165,7 @@ pub fn save_metadata_draft_edits(
         }
         let mut sorted = entries.clone();
         sorted.sort_by_key(|entry| entry.target.slot());
-        let line = TargetDraftLineV5 {
+        let line = TargetDraftLine {
             schema_version: 5,
             relative_path: relative_path.clone(),
             edits: sorted,

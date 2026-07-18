@@ -629,7 +629,7 @@ pub fn compose_metadata_draft_edits(
     model: &str,
     output: &AiOutput,
     generated_at: chrono::DateTime<chrono::Utc>,
-) -> crate::draft_edits::MetadataDraftMap {
+) -> crate::draft_edits::SchemaMetadataEditMap {
     fn text_edit(s: String) -> MetadataDraftEdit {
         MetadataDraftEdit {
             value: Some(MetadataValue::Text(s)),
@@ -647,7 +647,7 @@ pub fn compose_metadata_draft_edits(
             display: None,
         }
     }
-    let mut edits = crate::draft_edits::MetadataDraftMap::new();
+    let mut edits = crate::draft_edits::SchemaMetadataEditMap::new();
     edits.insert(
         crate::known_ids::mlib_ai_description(),
         text_edit(output.description.clone()),

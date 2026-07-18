@@ -14,7 +14,7 @@
 use super::{
     collapse_whitespace_single_line, lang_alt_edit, text_edit, CopyrightInput, GroupOutput,
 };
-use crate::draft_edits::MetadataDraftMap;
+use crate::draft_edits::SchemaMetadataEditMap;
 
 use crate::known_ids;
 
@@ -53,7 +53,7 @@ pub fn normalise_copyright(input: &CopyrightInput) -> Option<GroupOutput> {
     if copyright_is_normalised(input, &canonical) {
         return None;
     }
-    let mut edits = MetadataDraftMap::new();
+    let mut edits = SchemaMetadataEditMap::new();
     edits.insert(known_ids::xmp_rights(), lang_alt_edit(canonical.clone()));
     edits.insert(known_ids::copyright(), text_edit(canonical.clone()));
     edits.insert(known_ids::iptc_copyright(), text_edit(canonical));

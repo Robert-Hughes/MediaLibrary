@@ -7,7 +7,7 @@
  * `describe_estimate_*` event subscriptions, and the typed shapes of
  * the estimate + summary payloads.
  *
- * The previous version of this hook held its own state machine and
+ * The describe flow delegates its shared state machine and
  * Tauri subscriptions; that logic now lives in `useBatchImageJob.ts`
  * so reverse-geocode and any future batch job can share the same
  * lifecycle without copy-paste.
@@ -47,7 +47,7 @@ export interface UseDescribeImagesOptions {
    * persists via the semantic metadata-draft pipeline).
    *
    * Keeping persistence in the caller — rather than the backend writing
-   * directly to draft_edits.jsonl — means the UI re-renders immediately
+   * directly to the persisted target-draft file — means the UI re-renders immediately
    * and there is exactly one writer to the typed-draft store.
    */
   onApplyEdits?: (
@@ -57,12 +57,12 @@ export interface UseDescribeImagesOptions {
 }
 
 /**
- * Map the generic `BatchJobState` to the legacy `DescribeProgressState`
+ * Map the generic `BatchJobState` to the describe-specific `DescribeProgressState`
  * shape that `DescribeProgressDialog` already renders. Keeping the
  * adapter at the hook boundary means the dialog component need not
  * change as part of the refactor.
  */
-function toLegacyShape(
+function toDescribeProgressState(
   s: BatchJobState<DescribeEstimate, DescribeUsageSummary>,
 ): DescribeProgressState {
   return {
@@ -171,7 +171,7 @@ export function useDescribeImages(options: UseDescribeImagesOptions = {}): {
 
   return {
     open: job.open,
-    state: toLegacyShape(job.state),
+    state: toDescribeProgressState(job.state),
     actions: job.actions,
   };
 }

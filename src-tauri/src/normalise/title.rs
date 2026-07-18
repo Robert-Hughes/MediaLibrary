@@ -17,7 +17,7 @@ use super::{
     collapse_whitespace_single_line, lang_alt_edit, text_edit, truncate_at_word, AiCallUsage,
     GroupOutput, NormaliseAiClient, NormaliseAiError, TitleGenPrompt, TitleInput,
 };
-use crate::draft_edits::MetadataDraftMap;
+use crate::draft_edits::SchemaMetadataEditMap;
 use crate::known_ids;
 
 const IPTC_OBJECT_NAME_LIMIT: usize = 64;
@@ -156,7 +156,7 @@ pub async fn normalise_title(
         };
     }
     let object = truncate_at_word(&canonical, IPTC_OBJECT_NAME_LIMIT);
-    let mut edits = MetadataDraftMap::new();
+    let mut edits = SchemaMetadataEditMap::new();
     if input.title.as_deref() != Some(canonical.as_str()) {
         edits.insert(known_ids::xmp_title(), lang_alt_edit(canonical.clone()));
     }

@@ -25,7 +25,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-use crate::draft_edits::{EditIntent, MetadataDraftEdit, MetadataDraftMap};
+use crate::draft_edits::{EditIntent, MetadataDraftEdit, SchemaMetadataEditMap};
 use crate::metadata_value::{ListKind, MetadataValue};
 
 // Per-group implementation modules. The dispatcher (`process_image`)
@@ -456,7 +456,7 @@ pub struct NormaliseRequestItem {
 /// projection, remove-tag drafts for fields absent from it.
 #[derive(Debug, Clone, Default)]
 pub struct GroupOutput {
-    pub edits: MetadataDraftMap,
+    pub edits: SchemaMetadataEditMap,
 }
 
 impl GroupOutput {
@@ -731,7 +731,7 @@ fn apply_simple_group<T>(
     group: NormaliseGroup,
     enabled: bool,
     input: Option<&T>,
-    edits: &mut MetadataDraftMap,
+    edits: &mut SchemaMetadataEditMap,
     stats: &mut PerImageStats,
     run: impl FnOnce(&T) -> Option<GroupOutput>,
 ) {
@@ -826,12 +826,12 @@ pub async fn process_image(
     ai: Option<&dyn NormaliseAiClient>,
     cancel: Option<&std::sync::Arc<std::sync::atomic::AtomicBool>>,
 ) -> (
-    MetadataDraftMap,
+    SchemaMetadataEditMap,
     PerImageStats,
     Option<NormaliseAiError>,
     Vec<PerImageAiCall>,
 ) {
-    let mut edits = MetadataDraftMap::new();
+    let mut edits = SchemaMetadataEditMap::new();
     let mut stats = PerImageStats::default();
     let mut first_ai_error: Option<NormaliseAiError> = None;
     let mut ai_calls: Vec<PerImageAiCall> = Vec::new();
