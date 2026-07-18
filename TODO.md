@@ -12,11 +12,9 @@ Current
     * There is not any legacy code. adapters, irrelevant tests or anything half-done. For example files or identifiers that are suspicious might be "v4", "v5", legacy
     * All the code is now using the appropriate property identifiers (schema definition is used where appropriate and occurrence ID is used where appropriate)
   - 'Additional Metadata Occurrences' section in Details panel - it shouldn't be "schema oriented"! Check other places too?
-    - Include tooltips for field names that show the details of the Occurence ID (or new property info), schema etc., so an advanced user can go beyond the friendly display name
   - Then work through manual checklist (which will prob first need updating from the occurence work). 
-    - How does Add Property work, esp. for properties like ThumbnailX that are in IFD0 and IFD1 but have the same schema ID
 
-- Right click on the property list maps should show edit (opens group editor) and "remove all GPS", "discard all GPS"? Have prompt ready to go.
+- Right click on the property list maps should show edit (opens group editor) and "remove all GPS", "discard all GPS"? Should be done - check
 - GPS editor sets lat/long to different string format than the one from exiftool. How does this work? Do we store separate display string? I thoiught we used semantic MetadataValue for everything now?
 - How do you add a GPS if the file doesn't have one? (Using hte nice editor)
 - Lots of warnings: 
