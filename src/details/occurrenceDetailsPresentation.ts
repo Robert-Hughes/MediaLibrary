@@ -157,10 +157,14 @@ function existingLabel(occurrence: MetadataOccurrence): string {
 
 function draftDisplay(
   schemaId: SchemaDefinitionId,
+  draft: MetadataTargetDraftEntry | null,
   effectiveDraftValue: MetadataValue | null,
   displayTagInfo: TagInfo | null,
 ): string | null {
   if (effectiveDraftValue === null) return null;
+  if (draft?.edit.intent === "Set" && draft.edit.display) {
+    return draft.edit.display;
+  }
   return displayTagInfo
     ? metadataValueToDisplayStringForTag(
         schemaId,
@@ -431,6 +435,7 @@ export function buildOccurrenceDetailsPresentation(
           null);
     const stagedValue = draftDisplay(
       occurrence.schema_id,
+      draft,
       effectiveDraftValue,
       displayTagInfo,
     );
