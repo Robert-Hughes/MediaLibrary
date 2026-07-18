@@ -1,122 +1,211 @@
 # Metadata identity model
 
-Metadata editing is occurrence-aware. The model keeps display names, schema
-definitions, and runtime occurrences separate because they answer different
-questions.
+MediaLibrary separates human-readable metadata names, static ExifTool schema
+definitions, concrete fields found in a file, observed selector occupancy,
+writable selectors, and draft operations. These concepts often contain similar
+text, but they answer different questions and are never interchangeable.
 
-## Friendly identity
+## Which identity should I use?
 
-ExifTool group/name strings and descriptions are for people. They label rows,
-editors, column choices, diagnostics, and search results. They are not stable
-write selectors and never collapse two targets.
+| Need                                    | Correct concept            |
+| --------------------------------------- | -------------------------- |
+| Display, search and explanation         | Friendly property label    |
+| Registry lookup and semantic definition | `SchemaDefinitionId`       |
+| One concrete field in a file            | `MetadataOccurrenceId`     |
+| Raw runtime tag-ID namespace            | `RuntimeTagIdScope`        |
+| Determine selector occupancy            | `MetadataObservedSelector` |
+| Construct an ExifTool write             | `MetadataWriteTarget`      |
+| Persist an existing or new operation    | `MetadataDraftTarget`      |
+| Represent unresolved generated output   | `SchemaMetadataEdit`       |
 
-## Schema identity
+Friendly labels such as `IFD0:XResolution`, `File:BMPVersion`, descriptions,
+and `TagInfo.group`/`TagInfo.name` are presentation. They are useful for rows,
+search, diagnostics and property discovery, but are never identity or a write
+selector. For example, `File:BMPVersion` can refer to definitions in both
+`BMP::Main` and `BMP::OS2`; the same label and numeric tag ID do not make those
+definitions equal.
 
-`SchemaDefinitionId { table, tag_id, index? }` identifies a schema definition.
-Exact comparison includes the optional index, so an omitted index is distinct
-from index zero. A schema ID is suitable for choosing a New Property definition
-and for text search, but not for choosing among existing occurrences.
+## Static schema identity
 
-## Authoritative occurrence state
+`SchemaDefinitionId { table, tag_id, index? }` identifies one static ExifTool
+definition. The table is essential because a tag ID is local to its table.
+Numeric IDs are canonical base-10 text and textual IDs remain strings.
 
-Every scanner result keeps four independent concerns:
+An absent index and index zero are different identities. Absence means that the
+ID is not repeated in its table; `index: 0` selects the first definition in a
+repeated set. The registry reconstructs this distinction from `exiftool -listx`
+and rejects duplicate reconstructed IDs.
 
-1. `MetadataOccurrenceId { document, path, runtime_tag_id, tag_id_scope,
-copy }` identifies one concrete runtime occurrence. `tag_id_scope` is the
-   wrapped `{ table, tag_id, index? }` discriminator that namespaces the
-   family-7 runtime ID.
-2. `MetadataOccurrence.schema_id` always stores the exact
-   `SchemaDefinitionId { table, tag_id, index? }` reported by ExifTool. Several
-   runtime occurrences may share it.
-3. `MetadataOccurrence.tag_info` is optional resolved registry interpretation
-   and presentation metadata. When present, `TagInfo.id` must exactly equal the
-   occurrence's `schema_id`; a mismatch is rejected rather than repaired.
-4. `MetadataOccurrence.write_target` is an optional proven exact runtime write
-   selector.
+Schema identity is appropriate for registry lookup, Add Property selection,
+columns, sorting, schema-oriented read-only projections, and generated output
+that has not yet been assigned a target. It does not identify a concrete field:
+several occurrences may share one schema. IFD0 and IFD1 XResolution fields are
+typical same-schema siblings and must remain independently targetable.
 
-Runtime occurrence identity and schema identity are deliberately separate. The
-raw wrapped scope resembles a `SchemaDefinitionId`, and can be converted to its
-structurally equivalent raw discriminator, but it is not the occurrence's
-authoritative interpretation identity. LangAlt child extraction retains its raw
-child scope while `MetadataOccurrence.schema_id` may resolve to the confirmed
-canonical parent. Neither friendly labels, runtime tag names nor selector
-coordinates may be used to infer either identity.
+## Runtime occurrence identity
 
-The full runtime occurrence identity is:
+`MetadataOccurrenceId` identifies one concrete field within one file:
 
 ```text
 family-3 document/sample
 + family-5 metadata path
 + family-7 runtime tag ID
-+ wrapped table/tag-ID/optional-index scope
++ RuntimeTagIdScope { table, tag_id, index? }
 + family-4 copy
 ```
 
-The wrapped discriminator is required because real IPTC-IIM JPEGs can expose
-both `EnvelopeRecordVersion` and `ApplicationRecordVersion`. Both occupy the
-family-5 path `JPEG-APP13-Photoshop-IPTC`, both have family-7 ID `0`, and both
-have wrapped ID `0`, but their wrapped tables are respectively
-`IPTC::EnvelopeRecord` and `IPTC::ApplicationRecord`. Family 5 stops at the
-shared IPTC block, so it cannot distinguish those records. The runtime tag name
-is extraction and write-target information, not occurrence identity.
+Occurrence IDs are scoped to the file whose authoritative scan contains them.
+Every attempted duplicate complete ID within one ExifTool pass is rejected,
+even when the values are equal. The same ID in the raw and display passes is
+expected because it is their join key.
 
-Within one ExifTool pass, every attempted second insertion of the complete
-occurrence ID is rejected as an invariant violation, including a completely
-identical property. One raw and one display property with the same complete ID
-remain valid because that cross-pass correspondence is the join mechanism
-against real files.
+The wrapped `RuntimeTagIdScope` and `MetadataOccurrence.schema_id` are both
+required. The former namespaces the extracted family-7 runtime ID; the latter
+is the authoritative static definition used to interpret the semantic value.
+They usually agree, but agreement is not an invariant. A LangAlt language child
+retains its child runtime scope while `schema_id` resolves, through the narrow
+confirmed LangAlt rule, to the parent definition. This is not a general suffix
+heuristic.
 
-An existing occurrence can be edited only when it has an unambiguous occurrence
-ID, matching resolved writable and supported `TagInfo`, and an exact
-`MetadataWriteTarget`. Schema identity alone never proves writability.
+The distinction also protects real IPTC collisions. Within one IPTC block,
+`EnvelopeRecordVersion` and `ApplicationRecordVersion` may share family-7 ID
+`0`, wrapped ID `0`, and the same family-5 path, while their wrapped tables are
+`IPTC::EnvelopeRecord` and `IPTC::ApplicationRecord`. The complete scope keeps
+them distinct.
 
-An occurrence absent from the local registry still retains its exact
-`schema_id`, with `tag_info: null` and `write_target: null`. It remains visible,
-distinguishable and diagnosable, but read-only. Duplicated or otherwise
-ambiguous occurrences also remain unavailable to mutation without selecting an
-arbitrary representative.
+An authoritative `MetadataOccurrence` therefore carries:
 
-`ImageMetadata` now stores only authoritative occurrences. Schema-oriented
-read-only consumers derive a safe value view on demand from
-`occurrence.schema_id`; identical values may collapse, compatible LangAlt values
-may merge, and conflicts remain unavailable without selecting an occurrence.
-Schema presence is tracked separately from value representability, and no
-schema-keyed scan store or wire field remains.
+- the complete runtime `id`;
+- the required exact `schema_id`;
+- its semantic `value`;
+- optional resolved `tag_info` for interpretation and presentation;
+- optional `observed_selector`; and
+- optional proven `write_target`.
+
+When `tag_info` exists, `tag_info.id` must equal `schema_id`. Unknown registry
+definitions retain their exact schema and occurrence IDs but have null
+interpretation and write target, so they remain visible and read-only.
+
+## Observed selectors and write targets
+
+`MetadataObservedSelector { group1, group7, tag_name }` records that a complete
+selector is occupied in the file. `MetadataWriteTarget` has the same structured
+shape but additionally represents a selector proven safe for an independent
+write. An observed selector does not prove writability, and a null write target
+does not prove that a destination is free.
+
+For an existing occurrence, a non-null write target requires an exactly equal
+observed selector. Occupancy comparison is a separate operation: family 1 and
+tag name compare case-insensitively, while family 7 remains case-sensitive.
+Only at the final write boundary does a target render as, for example,
+`1IFD1:7ID-282:XResolution`.
+
+Runtime family 7 must not be derived from static schema identity. Existing
+targets restore it from the occurrence's runtime tag ID. New Property has no
+runtime occurrence, so its schema-controlled family 7 is deliberately derived
+from the selected schema tag ID using ExifTool's encoding: ASCII letters,
+digits, hyphen and underscore remain, and every other UTF-8 byte becomes two
+lowercase hexadecimal digits. Thus `AAPL:Keywords` becomes
+`ID-AAPL3aKeywords`. This family-7 derivation boundary is why runtime and schema
+identity remain separate.
 
 ## Draft target identity
 
-`MetadataDraftTarget` has two variants:
+`MetadataDraftTarget` persists one exact operation:
 
-- `ExistingOccurrence` stores the complete occurrence ID, schema snapshot, and
-  runtime write-target snapshot.
-- `NewProperty` stores the exact schema ID for a deliberate creation.
+- `ExistingOccurrence` stores the complete occurrence ID, schema snapshot and
+  proven runtime write-target snapshot.
+- `NewProperty` stores the selected schema ID and complete intended write
+  destination.
 
-Logical slots preserve IFD0/IFD1 siblings, same-schema occurrences,
-ExistingOccurrence/NewProperty separation, and absent-index/index-zero
-separation. Reconciliation may replace a NewProperty target with the exact
-occurrence created by the write, without losing the operation's identity.
+New Property identity includes its destination because the schema alone cannot
+identify a creation slot. Two drafts for the same schema at IFD0 and IFD1, or
+at a default and custom family-1 destination, can coexist. Editing, replacing
+or discarding one must leave the sibling untouched. Destination editing is one
+atomic exact-target mutation: delete the original target and upsert the
+replacement with the unchanged semantic edit.
+
+Logical target slots preserve complete occurrence identity,
+ExistingOccurrence/NewProperty separation, same-schema destinations, and
+absent-index/index-zero separation. A slot token is collection mechanics, not
+a second domain identity; the stored value always retains the complete target
+snapshot.
+
+## The target-first rule
+
+Once a `MetadataDraftTarget` exists, every edit, replacement, discard,
+verification, apply, retry and reconciliation operation begins with that
+complete target. It uses complete target equality, the exact logical slot, the
+occurrence snapshot where applicable, and the target's stored write
+destination. A schema may choose which editor to display, but must not choose
+which existing target is mutated.
+
+Schema-based resolution is allowed only before a target exists, including:
+
+- selecting an Add Property schema definition;
+- resolving a `SchemaMetadataEdit` produced by a generated workflow;
+- deriving schema-oriented read-only display, search, column or sort data; and
+- resolving a user request to remove a named schema into zero, one or several
+  explicit occurrences and targets.
+
+It is prohibited after target construction. Code must not extract
+`target.schema_id`, find a schema owner, reconstruct a target from whichever
+occurrence currently matches, redirect a GPS member through a composite
+planner, or first-select one same-schema sibling. If an opened target changes
+or disappears, saving fails safely rather than redirecting to another target.
+
+Apply re-reads authoritative state and validates the complete stored target.
+A changed occurrence ID, selector, schema snapshot, or same-schema replacement
+is stale and cannot silently stand in for the intended operation.
+
+## Generated metadata boundary
+
+`SchemaMetadataEdit { schema_id, edit }` is transient generated-workflow
+output. It is intentionally schema-addressed because no concrete target exists
+yet. Planning must obtain a unique existing occurrence explicitly and reject
+multiple occurrences. When the schema is absent, it creates a deliberate New
+Property target only when a valid destination is known.
+
+After planning that complete target, an existing draft owner is relevant only
+when its exact target matches. Same-schema owners at other occurrences or
+destinations are unrelated and remain untouched. The resulting persisted
+entry is `MetadataTargetDraftEntry { target, edit }`.
 
 ## Persistence and lifecycle
 
-The production store is `TargetDraftEditsStore`. It validates complete target
-equality, snapshots inputs immutably, applies batches atomically, and emits at
-most one notification for a changed batch. The sole persistence file is
-`MediaLibraryTargetDraftEdits.jsonl`.
+`TargetDraftEditsStore` owns frontend drafts and mutates them by exact target.
+The sole active draft file is `MediaLibraryTargetDraftEdits.jsonl`. Each JSONL
+record retains complete target entries and uses persisted `schema_version: 5`.
+Duplicate relative paths, duplicate logical target slots, malformed entries,
+and unsupported versions are rejected before unsafe mutation or truncation.
+Valid version-5 files continue to load; there is no old-shape compatibility
+reader or migration.
 
-Applying a draft validates identity, writes through ExifTool, reads
-authoritative occurrences, verifies semantic intent, reconciles the exact
-target, persists the result, and appends to
-`MediaLibraryTargetApplyLog.jsonl`.
+Applying validates the target, writes through ExifTool, re-reads authoritative
+occurrences, verifies the semantic result, reconciles the exact target as
+Clear, Keep, Replace or Blocked, persists the result, and appends to
+`MediaLibraryTargetApplyLog.jsonl`. Existing apply-log rows are append-only and
+are not rewritten.
 
 The historical `MediaLibraryDraftEdits.jsonl` and
 `MediaLibraryApplyLog.jsonl` files are ignored and left byte-for-byte
-untouched. Their schema-keyed editing and verification model is not active and
-is not migrated.
+untouched. They are not parsed, migrated, rewritten, truncated or deleted.
 
-## Search does not own identity
+## Read-only projections and search
 
-Search indexes `target.schema_id`, every structured occurrence-ID component,
-friendly labels, descriptions, and the complete draft edit's displayable value.
-This is a read-only text projection.
-Search updates never use schema equality to select or mutate a target; all
-mutation stays exact-target based.
+`ImageMetadata` stores authoritative occurrences only. Schema-oriented views
+are derived on demand: identical ordinary values may collapse, compatible
+LangAlt values may merge, and conflicts remain unavailable without selecting
+an arbitrary occurrence. Search indexes structured schema and occurrence
+fields, target schema, semantic values, and friendly labels, but never owns or
+mutates identity.
+
+## Rejected heuristics and fallbacks
+
+MediaLibrary has no friendly-name identity index, `Group1:TagName` registry
+lookup, candidate scoring, Make/Model or file-type inference, enum/value-shape
+inference, writable-candidate preference, schema-owner first selection, GPS
+retargeting fallback, or selector-to-schema guessing. BMP same-name collisions,
+IPTC runtime collisions, family-7 runtime/schema differences, custom New
+Property destinations, IFD0/IFD1 siblings, and absent index versus index zero
+are all handled by retaining the explicit identities described above.

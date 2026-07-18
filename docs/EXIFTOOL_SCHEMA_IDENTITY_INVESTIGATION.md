@@ -1,7 +1,7 @@
 # ExifTool Schema Identity Investigation (Follow-up)
 
 > **Historical investigation — superseded by
-> [ExifTool Schema Identity](EXIFTOOL_SCHEMA_IDENTITY.md).**
+> [Metadata identity model](METADATA_IDENTITY_MODEL.md).**
 >
 > The candidate-scoring resolver proposed near the end of this document was
 > rejected after runtime `-j -t -D` output was shown to expose ExifTool's exact
@@ -192,4 +192,4 @@ index. Current code performs exact `SchemaDefinitionId` lookup and does not use
 candidate scoring, Make/Model inference, file-type inference, value-shape
 inference or a “prefer writable” fallback. Add New Property similarly presents
 exact definitions for explicit selection rather than choosing a friendly-name
-candidate. See [ExifTool Schema Identity](EXIFTOOL_SCHEMA_IDENTITY.md).
+candidate. See the [metadata identity model](METADATA_IDENTITY_MODEL.md).
