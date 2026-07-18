@@ -2,42 +2,53 @@ import type {
   ImageMetadataOccurrencesState,
   MetadataDraftEdit,
   MetadataDraftTarget,
+  MetadataTargetDraftEntry,
   SchemaDefinitionId,
 } from "./types";
 import type { TargetDraftCollection } from "./targetDraftEdits";
 import { gpsMemberGroup, type GpsTagGroup } from "./metadata/tag_overrides";
 import { knownMetadataWriteTarget } from "./metadata/knownIds";
-import {
-  schemaDefinitionIdEquals,
-  schemaDefinitionIdToken,
-} from "./utils/schemaDefinitionId";
+import { schemaDefinitionIdToken } from "./utils/schemaDefinitionId";
 import {
   buildSchemaOccurrenceResolutionIndex,
+  resolveExactMetadataOccurrence,
   resolutionForSchema,
 } from "./utils/metadataOccurrences";
 import {
   existingOccurrenceTargetFromOccurrence,
   metadataDraftTargetEquals,
+  metadataDraftTargetSlotToken,
 } from "./utils/metadataDraftTarget";
+import {
+  metadataWriteSelectorsEqual,
+  validateFamily1Group,
+} from "./utils/metadataWriteTarget";
 
-export interface PlannedGpsTargetDraft {
-  id: SchemaDefinitionId;
+export interface MetadataTargetDraftMutation {
   target: MetadataDraftTarget;
   edit: MetadataDraftEdit;
+}
+
+export interface PlannedGpsTargetDraft extends MetadataTargetDraftMutation {
+  id: SchemaDefinitionId;
 }
 
 export type GpsTargetDraftPlanErrorCode =
   | "occurrences-loading"
   | "empty-batch"
   | "duplicate-schema"
+  | "duplicate-target-slot"
   | "non-gps-schema"
   | "mixed-gps-groups"
   | "multiple-occurrences"
   | "untargetable-occurrence"
-  | "multiple-target-owners"
-  | "incompatible-target-owner";
+  | "stale-target"
+  | "destination-occupied"
+  | "destination-unknown"
+  | "selector-collision"
+  | "invalid-destination";
 
-/** A user-facing, machine-distinguishable rejection from the pure GPS planner. */
+/** A user-facing, machine-distinguishable rejection from GPS target handling. */
 export class GpsTargetDraftPlanError extends Error {
   constructor(
     readonly code: GpsTargetDraftPlanErrorCode,
@@ -62,40 +73,15 @@ function gpsGroupToken(group: GpsTagGroup): string {
   );
 }
 
-/**
- * Plans one exact, target-aware GPS batch without mutating inputs or stores.
- * Every rejection happens before a result is returned to the caller.
- */
-export function planGpsTargetDraftBatch(
-  edits: readonly {
-    id: SchemaDefinitionId;
-    edit: MetadataDraftEdit;
-  }[],
-  occurrences: ImageMetadataOccurrencesState,
-  targetDrafts: TargetDraftCollection | undefined,
-): PlannedGpsTargetDraft[] {
-  if (occurrences === "loading") {
-    throw new GpsTargetDraftPlanError(
-      "occurrences-loading",
-      "Authoritative metadata occurrences are still loading. Nothing was saved.",
-    );
-  }
-  if (edits.length === 0) {
-    throw new GpsTargetDraftPlanError(
-      "empty-batch",
-      "A GPS edit must contain at least one field. Nothing was saved.",
-    );
-  }
-
-  const cloned = edits.map(({ id, edit }) => ({
-    id: structuredClone(id),
-    edit: structuredClone(edit),
-  }));
+function validateGpsSchemas(
+  ids: readonly SchemaDefinitionId[],
+  rejectDuplicateSchemas: boolean,
+): void {
   const seen = new Set<string>();
   let expectedGroupToken: string | undefined;
-  for (const { id } of cloned) {
+  for (const id of ids) {
     const token = schemaDefinitionIdToken(id);
-    if (seen.has(token)) {
+    if (rejectDuplicateSchemas && seen.has(token)) {
       throw new GpsTargetDraftPlanError(
         "duplicate-schema",
         "The GPS batch contains the same exact schema more than once. Nothing was saved.",
@@ -111,10 +97,10 @@ export function planGpsTargetDraftBatch(
         id,
       );
     }
-    const tokenForGroup = gpsGroupToken(group);
+    const currentGroupToken = gpsGroupToken(group);
     if (
       expectedGroupToken !== undefined &&
-      expectedGroupToken !== tokenForGroup
+      expectedGroupToken !== currentGroupToken
     ) {
       throw new GpsTargetDraftPlanError(
         "mixed-gps-groups",
@@ -122,12 +108,42 @@ export function planGpsTargetDraftBatch(
         id,
       );
     }
-    expectedGroupToken = tokenForGroup;
+    expectedGroupToken = currentGroupToken;
+  }
+}
+
+/**
+ * Schema-oriented target construction boundary used before a fresh GPS editor
+ * opens. A planned target is complete and must be preserved for later saving.
+ */
+export function planGpsTargetDraftBatch(
+  edits: readonly {
+    id: SchemaDefinitionId;
+    edit: MetadataDraftEdit;
+  }[],
+  occurrences: ImageMetadataOccurrencesState,
+): PlannedGpsTargetDraft[] {
+  if (occurrences === "loading") {
+    throw new GpsTargetDraftPlanError(
+      "occurrences-loading",
+      "Authoritative metadata occurrences are still loading. Nothing was saved.",
+    );
+  }
+  if (edits.length === 0) {
+    throw new GpsTargetDraftPlanError(
+      "empty-batch",
+      "A GPS edit must contain at least one field. Nothing was saved.",
+    );
   }
 
+  const cloned = structuredClone(edits);
+  validateGpsSchemas(
+    cloned.map(({ id }) => id),
+    true,
+  );
+
   const occurrenceIndex = buildSchemaOccurrenceResolutionIndex(occurrences);
-  const planned: PlannedGpsTargetDraft[] = [];
-  for (const { id, edit } of cloned) {
+  return cloned.map(({ id, edit }) => {
     const occurrenceResolution = resolutionForSchema(occurrenceIndex, id);
     let target: MetadataDraftTarget;
     if (occurrenceResolution.kind === "multiple") {
@@ -149,7 +165,7 @@ export function planGpsTargetDraftBatch(
       target = {
         kind: "NewProperty",
         schema_id: structuredClone(id),
-        write_target: writeTarget,
+        write_target: structuredClone(writeTarget),
       };
     } else {
       const targetability = existingOccurrenceTargetFromOccurrence(
@@ -164,34 +180,147 @@ export function planGpsTargetDraftBatch(
       }
       target = targetability.target;
     }
+    return { id: structuredClone(id), target, edit: structuredClone(edit) };
+  });
+}
 
-    const owners = Object.values(targetDrafts ?? {}).filter((entry) =>
-      schemaDefinitionIdEquals(entry.target.schema_id, id),
+/**
+ * Validate already-captured GPS targets against current authoritative state.
+ * No schema-based target selection or destination replacement occurs here.
+ */
+export function validateGpsTargetDraftEntries(
+  entries: readonly MetadataTargetDraftMutation[],
+  occurrences: ImageMetadataOccurrencesState,
+  targetDrafts: TargetDraftCollection | undefined,
+): MetadataTargetDraftEntry[] {
+  if (occurrences === "loading") {
+    throw new GpsTargetDraftPlanError(
+      "occurrences-loading",
+      "Authoritative metadata occurrences are still loading. Nothing was saved.",
     );
-    if (owners.length > 1) {
+  }
+  if (entries.length === 0) {
+    throw new GpsTargetDraftPlanError(
+      "empty-batch",
+      "A GPS edit must contain at least one field. Nothing was saved.",
+    );
+  }
+
+  const cloned: MetadataTargetDraftEntry[] = entries.map((entry) =>
+    structuredClone(entry),
+  );
+  validateGpsSchemas(
+    cloned.map(({ target }) => target.schema_id),
+    false,
+  );
+  const seenSlots = new Set<string>();
+  for (const { target } of cloned) {
+    const slot = metadataDraftTargetSlotToken(target);
+    if (seenSlots.has(slot)) {
       throw new GpsTargetDraftPlanError(
-        "multiple-target-owners",
-        "Multiple target-aware operations own this exact GPS schema. Apply or discard them before editing. Nothing was saved.",
-        id,
+        "duplicate-target-slot",
+        "The GPS batch contains the same exact target slot more than once. Nothing was saved.",
+        target.schema_id,
+      );
+    }
+    seenSlots.add(slot);
+
+    const stored = targetDrafts?.[slot];
+    if (stored && !metadataDraftTargetEquals(stored.target, target)) {
+      throw new GpsTargetDraftPlanError(
+        "stale-target",
+        "The exact GPS target slot is owned by a different complete target snapshot. Nothing was saved.",
+        target.schema_id,
+      );
+    }
+
+    if (target.kind === "ExistingOccurrence") {
+      const exact = resolveExactMetadataOccurrence(
+        occurrences,
+        target.occurrence_id,
+      );
+      if (exact.kind !== "unique") {
+        throw new GpsTargetDraftPlanError(
+          "stale-target",
+          exact.kind === "duplicate"
+            ? "The exact GPS occurrence ID is duplicated. Nothing was saved."
+            : "The exact GPS occurrence no longer exists. Nothing was saved.",
+          target.schema_id,
+        );
+      }
+      const current = existingOccurrenceTargetFromOccurrence(exact.occurrence);
+      if (
+        current.kind !== "targetable" ||
+        !metadataDraftTargetEquals(current.target, target)
+      ) {
+        throw new GpsTargetDraftPlanError(
+          "stale-target",
+          "The captured GPS occurrence target no longer matches authoritative state. Nothing was saved.",
+          target.schema_id,
+        );
+      }
+      continue;
+    }
+
+    const defaultTarget = knownMetadataWriteTarget(target.schema_id);
+    if (
+      !defaultTarget ||
+      defaultTarget.group7 !== target.write_target.group7 ||
+      defaultTarget.tag_name !== target.write_target.tag_name ||
+      validateFamily1Group(target.write_target.group1) !== null
+    ) {
+      throw new GpsTargetDraftPlanError(
+        "invalid-destination",
+        "The captured GPS destination is no longer eligible. Nothing was saved.",
+        target.schema_id,
       );
     }
     if (
-      owners.length === 1 &&
-      !metadataDraftTargetEquals(owners[0].target, target)
+      occurrences.some(
+        (occurrence) =>
+          occurrence.observed_selector !== null &&
+          metadataWriteSelectorsEqual(
+            occurrence.observed_selector,
+            target.write_target,
+          ),
+      )
     ) {
       throw new GpsTargetDraftPlanError(
-        "incompatible-target-owner",
-        "A different target-aware destination owns this exact GPS schema. Apply or discard it before editing. Nothing was saved.",
-        id,
+        "destination-occupied",
+        "The captured GPS destination is already occupied. Nothing was saved.",
+        target.schema_id,
       );
     }
-
-    planned.push({
-      id: structuredClone(id),
-      target: structuredClone(target),
-      edit: structuredClone(edit),
-    });
+    if (
+      occurrences.some(
+        (occurrence) =>
+          occurrence.observed_selector === null &&
+          schemaDefinitionIdToken(occurrence.schema_id) ===
+            schemaDefinitionIdToken(target.schema_id),
+      )
+    ) {
+      throw new GpsTargetDraftPlanError(
+        "destination-unknown",
+        "A same-schema GPS occurrence has no safely identifiable destination. Nothing was saved.",
+        target.schema_id,
+      );
+    }
+    const selectorCollision = Object.entries(targetDrafts ?? {}).some(
+      ([otherSlot, entry]) =>
+        otherSlot !== slot &&
+        metadataWriteSelectorsEqual(
+          entry.target.write_target,
+          target.write_target,
+        ),
+    );
+    if (selectorCollision) {
+      throw new GpsTargetDraftPlanError(
+        "selector-collision",
+        "Another exact draft target uses the captured GPS selector. Nothing was saved.",
+        target.schema_id,
+      );
+    }
   }
 
-  return planned;
+  return cloned;
 }

@@ -56,7 +56,7 @@ import {
 } from "./utils/metadataWriteTarget";
 import { tagInfoSupportsMetadataWrite } from "./utils/metadataWriteSupport";
 import { resolveExactMetadataOccurrence } from "./utils/metadataOccurrences";
-import { planGpsTargetDraftBatch } from "./gpsTargetDrafts";
+import { validateGpsTargetDraftEntries } from "./gpsTargetDrafts";
 import { planMetadataRemovalTargets } from "./metadataRemovalTargets";
 import {
   planGeneratedTargetDraftBatch,
@@ -109,9 +109,9 @@ export interface MediaLibraryActions {
     schemaId: SchemaDefinitionId,
     relativePaths: string[],
   ) => boolean;
-  setGpsTargetDraftBatch: (
+  applyGpsTargetDraftBatch: (
     relativePath: string,
-    edits: Array<{ id: SchemaDefinitionId; edit: MetadataDraftEdit }>,
+    entries: MetadataTargetDraftEntry[],
   ) => boolean;
   setExistingOccurrenceDraft: (
     fileRelativePath: string,
@@ -1078,25 +1078,24 @@ export function useMediaLibrary(
     [pushApplicationError, requireTargetDraftPersistenceReady],
   );
 
-  const setGpsTargetDraftBatch = useCallback(
-    (
-      relativePath: string,
-      edits: Array<{ id: SchemaDefinitionId; edit: MetadataDraftEdit }>,
-    ): boolean => {
+  const applyGpsTargetDraftBatch = useCallback(
+    (relativePath: string, entries: MetadataTargetDraftEntry[]): boolean => {
       if (!requireTargetDraftPersistenceReady([relativePath])) return false;
       try {
-        const planned = planGpsTargetDraftBatch(
-          edits,
+        const validated = validateGpsTargetDraftEntries(
+          entries,
           imageMetadataOccurrencesStoreRef.current.get(relativePath),
           targetDraftEditsStoreRef.current.getMetadataFile(relativePath),
         );
         targetDraftEditsStoreRef.current.setMetadataBatch(
           relativePath,
-          planned.map(({ target, edit }) => ({ target, edit })),
+          validated,
         );
         return true;
       } catch (error) {
-        pushApplicationError("metadata-target-gps-plan", error, [relativePath]);
+        pushApplicationError("metadata-target-gps-validate", error, [
+          relativePath,
+        ]);
         return false;
       }
     },
@@ -1830,7 +1829,7 @@ export function useMediaLibrary(
       applyGeneratedMetadataDraftBatch,
       removeMetadataFields,
       removeMetadataFieldFromFiles,
-      setGpsTargetDraftBatch,
+      applyGpsTargetDraftBatch,
       setExistingOccurrenceDraft,
       setNewPropertyDraft,
       replaceNewPropertyDraftTarget,
@@ -1863,7 +1862,7 @@ export function useMediaLibrary(
       applyGeneratedMetadataDraftBatch,
       removeMetadataFields,
       removeMetadataFieldFromFiles,
-      setGpsTargetDraftBatch,
+      applyGpsTargetDraftBatch,
       setExistingOccurrenceDraft,
       setNewPropertyDraft,
       replaceNewPropertyDraftTarget,

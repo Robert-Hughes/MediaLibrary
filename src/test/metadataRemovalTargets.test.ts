@@ -281,19 +281,19 @@ describe("planMetadataRemovalTargets", () => {
     );
   });
 
-  it("rejects multiple occurrences without first-selecting", () => {
-    expectCode(
-      () =>
-        plan({
-          occurrences: [
-            occurrence(),
-            occurrence({
-              id: { ...occurrence().id, path: "JPEG-APP1-IFD1", copy: 2 },
-            }),
-          ],
+  it("creates exact Delete drafts for every same-schema occurrence", () => {
+    const result = plan({
+      occurrences: [
+        occurrence(),
+        occurrence({
+          id: { ...occurrence().id, path: "JPEG-APP1-IFD1", copy: 2 },
         }),
-      "multiple-occurrences",
-    );
+      ],
+    });
+    expect(result.upserts).toHaveLength(2);
+    expect(
+      result.upserts.map(({ target }) => target.occurrence_id.path),
+    ).toEqual(["JPEG-APP1-IFD0", "JPEG-APP1-IFD1"]);
   });
 
   it("leaves unknown rows read-only and rejects exact read-only or untargetable rows", () => {
@@ -351,7 +351,7 @@ describe("planMetadataRemovalTargets", () => {
     ).toEqual([{ target: target(), edit: { intent: "Delete", value: null } }]);
   });
 
-  it("rejects NewProperty/existing and different-occurrence ownership", () => {
+  it("cancels same-schema New Property targets and rejects a stale occurrence", () => {
     const created: MetadataDraftTarget = {
       kind: "NewProperty",
       schema_id: id,
@@ -361,20 +361,43 @@ describe("planMetadataRemovalTargets", () => {
         tag_name: "TestTag",
       },
     };
-    expectCode(
-      () => plan({ targets: owner(created) }),
-      "incompatible-target-owner",
-    );
+    expect(plan({ targets: owner(created) })).toMatchObject({
+      upserts: [{ target: target(), edit: { intent: "Delete", value: null } }],
+      deletes: [created],
+    });
     const different = target(
       occurrence({ id: { ...occurrence().id, path: "different" } }),
     );
-    expectCode(
-      () => plan({ targets: owner(different) }),
-      "incompatible-target-owner",
-    );
+    expectCode(() => plan({ targets: owner(different) }), "stale-target-owner");
   });
 
-  it("rejects multiple target owners and duplicate input schemas", () => {
+  it("deletes one occurrence and cancels two independent creation destinations", () => {
+    const first: MetadataDraftTarget = {
+      kind: "NewProperty",
+      schema_id: id,
+      write_target: {
+        group1: "XMP-first",
+        group7: "ID-Test",
+        tag_name: "TestTag",
+      },
+    };
+    const second: MetadataDraftTarget = {
+      kind: "NewProperty",
+      schema_id: id,
+      write_target: {
+        group1: "XMP-second",
+        group7: "ID-Test",
+        tag_name: "TestTag",
+      },
+    };
+    const result = plan({ targets: { ...owner(first), ...owner(second) } });
+    expect(result.upserts).toEqual([
+      { target: target(), edit: { intent: "Delete", value: null } },
+    ]);
+    expect(result.deletes).toEqual([first, second]);
+  });
+
+  it("handles independent exact owners and rejects duplicate input schemas", () => {
     const existing = target();
     const created: MetadataDraftTarget = {
       kind: "NewProperty",
@@ -386,7 +409,10 @@ describe("planMetadataRemovalTargets", () => {
       },
     };
     const targets = { ...owner(existing), ...owner(created) };
-    expectCode(() => plan({ targets }), "multiple-target-owners");
+    expect(plan({ targets })).toMatchObject({
+      upserts: [{ target: existing }],
+      deletes: [created],
+    });
     expectCode(
       () => plan({ ids: [id, structuredClone(id)] }),
       "duplicate-schema",
@@ -529,7 +555,7 @@ describe("target-aware removal previews", () => {
     });
   });
 
-  it("blocks on the first unsafe later path and names it", () => {
+  it("counts every exact same-schema occurrence across files", () => {
     const multiple = [
       occurrence(),
       occurrence({ id: { ...occurrence().id, path: "duplicate" } }),
@@ -543,6 +569,13 @@ describe("target-aware removal previews", () => {
           path === "ambiguous.jpg" ? multiple : [occurrence()],
         targetDraftsForPath: () => undefined,
       }),
-    ).toMatchObject({ kind: "blocked", relativePath: "ambiguous.jpg" });
+    ).toEqual({
+      kind: "ready",
+      photoCount: 3,
+      affectedPhotoCount: 3,
+      existingFieldsToDelete: 4,
+      stagedCreationsToCancel: 0,
+      noOpPhotoCount: 0,
+    });
   });
 });

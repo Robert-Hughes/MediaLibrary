@@ -167,7 +167,7 @@ function renderPane(options: {
   const callbacks = {
     onSetExistingOccurrenceDraft: vi.fn(),
     onRemoveMetadataFields: vi.fn(),
-    onSetGpsTargetDraftBatch: vi.fn(() => true),
+    onApplyGpsTargetDraftBatch: vi.fn(() => true),
     onSetNewPropertyDraft: vi.fn(async () => true),
     onReplaceNewPropertyDraftTarget: vi.fn(async () => true),
     onDiscardTargetPropertyDraft: vi.fn(),
@@ -593,7 +593,7 @@ describe("DetailsPane exact target-owned row presentation", () => {
       })(),
     });
     const row = ordinaryMetadataRows()[0];
-    expect(row).toHaveAttribute("data-readonly", "true");
+    expect(row).not.toHaveAttribute("data-readonly", "true");
   });
 
   it("keeps duplicate IDs and supplemental GPS read-only", () => {
@@ -801,8 +801,15 @@ describe("DetailsPane exact ordinary editor identity", () => {
       target: { value: "52" },
     });
     fireEvent.click(screen.getByTestId("numeric-editor-save"));
-    expect(view.onSetGpsTargetDraftBatch).toHaveBeenCalledWith([
-      expect.objectContaining({ id: GPS_IDS.latitude }),
+    expect(view.onApplyGpsTargetDraftBatch).toHaveBeenCalledWith([
+      expect.objectContaining({
+        target: expect.objectContaining({
+          kind: "ExistingOccurrence",
+          schema_id: GPS_IDS.latitude,
+          occurrence_id: gpsOccurrence.id,
+          write_target: gpsOccurrence.write_target,
+        }),
+      }),
     ]);
     expect(view.onRemoveMetadataFields).not.toHaveBeenCalled();
     expect(view.onSetExistingOccurrenceDraft).not.toHaveBeenCalled();
@@ -906,7 +913,7 @@ describe("DetailsPane exact ordinary editor identity", () => {
       }),
     );
     expect(view.onReplaceNewPropertyDraftTarget).not.toHaveBeenCalled();
-    expect(view.onSetGpsTargetDraftBatch).not.toHaveBeenCalled();
+    expect(view.onApplyGpsTargetDraftBatch).not.toHaveBeenCalled();
     expect(screen.queryByTestId("value-edit-input")).toBeNull();
   });
 
@@ -932,7 +939,7 @@ describe("DetailsPane exact ordinary editor identity", () => {
       }),
     );
     expect(target.write_target.group1).toBe("CustomGPS");
-    expect(view.onSetGpsTargetDraftBatch).not.toHaveBeenCalled();
+    expect(view.onApplyGpsTargetDraftBatch).not.toHaveBeenCalled();
     expect(view.onReplaceNewPropertyDraftTarget).not.toHaveBeenCalled();
     await waitFor(() =>
       expect(screen.queryByTestId("numeric-editor-input")).toBeNull(),
@@ -958,7 +965,7 @@ describe("DetailsPane exact ordinary editor identity", () => {
       value: { kind: "Real", value: 51.5 },
     });
     expect(screen.getByTestId("numeric-editor-input")).toBeInTheDocument();
-    expect(view.onSetGpsTargetDraftBatch).not.toHaveBeenCalled();
+    expect(view.onApplyGpsTargetDraftBatch).not.toHaveBeenCalled();
     expect(view.onReplaceNewPropertyDraftTarget).not.toHaveBeenCalled();
   });
 
@@ -1050,7 +1057,7 @@ describe("DetailsPane exact ordinary editor identity", () => {
     fireEvent.click(screen.getByTestId("numeric-editor-save"));
 
     expect(view.onSetNewPropertyDraft).not.toHaveBeenCalled();
-    expect(view.onSetGpsTargetDraftBatch).not.toHaveBeenCalled();
+    expect(view.onApplyGpsTargetDraftBatch).not.toHaveBeenCalled();
     expect(view.onReplaceNewPropertyDraftTarget).not.toHaveBeenCalled();
     expect(screen.getByRole("alert")).toHaveTextContent(
       /changed or disappeared/i,
@@ -1115,7 +1122,7 @@ describe("DetailsPane exact ordinary editor identity", () => {
       target,
       expect.anything(),
     );
-    expect(view.onSetGpsTargetDraftBatch).not.toHaveBeenCalled();
+    expect(view.onApplyGpsTargetDraftBatch).not.toHaveBeenCalled();
     expect(view.onReplaceNewPropertyDraftTarget).not.toHaveBeenCalled();
   });
 });

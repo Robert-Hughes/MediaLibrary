@@ -186,6 +186,8 @@ export interface MockTauriApi {
     /** Typed draft edits emitted on `status === "ok"`. */
     edits?: SchemaMetadataEdit[];
   }>;
+  /** Optional gate invoked after run confirmation but before result events. */
+  beforeNormaliseProgress: (() => void | Promise<void>) | null;
   normaliseSummary: {
     nSucceeded: number;
     nFailed: number;
@@ -355,6 +357,7 @@ export function createMockTauriApi(): MockTauriApi {
     lastNormaliseArgs: null,
     cancelNormaliseCalled: false,
     normaliseSchedule: [],
+    beforeNormaliseProgress: null,
     normaliseSummary: {
       nSucceeded: 0,
       nFailed: 0,
@@ -675,6 +678,7 @@ export function createMockTauriApi(): MockTauriApi {
         const total = items.length;
         await Promise.resolve();
         emit("normalise_started", { total });
+        await mock.beforeNormaliseProgress?.();
         const succeeded: string[] = [];
         const failed: Array<{
           relativePath: string;
