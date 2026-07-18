@@ -49,6 +49,7 @@ open and do not use irreplaceable originals.
 24. **Move a destination.** Stage one New Property draft at IFD0, choose **Edit destination…**, change it to IFD1, and save. Expected: exactly one draft exists before and after; the selector changes to IFD1 and the semantic value is unchanged.
 25. **Fail a destination move.** Attempt a move to an occupied occurrence selector and to another pending draft selector. Expected: the dialog remains open, the original target/value remain intact, and no replacement slot is created. Confirm a pending verification outcome also blocks the move until resolved.
 26. **Separate New Property value and destination edits.** Stage a New Property with a custom destination. Use **Edit…** to change only its value and confirm the selector is unchanged. Then use **Edit destination…** to change only its group and confirm the value is unchanged. With a same-schema sibling destination staged, confirm both operations leave the sibling untouched.
+27. **Preserve a custom GPS destination.** Add a GPS property using a custom destination group, stage a value, reopen it with **Edit…**, and change the value. Expected: the destination remains unchanged, and no paired GPS fields or default destination are introduced.
 
 On failure capture the file format, application version/commit, ExifTool
 version, friendly label, exact `{table, tag_id, index?}`, intended and observed

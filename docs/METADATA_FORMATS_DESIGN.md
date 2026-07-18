@@ -141,7 +141,9 @@ an unknown-selector occurrence from another schema does not. Families 3, 4,
 and 5 remain extraction identity rather than supported direct-write coordinates.
 
 Semantic value editing preserves the complete New Property target and updates
-only its staged edit. Destination editing uses one exact mutation batch to delete the original New
+only its staged edit, including custom family-1 destinations for GPS schemas;
+GPS membership never changes the value-edit dispatch. Destination editing uses
+one exact mutation batch to delete the original New
 Property slot and upsert the replacement with the unchanged semantic edit.
 Validation failure preserves the original slot. A pending verification outcome
 blocks either operation until resolved. Neither operation falls back to another

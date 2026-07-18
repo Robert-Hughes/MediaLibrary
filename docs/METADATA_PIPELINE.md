@@ -82,7 +82,9 @@ tokens remain enterable.
 
 New Property value editing and destination editing are separate actions. Value
 editing reopens the typed editor from the staged semantic edit and replaces only
-the edit in the same exact target slot. Destination editing atomically moves the existing draft slot by
+the edit in the same exact target slot. This rule also applies to GPS schemas:
+GPS membership does not redirect a staged New Property through the GPS target
+planner. Destination editing atomically moves the existing draft slot by
 one exact mutation batch: delete the original target and upsert the replacement
 with the original semantic edit. Failed replacement leaves the original draft
 unchanged. Both operations preserve exact target ownership, never select another

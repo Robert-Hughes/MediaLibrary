@@ -112,6 +112,35 @@ function stagedNewProperty() {
   return { schema, info, target, edit, store };
 }
 
+function stagedGpsNewProperty(group1 = "CustomGPS") {
+  const info: TagInfo = {
+    id: GPS_IDS.latitude,
+    group: "GPS",
+    name: "GPSLatitude",
+    writable: true,
+    kind: { kind: "Real" },
+    description: null,
+  };
+  _setTagInfoCacheEntry(GPS_IDS.latitude, info);
+  _setWritableSchemaDefinitionsCache([info]);
+  const target = {
+    kind: "NewProperty" as const,
+    schema_id: GPS_IDS.latitude,
+    write_target: {
+      group1,
+      group7: "ID-2",
+      tag_name: "GPSLatitude",
+    },
+  };
+  const edit: MetadataDraftEdit = {
+    intent: "Set",
+    value: { kind: "Real", value: 51.5 },
+  };
+  const store = new TargetDraftEditsStore();
+  store.setMetadataTarget(photo.relative_path, target, edit);
+  return { info, target, edit, store };
+}
+
 function targetDrafts(source: MetadataOccurrence, edit: MetadataDraftEdit) {
   const target = existingOccurrenceTargetFromOccurrence(source);
   if (target.kind !== "targetable") throw new Error(target.reason);
@@ -869,7 +898,60 @@ describe("DetailsPane exact ordinary editor identity", () => {
       }),
     );
     expect(view.onReplaceNewPropertyDraftTarget).not.toHaveBeenCalled();
+    expect(view.onSetGpsTargetDraftBatch).not.toHaveBeenCalled();
     expect(screen.queryByTestId("value-edit-input")).toBeNull();
+  });
+
+  it("edits an ordinary-row GPS New Property through its exact custom destination", async () => {
+    const { target, store } = stagedGpsNewProperty();
+    const view = renderPane({
+      occurrences: [],
+      targetDraftEdits: store.getMetadataFile(photo.relative_path),
+    });
+    const row = screen.getByText("GPSLatitude").closest("tr")!;
+    fireEvent.contextMenu(row);
+    await userEvent.click(screen.getByRole("button", { name: "Edit…" }));
+    expect(screen.getByTestId("numeric-editor-input")).toHaveValue(51.5);
+    fireEvent.change(screen.getByTestId("numeric-editor-input"), {
+      target: { value: "52.25" },
+    });
+    fireEvent.click(screen.getByTestId("numeric-editor-save"));
+
+    await waitFor(() =>
+      expect(view.onSetNewPropertyDraft).toHaveBeenCalledWith(target, {
+        intent: "Set",
+        value: { kind: "Real", value: 52.25 },
+      }),
+    );
+    expect(target.write_target.group1).toBe("CustomGPS");
+    expect(view.onSetGpsTargetDraftBatch).not.toHaveBeenCalled();
+    expect(view.onReplaceNewPropertyDraftTarget).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(screen.queryByTestId("numeric-editor-input")).toBeNull(),
+    );
+  });
+
+  it("keeps a custom GPS New Property editor open when async staging fails", async () => {
+    const { target, store } = stagedGpsNewProperty();
+    const view = renderPane({
+      occurrences: [],
+      targetDraftEdits: store.getMetadataFile(photo.relative_path),
+    });
+    view.onSetNewPropertyDraft.mockResolvedValueOnce(false);
+    fireEvent.contextMenu(screen.getByText("GPSLatitude").closest("tr")!);
+    await userEvent.click(screen.getByRole("button", { name: "Edit…" }));
+    fireEvent.click(screen.getByTestId("numeric-editor-save"));
+
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent(/remains open/i),
+    );
+    expect(view.onSetNewPropertyDraft).toHaveBeenCalledWith(target, {
+      intent: "Set",
+      value: { kind: "Real", value: 51.5 },
+    });
+    expect(screen.getByTestId("numeric-editor-input")).toBeInTheDocument();
+    expect(view.onSetGpsTargetDraftBatch).not.toHaveBeenCalled();
+    expect(view.onReplaceNewPropertyDraftTarget).not.toHaveBeenCalled();
   });
 
   it("keeps the value editor open when async staging fails", async () => {
@@ -934,6 +1016,40 @@ describe("DetailsPane exact ordinary editor identity", () => {
     expect(sibling.schema_id).toEqual(schema);
   });
 
+  it("does not redirect a stale GPS New Property to a default-destination sibling", async () => {
+    const { target, edit, store } = stagedGpsNewProperty();
+    const view = renderPane({
+      occurrences: [],
+      targetDraftEdits: store.getMetadataFile(photo.relative_path),
+    });
+    fireEvent.contextMenu(screen.getByText("GPSLatitude").closest("tr")!);
+    await userEvent.click(screen.getByRole("button", { name: "Edit…" }));
+
+    const defaultSibling = {
+      ...structuredClone(target),
+      write_target: { ...target.write_target, group1: "GPS" },
+    };
+    const replacementStore = new TargetDraftEditsStore();
+    replacementStore.setMetadataTarget(
+      photo.relative_path,
+      defaultSibling,
+      edit,
+    );
+    view.rerenderPane({
+      occurrences: [],
+      targetDraftEdits: replacementStore.getMetadataFile(photo.relative_path),
+    });
+    fireEvent.click(screen.getByTestId("numeric-editor-save"));
+
+    expect(view.onSetNewPropertyDraft).not.toHaveBeenCalled();
+    expect(view.onSetGpsTargetDraftBatch).not.toHaveBeenCalled();
+    expect(view.onReplaceNewPropertyDraftTarget).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      /changed or disappeared/i,
+    );
+    expect(screen.getByTestId("numeric-editor-input")).toBeInTheDocument();
+  });
+
   it("edits each additional same-schema New Property row by exact target", async () => {
     const { target, edit, store } = stagedNewProperty();
     const sibling = {
@@ -957,5 +1073,41 @@ describe("DetailsPane exact ordinary editor identity", () => {
       expect(view.onSetNewPropertyDraft).toHaveBeenCalledWith(sibling, edit),
     );
     expect(view.onSetNewPropertyDraft).not.toHaveBeenCalledWith(target, edit);
+  });
+
+  it("edits only the selected additional GPS New Property destination", async () => {
+    const { target, edit, store } = stagedGpsNewProperty();
+    const sibling = {
+      ...structuredClone(target),
+      write_target: { ...target.write_target, group1: "CustomGPS2" },
+    };
+    store.setMetadataTarget(photo.relative_path, sibling, edit);
+    const view = renderPane({
+      occurrences: [],
+      targetDraftEdits: store.getMetadataFile(photo.relative_path),
+    });
+    const siblingItem = screen
+      .getAllByTestId("details-unresolved-target-item")
+      .find((item) => item.textContent?.includes("CustomGPS2"))!;
+    await userEvent.click(
+      siblingItem.querySelector("button") as HTMLButtonElement,
+    );
+    fireEvent.change(screen.getByTestId("numeric-editor-input"), {
+      target: { value: "53" },
+    });
+    fireEvent.click(screen.getByTestId("numeric-editor-save"));
+
+    await waitFor(() =>
+      expect(view.onSetNewPropertyDraft).toHaveBeenCalledWith(sibling, {
+        intent: "Set",
+        value: { kind: "Real", value: 53 },
+      }),
+    );
+    expect(view.onSetNewPropertyDraft).not.toHaveBeenCalledWith(
+      target,
+      expect.anything(),
+    );
+    expect(view.onSetGpsTargetDraftBatch).not.toHaveBeenCalled();
+    expect(view.onReplaceNewPropertyDraftTarget).not.toHaveBeenCalled();
   });
 });

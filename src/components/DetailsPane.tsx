@@ -2516,6 +2516,8 @@ export function DetailsPane({
               editDialog.kind === "gps-composite" ? resolvedGps : undefined
             }
             onSaveMetadataBatch={(edits) => {
+              // Staged New Property editors use single mode and cannot emit a
+              // batch. Composite GPS edits retain their exact-target planner.
               if (editDialog.kind !== "gps-composite") return;
               if (
                 !revalidateGpsEditorTargets(
@@ -2536,33 +2538,10 @@ export function DetailsPane({
             }}
             onSaveMetadata={async (edit) => {
               const propertyId = editDialogPropertyId!;
-              if (gpsMemberGroup(propertyId) !== null) {
-                const openedTarget =
-                  editDialog.kind === "existing-occurrence"
-                    ? editDialog.openedTarget
-                    : editDialog.kind === "new-property"
-                      ? editDialog.openedTarget
-                      : undefined;
-                if (
-                  openedTarget &&
-                  !revalidateGpsEditorTargets(
-                    [{ id: propertyId, edit }],
-                    {
-                      [schemaDefinitionIdToken(propertyId)]: openedTarget,
-                    },
-                    [propertyId],
-                  )
-                ) {
-                  return;
-                }
-                if (onSetGpsTargetDraftBatch?.([{ id: propertyId, edit }])) {
-                  setEditDialog(null);
-                } else {
-                  setEditDialogUnavailableMessage(
-                    "The exact GPS edit could not be saved. Nothing was retargeted.",
-                  );
-                }
-              } else if (editDialog.kind === "new-property") {
+              // A staged New Property value edit always preserves its exact
+              // stored target. GPS membership must not redirect it through the
+              // GPS target planner.
+              if (editDialog.kind === "new-property") {
                 if (
                   !newPropertyValueEditorIsCurrent(
                     editDialog.openedTarget,
@@ -2583,6 +2562,30 @@ export function DetailsPane({
                 } else {
                   setEditDialogUnavailableMessage(
                     "The New Property value could not be saved. The editor remains open and the destination was not changed.",
+                  );
+                }
+              } else if (gpsMemberGroup(propertyId) !== null) {
+                const openedTarget =
+                  editDialog.kind === "existing-occurrence"
+                    ? editDialog.openedTarget
+                    : undefined;
+                if (
+                  openedTarget &&
+                  !revalidateGpsEditorTargets(
+                    [{ id: propertyId, edit }],
+                    {
+                      [schemaDefinitionIdToken(propertyId)]: openedTarget,
+                    },
+                    [propertyId],
+                  )
+                ) {
+                  return;
+                }
+                if (onSetGpsTargetDraftBatch?.([{ id: propertyId, edit }])) {
+                  setEditDialog(null);
+                } else {
+                  setEditDialogUnavailableMessage(
+                    "The exact GPS edit could not be saved. Nothing was retargeted.",
                   );
                 }
               } else if (
