@@ -11,18 +11,12 @@ Current
     * The test coverage has not regressed as part of the migrations
     * There is not any legacy code. adapters, irrelevant tests or anything half-done. For example files or identifiers that are suspicious might be "v4", "v5", legacy
     * All the code is now using the appropriate property identifiers (schema definition is used where appropriate and occurrence ID is used where appropriate)
-  - 'Additional Metadata Occurrences' section in Details panel - it shouldn't be "schema oriented"! Check other places too?
+      * Are there any places where things are schema-oriented but would be better as occurence-oriented? (For example, the details pane used to be schema oriented which was led to more complexity and was changed to be occurence-based)
   - Then work through manual checklist (which will prob first need updating from the occurence work). 
-
-- Right click on the property list maps should show edit (opens group editor) and "remove all GPS", "discard all GPS"? Should be done - check
-- GPS editor sets lat/long to different string format than the one from exiftool. How does this work? Do we store separate display string? I thoiught we used semantic MetadataValue for everything now?
+    - Right click on the property list maps should show edit (opens group editor) and "remove all GPS", "discard all GPS"? Should be done - check
+    - GPS editor sets lat/long to different string format than the one from exiftool. How does this work? Do we store separate display string? I thoiught we used semantic MetadataValue for everything now?
+  
 - How do you add a GPS if the file doesn't have one? (Using hte nice editor)
-- Lots of warnings: 
-    warning: failed to parse serde attribute
-    | 
-    | #[serde(default, skip_serializing_if = "Option::is_none")]
-    | 
-    = note: ts-rs failed to parse this attribute. It will be ignored.
 
 - Full map view
   - Select a bunch of photos, right click, "show on Map" opens map popup with pins/thumbnails for each photo
