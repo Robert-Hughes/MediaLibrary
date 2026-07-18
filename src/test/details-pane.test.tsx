@@ -1873,6 +1873,54 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
     expectZeroSouthWestEdits(onApplyGpsTargetDraftBatch.mock.calls[0][0]);
   });
 
+  it("keeps ordinary GPS row editing enabled while composite GPS capture is blocked", () => {
+    const metadata = mockMetadata({
+      "GPS:GPSLatitude": 51.5,
+      "GPS:GPSLatitudeRef": "N",
+      "GPS:GPSLongitude": 0.12,
+      "GPS:GPSLongitudeRef": "E",
+    });
+    const altitudeId = testId("GPS:GPSAltitude");
+    const makeAltitudeTarget = (group1: string): MetadataDraftTarget => ({
+      kind: "NewProperty",
+      schema_id: structuredClone(altitudeId),
+      write_target: { ...knownMetadataWriteTarget(altitudeId)!, group1 },
+    });
+    const first = makeAltitudeTarget("CustomGPS1");
+    const second = makeAltitudeTarget("CustomGPS2");
+    const targetDraftEdits: TargetDraftCollection = Object.fromEntries(
+      [first, second].map((target) => [
+        metadataDraftTargetSlotToken(target),
+        {
+          target,
+          edit: {
+            intent: "Set" as const,
+            value: { kind: "Real" as const, value: 100 },
+          },
+        },
+      ]),
+    );
+    render(
+      <DetailsPane
+        photo={photo}
+        occurrences={occurrencesFor(metadata)}
+        targetDraftEdits={targetDraftEdits}
+        onRemoveMetadataFields={vi.fn()}
+        onDiscardTargetDraftBatch={vi.fn()}
+        onApplyGpsTargetDraftBatch={vi.fn(() => true)}
+      />,
+    );
+
+    openContextMenu("GPSLatitude");
+    expect(screen.getByRole("button", { name: "Edit…" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Remove" })).toBeEnabled();
+    const rowEditGps = screen.getByRole("button", { name: "Edit GPS…" });
+    expect(rowEditGps).toBeDisabled();
+    expect(rowEditGps.getAttribute("title")).toContain(
+      "Several staged New Property destinations",
+    );
+  });
+
   it("preserves a staged custom altitude destination through unchanged composite save", async () => {
     const metadata = mockMetadata({
       "GPS:GPSLatitude": 51.5,

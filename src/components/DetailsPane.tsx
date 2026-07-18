@@ -606,6 +606,7 @@ function DetailsRowContextMenu({
   onRemove,
   onClose,
   editingUnavailableReason,
+  gpsEditingUnavailableReason,
 }: {
   contextMenu: {
     x: number;
@@ -622,6 +623,7 @@ function DetailsRowContextMenu({
   onRemove: () => void;
   onClose: () => void;
   editingUnavailableReason?: string;
+  gpsEditingUnavailableReason?: string;
 }) {
   const tag = useTagInfo(
     occurrenceResolution.kind === "missing" ? contextMenu.id : null,
@@ -651,7 +653,14 @@ function DetailsRowContextMenu({
             ? [{ label: "Edit destination…", onClick: onEditDestination }]
             : []),
           ...(gpsGroup && onEditGps
-            ? [{ label: "Edit GPS…", onClick: onEditGps }]
+            ? [
+                {
+                  label: "Edit GPS…",
+                  onClick: onEditGps,
+                  disabled: gpsEditingUnavailableReason !== undefined,
+                  title: gpsEditingUnavailableReason,
+                },
+              ]
             : []),
         ]),
     ...(contextMenu.draftValue !== undefined
@@ -683,6 +692,44 @@ function DetailsRowContextMenu({
       onClose={onClose}
     />
   );
+}
+
+function compositeGpsEditingAvailability({
+  group,
+  occurrences,
+  targetDraftEdits,
+  targetDraftPersistence,
+  callbackAvailable,
+}: {
+  group: GpsTagGroup;
+  occurrences: ImageMetadataOccurrencesState | undefined;
+  targetDraftEdits: TargetDraftCollection | undefined;
+  targetDraftPersistence: TargetDraftPersistenceState;
+  callbackAvailable: boolean;
+}): { blocked?: string } {
+  if (!callbackAvailable)
+    return {
+      blocked:
+        "Target-aware GPS editing is unavailable in this view. Nothing was saved.",
+    };
+  if (targetDraftPersistence.status !== "ready")
+    return {
+      blocked:
+        "Target-aware GPS editing is unavailable because target-aware draft persistence did not load safely. Nothing was saved.",
+    };
+  try {
+    planGpsTargetDraftBatch(
+      gpsGroupIds(group).map((id) => ({
+        id,
+        edit: { intent: "Delete" as const, value: null },
+      })),
+      occurrences ?? "loading",
+      targetDraftEdits,
+    );
+    return {};
+  } catch (error) {
+    return { blocked: error instanceof Error ? error.message : String(error) };
+  }
 }
 
 function DetailsGroupContextMenu({
@@ -804,34 +851,20 @@ function DetailsGroupContextMenu({
   ]);
 
   const gpsEditPreview = useMemo<null | { blocked?: string }>(() => {
-    if (gpsGroup === null || onEditGps === undefined) return null;
-    if (targetDraftPersistence.status !== "ready") {
-      return {
-        blocked:
-          "Target-aware GPS editing is unavailable because target-aware draft persistence did not load safely. Nothing was saved.",
-      };
-    }
-    try {
-      planGpsTargetDraftBatch(
-        gpsGroupIds(gpsGroup).map((id) => ({
-          id,
-          edit: { intent: "Delete" as const, value: null },
-        })),
-        occurrences ?? "loading",
-        targetDraftEdits,
-      );
-      return {};
-    } catch (error) {
-      return {
-        blocked: error instanceof Error ? error.message : String(error),
-      };
-    }
+    if (gpsGroup === null) return null;
+    return compositeGpsEditingAvailability({
+      group: gpsGroup,
+      occurrences,
+      targetDraftEdits,
+      targetDraftPersistence,
+      callbackAvailable: onEditGps !== undefined,
+    });
   }, [
     gpsGroup,
     occurrences,
     onEditGps,
     targetDraftEdits,
-    targetDraftPersistence.status,
+    targetDraftPersistence,
   ]);
   const removeCount = removalPreview.preview?.affectedCount ?? 0;
   const draftCount = targetDraftTargets.length;
@@ -2502,6 +2535,17 @@ export function DetailsPane({
             setContextMenu(null);
           }}
           editingUnavailableReason={editingUnavailableReasonFor(contextMenu.id)}
+          gpsEditingUnavailableReason={(() => {
+            const group = gpsMemberGroup(contextMenu.id);
+            if (group === null) return undefined;
+            return compositeGpsEditingAvailability({
+              group,
+              occurrences,
+              targetDraftEdits,
+              targetDraftPersistence,
+              callbackAvailable: onApplyGpsTargetDraftBatch !== undefined,
+            }).blocked;
+          })()}
           onClose={() => setContextMenu(null)}
         />
       )}
