@@ -273,7 +273,51 @@ describe("DetailsPane target-aware datatype badges", () => {
       });
       expectBadges(row, { schema: code, value: null, draft: null });
     });
+
+    it(`derives ${listKind} ListAdd draft datatype from the effective list`, () => {
+      const code = { Bag: "[B]", Seq: "[S]", Alt: "[A]" }[listKind];
+      const row = renderExisting({
+        id: schemaId(`list-add-${listKind}`),
+        kind: { kind: listKind, data: { kind: "Text" } },
+        value: {
+          kind: "List",
+          value: {
+            list_kind: listKind,
+            items: [{ kind: "Text", value: "one" }],
+          },
+        },
+        edit: {
+          intent: "ListAdd",
+          value: { kind: "Text", value: "two" },
+        },
+      });
+      expectBadges(row, { schema: code, value: null, draft: null });
+      expect(row.querySelector(".draft-new")).toHaveTextContent("one, two");
+    });
   }
+
+  it("derives a ListRemove draft datatype from the effective list", () => {
+    const row = renderExisting({
+      id: schemaId("list-remove"),
+      kind: { kind: "Bag", data: { kind: "Text" } },
+      value: {
+        kind: "List",
+        value: {
+          list_kind: "Bag",
+          items: [
+            { kind: "Text", value: "one" },
+            { kind: "Text", value: "two" },
+          ],
+        },
+      },
+      edit: {
+        intent: "ListRemove",
+        value: { kind: "Text", value: "one" },
+      },
+    });
+    expectBadges(row, { schema: "[B]", value: null, draft: null });
+    expect(row.querySelector(".draft-new")).toHaveTextContent("two");
+  });
 
   it("shows a scalar runtime badge under a list schema", () => {
     const row = renderExisting({

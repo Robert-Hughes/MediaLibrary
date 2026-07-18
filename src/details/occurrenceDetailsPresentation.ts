@@ -5,6 +5,7 @@ import type {
   MetadataTargetDraftEntry,
   MetadataValue,
   MetadataWriteTarget,
+  SchemaDefinitionId,
   TagInfo,
 } from "../types";
 import {
@@ -26,10 +27,9 @@ import {
   formatSchemaDefinitionIdForDiagnostics,
   schemaDefinitionIdToken,
 } from "../utils/schemaDefinitionId";
-import {
-  metadataWriteSelector,
-  metadataWriteTargetEquals,
-} from "../utils/metadataWriteTarget";
+import { metadataWriteSelector } from "../utils/metadataWriteTarget";
+import { applyMetadataDraftEditExactly } from "../utils/effectiveMetadata";
+import { classifyNewPropertyDestination } from "../utils/newPropertyDestinationSafety";
 
 export type OccurrenceDetailsGroupSource =
   "observed-selector" | "tag-info" | "schema-table-fallback" | "write-target";
@@ -42,6 +42,7 @@ export type OccurrenceDetailsRowStatusCode =
   | "duplicate-occurrence-id"
   | "new"
   | "destination-occupied"
+  | "destination-unknown"
   | "missing-occurrence"
   | "conflicting-targets";
 
@@ -82,6 +83,7 @@ export interface ExistingOccurrenceRow extends OccurrenceDetailsRowCommon {
   draft: MetadataTargetDraftEntry | null;
   staleDraft: MetadataTargetDraftEntry | null;
   duplicateOccurrenceId: boolean;
+  effectiveDraftValue: MetadataValue | null;
 }
 
 export interface NewPropertyRow extends OccurrenceDetailsRowCommon {
@@ -116,50 +118,6 @@ export interface BuildOccurrenceDetailsPresentationInput {
   occurrences: readonly MetadataOccurrence[];
   targetDrafts?: TargetDraftCollection;
   tagInfos?: Readonly<Record<string, TagInfo | null | undefined>>;
-}
-
-function effectiveExistingDraftValue(
-  original: MetadataValue,
-  edit: MetadataDraftEdit,
-): MetadataValue {
-  if (edit.intent === "Set" && edit.value !== null) return edit.value;
-  if (edit.intent === "Delete" || edit.value === null) return original;
-  if (original.kind !== "List") return edit.value;
-
-  const stagedItems =
-    edit.value.kind === "List" ? edit.value.value.items : [edit.value];
-  if (edit.intent === "ListRemove") {
-    return {
-      kind: "List",
-      value: {
-        ...original.value,
-        items: original.value.items.filter(
-          (item) =>
-            !stagedItems.some(
-              (staged) => JSON.stringify(staged) === JSON.stringify(item),
-            ),
-        ),
-      },
-    };
-  }
-  if (edit.intent === "ListAdd") {
-    return {
-      kind: "List",
-      value: {
-        ...original.value,
-        items: [
-          ...original.value.items,
-          ...stagedItems.filter(
-            (item) =>
-              !original.value.items.some(
-                (existing) => JSON.stringify(existing) === JSON.stringify(item),
-              ),
-          ),
-        ],
-      },
-    };
-  }
-  return original;
 }
 
 function existingGroup(occurrence: MetadataOccurrence): {
@@ -198,19 +156,18 @@ function existingLabel(occurrence: MetadataOccurrence): string {
 }
 
 function draftDisplay(
-  occurrence: MetadataOccurrence,
-  draft: MetadataTargetDraftEntry | null,
+  schemaId: SchemaDefinitionId,
+  effectiveDraftValue: MetadataValue | null,
   displayTagInfo: TagInfo | null,
 ): string | null {
-  if (draft === null || draft.edit.intent === "Delete") return null;
-  const value = effectiveExistingDraftValue(occurrence.value, draft.edit);
+  if (effectiveDraftValue === null) return null;
   return displayTagInfo
     ? metadataValueToDisplayStringForTag(
-        occurrence.schema_id,
-        value,
+        schemaId,
+        effectiveDraftValue,
         displayTagInfo,
       )
-    : (displayStringOfMetadataDraft(draft.edit) ?? null);
+    : metadataValueToDisplayString(effectiveDraftValue);
 }
 
 function currentDisplay(
@@ -253,6 +210,7 @@ function status(
     "duplicate-occurrence-id": "Duplicate occurrence ID",
     new: "New",
     "destination-occupied": "Destination occupied",
+    "destination-unknown": "Destination cannot be verified",
     "missing-occurrence": "Missing occurrence",
     "conflicting-targets": "Conflicting targets",
   };
@@ -466,7 +424,16 @@ export function buildOccurrenceDetailsPresentation(
       input.tagInfos?.[schemaDefinitionIdToken(occurrence.schema_id)] ??
       occurrence.tag_info;
     const currentValue = currentDisplay(occurrence, displayTagInfo);
-    const stagedValue = draftDisplay(occurrence, draft, displayTagInfo);
+    const effectiveDraftValue =
+      draft === null
+        ? null
+        : (applyMetadataDraftEditExactly(occurrence.value, draft.edit).value ??
+          null);
+    const stagedValue = draftDisplay(
+      occurrence.schema_id,
+      effectiveDraftValue,
+      displayTagInfo,
+    );
     const rowStatus = duplicateOccurrenceId
       ? status("duplicate-occurrence-id")
       : staleDraft
@@ -516,6 +483,7 @@ export function buildOccurrenceDetailsPresentation(
         draft,
         staleDraft,
         duplicateOccurrenceId,
+        effectiveDraftValue,
       },
     });
   });
@@ -526,20 +494,20 @@ export function buildOccurrenceDetailsPresentation(
     const group = targetGroup(entry.target);
     const label = targetLabel(entry.target, tagInfo);
     const stagedValue = displayStringOfMetadataDraft(entry.edit) ?? null;
-    const occupied = occurrences.some(
-      (occurrence) =>
-        (occurrence.write_target !== null &&
-          metadataWriteTargetEquals(
-            occurrence.write_target,
-            entry.target.write_target,
-          )) ||
-        (occurrence.observed_selector !== null &&
-          metadataWriteTargetEquals(
-            occurrence.observed_selector,
-            entry.target.write_target,
-          )),
-    );
-    const rowStatus = occupied ? status("destination-occupied") : status("new");
+    const destinationSafety = classifyNewPropertyDestination({
+      schemaId: entry.target.schema_id,
+      writeTarget: entry.target.write_target,
+      occurrences,
+      pendingTargets: newDraftEntries.map((candidate) => candidate.target),
+      ignoredPendingTarget: entry.target,
+    });
+    const rowStatus =
+      destinationSafety.kind === "occupied" ||
+      destinationSafety.kind === "pending-collision"
+        ? status("destination-occupied")
+        : destinationSafety.kind === "unknown-same-schema"
+          ? status("destination-unknown")
+          : status("new");
     const searchParts = targetSearchParts({
       target: entry.target,
       edit: entry.edit,

@@ -279,6 +279,100 @@ describe("buildOccurrenceDetailsPresentation", () => {
     expect(row.status.code).toBe("edited");
   });
 
+  it("uses canonical semantic equality for structured list removals and additions", () => {
+    const originalItem: MetadataValue = {
+      kind: "Struct",
+      value: {
+        first: { kind: "Text", value: "one" },
+        second: { kind: "Integer", value: 2 },
+      },
+    };
+    const reorderedItem: MetadataValue = {
+      kind: "Struct",
+      value: {
+        second: { kind: "Integer", value: 2 },
+        first: { kind: "Text", value: "one" },
+      },
+    };
+    const current = occurrence("structured-list", {
+      kind: "List",
+      value: { list_kind: "Bag", items: [originalItem] },
+    });
+    const target = exactTarget(current);
+
+    const removed = buildOccurrenceDetailsPresentation({
+      occurrences: [current],
+      targetDrafts: collection([
+        { target, edit: edit(reorderedItem, "ListRemove") },
+      ]),
+    }).groups[0].rows[0];
+    const added = buildOccurrenceDetailsPresentation({
+      occurrences: [current],
+      targetDrafts: collection([
+        { target, edit: edit(reorderedItem, "ListAdd") },
+      ]),
+    }).groups[0].rows[0];
+
+    expect(removed.kind).toBe("ExistingOccurrenceRow");
+    expect(added.kind).toBe("ExistingOccurrenceRow");
+    if (
+      removed.kind !== "ExistingOccurrenceRow" ||
+      added.kind !== "ExistingOccurrenceRow"
+    ) {
+      throw new Error("wrong row kind");
+    }
+    expect(removed.effectiveDraftValue).toEqual({
+      kind: "List",
+      value: { list_kind: "Bag", items: [] },
+    });
+    expect(removed.stagedValue).toBe("");
+    expect(added.effectiveDraftValue).toEqual(current.value);
+    expect(added.stagedValue).toBe("first: one; second: 2");
+  });
+
+  it("uses canonical semantic equality for rational list removals and additions", () => {
+    const half: MetadataValue = {
+      kind: "Rational",
+      value: { numerator: 1, denominator: 2 },
+    };
+    const equivalentHalf: MetadataValue = {
+      kind: "Rational",
+      value: { numerator: 2, denominator: 4 },
+    };
+    const current = occurrence("rational-list", {
+      kind: "List",
+      value: { list_kind: "Seq", items: [half] },
+    });
+    const target = exactTarget(current);
+
+    const removed = buildOccurrenceDetailsPresentation({
+      occurrences: [current],
+      targetDrafts: collection([
+        { target, edit: edit(equivalentHalf, "ListRemove") },
+      ]),
+    }).groups[0].rows[0];
+    const added = buildOccurrenceDetailsPresentation({
+      occurrences: [current],
+      targetDrafts: collection([
+        { target, edit: edit(equivalentHalf, "ListAdd") },
+      ]),
+    }).groups[0].rows[0];
+
+    expect(removed.kind).toBe("ExistingOccurrenceRow");
+    expect(added.kind).toBe("ExistingOccurrenceRow");
+    if (
+      removed.kind !== "ExistingOccurrenceRow" ||
+      added.kind !== "ExistingOccurrenceRow"
+    ) {
+      throw new Error("wrong row kind");
+    }
+    expect(removed.effectiveDraftValue).toEqual({
+      kind: "List",
+      value: { list_kind: "Seq", items: [] },
+    });
+    expect(added.effectiveDraftValue).toEqual(current.value);
+  });
+
   it("retains a stale target snapshot without overlaying its staged value", () => {
     const current = occurrence("stale");
     const staleTarget = exactTarget(current);
@@ -380,6 +474,71 @@ describe("buildOccurrenceDetailsPresentation", () => {
 
     expect(newRow?.kind).toBe("NewPropertyRow");
     expect(newRow?.status.code).toBe("destination-occupied");
+  });
+
+  it("classifies selector occupancy with production case semantics", () => {
+    const target = newTarget(otherSchema, "XMP-Custom", "Title");
+    const occupied = occurrence("case-collision", undefined, {
+      schema_id: structuredClone(otherSchema),
+      observed_selector: {
+        ...target.write_target,
+        group1: "xmp-custom",
+        tag_name: "title",
+      },
+      write_target: null,
+    });
+    const family7Distinct = occurrence("family7-distinct", undefined, {
+      schema_id: structuredClone(otherSchema),
+      observed_selector: {
+        ...target.write_target,
+        group7: target.write_target.group7.toLowerCase(),
+      },
+      write_target: null,
+    });
+    const entry = { target, edit: edit({ kind: "Text", value: "New" }) };
+
+    const occupiedRow = buildOccurrenceDetailsPresentation({
+      occurrences: [occupied],
+      targetDrafts: collection([entry]),
+    })
+      .groups.flatMap((group) => group.rows)
+      .find((row) => row.kind === "NewPropertyRow");
+    const distinctRow = buildOccurrenceDetailsPresentation({
+      occurrences: [family7Distinct],
+      targetDrafts: collection([entry]),
+    })
+      .groups.flatMap((group) => group.rows)
+      .find((row) => row.kind === "NewPropertyRow");
+
+    expect(occupiedRow?.status.code).toBe("destination-occupied");
+    expect(distinctRow?.status.code).toBe("new");
+  });
+
+  it("keeps an unknown same-schema New Property exact and visibly unsafe", () => {
+    const target = newTarget(otherSchema, "XMP-custom", "Title");
+    const unknown = occurrence("unknown-selector", undefined, {
+      schema_id: structuredClone(otherSchema),
+      observed_selector: null,
+      write_target: null,
+    });
+
+    const row = buildOccurrenceDetailsPresentation({
+      occurrences: [unknown],
+      targetDrafts: collection([
+        { target, edit: edit({ kind: "Text", value: "New" }) },
+      ]),
+    })
+      .groups.flatMap((group) => group.rows)
+      .find((candidate) => candidate.kind === "NewPropertyRow");
+
+    expect(row?.kind).toBe("NewPropertyRow");
+    expect(row?.status.code).toBe("destination-unknown");
+    expect(row?.status.label).toBe("Destination cannot be verified");
+    expect(row?.searchText).toContain("Destination cannot be verified");
+    expect(row?.diagnosticTitle).toContain("Destination cannot be verified");
+    expect(row?.removalTarget).toEqual(target);
+    expect(row?.target).toEqual(target);
+    expect(row?.intendedDestination).toEqual(target.write_target);
   });
 
   it("builds complete searchable diagnostics for values, statuses and exact identities", () => {
