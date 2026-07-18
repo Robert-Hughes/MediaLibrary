@@ -3,14 +3,12 @@ import type {
   MetadataDraftEdit,
   PhotoInfo,
   ImageMetadataOccurrencesState,
-  MetadataValue,
   MetadataDraftTarget,
   MetadataOccurrence,
   MetadataOccurrenceId,
   MetadataTargetDraftEntry,
   TargetDraftPersistenceState,
 } from "../types";
-import { metadataValueEqual } from "../types";
 import {
   metadataTargetDraftEntryEqualsExact,
   type TargetDraftCollection,
@@ -40,7 +38,10 @@ import {
 } from "../utils/applyDiscardPrompts";
 import { GpsMapOverview } from "./GpsMapOverview";
 import { resolveEffectiveGpsForFile } from "../utils/effectiveGps";
-import { buildEffectiveMetadataForFile } from "../utils/effectiveMetadata";
+import {
+  applyMetadataDraftEditExactly,
+  buildEffectiveMetadataForFile,
+} from "../utils/effectiveMetadata";
 import { metadataGet } from "../utils/metadataCollection";
 import { schemaMetadataCollectionFromOccurrences } from "../utils/schemaMetadataProjection";
 import { resolveExactMetadataOccurrence } from "../utils/metadataOccurrences";
@@ -94,7 +95,7 @@ interface Props {
   photo: PhotoInfo;
   /** Authoritative occurrences are the sole metadata state. */
   occurrences: ImageMetadataOccurrencesState;
-  /** Exact-target drafts for Add Property and unique existing rows. */
+  /** Exact-target drafts for New Property and exact existing occurrence rows. */
   targetDraftEdits?: TargetDraftCollection;
   /** Folder-scoped safety state for the strict target-aware persistence file. */
   targetDraftPersistence?: TargetDraftPersistenceState;
@@ -150,13 +151,12 @@ interface Props {
 function detailsRowMatchesSearch(
   label: string,
   value: string,
-  draftValue: string | null | undefined,
   friendlyName: string,
   normalizedQuery: string,
 ): boolean {
   if (!normalizedQuery) return true;
   return haystackContainsNormalized(
-    `${label}\n${value}\n${draftValue ?? ""}\n${friendlyName}`,
+    `${label}\n${value}\n${friendlyName}`,
     normalizedQuery,
   );
 }
@@ -187,48 +187,6 @@ function gpsGroupIds(group: GpsTagGroup): SchemaDefinitionId[] {
     group.altitudeId,
     group.altitudeRefId,
   ];
-}
-
-function effectiveExistingDraftValue(
-  original: MetadataValue,
-  edit: MetadataDraftEdit,
-): MetadataValue {
-  if (edit.intent === "Set" && edit.value !== null) return edit.value;
-  if (edit.intent === "Delete" || edit.value === null) return original;
-  if (original.kind !== "List") return edit.value;
-
-  const stagedItems =
-    edit.value.kind === "List" ? edit.value.value.items : [edit.value];
-  if (edit.intent === "ListRemove") {
-    return {
-      kind: "List",
-      value: {
-        ...original.value,
-        items: original.value.items.filter(
-          (item) =>
-            !stagedItems.some((staged) => metadataValueEqual(item, staged)),
-        ),
-      },
-    };
-  }
-  if (edit.intent === "ListAdd") {
-    return {
-      kind: "List",
-      value: {
-        ...original.value,
-        items: [
-          ...original.value.items,
-          ...stagedItems.filter(
-            (item) =>
-              !original.value.items.some((existing) =>
-                metadataValueEqual(existing, item),
-              ),
-          ),
-        ],
-      },
-    };
-  }
-  return original;
 }
 
 function DetailsValueCell({
@@ -303,11 +261,6 @@ function DetailsValueCell({
   );
 }
 
-/**
- * One image-metadata row. Owns its `useTagInfo` lookup so each row can
- * independently render schema/value/draft datatype badges. Lifted out of
- * `DetailsPane` because hooks can't run inside `.map()` callbacks.
- */
 function compositeGpsEditingAvailability({
   group,
   occurrences,
@@ -668,8 +621,6 @@ export function DetailsPane({
     [occurrences, targetDraftEdits],
   );
   const totalDraftCount = Object.keys(targetDraftEdits ?? {}).length;
-  const draftEdits = useMemo<Record<string, string | null>>(() => ({}), []);
-
   const openGroupContextMenu = (event: React.MouseEvent, group: string) => {
     event.preventDefault();
     event.stopPropagation();
@@ -723,9 +674,16 @@ export function DetailsPane({
     }
     return result;
   }, [occurrences]);
-  const lookedUpDisplayTagInfos = useTagInfos(displayIds);
+  const lookupIds = useMemo(
+    () =>
+      displayIds.filter(
+        (id) => embeddedTagInfos[schemaDefinitionIdToken(id)] === undefined,
+      ),
+    [displayIds, embeddedTagInfos],
+  );
+  const lookedUpDisplayTagInfos = useTagInfos(lookupIds);
   const displayTagInfos = useMemo(
-    () => ({ ...embeddedTagInfos, ...lookedUpDisplayTagInfos }),
+    () => ({ ...lookedUpDisplayTagInfos, ...embeddedTagInfos }),
     [embeddedTagInfos, lookedUpDisplayTagInfos],
   );
   const occurrencePresentation = useMemo(() => {
@@ -760,7 +718,7 @@ export function DetailsPane({
     [occurrencePresentation.groups],
   );
 
-  const ordinaryEditResolution = useMemo<
+  const existingOccurrenceEditResolution = useMemo<
     | { kind: "available"; occurrence: MetadataOccurrence }
     | { kind: "unavailable"; reason: string }
     | null
@@ -860,16 +818,22 @@ export function DetailsPane({
         ? undefined
         : (editDialog.openedEdit.value ?? undefined);
     }
-    if (ordinaryEditResolution?.kind !== "available") return undefined;
+    if (existingOccurrenceEditResolution?.kind !== "available") {
+      return undefined;
+    }
     const owner =
       targetDraftEdits?.[metadataDraftTargetSlotToken(editDialog.openedTarget)];
-    return owner &&
-      metadataDraftTargetEquals(owner.target, editDialog.openedTarget)
-      ? effectiveExistingDraftValue(
-          ordinaryEditResolution.occurrence.value,
-          owner.edit,
-        )
-      : ordinaryEditResolution.occurrence.value;
+    if (
+      !owner ||
+      !metadataDraftTargetEquals(owner.target, editDialog.openedTarget) ||
+      owner.edit.intent === "Delete"
+    ) {
+      return existingOccurrenceEditResolution.occurrence.value;
+    }
+    return applyMetadataDraftEditExactly(
+      existingOccurrenceEditResolution.occurrence.value,
+      owner.edit,
+    ).value;
   })();
   const editDialogRenderKey = editDialog
     ? `${editDialog.kind}:${schemaDefinitionIdToken(editDialogPropertyId!)}:${JSON.stringify(
@@ -888,12 +852,12 @@ export function DetailsPane({
   useEffect(() => {
     if (
       editDialog?.kind === "existing-occurrence" &&
-      ordinaryEditResolution?.kind === "unavailable"
+      existingOccurrenceEditResolution?.kind === "unavailable"
     ) {
-      setEditDialogUnavailableMessage(ordinaryEditResolution.reason);
+      setEditDialogUnavailableMessage(existingOccurrenceEditResolution.reason);
       setEditDialog(null);
     }
-  }, [editDialog, ordinaryEditResolution]);
+  }, [editDialog, existingOccurrenceEditResolution]);
 
   const fullGroupForMenu = useMemo(() => {
     if (!groupContextMenu) return null;
@@ -907,12 +871,12 @@ export function DetailsPane({
     const { query, hasEditsFilter } = splitHasEditsFilter(
       normalizedDetailsQuery,
     );
-    if (!query && !hasEditsFilter) return osEntries;
+    if (hasEditsFilter) return [];
+    if (!query) return osEntries;
     return osEntries.filter(([label, value, key]) => {
-      if (hasEditsFilter && draftEdits[key] === undefined) return false;
-      return detailsRowMatchesSearch(label, value, draftEdits[key], key, query);
+      return detailsRowMatchesSearch(label, value, key, query);
     });
-  }, [osEntries, normalizedDetailsQuery, draftEdits]);
+  }, [osEntries, normalizedDetailsQuery]);
 
   const showOsSection = !normalizedDetailsQuery || filteredOsEntries.length > 0;
 
@@ -1192,20 +1156,13 @@ export function DetailsPane({
             <h3 className="details-section-header">OS Metadata</h3>
             <table className="details-table">
               <tbody>
-                {filteredOsEntries.map(([label, value, propKey]) => (
+                {filteredOsEntries.map(([label, value]) => (
                   <tr
                     key={label}
                     className="details-row"
                     data-testid="details-row"
                   >
-                    <td
-                      className="details-key"
-                      style={
-                        draftEdits[propKey] !== undefined
-                          ? { color: "var(--accent-draft)" }
-                          : undefined
-                      }
-                    >
+                    <td className="details-key">
                       <HighlightedText
                         text={label}
                         searchQuery={detailsSearch}
@@ -1213,7 +1170,7 @@ export function DetailsPane({
                     </td>
                     <DetailsValueCell
                       originalValue={value}
-                      draftValue={draftEdits[propKey]}
+                      draftValue={undefined}
                       searchQuery={detailsSearch}
                       readOnly
                     />
@@ -1494,7 +1451,7 @@ export function DetailsPane({
 
       {editDialog &&
         (editDialog.kind !== "existing-occurrence" ||
-          ordinaryEditResolution?.kind === "available") && (
+          existingOccurrenceEditResolution?.kind === "available") && (
           <TypedValueEditor
             key={editDialogRenderKey}
             propertyId={editDialogPropertyId!}
@@ -1581,7 +1538,7 @@ export function DetailsPane({
                 }
               } else if (
                 editDialog.kind === "existing-occurrence" &&
-                ordinaryEditResolution?.kind === "available"
+                existingOccurrenceEditResolution?.kind === "available"
               ) {
                 onSetExistingOccurrenceDraft?.(editDialog.openedTarget, edit);
                 setEditDialog(null);
