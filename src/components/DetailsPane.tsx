@@ -830,11 +830,14 @@ export function DetailsPane({
     ) {
       return existingOccurrenceEditResolution.occurrence.value;
     }
-    return applyMetadataDraftEditExactly(
+    const applied = applyMetadataDraftEditExactly(
       existingOccurrenceEditResolution.occurrence.value,
       owner.edit,
       existingOccurrenceEditResolution.occurrence.tag_info?.kind,
-    ).value;
+    );
+    return applied.applied
+      ? applied.value
+      : existingOccurrenceEditResolution.occurrence.value;
   })();
   const editDialogRenderKey = editDialog
     ? `${editDialog.kind}:${schemaDefinitionIdToken(editDialogPropertyId!)}:${JSON.stringify(
@@ -851,14 +854,33 @@ export function DetailsPane({
     : undefined;
 
   useEffect(() => {
-    if (
-      editDialog?.kind === "existing-occurrence" &&
-      existingOccurrenceEditResolution?.kind === "unavailable"
-    ) {
+    if (editDialog?.kind !== "existing-occurrence") return;
+    if (existingOccurrenceEditResolution?.kind === "unavailable") {
       setEditDialogUnavailableMessage(existingOccurrenceEditResolution.reason);
       setEditDialog(null);
+      return;
     }
-  }, [editDialog, existingOccurrenceEditResolution]);
+    if (existingOccurrenceEditResolution?.kind !== "available") return;
+    const owner =
+      targetDraftEdits?.[metadataDraftTargetSlotToken(editDialog.openedTarget)];
+    if (
+      !owner ||
+      !metadataDraftTargetEquals(owner.target, editDialog.openedTarget)
+    ) {
+      return;
+    }
+    const applied = applyMetadataDraftEditExactly(
+      existingOccurrenceEditResolution.occurrence.value,
+      owner.edit,
+      existingOccurrenceEditResolution.occurrence.tag_info?.kind,
+    );
+    if (!applied.applied) {
+      setEditDialogUnavailableMessage(
+        "The persisted staged operation cannot be previewed safely and must be discarded or replaced before editing.",
+      );
+      setEditDialog(null);
+    }
+  }, [editDialog, existingOccurrenceEditResolution, targetDraftEdits]);
 
   const fullGroupForMenu = useMemo(() => {
     if (!groupContextMenu) return null;
@@ -885,6 +907,24 @@ export function DetailsPane({
     if (occurrence.tag_info === null) return;
     const targetability = existingOccurrenceTargetFromOccurrence(occurrence);
     if (targetability.kind !== "targetable") return;
+    const owner =
+      targetDraftEdits?.[metadataDraftTargetSlotToken(targetability.target)];
+    if (
+      owner &&
+      metadataDraftTargetEquals(owner.target, targetability.target)
+    ) {
+      const applied = applyMetadataDraftEditExactly(
+        occurrence.value,
+        owner.edit,
+        occurrence.tag_info.kind,
+      );
+      if (!applied.applied) {
+        setEditDialogUnavailableMessage(
+          "The persisted staged operation cannot be previewed safely and must be discarded or replaced before editing.",
+        );
+        return;
+      }
+    }
     setEditDialogUnavailableMessage(null);
     setEditDialog({
       kind: "existing-occurrence",

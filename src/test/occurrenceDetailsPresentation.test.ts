@@ -425,6 +425,59 @@ describe("buildOccurrenceDetailsPresentation", () => {
     },
   );
 
+  it("distinguishes an unsupported preview from deletion", () => {
+    const current = occurrence(
+      "unsupported-list-payload",
+      { kind: "Text", value: "disk" },
+      { tag_info: tagInfo(schema, { kind: { kind: "Text" } }) },
+    );
+    const target = exactTarget(current);
+    const unsupported = buildOccurrenceDetailsPresentation({
+      occurrences: [current],
+      targetDrafts: collection([
+        {
+          target,
+          edit: {
+            intent: "ListAdd",
+            value: {
+              kind: "List",
+              value: {
+                list_kind: "Bag",
+                items: [{ kind: "Text", value: "new" }],
+              },
+            },
+          },
+        },
+      ]),
+    }).groups[0].rows[0];
+    const deleted = buildOccurrenceDetailsPresentation({
+      occurrences: [current],
+      targetDrafts: collection([
+        { target, edit: { intent: "Delete", value: null } },
+      ]),
+    }).groups[0].rows[0];
+
+    expect(unsupported.kind).toBe("ExistingOccurrenceRow");
+    expect(deleted.kind).toBe("ExistingOccurrenceRow");
+    if (
+      unsupported.kind !== "ExistingOccurrenceRow" ||
+      deleted.kind !== "ExistingOccurrenceRow"
+    ) {
+      throw new Error("wrong row kind");
+    }
+    expect(unsupported.status.code).toBe("preview-unsupported");
+    expect(unsupported.effectiveDraftApplied).toBe(false);
+    expect(unsupported.effectiveDraftReason).toBe(
+      "A list payload cannot be rendered for a non-list schema.",
+    );
+    expect(unsupported.searchText).toContain(unsupported.effectiveDraftReason);
+    expect(unsupported.diagnosticTitle).toContain(
+      unsupported.effectiveDraftReason,
+    );
+    expect(deleted.effectiveDraftApplied).toBe(true);
+    expect(deleted.effectiveDraftReason).toBeNull();
+  });
+
   it.each([
     ["South", "S"],
     ["West", "W"],

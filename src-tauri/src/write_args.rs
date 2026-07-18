@@ -940,6 +940,21 @@ mod tests {
     }
 
     #[test]
+    fn listadd_list_payload_on_non_list_tag_is_rejected() {
+        let mut occurrence = target_test_occurrence("XMP-dc");
+        occurrence.tag_info.as_mut().unwrap().kind = TagKind::Text;
+        let target = existing_target(&occurrence);
+        let edit = metadata_list_add(bag_text(&["new"]));
+
+        let error = build_existing_occurrence_args(&target, &occurrence, &edit).unwrap_err();
+
+        assert!(matches!(error, MetadataTargetWriteError::ValueEncoding(_)));
+        assert!(error
+            .to_string()
+            .contains("is a list value but schema is not a list kind"));
+    }
+
+    #[test]
     fn scalar_list_fallback_contract_covers_missing_values() {
         let i = info(TagKind::Text);
         let add = MetadataDraftEdit {

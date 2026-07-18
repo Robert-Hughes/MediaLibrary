@@ -177,11 +177,9 @@ export function buildEffectiveMetadataForFile(input: {
         ? matchingOccurrences[0].tag_info?.kind
         : undefined;
     const applied = applyMetadataDraftEditExactly(current, edit, schemaKind);
-    setEffectiveValue(
-      effective,
-      id,
-      applied.applied ? applied.value : undefined,
-    );
+    if (applied.applied) {
+      setEffectiveValue(effective, id, applied.value);
+    }
   }
 
   return effective;

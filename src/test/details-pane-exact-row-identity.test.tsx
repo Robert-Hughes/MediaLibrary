@@ -376,6 +376,43 @@ describe("DetailsPane exact target-owned row presentation", () => {
     expect(view.onDiscardTargetPropertyDraft).toHaveBeenCalledWith(target);
   });
 
+  it("keeps an unsupported staged preview neutral, exact-discardable, and blocked from editing", () => {
+    const reason = "A list payload cannot be rendered for a non-list schema.";
+    const { target, drafts } = targetDrafts(occurrenceA, {
+      intent: "ListAdd",
+      value: {
+        kind: "List",
+        value: {
+          list_kind: "Bag",
+          items: [{ kind: "Integer", value: 301 }],
+        },
+      },
+    });
+    const view = renderPane({
+      occurrences: [occurrenceA],
+      targetDraftEdits: drafts,
+    });
+    const row = rowForOccurrence(occurrenceA);
+
+    expect(row).toHaveTextContent("300");
+    expect(row).toHaveTextContent("Preview unavailable");
+    expect(row).not.toHaveTextContent("—");
+    expect(row.querySelector(".draft-original")).toBeNull();
+    expect(row).toHaveAttribute("data-has-pending-operation", "true");
+    expect(row).toHaveAttribute("title", expect.stringContaining(reason));
+
+    fireEvent.contextMenu(row);
+    fireEvent.click(screen.getByRole("button", { name: "Edit…" }));
+    expect(screen.queryByTestId("typed-value-editor")).toBeNull();
+    expect(screen.getByTestId("details-editor-unavailable")).toHaveTextContent(
+      /cannot be previewed safely.*discarded or replaced/i,
+    );
+
+    fireEvent.contextMenu(row);
+    fireEvent.click(screen.getByRole("button", { name: "Discard edit" }));
+    expect(view.onDiscardTargetPropertyDraft).toHaveBeenCalledWith(target);
+  });
+
   it.each([
     ["ListAdd", "existing, kept, staged"],
     ["ListRemove", "kept"],

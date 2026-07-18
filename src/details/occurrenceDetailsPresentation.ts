@@ -89,6 +89,8 @@ export interface ExistingOccurrenceRow extends OccurrenceDetailsRowCommon {
   staleDraft: MetadataTargetDraftEntry | null;
   duplicateOccurrenceId: boolean;
   effectiveDraftValue: MetadataValue | null;
+  effectiveDraftApplied: boolean | null;
+  effectiveDraftReason: string | null;
 }
 
 export interface NewPropertyRow extends OccurrenceDetailsRowCommon {
@@ -446,12 +448,18 @@ export function buildOccurrenceDetailsPresentation(
           );
     const effectiveDraftValue =
       effectiveDraft?.applied === true ? (effectiveDraft.value ?? null) : null;
-    const stagedValue = draftDisplay(
-      occurrence.schema_id,
-      draft,
-      effectiveDraftValue,
-      displayTagInfo,
-    );
+    const effectiveDraftApplied = effectiveDraft?.applied ?? null;
+    const effectiveDraftReason =
+      effectiveDraft?.applied === false ? effectiveDraft.reason : null;
+    const stagedValue =
+      effectiveDraftApplied === false
+        ? null
+        : draftDisplay(
+            occurrence.schema_id,
+            draft,
+            effectiveDraftValue,
+            displayTagInfo,
+          );
     const rowStatus = duplicateOccurrenceId
       ? status("duplicate-occurrence-id")
       : staleDraft
@@ -507,6 +515,8 @@ export function buildOccurrenceDetailsPresentation(
         staleDraft,
         duplicateOccurrenceId,
         effectiveDraftValue,
+        effectiveDraftApplied,
+        effectiveDraftReason,
       },
     });
   });

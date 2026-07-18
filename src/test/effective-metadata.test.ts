@@ -114,6 +114,26 @@ describe("buildEffectiveMetadataForFile", () => {
     });
   });
 
+  it("reports a list payload as unsupported for a non-list schema", () => {
+    expect(
+      applyMetadataDraftEditExactly(
+        text("disk"),
+        {
+          intent: "ListAdd",
+          value: {
+            kind: "List",
+            value: { list_kind: "Bag", items: [text("new")] },
+          },
+        },
+        { kind: "Text" },
+      ),
+    ).toEqual({
+      applied: false,
+      value: undefined,
+      reason: "A list payload cannot be rendered for a non-list schema.",
+    });
+  });
+
   it("derives one authoritative schema value", () => {
     expect(
       valueOf(
@@ -287,6 +307,26 @@ describe("buildEffectiveMetadataForFile", () => {
         }),
       ),
     ).toBeUndefined();
+  });
+
+  it("preserves the current effective value when a preview is unsupported", () => {
+    const item = occurrence(text("disk"));
+    expect(
+      valueOf(
+        buildEffectiveMetadataForFile({
+          occurrences: [item],
+          targetDrafts: targets(
+            existingEntry(item, {
+              intent: "ListAdd",
+              value: {
+                kind: "List",
+                value: { list_kind: "Bag", items: [text("new")] },
+              },
+            }),
+          ),
+        }),
+      ),
+    ).toEqual(text("disk"));
   });
 
   it("does not mutate occurrences or target drafts", () => {

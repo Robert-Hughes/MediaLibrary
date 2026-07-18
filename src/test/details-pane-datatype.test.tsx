@@ -330,6 +330,26 @@ describe("DetailsPane target-aware datatype badges", () => {
     expect(row.querySelector(".draft-new")).toHaveTextContent("7");
   });
 
+  it("does not derive a draft badge from an unsupported preview payload", () => {
+    const row = renderExisting({
+      id: schemaId("unsupported-list-payload"),
+      kind: { kind: "Text" },
+      value: { kind: "Text", value: "before" },
+      edit: {
+        intent: "ListAdd",
+        value: {
+          kind: "List",
+          value: {
+            list_kind: "Bag",
+            items: [{ kind: "Text", value: "after" }],
+          },
+        },
+      },
+    });
+    expectBadges(row, { schema: "S", value: null, draft: null });
+    expect(row).toHaveTextContent("Preview unavailable");
+  });
+
   it("shows a scalar runtime badge under a list schema", () => {
     const row = renderExisting({
       id: schemaId("scalar-under-list"),
