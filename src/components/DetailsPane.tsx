@@ -1909,8 +1909,8 @@ export function DetailsPane({
           edit: { intent: "Delete" as const, value: null },
         })),
         occurrences ?? "loading",
+        targetDraftEdits,
       );
-      setEditDialogUnavailableMessage(null);
       setEditDialog({
         kind: "gps-composite",
         group: structuredClone(group),

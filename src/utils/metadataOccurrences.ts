@@ -22,6 +22,32 @@ export type SchemaOccurrenceResolutionIndex = ReadonlyMap<
   SchemaOccurrenceResolution
 >;
 
+export interface DuplicateMetadataOccurrenceId {
+  occurrenceId: MetadataOccurrenceId;
+  occurrences: MetadataOccurrence[];
+}
+
+/** Finds the first duplicate complete runtime occurrence ID, independent of schema. */
+export function findDuplicateMetadataOccurrenceId(
+  occurrences: readonly MetadataOccurrence[],
+): DuplicateMetadataOccurrenceId | null {
+  const grouped = new Map<string, MetadataOccurrence[]>();
+  for (const occurrence of occurrences) {
+    const token = metadataOccurrenceIdToken(occurrence.id);
+    const matches = grouped.get(token);
+    if (matches) matches.push(occurrence);
+    else grouped.set(token, [occurrence]);
+  }
+  for (const matches of grouped.values()) {
+    if (matches.length > 1) {
+      return {
+        occurrenceId: structuredClone(matches[0].id),
+        occurrences: structuredClone(matches),
+      };
+    }
+  }
+  return null;
+}
 export type ExactOccurrenceResolution =
   | { kind: "missing" }
   | { kind: "unique"; occurrence: MetadataOccurrence }

@@ -26,6 +26,7 @@ import {
   type TargetDraftCollection,
 } from "../targetDraftEdits";
 import { planGpsTargetDraftBatch } from "../gpsTargetDrafts";
+import { knownMetadataWriteTarget } from "../metadata/knownIds";
 
 import {
   groupImageMetadata as exactGroupImageMetadata,
@@ -34,13 +35,17 @@ import {
   getOsEntries,
 } from "../utils/detailsPaneHelpers";
 import { makePhoto, mockMetadata, testFriendlyName, testId } from "./factories";
-import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
+import {
+  schemaDefinitionIdEquals,
+  schemaDefinitionIdToken,
+} from "../utils/schemaDefinitionId";
 import {
   _resetWritableSchemaDefinitionsCache as _resetSchemaTagNamesCache,
   _setWritableSchemaDefinitionsCache as _setSchemaTagNamesCache,
 } from "../hooks/useWritableSchemaDefinitions";
 import type {
   MetadataDraftEdit,
+  MetadataDraftTarget,
   ImageMetadataEntry,
   MetadataOccurrence,
   MetadataTargetDraftEntry,
@@ -1866,6 +1871,67 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
     expect(onRemoveMetadataFields).not.toHaveBeenCalled();
     expect(onApplyGpsTargetDraftBatch).toHaveBeenCalledOnce();
     expectZeroSouthWestEdits(onApplyGpsTargetDraftBatch.mock.calls[0][0]);
+  });
+
+  it("preserves a staged custom altitude destination through unchanged composite save", async () => {
+    const metadata = mockMetadata({
+      "GPS:GPSLatitude": 51.5,
+      "GPS:GPSLatitudeRef": "N",
+      "GPS:GPSLongitude": 0.12,
+      "GPS:GPSLongitudeRef": "E",
+    });
+    const occurrences = occurrencesFor(metadata);
+    const altitudeId = testId("GPS:GPSAltitude");
+    const customTarget: MetadataDraftTarget = {
+      kind: "NewProperty",
+      schema_id: structuredClone(altitudeId),
+      write_target: {
+        ...knownMetadataWriteTarget(altitudeId)!,
+        group1: "CustomGPS",
+      },
+    };
+    const altitudeEdit: MetadataDraftEdit = {
+      intent: "Set",
+      value: { kind: "Real", value: 100 },
+    };
+    const targetDraftEdits: TargetDraftCollection = {
+      [metadataDraftTargetSlotToken(customTarget)]: {
+        target: customTarget,
+        edit: altitudeEdit,
+      },
+    };
+    const onApplyGpsTargetDraftBatch = vi.fn(
+      (_entries: MetadataTargetDraftEntry[]) => true,
+    );
+    render(
+      <DetailsPane
+        onDiscardTargetDraftBatch={vi.fn()}
+        photo={photo}
+        occurrences={occurrences}
+        targetDraftEdits={targetDraftEdits}
+        onRemoveMetadataFields={vi.fn()}
+        onApplyGpsTargetDraftBatch={onApplyGpsTargetDraftBatch}
+      />,
+    );
+
+    openContextMenu("GPSLatitude");
+    fireEvent.click(screen.getByRole("button", { name: "Edit GPS…" }));
+    expect(await screen.findByTestId("gps-editor-alt-input")).toHaveValue(100);
+    fireEvent.click(screen.getByTestId("gps-editor-save"));
+
+    expect(onApplyGpsTargetDraftBatch).toHaveBeenCalledOnce();
+    const altitudeEntries = onApplyGpsTargetDraftBatch.mock.calls[0][0].filter(
+      (entry) => schemaDefinitionIdEquals(entry.target.schema_id, altitudeId),
+    );
+    expect(altitudeEntries).toHaveLength(1);
+    expect(altitudeEntries[0].target.write_target.group1).toBe("CustomGPS");
+    expect(
+      onApplyGpsTargetDraftBatch.mock.calls[0][0].some(
+        (entry) =>
+          schemaDefinitionIdEquals(entry.target.schema_id, altitudeId) &&
+          entry.target.write_target.group1 === "GPS",
+      ),
+    ).toBe(false);
   });
 
   it("keeps the composite editor open and saves nothing when a captured selector changes", async () => {

@@ -15,6 +15,7 @@ import {
   schemaDefinitionIdEquals,
   schemaDefinitionIdToken,
 } from "./utils/schemaDefinitionId";
+import { findDuplicateMetadataOccurrenceId } from "./utils/metadataOccurrences";
 import { wireStructuralEqual } from "./utils/wireStructuralEquality";
 
 type ExistingOccurrenceTarget = Extract<
@@ -63,8 +64,8 @@ export type MetadataRemovalTargetPlanErrorCode =
   | "untargetable-occurrence"
   | "stale-target-owner"
   | "target-slot-mismatch"
-  | "exact-slot-collision";
-
+  | "exact-slot-collision"
+  | "duplicate-occurrence-id";
 export class MetadataRemovalTargetPlanError extends Error {
   constructor(
     readonly code: MetadataRemovalTargetPlanErrorCode,
@@ -103,6 +104,13 @@ export function planMetadataRemovalTargets(input: {
     );
   }
 
+  const duplicateOccurrence = findDuplicateMetadataOccurrenceId(occurrences);
+  if (duplicateOccurrence) {
+    throw new MetadataRemovalTargetPlanError(
+      "duplicate-occurrence-id",
+      "A complete authoritative metadata occurrence ID is duplicated. Nothing was removed.",
+    );
+  }
   const ids = schemaIds.map((id) => structuredClone(id));
   const seen = new Set<string>();
   for (const id of ids) {

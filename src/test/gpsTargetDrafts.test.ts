@@ -230,3 +230,97 @@ describe("validateGpsTargetDraftEntries", () => {
     expect(entries).toEqual(before);
   });
 });
+
+describe("target-first GPS regressions", () => {
+  it("captures one exact staged New Property destination for a missing schema", () => {
+    const custom = newTarget("CustomGPS");
+    const [planned] = planGpsTargetDraftBatch(
+      [{ id: GPS_IDS.latitude, edit }],
+      [],
+      drafts([{ target: custom, edit }]),
+    );
+    expect(planned.target).toEqual(custom);
+  });
+
+  it("rejects multiple staged destinations instead of first-selecting or defaulting", () => {
+    const first = newTarget("CustomGPS1");
+    const second = newTarget("CustomGPS2");
+    expectCode(
+      () =>
+        planGpsTargetDraftBatch(
+          [{ id: GPS_IDS.latitude, edit }],
+          [],
+          drafts([
+            { target: first, edit },
+            { target: second, edit },
+          ]),
+        ),
+      "ambiguous-staged-target",
+    );
+  });
+
+  it("rejects duplicate complete occurrence IDs across different schemas independent of order", () => {
+    const first = occurrence(GPS_IDS.latitude);
+    const second = occurrence(GPS_IDS.longitude, { group1: "GPS" });
+    second.id = structuredClone(first.id);
+    for (const occurrences of [
+      [first, second],
+      [second, first],
+    ]) {
+      expectCode(
+        () =>
+          planGpsTargetDraftBatch(
+            [{ id: GPS_IDS.latitude, edit }],
+            occurrences,
+          ),
+        "duplicate-occurrence-id",
+      );
+    }
+  });
+
+  it("rejects selector collisions within the incoming batch without mutating input", () => {
+    const first = newTarget("CustomGPS");
+    const second: MetadataDraftTarget = {
+      kind: "NewProperty",
+      schema_id: structuredClone(GPS_IDS.longitude),
+      write_target: {
+        ...knownMetadataWriteTarget(GPS_IDS.longitude)!,
+        group1: "customgps",
+        tag_name: first.write_target.tag_name.toUpperCase(),
+        group7: first.write_target.group7,
+      },
+    };
+    const entries = [
+      { target: first, edit },
+      { target: second, edit },
+    ];
+    const before = structuredClone(entries);
+    expectCode(
+      () => validateGpsTargetDraftEntries(entries, [], undefined),
+      "selector-collision",
+    );
+    expect(entries).toEqual(before);
+  });
+
+  it("accepts distinct incoming selectors", () => {
+    const first = newTarget("CustomGPS");
+    const second: MetadataDraftTarget = {
+      kind: "NewProperty",
+      schema_id: structuredClone(GPS_IDS.longitude),
+      write_target: {
+        ...knownMetadataWriteTarget(GPS_IDS.longitude)!,
+        group1: "CustomGPS",
+      },
+    };
+    expect(
+      validateGpsTargetDraftEntries(
+        [
+          { target: first, edit },
+          { target: second, edit },
+        ],
+        [],
+        undefined,
+      ),
+    ).toHaveLength(2);
+  });
+});

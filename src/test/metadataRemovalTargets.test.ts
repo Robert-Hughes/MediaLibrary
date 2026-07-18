@@ -579,3 +579,31 @@ describe("target-aware removal previews", () => {
     });
   });
 });
+
+describe("global occurrence identity preflight", () => {
+  it("rejects a requested schema when another schema shares its complete occurrence ID, independent of order", () => {
+    const first = occurrence();
+    const second = occurrence({
+      schema_id: { table: "Exif::Other", tag_id: "999" },
+      tag_info: {
+        ...occurrence().tag_info!,
+        id: { table: "Exif::Other", tag_id: "999" },
+      },
+    });
+    second.id = structuredClone(first.id);
+    for (const occurrences of [
+      [first, second],
+      [second, first],
+    ]) {
+      expectCode(() => plan({ occurrences }), "duplicate-occurrence-id");
+    }
+  });
+
+  it("still expands same-schema occurrences with distinct complete IDs", () => {
+    const first = occurrence();
+    const second = occurrence({
+      id: { ...structuredClone(first.id), copy: 1 },
+    });
+    expect(plan({ occurrences: [first, second] }).upserts).toHaveLength(2);
+  });
+});

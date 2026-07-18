@@ -80,6 +80,15 @@ missing or duplicate result, silent ignore, and semantic mismatch preserve the
 draft. ExistingOccurrence apply validates the full occurrence, schema and
 write-target snapshot; it never locates an owner by schema.
 
+Composite editors may use schema IDs to enumerate semantic fields, but every
+field resolves to a complete mutation target before the editor opens. A single
+existing staged New Property target is already the destination and is preserved
+exactly; the registered default destination is used only when there is neither
+an authoritative occurrence nor an existing exact staged target. Multiple
+possible staged destinations are ambiguous and are never first-selected.
+Selector uniqueness is checked across authoritative occurrences, stored drafts
+and every target in the incoming batch.
+
 `MediaLibraryTargetApplyLog.jsonl` is the only active apply audit. The
 historical `MediaLibraryApplyLog.jsonl` is ignored and left unchanged.
 
