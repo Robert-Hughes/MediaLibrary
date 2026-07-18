@@ -53,9 +53,7 @@ export type GeneratedTargetDraftPlanErrorCode =
   | "intent_not_allowed"
   | "multiple_occurrences"
   | "occurrence_not_targetable"
-  | "multiple_target_owners"
-  | "target_owner_mismatch"
-  | "stale_target_owner";
+  | "target_owner_mismatch";
 
 export class GeneratedTargetDraftPlanError extends Error {
   readonly name = "GeneratedTargetDraftPlanError";

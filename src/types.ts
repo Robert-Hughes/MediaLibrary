@@ -600,10 +600,6 @@ export const NORMALISE_TARGET_TAGS_BY_GROUP: Record<
   ],
 };
 
-/** Flat union of every group's target tags. */
-export const NORMALISE_ALL_TARGET_TAGS: readonly SchemaDefinitionId[] =
-  Object.values(NORMALISE_TARGET_TAGS_BY_GROUP).flat();
-
 /**
  * Every NormaliseGroup the v1 dialog exposes, in the pass order
  * documented in docs/NORMALISE_METADATA_PLAN.md §2. Used as the default
@@ -680,15 +676,6 @@ export interface GeocodeProgressState {
   summary: GeocodeSummary | null;
   /** Original items the dialog was opened for. */
   items: GeocodeRequestItem[];
-}
-
-export interface TagOutcomeEntry {
-  id: SchemaDefinitionId;
-  kind: string;
-  sent: MetadataValue | null;
-  before: MetadataValue | null;
-  observed: MetadataValue | null;
-  message: string | null;
 }
 
 // ── Event payloads from Rust ──────────────────────────────────────────────────
