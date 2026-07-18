@@ -1477,6 +1477,11 @@ mod tests {
             schema_id: tag_info.id.clone(),
             value: text("old"),
             tag_info: Some(tag_info),
+            observed_selector: Some(crate::metadata_occurrence::MetadataObservedSelector {
+                group1: group1.to_owned(),
+                group7: "ID-Family7TagIdMustNotBeUsed".to_owned(),
+                tag_name: "XResolution".to_owned(),
+            }),
             write_target: Some(MetadataWriteTarget {
                 group1: group1.to_owned(),
                 group7: "ID-Family7TagIdMustNotBeUsed".to_owned(),

@@ -124,7 +124,7 @@ export function supplementalResolvedMetadataOccurrences(
     .sort((a, b) => compareMetadataOccurrenceIds(a.id, b.id))
     .map((occurrence) => {
       const tagInfo = occurrence.tag_info;
-      const runtimeGroup = occurrence.write_target?.group1;
+      const runtimeGroup = occurrence.observed_selector?.group1;
       const displayGroup = runtimeGroup ?? tagInfo?.group ?? "Unknown schema";
       const copy =
         occurrence.id.copy === 0 ? "primary" : `Copy${occurrence.id.copy}`;
@@ -132,8 +132,8 @@ export function supplementalResolvedMetadataOccurrences(
         ? ` · ${occurrence.id.document}`
         : "";
       const origin = `${displayGroup} · ${occurrence.id.path} · ${copy}${document}`;
-      const selector = occurrence.write_target
-        ? metadataWriteSelector(occurrence.write_target)
+      const selector = occurrence.observed_selector
+        ? metadataWriteSelector(occurrence.observed_selector)
         : "unavailable";
       const locationExplanation = runtimeGroup
         ? `Runtime group: ${runtimeGroup}`
@@ -163,7 +163,8 @@ export function supplementalResolvedMetadataOccurrences(
             occurrence.schema_id,
           )}`,
           locationExplanation,
-          `Exact write selector: ${selector}`,
+          `Observed selector: ${selector}`,
+          `Independently writable: ${occurrence.write_target ? "yes" : "no"}`,
         ].join("\n"),
         searchText: [
           tagInfo?.name,
@@ -175,9 +176,9 @@ export function supplementalResolvedMetadataOccurrences(
             : String(occurrence.schema_id.index),
           value,
           tagInfo ? `${tagInfo.group}:${tagInfo.name}` : undefined,
-          occurrence.write_target?.group1,
-          occurrence.write_target
-            ? `${occurrence.write_target.group1}:${occurrence.write_target.tag_name}`
+          occurrence.observed_selector?.group1,
+          occurrence.observed_selector
+            ? `${occurrence.observed_selector.group1}:${occurrence.observed_selector.tag_name}`
             : undefined,
           selector,
           occurrence.id.document,

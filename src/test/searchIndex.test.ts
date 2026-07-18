@@ -41,6 +41,7 @@ function occurrence(
     schema_id: structuredClone(schemaId),
     value: { kind: "Text", value },
     tag_info: null,
+    observed_selector: null,
     write_target: null,
   };
 }

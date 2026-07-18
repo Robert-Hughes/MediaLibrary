@@ -11,10 +11,12 @@ import type {
 } from "../types";
 import {
   family7GroupFromSchemaId,
+  metadataWriteSelectorsEqual,
   metadataWriteSelector,
   validateFamily1Group,
 } from "../utils/metadataWriteTarget";
 import { schemaDefinitionIdEquals } from "../utils/schemaDefinitionId";
+import { metadataDraftTargetEquals } from "../utils/metadataDraftTarget";
 
 interface Props {
   /**
@@ -26,6 +28,7 @@ interface Props {
   onCancel: () => void;
   existingOccurrences?: readonly MetadataOccurrence[];
   initialTarget?: Extract<MetadataDraftTarget, { kind: "NewProperty" }>;
+  pendingTargets?: readonly MetadataDraftTarget[];
   /** Filename of the photo being edited. Drives file-type filtering of
    * the suggestions so a JPEG doesn't surface Vorbis tags. */
   filename?: string;
@@ -38,6 +41,7 @@ export function NewPropertyDialog({
   onCancel,
   existingOccurrences,
   initialTarget,
+  pendingTargets,
   filename,
 }: Props) {
   const [searchQuery, setSearchQuery] = useState("");
@@ -107,21 +111,26 @@ export function NewPropertyDialog({
   const occupiedOccurrence =
     selectedTag && writeTarget
       ? (existingOccurrences ?? []).find((occurrence) => {
-          const observed = occurrence.write_target;
-          if (observed) {
-            return (
-              observed.group1.toLowerCase() ===
-                writeTarget.group1.toLowerCase() &&
-              observed.group7.toLowerCase() ===
-                writeTarget.group7.toLowerCase() &&
-              observed.tag_name.toLowerCase() ===
-                writeTarget.tag_name.toLowerCase()
-            );
-          }
-          return schemaDefinitionIdEquals(occurrence.schema_id, selectedTag.id);
+          const observed = occurrence.observed_selector;
+          return (
+            (observed !== null &&
+              metadataWriteSelectorsEqual(observed, writeTarget)) ||
+            (observed === null &&
+              schemaDefinitionIdEquals(occurrence.schema_id, selectedTag.id))
+          );
         })
       : undefined;
-  const isSelectedDuplicate = occupiedOccurrence !== undefined;
+  const pendingCollision =
+    writeTarget === null
+      ? undefined
+      : pendingTargets?.find(
+          (target) =>
+            (!initialTarget ||
+              !metadataDraftTargetEquals(target, initialTarget)) &&
+            metadataWriteSelectorsEqual(target.write_target, writeTarget),
+        );
+  const isSelectedDuplicate =
+    occupiedOccurrence !== undefined || pendingCollision !== undefined;
 
   const groupSuggestions = useMemo(() => {
     if (!selectedTag || writableDefinitions === "loading") return [];
@@ -130,7 +139,9 @@ export function NewPropertyDialog({
       selectedTag.group,
       ...applicable.map((info) => info.group),
       ...(existingOccurrences ?? []).flatMap((occurrence) =>
-        occurrence.write_target ? [occurrence.write_target.group1] : [],
+        occurrence.observed_selector
+          ? [occurrence.observed_selector.group1]
+          : [],
       ),
     ]);
     return [
@@ -353,8 +364,11 @@ export function NewPropertyDialog({
                       ? `${selectedTag.group}:${selectedTag.name}`
                       : ""}
                   </code>{" "}
-                  already occupies the intended destination. Edit the existing
-                  occurrence instead.
+                  {pendingCollision
+                    ? "is already used by another pending draft."
+                    : occupiedOccurrence?.observed_selector
+                      ? "uses a complete ExifTool destination already present in the file. Edit the existing occurrence instead."
+                      : "has an existing same-schema occurrence without a safely identifiable write destination, so another destination cannot be created safely."}
                 </p>
               )}
               {selectedTag ? (

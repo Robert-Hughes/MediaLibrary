@@ -38,6 +38,7 @@ function occurrence(kind: TagKind): MetadataOccurrence {
     schema_id: structuredClone(id),
     value: { kind: "Text", value: "value" },
     tag_info: info(kind),
+    observed_selector: null,
     write_target: { group1: "Test", group7: "ID-Test", tag_name: "Field" },
   };
 }

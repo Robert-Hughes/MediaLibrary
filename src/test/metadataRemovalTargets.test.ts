@@ -41,6 +41,7 @@ function occurrence(
       kind: { kind: "Integer", data: { min: null, max: null } },
       description: null,
     },
+    observed_selector: null,
     write_target: {
       group1: "IFD0",
       group7: "ID-Test",
@@ -120,6 +121,7 @@ describe("planMetadataRemovalTargetsV5", () => {
         ...occurrence().tag_info!,
         id: { ...id, index: 0 },
       },
+      observed_selector: null,
       write_target: {
         group1: "IFD1",
         group7: "ID-Test",
@@ -152,6 +154,7 @@ describe("planMetadataRemovalTargetsV5", () => {
         copy: 0,
       },
       tag_info: null,
+      observed_selector: null,
       write_target: null,
       schema_id: { table: "Unknown::Runtime", tag_id: id.tag_id },
     });
@@ -179,6 +182,7 @@ describe("planMetadataRemovalTargetsV5", () => {
           copy: 0,
         },
         tag_info: null,
+        observed_selector: null,
         write_target: null,
         schema_id: { table: "Unknown::MakerA", tag_id: id.tag_id },
       }),
@@ -195,6 +199,7 @@ describe("planMetadataRemovalTargetsV5", () => {
           copy: 1,
         },
         tag_info: null,
+        observed_selector: null,
         write_target: null,
         schema_id: { table: "Unknown::MakerB", tag_id: id.tag_id },
       }),
@@ -235,6 +240,7 @@ describe("planMetadataRemovalTargetsV5", () => {
     };
     const unknown = occurrence({
       tag_info: null,
+      observed_selector: null,
       write_target: null,
       schema_id: { table: "Unknown::Runtime", tag_id: id.tag_id },
     });
@@ -256,6 +262,7 @@ describe("planMetadataRemovalTargetsV5", () => {
           occurrences: [
             occurrence({
               tag_info: null,
+              observed_selector: null,
               write_target: null,
               schema_id: { table: "Unknown::Runtime", tag_id: id.tag_id },
             }),

@@ -61,6 +61,7 @@ function occurrence(
       options.tagInfo === undefined
         ? info(id, { writable: options.writable })
         : options.tagInfo,
+    observed_selector: null,
     write_target:
       options.writeTarget === undefined
         ? { group1: "GPS", group7: "ID-Test", tag_name: "GPSLatitude" }

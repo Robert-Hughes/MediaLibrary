@@ -62,6 +62,7 @@ const occurrence = (
   id: occurrenceId(),
   value: { kind: "Integer", value: 300 },
   tag_info: tagInfo(),
+  observed_selector: null,
   write_target: writeTarget(),
   ...overrides,
   schema_id: overrides.schema_id ?? overrides.tag_info?.id ?? tagInfo().id,
@@ -138,6 +139,7 @@ describe("metadata draft target construction", () => {
     const source = occurrence({
       id: occurrenceId({ document: "Doc1", copy: 2 }),
       tag_info: tagInfo(true, schemaId(0)),
+      observed_selector: null,
       write_target: writeTarget({ group1: "IFD1" }),
     });
 
@@ -227,6 +229,7 @@ describe("target current-value resolution", () => {
     const sibling = occurrence({
       id: occurrenceId({ path: "JPEG-APP1-IFD1", copy: 1 }),
       value: { kind: "Integer", value: 72 },
+      observed_selector: null,
       write_target: writeTarget({ group1: "IFD1" }),
     });
     const target = availableExisting(exact);
@@ -561,6 +564,7 @@ describe("metadata draft slot token identity", () => {
       occurrence({
         id: occurrenceId({ document: "Doc1", copy: 3 }),
         tag_info: tagInfo(true, schemaId(2)),
+        observed_selector: null,
         write_target: writeTarget({ group1: "IFD1" }),
       }),
     );

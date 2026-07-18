@@ -231,6 +231,62 @@ pub struct MetadataWriteTarget {
     pub tag_name: String,
 }
 
+/// A complete ExifTool selector observed while extracting a concrete field.
+///
+/// This records that the selector is occupied in the source file. Unlike
+/// [`MetadataWriteTarget`], it does not prove that the occurrence can be
+/// targeted independently for writing.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
+pub struct MetadataObservedSelector {
+    /// Observed ExifTool family-1 group without a numeric family prefix.
+    pub group1: String,
+
+    /// Complete observed ExifTool family-7 group, including `ID-`.
+    pub group7: String,
+
+    /// Observed runtime tag name.
+    pub tag_name: String,
+}
+
+/// ExifTool selector semantic key used for occupancy and matching.
+///
+/// Family 1 and tag name are case-insensitive. Family 7 is a case-sensitive
+/// tag-ID group and must remain exact.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub(crate) struct MetadataSelectorKey {
+    group1_folded: String,
+    group7_exact: String,
+    tag_name_folded: String,
+}
+
+impl MetadataSelectorKey {
+    pub(crate) fn new(group1: &str, group7: &str, tag_name: &str) -> Self {
+        Self {
+            group1_folded: group1.to_ascii_lowercase(),
+            group7_exact: group7.to_owned(),
+            tag_name_folded: tag_name.to_ascii_lowercase(),
+        }
+    }
+
+    pub(crate) fn from_write_target(target: &MetadataWriteTarget) -> Self {
+        Self::new(&target.group1, &target.group7, &target.tag_name)
+    }
+
+    pub(crate) fn from_observed_selector(selector: &MetadataObservedSelector) -> Self {
+        Self::new(&selector.group1, &selector.group7, &selector.tag_name)
+    }
+}
+
+pub(crate) fn observed_selector_matches_write_target(
+    observed: &MetadataObservedSelector,
+    target: &MetadataWriteTarget,
+) -> bool {
+    MetadataSelectorKey::from_observed_selector(observed)
+        == MetadataSelectorKey::from_write_target(target)
+}
+
 impl MetadataWriteTarget {
     /// Returns the group-qualified ExifTool selector without a leading `-`.
     ///
@@ -256,8 +312,9 @@ impl MetadataWriteTarget {
 /// - `value` contains the current canonical semantic value;
 /// - `tag_info` contains registry interpretation and presentation metadata when
 ///   that exact schema resolves;
-/// - `write_target` describes how the occurrence can be written safely when an
-///   exact ExifTool selector is available.
+/// - `observed_selector` records an occupied selector seen during extraction;
+/// - `write_target` additionally proves that selector can safely target this
+///   occurrence independently.
 ///
 /// Runtime occurrence identity and schema identity are independent. Several
 /// concrete occurrences may share one `schema_id`, and the same runtime tag ID
@@ -295,6 +352,12 @@ pub struct MetadataOccurrence {
     /// definitions. When present, `TagInfo::id` must equal `schema_id`.
     pub tag_info: Option<TagInfo>,
 
+    /// Complete selector observed in the file during extraction.
+    ///
+    /// `Some` establishes occupancy only. It does not imply independent
+    /// writability; `write_target` remains the stricter write-safety proof.
+    pub observed_selector: Option<MetadataObservedSelector>,
+
     /// Exact ExifTool write destination for this occurrence.
     ///
     /// `None` means that this occurrence is read-only through the application,
@@ -308,6 +371,7 @@ struct MetadataOccurrenceWire {
     schema_id: SchemaDefinitionId,
     value: MetadataValue,
     tag_info: Option<TagInfo>,
+    observed_selector: Option<MetadataObservedSelector>,
     write_target: Option<MetadataWriteTarget>,
 }
 
@@ -320,6 +384,7 @@ impl TryFrom<MetadataOccurrenceWire> for MetadataOccurrence {
             wire.schema_id,
             wire.value,
             wire.tag_info,
+            wire.observed_selector,
             wire.write_target,
         )
     }
@@ -331,6 +396,7 @@ impl MetadataOccurrence {
         schema_id: SchemaDefinitionId,
         value: MetadataValue,
         tag_info: Option<TagInfo>,
+        observed_selector: Option<MetadataObservedSelector>,
         write_target: Option<MetadataWriteTarget>,
     ) -> Result<Self, String> {
         let occurrence = Self {
@@ -338,9 +404,11 @@ impl MetadataOccurrence {
             schema_id,
             value,
             tag_info,
+            observed_selector,
             write_target,
         };
         occurrence.validate_schema_identity()?;
+        occurrence.validate_selector_relationship()?;
         Ok(occurrence)
     }
 
@@ -352,6 +420,27 @@ impl MetadataOccurrence {
                 return Err(format!(
                     "metadata occurrence schema mismatch: occurrence_id={:?} occurrence_schema_id={:?} tag_info_schema_id={:?}",
                     self.id, self.schema_id, info.id
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_selector_relationship(&self) -> Result<(), String> {
+        if let Some(write_target) = &self.write_target {
+            let Some(observed) = &self.observed_selector else {
+                return Err(format!(
+                    "metadata occurrence has a write target without an observed selector: occurrence_id={:?}",
+                    self.id
+                ));
+            };
+            if observed.group1 != write_target.group1
+                || observed.group7 != write_target.group7
+                || observed.tag_name != write_target.tag_name
+            {
+                return Err(format!(
+                    "metadata occurrence write target differs from its observed selector: occurrence_id={:?}",
+                    self.id
                 ));
             }
         }
@@ -472,6 +561,33 @@ mod tests {
         }
     }
 
+    #[test]
+    fn selector_key_folds_family1_and_name_but_preserves_family7_case() {
+        let target = MetadataWriteTarget {
+            group1: "IFD0".to_owned(),
+            group7: "ID-AbC".to_owned(),
+            tag_name: "XResolution".to_owned(),
+        };
+        let folded = MetadataWriteTarget {
+            group1: "ifd0".to_owned(),
+            group7: "ID-AbC".to_owned(),
+            tag_name: "xresolution".to_owned(),
+        };
+        let different_id_case = MetadataWriteTarget {
+            group7: "ID-abc".to_owned(),
+            ..target.clone()
+        };
+
+        assert_eq!(
+            MetadataSelectorKey::from_write_target(&target),
+            MetadataSelectorKey::from_write_target(&folded)
+        );
+        assert_ne!(
+            MetadataSelectorKey::from_write_target(&target),
+            MetadataSelectorKey::from_write_target(&different_id_case)
+        );
+    }
+
     fn occurrence(
         schema_id: SchemaDefinitionId,
         tag_info: Option<TagInfo>,
@@ -482,6 +598,13 @@ mod tests {
             schema_id,
             value: MetadataValue::Integer(300),
             tag_info,
+            observed_selector: write_target
+                .as_ref()
+                .map(|target| MetadataObservedSelector {
+                    group1: target.group1.clone(),
+                    group7: target.group7.clone(),
+                    tag_name: target.tag_name.clone(),
+                }),
             write_target,
         }
     }

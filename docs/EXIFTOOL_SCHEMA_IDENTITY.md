@@ -164,8 +164,11 @@ and logs, and Add New Property. It is always present on an authoritative
 It is not the identity of a concrete runtime field. `MetadataOccurrenceId`
 identifies the occurrence using document, metadata path, family-7 runtime tag
 ID, wrapped table/ID/index scope, and copy. Several occurrence IDs may share one
-schema ID. The occurrence also carries optional resolved `TagInfo` and an
-optional exact `MetadataWriteTarget`; these concerns are not interchangeable.
+schema ID. The occurrence also carries optional resolved `TagInfo`, an optional
+`MetadataObservedSelector`, and an optional exact `MetadataWriteTarget`; these
+concerns are not interchangeable. The observed selector records occupancy,
+while the write target additionally proves independent writability. Therefore
+null `write_target` never establishes that a destination is free.
 When `TagInfo` exists, its `id` must equal `MetadataOccurrence.schema_id`.
 Schema identity alone does not establish writability.
 
@@ -275,16 +278,30 @@ authoritative readback.
 
 New Property draft slots include both schema and destination. Same-schema
 drafts for IFD0 and IFD1 coexist and are presented separately when one ordinary
-schema row cannot represent both. An existing proven selector blocks only the
-same complete destination; another proven same-schema destination does not.
-Because an occurrence without `write_target` has no proven free destination, a
-same-schema unresolved occurrence conservatively blocks creation.
+schema row cannot represent both. Occupancy is checked against every
+`observed_selector`, across schemas, before ExifTool execution. A same-schema
+occurrence without a safely represented observed selector conservatively blocks
+creation, while an unknown-selector occurrence of another schema does not
+block all destinations.
+
+Family 1 and tag name use case-insensitive selector semantics. The canonical
+family-7 group, including its uppercase `ID-` prefix, is preserved and compared
+exactly, so `ID-AbC` and `ID-abc` remain distinct. ExifTool's official
+[`GetGroup` documentation](https://exiftool.org/ExifTool.html#GetGroup) states
+that family-7 tag IDs are case-sensitive.
+
+“Edit destination…” atomically replaces one New Property draft slot by deleting
+the exact original target and upserting the replacement with the original edit
+in one mutation batch. A failed or stale replacement leaves the original
+untouched. The operation is unavailable while that target has an unresolved
+verification outcome.
 
 ## Wire formats and persistence
 
 Transient scan and readback occurrences cross the Rust/TypeScript boundary as
-`{ id, schema_id, value, tag_info, write_target }`. `schema_id` is required;
-`tag_info` and `write_target` are nullable. A present `TagInfo.id` must exactly
+`{ id, schema_id, value, tag_info, observed_selector, write_target }`.
+`schema_id` is required; `tag_info`, `observed_selector`, and `write_target` are
+nullable. A present `TagInfo.id` must exactly
 match `schema_id`.
 
 Target drafts continue to persist a complete `ExistingOccurrence` or

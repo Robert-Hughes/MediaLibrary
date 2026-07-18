@@ -6,6 +6,7 @@ import type {
   MetadataDraftTarget,
   MetadataOccurrence,
   MetadataOccurrenceId,
+  MetadataObservedSelector,
   RuntimeTagIdScope,
   MetadataTargetOutcome,
   MetadataValue,
@@ -100,6 +101,12 @@ export function isMetadataWriteTarget(
     typeof value.group7 === "string" &&
     typeof value.tag_name === "string"
   );
+}
+
+export function isMetadataObservedSelector(
+  value: unknown,
+): value is MetadataObservedSelector {
+  return isMetadataWriteTarget(value);
 }
 
 export function isTagKind(value: unknown): value is TagKind {
@@ -373,6 +380,7 @@ export function isMetadataOccurrence(
       "schema_id",
       "value",
       "tag_info",
+      "observed_selector",
       "write_target",
     ]) &&
     isMetadataOccurrenceId(value.id) &&
@@ -381,6 +389,8 @@ export function isMetadataOccurrence(
     (value.tag_info === null || isTagInfo(value.tag_info)) &&
     (value.tag_info === null ||
       schemaDefinitionIdEquals(value.tag_info.id, value.schema_id)) &&
+    (value.observed_selector === null ||
+      isMetadataObservedSelector(value.observed_selector)) &&
     (value.write_target === null || isMetadataWriteTarget(value.write_target))
   );
 }

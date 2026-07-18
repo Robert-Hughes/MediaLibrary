@@ -13,6 +13,7 @@ import {
   isMetadataDraftTarget,
   isMetadataOccurrence,
   isMetadataOccurrenceId,
+  isMetadataObservedSelector,
   isJsonValue,
   isMetadataValue,
   isMetadataWriteTarget,
@@ -65,6 +66,7 @@ describe("metadata identity wire guards", () => {
     expect(isSchemaDefinitionId({ ...schema(), index: null })).toBe(true);
     expect(isMetadataOccurrenceId(existing().occurrence_id)).toBe(true);
     expect(isMetadataWriteTarget(existing().write_target)).toBe(true);
+    expect(isMetadataObservedSelector(existing().write_target)).toBe(true);
   });
 
   it("rejects invalid occurrence fields and u32 copies", () => {
@@ -109,6 +111,11 @@ describe("metadata occurrence wire guard", () => {
       kind: { kind: "Integer", data: { min: null, max: null } },
       description: null,
     },
+    observed_selector: {
+      group1: "IFD0",
+      group7: "ID-282",
+      tag_name: "XResolution",
+    },
     write_target: { group1: "IFD0", group7: "ID-282", tag_name: "XResolution" },
   });
 
@@ -117,6 +124,8 @@ describe("metadata occurrence wire guard", () => {
     expect(isMetadataOccurrence(value)).toBe(true);
     const { schema_id: _missing, ...withoutSchema } = value;
     expect(isMetadataOccurrence(withoutSchema)).toBe(false);
+    const { observed_selector: _missingObserved, ...withoutObserved } = value;
+    expect(isMetadataOccurrence(withoutObserved)).toBe(false);
     expect(isMetadataOccurrence({ ...value, schema_id: { table: 1 } })).toBe(
       false,
     );
@@ -143,6 +152,7 @@ describe("metadata occurrence wire guard", () => {
     const unresolved = {
       ...validOccurrence(),
       tag_info: null,
+      observed_selector: null,
       write_target: null,
     };
     const sibling = {

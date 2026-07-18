@@ -1,4 +1,5 @@
 import type {
+  MetadataObservedSelector,
   MetadataOccurrenceId,
   MetadataWriteTarget,
   SchemaDefinitionId,
@@ -35,6 +36,18 @@ export function metadataWriteTargetEquals(
     left.group1 === right.group1 &&
     left.group7 === right.group7 &&
     left.tag_name === right.tag_name
+  );
+}
+
+/** ExifTool destination equality: family 1/name fold, family 7 stays exact. */
+export function metadataWriteSelectorsEqual(
+  left: MetadataWriteTarget | MetadataObservedSelector,
+  right: MetadataWriteTarget | MetadataObservedSelector,
+): boolean {
+  return (
+    left.group1.toLowerCase() === right.group1.toLowerCase() &&
+    left.group7 === right.group7 &&
+    left.tag_name.toLowerCase() === right.tag_name.toLowerCase()
   );
 }
 

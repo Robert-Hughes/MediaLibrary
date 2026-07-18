@@ -46,6 +46,7 @@ function occurrence(
     id: occurrenceId,
     value: { kind: "Integer", value },
     tag_info: tagInfo(),
+    observed_selector: null,
     write_target: null,
     ...overrides,
     schema_id: overrides.schema_id ?? overrides.tag_info?.id ?? schemaId,
@@ -110,6 +111,7 @@ describe("schema occurrence resolution", () => {
         tag_info: tagInfo(schemaId, false),
       }),
       occurrence(id("IFD2", 3), 144, {
+        observed_selector: null,
         write_target: {
           group1: "IFD2",
           group7: "ID-Test",

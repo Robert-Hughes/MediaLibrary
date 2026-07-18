@@ -25,6 +25,7 @@
  * - unsupported embedded documents or timed-metadata samples;
  * - unknown or read-only schema definitions;
  * - ambiguous runtime locations.
+ *
  * A `MetadataWriteTarget` is the ExifTool selector; it is not proof that
  * ExifTool will instantiate the exact indexed definition selected by the user.
  */

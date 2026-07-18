@@ -62,6 +62,12 @@ interface Props {
     target: Extract<MetadataDraftTarget, { kind: "NewProperty" }>,
     edit: MetadataDraftEdit,
   ) => void;
+  onReplaceNewPropertyDraftTarget?: (
+    fileRelativePath: string,
+    originalTarget: Extract<MetadataDraftTarget, { kind: "NewProperty" }>,
+    replacementTarget: Extract<MetadataDraftTarget, { kind: "NewProperty" }>,
+    originalEdit: MetadataDraftEdit,
+  ) => Promise<boolean>;
   onDiscardTargetPropertyDraft?: (
     fileRelativePath: string,
     target: MetadataDraftTarget,
@@ -96,6 +102,7 @@ export function GalleryView({
   onRemoveMetadataFieldsV5,
   onSetGpsTargetDraftBatch,
   onSetNewPropertyDraft,
+  onReplaceNewPropertyDraftTarget,
   onDiscardTargetPropertyDraft,
   onDiscardTargetDraftBatch,
   onDiscardAllEdits,
@@ -356,6 +363,18 @@ export function GalleryView({
             }
             onSetNewPropertyDraft={(target, edit) =>
               onSetNewPropertyDraft?.(photo.relative_path, target, edit)
+            }
+            onReplaceNewPropertyDraftTarget={(
+              originalTarget,
+              replacementTarget,
+              originalEdit,
+            ) =>
+              onReplaceNewPropertyDraftTarget?.(
+                photo.relative_path,
+                originalTarget,
+                replacementTarget,
+                originalEdit,
+              ) ?? Promise.resolve(false)
             }
             onDiscardTargetPropertyDraft={(target) =>
               onDiscardTargetPropertyDraft?.(photo.relative_path, target)

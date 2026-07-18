@@ -44,6 +44,7 @@ const duplicateOccurrenceBatchResult = () => {
     schema_id: { table: "Exif::Main", tag_id: "282" },
     value: { kind: "Rational", value: { numerator: 300, denominator: 1 } },
     tag_info: null,
+    observed_selector: null,
     write_target: null,
   } as const;
   const result = fileResult();

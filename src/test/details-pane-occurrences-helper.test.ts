@@ -36,6 +36,7 @@ function occurrence(
     schema_id: tagInfo.id,
     value: { kind: "Integer", value },
     tag_info: tagInfo,
+    observed_selector: null,
     write_target: {
       group1: "IFD0",
       group7: "ID-Test",
@@ -81,6 +82,7 @@ function occurrenceWithValue(
     schema_id: info?.id ?? tagInfo.id,
     value,
     tag_info: info,
+    observed_selector: null,
     write_target: null,
   };
 }
@@ -342,6 +344,11 @@ describe("supplementalResolvedMetadataOccurrences", () => {
           },
           72,
           {
+            observed_selector: {
+              group1: "IFD1",
+              group7: "ID-Test",
+              tag_name: "XResolution",
+            },
             write_target: {
               group1: "IFD1",
               group7: "ID-Test",

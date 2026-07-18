@@ -137,6 +137,11 @@ interface Props {
     target: NewPropertyTarget,
     edit: MetadataDraftEdit,
   ) => void;
+  onReplaceNewPropertyDraftTarget?: (
+    originalTarget: NewPropertyTarget,
+    replacementTarget: NewPropertyTarget,
+    originalEdit: MetadataDraftEdit,
+  ) => Promise<boolean>;
   onDiscardTargetPropertyDraft?: (target: MetadataDraftTarget) => void;
   onDiscardTargetDraftBatch?: (targets: MetadataDraftTarget[]) => boolean;
   onDiscardAllEdits?: () => void;
@@ -869,6 +874,7 @@ export function DetailsPane({
   onRemoveMetadataFieldsV5,
   onSetGpsTargetDraftBatch,
   onSetNewPropertyDraft,
+  onReplaceNewPropertyDraftTarget,
   onDiscardTargetPropertyDraft,
   onDiscardTargetDraftBatch,
   onDiscardAllEdits,
@@ -912,7 +918,9 @@ export function DetailsPane({
   const [newPropertyTarget, setNewPropertyTarget] =
     useState<NewPropertyTarget | null>(null);
   const [newPropertyDestinationInitial, setNewPropertyDestinationInitial] =
-    useState<NewPropertyTarget | null>(null);
+    useState<{ target: NewPropertyTarget; edit: MetadataDraftEdit } | null>(
+      null,
+    );
 
   const targetDraftsWritable = targetDraftPersistence.status === "ready";
   const addPropertyUnavailableTitle = targetDraftsWritable
@@ -2075,9 +2083,10 @@ export function DetailsPane({
                           disabled={!targetDraftsWritable}
                           onClick={() => {
                             setNewPropertyDestinationInitial(
-                              structuredClone(
-                                entry.target as NewPropertyTarget,
-                              ),
+                              structuredClone({
+                                target: entry.target as NewPropertyTarget,
+                                edit: entry.edit,
+                              }),
                             );
                             setShowNewPropertyDialog(true);
                           }}
@@ -2230,7 +2239,10 @@ export function DetailsPane({
               targetResolution.entry.target.kind === "NewProperty"
             ) {
               setNewPropertyDestinationInitial(
-                structuredClone(targetResolution.entry.target),
+                structuredClone({
+                  target: targetResolution.entry.target,
+                  edit: targetResolution.entry.edit,
+                }),
               );
               setShowNewPropertyDialog(true);
             } else {
@@ -2449,7 +2461,18 @@ export function DetailsPane({
 
       {targetDraftsWritable && showNewPropertyDialog && (
         <NewPropertyDialog
-          onSave={(target) => {
+          onSave={async (target) => {
+            if (newPropertyDestinationInitial) {
+              const moved = await onReplaceNewPropertyDraftTarget?.(
+                newPropertyDestinationInitial.target,
+                target,
+                newPropertyDestinationInitial.edit,
+              );
+              if (!moved) return;
+              setShowNewPropertyDialog(false);
+              setNewPropertyDestinationInitial(null);
+              return;
+            }
             setShowNewPropertyDialog(false);
             setNewPropertyDestinationInitial(null);
             setNewPropertyTarget(target);
@@ -2464,7 +2487,10 @@ export function DetailsPane({
               : occurrences
           }
           filename={photo.filename}
-          initialTarget={newPropertyDestinationInitial ?? undefined}
+          initialTarget={newPropertyDestinationInitial?.target}
+          pendingTargets={Object.values(targetDraftEdits ?? {}).map(
+            (entry) => entry.target,
+          )}
         />
       )}
 

@@ -21,7 +21,10 @@ use crate::apply_log::{
 };
 use crate::draft_edits::{EditIntent, MetadataDraftEdit, MetadataDraftEntryV5};
 use crate::metadata_draft_target::{MetadataDraftSlot, MetadataDraftTarget};
-use crate::metadata_occurrence::{MetadataOccurrence, MetadataOccurrenceId, MetadataWriteTarget};
+use crate::metadata_occurrence::{
+    observed_selector_matches_write_target, MetadataOccurrence, MetadataOccurrenceId,
+    MetadataSelectorKey, MetadataWriteTarget,
+};
 use crate::metadata_value::MetadataValue;
 use crate::metadata_write_execution::{
     build_exiftool_write_argfile_args, format_apply_diagnostics, render_exiftool_argfile,
@@ -173,7 +176,11 @@ pub(crate) enum ApplyV5Error {
     },
     NewPropertySchemaMissing(Box<MetadataDraftTarget>),
     NewPropertySchemaReadOnly(Box<MetadataDraftTarget>),
-    NewPropertyAlreadyExists {
+    NewPropertySelectorOccupied {
+        target: Box<MetadataDraftTarget>,
+        occurrences: Vec<(MetadataOccurrenceId, SchemaDefinitionId)>,
+    },
+    NewPropertySchemaOccupancyUnknown {
         target: Box<MetadataDraftTarget>,
         occurrences: Vec<MetadataOccurrenceId>,
     },
@@ -230,12 +237,19 @@ impl std::fmt::Display for ApplyV5Error {
             Self::NewPropertySchemaReadOnly(target) => {
                 write!(formatter, "New-property schema is read-only for {target:?}")
             }
-            Self::NewPropertyAlreadyExists {
+            Self::NewPropertySelectorOccupied {
                 target,
                 occurrences,
             } => write!(
                 formatter,
-                "New-property target {target:?} already has exact-schema occurrences {occurrences:?}"
+                "New-property target {target:?} uses a selector already observed in the file at occurrences {occurrences:?}"
+            ),
+            Self::NewPropertySchemaOccupancyUnknown {
+                target,
+                occurrences,
+            } => write!(
+                formatter,
+                "New-property target {target:?} cannot prove destination freedom because same-schema occurrences have no safely represented observed selector: {occurrences:?}"
             ),
             Self::UnsupportedNewPropertyIntent { target, intent } => write!(
                 formatter,
@@ -263,27 +277,6 @@ impl std::fmt::Display for ApplyV5Error {
             }
         }
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-struct SelectorKey {
-    group1: String,
-    group7: String,
-    tag_name: String,
-}
-
-impl SelectorKey {
-    fn new(target: &MetadataWriteTarget) -> Self {
-        Self {
-            group1: target.group1.to_ascii_lowercase(),
-            group7: target.group7.to_ascii_lowercase(),
-            tag_name: target.tag_name.to_ascii_lowercase(),
-        }
-    }
-}
-
-fn selectors_equal(left: &MetadataWriteTarget, right: &MetadataWriteTarget) -> bool {
-    SelectorKey::new(left) == SelectorKey::new(right)
 }
 
 #[derive(Clone)]
@@ -434,7 +427,7 @@ where
     }
 
     let mut plans = Vec::with_capacity(edits.len());
-    let mut selectors = BTreeMap::<SelectorKey, MetadataDraftTarget>::new();
+    let mut selectors = BTreeMap::<MetadataSelectorKey, MetadataDraftTarget>::new();
     let mut combined = BuiltArgs::default();
 
     for entry in edits {
@@ -492,34 +485,35 @@ where
                         reason: error.to_string(),
                     }
                 })?;
-                let same_schema_ambiguous = before
-                    .occurrences
-                    .for_schema(schema_id)
-                    .any(|occurrence| occurrence.write_target.is_none());
                 let occupied = before
                     .occurrences
                     .iter()
                     .filter(|occurrence| {
                         occurrence
-                            .write_target
+                            .observed_selector
                             .as_ref()
-                            .is_some_and(|existing| selectors_equal(existing, write_target))
+                            .is_some_and(|observed| {
+                                observed_selector_matches_write_target(observed, write_target)
+                            })
                     })
+                    .map(|occurrence| (occurrence.id.clone(), occurrence.schema_id.clone()))
+                    .collect::<Vec<_>>();
+                if !occupied.is_empty() {
+                    return Err(ApplyV5Error::NewPropertySelectorOccupied {
+                        target: Box::new(entry.target.clone()),
+                        occurrences: occupied,
+                    });
+                }
+                let unknown_same_schema = before
+                    .occurrences
+                    .for_schema(schema_id)
+                    .filter(|occurrence| occurrence.observed_selector.is_none())
                     .map(|occurrence| occurrence.id.clone())
                     .collect::<Vec<_>>();
-                if same_schema_ambiguous || !occupied.is_empty() {
-                    let occurrences = if occupied.is_empty() {
-                        before
-                            .occurrences
-                            .for_schema(schema_id)
-                            .map(|occurrence| occurrence.id.clone())
-                            .collect()
-                    } else {
-                        occupied
-                    };
-                    return Err(ApplyV5Error::NewPropertyAlreadyExists {
+                if !unknown_same_schema.is_empty() {
+                    return Err(ApplyV5Error::NewPropertySchemaOccupancyUnknown {
                         target: Box::new(entry.target.clone()),
-                        occurrences,
+                        occurrences: unknown_same_schema,
                     });
                 }
                 if matches!(
@@ -549,7 +543,7 @@ where
             }
         };
 
-        let selector_key = SelectorKey::new(&plan.selector);
+        let selector_key = MetadataSelectorKey::from_write_target(&plan.selector);
         if let Some(first) = selectors.insert(selector_key, plan.target.clone()) {
             return Err(ApplyV5Error::WriteSelectorCollision {
                 group1: plan.selector.group1.clone(),
@@ -960,9 +954,11 @@ fn verify_plan(
                 .filter(|occurrence| {
                     &occurrence.schema_id == schema_id
                         || occurrence
-                            .write_target
+                            .observed_selector
                             .as_ref()
-                            .is_some_and(|observed| selectors_equal(observed, write_target))
+                            .is_some_and(|observed| {
+                                observed_selector_matches_write_target(observed, write_target)
+                            })
                 })
                 .collect::<Vec<_>>();
             let matches = candidates
@@ -970,12 +966,12 @@ fn verify_plan(
                 .copied()
                 .filter(|occurrence| {
                     &occurrence.schema_id == schema_id
-                        && occurrence.write_target.as_ref().is_some_and(|observed| {
-                            selectors_equal(observed, write_target)
-                                && crate::metadata_occurrence::family7_group_from_runtime_tag_id(
-                                    &occurrence.id.runtime_tag_id,
-                                ) == write_target.group7
-                        })
+                        && occurrence
+                            .observed_selector
+                            .as_ref()
+                            .is_some_and(|observed| {
+                                observed_selector_matches_write_target(observed, write_target)
+                            })
                 })
                 .collect::<Vec<_>>();
             let post_write_occurrences = if matches.is_empty() {
@@ -1290,11 +1286,19 @@ mod tests {
         let write_group = group
             .map(str::to_owned)
             .or_else(|| info.as_ref().map(|tag_info| tag_info.group.clone()));
+        let observed_selector = write_group.as_ref().map(|group1| {
+            crate::metadata_occurrence::MetadataObservedSelector {
+                group1: group1.clone(),
+                group7: group7.clone(),
+                tag_name: name.to_string(),
+            }
+        });
         MetadataOccurrence {
             id,
             schema_id,
             value,
             tag_info: info,
+            observed_selector,
             write_target: write_group.map(|group1| MetadataWriteTarget {
                 group1,
                 group7,
@@ -1549,7 +1553,7 @@ mod tests {
                 &image(vec![present]),
                 |_| Some(writable.clone())
             ),
-            Err(ApplyV5Error::NewPropertyAlreadyExists { .. })
+            Err(ApplyV5Error::NewPropertySelectorOccupied { .. })
         ));
 
         for intent in [EditIntent::Delete, EditIntent::ListRemove] {
@@ -1610,7 +1614,7 @@ mod tests {
             plan_batch(Path::new("p"), &entries, &image(vec![existing]), |_| Some(
                 info_b.clone()
             )),
-            Err(ApplyV5Error::NewPropertyAlreadyExists { .. })
+            Err(ApplyV5Error::NewPropertySelectorOccupied { .. })
         ));
 
         let mut info_c = schema("1", "IFD0", "Same", true, TagKind::Text);
@@ -1681,16 +1685,50 @@ mod tests {
                 &image(vec![exact]),
                 |_| Some(info.clone()),
             ),
-            Err(ApplyV5Error::NewPropertyAlreadyExists { .. })
+            Err(ApplyV5Error::NewPropertySelectorOccupied { .. })
         ));
 
         let mut ambiguous = existing_elsewhere;
+        ambiguous.observed_selector = None;
         ambiguous.write_target = None;
         assert!(matches!(
             plan_batch(Path::new("p"), &[entry], &image(vec![ambiguous]), |_| Some(
                 info.clone()
             ),),
-            Err(ApplyV5Error::NewPropertyAlreadyExists { .. })
+            Err(ApplyV5Error::NewPropertySchemaOccupancyUnknown { .. })
+        ));
+    }
+
+    #[test]
+    fn new_property_blocks_cross_schema_observed_selector_without_write_target() {
+        let proposed = schema("shared", "IFD0", "SharedName", true, TagKind::Text);
+        let entry = new_entry(
+            &proposed,
+            edit(EditIntent::Set, Some(MetadataValue::Text("new".into()))),
+        );
+        let existing_schema = schema("other", "IFD0", "OtherName", false, TagKind::Text);
+        let mut existing = occurrence_with_schema(
+            occurrence_id("EXISTING", "shared", 0),
+            existing_schema.id.clone(),
+            MetadataValue::Text("old".into()),
+            Some(existing_schema),
+            Some("IFD0"),
+            "SharedName",
+        );
+        existing.write_target = None;
+
+        let Err(error) = plan_batch(
+            Path::new("p"),
+            &[entry],
+            &image(vec![existing.clone()]),
+            |_| Some(proposed.clone()),
+        ) else {
+            panic!("cross-schema occupied selector must fail planning")
+        };
+        assert!(matches!(
+            error,
+            ApplyV5Error::NewPropertySelectorOccupied { occurrences, .. }
+                if occurrences == vec![(existing.id, existing.schema_id)]
         ));
     }
 
@@ -3211,11 +3249,12 @@ mod tests {
             &client,
             std::slice::from_ref(&info),
         );
-        assert_eq!(outcome.outcomes[0].kind, "TargetChangedPostWrite");
-        assert_eq!(
-            outcome.outcomes[0].draft_reconciliation,
-            MetadataDraftReconciliation::Keep
-        );
+        assert_eq!(outcome.outcomes[0].kind, "Mismatch");
+        assert!(matches!(
+            &outcome.outcomes[0].draft_reconciliation,
+            MetadataDraftReconciliation::Blocked { reason }
+                if reason.contains("no exact write target")
+        ));
         assert!(outcome.targets_to_clear.is_empty());
     }
 

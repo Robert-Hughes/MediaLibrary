@@ -328,6 +328,11 @@ mod tests {
             schema_id: schema_id(None),
             value: MetadataValue::Integer(300),
             tag_info: Some(info(true, None)),
+            observed_selector: Some(crate::metadata_occurrence::MetadataObservedSelector {
+                group1: "IFD0".to_owned(),
+                group7: "ID-282".to_owned(),
+                tag_name: "XResolution".to_owned(),
+            }),
             write_target: Some(write_target()),
         }
     }
