@@ -8,6 +8,7 @@ import type {
   ImageMetadataOccurrencesState,
   ImageMetadataOccurrencesStore,
   MetadataDraftTarget,
+  MetadataTargetDraftEntry,
   TargetDraftPersistenceState,
 } from "../types";
 import type { TargetDraftCollection } from "../targetDraftEdits";
@@ -52,9 +53,9 @@ interface Props {
     fileRelativePath: string,
     ids: SchemaDefinitionId[],
   ) => boolean;
-  onSetGpsTargetDraftBatch?: (
+  onApplyGpsTargetDraftBatch?: (
     fileRelativePath: string,
-    edits: Array<{ id: SchemaDefinitionId; edit: MetadataDraftEdit }>,
+    entries: MetadataTargetDraftEntry[],
   ) => boolean;
   onSetNewPropertyDraft?: (
     fileRelativePath: string,
@@ -99,7 +100,7 @@ export function GalleryView({
   targetDraftPersistence,
   onSetExistingOccurrenceDraft,
   onRemoveMetadataFields,
-  onSetGpsTargetDraftBatch,
+  onApplyGpsTargetDraftBatch,
   onSetNewPropertyDraft,
   onReplaceNewPropertyDraftTarget,
   onDiscardTargetPropertyDraft,
@@ -353,8 +354,9 @@ export function GalleryView({
             onRemoveMetadataFields={(ids) =>
               onRemoveMetadataFields?.(photo.relative_path, ids) ?? false
             }
-            onSetGpsTargetDraftBatch={(edits) =>
-              onSetGpsTargetDraftBatch?.(photo.relative_path, edits) ?? false
+            onApplyGpsTargetDraftBatch={(entries) =>
+              onApplyGpsTargetDraftBatch?.(photo.relative_path, entries) ??
+              false
             }
             onSetNewPropertyDraft={(target, edit) =>
               onSetNewPropertyDraft?.(photo.relative_path, target, edit) ??

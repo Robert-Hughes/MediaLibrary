@@ -19,13 +19,20 @@ import {
   act,
   waitFor,
   fireEvent,
+  renderHook,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import App from "../App";
 import { createMockTauriApi } from "./mockTauriApi";
 import { makePhoto, mockGeneratedDraftEntries } from "./factories";
-import type { MetadataValue } from "../types";
+import type {
+  MetadataValue,
+  NormaliseGroup,
+  NormaliseRequestItem,
+  SchemaMetadataEdit,
+} from "../types";
+import { useNormaliseMetadata } from "../hooks/useNormaliseMetadata";
 
 let mockApiInstance: ReturnType<typeof createMockTauriApi>;
 
@@ -78,6 +85,60 @@ afterEach(() => {
 });
 
 describe("Metadata-normalisation flow", () => {
+  it("stages delayed results against the immutable confirmed group snapshot", async () => {
+    let releaseProgress!: () => void;
+    mockApiInstance.beforeNormaliseProgress = () =>
+      new Promise<void>((resolve) => {
+        releaseProgress = resolve;
+      });
+    const edits = mockGeneratedDraftEntries({
+      "XMP-dc:Subject": {
+        intent: "Set",
+        value: {
+          kind: "List",
+          value: {
+            list_kind: "Bag",
+            items: [{ kind: "Text", value: "confirmed" }],
+          },
+        },
+      },
+      "XMP-dc:Title": {
+        intent: "Set",
+        value: { kind: "Text", value: "later-only" },
+      },
+    });
+    mockApiInstance.normaliseSchedule = [
+      { relativePath: "test.jpg", status: "ok", edits },
+    ];
+    const stage = vi.fn(
+      (
+        _relativePath: string,
+        _edits: SchemaMetadataEdit[],
+        _confirmedGroups: readonly NormaliseGroup[],
+      ) => ({ kind: "success" as const, changed: true }),
+    );
+    const { result } = renderHook(() =>
+      useNormaliseMetadata({ onApplyEdits: stage }),
+    );
+    const item = { relPath: "test.jpg" } as NormaliseRequestItem;
+
+    act(() => result.current.actions.start("/photos", [item], ["keywords"]));
+    await waitFor(() =>
+      expect(result.current.state.phase).toBe("awaiting-confirm"),
+    );
+    act(() => result.current.actions.confirm());
+    await waitFor(() => expect(releaseProgress).toBeTypeOf("function"));
+
+    // Diverge mutable checkbox/session state after confirmation while the
+    // backend result is still in flight.
+    act(() => result.current.actions.setEnabledGroups(["title"]));
+    act(() => releaseProgress());
+
+    await waitFor(() => expect(stage).toHaveBeenCalledOnce());
+    expect(stage).toHaveBeenCalledWith("test.jpg", edits, ["keywords"]);
+    expect(result.current.state.enabledGroups).toEqual(["title"]);
+  });
+
   it("right-clicking a selected photo opens the dialog with per-group checkboxes", async () => {
     await openFolderWithPhoto("test.jpg", {
       "XMP-dc:Subject": {

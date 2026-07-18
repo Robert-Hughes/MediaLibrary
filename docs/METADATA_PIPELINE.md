@@ -23,10 +23,22 @@ Property targets before staging. A schema may select an editor, but mutations
 carry the complete target. Stale, ambiguous and read-only inputs fail without
 partial mutation or same-schema redirection.
 
+A fresh composite GPS editor resolves its six schema fields into complete
+targets before it opens. Saving pairs semantic edits with those captured
+targets, validates each target directly against current authoritative state and
+applies the exact batch atomically. It does not plan a replacement destination
+from a schema at save time. Same-schema targets at other occurrences or New
+Property destinations remain independent and do not own an ordinary row.
+
 New Property value editing and destination editing are separate operations.
 Value editing preserves the exact stored target, including a custom GPS
 destination. Destination editing performs one atomic exact-target move. Pending
 verification blocks both operations until the outcome is resolved.
+
+Schema-addressed removal is only the request boundary. Planning expands every
+requested schema into exact ExistingOccurrence Delete upserts and exact staged
+New Property cancellations. Deduplication, no-op detection and failure are by
+target slot, so one schema request may affect several independent targets.
 
 ## Draft state and persistence
 

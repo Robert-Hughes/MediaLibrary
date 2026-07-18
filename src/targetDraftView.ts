@@ -20,6 +20,7 @@ import {
 import {
   existingOccurrenceTargetFromOccurrence,
   metadataDraftTargetEquals,
+  metadataDraftTargetSlotToken,
 } from "./utils/metadataDraftTarget";
 import { metadataOccurrenceIdEquals } from "./utils/metadataOccurrenceId";
 
@@ -295,26 +296,6 @@ export function resolveExistingRowDraft(
   occurrenceResolution: SchemaOccurrenceResolution,
   targetDrafts: TargetDraftCollection | undefined,
 ): ExistingRowDraftResolution {
-  const sameSchema = Object.values(targetDrafts ?? {}).filter((entry) =>
-    schemaDefinitionIdEquals(entry.target.schema_id, schemaId),
-  );
-  if (sameSchema.length === 0) return { kind: "none" };
-  if (sameSchema.length > 1) {
-    return {
-      kind: "blocked",
-      reason: "Multiple target-aware operations own this exact schema.",
-      conflictingTargets: sameSchema,
-    };
-  }
-
-  const entry = sameSchema[0];
-  if (entry.target.kind === "NewProperty") {
-    return {
-      kind: "blocked",
-      reason: "A New Property operation owns this exact schema.",
-      conflictingTargets: sameSchema,
-    };
-  }
   if (occurrenceResolution.kind !== "unique") {
     return {
       kind: "blocked",
@@ -322,22 +303,41 @@ export function resolveExistingRowDraft(
         occurrenceResolution.kind === "multiple"
           ? "The row has multiple authoritative occurrences."
           : "The row has no authoritative occurrence.",
-      conflictingTargets: sameSchema,
+      conflictingTargets: [],
+    };
+  }
+  if (
+    !schemaDefinitionIdEquals(
+      occurrenceResolution.occurrence.schema_id,
+      schemaId,
+    )
+  ) {
+    return {
+      kind: "blocked",
+      reason: "The row occurrence no longer matches its exact schema.",
+      conflictingTargets: [],
     };
   }
 
   const expected = existingOccurrenceTargetFromOccurrence(
     occurrenceResolution.occurrence,
   );
-  if (
-    expected.kind !== "targetable" ||
-    !metadataDraftTargetEquals(expected.target, entry.target)
-  ) {
+  if (expected.kind !== "targetable") {
+    return {
+      kind: "blocked",
+      reason: expected.reason,
+      conflictingTargets: [],
+    };
+  }
+  const slot = metadataDraftTargetSlotToken(expected.target);
+  const entry = targetDrafts?.[slot];
+  if (entry === undefined) return { kind: "none" };
+  if (!metadataDraftTargetEquals(expected.target, entry.target)) {
     return {
       kind: "blocked",
       reason:
         "The stored target no longer matches the complete occurrence target snapshot.",
-      conflictingTargets: sameSchema,
+      conflictingTargets: [entry],
     };
   }
   return { kind: "target", entry };

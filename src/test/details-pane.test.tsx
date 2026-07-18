@@ -43,9 +43,11 @@ import type {
   MetadataDraftEdit,
   ImageMetadataEntry,
   MetadataOccurrence,
+  MetadataTargetDraftEntry,
   PhotoInfo,
   SchemaDefinitionId,
 } from "../types";
+import { metadataDraftTargetSlotToken } from "../utils/metadataDraftTarget";
 
 function mockOccurrences(
   values: Parameters<typeof mockMetadata>[0],
@@ -1594,13 +1596,12 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
     });
   }
 
-  function expectZeroSouthWestEdits(
-    edits: Array<{ id: SchemaDefinitionId; edit: MetadataDraftEdit }>,
-  ) {
+  function expectZeroSouthWestEdits(edits: MetadataTargetDraftEntry[]) {
     const editFor = (id: SchemaDefinitionId) =>
       edits.find(
         (entry) =>
-          schemaDefinitionIdToken(entry.id) === schemaDefinitionIdToken(id),
+          schemaDefinitionIdToken(entry.target.schema_id) ===
+          schemaDefinitionIdToken(id),
       )?.edit;
 
     expect(editFor(testId("GPS:GPSLatitude"))).toMatchObject({
@@ -1643,7 +1644,7 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
         photo={photo}
         occurrences={occurrences}
         onRemoveMetadataFields={vi.fn()}
-        onSetGpsTargetDraftBatch={vi.fn(() => true)}
+        onApplyGpsTargetDraftBatch={vi.fn(() => true)}
       />,
     );
 
@@ -1712,7 +1713,7 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
         photo={photo}
 
         occurrences={occurrencesFor(metadata)}
-        onSetGpsTargetDraftBatch={vi.fn(() => true)}
+        onApplyGpsTargetDraftBatch={vi.fn(() => true)}
       />,
     );
 
@@ -1741,7 +1742,7 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
 
         occurrences={occurrencesFor(metadata)}
         onRemoveMetadataFields={vi.fn()}
-        onSetGpsTargetDraftBatch={vi.fn(() => true)}
+        onApplyGpsTargetDraftBatch={vi.fn(() => true)}
       />,
     );
 
@@ -1774,9 +1775,8 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
       "GPS:GPSLongitudeRef": "W",
     });
     const onRemoveMetadataFields = vi.fn();
-    const onSetGpsTargetDraftBatch = vi.fn(
-      (_edits: Array<{ id: SchemaDefinitionId; edit: MetadataDraftEdit }>) =>
-        true,
+    const onApplyGpsTargetDraftBatch = vi.fn(
+      (_entries: MetadataTargetDraftEntry[]) => true,
     );
     render(
       <DetailsPane
@@ -1785,7 +1785,7 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
 
         occurrences={occurrencesFor(metadata)}
         onRemoveMetadataFields={onRemoveMetadataFields}
-        onSetGpsTargetDraftBatch={onSetGpsTargetDraftBatch}
+        onApplyGpsTargetDraftBatch={onApplyGpsTargetDraftBatch}
       />,
     );
 
@@ -1800,8 +1800,8 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
     fireEvent.click(screen.getByTestId("gps-editor-save"));
 
     expect(onRemoveMetadataFields).not.toHaveBeenCalled();
-    expect(onSetGpsTargetDraftBatch).toHaveBeenCalledOnce();
-    expectZeroSouthWestEdits(onSetGpsTargetDraftBatch.mock.calls[0][0]);
+    expect(onApplyGpsTargetDraftBatch).toHaveBeenCalledOnce();
+    expectZeroSouthWestEdits(onApplyGpsTargetDraftBatch.mock.calls[0][0]);
   });
 
   it("preserves staged target-aware S/W references when zero GPS is opened and saved unchanged", async () => {
@@ -1830,18 +1830,16 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
         },
       ],
       occurrences,
-      undefined,
     );
     const targetDraftEdits: TargetDraftCollection = Object.fromEntries(
-      planned.map(({ target, edit }, index) => [
-        String(index),
+      planned.map(({ target, edit }) => [
+        metadataDraftTargetSlotToken(target),
         { target, edit },
       ]),
     );
     const onRemoveMetadataFields = vi.fn();
-    const onSetGpsTargetDraftBatch = vi.fn(
-      (_edits: Array<{ id: SchemaDefinitionId; edit: MetadataDraftEdit }>) =>
-        true,
+    const onApplyGpsTargetDraftBatch = vi.fn(
+      (_entries: MetadataTargetDraftEntry[]) => true,
     );
     render(
       <DetailsPane
@@ -1851,7 +1849,7 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
         occurrences={occurrences}
         targetDraftEdits={targetDraftEdits}
         onRemoveMetadataFields={onRemoveMetadataFields}
-        onSetGpsTargetDraftBatch={onSetGpsTargetDraftBatch}
+        onApplyGpsTargetDraftBatch={onApplyGpsTargetDraftBatch}
       />,
     );
 
@@ -1866,8 +1864,8 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
     fireEvent.click(screen.getByTestId("gps-editor-save"));
 
     expect(onRemoveMetadataFields).not.toHaveBeenCalled();
-    expect(onSetGpsTargetDraftBatch).toHaveBeenCalledOnce();
-    expectZeroSouthWestEdits(onSetGpsTargetDraftBatch.mock.calls[0][0]);
+    expect(onApplyGpsTargetDraftBatch).toHaveBeenCalledOnce();
+    expectZeroSouthWestEdits(onApplyGpsTargetDraftBatch.mock.calls[0][0]);
   });
 
   it("keeps the composite editor open and saves nothing when a captured selector changes", async () => {
@@ -1878,13 +1876,13 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
       "GPS:GPSLongitudeRef": "W",
     });
     const occurrences = occurrencesFor(metadata);
-    const onSetGpsTargetDraftBatch = vi.fn(() => true);
+    const onApplyGpsTargetDraftBatch = vi.fn(() => true);
     const props = {
       onDiscardTargetDraftBatch: vi.fn(),
       photo,
       metadata,
       onRemoveMetadataFields: vi.fn(),
-      onSetGpsTargetDraftBatch,
+      onApplyGpsTargetDraftBatch,
     };
     const rendered = render(
       <DetailsPane {...props} occurrences={occurrences} />,
@@ -1907,10 +1905,10 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
     rendered.rerender(<DetailsPane {...props} occurrences={changed} />);
     fireEvent.click(screen.getByTestId("gps-editor-save"));
 
-    expect(onSetGpsTargetDraftBatch).not.toHaveBeenCalled();
+    expect(onApplyGpsTargetDraftBatch).not.toHaveBeenCalled();
     expect(screen.getByTestId("gps-editor-overlay")).toBeInTheDocument();
     expect(screen.getByRole("alert")).toHaveTextContent(
-      /not backed by the identical observed selector.*nothing was saved/i,
+      /captured GPS occurrence target no longer matches authoritative state.*nothing was saved/i,
     );
   });
 
@@ -1937,18 +1935,12 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
           occurrences={occurrences}
           targetDraftEdits={drafts}
           onRemoveMetadataFields={vi.fn()}
-          onSetGpsTargetDraftBatch={(
-            edits: Array<{ id: SchemaDefinitionId; edit: MetadataDraftEdit }>,
-          ) => {
-            const planned = planGpsTargetDraftBatch(edits, occurrences, drafts);
+          onApplyGpsTargetDraftBatch={(entries: MetadataTargetDraftEntry[]) => {
             const store = new TargetDraftEditsStore();
             if (Object.keys(drafts).length > 0) {
               store.resetMetadata({ [photo.relative_path]: drafts });
             }
-            store.setMetadataBatch(
-              photo.relative_path,
-              planned.map(({ target, edit }) => ({ target, edit })),
-            );
+            store.setMetadataBatch(photo.relative_path, entries);
             setDrafts(store.getMetadataFile(photo.relative_path) ?? {});
             return true;
           }}

@@ -61,7 +61,7 @@ describe("existing row draft resolution", () => {
     ).toMatchObject({ kind: "target" });
   });
 
-  it("blocks NewProperty, stale snapshots, and same-schema multiplicity", () => {
+  it("ignores unrelated same-schema targets but blocks a stale exact slot", () => {
     const store = new TargetDraftEditsStore();
     store.setMetadataTarget(
       "new.jpg",
@@ -82,7 +82,7 @@ describe("existing row draft resolution", () => {
         { kind: "unique", occurrence },
         store.getMetadataFile("new.jpg"),
       ),
-    ).toMatchObject({ kind: "blocked" });
+    ).toEqual({ kind: "none" });
 
     const stale = new TargetDraftEditsStore();
     stale.setMetadataTarget(
@@ -105,8 +105,9 @@ describe("existing row draft resolution", () => {
       ),
     ).toMatchObject({ kind: "blocked" });
 
-    stale.setMetadataTarget(
-      "stale.jpg",
+    const unrelated = new TargetDraftEditsStore();
+    unrelated.setMetadataTarget(
+      "unrelated.jpg",
       {
         ...target,
         occurrence_id: { ...target.occurrence_id, path: "JPEG-APP1-IFD1" },
@@ -117,9 +118,9 @@ describe("existing row draft resolution", () => {
       resolveExistingRowDraft(
         schema,
         { kind: "unique", occurrence },
-        stale.getMetadataFile("stale.jpg"),
+        unrelated.getMetadataFile("unrelated.jpg"),
       ),
-    ).toMatchObject({ kind: "blocked", conflictingTargets: expect.any(Array) });
+    ).toEqual({ kind: "none" });
   });
 });
 
