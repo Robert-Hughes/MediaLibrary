@@ -17,8 +17,8 @@ function rowDatatypeInfo(row: OccurrenceDetailsRow) {
       const schemaInfo = schemaDatatype(row.occurrence.tag_info?.kind);
       const valueInfo = metadataValueDatatype(row.occurrence.value);
       const draftInfo =
-        row.draft?.edit.intent !== "Delete" && row.draft?.edit.value != null
-          ? metadataValueDatatype(row.draft.edit.value)
+        row.effectiveDraftValue !== null
+          ? metadataValueDatatype(row.effectiveDraftValue)
           : null;
       return { schemaInfo, valueInfo, draftInfo };
     }
