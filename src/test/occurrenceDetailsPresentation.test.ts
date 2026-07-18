@@ -404,6 +404,72 @@ describe("buildOccurrenceDetailsPresentation", () => {
     expect(row.searchText).toContain("ID-282");
   });
 
+  it("treats an exact current write destination as occupied even when its observed selector differs", () => {
+    const target = newTarget(otherSchema, "WritableDestination", "Title");
+    const occupied = occurrence(
+      "occupied-via-write-target",
+      { kind: "Text", value: "Current" },
+      {
+        schema_id: structuredClone(otherSchema),
+        tag_info: tagInfo(otherSchema, { kind: { kind: "Text" } }),
+        observed_selector: {
+          group1: "ObservedElsewhere",
+          group7: target.write_target.group7,
+          tag_name: target.write_target.tag_name,
+        },
+        write_target: structuredClone(target.write_target),
+      },
+    );
+
+    const row = buildOccurrenceDetailsPresentation({
+      occurrences: [occupied],
+      targetDrafts: collection([
+        { target, edit: edit({ kind: "Text", value: "New" }) },
+      ]),
+    })
+      .groups.flatMap((group) => group.rows)
+      .find((candidate) => candidate.kind === "NewPropertyRow");
+
+    expect(row?.status.code).toBe("destination-occupied");
+  });
+
+  it("uses resolved TagInfo for a missing-target warning row's friendly label", () => {
+    const missingOccurrence = occurrence("missing-friendly", undefined, {
+      schema_id: structuredClone(otherSchema),
+      tag_info: tagInfo(otherSchema, {
+        name: "Friendly title",
+        kind: { kind: "Text" },
+      }),
+      observed_selector: {
+        group1: "XMP-custom",
+        group7: "ID-Title",
+        tag_name: "RuntimeTitle",
+      },
+      write_target: {
+        group1: "XMP-custom",
+        group7: "ID-Title",
+        tag_name: "RuntimeTitle",
+      },
+    });
+    const target = exactTarget(missingOccurrence);
+    const info = tagInfo(otherSchema, {
+      name: "Friendly title",
+      kind: { kind: "Text" },
+    });
+
+    const row = buildOccurrenceDetailsPresentation({
+      occurrences: [],
+      targetDrafts: collection([
+        { target, edit: edit({ kind: "Text", value: "staged" }) },
+      ]),
+      tagInfos: { [schemaDefinitionIdToken(otherSchema)]: info },
+    }).groups[0].rows[0];
+
+    expect(row.kind).toBe("MissingOccurrenceDraftRow");
+    expect(row.label).toBe("Friendly title");
+    expect(row.searchText).toContain("Friendly title");
+  });
+
   it("orders deterministically and does not mutate any input", () => {
     const zed = occurrence("z", undefined, {
       tag_info: tagInfo(schema, { name: "Zed" }),

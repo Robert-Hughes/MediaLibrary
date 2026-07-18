@@ -27,9 +27,7 @@ import {
 } from "../targetDraftEdits";
 import { planGpsTargetDraftBatch } from "../gpsTargetDrafts";
 import { knownMetadataWriteTarget } from "../metadata/knownIds";
-
 import {
-  groupImageMetadata as exactGroupImageMetadata,
   formatMetadataValue,
   formatTimestamp,
   getOsEntries,
@@ -46,7 +44,6 @@ import {
 import type {
   MetadataDraftEdit,
   MetadataDraftTarget,
-  ImageMetadataEntry,
   MetadataOccurrence,
   MetadataTargetDraftEntry,
   PhotoInfo,
@@ -95,33 +92,6 @@ function mockOccurrences(
   });
 }
 
-const groupImageMetadata = (metadata: Record<string, ImageMetadataEntry>) => {
-  const infos = Object.fromEntries(
-    Object.values(metadata).map((entry) => {
-      const friendly = testFriendlyName(entry.id);
-      const colon = friendly.indexOf(":");
-      return [
-        schemaDefinitionIdToken(entry.id),
-        {
-          id: entry.id,
-          group: colon > 0 ? friendly.slice(0, colon) : "Other",
-          name: colon > 0 ? friendly.slice(colon + 1) : friendly,
-          writable: true,
-          kind: { kind: "Text" as const },
-          description: null,
-        },
-      ];
-    }),
-  );
-  return exactGroupImageMetadata(metadata, infos).map((group) => ({
-    ...group,
-    entries: group.entries.map(({ id, label, value }) => ({
-      label,
-      value,
-      fullKey: testFriendlyName(id),
-    })),
-  }));
-};
 import {
   _clearTagInfoCache,
   _setTagInfoCacheEntry,
@@ -213,74 +183,6 @@ describe("getOsEntries", () => {
     ]);
     expect(entries[0][1]).toBe("photo.jpg");
     expect(entries[1][1]).toBe("folder/photo.jpg");
-  });
-});
-
-describe("groupImageMetadata", () => {
-  it("groups entries by prefix and strips prefixes from labels", () => {
-    const metadata = mockMetadata({
-      "IFD0:Make": "Canon",
-      "IFD0:Model": "EOS R5",
-      "XMP-dc:Subject": ["landscape", "nature"],
-      "ExifIFD:ISO": 100,
-    });
-    const groups = groupImageMetadata(metadata);
-
-    expect(groups).toHaveLength(3);
-
-    const exifGroup = groups.find((g) => g.prefix === "ExifIFD");
-    expect(exifGroup).toBeDefined();
-    expect(exifGroup!.entries).toEqual([
-      { label: "ISO", value: "100", fullKey: "ExifIFD:ISO" },
-    ]);
-
-    const ifdGroup = groups.find((g) => g.prefix === "IFD0");
-    expect(ifdGroup).toBeDefined();
-    expect(ifdGroup!.entries).toEqual([
-      { label: "Make", value: "Canon", fullKey: "IFD0:Make" },
-      { label: "Model", value: "EOS R5", fullKey: "IFD0:Model" },
-    ]);
-
-    const xmpGroup = groups.find((g) => g.prefix === "XMP-dc");
-    expect(xmpGroup).toBeDefined();
-    expect(xmpGroup!.entries).toEqual([
-      {
-        label: "Subject",
-        value: "landscape, nature",
-        fullKey: "XMP-dc:Subject",
-      },
-    ]);
-  });
-
-  it('places keys without a colon in "Other" group at the end', () => {
-    const metadata = mockMetadata({
-      "IFD0:Make": "Canon",
-      FileSize: "4.2 MB",
-      FileName: "photo.jpg",
-    });
-    const groups = groupImageMetadata(metadata);
-
-    expect(groups[groups.length - 1].prefix).toBe("Other");
-    expect(groups[groups.length - 1].entries).toEqual([
-      { label: "FileName", value: "photo.jpg", fullKey: "FileName" },
-      { label: "FileSize", value: "4.2 MB", fullKey: "FileSize" },
-    ]);
-  });
-
-  it("sorts groups alphabetically (Other last)", () => {
-    const metadata = mockMetadata({
-      "XMP-dc:Subject": "test",
-      "IFD0:Make": "Canon",
-      "ExifIFD:ISO": 100,
-      NoPrefix: "value",
-    });
-    const groups = groupImageMetadata(metadata);
-    const prefixes = groups.map((g) => g.prefix);
-    expect(prefixes).toEqual(["ExifIFD", "IFD0", "XMP-dc", "Other"]);
-  });
-
-  it("returns empty array for empty metadata", () => {
-    expect(groupImageMetadata({})).toEqual([]);
   });
 });
 

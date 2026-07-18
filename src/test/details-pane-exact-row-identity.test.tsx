@@ -1115,3 +1115,104 @@ describe("DetailsPane exact occurrence and New Property editor identity", () => 
     expect(view.onReplaceNewPropertyDraftTarget).not.toHaveBeenCalled();
   });
 });
+
+describe("DetailsPane exact workflow strengthening", () => {
+  it("renders a missing stored occurrence as a target-only warning with exact discard only", () => {
+    const { target, drafts } = targetDrafts(occurrenceA, {
+      intent: "Set",
+      value: { kind: "Integer", value: 301 },
+    });
+    const view = renderPane({ occurrences: [], targetDraftEdits: drafts });
+
+    const [row] = missingOccurrenceDraftRows();
+    expect(row).toBeDefined();
+    expect(row).toHaveTextContent("XResolution");
+    expect(row).toHaveTextContent("Missing occurrence");
+    expect(row).toHaveTextContent("301");
+
+    fireEvent.contextMenu(row);
+    expect(
+      screen.getByRole("button", { name: "Discard edit" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Edit…" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Remove" })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Edit destination…" }),
+    ).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Discard edit" }));
+    expect(view.onDiscardTargetPropertyDraft).toHaveBeenCalledWith(target);
+    expect(view.onSetExistingOccurrenceDraft).not.toHaveBeenCalled();
+    expect(view.onRemoveMetadataTargets).not.toHaveBeenCalled();
+  });
+
+  it("edits one exact GPS occurrence when another occurrence shares its schema", async () => {
+    const gpsInfo: TagInfo = {
+      id: GPS_IDS.latitude,
+      group: "GPS",
+      name: "GPSLatitude",
+      writable: true,
+      kind: { kind: "Real" },
+      description: null,
+    };
+    _setTagInfoCacheEntry(GPS_IDS.latitude, gpsInfo);
+    const gpsOccurrence = (
+      path: string,
+      copy: number,
+      value: number,
+    ): MetadataOccurrence => ({
+      id: {
+        document: null,
+        path,
+        runtime_tag_id: GPS_IDS.latitude.tag_id,
+        tag_id_scope: {
+          table: GPS_IDS.latitude.table,
+          tag_id: GPS_IDS.latitude.tag_id,
+          index: GPS_IDS.latitude.index ?? null,
+        },
+        copy,
+      },
+      schema_id: structuredClone(GPS_IDS.latitude),
+      value: { kind: "Real", value },
+      tag_info: gpsInfo,
+      observed_selector: {
+        group1: "GPS",
+        group7: "ID-2",
+        tag_name: "GPSLatitude",
+      },
+      write_target: {
+        group1: "GPS",
+        group7: "ID-2",
+        tag_name: "GPSLatitude",
+      },
+    });
+    const first = gpsOccurrence("JPEG-APP1-IFD0-GPS", 0, 51.5);
+    const second = gpsOccurrence("JPEG-APP1-IFD1-GPS", 1, 52.5);
+    const view = renderPane({ occurrences: [first, second] });
+
+    const secondRow = rowForOccurrence(second);
+    fireEvent.contextMenu(secondRow);
+    expect(screen.getByRole("button", { name: "Edit…" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit GPS…" })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit…" }));
+    expect(screen.getByTestId("numeric-editor-input")).toHaveValue(52.5);
+    fireEvent.change(screen.getByTestId("numeric-editor-input"), {
+      target: { value: "53.25" },
+    });
+    fireEvent.click(screen.getByTestId("numeric-editor-save"));
+
+    await waitFor(() =>
+      expect(view.onApplyGpsTargetDraftBatch).toHaveBeenCalledWith([
+        {
+          target: exactTarget(second),
+          edit: { intent: "Set", value: { kind: "Real", value: 53.25 } },
+        },
+      ]),
+    );
+    expect(view.onApplyGpsTargetDraftBatch).not.toHaveBeenCalledWith([
+      expect.objectContaining({ target: exactTarget(first) }),
+    ]);
+    expect(view.onSetExistingOccurrenceDraft).not.toHaveBeenCalled();
+  });
+});

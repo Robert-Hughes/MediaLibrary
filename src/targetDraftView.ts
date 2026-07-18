@@ -11,7 +11,6 @@ import {
   schemaDefinitionIdEquals,
   schemaDefinitionIdToken,
 } from "./utils/schemaDefinitionId";
-import type { SchemaOccurrenceResolution } from "./utils/metadataOccurrences";
 import {
   buildSchemaOccurrenceResolutionIndex,
   resolveExactMetadataOccurrence,
@@ -20,14 +19,7 @@ import {
 import {
   existingOccurrenceTargetFromOccurrence,
   metadataDraftTargetEquals,
-  metadataDraftTargetSlotToken,
 } from "./utils/metadataDraftTarget";
-import { metadataOccurrenceIdEquals } from "./utils/metadataOccurrenceId";
-
-type ExistingOccurrenceTarget = Extract<
-  MetadataDraftTarget,
-  { kind: "ExistingOccurrence" }
->;
 
 export interface SchemaDraftDisplayEntry {
   id: SchemaDefinitionId;
@@ -193,154 +185,6 @@ export function buildSchemaDraftDisplayProjection(input: {
     };
   }
   return projection;
-}
-
-export type ExistingRowDraftResolution =
-  | { kind: "none" }
-  | { kind: "target"; entry: MetadataTargetDraftEntry }
-  | {
-      kind: "blocked";
-      reason: string;
-      conflictingTargets: MetadataTargetDraftEntry[];
-    };
-
-export type SupplementalOccurrenceDraftResolution =
-  | { kind: "none" }
-  | {
-      kind: "target";
-      entry: MetadataTargetDraftEntry & { target: ExistingOccurrenceTarget };
-    }
-  | {
-      kind: "blocked";
-      reason: string;
-      conflictingTargets: MetadataTargetDraftEntry[];
-    };
-
-/**
- * Resolve ownership for one exact supplemental occurrence.
- */
-export function resolveSupplementalOccurrenceDraft(
-  occurrence: MetadataOccurrence,
-  targetDrafts: TargetDraftCollection | undefined,
-): SupplementalOccurrenceDraftResolution {
-  const schemaId = occurrence.schema_id;
-  const sameSchemaTargets = Object.values(targetDrafts ?? {}).filter((entry) =>
-    schemaDefinitionIdEquals(entry.target.schema_id, schemaId),
-  );
-  if (occurrence.tag_info === null) {
-    return {
-      kind: "blocked",
-      reason:
-        "This occurrence retains an exact schema ID but has no resolved TagInfo and is read-only.",
-      conflictingTargets: sameSchemaTargets,
-    };
-  }
-  if (!schemaDefinitionIdEquals(occurrence.tag_info.id, schemaId)) {
-    return {
-      kind: "blocked",
-      reason:
-        "This occurrence's exact schema ID conflicts with its TagInfo and is read-only.",
-      conflictingTargets: sameSchemaTargets,
-    };
-  }
-
-  const relevantTargets = Object.values(targetDrafts ?? {}).filter(
-    (
-      entry,
-    ): entry is MetadataTargetDraftEntry & {
-      target: ExistingOccurrenceTarget;
-    } =>
-      entry.target.kind === "ExistingOccurrence" &&
-      metadataOccurrenceIdEquals(entry.target.occurrence_id, occurrence.id),
-  );
-  if (relevantTargets.length === 0) return { kind: "none" };
-  if (relevantTargets.length > 1) {
-    return {
-      kind: "blocked",
-      reason: "Multiple target-aware operations own this exact occurrence.",
-      conflictingTargets: relevantTargets,
-    };
-  }
-
-  const entry = relevantTargets[0];
-  const expected = existingOccurrenceTargetFromOccurrence(occurrence);
-  if (
-    expected.kind === "targetable" &&
-    metadataDraftTargetEquals(expected.target, entry.target)
-  ) {
-    return {
-      kind: "target",
-      entry: { ...entry, target: entry.target },
-    };
-  }
-
-  const ownsDifferentOccurrence = !metadataOccurrenceIdEquals(
-    entry.target.occurrence_id,
-    occurrence.id,
-  );
-  return {
-    kind: "blocked",
-    reason: ownsDifferentOccurrence
-      ? "Another concrete occurrence owns this exact target slot."
-      : "The stored target no longer matches this occurrence's complete schema and runtime selector snapshot.",
-    conflictingTargets: relevantTargets,
-  };
-}
-
-/**
- * Resolve draft ownership for one ordinary schema-oriented row without ever
- * selecting a target merely because its schema matches.
- */
-export function resolveExistingRowDraft(
-  schemaId: SchemaDefinitionId,
-  occurrenceResolution: SchemaOccurrenceResolution,
-  targetDrafts: TargetDraftCollection | undefined,
-): ExistingRowDraftResolution {
-  if (occurrenceResolution.kind !== "unique") {
-    return {
-      kind: "blocked",
-      reason:
-        occurrenceResolution.kind === "multiple"
-          ? "The row has multiple authoritative occurrences."
-          : "The row has no authoritative occurrence.",
-      conflictingTargets: [],
-    };
-  }
-  if (
-    !schemaDefinitionIdEquals(
-      occurrenceResolution.occurrence.schema_id,
-      schemaId,
-    )
-  ) {
-    return {
-      kind: "blocked",
-      reason: "The row occurrence no longer matches its exact schema.",
-      conflictingTargets: [],
-    };
-  }
-
-  const expected = existingOccurrenceTargetFromOccurrence(
-    occurrenceResolution.occurrence,
-  );
-  if (expected.kind !== "targetable") {
-    return {
-      kind: "blocked",
-      reason: expected.reason,
-      conflictingTargets: [],
-    };
-  }
-  const slot = metadataDraftTargetSlotToken(expected.target);
-  const entry = targetDrafts?.[slot];
-  if (entry === undefined) return { kind: "none" };
-  if (!metadataDraftTargetEquals(expected.target, entry.target)) {
-    return {
-      kind: "blocked",
-      reason:
-        "The stored target no longer matches the complete occurrence target snapshot.",
-      conflictingTargets: [entry],
-    };
-  }
-  return { kind: "target", entry };
 }
 
 export type TargetDraftSchemaResolution =
